@@ -48,7 +48,7 @@ import Data.Word (Word32, Word64)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (addDependentFile)
+import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer, putDoc, DocLoc(..))
 
 import Proto.AST
 import Proto.Parser (parseProtoFile)
@@ -112,7 +112,42 @@ messageToDecls' cfg msg = do
   encodeDec <- mkEncodeInstance tyName fields
   decodeDec <- mkDecodeInstance tyName fields
   sizeDec <- mkSizeInstance tyName fields
+
+  -- Haddock documentation via TH putDoc (deferred via addModFinalizer)
+  addModFinalizer (putDoc (DeclDoc tyName) (messageHaddock msg fields))
+  let defName = mkName ("default" <> nameBase tyName)
+  addModFinalizer (putDoc (DeclDoc defName)
+    ("Default value for @" <> T.unpack (msgName msg)
+    <> "@ with all fields at their proto default values."))
+
   pure (nestedDecls <> [dataDec] <> defaultDec <> encodeDec <> decodeDec <> sizeDec)
+
+messageHaddock :: MessageDef -> [FieldSpec] -> String
+messageHaddock msg fields =
+  "Protobuf message @" <> T.unpack (msgName msg) <> "@.\n\n"
+  <> "Fields:\n\n"
+  <> concatMap fieldHaddock fields
+
+fieldHaddock :: FieldSpec -> String
+fieldHaddock fs =
+  "* @" <> T.unpack (fsName fs) <> "@ ("
+  <> labelStr (fsLabel fs)
+  <> fieldTypeStr (fsType fs) <> ", field "
+  <> show (fsNum fs) <> ")\n"
+  where
+    labelStr Nothing = ""
+    labelStr (Just Optional) = "optional "
+    labelStr (Just Required) = "required "
+    labelStr (Just Repeated) = "repeated "
+    fieldTypeStr (FTScalar s) = scalarStr s
+    fieldTypeStr (FTNamed n) = T.unpack n
+    scalarStr SDouble = "double"; scalarStr SFloat = "float"
+    scalarStr SInt32 = "int32"; scalarStr SInt64 = "int64"
+    scalarStr SUInt32 = "uint32"; scalarStr SUInt64 = "uint64"
+    scalarStr SSInt32 = "sint32"; scalarStr SSInt64 = "sint64"
+    scalarStr SFixed32 = "fixed32"; scalarStr SFixed64 = "fixed64"
+    scalarStr SSFixed32 = "sfixed32"; scalarStr SSFixed64 = "sfixed64"
+    scalarStr SBool = "bool"; scalarStr SString = "string"; scalarStr SBytes = "bytes"
 
 -- A resolved field spec carrying the concrete representation choices.
 data FieldSpec = FieldSpec
@@ -457,4 +492,15 @@ enumToDecls ed = do
         ) (enumValues ed)
   dataDec <- dataD (pure []) tyName [] Nothing cons
     [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Ord, conT ''Generic]]
+
+  addModFinalizer $ putDoc (DeclDoc tyName) (enumHaddock ed)
+
   pure [dataDec]
+
+enumHaddock :: EnumDef -> String
+enumHaddock ed =
+  "Protobuf enum @" <> T.unpack (enumName ed) <> "@.\n\n"
+  <> "Values:\n\n"
+  <> concatMap (\ev ->
+      "* @" <> T.unpack (evName ev) <> "@ = " <> show (evNumber ev) <> "\n"
+    ) (enumValues ed)

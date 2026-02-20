@@ -43,7 +43,7 @@ genMessageRecord msg =
     fields = concatMap extractField (msgElements msg)
 
     extractField = \case
-      MEField fd      -> [genFieldDecl fd]
+      MEField fd      -> [genFieldDeclWithDoc fd]
       MEMapField mf   -> [genMapFieldDecl mf]
       MEOneof od      -> [genOneofFieldRef (msgName msg) od]
       _               -> []
@@ -53,6 +53,40 @@ genMessageRecord msg =
       vsep (pretty ("{ " :: Text) <> f : fmap (\x -> pretty (", " :: Text) <> x) fs) <> line <> pretty ("}" :: Text)
 
     derivingClause = pretty ("deriving stock (Show, Eq, Generic)" :: Text)
+
+genFieldDeclWithDoc :: FieldDef -> Doc ann
+genFieldDeclWithDoc fd =
+  let labelTxt :: Text
+      labelTxt = case fieldLabel fd of
+        Just Optional -> "optional "
+        Just Required -> "required "
+        Just Repeated -> "repeated "
+        Nothing       -> ""
+      typeTxt = showFieldTypeForDoc (fieldType fd)
+      num = T.pack (show (unFieldNumber (fieldNumber fd)))
+      doc = pretty ("-- | Proto field: @" :: Text) <> pretty labelTxt <>
+            pretty typeTxt <> pretty (" " :: Text) <> pretty (fieldName fd) <>
+            pretty (" = " :: Text) <> pretty num <> pretty ("@" :: Text)
+  in doc <> line <> genFieldDecl fd
+
+showFieldTypeForDoc :: FieldType -> Text
+showFieldTypeForDoc = \case
+  FTScalar SDouble   -> "double"
+  FTScalar SFloat    -> "float"
+  FTScalar SInt32    -> "int32"
+  FTScalar SInt64    -> "int64"
+  FTScalar SUInt32   -> "uint32"
+  FTScalar SUInt64   -> "uint64"
+  FTScalar SSInt32   -> "sint32"
+  FTScalar SSInt64   -> "sint64"
+  FTScalar SFixed32  -> "fixed32"
+  FTScalar SFixed64  -> "fixed64"
+  FTScalar SSFixed32 -> "sfixed32"
+  FTScalar SSFixed64 -> "sfixed64"
+  FTScalar SBool     -> "bool"
+  FTScalar SString   -> "string"
+  FTScalar SBytes    -> "bytes"
+  FTNamed n          -> n
 
 genFieldDecl :: FieldDef -> Doc ann
 genFieldDecl fd =
