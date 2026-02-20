@@ -46,6 +46,11 @@ module Proto.Decode
   , forceLazyMessage
   , decodeFieldLazyMessage
 
+    -- * Unknown field preservation
+  , UnknownField (..)
+  , captureUnknownField
+  , encodeUnknownFields
+
     -- * Re-exports for generated code
   , Decoder
   , DecodeResult (..)
@@ -68,11 +73,14 @@ module Proto.Decode
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as B
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
+import Proto.Wire (WireType (..))
 import Proto.Wire.Decode
+import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64, putLengthDelimited)
 
 -- | Typeclass for types that can be decoded from protobuf wire format.
 class MessageDecode a where
@@ -322,3 +330,35 @@ decodeFieldLazyMessage = do
     , lazyCached   = runDecoder messageDecoder bs
     }
 {-# INLINE decodeFieldLazyMessage #-}
+
+-- | An unknown field captured during decoding for round-trip preservation.
+-- Storing unknown fields allows messages to pass through intermediaries
+-- without losing data added by newer protocol versions.
+data UnknownField
+  = UnknownVarint    {-# UNPACK #-} !Int {-# UNPACK #-} !Word64
+  | UnknownFixed64   {-# UNPACK #-} !Int {-# UNPACK #-} !Word64
+  | UnknownFixed32   {-# UNPACK #-} !Int {-# UNPACK #-} !Word32
+  | UnknownLenDelim  {-# UNPACK #-} !Int !ByteString
+  deriving stock (Show, Eq)
+
+-- | Capture an unknown field value during decoding.
+captureUnknownField :: Int -> WireType -> Decoder UnknownField
+captureUnknownField fn = \case
+  WireVarint          -> UnknownVarint fn <$> getVarint
+  Wire64Bit           -> UnknownFixed64 fn <$> getFixed64
+  Wire32Bit           -> UnknownFixed32 fn <$> getFixed32
+  WireLengthDelimited -> UnknownLenDelim fn <$> getLengthDelimited
+  wt                  -> skipField wt >> Decoder (\_ _ -> DecodeFail (CustomError ("Unsupported unknown wire type: " <> show wt)))
+
+-- | Re-encode unknown fields for round-trip preservation.
+encodeUnknownFields :: [UnknownField] -> B.Builder
+encodeUnknownFields = foldMap encodeOne
+  where
+    encodeOne (UnknownVarint fn val) =
+      putTag fn WireVarint <> putVarint val
+    encodeOne (UnknownFixed64 fn val) =
+      putTag fn Wire64Bit <> putFixed64 val
+    encodeOne (UnknownFixed32 fn val) =
+      putTag fn Wire32Bit <> putFixed32 val
+    encodeOne (UnknownLenDelim fn val) =
+      putTag fn WireLengthDelimited <> putLengthDelimited val

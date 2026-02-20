@@ -261,6 +261,29 @@ roundtripTests = testGroup "Roundtrip Encoding/Decoding"
                 Right msg -> msg @?= TestMsg 42 "lazy" True
       ]
 
+  , testGroup "Unknown field preservation"
+      [ testCase "capture and re-encode unknown fields" $ do
+          let encoded = buildToBS $
+                putTag 1 WireVarint <> putVarint 42 <>
+                putTag 99 WireVarint <> putVarint 999 <>
+                putTag 100 Wire32Bit <> putFixed32 0xDEADBEEF <>
+                putTag 101 WireLengthDelimited <> putByteString "unknown data" <>
+                putTag 2 WireLengthDelimited <> putText "hello"
+
+          case runDecoder decodeWithUnknowns encoded of
+            Left e -> assertFailure (show e)
+            Right (val, name, unknowns) -> do
+              val @?= 42
+              name @?= "hello"
+              length unknowns @?= 3
+
+              let reencoded = buildToBS $
+                    putTag 1 WireVarint <> putVarint 42 <>
+                    putTag 2 WireLengthDelimited <> putText "hello" <>
+                    encodeUnknownFields unknowns
+              BS.length reencoded > 0 @?= True
+      ]
+
   , testGroup "Size calculation"
       [ testProperty "varintSize correct" $ property $ do
           n <- forAll $ Gen.word64 (Range.linear 0 maxBound)
@@ -435,6 +458,20 @@ decodeMultiField expV1 expV2 expV3 expV4 = do
       if actual == expected
         then pure ()
         else Decoder $ \_ _ -> DecodeFail (CustomError msg)
+
+decodeWithUnknowns :: Decoder (Word64, Text, [UnknownField])
+decodeWithUnknowns = loop 0 "" []
+  where
+    loop !val !name !unknowns = do
+      mt <- getTagOr
+      case mt of
+        Nothing -> pure (val, name, reverse unknowns)
+        Just (Tag fn wt) -> case fn of
+          1 -> getVarint >>= \v -> loop v name unknowns
+          2 -> getText >>= \v -> loop val v unknowns
+          _ -> do
+            uf <- captureUnknownField fn wt
+            loop val name (uf : unknowns)
 
 buildToBS :: B.Builder -> ByteString
 buildToBS = BL.toStrict . B.toLazyByteString
