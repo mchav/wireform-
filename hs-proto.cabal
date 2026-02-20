@@ -66,6 +66,7 @@ library
       Proto.SizedBuilder
       Proto.Church
       Proto.Message
+      Proto.Repr
       Proto.Print
       Proto.Inspect
       Proto.TH
@@ -210,6 +211,20 @@ executable example-codegen
     default-extensions:
       OverloadedStrings
       LambdaCase
+
+executable example-custom-repr
+    import:           warnings
+    main-is:          CustomReprExample.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , containers
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
 
 executable example-th
     import:           warnings

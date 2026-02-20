@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+message BlobMsg {
+  string name = 1;
+  bytes data = 2;
+}
+
+message IdMsg {
+  bytes identifier = 1;
+  string label = 2;
+}
+
+message ConfigEntry {
+  string key = 1;
+  string value = 2;
+  repeated string tags = 3;
+}
