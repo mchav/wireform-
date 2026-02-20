@@ -14,6 +14,7 @@ import Proto.Wire.Encode
 import Proto.Wire.Decode
 import Proto.Encode
 import Proto.Decode
+import qualified Proto.SizedBuilder as SB
 
 main :: IO ()
 main = do
@@ -27,6 +28,7 @@ main = do
   benchPackedEncode
   benchPackedDecode
   benchSizeCalculation
+  benchSizedBuilderEncode
 
 benchVarintEncode :: IO ()
 benchVarintEncode = do
@@ -167,6 +169,29 @@ instance MessageSize BenchMsg where
     (if bmValue msg /= 0 then fieldVarintSize 1 (bmValue msg) else 0) +
     (if bmName msg /= "" then fieldTextSize 2 (bmName msg) else 0) +
     (if bmActive msg then fieldBoolSize 3 else 0)
+
+buildSizedBenchMsg :: BenchMsg -> SB.SizedBuilder
+buildSizedBenchMsg msg =
+  (if bmValue msg /= 0 then sizedFieldVarint 1 (bmValue msg) else mempty) <>
+  (if bmName msg /= "" then sizedFieldString 2 (bmName msg) else mempty) <>
+  (if bmActive msg then sizedFieldBool 3 True else mempty)
+
+benchSizedBuilderEncode :: IO ()
+benchSizedBuilderEncode = do
+  let n = 10000 :: Int
+
+  putStrLn "\nSizedBuilder encode (10k iterations, fused size+build):"
+
+  t1 <- getCPUTime
+  let !totalSize = go n 0
+  t2 <- getCPUTime
+
+  putStrLn $ "  Time: " <> show ((t2 - t1) `div` 1000000000) <> " ms"
+  putStrLn $ "  Total bytes: " <> show totalSize
+  where
+    msg = BenchMsg 42 "hello world benchmark" True
+    go 0 !acc = acc
+    go !i !acc = go (i - 1) (acc + BS.length (SB.toByteString (buildSizedBenchMsg msg)))
 
 instance MessageDecode BenchMsg where
   messageDecoder = loop 0 "" False
