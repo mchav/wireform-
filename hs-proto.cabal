@@ -97,3 +97,20 @@ test-suite hs-proto-test
       StrictData
       DerivingStrategies
       OverloadedStrings
+
+executable hs-proto-bench
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
