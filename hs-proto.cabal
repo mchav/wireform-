@@ -71,6 +71,7 @@ library
       Proto.Compat
       Proto.Print
       Proto.Inspect
+      Proto.Setup
       Proto.TH
       Proto.QQ
       Proto.JSON
@@ -152,9 +153,12 @@ executable hs-proto-gen
     import:           warnings
     main-is:          Main.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base                 >= 4.17 && < 5
       , hs-proto
       , text
+      , directory
+      , filepath
+      , optparse-applicative >= 0.17 && < 0.20
 
     hs-source-dirs:   app
     default-language: GHC2021
@@ -215,6 +219,18 @@ executable example-codegen
     default-extensions:
       OverloadedStrings
       LambdaCase
+
+executable example-setup-hook
+    import:           warnings
+    main-is:          ExampleSetup.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , text
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
 
 executable example-custom-repr
     import:           warnings
