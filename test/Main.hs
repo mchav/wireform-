@@ -8,6 +8,7 @@ import Test.Roundtrip (roundtripTests)
 import Test.CodeGen (codeGenTests)
 import Test.WellKnown (wellKnownTests)
 import Test.PrintInspect (printInspectTests)
+import Test.Compat (compatTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -17,4 +18,5 @@ main = defaultMain $ testGroup "hs-proto"
   , codeGenTests
   , wellKnownTests
   , printInspectTests
+  , compatTests
   ]

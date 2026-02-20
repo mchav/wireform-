@@ -67,6 +67,7 @@ library
       Proto.Church
       Proto.Message
       Proto.Repr
+      Proto.Compat
       Proto.Print
       Proto.Inspect
       Proto.TH
@@ -124,6 +125,7 @@ test-suite hs-proto-test
       Test.CodeGen
       Test.WellKnown
       Test.PrintInspect
+      Test.Compat
 
     build-depends:
         base             >= 4.17 && < 5
