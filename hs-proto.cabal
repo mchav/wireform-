@@ -30,6 +30,11 @@ data-files:
 
 data-dir: .
 
+flag python-interop
+  description: Enable Python interop conformance tests (requires python3, protobuf pip package, protoc)
+  manual: True
+  default: False
+
 common warnings
     ghc-options:
       -Wall
@@ -247,3 +252,34 @@ executable hs-proto-bench
       StrictData
       DerivingStrategies
       OverloadedStrings
+
+test-suite python-interop
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    other-modules:    InteropTypes
+
+    if !flag(python-interop)
+      buildable: False
+
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+      , containers
+      , deepseq
+      , process          >= 1.6  && < 1.8
+      , hedgehog         >= 1.0  && < 1.5
+      , tasty            >= 1.4  && < 1.6
+      , tasty-hedgehog   >= 1.0  && < 1.5
+      , tasty-hunit      >= 0.10 && < 0.11
+
+    hs-source-dirs:   interop-test
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+      LambdaCase
