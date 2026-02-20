@@ -115,18 +115,23 @@ genImports = vsep
   ]
 
 genTopLevel :: Maybe Text -> TopLevel -> [Doc ann]
-genTopLevel pkg = \case
+genTopLevel pkg = genTopLevelScoped pkg []
+
+genTopLevelScoped :: Maybe Text -> [Text] -> TopLevel -> [Doc ann]
+genTopLevelScoped pkg scope = \case
   TLMessage msg ->
-    let mopts = extractMessageOptions (concatMap msgOpts (msgElements msg))
+    let scope' = scope <> [msgName msg]
+        tyN = hsScopedTypeName scope (msgName msg)
+        mopts = extractMessageOptions (concatMap msgOpts (msgElements msg))
     in genMessageDoc pkg msg : genTypeDecls msg
     <> (if moDeprecated mopts
-        then [pretty ("{-# DEPRECATED " :: Text) <> pretty (hsTypeName (msgName msg))
+        then [pretty ("{-# DEPRECATED " :: Text) <> pretty tyN
               <+> pretty ("\"This message is deprecated in the proto schema.\" #-}" :: Text)]
         else [])
-    <> genDeprecatedFieldPragmas msg
+    <> genDeprecatedFieldPragmas scope' msg
     <> [ mempty
        , genDefaultDoc msg
-       , genDefaultInstance msg
+       , genDefaultInstance scope' msg
        , mempty
        , genEncodeInstance msg
        , mempty
@@ -135,16 +140,17 @@ genTopLevel pkg = \case
        , genDecodeInstance msg
        ]
   TLEnum ed ->
-    let eopts = extractEnumOptions (enumOptions ed)
+    let tyN = hsScopedTypeName scope (enumName ed)
+        eopts = extractEnumOptions (enumOptions ed)
     in [ genEnumDoc ed
        , genEnumDecl ed
        ]
     <> (if eoDeprecated eopts
-        then [pretty ("{-# DEPRECATED " :: Text) <> pretty (hsTypeName (enumName ed))
+        then [pretty ("{-# DEPRECATED " :: Text) <> pretty tyN
               <+> pretty ("\"This enum is deprecated in the proto schema.\" #-}" :: Text)]
         else [])
     <> [ mempty
-       , genEnumProtoInstance ed
+       , genEnumProtoInstance scope ed
        ]
   TLService _svc -> []
   TLExtend _ _   -> []
@@ -153,13 +159,13 @@ genTopLevel pkg = \case
     msgOpts (MEOption o) = [o]
     msgOpts _            = []
 
-genDeprecatedFieldPragmas :: MessageDef -> [Doc ann]
-genDeprecatedFieldPragmas msg =
+genDeprecatedFieldPragmas :: [Text] -> MessageDef -> [Doc ann]
+genDeprecatedFieldPragmas scope msg =
   concatMap go (msgElements msg)
   where
     go (MEField fd) =
       if isDeprecated (fieldOptions fd)
-      then [pretty ("{-# DEPRECATED " :: Text) <> pretty (hsFieldName (fieldName fd))
+      then [pretty ("{-# DEPRECATED " :: Text) <> pretty (hsScopedFieldName scope (fieldName fd))
             <+> pretty ("\"This field is deprecated in the proto schema.\" #-}" :: Text)]
       else []
     go _ = []
@@ -238,16 +244,17 @@ genEnumDoc ed =
 
 -- Default and enum instance generation (unchanged except for doc additions)
 
-genDefaultInstance :: MessageDef -> Doc ann
-genDefaultInstance msg =
-  vsep
-    [ pretty ("default" :: Text) <> pretty (hsTypeName (msgName msg)) <+> pretty ("::" :: Text) <+> pretty (hsTypeName (msgName msg))
-    , pretty ("default" :: Text) <> pretty (hsTypeName (msgName msg)) <+> pretty ("=" :: Text) <+> pretty (hsTypeName (msgName msg))
-    , indent 2 (genDefaultFields (msgElements msg))
+genDefaultInstance :: [Text] -> MessageDef -> Doc ann
+genDefaultInstance scope msg =
+  let tyN = T.intercalate "'" (fmap hsTypeName scope)
+  in vsep
+    [ pretty ("default" :: Text) <> pretty tyN <+> pretty ("::" :: Text) <+> pretty tyN
+    , pretty ("default" :: Text) <> pretty tyN <+> pretty ("=" :: Text) <+> pretty tyN
+    , indent 2 (genDefaultFields scope (msgElements msg))
     ]
 
-genDefaultFields :: [MessageElement] -> Doc ann
-genDefaultFields elems =
+genDefaultFields :: [Text] -> [MessageElement] -> Doc ann
+genDefaultFields scope elems =
   let fields = concatMap extractDefault elems
   in case fields of
     []     -> pretty ("{ }" :: Text)
@@ -255,11 +262,11 @@ genDefaultFields elems =
   where
     extractDefault = \case
       MEField fd ->
-        [pretty (hsFieldName (fieldName fd)) <+> pretty ("=" :: Text) <+> defaultValue (fieldLabel fd) (fieldType fd)]
+        [pretty (hsScopedFieldName scope (fieldName fd)) <+> pretty ("=" :: Text) <+> defaultValue (fieldLabel fd) (fieldType fd)]
       MEMapField mf ->
-        [pretty (hsFieldName (mapFieldName mf)) <+> pretty ("=" :: Text) <+> pretty ("Map.empty" :: Text)]
+        [pretty (hsScopedFieldName scope (mapFieldName mf)) <+> pretty ("=" :: Text) <+> pretty ("Map.empty" :: Text)]
       MEOneof od ->
-        [pretty (hsFieldName (oneofName od)) <+> pretty ("=" :: Text) <+> pretty ("Nothing" :: Text)]
+        [pretty (hsScopedFieldName scope (oneofName od)) <+> pretty ("=" :: Text) <+> pretty ("Nothing" :: Text)]
       _ -> []
 
     defaultValue lbl ft = case lbl of
@@ -282,27 +289,27 @@ genDefaultFields elems =
 genMessageSizeInstance :: MessageDef -> Doc ann
 genMessageSizeInstance = genSizeInstance
 
-genEnumProtoInstance :: EnumDef -> Doc ann
-genEnumProtoInstance ed =
-  vsep
-    [ pretty ("-- | Convert @" :: Text) <> pretty (enumName ed) <> pretty ("@ to its proto numeric value." :: Text)
-    , pretty ("toProtoEnum" :: Text) <> pretty (hsTypeName (enumName ed)) <+>
-      pretty ("::" :: Text) <+> pretty (hsTypeName (enumName ed)) <+> pretty ("-> Int" :: Text)
+genEnumProtoInstance :: [Text] -> EnumDef -> Doc ann
+genEnumProtoInstance scope ed =
+  let tyN = hsScopedTypeName scope (enumName ed)
+      genToProto ev =
+        pretty ("toProtoEnum" :: Text) <> pretty tyN <+>
+        pretty (hsScopedEnumCon scope (enumName ed) (evName ev)) <+> pretty ("=" :: Text) <+>
+        pretty (T.pack (show (evNumber ev)))
+      genFromProto ev =
+        pretty ("fromProtoEnum" :: Text) <> pretty tyN <+>
+        pretty (T.pack (show (evNumber ev))) <+> pretty ("= Just" :: Text) <+>
+        pretty (hsScopedEnumCon scope (enumName ed) (evName ev))
+  in vsep
+    [ pretty ("-- | Convert @" :: Text) <> pretty tyN <> pretty ("@ to its proto numeric value." :: Text)
+    , pretty ("toProtoEnum" :: Text) <> pretty tyN <+>
+      pretty ("::" :: Text) <+> pretty tyN <+> pretty ("-> Int" :: Text)
     , vsep (fmap genToProto (enumValues ed))
     , mempty
-    , pretty ("-- | Convert a proto numeric value to @" :: Text) <> pretty (enumName ed) <> pretty ("@." :: Text)
-    , pretty ("fromProtoEnum" :: Text) <> pretty (hsTypeName (enumName ed)) <+>
-      pretty ("::" :: Text) <+> pretty ("Int ->" :: Text) <+> pretty ("Maybe" :: Text) <+> pretty (hsTypeName (enumName ed))
+    , pretty ("-- | Convert a proto numeric value to @" :: Text) <> pretty tyN <> pretty ("@." :: Text)
+    , pretty ("fromProtoEnum" :: Text) <> pretty tyN <+>
+      pretty ("::" :: Text) <+> pretty ("Int ->" :: Text) <+> pretty ("Maybe" :: Text) <+> pretty tyN
     , vsep (fmap genFromProto (enumValues ed))
-    , pretty ("fromProtoEnum" :: Text) <> pretty (hsTypeName (enumName ed)) <+>
+    , pretty ("fromProtoEnum" :: Text) <> pretty tyN <+>
       pretty ("_ = Nothing" :: Text)
     ]
-  where
-    genToProto ev =
-      pretty ("toProtoEnum" :: Text) <> pretty (hsTypeName (enumName ed)) <+>
-      pretty (hsEnumCon (enumName ed) (evName ev)) <+> pretty ("=" :: Text) <+>
-      pretty (T.pack (show (evNumber ev)))
-    genFromProto ev =
-      pretty ("fromProtoEnum" :: Text) <> pretty (hsTypeName (enumName ed)) <+>
-      pretty (T.pack (show (evNumber ev))) <+> pretty ("= Just" :: Text) <+>
-      pretty (hsEnumCon (enumName ed) (evName ev))

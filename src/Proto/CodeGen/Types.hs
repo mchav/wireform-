@@ -1,8 +1,10 @@
 -- | Code generation for Haskell type definitions from proto messages.
 --
--- Generates plain Haskell records with strict fields and UNPACK pragmas
--- for primitive types. Uses Vector for repeated fields and Maybe for
--- optional message fields.
+-- All generated names are scoped to avoid conflicts:
+-- * Nested messages/enums are prefixed with parent name: Person'Address
+-- * Record fields are prefixed with message name: personName, personId
+-- * Oneof types are prefixed: Person'Contact
+-- * Enum constructors include the enum name: PhoneType'Mobile
 module Proto.CodeGen.Types
   ( genTypeDecls
   , genEnumDecl
@@ -11,6 +13,9 @@ module Proto.CodeGen.Types
   , hsFieldName
   , hsEnumCon
   , hsModuleName
+  , hsScopedTypeName
+  , hsScopedFieldName
+  , hsScopedEnumCon
   ) where
 
 import Data.Char (toLower, toUpper)
@@ -21,41 +26,62 @@ import Prettyprinter
 import Proto.AST
 
 -- | Generate all type declarations for a message and its nested types.
+-- The scope parameter is the chain of parent message names (empty at top level).
 genTypeDecls :: MessageDef -> [Doc ann]
-genTypeDecls msg = mainDecl : nestedDecls
+genTypeDecls = genTypeDeclsScoped []
+
+genTypeDeclsScoped :: [Text] -> MessageDef -> [Doc ann]
+genTypeDeclsScoped scope msg =
+  let scope' = scope <> [msgName msg]
+  in genMessageRecord scope' msg : concatMap (genNested scope') (msgElements msg)
   where
-    mainDecl = genMessageRecord msg
-    nestedDecls = concatMap genNested (msgElements msg)
-    genNested = \case
-      MEMessage inner -> genTypeDecls inner
-      MEEnum e        -> [genEnumDecl e]
-      MEOneof o       -> [genOneofDecl (msgName msg) o]
+    genNested s = \case
+      MEMessage inner -> genTypeDeclsScoped s inner
+      MEEnum e        -> [genEnumDecl' s e]
+      MEOneof o       -> [genOneofDecl' s o]
       _               -> []
 
-genMessageRecord :: MessageDef -> Doc ann
-genMessageRecord msg =
-  vsep
-    [ pretty ("data" :: Text) <+> pretty (hsTypeName (msgName msg)) <+> pretty ("=" :: Text) <+> pretty (hsTypeName (msgName msg))
-    , indent 2 (braceFields fields)
-    , indent 2 derivingClause
+genMessageRecord :: [Text] -> MessageDef -> Doc ann
+genMessageRecord scope msg =
+  let tyN = scopedTypeName scope
+  in vsep
+    [ pretty ("data" :: Text) <+> pretty tyN <+> pretty ("=" :: Text) <+> pretty tyN
+    , indent 2 (braceFields (concatMap (extractField scope) (msgElements msg)))
+    , indent 2 (pretty ("deriving stock (Show, Eq, Generic)" :: Text))
     ]
   where
-    fields = concatMap extractField (msgElements msg)
-
-    extractField = \case
-      MEField fd      -> [genFieldDeclWithDoc fd]
-      MEMapField mf   -> [genMapFieldDecl mf]
-      MEOneof od      -> [genOneofFieldRef (msgName msg) od]
-      _               -> []
-
     braceFields [] = pretty ("{ }" :: Text)
     braceFields (f:fs) =
       vsep (pretty ("{ " :: Text) <> f : fmap (\x -> pretty (", " :: Text) <> x) fs) <> line <> pretty ("}" :: Text)
 
-    derivingClause = pretty ("deriving stock (Show, Eq, Generic)" :: Text)
+    extractField s = \case
+      MEField fd  -> [genFieldDeclWithDoc s fd]
+      MEMapField mf -> [genMapFieldDecl s mf]
+      MEOneof od  -> [genOneofFieldRef s od]
+      _           -> []
 
-genFieldDeclWithDoc :: FieldDef -> Doc ann
-genFieldDeclWithDoc fd =
+-- | Scoped type name: ["Person", "Address"] -> "Person'Address"
+scopedTypeName :: [Text] -> Text
+scopedTypeName = T.intercalate "'" . fmap hsTypeName
+
+-- | Public API: scoped type name from a list of parent names + the type name.
+hsScopedTypeName :: [Text] -> Text -> Text
+hsScopedTypeName parents name = scopedTypeName (parents <> [name])
+
+-- | Scoped field name: scope=["Person"], field="name" -> "personName"
+scopedFieldName :: [Text] -> Text -> Text
+scopedFieldName scope fName =
+  let prefix = case scope of
+        []    -> ""
+        (s:_) -> titleLowerFirst (hsTypeName s)
+  in escapeReserved (prefix <> titleCase (snakeToCamel fName))
+
+-- | Public API: scoped field name.
+hsScopedFieldName :: [Text] -> Text -> Text
+hsScopedFieldName = scopedFieldName
+
+genFieldDeclWithDoc :: [Text] -> FieldDef -> Doc ann
+genFieldDeclWithDoc scope fd =
   let labelTxt :: Text
       labelTxt = case fieldLabel fd of
         Just Optional -> "optional "
@@ -74,113 +100,89 @@ genFieldDeclWithDoc fd =
             pretty typeTxt <> pretty (" " :: Text) <> pretty (fieldName fd) <>
             pretty (" = " :: Text) <> pretty num <> pretty ("@" :: Text) <>
             jsonNote <> deprNote
-  in doc <> line <> genFieldDecl fd
+  in doc <> line <> genFieldDecl scope fd
 
-lookupJsonName :: [OptionDef] -> Maybe Text
-lookupJsonName opts = do
-  val <- lookupSimpleOption' "json_name" opts
-  case val of
-    CString s -> Just s
-    _         -> Nothing
-
-lookupSimpleOption' :: Text -> [OptionDef] -> Maybe Constant
-lookupSimpleOption' name opts =
-  case filter matchSimple opts of
-    (o:_) -> Just (optValue o)
-    []    -> Nothing
-  where
-    matchSimple o = case optNameParts (optName o) of
-      [SimpleOption n] -> n == name
-      _                -> False
-
-isFieldDeprecated :: [OptionDef] -> Bool
-isFieldDeprecated opts = case lookupSimpleOption' "deprecated" opts of
-  Just (CBool True) -> True
-  _                 -> False
-
-showFieldTypeForDoc :: FieldType -> Text
-showFieldTypeForDoc = \case
-  FTScalar SDouble   -> "double"
-  FTScalar SFloat    -> "float"
-  FTScalar SInt32    -> "int32"
-  FTScalar SInt64    -> "int64"
-  FTScalar SUInt32   -> "uint32"
-  FTScalar SUInt64   -> "uint64"
-  FTScalar SSInt32   -> "sint32"
-  FTScalar SSInt64   -> "sint64"
-  FTScalar SFixed32  -> "fixed32"
-  FTScalar SFixed64  -> "fixed64"
-  FTScalar SSFixed32 -> "sfixed32"
-  FTScalar SSFixed64 -> "sfixed64"
-  FTScalar SBool     -> "bool"
-  FTScalar SString   -> "string"
-  FTScalar SBytes    -> "bytes"
-  FTNamed n          -> n
-
-genFieldDecl :: FieldDef -> Doc ann
-genFieldDecl fd =
-  pretty (hsFieldName (fieldName fd)) <+> pretty ("::" :: Text) <+> unpackAnnotation ft lbl <> hsFieldType ft lbl
+genFieldDecl :: [Text] -> FieldDef -> Doc ann
+genFieldDecl scope fd =
+  pretty (scopedFieldName scope (fieldName fd)) <+> pretty ("::" :: Text) <+>
+  unpackAnnotation ft lbl <> hsFieldType scope ft lbl
   where
     ft = fieldType fd
     lbl = fieldLabel fd
 
-genMapFieldDecl :: MapField -> Doc ann
-genMapFieldDecl mf =
-  pretty (hsFieldName (mapFieldName mf)) <+> pretty ("::" :: Text) <+>
-  pretty ("!(Map.Map" :: Text) <+> hsScalarType (mapKeyType mf) <+> hsFieldTypeInner (mapValueType mf) <> pretty (")" :: Text)
+genMapFieldDecl :: [Text] -> MapField -> Doc ann
+genMapFieldDecl scope mf =
+  pretty (scopedFieldName scope (mapFieldName mf)) <+> pretty ("::" :: Text) <+>
+  pretty ("!(Map.Map" :: Text) <+> hsScalarType (mapKeyType mf) <+>
+  hsFieldTypeInner scope (mapValueType mf) <> pretty (")" :: Text)
 
-genOneofFieldRef :: Text -> OneofDef -> Doc ann
-genOneofFieldRef _msgName od =
-  pretty (hsFieldName (oneofName od)) <+> pretty ("::" :: Text) <+>
-  pretty ("!(Maybe" :: Text) <+> pretty (hsTypeName (oneofName od)) <> pretty (")" :: Text)
+genOneofFieldRef :: [Text] -> OneofDef -> Doc ann
+genOneofFieldRef scope od =
+  pretty (scopedFieldName scope (oneofName od)) <+> pretty ("::" :: Text) <+>
+  pretty ("!(Maybe" :: Text) <+> pretty (scopedTypeName (scope <> [oneofName od])) <> pretty (")" :: Text)
 
 -- | Generate a sum type for a oneof.
 genOneofDecl :: Text -> OneofDef -> Doc ann
-genOneofDecl _parentName od =
-  vsep
-    [ pretty ("data" :: Text) <+> pretty (hsTypeName (oneofName od))
-    , indent 2 (vsep (zipWith (\pfx f -> pfx <+> genOneofCon f) seps (oneofFields od)))
+genOneofDecl parentName = genOneofDecl' [parentName]
+
+genOneofDecl' :: [Text] -> OneofDef -> Doc ann
+genOneofDecl' scope od =
+  let tyN = scopedTypeName (scope <> [oneofName od])
+  in vsep
+    [ pretty ("data" :: Text) <+> pretty tyN
+    , indent 2 (vsep (zipWith (\pfx f -> pfx <+> genOneofCon scope f) seps (oneofFields od)))
     , indent 2 (pretty ("deriving stock (Show, Eq, Generic)" :: Text))
     ]
   where
     seps = pretty ("=" :: Text) : repeat (pretty ("|" :: Text))
-    genOneofCon f =
-      pretty (hsTypeName (oneofFieldName f)) <+>
-      hsOneofFieldType (oneofFieldType f)
+    genOneofCon s f =
+      pretty (scopedTypeName (s <> [oneofFieldName f])) <+>
+      hsOneofFieldType s (oneofFieldType f)
 
 -- | Generate an enum definition.
 genEnumDecl :: EnumDef -> Doc ann
-genEnumDecl ed =
-  vsep
-    [ pretty ("data" :: Text) <+> pretty (hsTypeName (enumName ed))
-    , indent 2 (vsep (zipWith (\pfx v -> pfx <+> pretty (hsEnumCon (enumName ed) (evName v))) seps (enumValues ed)))
+genEnumDecl = genEnumDecl' []
+
+genEnumDecl' :: [Text] -> EnumDef -> Doc ann
+genEnumDecl' scope ed =
+  let tyN = scopedTypeName (scope <> [enumName ed])
+  in vsep
+    [ pretty ("data" :: Text) <+> pretty tyN
+    , indent 2 (vsep (zipWith (\pfx v -> pfx <+> pretty (hsScopedEnumCon scope (enumName ed) (evName v))) seps (enumValues ed)))
     , indent 2 (pretty ("deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)" :: Text))
     ]
   where
     seps = pretty ("=" :: Text) : repeat (pretty ("|" :: Text))
 
--- | The Haskell type for a field, with appropriate wrapping.
-hsFieldType :: FieldType -> Maybe FieldLabel -> Doc ann
-hsFieldType ft = \case
-  Just Repeated -> hsRepeatedType ft
-  Just Optional -> pretty ("!(Maybe" :: Text) <+> hsFieldTypeInner ft <> pretty (")" :: Text)
-  Just Required -> pretty ("!" :: Text) <> hsFieldTypeInner ft
-  Nothing       -> hsFieldTypeInner ft  -- proto3: singular
+-- | Scoped enum constructor: scope=["Msg"], enum="Status", val="ACTIVE" -> "Msg'Active"
+hsScopedEnumCon :: [Text] -> Text -> Text -> Text
+hsScopedEnumCon scope _enumName valName =
+  case scope of
+    [] -> snakeToPascal valName
+    _  -> scopedTypeName scope <> "'" <> snakeToPascal valName
 
-hsFieldTypeInner :: FieldType -> Doc ann
-hsFieldTypeInner = \case
+-- | The Haskell type for a field, with appropriate wrapping.
+hsFieldType :: [Text] -> FieldType -> Maybe FieldLabel -> Doc ann
+hsFieldType scope ft = \case
+  Just Repeated -> hsRepeatedType scope ft
+  Just Optional -> pretty ("!(Maybe" :: Text) <+> hsFieldTypeInner scope ft <> pretty (")" :: Text)
+  Just Required -> pretty ("!" :: Text) <> hsFieldTypeInner scope ft
+  Nothing       -> hsFieldTypeInner scope ft
+
+hsFieldTypeInner :: [Text] -> FieldType -> Doc ann
+hsFieldTypeInner scope = \case
   FTScalar s -> hsScalarType s
   FTNamed n  -> pretty (hsTypeName n)
 
-hsOneofFieldType :: FieldType -> Doc ann
-hsOneofFieldType = \case
+hsOneofFieldType :: [Text] -> FieldType -> Doc ann
+hsOneofFieldType scope = \case
   FTScalar s -> unpackPragma s <> hsScalarType s
   FTNamed n  -> pretty ("!" :: Text) <> pretty (hsTypeName n)
 
-hsRepeatedType :: FieldType -> Doc ann
-hsRepeatedType = \case
+hsRepeatedType :: [Text] -> FieldType -> Doc ann
+hsRepeatedType scope = \case
   FTScalar s | isUnboxable s -> pretty ("!(VU.Vector" :: Text) <+> hsScalarType s <> pretty (")" :: Text)
-  ft -> pretty ("!(V.Vector" :: Text) <+> hsFieldTypeInner ft <> pretty (")" :: Text)
+  ft -> pretty ("!(V.Vector" :: Text) <+> hsFieldTypeInner scope ft <> pretty (")" :: Text)
 
 hsScalarType :: ScalarType -> Doc ann
 hsScalarType = \case
@@ -219,16 +221,69 @@ unpackPragma s
   | isUnboxable s = pretty ("{-# UNPACK #-} !" :: Text)
   | otherwise     = pretty ("!" :: Text)
 
+showFieldTypeForDoc :: FieldType -> Text
+showFieldTypeForDoc = \case
+  FTScalar SDouble   -> "double"
+  FTScalar SFloat    -> "float"
+  FTScalar SInt32    -> "int32"
+  FTScalar SInt64    -> "int64"
+  FTScalar SUInt32   -> "uint32"
+  FTScalar SUInt64   -> "uint64"
+  FTScalar SSInt32   -> "sint32"
+  FTScalar SSInt64   -> "sint64"
+  FTScalar SFixed32  -> "fixed32"
+  FTScalar SFixed64  -> "fixed64"
+  FTScalar SSFixed32 -> "sfixed32"
+  FTScalar SSFixed64 -> "sfixed64"
+  FTScalar SBool     -> "bool"
+  FTScalar SString   -> "string"
+  FTScalar SBytes    -> "bytes"
+  FTNamed n          -> n
+
+lookupJsonName :: [OptionDef] -> Maybe Text
+lookupJsonName opts = do
+  val <- lookupSimpleOption' "json_name" opts
+  case val of
+    CString s -> Just s
+    _         -> Nothing
+
+lookupSimpleOption' :: Text -> [OptionDef] -> Maybe Constant
+lookupSimpleOption' name opts =
+  case filter matchSimple opts of
+    (o:_) -> Just (optValue o)
+    []    -> Nothing
+  where
+    matchSimple o = case optNameParts (optName o) of
+      [SimpleOption n] -> n == name
+      _                -> False
+
+isFieldDeprecated :: [OptionDef] -> Bool
+isFieldDeprecated opts = case lookupSimpleOption' "deprecated" opts of
+  Just (CBool True) -> True
+  _                 -> False
+
 -- | Convert a proto name to a Haskell type name (PascalCase).
 hsTypeName :: Text -> Text
 hsTypeName t = case T.uncons t of
   Just (c, rest) -> T.cons (toUpper c) rest
   Nothing        -> t
 
--- | Convert a proto field name to a Haskell record field name.
--- Uses camelCase convention and escapes Haskell reserved words.
+-- | Convert a proto field name to a Haskell record field name (no prefix).
+-- For the prefixed version, use 'hsScopedFieldName'.
 hsFieldName :: Text -> Text
 hsFieldName = escapeReserved . snakeToCamel
+
+-- | Convert a proto enum value name to a Haskell constructor.
+hsEnumCon :: Text -> Text -> Text
+hsEnumCon _enumName valName = snakeToPascal valName
+
+-- | Convert a proto package name to a Haskell module name.
+hsModuleName :: Text -> Text
+hsModuleName = T.intercalate (T.singleton '.') . fmap capitalize . T.splitOn (T.singleton '.')
+  where
+    capitalize t = case T.uncons t of
+      Just (c, rest) -> T.cons (toUpper c) rest
+      Nothing        -> t
 
 escapeReserved :: Text -> Text
 escapeReserved t
@@ -242,18 +297,6 @@ haskellReserved =
   , "let", "module", "newtype", "of", "then", "where", "case"
   , "foreign", "forall", "mdo", "qualified", "hiding"
   ]
-
--- | Convert a proto enum value name to a Haskell constructor.
-hsEnumCon :: Text -> Text -> Text
-hsEnumCon _enumName valName = snakeToPascal valName
-
--- | Convert a proto package name to a Haskell module name.
-hsModuleName :: Text -> Text
-hsModuleName = T.intercalate (T.singleton '.') . fmap capitalize . T.splitOn (T.singleton '.')
-  where
-    capitalize t = case T.uncons t of
-      Just (c, rest) -> T.cons (toUpper c) rest
-      Nothing        -> t
 
 snakeToCamel :: Text -> Text
 snakeToCamel t =
