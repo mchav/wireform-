@@ -423,7 +423,7 @@ decodeNestedMsg = loop 0 ""
           2 -> do
             bs <- getLengthDelimited
             case runDecoder decodeInner bs of
-              Left e -> Decoder $ \_ _ -> DecodeFail (SubMessageError e)
+              Left e -> decodeFail (SubMessageError e)
               Right t -> loop outerVal t
           _ -> skipField wt >> loop outerVal innerText
 
@@ -457,7 +457,7 @@ decodeMultiField expV1 expV2 expV3 expV4 = do
     checkEq actual expected msg =
       if actual == expected
         then pure ()
-        else Decoder $ \_ _ -> DecodeFail (CustomError msg)
+        else decodeFail (CustomError msg)
 
 decodeWithUnknowns :: Decoder (Word64, Text, [UnknownField])
 decodeWithUnknowns = loop 0 "" []

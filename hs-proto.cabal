@@ -43,6 +43,11 @@ library
       Proto.CodeGen.Types
       Proto.CodeGen.Encode
       Proto.CodeGen.Decode
+      Proto.SizedBuilder
+      Proto.Church
+
+    c-sources:        cbits/fast_decode.c
+    cc-options:       -O3 -march=native
 
     build-depends:
         base             >= 4.17   && < 5

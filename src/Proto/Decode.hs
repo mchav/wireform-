@@ -69,6 +69,9 @@ module Proto.Decode
   , getText
   , getSVarint32
   , getSVarint64
+
+    -- * CPS failure
+  , decodeFail
   ) where
 
 import Data.ByteString (ByteString)
@@ -151,9 +154,14 @@ decodeFieldMessage :: MessageDecode a => Decoder a
 decodeFieldMessage = do
   bs <- getLengthDelimited
   case runDecoder messageDecoder bs of
-    Left e  -> Decoder $ \_ _ -> DecodeFail (SubMessageError e)
+    Left e  -> decodeFail (SubMessageError e)
     Right a -> pure a
 {-# INLINE decodeFieldMessage #-}
+
+-- | CPS-compatible failure: calls the error continuation.
+decodeFail :: DecodeError -> Decoder a
+decodeFail e = Decoder $ \_ _ _ err -> err e
+{-# INLINE decodeFail #-}
 
 -- | Decode an enum field (as varint, then fromEnum).
 decodeFieldEnum :: Enum a => Decoder a
@@ -172,7 +180,7 @@ decodePackedVarint :: Decoder (VU.Vector Word64)
 decodePackedVarint = do
   bs <- getLengthDelimited
   case decodeAllVarints bs of
-    Left e   -> Decoder $ \_ _ -> DecodeFail e
+    Left e   -> decodeFail e
     Right vs -> pure vs
 {-# INLINE decodePackedVarint #-}
 
@@ -191,7 +199,7 @@ decodePackedFixed32 :: Decoder (VU.Vector Word32)
 decodePackedFixed32 = do
   bs <- getLengthDelimited
   case decodeAllFixed32 bs of
-    Left e   -> Decoder $ \_ _ -> DecodeFail e
+    Left e   -> decodeFail e
     Right vs -> pure vs
 {-# INLINE decodePackedFixed32 #-}
 
@@ -210,7 +218,7 @@ decodePackedFixed64 :: Decoder (VU.Vector Word64)
 decodePackedFixed64 = do
   bs <- getLengthDelimited
   case decodeAllFixed64 bs of
-    Left e   -> Decoder $ \_ _ -> DecodeFail e
+    Left e   -> decodeFail e
     Right vs -> pure vs
 {-# INLINE decodePackedFixed64 #-}
 
@@ -229,7 +237,7 @@ decodePackedFloat :: Decoder (VU.Vector Float)
 decodePackedFloat = do
   bs <- getLengthDelimited
   case decodeAllFloat bs of
-    Left e   -> Decoder $ \_ _ -> DecodeFail e
+    Left e   -> decodeFail e
     Right vs -> pure vs
 {-# INLINE decodePackedFloat #-}
 
@@ -248,7 +256,7 @@ decodePackedDouble :: Decoder (VU.Vector Double)
 decodePackedDouble = do
   bs <- getLengthDelimited
   case decodeAllDouble bs of
-    Left e   -> Decoder $ \_ _ -> DecodeFail e
+    Left e   -> decodeFail e
     Right vs -> pure vs
 {-# INLINE decodePackedDouble #-}
 
@@ -267,7 +275,7 @@ decodePackedSVarint32 :: Decoder (VU.Vector Int32)
 decodePackedSVarint32 = do
   bs <- getLengthDelimited
   case decodeAllSVarint32 bs of
-    Left e   -> Decoder $ \_ _ -> DecodeFail e
+    Left e   -> decodeFail e
     Right vs -> pure vs
 {-# INLINE decodePackedSVarint32 #-}
 
@@ -286,7 +294,7 @@ decodePackedSVarint64 :: Decoder (VU.Vector Int64)
 decodePackedSVarint64 = do
   bs <- getLengthDelimited
   case decodeAllSVarint64 bs of
-    Left e   -> Decoder $ \_ _ -> DecodeFail e
+    Left e   -> decodeFail e
     Right vs -> pure vs
 {-# INLINE decodePackedSVarint64 #-}
 
@@ -348,7 +356,7 @@ captureUnknownField fn = \case
   Wire64Bit           -> UnknownFixed64 fn <$> getFixed64
   Wire32Bit           -> UnknownFixed32 fn <$> getFixed32
   WireLengthDelimited -> UnknownLenDelim fn <$> getLengthDelimited
-  wt                  -> skipField wt >> Decoder (\_ _ -> DecodeFail (CustomError ("Unsupported unknown wire type: " <> show wt)))
+  wt                  -> skipField wt >> decodeFail (CustomError ("Unsupported unknown wire type: " <> show wt))
 
 -- | Re-encode unknown fields for round-trip preservation.
 encodeUnknownFields :: [UnknownField] -> B.Builder
