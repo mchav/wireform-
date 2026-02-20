@@ -6,6 +6,7 @@ import Test.Parser (parserTests)
 import Test.Wire (wireTests)
 import Test.Roundtrip (roundtripTests)
 import Test.CodeGen (codeGenTests)
+import Test.WellKnown (wellKnownTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -13,4 +14,5 @@ main = defaultMain $ testGroup "hs-proto"
   , wireTests
   , roundtripTests
   , codeGenTests
+  , wellKnownTests
   ]

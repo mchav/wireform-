@@ -16,6 +16,20 @@ description:
 license:            BSD-3-Clause
 build-type:         Simple
 
+data-files:
+  proto/google/protobuf/any.proto
+  proto/google/protobuf/api.proto
+  proto/google/protobuf/duration.proto
+  proto/google/protobuf/empty.proto
+  proto/google/protobuf/field_mask.proto
+  proto/google/protobuf/source_context.proto
+  proto/google/protobuf/struct.proto
+  proto/google/protobuf/timestamp.proto
+  proto/google/protobuf/type.proto
+  proto/google/protobuf/wrappers.proto
+
+data-dir: .
+
 common warnings
     ghc-options:
       -Wall
@@ -33,6 +47,7 @@ library
       Proto.AST
       Proto.Parser
       Proto.Parser.Lexer
+      Proto.Parser.Resolver
       Proto.Wire
       Proto.Wire.Encode
       Proto.Wire.Decode
@@ -45,6 +60,15 @@ library
       Proto.CodeGen.Decode
       Proto.SizedBuilder
       Proto.Church
+      -- Well-known types (pre-generated)
+      Proto.Google.Protobuf.Any
+      Proto.Google.Protobuf.Timestamp
+      Proto.Google.Protobuf.Duration
+      Proto.Google.Protobuf.Empty
+      Proto.Google.Protobuf.Wrappers
+      Proto.Google.Protobuf.FieldMask
+      Proto.Google.Protobuf.SourceContext
+      Proto.Google.Protobuf.Struct
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
@@ -83,6 +107,7 @@ test-suite hs-proto-test
       Test.Wire
       Test.Roundtrip
       Test.CodeGen
+      Test.WellKnown
 
     build-depends:
         base             >= 4.17 && < 5

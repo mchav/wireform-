@@ -14,6 +14,7 @@ module Proto.Encode
 
     -- * Running encoders
   , encodeMessage
+  , encodeMessageSized
   , encodeLazy
 
     -- * Field encoding helpers
@@ -73,7 +74,7 @@ import Data.Text (Text)
 
 import Proto.Wire (WireType (..))
 import Proto.Wire.Encode
-import Proto.SizedBuilder (SizedBuilder, sized, withSubMessage)
+import Proto.SizedBuilder (SizedBuilder, sized, withSubMessage, toByteStringFromBuilder)
 
 -- | Typeclass for types that can be encoded as protobuf messages.
 class MessageEncode a where
@@ -88,9 +89,20 @@ class MessageSize a where
   messageSize :: a -> Int
 
 -- | Encode a message to a strict 'ByteString'.
+-- When the message implements 'MessageSize', this allocates a single
+-- buffer of exactly the right size for zero-copy output.
 encodeMessage :: MessageEncode a => a -> ByteString
 encodeMessage = BL.toStrict . B.toLazyByteString . buildMessage
 {-# INLINE encodeMessage #-}
+
+-- | Encode a message to a strict 'ByteString' with exact-size allocation.
+-- Requires 'MessageSize' to pre-compute the buffer size.
+-- Allocates a single ByteString of exactly the right length — no
+-- intermediate lazy chunks or recopying.
+encodeMessageSized :: (MessageEncode a, MessageSize a) => a -> ByteString
+encodeMessageSized msg =
+  toByteStringFromBuilder (messageSize msg) (buildMessage msg)
+{-# INLINE encodeMessageSized #-}
 
 -- | Encode a message to a lazy 'ByteString' (useful for streaming).
 encodeLazy :: MessageEncode a => a -> BL.ByteString

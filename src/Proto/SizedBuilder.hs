@@ -6,9 +6,9 @@
 -- pass when encoding submessages — the size is accumulated alongside
 -- the builder as fields are appended.
 --
--- This is the Church encoding of a (Int, Builder) pair, where the
--- consumer gets both values via a single continuation call rather
--- than pattern-matching a tuple.
+-- 'toByteString' allocates a single strict ByteString of exactly the
+-- right size and fills it in one pass — no intermediate lazy chunks
+-- or recopying.
 module Proto.SizedBuilder
   ( -- * Core type
     SizedBuilder
@@ -17,9 +17,10 @@ module Proto.SizedBuilder
   , empty
   , sized
 
-    -- * Running
-  , toBuilder
+    -- * Running (strict ByteString — single allocation)
   , toByteString
+  , toByteStringFromBuilder
+  , toBuilder
   , size
   , toLazyByteString
 
@@ -29,13 +30,12 @@ module Proto.SizedBuilder
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Builder.Extra as BE
 import qualified Data.ByteString.Lazy as BL
 
 import Proto.Wire.Encode (putVarint)
 
 -- | A builder that tracks its own byte size.
--- Internally this is just a strict pair, but the API is designed
--- so that size and builder are always computed together (fused).
 data SizedBuilder = SizedBuilder
   { sbSize    :: {-# UNPACK #-} !Int
   , sbBuilder :: !B.Builder
@@ -50,37 +50,50 @@ instance Monoid SizedBuilder where
   mempty = SizedBuilder 0 mempty
   {-# INLINE mempty #-}
 
--- | Create an empty sized builder.
 empty :: SizedBuilder
 empty = mempty
 {-# INLINE empty #-}
 
--- | Create a sized builder from a known size and builder.
 sized :: Int -> B.Builder -> SizedBuilder
 sized = SizedBuilder
 {-# INLINE sized #-}
 
--- | Extract the builder.
 toBuilder :: SizedBuilder -> B.Builder
 toBuilder = sbBuilder
 {-# INLINE toBuilder #-}
 
--- | Extract the total size in bytes.
 size :: SizedBuilder -> Int
 size = sbSize
 {-# INLINE size #-}
 
--- | Produce a strict ByteString.
+-- | Produce a strict ByteString using a single allocation of exactly
+-- the right size. The builder writes directly into the pre-allocated
+-- buffer with no intermediate lazy chunks or recopying.
 toByteString :: SizedBuilder -> ByteString
-toByteString = BL.toStrict . B.toLazyByteString . sbBuilder
+toByteString (SizedBuilder sz bld) = toByteStringFromBuilder sz bld
+{-# INLINE toByteString #-}
 
--- | Produce a lazy ByteString.
+-- | Produce a strict ByteString from a Builder when the exact size is known.
+-- Allocates a single buffer of @sz@ bytes and writes into it directly.
+-- If the builder produces exactly @sz@ bytes (which it should when the
+-- size was computed correctly), the result is a single zero-copy ByteString.
+toByteStringFromBuilder :: Int -> B.Builder -> ByteString
+toByteStringFromBuilder sz bld =
+  -- untrimmedStrategy: first chunk = sz bytes, subsequent = sz bytes.
+  -- Since we know the exact size, the builder should fill the first chunk
+  -- completely and produce a single-chunk lazy ByteString.
+  let strategy = BE.untrimmedStrategy sz sz
+      lbs = BE.toLazyByteStringWith strategy BL.empty bld
+  in case BL.toChunks lbs of
+    [chunk] -> chunk
+    chunks  -> BL.toStrict (BL.fromChunks chunks)
+{-# INLINE toByteStringFromBuilder #-}
+
 toLazyByteString :: SizedBuilder -> BL.ByteString
-toLazyByteString = B.toLazyByteString . sbBuilder
+toLazyByteString (SizedBuilder sz bld) =
+  BE.toLazyByteStringWith (BE.untrimmedStrategy sz sz) BL.empty bld
+{-# INLINE toLazyByteString #-}
 
--- | Wrap a SizedBuilder as a length-delimited submessage.
--- Since the size is already known, this avoids materializing the
--- submessage to compute its length — it just prepends the varint size.
 withSubMessage :: SizedBuilder -> SizedBuilder
 withSubMessage sb =
   let !payloadSize = sbSize sb

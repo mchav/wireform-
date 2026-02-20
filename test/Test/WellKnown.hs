@@ -1,0 +1,168 @@
+module Test.WellKnown (wellKnownTests) where
+
+import qualified Data.ByteString as BS
+import Data.Int (Int32, Int64)
+import qualified Data.Vector as V
+import Data.Word (Word64)
+import Hedgehog
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
+import Test.Tasty
+import Test.Tasty.HUnit hiding (assert)
+import Test.Tasty.Hedgehog
+
+import Proto.Encode
+import Proto.Decode
+import Proto.Google.Protobuf.Timestamp
+import Proto.Google.Protobuf.Duration
+import Proto.Google.Protobuf.Any
+import Proto.Google.Protobuf.Empty
+import Proto.Google.Protobuf.Wrappers
+import Proto.Google.Protobuf.FieldMask
+import Proto.Google.Protobuf.SourceContext
+import Proto.Google.Protobuf.Struct
+
+wellKnownTests :: TestTree
+wellKnownTests = testGroup "Well-Known Types"
+  [ testGroup "Timestamp"
+      [ testProperty "roundtrip" $ property $ do
+          s <- forAll $ Gen.int64 (Range.linear (-1000000000) 1000000000)
+          n <- forAll $ Gen.int32 (Range.linear 0 999999999)
+          let msg = Timestamp s n
+              encoded = encodeMessage msg
+          decodeMessage encoded === Right msg
+
+      , testCase "default is zero-length" $ do
+          let encoded = encodeMessage defaultTimestamp
+          BS.length encoded @?= 0
+
+      , testCase "sized encoding matches" $ do
+          let msg = Timestamp 1234567890 123456789
+          BS.length (encodeMessage msg) @?= messageSize msg
+      ]
+
+  , testGroup "Duration"
+      [ testProperty "roundtrip" $ property $ do
+          s <- forAll $ Gen.int64 (Range.linear (-315576000000) 315576000000)
+          n <- forAll $ Gen.int32 (Range.linear (-999999999) 999999999)
+          let msg = Duration s n
+              encoded = encodeMessage msg
+          decodeMessage encoded === Right msg
+      ]
+
+  , testGroup "Any"
+      [ testProperty "roundtrip" $ property $ do
+          tu <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
+          v <- forAll $ Gen.bytes (Range.linear 0 200)
+          let msg = Proto.Google.Protobuf.Any.Any tu v
+              encoded = encodeMessage msg
+          decodeMessage encoded === Right msg
+      ]
+
+  , testGroup "Empty"
+      [ testCase "empty roundtrip" $ do
+          let encoded = encodeMessage Empty
+          BS.length encoded @?= 0
+          decodeMessage encoded @?= Right Empty
+      ]
+
+  , testGroup "Wrappers"
+      [ testProperty "Int64Value roundtrip" $ property $ do
+          v <- forAll $ Gen.int64 Range.linearBounded
+          let msg = Int64Value v
+          decodeMessage (encodeMessage msg) === Right msg
+
+      , testProperty "UInt64Value roundtrip" $ property $ do
+          v <- forAll $ Gen.word64 (Range.linear 0 maxBound)
+          let msg = UInt64Value v
+          decodeMessage (encodeMessage msg) === Right msg
+
+      , testProperty "Int32Value roundtrip" $ property $ do
+          v <- forAll $ Gen.int32 Range.linearBounded
+          let msg = Int32Value v
+          decodeMessage (encodeMessage msg) === Right msg
+
+      , testProperty "BoolValue roundtrip" $ property $ do
+          v <- forAll Gen.bool
+          let msg = BoolValue v
+          decodeMessage (encodeMessage msg) === Right msg
+
+      , testProperty "StringValue roundtrip" $ property $ do
+          v <- forAll $ Gen.text (Range.linear 0 100) Gen.unicode
+          let msg = StringValue v
+          decodeMessage (encodeMessage msg) === Right msg
+
+      , testProperty "BytesValue roundtrip" $ property $ do
+          v <- forAll $ Gen.bytes (Range.linear 0 200)
+          let msg = BytesValue v
+          decodeMessage (encodeMessage msg) === Right msg
+
+      , testProperty "DoubleValue roundtrip" $ property $ do
+          v <- forAll $ Gen.double (Range.linearFrac (-1e100) 1e100)
+          let msg = DoubleValue v
+          decodeMessage (encodeMessage msg) === Right msg
+
+      , testProperty "FloatValue roundtrip" $ property $ do
+          v <- forAll $ Gen.float (Range.linearFrac (-1e30) 1e30)
+          let msg = FloatValue v
+          decodeMessage (encodeMessage msg) === Right msg
+      ]
+
+  , testGroup "FieldMask"
+      [ testCase "roundtrip" $ do
+          let msg = FieldMask (V.fromList ["foo.bar", "baz"])
+              encoded = encodeMessage msg
+          decodeMessage encoded @?= Right msg
+      ]
+
+  , testGroup "SourceContext"
+      [ testProperty "roundtrip" $ property $ do
+          fn <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
+          let msg = SourceContext fn
+          decodeMessage (encodeMessage msg) === Right msg
+      ]
+
+  , testGroup "Struct"
+      [ testCase "empty struct roundtrip" $ do
+          let msg = defaultStruct
+          decodeMessage (encodeMessage msg) @?= Right msg
+
+      , testCase "value null roundtrip" $ do
+          let v = Value (Just (NullKind NullValueNull))
+          decodeMessage (encodeMessage v) @?= Right v
+
+      , testCase "value number roundtrip" $ do
+          let v = Value (Just (NumberKind 3.14))
+          decodeMessage (encodeMessage v) @?= Right v
+
+      , testCase "value string roundtrip" $ do
+          let v = Value (Just (StringKind "hello"))
+          decodeMessage (encodeMessage v) @?= Right v
+
+      , testCase "value bool roundtrip" $ do
+          let v = Value (Just (BoolKind True))
+          decodeMessage (encodeMessage v) @?= Right v
+
+      , testCase "list value roundtrip" $ do
+          let lv = ListValue (V.fromList
+                [ Value (Just (NumberKind 1))
+                , Value (Just (StringKind "two"))
+                , Value (Just (BoolKind False))
+                ])
+          decodeMessage (encodeMessage lv) @?= Right lv
+      ]
+
+  , testGroup "Exact-size encoding"
+      [ testProperty "encodeMessageSized matches encodeMessage for Timestamp" $ property $ do
+          s <- forAll $ Gen.int64 (Range.linear 0 1000000)
+          n <- forAll $ Gen.int32 (Range.linear 0 999999)
+          let msg = Timestamp s n
+          encodeMessageSized msg === encodeMessage msg
+
+      , testProperty "encodeMessageSized matches encodeMessage for Duration" $ property $ do
+          s <- forAll $ Gen.int64 (Range.linear 0 1000000)
+          n <- forAll $ Gen.int32 (Range.linear 0 999999)
+          let msg = Duration s n
+          encodeMessageSized msg === encodeMessage msg
+      ]
+  ]
