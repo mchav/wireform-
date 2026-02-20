@@ -11,6 +11,7 @@ import Test.PrintInspect (printInspectTests)
 import Test.Compat (compatTests)
 import Test.Schema (schemaTests)
 import Test.Options (optionsTests)
+import Test.Lens (lensTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -23,4 +24,5 @@ main = defaultMain $ testGroup "hs-proto"
   , compatTests
   , schemaTests
   , optionsTests
+  , lensTests
   ]

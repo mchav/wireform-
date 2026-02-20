@@ -67,6 +67,7 @@ library
       Proto.Church
       Proto.Message
       Proto.Schema
+      Proto.Lens
       Proto.Repr
       Proto.Compat
       Proto.Options
@@ -131,6 +132,7 @@ test-suite hs-proto-test
       Test.Compat
       Test.Schema
       Test.Options
+      Test.Lens
 
     build-depends:
         base             >= 4.17 && < 5
