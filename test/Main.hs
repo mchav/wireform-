@@ -9,6 +9,7 @@ import Test.CodeGen (codeGenTests)
 import Test.WellKnown (wellKnownTests)
 import Test.PrintInspect (printInspectTests)
 import Test.Compat (compatTests)
+import Test.Schema (schemaTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -19,4 +20,5 @@ main = defaultMain $ testGroup "hs-proto"
   , wellKnownTests
   , printInspectTests
   , compatTests
+  , schemaTests
   ]

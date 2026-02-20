@@ -1,16 +1,20 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Proto.Google.Protobuf.Timestamp
   ( Timestamp (..)
   , defaultTimestamp
   ) where
 
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
 
 import Proto.Encode
 import Proto.Decode
 import Proto.Message (IsMessage(..))
+import Proto.Schema
 import Proto.Wire (Tag (..))
 import Proto.Wire.Encode (fieldVarintSize)
 
@@ -50,3 +54,42 @@ instance MessageDecode Timestamp where
 
 instance IsMessage Timestamp where
   messageTypeName _ = "google.protobuf.Timestamp"
+
+instance ProtoMessage Timestamp where
+  protoMessageName _ = "google.protobuf.Timestamp"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultTimestamp
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "seconds", fdNumber = 1
+        , fdTypeDesc = ScalarType Int64Field
+        , fdLabel = LabelOptional
+        , fdGet = seconds, fdSet = \v m -> m { seconds = v }
+        })
+    , (2, SomeField FieldDescriptor
+        { fdName = "nanos", fdNumber = 2
+        , fdTypeDesc = ScalarType Int32Field
+        , fdLabel = LabelOptional
+        , fdGet = nanos, fdSet = \v m -> m { nanos = v }
+        })
+    ]
+
+instance HasField Timestamp "seconds" Int64 where
+  getField = seconds
+  setField v m = m { seconds = v }
+  fieldDescriptor _ _ = FieldDescriptor
+    { fdName = "seconds", fdNumber = 1
+    , fdTypeDesc = ScalarType Int64Field
+    , fdLabel = LabelOptional
+    , fdGet = seconds, fdSet = \v m -> m { seconds = v }
+    }
+
+instance HasField Timestamp "nanos" Int32 where
+  getField = nanos
+  setField v m = m { nanos = v }
+  fieldDescriptor _ _ = FieldDescriptor
+    { fdName = "nanos", fdNumber = 2
+    , fdTypeDesc = ScalarType Int32Field
+    , fdLabel = LabelOptional
+    , fdGet = nanos, fdSet = \v m -> m { nanos = v }
+    }

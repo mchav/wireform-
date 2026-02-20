@@ -1,9 +1,12 @@
 -- | Core message identity typeclass.
 --
--- 'IsMessage' associates a Haskell type with its fully-qualified
--- proto type name. This is used by 'Proto.Google.Protobuf.Any' for
--- type-safe packing/unpacking, and can also be used for message
--- registries and reflection.
+-- 'IsMessage' is the unified interface combining:
+--
+-- * Wire encoding/decoding ('MessageEncode', 'MessageDecode')
+-- * Schema metadata ('ProtoMessage')
+-- * Type identity for Any packing
+--
+-- All generated message types implement this.
 module Proto.Message
   ( IsMessage (..)
   ) where
