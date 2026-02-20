@@ -12,7 +12,6 @@ import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word64)
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
@@ -23,8 +22,8 @@ import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize,
   fieldBoolSize, fieldDoubleSize, fieldFloatSize, fieldMessageSize,
   putTag, putVarint, putLengthDelimited)
-import Proto.Encode (encodePackedVarint)
 import Proto.Wire.Decode (runDecoder', DecodeResult(..))
+import Proto.VectorBuilder
 
 -- Small
 
@@ -120,7 +119,7 @@ data HWithNested = HWithNested
 instance MessageEncode HWithNested where
   buildMessage m =
     (if hwnId m == 0 then mempty else encodeFieldVarint 1 (fromIntegral (hwnId m))) <>
-    maybe mempty (encodeFieldMessage 2) (hwnInner m) <>
+    maybe mempty (encodeFieldMessageSized 2) (hwnInner m) <>
     (if hwnLabel m == "" then mempty else encodeFieldString 3 (hwnLabel m))
   {-# INLINE buildMessage #-}
 
@@ -150,41 +149,37 @@ data HWithRepeated = HWithRepeated
 instance MessageEncode HWithRepeated where
   buildMessage m =
     (let vs = hwrValues m in if V.null vs then mempty
-       else encodePackedVarint 1 (VU.convert (V.map fromIntegral vs))) <>
+       else encodePackedInt32 1 vs) <>
     V.foldl' (\acc s -> acc <> encodeFieldString 2 s) mempty (hwrTags m) <>
-    V.foldl' (\acc item -> acc <> encodeFieldMessage 3 item) mempty (hwrItems m)
+    V.foldl' (\acc item -> acc <> encodeFieldMessageSized 3 item) mempty (hwrItems m)
   {-# INLINE buildMessage #-}
 
 instance MessageDecode HWithRepeated where
-  messageDecoder = loop [] [] []
+  messageDecoder = loop emptyGrowList emptyGrowList emptyGrowList
     where
       loop !vals !tags !items = do
         mt <- getTagOr
         case mt of
-          Nothing -> pure (HWithRepeated (V.fromList (reverse vals)) (V.fromList (reverse tags)) (V.fromList (reverse items)))
+          Nothing -> pure (HWithRepeated (growListToVector vals) (growListToVector tags) (growListToVector items))
           Just (Tag fn wt) -> case fn of
             1 -> case wt of
               WireLengthDelimited -> do
                 bs <- getLengthDelimited
-                let !parsed = decodePacked bs
-                loop (reversePrepend parsed vals) tags items
-              _ -> getVarint >>= \v -> loop (fromIntegral v : vals) tags items
-            2 -> decodeFieldString >>= \v -> loop vals (v : tags) items
-            3 -> decodeFieldMessage >>= \v -> loop vals tags (v : items)
+                let !vals' = decodePackedInto vals bs
+                loop vals' tags items
+              _ -> getVarint >>= \v -> loop (snocGrowList vals (fromIntegral v)) tags items
+            2 -> decodeFieldString >>= \v -> loop vals (snocGrowList tags v) items
+            3 -> decodeFieldMessage >>= \v -> loop vals tags (snocGrowList items v)
             _ -> skipField wt >> loop vals tags items
   {-# INLINE messageDecoder #-}
 
-reversePrepend :: [a] -> [a] -> [a]
-reversePrepend [] ys = ys
-reversePrepend (x:xs) ys = reversePrepend xs (x : ys)
-
-decodePacked :: ByteString -> [Int32]
-decodePacked bs = go [] 0
+decodePackedInto :: GrowList Int32 -> ByteString -> GrowList Int32
+decodePackedInto !gl bs = go gl 0
   where
     len = BS.length bs
     go !acc !off
       | off >= len = acc
       | otherwise = case runDecoder' getVarint bs off of
-          DecodeOK v off' -> go (fromIntegral v : acc) off'
+          DecodeOK v off' -> go (snocGrowList acc (fromIntegral v)) off'
           DecodeFail _    -> acc
 

@@ -65,6 +65,7 @@ library
       Proto.CodeGen.Decode
       Proto.SizedBuilder
       Proto.Church
+      Proto.VectorBuilder
       Proto.Message
       Proto.Schema
       Proto.Lens
@@ -303,6 +304,24 @@ benchmark compare-bench
       DeriveGeneric
       DeriveAnyClass
       OverloadedStrings
+
+executable profile
+    import:           warnings
+    main-is:          Main.hs
+    ghc-options:      -O2 -rtsopts
+    build-depends:
+        base >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+    hs-source-dirs:   profile
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+      LambdaCase
 
 executable hs-proto-bench
     import:           warnings

@@ -40,6 +40,10 @@ module Proto.Encode
   , encodePackedSVarint32
   , encodePackedSVarint64
 
+    -- * Packed encoding from boxed vectors (no conversion overhead)
+  , encodePackedInt32
+  , encodePackedInt64
+
     -- * Map field encoding
   , encodeMapField
 
@@ -68,6 +72,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
+import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
 import Data.Text (Text)
@@ -197,7 +202,7 @@ encodeFieldEnum fn val =
   putTag fn WireVarint <> putVarint (fromIntegral (fromEnum val))
 {-# INLINE encodeFieldEnum #-}
 
--- | Encode a packed repeated varint field.
+-- | Encode a packed repeated varint field from an unboxed vector.
 encodePackedVarint :: Int -> VU.Vector Word64 -> B.Builder
 encodePackedVarint fn vals
   | VU.null vals = mempty
@@ -207,6 +212,28 @@ encodePackedVarint fn vals
          putVarint (fromIntegral sz) <>
          VU.foldl' (\acc v -> acc <> putVarint v) mempty vals
 {-# INLINE encodePackedVarint #-}
+
+-- | Encode packed repeated int32 from a boxed vector (no conversion to unboxed).
+encodePackedInt32 :: Int -> V.Vector Int32 -> B.Builder
+encodePackedInt32 fn vals
+  | V.null vals = mempty
+  | otherwise =
+      let sz = V.foldl' (\acc v -> acc + varintSize (fromIntegral v)) 0 vals
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         V.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty vals
+{-# INLINE encodePackedInt32 #-}
+
+-- | Encode packed repeated int64 from a boxed vector.
+encodePackedInt64 :: Int -> V.Vector Int64 -> B.Builder
+encodePackedInt64 fn vals
+  | V.null vals = mempty
+  | otherwise =
+      let sz = V.foldl' (\acc v -> acc + varintSize (fromIntegral v)) 0 vals
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         V.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty vals
+{-# INLINE encodePackedInt64 #-}
 
 -- | Encode a packed repeated fixed32 field.
 encodePackedFixed32 :: Int -> VU.Vector Word32 -> B.Builder
