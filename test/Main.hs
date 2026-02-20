@@ -7,6 +7,7 @@ import Test.Wire (wireTests)
 import Test.Roundtrip (roundtripTests)
 import Test.CodeGen (codeGenTests)
 import Test.WellKnown (wellKnownTests)
+import Test.PrintInspect (printInspectTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -15,4 +16,5 @@ main = defaultMain $ testGroup "hs-proto"
   , roundtripTests
   , codeGenTests
   , wellKnownTests
+  , printInspectTests
   ]

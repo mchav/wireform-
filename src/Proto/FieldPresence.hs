@@ -31,8 +31,6 @@ module Proto.FieldPresence
   , clearField
   ) where
 
-import Data.Maybe (fromMaybe)
-
 -- | A field with explicit presence tracking.
 -- This is used for proto3 @optional@ scalar fields.
 data Field a

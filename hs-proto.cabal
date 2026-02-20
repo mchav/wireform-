@@ -61,6 +61,8 @@ library
       Proto.SizedBuilder
       Proto.Church
       Proto.Message
+      Proto.Print
+      Proto.Inspect
       Proto.TH
       Proto.QQ
       Proto.JSON
@@ -115,6 +117,7 @@ test-suite hs-proto-test
       Test.Roundtrip
       Test.CodeGen
       Test.WellKnown
+      Test.PrintInspect
 
     build-depends:
         base             >= 4.17 && < 5

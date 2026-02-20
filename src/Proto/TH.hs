@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskellQuotes #-}
+{-# OPTIONS_GHC -Wno-unused-matches #-}
 -- | Template Haskell support for generating protobuf types at compile time.
 --
 -- @
@@ -29,7 +30,6 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Word (Word32, Word64)
 import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)

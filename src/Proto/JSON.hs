@@ -50,7 +50,6 @@ module Proto.JSON
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as Base16  -- we'll use hex for simplicity
 import Data.Char (intToDigit)
 import Data.Int (Int32, Int64)
@@ -245,7 +244,7 @@ renderJsonString s = "\"" <> T.concatMap escapeChar s <> "\""
     escapeChar c
       | c < ' '   = "\\u" <> T.pack (pad4 (showHex' (fromEnum c)))
       | otherwise  = T.singleton c
-    pad4 s = replicate (4 - length s) '0' <> s
+    pad4 xs = replicate (4 - length xs) '0' <> xs
     showHex' n
       | n < 16    = [intToDigit n]
       | otherwise  = showHex' (n `div` 16) <> [intToDigit (n `mod` 16)]
