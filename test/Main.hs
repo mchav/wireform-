@@ -10,6 +10,7 @@ import Test.WellKnown (wellKnownTests)
 import Test.PrintInspect (printInspectTests)
 import Test.Compat (compatTests)
 import Test.Schema (schemaTests)
+import Test.Options (optionsTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -21,4 +22,5 @@ main = defaultMain $ testGroup "hs-proto"
   , printInspectTests
   , compatTests
   , schemaTests
+  , optionsTests
   ]

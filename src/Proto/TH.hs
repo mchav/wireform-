@@ -48,7 +48,7 @@ import Data.Word (Word32, Word64)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer, putDoc, DocLoc(..))
+import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 
 import Proto.AST
 import Proto.Parser (parseProtoFile)

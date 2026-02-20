@@ -64,10 +64,39 @@ genFieldDeclWithDoc fd =
         Nothing       -> ""
       typeTxt = showFieldTypeForDoc (fieldType fd)
       num = T.pack (show (unFieldNumber (fieldNumber fd)))
+      jsonNote = case lookupJsonName (fieldOptions fd) of
+        Nothing -> mempty
+        Just jn -> line <> pretty ("-- JSON name: @" :: Text) <> pretty jn <> pretty ("@" :: Text)
+      deprNote = if isFieldDeprecated (fieldOptions fd)
+        then line <> pretty ("--" :: Text) <> line <> pretty ("-- __Deprecated__" :: Text)
+        else mempty
       doc = pretty ("-- | Proto field: @" :: Text) <> pretty labelTxt <>
             pretty typeTxt <> pretty (" " :: Text) <> pretty (fieldName fd) <>
-            pretty (" = " :: Text) <> pretty num <> pretty ("@" :: Text)
+            pretty (" = " :: Text) <> pretty num <> pretty ("@" :: Text) <>
+            jsonNote <> deprNote
   in doc <> line <> genFieldDecl fd
+
+lookupJsonName :: [OptionDef] -> Maybe Text
+lookupJsonName opts = do
+  val <- lookupSimpleOption' "json_name" opts
+  case val of
+    CString s -> Just s
+    _         -> Nothing
+
+lookupSimpleOption' :: Text -> [OptionDef] -> Maybe Constant
+lookupSimpleOption' name opts =
+  case filter matchSimple opts of
+    (o:_) -> Just (optValue o)
+    []    -> Nothing
+  where
+    matchSimple o = case optNameParts (optName o) of
+      [SimpleOption n] -> n == name
+      _                -> False
+
+isFieldDeprecated :: [OptionDef] -> Bool
+isFieldDeprecated opts = case lookupSimpleOption' "deprecated" opts of
+  Just (CBool True) -> True
+  _                 -> False
 
 showFieldTypeForDoc :: FieldType -> Text
 showFieldTypeForDoc = \case

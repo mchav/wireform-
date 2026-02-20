@@ -69,6 +69,7 @@ library
       Proto.Schema
       Proto.Repr
       Proto.Compat
+      Proto.Options
       Proto.Print
       Proto.Inspect
       Proto.Setup
@@ -129,6 +130,7 @@ test-suite hs-proto-test
       Test.PrintInspect
       Test.Compat
       Test.Schema
+      Test.Options
 
     build-depends:
         base             >= 4.17 && < 5
