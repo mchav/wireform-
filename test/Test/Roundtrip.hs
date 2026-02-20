@@ -7,7 +7,6 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Text (Text)
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word64)
-import Data.Int (Int32)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range

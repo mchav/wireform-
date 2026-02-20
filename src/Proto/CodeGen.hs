@@ -16,7 +16,6 @@ module Proto.CodeGen
   , defaultGenerateOpts
   ) where
 
-import Data.List (intersperse)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter
@@ -24,8 +23,8 @@ import Prettyprinter.Render.Text (renderStrict)
 
 import Proto.AST
 import Proto.CodeGen.Types
-import Proto.CodeGen.Encode
-import Proto.CodeGen.Decode
+import Proto.CodeGen.Encode (genEncodeInstance, genSizeInstance)
+import Proto.CodeGen.Decode (genDecodeInstance)
 
 -- | Options controlling code generation.
 data GenerateOpts = GenerateOpts
@@ -166,63 +165,8 @@ genDefaultFields elems =
       SBytes  -> False
       _       -> True
 
--- | Generate the MessageSize instance (two-pass optimization).
 genMessageSizeInstance :: MessageDef -> Doc ann
-genMessageSizeInstance msg =
-  vsep
-    [ pretty ("instance MessageSize" :: Text) <+> pretty (hsTypeName (msgName msg)) <+> pretty ("where" :: Text)
-    , indent 2 $ vsep
-        [ pretty ("messageSize msg =" :: Text)
-        , indent 2 $ vsep (intersperse (pretty ("+" :: Text)) (fmap (genFieldSizeExpr "msg") (extractFieldInfos (msgElements msg))))
-        ]
-    ]
-
-genFieldSizeExpr :: Text -> FieldInfo' -> Doc ann
-genFieldSizeExpr var fi =
-  let fn = T.pack (show (fi'FieldNum fi))
-      accessor = var <> "." <> hsFieldName (fi'Name fi)
-  in case fi'Label fi of
-    Just Repeated -> pretty ("(sizeRepeated " :: Text) <> pretty fn <+> pretty accessor <> pretty (")" :: Text)
-    Just Optional -> pretty ("(maybe 0 (\\v -> " :: Text) <> genSingleFieldSize fn "v" (fi'Type fi) <> pretty (") " :: Text) <> pretty accessor <> pretty (")" :: Text)
-    _ -> genSingleFieldSize fn accessor (fi'Type fi)
-
-genSingleFieldSize :: Text -> Text -> FieldType -> Doc ann
-genSingleFieldSize fn accessor = \case
-  FTScalar SDouble   -> pretty ("fieldDoubleSize " :: Text) <> pretty fn
-  FTScalar SFloat    -> pretty ("fieldFloatSize " :: Text) <> pretty fn
-  FTScalar SFixed32  -> pretty ("fieldFixed32Size " :: Text) <> pretty fn
-  FTScalar SFixed64  -> pretty ("fieldFixed64Size " :: Text) <> pretty fn
-  FTScalar SSFixed32 -> pretty ("fieldFixed32Size " :: Text) <> pretty fn
-  FTScalar SSFixed64 -> pretty ("fieldFixed64Size " :: Text) <> pretty fn
-  FTScalar SBool     -> pretty ("fieldBoolSize " :: Text) <> pretty fn
-  FTScalar SInt32    -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SInt64    -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SUInt32   -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SUInt64   -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SSInt32   -> pretty ("fieldSVarint32Size " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SSInt64   -> pretty ("fieldSVarint64Size " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SString   -> pretty ("fieldTextSize " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SBytes    -> pretty ("fieldBytesSize " :: Text) <> pretty fn <+> pretty accessor
-  FTNamed _          -> pretty ("fieldMessageSize " :: Text) <> pretty fn <+> pretty ("(messageSize " :: Text) <> pretty accessor <> pretty (")" :: Text)
-
-data FieldInfo' = FieldInfo'
-  { fi'Name     :: Text
-  , fi'FieldNum :: Int
-  , fi'Label    :: Maybe FieldLabel
-  , fi'Type     :: FieldType
-  }
-
-extractFieldInfos :: [MessageElement] -> [FieldInfo']
-extractFieldInfos = concatMap go
-  where
-    go = \case
-      MEField fd -> [FieldInfo'
-        { fi'Name     = fieldName fd
-        , fi'FieldNum = unFieldNumber (fieldNumber fd)
-        , fi'Label    = fieldLabel fd
-        , fi'Type     = fieldType fd
-        }]
-      _ -> []
+genMessageSizeInstance = genSizeInstance
 
 -- | Generate proto-aware Enum instance for enums.
 genEnumProtoInstance :: EnumDef -> Doc ann
