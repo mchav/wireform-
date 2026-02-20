@@ -98,6 +98,19 @@ test-suite hs-proto-test
       DerivingStrategies
       OverloadedStrings
 
+executable hs-proto-gen
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , text
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
 executable hs-proto-bench
     import:           warnings
     main-is:          Main.hs

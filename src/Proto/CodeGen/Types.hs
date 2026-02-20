@@ -163,9 +163,22 @@ hsTypeName t = case T.uncons t of
   Nothing        -> t
 
 -- | Convert a proto field name to a Haskell record field name.
--- Uses the convention: messageNameFieldName (camelCase).
+-- Uses camelCase convention and escapes Haskell reserved words.
 hsFieldName :: Text -> Text
-hsFieldName = snakeToCamel
+hsFieldName = escapeReserved . snakeToCamel
+
+escapeReserved :: Text -> Text
+escapeReserved t
+  | t `elem` haskellReserved = t <> "'"
+  | otherwise = t
+
+haskellReserved :: [Text]
+haskellReserved =
+  [ "type", "class", "data", "default", "deriving", "do", "else"
+  , "if", "import", "in", "infix", "infixl", "infixr", "instance"
+  , "let", "module", "newtype", "of", "then", "where", "case"
+  , "foreign", "forall", "mdo", "qualified", "hiding"
+  ]
 
 -- | Convert a proto enum value name to a Haskell constructor.
 hsEnumCon :: Text -> Text -> Text
