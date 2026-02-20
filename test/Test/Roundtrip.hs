@@ -7,6 +7,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Text (Text)
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word64)
+import Data.Int (Int32)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -27,7 +28,7 @@ roundtripTests = testGroup "Roundtrip Encoding/Decoding"
           let encoded = buildToBS $
                 putTag 1 WireVarint <> putVarint 42 <>
                 putTag 2 WireLengthDelimited <> putText "hello" <>
-                putTag 3 WireVarint <> putVarint 1  -- bool true
+                putTag 3 WireVarint <> putVarint 1
 
           case runDecoder decodeSimpleMsg encoded of
             Left e -> assertFailure (show e)
@@ -189,10 +190,169 @@ roundtripTests = testGroup "Roundtrip Encoding/Decoding"
                 annotate (show e)
                 failure
               Right decoded -> VU.toList decoded === vals
+
+      , testProperty "packed sint32 roundtrip" $ property $ do
+          vals <- forAll $ Gen.list (Range.linear 0 50) (Gen.int32 Range.linearBounded)
+          let vec = VU.fromList vals
+              encoded = buildToBS (encodePackedSVarint32 1 vec)
+          if VU.null vec
+            then assert (BS.null encoded)
+            else case runDecoder (getTag >> decodePackedSVarint32) encoded of
+              Left e -> do
+                annotate (show e)
+                failure
+              Right decoded -> VU.toList decoded === vals
+      ]
+
+  , testGroup "MessageEncode/MessageDecode typeclass roundtrip"
+      [ testProperty "TestMsg roundtrip" $ property $ do
+          v <- forAll $ Gen.word64 (Range.linear 0 1000000)
+          t <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
+          b <- forAll $ Gen.bool
+          let msg = TestMsg v t b
+              encoded = encodeMessage msg
+          case decodeMessage encoded of
+            Left e -> do
+              annotate (show e)
+              failure
+            Right decoded -> decoded === msg
+
+      , testProperty "TestMsg with submessage roundtrip" $ property $ do
+          outerVal <- forAll $ Gen.word64 (Range.linear 0 1000)
+          innerVal <- forAll $ Gen.word64 (Range.linear 0 1000)
+          innerName <- forAll $ Gen.text (Range.linear 0 50) Gen.alphaNum
+          let inner = TestMsg innerVal innerName True
+              outer = TestOuter outerVal (Just inner)
+              encoded = encodeMessage outer
+          case decodeMessage encoded of
+            Left e -> do
+              annotate (show e)
+              failure
+            Right decoded -> decoded === outer
+
+      , testCase "TestMsg size calculation matches encoding" $ do
+          let msg = TestMsg 42 "hello" True
+              encoded = encodeMessage msg
+              calculatedSize = messageSize msg
+          BS.length encoded @?= calculatedSize
+
+      , testProperty "TestMsg size always matches" $ property $ do
+          v <- forAll $ Gen.word64 (Range.linear 0 maxBound)
+          t <- forAll $ Gen.text (Range.linear 0 200) Gen.alphaNum
+          b <- forAll $ Gen.bool
+          let msg = TestMsg v t b
+              encoded = encodeMessage msg
+          BS.length encoded === messageSize msg
+      ]
+
+  , testGroup "Lazy submessage decoding"
+      [ testCase "lazy message captures bytes" $ do
+          let inner = TestMsg 42 "lazy" True
+              innerBS = encodeMessage inner
+              encoded = buildToBS $
+                putTag 1 WireVarint <> putVarint 1 <>
+                putTag 2 WireLengthDelimited <> putLengthDelimited innerBS
+
+          case runDecoder decodeLazyOuter encoded of
+            Left e -> assertFailure (show e)
+            Right (outerVal, lazyInner) -> do
+              outerVal @?= 1
+              case forceLazyMessage lazyInner of
+                Left e -> assertFailure (show e)
+                Right msg -> msg @?= TestMsg 42 "lazy" True
+      ]
+
+  , testGroup "Size calculation"
+      [ testProperty "varintSize correct" $ property $ do
+          n <- forAll $ Gen.word64 (Range.linear 0 maxBound)
+          let encoded = buildToBS (putVarint n)
+          BS.length encoded === varintSize n
+
+      , testProperty "tagSize correct" $ property $ do
+          fn <- forAll $ Gen.int (Range.linear 1 10000)
+          let tagVal = fromIntegral fn * 8
+              encoded = buildToBS (putVarint tagVal)
+          BS.length encoded === tagSize fn
       ]
   ]
 
--- Hand-rolled decoders to test the decoding infrastructure
+-- Test message type using the encode/decode typeclasses
+data TestMsg = TestMsg
+  { tmValue  :: {-# UNPACK #-} !Word64
+  , tmName   :: !Text
+  , tmActive :: !Bool
+  } deriving stock (Show, Eq)
+
+instance MessageEncode TestMsg where
+  buildMessage msg =
+    (if tmValue msg /= 0 then encodeFieldVarint 1 (tmValue msg) else mempty) <>
+    (if tmName msg /= "" then encodeFieldString 2 (tmName msg) else mempty) <>
+    (if tmActive msg then encodeFieldBool 3 True else mempty)
+
+instance MessageSize TestMsg where
+  messageSize msg =
+    (if tmValue msg /= 0 then fieldVarintSize 1 (tmValue msg) else 0) +
+    (if tmName msg /= "" then fieldTextSize 2 (tmName msg) else 0) +
+    (if tmActive msg then fieldBoolSize 3 else 0)
+
+instance MessageDecode TestMsg where
+  messageDecoder = loop 0 "" False
+    where
+      loop !val !name !active = do
+        mt <- getTagOr
+        case mt of
+          Nothing -> pure (TestMsg val name active)
+          Just (Tag fn wt) -> case fn of
+            1 -> getVarint >>= \v -> loop v name active
+            2 -> getText >>= \v -> loop val v active
+            3 -> getVarint >>= \v -> loop val name (v /= 0)
+            _ -> skipField wt >> loop val name active
+
+data TestOuter = TestOuter
+  { toValue :: {-# UNPACK #-} !Word64
+  , toInner :: !(Maybe TestMsg)
+  } deriving stock (Show, Eq)
+
+instance MessageEncode TestOuter where
+  buildMessage msg =
+    (if toValue msg /= 0 then encodeFieldVarint 1 (toValue msg) else mempty) <>
+    maybe mempty (encodeFieldMessageSized 2) (toInner msg)
+
+instance MessageSize TestOuter where
+  messageSize msg =
+    (if toValue msg /= 0 then fieldVarintSize 1 (toValue msg) else 0) +
+    maybe 0 (\inner -> fieldMessageSize 2 (messageSize inner)) (toInner msg)
+
+instance MessageDecode TestOuter where
+  messageDecoder = loop 0 Nothing
+    where
+      loop !val !inner = do
+        mt <- getTagOr
+        case mt of
+          Nothing -> pure (TestOuter val inner)
+          Just (Tag fn wt) -> case fn of
+            1 -> getVarint >>= \v -> loop v inner
+            2 -> do
+              msg <- decodeFieldMessage
+              loop val (Just msg)
+            _ -> skipField wt >> loop val inner
+
+-- Decoder for lazy outer message
+decodeLazyOuter :: Decoder (Word64, LazyMessage TestMsg)
+decodeLazyOuter = loop 0 (LazyMessage BS.empty (Left UnexpectedEnd))
+  where
+    loop !val !inner = do
+      mt <- getTagOr
+      case mt of
+        Nothing -> pure (val, inner)
+        Just (Tag fn wt) -> case fn of
+          1 -> getVarint >>= \v -> loop v inner
+          2 -> do
+            lm <- decodeFieldLazyMessage
+            loop val lm
+          _ -> skipField wt >> loop val inner
+
+-- Hand-rolled decoders for basic tests
 
 decodeSimpleMsg :: Decoder (Word64, Text, Bool)
 decodeSimpleMsg = loop 0 "" False
@@ -208,17 +368,7 @@ decodeSimpleMsg = loop 0 "" False
           _ -> skipField wt >> loop val name active
 
 decodeSimpleMsgDefaults :: Decoder (Word64, Text, Bool)
-decodeSimpleMsgDefaults = loop 0 "" False
-  where
-    loop !val !name !active = do
-      mt <- getTagOr
-      case mt of
-        Nothing -> pure (val, name, active)
-        Just (Tag fn wt) -> case fn of
-          1 -> getVarint >>= \v -> loop v name active
-          2 -> getText >>= \v -> loop val v active
-          3 -> getVarint >>= \v -> loop val name (v /= 0)
-          _ -> skipField wt >> loop val name active
+decodeSimpleMsgDefaults = decodeSimpleMsg
 
 decodeRepeatedMsg :: Decoder [Word64]
 decodeRepeatedMsg = loop []
