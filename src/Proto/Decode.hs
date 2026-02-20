@@ -41,13 +41,29 @@ module Proto.Decode
     -- * Submessage decoding
   , decodeSubmessage
 
+    -- * Lazy submessage decoding
+  , LazyMessage (..)
+  , forceLazyMessage
+  , decodeFieldLazyMessage
+
     -- * Re-exports for generated code
   , Decoder
+  , DecodeResult (..)
   , DecodeError (..)
   , runDecoder
   , getVarint
+  , getVarintSigned
   , getTagOr
+  , getTag
   , skipField
+  , getLengthDelimited
+  , getFixed32
+  , getFixed64
+  , getFloat
+  , getDouble
+  , getText
+  , getSVarint32
+  , getSVarint64
   ) where
 
 import Data.ByteString (ByteString)
@@ -275,3 +291,34 @@ decodeAllSVarint64 bs = go [] 0
       | otherwise = case runDecoder' getSVarint64 bs off of
           DecodeOK v off' -> go (v : acc) off'
           DecodeFail e    -> Left e
+
+-- | A lazily-decoded submessage. The raw bytes are captured during the
+-- parent message decode, but the actual submessage parsing is deferred
+-- until 'forceLazyMessage' is called. This is a key performance
+-- optimization from the Buf protobuf performance guide: if the consumer
+-- never accesses a submessage field, the decode cost is zero.
+data LazyMessage a = LazyMessage
+  { lazyRawBytes :: !ByteString
+  , lazyCached   :: ~(Either DecodeError a)
+  }
+
+instance Show a => Show (LazyMessage a) where
+  show (LazyMessage bs _) = "LazyMessage (" <> show (BS.length bs) <> " bytes)"
+
+instance Eq a => Eq (LazyMessage a) where
+  a == b = lazyRawBytes a == lazyRawBytes b
+
+-- | Force a lazy message, decoding the raw bytes.
+forceLazyMessage :: LazyMessage a -> Either DecodeError a
+forceLazyMessage = lazyCached
+{-# INLINE forceLazyMessage #-}
+
+-- | Decode a submessage field lazily: capture the bytes but defer parsing.
+decodeFieldLazyMessage :: MessageDecode a => Decoder (LazyMessage a)
+decodeFieldLazyMessage = do
+  bs <- getLengthDelimited
+  pure LazyMessage
+    { lazyRawBytes = bs
+    , lazyCached   = runDecoder messageDecoder bs
+    }
+{-# INLINE decodeFieldLazyMessage #-}

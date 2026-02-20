@@ -1,15 +1,16 @@
 -- | High-level encoding interface for protobuf messages.
 --
--- This module provides the 'MessageEncoder' typeclass and utilities for
--- encoding messages to 'ByteString'. Key performance characteristics:
---
--- * Single-pass size calculation + encoding for non-nested messages
+-- Key performance technique from Buf's protobuf performance analysis:
+-- * Two-pass encoding: first compute message size, then encode.
+--   This avoids materializing submessages to ByteString just for
+--   their length prefix. The size pass is pure arithmetic.
 -- * Builder-based output for zero-copy concatenation
 -- * Packed encoding for repeated scalar fields
 -- * Pre-computed tag bytes for generated code
 module Proto.Encode
-  ( -- * Encoding typeclass
+  ( -- * Encoding typeclasses
     MessageEncode (..)
+  , MessageSize (..)
 
     -- * Running encoders
   , encodeMessage
@@ -41,6 +42,10 @@ module Proto.Encode
     -- * Map field encoding
   , encodeMapField
 
+    -- * Optimized submessage encoding (size-aware)
+  , encodeFieldMessageSized
+  , encodeMapFieldSized
+
     -- * Raw builders
   , messageToByteString
   ) where
@@ -61,6 +66,13 @@ class MessageEncode a where
   -- | Build the wire-format representation (fields only, no outer length prefix).
   buildMessage :: a -> B.Builder
 
+-- | Typeclass for types whose wire-format size can be pre-computed.
+-- Implementing this enables the two-pass optimization for submessage encoding:
+-- compute sizes top-down, then encode in a single pass.
+class MessageSize a where
+  -- | Compute the wire-format size in bytes (fields only, no outer length prefix).
+  messageSize :: a -> Int
+
 -- | Encode a message to a strict 'ByteString'.
 encodeMessage :: MessageEncode a => a -> ByteString
 encodeMessage = BL.toStrict . B.toLazyByteString . buildMessage
@@ -71,7 +83,7 @@ encodeLazy :: MessageEncode a => a -> BL.ByteString
 encodeLazy = B.toLazyByteString . buildMessage
 {-# INLINE encodeLazy #-}
 
--- | Convert a builder to strict ByteString (for submessage size calculation).
+-- | Convert a builder to strict ByteString.
 messageToByteString :: B.Builder -> ByteString
 messageToByteString = BL.toStrict . B.toLazyByteString
 
@@ -136,11 +148,22 @@ encodeFieldBytes fn val =
 {-# INLINE encodeFieldBytes #-}
 
 -- | Encode a submessage field. Materializes the submessage to calculate its length.
+-- Use 'encodeFieldMessageSized' when the message implements 'MessageSize'
+-- for better performance.
 encodeFieldMessage :: MessageEncode a => Int -> a -> B.Builder
 encodeFieldMessage fn msg =
   let payload = messageToByteString (buildMessage msg)
   in putTag fn WireLengthDelimited <> putLengthDelimited payload
 {-# INLINE encodeFieldMessage #-}
+
+-- | Encode a submessage field using pre-computed size (no materialization).
+-- Two-pass: first compute size, then write tag + length + payload.
+-- This avoids allocating a temporary ByteString for the submessage.
+encodeFieldMessageSized :: (MessageEncode a, MessageSize a) => Int -> a -> B.Builder
+encodeFieldMessageSized fn msg =
+  let sz = messageSize msg
+  in putTag fn WireLengthDelimited <> putVarint (fromIntegral sz) <> buildMessage msg
+{-# INLINE encodeFieldMessageSized #-}
 
 -- | Encode an enum field (as varint).
 encodeFieldEnum :: Enum a => Int -> a -> B.Builder
@@ -153,8 +176,10 @@ encodePackedVarint :: Int -> VU.Vector Word64 -> B.Builder
 encodePackedVarint fn vals
   | VU.null vals = mempty
   | otherwise =
-      let payload = messageToByteString (VU.foldl' (\acc v -> acc <> putVarint v) mempty vals)
-      in putTag fn WireLengthDelimited <> putLengthDelimited payload
+      let sz = VU.foldl' (\acc v -> acc + varintSize v) 0 vals
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         VU.foldl' (\acc v -> acc <> putVarint v) mempty vals
 {-# INLINE encodePackedVarint #-}
 
 -- | Encode a packed repeated fixed32 field.
@@ -162,8 +187,10 @@ encodePackedFixed32 :: Int -> VU.Vector Word32 -> B.Builder
 encodePackedFixed32 fn vals
   | VU.null vals = mempty
   | otherwise =
-      let payload = messageToByteString (VU.foldl' (\acc v -> acc <> putFixed32 v) mempty vals)
-      in putTag fn WireLengthDelimited <> putLengthDelimited payload
+      let sz = VU.length vals * 4
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         VU.foldl' (\acc v -> acc <> putFixed32 v) mempty vals
 {-# INLINE encodePackedFixed32 #-}
 
 -- | Encode a packed repeated fixed64 field.
@@ -171,8 +198,10 @@ encodePackedFixed64 :: Int -> VU.Vector Word64 -> B.Builder
 encodePackedFixed64 fn vals
   | VU.null vals = mempty
   | otherwise =
-      let payload = messageToByteString (VU.foldl' (\acc v -> acc <> putFixed64 v) mempty vals)
-      in putTag fn WireLengthDelimited <> putLengthDelimited payload
+      let sz = VU.length vals * 8
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         VU.foldl' (\acc v -> acc <> putFixed64 v) mempty vals
 {-# INLINE encodePackedFixed64 #-}
 
 -- | Encode a packed repeated float field.
@@ -180,8 +209,10 @@ encodePackedFloat :: Int -> VU.Vector Float -> B.Builder
 encodePackedFloat fn vals
   | VU.null vals = mempty
   | otherwise =
-      let payload = messageToByteString (VU.foldl' (\acc v -> acc <> putFloat v) mempty vals)
-      in putTag fn WireLengthDelimited <> putLengthDelimited payload
+      let sz = VU.length vals * 4
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         VU.foldl' (\acc v -> acc <> putFloat v) mempty vals
 {-# INLINE encodePackedFloat #-}
 
 -- | Encode a packed repeated double field.
@@ -189,8 +220,10 @@ encodePackedDouble :: Int -> VU.Vector Double -> B.Builder
 encodePackedDouble fn vals
   | VU.null vals = mempty
   | otherwise =
-      let payload = messageToByteString (VU.foldl' (\acc v -> acc <> putDouble v) mempty vals)
-      in putTag fn WireLengthDelimited <> putLengthDelimited payload
+      let sz = VU.length vals * 8
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         VU.foldl' (\acc v -> acc <> putDouble v) mempty vals
 {-# INLINE encodePackedDouble #-}
 
 -- | Encode a packed repeated sint32 field.
@@ -198,8 +231,10 @@ encodePackedSVarint32 :: Int -> VU.Vector Int32 -> B.Builder
 encodePackedSVarint32 fn vals
   | VU.null vals = mempty
   | otherwise =
-      let payload = messageToByteString (VU.foldl' (\acc v -> acc <> putSVarint32 v) mempty vals)
-      in putTag fn WireLengthDelimited <> putLengthDelimited payload
+      let sz = VU.foldl' (\acc v -> acc + varintSize (fromIntegral (zigZag32 v))) 0 vals
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         VU.foldl' (\acc v -> acc <> putSVarint32 v) mempty vals
 {-# INLINE encodePackedSVarint32 #-}
 
 -- | Encode a packed repeated sint64 field.
@@ -207,12 +242,13 @@ encodePackedSVarint64 :: Int -> VU.Vector Int64 -> B.Builder
 encodePackedSVarint64 fn vals
   | VU.null vals = mempty
   | otherwise =
-      let payload = messageToByteString (VU.foldl' (\acc v -> acc <> putSVarint64 v) mempty vals)
-      in putTag fn WireLengthDelimited <> putLengthDelimited payload
+      let sz = VU.foldl' (\acc v -> acc + varintSize (zigZag64 v)) 0 vals
+      in putTag fn WireLengthDelimited <>
+         putVarint (fromIntegral sz) <>
+         VU.foldl' (\acc v -> acc <> putSVarint64 v) mempty vals
 {-# INLINE encodePackedSVarint64 #-}
 
--- | Encode a map field entry.
--- Map fields are encoded as repeated message fields with key=1, value=2.
+-- | Encode a map field entry (materializing to get the length).
 encodeMapField
   :: Int          -- ^ Field number of the map field
   -> B.Builder    -- ^ Key encoding (field 1)
@@ -222,3 +258,16 @@ encodeMapField fn keyEnc valEnc =
   let entry = messageToByteString (keyEnc <> valEnc)
   in putTag fn WireLengthDelimited <> putLengthDelimited entry
 {-# INLINE encodeMapField #-}
+
+-- | Encode a map field entry using pre-computed entry size.
+encodeMapFieldSized
+  :: Int        -- ^ Field number
+  -> Int        -- ^ Pre-computed entry size (key encoding + value encoding bytes)
+  -> B.Builder  -- ^ Key encoding (field 1)
+  -> B.Builder  -- ^ Value encoding (field 2)
+  -> B.Builder
+encodeMapFieldSized fn entrySz keyEnc valEnc =
+  putTag fn WireLengthDelimited <>
+  putVarint (fromIntegral entrySz) <>
+  keyEnc <> valEnc
+{-# INLINE encodeMapFieldSized #-}

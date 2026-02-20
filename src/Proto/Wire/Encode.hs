@@ -26,6 +26,21 @@ module Proto.Wire.Encode
     -- * Tags
   , putTag
 
+    -- * Size calculation (avoids double-encoding for submessages)
+  , varintSize
+  , tagSize
+  , fieldVarintSize
+  , fieldSVarint32Size
+  , fieldSVarint64Size
+  , fieldFixed32Size
+  , fieldFixed64Size
+  , fieldFloatSize
+  , fieldDoubleSize
+  , fieldBoolSize
+  , fieldBytesSize
+  , fieldTextSize
+  , fieldMessageSize
+
     -- * Helpers
   , zigZag32
   , zigZag64
@@ -130,3 +145,90 @@ putText t =
 putTag :: Int -> WireType -> Builder
 putTag fn wt = putVarint (fieldTag fn wt)
 {-# INLINE putTag #-}
+
+-- Size calculation functions: compute the encoded size of values without
+-- actually encoding them. Critical for submessage encoding where we need
+-- the size prefix before the payload.
+
+-- | Size of a varint encoding in bytes.
+varintSize :: Word64 -> Int
+varintSize !n
+  | n < 0x80       = 1
+  | n < 0x4000     = 2
+  | n < 0x200000   = 3
+  | n < 0x10000000 = 4
+  | n < 0x800000000 = 5
+  | n < 0x40000000000 = 6
+  | n < 0x2000000000000 = 7
+  | n < 0x100000000000000 = 8
+  | n < 0x8000000000000000 = 9
+  | otherwise       = 10
+{-# INLINE varintSize #-}
+
+-- | Size of a tag encoding.
+tagSize :: Int -> Int
+tagSize fn = varintSize (fromIntegral fn `shiftL` 3)
+{-# INLINE tagSize #-}
+
+-- | Size of a varint field (tag + value).
+fieldVarintSize :: Int -> Word64 -> Int
+fieldVarintSize fn val = tagSize fn + varintSize val
+{-# INLINE fieldVarintSize #-}
+
+-- | Size of a sint32 field.
+fieldSVarint32Size :: Int -> Int32 -> Int
+fieldSVarint32Size fn val = tagSize fn + varintSize (fromIntegral (zigZag32 val))
+{-# INLINE fieldSVarint32Size #-}
+
+-- | Size of a sint64 field.
+fieldSVarint64Size :: Int -> Int64 -> Int
+fieldSVarint64Size fn val = tagSize fn + varintSize (zigZag64 val)
+{-# INLINE fieldSVarint64Size #-}
+
+-- | Size of a fixed32 field (tag + 4 bytes).
+fieldFixed32Size :: Int -> Int
+fieldFixed32Size fn = tagSize fn + 4
+{-# INLINE fieldFixed32Size #-}
+
+-- | Size of a fixed64 field (tag + 8 bytes).
+fieldFixed64Size :: Int -> Int
+fieldFixed64Size fn = tagSize fn + 8
+{-# INLINE fieldFixed64Size #-}
+
+-- | Size of a float field.
+fieldFloatSize :: Int -> Int
+fieldFloatSize = fieldFixed32Size
+{-# INLINE fieldFloatSize #-}
+
+-- | Size of a double field.
+fieldDoubleSize :: Int -> Int
+fieldDoubleSize = fieldFixed64Size
+{-# INLINE fieldDoubleSize #-}
+
+-- | Size of a bool field.
+fieldBoolSize :: Int -> Int
+fieldBoolSize fn = tagSize fn + 1
+{-# INLINE fieldBoolSize #-}
+
+-- | Size of a bytes field (tag + varint length + payload).
+fieldBytesSize :: Int -> ByteString -> Int
+fieldBytesSize fn bs =
+  let len = BS.length bs
+  in tagSize fn + varintSize (fromIntegral len) + len
+{-# INLINE fieldBytesSize #-}
+
+-- | Size of a text field (tag + varint length + UTF-8 payload).
+fieldTextSize :: Int -> Text -> Int
+fieldTextSize fn t =
+  let bs = TE.encodeUtf8 t
+      len = BS.length bs
+  in tagSize fn + varintSize (fromIntegral len) + len
+{-# INLINE fieldTextSize #-}
+
+-- | Size of a submessage field given its pre-computed payload size.
+-- This is the key optimization: compute the submessage size first,
+-- then encode tag + length + payload in one pass.
+fieldMessageSize :: Int -> Int -> Int
+fieldMessageSize fn payloadSize =
+  tagSize fn + varintSize (fromIntegral payloadSize) + payloadSize
+{-# INLINE fieldMessageSize #-}

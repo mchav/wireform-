@@ -1,12 +1,14 @@
 -- | Code generation for Haskell modules from parsed proto files.
 --
--- Generates complete Haskell modules with:
+-- Generates complete, compilable Haskell modules with:
 -- * Plain record types (no lenses)
 -- * Strict fields with UNPACK pragmas for primitives
--- * Specialized encode/decode instances
--- * Enum types with custom Enum instances matching proto values
+-- * Specialized MessageEncode/MessageDecode/MessageSize instances
+-- * Enum types with proto-value-aware conversion
 -- * Oneof types as sum types
--- * Default value instances
+-- * Default value constructors
+-- * Two-pass encoding: size computation then serialization (Buf-style)
+-- * Lazy submessage decoding option
 module Proto.CodeGen
   ( generateModule
   , generateModuleText
@@ -14,6 +16,7 @@ module Proto.CodeGen
   , defaultGenerateOpts
   ) where
 
+import Data.List (intersperse)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter
@@ -26,22 +29,24 @@ import Proto.CodeGen.Decode
 
 -- | Options controlling code generation.
 data GenerateOpts = GenerateOpts
-  { genModulePrefix    :: Text       -- ^ Module prefix (e.g. "Proto.Gen")
-  , genStrictFields    :: Bool       -- ^ Use strict fields (default True)
-  , genUnpackPrims     :: Bool       -- ^ UNPACK primitive fields (default True)
-  , genDeriveGeneric   :: Bool       -- ^ Derive Generic (default True)
-  , genDeriveNFData    :: Bool       -- ^ Derive NFData (default True)
-  , genPackedRepeated  :: Bool       -- ^ Use packed encoding for repeated scalars (default True, proto3)
+  { genModulePrefix    :: Text
+  , genStrictFields    :: Bool
+  , genUnpackPrims     :: Bool
+  , genDeriveGeneric   :: Bool
+  , genDeriveNFData    :: Bool
+  , genPackedRepeated  :: Bool
+  , genLazySubmessages :: Bool
   } deriving stock (Show, Eq)
 
 defaultGenerateOpts :: GenerateOpts
 defaultGenerateOpts = GenerateOpts
-  { genModulePrefix   = "Proto.Gen"
-  , genStrictFields   = True
-  , genUnpackPrims    = True
-  , genDeriveGeneric  = True
-  , genDeriveNFData   = True
-  , genPackedRepeated = True
+  { genModulePrefix    = "Proto.Gen"
+  , genStrictFields    = True
+  , genUnpackPrims     = True
+  , genDeriveGeneric   = True
+  , genDeriveNFData    = True
+  , genPackedRepeated  = True
+  , genLazySubmessages = False
   }
 
 -- | Generate a complete Haskell module from a proto file.
@@ -71,12 +76,15 @@ genModuleHeader opts pf =
     , pretty ("{-# LANGUAGE DeriveAnyClass #-}" :: Text)
     , pretty ("{-# LANGUAGE DerivingStrategies #-}" :: Text)
     , pretty ("{-# LANGUAGE OverloadedStrings #-}" :: Text)
+    , pretty ("{-# LANGUAGE BangPatterns #-}" :: Text)
     , pretty ("module" :: Text) <+> pretty modName <+> pretty ("where" :: Text)
     ]
 
 genImports :: Doc ann
 genImports = vsep
   [ pretty ("import Data.ByteString (ByteString)" :: Text)
+  , pretty ("import qualified Data.ByteString as BS" :: Text)
+  , pretty ("import qualified Data.ByteString.Builder as B" :: Text)
   , pretty ("import Data.Int (Int32, Int64)" :: Text)
   , pretty ("import Data.Text (Text)" :: Text)
   , pretty ("import Data.Word (Word32, Word64)" :: Text)
@@ -87,6 +95,11 @@ genImports = vsep
   , pretty ("import Control.DeepSeq (NFData(..))" :: Text)
   , pretty ("import Proto.Encode" :: Text)
   , pretty ("import Proto.Decode" :: Text)
+  , pretty ("import Proto.Wire (Tag(..), WireType(..))" :: Text)
+  , pretty ("import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64," :: Text)
+  , pretty ("  putFloat, putDouble, putText, putByteString, putLengthDelimited," :: Text)
+  , pretty ("  putSVarint32, putSVarint64, putVarintSigned," :: Text)
+  , pretty ("  varintSize, tagSize, fieldMessageSize)" :: Text)
   ]
 
 genTopLevel :: TopLevel -> [Doc ann]
@@ -98,6 +111,8 @@ genTopLevel = \case
     , mempty
     , genEncodeInstance msg
     , mempty
+    , genMessageSizeInstance msg
+    , mempty
     , genDecodeInstance msg
     ]
   TLEnum ed ->
@@ -105,16 +120,15 @@ genTopLevel = \case
     , mempty
     , genEnumProtoInstance ed
     ]
-  TLService _svc -> []  -- service stubs could be generated here
+  TLService _svc -> []
   TLExtend _ _   -> []
   TLOption _     -> []
 
--- | Generate a default value instance for a message.
+-- | Generate a default value constructor for a message.
 genDefaultInstance :: MessageDef -> Doc ann
 genDefaultInstance msg =
   vsep
-    [ pretty ("-- | Default (zero) values for all fields." :: Text)
-    , pretty ("default" :: Text) <> pretty (hsTypeName (msgName msg)) <+> pretty ("::" :: Text) <+> pretty (hsTypeName (msgName msg))
+    [ pretty ("default" :: Text) <> pretty (hsTypeName (msgName msg)) <+> pretty ("::" :: Text) <+> pretty (hsTypeName (msgName msg))
     , pretty ("default" :: Text) <> pretty (hsTypeName (msgName msg)) <+> pretty ("=" :: Text) <+> pretty (hsTypeName (msgName msg))
     , indent 2 (genDefaultFields (msgElements msg))
     ]
@@ -152,12 +166,69 @@ genDefaultFields elems =
       SBytes  -> False
       _       -> True
 
--- | Generate proto-aware Enum instance for enums (mapping to specific int values).
+-- | Generate the MessageSize instance (two-pass optimization).
+genMessageSizeInstance :: MessageDef -> Doc ann
+genMessageSizeInstance msg =
+  vsep
+    [ pretty ("instance MessageSize" :: Text) <+> pretty (hsTypeName (msgName msg)) <+> pretty ("where" :: Text)
+    , indent 2 $ vsep
+        [ pretty ("messageSize msg =" :: Text)
+        , indent 2 $ vsep (intersperse (pretty ("+" :: Text)) (fmap (genFieldSizeExpr "msg") (extractFieldInfos (msgElements msg))))
+        ]
+    ]
+
+genFieldSizeExpr :: Text -> FieldInfo' -> Doc ann
+genFieldSizeExpr var fi =
+  let fn = T.pack (show (fi'FieldNum fi))
+      accessor = var <> "." <> hsFieldName (fi'Name fi)
+  in case fi'Label fi of
+    Just Repeated -> pretty ("(sizeRepeated " :: Text) <> pretty fn <+> pretty accessor <> pretty (")" :: Text)
+    Just Optional -> pretty ("(maybe 0 (\\v -> " :: Text) <> genSingleFieldSize fn "v" (fi'Type fi) <> pretty (") " :: Text) <> pretty accessor <> pretty (")" :: Text)
+    _ -> genSingleFieldSize fn accessor (fi'Type fi)
+
+genSingleFieldSize :: Text -> Text -> FieldType -> Doc ann
+genSingleFieldSize fn accessor = \case
+  FTScalar SDouble   -> pretty ("fieldDoubleSize " :: Text) <> pretty fn
+  FTScalar SFloat    -> pretty ("fieldFloatSize " :: Text) <> pretty fn
+  FTScalar SFixed32  -> pretty ("fieldFixed32Size " :: Text) <> pretty fn
+  FTScalar SFixed64  -> pretty ("fieldFixed64Size " :: Text) <> pretty fn
+  FTScalar SSFixed32 -> pretty ("fieldFixed32Size " :: Text) <> pretty fn
+  FTScalar SSFixed64 -> pretty ("fieldFixed64Size " :: Text) <> pretty fn
+  FTScalar SBool     -> pretty ("fieldBoolSize " :: Text) <> pretty fn
+  FTScalar SInt32    -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  FTScalar SInt64    -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  FTScalar SUInt32   -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  FTScalar SUInt64   -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty accessor
+  FTScalar SSInt32   -> pretty ("fieldSVarint32Size " :: Text) <> pretty fn <+> pretty accessor
+  FTScalar SSInt64   -> pretty ("fieldSVarint64Size " :: Text) <> pretty fn <+> pretty accessor
+  FTScalar SString   -> pretty ("fieldTextSize " :: Text) <> pretty fn <+> pretty accessor
+  FTScalar SBytes    -> pretty ("fieldBytesSize " :: Text) <> pretty fn <+> pretty accessor
+  FTNamed _          -> pretty ("fieldMessageSize " :: Text) <> pretty fn <+> pretty ("(messageSize " :: Text) <> pretty accessor <> pretty (")" :: Text)
+
+data FieldInfo' = FieldInfo'
+  { fi'Name     :: Text
+  , fi'FieldNum :: Int
+  , fi'Label    :: Maybe FieldLabel
+  , fi'Type     :: FieldType
+  }
+
+extractFieldInfos :: [MessageElement] -> [FieldInfo']
+extractFieldInfos = concatMap go
+  where
+    go = \case
+      MEField fd -> [FieldInfo'
+        { fi'Name     = fieldName fd
+        , fi'FieldNum = unFieldNumber (fieldNumber fd)
+        , fi'Label    = fieldLabel fd
+        , fi'Type     = fieldType fd
+        }]
+      _ -> []
+
+-- | Generate proto-aware Enum instance for enums.
 genEnumProtoInstance :: EnumDef -> Doc ann
 genEnumProtoInstance ed =
   vsep
-    [ pretty ("-- | Proto enum number mapping" :: Text)
-    , pretty ("toProtoEnum" :: Text) <> pretty (hsTypeName (enumName ed)) <+>
+    [ pretty ("toProtoEnum" :: Text) <> pretty (hsTypeName (enumName ed)) <+>
       pretty ("::" :: Text) <+> pretty (hsTypeName (enumName ed)) <+> pretty ("-> Int" :: Text)
     , vsep (fmap genToProto (enumValues ed))
     , mempty
