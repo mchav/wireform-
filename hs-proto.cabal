@@ -61,6 +61,11 @@ library
       Proto.SizedBuilder
       Proto.Church
       Proto.Message
+      Proto.TH
+      Proto.QQ
+      Proto.JSON
+      Proto.Merge
+      Proto.FieldPresence
       -- Well-known types (pre-generated)
       Proto.Google.Protobuf.Any
       Proto.Google.Protobuf.Timestamp
@@ -88,6 +93,7 @@ library
       , deepseq          >= 1.4    && < 1.6
       , template-haskell >= 2.19   && < 2.21
       , prettyprinter    >= 1.7    && < 1.8
+      , base16-bytestring >= 1.0  && < 1.1
 
     hs-source-dirs:   src
     default-language: GHC2021
@@ -196,6 +202,31 @@ executable example-codegen
     default-extensions:
       OverloadedStrings
       LambdaCase
+
+executable example-th
+    import:           warnings
+    main-is:          THExample.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-qq
+    import:           warnings
+    main-is:          QQExample.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
 
 executable hs-proto-bench
     import:           warnings
