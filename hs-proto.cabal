@@ -60,6 +60,7 @@ library
       Proto.CodeGen.Decode
       Proto.SizedBuilder
       Proto.Church
+      Proto.Message
       -- Well-known types (pre-generated)
       Proto.Google.Protobuf.Any
       Proto.Google.Protobuf.Timestamp
@@ -140,6 +141,61 @@ executable hs-proto-gen
     default-language: GHC2021
     default-extensions:
       OverloadedStrings
+
+executable example-basic
+    import:           warnings
+    main-is:          BasicEncodeDecode.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , deepseq
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-any
+    import:           warnings
+    main-is:          AnyExample.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , deepseq
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-wellknown
+    import:           warnings
+    main-is:          WellKnownTypes.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , containers
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-codegen
+    import:           warnings
+    main-is:          ProtoCodeGen.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , text
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+      LambdaCase
 
 executable hs-proto-bench
     import:           warnings

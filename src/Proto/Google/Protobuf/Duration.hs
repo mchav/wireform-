@@ -10,6 +10,7 @@ import Control.DeepSeq (NFData)
 
 import Proto.Encode
 import Proto.Decode
+import Proto.Message (IsMessage(..))
 import Proto.Wire (Tag (..))
 import Proto.Wire.Encode (fieldVarintSize)
 
@@ -46,3 +47,6 @@ instance MessageDecode Duration where
             2 -> do v <- getVarint; loop s (fromIntegral v)
             _ -> skipField wt >> loop s n
   {-# INLINE messageDecoder #-}
+
+instance IsMessage Duration where
+  messageTypeName _ = "google.protobuf.Duration"

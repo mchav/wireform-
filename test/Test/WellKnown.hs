@@ -1,9 +1,8 @@
 module Test.WellKnown (wellKnownTests) where
 
 import qualified Data.ByteString as BS
-import Data.Int (Int32, Int64)
+import Data.Proxy (Proxy(..))
 import qualified Data.Vector as V
-import Data.Word (Word64)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -51,12 +50,97 @@ wellKnownTests = testGroup "Well-Known Types"
       ]
 
   , testGroup "Any"
-      [ testProperty "roundtrip" $ property $ do
+      [ testProperty "raw Any roundtrip" $ property $ do
           tu <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
           v <- forAll $ Gen.bytes (Range.linear 0 200)
           let msg = Proto.Google.Protobuf.Any.Any tu v
               encoded = encodeMessage msg
           decodeMessage encoded === Right msg
+
+      , testProperty "packAny Timestamp roundtrip" $ property $ do
+          s <- forAll $ Gen.int64 (Range.linear 0 2000000000)
+          n <- forAll $ Gen.int32 (Range.linear 0 999999999)
+          let ts = Timestamp s n
+              packed = packAny ts
+          typeUrl packed === "type.googleapis.com/google.protobuf.Timestamp"
+          case unpackAny packed of
+            Just (Right decoded) -> decoded === ts
+            Just (Left err) -> do annotate (show err); failure
+            Nothing -> do annotate "type mismatch"; failure
+
+      , testProperty "packAny Duration roundtrip" $ property $ do
+          s <- forAll $ Gen.int64 (Range.linear 0 1000000)
+          n <- forAll $ Gen.int32 (Range.linear 0 999999999)
+          let dur = Duration s n
+              packed = packAny dur
+          case unpackAny packed of
+            Just (Right decoded) -> decoded === dur
+            _ -> failure
+
+      , testCase "packAny Empty" $ do
+          let packed = packAny Empty
+          typeUrl packed @?= "type.googleapis.com/google.protobuf.Empty"
+          case unpackAny packed of
+            Just (Right Empty) -> pure ()
+            other -> assertFailure ("Expected Just (Right Empty), got " <> show other)
+
+      , testCase "unpackAny type mismatch returns Nothing" $ do
+          let packed = packAny (Timestamp 100 0)
+          case unpackAny packed :: Maybe (Either DecodeError Duration) of
+            Nothing -> pure ()
+            Just _  -> assertFailure "Should not match Duration"
+
+      , testCase "isMessageType" $ do
+          let packed = packAny (Duration 60 0)
+          isMessageType (Proxy :: Proxy Duration) packed @?= True
+          isMessageType (Proxy :: Proxy Timestamp) packed @?= False
+
+      , testCase "typeNameFromUrl strips prefix" $ do
+          typeNameFromUrl "type.googleapis.com/google.protobuf.Timestamp"
+            @?= "google.protobuf.Timestamp"
+          typeNameFromUrl "mycompany.com/types/example.Foo"
+            @?= "example.Foo"
+          typeNameFromUrl "google.protobuf.Timestamp"
+            @?= "google.protobuf.Timestamp"
+
+      , testCase "packAnyWithPrefix custom prefix" $ do
+          let packed = packAnyWithPrefix "myhost/" (Timestamp 1 0)
+          typeUrl packed @?= "myhost/google.protobuf.Timestamp"
+          case unpackAny packed of
+            Just (Right ts) -> ts @?= Timestamp 1 0
+            _ -> assertFailure "Should unpack with any prefix"
+
+      , testCase "Any wire roundtrip preserves content" $ do
+          let ts = Timestamp 1234567890 500000000
+              packed = packAny ts
+              encodedAny = encodeMessage packed
+          case decodeMessage encodedAny of
+            Left err -> assertFailure (show err)
+            Right decodedAny -> case unpackAny decodedAny of
+              Just (Right (decoded :: Timestamp)) -> decoded @?= ts
+              _ -> assertFailure "Should unpack after wire roundtrip"
+
+      , testCase "TypeRegistry dynamic dispatch" $ do
+          let registry = registerType (Proxy :: Proxy Timestamp)
+                       . registerType (Proxy :: Proxy Duration)
+                       . registerType (Proxy :: Proxy Empty)
+                       $ emptyRegistry
+          case unpackAnyDynamic registry (packAny (Timestamp 42 0)) of
+            Just (Right (DynamicMessage msg)) -> show msg @?= "Timestamp {seconds = 42, nanos = 0}"
+            _ -> assertFailure "Should unpack Timestamp dynamically"
+          case unpackAnyDynamic registry (packAny (Duration 60 0)) of
+            Just (Right (DynamicMessage msg)) -> show msg @?= "Duration {seconds = 60, nanos = 0}"
+            _ -> assertFailure "Should unpack Duration dynamically"
+          case unpackAnyDynamic registry (packAny (Timestamp 1 0)) of
+            Just (Right _) -> pure ()
+            _ -> assertFailure "Should unpack"
+
+      , testCase "TypeRegistry unknown type returns Nothing" $ do
+          let registry = registerType (Proxy :: Proxy Timestamp) emptyRegistry
+              unknownAny = Proto.Google.Protobuf.Any.Any "type.googleapis.com/unknown.Type" ""
+          case unpackAnyDynamic registry unknownAny of
+            Nothing -> pure ()
+            Just _  -> assertFailure "Should return Nothing for unknown type"
       ]
 
   , testGroup "Empty"
