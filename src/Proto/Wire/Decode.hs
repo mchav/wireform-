@@ -59,6 +59,7 @@ import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import Control.DeepSeq (NFData(..))
 
 import Proto.Wire (Tag (..), WireType (..), decodeTag)
 
@@ -73,6 +74,17 @@ data DecodeError
   | SubMessageError !DecodeError
   | CustomError !String
   deriving stock (Show, Eq)
+
+instance NFData DecodeError where
+  rnf UnexpectedEnd = ()
+  rnf InvalidVarint = ()
+  rnf (InvalidTag w) = rnf w
+  rnf (InvalidWireType i) = rnf i
+  rnf InvalidUtf8 = ()
+  rnf NegativeLength = ()
+  rnf ExtraBytes = ()
+  rnf (SubMessageError e) = rnf e
+  rnf (CustomError s) = rnf s
 
 -- | Legacy result type, kept for compatibility with runDecoder'.
 data DecodeResult a

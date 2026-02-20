@@ -253,6 +253,35 @@ executable example-qq
     default-extensions:
       OverloadedStrings
 
+benchmark compare-bench
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    other-modules:    HsProtoTypes
+                    , Proto.Bench
+                    , Proto.Bench_Fields
+    build-depends:
+        base               >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+      , deepseq
+      , criterion          >= 1.5  && < 1.7
+      , proto-lens         >= 0.7  && < 0.8
+      , proto-lens-runtime >= 0.7  && < 0.8
+      , lens-family        >= 2.1  && < 2.2
+
+    hs-source-dirs:   compare-bench
+                    , compare-bench/gen
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      DeriveGeneric
+      DeriveAnyClass
+      OverloadedStrings
+
 executable hs-proto-bench
     import:           warnings
     main-is:          Main.hs

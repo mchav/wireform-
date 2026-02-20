@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package bench;
+
+// Small message for tight-loop benchmarking.
+message Small {
+  int64 id = 1;
+  string name = 2;
+  bool active = 3;
+}
+
+// Medium message with more field variety.
+message Medium {
+  string title = 1;
+  int32 count = 2;
+  double score = 3;
+  bytes payload = 4;
+  bool enabled = 5;
+  int64 timestamp = 6;
+  string description = 7;
+  float ratio = 8;
+}
+
+// Message with a submessage for nested encode/decode benchmarking.
+message WithNested {
+  int64 id = 1;
+  Small inner = 2;
+  string label = 3;
+}
+
+// Message with repeated fields.
+message WithRepeated {
+  repeated int32 values = 1;
+  repeated string tags = 2;
+  repeated Small items = 3;
+}
