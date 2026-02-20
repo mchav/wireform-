@@ -19,6 +19,8 @@ import Proto.Wire.Encode
 import Proto.Wire.Decode
 import Proto.Encode
 import Proto.Decode
+import qualified Proto.SizedBuilder as SB
+import Proto.Church
 
 roundtripTests :: TestTree
 roundtripTests = testGroup "Roundtrip Encoding/Decoding"
@@ -295,6 +297,59 @@ roundtripTests = testGroup "Roundtrip Encoding/Decoding"
           let tagVal = fromIntegral fn * 8
               encoded = buildToBS (putVarint tagVal)
           BS.length encoded === tagSize fn
+      ]
+
+  , testGroup "SizedBuilder (fused size+builder)"
+      [ testProperty "sizedFieldVarint size matches" $ property $ do
+          fn <- forAll $ Gen.int (Range.linear 1 100)
+          val <- forAll $ Gen.word64 (Range.linear 0 maxBound)
+          let sb = sizedFieldVarint fn val
+              bs = SB.toByteString sb
+          BS.length bs === SB.size sb
+
+      , testProperty "sizedFieldString size matches" $ property $ do
+          fn <- forAll $ Gen.int (Range.linear 1 100)
+          t <- forAll $ Gen.text (Range.linear 0 200) Gen.alphaNum
+          let sb = sizedFieldString fn t
+              bs = SB.toByteString sb
+          BS.length bs === SB.size sb
+
+      , testProperty "sizedFieldMessage size matches" $ property $ do
+          val <- forAll $ Gen.word64 (Range.linear 0 1000)
+          name <- forAll $ Gen.text (Range.linear 0 50) Gen.alphaNum
+          let innerSB = sizedFieldVarint 1 val <> sizedFieldString 2 name
+              outerSB = sizedFieldMessage 1 innerSB
+              bs = SB.toByteString outerSB
+          BS.length bs === SB.size outerSB
+
+      , testProperty "sizedFieldBool size matches" $ property $ do
+          fn <- forAll $ Gen.int (Range.linear 1 100)
+          b <- forAll $ Gen.bool
+          let sb = sizedFieldBool fn b
+              bs = SB.toByteString sb
+          BS.length bs === SB.size sb
+
+      , testProperty "sizedFieldDouble size matches" $ property $ do
+          fn <- forAll $ Gen.int (Range.linear 1 100)
+          d <- forAll $ Gen.double (Range.linearFrac (-1e100) 1e100)
+          let sb = sizedFieldDouble fn d
+              bs = SB.toByteString sb
+          BS.length bs === SB.size sb
+      ]
+
+  , testGroup "Church-encoded accumulation"
+      [ testCase "DList accumulation" $ do
+          let dl = foldl snocDList emptyDList [1 :: Int, 2, 3, 4, 5]
+          dlistToList dl @?= [1, 2, 3, 4, 5]
+
+      , testCase "ChurchList accumulation" $ do
+          let cl = foldl snocChurchList emptyChurchList [1 :: Int, 2, 3, 4, 5]
+          churchListToList cl @?= [1, 2, 3, 4, 5]
+
+      , testProperty "DList preserves order" $ property $ do
+          xs <- forAll $ Gen.list (Range.linear 0 100) (Gen.int (Range.linear 0 1000))
+          let dl = foldl snocDList emptyDList xs
+          dlistToList dl === xs
       ]
   ]
 

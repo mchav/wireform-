@@ -48,6 +48,19 @@ module Proto.Encode
 
     -- * Raw builders
   , messageToByteString
+
+    -- * SizedBuilder-based encoding (fused size+builder)
+  , sizedFieldVarint
+  , sizedFieldSVarint32
+  , sizedFieldSVarint64
+  , sizedFieldFixed32
+  , sizedFieldFixed64
+  , sizedFieldFloat
+  , sizedFieldDouble
+  , sizedFieldBool
+  , sizedFieldString
+  , sizedFieldBytes
+  , sizedFieldMessage
   ) where
 
 import Data.ByteString (ByteString)
@@ -60,6 +73,7 @@ import Data.Text (Text)
 
 import Proto.Wire (WireType (..))
 import Proto.Wire.Encode
+import Proto.SizedBuilder (SizedBuilder, sized, withSubMessage)
 
 -- | Typeclass for types that can be encoded as protobuf messages.
 class MessageEncode a where
@@ -271,3 +285,76 @@ encodeMapFieldSized fn entrySz keyEnc valEnc =
   putVarint (fromIntegral entrySz) <>
   keyEnc <> valEnc
 {-# INLINE encodeMapFieldSized #-}
+
+-- SizedBuilder-based field encoders: compute size and builder in one pass.
+-- These are the Church-encoded (fused) versions of the two-pass approach.
+
+-- | Encode a varint field, producing a SizedBuilder.
+sizedFieldVarint :: Int -> Word64 -> SizedBuilder
+sizedFieldVarint fn val =
+  sized (fieldVarintSize fn val) (putTag fn WireVarint <> putVarint val)
+{-# INLINE sizedFieldVarint #-}
+
+-- | Encode a sint32 field, producing a SizedBuilder.
+sizedFieldSVarint32 :: Int -> Int32 -> SizedBuilder
+sizedFieldSVarint32 fn val =
+  sized (fieldSVarint32Size fn val) (putTag fn WireVarint <> putSVarint32 val)
+{-# INLINE sizedFieldSVarint32 #-}
+
+-- | Encode a sint64 field, producing a SizedBuilder.
+sizedFieldSVarint64 :: Int -> Int64 -> SizedBuilder
+sizedFieldSVarint64 fn val =
+  sized (fieldSVarint64Size fn val) (putTag fn WireVarint <> putSVarint64 val)
+{-# INLINE sizedFieldSVarint64 #-}
+
+-- | Encode a fixed32 field, producing a SizedBuilder.
+sizedFieldFixed32 :: Int -> Word32 -> SizedBuilder
+sizedFieldFixed32 fn val =
+  sized (fieldFixed32Size fn) (putTag fn Wire32Bit <> putFixed32 val)
+{-# INLINE sizedFieldFixed32 #-}
+
+-- | Encode a fixed64 field, producing a SizedBuilder.
+sizedFieldFixed64 :: Int -> Word64 -> SizedBuilder
+sizedFieldFixed64 fn val =
+  sized (fieldFixed64Size fn) (putTag fn Wire64Bit <> putFixed64 val)
+{-# INLINE sizedFieldFixed64 #-}
+
+-- | Encode a float field, producing a SizedBuilder.
+sizedFieldFloat :: Int -> Float -> SizedBuilder
+sizedFieldFloat fn val =
+  sized (fieldFloatSize fn) (putTag fn Wire32Bit <> putFloat val)
+{-# INLINE sizedFieldFloat #-}
+
+-- | Encode a double field, producing a SizedBuilder.
+sizedFieldDouble :: Int -> Double -> SizedBuilder
+sizedFieldDouble fn val =
+  sized (fieldDoubleSize fn) (putTag fn Wire64Bit <> putDouble val)
+{-# INLINE sizedFieldDouble #-}
+
+-- | Encode a bool field, producing a SizedBuilder.
+sizedFieldBool :: Int -> Bool -> SizedBuilder
+sizedFieldBool fn val =
+  sized (fieldBoolSize fn) (putTag fn WireVarint <> putVarint (if val then 1 else 0))
+{-# INLINE sizedFieldBool #-}
+
+-- | Encode a string field, producing a SizedBuilder.
+sizedFieldString :: Int -> Text -> SizedBuilder
+sizedFieldString fn val =
+  sized (fieldTextSize fn val) (putTag fn WireLengthDelimited <> putText val)
+{-# INLINE sizedFieldString #-}
+
+-- | Encode a bytes field, producing a SizedBuilder.
+sizedFieldBytes :: Int -> ByteString -> SizedBuilder
+sizedFieldBytes fn val =
+  sized (fieldBytesSize fn val) (putTag fn WireLengthDelimited <> putByteString val)
+{-# INLINE sizedFieldBytes #-}
+
+-- | Encode a submessage field using SizedBuilder (fully fused, no materialization).
+-- The submessage is provided as a SizedBuilder, which already knows its size.
+-- This means we never allocate a ByteString for the submessage — just prepend
+-- the tag and length prefix.
+sizedFieldMessage :: Int -> SizedBuilder -> SizedBuilder
+sizedFieldMessage fn submsg =
+  let tagSB = sized (tagSize fn) (putTag fn WireLengthDelimited)
+  in tagSB <> withSubMessage submsg
+{-# INLINE sizedFieldMessage #-}
