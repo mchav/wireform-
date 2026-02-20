@@ -91,8 +91,8 @@ intLiteral :: Parser Integer
 intLiteral = lexeme $ do
   sign <- option id (negate <$ char '-')
   n <- choice
-    [ char '0' *> char' 'x' *> L.hexadecimal
-    , char '0' *> octalNum
+    [ try (char '0' *> char' 'x') *> L.hexadecimal
+    , try (char '0' *> octalNum)
     , L.decimal
     ]
   pure (sign n)

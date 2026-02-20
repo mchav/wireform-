@@ -184,20 +184,19 @@ snakeToCamel t =
   let parts = T.splitOn (T.singleton '_') t
   in case parts of
     []     -> t
-    (p:ps) -> T.concat (toLowerFirst p : fmap capitalize ps)
-  where
-    capitalize s = case T.uncons s of
-      Just (c, rest) -> T.cons (toUpper c) rest
-      Nothing        -> s
-    toLowerFirst s = case T.uncons s of
-      Just (c, rest) -> T.cons (toLower c) rest
-      Nothing        -> s
+    (p:ps) -> T.concat (titleLowerFirst p : fmap titleCase ps)
 
 snakeToPascal :: Text -> Text
 snakeToPascal t =
   let parts = T.splitOn (T.singleton '_') t
-  in T.concat (fmap capitalize parts)
-  where
-    capitalize s = case T.uncons s of
-      Just (c, rest) -> T.cons (toUpper c) rest
-      Nothing        -> s
+  in T.concat (fmap titleCase parts)
+
+titleCase :: Text -> Text
+titleCase s = case T.uncons s of
+  Just (c, rest) -> T.cons (toUpper c) (T.toLower rest)
+  Nothing        -> s
+
+titleLowerFirst :: Text -> Text
+titleLowerFirst s = case T.uncons s of
+  Just (c, rest) -> T.cons (toLower c) (T.toLower rest)
+  Nothing        -> s

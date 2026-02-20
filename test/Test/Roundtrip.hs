@@ -1,0 +1,291 @@
+module Test.Roundtrip (roundtripTests) where
+
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as BL
+import Data.Text (Text)
+import qualified Data.Vector.Unboxed as VU
+import Data.Word (Word64)
+import Hedgehog
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
+import Test.Tasty
+import Test.Tasty.HUnit hiding (assert)
+import Test.Tasty.Hedgehog
+
+import Proto.Wire (Tag (..), WireType (..))
+import Proto.Wire.Encode
+import Proto.Wire.Decode
+import Proto.Encode
+import Proto.Decode
+
+roundtripTests :: TestTree
+roundtripTests = testGroup "Roundtrip Encoding/Decoding"
+  [ testGroup "Hand-crafted message roundtrip"
+      [ testCase "simple message encode/decode" $ do
+          let encoded = buildToBS $
+                putTag 1 WireVarint <> putVarint 42 <>
+                putTag 2 WireLengthDelimited <> putText "hello" <>
+                putTag 3 WireVarint <> putVarint 1  -- bool true
+
+          case runDecoder decodeSimpleMsg encoded of
+            Left e -> assertFailure (show e)
+            Right (val, name, active) -> do
+              val @?= 42
+              name @?= "hello"
+              active @?= True
+
+      , testCase "message with missing optional fields" $ do
+          let encoded = buildToBS $
+                putTag 1 WireVarint <> putVarint 99
+
+          case runDecoder decodeSimpleMsgDefaults encoded of
+            Left e -> assertFailure (show e)
+            Right (val, name, active) -> do
+              val @?= 99
+              name @?= ""
+              active @?= False
+
+      , testCase "message with unknown fields" $ do
+          let encoded = buildToBS $
+                putTag 1 WireVarint <> putVarint 42 <>
+                putTag 99 WireVarint <> putVarint 999 <>
+                putTag 2 WireLengthDelimited <> putText "hello" <>
+                putTag 100 Wire32Bit <> putFixed32 0 <>
+                putTag 3 WireVarint <> putVarint 1
+
+          case runDecoder decodeSimpleMsg encoded of
+            Left e -> assertFailure (show e)
+            Right (val, name, active) -> do
+              val @?= 42
+              name @?= "hello"
+              active @?= True
+
+      , testCase "message with repeated field" $ do
+          let encoded = buildToBS $
+                putTag 1 WireVarint <> putVarint 1 <>
+                putTag 1 WireVarint <> putVarint 2 <>
+                putTag 1 WireVarint <> putVarint 3
+
+          case runDecoder decodeRepeatedMsg encoded of
+            Left e -> assertFailure (show e)
+            Right vals -> vals @?= [1, 2, 3]
+
+      , testCase "packed repeated field" $ do
+          let payload = buildToBS (putVarint 10 <> putVarint 20 <> putVarint 30)
+              encoded = buildToBS $
+                putTag 1 WireLengthDelimited <> putLengthDelimited payload
+
+          case runDecoder decodePackedRepeatedMsg encoded of
+            Left e -> assertFailure (show e)
+            Right vals -> VU.toList vals @?= [10, 20, 30]
+
+      , testCase "nested message encode/decode" $ do
+          let innerPayload = buildToBS $
+                putTag 1 WireLengthDelimited <> putText "inner value"
+              encoded = buildToBS $
+                putTag 1 WireVarint <> putVarint 1 <>
+                putTag 2 WireLengthDelimited <> putLengthDelimited innerPayload
+
+          case runDecoder decodeNestedMsg encoded of
+            Left e -> assertFailure (show e)
+            Right (outerVal, innerText) -> do
+              outerVal @?= 1
+              innerText @?= "inner value"
+      ]
+
+  , testGroup "Field type roundtrips"
+      [ testProperty "int32 field roundtrip" $ property $ do
+          n <- forAll $ Gen.int32 Range.linearBounded
+          let encoded = buildToBS $ putTag 1 WireVarint <> putVarintSigned (fromIntegral n)
+          case runDecoder (getTag >> getVarintSigned) encoded of
+            Left e -> do
+              annotate (show e)
+              failure
+            Right v -> fromIntegral v === n
+
+      , testProperty "fixed32 field roundtrip" $ property $ do
+          n <- forAll $ Gen.word32 Range.linearBounded
+          let encoded = buildToBS $ putTag 1 Wire32Bit <> putFixed32 n
+          case runDecoder (getTag >> getFixed32) encoded of
+            Left e -> do
+              annotate (show e)
+              failure
+            Right v -> v === n
+
+      , testProperty "string field roundtrip" $ property $ do
+          t <- forAll $ Gen.text (Range.linear 0 500) Gen.unicode
+          let encoded = buildToBS $ putTag 1 WireLengthDelimited <> putText t
+          case runDecoder (getTag >> getText) encoded of
+            Left e -> do
+              annotate (show e)
+              failure
+            Right v -> v === t
+
+      , testProperty "bytes field roundtrip" $ property $ do
+          bs <- forAll $ Gen.bytes (Range.linear 0 500)
+          let encoded = buildToBS $ putTag 1 WireLengthDelimited <> putByteString bs
+          case runDecoder (getTag >> getByteString) encoded of
+            Left e -> do
+              annotate (show e)
+              failure
+            Right v -> v === bs
+      ]
+
+  , testGroup "Multi-field message roundtrip"
+      [ testProperty "multi-field roundtrip" $ property $ do
+          v1 <- forAll $ Gen.word64 (Range.linear 0 maxBound)
+          v2 <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
+          v3 <- forAll $ Gen.bool
+          v4 <- forAll $ Gen.double (Range.linearFrac (-1e10) 1e10)
+
+          let encoded = buildToBS $
+                putTag 1 WireVarint <> putVarint v1 <>
+                putTag 2 WireLengthDelimited <> putText v2 <>
+                putTag 3 WireVarint <> putVarint (if v3 then 1 else 0) <>
+                putTag 4 Wire64Bit <> putDouble v4
+
+          case runDecoder (decodeMultiField v1 v2 v3 v4) encoded of
+            Left e -> do
+              annotate (show e)
+              failure
+            Right () -> success
+      ]
+
+  , testGroup "Packed encoding helpers"
+      [ testProperty "packed varint roundtrip" $ property $ do
+          vals <- forAll $ Gen.list (Range.linear 0 50) (Gen.word64 (Range.linear 0 maxBound))
+          let vec = VU.fromList vals
+              encoded = buildToBS (encodePackedVarint 1 vec)
+          if VU.null vec
+            then assert (BS.null encoded)
+            else case runDecoder (getTag >> decodePackedVarint) encoded of
+              Left e -> do
+                annotate (show e)
+                failure
+              Right decoded -> VU.toList decoded === vals
+
+      , testProperty "packed fixed32 roundtrip" $ property $ do
+          vals <- forAll $ Gen.list (Range.linear 0 50) (Gen.word32 Range.linearBounded)
+          let vec = VU.fromList vals
+              encoded = buildToBS (encodePackedFixed32 1 vec)
+          if VU.null vec
+            then assert (BS.null encoded)
+            else case runDecoder (getTag >> decodePackedFixed32) encoded of
+              Left e -> do
+                annotate (show e)
+                failure
+              Right decoded -> VU.toList decoded === vals
+
+      , testProperty "packed double roundtrip" $ property $ do
+          vals <- forAll $ Gen.list (Range.linear 0 50) (Gen.double (Range.linearFrac (-1e100) 1e100))
+          let vec = VU.fromList vals
+              encoded = buildToBS (encodePackedDouble 1 vec)
+          if VU.null vec
+            then assert (BS.null encoded)
+            else case runDecoder (getTag >> decodePackedDouble) encoded of
+              Left e -> do
+                annotate (show e)
+                failure
+              Right decoded -> VU.toList decoded === vals
+      ]
+  ]
+
+-- Hand-rolled decoders to test the decoding infrastructure
+
+decodeSimpleMsg :: Decoder (Word64, Text, Bool)
+decodeSimpleMsg = loop 0 "" False
+  where
+    loop !val !name !active = do
+      mt <- getTagOr
+      case mt of
+        Nothing -> pure (val, name, active)
+        Just (Tag fn wt) -> case fn of
+          1 -> getVarint >>= \v -> loop v name active
+          2 -> getText >>= \v -> loop val v active
+          3 -> getVarint >>= \v -> loop val name (v /= 0)
+          _ -> skipField wt >> loop val name active
+
+decodeSimpleMsgDefaults :: Decoder (Word64, Text, Bool)
+decodeSimpleMsgDefaults = loop 0 "" False
+  where
+    loop !val !name !active = do
+      mt <- getTagOr
+      case mt of
+        Nothing -> pure (val, name, active)
+        Just (Tag fn wt) -> case fn of
+          1 -> getVarint >>= \v -> loop v name active
+          2 -> getText >>= \v -> loop val v active
+          3 -> getVarint >>= \v -> loop val name (v /= 0)
+          _ -> skipField wt >> loop val name active
+
+decodeRepeatedMsg :: Decoder [Word64]
+decodeRepeatedMsg = loop []
+  where
+    loop !acc = do
+      mt <- getTagOr
+      case mt of
+        Nothing -> pure (reverse acc)
+        Just (Tag fn wt) -> case fn of
+          1 -> getVarint >>= \v -> loop (v : acc)
+          _ -> skipField wt >> loop acc
+
+decodePackedRepeatedMsg :: Decoder (VU.Vector Word64)
+decodePackedRepeatedMsg = do
+  mt <- getTagOr
+  case mt of
+    Nothing -> pure VU.empty
+    Just (Tag 1 WireLengthDelimited) -> decodePackedVarint
+    Just (Tag _ wt) -> skipField wt >> decodePackedRepeatedMsg
+
+decodeNestedMsg :: Decoder (Word64, Text)
+decodeNestedMsg = loop 0 ""
+  where
+    loop !outerVal !innerText = do
+      mt <- getTagOr
+      case mt of
+        Nothing -> pure (outerVal, innerText)
+        Just (Tag fn wt) -> case fn of
+          1 -> getVarint >>= \v -> loop v innerText
+          2 -> do
+            bs <- getLengthDelimited
+            case runDecoder decodeInner bs of
+              Left e -> Decoder $ \_ _ -> DecodeFail (SubMessageError e)
+              Right t -> loop outerVal t
+          _ -> skipField wt >> loop outerVal innerText
+
+    decodeInner = loop' ""
+      where
+        loop' !t = do
+          mt <- getTagOr
+          case mt of
+            Nothing -> pure t
+            Just (Tag fn wt) -> case fn of
+              1 -> getText >>= \v -> loop' v
+              _ -> skipField wt >> loop' t
+
+decodeMultiField :: Word64 -> Text -> Bool -> Double -> Decoder ()
+decodeMultiField expV1 expV2 expV3 expV4 = do
+  _tag1 <- getTag
+  v1 <- getVarint
+  checkEq v1 expV1 "v1 mismatch"
+  _tag2 <- getTag
+  v2 <- getText
+  checkEq v2 expV2 "v2 mismatch"
+  _tag3 <- getTag
+  v3raw <- getVarint
+  let v3 = v3raw /= 0
+  checkEq v3 expV3 "v3 mismatch"
+  _tag4 <- getTag
+  v4 <- getDouble
+  checkEq v4 expV4 "v4 mismatch"
+  where
+    checkEq :: Eq a => a -> a -> String -> Decoder ()
+    checkEq actual expected msg =
+      if actual == expected
+        then pure ()
+        else Decoder $ \_ _ -> DecodeFail (CustomError msg)
+
+buildToBS :: B.Builder -> ByteString
+buildToBS = BL.toStrict . B.toLazyByteString
