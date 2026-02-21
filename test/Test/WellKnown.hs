@@ -12,6 +12,7 @@ import Test.Tasty.Hedgehog
 
 import Proto.Encode
 import Proto.Decode
+import Proto.JSON (protoToJSON, JsonValue(..))
 import Proto.Google.Protobuf.Timestamp
 import Proto.Google.Protobuf.Duration
 import Proto.Google.Protobuf.Any
@@ -41,6 +42,18 @@ wellKnownTests = testGroup "Well-Known Types"
       , testCase "sized encoding matches" $ do
           let msg = defaultTimestamp { timestampSeconds = 1234567890, timestampNanos = 123456789 }
           BS.length (encodeMessage msg) @?= messageSize msg
+
+      , testCase "JSON canonical RFC 3339" $ do
+          let msg = defaultTimestamp { timestampSeconds = 1708000000, timestampNanos = 0 }
+          protoToJSON msg @?= JsonString "2024-02-15T12:26:40Z"
+
+      , testCase "JSON with nanos" $ do
+          let msg = defaultTimestamp { timestampSeconds = 0, timestampNanos = 123456789 }
+          protoToJSON msg @?= JsonString "1970-01-01T00:00:00.123456789Z"
+
+      , testCase "JSON nanos trailing zeros trimmed" $ do
+          let msg = defaultTimestamp { timestampSeconds = 0, timestampNanos = 100000000 }
+          protoToJSON msg @?= JsonString "1970-01-01T00:00:00.1Z"
       ]
 
   , testGroup "Duration"
@@ -50,6 +63,18 @@ wellKnownTests = testGroup "Well-Known Types"
           let msg = defaultDuration { durationSeconds = s, durationNanos = n }
               encoded = encodeMessage msg
           decodeMessage encoded === Right msg
+
+      , testCase "JSON canonical seconds" $ do
+          let msg = defaultDuration { durationSeconds = 3600, durationNanos = 0 }
+          protoToJSON msg @?= JsonString "3600s"
+
+      , testCase "JSON with nanos" $ do
+          let msg = defaultDuration { durationSeconds = 1, durationNanos = 500000000 }
+          protoToJSON msg @?= JsonString "1.5s"
+
+      , testCase "JSON negative" $ do
+          let msg = defaultDuration { durationSeconds = -1, durationNanos = -500000000 }
+          protoToJSON msg @?= JsonString "-1.5s"
       ]
 
   , testGroup "Any"

@@ -75,10 +75,16 @@ instance MessageDecode Duration where
             _ -> skipField wt >> loop acc_0 acc_1
 
 instance ProtoToJSON Duration where
-  protoToJSON msg = jsonObject
-      [ "seconds" .= msg.durationSeconds
-      , "nanos" .= msg.durationNanos
-      ]
+  protoToJSON msg =
+    let s = msg.durationSeconds
+        n = msg.durationNanos
+        nanoStr = if n == 0 then T.pack "" else T.pack "." <> dropTrailingZeros (pad9 (abs (fromIntegral n)))
+        dropTrailingZeros t = case T.stripSuffix (T.pack "0") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }
+        pad9 x = let sx = T.pack (show x) in T.replicate (9 - T.length sx) (T.pack "0") <> sx
+        sign = if s < 0 || n < 0 then T.pack "-" else T.pack ""
+    in JsonString (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack "s")
+
 
 instance ProtoFromJSON Duration where
-  protoFromJSON _ = Right defaultDuration
+  protoFromJSON (JsonString _) = Right defaultDuration
+  protoFromJSON _ = Left "Expected duration string like \"3.5s\""

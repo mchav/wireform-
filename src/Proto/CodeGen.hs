@@ -12,6 +12,8 @@ module Proto.CodeGen
   , generateModuleText
   , GenerateOpts (..)
   , defaultGenerateOpts
+  , JsonOverride (..)
+  , defaultJsonOverrides
   , TypeRegistry
   , TypeInfo (..)
   , TypeKind (..)
@@ -52,6 +54,15 @@ data GenerateOpts = GenerateOpts
   , genDeriveNFData    :: Bool
   , genPackedRepeated  :: Bool
   , genLazySubmessages :: Bool
+  , genJsonOverrides   :: Map Text JsonOverride
+  }
+
+-- | Custom JSON instance override for a specific FQ proto message name.
+-- When present, the code generator emits the provided Haskell source text
+-- instead of the generic JSON instances.
+data JsonOverride = JsonOverride
+  { joToJSON   :: Text
+  , joFromJSON :: Text
   } deriving stock (Show, Eq)
 
 defaultGenerateOpts :: GenerateOpts
@@ -63,7 +74,62 @@ defaultGenerateOpts = GenerateOpts
   , genDeriveNFData    = True
   , genPackedRepeated  = True
   , genLazySubmessages = False
+  , genJsonOverrides   = defaultJsonOverrides
   }
+
+-- | Built-in JSON overrides for well-known types that require canonical
+-- proto3 JSON representations.
+defaultJsonOverrides :: Map Text JsonOverride
+defaultJsonOverrides = Map.fromList
+  [ ("google.protobuf.Timestamp", JsonOverride
+      { joToJSON   = T.unlines
+          [ "  protoToJSON msg ="
+          , "    let s = msg.timestampSeconds"
+          , "        n = msg.timestampNanos"
+          , "        (rawDays, remSec) = s `divMod` 86400"
+          , "        (hours, remH) = remSec `divMod` 3600"
+          , "        (mins, secs) = remH `divMod` 60"
+          , "        z = rawDays + 719468"
+          , "        era = (if z >= 0 then z else z - 146096) `div` 146097"
+          , "        doe = z - era * 146097"
+          , "        yoe = (doe - doe `div` 1460 + doe `div` 36524 - doe `div` 146096) `div` 365"
+          , "        y = yoe + era * 400"
+          , "        doy = doe - (365 * yoe + yoe `div` 4 - yoe `div` 100)"
+          , "        mp = (5 * doy + 2) `div` 153"
+          , "        d = doy - (153 * mp + 2) `div` 5 + 1"
+          , "        m = mp + (if mp < 10 then 3 else -9)"
+          , "        y' = y + (if m <= 2 then 1 else 0)"
+          , "        pad2 x = let sx = T.pack (show (abs x)) in if T.length sx < 2 then T.pack \"0\" <> sx else sx"
+          , "        pad4 x = let sx = T.pack (show (abs x)) in T.replicate (4 - T.length sx) (T.pack \"0\") <> sx"
+          , "        pad9 x = let sx = T.pack (show (abs x)) in T.replicate (9 - T.length sx) (T.pack \"0\") <> sx"
+          , "        nanoStr = if n == 0 then T.pack \"\" else T.pack \".\" <> dropTrailingZeros (pad9 (fromIntegral n))"
+          , "        dropTrailingZeros t = case T.stripSuffix (T.pack \"0\") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }"
+          , "    in JsonString (pad4 y' <> T.pack \"-\" <> pad2 (fromIntegral m) <> T.pack \"-\" <> pad2 (fromIntegral d)"
+          , "         <> T.pack \"T\" <> pad2 hours <> T.pack \":\" <> pad2 mins <> T.pack \":\" <> pad2 secs"
+          , "         <> nanoStr <> T.pack \"Z\")"
+          ]
+      , joFromJSON = T.unlines
+          [ "  protoFromJSON (JsonString _) = Right defaultTimestamp"
+          , "  protoFromJSON _ = Left \"Expected RFC 3339 timestamp string\""
+          ]
+      })
+  , ("google.protobuf.Duration", JsonOverride
+      { joToJSON   = T.unlines
+          [ "  protoToJSON msg ="
+          , "    let s = msg.durationSeconds"
+          , "        n = msg.durationNanos"
+          , "        nanoStr = if n == 0 then T.pack \"\" else T.pack \".\" <> dropTrailingZeros (pad9 (abs (fromIntegral n)))"
+          , "        dropTrailingZeros t = case T.stripSuffix (T.pack \"0\") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }"
+          , "        pad9 x = let sx = T.pack (show x) in T.replicate (9 - T.length sx) (T.pack \"0\") <> sx"
+          , "        sign = if s < 0 || n < 0 then T.pack \"-\" else T.pack \"\""
+          , "    in JsonString (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack \"s\")"
+          ]
+      , joFromJSON = T.unlines
+          [ "  protoFromJSON (JsonString _) = Right defaultDuration"
+          , "  protoFromJSON _ = Left \"Expected duration string like \\\"3.5s\\\"\""
+          ]
+      })
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Type registry: maps fully-qualified proto names to Haskell type info
@@ -983,20 +1049,28 @@ mapValDefaultLit ctx = \case
 genToJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genToJSONInstance ctx scope msg =
   let tyN = scopedTypeName scope
-      fields = extractAllFieldsJSON ctx scope (msgElements msg)
-  in vsep
-    [ pretty ("instance ProtoToJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
-    , indent 2 $ vsep
-        [ pretty ("protoToJSON msg = jsonObject" :: Text)
-        , indent 4 $ case fields of
-            [] -> pretty ("[]" :: Text)
-            _ -> vsep
-              [ pretty ("[ " :: Text) <> head (fmap (genToJSONField ctx) fields)
-              , vsep (fmap (\f -> pretty (", " :: Text) <> genToJSONField ctx f) (tail fields))
-              , pretty ("]" :: Text)
-              ]
+      fqn = fqProtoName (gcPkg ctx) scope
+      overrides = genJsonOverrides (gcOpts ctx)
+  in case Map.lookup fqn overrides of
+    Just jo -> vsep
+      [ pretty ("instance ProtoToJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+      , pretty (joToJSON jo)
+      ]
+    Nothing ->
+      let fields = extractAllFieldsJSON ctx scope (msgElements msg)
+      in vsep
+        [ pretty ("instance ProtoToJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+        , indent 2 $ vsep
+            [ pretty ("protoToJSON msg = jsonObject" :: Text)
+            , indent 4 $ case fields of
+                [] -> pretty ("[]" :: Text)
+                _ -> vsep
+                  [ pretty ("[ " :: Text) <> head (fmap (genToJSONField ctx) fields)
+                  , vsep (fmap (\f -> pretty (", " :: Text) <> genToJSONField ctx f) (tail fields))
+                  , pretty ("]" :: Text)
+                  ]
+            ]
         ]
-    ]
 
 genToJSONField :: GenCtx -> JSONFieldInfo -> Doc ann
 genToJSONField ctx jfi =
@@ -1005,12 +1079,26 @@ genToJSONField ctx jfi =
 genFromJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genFromJSONInstance ctx scope msg =
   let tyN = scopedTypeName scope
-  in vsep
-    [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
-    , indent 2 $ vsep
-        [ pretty ("protoFromJSON _ = Right default" :: Text) <> pretty tyN
-        ]
-    ]
+      fqn = fqProtoName (gcPkg ctx) scope
+      overrides = genJsonOverrides (gcOpts ctx)
+  in case Map.lookup fqn overrides of
+    Just jo -> vsep
+      [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+      , pretty (joFromJSON jo)
+      ]
+    Nothing -> vsep
+      [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+      , indent 2 $ vsep
+          [ pretty ("protoFromJSON _ = Right default" :: Text) <> pretty tyN
+          ]
+      ]
+
+fqProtoName :: Maybe Text -> [Text] -> Text
+fqProtoName pkg scope =
+  let msgName = T.intercalate "." scope
+  in case pkg of
+    Just p  -> p <> "." <> msgName
+    Nothing -> msgName
 
 -- ---------------------------------------------------------------------------
 -- Field extraction (unified)

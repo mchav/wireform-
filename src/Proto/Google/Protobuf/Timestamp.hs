@@ -75,10 +75,32 @@ instance MessageDecode Timestamp where
             _ -> skipField wt >> loop acc_0 acc_1
 
 instance ProtoToJSON Timestamp where
-  protoToJSON msg = jsonObject
-      [ "seconds" .= msg.timestampSeconds
-      , "nanos" .= msg.timestampNanos
-      ]
+  protoToJSON msg =
+    let s = msg.timestampSeconds
+        n = msg.timestampNanos
+        (rawDays, remSec) = s `divMod` 86400
+        (hours, remH) = remSec `divMod` 3600
+        (mins, secs) = remH `divMod` 60
+        z = rawDays + 719468
+        era = (if z >= 0 then z else z - 146096) `div` 146097
+        doe = z - era * 146097
+        yoe = (doe - doe `div` 1460 + doe `div` 36524 - doe `div` 146096) `div` 365
+        y = yoe + era * 400
+        doy = doe - (365 * yoe + yoe `div` 4 - yoe `div` 100)
+        mp = (5 * doy + 2) `div` 153
+        d = doy - (153 * mp + 2) `div` 5 + 1
+        m = mp + (if mp < 10 then 3 else -9)
+        y' = y + (if m <= 2 then 1 else 0)
+        pad2 x = let sx = T.pack (show (abs x)) in if T.length sx < 2 then T.pack "0" <> sx else sx
+        pad4 x = let sx = T.pack (show (abs x)) in T.replicate (4 - T.length sx) (T.pack "0") <> sx
+        pad9 x = let sx = T.pack (show (abs x)) in T.replicate (9 - T.length sx) (T.pack "0") <> sx
+        nanoStr = if n == 0 then T.pack "" else T.pack "." <> dropTrailingZeros (pad9 (fromIntegral n))
+        dropTrailingZeros t = case T.stripSuffix (T.pack "0") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }
+    in JsonString (pad4 y' <> T.pack "-" <> pad2 (fromIntegral m) <> T.pack "-" <> pad2 (fromIntegral d)
+         <> T.pack "T" <> pad2 hours <> T.pack ":" <> pad2 mins <> T.pack ":" <> pad2 secs
+         <> nanoStr <> T.pack "Z")
+
 
 instance ProtoFromJSON Timestamp where
-  protoFromJSON _ = Right defaultTimestamp
+  protoFromJSON (JsonString _) = Right defaultTimestamp
+  protoFromJSON _ = Left "Expected RFC 3339 timestamp string"
