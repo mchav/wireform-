@@ -67,9 +67,9 @@ syntaxDecl = do
 
 topLevelStmt :: Parser TLStmt
 topLevelStmt = choice
-  [ TLStmtPackage  <$> packageDecl
-  , TLStmtImport   <$> importDecl
-  , TLStmtOption   <$> optionDecl
+  [ try (TLStmtPackage  <$> packageDecl)
+  , try (TLStmtImport   <$> importDecl)
+  , try (TLStmtOption   <$> optionDecl)
   , TLStmtTopLevel <$> topLevelDef
   ]
 
@@ -162,14 +162,14 @@ messageDef = do
 
 messageElement :: Parser MessageElement
 messageElement = choice
-  [ MEReserved   <$> reservedDecl
-  , MEExtensions <$> extensionsDecl
-  , MEOption     <$> optionDecl
+  [ try (MEReserved   <$> reservedDecl)
+  , try (MEExtensions <$> extensionsDecl)
+  , try (MEOption     <$> optionDecl)
   , try (MEEnum       <$> enumDef)
   , try (MEMessage    <$> messageDef)
   , try (MEOneof      <$> oneofDef)
-  , try (MEMapField <$> mapFieldDef)
-  , MEField      <$> fieldDef
+  , try (MEMapField   <$> mapFieldDef)
+  , MEField           <$> fieldDef
   ]
 
 fieldDef :: Parser FieldDef
@@ -388,6 +388,7 @@ rpcDef = do
   outType <- fullIdent
   void (symbol ")")
   opts <- rpcBody <|> ([] <$ semi)
+  _ <- optional semi
   pure RpcDef
     { rpcName      = name
     , rpcInput     = inType

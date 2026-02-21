@@ -351,20 +351,23 @@ genImports localNames externalImports = vsep $
   , pretty ("  fieldBoolSize, fieldFloatSize, fieldDoubleSize," :: Text)
   , pretty ("  fieldTextSize, fieldBytesSize)" :: Text)
   ]
-  <> fmap (genExternalImport localNames duplicateNames) (Map.toAscList externalImports)
-  where
-    allPairs = [(t, m) | (m, ts) <- Map.toAscList externalImports, t <- Set.toAscList ts]
-    nameCounts = Map.fromListWith (+) [(t, 1 :: Int) | (t, _) <- allPairs]
-    duplicateNames = Set.fromList [t | (t, c) <- Map.toList nameCounts, c > 1]
+  <> let winnerMap = buildWinnerMap externalImports
+     in fmap (genExternalImport localNames winnerMap) (Map.toAscList externalImports)
 
-genExternalImport :: Set Text -> Set Text -> (Text, Set Text) -> Doc ann
-genExternalImport localNames duplicateNames (modName, types) =
-  let conflicting = Set.union localNames duplicateNames
-      nonColliding = Set.filter (\t -> not (Set.member t conflicting)) types
-  in if Set.null nonColliding
+buildWinnerMap :: Map Text (Set Text) -> Map Text Text
+buildWinnerMap modMap =
+  foldl (\acc (m, ts) -> foldl (\a t -> Map.insertWith (\_ old -> old) t m a) acc (Set.toAscList ts)) Map.empty (Map.toAscList modMap)
+
+genExternalImport :: Set Text -> Map Text Text -> (Text, Set Text) -> Doc ann
+genExternalImport localNames winnerMap (modName, types) =
+  let allowedTypes = Set.filter (\t ->
+        not (Set.member t localNames) &&
+        Map.lookup t winnerMap == Just modName
+        ) types
+  in if Set.null allowedTypes
      then mempty
      else pretty ("import " :: Text) <> pretty modName <> pretty (" (" :: Text) <>
-          hsep (punctuate (pretty ("," :: Text)) (fmap (\t -> pretty t <> pretty ("(..)" :: Text)) (Set.toAscList nonColliding))) <>
+          hsep (punctuate (pretty ("," :: Text)) (fmap (\t -> pretty t <> pretty ("(..)" :: Text)) (Set.toAscList allowedTypes))) <>
           pretty (")" :: Text)
 
 -- ---------------------------------------------------------------------------

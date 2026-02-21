@@ -405,6 +405,7 @@ test-suite temporal-codegen-test
       Proto.Temporal.Temporal.Api.Namespace.V1.Message
       Proto.Temporal.Temporal.Api.Nexus.V1.Message
       Proto.Temporal.Temporal.Api.Operatorservice.V1.RequestResponse
+      Proto.Temporal.Temporal.Api.Operatorservice.V1.Service
       Proto.Temporal.Temporal.Api.Protocol.V1.Message
       Proto.Temporal.Temporal.Api.Query.V1.Message
       Proto.Temporal.Temporal.Api.Replication.V1.Message
@@ -419,6 +420,8 @@ test-suite temporal-codegen-test
       Proto.Temporal.Temporal.Api.Update.V1.Message
       Proto.Temporal.Temporal.Api.Version.V1.Message
       Proto.Temporal.Temporal.Api.Worker.V1.Message
+      Proto.Temporal.Temporal.Api.Workflowservice.V1.RequestResponse
+      Proto.Temporal.Temporal.Api.Workflowservice.V1.Service
       Proto.Temporal.Temporal.Api.Workflow.V1.Message
     build-depends:
         base             >= 4.17 && < 5
