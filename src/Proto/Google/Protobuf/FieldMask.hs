@@ -27,6 +27,8 @@ import Proto.Decode
 import Proto.JSON
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
+import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
+import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -39,9 +41,17 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
 
+-- | Serialized FileDescriptorProto for this .proto file.
+-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
+fileDescriptorProtoBytes :: ByteString
+fileDescriptorProtoBytes = case Base16.decode "0a20676f6f676c652f70726f746f6275662f6669656c645f6d61736b2e70726f746f120f676f6f676c652e70726f746f627566221a0a094669656c644d61736b120d0a057061746873180120032809620670726f746f33" of
+  Right bs -> bs
+  Left _ -> ""
+
 
 data FieldMask = FieldMask
   { fieldMaskPaths :: !(V.Vector Text)
+  , fieldMaskUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -49,31 +59,53 @@ data FieldMask = FieldMask
 defaultFieldMask :: FieldMask
 defaultFieldMask = FieldMask
   { fieldMaskPaths = V.empty
+  , fieldMaskUnknownfields = []
   }
 
 instance MessageEncode FieldMask where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.fieldMaskPaths
+    <> encodeUnknownFields msg.fieldMaskUnknownfields
 
 instance MessageSize FieldMask where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths)
+    + unknownFieldsSize msg.fieldMaskUnknownfields
 
 instance MessageDecode FieldMask where
-  messageDecoder = loop V.empty
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop V.empty []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0})
+          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
-              loop (acc_0 <> V.singleton v)
-            _ -> skipField wt >> loop acc_0
+              loop (acc_0 <> V.singleton v) acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage FieldMask where
   messageTypeName _ = "google.protobuf.FieldMask"
+
+instance ProtoMessage FieldMask where
+  protoMessageName _ = "google.protobuf.FieldMask"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultFieldMask
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "paths"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType StringField
+        , fdLabel = LabelRepeated
+        , fdGet = fieldMaskPaths
+        , fdSet = \v m -> m { fieldMaskPaths = v }
+        })
+    ]
 
 instance ProtoToJSON FieldMask where
   protoToJSON msg = jsonObject

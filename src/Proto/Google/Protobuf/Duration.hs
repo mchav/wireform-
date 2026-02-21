@@ -27,6 +27,8 @@ import Proto.Decode
 import Proto.JSON
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
+import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
+import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -39,10 +41,18 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
 
+-- | Serialized FileDescriptorProto for this .proto file.
+-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
+fileDescriptorProtoBytes :: ByteString
+fileDescriptorProtoBytes = case Base16.decode "0a1e676f6f676c652f70726f746f6275662f6475726174696f6e2e70726f746f120f676f6f676c652e70726f746f627566222a0a084475726174696f6e120f0a077365636f6e6473180120012803120d0a056e616e6f73180220012805620670726f746f33" of
+  Right bs -> bs
+  Left _ -> ""
+
 
 data Duration = Duration
   { durationSeconds :: {-# UNPACK #-} !Int64
   , durationNanos :: {-# UNPACK #-} !Int32
+  , durationUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -51,36 +61,65 @@ defaultDuration :: Duration
 defaultDuration = Duration
   { durationSeconds = 0
   , durationNanos = 0
+  , durationUnknownfields = []
   }
 
 instance MessageEncode Duration where
   buildMessage msg =
     (if msg.durationSeconds == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.durationSeconds))
     <> (if msg.durationNanos == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.durationNanos))
+    <> encodeUnknownFields msg.durationUnknownfields
 
 instance MessageSize Duration where
   messageSize msg =
     (if msg.durationSeconds == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.durationSeconds))
     + (if msg.durationNanos == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.durationNanos))
+    + unknownFieldsSize msg.durationUnknownfields
 
 instance MessageDecode Duration where
-  messageDecoder = loop 0 0
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop 0 0 []
     where
-      loop acc_0 acc_1 = do
+      loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Duration {durationSeconds = acc_0, durationNanos = acc_1})
+          UNothing -> pure (Duration {durationSeconds = acc_0, durationNanos = acc_1, durationUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_1
+              loop v acc_1 acc_unknown_
             2 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 v
-            _ -> skipField wt >> loop acc_0 acc_1
+              loop acc_0 v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 acc_1 (uf : acc_unknown_)
 
 instance IsMessage Duration where
   messageTypeName _ = "google.protobuf.Duration"
+
+instance ProtoMessage Duration where
+  protoMessageName _ = "google.protobuf.Duration"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultDuration
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "seconds"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType Int64Field
+        , fdLabel = LabelOptional
+        , fdGet = durationSeconds
+        , fdSet = \v m -> m { durationSeconds = v }
+        }), (2, SomeField FieldDescriptor
+        { fdName = "nanos"
+        , fdNumber = 2
+        , fdTypeDesc = ScalarType Int32Field
+        , fdLabel = LabelOptional
+        , fdGet = durationNanos
+        , fdSet = \v m -> m { durationNanos = v }
+        })
+    ]
 
 instance ProtoToJSON Duration where
   protoToJSON msg =

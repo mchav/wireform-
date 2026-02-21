@@ -1227,7 +1227,9 @@ extractMessageFieldsForSchema _scope = concatMap go
   where
     go (MEField fd) = [SchemaField (fieldName fd) (unFieldNumber (fieldNumber fd)) (fieldType fd) (fieldLabel fd)]
     go (MEMapField mf) = [SchemaField (mapFieldName mf) (unFieldNumber (mapFieldNum mf)) (FTScalar SBytes) (Just Repeated)]
-    go (MEOneof od) = fmap (\f -> SchemaField (oneofFieldName f) (unFieldNumber (oneofFieldNumber f)) (oneofFieldType f) (Just Optional)) (oneofFields od)
+    go (MEOneof od) = case oneofFields od of
+      (f:_) -> [SchemaField (oneofName od) (unFieldNumber (oneofFieldNumber f)) (FTNamed (oneofName od)) (Just Optional)]
+      []    -> []
     go _ = []
 
 genFieldDescriptorList :: [Text] -> [SchemaField] -> Doc ann

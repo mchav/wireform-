@@ -27,6 +27,8 @@ import Proto.Decode
 import Proto.JSON
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
+import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
+import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -39,9 +41,17 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
 
+-- | Serialized FileDescriptorProto for this .proto file.
+-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
+fileDescriptorProtoBytes :: ByteString
+fileDescriptorProtoBytes = case Base16.decode "0a1e676f6f676c652f70726f746f6275662f77726170706572732e70726f746f120f676f6f676c652e70726f746f627566221c0a0b446f75626c6556616c7565120d0a0576616c7565180120012801221b0a0a466c6f617456616c7565120d0a0576616c7565180120012802221b0a0a496e74363456616c7565120d0a0576616c7565180120012803221c0a0b55496e74363456616c7565120d0a0576616c7565180120012804221b0a0a496e74333256616c7565120d0a0576616c7565180120012805221c0a0b55496e74333256616c7565120d0a0576616c756518012001280d221a0a09426f6f6c56616c7565120d0a0576616c7565180120012808221c0a0b537472696e6756616c7565120d0a0576616c7565180120012809221b0a0a427974657356616c7565120d0a0576616c756518012001280c620670726f746f33" of
+  Right bs -> bs
+  Left _ -> ""
+
 
 data DoubleValue = DoubleValue
   { doubleValueValue :: {-# UNPACK #-} !Double
+  , doubleValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -49,31 +59,53 @@ data DoubleValue = DoubleValue
 defaultDoubleValue :: DoubleValue
 defaultDoubleValue = DoubleValue
   { doubleValueValue = 0
+  , doubleValueUnknownfields = []
   }
 
 instance MessageEncode DoubleValue where
   buildMessage msg =
     (if msg.doubleValueValue == 0 then mempty else encodeFieldDouble 1 msg.doubleValueValue)
+    <> encodeUnknownFields msg.doubleValueUnknownfields
 
 instance MessageSize DoubleValue where
   messageSize msg =
     (if msg.doubleValueValue == 0 then 0 else fieldDoubleSize 1)
+    + unknownFieldsSize msg.doubleValueUnknownfields
 
 instance MessageDecode DoubleValue where
-  messageDecoder = loop 0
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop 0 []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DoubleValue {doubleValueValue = acc_0})
+          UNothing -> pure (DoubleValue {doubleValueValue = acc_0, doubleValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldDouble
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage DoubleValue where
   messageTypeName _ = "google.protobuf.DoubleValue"
+
+instance ProtoMessage DoubleValue where
+  protoMessageName _ = "google.protobuf.DoubleValue"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultDoubleValue
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType DoubleField
+        , fdLabel = LabelOptional
+        , fdGet = doubleValueValue
+        , fdSet = \v m -> m { doubleValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON DoubleValue where
   protoToJSON msg = jsonObject
@@ -91,6 +123,7 @@ instance ProtoFromJSON DoubleValue where
 
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
+  , floatValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -98,31 +131,53 @@ data FloatValue = FloatValue
 defaultFloatValue :: FloatValue
 defaultFloatValue = FloatValue
   { floatValueValue = 0
+  , floatValueUnknownfields = []
   }
 
 instance MessageEncode FloatValue where
   buildMessage msg =
     (if msg.floatValueValue == 0 then mempty else encodeFieldFloat 1 msg.floatValueValue)
+    <> encodeUnknownFields msg.floatValueUnknownfields
 
 instance MessageSize FloatValue where
   messageSize msg =
     (if msg.floatValueValue == 0 then 0 else fieldFloatSize 1)
+    + unknownFieldsSize msg.floatValueUnknownfields
 
 instance MessageDecode FloatValue where
-  messageDecoder = loop 0
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop 0 []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (FloatValue {floatValueValue = acc_0})
+          UNothing -> pure (FloatValue {floatValueValue = acc_0, floatValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldFloat
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage FloatValue where
   messageTypeName _ = "google.protobuf.FloatValue"
+
+instance ProtoMessage FloatValue where
+  protoMessageName _ = "google.protobuf.FloatValue"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultFloatValue
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType FloatField
+        , fdLabel = LabelOptional
+        , fdGet = floatValueValue
+        , fdSet = \v m -> m { floatValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON FloatValue where
   protoToJSON msg = jsonObject
@@ -140,6 +195,7 @@ instance ProtoFromJSON FloatValue where
 
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
+  , int64ValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -147,31 +203,53 @@ data Int64Value = Int64Value
 defaultInt64Value :: Int64Value
 defaultInt64Value = Int64Value
   { int64ValueValue = 0
+  , int64ValueUnknownfields = []
   }
 
 instance MessageEncode Int64Value where
   buildMessage msg =
     (if msg.int64ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.int64ValueValue))
+    <> encodeUnknownFields msg.int64ValueUnknownfields
 
 instance MessageSize Int64Value where
   messageSize msg =
     (if msg.int64ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.int64ValueValue))
+    + unknownFieldsSize msg.int64ValueUnknownfields
 
 instance MessageDecode Int64Value where
-  messageDecoder = loop 0
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop 0 []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Int64Value {int64ValueValue = acc_0})
+          UNothing -> pure (Int64Value {int64ValueValue = acc_0, int64ValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage Int64Value where
   messageTypeName _ = "google.protobuf.Int64Value"
+
+instance ProtoMessage Int64Value where
+  protoMessageName _ = "google.protobuf.Int64Value"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultInt64Value
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType Int64Field
+        , fdLabel = LabelOptional
+        , fdGet = int64ValueValue
+        , fdSet = \v m -> m { int64ValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON Int64Value where
   protoToJSON msg = jsonObject
@@ -189,6 +267,7 @@ instance ProtoFromJSON Int64Value where
 
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
+  , uInt64ValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -196,31 +275,53 @@ data UInt64Value = UInt64Value
 defaultUInt64Value :: UInt64Value
 defaultUInt64Value = UInt64Value
   { uInt64ValueValue = 0
+  , uInt64ValueUnknownfields = []
   }
 
 instance MessageEncode UInt64Value where
   buildMessage msg =
     (if msg.uInt64ValueValue == 0 then mempty else encodeFieldVarint 1 msg.uInt64ValueValue)
+    <> encodeUnknownFields msg.uInt64ValueUnknownfields
 
 instance MessageSize UInt64Value where
   messageSize msg =
     (if msg.uInt64ValueValue == 0 then 0 else fieldVarintSize 1 msg.uInt64ValueValue)
+    + unknownFieldsSize msg.uInt64ValueUnknownfields
 
 instance MessageDecode UInt64Value where
-  messageDecoder = loop 0
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop 0 []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UInt64Value {uInt64ValueValue = acc_0})
+          UNothing -> pure (UInt64Value {uInt64ValueValue = acc_0, uInt64ValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldVarint
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage UInt64Value where
   messageTypeName _ = "google.protobuf.UInt64Value"
+
+instance ProtoMessage UInt64Value where
+  protoMessageName _ = "google.protobuf.UInt64Value"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultUInt64Value
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType UInt64Field
+        , fdLabel = LabelOptional
+        , fdGet = uInt64ValueValue
+        , fdSet = \v m -> m { uInt64ValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON UInt64Value where
   protoToJSON msg = jsonObject
@@ -238,6 +339,7 @@ instance ProtoFromJSON UInt64Value where
 
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
+  , int32ValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -245,31 +347,53 @@ data Int32Value = Int32Value
 defaultInt32Value :: Int32Value
 defaultInt32Value = Int32Value
   { int32ValueValue = 0
+  , int32ValueUnknownfields = []
   }
 
 instance MessageEncode Int32Value where
   buildMessage msg =
     (if msg.int32ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.int32ValueValue))
+    <> encodeUnknownFields msg.int32ValueUnknownfields
 
 instance MessageSize Int32Value where
   messageSize msg =
     (if msg.int32ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.int32ValueValue))
+    + unknownFieldsSize msg.int32ValueUnknownfields
 
 instance MessageDecode Int32Value where
-  messageDecoder = loop 0
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop 0 []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Int32Value {int32ValueValue = acc_0})
+          UNothing -> pure (Int32Value {int32ValueValue = acc_0, int32ValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage Int32Value where
   messageTypeName _ = "google.protobuf.Int32Value"
+
+instance ProtoMessage Int32Value where
+  protoMessageName _ = "google.protobuf.Int32Value"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultInt32Value
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType Int32Field
+        , fdLabel = LabelOptional
+        , fdGet = int32ValueValue
+        , fdSet = \v m -> m { int32ValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON Int32Value where
   protoToJSON msg = jsonObject
@@ -287,6 +411,7 @@ instance ProtoFromJSON Int32Value where
 
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
+  , uInt32ValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -294,31 +419,53 @@ data UInt32Value = UInt32Value
 defaultUInt32Value :: UInt32Value
 defaultUInt32Value = UInt32Value
   { uInt32ValueValue = 0
+  , uInt32ValueUnknownfields = []
   }
 
 instance MessageEncode UInt32Value where
   buildMessage msg =
     (if msg.uInt32ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.uInt32ValueValue))
+    <> encodeUnknownFields msg.uInt32ValueUnknownfields
 
 instance MessageSize UInt32Value where
   messageSize msg =
     (if msg.uInt32ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.uInt32ValueValue))
+    + unknownFieldsSize msg.uInt32ValueUnknownfields
 
 instance MessageDecode UInt32Value where
-  messageDecoder = loop 0
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop 0 []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0})
+          UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0, uInt32ValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage UInt32Value where
   messageTypeName _ = "google.protobuf.UInt32Value"
+
+instance ProtoMessage UInt32Value where
+  protoMessageName _ = "google.protobuf.UInt32Value"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultUInt32Value
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType UInt32Field
+        , fdLabel = LabelOptional
+        , fdGet = uInt32ValueValue
+        , fdSet = \v m -> m { uInt32ValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON UInt32Value where
   protoToJSON msg = jsonObject
@@ -336,6 +483,7 @@ instance ProtoFromJSON UInt32Value where
 
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
+  , boolValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -343,31 +491,53 @@ data BoolValue = BoolValue
 defaultBoolValue :: BoolValue
 defaultBoolValue = BoolValue
   { boolValueValue = False
+  , boolValueUnknownfields = []
   }
 
 instance MessageEncode BoolValue where
   buildMessage msg =
     (if msg.boolValueValue == False then mempty else encodeFieldBool 1 msg.boolValueValue)
+    <> encodeUnknownFields msg.boolValueUnknownfields
 
 instance MessageSize BoolValue where
   messageSize msg =
     (if msg.boolValueValue == False then 0 else fieldBoolSize 1)
+    + unknownFieldsSize msg.boolValueUnknownfields
 
 instance MessageDecode BoolValue where
-  messageDecoder = loop False
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop False []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BoolValue {boolValueValue = acc_0})
+          UNothing -> pure (BoolValue {boolValueValue = acc_0, boolValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage BoolValue where
   messageTypeName _ = "google.protobuf.BoolValue"
+
+instance ProtoMessage BoolValue where
+  protoMessageName _ = "google.protobuf.BoolValue"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultBoolValue
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType BoolField
+        , fdLabel = LabelOptional
+        , fdGet = boolValueValue
+        , fdSet = \v m -> m { boolValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON BoolValue where
   protoToJSON msg = jsonObject
@@ -385,6 +555,7 @@ instance ProtoFromJSON BoolValue where
 
 data StringValue = StringValue
   { stringValueValue :: !Text
+  , stringValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -392,31 +563,53 @@ data StringValue = StringValue
 defaultStringValue :: StringValue
 defaultStringValue = StringValue
   { stringValueValue = ""
+  , stringValueUnknownfields = []
   }
 
 instance MessageEncode StringValue where
   buildMessage msg =
     (if msg.stringValueValue == T.empty then mempty else encodeFieldString 1 msg.stringValueValue)
+    <> encodeUnknownFields msg.stringValueUnknownfields
 
 instance MessageSize StringValue where
   messageSize msg =
     (if msg.stringValueValue == T.empty then 0 else fieldTextSize 1 msg.stringValueValue)
+    + unknownFieldsSize msg.stringValueUnknownfields
 
 instance MessageDecode StringValue where
-  messageDecoder = loop ""
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop "" []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StringValue {stringValueValue = acc_0})
+          UNothing -> pure (StringValue {stringValueValue = acc_0, stringValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage StringValue where
   messageTypeName _ = "google.protobuf.StringValue"
+
+instance ProtoMessage StringValue where
+  protoMessageName _ = "google.protobuf.StringValue"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultStringValue
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType StringField
+        , fdLabel = LabelOptional
+        , fdGet = stringValueValue
+        , fdSet = \v m -> m { stringValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON StringValue where
   protoToJSON msg = jsonObject
@@ -434,6 +627,7 @@ instance ProtoFromJSON StringValue where
 
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
+  , bytesValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -441,31 +635,53 @@ data BytesValue = BytesValue
 defaultBytesValue :: BytesValue
 defaultBytesValue = BytesValue
   { bytesValueValue = ""
+  , bytesValueUnknownfields = []
   }
 
 instance MessageEncode BytesValue where
   buildMessage msg =
     (if BS.null msg.bytesValueValue then mempty else encodeFieldBytes 1 msg.bytesValueValue)
+    <> encodeUnknownFields msg.bytesValueUnknownfields
 
 instance MessageSize BytesValue where
   messageSize msg =
     (if BS.null msg.bytesValueValue then 0 else fieldBytesSize 1 msg.bytesValueValue)
+    + unknownFieldsSize msg.bytesValueUnknownfields
 
 instance MessageDecode BytesValue where
-  messageDecoder = loop ""
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop "" []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BytesValue {bytesValueValue = acc_0})
+          UNothing -> pure (BytesValue {bytesValueValue = acc_0, bytesValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBytes
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage BytesValue where
   messageTypeName _ = "google.protobuf.BytesValue"
+
+instance ProtoMessage BytesValue where
+  protoMessageName _ = "google.protobuf.BytesValue"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultBytesValue
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "value"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType BytesField
+        , fdLabel = LabelOptional
+        , fdGet = bytesValueValue
+        , fdSet = \v m -> m { bytesValueValue = v }
+        })
+    ]
 
 instance ProtoToJSON BytesValue where
   protoToJSON msg = jsonObject

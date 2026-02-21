@@ -319,7 +319,7 @@ renderJsonString s = "\"" <> T.concatMap escapeChar s <> "\""
     pad4 xs = replicate (4 - length xs) '0' <> xs
     showHex' n
       | n < 16    = [intToDigit n]
-      | otherwise  = showHex' (n `div` 16) <> [intToDigit (n `mod` 16)]
+      | otherwise  = let (!q, !r) = n `quotRem` 16 in showHex' q <> [intToDigit r]
 
 -- | Minimal recursive-descent JSON parser.
 parseJson :: Text -> Either String JsonValue

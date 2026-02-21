@@ -111,46 +111,63 @@ freezeUVecBuilder (UVecBuilder bufRef lenRef) = do
 uvecBuilderLength :: UVecBuilder a -> IO Int
 uvecBuilderLength (UVecBuilder _ lenRef) = readIORef lenRef
 
--- Pure growing list — doesn't require IO/ST, but materializes to Vector
--- with a single allocation at the end. Uses a chunked representation
--- to avoid the O(n) reverse.
-
--- | A pure snoc-efficient list that converts to Vector in O(n).
--- Stores elements in reverse order in chunks, with a running count.
+-- | Pure growing accumulator for repeated fields.
+--
+-- Uses reversed chunks of small Vectors to amortise allocation.
+-- Each chunk holds up to 32 elements. Snoc fills the current chunk;
+-- when full, the chunk is frozen and a new one starts. This reduces
+-- per-element allocation from ~48 bytes (cons cell + GrowList node)
+-- to ~8 bytes amortised (one pointer per element in the Vector).
+--
+-- Final materialisation concatenates the chunks back-to-front.
 data GrowList a = GrowList
-  { glElems :: ![a]     -- elements in reverse order
-  , glCount :: {-# UNPACK #-} !Int
+  { glChunks  :: ![V.Vector a]
+  , glCurrent :: ![a]
+  , glCurLen  :: {-# UNPACK #-} !Int
+  , glTotal   :: {-# UNPACK #-} !Int
   }
 
+chunkSize :: Int
+chunkSize = 32
+
 emptyGrowList :: GrowList a
-emptyGrowList = GrowList [] 0
+emptyGrowList = GrowList [] [] 0 0
 {-# INLINE emptyGrowList #-}
 
 snocGrowList :: GrowList a -> a -> GrowList a
-snocGrowList (GrowList xs n) x = GrowList (x : xs) (n + 1)
+snocGrowList (GrowList chunks cur curLen total) x =
+  let !curLen' = curLen + 1
+      !total'  = total + 1
+  in if curLen' >= chunkSize
+     then let !chunk = V.fromListN curLen' (reverse (x : cur))
+          in GrowList (chunk : chunks) [] 0 total'
+     else GrowList chunks (x : cur) curLen' total'
 {-# INLINE snocGrowList #-}
 
 growListLength :: GrowList a -> Int
-growListLength = glCount
+growListLength = glTotal
 {-# INLINE growListLength #-}
 
--- | Convert to a boxed Vector. Allocates the vector once and fills
--- it back-to-front from the reversed list — no intermediate list copy.
 growListToVector :: GrowList a -> V.Vector a
-growListToVector (GrowList xs n) = V.create $ do
-  mv <- MV.new n
-  let go !_ [] = pure ()
-      go !i (e:es) = MV.write mv i e >> go (i - 1) es
-  go (n - 1) xs
-  pure mv
+growListToVector (GrowList chunks cur curLen total)
+  | total == 0 = V.empty
+  | otherwise  = V.create $ do
+      mv <- MV.new total
+      let !lastChunk = if curLen > 0
+            then V.fromListN curLen (reverse cur) : chunks
+            else chunks
+      let go !_ [] = pure ()
+          go !off (c:cs) = do
+            let !cLen = V.length c
+                !off' = off - cLen
+            V.unsafeCopy (MV.slice off' cLen mv) c
+            go off' cs
+      go total lastChunk
+      pure mv
 {-# INLINE growListToVector #-}
 
--- | Convert to an unboxed Vector.
 growListToVectorU :: VU.Unbox a => GrowList a -> VU.Vector a
-growListToVectorU (GrowList xs n) = VU.create $ do
-  mv <- MVU.new n
-  let go !_ [] = pure ()
-      go !i (e:es) = MVU.write mv i e >> go (i - 1) es
-  go (n - 1) xs
-  pure mv
+growListToVectorU gl =
+  let !bv = growListToVector gl
+  in VU.convert bv
 {-# INLINE growListToVectorU #-}

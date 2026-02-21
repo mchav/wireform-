@@ -27,6 +27,8 @@ import Proto.Decode
 import Proto.JSON
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
+import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
+import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -39,9 +41,17 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
 
+-- | Serialized FileDescriptorProto for this .proto file.
+-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
+fileDescriptorProtoBytes :: ByteString
+fileDescriptorProtoBytes = case Base16.decode "0a1c676f6f676c652f70726f746f6275662f7374727563742e70726f746f120f676f6f676c652e70726f746f62756622250a06537472756374121b0a066669656c647318012003280b320b6669656c6473456e74727922ab010a0556616c7565121d0a0a6e756c6c5f76616c756518012001280b32094e756c6c56616c756512140a0c6e756d6265725f76616c756518022001280112140a0c737472696e675f76616c756518032001280912120a0a626f6f6c5f76616c7565180420012808121c0a0c7374727563745f76616c756518052001280b3206537472756374121d0a0a6c6973745f76616c756518062001280b32094c69737456616c756542060a046b696e6422220a094c69737456616c756512150a0676616c75657318012003280b320556616c75652a190a094e756c6c56616c7565120c0a0a4e554c4c5f56414c5545620670726f746f33" of
+  Right bs -> bs
+  Left _ -> ""
+
 
 data Struct = Struct
   { structFields :: !(Map.Map Text Value)
+  , structUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -49,34 +59,56 @@ data Struct = Struct
 defaultStruct :: Struct
 defaultStruct = Struct
   { structFields = Map.empty
+  , structUnknownfields = []
   }
 
 instance MessageEncode Struct where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.structFields
+    <> encodeUnknownFields msg.structUnknownfields
 
 instance MessageSize Struct where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.structFields)
+    + unknownFieldsSize msg.structUnknownfields
 
 instance MessageDecode Struct where
-  messageDecoder = loop Map.empty
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop Map.empty []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Struct {structFields = acc_0})
+          UNothing -> pure (Struct {structFields = acc_0, structUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
               let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
               case decodeEntry of
-                Left _ -> loop acc_0
-                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
-            _ -> skipField wt >> loop acc_0
+                Left _ -> loop acc_0 acc_unknown_
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage Struct where
   messageTypeName _ = "google.protobuf.Struct"
+
+instance ProtoMessage Struct where
+  protoMessageName _ = "google.protobuf.Struct"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultStruct
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "fields"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType BytesField
+        , fdLabel = LabelRepeated
+        , fdGet = structFields
+        , fdSet = \v m -> m { structFields = v }
+        })
+    ]
 
 instance ProtoToJSON Struct where
   protoToJSON msg = jsonObject
@@ -94,6 +126,7 @@ instance ProtoFromJSON Struct where
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
+  , valueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -114,6 +147,7 @@ instance ProtoFromJSON Value'Kind where
 defaultValue :: Value
 defaultValue = Value
   { valueKind = Nothing
+  , valueUnknownfields = []
   }
 
 instance MessageEncode Value where
@@ -126,6 +160,7 @@ instance MessageEncode Value where
       Just (Value'Kind'BoolValue v) -> encodeFieldBool 4 v
       Just (Value'Kind'StructValue v) -> encodeFieldMessage 5 v
       Just (Value'Kind'ListValue v) -> encodeFieldMessage 6 v)
+    <> encodeUnknownFields msg.valueUnknownfields
 
 instance MessageSize Value where
   messageSize msg =
@@ -135,37 +170,57 @@ instance MessageSize Value where
     ; Just (Value'Kind'BoolValue v) -> fieldBoolSize 4
     ; Just (Value'Kind'StructValue v) -> fieldMessageSize 5 (messageSize v)
     ; Just (Value'Kind'ListValue v) -> fieldMessageSize 6 (messageSize v) })
+    + unknownFieldsSize msg.valueUnknownfields
 
 instance MessageDecode Value where
-  messageDecoder = loop Nothing
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop Nothing []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Value {valueKind = acc_0})
+          UNothing -> pure (Value {valueKind = acc_0, valueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (Value'Kind'NullValue v))
+              loop (Just (Value'Kind'NullValue v)) acc_unknown_
             2 -> do
               v <- decodeFieldDouble
-              loop (Just (Value'Kind'NumberValue v))
+              loop (Just (Value'Kind'NumberValue v)) acc_unknown_
             3 -> do
               v <- decodeFieldString
-              loop (Just (Value'Kind'StringValue v))
+              loop (Just (Value'Kind'StringValue v)) acc_unknown_
             4 -> do
               v <- decodeFieldBool
-              loop (Just (Value'Kind'BoolValue v))
+              loop (Just (Value'Kind'BoolValue v)) acc_unknown_
             5 -> do
               v <- decodeFieldMessage
-              loop (Just (Value'Kind'StructValue v))
+              loop (Just (Value'Kind'StructValue v)) acc_unknown_
             6 -> do
               v <- decodeFieldMessage
-              loop (Just (Value'Kind'ListValue v))
-            _ -> skipField wt >> loop acc_0
+              loop (Just (Value'Kind'ListValue v)) acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage Value where
   messageTypeName _ = "google.protobuf.Value"
+
+instance ProtoMessage Value where
+  protoMessageName _ = "google.protobuf.Value"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultValue
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "kind"
+        , fdNumber = 1
+        , fdTypeDesc = MessageType "kind"
+        , fdLabel = LabelOptional
+        , fdGet = valueKind
+        , fdSet = \v m -> m { valueKind = v }
+        })
+    ]
 
 instance ProtoToJSON Value where
   protoToJSON msg = jsonObject
@@ -211,6 +266,7 @@ instance ProtoFromJSON NullValue where
 
 data ListValue = ListValue
   { listValueValues :: !(V.Vector Value)
+  , listValueUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -218,31 +274,53 @@ data ListValue = ListValue
 defaultListValue :: ListValue
 defaultListValue = ListValue
   { listValueValues = V.empty
+  , listValueUnknownfields = []
   }
 
 instance MessageEncode ListValue where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.listValueValues
+    <> encodeUnknownFields msg.listValueUnknownfields
 
 instance MessageSize ListValue where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.listValueValues)
+    + unknownFieldsSize msg.listValueUnknownfields
 
 instance MessageDecode ListValue where
-  messageDecoder = loop V.empty
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop V.empty []
     where
-      loop acc_0 = do
+      loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListValue {listValueValues = acc_0})
+          UNothing -> pure (ListValue {listValueValues = acc_0, listValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (acc_0 <> V.singleton v)
-            _ -> skipField wt >> loop acc_0
+              loop (acc_0 <> V.singleton v) acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage ListValue where
   messageTypeName _ = "google.protobuf.ListValue"
+
+instance ProtoMessage ListValue where
+  protoMessageName _ = "google.protobuf.ListValue"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultListValue
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "values"
+        , fdNumber = 1
+        , fdTypeDesc = MessageType "Value"
+        , fdLabel = LabelRepeated
+        , fdGet = listValueValues
+        , fdSet = \v m -> m { listValueValues = v }
+        })
+    ]
 
 instance ProtoToJSON ListValue where
   protoToJSON msg = jsonObject

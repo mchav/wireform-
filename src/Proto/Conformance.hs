@@ -27,6 +27,7 @@ import qualified Data.ByteString as BS
 import Data.Int (Int32)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Bits ((.&.), shiftR)
 import Data.Word (Word32)
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
@@ -158,10 +159,10 @@ readLE32 bs =
 
 encodeLE32 :: Word32 -> ByteString
 encodeLE32 n = BS.pack
-  [ fromIntegral (n `mod` 256)
-  , fromIntegral ((n `div` 256) `mod` 256)
-  , fromIntegral ((n `div` 65536) `mod` 256)
-  , fromIntegral ((n `div` 16777216) `mod` 256)
+  [ fromIntegral (n .&. 0xFF)
+  , fromIntegral ((n `shiftR` 8) .&. 0xFF)
+  , fromIntegral ((n `shiftR` 16) .&. 0xFF)
+  , fromIntegral ((n `shiftR` 24) .&. 0xFF)
   ]
 
 -- | Default handler that does protobuf round-trip.
