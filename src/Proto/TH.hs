@@ -52,12 +52,18 @@ import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 
 import Proto.AST
 import Proto.Parser (parseProtoFile)
-import Proto.CodeGen.Types (hsTypeName, hsFieldName, hsEnumCon)
+import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal)
 import qualified Proto.Encode as Encode
 import qualified Proto.Decode as Decode
 import Proto.Wire (Tag(..))
 import qualified Proto.Wire.Encode as WE
 import Proto.Repr
+
+hsFieldName :: Text -> Text
+hsFieldName = snakeToCamel
+
+hsEnumCon :: Text -> Text -> Text
+hsEnumCon _enumName valName = snakeToPascal valName
 
 -- | Options for compile-time proto loading.
 data LoadOpts = LoadOpts

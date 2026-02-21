@@ -42,8 +42,9 @@ import System.FilePath ((</>), (<.>), takeDirectory, takeExtension)
 
 import Proto.AST (ProtoFile(..))
 import Proto.Parser (parseProtoFile)
-import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..))
-import Proto.CodeGen.Types (hsModuleName)
+import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..),
+                      TypeRegistry, hsModuleName, moduleNameForProto)
+import qualified Data.Map.Strict as Map
 
 data ProtoGenConfig = ProtoGenConfig
   { pgcProtoDir     :: FilePath
@@ -93,8 +94,9 @@ generateProtoFile cfg protoPath = do
             { genModulePrefix    = pgcModulePrefix cfg
             , genLazySubmessages = pgcLazySub cfg
             }
-          code = generateModuleText opts pf
-          outPath = pgcOutputDir cfg </> moduleToPath opts pf <.> "hs"
+          emptyReg = Map.empty :: TypeRegistry
+          code = generateModuleText opts emptyReg protoPath pf
+          outPath = pgcOutputDir cfg </> moduleToPath opts protoPath pf <.> "hs"
       needsRegen <- checkStale protoPath outPath
       when needsRegen $ do
         createDirectoryIfMissing True (takeDirectory outPath)
@@ -125,8 +127,7 @@ checkStale src out = do
       outT <- getModificationTime out
       pure (srcT > outT)
 
-moduleToPath :: GenerateOpts -> ProtoFile -> FilePath
-moduleToPath opts pf =
-  let prefix = T.unpack (genModulePrefix opts)
-      pkg = maybe "Generated" (T.unpack . hsModuleName) (protoPackage pf)
-  in fmap (\c -> if c == '.' then '/' else c) (prefix <> "." <> pkg)
+moduleToPath :: GenerateOpts -> FilePath -> ProtoFile -> FilePath
+moduleToPath opts fp pf =
+  let modName = T.unpack (moduleNameForProto opts fp pf)
+  in fmap (\c -> if c == '.' then '/' else c) modName

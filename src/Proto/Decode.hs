@@ -70,6 +70,9 @@ module Proto.Decode
   , getSVarint32
   , getSVarint64
 
+    -- * Map entry decoding
+  , decodeMapEntry
+
     -- * CPS failure
   , decodeFail
   ) where
@@ -81,7 +84,7 @@ import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
-import Proto.Wire (WireType (..))
+import Proto.Wire (Tag(..), WireType (..))
 import Proto.Wire.Decode
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64, putLengthDelimited)
 
@@ -370,3 +373,16 @@ encodeUnknownFields = foldMap encodeOne
       putTag fn Wire32Bit <> putFixed32 val
     encodeOne (UnknownLenDelim fn val) =
       putTag fn WireLengthDelimited <> putLengthDelimited val
+
+-- | Decode a map entry (key=field1, value=field2) from a length-delimited chunk.
+decodeMapEntry :: Decoder k -> Decoder v -> k -> v -> Decoder (k, v)
+decodeMapEntry decK decV defK defV = loop defK defV
+  where
+    loop !mk !mv = do
+      mt <- getTagOr
+      case mt of
+        Nothing          -> pure (mk, mv)
+        Just (Tag f wt') -> case f of
+          1 -> do { kv <- decK; loop kv mv }
+          2 -> do { vv <- decV; loop mk vv }
+          _ -> skipField wt' >> loop mk mv
