@@ -54,8 +54,8 @@ defaultWorkflowTaskCompletedMetadata = WorkflowTaskCompletedMetadata
 
 instance MessageEncode WorkflowTaskCompletedMetadata where
   buildMessage msg =
-    encodePackedVarint 1 (VU.map fromIntegral msg.workflowTaskCompletedMetadataCoreusedflags)
-    <> encodePackedVarint 2 (VU.map fromIntegral msg.workflowTaskCompletedMetadataLangusedflags)
+    encodePackedWord32 1 msg.workflowTaskCompletedMetadataCoreusedflags
+    <> encodePackedWord32 2 msg.workflowTaskCompletedMetadataLangusedflags
     <> (if msg.workflowTaskCompletedMetadataSdkname == T.empty then mempty else encodeFieldString 3 msg.workflowTaskCompletedMetadataSdkname)
     <> (if msg.workflowTaskCompletedMetadataSdkversion == T.empty then mempty else encodeFieldString 4 msg.workflowTaskCompletedMetadataSdkversion)
 

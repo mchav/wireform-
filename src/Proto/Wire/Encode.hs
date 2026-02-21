@@ -8,6 +8,7 @@
 module Proto.Wire.Encode
   ( -- * Varint encoding
     putVarint
+  , putVarint32
   , putVarintSigned
   , putSVarint32
   , putSVarint64
@@ -28,6 +29,7 @@ module Proto.Wire.Encode
 
     -- * Size calculation (avoids double-encoding for submessages)
   , varintSize
+  , varintSize32
   , tagSize
   , fieldVarintSize
   , fieldSVarint32Size
@@ -72,6 +74,25 @@ putVarint !n
 
 putVarintSlow :: Word64 -> Builder
 putVarintSlow = go
+  where
+    go !n
+      | n < 0x80  = B.word8 (fromIntegral n)
+      | otherwise = B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80) <> go (n `shiftR` 7)
+
+-- | Encode a 32-bit unsigned varint without promoting to Word64.
+-- A Word32 needs at most 5 varint bytes.
+putVarint32 :: Word32 -> Builder
+putVarint32 !n
+  | n < 0x80 =
+      B.word8 (fromIntegral n)
+  | n < 0x4000 =
+      B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80) <>
+      B.word8 (fromIntegral (n `shiftR` 7))
+  | otherwise = putVarint32Slow n
+{-# INLINE putVarint32 #-}
+
+putVarint32Slow :: Word32 -> Builder
+putVarint32Slow = go
   where
     go !n
       | n < 0x80  = B.word8 (fromIntegral n)
@@ -164,6 +185,16 @@ varintSize !n
   | n < 0x8000000000000000 = 9
   | otherwise       = 10
 {-# INLINE varintSize #-}
+
+-- | Size of a 32-bit varint encoding in bytes.  Max 5 bytes.
+varintSize32 :: Word32 -> Int
+varintSize32 !n
+  | n < 0x80       = 1
+  | n < 0x4000     = 2
+  | n < 0x200000   = 3
+  | n < 0x10000000 = 4
+  | otherwise       = 5
+{-# INLINE varintSize32 #-}
 
 -- | Size of a tag encoding.
 tagSize :: Int -> Int

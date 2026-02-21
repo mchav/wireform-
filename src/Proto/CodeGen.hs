@@ -741,14 +741,6 @@ genRepeatedScalarBuild fn accessor = \case
     pretty ("V.foldl' (\\acc v -> acc <> encodeFieldString " :: Text) <> pretty fn <+> pretty ("v) mempty " :: Text) <> pretty accessor
   SBytes ->
     pretty ("V.foldl' (\\acc v -> acc <> encodeFieldBytes " :: Text) <> pretty fn <+> pretty ("v) mempty " :: Text) <> pretty accessor
-  SUInt32 ->
-    pretty ("encodePackedVarint " :: Text) <> pretty fn <+> pretty ("(VU.map fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  SInt32 ->
-    pretty ("encodePackedVarint " :: Text) <> pretty fn <+> pretty ("(VU.map fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  SInt64 ->
-    pretty ("encodePackedVarint " :: Text) <> pretty fn <+> pretty ("(VU.map fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  SBool ->
-    pretty ("encodePackedVarint " :: Text) <> pretty fn <+> pretty ("(VU.map (\\b -> if b then 1 else 0) " :: Text) <> pretty accessor <> pretty (")" :: Text)
   s -> pretty ("encode" :: Text) <> pretty (packedFnName s) <+> pretty fn <+> pretty accessor
 
 scalarDefaultCheck :: Text -> ScalarType -> Doc ann
@@ -762,17 +754,17 @@ packedFnName :: ScalarType -> Text
 packedFnName = \case
   SDouble   -> "PackedDouble"
   SFloat    -> "PackedFloat"
-  SInt32    -> "PackedVarint"
-  SInt64    -> "PackedVarint"
-  SUInt32   -> "PackedVarint"
-  SUInt64   -> "PackedVarint"
+  SInt32    -> "PackedInt32"
+  SInt64    -> "PackedInt64"
+  SUInt32   -> "PackedWord32"
+  SUInt64   -> "PackedWord64"
   SSInt32   -> "PackedSVarint32"
   SSInt64   -> "PackedSVarint64"
   SFixed32  -> "PackedFixed32"
   SFixed64  -> "PackedFixed64"
   SSFixed32 -> "PackedFixed32"
   SSFixed64 -> "PackedFixed64"
-  SBool     -> "PackedVarint"
+  SBool     -> "PackedBool"
   s         -> error ("Cannot pack: " <> show s)
 
 -- ---------------------------------------------------------------------------
