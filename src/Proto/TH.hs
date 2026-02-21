@@ -36,6 +36,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
 import Data.Int (Int32, Int64)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -52,7 +54,7 @@ import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 
 import Proto.AST
 import Proto.Parser (parseProtoFile)
-import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal)
+import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal, lowerFirst, escapeReserved)
 import qualified Proto.Encode as Encode
 import qualified Proto.Decode as Decode
 import Proto.Wire (Tag(..))
@@ -135,70 +137,121 @@ messageHaddock msg fields =
   <> concatMap fieldHaddock fields
 
 fieldHaddock :: FieldSpec -> String
-fieldHaddock fs =
-  "* @" <> T.unpack (fsName fs) <> "@ ("
-  <> labelStr (fsLabel fs)
-  <> fieldTypeStr (fsType fs) <> ", field "
-  <> show (fsNum fs) <> ")\n"
-  where
-    labelStr Nothing = ""
-    labelStr (Just Optional) = "optional "
-    labelStr (Just Required) = "required "
-    labelStr (Just Repeated) = "repeated "
-    fieldTypeStr (FTScalar s) = scalarStr s
-    fieldTypeStr (FTNamed n) = T.unpack n
-    scalarStr SDouble = "double"; scalarStr SFloat = "float"
-    scalarStr SInt32 = "int32"; scalarStr SInt64 = "int64"
-    scalarStr SUInt32 = "uint32"; scalarStr SUInt64 = "uint64"
-    scalarStr SSInt32 = "sint32"; scalarStr SSInt64 = "sint64"
-    scalarStr SFixed32 = "fixed32"; scalarStr SFixed64 = "fixed64"
-    scalarStr SSFixed32 = "sfixed32"; scalarStr SSFixed64 = "sfixed64"
-    scalarStr SBool = "bool"; scalarStr SString = "string"; scalarStr SBytes = "bytes"
+fieldHaddock (FSField name num lbl ft _) =
+  "* @" <> T.unpack name <> "@ ("
+  <> labelStr lbl
+  <> fieldTypeStr ft <> ", field "
+  <> show num <> ")\n"
+fieldHaddock (FSMap name num kt vt) =
+  "* @" <> T.unpack name <> "@ (map<"
+  <> scalarStr kt <> ", " <> fieldTypeStr vt <> ">, field "
+  <> show num <> ")\n"
+fieldHaddock (FSOneof name ofs) =
+  "* @" <> T.unpack name <> "@ (oneof, "
+  <> show (length ofs) <> " variants)\n"
+
+labelStr :: Maybe FieldLabel -> String
+labelStr Nothing = ""
+labelStr (Just Optional) = "optional "
+labelStr (Just Required) = "required "
+labelStr (Just Repeated) = "repeated "
+
+fieldTypeStr :: FieldType -> String
+fieldTypeStr (FTScalar s) = scalarStr s
+fieldTypeStr (FTNamed n) = T.unpack n
+
+scalarStr :: ScalarType -> String
+scalarStr SDouble = "double"; scalarStr SFloat = "float"
+scalarStr SInt32 = "int32"; scalarStr SInt64 = "int64"
+scalarStr SUInt32 = "uint32"; scalarStr SUInt64 = "uint64"
+scalarStr SSInt32 = "sint32"; scalarStr SSInt64 = "sint64"
+scalarStr SFixed32 = "fixed32"; scalarStr SFixed64 = "fixed64"
+scalarStr SSFixed32 = "sfixed32"; scalarStr SSFixed64 = "sfixed64"
+scalarStr SBool = "bool"; scalarStr SString = "string"; scalarStr SBytes = "bytes"
 
 -- A resolved field spec carrying the concrete representation choices.
-data FieldSpec = FieldSpec
-  { fsName    :: Text
-  , fsNum     :: Int
-  , fsLabel   :: Maybe FieldLabel
-  , fsType    :: FieldType
-  , fsRep     :: FieldRep      -- resolved representation choices
-  }
+data FieldSpec
+  = FSField
+    { fsName    :: Text
+    , fsNum     :: Int
+    , fsLabel   :: Maybe FieldLabel
+    , fsType    :: FieldType
+    , fsRep     :: FieldRep
+    }
+  | FSMap
+    { fsName    :: Text
+    , fsNum     :: Int
+    , fsMapKey  :: ScalarType
+    , fsMapVal  :: FieldType
+    }
+  | FSOneof
+    { fsName    :: Text
+    , fsOneofFields :: [OneofField]
+    }
+
+fsFieldName :: FieldSpec -> Text
+fsFieldName (FSField n _ _ _ _) = n
+fsFieldName (FSMap n _ _ _) = n
+fsFieldName (FSOneof n _) = n
 
 extractMessageFields :: RepConfig -> Text -> [MessageElement] -> [FieldSpec]
-extractMessageFields cfg msgN = mapMaybe go
+extractMessageFields cfg msgN = concatMap go
   where
-    go (MEField fd) = Just FieldSpec
+    go (MEField fd) = [FSField
       { fsName  = fieldName fd
       , fsNum   = unFieldNumber (fieldNumber fd)
       , fsLabel = fieldLabel fd
       , fsType  = fieldType fd
       , fsRep   = lookupFieldRep msgN (fieldName fd) cfg
-      }
-    go _ = Nothing
+      }]
+    go (MEMapField mf) = [FSMap
+      { fsName   = mapFieldName mf
+      , fsNum    = unFieldNumber (mapFieldNum mf)
+      , fsMapKey = mapKeyType mf
+      , fsMapVal = mapValueType mf
+      }]
+    go (MEOneof od) = [FSOneof
+      { fsName        = oneofName od
+      , fsOneofFields = oneofFields od
+      }]
+    go _ = []
 
 -- Data type generation: uses fsRep to pick the Haskell type.
 
 mkDataDec :: Name -> [FieldSpec] -> Q Dec
 mkDataDec tyName fields = do
-  let con = recC tyName (fmap mkField fields)
+  recFields <- fmap concat (mapM mkField fields)
+  let con = recC tyName (fmap pure recFields)
   dataD (pure []) tyName [] Nothing [con]
     [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]]
   where
-    mkField fs = do
-      ty <- fieldTypeToTH fs
-      let fname = mkName (T.unpack (hsFieldName (fsName fs)))
-      pure (fname, Bang NoSourceUnpackedness SourceStrict, ty)
+    mkField :: FieldSpec -> Q [VarBangType]
+    mkField (FSField name _ lbl ft rep) = do
+      let fname = mkName (T.unpack (hsFieldName name))
+      ty <- fieldTypeToTH lbl ft rep
+      pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
+    mkField (FSMap name _ kt vt) = do
+      let fname = mkName (T.unpack (hsFieldName name))
+      kty <- scalarToTH kt
+      vty <- fieldTypeInnerQ vt
+      t <- appT (appT (conT ''Map) (pure kty)) (pure vty)
+      pure [(fname, Bang NoSourceUnpackedness SourceStrict, t)]
+    mkField (FSOneof name _ofs) = do
+      let fname = mkName (T.unpack (hsFieldName name))
+          oneofTyName = mkName (T.unpack (hsTypeName name))
+      ty <- appT (conT ''Maybe) (conT oneofTyName)
+      pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
 
-fieldTypeToTH :: FieldSpec -> Q Type
-fieldTypeToTH fs = case fsLabel fs of
-  Just Repeated -> repeatedTypeQ (frRepeated (fsRep fs)) (innerTypeQ fs)
-  Just Optional -> optionalTypeQ (frOptional (fsRep fs)) (innerTypeQ fs)
-  _             -> innerTypeQ fs
+fieldTypeToTH :: Maybe FieldLabel -> FieldType -> FieldRep -> Q Type
+fieldTypeToTH lbl ft rep = case lbl of
+  Just Repeated -> repeatedTypeQ (frRepeated rep) (fieldTypeInnerQ ft)
+  Just Optional -> optionalTypeQ (frOptional rep) (fieldTypeInnerQ ft)
+  _             -> fieldTypeInnerQ ft
 
-innerTypeQ :: FieldSpec -> Q Type
-innerTypeQ fs = case fsType fs of
-  FTScalar SString -> stringTypeQ (frString (fsRep fs))
-  FTScalar SBytes  -> bytesTypeQ (frBytes (fsRep fs))
+fieldTypeInnerQ :: FieldType -> Q Type
+fieldTypeInnerQ = \case
+  FTScalar SString -> conT ''Text
+  FTScalar SBytes  -> conT ''ByteString
   FTScalar s       -> scalarToTH s
   FTNamed n        -> conT (mkName (T.unpack (hsTypeName n)))
 
@@ -250,24 +303,25 @@ mkDefaultDec :: Name -> [FieldSpec] -> Q [Dec]
 mkDefaultDec tyName fields = do
   let defName = mkName ("default" <> nameBase tyName)
   sig <- sigD defName (conT tyName)
+  defFields <- mapM (\fs -> do
+    val <- defaultValueExpr fs
+    pure (mkName (T.unpack (hsFieldName (fsFieldName fs))), val)) fields
   body <- valD (varP defName)
-    (normalB (recConE tyName (fmap mkDefaultField fields))) []
+    (normalB (recConE tyName (fmap pure defFields))) []
   pure [sig, body]
-  where
-    mkDefaultField fs = do
-      val <- defaultValueExpr fs
-      pure (mkName (T.unpack (hsFieldName (fsName fs))), val)
 
 defaultValueExpr :: FieldSpec -> Q Exp
-defaultValueExpr fs = case fsLabel fs of
-  Just Repeated -> emptyRepeatedQ (frRepeated (fsRep fs))
+defaultValueExpr (FSField _ _ lbl ft rep) = case lbl of
+  Just Repeated -> emptyRepeatedQ (frRepeated rep)
   Just Optional -> conE 'Nothing
-  _ -> case fsType fs of
+  _ -> case ft of
     FTScalar SBool   -> conE 'False
-    FTScalar SString -> emptyStringQ (frString (fsRep fs))
-    FTScalar SBytes  -> emptyBytesQ (frBytes (fsRep fs))
+    FTScalar SString -> emptyStringQ (frString rep)
+    FTScalar SBytes  -> emptyBytesQ (frBytes rep)
     FTScalar _       -> litE (integerL 0)
     FTNamed _        -> conE 'Nothing
+defaultValueExpr (FSMap _ _ _ _) = [| Map.empty |]
+defaultValueExpr (FSOneof _ _) = conE 'Nothing
 
 emptyRepeatedQ :: RepeatedRep -> Q Exp
 emptyRepeatedQ = \case
@@ -302,15 +356,24 @@ mkEncodeInstance tyName fields = do
   pure [inst]
 
 mkFieldEncode :: Name -> FieldSpec -> Q Exp
-mkFieldEncode msgVar fs = do
-  let accessor = appE (varE (mkName (T.unpack (hsFieldName (fsName fs))))) (varE msgVar)
-      fn = litE (integerL (fromIntegral (fsNum fs)))
-  case fsLabel fs of
-    Just Repeated -> [| $(foldRepeatedQ (frRepeated (fsRep fs))) (\v -> $(encodeFnQ fs) $fn v) $accessor |]
-    Just Optional -> [| maybe mempty (\v -> $(encodeFnQ fs) $fn v) $accessor |]
-    _ -> [| if $(defaultCheckQ fs accessor)
+mkFieldEncode msgVar (FSField name num lbl ft rep) = do
+  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
+      fn = litE (integerL (fromIntegral num))
+  case lbl of
+    Just Repeated -> [| $(foldRepeatedQ (frRepeated rep)) (\v -> $(encodeFnQ ft rep) $fn v) $accessor |]
+    Just Optional -> [| maybe mempty (\v -> $(encodeFnQ ft rep) $fn v) $accessor |]
+    _ -> [| if $(defaultCheckQ ft rep accessor)
             then mempty
-            else $(encodeFnQ fs) $fn $accessor |]
+            else $(encodeFnQ ft rep) $fn $accessor |]
+mkFieldEncode msgVar (FSMap name num kt vt) = do
+  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
+      fn = litE (integerL (fromIntegral num))
+  [| Map.foldlWithKey' (\acc k v ->
+       acc <> Encode.encodeMapField $fn
+         ($(encodeScalarFnQ kt) 1 k) ($(encodeFnQ vt defaultFieldRep) 2 v)) mempty $accessor |]
+mkFieldEncode msgVar (FSOneof name ofs) = do
+  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
+  [| maybe mempty Encode.buildMessage $accessor |]
 
 foldRepeatedQ :: RepeatedRep -> Q Exp
 foldRepeatedQ = \case
@@ -318,16 +381,20 @@ foldRepeatedQ = \case
   ListRep   -> [| \f -> foldl (\acc v -> acc <> f v) mempty |]
   SeqRep    -> [| \f -> foldl (\acc v -> acc <> f v) mempty |]
 
-encodeFnQ :: FieldSpec -> Q Exp
-encodeFnQ fs = case fsType fs of
-  FTScalar SDouble -> varE 'Encode.encodeFieldDouble
-  FTScalar SFloat  -> varE 'Encode.encodeFieldFloat
-  FTScalar SBool   -> varE 'Encode.encodeFieldBool
-  FTScalar SString -> encodeStringFnQ (frString (fsRep fs))
-  FTScalar SBytes  -> encodeBytesFnQ (frBytes (fsRep fs))
-  FTScalar SUInt64 -> varE 'Encode.encodeFieldVarint
-  FTScalar _       -> [| \fieldNum val -> Encode.encodeFieldVarint fieldNum (fromIntegral val) |]
-  FTNamed _        -> varE 'Encode.encodeFieldMessage
+encodeFnQ :: FieldType -> FieldRep -> Q Exp
+encodeFnQ ft rep = case ft of
+  FTScalar s -> encodeScalarFnQ s
+  FTNamed _  -> varE 'Encode.encodeFieldMessage
+
+encodeScalarFnQ :: ScalarType -> Q Exp
+encodeScalarFnQ = \case
+  SDouble  -> varE 'Encode.encodeFieldDouble
+  SFloat   -> varE 'Encode.encodeFieldFloat
+  SBool    -> varE 'Encode.encodeFieldBool
+  SString  -> varE 'Encode.encodeFieldString
+  SBytes   -> varE 'Encode.encodeFieldBytes
+  SUInt64  -> varE 'Encode.encodeFieldVarint
+  _        -> [| \fieldNum val -> Encode.encodeFieldVarint fieldNum (fromIntegral val) |]
 
 encodeStringFnQ :: StringRep -> Q Exp
 encodeStringFnQ = \case
@@ -342,11 +409,11 @@ encodeBytesFnQ = \case
   LazyBytesRep   -> varE 'encodeLazyBytes
   ShortBytesRep  -> varE 'encodeShortBytes
 
-defaultCheckQ :: FieldSpec -> Q Exp -> Q Exp
-defaultCheckQ fs accessor = case fsType fs of
+defaultCheckQ :: FieldType -> FieldRep -> Q Exp -> Q Exp
+defaultCheckQ ft rep accessor = case ft of
   FTScalar SBool   -> [| not $accessor |]
-  FTScalar SString -> defaultCheckStringQ (frString (fsRep fs)) accessor
-  FTScalar SBytes  -> defaultCheckBytesQ (frBytes (fsRep fs)) accessor
+  FTScalar SString -> defaultCheckStringQ (frString rep) accessor
+  FTScalar SBytes  -> defaultCheckBytesQ (frBytes rep) accessor
   FTScalar _       -> [| $accessor == 0 |]
   FTNamed _        -> [| $accessor == Nothing |]
 
@@ -367,23 +434,39 @@ defaultCheckBytesQ rep accessor = case rep of
 
 mkDecodeInstance :: Name -> [FieldSpec] -> Q [Dec]
 mkDecodeInstance tyName fields = do
-  let accNames = fmap (\(i, _) -> mkName ("acc_" <> show i)) (zip [(0::Int)..] fields)
+  let flatFields = concatMap flattenFieldSpec fields
+      accNames = fmap (\(i, _) -> mkName ("acc_" <> show i)) (zip [(0::Int)..] fields)
       loopName = mkName "loop"
       recExpr = recConE tyName
         (zipWith (\fs accN ->
-          pure (mkName (T.unpack (hsFieldName (fsName fs))), VarE accN))
+          pure (mkName (T.unpack (hsFieldName (fsFieldName fs))), VarE accN))
           fields accNames)
 
-  let fieldCases = fmap (\(i, fs) ->
-        let loopCall lbl = appsE (varE loopName :
-              fmap (\(j, n) -> if j == i
-                then case lbl of
-                  Just Repeated -> snocRepeatedQ (frRepeated (fsRep fs)) (varE n)
+  let mkLoopCall :: Int -> Q Exp -> Q Exp
+      mkLoopCall i valExpr = appsE (varE loopName :
+            fmap (\(j, n) -> if j == i then valExpr else varE n)
+              (zip [(0::Int)..] accNames))
+      passThruLoop :: Q Exp
+      passThruLoop = appsE (varE loopName : fmap varE accNames)
+
+  let fieldCases = concatMap (\(i, fs) ->
+        case fs of
+          FSField _ num lbl ft rep ->
+            let loopCall = mkLoopCall i $ case lbl of
+                  Just Repeated -> snocRepeatedQ (frRepeated rep) (varE (accNames !! i))
                   _             -> varE (mkName "v")
-                else varE n)
-                (zip [(0::Int)..] accNames))
-        in match (litP (integerL (fromIntegral (fsNum fs))))
-          (normalB [| $(decodeFnQ fs) >>= \v -> $(loopCall (fsLabel fs)) |]) []
+            in [match (litP (integerL (fromIntegral num)))
+                 (normalB [| $(decodeFnQ ft rep) >>= \v -> $loopCall |]) []]
+          FSMap _ num _kt _vt ->
+            [match (litP (integerL (fromIntegral num)))
+              (normalB [| Decode.decodeFieldBytes >>= \_ -> $passThruLoop |]) []]
+          FSOneof _ ofs ->
+            fmap (\of' ->
+              let ofNum = unFieldNumber (oneofFieldNumber of')
+                  loopCall = mkLoopCall i (varE (mkName "v"))
+              in match (litP (integerL (fromIntegral ofNum)))
+                   (normalB [| $(decodeFnQ (oneofFieldType of') defaultFieldRep) >>= \v -> $loopCall |]) []
+            ) ofs
         ) (zip [(0::Int)..] fields)
 
   let skipCase = match wildP (normalB
@@ -406,19 +489,24 @@ mkDecodeInstance tyName fields = do
     [funD 'Decode.messageDecoder [clause [] (normalB decoderBody) []]]
   pure [inst]
 
+flattenFieldSpec :: FieldSpec -> [(Int, FieldType)]
+flattenFieldSpec (FSField _ num _ ft _) = [(num, ft)]
+flattenFieldSpec (FSMap _ num _ _) = [(num, FTScalar SBytes)]
+flattenFieldSpec (FSOneof _ ofs) = fmap (\of' -> (unFieldNumber (oneofFieldNumber of'), oneofFieldType of')) ofs
+
 snocRepeatedQ :: RepeatedRep -> Q Exp -> Q Exp
 snocRepeatedQ rep accQ = case rep of
   VectorRep -> [| V.snoc $accQ v |]
   ListRep   -> [| $accQ <> [v] |]
   SeqRep    -> [| $accQ Seq.|> v |]
 
-decodeFnQ :: FieldSpec -> Q Exp
-decodeFnQ fs = case fsType fs of
+decodeFnQ :: FieldType -> FieldRep -> Q Exp
+decodeFnQ ft _rep = case ft of
   FTScalar SDouble -> varE 'Decode.decodeFieldDouble
   FTScalar SFloat  -> varE 'Decode.decodeFieldFloat
   FTScalar SBool   -> varE 'Decode.decodeFieldBool
-  FTScalar SString -> decodeStringFnQ (frString (fsRep fs))
-  FTScalar SBytes  -> decodeBytesFnQ (frBytes (fsRep fs))
+  FTScalar SString -> varE 'Decode.decodeFieldString
+  FTScalar SBytes  -> varE 'Decode.decodeFieldBytes
   FTScalar SUInt64 -> varE 'Decode.decodeFieldVarint
   FTScalar _       -> [| fromIntegral <$> Decode.decodeFieldVarint |]
   FTNamed _        -> varE 'Decode.decodeFieldMessage
@@ -450,23 +538,29 @@ mkSizeInstance tyName fields = do
   pure [inst]
 
 mkFieldSize :: Name -> FieldSpec -> Q Exp
-mkFieldSize msgVar fs = do
-  let accessor = appE (varE (mkName (T.unpack (hsFieldName (fsName fs))))) (varE msgVar)
-      fn = litE (integerL (fromIntegral (fsNum fs)))
-  case fsLabel fs of
-    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated (fsRep fs))) (\v -> $(sizeFnQ fs) $fn v) $accessor |]
-    Just Optional -> [| maybe 0 (\v -> $(sizeFnQ fs) $fn v) $accessor |]
-    _ -> [| if $(defaultCheckQ fs accessor)
+mkFieldSize msgVar (FSField name num lbl ft rep) = do
+  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
+      fn = litE (integerL (fromIntegral num))
+  case lbl of
+    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated rep)) (\v -> $(sizeFnQ ft) $fn v) $accessor |]
+    Just Optional -> [| maybe 0 (\v -> $(sizeFnQ ft) $fn v) $accessor |]
+    _ -> [| if $(defaultCheckQ ft rep accessor)
             then 0
-            else $(sizeFnQ fs) $fn $accessor |]
+            else $(sizeFnQ ft) $fn $accessor |]
+mkFieldSize msgVar (FSMap name num _ _) = do
+  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
+  [| if Map.null $accessor then 0 else Map.size $accessor * 10 |]
+mkFieldSize msgVar (FSOneof name _) = do
+  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
+  [| maybe 0 Encode.messageSize $accessor |]
 
-sizeFnQ :: FieldSpec -> Q Exp
-sizeFnQ fs = case fsType fs of
+sizeFnQ :: FieldType -> Q Exp
+sizeFnQ = \case
   FTScalar SDouble -> [| \fn _ -> WE.fieldDoubleSize fn |]
   FTScalar SFloat  -> [| \fn _ -> WE.fieldFloatSize fn |]
   FTScalar SBool   -> [| \fn _ -> WE.fieldBoolSize fn |]
-  FTScalar SString -> sizeStringFnQ (frString (fsRep fs))
-  FTScalar SBytes  -> sizeBytesFnQ (frBytes (fsRep fs))
+  FTScalar SString -> varE 'WE.fieldTextSize
+  FTScalar SBytes  -> varE 'WE.fieldBytesSize
   FTScalar SUInt64 -> varE 'WE.fieldVarintSize
   FTScalar _       -> [| \fn val -> WE.fieldVarintSize fn (fromIntegral val) |]
   FTNamed _        -> [| \fn val -> WE.fieldMessageSize fn (Encode.messageSize val) |]
