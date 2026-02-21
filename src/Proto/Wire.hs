@@ -1,0 +1,77 @@
+-- | Wire format types and tag encoding/decoding.
+--
+-- The protobuf wire format uses a tag-length-value scheme where each field
+-- is preceded by a tag encoding the field number and wire type.
+module Proto.Wire
+  ( -- * Wire types
+    WireType (..)
+  , wireTypeFromTag
+  , wireTypeToWord
+
+    -- * Tags
+  , Tag (..)
+  , makeTag
+  , encodeTag
+  , decodeTag
+
+    -- * Field key
+  , fieldTag
+  ) where
+
+import Data.Bits ((.&.), (.|.), shiftL, shiftR)
+import Data.Word (Word32, Word64)
+
+-- | Protobuf wire types.
+data WireType
+  = WireVarint           -- 0: int32, int64, uint32, uint64, sint32, sint64, bool, enum
+  | Wire64Bit            -- 1: fixed64, sfixed64, double
+  | WireLengthDelimited  -- 2: string, bytes, embedded messages, packed repeated fields
+  | WireStartGroup       -- 3: deprecated
+  | WireEndGroup         -- 4: deprecated
+  | Wire32Bit            -- 5: fixed32, sfixed32, float
+  deriving stock (Show, Eq, Ord, Enum, Bounded)
+
+wireTypeFromTag :: Word32 -> Maybe WireType
+wireTypeFromTag n = case n .&. 0x07 of
+  0 -> Just WireVarint
+  1 -> Just Wire64Bit
+  2 -> Just WireLengthDelimited
+  3 -> Just WireStartGroup
+  4 -> Just WireEndGroup
+  5 -> Just Wire32Bit
+  _ -> Nothing
+
+wireTypeToWord :: WireType -> Word32
+wireTypeToWord = \case
+  WireVarint          -> 0
+  Wire64Bit           -> 1
+  WireLengthDelimited -> 2
+  WireStartGroup      -> 3
+  WireEndGroup        -> 4
+  Wire32Bit           -> 5
+
+-- | A decoded tag: field number + wire type.
+data Tag = Tag
+  { tagFieldNumber :: {-# UNPACK #-} !Int
+  , tagWireType    :: !WireType
+  } deriving stock (Show, Eq)
+
+-- | Construct a tag from a field number and wire type.
+makeTag :: Int -> WireType -> Tag
+makeTag = Tag
+
+-- | Encode a tag as a single Word64 value (for varint encoding).
+encodeTag :: Tag -> Word64
+encodeTag (Tag fn wt) =
+  fromIntegral fn `shiftL` 3 .|. fromIntegral (wireTypeToWord wt)
+
+-- | Decode a tag from a varint value.
+decodeTag :: Word64 -> Maybe Tag
+decodeTag w = do
+  wt <- wireTypeFromTag (fromIntegral (w .&. 0x07))
+  let fn = fromIntegral (w `shiftR` 3)
+  Just (Tag fn wt)
+
+-- | Convenience: make the wire tag value for a given field number and wire type.
+fieldTag :: Int -> WireType -> Word64
+fieldTag fn wt = encodeTag (makeTag fn wt)

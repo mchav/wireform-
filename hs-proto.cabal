@@ -1,0 +1,372 @@
+cabal-version:      3.0
+name:               hs-proto
+version:            0.1.0.0
+synopsis:           High-performance Protocol Buffers for Haskell
+description:
+  A comprehensive Protocol Buffers library featuring:
+  .
+  * Full proto2/proto3 IDL parser
+  * Custom annotation support
+  * High-performance wire format encoding/decoding
+  * Code generation producing plain Haskell records
+  * Zero-copy decoding where possible
+  * Packed repeated field support
+  * Lazy submessage decoding
+
+license:            BSD-3-Clause
+build-type:         Simple
+
+data-files:
+  proto/google/protobuf/any.proto
+  proto/google/protobuf/api.proto
+  proto/google/protobuf/duration.proto
+  proto/google/protobuf/empty.proto
+  proto/google/protobuf/field_mask.proto
+  proto/google/protobuf/source_context.proto
+  proto/google/protobuf/struct.proto
+  proto/google/protobuf/timestamp.proto
+  proto/google/protobuf/type.proto
+  proto/google/protobuf/wrappers.proto
+
+data-dir: .
+
+flag python-interop
+  description: Enable Python interop conformance tests (requires python3, protobuf pip package, protoc)
+  manual: True
+  default: False
+
+common warnings
+    ghc-options:
+      -Wall
+      -Wcompat
+      -Widentities
+      -Wincomplete-record-updates
+      -Wincomplete-uni-patterns
+      -Wpartial-fields
+      -Wredundant-constraints
+      -O2
+
+library
+    import:           warnings
+    exposed-modules:
+      Proto.AST
+      Proto.Parser
+      Proto.Parser.Lexer
+      Proto.Parser.Resolver
+      Proto.Wire
+      Proto.Wire.Encode
+      Proto.Wire.Decode
+      Proto.Encode
+      Proto.Decode
+      Proto.Annotations
+      Proto.CodeGen
+      Proto.CodeGen.Types
+      Proto.CodeGen.Encode
+      Proto.CodeGen.Decode
+      Proto.SizedBuilder
+      Proto.Church
+      Proto.VectorBuilder
+      Proto.Message
+      Proto.Schema
+      Proto.Lens
+      Proto.Repr
+      Proto.Compat
+      Proto.Options
+      Proto.Print
+      Proto.Inspect
+      Proto.Setup
+      Proto.TH
+      Proto.QQ
+      Proto.JSON
+      Proto.Merge
+      Proto.FieldPresence
+      -- Well-known types (pre-generated)
+      Proto.Google.Protobuf.Any
+      Proto.Google.Protobuf.Timestamp
+      Proto.Google.Protobuf.Duration
+      Proto.Google.Protobuf.Empty
+      Proto.Google.Protobuf.Wrappers
+      Proto.Google.Protobuf.FieldMask
+      Proto.Google.Protobuf.SourceContext
+      Proto.Google.Protobuf.Struct
+
+    c-sources:        cbits/fast_decode.c
+    cc-options:       -O3 -march=native
+
+    build-depends:
+        base             >= 4.17   && < 5
+      , bytestring       >= 0.11   && < 0.13
+      , containers       >= 0.6    && < 0.8
+      , megaparsec       >= 9.0    && < 10
+      , text             >= 2.0    && < 2.2
+      , vector           >= 0.13   && < 0.14
+      , primitive         >= 0.7    && < 0.10
+      , mtl              >= 2.2    && < 2.4
+      , filepath         >= 1.4    && < 1.6
+      , directory        >= 1.3    && < 1.4
+      , deepseq          >= 1.4    && < 1.6
+      , template-haskell >= 2.19   && < 2.21
+      , prettyprinter    >= 1.7    && < 1.8
+      , base16-bytestring >= 1.0  && < 1.1
+
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      DeriveGeneric
+      DeriveAnyClass
+      OverloadedStrings
+      LambdaCase
+
+test-suite hs-proto-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    other-modules:
+      Test.Parser
+      Test.Wire
+      Test.Roundtrip
+      Test.CodeGen
+      Test.WellKnown
+      Test.PrintInspect
+      Test.Compat
+      Test.Schema
+      Test.Options
+      Test.Lens
+
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , containers
+      , text
+      , vector
+      , hedgehog         >= 1.0  && < 1.5
+      , tasty            >= 1.4  && < 1.6
+      , tasty-hedgehog   >= 1.0  && < 1.5
+      , tasty-hunit      >= 0.10 && < 0.11
+
+    hs-source-dirs:   test
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+
+executable hs-proto-gen
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base                 >= 4.17 && < 5
+      , hs-proto
+      , text
+      , directory
+      , filepath
+      , optparse-applicative >= 0.17 && < 0.20
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-basic
+    import:           warnings
+    main-is:          BasicEncodeDecode.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , deepseq
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-any
+    import:           warnings
+    main-is:          AnyExample.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , deepseq
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-wellknown
+    import:           warnings
+    main-is:          WellKnownTypes.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , containers
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-codegen
+    import:           warnings
+    main-is:          ProtoCodeGen.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , text
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+      LambdaCase
+
+executable example-setup-hook
+    import:           warnings
+    main-is:          ExampleSetup.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , text
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-custom-repr
+    import:           warnings
+    main-is:          CustomReprExample.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , containers
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-th
+    import:           warnings
+    main-is:          THExample.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-qq
+    import:           warnings
+    main-is:          QQExample.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+benchmark compare-bench
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    other-modules:    HsProtoTypes
+                    , Proto.Bench
+                    , Proto.Bench_Fields
+    build-depends:
+        base               >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+      , deepseq
+      , criterion          >= 1.5  && < 1.7
+      , proto-lens         >= 0.7  && < 0.8
+      , proto-lens-runtime >= 0.7  && < 0.8
+      , lens-family        >= 2.1  && < 2.2
+
+    hs-source-dirs:   compare-bench
+                    , compare-bench/gen
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      DeriveGeneric
+      DeriveAnyClass
+      OverloadedStrings
+
+executable profile
+    import:           warnings
+    main-is:          Main.hs
+    ghc-options:      -O2 -rtsopts
+    build-depends:
+        base >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+    hs-source-dirs:   profile
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+      LambdaCase
+
+executable hs-proto-bench
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+
+test-suite python-interop
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    other-modules:    InteropTypes
+
+    if !flag(python-interop)
+      buildable: False
+
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+      , containers
+      , deepseq
+      , process          >= 1.6  && < 1.8
+      , hedgehog         >= 1.0  && < 1.5
+      , tasty            >= 1.4  && < 1.6
+      , tasty-hedgehog   >= 1.0  && < 1.5
+      , tasty-hunit      >= 0.10 && < 0.11
+
+    hs-source-dirs:   interop-test
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+      LambdaCase

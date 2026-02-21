@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+message GetPersonRequest {
+  int32 person_id = 1;
+}
+
+message ListPeopleRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message AddPersonResponse {
+  bool success = 1;
+  string error_message = 2;
+}

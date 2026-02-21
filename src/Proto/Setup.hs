@@ -1,0 +1,132 @@
+-- | Cabal Setup.hs hook for automatic protobuf code generation.
+--
+-- @
+-- -- Setup.hs
+-- import Distribution.Simple
+-- import Proto.Setup
+--
+-- main :: IO ()
+-- main = defaultMainWithHooks simpleUserHooks
+--   { preBuild = \\args flags -> do
+--       protoGenPreBuildHook defaultProtoGenConfig
+--       preBuild simpleUserHooks args flags
+--   }
+-- @
+--
+-- Then in your @.cabal@ file:
+--
+-- @
+-- build-type: Custom
+--
+-- custom-setup
+--   setup-depends: base, hs-proto, Cabal, directory, filepath, text
+--
+-- library
+--   hs-source-dirs: src, gen
+-- @
+module Proto.Setup
+  ( ProtoGenConfig (..)
+  , defaultProtoGenConfig
+  , protoGenPreBuildHook
+  , generateProtos
+  , generateProtoFile
+  ) where
+
+import Control.Exception (catch, IOException)
+import Control.Monad (forM, forM_, when)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import System.Directory (createDirectoryIfMissing, doesFileExist,
+  getModificationTime, listDirectory, doesDirectoryExist)
+import System.FilePath ((</>), (<.>), takeDirectory, takeExtension)
+
+import Proto.AST (ProtoFile(..))
+import Proto.Parser (parseProtoFile)
+import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..))
+import Proto.CodeGen.Types (hsModuleName)
+
+data ProtoGenConfig = ProtoGenConfig
+  { pgcProtoDir     :: FilePath
+  , pgcIncludeDirs  :: [FilePath]
+  , pgcOutputDir    :: FilePath
+  , pgcModulePrefix :: T.Text
+  , pgcLazySub      :: Bool
+  } deriving stock (Show, Eq)
+
+defaultProtoGenConfig :: ProtoGenConfig
+defaultProtoGenConfig = ProtoGenConfig
+  { pgcProtoDir    = "proto"
+  , pgcIncludeDirs = []
+  , pgcOutputDir   = "gen"
+  , pgcModulePrefix = "Proto.Gen"
+  , pgcLazySub     = False
+  }
+
+-- | Pre-build hook: generate Haskell from all .proto files in pgcProtoDir.
+-- Only regenerates when source is newer than output.
+protoGenPreBuildHook :: ProtoGenConfig -> IO ()
+protoGenPreBuildHook = generateProtos
+
+-- | Find and generate all .proto files.
+generateProtos :: ProtoGenConfig -> IO ()
+generateProtos cfg = do
+  let protoDir = pgcProtoDir cfg
+  exists <- doesDirectoryExist protoDir
+  if not exists
+    then putStrLn $ "[hs-proto] Proto directory not found: " <> protoDir
+    else do
+      protos <- findProtoFiles protoDir
+      when (not (null protos)) $
+        putStrLn $ "[hs-proto] Found " <> show (length protos) <> " .proto file(s) in " <> protoDir
+      forM_ protos $ \relPath ->
+        generateProtoFile cfg (protoDir </> relPath)
+
+-- | Generate Haskell for one .proto file. Skips if output is up-to-date.
+generateProtoFile :: ProtoGenConfig -> FilePath -> IO ()
+generateProtoFile cfg protoPath = do
+  contents <- TIO.readFile protoPath
+  case parseProtoFile protoPath contents of
+    Left err ->
+      putStrLn $ "[hs-proto] Parse error in " <> protoPath <> ": " <> show err
+    Right pf -> do
+      let opts = defaultGenerateOpts
+            { genModulePrefix    = pgcModulePrefix cfg
+            , genLazySubmessages = pgcLazySub cfg
+            }
+          code = generateModuleText opts pf
+          outPath = pgcOutputDir cfg </> moduleToPath opts pf <.> "hs"
+      needsRegen <- checkStale protoPath outPath
+      when needsRegen $ do
+        createDirectoryIfMissing True (takeDirectory outPath)
+        TIO.writeFile outPath code
+        putStrLn $ "[hs-proto] Generated " <> outPath
+
+findProtoFiles :: FilePath -> IO [FilePath]
+findProtoFiles root = go ""
+  where
+    go prefix = do
+      let dir = root </> prefix
+      entries <- listDirectory dir `catch` (\(_ :: IOException) -> pure [])
+      fmap concat $ forM entries $ \entry -> do
+        let rel = if null prefix then entry else prefix </> entry
+            full = root </> rel
+        isDir <- doesDirectoryExist full
+        if isDir
+          then go rel
+          else pure [rel | takeExtension entry == ".proto"]
+
+checkStale :: FilePath -> FilePath -> IO Bool
+checkStale src out = do
+  outExists <- doesFileExist out
+  if not outExists
+    then pure True
+    else do
+      srcT <- getModificationTime src
+      outT <- getModificationTime out
+      pure (srcT > outT)
+
+moduleToPath :: GenerateOpts -> ProtoFile -> FilePath
+moduleToPath opts pf =
+  let prefix = T.unpack (genModulePrefix opts)
+      pkg = maybe "Generated" (T.unpack . hsModuleName) (protoPackage pf)
+  in fmap (\c -> if c == '.' then '/' else c) (prefix <> "." <> pkg)
