@@ -134,12 +134,19 @@ growListLength :: GrowList a -> Int
 growListLength = glCount
 {-# INLINE growListLength #-}
 
--- | Materialise to a boxed Vector. Uses fromListN which allocates
--- exactly the right size and fills in one pass.
+-- | Materialise to a boxed Vector. Allocates exactly the right size
+-- and fills back-to-front from the reversed cons-list in one pass.
+-- This avoids relying on stream fusion for the list→vector path.
 growListToVector :: GrowList a -> V.Vector a
 growListToVector (GrowList f n)
   | n == 0    = V.empty
-  | otherwise = V.fromListN n (f [])
+  | otherwise = V.create $ do
+      let !xs = f []
+      mv <- MV.new n
+      let fill !_ [] = pure ()
+          fill !i (e:es) = MV.unsafeWrite mv i e >> fill (i + 1) es
+      fill 0 xs
+      pure mv
 {-# INLINE growListToVector #-}
 
 -- | Materialise to an unboxed Vector.
