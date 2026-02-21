@@ -36,6 +36,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
+
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter
@@ -1364,39 +1365,80 @@ genEnum ctx scope ed =
 genEnumDataDecl :: [Text] -> EnumDef -> Doc ann
 genEnumDataDecl scope ed =
   let tyN = scopedTypeName scope
-  in vsep
+      hasAlias = enumHasAliases ed
+      primaryVals = enumPrimaryValues ed
+      aliasVals = enumAliasValues ed
+      deriveLine = if hasAlias
+        then pretty ("deriving stock (Show, Eq, Ord, Generic)" :: Text)
+        else pretty ("deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)" :: Text)
+      aliasSyns = fmap (\ev ->
+        pretty ("pattern " :: Text) <> pretty (scopedEnumCon scope (evName ev)) <+>
+        pretty ("::" :: Text) <+> pretty tyN <> line <>
+        pretty ("pattern " :: Text) <> pretty (scopedEnumCon scope (evName ev)) <+>
+        pretty ("= " :: Text) <> pretty (scopedEnumCon scope (canonicalNameForNumber ed (evNumber ev)))
+        ) aliasVals
+  in vsep $
     [ pretty ("data " :: Text) <> pretty tyN
-    , indent 2 (vsep (zipWith (\pfx v -> pfx <+> pretty (scopedEnumCon scope (evName v))) seps (enumValues ed)))
-    , indent 2 (pretty ("deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)" :: Text))
+    , indent 2 (vsep (zipWith (\pfx v -> pfx <+> pretty (scopedEnumCon scope (evName v))) seps primaryVals))
+    , indent 2 deriveLine
     , indent 2 (pretty ("deriving anyclass NFData" :: Text))
-    ]
+    ] <> aliasSyns
   where
     seps = pretty ("=" :: Text) : repeat (pretty ("|" :: Text))
 
 genEnumToProto :: [Text] -> EnumDef -> Doc ann
 genEnumToProto scope ed =
   let tyN = scopedTypeName scope
+      primaryVals = enumPrimaryValues ed
       genCase ev =
         pretty ("toProtoEnum" :: Text) <> pretty tyN <+>
         pretty (scopedEnumCon scope (evName ev)) <+> pretty ("= " :: Text) <>
         pretty (T.pack (show (evNumber ev)))
   in vsep
     [ pretty ("toProtoEnum" :: Text) <> pretty tyN <+> pretty ("::" :: Text) <+> pretty tyN <+> pretty ("-> Int" :: Text)
-    , vsep (fmap genCase (enumValues ed))
+    , vsep (fmap genCase primaryVals)
     ]
 
 genEnumFromProto :: [Text] -> EnumDef -> Doc ann
 genEnumFromProto scope ed =
   let tyN = scopedTypeName scope
+      primaryVals = enumPrimaryValues ed
       genCase ev =
         pretty ("fromProtoEnum" :: Text) <> pretty tyN <+>
         pretty (T.pack (show (evNumber ev))) <+> pretty ("= Just " :: Text) <>
         pretty (scopedEnumCon scope (evName ev))
   in vsep
     [ pretty ("fromProtoEnum" :: Text) <> pretty tyN <+> pretty ("::" :: Text) <+> pretty ("Int -> Maybe " :: Text) <> pretty tyN
-    , vsep (fmap genCase (enumValues ed))
+    , vsep (fmap genCase primaryVals)
     , pretty ("fromProtoEnum" :: Text) <> pretty tyN <+> pretty ("_ = Nothing" :: Text)
     ]
+
+enumHasAliases :: EnumDef -> Bool
+enumHasAliases ed =
+  let nums = fmap evNumber (enumValues ed)
+  in length nums /= length (Set.fromList nums)
+
+enumPrimaryValues :: EnumDef -> [EnumValue]
+enumPrimaryValues ed = go Set.empty (enumValues ed)
+  where
+    go _ [] = []
+    go seen (ev:evs)
+      | Set.member (evNumber ev) seen = go seen evs
+      | otherwise = ev : go (Set.insert (evNumber ev) seen) evs
+
+enumAliasValues :: EnumDef -> [EnumValue]
+enumAliasValues ed = go Set.empty (enumValues ed)
+  where
+    go _ [] = []
+    go seen (ev:evs)
+      | Set.member (evNumber ev) seen = ev : go seen evs
+      | otherwise = go (Set.insert (evNumber ev) seen) evs
+
+canonicalNameForNumber :: EnumDef -> Int -> Text
+canonicalNameForNumber ed num =
+  case filter (\ev -> evNumber ev == num) (enumValues ed) of
+    (ev:_) -> evName ev
+    []     -> "UNKNOWN"
 
 genEnumEncodeInstance :: [Text] -> EnumDef -> Doc ann
 genEnumEncodeInstance scope ed =
@@ -1413,25 +1455,31 @@ genEnumEncodeInstance scope ed =
 genEnumToJSONInstance :: [Text] -> EnumDef -> Doc ann
 genEnumToJSONInstance scope ed =
   let tyN = scopedTypeName scope
+      primaryVals = enumPrimaryValues ed
       genCase ev =
         pretty ("protoToJSON " :: Text) <> pretty (scopedEnumCon scope (evName ev)) <+>
         pretty ("= JsonString \"" :: Text) <> pretty (evName ev) <> pretty ("\"" :: Text)
   in vsep
     [ pretty ("instance ProtoToJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
-    , indent 2 (vsep (fmap genCase (enumValues ed)))
+    , indent 2 (vsep (fmap genCase primaryVals))
     ]
 
 genEnumFromJSONInstance :: [Text] -> EnumDef -> Doc ann
 genEnumFromJSONInstance scope ed =
   let tyN = scopedTypeName scope
+      hasAlias = enumHasAliases ed
       genCase ev =
         pretty ("  JsonString \"" :: Text) <> pretty (evName ev) <> pretty ("\" -> Right " :: Text) <> pretty (scopedEnumCon scope (evName ev))
+      fallbackNumCase = if hasAlias
+        then pretty ("  JsonNumber n -> fromProtoEnum" :: Text) <> pretty tyN <>
+             pretty (" (round n) & maybe (Left \"Invalid enum\") Right" :: Text)
+        else pretty ("  JsonNumber n -> Right (toEnum (round n))" :: Text)
   in vsep
     [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
         [ pretty ("protoFromJSON = \\case" :: Text)
         , vsep (fmap genCase (enumValues ed))
-        , pretty ("  JsonNumber n -> Right (toEnum (round n))" :: Text)
+        , fallbackNumCase
         , pretty ("  _ -> Left " :: Text) <> pretty ("\"Invalid enum value for " :: Text) <> pretty tyN <> pretty ("\"" :: Text)
         ]
     ]
