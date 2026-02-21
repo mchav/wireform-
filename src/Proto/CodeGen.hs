@@ -47,6 +47,9 @@ import Proto.Options
 import Proto.Annotations (lookupSimpleOption, optionAsString)
 import Proto.Parser.Resolver (ResolvedProto(..))
 import qualified Proto.CodeGen.Service as Service
+import Proto.Descriptor.Convert (serializeFileDescriptor)
+import qualified Data.ByteString.Base16 as Base16
+import qualified Data.Text.Encoding as TE
 
 data GenerateOpts = GenerateOpts
   { genModulePrefix    :: Text
@@ -301,6 +304,8 @@ generateModule opts reg filePath pf =
     , mempty
     , genImports importedModules
     , mempty
+    , genFileDescriptorBinding filePath pf
+    , mempty
     , vsep body
     , mempty
     , genRegisterModuleTypes localMsgNames
@@ -439,6 +444,8 @@ genImports externalModules = vsep $
   , pretty ("import Proto.JSON" :: Text)
   , pretty ("import Data.Proxy (Proxy(..))" :: Text)
   , pretty ("import Proto.Message (IsMessage(..))" :: Text)
+  , pretty ("import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))" :: Text)
+  , pretty ("import qualified Data.ByteString.Base16 as Base16" :: Text)
   , pretty ("import qualified Proto.Registry" :: Text)
   , pretty ("import Proto.Wire (Tag(..), WireType(..))" :: Text)
   , pretty ("import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64," :: Text)
@@ -479,6 +486,20 @@ moduleAlias modName =
       let uppers = T.filter (\c -> c >= 'A' && c <= 'Z') t
       in if T.length uppers >= 2 then uppers else T.toUpper (T.take 2 t)
 
+-- | Generate a top-level binding containing the serialized FileDescriptorProto.
+genFileDescriptorBinding :: FilePath -> ProtoFile -> Doc ann
+genFileDescriptorBinding filePath pf =
+  let fdpBytes = serializeFileDescriptor filePath pf
+      hexStr = TE.decodeUtf8 (Base16.encode fdpBytes)
+  in vsep
+    [ pretty ("-- | Serialized FileDescriptorProto for this .proto file." :: Text)
+    , pretty ("-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@." :: Text)
+    , pretty ("fileDescriptorProtoBytes :: ByteString" :: Text)
+    , pretty ("fileDescriptorProtoBytes = case Base16.decode \"" :: Text) <> pretty hexStr <> pretty ("\" of" :: Text)
+    , pretty ("  Right bs -> bs" :: Text)
+    , pretty ("  Left _ -> \"\"" :: Text)
+    ]
+
 -- ---------------------------------------------------------------------------
 -- Top-level generation
 -- ---------------------------------------------------------------------------
@@ -510,6 +531,8 @@ genMessage ctx scope msg =
         , genDecodeInstance ctx scope' msg
         , mempty
         , genIsMessageInstance ctx scope' msg
+        , mempty
+        , genProtoMessageInstance ctx scope' msg
         , mempty
         , genToJSONInstance ctx scope' msg
         , mempty
@@ -1146,6 +1169,88 @@ genIsMessageInstance ctx scope msg =
     [ pretty ("instance IsMessage " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ pretty ("messageTypeName _ = \"" :: Text) <> pretty fqn <> pretty ("\"" :: Text)
     ]
+
+genProtoMessageInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
+genProtoMessageInstance ctx scope msg =
+  let tyN = scopedTypeName scope
+      fqn = fqProtoName (gcPkg ctx) scope
+      pkg = fromMaybe "" (gcPkg ctx)
+      fields = extractMessageFieldsForSchema scope (msgElements msg)
+      defN = "default" <> tyN
+  in vsep
+    [ pretty ("instance ProtoMessage " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+    , indent 2 $ pretty ("protoMessageName _ = \"" :: Text) <> pretty fqn <> pretty ("\"" :: Text)
+    , indent 2 $ pretty ("protoPackageName _ = \"" :: Text) <> pretty pkg <> pretty ("\"" :: Text)
+    , indent 2 $ pretty ("protoDefaultValue = " :: Text) <> pretty defN
+    , indent 2 $ pretty ("protoFileDescriptorBytes _ = fileDescriptorProtoBytes" :: Text)
+    , indent 2 $ vsep
+        [ pretty ("protoFieldDescriptors _ = Map.fromList" :: Text)
+        , indent 2 $ genFieldDescriptorList scope fields
+        ]
+    ]
+
+data SchemaField = SchemaField
+  { sfName   :: Text
+  , sfNum    :: Int
+  , sfType   :: FieldType
+  , sfLabel  :: Maybe FieldLabel
+  }
+
+extractMessageFieldsForSchema :: [Text] -> [MessageElement] -> [SchemaField]
+extractMessageFieldsForSchema _scope = concatMap go
+  where
+    go (MEField fd) = [SchemaField (fieldName fd) (unFieldNumber (fieldNumber fd)) (fieldType fd) (fieldLabel fd)]
+    go (MEMapField mf) = [SchemaField (mapFieldName mf) (unFieldNumber (mapFieldNum mf)) (FTScalar SBytes) (Just Repeated)]
+    go (MEOneof od) = fmap (\f -> SchemaField (oneofFieldName f) (unFieldNumber (oneofFieldNumber f)) (oneofFieldType f) (Just Optional)) (oneofFields od)
+    go _ = []
+
+genFieldDescriptorList :: [Text] -> [SchemaField] -> Doc ann
+genFieldDescriptorList scope fields =
+  let entries = fmap (genFieldDescriptorEntry scope) fields
+  in case entries of
+    [] -> pretty ("[]" :: Text)
+    _  -> vsep [pretty ("[ " :: Text) <> head entries]
+      <> vsep (fmap (\e -> pretty (", " :: Text) <> e) (tail entries))
+      <> line <> pretty ("]" :: Text)
+
+genFieldDescriptorEntry :: [Text] -> SchemaField -> Doc ann
+genFieldDescriptorEntry scope sf =
+  let accN = scopedFieldName scope (sfName sf)
+  in pretty ("(" :: Text) <> pretty (T.pack (show (sfNum sf))) <> pretty (", SomeField FieldDescriptor" :: Text)
+    <> line <> indent 4 (vsep
+      [ pretty ("{ fdName = \"" :: Text) <> pretty (sfName sf) <> pretty ("\"" :: Text)
+      , pretty (", fdNumber = " :: Text) <> pretty (T.pack (show (sfNum sf)))
+      , pretty (", fdTypeDesc = " :: Text) <> genFieldTypeDesc (sfType sf)
+      , pretty (", fdLabel = " :: Text) <> genLabelLit (sfLabel sf)
+      , pretty (", fdGet = " :: Text) <> pretty accN
+      , pretty (", fdSet = \\v m -> m { " :: Text) <> pretty accN <> pretty (" = v }" :: Text)
+      , pretty ("})" :: Text)
+      ])
+
+genFieldTypeDesc :: FieldType -> Doc ann
+genFieldTypeDesc = \case
+  FTScalar SDouble   -> pretty ("ScalarType DoubleField" :: Text)
+  FTScalar SFloat    -> pretty ("ScalarType FloatField" :: Text)
+  FTScalar SInt32    -> pretty ("ScalarType Int32Field" :: Text)
+  FTScalar SInt64    -> pretty ("ScalarType Int64Field" :: Text)
+  FTScalar SUInt32   -> pretty ("ScalarType UInt32Field" :: Text)
+  FTScalar SUInt64   -> pretty ("ScalarType UInt64Field" :: Text)
+  FTScalar SSInt32   -> pretty ("ScalarType SInt32Field" :: Text)
+  FTScalar SSInt64   -> pretty ("ScalarType SInt64Field" :: Text)
+  FTScalar SFixed32  -> pretty ("ScalarType Fixed32Field" :: Text)
+  FTScalar SFixed64  -> pretty ("ScalarType Fixed64Field" :: Text)
+  FTScalar SSFixed32 -> pretty ("ScalarType SFixed32Field" :: Text)
+  FTScalar SSFixed64 -> pretty ("ScalarType SFixed64Field" :: Text)
+  FTScalar SBool     -> pretty ("ScalarType BoolField" :: Text)
+  FTScalar SString   -> pretty ("ScalarType StringField" :: Text)
+  FTScalar SBytes    -> pretty ("ScalarType BytesField" :: Text)
+  FTNamed n          -> pretty ("MessageType \"" :: Text) <> pretty n <> pretty ("\"" :: Text)
+
+genLabelLit :: Maybe FieldLabel -> Doc ann
+genLabelLit Nothing         = pretty ("LabelOptional" :: Text)
+genLabelLit (Just Optional) = pretty ("LabelOptional" :: Text)
+genLabelLit (Just Required) = pretty ("LabelRequired" :: Text)
+genLabelLit (Just Repeated) = pretty ("LabelRepeated" :: Text)
 
 -- ---------------------------------------------------------------------------
 -- JSON instances
