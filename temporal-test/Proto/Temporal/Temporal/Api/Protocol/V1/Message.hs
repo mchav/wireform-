@@ -35,14 +35,14 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Any (Any(..))
+import qualified Proto.Google.Protobuf.Any as PB_Any
 
 
 data Message = Message
   { messageId :: !Text
   , messageProtocolinstanceid :: !Text
   , messageSequencingid :: !(Maybe Message'SequencingId)
-  , messageBody :: !(Maybe Any)
+  , messageBody :: !(Maybe PB_Any.Any)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

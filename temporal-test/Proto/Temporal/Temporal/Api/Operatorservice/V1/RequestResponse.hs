@@ -35,13 +35,13 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (IndexedValueType(..))
-import Proto.Temporal.Temporal.Api.Nexus.V1.Message (Endpoint(..), EndpointSpec(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Common as PT_Enums_V1_Common
+import qualified Proto.Temporal.Temporal.Api.Nexus.V1.Message as PT_Nexus_V1_Message
 
 
 data AddSearchAttributesRequest = AddSearchAttributesRequest
-  { addSearchAttributesRequestSearchattributes :: !(Map.Map Text IndexedValueType)
+  { addSearchAttributesRequestSearchattributes :: !(Map.Map Text PT_Enums_V1_Common.IndexedValueType)
   , addSearchAttributesRequestNamespace :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -268,8 +268,8 @@ instance ProtoFromJSON ListSearchAttributesRequest where
   protoFromJSON _ = Right defaultListSearchAttributesRequest
 
 data ListSearchAttributesResponse = ListSearchAttributesResponse
-  { listSearchAttributesResponseCustomattributes :: !(Map.Map Text IndexedValueType)
-  , listSearchAttributesResponseSystemattributes :: !(Map.Map Text IndexedValueType)
+  { listSearchAttributesResponseCustomattributes :: !(Map.Map Text PT_Enums_V1_Common.IndexedValueType)
+  , listSearchAttributesResponseSystemattributes :: !(Map.Map Text PT_Enums_V1_Common.IndexedValueType)
   , listSearchAttributesResponseStorageschema :: !(Map.Map Text Text)
   }
   deriving stock (Show, Eq, Generic)
@@ -344,7 +344,7 @@ instance ProtoFromJSON ListSearchAttributesResponse where
 data DeleteNamespaceRequest = DeleteNamespaceRequest
   { deleteNamespaceRequestNamespace :: !Text
   , deleteNamespaceRequestNamespaceid :: !Text
-  , deleteNamespaceRequestNamespacedeletedelay :: !(Maybe Duration)
+  , deleteNamespaceRequestNamespacedeletedelay :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -913,7 +913,7 @@ instance ProtoFromJSON GetNexusEndpointRequest where
   protoFromJSON _ = Right defaultGetNexusEndpointRequest
 
 data GetNexusEndpointResponse = GetNexusEndpointResponse
-  { getNexusEndpointResponseEndpoint :: !(Maybe Endpoint)
+  { getNexusEndpointResponseEndpoint :: !(Maybe PT_Nexus_V1_Message.Endpoint)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -959,7 +959,7 @@ instance ProtoFromJSON GetNexusEndpointResponse where
   protoFromJSON _ = Right defaultGetNexusEndpointResponse
 
 data CreateNexusEndpointRequest = CreateNexusEndpointRequest
-  { createNexusEndpointRequestSpec :: !(Maybe EndpointSpec)
+  { createNexusEndpointRequestSpec :: !(Maybe PT_Nexus_V1_Message.EndpointSpec)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1005,7 +1005,7 @@ instance ProtoFromJSON CreateNexusEndpointRequest where
   protoFromJSON _ = Right defaultCreateNexusEndpointRequest
 
 data CreateNexusEndpointResponse = CreateNexusEndpointResponse
-  { createNexusEndpointResponseEndpoint :: !(Maybe Endpoint)
+  { createNexusEndpointResponseEndpoint :: !(Maybe PT_Nexus_V1_Message.Endpoint)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1053,7 +1053,7 @@ instance ProtoFromJSON CreateNexusEndpointResponse where
 data UpdateNexusEndpointRequest = UpdateNexusEndpointRequest
   { updateNexusEndpointRequestId :: !Text
   , updateNexusEndpointRequestVersion :: {-# UNPACK #-} !Int64
-  , updateNexusEndpointRequestSpec :: !(Maybe EndpointSpec)
+  , updateNexusEndpointRequestSpec :: !(Maybe PT_Nexus_V1_Message.EndpointSpec)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1116,7 +1116,7 @@ instance ProtoFromJSON UpdateNexusEndpointRequest where
   protoFromJSON _ = Right defaultUpdateNexusEndpointRequest
 
 data UpdateNexusEndpointResponse = UpdateNexusEndpointResponse
-  { updateNexusEndpointResponseEndpoint :: !(Maybe Endpoint)
+  { updateNexusEndpointResponseEndpoint :: !(Maybe PT_Nexus_V1_Message.Endpoint)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1317,7 +1317,7 @@ instance ProtoFromJSON ListNexusEndpointsRequest where
 
 data ListNexusEndpointsResponse = ListNexusEndpointsResponse
   { listNexusEndpointsResponseNextpagetoken :: !ByteString
-  , listNexusEndpointsResponseEndpoints :: !(V.Vector Endpoint)
+  , listNexusEndpointsResponseEndpoints :: !(V.Vector PT_Nexus_V1_Message.Endpoint)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

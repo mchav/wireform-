@@ -35,8 +35,8 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ReplicationState(..))
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Namespace as PT_Enums_V1_Namespace
 
 
 data ClusterReplicationConfig = ClusterReplicationConfig
@@ -88,7 +88,7 @@ instance ProtoFromJSON ClusterReplicationConfig where
 data NamespaceReplicationConfig = NamespaceReplicationConfig
   { namespaceReplicationConfigActiveclustername :: !Text
   , namespaceReplicationConfigClusters :: !(V.Vector ClusterReplicationConfig)
-  , namespaceReplicationConfigState :: !ReplicationState
+  , namespaceReplicationConfigState :: !PT_Enums_V1_Namespace.ReplicationState
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -151,7 +151,7 @@ instance ProtoFromJSON NamespaceReplicationConfig where
   protoFromJSON _ = Right defaultNamespaceReplicationConfig
 
 data FailoverStatus = FailoverStatus
-  { failoverStatusFailovertime :: !(Maybe Timestamp)
+  { failoverStatusFailovertime :: !(Maybe PB_Timestamp.Timestamp)
   , failoverStatusFailoverversion :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)

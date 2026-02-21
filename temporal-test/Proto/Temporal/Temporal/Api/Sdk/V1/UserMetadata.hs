@@ -35,12 +35,12 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
 
 
 data UserMetadata = UserMetadata
-  { userMetadataSummary :: !(Maybe Payload)
-  , userMetadataDetails :: !(Maybe Payload)
+  { userMetadataSummary :: !(Maybe PT_Common_V1_Message.Payload)
+  , userMetadataDetails :: !(Maybe PT_Common_V1_Message.Payload)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

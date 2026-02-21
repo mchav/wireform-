@@ -35,7 +35,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
 
 
 data WorkflowRuleAction = WorkflowRuleAction
@@ -133,7 +133,7 @@ data WorkflowRuleSpec = WorkflowRuleSpec
   , workflowRuleSpecTrigger :: !(Maybe WorkflowRuleSpec'Trigger)
   , workflowRuleSpecVisibilityquery :: !Text
   , workflowRuleSpecActions :: !(V.Vector WorkflowRuleAction)
-  , workflowRuleSpecExpirationtime :: !(Maybe Timestamp)
+  , workflowRuleSpecExpirationtime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -270,7 +270,7 @@ instance ProtoFromJSON WorkflowRuleSpec where
   protoFromJSON _ = Right defaultWorkflowRuleSpec
 
 data WorkflowRule = WorkflowRule
-  { workflowRuleCreatetime :: !(Maybe Timestamp)
+  { workflowRuleCreatetime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowRuleSpec :: !(Maybe WorkflowRuleSpec)
   , workflowRuleCreatedbyidentity :: !Text
   , workflowRuleDescription :: !Text

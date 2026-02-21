@@ -35,11 +35,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Temporal.Temporal.Api.History.V1.Message (History(..))
+import qualified Proto.Temporal.Temporal.Api.History.V1.Message as PT_History_V1_Message
 
 
 data WorkflowExecution = WorkflowExecution
-  { workflowExecutionHistory :: !(Maybe History)
+  { workflowExecutionHistory :: !(Maybe PT_History_V1_Message.History)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

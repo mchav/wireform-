@@ -35,13 +35,13 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Header(..), Payloads(..), WorkflowExecution(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Update (UpdateWorkflowExecutionLifecycleStage(..))
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Update as PT_Enums_V1_Update
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
 
 
 data WaitPolicy = WaitPolicy
-  { waitPolicyLifecyclestage :: !UpdateWorkflowExecutionLifecycleStage
+  { waitPolicyLifecyclestage :: !PT_Enums_V1_Update.UpdateWorkflowExecutionLifecycleStage
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -87,7 +87,7 @@ instance ProtoFromJSON WaitPolicy where
   protoFromJSON _ = Right defaultWaitPolicy
 
 data UpdateRef = UpdateRef
-  { updateRefWorkflowexecution :: !(Maybe WorkflowExecution)
+  { updateRefWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , updateRefUpdateid :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -147,8 +147,8 @@ data Outcome = Outcome
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data Outcome'Value
-  = Outcome'Value'Success !Payloads
-  | Outcome'Value'Failure !Failure
+  = Outcome'Value'Success !PT_Common_V1_Message.Payloads
+  | Outcome'Value'Failure !PT_Failure_V1_Message.Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON Outcome'Value where
@@ -259,9 +259,9 @@ instance ProtoFromJSON Meta where
   protoFromJSON _ = Right defaultMeta
 
 data Input = Input
-  { inputHeader :: !(Maybe Header)
+  { inputHeader :: !(Maybe PT_Common_V1_Message.Header)
   , inputName :: !Text
-  , inputArgs :: !(Maybe Payloads)
+  , inputArgs :: !(Maybe PT_Common_V1_Message.Payloads)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -382,7 +382,7 @@ data Rejection = Rejection
   { rejectionRejectedrequestmessageid :: !Text
   , rejectionRejectedrequestsequencingeventid :: {-# UNPACK #-} !Int64
   , rejectionRejectedrequest :: !(Maybe Request)
-  , rejectionFailure :: !(Maybe Failure)
+  , rejectionFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

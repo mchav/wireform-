@@ -35,11 +35,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Any (Any(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (WorkflowExecution(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.FailedCause (ResourceExhaustedCause(..), ResourceExhaustedScope(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (NamespaceState(..))
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
+import qualified Proto.Google.Protobuf.Any as PB_Any
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.FailedCause as PT_Enums_V1_FailedCause
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Namespace as PT_Enums_V1_Namespace
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
 
 
 data NotFoundFailure = NotFoundFailure
@@ -265,8 +265,8 @@ instance ProtoFromJSON NamespaceUnavailableFailure where
 
 data NamespaceInvalidStateFailure = NamespaceInvalidStateFailure
   { namespaceInvalidStateFailureNamespace :: !Text
-  , namespaceInvalidStateFailureState :: !NamespaceState
-  , namespaceInvalidStateFailureAllowedstates :: !(V.Vector NamespaceState)
+  , namespaceInvalidStateFailureState :: !PT_Enums_V1_Namespace.NamespaceState
+  , namespaceInvalidStateFailureAllowedstates :: !(V.Vector PT_Enums_V1_Namespace.NamespaceState)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -563,7 +563,7 @@ instance ProtoFromJSON CancellationAlreadyRequestedFailure where
   protoFromJSON _ = Right defaultCancellationAlreadyRequestedFailure
 
 data QueryFailedFailure = QueryFailedFailure
-  { queryFailedFailureFailure :: !(Maybe Failure)
+  { queryFailedFailureFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -655,8 +655,8 @@ instance ProtoFromJSON PermissionDeniedFailure where
   protoFromJSON _ = Right defaultPermissionDeniedFailure
 
 data ResourceExhaustedFailure = ResourceExhaustedFailure
-  { resourceExhaustedFailureCause :: !ResourceExhaustedCause
-  , resourceExhaustedFailureScope :: !ResourceExhaustedScope
+  { resourceExhaustedFailureCause :: !PT_Enums_V1_FailedCause.ResourceExhaustedCause
+  , resourceExhaustedFailureScope :: !PT_Enums_V1_FailedCause.ResourceExhaustedScope
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -710,7 +710,7 @@ instance ProtoFromJSON ResourceExhaustedFailure where
   protoFromJSON _ = Right defaultResourceExhaustedFailure
 
 data SystemWorkflowFailure = SystemWorkflowFailure
-  { systemWorkflowFailureWorkflowexecution :: !(Maybe WorkflowExecution)
+  { systemWorkflowFailureWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , systemWorkflowFailureWorkflowerror :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -853,7 +853,7 @@ data MultiOperationExecutionFailure = MultiOperationExecutionFailure
 data MultiOperationExecutionFailure'OperationStatus = MultiOperationExecutionFailure'OperationStatus
   { multiOperationExecutionFailureOperationStatusCode :: {-# UNPACK #-} !Int32
   , multiOperationExecutionFailureOperationStatusMessage :: !Text
-  , multiOperationExecutionFailureOperationStatusDetails :: !(V.Vector Any)
+  , multiOperationExecutionFailureOperationStatusDetails :: !(V.Vector PB_Any.Any)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

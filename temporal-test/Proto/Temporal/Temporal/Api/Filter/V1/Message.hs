@@ -35,8 +35,8 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus(..))
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
 
 
 data WorkflowExecutionFilter = WorkflowExecutionFilter
@@ -141,8 +141,8 @@ instance ProtoFromJSON WorkflowTypeFilter where
   protoFromJSON _ = Right defaultWorkflowTypeFilter
 
 data StartTimeFilter = StartTimeFilter
-  { startTimeFilterEarliesttime :: !(Maybe Timestamp)
-  , startTimeFilterLatesttime :: !(Maybe Timestamp)
+  { startTimeFilterEarliesttime :: !(Maybe PB_Timestamp.Timestamp)
+  , startTimeFilterLatesttime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -196,7 +196,7 @@ instance ProtoFromJSON StartTimeFilter where
   protoFromJSON _ = Right defaultStartTimeFilter
 
 data StatusFilter = StatusFilter
-  { statusFilterStatus :: !WorkflowExecutionStatus
+  { statusFilterStatus :: !PT_Enums_V1_Workflow.WorkflowExecutionStatus
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

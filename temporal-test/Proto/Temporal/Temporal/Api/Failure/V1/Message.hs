@@ -35,19 +35,19 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Payload(..), Payloads(..), WorkflowExecution(..), WorkflowType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (ApplicationErrorCategory(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Nexus (NexusHandlerErrorRetryBehavior(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (RetryState(..), TimeoutType(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Common as PT_Enums_V1_Common
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Nexus as PT_Enums_V1_Nexus
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
 
 
 data ApplicationFailureInfo = ApplicationFailureInfo
   { applicationFailureInfoType :: !Text
   , applicationFailureInfoNonretryable :: {-# UNPACK #-} !Bool
-  , applicationFailureInfoDetails :: !(Maybe Payloads)
-  , applicationFailureInfoNextretrydelay :: !(Maybe Duration)
-  , applicationFailureInfoCategory :: !ApplicationErrorCategory
+  , applicationFailureInfoDetails :: !(Maybe PT_Common_V1_Message.Payloads)
+  , applicationFailureInfoNextretrydelay :: !(Maybe PB_Duration.Duration)
+  , applicationFailureInfoCategory :: !PT_Enums_V1_Common.ApplicationErrorCategory
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -128,8 +128,8 @@ instance ProtoFromJSON ApplicationFailureInfo where
   protoFromJSON _ = Right defaultApplicationFailureInfo
 
 data TimeoutFailureInfo = TimeoutFailureInfo
-  { timeoutFailureInfoTimeouttype :: !TimeoutType
-  , timeoutFailureInfoLastheartbeatdetails :: !(Maybe Payloads)
+  { timeoutFailureInfoTimeouttype :: !PT_Enums_V1_Workflow.TimeoutType
+  , timeoutFailureInfoLastheartbeatdetails :: !(Maybe PT_Common_V1_Message.Payloads)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -183,7 +183,7 @@ instance ProtoFromJSON TimeoutFailureInfo where
   protoFromJSON _ = Right defaultTimeoutFailureInfo
 
 data CanceledFailureInfo = CanceledFailureInfo
-  { canceledFailureInfoDetails :: !(Maybe Payloads)
+  { canceledFailureInfoDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -309,7 +309,7 @@ instance ProtoFromJSON ServerFailureInfo where
   protoFromJSON _ = Right defaultServerFailureInfo
 
 data ResetWorkflowFailureInfo = ResetWorkflowFailureInfo
-  { resetWorkflowFailureInfoLastheartbeatdetails :: !(Maybe Payloads)
+  { resetWorkflowFailureInfoLastheartbeatdetails :: !(Maybe PT_Common_V1_Message.Payloads)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -358,9 +358,9 @@ data ActivityFailureInfo = ActivityFailureInfo
   { activityFailureInfoScheduledeventid :: {-# UNPACK #-} !Int64
   , activityFailureInfoStartedeventid :: {-# UNPACK #-} !Int64
   , activityFailureInfoIdentity :: !Text
-  , activityFailureInfoActivitytype :: !(Maybe ActivityType)
+  , activityFailureInfoActivitytype :: !(Maybe PT_Common_V1_Message.ActivityType)
   , activityFailureInfoActivityid :: !Text
-  , activityFailureInfoRetrystate :: !RetryState
+  , activityFailureInfoRetrystate :: !PT_Enums_V1_Workflow.RetryState
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -451,11 +451,11 @@ instance ProtoFromJSON ActivityFailureInfo where
 
 data ChildWorkflowExecutionFailureInfo = ChildWorkflowExecutionFailureInfo
   { childWorkflowExecutionFailureInfoNamespace :: !Text
-  , childWorkflowExecutionFailureInfoWorkflowexecution :: !(Maybe WorkflowExecution)
-  , childWorkflowExecutionFailureInfoWorkflowtype :: !(Maybe WorkflowType)
+  , childWorkflowExecutionFailureInfoWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , childWorkflowExecutionFailureInfoWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , childWorkflowExecutionFailureInfoInitiatedeventid :: {-# UNPACK #-} !Int64
   , childWorkflowExecutionFailureInfoStartedeventid :: {-# UNPACK #-} !Int64
-  , childWorkflowExecutionFailureInfoRetrystate :: !RetryState
+  , childWorkflowExecutionFailureInfoRetrystate :: !PT_Enums_V1_Workflow.RetryState
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -641,7 +641,7 @@ instance ProtoFromJSON NexusOperationFailureInfo where
 
 data NexusHandlerFailureInfo = NexusHandlerFailureInfo
   { nexusHandlerFailureInfoType :: !Text
-  , nexusHandlerFailureInfoRetrybehavior :: !NexusHandlerErrorRetryBehavior
+  , nexusHandlerFailureInfoRetrybehavior :: !PT_Enums_V1_Nexus.NexusHandlerErrorRetryBehavior
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -698,7 +698,7 @@ data Failure = Failure
   { failureMessage :: !Text
   , failureSource :: !Text
   , failureStacktrace :: !Text
-  , failureEncodedattributes :: !(Maybe Payload)
+  , failureEncodedattributes :: !(Maybe PT_Common_V1_Message.Payload)
   , failureCause :: !(Maybe Failure)
   , failureFailureinfo :: !(Maybe Failure'FailureInfo)
   }

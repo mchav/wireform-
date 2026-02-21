@@ -35,16 +35,16 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Deployment (VersionDrainageStatus(..), WorkerDeploymentVersionStatus(..), WorkerVersioningMode(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue (RoutingConfigUpdateState(..), TaskQueueType(..))
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Deployment as PT_Enums_V1_Deployment
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue as PT_Enums_V1_TaskQueue
 
 
 data WorkerDeploymentOptions = WorkerDeploymentOptions
   { workerDeploymentOptionsDeploymentname :: !Text
   , workerDeploymentOptionsBuildid :: !Text
-  , workerDeploymentOptionsWorkerversioningmode :: !WorkerVersioningMode
+  , workerDeploymentOptionsWorkerversioningmode :: !PT_Enums_V1_Deployment.WorkerVersioningMode
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -163,9 +163,9 @@ instance ProtoFromJSON Deployment where
 
 data DeploymentInfo = DeploymentInfo
   { deploymentInfoDeployment :: !(Maybe Deployment)
-  , deploymentInfoCreatetime :: !(Maybe Timestamp)
+  , deploymentInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
   , deploymentInfoTaskqueueinfos :: !(V.Vector DeploymentInfo'TaskQueueInfo)
-  , deploymentInfoMetadata :: !(Map.Map Text Payload)
+  , deploymentInfoMetadata :: !(Map.Map Text PT_Common_V1_Message.Payload)
   , deploymentInfoIscurrent :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -173,8 +173,8 @@ data DeploymentInfo = DeploymentInfo
 
 data DeploymentInfo'TaskQueueInfo = DeploymentInfo'TaskQueueInfo
   { deploymentInfoTaskQueueInfoName :: !Text
-  , deploymentInfoTaskQueueInfoType :: !TaskQueueType
-  , deploymentInfoTaskQueueInfoFirstpollertime :: !(Maybe Timestamp)
+  , deploymentInfoTaskQueueInfoType :: !PT_Enums_V1_TaskQueue.TaskQueueType
+  , deploymentInfoTaskQueueInfoFirstpollertime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -315,7 +315,7 @@ instance ProtoFromJSON DeploymentInfo where
   protoFromJSON _ = Right defaultDeploymentInfo
 
 data UpdateDeploymentMetadata = UpdateDeploymentMetadata
-  { updateDeploymentMetadataUpsertentries :: !(Map.Map Text Payload)
+  { updateDeploymentMetadataUpsertentries :: !(Map.Map Text PT_Common_V1_Message.Payload)
   , updateDeploymentMetadataRemoveentries :: !(V.Vector Text)
   }
   deriving stock (Show, Eq, Generic)
@@ -374,7 +374,7 @@ instance ProtoFromJSON UpdateDeploymentMetadata where
 
 data DeploymentListInfo = DeploymentListInfo
   { deploymentListInfoDeployment :: !(Maybe Deployment)
-  , deploymentListInfoCreatetime :: !(Maybe Timestamp)
+  , deploymentListInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
   , deploymentListInfoIscurrent :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -439,16 +439,16 @@ instance ProtoFromJSON DeploymentListInfo where
 
 data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
   { workerDeploymentVersionInfoVersion :: !Text
-  , workerDeploymentVersionInfoStatus :: !WorkerDeploymentVersionStatus
+  , workerDeploymentVersionInfoStatus :: !PT_Enums_V1_Deployment.WorkerDeploymentVersionStatus
   , workerDeploymentVersionInfoDeploymentversion :: !(Maybe WorkerDeploymentVersion)
   , workerDeploymentVersionInfoDeploymentname :: !Text
-  , workerDeploymentVersionInfoCreatetime :: !(Maybe Timestamp)
-  , workerDeploymentVersionInfoRoutingchangedtime :: !(Maybe Timestamp)
-  , workerDeploymentVersionInfoCurrentsincetime :: !(Maybe Timestamp)
-  , workerDeploymentVersionInfoRampingsincetime :: !(Maybe Timestamp)
-  , workerDeploymentVersionInfoFirstactivationtime :: !(Maybe Timestamp)
-  , workerDeploymentVersionInfoLastcurrenttime :: !(Maybe Timestamp)
-  , workerDeploymentVersionInfoLastdeactivationtime :: !(Maybe Timestamp)
+  , workerDeploymentVersionInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoRoutingchangedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoCurrentsincetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoRampingsincetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoFirstactivationtime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoLastcurrenttime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoLastdeactivationtime :: !(Maybe PB_Timestamp.Timestamp)
   , workerDeploymentVersionInfoRamppercentage :: {-# UNPACK #-} !Float
   , workerDeploymentVersionInfoTaskqueueinfos :: !(V.Vector WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
   , workerDeploymentVersionInfoDrainageinfo :: !(Maybe VersionDrainageInfo)
@@ -459,7 +459,7 @@ data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
 
 data WorkerDeploymentVersionInfo'VersionTaskQueueInfo = WorkerDeploymentVersionInfo'VersionTaskQueueInfo
   { workerDeploymentVersionInfoVersionTaskQueueInfoName :: !Text
-  , workerDeploymentVersionInfoVersionTaskQueueInfoType :: !TaskQueueType
+  , workerDeploymentVersionInfoVersionTaskQueueInfoType :: !PT_Enums_V1_TaskQueue.TaskQueueType
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -678,9 +678,9 @@ instance ProtoFromJSON WorkerDeploymentVersionInfo where
   protoFromJSON _ = Right defaultWorkerDeploymentVersionInfo
 
 data VersionDrainageInfo = VersionDrainageInfo
-  { versionDrainageInfoStatus :: !VersionDrainageStatus
-  , versionDrainageInfoLastchangedtime :: !(Maybe Timestamp)
-  , versionDrainageInfoLastcheckedtime :: !(Maybe Timestamp)
+  { versionDrainageInfoStatus :: !PT_Enums_V1_Deployment.VersionDrainageStatus
+  , versionDrainageInfoLastchangedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , versionDrainageInfoLastcheckedtime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -745,28 +745,28 @@ instance ProtoFromJSON VersionDrainageInfo where
 data WorkerDeploymentInfo = WorkerDeploymentInfo
   { workerDeploymentInfoName :: !Text
   , workerDeploymentInfoVersionsummaries :: !(V.Vector WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
-  , workerDeploymentInfoCreatetime :: !(Maybe Timestamp)
+  , workerDeploymentInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
   , workerDeploymentInfoRoutingconfig :: !(Maybe RoutingConfig)
   , workerDeploymentInfoLastmodifieridentity :: !Text
   , workerDeploymentInfoManageridentity :: !Text
-  , workerDeploymentInfoRoutingconfigupdatestate :: !RoutingConfigUpdateState
+  , workerDeploymentInfoRoutingconfigupdatestate :: !PT_Enums_V1_TaskQueue.RoutingConfigUpdateState
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data WorkerDeploymentInfo'WorkerDeploymentVersionSummary = WorkerDeploymentInfo'WorkerDeploymentVersionSummary
   { workerDeploymentInfoWorkerDeploymentVersionSummaryVersion :: !Text
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus :: !WorkerDeploymentVersionStatus
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus :: !PT_Enums_V1_Deployment.WorkerDeploymentVersionStatus
   , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus :: !VersionDrainageStatus
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus :: !PT_Enums_V1_Deployment.VersionDrainageStatus
   , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo :: !(Maybe VersionDrainageInfo)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime :: !(Maybe Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime :: !(Maybe Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime :: !(Maybe Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1058,7 +1058,7 @@ instance ProtoFromJSON WorkerDeploymentVersion where
   protoFromJSON _ = Right defaultWorkerDeploymentVersion
 
 data VersionMetadata = VersionMetadata
-  { versionMetadataEntries :: !(Map.Map Text Payload)
+  { versionMetadataEntries :: !(Map.Map Text PT_Common_V1_Message.Payload)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1112,9 +1112,9 @@ data RoutingConfig = RoutingConfig
   , routingConfigRampingdeploymentversion :: !(Maybe WorkerDeploymentVersion)
   , routingConfigRampingversion :: !Text
   , routingConfigRampingversionpercentage :: {-# UNPACK #-} !Float
-  , routingConfigCurrentversionchangedtime :: !(Maybe Timestamp)
-  , routingConfigRampingversionchangedtime :: !(Maybe Timestamp)
-  , routingConfigRampingversionpercentagechangedtime :: !(Maybe Timestamp)
+  , routingConfigCurrentversionchangedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , routingConfigRampingversionchangedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , routingConfigRampingversionpercentagechangedtime :: !(Maybe PB_Timestamp.Timestamp)
   , routingConfigRevisionnumber :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)

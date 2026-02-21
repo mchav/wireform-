@@ -35,14 +35,14 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ArchivalState(..), NamespaceState(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Namespace as PT_Enums_V1_Namespace
 
 
 data NamespaceInfo = NamespaceInfo
   { namespaceInfoName :: !Text
-  , namespaceInfoState :: !NamespaceState
+  , namespaceInfoState :: !PT_Enums_V1_Namespace.NamespaceState
   , namespaceInfoDescription :: !Text
   , namespaceInfoOwneremail :: !Text
   , namespaceInfoData :: !(Map.Map Text Text)
@@ -339,11 +339,11 @@ instance ProtoFromJSON NamespaceInfo where
   protoFromJSON _ = Right defaultNamespaceInfo
 
 data NamespaceConfig = NamespaceConfig
-  { namespaceConfigWorkflowexecutionretentionttl :: !(Maybe Duration)
+  { namespaceConfigWorkflowexecutionretentionttl :: !(Maybe PB_Duration.Duration)
   , namespaceConfigBadbinaries :: !(Maybe BadBinaries)
-  , namespaceConfigHistoryarchivalstate :: !ArchivalState
+  , namespaceConfigHistoryarchivalstate :: !PT_Enums_V1_Namespace.ArchivalState
   , namespaceConfigHistoryarchivaluri :: !Text
-  , namespaceConfigVisibilityarchivalstate :: !ArchivalState
+  , namespaceConfigVisibilityarchivalstate :: !PT_Enums_V1_Namespace.ArchivalState
   , namespaceConfigVisibilityarchivaluri :: !Text
   , namespaceConfigCustomsearchattributealiases :: !(Map.Map Text Text)
   }
@@ -498,7 +498,7 @@ instance ProtoFromJSON BadBinaries where
 data BadBinaryInfo = BadBinaryInfo
   { badBinaryInfoReason :: !Text
   , badBinaryInfoOperator :: !Text
-  , badBinaryInfoCreatetime :: !(Maybe Timestamp)
+  , badBinaryInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -564,7 +564,7 @@ data UpdateNamespaceInfo = UpdateNamespaceInfo
   { updateNamespaceInfoDescription :: !Text
   , updateNamespaceInfoOwneremail :: !Text
   , updateNamespaceInfoData :: !(Map.Map Text Text)
-  , updateNamespaceInfoState :: !NamespaceState
+  , updateNamespaceInfoState :: !PT_Enums_V1_Namespace.NamespaceState
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

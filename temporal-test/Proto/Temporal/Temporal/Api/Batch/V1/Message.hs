@@ -35,22 +35,22 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.FieldMask (FieldMask(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Activity.V1.Message (ActivityOptions(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Header(..), Payloads(..), ResetOptions(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation (BatchOperationState(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Reset (ResetReapplyType(..), ResetType(..))
-import Proto.Temporal.Temporal.Api.Rules.V1.Message (WorkflowRuleSpec(..))
-import Proto.Temporal.Temporal.Api.Workflow.V1.Message (PostResetOperation(..), WorkflowExecutionOptions(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.FieldMask as PB_FieldMask
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Activity.V1.Message as PT_Activity_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation as PT_Enums_V1_BatchOperation
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Reset as PT_Enums_V1_Reset
+import qualified Proto.Temporal.Temporal.Api.Rules.V1.Message as PT_Rules_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Workflow.V1.Message as PT_Workflow_V1_Message
 
 
 data BatchOperationInfo = BatchOperationInfo
   { batchOperationInfoJobid :: !Text
-  , batchOperationInfoState :: !BatchOperationState
-  , batchOperationInfoStarttime :: !(Maybe Timestamp)
-  , batchOperationInfoClosetime :: !(Maybe Timestamp)
+  , batchOperationInfoState :: !PT_Enums_V1_BatchOperation.BatchOperationState
+  , batchOperationInfoStarttime :: !(Maybe PB_Timestamp.Timestamp)
+  , batchOperationInfoClosetime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -122,7 +122,7 @@ instance ProtoFromJSON BatchOperationInfo where
   protoFromJSON _ = Right defaultBatchOperationInfo
 
 data BatchOperationTermination = BatchOperationTermination
-  { batchOperationTerminationDetails :: !(Maybe Payloads)
+  { batchOperationTerminationDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , batchOperationTerminationIdentity :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -178,8 +178,8 @@ instance ProtoFromJSON BatchOperationTermination where
 
 data BatchOperationSignal = BatchOperationSignal
   { batchOperationSignalSignal :: !Text
-  , batchOperationSignalInput :: !(Maybe Payloads)
-  , batchOperationSignalHeader :: !(Maybe Header)
+  , batchOperationSignalInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , batchOperationSignalHeader :: !(Maybe PT_Common_V1_Message.Header)
   , batchOperationSignalIdentity :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -345,10 +345,10 @@ instance ProtoFromJSON BatchOperationDeletion where
 
 data BatchOperationReset = BatchOperationReset
   { batchOperationResetIdentity :: !Text
-  , batchOperationResetOptions :: !(Maybe ResetOptions)
-  , batchOperationResetResettype :: !ResetType
-  , batchOperationResetResetreapplytype :: !ResetReapplyType
-  , batchOperationResetPostresetoperations :: !(V.Vector PostResetOperation)
+  , batchOperationResetOptions :: !(Maybe PT_Common_V1_Message.ResetOptions)
+  , batchOperationResetResettype :: !PT_Enums_V1_Reset.ResetType
+  , batchOperationResetResetreapplytype :: !PT_Enums_V1_Reset.ResetReapplyType
+  , batchOperationResetPostresetoperations :: !(V.Vector PT_Workflow_V1_Message.PostResetOperation)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -430,8 +430,8 @@ instance ProtoFromJSON BatchOperationReset where
 
 data BatchOperationUpdateWorkflowExecutionOptions = BatchOperationUpdateWorkflowExecutionOptions
   { batchOperationUpdateWorkflowExecutionOptionsIdentity :: !Text
-  , batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions :: !(Maybe WorkflowExecutionOptions)
-  , batchOperationUpdateWorkflowExecutionOptionsUpdatemask :: !(Maybe FieldMask)
+  , batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions :: !(Maybe PT_Workflow_V1_Message.WorkflowExecutionOptions)
+  , batchOperationUpdateWorkflowExecutionOptionsUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -498,7 +498,7 @@ data BatchOperationUnpauseActivities = BatchOperationUnpauseActivities
   , batchOperationUnpauseActivitiesActivity :: !(Maybe BatchOperationUnpauseActivities'Activity)
   , batchOperationUnpauseActivitiesResetattempts :: {-# UNPACK #-} !Bool
   , batchOperationUnpauseActivitiesResetheartbeat :: {-# UNPACK #-} !Bool
-  , batchOperationUnpauseActivitiesJitter :: !(Maybe Duration)
+  , batchOperationUnpauseActivitiesJitter :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -602,7 +602,7 @@ data BatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
   deriving anyclass NFData
 data BatchOperationTriggerWorkflowRule'Rule
   = BatchOperationTriggerWorkflowRule'Rule'Id !Text
-  | BatchOperationTriggerWorkflowRule'Rule'Spec !WorkflowRuleSpec
+  | BatchOperationTriggerWorkflowRule'Rule'Spec !PT_Rules_V1_Message.WorkflowRuleSpec
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON BatchOperationTriggerWorkflowRule'Rule where
@@ -671,7 +671,7 @@ data BatchOperationResetActivities = BatchOperationResetActivities
   , batchOperationResetActivitiesResetattempts :: {-# UNPACK #-} !Bool
   , batchOperationResetActivitiesResetheartbeat :: {-# UNPACK #-} !Bool
   , batchOperationResetActivitiesKeeppaused :: {-# UNPACK #-} !Bool
-  , batchOperationResetActivitiesJitter :: !(Maybe Duration)
+  , batchOperationResetActivitiesJitter :: !(Maybe PB_Duration.Duration)
   , batchOperationResetActivitiesRestoreoriginaloptions :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -789,8 +789,8 @@ instance ProtoFromJSON BatchOperationResetActivities where
 data BatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
   { batchOperationUpdateActivityOptionsIdentity :: !Text
   , batchOperationUpdateActivityOptionsActivity :: !(Maybe BatchOperationUpdateActivityOptions'Activity)
-  , batchOperationUpdateActivityOptionsActivityoptions :: !(Maybe ActivityOptions)
-  , batchOperationUpdateActivityOptionsUpdatemask :: !(Maybe FieldMask)
+  , batchOperationUpdateActivityOptionsActivityoptions :: !(Maybe PT_Activity_V1_Message.ActivityOptions)
+  , batchOperationUpdateActivityOptionsUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
   , batchOperationUpdateActivityOptionsRestoreoriginal :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)

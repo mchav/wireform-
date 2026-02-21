@@ -35,15 +35,15 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentVersion(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (WorkerStatus(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Deployment.V1.Message as PT_Deployment_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Common as PT_Enums_V1_Common
 
 
 data WorkerPollerInfo = WorkerPollerInfo
   { workerPollerInfoCurrentpollers :: {-# UNPACK #-} !Int32
-  , workerPollerInfoLastsuccessfulpolltime :: !(Maybe Timestamp)
+  , workerPollerInfoLastsuccessfulpolltime :: !(Maybe PB_Timestamp.Timestamp)
   , workerPollerInfoIsautoscaling :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -301,13 +301,13 @@ data WorkerHeartbeat = WorkerHeartbeat
   , workerHeartbeatWorkeridentity :: !Text
   , workerHeartbeatHostinfo :: !(Maybe WorkerHostInfo)
   , workerHeartbeatTaskqueue :: !Text
-  , workerHeartbeatDeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , workerHeartbeatDeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   , workerHeartbeatSdkname :: !Text
   , workerHeartbeatSdkversion :: !Text
-  , workerHeartbeatStatus :: !WorkerStatus
-  , workerHeartbeatStarttime :: !(Maybe Timestamp)
-  , workerHeartbeatHeartbeattime :: !(Maybe Timestamp)
-  , workerHeartbeatElapsedsincelastheartbeat :: !(Maybe Duration)
+  , workerHeartbeatStatus :: !PT_Enums_V1_Common.WorkerStatus
+  , workerHeartbeatStarttime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerHeartbeatHeartbeattime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerHeartbeatElapsedsincelastheartbeat :: !(Maybe PB_Duration.Duration)
   , workerHeartbeatWorkflowtaskslotsinfo :: !(Maybe WorkerSlotsInfo)
   , workerHeartbeatActivitytaskslotsinfo :: !(Maybe WorkerSlotsInfo)
   , workerHeartbeatNexustaskslotsinfo :: !(Maybe WorkerSlotsInfo)

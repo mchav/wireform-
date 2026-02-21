@@ -35,60 +35,60 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Callback(..), Header(..), Link(..), Memo(..), MeteringMetadata(..), Payload(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..), WorkerVersionStamp(..), WorkflowExecution(..), WorkflowType(..))
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (Deployment(..), InheritedAutoUpgradeInfo(..), WorkerDeploymentVersion(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.EventType (EventType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.FailedCause (CancelExternalWorkflowExecutionFailedCause(..), SignalExternalWorkflowExecutionFailedCause(..), StartChildWorkflowExecutionFailedCause(..), WorkflowTaskFailedCause(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Update (UpdateAdmittedEventOrigin(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (ContinueAsNewInitiator(..), ContinueAsNewVersioningBehavior(..), ParentClosePolicy(..), RetryState(..), SuggestContinueAsNewReason(..), TimeoutType(..), VersioningBehavior(..), WorkflowIdReusePolicy(..))
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
-import Proto.Temporal.Temporal.Api.Sdk.V1.TaskCompleteMetadata (WorkflowTaskCompletedMetadata(..))
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata(..))
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue(..))
-import Proto.Temporal.Temporal.Api.Update.V1.Message (Meta(..), Outcome(..), Request(..))
-import Proto.Temporal.Temporal.Api.Workflow.V1.Message (ResetPoints(..), VersioningOverride(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Deployment.V1.Message as PT_Deployment_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.EventType as PT_Enums_V1_EventType
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.FailedCause as PT_Enums_V1_FailedCause
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Update as PT_Enums_V1_Update
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Sdk.V1.TaskCompleteMetadata as PT_Sdk_V1_TaskCompleteMetadata
+import qualified Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata as PT_Sdk_V1_UserMetadata
+import qualified Proto.Temporal.Temporal.Api.Taskqueue.V1.Message as PT_Taskqueue_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Update.V1.Message as PT_Update_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Workflow.V1.Message as PT_Workflow_V1_Message
 
 
 data WorkflowExecutionStartedEventAttributes = WorkflowExecutionStartedEventAttributes
-  { workflowExecutionStartedEventAttributesWorkflowtype :: !(Maybe WorkflowType)
+  { workflowExecutionStartedEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , workflowExecutionStartedEventAttributesParentworkflownamespace :: !Text
   , workflowExecutionStartedEventAttributesParentworkflownamespaceid :: !Text
-  , workflowExecutionStartedEventAttributesParentworkflowexecution :: !(Maybe WorkflowExecution)
+  , workflowExecutionStartedEventAttributesParentworkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , workflowExecutionStartedEventAttributesParentinitiatedeventid :: {-# UNPACK #-} !Int64
-  , workflowExecutionStartedEventAttributesTaskqueue :: !(Maybe TaskQueue)
-  , workflowExecutionStartedEventAttributesInput :: !(Maybe Payloads)
-  , workflowExecutionStartedEventAttributesWorkflowexecutiontimeout :: !(Maybe Duration)
-  , workflowExecutionStartedEventAttributesWorkflowruntimeout :: !(Maybe Duration)
-  , workflowExecutionStartedEventAttributesWorkflowtasktimeout :: !(Maybe Duration)
+  , workflowExecutionStartedEventAttributesTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , workflowExecutionStartedEventAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , workflowExecutionStartedEventAttributesWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionStartedEventAttributesWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionStartedEventAttributesWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
   , workflowExecutionStartedEventAttributesContinuedexecutionrunid :: !Text
-  , workflowExecutionStartedEventAttributesInitiator :: !ContinueAsNewInitiator
-  , workflowExecutionStartedEventAttributesContinuedfailure :: !(Maybe Failure)
-  , workflowExecutionStartedEventAttributesLastcompletionresult :: !(Maybe Payloads)
+  , workflowExecutionStartedEventAttributesInitiator :: !PT_Enums_V1_Workflow.ContinueAsNewInitiator
+  , workflowExecutionStartedEventAttributesContinuedfailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , workflowExecutionStartedEventAttributesLastcompletionresult :: !(Maybe PT_Common_V1_Message.Payloads)
   , workflowExecutionStartedEventAttributesOriginalexecutionrunid :: !Text
   , workflowExecutionStartedEventAttributesIdentity :: !Text
   , workflowExecutionStartedEventAttributesFirstexecutionrunid :: !Text
-  , workflowExecutionStartedEventAttributesRetrypolicy :: !(Maybe RetryPolicy)
+  , workflowExecutionStartedEventAttributesRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   , workflowExecutionStartedEventAttributesAttempt :: {-# UNPACK #-} !Int32
-  , workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime :: !(Maybe Timestamp)
+  , workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowExecutionStartedEventAttributesCronschedule :: !Text
-  , workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff :: !(Maybe Duration)
-  , workflowExecutionStartedEventAttributesMemo :: !(Maybe Memo)
-  , workflowExecutionStartedEventAttributesSearchattributes :: !(Maybe SearchAttributes)
-  , workflowExecutionStartedEventAttributesPrevautoresetpoints :: !(Maybe ResetPoints)
-  , workflowExecutionStartedEventAttributesHeader :: !(Maybe Header)
+  , workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionStartedEventAttributesMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , workflowExecutionStartedEventAttributesSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
+  , workflowExecutionStartedEventAttributesPrevautoresetpoints :: !(Maybe PT_Workflow_V1_Message.ResetPoints)
+  , workflowExecutionStartedEventAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
   , workflowExecutionStartedEventAttributesParentinitiatedeventversion :: {-# UNPACK #-} !Int64
   , workflowExecutionStartedEventAttributesWorkflowid :: !Text
-  , workflowExecutionStartedEventAttributesSourceversionstamp :: !(Maybe WorkerVersionStamp)
-  , workflowExecutionStartedEventAttributesCompletioncallbacks :: !(V.Vector Callback)
-  , workflowExecutionStartedEventAttributesRootworkflowexecution :: !(Maybe WorkflowExecution)
+  , workflowExecutionStartedEventAttributesSourceversionstamp :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , workflowExecutionStartedEventAttributesCompletioncallbacks :: !(V.Vector PT_Common_V1_Message.Callback)
+  , workflowExecutionStartedEventAttributesRootworkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , workflowExecutionStartedEventAttributesInheritedbuildid :: !Text
-  , workflowExecutionStartedEventAttributesVersioningoverride :: !(Maybe VersioningOverride)
+  , workflowExecutionStartedEventAttributesVersioningoverride :: !(Maybe PT_Workflow_V1_Message.VersioningOverride)
   , workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion :: !Text
-  , workflowExecutionStartedEventAttributesPriority :: !(Maybe Priority)
-  , workflowExecutionStartedEventAttributesInheritedpinnedversion :: !(Maybe WorkerDeploymentVersion)
-  , workflowExecutionStartedEventAttributesInheritedautoupgradeinfo :: !(Maybe InheritedAutoUpgradeInfo)
+  , workflowExecutionStartedEventAttributesPriority :: !(Maybe PT_Common_V1_Message.Priority)
+  , workflowExecutionStartedEventAttributesInheritedpinnedversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
+  , workflowExecutionStartedEventAttributesInheritedautoupgradeinfo :: !(Maybe PT_Deployment_V1_Message.InheritedAutoUpgradeInfo)
   , workflowExecutionStartedEventAttributesEagerexecutionaccepted :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -467,7 +467,7 @@ instance ProtoFromJSON WorkflowExecutionStartedEventAttributes where
   protoFromJSON _ = Right defaultWorkflowExecutionStartedEventAttributes
 
 data WorkflowExecutionCompletedEventAttributes = WorkflowExecutionCompletedEventAttributes
-  { workflowExecutionCompletedEventAttributesResult :: !(Maybe Payloads)
+  { workflowExecutionCompletedEventAttributesResult :: !(Maybe PT_Common_V1_Message.Payloads)
   , workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
   , workflowExecutionCompletedEventAttributesNewexecutionrunid :: !Text
   }
@@ -532,8 +532,8 @@ instance ProtoFromJSON WorkflowExecutionCompletedEventAttributes where
   protoFromJSON _ = Right defaultWorkflowExecutionCompletedEventAttributes
 
 data WorkflowExecutionFailedEventAttributes = WorkflowExecutionFailedEventAttributes
-  { workflowExecutionFailedEventAttributesFailure :: !(Maybe Failure)
-  , workflowExecutionFailedEventAttributesRetrystate :: !RetryState
+  { workflowExecutionFailedEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , workflowExecutionFailedEventAttributesRetrystate :: !PT_Enums_V1_Workflow.RetryState
   , workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
   , workflowExecutionFailedEventAttributesNewexecutionrunid :: !Text
   }
@@ -607,7 +607,7 @@ instance ProtoFromJSON WorkflowExecutionFailedEventAttributes where
   protoFromJSON _ = Right defaultWorkflowExecutionFailedEventAttributes
 
 data WorkflowExecutionTimedOutEventAttributes = WorkflowExecutionTimedOutEventAttributes
-  { workflowExecutionTimedOutEventAttributesRetrystate :: !RetryState
+  { workflowExecutionTimedOutEventAttributesRetrystate :: !PT_Enums_V1_Workflow.RetryState
   , workflowExecutionTimedOutEventAttributesNewexecutionrunid :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -663,21 +663,21 @@ instance ProtoFromJSON WorkflowExecutionTimedOutEventAttributes where
 
 data WorkflowExecutionContinuedAsNewEventAttributes = WorkflowExecutionContinuedAsNewEventAttributes
   { workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid :: !Text
-  , workflowExecutionContinuedAsNewEventAttributesWorkflowtype :: !(Maybe WorkflowType)
-  , workflowExecutionContinuedAsNewEventAttributesTaskqueue :: !(Maybe TaskQueue)
-  , workflowExecutionContinuedAsNewEventAttributesInput :: !(Maybe Payloads)
-  , workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout :: !(Maybe Duration)
-  , workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout :: !(Maybe Duration)
+  , workflowExecutionContinuedAsNewEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , workflowExecutionContinuedAsNewEventAttributesTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , workflowExecutionContinuedAsNewEventAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
   , workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
-  , workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval :: !(Maybe Duration)
-  , workflowExecutionContinuedAsNewEventAttributesInitiator :: !ContinueAsNewInitiator
-  , workflowExecutionContinuedAsNewEventAttributesFailure :: !(Maybe Failure)
-  , workflowExecutionContinuedAsNewEventAttributesLastcompletionresult :: !(Maybe Payloads)
-  , workflowExecutionContinuedAsNewEventAttributesHeader :: !(Maybe Header)
-  , workflowExecutionContinuedAsNewEventAttributesMemo :: !(Maybe Memo)
-  , workflowExecutionContinuedAsNewEventAttributesSearchattributes :: !(Maybe SearchAttributes)
+  , workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionContinuedAsNewEventAttributesInitiator :: !PT_Enums_V1_Workflow.ContinueAsNewInitiator
+  , workflowExecutionContinuedAsNewEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , workflowExecutionContinuedAsNewEventAttributesLastcompletionresult :: !(Maybe PT_Common_V1_Message.Payloads)
+  , workflowExecutionContinuedAsNewEventAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , workflowExecutionContinuedAsNewEventAttributesMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , workflowExecutionContinuedAsNewEventAttributesSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   , workflowExecutionContinuedAsNewEventAttributesInheritbuildid :: {-# UNPACK #-} !Bool
-  , workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior :: !ContinueAsNewVersioningBehavior
+  , workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior :: !PT_Enums_V1_Workflow.ContinueAsNewVersioningBehavior
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -857,8 +857,8 @@ instance ProtoFromJSON WorkflowExecutionContinuedAsNewEventAttributes where
   protoFromJSON _ = Right defaultWorkflowExecutionContinuedAsNewEventAttributes
 
 data WorkflowTaskScheduledEventAttributes = WorkflowTaskScheduledEventAttributes
-  { workflowTaskScheduledEventAttributesTaskqueue :: !(Maybe TaskQueue)
-  , workflowTaskScheduledEventAttributesStarttoclosetimeout :: !(Maybe Duration)
+  { workflowTaskScheduledEventAttributesTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , workflowTaskScheduledEventAttributesStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
   , workflowTaskScheduledEventAttributesAttempt :: {-# UNPACK #-} !Int32
   }
   deriving stock (Show, Eq, Generic)
@@ -926,10 +926,10 @@ data WorkflowTaskStartedEventAttributes = WorkflowTaskStartedEventAttributes
   , workflowTaskStartedEventAttributesIdentity :: !Text
   , workflowTaskStartedEventAttributesRequestid :: !Text
   , workflowTaskStartedEventAttributesSuggestcontinueasnew :: {-# UNPACK #-} !Bool
-  , workflowTaskStartedEventAttributesSuggestcontinueasnewreasons :: !(V.Vector SuggestContinueAsNewReason)
+  , workflowTaskStartedEventAttributesSuggestcontinueasnewreasons :: !(V.Vector PT_Enums_V1_Workflow.SuggestContinueAsNewReason)
   , workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged :: {-# UNPACK #-} !Bool
   , workflowTaskStartedEventAttributesHistorysizebytes :: {-# UNPACK #-} !Int64
-  , workflowTaskStartedEventAttributesWorkerversion :: !(Maybe WorkerVersionStamp)
+  , workflowTaskStartedEventAttributesWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
   , workflowTaskStartedEventAttributesBuildidredirectcounter :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
@@ -1051,14 +1051,14 @@ data WorkflowTaskCompletedEventAttributes = WorkflowTaskCompletedEventAttributes
   , workflowTaskCompletedEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
   , workflowTaskCompletedEventAttributesIdentity :: !Text
   , workflowTaskCompletedEventAttributesBinarychecksum :: !Text
-  , workflowTaskCompletedEventAttributesWorkerversion :: !(Maybe WorkerVersionStamp)
-  , workflowTaskCompletedEventAttributesSdkmetadata :: !(Maybe WorkflowTaskCompletedMetadata)
-  , workflowTaskCompletedEventAttributesMeteringmetadata :: !(Maybe MeteringMetadata)
-  , workflowTaskCompletedEventAttributesDeployment :: !(Maybe Deployment)
-  , workflowTaskCompletedEventAttributesVersioningbehavior :: !VersioningBehavior
+  , workflowTaskCompletedEventAttributesWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , workflowTaskCompletedEventAttributesSdkmetadata :: !(Maybe PT_Sdk_V1_TaskCompleteMetadata.WorkflowTaskCompletedMetadata)
+  , workflowTaskCompletedEventAttributesMeteringmetadata :: !(Maybe PT_Common_V1_Message.MeteringMetadata)
+  , workflowTaskCompletedEventAttributesDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
+  , workflowTaskCompletedEventAttributesVersioningbehavior :: !PT_Enums_V1_Workflow.VersioningBehavior
   , workflowTaskCompletedEventAttributesWorkerdeploymentversion :: !Text
   , workflowTaskCompletedEventAttributesWorkerdeploymentname :: !Text
-  , workflowTaskCompletedEventAttributesDeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , workflowTaskCompletedEventAttributesDeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1204,7 +1204,7 @@ instance ProtoFromJSON WorkflowTaskCompletedEventAttributes where
 data WorkflowTaskTimedOutEventAttributes = WorkflowTaskTimedOutEventAttributes
   { workflowTaskTimedOutEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
   , workflowTaskTimedOutEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
-  , workflowTaskTimedOutEventAttributesTimeouttype :: !TimeoutType
+  , workflowTaskTimedOutEventAttributesTimeouttype :: !PT_Enums_V1_Workflow.TimeoutType
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1269,14 +1269,14 @@ instance ProtoFromJSON WorkflowTaskTimedOutEventAttributes where
 data WorkflowTaskFailedEventAttributes = WorkflowTaskFailedEventAttributes
   { workflowTaskFailedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
   , workflowTaskFailedEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
-  , workflowTaskFailedEventAttributesCause :: !WorkflowTaskFailedCause
-  , workflowTaskFailedEventAttributesFailure :: !(Maybe Failure)
+  , workflowTaskFailedEventAttributesCause :: !PT_Enums_V1_FailedCause.WorkflowTaskFailedCause
+  , workflowTaskFailedEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , workflowTaskFailedEventAttributesIdentity :: !Text
   , workflowTaskFailedEventAttributesBaserunid :: !Text
   , workflowTaskFailedEventAttributesNewrunid :: !Text
   , workflowTaskFailedEventAttributesForkeventversion :: {-# UNPACK #-} !Int64
   , workflowTaskFailedEventAttributesBinarychecksum :: !Text
-  , workflowTaskFailedEventAttributesWorkerversion :: !(Maybe WorkerVersionStamp)
+  , workflowTaskFailedEventAttributesWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1403,18 +1403,18 @@ instance ProtoFromJSON WorkflowTaskFailedEventAttributes where
 
 data ActivityTaskScheduledEventAttributes = ActivityTaskScheduledEventAttributes
   { activityTaskScheduledEventAttributesActivityid :: !Text
-  , activityTaskScheduledEventAttributesActivitytype :: !(Maybe ActivityType)
-  , activityTaskScheduledEventAttributesTaskqueue :: !(Maybe TaskQueue)
-  , activityTaskScheduledEventAttributesHeader :: !(Maybe Header)
-  , activityTaskScheduledEventAttributesInput :: !(Maybe Payloads)
-  , activityTaskScheduledEventAttributesScheduletoclosetimeout :: !(Maybe Duration)
-  , activityTaskScheduledEventAttributesScheduletostarttimeout :: !(Maybe Duration)
-  , activityTaskScheduledEventAttributesStarttoclosetimeout :: !(Maybe Duration)
-  , activityTaskScheduledEventAttributesHeartbeattimeout :: !(Maybe Duration)
+  , activityTaskScheduledEventAttributesActivitytype :: !(Maybe PT_Common_V1_Message.ActivityType)
+  , activityTaskScheduledEventAttributesTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , activityTaskScheduledEventAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , activityTaskScheduledEventAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , activityTaskScheduledEventAttributesScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , activityTaskScheduledEventAttributesScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
+  , activityTaskScheduledEventAttributesStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , activityTaskScheduledEventAttributesHeartbeattimeout :: !(Maybe PB_Duration.Duration)
   , activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
-  , activityTaskScheduledEventAttributesRetrypolicy :: !(Maybe RetryPolicy)
+  , activityTaskScheduledEventAttributesRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   , activityTaskScheduledEventAttributesUseworkflowbuildid :: {-# UNPACK #-} !Bool
-  , activityTaskScheduledEventAttributesPriority :: !(Maybe Priority)
+  , activityTaskScheduledEventAttributesPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1571,8 +1571,8 @@ data ActivityTaskStartedEventAttributes = ActivityTaskStartedEventAttributes
   , activityTaskStartedEventAttributesIdentity :: !Text
   , activityTaskStartedEventAttributesRequestid :: !Text
   , activityTaskStartedEventAttributesAttempt :: {-# UNPACK #-} !Int32
-  , activityTaskStartedEventAttributesLastfailure :: !(Maybe Failure)
-  , activityTaskStartedEventAttributesWorkerversion :: !(Maybe WorkerVersionStamp)
+  , activityTaskStartedEventAttributesLastfailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , activityTaskStartedEventAttributesWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
   , activityTaskStartedEventAttributesBuildidredirectcounter :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
@@ -1672,11 +1672,11 @@ instance ProtoFromJSON ActivityTaskStartedEventAttributes where
   protoFromJSON _ = Right defaultActivityTaskStartedEventAttributes
 
 data ActivityTaskCompletedEventAttributes = ActivityTaskCompletedEventAttributes
-  { activityTaskCompletedEventAttributesResult :: !(Maybe Payloads)
+  { activityTaskCompletedEventAttributesResult :: !(Maybe PT_Common_V1_Message.Payloads)
   , activityTaskCompletedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
   , activityTaskCompletedEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
   , activityTaskCompletedEventAttributesIdentity :: !Text
-  , activityTaskCompletedEventAttributesWorkerversion :: !(Maybe WorkerVersionStamp)
+  , activityTaskCompletedEventAttributesWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1757,12 +1757,12 @@ instance ProtoFromJSON ActivityTaskCompletedEventAttributes where
   protoFromJSON _ = Right defaultActivityTaskCompletedEventAttributes
 
 data ActivityTaskFailedEventAttributes = ActivityTaskFailedEventAttributes
-  { activityTaskFailedEventAttributesFailure :: !(Maybe Failure)
+  { activityTaskFailedEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , activityTaskFailedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
   , activityTaskFailedEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
   , activityTaskFailedEventAttributesIdentity :: !Text
-  , activityTaskFailedEventAttributesRetrystate :: !RetryState
-  , activityTaskFailedEventAttributesWorkerversion :: !(Maybe WorkerVersionStamp)
+  , activityTaskFailedEventAttributesRetrystate :: !PT_Enums_V1_Workflow.RetryState
+  , activityTaskFailedEventAttributesWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1852,10 +1852,10 @@ instance ProtoFromJSON ActivityTaskFailedEventAttributes where
   protoFromJSON _ = Right defaultActivityTaskFailedEventAttributes
 
 data ActivityTaskTimedOutEventAttributes = ActivityTaskTimedOutEventAttributes
-  { activityTaskTimedOutEventAttributesFailure :: !(Maybe Failure)
+  { activityTaskTimedOutEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , activityTaskTimedOutEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
   , activityTaskTimedOutEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
-  , activityTaskTimedOutEventAttributesRetrystate :: !RetryState
+  , activityTaskTimedOutEventAttributesRetrystate :: !PT_Enums_V1_Workflow.RetryState
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1982,12 +1982,12 @@ instance ProtoFromJSON ActivityTaskCancelRequestedEventAttributes where
   protoFromJSON _ = Right defaultActivityTaskCancelRequestedEventAttributes
 
 data ActivityTaskCanceledEventAttributes = ActivityTaskCanceledEventAttributes
-  { activityTaskCanceledEventAttributesDetails :: !(Maybe Payloads)
+  { activityTaskCanceledEventAttributesDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , activityTaskCanceledEventAttributesLatestcancelrequestedeventid :: {-# UNPACK #-} !Int64
   , activityTaskCanceledEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
   , activityTaskCanceledEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
   , activityTaskCanceledEventAttributesIdentity :: !Text
-  , activityTaskCanceledEventAttributesWorkerversion :: !(Maybe WorkerVersionStamp)
+  , activityTaskCanceledEventAttributesWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2078,7 +2078,7 @@ instance ProtoFromJSON ActivityTaskCanceledEventAttributes where
 
 data TimerStartedEventAttributes = TimerStartedEventAttributes
   { timerStartedEventAttributesTimerid :: !Text
-  , timerStartedEventAttributesStarttofiretimeout :: !(Maybe Duration)
+  , timerStartedEventAttributesStarttofiretimeout :: !(Maybe PB_Duration.Duration)
   , timerStartedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
@@ -2274,7 +2274,7 @@ instance ProtoFromJSON TimerCanceledEventAttributes where
 data WorkflowExecutionCancelRequestedEventAttributes = WorkflowExecutionCancelRequestedEventAttributes
   { workflowExecutionCancelRequestedEventAttributesCause :: !Text
   , workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid :: {-# UNPACK #-} !Int64
-  , workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution :: !(Maybe WorkflowExecution)
+  , workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , workflowExecutionCancelRequestedEventAttributesIdentity :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -2348,7 +2348,7 @@ instance ProtoFromJSON WorkflowExecutionCancelRequestedEventAttributes where
 
 data WorkflowExecutionCanceledEventAttributes = WorkflowExecutionCanceledEventAttributes
   { workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
-  , workflowExecutionCanceledEventAttributesDetails :: !(Maybe Payloads)
+  , workflowExecutionCanceledEventAttributesDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2403,10 +2403,10 @@ instance ProtoFromJSON WorkflowExecutionCanceledEventAttributes where
 
 data MarkerRecordedEventAttributes = MarkerRecordedEventAttributes
   { markerRecordedEventAttributesMarkername :: !Text
-  , markerRecordedEventAttributesDetails :: !(Map.Map Text Payloads)
+  , markerRecordedEventAttributesDetails :: !(Map.Map Text PT_Common_V1_Message.Payloads)
   , markerRecordedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
-  , markerRecordedEventAttributesHeader :: !(Maybe Header)
-  , markerRecordedEventAttributesFailure :: !(Maybe Failure)
+  , markerRecordedEventAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , markerRecordedEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2491,11 +2491,11 @@ instance ProtoFromJSON MarkerRecordedEventAttributes where
 
 data WorkflowExecutionSignaledEventAttributes = WorkflowExecutionSignaledEventAttributes
   { workflowExecutionSignaledEventAttributesSignalname :: !Text
-  , workflowExecutionSignaledEventAttributesInput :: !(Maybe Payloads)
+  , workflowExecutionSignaledEventAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
   , workflowExecutionSignaledEventAttributesIdentity :: !Text
-  , workflowExecutionSignaledEventAttributesHeader :: !(Maybe Header)
+  , workflowExecutionSignaledEventAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
   , workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask :: {-# UNPACK #-} !Bool
-  , workflowExecutionSignaledEventAttributesExternalworkflowexecution :: !(Maybe WorkflowExecution)
+  , workflowExecutionSignaledEventAttributesExternalworkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2586,7 +2586,7 @@ instance ProtoFromJSON WorkflowExecutionSignaledEventAttributes where
 
 data WorkflowExecutionTerminatedEventAttributes = WorkflowExecutionTerminatedEventAttributes
   { workflowExecutionTerminatedEventAttributesReason :: !Text
-  , workflowExecutionTerminatedEventAttributesDetails :: !(Maybe Payloads)
+  , workflowExecutionTerminatedEventAttributesDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , workflowExecutionTerminatedEventAttributesIdentity :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -2653,7 +2653,7 @@ data RequestCancelExternalWorkflowExecutionInitiatedEventAttributes = RequestCan
   { requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
   , requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace :: !Text
   , requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid :: !Text
-  , requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
+  , requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl :: !Text
   , requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly :: {-# UNPACK #-} !Bool
   , requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason :: !Text
@@ -2755,11 +2755,11 @@ instance ProtoFromJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttri
   protoFromJSON _ = Right defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes
 
 data RequestCancelExternalWorkflowExecutionFailedEventAttributes = RequestCancelExternalWorkflowExecutionFailedEventAttributes
-  { requestCancelExternalWorkflowExecutionFailedEventAttributesCause :: !CancelExternalWorkflowExecutionFailedCause
+  { requestCancelExternalWorkflowExecutionFailedEventAttributesCause :: !PT_Enums_V1_FailedCause.CancelExternalWorkflowExecutionFailedCause
   , requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
   , requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace :: !Text
   , requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid :: !Text
-  , requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
+  , requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , requestCancelExternalWorkflowExecutionFailedEventAttributesControl :: !Text
   }
@@ -2863,7 +2863,7 @@ data ExternalWorkflowExecutionCancelRequestedEventAttributes = ExternalWorkflowE
   { externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , externalWorkflowExecutionCancelRequestedEventAttributesNamespace :: !Text
   , externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid :: !Text
-  , externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
+  , externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2938,12 +2938,12 @@ data SignalExternalWorkflowExecutionInitiatedEventAttributes = SignalExternalWor
   { signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
   , signalExternalWorkflowExecutionInitiatedEventAttributesNamespace :: !Text
   , signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid :: !Text
-  , signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
+  , signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , signalExternalWorkflowExecutionInitiatedEventAttributesSignalname :: !Text
-  , signalExternalWorkflowExecutionInitiatedEventAttributesInput :: !(Maybe Payloads)
+  , signalExternalWorkflowExecutionInitiatedEventAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
   , signalExternalWorkflowExecutionInitiatedEventAttributesControl :: !Text
   , signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly :: {-# UNPACK #-} !Bool
-  , signalExternalWorkflowExecutionInitiatedEventAttributesHeader :: !(Maybe Header)
+  , signalExternalWorkflowExecutionInitiatedEventAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3060,11 +3060,11 @@ instance ProtoFromJSON SignalExternalWorkflowExecutionInitiatedEventAttributes w
   protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionInitiatedEventAttributes
 
 data SignalExternalWorkflowExecutionFailedEventAttributes = SignalExternalWorkflowExecutionFailedEventAttributes
-  { signalExternalWorkflowExecutionFailedEventAttributesCause :: !SignalExternalWorkflowExecutionFailedCause
+  { signalExternalWorkflowExecutionFailedEventAttributesCause :: !PT_Enums_V1_FailedCause.SignalExternalWorkflowExecutionFailedCause
   , signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
   , signalExternalWorkflowExecutionFailedEventAttributesNamespace :: !Text
   , signalExternalWorkflowExecutionFailedEventAttributesNamespaceid :: !Text
-  , signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
+  , signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , signalExternalWorkflowExecutionFailedEventAttributesControl :: !Text
   }
@@ -3168,7 +3168,7 @@ data ExternalWorkflowExecutionSignaledEventAttributes = ExternalWorkflowExecutio
   { externalWorkflowExecutionSignaledEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , externalWorkflowExecutionSignaledEventAttributesNamespace :: !Text
   , externalWorkflowExecutionSignaledEventAttributesNamespaceid :: !Text
-  , externalWorkflowExecutionSignaledEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
+  , externalWorkflowExecutionSignaledEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , externalWorkflowExecutionSignaledEventAttributesControl :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -3251,7 +3251,7 @@ instance ProtoFromJSON ExternalWorkflowExecutionSignaledEventAttributes where
 
 data UpsertWorkflowSearchAttributesEventAttributes = UpsertWorkflowSearchAttributesEventAttributes
   { upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
-  , upsertWorkflowSearchAttributesEventAttributesSearchattributes :: !(Maybe SearchAttributes)
+  , upsertWorkflowSearchAttributesEventAttributesSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3306,7 +3306,7 @@ instance ProtoFromJSON UpsertWorkflowSearchAttributesEventAttributes where
 
 data WorkflowPropertiesModifiedEventAttributes = WorkflowPropertiesModifiedEventAttributes
   { workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
-  , workflowPropertiesModifiedEventAttributesUpsertedmemo :: !(Maybe Memo)
+  , workflowPropertiesModifiedEventAttributesUpsertedmemo :: !(Maybe PT_Common_V1_Message.Memo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3363,23 +3363,23 @@ data StartChildWorkflowExecutionInitiatedEventAttributes = StartChildWorkflowExe
   { startChildWorkflowExecutionInitiatedEventAttributesNamespace :: !Text
   , startChildWorkflowExecutionInitiatedEventAttributesNamespaceid :: !Text
   , startChildWorkflowExecutionInitiatedEventAttributesWorkflowid :: !Text
-  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype :: !(Maybe WorkflowType)
-  , startChildWorkflowExecutionInitiatedEventAttributesTaskqueue :: !(Maybe TaskQueue)
-  , startChildWorkflowExecutionInitiatedEventAttributesInput :: !(Maybe Payloads)
-  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout :: !(Maybe Duration)
-  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout :: !(Maybe Duration)
-  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout :: !(Maybe Duration)
-  , startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy :: !ParentClosePolicy
+  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , startChildWorkflowExecutionInitiatedEventAttributesTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , startChildWorkflowExecutionInitiatedEventAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy :: !PT_Enums_V1_Workflow.ParentClosePolicy
   , startChildWorkflowExecutionInitiatedEventAttributesControl :: !Text
   , startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
-  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy :: !WorkflowIdReusePolicy
-  , startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy :: !(Maybe RetryPolicy)
+  , startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy :: !PT_Enums_V1_Workflow.WorkflowIdReusePolicy
+  , startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   , startChildWorkflowExecutionInitiatedEventAttributesCronschedule :: !Text
-  , startChildWorkflowExecutionInitiatedEventAttributesHeader :: !(Maybe Header)
-  , startChildWorkflowExecutionInitiatedEventAttributesMemo :: !(Maybe Memo)
-  , startChildWorkflowExecutionInitiatedEventAttributesSearchattributes :: !(Maybe SearchAttributes)
+  , startChildWorkflowExecutionInitiatedEventAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , startChildWorkflowExecutionInitiatedEventAttributesMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , startChildWorkflowExecutionInitiatedEventAttributesSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   , startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid :: {-# UNPACK #-} !Bool
-  , startChildWorkflowExecutionInitiatedEventAttributesPriority :: !(Maybe Priority)
+  , startChildWorkflowExecutionInitiatedEventAttributesPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3598,8 +3598,8 @@ data StartChildWorkflowExecutionFailedEventAttributes = StartChildWorkflowExecut
   { startChildWorkflowExecutionFailedEventAttributesNamespace :: !Text
   , startChildWorkflowExecutionFailedEventAttributesNamespaceid :: !Text
   , startChildWorkflowExecutionFailedEventAttributesWorkflowid :: !Text
-  , startChildWorkflowExecutionFailedEventAttributesWorkflowtype :: !(Maybe WorkflowType)
-  , startChildWorkflowExecutionFailedEventAttributesCause :: !StartChildWorkflowExecutionFailedCause
+  , startChildWorkflowExecutionFailedEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , startChildWorkflowExecutionFailedEventAttributesCause :: !PT_Enums_V1_FailedCause.StartChildWorkflowExecutionFailedCause
   , startChildWorkflowExecutionFailedEventAttributesControl :: !Text
   , startChildWorkflowExecutionFailedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
@@ -3713,9 +3713,9 @@ data ChildWorkflowExecutionStartedEventAttributes = ChildWorkflowExecutionStarte
   { childWorkflowExecutionStartedEventAttributesNamespace :: !Text
   , childWorkflowExecutionStartedEventAttributesNamespaceid :: !Text
   , childWorkflowExecutionStartedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
-  , childWorkflowExecutionStartedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
-  , childWorkflowExecutionStartedEventAttributesWorkflowtype :: !(Maybe WorkflowType)
-  , childWorkflowExecutionStartedEventAttributesHeader :: !(Maybe Header)
+  , childWorkflowExecutionStartedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , childWorkflowExecutionStartedEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , childWorkflowExecutionStartedEventAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3805,11 +3805,11 @@ instance ProtoFromJSON ChildWorkflowExecutionStartedEventAttributes where
   protoFromJSON _ = Right defaultChildWorkflowExecutionStartedEventAttributes
 
 data ChildWorkflowExecutionCompletedEventAttributes = ChildWorkflowExecutionCompletedEventAttributes
-  { childWorkflowExecutionCompletedEventAttributesResult :: !(Maybe Payloads)
+  { childWorkflowExecutionCompletedEventAttributesResult :: !(Maybe PT_Common_V1_Message.Payloads)
   , childWorkflowExecutionCompletedEventAttributesNamespace :: !Text
   , childWorkflowExecutionCompletedEventAttributesNamespaceid :: !Text
-  , childWorkflowExecutionCompletedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
-  , childWorkflowExecutionCompletedEventAttributesWorkflowtype :: !(Maybe WorkflowType)
+  , childWorkflowExecutionCompletedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , childWorkflowExecutionCompletedEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , childWorkflowExecutionCompletedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , childWorkflowExecutionCompletedEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
   }
@@ -3910,14 +3910,14 @@ instance ProtoFromJSON ChildWorkflowExecutionCompletedEventAttributes where
   protoFromJSON _ = Right defaultChildWorkflowExecutionCompletedEventAttributes
 
 data ChildWorkflowExecutionFailedEventAttributes = ChildWorkflowExecutionFailedEventAttributes
-  { childWorkflowExecutionFailedEventAttributesFailure :: !(Maybe Failure)
+  { childWorkflowExecutionFailedEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , childWorkflowExecutionFailedEventAttributesNamespace :: !Text
   , childWorkflowExecutionFailedEventAttributesNamespaceid :: !Text
-  , childWorkflowExecutionFailedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
-  , childWorkflowExecutionFailedEventAttributesWorkflowtype :: !(Maybe WorkflowType)
+  , childWorkflowExecutionFailedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , childWorkflowExecutionFailedEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , childWorkflowExecutionFailedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , childWorkflowExecutionFailedEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
-  , childWorkflowExecutionFailedEventAttributesRetrystate :: !RetryState
+  , childWorkflowExecutionFailedEventAttributesRetrystate :: !PT_Enums_V1_Workflow.RetryState
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4025,11 +4025,11 @@ instance ProtoFromJSON ChildWorkflowExecutionFailedEventAttributes where
   protoFromJSON _ = Right defaultChildWorkflowExecutionFailedEventAttributes
 
 data ChildWorkflowExecutionCanceledEventAttributes = ChildWorkflowExecutionCanceledEventAttributes
-  { childWorkflowExecutionCanceledEventAttributesDetails :: !(Maybe Payloads)
+  { childWorkflowExecutionCanceledEventAttributesDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , childWorkflowExecutionCanceledEventAttributesNamespace :: !Text
   , childWorkflowExecutionCanceledEventAttributesNamespaceid :: !Text
-  , childWorkflowExecutionCanceledEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
-  , childWorkflowExecutionCanceledEventAttributesWorkflowtype :: !(Maybe WorkflowType)
+  , childWorkflowExecutionCanceledEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , childWorkflowExecutionCanceledEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , childWorkflowExecutionCanceledEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , childWorkflowExecutionCanceledEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
   }
@@ -4132,11 +4132,11 @@ instance ProtoFromJSON ChildWorkflowExecutionCanceledEventAttributes where
 data ChildWorkflowExecutionTimedOutEventAttributes = ChildWorkflowExecutionTimedOutEventAttributes
   { childWorkflowExecutionTimedOutEventAttributesNamespace :: !Text
   , childWorkflowExecutionTimedOutEventAttributesNamespaceid :: !Text
-  , childWorkflowExecutionTimedOutEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
-  , childWorkflowExecutionTimedOutEventAttributesWorkflowtype :: !(Maybe WorkflowType)
+  , childWorkflowExecutionTimedOutEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , childWorkflowExecutionTimedOutEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , childWorkflowExecutionTimedOutEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , childWorkflowExecutionTimedOutEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
-  , childWorkflowExecutionTimedOutEventAttributesRetrystate :: !RetryState
+  , childWorkflowExecutionTimedOutEventAttributesRetrystate :: !PT_Enums_V1_Workflow.RetryState
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4237,8 +4237,8 @@ instance ProtoFromJSON ChildWorkflowExecutionTimedOutEventAttributes where
 data ChildWorkflowExecutionTerminatedEventAttributes = ChildWorkflowExecutionTerminatedEventAttributes
   { childWorkflowExecutionTerminatedEventAttributesNamespace :: !Text
   , childWorkflowExecutionTerminatedEventAttributesNamespaceid :: !Text
-  , childWorkflowExecutionTerminatedEventAttributesWorkflowexecution :: !(Maybe WorkflowExecution)
-  , childWorkflowExecutionTerminatedEventAttributesWorkflowtype :: !(Maybe WorkflowType)
+  , childWorkflowExecutionTerminatedEventAttributesWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , childWorkflowExecutionTerminatedEventAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , childWorkflowExecutionTerminatedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
   , childWorkflowExecutionTerminatedEventAttributesStartedeventid :: {-# UNPACK #-} !Int64
   }
@@ -4330,12 +4330,12 @@ instance ProtoFromJSON ChildWorkflowExecutionTerminatedEventAttributes where
   protoFromJSON _ = Right defaultChildWorkflowExecutionTerminatedEventAttributes
 
 data WorkflowExecutionOptionsUpdatedEventAttributes = WorkflowExecutionOptionsUpdatedEventAttributes
-  { workflowExecutionOptionsUpdatedEventAttributesVersioningoverride :: !(Maybe VersioningOverride)
+  { workflowExecutionOptionsUpdatedEventAttributesVersioningoverride :: !(Maybe PT_Workflow_V1_Message.VersioningOverride)
   , workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride :: {-# UNPACK #-} !Bool
   , workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid :: !Text
-  , workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks :: !(V.Vector Callback)
+  , workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks :: !(V.Vector PT_Common_V1_Message.Callback)
   , workflowExecutionOptionsUpdatedEventAttributesIdentity :: !Text
-  , workflowExecutionOptionsUpdatedEventAttributesPriority :: !(Maybe Priority)
+  , workflowExecutionOptionsUpdatedEventAttributesPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4426,10 +4426,10 @@ instance ProtoFromJSON WorkflowExecutionOptionsUpdatedEventAttributes where
 
 data WorkflowPropertiesModifiedExternallyEventAttributes = WorkflowPropertiesModifiedExternallyEventAttributes
   { workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue :: !Text
-  , workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout :: !(Maybe Duration)
-  , workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout :: !(Maybe Duration)
-  , workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout :: !(Maybe Duration)
-  , workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo :: !(Maybe Memo)
+  , workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout :: !(Maybe PB_Duration.Duration)
+  , workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
+  , workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo :: !(Maybe PT_Common_V1_Message.Memo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4511,7 +4511,7 @@ instance ProtoFromJSON WorkflowPropertiesModifiedExternallyEventAttributes where
 
 data ActivityPropertiesModifiedExternallyEventAttributes = ActivityPropertiesModifiedExternallyEventAttributes
   { activityPropertiesModifiedExternallyEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
-  , activityPropertiesModifiedExternallyEventAttributesNewretrypolicy :: !(Maybe RetryPolicy)
+  , activityPropertiesModifiedExternallyEventAttributesNewretrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4568,7 +4568,7 @@ data WorkflowExecutionUpdateAcceptedEventAttributes = WorkflowExecutionUpdateAcc
   { workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid :: !Text
   , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid :: !Text
   , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid :: {-# UNPACK #-} !Int64
-  , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest :: !(Maybe Request)
+  , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest :: !(Maybe PT_Update_V1_Message.Request)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4640,9 +4640,9 @@ instance ProtoFromJSON WorkflowExecutionUpdateAcceptedEventAttributes where
   protoFromJSON _ = Right defaultWorkflowExecutionUpdateAcceptedEventAttributes
 
 data WorkflowExecutionUpdateCompletedEventAttributes = WorkflowExecutionUpdateCompletedEventAttributes
-  { workflowExecutionUpdateCompletedEventAttributesMeta :: !(Maybe Meta)
+  { workflowExecutionUpdateCompletedEventAttributesMeta :: !(Maybe PT_Update_V1_Message.Meta)
   , workflowExecutionUpdateCompletedEventAttributesAcceptedeventid :: {-# UNPACK #-} !Int64
-  , workflowExecutionUpdateCompletedEventAttributesOutcome :: !(Maybe Outcome)
+  , workflowExecutionUpdateCompletedEventAttributesOutcome :: !(Maybe PT_Update_V1_Message.Outcome)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4708,8 +4708,8 @@ data WorkflowExecutionUpdateRejectedEventAttributes = WorkflowExecutionUpdateRej
   { workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid :: !Text
   , workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid :: !Text
   , workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid :: {-# UNPACK #-} !Int64
-  , workflowExecutionUpdateRejectedEventAttributesRejectedrequest :: !(Maybe Request)
-  , workflowExecutionUpdateRejectedEventAttributesFailure :: !(Maybe Failure)
+  , workflowExecutionUpdateRejectedEventAttributesRejectedrequest :: !(Maybe PT_Update_V1_Message.Request)
+  , workflowExecutionUpdateRejectedEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4790,8 +4790,8 @@ instance ProtoFromJSON WorkflowExecutionUpdateRejectedEventAttributes where
   protoFromJSON _ = Right defaultWorkflowExecutionUpdateRejectedEventAttributes
 
 data WorkflowExecutionUpdateAdmittedEventAttributes = WorkflowExecutionUpdateAdmittedEventAttributes
-  { workflowExecutionUpdateAdmittedEventAttributesRequest :: !(Maybe Request)
-  , workflowExecutionUpdateAdmittedEventAttributesOrigin :: !UpdateAdmittedEventOrigin
+  { workflowExecutionUpdateAdmittedEventAttributesRequest :: !(Maybe PT_Update_V1_Message.Request)
+  , workflowExecutionUpdateAdmittedEventAttributesOrigin :: !PT_Enums_V1_Update.UpdateAdmittedEventOrigin
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4978,14 +4978,14 @@ data NexusOperationScheduledEventAttributes = NexusOperationScheduledEventAttrib
   { nexusOperationScheduledEventAttributesEndpoint :: !Text
   , nexusOperationScheduledEventAttributesService :: !Text
   , nexusOperationScheduledEventAttributesOperation :: !Text
-  , nexusOperationScheduledEventAttributesInput :: !(Maybe Payload)
-  , nexusOperationScheduledEventAttributesScheduletoclosetimeout :: !(Maybe Duration)
+  , nexusOperationScheduledEventAttributesInput :: !(Maybe PT_Common_V1_Message.Payload)
+  , nexusOperationScheduledEventAttributesScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
   , nexusOperationScheduledEventAttributesNexusheader :: !(Map.Map Text Text)
   , nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
   , nexusOperationScheduledEventAttributesRequestid :: !Text
   , nexusOperationScheduledEventAttributesEndpointid :: !Text
-  , nexusOperationScheduledEventAttributesScheduletostarttimeout :: !(Maybe Duration)
-  , nexusOperationScheduledEventAttributesStarttoclosetimeout :: !(Maybe Duration)
+  , nexusOperationScheduledEventAttributesScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
+  , nexusOperationScheduledEventAttributesStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -5199,7 +5199,7 @@ instance ProtoFromJSON NexusOperationStartedEventAttributes where
 
 data NexusOperationCompletedEventAttributes = NexusOperationCompletedEventAttributes
   { nexusOperationCompletedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
-  , nexusOperationCompletedEventAttributesResult :: !(Maybe Payload)
+  , nexusOperationCompletedEventAttributesResult :: !(Maybe PT_Common_V1_Message.Payload)
   , nexusOperationCompletedEventAttributesRequestid :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -5264,7 +5264,7 @@ instance ProtoFromJSON NexusOperationCompletedEventAttributes where
 
 data NexusOperationFailedEventAttributes = NexusOperationFailedEventAttributes
   { nexusOperationFailedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
-  , nexusOperationFailedEventAttributesFailure :: !(Maybe Failure)
+  , nexusOperationFailedEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , nexusOperationFailedEventAttributesRequestid :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -5329,7 +5329,7 @@ instance ProtoFromJSON NexusOperationFailedEventAttributes where
 
 data NexusOperationTimedOutEventAttributes = NexusOperationTimedOutEventAttributes
   { nexusOperationTimedOutEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
-  , nexusOperationTimedOutEventAttributesFailure :: !(Maybe Failure)
+  , nexusOperationTimedOutEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , nexusOperationTimedOutEventAttributesRequestid :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -5394,7 +5394,7 @@ instance ProtoFromJSON NexusOperationTimedOutEventAttributes where
 
 data NexusOperationCanceledEventAttributes = NexusOperationCanceledEventAttributes
   { nexusOperationCanceledEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
-  , nexusOperationCanceledEventAttributesFailure :: !(Maybe Failure)
+  , nexusOperationCanceledEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , nexusOperationCanceledEventAttributesRequestid :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -5580,7 +5580,7 @@ instance ProtoFromJSON NexusOperationCancelRequestCompletedEventAttributes where
 data NexusOperationCancelRequestFailedEventAttributes = NexusOperationCancelRequestFailedEventAttributes
   { nexusOperationCancelRequestFailedEventAttributesRequestedeventid :: {-# UNPACK #-} !Int64
   , nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
-  , nexusOperationCancelRequestFailedEventAttributesFailure :: !(Maybe Failure)
+  , nexusOperationCancelRequestFailedEventAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , nexusOperationCancelRequestFailedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
@@ -5654,13 +5654,13 @@ instance ProtoFromJSON NexusOperationCancelRequestFailedEventAttributes where
 
 data HistoryEvent = HistoryEvent
   { historyEventEventid :: {-# UNPACK #-} !Int64
-  , historyEventEventtime :: !(Maybe Timestamp)
-  , historyEventEventtype :: !EventType
+  , historyEventEventtime :: !(Maybe PB_Timestamp.Timestamp)
+  , historyEventEventtype :: !PT_Enums_V1_EventType.EventType
   , historyEventVersion :: {-# UNPACK #-} !Int64
   , historyEventTaskid :: {-# UNPACK #-} !Int64
   , historyEventWorkermayignore :: {-# UNPACK #-} !Bool
-  , historyEventUsermetadata :: !(Maybe UserMetadata)
-  , historyEventLinks :: !(V.Vector Link)
+  , historyEventUsermetadata :: !(Maybe PT_Sdk_V1_UserMetadata.UserMetadata)
+  , historyEventLinks :: !(V.Vector PT_Common_V1_Message.Link)
   , historyEventAttributes :: !(Maybe HistoryEvent'Attributes)
   }
   deriving stock (Show, Eq, Generic)

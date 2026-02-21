@@ -35,15 +35,15 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Header(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..))
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentVersion(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Activity (ActivityExecutionStatus(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (PendingActivityState(..))
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata(..))
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Deployment.V1.Message as PT_Deployment_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Activity as PT_Enums_V1_Activity
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata as PT_Sdk_V1_UserMetadata
+import qualified Proto.Temporal.Temporal.Api.Taskqueue.V1.Message as PT_Taskqueue_V1_Message
 
 
 data ActivityExecutionOutcome = ActivityExecutionOutcome
@@ -52,8 +52,8 @@ data ActivityExecutionOutcome = ActivityExecutionOutcome
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data ActivityExecutionOutcome'Value
-  = ActivityExecutionOutcome'Value'Result !Payloads
-  | ActivityExecutionOutcome'Value'Failure !Failure
+  = ActivityExecutionOutcome'Value'Result !PT_Common_V1_Message.Payloads
+  | ActivityExecutionOutcome'Value'Failure !PT_Failure_V1_Message.Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON ActivityExecutionOutcome'Value where
@@ -109,13 +109,13 @@ instance ProtoFromJSON ActivityExecutionOutcome where
   protoFromJSON _ = Right defaultActivityExecutionOutcome
 
 data ActivityOptions = ActivityOptions
-  { activityOptionsTaskqueue :: !(Maybe TaskQueue)
-  , activityOptionsScheduletoclosetimeout :: !(Maybe Duration)
-  , activityOptionsScheduletostarttimeout :: !(Maybe Duration)
-  , activityOptionsStarttoclosetimeout :: !(Maybe Duration)
-  , activityOptionsHeartbeattimeout :: !(Maybe Duration)
-  , activityOptionsRetrypolicy :: !(Maybe RetryPolicy)
-  , activityOptionsPriority :: !(Maybe Priority)
+  { activityOptionsTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , activityOptionsScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , activityOptionsScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
+  , activityOptionsStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , activityOptionsHeartbeattimeout :: !(Maybe PB_Duration.Duration)
+  , activityOptionsRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
+  , activityOptionsPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -216,35 +216,35 @@ instance ProtoFromJSON ActivityOptions where
 data ActivityExecutionInfo = ActivityExecutionInfo
   { activityExecutionInfoActivityid :: !Text
   , activityExecutionInfoRunid :: !Text
-  , activityExecutionInfoActivitytype :: !(Maybe ActivityType)
-  , activityExecutionInfoStatus :: !ActivityExecutionStatus
-  , activityExecutionInfoRunstate :: !PendingActivityState
+  , activityExecutionInfoActivitytype :: !(Maybe PT_Common_V1_Message.ActivityType)
+  , activityExecutionInfoStatus :: !PT_Enums_V1_Activity.ActivityExecutionStatus
+  , activityExecutionInfoRunstate :: !PT_Enums_V1_Workflow.PendingActivityState
   , activityExecutionInfoTaskqueue :: !Text
-  , activityExecutionInfoScheduletoclosetimeout :: !(Maybe Duration)
-  , activityExecutionInfoScheduletostarttimeout :: !(Maybe Duration)
-  , activityExecutionInfoStarttoclosetimeout :: !(Maybe Duration)
-  , activityExecutionInfoHeartbeattimeout :: !(Maybe Duration)
-  , activityExecutionInfoRetrypolicy :: !(Maybe RetryPolicy)
-  , activityExecutionInfoHeartbeatdetails :: !(Maybe Payloads)
-  , activityExecutionInfoLastheartbeattime :: !(Maybe Timestamp)
-  , activityExecutionInfoLaststartedtime :: !(Maybe Timestamp)
+  , activityExecutionInfoScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoHeartbeattimeout :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
+  , activityExecutionInfoHeartbeatdetails :: !(Maybe PT_Common_V1_Message.Payloads)
+  , activityExecutionInfoLastheartbeattime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoLaststartedtime :: !(Maybe PB_Timestamp.Timestamp)
   , activityExecutionInfoAttempt :: {-# UNPACK #-} !Int32
-  , activityExecutionInfoExecutionduration :: !(Maybe Duration)
-  , activityExecutionInfoScheduletime :: !(Maybe Timestamp)
-  , activityExecutionInfoExpirationtime :: !(Maybe Timestamp)
-  , activityExecutionInfoClosetime :: !(Maybe Timestamp)
-  , activityExecutionInfoLastfailure :: !(Maybe Failure)
+  , activityExecutionInfoExecutionduration :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoScheduletime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoExpirationtime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoClosetime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoLastfailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , activityExecutionInfoLastworkeridentity :: !Text
-  , activityExecutionInfoCurrentretryinterval :: !(Maybe Duration)
-  , activityExecutionInfoLastattemptcompletetime :: !(Maybe Timestamp)
-  , activityExecutionInfoNextattemptscheduletime :: !(Maybe Timestamp)
-  , activityExecutionInfoLastdeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , activityExecutionInfoPriority :: !(Maybe Priority)
+  , activityExecutionInfoCurrentretryinterval :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoLastdeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
+  , activityExecutionInfoPriority :: !(Maybe PT_Common_V1_Message.Priority)
   , activityExecutionInfoStatetransitioncount :: {-# UNPACK #-} !Int64
   , activityExecutionInfoStatesizebytes :: {-# UNPACK #-} !Int64
-  , activityExecutionInfoSearchattributes :: !(Maybe SearchAttributes)
-  , activityExecutionInfoHeader :: !(Maybe Header)
-  , activityExecutionInfoUsermetadata :: !(Maybe UserMetadata)
+  , activityExecutionInfoSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
+  , activityExecutionInfoHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , activityExecutionInfoUsermetadata :: !(Maybe PT_Sdk_V1_UserMetadata.UserMetadata)
   , activityExecutionInfoCanceledreason :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -571,15 +571,15 @@ instance ProtoFromJSON ActivityExecutionInfo where
 data ActivityExecutionListInfo = ActivityExecutionListInfo
   { activityExecutionListInfoActivityid :: !Text
   , activityExecutionListInfoRunid :: !Text
-  , activityExecutionListInfoActivitytype :: !(Maybe ActivityType)
-  , activityExecutionListInfoScheduletime :: !(Maybe Timestamp)
-  , activityExecutionListInfoClosetime :: !(Maybe Timestamp)
-  , activityExecutionListInfoStatus :: !ActivityExecutionStatus
-  , activityExecutionListInfoSearchattributes :: !(Maybe SearchAttributes)
+  , activityExecutionListInfoActivitytype :: !(Maybe PT_Common_V1_Message.ActivityType)
+  , activityExecutionListInfoScheduletime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionListInfoClosetime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionListInfoStatus :: !PT_Enums_V1_Activity.ActivityExecutionStatus
+  , activityExecutionListInfoSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   , activityExecutionListInfoTaskqueue :: !Text
   , activityExecutionListInfoStatetransitioncount :: {-# UNPACK #-} !Int64
   , activityExecutionListInfoStatesizebytes :: {-# UNPACK #-} !Int64
-  , activityExecutionListInfoExecutionduration :: !(Maybe Duration)
+  , activityExecutionListInfoExecutionduration :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

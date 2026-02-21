@@ -35,46 +35,46 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.Empty (Empty(..))
-import Proto.Google.Protobuf.FieldMask (FieldMask(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Activity.V1.Message (ActivityOptions(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Callback(..), Header(..), Link(..), Memo(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..), WorkerVersionStamp(..), WorkflowExecution(..), WorkflowType(..))
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (Deployment(..), WorkerDeploymentVersion(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (CallbackState(..), NexusOperationCancellationState(..), PendingNexusOperationState(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.EventType (EventType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (ParentClosePolicy(..), PendingActivityState(..), PendingWorkflowTaskState(..), VersioningBehavior(..), WorkflowExecutionStatus(..), WorkflowIdReusePolicy(..))
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata(..))
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.Empty as PB_Empty
+import qualified Proto.Google.Protobuf.FieldMask as PB_FieldMask
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Activity.V1.Message as PT_Activity_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Deployment.V1.Message as PT_Deployment_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Common as PT_Enums_V1_Common
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.EventType as PT_Enums_V1_EventType
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata as PT_Sdk_V1_UserMetadata
+import qualified Proto.Temporal.Temporal.Api.Taskqueue.V1.Message as PT_Taskqueue_V1_Message
 
 
 data WorkflowExecutionInfo = WorkflowExecutionInfo
-  { workflowExecutionInfoExecution :: !(Maybe WorkflowExecution)
-  , workflowExecutionInfoType :: !(Maybe WorkflowType)
-  , workflowExecutionInfoStarttime :: !(Maybe Timestamp)
-  , workflowExecutionInfoClosetime :: !(Maybe Timestamp)
-  , workflowExecutionInfoStatus :: !WorkflowExecutionStatus
+  { workflowExecutionInfoExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , workflowExecutionInfoType :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , workflowExecutionInfoStarttime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionInfoClosetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionInfoStatus :: !PT_Enums_V1_Workflow.WorkflowExecutionStatus
   , workflowExecutionInfoHistorylength :: {-# UNPACK #-} !Int64
   , workflowExecutionInfoParentnamespaceid :: !Text
-  , workflowExecutionInfoParentexecution :: !(Maybe WorkflowExecution)
-  , workflowExecutionInfoExecutiontime :: !(Maybe Timestamp)
-  , workflowExecutionInfoMemo :: !(Maybe Memo)
-  , workflowExecutionInfoSearchattributes :: !(Maybe SearchAttributes)
+  , workflowExecutionInfoParentexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , workflowExecutionInfoExecutiontime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionInfoMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , workflowExecutionInfoSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   , workflowExecutionInfoAutoresetpoints :: !(Maybe ResetPoints)
   , workflowExecutionInfoTaskqueue :: !Text
   , workflowExecutionInfoStatetransitioncount :: {-# UNPACK #-} !Int64
   , workflowExecutionInfoHistorysizebytes :: {-# UNPACK #-} !Int64
-  , workflowExecutionInfoMostrecentworkerversionstamp :: !(Maybe WorkerVersionStamp)
-  , workflowExecutionInfoExecutionduration :: !(Maybe Duration)
-  , workflowExecutionInfoRootexecution :: !(Maybe WorkflowExecution)
+  , workflowExecutionInfoMostrecentworkerversionstamp :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , workflowExecutionInfoExecutionduration :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionInfoRootexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , workflowExecutionInfoAssignedbuildid :: !Text
   , workflowExecutionInfoInheritedbuildid :: !Text
   , workflowExecutionInfoFirstrunid :: !Text
   , workflowExecutionInfoVersioninginfo :: !(Maybe WorkflowExecutionVersioningInfo)
   , workflowExecutionInfoWorkerdeploymentname :: !Text
-  , workflowExecutionInfoPriority :: !(Maybe Priority)
+  , workflowExecutionInfoPriority :: !(Maybe PT_Common_V1_Message.Priority)
   , workflowExecutionInfoExternalpayloadsizebytes :: {-# UNPACK #-} !Int64
   , workflowExecutionInfoExternalpayloadcount :: {-# UNPACK #-} !Int64
   }
@@ -346,11 +346,11 @@ instance ProtoFromJSON WorkflowExecutionInfo where
   protoFromJSON _ = Right defaultWorkflowExecutionInfo
 
 data WorkflowExecutionExtendedInfo = WorkflowExecutionExtendedInfo
-  { workflowExecutionExtendedInfoExecutionexpirationtime :: !(Maybe Timestamp)
-  , workflowExecutionExtendedInfoRunexpirationtime :: !(Maybe Timestamp)
+  { workflowExecutionExtendedInfoExecutionexpirationtime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionExtendedInfoRunexpirationtime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowExecutionExtendedInfoCancelrequested :: {-# UNPACK #-} !Bool
-  , workflowExecutionExtendedInfoLastresettime :: !(Maybe Timestamp)
-  , workflowExecutionExtendedInfoOriginalstarttime :: !(Maybe Timestamp)
+  , workflowExecutionExtendedInfoLastresettime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionExtendedInfoOriginalstarttime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowExecutionExtendedInfoResetrunid :: !Text
   , workflowExecutionExtendedInfoRequestidinfos :: !(Map.Map Text RequestIdInfo)
   , workflowExecutionExtendedInfoPauseinfo :: !(Maybe WorkflowExecutionPauseInfo)
@@ -464,10 +464,10 @@ instance ProtoFromJSON WorkflowExecutionExtendedInfo where
   protoFromJSON _ = Right defaultWorkflowExecutionExtendedInfo
 
 data WorkflowExecutionVersioningInfo = WorkflowExecutionVersioningInfo
-  { workflowExecutionVersioningInfoBehavior :: !VersioningBehavior
-  , workflowExecutionVersioningInfoDeployment :: !(Maybe Deployment)
+  { workflowExecutionVersioningInfoBehavior :: !PT_Enums_V1_Workflow.VersioningBehavior
+  , workflowExecutionVersioningInfoDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
   , workflowExecutionVersioningInfoVersion :: !Text
-  , workflowExecutionVersioningInfoDeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , workflowExecutionVersioningInfoDeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   , workflowExecutionVersioningInfoVersioningoverride :: !(Maybe VersioningOverride)
   , workflowExecutionVersioningInfoDeploymenttransition :: !(Maybe DeploymentTransition)
   , workflowExecutionVersioningInfoVersiontransition :: !(Maybe DeploymentVersionTransition)
@@ -579,7 +579,7 @@ instance ProtoFromJSON WorkflowExecutionVersioningInfo where
   protoFromJSON _ = Right defaultWorkflowExecutionVersioningInfo
 
 data DeploymentTransition = DeploymentTransition
-  { deploymentTransitionDeployment :: !(Maybe Deployment)
+  { deploymentTransitionDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -626,7 +626,7 @@ instance ProtoFromJSON DeploymentTransition where
 
 data DeploymentVersionTransition = DeploymentVersionTransition
   { deploymentVersionTransitionVersion :: !Text
-  , deploymentVersionTransitionDeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , deploymentVersionTransitionDeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -680,11 +680,11 @@ instance ProtoFromJSON DeploymentVersionTransition where
   protoFromJSON _ = Right defaultDeploymentVersionTransition
 
 data WorkflowExecutionConfig = WorkflowExecutionConfig
-  { workflowExecutionConfigTaskqueue :: !(Maybe TaskQueue)
-  , workflowExecutionConfigWorkflowexecutiontimeout :: !(Maybe Duration)
-  , workflowExecutionConfigWorkflowruntimeout :: !(Maybe Duration)
-  , workflowExecutionConfigDefaultworkflowtasktimeout :: !(Maybe Duration)
-  , workflowExecutionConfigUsermetadata :: !(Maybe UserMetadata)
+  { workflowExecutionConfigTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , workflowExecutionConfigWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionConfigWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionConfigDefaultworkflowtasktimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionConfigUsermetadata :: !(Maybe PT_Sdk_V1_UserMetadata.UserMetadata)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -766,34 +766,34 @@ instance ProtoFromJSON WorkflowExecutionConfig where
 
 data PendingActivityInfo = PendingActivityInfo
   { pendingActivityInfoActivityid :: !Text
-  , pendingActivityInfoActivitytype :: !(Maybe ActivityType)
-  , pendingActivityInfoState :: !PendingActivityState
-  , pendingActivityInfoHeartbeatdetails :: !(Maybe Payloads)
-  , pendingActivityInfoLastheartbeattime :: !(Maybe Timestamp)
-  , pendingActivityInfoLaststartedtime :: !(Maybe Timestamp)
+  , pendingActivityInfoActivitytype :: !(Maybe PT_Common_V1_Message.ActivityType)
+  , pendingActivityInfoState :: !PT_Enums_V1_Workflow.PendingActivityState
+  , pendingActivityInfoHeartbeatdetails :: !(Maybe PT_Common_V1_Message.Payloads)
+  , pendingActivityInfoLastheartbeattime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoLaststartedtime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingActivityInfoAttempt :: {-# UNPACK #-} !Int32
   , pendingActivityInfoMaximumattempts :: {-# UNPACK #-} !Int32
-  , pendingActivityInfoScheduledtime :: !(Maybe Timestamp)
-  , pendingActivityInfoExpirationtime :: !(Maybe Timestamp)
-  , pendingActivityInfoLastfailure :: !(Maybe Failure)
+  , pendingActivityInfoScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoExpirationtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoLastfailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , pendingActivityInfoLastworkeridentity :: !Text
   , pendingActivityInfoAssignedbuildid :: !(Maybe PendingActivityInfo'AssignedBuildId)
-  , pendingActivityInfoLastworkerversionstamp :: !(Maybe WorkerVersionStamp)
-  , pendingActivityInfoCurrentretryinterval :: !(Maybe Duration)
-  , pendingActivityInfoLastattemptcompletetime :: !(Maybe Timestamp)
-  , pendingActivityInfoNextattemptscheduletime :: !(Maybe Timestamp)
+  , pendingActivityInfoLastworkerversionstamp :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , pendingActivityInfoCurrentretryinterval :: !(Maybe PB_Duration.Duration)
+  , pendingActivityInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingActivityInfoPaused :: {-# UNPACK #-} !Bool
-  , pendingActivityInfoLastdeployment :: !(Maybe Deployment)
+  , pendingActivityInfoLastdeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
   , pendingActivityInfoLastworkerdeploymentversion :: !Text
-  , pendingActivityInfoLastdeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , pendingActivityInfoPriority :: !(Maybe Priority)
+  , pendingActivityInfoLastdeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
+  , pendingActivityInfoPriority :: !(Maybe PT_Common_V1_Message.Priority)
   , pendingActivityInfoPauseinfo :: !(Maybe PendingActivityInfo'PauseInfo)
-  , pendingActivityInfoActivityoptions :: !(Maybe ActivityOptions)
+  , pendingActivityInfoActivityoptions :: !(Maybe PT_Activity_V1_Message.ActivityOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data PendingActivityInfo'AssignedBuildId
-  = PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId !Empty
+  = PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId !PB_Empty.Empty
   | PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -803,7 +803,7 @@ instance ProtoFromJSON PendingActivityInfo'AssignedBuildId where
   protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 data PendingActivityInfo'PauseInfo = PendingActivityInfo'PauseInfo
-  { pendingActivityInfoPauseInfoPausetime :: !(Maybe Timestamp)
+  { pendingActivityInfoPauseInfoPausetime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingActivityInfoPauseInfoPausedby :: !(Maybe PendingActivityInfo'PauseInfo'PausedBy)
   }
   deriving stock (Show, Eq, Generic)
@@ -1251,7 +1251,7 @@ data PendingChildExecutionInfo = PendingChildExecutionInfo
   , pendingChildExecutionInfoRunid :: !Text
   , pendingChildExecutionInfoWorkflowtypename :: !Text
   , pendingChildExecutionInfoInitiatedid :: {-# UNPACK #-} !Int64
-  , pendingChildExecutionInfoParentclosepolicy :: !ParentClosePolicy
+  , pendingChildExecutionInfoParentclosepolicy :: !PT_Enums_V1_Workflow.ParentClosePolicy
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1332,10 +1332,10 @@ instance ProtoFromJSON PendingChildExecutionInfo where
   protoFromJSON _ = Right defaultPendingChildExecutionInfo
 
 data PendingWorkflowTaskInfo = PendingWorkflowTaskInfo
-  { pendingWorkflowTaskInfoState :: !PendingWorkflowTaskState
-  , pendingWorkflowTaskInfoScheduledtime :: !(Maybe Timestamp)
-  , pendingWorkflowTaskInfoOriginalscheduledtime :: !(Maybe Timestamp)
-  , pendingWorkflowTaskInfoStartedtime :: !(Maybe Timestamp)
+  { pendingWorkflowTaskInfoState :: !PT_Enums_V1_Workflow.PendingWorkflowTaskState
+  , pendingWorkflowTaskInfoScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingWorkflowTaskInfoOriginalscheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingWorkflowTaskInfoStartedtime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingWorkflowTaskInfoAttempt :: {-# UNPACK #-} !Int32
   }
   deriving stock (Show, Eq, Generic)
@@ -1467,8 +1467,8 @@ data ResetPointInfo = ResetPointInfo
   , resetPointInfoBinarychecksum :: !Text
   , resetPointInfoRunid :: !Text
   , resetPointInfoFirstworkflowtaskcompletedid :: {-# UNPACK #-} !Int64
-  , resetPointInfoCreatetime :: !(Maybe Timestamp)
-  , resetPointInfoExpiretime :: !(Maybe Timestamp)
+  , resetPointInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
+  , resetPointInfoExpiretime :: !(Maybe PB_Timestamp.Timestamp)
   , resetPointInfoResettable :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -1569,21 +1569,21 @@ instance ProtoFromJSON ResetPointInfo where
 
 data NewWorkflowExecutionInfo = NewWorkflowExecutionInfo
   { newWorkflowExecutionInfoWorkflowid :: !Text
-  , newWorkflowExecutionInfoWorkflowtype :: !(Maybe WorkflowType)
-  , newWorkflowExecutionInfoTaskqueue :: !(Maybe TaskQueue)
-  , newWorkflowExecutionInfoInput :: !(Maybe Payloads)
-  , newWorkflowExecutionInfoWorkflowexecutiontimeout :: !(Maybe Duration)
-  , newWorkflowExecutionInfoWorkflowruntimeout :: !(Maybe Duration)
-  , newWorkflowExecutionInfoWorkflowtasktimeout :: !(Maybe Duration)
-  , newWorkflowExecutionInfoWorkflowidreusepolicy :: !WorkflowIdReusePolicy
-  , newWorkflowExecutionInfoRetrypolicy :: !(Maybe RetryPolicy)
+  , newWorkflowExecutionInfoWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , newWorkflowExecutionInfoTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , newWorkflowExecutionInfoInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , newWorkflowExecutionInfoWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
+  , newWorkflowExecutionInfoWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , newWorkflowExecutionInfoWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
+  , newWorkflowExecutionInfoWorkflowidreusepolicy :: !PT_Enums_V1_Workflow.WorkflowIdReusePolicy
+  , newWorkflowExecutionInfoRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   , newWorkflowExecutionInfoCronschedule :: !Text
-  , newWorkflowExecutionInfoMemo :: !(Maybe Memo)
-  , newWorkflowExecutionInfoSearchattributes :: !(Maybe SearchAttributes)
-  , newWorkflowExecutionInfoHeader :: !(Maybe Header)
-  , newWorkflowExecutionInfoUsermetadata :: !(Maybe UserMetadata)
+  , newWorkflowExecutionInfoMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , newWorkflowExecutionInfoSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
+  , newWorkflowExecutionInfoHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , newWorkflowExecutionInfoUsermetadata :: !(Maybe PT_Sdk_V1_UserMetadata.UserMetadata)
   , newWorkflowExecutionInfoVersioningoverride :: !(Maybe VersioningOverride)
-  , newWorkflowExecutionInfoPriority :: !(Maybe Priority)
+  , newWorkflowExecutionInfoPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1763,14 +1763,14 @@ instance ProtoFromJSON NewWorkflowExecutionInfo where
   protoFromJSON _ = Right defaultNewWorkflowExecutionInfo
 
 data CallbackInfo = CallbackInfo
-  { callbackInfoCallback :: !(Maybe Callback)
+  { callbackInfoCallback :: !(Maybe PT_Common_V1_Message.Callback)
   , callbackInfoTrigger :: !(Maybe CallbackInfo'Trigger)
-  , callbackInfoRegistrationtime :: !(Maybe Timestamp)
-  , callbackInfoState :: !CallbackState
+  , callbackInfoRegistrationtime :: !(Maybe PB_Timestamp.Timestamp)
+  , callbackInfoState :: !PT_Enums_V1_Common.CallbackState
   , callbackInfoAttempt :: {-# UNPACK #-} !Int32
-  , callbackInfoLastattemptcompletetime :: !(Maybe Timestamp)
-  , callbackInfoLastattemptfailure :: !(Maybe Failure)
-  , callbackInfoNextattemptscheduletime :: !(Maybe Timestamp)
+  , callbackInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
+  , callbackInfoLastattemptfailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , callbackInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
   , callbackInfoBlockedreason :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -1982,19 +1982,19 @@ data PendingNexusOperationInfo = PendingNexusOperationInfo
   , pendingNexusOperationInfoService :: !Text
   , pendingNexusOperationInfoOperation :: !Text
   , pendingNexusOperationInfoOperationid :: !Text
-  , pendingNexusOperationInfoScheduletoclosetimeout :: !(Maybe Duration)
-  , pendingNexusOperationInfoScheduledtime :: !(Maybe Timestamp)
-  , pendingNexusOperationInfoState :: !PendingNexusOperationState
+  , pendingNexusOperationInfoScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , pendingNexusOperationInfoScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingNexusOperationInfoState :: !PT_Enums_V1_Common.PendingNexusOperationState
   , pendingNexusOperationInfoAttempt :: {-# UNPACK #-} !Int32
-  , pendingNexusOperationInfoLastattemptcompletetime :: !(Maybe Timestamp)
-  , pendingNexusOperationInfoLastattemptfailure :: !(Maybe Failure)
-  , pendingNexusOperationInfoNextattemptscheduletime :: !(Maybe Timestamp)
+  , pendingNexusOperationInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingNexusOperationInfoLastattemptfailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , pendingNexusOperationInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingNexusOperationInfoCancellationinfo :: !(Maybe NexusOperationCancellationInfo)
   , pendingNexusOperationInfoScheduledeventid :: {-# UNPACK #-} !Int64
   , pendingNexusOperationInfoBlockedreason :: !Text
   , pendingNexusOperationInfoOperationtoken :: !Text
-  , pendingNexusOperationInfoScheduletostarttimeout :: !(Maybe Duration)
-  , pendingNexusOperationInfoStarttoclosetimeout :: !(Maybe Duration)
+  , pendingNexusOperationInfoScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
+  , pendingNexusOperationInfoStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2183,12 +2183,12 @@ instance ProtoFromJSON PendingNexusOperationInfo where
   protoFromJSON _ = Right defaultPendingNexusOperationInfo
 
 data NexusOperationCancellationInfo = NexusOperationCancellationInfo
-  { nexusOperationCancellationInfoRequestedtime :: !(Maybe Timestamp)
-  , nexusOperationCancellationInfoState :: !NexusOperationCancellationState
+  { nexusOperationCancellationInfoRequestedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , nexusOperationCancellationInfoState :: !PT_Enums_V1_Common.NexusOperationCancellationState
   , nexusOperationCancellationInfoAttempt :: {-# UNPACK #-} !Int32
-  , nexusOperationCancellationInfoLastattemptcompletetime :: !(Maybe Timestamp)
-  , nexusOperationCancellationInfoLastattemptfailure :: !(Maybe Failure)
-  , nexusOperationCancellationInfoNextattemptscheduletime :: !(Maybe Timestamp)
+  , nexusOperationCancellationInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
+  , nexusOperationCancellationInfoLastattemptfailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , nexusOperationCancellationInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
   , nexusOperationCancellationInfoBlockedreason :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -2289,7 +2289,7 @@ instance ProtoFromJSON NexusOperationCancellationInfo where
 
 data WorkflowExecutionOptions = WorkflowExecutionOptions
   { workflowExecutionOptionsVersioningoverride :: !(Maybe VersioningOverride)
-  , workflowExecutionOptionsPriority :: !(Maybe Priority)
+  , workflowExecutionOptionsPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2344,8 +2344,8 @@ instance ProtoFromJSON WorkflowExecutionOptions where
 
 data VersioningOverride = VersioningOverride
   { versioningOverrideOverride :: !(Maybe VersioningOverride'Override)
-  , versioningOverrideBehavior :: !VersioningBehavior
-  , versioningOverrideDeployment :: !(Maybe Deployment)
+  , versioningOverrideBehavior :: !PT_Enums_V1_Workflow.VersioningBehavior
+  , versioningOverrideDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
   , versioningOverridePinnedversion :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -2362,7 +2362,7 @@ instance ProtoFromJSON VersioningOverride'Override where
 
 data VersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
   { versioningOverridePinnedOverrideBehavior :: !VersioningOverride'PinnedOverrideBehavior
-  , versioningOverridePinnedOverrideVersion :: !(Maybe WorkerDeploymentVersion)
+  , versioningOverridePinnedOverrideVersion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2587,7 +2587,7 @@ instance ProtoFromJSON OnConflictOptions where
   protoFromJSON _ = Right defaultOnConflictOptions
 
 data RequestIdInfo = RequestIdInfo
-  { requestIdInfoEventtype :: !EventType
+  { requestIdInfoEventtype :: !PT_Enums_V1_EventType.EventType
   , requestIdInfoEventid :: {-# UNPACK #-} !Int64
   , requestIdInfoBuffered :: {-# UNPACK #-} !Bool
   }
@@ -2659,9 +2659,9 @@ data PostResetOperation = PostResetOperation
 
 data PostResetOperation'SignalWorkflow = PostResetOperation'SignalWorkflow
   { postResetOperationSignalWorkflowSignalname :: !Text
-  , postResetOperationSignalWorkflowInput :: !(Maybe Payloads)
-  , postResetOperationSignalWorkflowHeader :: !(Maybe Header)
-  , postResetOperationSignalWorkflowLinks :: !(V.Vector Link)
+  , postResetOperationSignalWorkflowInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , postResetOperationSignalWorkflowHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , postResetOperationSignalWorkflowLinks :: !(V.Vector PT_Common_V1_Message.Link)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2734,7 +2734,7 @@ instance ProtoFromJSON PostResetOperation'SignalWorkflow where
 
 data PostResetOperation'UpdateWorkflowOptions = PostResetOperation'UpdateWorkflowOptions
   { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions :: !(Maybe WorkflowExecutionOptions)
-  , postResetOperationUpdateWorkflowOptionsUpdatemask :: !(Maybe FieldMask)
+  , postResetOperationUpdateWorkflowOptionsUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2845,7 +2845,7 @@ instance ProtoFromJSON PostResetOperation where
 
 data WorkflowExecutionPauseInfo = WorkflowExecutionPauseInfo
   { workflowExecutionPauseInfoIdentity :: !Text
-  , workflowExecutionPauseInfoPausedtime :: !(Maybe Timestamp)
+  , workflowExecutionPauseInfoPausedtime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowExecutionPauseInfoReason :: !Text
   }
   deriving stock (Show, Eq, Generic)

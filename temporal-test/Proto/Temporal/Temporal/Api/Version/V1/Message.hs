@@ -35,13 +35,13 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (Severity(..))
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Common as PT_Enums_V1_Common
 
 
 data ReleaseInfo = ReleaseInfo
   { releaseInfoVersion :: !Text
-  , releaseInfoReleasetime :: !(Maybe Timestamp)
+  , releaseInfoReleasetime :: !(Maybe PB_Timestamp.Timestamp)
   , releaseInfoNotes :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -106,7 +106,7 @@ instance ProtoFromJSON ReleaseInfo where
 
 data Alert = Alert
   { alertMessage :: !Text
-  , alertSeverity :: !Severity
+  , alertSeverity :: !PT_Enums_V1_Common.Severity
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -164,7 +164,7 @@ data VersionInfo = VersionInfo
   , versionInfoRecommended :: !(Maybe ReleaseInfo)
   , versionInfoInstructions :: !Text
   , versionInfoAlerts :: !(V.Vector Alert)
-  , versionInfoLastupdatetime :: !(Maybe Timestamp)
+  , versionInfoLastupdatetime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

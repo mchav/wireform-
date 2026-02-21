@@ -35,12 +35,12 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Memo(..), SearchAttributes(..), WorkflowExecution(..), WorkflowType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Schedule (ScheduleOverlapPolicy(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus(..))
-import Proto.Temporal.Temporal.Api.Workflow.V1.Message (NewWorkflowExecutionInfo(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Schedule as PT_Enums_V1_Schedule
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
+import qualified Proto.Temporal.Temporal.Api.Workflow.V1.Message as PT_Workflow_V1_Message
 
 
 data CalendarSpec = CalendarSpec
@@ -339,8 +339,8 @@ instance ProtoFromJSON StructuredCalendarSpec where
   protoFromJSON _ = Right defaultStructuredCalendarSpec
 
 data IntervalSpec = IntervalSpec
-  { intervalSpecInterval :: !(Maybe Duration)
-  , intervalSpecPhase :: !(Maybe Duration)
+  { intervalSpecInterval :: !(Maybe PB_Duration.Duration)
+  , intervalSpecPhase :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -400,9 +400,9 @@ data ScheduleSpec = ScheduleSpec
   , scheduleSpecInterval :: !(V.Vector IntervalSpec)
   , scheduleSpecExcludecalendar :: !(V.Vector CalendarSpec)
   , scheduleSpecExcludestructuredcalendar :: !(V.Vector StructuredCalendarSpec)
-  , scheduleSpecStarttime :: !(Maybe Timestamp)
-  , scheduleSpecEndtime :: !(Maybe Timestamp)
-  , scheduleSpecJitter :: !(Maybe Duration)
+  , scheduleSpecStarttime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleSpecEndtime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleSpecJitter :: !(Maybe PB_Duration.Duration)
   , scheduleSpecTimezonename :: !Text
   , scheduleSpecTimezonedata :: !ByteString
   }
@@ -539,8 +539,8 @@ instance ProtoFromJSON ScheduleSpec where
   protoFromJSON _ = Right defaultScheduleSpec
 
 data SchedulePolicies = SchedulePolicies
-  { schedulePoliciesOverlappolicy :: !ScheduleOverlapPolicy
-  , schedulePoliciesCatchupwindow :: !(Maybe Duration)
+  { schedulePoliciesOverlappolicy :: !PT_Enums_V1_Schedule.ScheduleOverlapPolicy
+  , schedulePoliciesCatchupwindow :: !(Maybe PB_Duration.Duration)
   , schedulePoliciesPauseonfailure :: {-# UNPACK #-} !Bool
   , schedulePoliciesKeeporiginalworkflowid :: {-# UNPACK #-} !Bool
   }
@@ -619,7 +619,7 @@ data ScheduleAction = ScheduleAction
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data ScheduleAction'Action
-  = ScheduleAction'Action'StartWorkflow !NewWorkflowExecutionInfo
+  = ScheduleAction'Action'StartWorkflow !PT_Workflow_V1_Message.NewWorkflowExecutionInfo
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON ScheduleAction'Action where
@@ -670,10 +670,10 @@ instance ProtoFromJSON ScheduleAction where
   protoFromJSON _ = Right defaultScheduleAction
 
 data ScheduleActionResult = ScheduleActionResult
-  { scheduleActionResultScheduletime :: !(Maybe Timestamp)
-  , scheduleActionResultActualtime :: !(Maybe Timestamp)
-  , scheduleActionResultStartworkflowresult :: !(Maybe WorkflowExecution)
-  , scheduleActionResultStartworkflowstatus :: !WorkflowExecutionStatus
+  { scheduleActionResultScheduletime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleActionResultActualtime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleActionResultStartworkflowresult :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , scheduleActionResultStartworkflowstatus :: !PT_Enums_V1_Workflow.WorkflowExecutionStatus
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -820,8 +820,8 @@ instance ProtoFromJSON ScheduleState where
   protoFromJSON _ = Right defaultScheduleState
 
 data TriggerImmediatelyRequest = TriggerImmediatelyRequest
-  { triggerImmediatelyRequestOverlappolicy :: !ScheduleOverlapPolicy
-  , triggerImmediatelyRequestScheduledtime :: !(Maybe Timestamp)
+  { triggerImmediatelyRequestOverlappolicy :: !PT_Enums_V1_Schedule.ScheduleOverlapPolicy
+  , triggerImmediatelyRequestScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -875,9 +875,9 @@ instance ProtoFromJSON TriggerImmediatelyRequest where
   protoFromJSON _ = Right defaultTriggerImmediatelyRequest
 
 data BackfillRequest = BackfillRequest
-  { backfillRequestStarttime :: !(Maybe Timestamp)
-  , backfillRequestEndtime :: !(Maybe Timestamp)
-  , backfillRequestOverlappolicy :: !ScheduleOverlapPolicy
+  { backfillRequestStarttime :: !(Maybe PB_Timestamp.Timestamp)
+  , backfillRequestEndtime :: !(Maybe PB_Timestamp.Timestamp)
+  , backfillRequestOverlappolicy :: !PT_Enums_V1_Schedule.ScheduleOverlapPolicy
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1020,11 +1020,11 @@ data ScheduleInfo = ScheduleInfo
   , scheduleInfoOverlapskipped :: {-# UNPACK #-} !Int64
   , scheduleInfoBufferdropped :: {-# UNPACK #-} !Int64
   , scheduleInfoBuffersize :: {-# UNPACK #-} !Int64
-  , scheduleInfoRunningworkflows :: !(V.Vector WorkflowExecution)
+  , scheduleInfoRunningworkflows :: !(V.Vector PT_Common_V1_Message.WorkflowExecution)
   , scheduleInfoRecentactions :: !(V.Vector ScheduleActionResult)
-  , scheduleInfoFutureactiontimes :: !(V.Vector Timestamp)
-  , scheduleInfoCreatetime :: !(Maybe Timestamp)
-  , scheduleInfoUpdatetime :: !(Maybe Timestamp)
+  , scheduleInfoFutureactiontimes :: !(V.Vector PB_Timestamp.Timestamp)
+  , scheduleInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleInfoUpdatetime :: !(Maybe PB_Timestamp.Timestamp)
   , scheduleInfoInvalidscheduleerror :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -1236,11 +1236,11 @@ instance ProtoFromJSON Schedule where
 
 data ScheduleListInfo = ScheduleListInfo
   { scheduleListInfoSpec :: !(Maybe ScheduleSpec)
-  , scheduleListInfoWorkflowtype :: !(Maybe WorkflowType)
+  , scheduleListInfoWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , scheduleListInfoNotes :: !Text
   , scheduleListInfoPaused :: {-# UNPACK #-} !Bool
   , scheduleListInfoRecentactions :: !(V.Vector ScheduleActionResult)
-  , scheduleListInfoFutureactiontimes :: !(V.Vector Timestamp)
+  , scheduleListInfoFutureactiontimes :: !(V.Vector PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1331,8 +1331,8 @@ instance ProtoFromJSON ScheduleListInfo where
 
 data ScheduleListEntry = ScheduleListEntry
   { scheduleListEntryScheduleid :: !Text
-  , scheduleListEntryMemo :: !(Maybe Memo)
-  , scheduleListEntrySearchattributes :: !(Maybe SearchAttributes)
+  , scheduleListEntryMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , scheduleListEntrySearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   , scheduleListEntryInfo :: !(Maybe ScheduleListInfo)
   }
   deriving stock (Show, Eq, Generic)

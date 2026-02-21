@@ -276,12 +276,10 @@ generateModule opts reg filePath pf =
       body = concatMap (genTopLevel ctx []) (protoTopLevels pf)
       referencedTypes = collectReferencedTypes (protoTopLevels pf)
       importedModules = computeImports ctx referencedTypes
-      localHsNamesRaw = [tiHsName ti | (_, ti) <- Map.toList reg, tiModule ti == thisMod]
-      localHsNames = Set.fromList (localHsNamesRaw <> fmap ("default" <>) localHsNamesRaw)
   in vsep
     [ genModuleHeader opts filePath pf
     , mempty
-    , genImports localHsNames importedModules
+    , genImports importedModules
     , mempty
     , vsep body
     ]
@@ -333,19 +331,15 @@ collectReferencedTypes = foldMap goTL
       FTNamed n -> Set.singleton n
       _ -> Set.empty
 
--- Given referenced type names, compute import statements for external modules
--- Excludes types that collide with locally-defined names.
-computeImports :: GenCtx -> Set Text -> Map Text (Set Text)
+-- Compute the set of external modules referenced by this file.
+computeImports :: GenCtx -> Set Text -> Set Text
 computeImports ctx refs =
-  let reg = gcRegistry ctx
-      thisMod = gcThisMod ctx
-      localHsNames = Set.fromList [tiHsName ti | (_, ti) <- Map.toList reg, tiModule ti == thisMod]
-  in Map.fromListWith Set.union
-    [ (tiModule ti, Set.singleton (tiHsName ti))
+  let thisMod = gcThisMod ctx
+  in Set.fromList
+    [ tiModule ti
     | ref <- Set.toList refs
     , Just ti <- [resolveType ctx ref]
     , tiModule ti /= thisMod
-    , not (Set.member (tiHsName ti) localHsNames)
     ]
 
 -- Resolve a proto type name to TypeInfo. Tries FQ lookup first, then
@@ -404,8 +398,8 @@ genModuleHeader opts filePath pf =
     <> deprLine
     <> [ pretty ("module " :: Text) <> pretty modName <> pretty (" where" :: Text) ]
 
-genImports :: Set Text -> Map Text (Set Text) -> Doc ann
-genImports localNames externalImports = vsep $
+genImports :: Set Text -> Doc ann
+genImports externalModules = vsep $
   [ pretty ("import Data.ByteString (ByteString)" :: Text)
   , pretty ("import qualified Data.ByteString as BS" :: Text)
   , pretty ("import qualified Data.ByteString.Builder as B" :: Text)
@@ -432,24 +426,26 @@ genImports localNames externalImports = vsep $
   , pretty ("  fieldSVarint32Size, fieldSVarint64Size," :: Text)
   , pretty ("  varintSize32, zigZag32, zigZag64)" :: Text)
   ]
-  <> let winnerMap = buildWinnerMap externalImports
-     in fmap (genExternalImport localNames winnerMap) (Map.toAscList externalImports)
+  <> fmap genQualifiedImport (Set.toAscList externalModules)
 
-buildWinnerMap :: Map Text (Set Text) -> Map Text Text
-buildWinnerMap modMap =
-  foldl (\acc (m, ts) -> foldl (\a t -> Map.insertWith (\_ old -> old) t m a) acc (Set.toAscList ts)) Map.empty (Map.toAscList modMap)
+genQualifiedImport :: Text -> Doc ann
+genQualifiedImport modName =
+  pretty ("import qualified " :: Text) <> pretty modName <> pretty (" as " :: Text) <> pretty (moduleAlias modName)
 
-genExternalImport :: Set Text -> Map Text Text -> (Text, Set Text) -> Doc ann
-genExternalImport localNames winnerMap (modName, types) =
-  let allowedTypes = Set.filter (\t ->
-        not (Set.member t localNames) &&
-        Map.lookup t winnerMap == Just modName
-        ) types
-  in if Set.null allowedTypes
-     then mempty
-     else pretty ("import " :: Text) <> pretty modName <> pretty (" (" :: Text) <>
-          hsep (punctuate (pretty ("," :: Text)) (fmap (\t -> pretty t <> pretty ("(..)" :: Text)) (Set.toAscList allowedTypes))) <>
-          pretty (")" :: Text)
+-- | Derive a short, deterministic alias from a module name.
+-- \"Proto.Google.Protobuf.Timestamp\" -> \"PB_Timestamp\"
+-- \"Proto.Temporal.Temporal.Api.Common.V1.Message\" -> \"PT_Common_V1_Message\"
+moduleAlias :: Text -> Text
+moduleAlias modName =
+  let parts = T.splitOn "." modName
+      meaningful = dropBoilerplate parts
+  in T.intercalate "_" meaningful
+  where
+    dropBoilerplate ps = case ps of
+      ("Proto" : "Google" : "Protobuf" : rest) -> "PB" : rest
+      ("Proto" : _ : _ : "Api" : rest) -> "PT" : rest
+      ("Proto" : _ : rest) -> "P" : rest
+      _ -> ps
 
 -- ---------------------------------------------------------------------------
 -- Top-level generation
@@ -1376,7 +1372,7 @@ hsFieldType ctx scope ft = \case
     FTScalar s | isUnboxableScalar s -> pretty ("{-# UNPACK #-} !" :: Text) <> hsScalarType s
     FTScalar _ -> pretty ("!" :: Text) <> hsFieldTypeInner ctx scope ft
     FTNamed n -> case resolveTypeWithScope ctx scope n of
-      Just ti | tiKind ti == TKEnum -> pretty ("!" :: Text) <> pretty (tiHsName ti)
+      Just ti | tiKind ti == TKEnum -> pretty ("!" :: Text) <> pretty (qualifyTypeRef ctx (Just ti) n)
       _ -> pretty ("!(Maybe " :: Text) <> hsFieldTypeInner ctx scope ft <> pretty (")" :: Text)
 
 hsFieldTypeInner :: GenCtx -> [Text] -> FieldType -> Doc ann
@@ -1394,18 +1390,20 @@ hsRepeatedType ctx scope = \case
   FTScalar s | isUnboxableScalar s -> pretty ("!(VU.Vector " :: Text) <> hsScalarType s <> pretty (")" :: Text)
   ft -> pretty ("!(V.Vector " :: Text) <> hsFieldTypeInner ctx scope ft <> pretty (")" :: Text)
 
+-- | Resolve a proto type name to its Haskell reference.
+-- Returns a qualified name like @PB_Timestamp.Timestamp@ for external types,
+-- or an unqualified name like @Payload@ for local types.
 resolveHsTypeName :: GenCtx -> Text -> Text
-resolveHsTypeName ctx name = case resolveType ctx name of
-  Just ti -> tiHsName ti
-  Nothing -> hsTypeName (lastPart name)
-  where
-    lastPart t = case T.splitOn "." t of
-      [] -> t
-      parts -> last parts
+resolveHsTypeName ctx name = qualifyTypeRef ctx (resolveType ctx name) name
 
 resolveHsTypeNameScoped :: GenCtx -> [Text] -> Text -> Text
-resolveHsTypeNameScoped ctx scope name = case resolveTypeWithScope ctx scope name of
-  Just ti -> tiHsName ti
+resolveHsTypeNameScoped ctx scope name = qualifyTypeRef ctx (resolveTypeWithScope ctx scope name) name
+
+qualifyTypeRef :: GenCtx -> Maybe TypeInfo -> Text -> Text
+qualifyTypeRef ctx mti name = case mti of
+  Just ti
+    | tiModule ti == gcThisMod ctx -> tiHsName ti
+    | otherwise -> moduleAlias (tiModule ti) <> "." <> tiHsName ti
   Nothing -> hsTypeName (lastPart name)
   where
     lastPart t = case T.splitOn "." t of

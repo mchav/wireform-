@@ -35,17 +35,17 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Google.Protobuf.Wrappers (DoubleValue(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (WorkerVersionCapabilities(..))
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentOptions(..), WorkerDeploymentVersion(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue (BuildIdTaskReachability(..), TaskQueueKind(..), TaskReachability(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Google.Protobuf.Wrappers as PB_Wrappers
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Deployment.V1.Message as PT_Deployment_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue as PT_Enums_V1_TaskQueue
 
 
 data TaskQueue = TaskQueue
   { taskQueueName :: !Text
-  , taskQueueKind :: !TaskQueueKind
+  , taskQueueKind :: !PT_Enums_V1_TaskQueue.TaskQueueKind
   , taskQueueNormalname :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -109,7 +109,7 @@ instance ProtoFromJSON TaskQueue where
   protoFromJSON _ = Right defaultTaskQueue
 
 data TaskQueueMetadata = TaskQueueMetadata
-  { taskQueueMetadataMaxtaskspersecond :: !(Maybe DoubleValue)
+  { taskQueueMetadataMaxtaskspersecond :: !(Maybe PB_Wrappers.DoubleValue)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -155,12 +155,12 @@ instance ProtoFromJSON TaskQueueMetadata where
   protoFromJSON _ = Right defaultTaskQueueMetadata
 
 data TaskQueueVersioningInfo = TaskQueueVersioningInfo
-  { taskQueueVersioningInfoCurrentdeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  { taskQueueVersioningInfoCurrentdeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   , taskQueueVersioningInfoCurrentversion :: !Text
-  , taskQueueVersioningInfoRampingdeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , taskQueueVersioningInfoRampingdeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   , taskQueueVersioningInfoRampingversion :: !Text
   , taskQueueVersioningInfoRampingversionpercentage :: {-# UNPACK #-} !Float
-  , taskQueueVersioningInfoUpdatetime :: !(Maybe Timestamp)
+  , taskQueueVersioningInfoUpdatetime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -316,7 +316,7 @@ instance ProtoFromJSON TaskQueueVersionSelection where
 
 data TaskQueueVersionInfo = TaskQueueVersionInfo
   { taskQueueVersionInfoTypesinfo :: !(Map.Map Int32 TaskQueueTypeInfo)
-  , taskQueueVersionInfoTaskreachability :: !BuildIdTaskReachability
+  , taskQueueVersionInfoTaskreachability :: !PT_Enums_V1_TaskQueue.BuildIdTaskReachability
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -429,7 +429,7 @@ instance ProtoFromJSON TaskQueueTypeInfo where
 
 data TaskQueueStats = TaskQueueStats
   { taskQueueStatsApproximatebacklogcount :: {-# UNPACK #-} !Int64
-  , taskQueueStatsApproximatebacklogage :: !(Maybe Duration)
+  , taskQueueStatsApproximatebacklogage :: !(Maybe PB_Duration.Duration)
   , taskQueueStatsTasksaddrate :: {-# UNPACK #-} !Float
   , taskQueueStatsTasksdispatchrate :: {-# UNPACK #-} !Float
   }
@@ -698,11 +698,11 @@ instance ProtoFromJSON TaskQueuePartitionMetadata where
   protoFromJSON _ = Right defaultTaskQueuePartitionMetadata
 
 data PollerInfo = PollerInfo
-  { pollerInfoLastaccesstime :: !(Maybe Timestamp)
+  { pollerInfoLastaccesstime :: !(Maybe PB_Timestamp.Timestamp)
   , pollerInfoIdentity :: !Text
   , pollerInfoRatepersecond :: {-# UNPACK #-} !Double
-  , pollerInfoWorkerversioncapabilities :: !(Maybe WorkerVersionCapabilities)
-  , pollerInfoDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , pollerInfoWorkerversioncapabilities :: !(Maybe PT_Common_V1_Message.WorkerVersionCapabilities)
+  , pollerInfoDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -784,7 +784,7 @@ instance ProtoFromJSON PollerInfo where
 
 data StickyExecutionAttributes = StickyExecutionAttributes
   { stickyExecutionAttributesWorkertaskqueue :: !(Maybe TaskQueue)
-  , stickyExecutionAttributesScheduletostarttimeout :: !(Maybe Duration)
+  , stickyExecutionAttributesScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -885,7 +885,7 @@ instance ProtoFromJSON CompatibleVersionSet where
 
 data TaskQueueReachability = TaskQueueReachability
   { taskQueueReachabilityTaskqueue :: !Text
-  , taskQueueReachabilityReachability :: !(V.Vector TaskReachability)
+  , taskQueueReachabilityReachability :: !(V.Vector PT_Enums_V1_TaskQueue.TaskReachability)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1161,7 +1161,7 @@ instance ProtoFromJSON CompatibleBuildIdRedirectRule where
 
 data TimestampedBuildIdAssignmentRule = TimestampedBuildIdAssignmentRule
   { timestampedBuildIdAssignmentRuleRule :: !(Maybe BuildIdAssignmentRule)
-  , timestampedBuildIdAssignmentRuleCreatetime :: !(Maybe Timestamp)
+  , timestampedBuildIdAssignmentRuleCreatetime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1216,7 +1216,7 @@ instance ProtoFromJSON TimestampedBuildIdAssignmentRule where
 
 data TimestampedCompatibleBuildIdRedirectRule = TimestampedCompatibleBuildIdRedirectRule
   { timestampedCompatibleBuildIdRedirectRuleRule :: !(Maybe CompatibleBuildIdRedirectRule)
-  , timestampedCompatibleBuildIdRedirectRuleCreatetime :: !(Maybe Timestamp)
+  , timestampedCompatibleBuildIdRedirectRuleCreatetime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1364,7 +1364,7 @@ instance ProtoFromJSON RateLimit where
 data ConfigMetadata = ConfigMetadata
   { configMetadataReason :: !Text
   , configMetadataUpdateidentity :: !Text
-  , configMetadataUpdatetime :: !(Maybe Timestamp)
+  , configMetadataUpdatetime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

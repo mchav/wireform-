@@ -35,29 +35,29 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Header(..), Memo(..), Payload(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..), WorkflowExecution(..), WorkflowType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.CommandType (CommandType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (ContinueAsNewInitiator(..), ContinueAsNewVersioningBehavior(..), ParentClosePolicy(..), WorkflowIdReusePolicy(..))
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata(..))
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.CommandType as PT_Enums_V1_CommandType
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata as PT_Sdk_V1_UserMetadata
+import qualified Proto.Temporal.Temporal.Api.Taskqueue.V1.Message as PT_Taskqueue_V1_Message
 
 
 data ScheduleActivityTaskCommandAttributes = ScheduleActivityTaskCommandAttributes
   { scheduleActivityTaskCommandAttributesActivityid :: !Text
-  , scheduleActivityTaskCommandAttributesActivitytype :: !(Maybe ActivityType)
-  , scheduleActivityTaskCommandAttributesTaskqueue :: !(Maybe TaskQueue)
-  , scheduleActivityTaskCommandAttributesHeader :: !(Maybe Header)
-  , scheduleActivityTaskCommandAttributesInput :: !(Maybe Payloads)
-  , scheduleActivityTaskCommandAttributesScheduletoclosetimeout :: !(Maybe Duration)
-  , scheduleActivityTaskCommandAttributesScheduletostarttimeout :: !(Maybe Duration)
-  , scheduleActivityTaskCommandAttributesStarttoclosetimeout :: !(Maybe Duration)
-  , scheduleActivityTaskCommandAttributesHeartbeattimeout :: !(Maybe Duration)
-  , scheduleActivityTaskCommandAttributesRetrypolicy :: !(Maybe RetryPolicy)
+  , scheduleActivityTaskCommandAttributesActivitytype :: !(Maybe PT_Common_V1_Message.ActivityType)
+  , scheduleActivityTaskCommandAttributesTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , scheduleActivityTaskCommandAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , scheduleActivityTaskCommandAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , scheduleActivityTaskCommandAttributesScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleActivityTaskCommandAttributesScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleActivityTaskCommandAttributesStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleActivityTaskCommandAttributesHeartbeattimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleActivityTaskCommandAttributesRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   , scheduleActivityTaskCommandAttributesRequesteagerexecution :: {-# UNPACK #-} !Bool
   , scheduleActivityTaskCommandAttributesUseworkflowbuildid :: {-# UNPACK #-} !Bool
-  , scheduleActivityTaskCommandAttributesPriority :: !(Maybe Priority)
+  , scheduleActivityTaskCommandAttributesPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -257,7 +257,7 @@ instance ProtoFromJSON RequestCancelActivityTaskCommandAttributes where
 
 data StartTimerCommandAttributes = StartTimerCommandAttributes
   { startTimerCommandAttributesTimerid :: !Text
-  , startTimerCommandAttributesStarttofiretimeout :: !(Maybe Duration)
+  , startTimerCommandAttributesStarttofiretimeout :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -311,7 +311,7 @@ instance ProtoFromJSON StartTimerCommandAttributes where
   protoFromJSON _ = Right defaultStartTimerCommandAttributes
 
 data CompleteWorkflowExecutionCommandAttributes = CompleteWorkflowExecutionCommandAttributes
-  { completeWorkflowExecutionCommandAttributesResult :: !(Maybe Payloads)
+  { completeWorkflowExecutionCommandAttributesResult :: !(Maybe PT_Common_V1_Message.Payloads)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -357,7 +357,7 @@ instance ProtoFromJSON CompleteWorkflowExecutionCommandAttributes where
   protoFromJSON _ = Right defaultCompleteWorkflowExecutionCommandAttributes
 
 data FailWorkflowExecutionCommandAttributes = FailWorkflowExecutionCommandAttributes
-  { failWorkflowExecutionCommandAttributesFailure :: !(Maybe Failure)
+  { failWorkflowExecutionCommandAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -449,7 +449,7 @@ instance ProtoFromJSON CancelTimerCommandAttributes where
   protoFromJSON _ = Right defaultCancelTimerCommandAttributes
 
 data CancelWorkflowExecutionCommandAttributes = CancelWorkflowExecutionCommandAttributes
-  { cancelWorkflowExecutionCommandAttributesDetails :: !(Maybe Payloads)
+  { cancelWorkflowExecutionCommandAttributesDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -591,12 +591,12 @@ instance ProtoFromJSON RequestCancelExternalWorkflowExecutionCommandAttributes w
 
 data SignalExternalWorkflowExecutionCommandAttributes = SignalExternalWorkflowExecutionCommandAttributes
   { signalExternalWorkflowExecutionCommandAttributesNamespace :: !Text
-  , signalExternalWorkflowExecutionCommandAttributesExecution :: !(Maybe WorkflowExecution)
+  , signalExternalWorkflowExecutionCommandAttributesExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , signalExternalWorkflowExecutionCommandAttributesSignalname :: !Text
-  , signalExternalWorkflowExecutionCommandAttributesInput :: !(Maybe Payloads)
+  , signalExternalWorkflowExecutionCommandAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
   , signalExternalWorkflowExecutionCommandAttributesControl :: !Text
   , signalExternalWorkflowExecutionCommandAttributesChildworkflowonly :: {-# UNPACK #-} !Bool
-  , signalExternalWorkflowExecutionCommandAttributesHeader :: !(Maybe Header)
+  , signalExternalWorkflowExecutionCommandAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -695,7 +695,7 @@ instance ProtoFromJSON SignalExternalWorkflowExecutionCommandAttributes where
   protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionCommandAttributes
 
 data UpsertWorkflowSearchAttributesCommandAttributes = UpsertWorkflowSearchAttributesCommandAttributes
-  { upsertWorkflowSearchAttributesCommandAttributesSearchattributes :: !(Maybe SearchAttributes)
+  { upsertWorkflowSearchAttributesCommandAttributesSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -741,7 +741,7 @@ instance ProtoFromJSON UpsertWorkflowSearchAttributesCommandAttributes where
   protoFromJSON _ = Right defaultUpsertWorkflowSearchAttributesCommandAttributes
 
 data ModifyWorkflowPropertiesCommandAttributes = ModifyWorkflowPropertiesCommandAttributes
-  { modifyWorkflowPropertiesCommandAttributesUpsertedmemo :: !(Maybe Memo)
+  { modifyWorkflowPropertiesCommandAttributesUpsertedmemo :: !(Maybe PT_Common_V1_Message.Memo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -788,9 +788,9 @@ instance ProtoFromJSON ModifyWorkflowPropertiesCommandAttributes where
 
 data RecordMarkerCommandAttributes = RecordMarkerCommandAttributes
   { recordMarkerCommandAttributesMarkername :: !Text
-  , recordMarkerCommandAttributesDetails :: !(Map.Map Text Payloads)
-  , recordMarkerCommandAttributesHeader :: !(Maybe Header)
-  , recordMarkerCommandAttributesFailure :: !(Maybe Failure)
+  , recordMarkerCommandAttributesDetails :: !(Map.Map Text PT_Common_V1_Message.Payloads)
+  , recordMarkerCommandAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , recordMarkerCommandAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -865,22 +865,22 @@ instance ProtoFromJSON RecordMarkerCommandAttributes where
   protoFromJSON _ = Right defaultRecordMarkerCommandAttributes
 
 data ContinueAsNewWorkflowExecutionCommandAttributes = ContinueAsNewWorkflowExecutionCommandAttributes
-  { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype :: !(Maybe WorkflowType)
-  , continueAsNewWorkflowExecutionCommandAttributesTaskqueue :: !(Maybe TaskQueue)
-  , continueAsNewWorkflowExecutionCommandAttributesInput :: !(Maybe Payloads)
-  , continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout :: !(Maybe Duration)
-  , continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout :: !(Maybe Duration)
-  , continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval :: !(Maybe Duration)
-  , continueAsNewWorkflowExecutionCommandAttributesRetrypolicy :: !(Maybe RetryPolicy)
-  , continueAsNewWorkflowExecutionCommandAttributesInitiator :: !ContinueAsNewInitiator
-  , continueAsNewWorkflowExecutionCommandAttributesFailure :: !(Maybe Failure)
-  , continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult :: !(Maybe Payloads)
+  { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , continueAsNewWorkflowExecutionCommandAttributesTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , continueAsNewWorkflowExecutionCommandAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
+  , continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval :: !(Maybe PB_Duration.Duration)
+  , continueAsNewWorkflowExecutionCommandAttributesRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
+  , continueAsNewWorkflowExecutionCommandAttributesInitiator :: !PT_Enums_V1_Workflow.ContinueAsNewInitiator
+  , continueAsNewWorkflowExecutionCommandAttributesFailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult :: !(Maybe PT_Common_V1_Message.Payloads)
   , continueAsNewWorkflowExecutionCommandAttributesCronschedule :: !Text
-  , continueAsNewWorkflowExecutionCommandAttributesHeader :: !(Maybe Header)
-  , continueAsNewWorkflowExecutionCommandAttributesMemo :: !(Maybe Memo)
-  , continueAsNewWorkflowExecutionCommandAttributesSearchattributes :: !(Maybe SearchAttributes)
+  , continueAsNewWorkflowExecutionCommandAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , continueAsNewWorkflowExecutionCommandAttributesMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , continueAsNewWorkflowExecutionCommandAttributesSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   , continueAsNewWorkflowExecutionCommandAttributesInheritbuildid :: {-# UNPACK #-} !Bool
-  , continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior :: !ContinueAsNewVersioningBehavior
+  , continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior :: !PT_Enums_V1_Workflow.ContinueAsNewVersioningBehavior
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1062,22 +1062,22 @@ instance ProtoFromJSON ContinueAsNewWorkflowExecutionCommandAttributes where
 data StartChildWorkflowExecutionCommandAttributes = StartChildWorkflowExecutionCommandAttributes
   { startChildWorkflowExecutionCommandAttributesNamespace :: !Text
   , startChildWorkflowExecutionCommandAttributesWorkflowid :: !Text
-  , startChildWorkflowExecutionCommandAttributesWorkflowtype :: !(Maybe WorkflowType)
-  , startChildWorkflowExecutionCommandAttributesTaskqueue :: !(Maybe TaskQueue)
-  , startChildWorkflowExecutionCommandAttributesInput :: !(Maybe Payloads)
-  , startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout :: !(Maybe Duration)
-  , startChildWorkflowExecutionCommandAttributesWorkflowruntimeout :: !(Maybe Duration)
-  , startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout :: !(Maybe Duration)
-  , startChildWorkflowExecutionCommandAttributesParentclosepolicy :: !ParentClosePolicy
+  , startChildWorkflowExecutionCommandAttributesWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , startChildWorkflowExecutionCommandAttributesTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , startChildWorkflowExecutionCommandAttributesInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionCommandAttributesWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionCommandAttributesParentclosepolicy :: !PT_Enums_V1_Workflow.ParentClosePolicy
   , startChildWorkflowExecutionCommandAttributesControl :: !Text
-  , startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy :: !WorkflowIdReusePolicy
-  , startChildWorkflowExecutionCommandAttributesRetrypolicy :: !(Maybe RetryPolicy)
+  , startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy :: !PT_Enums_V1_Workflow.WorkflowIdReusePolicy
+  , startChildWorkflowExecutionCommandAttributesRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   , startChildWorkflowExecutionCommandAttributesCronschedule :: !Text
-  , startChildWorkflowExecutionCommandAttributesHeader :: !(Maybe Header)
-  , startChildWorkflowExecutionCommandAttributesMemo :: !(Maybe Memo)
-  , startChildWorkflowExecutionCommandAttributesSearchattributes :: !(Maybe SearchAttributes)
+  , startChildWorkflowExecutionCommandAttributesHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , startChildWorkflowExecutionCommandAttributesMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , startChildWorkflowExecutionCommandAttributesSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   , startChildWorkflowExecutionCommandAttributesInheritbuildid :: {-# UNPACK #-} !Bool
-  , startChildWorkflowExecutionCommandAttributesPriority :: !(Maybe Priority)
+  , startChildWorkflowExecutionCommandAttributesPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1324,11 +1324,11 @@ data ScheduleNexusOperationCommandAttributes = ScheduleNexusOperationCommandAttr
   { scheduleNexusOperationCommandAttributesEndpoint :: !Text
   , scheduleNexusOperationCommandAttributesService :: !Text
   , scheduleNexusOperationCommandAttributesOperation :: !Text
-  , scheduleNexusOperationCommandAttributesInput :: !(Maybe Payload)
-  , scheduleNexusOperationCommandAttributesScheduletoclosetimeout :: !(Maybe Duration)
+  , scheduleNexusOperationCommandAttributesInput :: !(Maybe PT_Common_V1_Message.Payload)
+  , scheduleNexusOperationCommandAttributesScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
   , scheduleNexusOperationCommandAttributesNexusheader :: !(Map.Map Text Text)
-  , scheduleNexusOperationCommandAttributesScheduletostarttimeout :: !(Maybe Duration)
-  , scheduleNexusOperationCommandAttributesStarttoclosetimeout :: !(Maybe Duration)
+  , scheduleNexusOperationCommandAttributesScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleNexusOperationCommandAttributesStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1485,8 +1485,8 @@ instance ProtoFromJSON RequestCancelNexusOperationCommandAttributes where
   protoFromJSON _ = Right defaultRequestCancelNexusOperationCommandAttributes
 
 data Command = Command
-  { commandCommandtype :: !CommandType
-  , commandUsermetadata :: !(Maybe UserMetadata)
+  { commandCommandtype :: !PT_Enums_V1_CommandType.CommandType
+  , commandUsermetadata :: !(Maybe PT_Sdk_V1_UserMetadata.UserMetadata)
   , commandAttributes :: !(Maybe Command'Attributes)
   }
   deriving stock (Show, Eq, Generic)

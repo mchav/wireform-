@@ -35,16 +35,16 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Header(..), Payloads(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Query (QueryResultType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus(..))
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Query as PT_Enums_V1_Query
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
 
 
 data WorkflowQuery = WorkflowQuery
   { workflowQueryQuerytype :: !Text
-  , workflowQueryQueryargs :: !(Maybe Payloads)
-  , workflowQueryHeader :: !(Maybe Header)
+  , workflowQueryQueryargs :: !(Maybe PT_Common_V1_Message.Payloads)
+  , workflowQueryHeader :: !(Maybe PT_Common_V1_Message.Header)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -107,10 +107,10 @@ instance ProtoFromJSON WorkflowQuery where
   protoFromJSON _ = Right defaultWorkflowQuery
 
 data WorkflowQueryResult = WorkflowQueryResult
-  { workflowQueryResultResulttype :: !QueryResultType
-  , workflowQueryResultAnswer :: !(Maybe Payloads)
+  { workflowQueryResultResulttype :: !PT_Enums_V1_Query.QueryResultType
+  , workflowQueryResultAnswer :: !(Maybe PT_Common_V1_Message.Payloads)
   , workflowQueryResultErrormessage :: !Text
-  , workflowQueryResultFailure :: !(Maybe Failure)
+  , workflowQueryResultFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -182,7 +182,7 @@ instance ProtoFromJSON WorkflowQueryResult where
   protoFromJSON _ = Right defaultWorkflowQueryResult
 
 data QueryRejected = QueryRejected
-  { queryRejectedStatus :: !WorkflowExecutionStatus
+  { queryRejectedStatus :: !PT_Enums_V1_Workflow.WorkflowExecutionStatus
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

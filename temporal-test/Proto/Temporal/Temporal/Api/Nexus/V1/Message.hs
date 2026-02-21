@@ -35,10 +35,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Nexus (NexusHandlerErrorRetryBehavior(..))
-import Proto.Temporal.Temporal.Api.Namespace.V1.Message (NamespaceInfo'Capabilities(..))
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Nexus as PT_Enums_V1_Nexus
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Namespace.V1.Message as PT_Namespace_V1_Message
 
 
 data Failure = Failure
@@ -132,7 +133,7 @@ instance ProtoFromJSON Failure where
 data HandlerError = HandlerError
   { handlerErrorErrortype :: !Text
   , handlerErrorFailure :: !(Maybe Failure)
-  , handlerErrorRetrybehavior :: !NexusHandlerErrorRetryBehavior
+  , handlerErrorRetrybehavior :: !PT_Enums_V1_Nexus.NexusHandlerErrorRetryBehavior
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -309,7 +310,7 @@ data StartOperationRequest = StartOperationRequest
   , startOperationRequestOperation :: !Text
   , startOperationRequestRequestid :: !Text
   , startOperationRequestCallback :: !Text
-  , startOperationRequestPayload :: !(Maybe Payload)
+  , startOperationRequestPayload :: !(Maybe PT_Common_V1_Message.Payload)
   , startOperationRequestCallbackheader :: !(Map.Map Text Text)
   , startOperationRequestLinks :: !(V.Vector Link)
   }
@@ -489,7 +490,7 @@ instance ProtoFromJSON CancelOperationRequest where
 
 data Request = Request
   { requestHeader :: !(Map.Map Text Text)
-  , requestScheduledtime :: !(Maybe Timestamp)
+  , requestScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
   , requestCapabilities :: !(Maybe Request'Capabilities)
   , requestVariant :: !(Maybe Request'Variant)
   , requestEndpoint :: !Text
@@ -644,7 +645,7 @@ data StartOperationResponse = StartOperationResponse
   deriving anyclass NFData
 
 data StartOperationResponse'Sync = StartOperationResponse'Sync
-  { startOperationResponseSyncPayload :: !(Maybe Payload)
+  { startOperationResponseSyncPayload :: !(Maybe PT_Common_V1_Message.Payload)
   , startOperationResponseSyncLinks :: !(V.Vector Link)
   }
   deriving stock (Show, Eq, Generic)
@@ -766,7 +767,7 @@ data StartOperationResponse'Variant
   = StartOperationResponse'Variant'SyncSuccess !StartOperationResponse'Sync
   | StartOperationResponse'Variant'AsyncSuccess !StartOperationResponse'Async
   | StartOperationResponse'Variant'OperationError !UnsuccessfulOperationError
-  | StartOperationResponse'Variant'Failure !Failure
+  | StartOperationResponse'Variant'Failure !PT_Failure_V1_Message.Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON StartOperationResponse'Variant where
@@ -931,8 +932,8 @@ data Endpoint = Endpoint
   { endpointVersion :: {-# UNPACK #-} !Int64
   , endpointId :: !Text
   , endpointSpec :: !(Maybe EndpointSpec)
-  , endpointCreatedtime :: !(Maybe Timestamp)
-  , endpointLastmodifiedtime :: !(Maybe Timestamp)
+  , endpointCreatedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , endpointLastmodifiedtime :: !(Maybe PB_Timestamp.Timestamp)
   , endpointUrlprefix :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -1024,7 +1025,7 @@ instance ProtoFromJSON Endpoint where
 
 data EndpointSpec = EndpointSpec
   { endpointSpecName :: !Text
-  , endpointSpecDescription :: !(Maybe Payload)
+  , endpointSpecDescription :: !(Maybe PT_Common_V1_Message.Payload)
   , endpointSpecTarget :: !(Maybe EndpointTarget)
   }
   deriving stock (Show, Eq, Generic)

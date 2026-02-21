@@ -35,15 +35,15 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.Empty (Empty(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (EncodingType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.EventType (EventType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Reset (ResetReapplyExcludeType(..), ResetReapplyType(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.Empty as PB_Empty
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Common as PT_Enums_V1_Common
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.EventType as PT_Enums_V1_EventType
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Reset as PT_Enums_V1_Reset
 
 
 data DataBlob = DataBlob
-  { dataBlobEncodingtype :: !EncodingType
+  { dataBlobEncodingtype :: !PT_Enums_V1_Common.EncodingType
   , dataBlobData :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -552,9 +552,9 @@ instance ProtoFromJSON ActivityType where
   protoFromJSON _ = Right defaultActivityType
 
 data RetryPolicy = RetryPolicy
-  { retryPolicyInitialinterval :: !(Maybe Duration)
+  { retryPolicyInitialinterval :: !(Maybe PB_Duration.Duration)
   , retryPolicyBackoffcoefficient :: {-# UNPACK #-} !Double
-  , retryPolicyMaximuminterval :: !(Maybe Duration)
+  , retryPolicyMaximuminterval :: !(Maybe PB_Duration.Duration)
   , retryPolicyMaximumattempts :: {-# UNPACK #-} !Int32
   , retryPolicyNonretryableerrortypes :: !(V.Vector Text)
   }
@@ -804,15 +804,15 @@ instance ProtoFromJSON WorkerVersionCapabilities where
 
 data ResetOptions = ResetOptions
   { resetOptionsTarget :: !(Maybe ResetOptions'Target)
-  , resetOptionsResetreapplytype :: !ResetReapplyType
+  , resetOptionsResetreapplytype :: !PT_Enums_V1_Reset.ResetReapplyType
   , resetOptionsCurrentrunonly :: {-# UNPACK #-} !Bool
-  , resetOptionsResetreapplyexcludetypes :: !(V.Vector ResetReapplyExcludeType)
+  , resetOptionsResetreapplyexcludetypes :: !(V.Vector PT_Enums_V1_Reset.ResetReapplyExcludeType)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data ResetOptions'Target
-  = ResetOptions'Target'FirstWorkflowTask !Empty
-  | ResetOptions'Target'LastWorkflowTask !Empty
+  = ResetOptions'Target'FirstWorkflowTask !PB_Empty.Empty
+  | ResetOptions'Target'LastWorkflowTask !PB_Empty.Empty
   | ResetOptions'Target'WorkflowTaskId {-# UNPACK #-} !Int64
   | ResetOptions'Target'BuildId !Text
   deriving stock (Show, Eq, Generic)
@@ -1097,7 +1097,7 @@ data Link'WorkflowEvent = Link'WorkflowEvent
 
 data Link'WorkflowEvent'EventReference = Link'WorkflowEvent'EventReference
   { linkWorkflowEventEventReferenceEventid :: {-# UNPACK #-} !Int64
-  , linkWorkflowEventEventReferenceEventtype :: !EventType
+  , linkWorkflowEventEventReferenceEventtype :: !PT_Enums_V1_EventType.EventType
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1152,7 +1152,7 @@ instance ProtoFromJSON Link'WorkflowEvent'EventReference where
 
 data Link'WorkflowEvent'RequestIdReference = Link'WorkflowEvent'RequestIdReference
   { linkWorkflowEventRequestIdReferenceRequestid :: !Text
-  , linkWorkflowEventRequestIdReferenceEventtype :: !EventType
+  , linkWorkflowEventRequestIdReferenceEventtype :: !PT_Enums_V1_EventType.EventType
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData

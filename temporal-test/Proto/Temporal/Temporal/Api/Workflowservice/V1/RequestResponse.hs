@@ -35,58 +35,58 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
-import Proto.Google.Protobuf.Duration (Duration(..))
-import Proto.Google.Protobuf.FieldMask (FieldMask(..))
-import Proto.Google.Protobuf.Timestamp (Timestamp(..))
-import Proto.Temporal.Temporal.Api.Activity.V1.Message (ActivityExecutionInfo(..), ActivityExecutionListInfo(..), ActivityExecutionOutcome(..), ActivityOptions(..))
-import Proto.Temporal.Temporal.Api.Batch.V1.Message (BatchOperationCancellation(..), BatchOperationDeletion(..), BatchOperationInfo(..), BatchOperationReset(..), BatchOperationResetActivities(..), BatchOperationSignal(..), BatchOperationTermination(..), BatchOperationUnpauseActivities(..), BatchOperationUpdateActivityOptions(..), BatchOperationUpdateWorkflowExecutionOptions(..))
-import Proto.Temporal.Temporal.Api.Command.V1.Message (Command(..))
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Callback(..), DataBlob(..), Header(..), Link(..), Memo(..), MeteringMetadata(..), Payload(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..), WorkerSelector(..), WorkerVersionCapabilities(..), WorkerVersionStamp(..), WorkflowExecution(..), WorkflowType(..))
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (Deployment(..), DeploymentInfo(..), DeploymentListInfo(..), RoutingConfig(..), UpdateDeploymentMetadata(..), VersionMetadata(..), WorkerDeploymentInfo(..), WorkerDeploymentInfo'WorkerDeploymentVersionSummary(..), WorkerDeploymentOptions(..), WorkerDeploymentVersion(..), WorkerDeploymentVersionInfo(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Activity (ActivityIdConflictPolicy(..), ActivityIdReusePolicy(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation (BatchOperationState(..), BatchOperationType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (IndexedValueType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Deployment (DeploymentReachability(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.FailedCause (WorkflowTaskFailedCause(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ArchivalState(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Query (QueryRejectCondition(..), QueryResultType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Reset (ResetReapplyExcludeType(..), ResetReapplyType(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue (DescribeTaskQueueMode(..), RateLimitSource(..), TaskQueueType(..), TaskReachability(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Update (UpdateWorkflowExecutionLifecycleStage(..))
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (HistoryEventFilterType(..), VersioningBehavior(..), WorkflowExecutionStatus(..), WorkflowIdConflictPolicy(..), WorkflowIdReusePolicy(..))
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
-import Proto.Temporal.Temporal.Api.Filter.V1.Message (StartTimeFilter(..), StatusFilter(..), WorkflowExecutionFilter(..), WorkflowTypeFilter(..))
-import Proto.Temporal.Temporal.Api.History.V1.Message (History(..))
-import Proto.Temporal.Temporal.Api.Namespace.V1.Message (NamespaceConfig(..), NamespaceFilter(..), NamespaceInfo(..), NamespaceInfo'Capabilities(..), UpdateNamespaceInfo(..))
-import Proto.Temporal.Temporal.Api.Nexus.V1.Message (HandlerError(..), Request(..), Response(..))
-import Proto.Temporal.Temporal.Api.Protocol.V1.Message (Message(..))
-import Proto.Temporal.Temporal.Api.Query.V1.Message (QueryRejected(..), WorkflowQuery(..), WorkflowQueryResult(..))
-import Proto.Temporal.Temporal.Api.Replication.V1.Message (ClusterReplicationConfig(..), FailoverStatus(..), NamespaceReplicationConfig(..))
-import Proto.Temporal.Temporal.Api.Rules.V1.Message (WorkflowRule(..), WorkflowRuleSpec(..))
-import Proto.Temporal.Temporal.Api.Schedule.V1.Message (Schedule(..), ScheduleInfo(..), ScheduleListEntry(..), SchedulePatch(..))
-import Proto.Temporal.Temporal.Api.Sdk.V1.TaskCompleteMetadata (WorkflowTaskCompletedMetadata(..))
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata(..))
-import Proto.Temporal.Temporal.Api.Sdk.V1.WorkerConfig (WorkerConfig(..))
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (BuildIdAssignmentRule(..), BuildIdReachability(..), CompatibleBuildIdRedirectRule(..), CompatibleVersionSet(..), PollerInfo(..), PollerScalingDecision(..), RateLimit(..), StickyExecutionAttributes(..), TaskQueue(..), TaskQueueConfig(..), TaskQueueMetadata(..), TaskQueuePartitionMetadata(..), TaskQueueStats(..), TaskQueueStatus(..), TaskQueueVersionInfo(..), TaskQueueVersionSelection(..), TaskQueueVersioningInfo(..), TimestampedBuildIdAssignmentRule(..), TimestampedCompatibleBuildIdRedirectRule(..))
-import Proto.Temporal.Temporal.Api.Update.V1.Message (Outcome(..), UpdateRef(..), WaitPolicy(..))
-import Proto.Temporal.Temporal.Api.Version.V1.Message (VersionInfo(..))
-import Proto.Temporal.Temporal.Api.Worker.V1.Message (WorkerHeartbeat(..), WorkerInfo(..))
-import Proto.Temporal.Temporal.Api.Workflow.V1.Message (CallbackInfo(..), OnConflictOptions(..), PendingActivityInfo(..), PendingChildExecutionInfo(..), PendingNexusOperationInfo(..), PendingWorkflowTaskInfo(..), PostResetOperation(..), VersioningOverride(..), WorkflowExecutionConfig(..), WorkflowExecutionExtendedInfo(..), WorkflowExecutionInfo(..), WorkflowExecutionOptions(..))
+import qualified Proto.Google.Protobuf.Duration as PB_Duration
+import qualified Proto.Google.Protobuf.FieldMask as PB_FieldMask
+import qualified Proto.Google.Protobuf.Timestamp as PB_Timestamp
+import qualified Proto.Temporal.Temporal.Api.Activity.V1.Message as PT_Activity_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Batch.V1.Message as PT_Batch_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Command.V1.Message as PT_Command_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Common.V1.Message as PT_Common_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Deployment.V1.Message as PT_Deployment_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Activity as PT_Enums_V1_Activity
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation as PT_Enums_V1_BatchOperation
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Common as PT_Enums_V1_Common
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Deployment as PT_Enums_V1_Deployment
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.FailedCause as PT_Enums_V1_FailedCause
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Namespace as PT_Enums_V1_Namespace
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Query as PT_Enums_V1_Query
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Reset as PT_Enums_V1_Reset
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue as PT_Enums_V1_TaskQueue
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Update as PT_Enums_V1_Update
+import qualified Proto.Temporal.Temporal.Api.Enums.V1.Workflow as PT_Enums_V1_Workflow
+import qualified Proto.Temporal.Temporal.Api.Failure.V1.Message as PT_Failure_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Filter.V1.Message as PT_Filter_V1_Message
+import qualified Proto.Temporal.Temporal.Api.History.V1.Message as PT_History_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Namespace.V1.Message as PT_Namespace_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Nexus.V1.Message as PT_Nexus_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Protocol.V1.Message as PT_Protocol_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Query.V1.Message as PT_Query_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Replication.V1.Message as PT_Replication_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Rules.V1.Message as PT_Rules_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Schedule.V1.Message as PT_Schedule_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Sdk.V1.TaskCompleteMetadata as PT_Sdk_V1_TaskCompleteMetadata
+import qualified Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata as PT_Sdk_V1_UserMetadata
+import qualified Proto.Temporal.Temporal.Api.Sdk.V1.WorkerConfig as PT_Sdk_V1_WorkerConfig
+import qualified Proto.Temporal.Temporal.Api.Taskqueue.V1.Message as PT_Taskqueue_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Update.V1.Message as PT_Update_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Version.V1.Message as PT_Version_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Worker.V1.Message as PT_Worker_V1_Message
+import qualified Proto.Temporal.Temporal.Api.Workflow.V1.Message as PT_Workflow_V1_Message
 
 
 data RegisterNamespaceRequest = RegisterNamespaceRequest
   { registerNamespaceRequestNamespace :: !Text
   , registerNamespaceRequestDescription :: !Text
   , registerNamespaceRequestOwneremail :: !Text
-  , registerNamespaceRequestWorkflowexecutionretentionperiod :: !(Maybe Duration)
-  , registerNamespaceRequestClusters :: !(V.Vector ClusterReplicationConfig)
+  , registerNamespaceRequestWorkflowexecutionretentionperiod :: !(Maybe PB_Duration.Duration)
+  , registerNamespaceRequestClusters :: !(V.Vector PT_Replication_V1_Message.ClusterReplicationConfig)
   , registerNamespaceRequestActiveclustername :: !Text
   , registerNamespaceRequestData :: !(Map.Map Text Text)
   , registerNamespaceRequestSecuritytoken :: !Text
   , registerNamespaceRequestIsglobalnamespace :: {-# UNPACK #-} !Bool
-  , registerNamespaceRequestHistoryarchivalstate :: !ArchivalState
+  , registerNamespaceRequestHistoryarchivalstate :: !PT_Enums_V1_Namespace.ArchivalState
   , registerNamespaceRequestHistoryarchivaluri :: !Text
-  , registerNamespaceRequestVisibilityarchivalstate :: !ArchivalState
+  , registerNamespaceRequestVisibilityarchivalstate :: !PT_Enums_V1_Namespace.ArchivalState
   , registerNamespaceRequestVisibilityarchivaluri :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -279,7 +279,7 @@ instance ProtoFromJSON RegisterNamespaceResponse where
 data ListNamespacesRequest = ListNamespacesRequest
   { listNamespacesRequestPagesize :: {-# UNPACK #-} !Int32
   , listNamespacesRequestNextpagetoken :: !ByteString
-  , listNamespacesRequestNamespacefilter :: !(Maybe NamespaceFilter)
+  , listNamespacesRequestNamespacefilter :: !(Maybe PT_Namespace_V1_Message.NamespaceFilter)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -452,12 +452,12 @@ instance ProtoFromJSON DescribeNamespaceRequest where
   protoFromJSON _ = Right defaultDescribeNamespaceRequest
 
 data DescribeNamespaceResponse = DescribeNamespaceResponse
-  { describeNamespaceResponseNamespaceinfo :: !(Maybe NamespaceInfo)
-  , describeNamespaceResponseConfig :: !(Maybe NamespaceConfig)
-  , describeNamespaceResponseReplicationconfig :: !(Maybe NamespaceReplicationConfig)
+  { describeNamespaceResponseNamespaceinfo :: !(Maybe PT_Namespace_V1_Message.NamespaceInfo)
+  , describeNamespaceResponseConfig :: !(Maybe PT_Namespace_V1_Message.NamespaceConfig)
+  , describeNamespaceResponseReplicationconfig :: !(Maybe PT_Replication_V1_Message.NamespaceReplicationConfig)
   , describeNamespaceResponseFailoverversion :: {-# UNPACK #-} !Int64
   , describeNamespaceResponseIsglobalnamespace :: {-# UNPACK #-} !Bool
-  , describeNamespaceResponseFailoverhistory :: !(V.Vector FailoverStatus)
+  , describeNamespaceResponseFailoverhistory :: !(V.Vector PT_Replication_V1_Message.FailoverStatus)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -548,9 +548,9 @@ instance ProtoFromJSON DescribeNamespaceResponse where
 
 data UpdateNamespaceRequest = UpdateNamespaceRequest
   { updateNamespaceRequestNamespace :: !Text
-  , updateNamespaceRequestUpdateinfo :: !(Maybe UpdateNamespaceInfo)
-  , updateNamespaceRequestConfig :: !(Maybe NamespaceConfig)
-  , updateNamespaceRequestReplicationconfig :: !(Maybe NamespaceReplicationConfig)
+  , updateNamespaceRequestUpdateinfo :: !(Maybe PT_Namespace_V1_Message.UpdateNamespaceInfo)
+  , updateNamespaceRequestConfig :: !(Maybe PT_Namespace_V1_Message.NamespaceConfig)
+  , updateNamespaceRequestReplicationconfig :: !(Maybe PT_Replication_V1_Message.NamespaceReplicationConfig)
   , updateNamespaceRequestSecuritytoken :: !Text
   , updateNamespaceRequestDeletebadbinary :: !Text
   , updateNamespaceRequestPromotenamespace :: {-# UNPACK #-} !Bool
@@ -652,9 +652,9 @@ instance ProtoFromJSON UpdateNamespaceRequest where
   protoFromJSON _ = Right defaultUpdateNamespaceRequest
 
 data UpdateNamespaceResponse = UpdateNamespaceResponse
-  { updateNamespaceResponseNamespaceinfo :: !(Maybe NamespaceInfo)
-  , updateNamespaceResponseConfig :: !(Maybe NamespaceConfig)
-  , updateNamespaceResponseReplicationconfig :: !(Maybe NamespaceReplicationConfig)
+  { updateNamespaceResponseNamespaceinfo :: !(Maybe PT_Namespace_V1_Message.NamespaceInfo)
+  , updateNamespaceResponseConfig :: !(Maybe PT_Namespace_V1_Message.NamespaceConfig)
+  , updateNamespaceResponseReplicationconfig :: !(Maybe PT_Replication_V1_Message.NamespaceReplicationConfig)
   , updateNamespaceResponseFailoverversion :: {-# UNPACK #-} !Int64
   , updateNamespaceResponseIsglobalnamespace :: {-# UNPACK #-} !Bool
   }
@@ -828,32 +828,32 @@ instance ProtoFromJSON DeprecateNamespaceResponse where
 data StartWorkflowExecutionRequest = StartWorkflowExecutionRequest
   { startWorkflowExecutionRequestNamespace :: !Text
   , startWorkflowExecutionRequestWorkflowid :: !Text
-  , startWorkflowExecutionRequestWorkflowtype :: !(Maybe WorkflowType)
-  , startWorkflowExecutionRequestTaskqueue :: !(Maybe TaskQueue)
-  , startWorkflowExecutionRequestInput :: !(Maybe Payloads)
-  , startWorkflowExecutionRequestWorkflowexecutiontimeout :: !(Maybe Duration)
-  , startWorkflowExecutionRequestWorkflowruntimeout :: !(Maybe Duration)
-  , startWorkflowExecutionRequestWorkflowtasktimeout :: !(Maybe Duration)
+  , startWorkflowExecutionRequestWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , startWorkflowExecutionRequestTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , startWorkflowExecutionRequestInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , startWorkflowExecutionRequestWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
+  , startWorkflowExecutionRequestWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , startWorkflowExecutionRequestWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
   , startWorkflowExecutionRequestIdentity :: !Text
   , startWorkflowExecutionRequestRequestid :: !Text
-  , startWorkflowExecutionRequestWorkflowidreusepolicy :: !WorkflowIdReusePolicy
-  , startWorkflowExecutionRequestWorkflowidconflictpolicy :: !WorkflowIdConflictPolicy
-  , startWorkflowExecutionRequestRetrypolicy :: !(Maybe RetryPolicy)
+  , startWorkflowExecutionRequestWorkflowidreusepolicy :: !PT_Enums_V1_Workflow.WorkflowIdReusePolicy
+  , startWorkflowExecutionRequestWorkflowidconflictpolicy :: !PT_Enums_V1_Workflow.WorkflowIdConflictPolicy
+  , startWorkflowExecutionRequestRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   , startWorkflowExecutionRequestCronschedule :: !Text
-  , startWorkflowExecutionRequestMemo :: !(Maybe Memo)
-  , startWorkflowExecutionRequestSearchattributes :: !(Maybe SearchAttributes)
-  , startWorkflowExecutionRequestHeader :: !(Maybe Header)
+  , startWorkflowExecutionRequestMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , startWorkflowExecutionRequestSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
+  , startWorkflowExecutionRequestHeader :: !(Maybe PT_Common_V1_Message.Header)
   , startWorkflowExecutionRequestRequesteagerexecution :: {-# UNPACK #-} !Bool
-  , startWorkflowExecutionRequestContinuedfailure :: !(Maybe Failure)
-  , startWorkflowExecutionRequestLastcompletionresult :: !(Maybe Payloads)
-  , startWorkflowExecutionRequestWorkflowstartdelay :: !(Maybe Duration)
-  , startWorkflowExecutionRequestCompletioncallbacks :: !(V.Vector Callback)
-  , startWorkflowExecutionRequestUsermetadata :: !(Maybe UserMetadata)
-  , startWorkflowExecutionRequestLinks :: !(V.Vector Link)
-  , startWorkflowExecutionRequestVersioningoverride :: !(Maybe VersioningOverride)
-  , startWorkflowExecutionRequestOnconflictoptions :: !(Maybe OnConflictOptions)
-  , startWorkflowExecutionRequestPriority :: !(Maybe Priority)
-  , startWorkflowExecutionRequestEagerworkerdeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , startWorkflowExecutionRequestContinuedfailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , startWorkflowExecutionRequestLastcompletionresult :: !(Maybe PT_Common_V1_Message.Payloads)
+  , startWorkflowExecutionRequestWorkflowstartdelay :: !(Maybe PB_Duration.Duration)
+  , startWorkflowExecutionRequestCompletioncallbacks :: !(V.Vector PT_Common_V1_Message.Callback)
+  , startWorkflowExecutionRequestUsermetadata :: !(Maybe PT_Sdk_V1_UserMetadata.UserMetadata)
+  , startWorkflowExecutionRequestLinks :: !(V.Vector PT_Common_V1_Message.Link)
+  , startWorkflowExecutionRequestVersioningoverride :: !(Maybe PT_Workflow_V1_Message.VersioningOverride)
+  , startWorkflowExecutionRequestOnconflictoptions :: !(Maybe PT_Workflow_V1_Message.OnConflictOptions)
+  , startWorkflowExecutionRequestPriority :: !(Maybe PT_Common_V1_Message.Priority)
+  , startWorkflowExecutionRequestEagerworkerdeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1143,9 +1143,9 @@ instance ProtoFromJSON StartWorkflowExecutionRequest where
 data StartWorkflowExecutionResponse = StartWorkflowExecutionResponse
   { startWorkflowExecutionResponseRunid :: !Text
   , startWorkflowExecutionResponseStarted :: {-# UNPACK #-} !Bool
-  , startWorkflowExecutionResponseStatus :: !WorkflowExecutionStatus
+  , startWorkflowExecutionResponseStatus :: !PT_Enums_V1_Workflow.WorkflowExecutionStatus
   , startWorkflowExecutionResponseEagerworkflowtask :: !(Maybe PollWorkflowTaskQueueResponse)
-  , startWorkflowExecutionResponseLink :: !(Maybe Link)
+  , startWorkflowExecutionResponseLink :: !(Maybe PT_Common_V1_Message.Link)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1227,11 +1227,11 @@ instance ProtoFromJSON StartWorkflowExecutionResponse where
 
 data GetWorkflowExecutionHistoryRequest = GetWorkflowExecutionHistoryRequest
   { getWorkflowExecutionHistoryRequestNamespace :: !Text
-  , getWorkflowExecutionHistoryRequestExecution :: !(Maybe WorkflowExecution)
+  , getWorkflowExecutionHistoryRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , getWorkflowExecutionHistoryRequestMaximumpagesize :: {-# UNPACK #-} !Int32
   , getWorkflowExecutionHistoryRequestNextpagetoken :: !ByteString
   , getWorkflowExecutionHistoryRequestWaitnewevent :: {-# UNPACK #-} !Bool
-  , getWorkflowExecutionHistoryRequestHistoryeventfiltertype :: !HistoryEventFilterType
+  , getWorkflowExecutionHistoryRequestHistoryeventfiltertype :: !PT_Enums_V1_Workflow.HistoryEventFilterType
   , getWorkflowExecutionHistoryRequestSkiparchival :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -1331,8 +1331,8 @@ instance ProtoFromJSON GetWorkflowExecutionHistoryRequest where
   protoFromJSON _ = Right defaultGetWorkflowExecutionHistoryRequest
 
 data GetWorkflowExecutionHistoryResponse = GetWorkflowExecutionHistoryResponse
-  { getWorkflowExecutionHistoryResponseHistory :: !(Maybe History)
-  , getWorkflowExecutionHistoryResponseRawhistory :: !(V.Vector DataBlob)
+  { getWorkflowExecutionHistoryResponseHistory :: !(Maybe PT_History_V1_Message.History)
+  , getWorkflowExecutionHistoryResponseRawhistory :: !(V.Vector PT_Common_V1_Message.DataBlob)
   , getWorkflowExecutionHistoryResponseNextpagetoken :: !ByteString
   , getWorkflowExecutionHistoryResponseArchived :: {-# UNPACK #-} !Bool
   }
@@ -1407,7 +1407,7 @@ instance ProtoFromJSON GetWorkflowExecutionHistoryResponse where
 
 data GetWorkflowExecutionHistoryReverseRequest = GetWorkflowExecutionHistoryReverseRequest
   { getWorkflowExecutionHistoryReverseRequestNamespace :: !Text
-  , getWorkflowExecutionHistoryReverseRequestExecution :: !(Maybe WorkflowExecution)
+  , getWorkflowExecutionHistoryReverseRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , getWorkflowExecutionHistoryReverseRequestMaximumpagesize :: {-# UNPACK #-} !Int32
   , getWorkflowExecutionHistoryReverseRequestNextpagetoken :: !ByteString
   }
@@ -1481,7 +1481,7 @@ instance ProtoFromJSON GetWorkflowExecutionHistoryReverseRequest where
   protoFromJSON _ = Right defaultGetWorkflowExecutionHistoryReverseRequest
 
 data GetWorkflowExecutionHistoryReverseResponse = GetWorkflowExecutionHistoryReverseResponse
-  { getWorkflowExecutionHistoryReverseResponseHistory :: !(Maybe History)
+  { getWorkflowExecutionHistoryReverseResponseHistory :: !(Maybe PT_History_V1_Message.History)
   , getWorkflowExecutionHistoryReverseResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -1537,12 +1537,12 @@ instance ProtoFromJSON GetWorkflowExecutionHistoryReverseResponse where
 
 data PollWorkflowTaskQueueRequest = PollWorkflowTaskQueueRequest
   { pollWorkflowTaskQueueRequestNamespace :: !Text
-  , pollWorkflowTaskQueueRequestTaskqueue :: !(Maybe TaskQueue)
+  , pollWorkflowTaskQueueRequestTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
   , pollWorkflowTaskQueueRequestIdentity :: !Text
   , pollWorkflowTaskQueueRequestWorkerinstancekey :: !Text
   , pollWorkflowTaskQueueRequestBinarychecksum :: !Text
-  , pollWorkflowTaskQueueRequestWorkerversioncapabilities :: !(Maybe WorkerVersionCapabilities)
-  , pollWorkflowTaskQueueRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , pollWorkflowTaskQueueRequestWorkerversioncapabilities :: !(Maybe PT_Common_V1_Message.WorkerVersionCapabilities)
+  , pollWorkflowTaskQueueRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1642,21 +1642,21 @@ instance ProtoFromJSON PollWorkflowTaskQueueRequest where
 
 data PollWorkflowTaskQueueResponse = PollWorkflowTaskQueueResponse
   { pollWorkflowTaskQueueResponseTasktoken :: !ByteString
-  , pollWorkflowTaskQueueResponseWorkflowexecution :: !(Maybe WorkflowExecution)
-  , pollWorkflowTaskQueueResponseWorkflowtype :: !(Maybe WorkflowType)
+  , pollWorkflowTaskQueueResponseWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , pollWorkflowTaskQueueResponseWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
   , pollWorkflowTaskQueueResponsePreviousstartedeventid :: {-# UNPACK #-} !Int64
   , pollWorkflowTaskQueueResponseStartedeventid :: {-# UNPACK #-} !Int64
   , pollWorkflowTaskQueueResponseAttempt :: {-# UNPACK #-} !Int32
   , pollWorkflowTaskQueueResponseBacklogcounthint :: {-# UNPACK #-} !Int64
-  , pollWorkflowTaskQueueResponseHistory :: !(Maybe History)
+  , pollWorkflowTaskQueueResponseHistory :: !(Maybe PT_History_V1_Message.History)
   , pollWorkflowTaskQueueResponseNextpagetoken :: !ByteString
-  , pollWorkflowTaskQueueResponseQuery :: !(Maybe WorkflowQuery)
-  , pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue :: !(Maybe TaskQueue)
-  , pollWorkflowTaskQueueResponseScheduledtime :: !(Maybe Timestamp)
-  , pollWorkflowTaskQueueResponseStartedtime :: !(Maybe Timestamp)
-  , pollWorkflowTaskQueueResponseQueries :: !(Map.Map Text WorkflowQuery)
-  , pollWorkflowTaskQueueResponseMessages :: !(V.Vector Message)
-  , pollWorkflowTaskQueueResponsePollerscalingdecision :: !(Maybe PollerScalingDecision)
+  , pollWorkflowTaskQueueResponseQuery :: !(Maybe PT_Query_V1_Message.WorkflowQuery)
+  , pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , pollWorkflowTaskQueueResponseScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pollWorkflowTaskQueueResponseStartedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pollWorkflowTaskQueueResponseQueries :: !(Map.Map Text PT_Query_V1_Message.WorkflowQuery)
+  , pollWorkflowTaskQueueResponseMessages :: !(V.Vector PT_Protocol_V1_Message.Message)
+  , pollWorkflowTaskQueueResponsePollerscalingdecision :: !(Maybe PT_Taskqueue_V1_Message.PollerScalingDecision)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1840,22 +1840,22 @@ instance ProtoFromJSON PollWorkflowTaskQueueResponse where
 
 data RespondWorkflowTaskCompletedRequest = RespondWorkflowTaskCompletedRequest
   { respondWorkflowTaskCompletedRequestTasktoken :: !ByteString
-  , respondWorkflowTaskCompletedRequestCommands :: !(V.Vector Command)
+  , respondWorkflowTaskCompletedRequestCommands :: !(V.Vector PT_Command_V1_Message.Command)
   , respondWorkflowTaskCompletedRequestIdentity :: !Text
-  , respondWorkflowTaskCompletedRequestStickyattributes :: !(Maybe StickyExecutionAttributes)
+  , respondWorkflowTaskCompletedRequestStickyattributes :: !(Maybe PT_Taskqueue_V1_Message.StickyExecutionAttributes)
   , respondWorkflowTaskCompletedRequestReturnnewworkflowtask :: {-# UNPACK #-} !Bool
   , respondWorkflowTaskCompletedRequestForcecreatenewworkflowtask :: {-# UNPACK #-} !Bool
   , respondWorkflowTaskCompletedRequestBinarychecksum :: !Text
-  , respondWorkflowTaskCompletedRequestQueryresults :: !(Map.Map Text WorkflowQueryResult)
+  , respondWorkflowTaskCompletedRequestQueryresults :: !(Map.Map Text PT_Query_V1_Message.WorkflowQueryResult)
   , respondWorkflowTaskCompletedRequestNamespace :: !Text
-  , respondWorkflowTaskCompletedRequestWorkerversionstamp :: !(Maybe WorkerVersionStamp)
-  , respondWorkflowTaskCompletedRequestMessages :: !(V.Vector Message)
-  , respondWorkflowTaskCompletedRequestSdkmetadata :: !(Maybe WorkflowTaskCompletedMetadata)
-  , respondWorkflowTaskCompletedRequestMeteringmetadata :: !(Maybe MeteringMetadata)
+  , respondWorkflowTaskCompletedRequestWorkerversionstamp :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , respondWorkflowTaskCompletedRequestMessages :: !(V.Vector PT_Protocol_V1_Message.Message)
+  , respondWorkflowTaskCompletedRequestSdkmetadata :: !(Maybe PT_Sdk_V1_TaskCompleteMetadata.WorkflowTaskCompletedMetadata)
+  , respondWorkflowTaskCompletedRequestMeteringmetadata :: !(Maybe PT_Common_V1_Message.MeteringMetadata)
   , respondWorkflowTaskCompletedRequestCapabilities :: !(Maybe RespondWorkflowTaskCompletedRequest'Capabilities)
-  , respondWorkflowTaskCompletedRequestDeployment :: !(Maybe Deployment)
-  , respondWorkflowTaskCompletedRequestVersioningbehavior :: !VersioningBehavior
-  , respondWorkflowTaskCompletedRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , respondWorkflowTaskCompletedRequestDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
+  , respondWorkflowTaskCompletedRequestVersioningbehavior :: !PT_Enums_V1_Workflow.VersioningBehavior
+  , respondWorkflowTaskCompletedRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2159,15 +2159,15 @@ instance ProtoFromJSON RespondWorkflowTaskCompletedResponse where
 
 data RespondWorkflowTaskFailedRequest = RespondWorkflowTaskFailedRequest
   { respondWorkflowTaskFailedRequestTasktoken :: !ByteString
-  , respondWorkflowTaskFailedRequestCause :: !WorkflowTaskFailedCause
-  , respondWorkflowTaskFailedRequestFailure :: !(Maybe Failure)
+  , respondWorkflowTaskFailedRequestCause :: !PT_Enums_V1_FailedCause.WorkflowTaskFailedCause
+  , respondWorkflowTaskFailedRequestFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , respondWorkflowTaskFailedRequestIdentity :: !Text
   , respondWorkflowTaskFailedRequestBinarychecksum :: !Text
   , respondWorkflowTaskFailedRequestNamespace :: !Text
-  , respondWorkflowTaskFailedRequestMessages :: !(V.Vector Message)
-  , respondWorkflowTaskFailedRequestWorkerversion :: !(Maybe WorkerVersionStamp)
-  , respondWorkflowTaskFailedRequestDeployment :: !(Maybe Deployment)
-  , respondWorkflowTaskFailedRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , respondWorkflowTaskFailedRequestMessages :: !(V.Vector PT_Protocol_V1_Message.Message)
+  , respondWorkflowTaskFailedRequestWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , respondWorkflowTaskFailedRequestDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
+  , respondWorkflowTaskFailedRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2328,12 +2328,12 @@ instance ProtoFromJSON RespondWorkflowTaskFailedResponse where
 
 data PollActivityTaskQueueRequest = PollActivityTaskQueueRequest
   { pollActivityTaskQueueRequestNamespace :: !Text
-  , pollActivityTaskQueueRequestTaskqueue :: !(Maybe TaskQueue)
+  , pollActivityTaskQueueRequestTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
   , pollActivityTaskQueueRequestIdentity :: !Text
   , pollActivityTaskQueueRequestWorkerinstancekey :: !Text
-  , pollActivityTaskQueueRequestTaskqueuemetadata :: !(Maybe TaskQueueMetadata)
-  , pollActivityTaskQueueRequestWorkerversioncapabilities :: !(Maybe WorkerVersionCapabilities)
-  , pollActivityTaskQueueRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , pollActivityTaskQueueRequestTaskqueuemetadata :: !(Maybe PT_Taskqueue_V1_Message.TaskQueueMetadata)
+  , pollActivityTaskQueueRequestWorkerversioncapabilities :: !(Maybe PT_Common_V1_Message.WorkerVersionCapabilities)
+  , pollActivityTaskQueueRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2434,23 +2434,23 @@ instance ProtoFromJSON PollActivityTaskQueueRequest where
 data PollActivityTaskQueueResponse = PollActivityTaskQueueResponse
   { pollActivityTaskQueueResponseTasktoken :: !ByteString
   , pollActivityTaskQueueResponseWorkflownamespace :: !Text
-  , pollActivityTaskQueueResponseWorkflowtype :: !(Maybe WorkflowType)
-  , pollActivityTaskQueueResponseWorkflowexecution :: !(Maybe WorkflowExecution)
-  , pollActivityTaskQueueResponseActivitytype :: !(Maybe ActivityType)
+  , pollActivityTaskQueueResponseWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , pollActivityTaskQueueResponseWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , pollActivityTaskQueueResponseActivitytype :: !(Maybe PT_Common_V1_Message.ActivityType)
   , pollActivityTaskQueueResponseActivityid :: !Text
-  , pollActivityTaskQueueResponseHeader :: !(Maybe Header)
-  , pollActivityTaskQueueResponseInput :: !(Maybe Payloads)
-  , pollActivityTaskQueueResponseHeartbeatdetails :: !(Maybe Payloads)
-  , pollActivityTaskQueueResponseScheduledtime :: !(Maybe Timestamp)
-  , pollActivityTaskQueueResponseCurrentattemptscheduledtime :: !(Maybe Timestamp)
-  , pollActivityTaskQueueResponseStartedtime :: !(Maybe Timestamp)
+  , pollActivityTaskQueueResponseHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , pollActivityTaskQueueResponseInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , pollActivityTaskQueueResponseHeartbeatdetails :: !(Maybe PT_Common_V1_Message.Payloads)
+  , pollActivityTaskQueueResponseScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pollActivityTaskQueueResponseCurrentattemptscheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pollActivityTaskQueueResponseStartedtime :: !(Maybe PB_Timestamp.Timestamp)
   , pollActivityTaskQueueResponseAttempt :: {-# UNPACK #-} !Int32
-  , pollActivityTaskQueueResponseScheduletoclosetimeout :: !(Maybe Duration)
-  , pollActivityTaskQueueResponseStarttoclosetimeout :: !(Maybe Duration)
-  , pollActivityTaskQueueResponseHeartbeattimeout :: !(Maybe Duration)
-  , pollActivityTaskQueueResponseRetrypolicy :: !(Maybe RetryPolicy)
-  , pollActivityTaskQueueResponsePollerscalingdecision :: !(Maybe PollerScalingDecision)
-  , pollActivityTaskQueueResponsePriority :: !(Maybe Priority)
+  , pollActivityTaskQueueResponseScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , pollActivityTaskQueueResponseStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , pollActivityTaskQueueResponseHeartbeattimeout :: !(Maybe PB_Duration.Duration)
+  , pollActivityTaskQueueResponseRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
+  , pollActivityTaskQueueResponsePollerscalingdecision :: !(Maybe PT_Taskqueue_V1_Message.PollerScalingDecision)
+  , pollActivityTaskQueueResponsePriority :: !(Maybe PT_Common_V1_Message.Priority)
   , pollActivityTaskQueueResponseActivityrunid :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -2668,7 +2668,7 @@ instance ProtoFromJSON PollActivityTaskQueueResponse where
 
 data RecordActivityTaskHeartbeatRequest = RecordActivityTaskHeartbeatRequest
   { recordActivityTaskHeartbeatRequestTasktoken :: !ByteString
-  , recordActivityTaskHeartbeatRequestDetails :: !(Maybe Payloads)
+  , recordActivityTaskHeartbeatRequestDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , recordActivityTaskHeartbeatRequestIdentity :: !Text
   , recordActivityTaskHeartbeatRequestNamespace :: !Text
   }
@@ -2811,7 +2811,7 @@ data RecordActivityTaskHeartbeatByIdRequest = RecordActivityTaskHeartbeatByIdReq
   , recordActivityTaskHeartbeatByIdRequestWorkflowid :: !Text
   , recordActivityTaskHeartbeatByIdRequestRunid :: !Text
   , recordActivityTaskHeartbeatByIdRequestActivityid :: !Text
-  , recordActivityTaskHeartbeatByIdRequestDetails :: !(Maybe Payloads)
+  , recordActivityTaskHeartbeatByIdRequestDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , recordActivityTaskHeartbeatByIdRequestIdentity :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -2968,12 +2968,12 @@ instance ProtoFromJSON RecordActivityTaskHeartbeatByIdResponse where
 
 data RespondActivityTaskCompletedRequest = RespondActivityTaskCompletedRequest
   { respondActivityTaskCompletedRequestTasktoken :: !ByteString
-  , respondActivityTaskCompletedRequestResult :: !(Maybe Payloads)
+  , respondActivityTaskCompletedRequestResult :: !(Maybe PT_Common_V1_Message.Payloads)
   , respondActivityTaskCompletedRequestIdentity :: !Text
   , respondActivityTaskCompletedRequestNamespace :: !Text
-  , respondActivityTaskCompletedRequestWorkerversion :: !(Maybe WorkerVersionStamp)
-  , respondActivityTaskCompletedRequestDeployment :: !(Maybe Deployment)
-  , respondActivityTaskCompletedRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , respondActivityTaskCompletedRequestWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , respondActivityTaskCompletedRequestDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
+  , respondActivityTaskCompletedRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3110,7 +3110,7 @@ data RespondActivityTaskCompletedByIdRequest = RespondActivityTaskCompletedByIdR
   , respondActivityTaskCompletedByIdRequestWorkflowid :: !Text
   , respondActivityTaskCompletedByIdRequestRunid :: !Text
   , respondActivityTaskCompletedByIdRequestActivityid :: !Text
-  , respondActivityTaskCompletedByIdRequestResult :: !(Maybe Payloads)
+  , respondActivityTaskCompletedByIdRequestResult :: !(Maybe PT_Common_V1_Message.Payloads)
   , respondActivityTaskCompletedByIdRequestIdentity :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -3236,13 +3236,13 @@ instance ProtoFromJSON RespondActivityTaskCompletedByIdResponse where
 
 data RespondActivityTaskFailedRequest = RespondActivityTaskFailedRequest
   { respondActivityTaskFailedRequestTasktoken :: !ByteString
-  , respondActivityTaskFailedRequestFailure :: !(Maybe Failure)
+  , respondActivityTaskFailedRequestFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , respondActivityTaskFailedRequestIdentity :: !Text
   , respondActivityTaskFailedRequestNamespace :: !Text
-  , respondActivityTaskFailedRequestLastheartbeatdetails :: !(Maybe Payloads)
-  , respondActivityTaskFailedRequestWorkerversion :: !(Maybe WorkerVersionStamp)
-  , respondActivityTaskFailedRequestDeployment :: !(Maybe Deployment)
-  , respondActivityTaskFailedRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , respondActivityTaskFailedRequestLastheartbeatdetails :: !(Maybe PT_Common_V1_Message.Payloads)
+  , respondActivityTaskFailedRequestWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , respondActivityTaskFailedRequestDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
+  , respondActivityTaskFailedRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3350,7 +3350,7 @@ instance ProtoFromJSON RespondActivityTaskFailedRequest where
   protoFromJSON _ = Right defaultRespondActivityTaskFailedRequest
 
 data RespondActivityTaskFailedResponse = RespondActivityTaskFailedResponse
-  { respondActivityTaskFailedResponseFailures :: !(V.Vector Failure)
+  { respondActivityTaskFailedResponseFailures :: !(V.Vector PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3400,9 +3400,9 @@ data RespondActivityTaskFailedByIdRequest = RespondActivityTaskFailedByIdRequest
   , respondActivityTaskFailedByIdRequestWorkflowid :: !Text
   , respondActivityTaskFailedByIdRequestRunid :: !Text
   , respondActivityTaskFailedByIdRequestActivityid :: !Text
-  , respondActivityTaskFailedByIdRequestFailure :: !(Maybe Failure)
+  , respondActivityTaskFailedByIdRequestFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   , respondActivityTaskFailedByIdRequestIdentity :: !Text
-  , respondActivityTaskFailedByIdRequestLastheartbeatdetails :: !(Maybe Payloads)
+  , respondActivityTaskFailedByIdRequestLastheartbeatdetails :: !(Maybe PT_Common_V1_Message.Payloads)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3501,7 +3501,7 @@ instance ProtoFromJSON RespondActivityTaskFailedByIdRequest where
   protoFromJSON _ = Right defaultRespondActivityTaskFailedByIdRequest
 
 data RespondActivityTaskFailedByIdResponse = RespondActivityTaskFailedByIdResponse
-  { respondActivityTaskFailedByIdResponseFailures :: !(V.Vector Failure)
+  { respondActivityTaskFailedByIdResponseFailures :: !(V.Vector PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3548,12 +3548,12 @@ instance ProtoFromJSON RespondActivityTaskFailedByIdResponse where
 
 data RespondActivityTaskCanceledRequest = RespondActivityTaskCanceledRequest
   { respondActivityTaskCanceledRequestTasktoken :: !ByteString
-  , respondActivityTaskCanceledRequestDetails :: !(Maybe Payloads)
+  , respondActivityTaskCanceledRequestDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , respondActivityTaskCanceledRequestIdentity :: !Text
   , respondActivityTaskCanceledRequestNamespace :: !Text
-  , respondActivityTaskCanceledRequestWorkerversion :: !(Maybe WorkerVersionStamp)
-  , respondActivityTaskCanceledRequestDeployment :: !(Maybe Deployment)
-  , respondActivityTaskCanceledRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , respondActivityTaskCanceledRequestWorkerversion :: !(Maybe PT_Common_V1_Message.WorkerVersionStamp)
+  , respondActivityTaskCanceledRequestDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
+  , respondActivityTaskCanceledRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3690,9 +3690,9 @@ data RespondActivityTaskCanceledByIdRequest = RespondActivityTaskCanceledByIdReq
   , respondActivityTaskCanceledByIdRequestWorkflowid :: !Text
   , respondActivityTaskCanceledByIdRequestRunid :: !Text
   , respondActivityTaskCanceledByIdRequestActivityid :: !Text
-  , respondActivityTaskCanceledByIdRequestDetails :: !(Maybe Payloads)
+  , respondActivityTaskCanceledByIdRequestDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , respondActivityTaskCanceledByIdRequestIdentity :: !Text
-  , respondActivityTaskCanceledByIdRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
+  , respondActivityTaskCanceledByIdRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3826,12 +3826,12 @@ instance ProtoFromJSON RespondActivityTaskCanceledByIdResponse where
 
 data RequestCancelWorkflowExecutionRequest = RequestCancelWorkflowExecutionRequest
   { requestCancelWorkflowExecutionRequestNamespace :: !Text
-  , requestCancelWorkflowExecutionRequestWorkflowexecution :: !(Maybe WorkflowExecution)
+  , requestCancelWorkflowExecutionRequestWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , requestCancelWorkflowExecutionRequestIdentity :: !Text
   , requestCancelWorkflowExecutionRequestRequestid :: !Text
   , requestCancelWorkflowExecutionRequestFirstexecutionrunid :: !Text
   , requestCancelWorkflowExecutionRequestReason :: !Text
-  , requestCancelWorkflowExecutionRequestLinks :: !(V.Vector Link)
+  , requestCancelWorkflowExecutionRequestLinks :: !(V.Vector PT_Common_V1_Message.Link)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3965,14 +3965,14 @@ instance ProtoFromJSON RequestCancelWorkflowExecutionResponse where
 
 data SignalWorkflowExecutionRequest = SignalWorkflowExecutionRequest
   { signalWorkflowExecutionRequestNamespace :: !Text
-  , signalWorkflowExecutionRequestWorkflowexecution :: !(Maybe WorkflowExecution)
+  , signalWorkflowExecutionRequestWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , signalWorkflowExecutionRequestSignalname :: !Text
-  , signalWorkflowExecutionRequestInput :: !(Maybe Payloads)
+  , signalWorkflowExecutionRequestInput :: !(Maybe PT_Common_V1_Message.Payloads)
   , signalWorkflowExecutionRequestIdentity :: !Text
   , signalWorkflowExecutionRequestRequestid :: !Text
   , signalWorkflowExecutionRequestControl :: !Text
-  , signalWorkflowExecutionRequestHeader :: !(Maybe Header)
-  , signalWorkflowExecutionRequestLinks :: !(V.Vector Link)
+  , signalWorkflowExecutionRequestHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , signalWorkflowExecutionRequestLinks :: !(V.Vector PT_Common_V1_Message.Link)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4125,29 +4125,29 @@ instance ProtoFromJSON SignalWorkflowExecutionResponse where
 data SignalWithStartWorkflowExecutionRequest = SignalWithStartWorkflowExecutionRequest
   { signalWithStartWorkflowExecutionRequestNamespace :: !Text
   , signalWithStartWorkflowExecutionRequestWorkflowid :: !Text
-  , signalWithStartWorkflowExecutionRequestWorkflowtype :: !(Maybe WorkflowType)
-  , signalWithStartWorkflowExecutionRequestTaskqueue :: !(Maybe TaskQueue)
-  , signalWithStartWorkflowExecutionRequestInput :: !(Maybe Payloads)
-  , signalWithStartWorkflowExecutionRequestWorkflowexecutiontimeout :: !(Maybe Duration)
-  , signalWithStartWorkflowExecutionRequestWorkflowruntimeout :: !(Maybe Duration)
-  , signalWithStartWorkflowExecutionRequestWorkflowtasktimeout :: !(Maybe Duration)
+  , signalWithStartWorkflowExecutionRequestWorkflowtype :: !(Maybe PT_Common_V1_Message.WorkflowType)
+  , signalWithStartWorkflowExecutionRequestTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , signalWithStartWorkflowExecutionRequestInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , signalWithStartWorkflowExecutionRequestWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
+  , signalWithStartWorkflowExecutionRequestWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
+  , signalWithStartWorkflowExecutionRequestWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
   , signalWithStartWorkflowExecutionRequestIdentity :: !Text
   , signalWithStartWorkflowExecutionRequestRequestid :: !Text
-  , signalWithStartWorkflowExecutionRequestWorkflowidreusepolicy :: !WorkflowIdReusePolicy
-  , signalWithStartWorkflowExecutionRequestWorkflowidconflictpolicy :: !WorkflowIdConflictPolicy
+  , signalWithStartWorkflowExecutionRequestWorkflowidreusepolicy :: !PT_Enums_V1_Workflow.WorkflowIdReusePolicy
+  , signalWithStartWorkflowExecutionRequestWorkflowidconflictpolicy :: !PT_Enums_V1_Workflow.WorkflowIdConflictPolicy
   , signalWithStartWorkflowExecutionRequestSignalname :: !Text
-  , signalWithStartWorkflowExecutionRequestSignalinput :: !(Maybe Payloads)
+  , signalWithStartWorkflowExecutionRequestSignalinput :: !(Maybe PT_Common_V1_Message.Payloads)
   , signalWithStartWorkflowExecutionRequestControl :: !Text
-  , signalWithStartWorkflowExecutionRequestRetrypolicy :: !(Maybe RetryPolicy)
+  , signalWithStartWorkflowExecutionRequestRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
   , signalWithStartWorkflowExecutionRequestCronschedule :: !Text
-  , signalWithStartWorkflowExecutionRequestMemo :: !(Maybe Memo)
-  , signalWithStartWorkflowExecutionRequestSearchattributes :: !(Maybe SearchAttributes)
-  , signalWithStartWorkflowExecutionRequestHeader :: !(Maybe Header)
-  , signalWithStartWorkflowExecutionRequestWorkflowstartdelay :: !(Maybe Duration)
-  , signalWithStartWorkflowExecutionRequestUsermetadata :: !(Maybe UserMetadata)
-  , signalWithStartWorkflowExecutionRequestLinks :: !(V.Vector Link)
-  , signalWithStartWorkflowExecutionRequestVersioningoverride :: !(Maybe VersioningOverride)
-  , signalWithStartWorkflowExecutionRequestPriority :: !(Maybe Priority)
+  , signalWithStartWorkflowExecutionRequestMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , signalWithStartWorkflowExecutionRequestSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
+  , signalWithStartWorkflowExecutionRequestHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , signalWithStartWorkflowExecutionRequestWorkflowstartdelay :: !(Maybe PB_Duration.Duration)
+  , signalWithStartWorkflowExecutionRequestUsermetadata :: !(Maybe PT_Sdk_V1_UserMetadata.UserMetadata)
+  , signalWithStartWorkflowExecutionRequestLinks :: !(V.Vector PT_Common_V1_Message.Link)
+  , signalWithStartWorkflowExecutionRequestVersioningoverride :: !(Maybe PT_Workflow_V1_Message.VersioningOverride)
+  , signalWithStartWorkflowExecutionRequestPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4464,13 +4464,13 @@ instance ProtoFromJSON SignalWithStartWorkflowExecutionResponse where
 
 data ResetWorkflowExecutionRequest = ResetWorkflowExecutionRequest
   { resetWorkflowExecutionRequestNamespace :: !Text
-  , resetWorkflowExecutionRequestWorkflowexecution :: !(Maybe WorkflowExecution)
+  , resetWorkflowExecutionRequestWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , resetWorkflowExecutionRequestReason :: !Text
   , resetWorkflowExecutionRequestWorkflowtaskfinisheventid :: {-# UNPACK #-} !Int64
   , resetWorkflowExecutionRequestRequestid :: !Text
-  , resetWorkflowExecutionRequestResetreapplytype :: !ResetReapplyType
-  , resetWorkflowExecutionRequestResetreapplyexcludetypes :: !(V.Vector ResetReapplyExcludeType)
-  , resetWorkflowExecutionRequestPostresetoperations :: !(V.Vector PostResetOperation)
+  , resetWorkflowExecutionRequestResetreapplytype :: !PT_Enums_V1_Reset.ResetReapplyType
+  , resetWorkflowExecutionRequestResetreapplyexcludetypes :: !(V.Vector PT_Enums_V1_Reset.ResetReapplyExcludeType)
+  , resetWorkflowExecutionRequestPostresetoperations :: !(V.Vector PT_Workflow_V1_Message.PostResetOperation)
   , resetWorkflowExecutionRequestIdentity :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -4635,12 +4635,12 @@ instance ProtoFromJSON ResetWorkflowExecutionResponse where
 
 data TerminateWorkflowExecutionRequest = TerminateWorkflowExecutionRequest
   { terminateWorkflowExecutionRequestNamespace :: !Text
-  , terminateWorkflowExecutionRequestWorkflowexecution :: !(Maybe WorkflowExecution)
+  , terminateWorkflowExecutionRequestWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , terminateWorkflowExecutionRequestReason :: !Text
-  , terminateWorkflowExecutionRequestDetails :: !(Maybe Payloads)
+  , terminateWorkflowExecutionRequestDetails :: !(Maybe PT_Common_V1_Message.Payloads)
   , terminateWorkflowExecutionRequestIdentity :: !Text
   , terminateWorkflowExecutionRequestFirstexecutionrunid :: !Text
-  , terminateWorkflowExecutionRequestLinks :: !(V.Vector Link)
+  , terminateWorkflowExecutionRequestLinks :: !(V.Vector PT_Common_V1_Message.Link)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4774,7 +4774,7 @@ instance ProtoFromJSON TerminateWorkflowExecutionResponse where
 
 data DeleteWorkflowExecutionRequest = DeleteWorkflowExecutionRequest
   { deleteWorkflowExecutionRequestNamespace :: !Text
-  , deleteWorkflowExecutionRequestWorkflowexecution :: !(Maybe WorkflowExecution)
+  , deleteWorkflowExecutionRequestWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4865,14 +4865,14 @@ data ListOpenWorkflowExecutionsRequest = ListOpenWorkflowExecutionsRequest
   { listOpenWorkflowExecutionsRequestNamespace :: !Text
   , listOpenWorkflowExecutionsRequestMaximumpagesize :: {-# UNPACK #-} !Int32
   , listOpenWorkflowExecutionsRequestNextpagetoken :: !ByteString
-  , listOpenWorkflowExecutionsRequestStarttimefilter :: !(Maybe StartTimeFilter)
+  , listOpenWorkflowExecutionsRequestStarttimefilter :: !(Maybe PT_Filter_V1_Message.StartTimeFilter)
   , listOpenWorkflowExecutionsRequestFilters :: !(Maybe ListOpenWorkflowExecutionsRequest'Filters)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data ListOpenWorkflowExecutionsRequest'Filters
-  = ListOpenWorkflowExecutionsRequest'Filters'ExecutionFilter !WorkflowExecutionFilter
-  | ListOpenWorkflowExecutionsRequest'Filters'TypeFilter !WorkflowTypeFilter
+  = ListOpenWorkflowExecutionsRequest'Filters'ExecutionFilter !PT_Filter_V1_Message.WorkflowExecutionFilter
+  | ListOpenWorkflowExecutionsRequest'Filters'TypeFilter !PT_Filter_V1_Message.WorkflowTypeFilter
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON ListOpenWorkflowExecutionsRequest'Filters where
@@ -4963,7 +4963,7 @@ instance ProtoFromJSON ListOpenWorkflowExecutionsRequest where
   protoFromJSON _ = Right defaultListOpenWorkflowExecutionsRequest
 
 data ListOpenWorkflowExecutionsResponse = ListOpenWorkflowExecutionsResponse
-  { listOpenWorkflowExecutionsResponseExecutions :: !(V.Vector WorkflowExecutionInfo)
+  { listOpenWorkflowExecutionsResponseExecutions :: !(V.Vector PT_Workflow_V1_Message.WorkflowExecutionInfo)
   , listOpenWorkflowExecutionsResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -5021,15 +5021,15 @@ data ListClosedWorkflowExecutionsRequest = ListClosedWorkflowExecutionsRequest
   { listClosedWorkflowExecutionsRequestNamespace :: !Text
   , listClosedWorkflowExecutionsRequestMaximumpagesize :: {-# UNPACK #-} !Int32
   , listClosedWorkflowExecutionsRequestNextpagetoken :: !ByteString
-  , listClosedWorkflowExecutionsRequestStarttimefilter :: !(Maybe StartTimeFilter)
+  , listClosedWorkflowExecutionsRequestStarttimefilter :: !(Maybe PT_Filter_V1_Message.StartTimeFilter)
   , listClosedWorkflowExecutionsRequestFilters :: !(Maybe ListClosedWorkflowExecutionsRequest'Filters)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data ListClosedWorkflowExecutionsRequest'Filters
-  = ListClosedWorkflowExecutionsRequest'Filters'ExecutionFilter !WorkflowExecutionFilter
-  | ListClosedWorkflowExecutionsRequest'Filters'TypeFilter !WorkflowTypeFilter
-  | ListClosedWorkflowExecutionsRequest'Filters'StatusFilter !StatusFilter
+  = ListClosedWorkflowExecutionsRequest'Filters'ExecutionFilter !PT_Filter_V1_Message.WorkflowExecutionFilter
+  | ListClosedWorkflowExecutionsRequest'Filters'TypeFilter !PT_Filter_V1_Message.WorkflowTypeFilter
+  | ListClosedWorkflowExecutionsRequest'Filters'StatusFilter !PT_Filter_V1_Message.StatusFilter
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON ListClosedWorkflowExecutionsRequest'Filters where
@@ -5125,7 +5125,7 @@ instance ProtoFromJSON ListClosedWorkflowExecutionsRequest where
   protoFromJSON _ = Right defaultListClosedWorkflowExecutionsRequest
 
 data ListClosedWorkflowExecutionsResponse = ListClosedWorkflowExecutionsResponse
-  { listClosedWorkflowExecutionsResponseExecutions :: !(V.Vector WorkflowExecutionInfo)
+  { listClosedWorkflowExecutionsResponseExecutions :: !(V.Vector PT_Workflow_V1_Message.WorkflowExecutionInfo)
   , listClosedWorkflowExecutionsResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -5255,7 +5255,7 @@ instance ProtoFromJSON ListWorkflowExecutionsRequest where
   protoFromJSON _ = Right defaultListWorkflowExecutionsRequest
 
 data ListWorkflowExecutionsResponse = ListWorkflowExecutionsResponse
-  { listWorkflowExecutionsResponseExecutions :: !(V.Vector WorkflowExecutionInfo)
+  { listWorkflowExecutionsResponseExecutions :: !(V.Vector PT_Workflow_V1_Message.WorkflowExecutionInfo)
   , listWorkflowExecutionsResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -5385,7 +5385,7 @@ instance ProtoFromJSON ListArchivedWorkflowExecutionsRequest where
   protoFromJSON _ = Right defaultListArchivedWorkflowExecutionsRequest
 
 data ListArchivedWorkflowExecutionsResponse = ListArchivedWorkflowExecutionsResponse
-  { listArchivedWorkflowExecutionsResponseExecutions :: !(V.Vector WorkflowExecutionInfo)
+  { listArchivedWorkflowExecutionsResponseExecutions :: !(V.Vector PT_Workflow_V1_Message.WorkflowExecutionInfo)
   , listArchivedWorkflowExecutionsResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -5515,7 +5515,7 @@ instance ProtoFromJSON ScanWorkflowExecutionsRequest where
   protoFromJSON _ = Right defaultScanWorkflowExecutionsRequest
 
 data ScanWorkflowExecutionsResponse = ScanWorkflowExecutionsResponse
-  { scanWorkflowExecutionsResponseExecutions :: !(V.Vector WorkflowExecutionInfo)
+  { scanWorkflowExecutionsResponseExecutions :: !(V.Vector PT_Workflow_V1_Message.WorkflowExecutionInfo)
   , scanWorkflowExecutionsResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -5632,7 +5632,7 @@ data CountWorkflowExecutionsResponse = CountWorkflowExecutionsResponse
   deriving anyclass NFData
 
 data CountWorkflowExecutionsResponse'AggregationGroup = CountWorkflowExecutionsResponse'AggregationGroup
-  { countWorkflowExecutionsResponseAggregationGroupGroupvalues :: !(V.Vector Payload)
+  { countWorkflowExecutionsResponseAggregationGroupGroupvalues :: !(V.Vector PT_Common_V1_Message.Payload)
   , countWorkflowExecutionsResponseAggregationGroupCount :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
@@ -5769,7 +5769,7 @@ instance ProtoFromJSON GetSearchAttributesRequest where
   protoFromJSON _ = Right defaultGetSearchAttributesRequest
 
 data GetSearchAttributesResponse = GetSearchAttributesResponse
-  { getSearchAttributesResponseKeys :: !(Map.Map Text IndexedValueType)
+  { getSearchAttributesResponseKeys :: !(Map.Map Text PT_Enums_V1_Common.IndexedValueType)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -5819,12 +5819,12 @@ instance ProtoFromJSON GetSearchAttributesResponse where
 
 data RespondQueryTaskCompletedRequest = RespondQueryTaskCompletedRequest
   { respondQueryTaskCompletedRequestTasktoken :: !ByteString
-  , respondQueryTaskCompletedRequestCompletedtype :: !QueryResultType
-  , respondQueryTaskCompletedRequestQueryresult :: !(Maybe Payloads)
+  , respondQueryTaskCompletedRequestCompletedtype :: !PT_Enums_V1_Query.QueryResultType
+  , respondQueryTaskCompletedRequestQueryresult :: !(Maybe PT_Common_V1_Message.Payloads)
   , respondQueryTaskCompletedRequestErrormessage :: !Text
   , respondQueryTaskCompletedRequestNamespace :: !Text
-  , respondQueryTaskCompletedRequestFailure :: !(Maybe Failure)
-  , respondQueryTaskCompletedRequestCause :: !WorkflowTaskFailedCause
+  , respondQueryTaskCompletedRequestFailure :: !(Maybe PT_Failure_V1_Message.Failure)
+  , respondQueryTaskCompletedRequestCause :: !PT_Enums_V1_FailedCause.WorkflowTaskFailedCause
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -5958,7 +5958,7 @@ instance ProtoFromJSON RespondQueryTaskCompletedResponse where
 
 data ResetStickyTaskQueueRequest = ResetStickyTaskQueueRequest
   { resetStickyTaskQueueRequestNamespace :: !Text
-  , resetStickyTaskQueueRequestExecution :: !(Maybe WorkflowExecution)
+  , resetStickyTaskQueueRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -6050,10 +6050,10 @@ data ShutdownWorkerRequest = ShutdownWorkerRequest
   , shutdownWorkerRequestStickytaskqueue :: !Text
   , shutdownWorkerRequestIdentity :: !Text
   , shutdownWorkerRequestReason :: !Text
-  , shutdownWorkerRequestWorkerheartbeat :: !(Maybe WorkerHeartbeat)
+  , shutdownWorkerRequestWorkerheartbeat :: !(Maybe PT_Worker_V1_Message.WorkerHeartbeat)
   , shutdownWorkerRequestWorkerinstancekey :: !Text
   , shutdownWorkerRequestTaskqueue :: !Text
-  , shutdownWorkerRequestTaskqueuetypes :: !(V.Vector TaskQueueType)
+  , shutdownWorkerRequestTaskqueuetypes :: !(V.Vector PT_Enums_V1_TaskQueue.TaskQueueType)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -6196,9 +6196,9 @@ instance ProtoFromJSON ShutdownWorkerResponse where
 
 data QueryWorkflowRequest = QueryWorkflowRequest
   { queryWorkflowRequestNamespace :: !Text
-  , queryWorkflowRequestExecution :: !(Maybe WorkflowExecution)
-  , queryWorkflowRequestQuery :: !(Maybe WorkflowQuery)
-  , queryWorkflowRequestQueryrejectcondition :: !QueryRejectCondition
+  , queryWorkflowRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , queryWorkflowRequestQuery :: !(Maybe PT_Query_V1_Message.WorkflowQuery)
+  , queryWorkflowRequestQueryrejectcondition :: !PT_Enums_V1_Query.QueryRejectCondition
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -6270,8 +6270,8 @@ instance ProtoFromJSON QueryWorkflowRequest where
   protoFromJSON _ = Right defaultQueryWorkflowRequest
 
 data QueryWorkflowResponse = QueryWorkflowResponse
-  { queryWorkflowResponseQueryresult :: !(Maybe Payloads)
-  , queryWorkflowResponseQueryrejected :: !(Maybe QueryRejected)
+  { queryWorkflowResponseQueryresult :: !(Maybe PT_Common_V1_Message.Payloads)
+  , queryWorkflowResponseQueryrejected :: !(Maybe PT_Query_V1_Message.QueryRejected)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -6326,7 +6326,7 @@ instance ProtoFromJSON QueryWorkflowResponse where
 
 data DescribeWorkflowExecutionRequest = DescribeWorkflowExecutionRequest
   { describeWorkflowExecutionRequestNamespace :: !Text
-  , describeWorkflowExecutionRequestExecution :: !(Maybe WorkflowExecution)
+  , describeWorkflowExecutionRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -6380,14 +6380,14 @@ instance ProtoFromJSON DescribeWorkflowExecutionRequest where
   protoFromJSON _ = Right defaultDescribeWorkflowExecutionRequest
 
 data DescribeWorkflowExecutionResponse = DescribeWorkflowExecutionResponse
-  { describeWorkflowExecutionResponseExecutionconfig :: !(Maybe WorkflowExecutionConfig)
-  , describeWorkflowExecutionResponseWorkflowexecutioninfo :: !(Maybe WorkflowExecutionInfo)
-  , describeWorkflowExecutionResponsePendingactivities :: !(V.Vector PendingActivityInfo)
-  , describeWorkflowExecutionResponsePendingchildren :: !(V.Vector PendingChildExecutionInfo)
-  , describeWorkflowExecutionResponsePendingworkflowtask :: !(Maybe PendingWorkflowTaskInfo)
-  , describeWorkflowExecutionResponseCallbacks :: !(V.Vector CallbackInfo)
-  , describeWorkflowExecutionResponsePendingnexusoperations :: !(V.Vector PendingNexusOperationInfo)
-  , describeWorkflowExecutionResponseWorkflowextendedinfo :: !(Maybe WorkflowExecutionExtendedInfo)
+  { describeWorkflowExecutionResponseExecutionconfig :: !(Maybe PT_Workflow_V1_Message.WorkflowExecutionConfig)
+  , describeWorkflowExecutionResponseWorkflowexecutioninfo :: !(Maybe PT_Workflow_V1_Message.WorkflowExecutionInfo)
+  , describeWorkflowExecutionResponsePendingactivities :: !(V.Vector PT_Workflow_V1_Message.PendingActivityInfo)
+  , describeWorkflowExecutionResponsePendingchildren :: !(V.Vector PT_Workflow_V1_Message.PendingChildExecutionInfo)
+  , describeWorkflowExecutionResponsePendingworkflowtask :: !(Maybe PT_Workflow_V1_Message.PendingWorkflowTaskInfo)
+  , describeWorkflowExecutionResponseCallbacks :: !(V.Vector PT_Workflow_V1_Message.CallbackInfo)
+  , describeWorkflowExecutionResponsePendingnexusoperations :: !(V.Vector PT_Workflow_V1_Message.PendingNexusOperationInfo)
+  , describeWorkflowExecutionResponseWorkflowextendedinfo :: !(Maybe PT_Workflow_V1_Message.WorkflowExecutionExtendedInfo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -6496,14 +6496,14 @@ instance ProtoFromJSON DescribeWorkflowExecutionResponse where
 
 data DescribeTaskQueueRequest = DescribeTaskQueueRequest
   { describeTaskQueueRequestNamespace :: !Text
-  , describeTaskQueueRequestTaskqueue :: !(Maybe TaskQueue)
-  , describeTaskQueueRequestTaskqueuetype :: !TaskQueueType
+  , describeTaskQueueRequestTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , describeTaskQueueRequestTaskqueuetype :: !PT_Enums_V1_TaskQueue.TaskQueueType
   , describeTaskQueueRequestReportstats :: {-# UNPACK #-} !Bool
   , describeTaskQueueRequestReportconfig :: {-# UNPACK #-} !Bool
   , describeTaskQueueRequestIncludetaskqueuestatus :: {-# UNPACK #-} !Bool
-  , describeTaskQueueRequestApimode :: !DescribeTaskQueueMode
-  , describeTaskQueueRequestVersions :: !(Maybe TaskQueueVersionSelection)
-  , describeTaskQueueRequestTaskqueuetypes :: !(V.Vector TaskQueueType)
+  , describeTaskQueueRequestApimode :: !PT_Enums_V1_TaskQueue.DescribeTaskQueueMode
+  , describeTaskQueueRequestVersions :: !(Maybe PT_Taskqueue_V1_Message.TaskQueueVersionSelection)
+  , describeTaskQueueRequestTaskqueuetypes :: !(V.Vector PT_Enums_V1_TaskQueue.TaskQueueType)
   , describeTaskQueueRequestReportpollers :: {-# UNPACK #-} !Bool
   , describeTaskQueueRequestReporttaskreachability :: {-# UNPACK #-} !Bool
   }
@@ -6640,21 +6640,21 @@ instance ProtoFromJSON DescribeTaskQueueRequest where
   protoFromJSON _ = Right defaultDescribeTaskQueueRequest
 
 data DescribeTaskQueueResponse = DescribeTaskQueueResponse
-  { describeTaskQueueResponsePollers :: !(V.Vector PollerInfo)
-  , describeTaskQueueResponseStats :: !(Maybe TaskQueueStats)
-  , describeTaskQueueResponseStatsbyprioritykey :: !(Map.Map Int32 TaskQueueStats)
-  , describeTaskQueueResponseVersioninginfo :: !(Maybe TaskQueueVersioningInfo)
-  , describeTaskQueueResponseConfig :: !(Maybe TaskQueueConfig)
+  { describeTaskQueueResponsePollers :: !(V.Vector PT_Taskqueue_V1_Message.PollerInfo)
+  , describeTaskQueueResponseStats :: !(Maybe PT_Taskqueue_V1_Message.TaskQueueStats)
+  , describeTaskQueueResponseStatsbyprioritykey :: !(Map.Map Int32 PT_Taskqueue_V1_Message.TaskQueueStats)
+  , describeTaskQueueResponseVersioninginfo :: !(Maybe PT_Taskqueue_V1_Message.TaskQueueVersioningInfo)
+  , describeTaskQueueResponseConfig :: !(Maybe PT_Taskqueue_V1_Message.TaskQueueConfig)
   , describeTaskQueueResponseEffectiveratelimit :: !(Maybe DescribeTaskQueueResponse'EffectiveRateLimit)
-  , describeTaskQueueResponseTaskqueuestatus :: !(Maybe TaskQueueStatus)
-  , describeTaskQueueResponseVersionsinfo :: !(Map.Map Text TaskQueueVersionInfo)
+  , describeTaskQueueResponseTaskqueuestatus :: !(Maybe PT_Taskqueue_V1_Message.TaskQueueStatus)
+  , describeTaskQueueResponseVersionsinfo :: !(Map.Map Text PT_Taskqueue_V1_Message.TaskQueueVersionInfo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data DescribeTaskQueueResponse'EffectiveRateLimit = DescribeTaskQueueResponse'EffectiveRateLimit
   { describeTaskQueueResponseEffectiveRateLimitRequestspersecond :: {-# UNPACK #-} !Float
-  , describeTaskQueueResponseEffectiveRateLimitRatelimitsource :: !RateLimitSource
+  , describeTaskQueueResponseEffectiveRateLimitRatelimitsource :: !PT_Enums_V1_TaskQueue.RateLimitSource
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -6853,7 +6853,7 @@ data GetClusterInfoResponse = GetClusterInfoResponse
   { getClusterInfoResponseSupportedclients :: !(Map.Map Text Text)
   , getClusterInfoResponseServerversion :: !Text
   , getClusterInfoResponseClusterid :: !Text
-  , getClusterInfoResponseVersioninfo :: !(Maybe VersionInfo)
+  , getClusterInfoResponseVersioninfo :: !(Maybe PT_Version_V1_Message.VersionInfo)
   , getClusterInfoResponseClustername :: !Text
   , getClusterInfoResponseHistoryshardcount :: {-# UNPACK #-} !Int32
   , getClusterInfoResponsePersistencestore :: !Text
@@ -7223,7 +7223,7 @@ instance ProtoFromJSON GetSystemInfoResponse where
 
 data ListTaskQueuePartitionsRequest = ListTaskQueuePartitionsRequest
   { listTaskQueuePartitionsRequestNamespace :: !Text
-  , listTaskQueuePartitionsRequestTaskqueue :: !(Maybe TaskQueue)
+  , listTaskQueuePartitionsRequestTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -7277,8 +7277,8 @@ instance ProtoFromJSON ListTaskQueuePartitionsRequest where
   protoFromJSON _ = Right defaultListTaskQueuePartitionsRequest
 
 data ListTaskQueuePartitionsResponse = ListTaskQueuePartitionsResponse
-  { listTaskQueuePartitionsResponseActivitytaskqueuepartitions :: !(V.Vector TaskQueuePartitionMetadata)
-  , listTaskQueuePartitionsResponseWorkflowtaskqueuepartitions :: !(V.Vector TaskQueuePartitionMetadata)
+  { listTaskQueuePartitionsResponseActivitytaskqueuepartitions :: !(V.Vector PT_Taskqueue_V1_Message.TaskQueuePartitionMetadata)
+  , listTaskQueuePartitionsResponseWorkflowtaskqueuepartitions :: !(V.Vector PT_Taskqueue_V1_Message.TaskQueuePartitionMetadata)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -7334,12 +7334,12 @@ instance ProtoFromJSON ListTaskQueuePartitionsResponse where
 data CreateScheduleRequest = CreateScheduleRequest
   { createScheduleRequestNamespace :: !Text
   , createScheduleRequestScheduleid :: !Text
-  , createScheduleRequestSchedule :: !(Maybe Schedule)
-  , createScheduleRequestInitialpatch :: !(Maybe SchedulePatch)
+  , createScheduleRequestSchedule :: !(Maybe PT_Schedule_V1_Message.Schedule)
+  , createScheduleRequestInitialpatch :: !(Maybe PT_Schedule_V1_Message.SchedulePatch)
   , createScheduleRequestIdentity :: !Text
   , createScheduleRequestRequestid :: !Text
-  , createScheduleRequestMemo :: !(Maybe Memo)
-  , createScheduleRequestSearchattributes :: !(Maybe SearchAttributes)
+  , createScheduleRequestMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , createScheduleRequestSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -7548,10 +7548,10 @@ instance ProtoFromJSON DescribeScheduleRequest where
   protoFromJSON _ = Right defaultDescribeScheduleRequest
 
 data DescribeScheduleResponse = DescribeScheduleResponse
-  { describeScheduleResponseSchedule :: !(Maybe Schedule)
-  , describeScheduleResponseInfo :: !(Maybe ScheduleInfo)
-  , describeScheduleResponseMemo :: !(Maybe Memo)
-  , describeScheduleResponseSearchattributes :: !(Maybe SearchAttributes)
+  { describeScheduleResponseSchedule :: !(Maybe PT_Schedule_V1_Message.Schedule)
+  , describeScheduleResponseInfo :: !(Maybe PT_Schedule_V1_Message.ScheduleInfo)
+  , describeScheduleResponseMemo :: !(Maybe PT_Common_V1_Message.Memo)
+  , describeScheduleResponseSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   , describeScheduleResponseConflicttoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -7635,11 +7635,11 @@ instance ProtoFromJSON DescribeScheduleResponse where
 data UpdateScheduleRequest = UpdateScheduleRequest
   { updateScheduleRequestNamespace :: !Text
   , updateScheduleRequestScheduleid :: !Text
-  , updateScheduleRequestSchedule :: !(Maybe Schedule)
+  , updateScheduleRequestSchedule :: !(Maybe PT_Schedule_V1_Message.Schedule)
   , updateScheduleRequestConflicttoken :: !ByteString
   , updateScheduleRequestIdentity :: !Text
   , updateScheduleRequestRequestid :: !Text
-  , updateScheduleRequestSearchattributes :: !(Maybe SearchAttributes)
+  , updateScheduleRequestSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -7774,7 +7774,7 @@ instance ProtoFromJSON UpdateScheduleResponse where
 data PatchScheduleRequest = PatchScheduleRequest
   { patchScheduleRequestNamespace :: !Text
   , patchScheduleRequestScheduleid :: !Text
-  , patchScheduleRequestPatch :: !(Maybe SchedulePatch)
+  , patchScheduleRequestPatch :: !(Maybe PT_Schedule_V1_Message.SchedulePatch)
   , patchScheduleRequestIdentity :: !Text
   , patchScheduleRequestRequestid :: !Text
   }
@@ -7893,8 +7893,8 @@ instance ProtoFromJSON PatchScheduleResponse where
 data ListScheduleMatchingTimesRequest = ListScheduleMatchingTimesRequest
   { listScheduleMatchingTimesRequestNamespace :: !Text
   , listScheduleMatchingTimesRequestScheduleid :: !Text
-  , listScheduleMatchingTimesRequestStarttime :: !(Maybe Timestamp)
-  , listScheduleMatchingTimesRequestEndtime :: !(Maybe Timestamp)
+  , listScheduleMatchingTimesRequestStarttime :: !(Maybe PB_Timestamp.Timestamp)
+  , listScheduleMatchingTimesRequestEndtime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -7966,7 +7966,7 @@ instance ProtoFromJSON ListScheduleMatchingTimesRequest where
   protoFromJSON _ = Right defaultListScheduleMatchingTimesRequest
 
 data ListScheduleMatchingTimesResponse = ListScheduleMatchingTimesResponse
-  { listScheduleMatchingTimesResponseStarttime :: !(V.Vector Timestamp)
+  { listScheduleMatchingTimesResponseStarttime :: !(V.Vector PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -8186,7 +8186,7 @@ instance ProtoFromJSON ListSchedulesRequest where
   protoFromJSON _ = Right defaultListSchedulesRequest
 
 data ListSchedulesResponse = ListSchedulesResponse
-  { listSchedulesResponseSchedules :: !(V.Vector ScheduleListEntry)
+  { listSchedulesResponseSchedules :: !(V.Vector PT_Schedule_V1_Message.ScheduleListEntry)
   , listSchedulesResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -8303,7 +8303,7 @@ data CountSchedulesResponse = CountSchedulesResponse
   deriving anyclass NFData
 
 data CountSchedulesResponse'AggregationGroup = CountSchedulesResponse'AggregationGroup
-  { countSchedulesResponseAggregationGroupGroupvalues :: !(V.Vector Payload)
+  { countSchedulesResponseAggregationGroupGroupvalues :: !(V.Vector PT_Common_V1_Message.Payload)
   , countSchedulesResponseAggregationGroupCount :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
@@ -8724,7 +8724,7 @@ instance ProtoFromJSON GetWorkerBuildIdCompatibilityRequest where
   protoFromJSON _ = Right defaultGetWorkerBuildIdCompatibilityRequest
 
 data GetWorkerBuildIdCompatibilityResponse = GetWorkerBuildIdCompatibilityResponse
-  { getWorkerBuildIdCompatibilityResponseMajorversionsets :: !(V.Vector CompatibleVersionSet)
+  { getWorkerBuildIdCompatibilityResponseMajorversionsets :: !(V.Vector PT_Taskqueue_V1_Message.CompatibleVersionSet)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -8780,7 +8780,7 @@ data UpdateWorkerVersioningRulesRequest = UpdateWorkerVersioningRulesRequest
 
 data UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule = UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule
   { updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRuleindex :: {-# UNPACK #-} !Int32
-  , updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRule :: !(Maybe BuildIdAssignmentRule)
+  , updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRule :: !(Maybe PT_Taskqueue_V1_Message.BuildIdAssignmentRule)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -8835,7 +8835,7 @@ instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmen
 
 data UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule = UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule
   { updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRuleindex :: {-# UNPACK #-} !Int32
-  , updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRule :: !(Maybe BuildIdAssignmentRule)
+  , updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRule :: !(Maybe PT_Taskqueue_V1_Message.BuildIdAssignmentRule)
   , updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleForce :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -8954,7 +8954,7 @@ instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmen
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule
 
 data UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule = UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule
-  { updateWorkerVersioningRulesRequestAddCompatibleBuildIdRedirectRuleRule :: !(Maybe CompatibleBuildIdRedirectRule)
+  { updateWorkerVersioningRulesRequestAddCompatibleBuildIdRedirectRuleRule :: !(Maybe PT_Taskqueue_V1_Message.CompatibleBuildIdRedirectRule)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -9000,7 +9000,7 @@ instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRe
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule
 
 data UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule = UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule
-  { updateWorkerVersioningRulesRequestReplaceCompatibleBuildIdRedirectRuleRule :: !(Maybe CompatibleBuildIdRedirectRule)
+  { updateWorkerVersioningRulesRequestReplaceCompatibleBuildIdRedirectRuleRule :: !(Maybe PT_Taskqueue_V1_Message.CompatibleBuildIdRedirectRule)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -9259,8 +9259,8 @@ instance ProtoFromJSON UpdateWorkerVersioningRulesRequest where
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest
 
 data UpdateWorkerVersioningRulesResponse = UpdateWorkerVersioningRulesResponse
-  { updateWorkerVersioningRulesResponseAssignmentrules :: !(V.Vector TimestampedBuildIdAssignmentRule)
-  , updateWorkerVersioningRulesResponseCompatibleredirectrules :: !(V.Vector TimestampedCompatibleBuildIdRedirectRule)
+  { updateWorkerVersioningRulesResponseAssignmentrules :: !(V.Vector PT_Taskqueue_V1_Message.TimestampedBuildIdAssignmentRule)
+  , updateWorkerVersioningRulesResponseCompatibleredirectrules :: !(V.Vector PT_Taskqueue_V1_Message.TimestampedCompatibleBuildIdRedirectRule)
   , updateWorkerVersioningRulesResponseConflicttoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -9379,8 +9379,8 @@ instance ProtoFromJSON GetWorkerVersioningRulesRequest where
   protoFromJSON _ = Right defaultGetWorkerVersioningRulesRequest
 
 data GetWorkerVersioningRulesResponse = GetWorkerVersioningRulesResponse
-  { getWorkerVersioningRulesResponseAssignmentrules :: !(V.Vector TimestampedBuildIdAssignmentRule)
-  , getWorkerVersioningRulesResponseCompatibleredirectrules :: !(V.Vector TimestampedCompatibleBuildIdRedirectRule)
+  { getWorkerVersioningRulesResponseAssignmentrules :: !(V.Vector PT_Taskqueue_V1_Message.TimestampedBuildIdAssignmentRule)
+  , getWorkerVersioningRulesResponseCompatibleredirectrules :: !(V.Vector PT_Taskqueue_V1_Message.TimestampedCompatibleBuildIdRedirectRule)
   , getWorkerVersioningRulesResponseConflicttoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -9447,7 +9447,7 @@ data GetWorkerTaskReachabilityRequest = GetWorkerTaskReachabilityRequest
   { getWorkerTaskReachabilityRequestNamespace :: !Text
   , getWorkerTaskReachabilityRequestBuildids :: !(V.Vector Text)
   , getWorkerTaskReachabilityRequestTaskqueues :: !(V.Vector Text)
-  , getWorkerTaskReachabilityRequestReachability :: !TaskReachability
+  , getWorkerTaskReachabilityRequestReachability :: !PT_Enums_V1_TaskQueue.TaskReachability
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -9519,7 +9519,7 @@ instance ProtoFromJSON GetWorkerTaskReachabilityRequest where
   protoFromJSON _ = Right defaultGetWorkerTaskReachabilityRequest
 
 data GetWorkerTaskReachabilityResponse = GetWorkerTaskReachabilityResponse
-  { getWorkerTaskReachabilityResponseBuildidreachability :: !(V.Vector BuildIdReachability)
+  { getWorkerTaskReachabilityResponseBuildidreachability :: !(V.Vector PT_Taskqueue_V1_Message.BuildIdReachability)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -9566,10 +9566,10 @@ instance ProtoFromJSON GetWorkerTaskReachabilityResponse where
 
 data UpdateWorkflowExecutionRequest = UpdateWorkflowExecutionRequest
   { updateWorkflowExecutionRequestNamespace :: !Text
-  , updateWorkflowExecutionRequestWorkflowexecution :: !(Maybe WorkflowExecution)
+  , updateWorkflowExecutionRequestWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , updateWorkflowExecutionRequestFirstexecutionrunid :: !Text
-  , updateWorkflowExecutionRequestWaitpolicy :: !(Maybe WaitPolicy)
-  , updateWorkflowExecutionRequestRequest :: !(Maybe Request)
+  , updateWorkflowExecutionRequestWaitpolicy :: !(Maybe PT_Update_V1_Message.WaitPolicy)
+  , updateWorkflowExecutionRequestRequest :: !(Maybe PT_Update_V1_Message.Request)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -9650,9 +9650,9 @@ instance ProtoFromJSON UpdateWorkflowExecutionRequest where
   protoFromJSON _ = Right defaultUpdateWorkflowExecutionRequest
 
 data UpdateWorkflowExecutionResponse = UpdateWorkflowExecutionResponse
-  { updateWorkflowExecutionResponseUpdateref :: !(Maybe UpdateRef)
-  , updateWorkflowExecutionResponseOutcome :: !(Maybe Outcome)
-  , updateWorkflowExecutionResponseStage :: !UpdateWorkflowExecutionLifecycleStage
+  { updateWorkflowExecutionResponseUpdateref :: !(Maybe PT_Update_V1_Message.UpdateRef)
+  , updateWorkflowExecutionResponseOutcome :: !(Maybe PT_Update_V1_Message.Outcome)
+  , updateWorkflowExecutionResponseStage :: !PT_Enums_V1_Update.UpdateWorkflowExecutionLifecycleStage
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -9719,22 +9719,22 @@ data StartBatchOperationRequest = StartBatchOperationRequest
   , startBatchOperationRequestVisibilityquery :: !Text
   , startBatchOperationRequestJobid :: !Text
   , startBatchOperationRequestReason :: !Text
-  , startBatchOperationRequestExecutions :: !(V.Vector WorkflowExecution)
+  , startBatchOperationRequestExecutions :: !(V.Vector PT_Common_V1_Message.WorkflowExecution)
   , startBatchOperationRequestMaxoperationspersecond :: {-# UNPACK #-} !Float
   , startBatchOperationRequestOperation :: !(Maybe StartBatchOperationRequest'Operation)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data StartBatchOperationRequest'Operation
-  = StartBatchOperationRequest'Operation'TerminationOperation !BatchOperationTermination
-  | StartBatchOperationRequest'Operation'SignalOperation !BatchOperationSignal
-  | StartBatchOperationRequest'Operation'CancellationOperation !BatchOperationCancellation
-  | StartBatchOperationRequest'Operation'DeletionOperation !BatchOperationDeletion
-  | StartBatchOperationRequest'Operation'ResetOperation !BatchOperationReset
-  | StartBatchOperationRequest'Operation'UpdateWorkflowOptionsOperation !BatchOperationUpdateWorkflowExecutionOptions
-  | StartBatchOperationRequest'Operation'UnpauseActivitiesOperation !BatchOperationUnpauseActivities
-  | StartBatchOperationRequest'Operation'ResetActivitiesOperation !BatchOperationResetActivities
-  | StartBatchOperationRequest'Operation'UpdateActivityOptionsOperation !BatchOperationUpdateActivityOptions
+  = StartBatchOperationRequest'Operation'TerminationOperation !PT_Batch_V1_Message.BatchOperationTermination
+  | StartBatchOperationRequest'Operation'SignalOperation !PT_Batch_V1_Message.BatchOperationSignal
+  | StartBatchOperationRequest'Operation'CancellationOperation !PT_Batch_V1_Message.BatchOperationCancellation
+  | StartBatchOperationRequest'Operation'DeletionOperation !PT_Batch_V1_Message.BatchOperationDeletion
+  | StartBatchOperationRequest'Operation'ResetOperation !PT_Batch_V1_Message.BatchOperationReset
+  | StartBatchOperationRequest'Operation'UpdateWorkflowOptionsOperation !PT_Batch_V1_Message.BatchOperationUpdateWorkflowExecutionOptions
+  | StartBatchOperationRequest'Operation'UnpauseActivitiesOperation !PT_Batch_V1_Message.BatchOperationUnpauseActivities
+  | StartBatchOperationRequest'Operation'ResetActivitiesOperation !PT_Batch_V1_Message.BatchOperationResetActivities
+  | StartBatchOperationRequest'Operation'UpdateActivityOptionsOperation !PT_Batch_V1_Message.BatchOperationUpdateActivityOptions
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON StartBatchOperationRequest'Operation where
@@ -10076,11 +10076,11 @@ instance ProtoFromJSON DescribeBatchOperationRequest where
   protoFromJSON _ = Right defaultDescribeBatchOperationRequest
 
 data DescribeBatchOperationResponse = DescribeBatchOperationResponse
-  { describeBatchOperationResponseOperationtype :: !BatchOperationType
+  { describeBatchOperationResponseOperationtype :: !PT_Enums_V1_BatchOperation.BatchOperationType
   , describeBatchOperationResponseJobid :: !Text
-  , describeBatchOperationResponseState :: !BatchOperationState
-  , describeBatchOperationResponseStarttime :: !(Maybe Timestamp)
-  , describeBatchOperationResponseClosetime :: !(Maybe Timestamp)
+  , describeBatchOperationResponseState :: !PT_Enums_V1_BatchOperation.BatchOperationState
+  , describeBatchOperationResponseStarttime :: !(Maybe PB_Timestamp.Timestamp)
+  , describeBatchOperationResponseClosetime :: !(Maybe PB_Timestamp.Timestamp)
   , describeBatchOperationResponseTotaloperationcount :: {-# UNPACK #-} !Int64
   , describeBatchOperationResponseCompleteoperationcount :: {-# UNPACK #-} !Int64
   , describeBatchOperationResponseFailureoperationcount :: {-# UNPACK #-} !Int64
@@ -10276,7 +10276,7 @@ instance ProtoFromJSON ListBatchOperationsRequest where
   protoFromJSON _ = Right defaultListBatchOperationsRequest
 
 data ListBatchOperationsResponse = ListBatchOperationsResponse
-  { listBatchOperationsResponseOperationinfo :: !(V.Vector BatchOperationInfo)
+  { listBatchOperationsResponseOperationinfo :: !(V.Vector PT_Batch_V1_Message.BatchOperationInfo)
   , listBatchOperationsResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -10332,9 +10332,9 @@ instance ProtoFromJSON ListBatchOperationsResponse where
 
 data PollWorkflowExecutionUpdateRequest = PollWorkflowExecutionUpdateRequest
   { pollWorkflowExecutionUpdateRequestNamespace :: !Text
-  , pollWorkflowExecutionUpdateRequestUpdateref :: !(Maybe UpdateRef)
+  , pollWorkflowExecutionUpdateRequestUpdateref :: !(Maybe PT_Update_V1_Message.UpdateRef)
   , pollWorkflowExecutionUpdateRequestIdentity :: !Text
-  , pollWorkflowExecutionUpdateRequestWaitpolicy :: !(Maybe WaitPolicy)
+  , pollWorkflowExecutionUpdateRequestWaitpolicy :: !(Maybe PT_Update_V1_Message.WaitPolicy)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -10406,9 +10406,9 @@ instance ProtoFromJSON PollWorkflowExecutionUpdateRequest where
   protoFromJSON _ = Right defaultPollWorkflowExecutionUpdateRequest
 
 data PollWorkflowExecutionUpdateResponse = PollWorkflowExecutionUpdateResponse
-  { pollWorkflowExecutionUpdateResponseOutcome :: !(Maybe Outcome)
-  , pollWorkflowExecutionUpdateResponseStage :: !UpdateWorkflowExecutionLifecycleStage
-  , pollWorkflowExecutionUpdateResponseUpdateref :: !(Maybe UpdateRef)
+  { pollWorkflowExecutionUpdateResponseOutcome :: !(Maybe PT_Update_V1_Message.Outcome)
+  , pollWorkflowExecutionUpdateResponseStage :: !PT_Enums_V1_Update.UpdateWorkflowExecutionLifecycleStage
+  , pollWorkflowExecutionUpdateResponseUpdateref :: !(Maybe PT_Update_V1_Message.UpdateRef)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -10474,10 +10474,10 @@ data PollNexusTaskQueueRequest = PollNexusTaskQueueRequest
   { pollNexusTaskQueueRequestNamespace :: !Text
   , pollNexusTaskQueueRequestIdentity :: !Text
   , pollNexusTaskQueueRequestWorkerinstancekey :: !Text
-  , pollNexusTaskQueueRequestTaskqueue :: !(Maybe TaskQueue)
-  , pollNexusTaskQueueRequestWorkerversioncapabilities :: !(Maybe WorkerVersionCapabilities)
-  , pollNexusTaskQueueRequestDeploymentoptions :: !(Maybe WorkerDeploymentOptions)
-  , pollNexusTaskQueueRequestWorkerheartbeat :: !(V.Vector WorkerHeartbeat)
+  , pollNexusTaskQueueRequestTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , pollNexusTaskQueueRequestWorkerversioncapabilities :: !(Maybe PT_Common_V1_Message.WorkerVersionCapabilities)
+  , pollNexusTaskQueueRequestDeploymentoptions :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentOptions)
+  , pollNexusTaskQueueRequestWorkerheartbeat :: !(V.Vector PT_Worker_V1_Message.WorkerHeartbeat)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -10577,8 +10577,8 @@ instance ProtoFromJSON PollNexusTaskQueueRequest where
 
 data PollNexusTaskQueueResponse = PollNexusTaskQueueResponse
   { pollNexusTaskQueueResponseTasktoken :: !ByteString
-  , pollNexusTaskQueueResponseRequest :: !(Maybe Request)
-  , pollNexusTaskQueueResponsePollerscalingdecision :: !(Maybe PollerScalingDecision)
+  , pollNexusTaskQueueResponseRequest :: !(Maybe PT_Nexus_V1_Message.Request)
+  , pollNexusTaskQueueResponsePollerscalingdecision :: !(Maybe PT_Taskqueue_V1_Message.PollerScalingDecision)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -10644,7 +10644,7 @@ data RespondNexusTaskCompletedRequest = RespondNexusTaskCompletedRequest
   { respondNexusTaskCompletedRequestNamespace :: !Text
   , respondNexusTaskCompletedRequestIdentity :: !Text
   , respondNexusTaskCompletedRequestTasktoken :: !ByteString
-  , respondNexusTaskCompletedRequestResponse :: !(Maybe Response)
+  , respondNexusTaskCompletedRequestResponse :: !(Maybe PT_Nexus_V1_Message.Response)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -10753,8 +10753,8 @@ data RespondNexusTaskFailedRequest = RespondNexusTaskFailedRequest
   { respondNexusTaskFailedRequestNamespace :: !Text
   , respondNexusTaskFailedRequestIdentity :: !Text
   , respondNexusTaskFailedRequestTasktoken :: !ByteString
-  , respondNexusTaskFailedRequestError :: !(Maybe HandlerError)
-  , respondNexusTaskFailedRequestFailure :: !(Maybe Failure)
+  , respondNexusTaskFailedRequestError :: !(Maybe PT_Nexus_V1_Message.HandlerError)
+  , respondNexusTaskFailedRequestFailure :: !(Maybe PT_Failure_V1_Message.Failure)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -11095,10 +11095,10 @@ instance ProtoFromJSON ExecuteMultiOperationResponse where
 
 data UpdateActivityOptionsRequest = UpdateActivityOptionsRequest
   { updateActivityOptionsRequestNamespace :: !Text
-  , updateActivityOptionsRequestExecution :: !(Maybe WorkflowExecution)
+  , updateActivityOptionsRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , updateActivityOptionsRequestIdentity :: !Text
-  , updateActivityOptionsRequestActivityoptions :: !(Maybe ActivityOptions)
-  , updateActivityOptionsRequestUpdatemask :: !(Maybe FieldMask)
+  , updateActivityOptionsRequestActivityoptions :: !(Maybe PT_Activity_V1_Message.ActivityOptions)
+  , updateActivityOptionsRequestUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
   , updateActivityOptionsRequestActivity :: !(Maybe UpdateActivityOptionsRequest'Activity)
   , updateActivityOptionsRequestRestoreoriginal :: {-# UNPACK #-} !Bool
   }
@@ -11221,7 +11221,7 @@ instance ProtoFromJSON UpdateActivityOptionsRequest where
   protoFromJSON _ = Right defaultUpdateActivityOptionsRequest
 
 data UpdateActivityOptionsResponse = UpdateActivityOptionsResponse
-  { updateActivityOptionsResponseActivityoptions :: !(Maybe ActivityOptions)
+  { updateActivityOptionsResponseActivityoptions :: !(Maybe PT_Activity_V1_Message.ActivityOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -11268,7 +11268,7 @@ instance ProtoFromJSON UpdateActivityOptionsResponse where
 
 data PauseActivityRequest = PauseActivityRequest
   { pauseActivityRequestNamespace :: !Text
-  , pauseActivityRequestExecution :: !(Maybe WorkflowExecution)
+  , pauseActivityRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , pauseActivityRequestIdentity :: !Text
   , pauseActivityRequestActivity :: !(Maybe PauseActivityRequest'Activity)
   , pauseActivityRequestReason :: !Text
@@ -11403,12 +11403,12 @@ instance ProtoFromJSON PauseActivityResponse where
 
 data UnpauseActivityRequest = UnpauseActivityRequest
   { unpauseActivityRequestNamespace :: !Text
-  , unpauseActivityRequestExecution :: !(Maybe WorkflowExecution)
+  , unpauseActivityRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , unpauseActivityRequestIdentity :: !Text
   , unpauseActivityRequestActivity :: !(Maybe UnpauseActivityRequest'Activity)
   , unpauseActivityRequestResetattempts :: {-# UNPACK #-} !Bool
   , unpauseActivityRequestResetheartbeat :: {-# UNPACK #-} !Bool
-  , unpauseActivityRequestJitter :: !(Maybe Duration)
+  , unpauseActivityRequestJitter :: !(Maybe PB_Duration.Duration)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -11564,12 +11564,12 @@ instance ProtoFromJSON UnpauseActivityResponse where
 
 data ResetActivityRequest = ResetActivityRequest
   { resetActivityRequestNamespace :: !Text
-  , resetActivityRequestExecution :: !(Maybe WorkflowExecution)
+  , resetActivityRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , resetActivityRequestIdentity :: !Text
   , resetActivityRequestActivity :: !(Maybe ResetActivityRequest'Activity)
   , resetActivityRequestResetheartbeat :: {-# UNPACK #-} !Bool
   , resetActivityRequestKeeppaused :: {-# UNPACK #-} !Bool
-  , resetActivityRequestJitter :: !(Maybe Duration)
+  , resetActivityRequestJitter :: !(Maybe PB_Duration.Duration)
   , resetActivityRequestRestoreoriginaloptions :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -11735,9 +11735,9 @@ instance ProtoFromJSON ResetActivityResponse where
 
 data UpdateWorkflowExecutionOptionsRequest = UpdateWorkflowExecutionOptionsRequest
   { updateWorkflowExecutionOptionsRequestNamespace :: !Text
-  , updateWorkflowExecutionOptionsRequestWorkflowexecution :: !(Maybe WorkflowExecution)
-  , updateWorkflowExecutionOptionsRequestWorkflowexecutionoptions :: !(Maybe WorkflowExecutionOptions)
-  , updateWorkflowExecutionOptionsRequestUpdatemask :: !(Maybe FieldMask)
+  , updateWorkflowExecutionOptionsRequestWorkflowexecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
+  , updateWorkflowExecutionOptionsRequestWorkflowexecutionoptions :: !(Maybe PT_Workflow_V1_Message.WorkflowExecutionOptions)
+  , updateWorkflowExecutionOptionsRequestUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
   , updateWorkflowExecutionOptionsRequestIdentity :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -11819,7 +11819,7 @@ instance ProtoFromJSON UpdateWorkflowExecutionOptionsRequest where
   protoFromJSON _ = Right defaultUpdateWorkflowExecutionOptionsRequest
 
 data UpdateWorkflowExecutionOptionsResponse = UpdateWorkflowExecutionOptionsResponse
-  { updateWorkflowExecutionOptionsResponseWorkflowexecutionoptions :: !(Maybe WorkflowExecutionOptions)
+  { updateWorkflowExecutionOptionsResponseWorkflowexecutionoptions :: !(Maybe PT_Workflow_V1_Message.WorkflowExecutionOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -11866,7 +11866,7 @@ instance ProtoFromJSON UpdateWorkflowExecutionOptionsResponse where
 
 data DescribeDeploymentRequest = DescribeDeploymentRequest
   { describeDeploymentRequestNamespace :: !Text
-  , describeDeploymentRequestDeployment :: !(Maybe Deployment)
+  , describeDeploymentRequestDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -11920,7 +11920,7 @@ instance ProtoFromJSON DescribeDeploymentRequest where
   protoFromJSON _ = Right defaultDescribeDeploymentRequest
 
 data DescribeDeploymentResponse = DescribeDeploymentResponse
-  { describeDeploymentResponseDeploymentinfo :: !(Maybe DeploymentInfo)
+  { describeDeploymentResponseDeploymentinfo :: !(Maybe PT_Deployment_V1_Message.DeploymentInfo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -11968,7 +11968,7 @@ instance ProtoFromJSON DescribeDeploymentResponse where
 data DescribeWorkerDeploymentVersionRequest = DescribeWorkerDeploymentVersionRequest
   { describeWorkerDeploymentVersionRequestNamespace :: !Text
   , describeWorkerDeploymentVersionRequestVersion :: !Text
-  , describeWorkerDeploymentVersionRequestDeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , describeWorkerDeploymentVersionRequestDeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   , describeWorkerDeploymentVersionRequestReporttaskqueuestats :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
@@ -12041,7 +12041,7 @@ instance ProtoFromJSON DescribeWorkerDeploymentVersionRequest where
   protoFromJSON _ = Right defaultDescribeWorkerDeploymentVersionRequest
 
 data DescribeWorkerDeploymentVersionResponse = DescribeWorkerDeploymentVersionResponse
-  { describeWorkerDeploymentVersionResponseWorkerdeploymentversioninfo :: !(Maybe WorkerDeploymentVersionInfo)
+  { describeWorkerDeploymentVersionResponseWorkerdeploymentversioninfo :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersionInfo)
   , describeWorkerDeploymentVersionResponseVersiontaskqueues :: !(V.Vector DescribeWorkerDeploymentVersionResponse'VersionTaskQueue)
   }
   deriving stock (Show, Eq, Generic)
@@ -12049,9 +12049,9 @@ data DescribeWorkerDeploymentVersionResponse = DescribeWorkerDeploymentVersionRe
 
 data DescribeWorkerDeploymentVersionResponse'VersionTaskQueue = DescribeWorkerDeploymentVersionResponse'VersionTaskQueue
   { describeWorkerDeploymentVersionResponseVersionTaskQueueName :: !Text
-  , describeWorkerDeploymentVersionResponseVersionTaskQueueType :: !TaskQueueType
-  , describeWorkerDeploymentVersionResponseVersionTaskQueueStats :: !(Maybe TaskQueueStats)
-  , describeWorkerDeploymentVersionResponseVersionTaskQueueStatsbyprioritykey :: !(Map.Map Int32 TaskQueueStats)
+  , describeWorkerDeploymentVersionResponseVersionTaskQueueType :: !PT_Enums_V1_TaskQueue.TaskQueueType
+  , describeWorkerDeploymentVersionResponseVersionTaskQueueStats :: !(Maybe PT_Taskqueue_V1_Message.TaskQueueStats)
+  , describeWorkerDeploymentVersionResponseVersionTaskQueueStatsbyprioritykey :: !(Map.Map Int32 PT_Taskqueue_V1_Message.TaskQueueStats)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -12230,7 +12230,7 @@ instance ProtoFromJSON DescribeWorkerDeploymentRequest where
 
 data DescribeWorkerDeploymentResponse = DescribeWorkerDeploymentResponse
   { describeWorkerDeploymentResponseConflicttoken :: !ByteString
-  , describeWorkerDeploymentResponseWorkerdeploymentinfo :: !(Maybe WorkerDeploymentInfo)
+  , describeWorkerDeploymentResponseWorkerdeploymentinfo :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentInfo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -12360,7 +12360,7 @@ instance ProtoFromJSON ListDeploymentsRequest where
 
 data ListDeploymentsResponse = ListDeploymentsResponse
   { listDeploymentsResponseNextpagetoken :: !ByteString
-  , listDeploymentsResponseDeployments :: !(V.Vector DeploymentListInfo)
+  , listDeploymentsResponseDeployments :: !(V.Vector PT_Deployment_V1_Message.DeploymentListInfo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -12415,9 +12415,9 @@ instance ProtoFromJSON ListDeploymentsResponse where
 
 data SetCurrentDeploymentRequest = SetCurrentDeploymentRequest
   { setCurrentDeploymentRequestNamespace :: !Text
-  , setCurrentDeploymentRequestDeployment :: !(Maybe Deployment)
+  , setCurrentDeploymentRequestDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
   , setCurrentDeploymentRequestIdentity :: !Text
-  , setCurrentDeploymentRequestUpdatemetadata :: !(Maybe UpdateDeploymentMetadata)
+  , setCurrentDeploymentRequestUpdatemetadata :: !(Maybe PT_Deployment_V1_Message.UpdateDeploymentMetadata)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -12489,8 +12489,8 @@ instance ProtoFromJSON SetCurrentDeploymentRequest where
   protoFromJSON _ = Right defaultSetCurrentDeploymentRequest
 
 data SetCurrentDeploymentResponse = SetCurrentDeploymentResponse
-  { setCurrentDeploymentResponseCurrentdeploymentinfo :: !(Maybe DeploymentInfo)
-  , setCurrentDeploymentResponsePreviousdeploymentinfo :: !(Maybe DeploymentInfo)
+  { setCurrentDeploymentResponseCurrentdeploymentinfo :: !(Maybe PT_Deployment_V1_Message.DeploymentInfo)
+  , setCurrentDeploymentResponsePreviousdeploymentinfo :: !(Maybe PT_Deployment_V1_Message.DeploymentInfo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -12661,7 +12661,7 @@ instance ProtoFromJSON SetWorkerDeploymentCurrentVersionRequest where
 data SetWorkerDeploymentCurrentVersionResponse = SetWorkerDeploymentCurrentVersionResponse
   { setWorkerDeploymentCurrentVersionResponseConflicttoken :: !ByteString
   , setWorkerDeploymentCurrentVersionResponsePreviousversion :: !Text
-  , setWorkerDeploymentCurrentVersionResponsePreviousdeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , setWorkerDeploymentCurrentVersionResponsePreviousdeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -12851,7 +12851,7 @@ instance ProtoFromJSON SetWorkerDeploymentRampingVersionRequest where
 data SetWorkerDeploymentRampingVersionResponse = SetWorkerDeploymentRampingVersionResponse
   { setWorkerDeploymentRampingVersionResponseConflicttoken :: !ByteString
   , setWorkerDeploymentRampingVersionResponsePreviousversion :: !Text
-  , setWorkerDeploymentRampingVersionResponsePreviousdeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , setWorkerDeploymentRampingVersionResponsePreviousdeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   , setWorkerDeploymentRampingVersionResponsePreviouspercentage :: {-# UNPACK #-} !Float
   }
   deriving stock (Show, Eq, Generic)
@@ -12997,11 +12997,11 @@ data ListWorkerDeploymentsResponse = ListWorkerDeploymentsResponse
 
 data ListWorkerDeploymentsResponse'WorkerDeploymentSummary = ListWorkerDeploymentsResponse'WorkerDeploymentSummary
   { listWorkerDeploymentsResponseWorkerDeploymentSummaryName :: !Text
-  , listWorkerDeploymentsResponseWorkerDeploymentSummaryCreatetime :: !(Maybe Timestamp)
-  , listWorkerDeploymentsResponseWorkerDeploymentSummaryRoutingconfig :: !(Maybe RoutingConfig)
-  , listWorkerDeploymentsResponseWorkerDeploymentSummaryLatestversionsummary :: !(Maybe WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
-  , listWorkerDeploymentsResponseWorkerDeploymentSummaryCurrentversionsummary :: !(Maybe WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
-  , listWorkerDeploymentsResponseWorkerDeploymentSummaryRampingversionsummary :: !(Maybe WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
+  , listWorkerDeploymentsResponseWorkerDeploymentSummaryCreatetime :: !(Maybe PB_Timestamp.Timestamp)
+  , listWorkerDeploymentsResponseWorkerDeploymentSummaryRoutingconfig :: !(Maybe PT_Deployment_V1_Message.RoutingConfig)
+  , listWorkerDeploymentsResponseWorkerDeploymentSummaryLatestversionsummary :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
+  , listWorkerDeploymentsResponseWorkerDeploymentSummaryCurrentversionsummary :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
+  , listWorkerDeploymentsResponseWorkerDeploymentSummaryRampingversionsummary :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -13141,7 +13141,7 @@ instance ProtoFromJSON ListWorkerDeploymentsResponse where
 data DeleteWorkerDeploymentVersionRequest = DeleteWorkerDeploymentVersionRequest
   { deleteWorkerDeploymentVersionRequestNamespace :: !Text
   , deleteWorkerDeploymentVersionRequestVersion :: !Text
-  , deleteWorkerDeploymentVersionRequestDeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , deleteWorkerDeploymentVersionRequestDeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
   , deleteWorkerDeploymentVersionRequestSkipdrainage :: {-# UNPACK #-} !Bool
   , deleteWorkerDeploymentVersionRequestIdentity :: !Text
   }
@@ -13359,8 +13359,8 @@ instance ProtoFromJSON DeleteWorkerDeploymentResponse where
 data UpdateWorkerDeploymentVersionMetadataRequest = UpdateWorkerDeploymentVersionMetadataRequest
   { updateWorkerDeploymentVersionMetadataRequestNamespace :: !Text
   , updateWorkerDeploymentVersionMetadataRequestVersion :: !Text
-  , updateWorkerDeploymentVersionMetadataRequestDeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , updateWorkerDeploymentVersionMetadataRequestUpsertentries :: !(Map.Map Text Payload)
+  , updateWorkerDeploymentVersionMetadataRequestDeploymentversion :: !(Maybe PT_Deployment_V1_Message.WorkerDeploymentVersion)
+  , updateWorkerDeploymentVersionMetadataRequestUpsertentries :: !(Map.Map Text PT_Common_V1_Message.Payload)
   , updateWorkerDeploymentVersionMetadataRequestRemoveentries :: !(V.Vector Text)
   , updateWorkerDeploymentVersionMetadataRequestIdentity :: !Text
   }
@@ -13455,7 +13455,7 @@ instance ProtoFromJSON UpdateWorkerDeploymentVersionMetadataRequest where
   protoFromJSON _ = Right defaultUpdateWorkerDeploymentVersionMetadataRequest
 
 data UpdateWorkerDeploymentVersionMetadataResponse = UpdateWorkerDeploymentVersionMetadataResponse
-  { updateWorkerDeploymentVersionMetadataResponseMetadata :: !(Maybe VersionMetadata)
+  { updateWorkerDeploymentVersionMetadataResponseMetadata :: !(Maybe PT_Deployment_V1_Message.VersionMetadata)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -13712,7 +13712,7 @@ instance ProtoFromJSON GetCurrentDeploymentRequest where
   protoFromJSON _ = Right defaultGetCurrentDeploymentRequest
 
 data GetCurrentDeploymentResponse = GetCurrentDeploymentResponse
-  { getCurrentDeploymentResponseCurrentdeploymentinfo :: !(Maybe DeploymentInfo)
+  { getCurrentDeploymentResponseCurrentdeploymentinfo :: !(Maybe PT_Deployment_V1_Message.DeploymentInfo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -13759,7 +13759,7 @@ instance ProtoFromJSON GetCurrentDeploymentResponse where
 
 data GetDeploymentReachabilityRequest = GetDeploymentReachabilityRequest
   { getDeploymentReachabilityRequestNamespace :: !Text
-  , getDeploymentReachabilityRequestDeployment :: !(Maybe Deployment)
+  , getDeploymentReachabilityRequestDeployment :: !(Maybe PT_Deployment_V1_Message.Deployment)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -13813,9 +13813,9 @@ instance ProtoFromJSON GetDeploymentReachabilityRequest where
   protoFromJSON _ = Right defaultGetDeploymentReachabilityRequest
 
 data GetDeploymentReachabilityResponse = GetDeploymentReachabilityResponse
-  { getDeploymentReachabilityResponseDeploymentinfo :: !(Maybe DeploymentInfo)
-  , getDeploymentReachabilityResponseReachability :: !DeploymentReachability
-  , getDeploymentReachabilityResponseLastupdatetime :: !(Maybe Timestamp)
+  { getDeploymentReachabilityResponseDeploymentinfo :: !(Maybe PT_Deployment_V1_Message.DeploymentInfo)
+  , getDeploymentReachabilityResponseReachability :: !PT_Enums_V1_Deployment.DeploymentReachability
+  , getDeploymentReachabilityResponseLastupdatetime :: !(Maybe PB_Timestamp.Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -13879,7 +13879,7 @@ instance ProtoFromJSON GetDeploymentReachabilityResponse where
 
 data CreateWorkflowRuleRequest = CreateWorkflowRuleRequest
   { createWorkflowRuleRequestNamespace :: !Text
-  , createWorkflowRuleRequestSpec :: !(Maybe WorkflowRuleSpec)
+  , createWorkflowRuleRequestSpec :: !(Maybe PT_Rules_V1_Message.WorkflowRuleSpec)
   , createWorkflowRuleRequestForcescan :: {-# UNPACK #-} !Bool
   , createWorkflowRuleRequestRequestid :: !Text
   , createWorkflowRuleRequestIdentity :: !Text
@@ -13973,7 +13973,7 @@ instance ProtoFromJSON CreateWorkflowRuleRequest where
   protoFromJSON _ = Right defaultCreateWorkflowRuleRequest
 
 data CreateWorkflowRuleResponse = CreateWorkflowRuleResponse
-  { createWorkflowRuleResponseRule :: !(Maybe WorkflowRule)
+  { createWorkflowRuleResponseRule :: !(Maybe PT_Rules_V1_Message.WorkflowRule)
   , createWorkflowRuleResponseJobid :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -14083,7 +14083,7 @@ instance ProtoFromJSON DescribeWorkflowRuleRequest where
   protoFromJSON _ = Right defaultDescribeWorkflowRuleRequest
 
 data DescribeWorkflowRuleResponse = DescribeWorkflowRuleResponse
-  { describeWorkflowRuleResponseRule :: !(Maybe WorkflowRule)
+  { describeWorkflowRuleResponseRule :: !(Maybe PT_Rules_V1_Message.WorkflowRule)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -14273,7 +14273,7 @@ instance ProtoFromJSON ListWorkflowRulesRequest where
   protoFromJSON _ = Right defaultListWorkflowRulesRequest
 
 data ListWorkflowRulesResponse = ListWorkflowRulesResponse
-  { listWorkflowRulesResponseRules :: !(V.Vector WorkflowRule)
+  { listWorkflowRulesResponseRules :: !(V.Vector PT_Rules_V1_Message.WorkflowRule)
   , listWorkflowRulesResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -14329,7 +14329,7 @@ instance ProtoFromJSON ListWorkflowRulesResponse where
 
 data TriggerWorkflowRuleRequest = TriggerWorkflowRuleRequest
   { triggerWorkflowRuleRequestNamespace :: !Text
-  , triggerWorkflowRuleRequestExecution :: !(Maybe WorkflowExecution)
+  , triggerWorkflowRuleRequestExecution :: !(Maybe PT_Common_V1_Message.WorkflowExecution)
   , triggerWorkflowRuleRequestRule :: !(Maybe TriggerWorkflowRuleRequest'Rule)
   , triggerWorkflowRuleRequestIdentity :: !Text
   }
@@ -14337,7 +14337,7 @@ data TriggerWorkflowRuleRequest = TriggerWorkflowRuleRequest
   deriving anyclass NFData
 data TriggerWorkflowRuleRequest'Rule
   = TriggerWorkflowRuleRequest'Rule'Id !Text
-  | TriggerWorkflowRuleRequest'Rule'Spec !WorkflowRuleSpec
+  | TriggerWorkflowRuleRequest'Rule'Spec !PT_Rules_V1_Message.WorkflowRuleSpec
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON TriggerWorkflowRuleRequest'Rule where
@@ -14467,7 +14467,7 @@ instance ProtoFromJSON TriggerWorkflowRuleResponse where
 data RecordWorkerHeartbeatRequest = RecordWorkerHeartbeatRequest
   { recordWorkerHeartbeatRequestNamespace :: !Text
   , recordWorkerHeartbeatRequestIdentity :: !Text
-  , recordWorkerHeartbeatRequestWorkerheartbeat :: !(V.Vector WorkerHeartbeat)
+  , recordWorkerHeartbeatRequestWorkerheartbeat :: !(V.Vector PT_Worker_V1_Message.WorkerHeartbeat)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -14639,7 +14639,7 @@ instance ProtoFromJSON ListWorkersRequest where
   protoFromJSON _ = Right defaultListWorkersRequest
 
 data ListWorkersResponse = ListWorkersResponse
-  { listWorkersResponseWorkersinfo :: !(V.Vector WorkerInfo)
+  { listWorkersResponseWorkersinfo :: !(V.Vector PT_Worker_V1_Message.WorkerInfo)
   , listWorkersResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -14697,7 +14697,7 @@ data UpdateTaskQueueConfigRequest = UpdateTaskQueueConfigRequest
   { updateTaskQueueConfigRequestNamespace :: !Text
   , updateTaskQueueConfigRequestIdentity :: !Text
   , updateTaskQueueConfigRequestTaskqueue :: !Text
-  , updateTaskQueueConfigRequestTaskqueuetype :: !TaskQueueType
+  , updateTaskQueueConfigRequestTaskqueuetype :: !PT_Enums_V1_TaskQueue.TaskQueueType
   , updateTaskQueueConfigRequestUpdatequeueratelimit :: !(Maybe UpdateTaskQueueConfigRequest'RateLimitUpdate)
   , updateTaskQueueConfigRequestUpdatefairnesskeyratelimitdefault :: !(Maybe UpdateTaskQueueConfigRequest'RateLimitUpdate)
   , updateTaskQueueConfigRequestSetfairnessweightoverrides :: !(Map.Map Text Float)
@@ -14707,7 +14707,7 @@ data UpdateTaskQueueConfigRequest = UpdateTaskQueueConfigRequest
   deriving anyclass NFData
 
 data UpdateTaskQueueConfigRequest'RateLimitUpdate = UpdateTaskQueueConfigRequest'RateLimitUpdate
-  { updateTaskQueueConfigRequestRateLimitUpdateRatelimit :: !(Maybe RateLimit)
+  { updateTaskQueueConfigRequestRateLimitUpdateRatelimit :: !(Maybe PT_Taskqueue_V1_Message.RateLimit)
   , updateTaskQueueConfigRequestRateLimitUpdateReason :: !Text
   }
   deriving stock (Show, Eq, Generic)
@@ -14867,7 +14867,7 @@ instance ProtoFromJSON UpdateTaskQueueConfigRequest where
   protoFromJSON _ = Right defaultUpdateTaskQueueConfigRequest
 
 data UpdateTaskQueueConfigResponse = UpdateTaskQueueConfigResponse
-  { updateTaskQueueConfigResponseConfig :: !(Maybe TaskQueueConfig)
+  { updateTaskQueueConfigResponseConfig :: !(Maybe PT_Taskqueue_V1_Message.TaskQueueConfig)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -14916,7 +14916,7 @@ data FetchWorkerConfigRequest = FetchWorkerConfigRequest
   { fetchWorkerConfigRequestNamespace :: !Text
   , fetchWorkerConfigRequestIdentity :: !Text
   , fetchWorkerConfigRequestReason :: !Text
-  , fetchWorkerConfigRequestSelector :: !(Maybe WorkerSelector)
+  , fetchWorkerConfigRequestSelector :: !(Maybe PT_Common_V1_Message.WorkerSelector)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -14988,7 +14988,7 @@ instance ProtoFromJSON FetchWorkerConfigRequest where
   protoFromJSON _ = Right defaultFetchWorkerConfigRequest
 
 data FetchWorkerConfigResponse = FetchWorkerConfigResponse
-  { fetchWorkerConfigResponseWorkerconfig :: !(Maybe WorkerConfig)
+  { fetchWorkerConfigResponseWorkerconfig :: !(Maybe PT_Sdk_V1_WorkerConfig.WorkerConfig)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -15037,9 +15037,9 @@ data UpdateWorkerConfigRequest = UpdateWorkerConfigRequest
   { updateWorkerConfigRequestNamespace :: !Text
   , updateWorkerConfigRequestIdentity :: !Text
   , updateWorkerConfigRequestReason :: !Text
-  , updateWorkerConfigRequestWorkerconfig :: !(Maybe WorkerConfig)
-  , updateWorkerConfigRequestUpdatemask :: !(Maybe FieldMask)
-  , updateWorkerConfigRequestSelector :: !(Maybe WorkerSelector)
+  , updateWorkerConfigRequestWorkerconfig :: !(Maybe PT_Sdk_V1_WorkerConfig.WorkerConfig)
+  , updateWorkerConfigRequestUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
+  , updateWorkerConfigRequestSelector :: !(Maybe PT_Common_V1_Message.WorkerSelector)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -15134,7 +15134,7 @@ data UpdateWorkerConfigResponse = UpdateWorkerConfigResponse
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data UpdateWorkerConfigResponse'Response
-  = UpdateWorkerConfigResponse'Response'WorkerConfig !WorkerConfig
+  = UpdateWorkerConfigResponse'Response'WorkerConfig !PT_Sdk_V1_WorkerConfig.WorkerConfig
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 instance ProtoToJSON UpdateWorkerConfigResponse'Response where
@@ -15240,7 +15240,7 @@ instance ProtoFromJSON DescribeWorkerRequest where
   protoFromJSON _ = Right defaultDescribeWorkerRequest
 
 data DescribeWorkerResponse = DescribeWorkerResponse
-  { describeWorkerResponseWorkerinfo :: !(Maybe WorkerInfo)
+  { describeWorkerResponseWorkerinfo :: !(Maybe PT_Worker_V1_Message.WorkerInfo)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -15548,20 +15548,20 @@ data StartActivityExecutionRequest = StartActivityExecutionRequest
   , startActivityExecutionRequestIdentity :: !Text
   , startActivityExecutionRequestRequestid :: !Text
   , startActivityExecutionRequestActivityid :: !Text
-  , startActivityExecutionRequestActivitytype :: !(Maybe ActivityType)
-  , startActivityExecutionRequestTaskqueue :: !(Maybe TaskQueue)
-  , startActivityExecutionRequestScheduletoclosetimeout :: !(Maybe Duration)
-  , startActivityExecutionRequestScheduletostarttimeout :: !(Maybe Duration)
-  , startActivityExecutionRequestStarttoclosetimeout :: !(Maybe Duration)
-  , startActivityExecutionRequestHeartbeattimeout :: !(Maybe Duration)
-  , startActivityExecutionRequestRetrypolicy :: !(Maybe RetryPolicy)
-  , startActivityExecutionRequestInput :: !(Maybe Payloads)
-  , startActivityExecutionRequestIdreusepolicy :: !ActivityIdReusePolicy
-  , startActivityExecutionRequestIdconflictpolicy :: !ActivityIdConflictPolicy
-  , startActivityExecutionRequestSearchattributes :: !(Maybe SearchAttributes)
-  , startActivityExecutionRequestHeader :: !(Maybe Header)
-  , startActivityExecutionRequestUsermetadata :: !(Maybe UserMetadata)
-  , startActivityExecutionRequestPriority :: !(Maybe Priority)
+  , startActivityExecutionRequestActivitytype :: !(Maybe PT_Common_V1_Message.ActivityType)
+  , startActivityExecutionRequestTaskqueue :: !(Maybe PT_Taskqueue_V1_Message.TaskQueue)
+  , startActivityExecutionRequestScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , startActivityExecutionRequestScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
+  , startActivityExecutionRequestStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
+  , startActivityExecutionRequestHeartbeattimeout :: !(Maybe PB_Duration.Duration)
+  , startActivityExecutionRequestRetrypolicy :: !(Maybe PT_Common_V1_Message.RetryPolicy)
+  , startActivityExecutionRequestInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , startActivityExecutionRequestIdreusepolicy :: !PT_Enums_V1_Activity.ActivityIdReusePolicy
+  , startActivityExecutionRequestIdconflictpolicy :: !PT_Enums_V1_Activity.ActivityIdConflictPolicy
+  , startActivityExecutionRequestSearchattributes :: !(Maybe PT_Common_V1_Message.SearchAttributes)
+  , startActivityExecutionRequestHeader :: !(Maybe PT_Common_V1_Message.Header)
+  , startActivityExecutionRequestUsermetadata :: !(Maybe PT_Sdk_V1_UserMetadata.UserMetadata)
+  , startActivityExecutionRequestPriority :: !(Maybe PT_Common_V1_Message.Priority)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -15910,9 +15910,9 @@ instance ProtoFromJSON DescribeActivityExecutionRequest where
 
 data DescribeActivityExecutionResponse = DescribeActivityExecutionResponse
   { describeActivityExecutionResponseRunid :: !Text
-  , describeActivityExecutionResponseInfo :: !(Maybe ActivityExecutionInfo)
-  , describeActivityExecutionResponseInput :: !(Maybe Payloads)
-  , describeActivityExecutionResponseOutcome :: !(Maybe ActivityExecutionOutcome)
+  , describeActivityExecutionResponseInfo :: !(Maybe PT_Activity_V1_Message.ActivityExecutionInfo)
+  , describeActivityExecutionResponseInput :: !(Maybe PT_Common_V1_Message.Payloads)
+  , describeActivityExecutionResponseOutcome :: !(Maybe PT_Activity_V1_Message.ActivityExecutionOutcome)
   , describeActivityExecutionResponseLongpolltoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -16060,7 +16060,7 @@ instance ProtoFromJSON PollActivityExecutionRequest where
 
 data PollActivityExecutionResponse = PollActivityExecutionResponse
   { pollActivityExecutionResponseRunid :: !Text
-  , pollActivityExecutionResponseOutcome :: !(Maybe ActivityExecutionOutcome)
+  , pollActivityExecutionResponseOutcome :: !(Maybe PT_Activity_V1_Message.ActivityExecutionOutcome)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -16189,7 +16189,7 @@ instance ProtoFromJSON ListActivityExecutionsRequest where
   protoFromJSON _ = Right defaultListActivityExecutionsRequest
 
 data ListActivityExecutionsResponse = ListActivityExecutionsResponse
-  { listActivityExecutionsResponseExecutions :: !(V.Vector ActivityExecutionListInfo)
+  { listActivityExecutionsResponseExecutions :: !(V.Vector PT_Activity_V1_Message.ActivityExecutionListInfo)
   , listActivityExecutionsResponseNextpagetoken :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
@@ -16306,7 +16306,7 @@ data CountActivityExecutionsResponse = CountActivityExecutionsResponse
   deriving anyclass NFData
 
 data CountActivityExecutionsResponse'AggregationGroup = CountActivityExecutionsResponse'AggregationGroup
-  { countActivityExecutionsResponseAggregationGroupGroupvalues :: !(V.Vector Payload)
+  { countActivityExecutionsResponseAggregationGroupGroupvalues :: !(V.Vector PT_Common_V1_Message.Payload)
   , countActivityExecutionsResponseAggregationGroupCount :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
