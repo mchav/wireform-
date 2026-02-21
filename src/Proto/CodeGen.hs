@@ -84,14 +84,33 @@ type TypeRegistry = Map Text TypeInfo
 -- Walks all top-levels and nested definitions, recording their FQ names.
 buildTypeRegistry :: GenerateOpts -> [(FilePath, ResolvedProto)] -> TypeRegistry
 buildTypeRegistry opts rpList =
-  Map.unions (fmap (\(fp, rp) -> registryForFile opts (normalizeProtoPath fp) (rpFile rp)) rpList)
+  Map.union wellKnownTypes (Map.unions (fmap (\(fp, rp) -> registryForFile opts (normalizeProtoPath fp) (rpFile rp)) rpList))
 
+wellKnownTypes :: TypeRegistry
+wellKnownTypes = Map.fromList
+  [ ("google.protobuf.Duration",    TypeInfo "Proto.Google.Protobuf.Duration"    "Duration"    TKMessage)
+  , ("google.protobuf.Timestamp",   TypeInfo "Proto.Google.Protobuf.Timestamp"   "Timestamp"   TKMessage)
+  , ("google.protobuf.Empty",       TypeInfo "Proto.Google.Protobuf.Empty"       "Empty"       TKMessage)
+  , ("google.protobuf.Any",         TypeInfo "Proto.Google.Protobuf.Any"         "Any"         TKMessage)
+  , ("google.protobuf.Struct",      TypeInfo "Proto.Google.Protobuf.Struct"      "Struct"      TKMessage)
+  , ("google.protobuf.Value",       TypeInfo "Proto.Google.Protobuf.Struct"      "Value"       TKMessage)
+  , ("google.protobuf.ListValue",   TypeInfo "Proto.Google.Protobuf.Struct"      "ListValue"   TKMessage)
+  , ("google.protobuf.FieldMask",   TypeInfo "Proto.Google.Protobuf.FieldMask"   "FieldMask"   TKMessage)
+  , ("google.protobuf.DoubleValue", TypeInfo "Proto.Google.Protobuf.Wrappers"    "DoubleValue" TKMessage)
+  , ("google.protobuf.FloatValue",  TypeInfo "Proto.Google.Protobuf.Wrappers"    "FloatValue"  TKMessage)
+  , ("google.protobuf.Int64Value",  TypeInfo "Proto.Google.Protobuf.Wrappers"    "Int64Value"  TKMessage)
+  , ("google.protobuf.UInt64Value", TypeInfo "Proto.Google.Protobuf.Wrappers"    "UInt64Value" TKMessage)
+  , ("google.protobuf.Int32Value",  TypeInfo "Proto.Google.Protobuf.Wrappers"    "Int32Value"  TKMessage)
+  , ("google.protobuf.UInt32Value", TypeInfo "Proto.Google.Protobuf.Wrappers"    "UInt32Value" TKMessage)
+  , ("google.protobuf.BoolValue",   TypeInfo "Proto.Google.Protobuf.Wrappers"    "BoolValue"   TKMessage)
+  , ("google.protobuf.StringValue", TypeInfo "Proto.Google.Protobuf.Wrappers"    "StringValue" TKMessage)
+  , ("google.protobuf.BytesValue",  TypeInfo "Proto.Google.Protobuf.Wrappers"    "BytesValue"  TKMessage)
+  ]
+
+-- | Normalize a proto file path to a relative path suitable for module naming.
+-- Handles absolute paths by extracting the proto-relative portion.
 normalizeProtoPath :: FilePath -> FilePath
-normalizeProtoPath fp =
-  let t = T.pack fp
-      parts = T.splitOn "/" t
-      cleaned = dropWhile (\p -> p == "." || p == ".." || T.isPrefixOf "/" p) parts
-  in T.unpack (T.intercalate "/" cleaned)
+normalizeProtoPath = id
 
 registryForFile :: GenerateOpts -> FilePath -> ProtoFile -> TypeRegistry
 registryForFile opts fp pf =
@@ -407,11 +426,11 @@ genMapFieldDecl ctx scope mf =
 genOneofFieldRef :: GenCtx -> [Text] -> OneofDef -> Doc ann
 genOneofFieldRef ctx scope od =
   pretty (scopedFieldName scope (oneofName od)) <+> pretty ("::" :: Text) <+>
-  pretty ("!(Maybe " :: Text) <> pretty (scopedTypeName (scope <> [oneofName od])) <> pretty (")" :: Text)
+  pretty ("!(Maybe " :: Text) <> pretty (scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)) <> pretty (")" :: Text)
 
 genOneofDecl :: GenCtx -> [Text] -> OneofDef -> Doc ann
 genOneofDecl ctx scope od =
-  let tyN = scopedTypeName (scope <> [oneofName od])
+  let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
   in vsep
     [ pretty ("data " :: Text) <> pretty tyN
     , indent 2 (vsep (zipWith (\pfx f -> pfx <+> genOneofCon ctx scope f) seps (oneofFields od)))
@@ -421,7 +440,7 @@ genOneofDecl ctx scope od =
   where
     seps = pretty ("=" :: Text) : repeat (pretty ("|" :: Text))
     genOneofCon cx s f =
-      pretty (scopedTypeName (s <> [oneofFieldName f])) <+>
+      pretty (oneofConName s (oneofFieldName f)) <+>
       hsOneofFieldType cx s (oneofFieldType f)
 
 -- ---------------------------------------------------------------------------
@@ -496,7 +515,7 @@ genFieldBuild ctx idx fi =
     FKScalar lbl ft -> genBuildExprScalar fn accessor lbl ft
     FKNamed lbl name tk -> genBuildExprNamed ctx fn accessor lbl name tk
     FKMap keyT valT -> genBuildExprMap ctx fn accessor keyT valT
-    FKOneof ood -> genBuildExprOneof ctx fn accessor ood
+    FKOneof scope ood -> genBuildExprOneof ctx scope fn accessor ood
 
 genBuildExprScalar :: Text -> Text -> Maybe FieldLabel -> ScalarType -> Doc ann
 genBuildExprScalar fn accessor lbl st = case lbl of
@@ -555,17 +574,17 @@ genMapValEncode ctx = \case
       SSFixed64 -> pretty ("encodeFieldFixed64 " :: Text) <> pretty (T.pack (show fn)) <> pretty (" . fromIntegral" :: Text)
       _ -> pretty ("encodeFieldVarint " :: Text) <> pretty (T.pack (show fn)) <> pretty (" . fromIntegral" :: Text)
 
-genBuildExprOneof :: GenCtx -> Text -> Text -> OneofDef -> Doc ann
-genBuildExprOneof ctx fn accessor ood =
+genBuildExprOneof :: GenCtx -> [Text] -> Text -> Text -> OneofDef -> Doc ann
+genBuildExprOneof ctx scope fn accessor ood =
   pretty ("(case " :: Text) <> pretty accessor <> pretty (" of" :: Text) <> line <>
   indent 2 (vsep
     (pretty ("Nothing -> mempty" :: Text) :
-     fmap (genOneofArmEncode ctx) (oneofFields ood))) <>
+     fmap (genOneofArmEncode ctx scope) (oneofFields ood))) <>
   pretty (")" :: Text)
 
-genOneofArmEncode :: GenCtx -> OneofField -> Doc ann
-genOneofArmEncode ctx f =
-  let conName = hsTypeName (oneofFieldName f)
+genOneofArmEncode :: GenCtx -> [Text] -> OneofField -> Doc ann
+genOneofArmEncode ctx scope f =
+  let conName = oneofConName scope (oneofFieldName f)
       fn = T.pack (show (unFieldNumber (oneofFieldNumber f)))
   in pretty ("Just (" :: Text) <> pretty conName <+> pretty ("v) -> " :: Text) <>
      case oneofFieldType f of
@@ -652,7 +671,7 @@ genFieldSizeExpr ctx idx fi =
     FKScalar lbl ft -> genSizeScalar fn accessor lbl ft
     FKNamed lbl name tk -> genSizeNamed ctx fn accessor lbl name tk
     FKMap keyT valT -> genSizeMap fn accessor
-    FKOneof ood -> genSizeOneof ctx fn accessor ood
+    FKOneof scope ood -> genSizeOneof ctx scope fn accessor ood
 
 genSizeScalar :: Text -> Text -> Maybe FieldLabel -> ScalarType -> Doc ann
 genSizeScalar fn accessor lbl st = case lbl of
@@ -693,11 +712,11 @@ genSizeMap :: Text -> Text -> Doc ann
 genSizeMap fn accessor =
   pretty ("(Map.foldlWithKey' (\\acc _ _ -> acc + tagSize " :: Text) <> pretty fn <> pretty (" + 20) 0 " :: Text) <> pretty accessor <> pretty (")" :: Text)
 
-genSizeOneof :: GenCtx -> Text -> Text -> OneofDef -> Doc ann
-genSizeOneof ctx fn accessor ood =
+genSizeOneof :: GenCtx -> [Text] -> Text -> Text -> OneofDef -> Doc ann
+genSizeOneof ctx scope fn accessor ood =
   pretty ("(case " :: Text) <> pretty accessor <> pretty (" of { Nothing -> 0" :: Text) <>
   vsep (fmap (\f ->
-    let conName = hsTypeName (oneofFieldName f)
+    let conName = oneofConName scope (oneofFieldName f)
         ffn = T.pack (show (unFieldNumber (oneofFieldNumber f)))
     in pretty ("; Just (" :: Text) <> pretty conName <+> pretty ("v) -> " :: Text) <>
        case oneofFieldType f of
@@ -748,7 +767,7 @@ genFieldDecodeCase ctx allAccs fi =
     FKScalar lbl ft -> [genScalarDecodeCase allAccs fi lbl ft]
     FKNamed lbl name tk -> [genNamedDecodeCase ctx allAccs fi lbl name tk]
     FKMap keyT valT -> [genMapDecodeCase ctx allAccs fi keyT valT]
-    FKOneof ood -> concatMap (genOneofDecodeCase ctx allAccs fi) (oneofFields ood)
+    FKOneof scope ood -> concatMap (genOneofDecodeCase ctx scope allAccs fi) (oneofFields ood)
 
 genScalarDecodeCase :: [Text] -> FieldInfoFull -> Maybe FieldLabel -> ScalarType -> Doc ann
 genScalarDecodeCase allAccs fi lbl st =
@@ -819,11 +838,11 @@ genMapDecodeCase ctx allAccs fi keyT valT =
            ]
        ])
 
-genOneofDecodeCase :: GenCtx -> [Text] -> FieldInfoFull -> OneofField -> [Doc ann]
-genOneofDecodeCase ctx allAccs fi oof =
+genOneofDecodeCase :: GenCtx -> [Text] -> [Text] -> FieldInfoFull -> OneofField -> [Doc ann]
+genOneofDecodeCase ctx scope allAccs fi oof =
   let fn = T.pack (show (unFieldNumber (oneofFieldNumber oof)))
       idx = fifIndex fi
-      conName = hsTypeName (oneofFieldName oof)
+      conName = oneofConName scope (oneofFieldName oof)
       newAccs = replaceAt idx ("(Just (" <> conName <> " v))") allAccs
       decoderExpr = case oneofFieldType oof of
         FTScalar st -> scalarDecoderExpr st
@@ -855,7 +874,7 @@ fieldDefaultText ctx fi = case fifKind fi of
       TKEnum -> "(toEnum 0)"
       TKMessage -> "Nothing"
   FKMap _ _ -> "Map.empty"
-  FKOneof _ -> "Nothing"
+  FKOneof _ _ -> "Nothing"
 
 scalarDefaultText :: ScalarType -> Text
 scalarDefaultText = \case
@@ -964,7 +983,7 @@ data FieldKindFull
   = FKScalar (Maybe FieldLabel) ScalarType
   | FKNamed (Maybe FieldLabel) Text TypeKind
   | FKMap ScalarType FieldType
-  | FKOneof OneofDef
+  | FKOneof [Text] OneofDef
   deriving stock (Show, Eq)
 
 data FieldInfoFull = FieldInfoFull
@@ -993,7 +1012,7 @@ extractAllFields ctx scope elems =
       MEOneof od ->
         let accessor = scopedFieldName scope (oneofName od)
             fn = 0
-        in [FieldInfoFull accessor fn 0 (FKOneof od)]
+        in [FieldInfoFull accessor fn 0 (FKOneof scope od)]
       _ -> []
 
 resolveTypeKind :: GenCtx -> Text -> TypeKind
@@ -1268,6 +1287,10 @@ haskellReserved =
   , "let", "module", "newtype", "of", "then", "where", "case"
   , "foreign", "forall", "mdo", "qualified", "hiding"
   ]
+
+oneofConName :: [Text] -> Text -> Text
+oneofConName scope fieldName =
+  scopedTypeName scope <> "'" <> snakeToPascal fieldName
 
 replaceAt :: Int -> a -> [a] -> [a]
 replaceAt _ _ [] = []

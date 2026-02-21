@@ -371,3 +371,71 @@ test-suite python-interop
       DerivingStrategies
       OverloadedStrings
       LambdaCase
+
+test-suite temporal-codegen-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    other-modules:
+      Proto.Temporal.Temporal.Api.Activity.V1.Message
+      Proto.Temporal.Temporal.Api.Batch.V1.Message
+      Proto.Temporal.Temporal.Api.Command.V1.Message
+      Proto.Temporal.Temporal.Api.Common.V1.Message
+      Proto.Temporal.Temporal.Api.Deployment.V1.Message
+      Proto.Temporal.Temporal.Api.Enums.V1.Activity
+      Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation
+      Proto.Temporal.Temporal.Api.Enums.V1.CommandType
+      Proto.Temporal.Temporal.Api.Enums.V1.Common
+      Proto.Temporal.Temporal.Api.Enums.V1.Deployment
+      Proto.Temporal.Temporal.Api.Enums.V1.EventType
+      Proto.Temporal.Temporal.Api.Enums.V1.FailedCause
+      Proto.Temporal.Temporal.Api.Enums.V1.Namespace
+      Proto.Temporal.Temporal.Api.Enums.V1.Nexus
+      Proto.Temporal.Temporal.Api.Enums.V1.Query
+      Proto.Temporal.Temporal.Api.Enums.V1.Reset
+      Proto.Temporal.Temporal.Api.Enums.V1.Schedule
+      Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue
+      Proto.Temporal.Temporal.Api.Enums.V1.Update
+      Proto.Temporal.Temporal.Api.Enums.V1.Workflow
+      Proto.Temporal.Temporal.Api.Errordetails.V1.Message
+      Proto.Temporal.Temporal.Api.Export.V1.Message
+      Proto.Temporal.Temporal.Api.Failure.V1.Message
+      Proto.Temporal.Temporal.Api.Filter.V1.Message
+      Proto.Temporal.Temporal.Api.History.V1.Message
+      Proto.Temporal.Temporal.Api.Namespace.V1.Message
+      Proto.Temporal.Temporal.Api.Nexus.V1.Message
+      Proto.Temporal.Temporal.Api.Operatorservice.V1.RequestResponse
+      Proto.Temporal.Temporal.Api.Protocol.V1.Message
+      Proto.Temporal.Temporal.Api.Query.V1.Message
+      Proto.Temporal.Temporal.Api.Replication.V1.Message
+      Proto.Temporal.Temporal.Api.Rules.V1.Message
+      Proto.Temporal.Temporal.Api.Schedule.V1.Message
+      Proto.Temporal.Temporal.Api.Sdk.V1.EnhancedStackTrace
+      Proto.Temporal.Temporal.Api.Sdk.V1.TaskCompleteMetadata
+      Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata
+      Proto.Temporal.Temporal.Api.Sdk.V1.WorkerConfig
+      Proto.Temporal.Temporal.Api.Sdk.V1.WorkflowMetadata
+      Proto.Temporal.Temporal.Api.Taskqueue.V1.Message
+      Proto.Temporal.Temporal.Api.Update.V1.Message
+      Proto.Temporal.Temporal.Api.Version.V1.Message
+      Proto.Temporal.Temporal.Api.Worker.V1.Message
+      Proto.Temporal.Temporal.Api.Workflowservice.V1.RequestResponse
+      Proto.Temporal.Temporal.Api.Workflow.V1.Message
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , containers
+      , text
+      , vector
+      , deepseq
+    hs-source-dirs:   temporal-test
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      DeriveGeneric
+      DeriveAnyClass
+      OverloadedStrings
+      OverloadedRecordDot
+      LambdaCase

@@ -144,7 +144,9 @@ runGenerate go = do
       Right resolved -> pure (inputFile, resolved)
 
   -- Phase 2: build a global type registry from all resolved files
-  let allResolved = concatMap (\(fp, rp) -> (fp, rp) : collectTransitiveImports rp) resolvedList
+  let includeDirs = goIncludeDirs go
+      stripDirs = stripIncludeDirs includeDirs
+      allResolved = concatMap (\(fp, rp) -> (stripDirs fp, rp) : collectTransitiveImports includeDirs rp) resolvedList
       registry = buildTypeRegistry codegenOpts allResolved
 
   -- Phase 3: generate each input file
@@ -160,9 +162,9 @@ runGenerate go = do
         TIO.writeFile outFile code
         hPutStrLn stderr ("Wrote " <> outFile)
 
-collectTransitiveImports :: ResolvedProto -> [(FilePath, ResolvedProto)]
-collectTransitiveImports rp =
-  concatMap (\(_, imp) -> (rpPath imp, imp) : collectTransitiveImports imp) (Map.toList (rpImports rp))
+collectTransitiveImports :: [FilePath] -> ResolvedProto -> [(FilePath, ResolvedProto)]
+collectTransitiveImports dirs rp =
+  concatMap (\(_, imp) -> (stripIncludeDirs dirs (rpPath imp), imp) : collectTransitiveImports dirs imp) (Map.toList (rpImports rp))
 
 runPrint :: PrintOpts -> IO ()
 runPrint po = do
