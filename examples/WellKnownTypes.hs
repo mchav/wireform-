@@ -1,10 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
--- | Example: working with well-known protobuf types.
---
--- Demonstrates Timestamp, Duration, Struct, Wrappers, and their
--- encode/decode roundtrips.
---
--- Run with: cabal run example-wellknown
 module Main where
 
 import qualified Data.ByteString as BS
@@ -24,60 +18,35 @@ main :: IO ()
 main = do
   putStrLn "=== Well-Known Types Example ===\n"
 
-  -- Timestamp
   putStrLn "--- Timestamp ---"
-  let ts = Timestamp 1708000000 500000000
-  roundtrip "Timestamp" ts
+  roundtrip "Timestamp" (defaultTimestamp { timestampSeconds = 1708000000, timestampNanos = 500000000 })
 
-  -- Duration
   putStrLn "--- Duration ---"
-  let dur = Duration 3600 0
-  roundtrip "Duration" dur
+  roundtrip "Duration" (defaultDuration { durationSeconds = 3600 })
 
-  -- Empty
   putStrLn "--- Empty ---"
-  let emp = Empty
-  let empBytes = encodeMessage emp
-  putStrLn $ "Empty encodes to " <> show (BS.length empBytes) <> " bytes"
-  roundtrip "Empty" emp
+  roundtrip "Empty" Empty
 
-  -- Wrapper types (useful for distinguishing "field not set" from "field is zero")
   putStrLn "--- Wrappers ---"
-  roundtrip "Int64Value(42)" (Int64Value 42)
-  roundtrip "Int64Value(0)"  (Int64Value 0)
-  roundtrip "BoolValue(True)" (BoolValue True)
-  roundtrip "StringValue" (StringValue "hello, protobuf!")
-  roundtrip "BytesValue" (BytesValue "\x00\x01\x02\xff")
-  roundtrip "DoubleValue" (DoubleValue 3.14159265358979)
+  roundtrip "Int64Value(42)" (defaultInt64Value { int64ValueValue = 42 })
+  roundtrip "BoolValue(True)" (defaultBoolValue { boolValueValue = True })
+  roundtrip "StringValue" (defaultStringValue { stringValueValue = "hello, protobuf!" })
+  roundtrip "DoubleValue" (defaultDoubleValue { doubleValueValue = 3.14159265358979 })
 
-  -- FieldMask
   putStrLn "--- FieldMask ---"
-  let fm = FieldMask (V.fromList ["user.name", "user.email", "user.settings.theme"])
-  roundtrip "FieldMask" fm
+  roundtrip "FieldMask" (defaultFieldMask { fieldMaskPaths = V.fromList ["user.name", "user.email"] })
 
-  -- Struct (JSON-like dynamic values)
   putStrLn "--- Struct ---"
-  let struct = Struct $ Map.fromList
-        [ ("name", Value (Just (StringKind "Alice")))
-        , ("age", Value (Just (NumberKind 30)))
-        , ("active", Value (Just (BoolKind True)))
-        , ("tags", Value (Just (ListKind (ListValue (V.fromList
-            [ Value (Just (StringKind "admin"))
-            , Value (Just (StringKind "user"))
-            ])))))
-        , ("metadata", Value (Just (StructKind (Struct (Map.fromList
-            [ ("created", Value (Just (NumberKind 1708000000)))
-            ])))))
-        , ("deleted_at", Value (Just (NullKind NullValueNull)))
-        ]
-
+  let struct = defaultStruct { structFields = Map.fromList
+        [ ("name", defaultValue { valueKind = Just (Value'Kind'StringValue "Alice") })
+        , ("age", defaultValue { valueKind = Just (Value'Kind'NumberValue 30) })
+        , ("active", defaultValue { valueKind = Just (Value'Kind'BoolValue True) })
+        ] }
   let structBytes = encodeMessage struct
   putStrLn $ "Struct encoded: " <> show (BS.length structBytes) <> " bytes"
   case decodeMessage structBytes of
     Left err -> putStrLn $ "ERROR: " <> show err
-    Right decoded -> do
-      putStrLn $ "Fields: " <> show (Map.keys (structFields decoded))
-      putStrLn $ "Match: " <> show (decoded == struct)
+    Right decoded -> putStrLn $ "Fields: " <> show (Map.keys (structFields decoded))
 
   putStrLn "\nDone."
 
@@ -86,5 +55,5 @@ roundtrip label msg = do
   let encoded = encodeMessage msg
       decoded = decodeMessage encoded
   case decoded of
-    Left err -> putStrLn $ "  " <> label <> ": ENCODE OK (" <> show (BS.length encoded) <> " bytes), DECODE FAILED: " <> show err
+    Left err -> putStrLn $ "  " <> label <> ": DECODE FAILED: " <> show err
     Right d  -> putStrLn $ "  " <> label <> ": " <> show (BS.length encoded) <> " bytes, roundtrip=" <> show (d == msg)

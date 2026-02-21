@@ -82,30 +82,43 @@ type TypeRegistry = Map Text TypeInfo
 
 -- | Build a TypeRegistry from a list of (proto file path, resolved proto).
 -- Walks all top-levels and nested definitions, recording their FQ names.
+-- | Build a TypeRegistry from resolved proto files. Also includes entries
+-- for the standard well-known Google protobuf types, pointing to their
+-- generated modules under @Proto.Google.Protobuf.*@.
 buildTypeRegistry :: GenerateOpts -> [(FilePath, ResolvedProto)] -> TypeRegistry
 buildTypeRegistry opts rpList =
-  Map.union wellKnownTypes (Map.unions (fmap (\(fp, rp) -> registryForFile opts (normalizeProtoPath fp) (rpFile rp)) rpList))
+  Map.union
+    builtinWellKnownTypes
+    (Map.unions (fmap (\(fp, rp) -> registryForFile opts (normalizeProtoPath fp) (rpFile rp)) rpList))
 
-wellKnownTypes :: TypeRegistry
-wellKnownTypes = Map.fromList
-  [ ("google.protobuf.Duration",    TypeInfo "Proto.Google.Protobuf.Duration"    "Duration"    TKMessage)
-  , ("google.protobuf.Timestamp",   TypeInfo "Proto.Google.Protobuf.Timestamp"   "Timestamp"   TKMessage)
-  , ("google.protobuf.Empty",       TypeInfo "Proto.Google.Protobuf.Empty"       "Empty"       TKMessage)
-  , ("google.protobuf.Any",         TypeInfo "Proto.Google.Protobuf.Any"         "Any"         TKMessage)
-  , ("google.protobuf.Struct",      TypeInfo "Proto.Google.Protobuf.Struct"      "Struct"      TKMessage)
-  , ("google.protobuf.Value",       TypeInfo "Proto.Google.Protobuf.Struct"      "Value"       TKMessage)
-  , ("google.protobuf.ListValue",   TypeInfo "Proto.Google.Protobuf.Struct"      "ListValue"   TKMessage)
-  , ("google.protobuf.FieldMask",   TypeInfo "Proto.Google.Protobuf.FieldMask"   "FieldMask"   TKMessage)
-  , ("google.protobuf.DoubleValue", TypeInfo "Proto.Google.Protobuf.Wrappers"    "DoubleValue" TKMessage)
-  , ("google.protobuf.FloatValue",  TypeInfo "Proto.Google.Protobuf.Wrappers"    "FloatValue"  TKMessage)
-  , ("google.protobuf.Int64Value",  TypeInfo "Proto.Google.Protobuf.Wrappers"    "Int64Value"  TKMessage)
-  , ("google.protobuf.UInt64Value", TypeInfo "Proto.Google.Protobuf.Wrappers"    "UInt64Value" TKMessage)
-  , ("google.protobuf.Int32Value",  TypeInfo "Proto.Google.Protobuf.Wrappers"    "Int32Value"  TKMessage)
-  , ("google.protobuf.UInt32Value", TypeInfo "Proto.Google.Protobuf.Wrappers"    "UInt32Value" TKMessage)
-  , ("google.protobuf.BoolValue",   TypeInfo "Proto.Google.Protobuf.Wrappers"    "BoolValue"   TKMessage)
-  , ("google.protobuf.StringValue", TypeInfo "Proto.Google.Protobuf.Wrappers"    "StringValue" TKMessage)
-  , ("google.protobuf.BytesValue",  TypeInfo "Proto.Google.Protobuf.Wrappers"    "BytesValue"  TKMessage)
+-- | Registry entries for standard Google well-known types.
+-- These reference the generated modules at @Proto.Google.Protobuf.*@,
+-- which are produced by running the code generator on the bundled
+-- @proto/google/protobuf/*.proto@ files with prefix @Proto@.
+builtinWellKnownTypes :: TypeRegistry
+builtinWellKnownTypes = Map.fromList
+  [ wkt "google.protobuf.Duration"    "Proto.Google.Protobuf.Duration"    "Duration"
+  , wkt "google.protobuf.Timestamp"   "Proto.Google.Protobuf.Timestamp"   "Timestamp"
+  , wkt "google.protobuf.Empty"       "Proto.Google.Protobuf.Empty"       "Empty"
+  , wkt "google.protobuf.Any"         "Proto.Google.Protobuf.Any"         "Any"
+  , wkt "google.protobuf.Struct"      "Proto.Google.Protobuf.Struct"      "Struct"
+  , wkt "google.protobuf.Value"       "Proto.Google.Protobuf.Struct"      "Value"
+  , wkt "google.protobuf.ListValue"   "Proto.Google.Protobuf.Struct"      "ListValue"
+  , wkt "google.protobuf.NullValue"   "Proto.Google.Protobuf.Struct"      "NullValue"
+  , wkt "google.protobuf.FieldMask"   "Proto.Google.Protobuf.FieldMask"   "FieldMask"
+  , wkt "google.protobuf.SourceContext" "Proto.Google.Protobuf.SourceContext" "SourceContext"
+  , wkt "google.protobuf.DoubleValue" "Proto.Google.Protobuf.Wrappers"    "DoubleValue"
+  , wkt "google.protobuf.FloatValue"  "Proto.Google.Protobuf.Wrappers"    "FloatValue"
+  , wkt "google.protobuf.Int64Value"  "Proto.Google.Protobuf.Wrappers"    "Int64Value"
+  , wkt "google.protobuf.UInt64Value" "Proto.Google.Protobuf.Wrappers"    "UInt64Value"
+  , wkt "google.protobuf.Int32Value"  "Proto.Google.Protobuf.Wrappers"    "Int32Value"
+  , wkt "google.protobuf.UInt32Value" "Proto.Google.Protobuf.Wrappers"    "UInt32Value"
+  , wkt "google.protobuf.BoolValue"   "Proto.Google.Protobuf.Wrappers"    "BoolValue"
+  , wkt "google.protobuf.StringValue" "Proto.Google.Protobuf.Wrappers"    "StringValue"
+  , wkt "google.protobuf.BytesValue"  "Proto.Google.Protobuf.Wrappers"    "BytesValue"
   ]
+  where
+    wkt fqn modName hsName = (fqn, TypeInfo modName hsName TKMessage)
 
 -- | Normalize a proto file path to a relative path suitable for module naming.
 -- Handles absolute paths by extracting the proto-relative portion.

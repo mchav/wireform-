@@ -80,8 +80,9 @@ library
       Proto.JSON
       Proto.Merge
       Proto.FieldPresence
-      -- Well-known types (pre-generated)
+      -- Well-known types (generated from proto/google/protobuf/*.proto)
       Proto.Google.Protobuf.Any
+      Proto.Google.Protobuf.Any.Util
       Proto.Google.Protobuf.Timestamp
       Proto.Google.Protobuf.Duration
       Proto.Google.Protobuf.Empty
@@ -89,6 +90,7 @@ library
       Proto.Google.Protobuf.FieldMask
       Proto.Google.Protobuf.SourceContext
       Proto.Google.Protobuf.Struct
+      Proto.Google.Protobuf.WellKnownInstances
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native

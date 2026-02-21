@@ -15,11 +15,14 @@ import Proto.Decode
 import Proto.Google.Protobuf.Timestamp
 import Proto.Google.Protobuf.Duration
 import Proto.Google.Protobuf.Any
+import Proto.Google.Protobuf.Any.Util
 import Proto.Google.Protobuf.Empty
 import Proto.Google.Protobuf.Wrappers
 import Proto.Google.Protobuf.FieldMask
 import Proto.Google.Protobuf.SourceContext
 import Proto.Google.Protobuf.Struct
+import Proto.Message (IsMessage(..))
+import Proto.Google.Protobuf.WellKnownInstances ()
 
 wellKnownTests :: TestTree
 wellKnownTests = testGroup "Well-Known Types"
@@ -27,7 +30,7 @@ wellKnownTests = testGroup "Well-Known Types"
       [ testProperty "roundtrip" $ property $ do
           s <- forAll $ Gen.int64 (Range.linear (-1000000000) 1000000000)
           n <- forAll $ Gen.int32 (Range.linear 0 999999999)
-          let msg = Timestamp s n
+          let msg = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
               encoded = encodeMessage msg
           decodeMessage encoded === Right msg
 
@@ -36,7 +39,7 @@ wellKnownTests = testGroup "Well-Known Types"
           BS.length encoded @?= 0
 
       , testCase "sized encoding matches" $ do
-          let msg = Timestamp 1234567890 123456789
+          let msg = defaultTimestamp { timestampSeconds = 1234567890, timestampNanos = 123456789 }
           BS.length (encodeMessage msg) @?= messageSize msg
       ]
 
@@ -44,7 +47,7 @@ wellKnownTests = testGroup "Well-Known Types"
       [ testProperty "roundtrip" $ property $ do
           s <- forAll $ Gen.int64 (Range.linear (-315576000000) 315576000000)
           n <- forAll $ Gen.int32 (Range.linear (-999999999) 999999999)
-          let msg = Duration s n
+          let msg = defaultDuration { durationSeconds = s, durationNanos = n }
               encoded = encodeMessage msg
           decodeMessage encoded === Right msg
       ]
@@ -53,16 +56,16 @@ wellKnownTests = testGroup "Well-Known Types"
       [ testProperty "raw Any roundtrip" $ property $ do
           tu <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
           v <- forAll $ Gen.bytes (Range.linear 0 200)
-          let msg = Proto.Google.Protobuf.Any.Any tu v
+          let msg = defaultAny { anyTypeurl = tu, anyValue = v }
               encoded = encodeMessage msg
           decodeMessage encoded === Right msg
 
       , testProperty "packAny Timestamp roundtrip" $ property $ do
           s <- forAll $ Gen.int64 (Range.linear 0 2000000000)
           n <- forAll $ Gen.int32 (Range.linear 0 999999999)
-          let ts = Timestamp s n
+          let ts = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
               packed = packAny ts
-          typeUrl packed === "type.googleapis.com/google.protobuf.Timestamp"
+          anyTypeurl packed === "type.googleapis.com/google.protobuf.Timestamp"
           case unpackAny packed of
             Just (Right decoded) -> decoded === ts
             Just (Left err) -> do annotate (show err); failure
@@ -71,7 +74,7 @@ wellKnownTests = testGroup "Well-Known Types"
       , testProperty "packAny Duration roundtrip" $ property $ do
           s <- forAll $ Gen.int64 (Range.linear 0 1000000)
           n <- forAll $ Gen.int32 (Range.linear 0 999999999)
-          let dur = Duration s n
+          let dur = defaultDuration { durationSeconds = s, durationNanos = n }
               packed = packAny dur
           case unpackAny packed of
             Just (Right decoded) -> decoded === dur
@@ -79,19 +82,19 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "packAny Empty" $ do
           let packed = packAny Empty
-          typeUrl packed @?= "type.googleapis.com/google.protobuf.Empty"
+          anyTypeurl packed @?= "type.googleapis.com/google.protobuf.Empty"
           case unpackAny packed of
             Just (Right Empty) -> pure ()
             other -> assertFailure ("Expected Just (Right Empty), got " <> show other)
 
       , testCase "unpackAny type mismatch returns Nothing" $ do
-          let packed = packAny (Timestamp 100 0)
+          let packed = packAny (defaultTimestamp { timestampSeconds = 100 })
           case unpackAny packed :: Maybe (Either DecodeError Duration) of
             Nothing -> pure ()
             Just _  -> assertFailure "Should not match Duration"
 
       , testCase "isMessageType" $ do
-          let packed = packAny (Duration 60 0)
+          let packed = packAny (defaultDuration { durationSeconds = 60 })
           isMessageType (Proxy :: Proxy Duration) packed @?= True
           isMessageType (Proxy :: Proxy Timestamp) packed @?= False
 
@@ -104,14 +107,14 @@ wellKnownTests = testGroup "Well-Known Types"
             @?= "google.protobuf.Timestamp"
 
       , testCase "packAnyWithPrefix custom prefix" $ do
-          let packed = packAnyWithPrefix "myhost/" (Timestamp 1 0)
-          typeUrl packed @?= "myhost/google.protobuf.Timestamp"
+          let packed = packAnyWithPrefix "myhost/" (defaultTimestamp { timestampSeconds = 1 })
+          anyTypeurl packed @?= "myhost/google.protobuf.Timestamp"
           case unpackAny packed of
-            Just (Right ts) -> ts @?= Timestamp 1 0
+            Just (Right ts) -> ts @?= defaultTimestamp { timestampSeconds = 1 }
             _ -> assertFailure "Should unpack with any prefix"
 
       , testCase "Any wire roundtrip preserves content" $ do
-          let ts = Timestamp 1234567890 500000000
+          let ts = defaultTimestamp { timestampSeconds = 1234567890, timestampNanos = 500000000 }
               packed = packAny ts
               encodedAny = encodeMessage packed
           case decodeMessage encodedAny of
@@ -125,19 +128,18 @@ wellKnownTests = testGroup "Well-Known Types"
                        . registerType (Proxy :: Proxy Duration)
                        . registerType (Proxy :: Proxy Empty)
                        $ emptyRegistry
-          case unpackAnyDynamic registry (packAny (Timestamp 42 0)) of
-            Just (Right (DynamicMessage msg)) -> show msg @?= "Timestamp {seconds = 42, nanos = 0}"
+          case unpackAnyDynamic registry (packAny (defaultTimestamp { timestampSeconds = 42 })) of
+            Just (Right (DynamicMessage msg)) ->
+              show msg @?= "Timestamp {timestampSeconds = 42, timestampNanos = 0}"
             _ -> assertFailure "Should unpack Timestamp dynamically"
-          case unpackAnyDynamic registry (packAny (Duration 60 0)) of
-            Just (Right (DynamicMessage msg)) -> show msg @?= "Duration {seconds = 60, nanos = 0}"
+          case unpackAnyDynamic registry (packAny (defaultDuration { durationSeconds = 60 })) of
+            Just (Right (DynamicMessage msg)) ->
+              show msg @?= "Duration {durationSeconds = 60, durationNanos = 0}"
             _ -> assertFailure "Should unpack Duration dynamically"
-          case unpackAnyDynamic registry (packAny (Timestamp 1 0)) of
-            Just (Right _) -> pure ()
-            _ -> assertFailure "Should unpack"
 
       , testCase "TypeRegistry unknown type returns Nothing" $ do
           let registry = registerType (Proxy :: Proxy Timestamp) emptyRegistry
-              unknownAny = Proto.Google.Protobuf.Any.Any "type.googleapis.com/unknown.Type" ""
+              unknownAny = defaultAny { anyTypeurl = "type.googleapis.com/unknown.Type" }
           case unpackAnyDynamic registry unknownAny of
             Nothing -> pure ()
             Just _  -> assertFailure "Should return Nothing for unknown type"
@@ -153,48 +155,48 @@ wellKnownTests = testGroup "Well-Known Types"
   , testGroup "Wrappers"
       [ testProperty "Int64Value roundtrip" $ property $ do
           v <- forAll $ Gen.int64 Range.linearBounded
-          let msg = Int64Value v
+          let msg = defaultInt64Value { int64ValueValue = v }
           decodeMessage (encodeMessage msg) === Right msg
 
       , testProperty "UInt64Value roundtrip" $ property $ do
           v <- forAll $ Gen.word64 (Range.linear 0 maxBound)
-          let msg = UInt64Value v
+          let msg = defaultUInt64Value { uInt64ValueValue = v }
           decodeMessage (encodeMessage msg) === Right msg
 
       , testProperty "Int32Value roundtrip" $ property $ do
           v <- forAll $ Gen.int32 Range.linearBounded
-          let msg = Int32Value v
+          let msg = defaultInt32Value { int32ValueValue = v }
           decodeMessage (encodeMessage msg) === Right msg
 
       , testProperty "BoolValue roundtrip" $ property $ do
           v <- forAll Gen.bool
-          let msg = BoolValue v
+          let msg = defaultBoolValue { boolValueValue = v }
           decodeMessage (encodeMessage msg) === Right msg
 
       , testProperty "StringValue roundtrip" $ property $ do
           v <- forAll $ Gen.text (Range.linear 0 100) Gen.unicode
-          let msg = StringValue v
+          let msg = defaultStringValue { stringValueValue = v }
           decodeMessage (encodeMessage msg) === Right msg
 
       , testProperty "BytesValue roundtrip" $ property $ do
           v <- forAll $ Gen.bytes (Range.linear 0 200)
-          let msg = BytesValue v
+          let msg = defaultBytesValue { bytesValueValue = v }
           decodeMessage (encodeMessage msg) === Right msg
 
       , testProperty "DoubleValue roundtrip" $ property $ do
           v <- forAll $ Gen.double (Range.linearFrac (-1e100) 1e100)
-          let msg = DoubleValue v
+          let msg = defaultDoubleValue { doubleValueValue = v }
           decodeMessage (encodeMessage msg) === Right msg
 
       , testProperty "FloatValue roundtrip" $ property $ do
           v <- forAll $ Gen.float (Range.linearFrac (-1e30) 1e30)
-          let msg = FloatValue v
+          let msg = defaultFloatValue { floatValueValue = v }
           decodeMessage (encodeMessage msg) === Right msg
       ]
 
   , testGroup "FieldMask"
       [ testCase "roundtrip" $ do
-          let msg = FieldMask (V.fromList ["foo.bar", "baz"])
+          let msg = defaultFieldMask { fieldMaskPaths = V.fromList ["foo.bar", "baz"] }
               encoded = encodeMessage msg
           decodeMessage encoded @?= Right msg
       ]
@@ -202,7 +204,7 @@ wellKnownTests = testGroup "Well-Known Types"
   , testGroup "SourceContext"
       [ testProperty "roundtrip" $ property $ do
           fn <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
-          let msg = SourceContext fn
+          let msg = defaultSourceContext { sourceContextFilename = fn }
           decodeMessage (encodeMessage msg) === Right msg
       ]
 
@@ -212,27 +214,27 @@ wellKnownTests = testGroup "Well-Known Types"
           decodeMessage (encodeMessage msg) @?= Right msg
 
       , testCase "value null roundtrip" $ do
-          let v = Value (Just (NullKind NullValueNull))
+          let v = defaultValue { valueKind = Just (Value'Kind'NullValue NullValue'NullValue) }
           decodeMessage (encodeMessage v) @?= Right v
 
       , testCase "value number roundtrip" $ do
-          let v = Value (Just (NumberKind 3.14))
+          let v = defaultValue { valueKind = Just (Value'Kind'NumberValue 3.14) }
           decodeMessage (encodeMessage v) @?= Right v
 
       , testCase "value string roundtrip" $ do
-          let v = Value (Just (StringKind "hello"))
+          let v = defaultValue { valueKind = Just (Value'Kind'StringValue "hello") }
           decodeMessage (encodeMessage v) @?= Right v
 
       , testCase "value bool roundtrip" $ do
-          let v = Value (Just (BoolKind True))
+          let v = defaultValue { valueKind = Just (Value'Kind'BoolValue True) }
           decodeMessage (encodeMessage v) @?= Right v
 
       , testCase "list value roundtrip" $ do
-          let lv = ListValue (V.fromList
-                [ Value (Just (NumberKind 1))
-                , Value (Just (StringKind "two"))
-                , Value (Just (BoolKind False))
-                ])
+          let lv = defaultListValue { listValueValues = V.fromList
+                [ defaultValue { valueKind = Just (Value'Kind'NumberValue 1) }
+                , defaultValue { valueKind = Just (Value'Kind'StringValue "two") }
+                , defaultValue { valueKind = Just (Value'Kind'BoolValue False) }
+                ] }
           decodeMessage (encodeMessage lv) @?= Right lv
       ]
 
@@ -240,13 +242,13 @@ wellKnownTests = testGroup "Well-Known Types"
       [ testProperty "encodeMessageSized matches encodeMessage for Timestamp" $ property $ do
           s <- forAll $ Gen.int64 (Range.linear 0 1000000)
           n <- forAll $ Gen.int32 (Range.linear 0 999999)
-          let msg = Timestamp s n
+          let msg = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
           encodeMessageSized msg === encodeMessage msg
 
       , testProperty "encodeMessageSized matches encodeMessage for Duration" $ property $ do
           s <- forAll $ Gen.int64 (Range.linear 0 1000000)
           n <- forAll $ Gen.int32 (Range.linear 0 999999)
-          let msg = Duration s n
+          let msg = defaultDuration { durationSeconds = s, durationNanos = n }
           encodeMessageSized msg === encodeMessage msg
       ]
   ]
