@@ -33,7 +33,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Temporal.Temporal.Api.History.V1.Message hiding (WorkflowExecution, WorkflowExecutions)
+import Proto.Temporal.Temporal.Api.History.V1.Message (History(..))
 
 
 data WorkflowExecution = WorkflowExecution

@@ -33,15 +33,15 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
-import Proto.Google.Protobuf.Timestamp hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
-import Proto.Temporal.Temporal.Api.Enums.V1.Activity hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Header(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..))
+import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentVersion(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Activity (ActivityExecutionStatus(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (PendingActivityState(..))
+import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
+import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata(..))
+import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue(..))
 
 
 data ActivityExecutionOutcome = ActivityExecutionOutcome
@@ -383,7 +383,7 @@ instance MessageDecode ActivityExecutionInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 (Just v) acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 acc_27 acc_28 acc_29 acc_30 acc_31
             15 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 v acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 acc_27 acc_28 acc_29 acc_30 acc_31
             16 -> do
               v <- decodeFieldMessage
@@ -419,10 +419,10 @@ instance MessageDecode ActivityExecutionInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 (Just v) acc_26 acc_27 acc_28 acc_29 acc_30 acc_31
             27 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 v acc_27 acc_28 acc_29 acc_30 acc_31
             28 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 v acc_28 acc_29 acc_30 acc_31
             29 -> do
               v <- decodeFieldMessage
@@ -569,10 +569,10 @@ instance MessageDecode ActivityExecutionListInfo where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v acc_8 acc_9 acc_10
             9 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v acc_9 acc_10
             10 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 v acc_10
             11 -> do
               v <- decodeFieldMessage

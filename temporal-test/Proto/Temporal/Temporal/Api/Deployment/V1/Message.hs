@@ -33,10 +33,10 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp hiding (Deployment, DeploymentInfo, DeploymentInfo'TaskQueueInfo, DeploymentListInfo, InheritedAutoUpgradeInfo, RoutingConfig, UpdateDeploymentMetadata, VersionDrainageInfo, VersionMetadata, WorkerDeploymentInfo, WorkerDeploymentInfo'WorkerDeploymentVersionSummary, WorkerDeploymentOptions, WorkerDeploymentVersion, WorkerDeploymentVersionInfo, WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (Deployment, DeploymentInfo, DeploymentInfo'TaskQueueInfo, DeploymentListInfo, InheritedAutoUpgradeInfo, RoutingConfig, UpdateDeploymentMetadata, VersionDrainageInfo, VersionMetadata, WorkerDeploymentInfo, WorkerDeploymentInfo'WorkerDeploymentVersionSummary, WorkerDeploymentOptions, WorkerDeploymentVersion, WorkerDeploymentVersionInfo, WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.Deployment hiding (Deployment, DeploymentInfo, DeploymentInfo'TaskQueueInfo, DeploymentListInfo, InheritedAutoUpgradeInfo, RoutingConfig, UpdateDeploymentMetadata, VersionDrainageInfo, VersionMetadata, WorkerDeploymentInfo, WorkerDeploymentInfo'WorkerDeploymentVersionSummary, WorkerDeploymentOptions, WorkerDeploymentVersion, WorkerDeploymentVersionInfo, WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue hiding (Deployment, DeploymentInfo, DeploymentInfo'TaskQueueInfo, DeploymentListInfo, InheritedAutoUpgradeInfo, RoutingConfig, UpdateDeploymentMetadata, VersionDrainageInfo, VersionMetadata, WorkerDeploymentInfo, WorkerDeploymentInfo'WorkerDeploymentVersionSummary, WorkerDeploymentOptions, WorkerDeploymentVersion, WorkerDeploymentVersionInfo, WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Deployment (VersionDrainageStatus(..), WorkerDeploymentVersionStatus(..), WorkerVersioningMode(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue (RoutingConfigUpdateState(..), TaskQueueType(..))
 
 
 data WorkerDeploymentOptions = WorkerDeploymentOptions
@@ -582,7 +582,7 @@ instance ProtoFromJSON WorkerDeploymentVersionInfo where
   protoFromJSON _ = Right defaultWorkerDeploymentVersionInfo
 
 data VersionDrainageInfo = VersionDrainageInfo
-  { versionDrainageInfoStatus :: !(Maybe VersionDrainageStatus)
+  { versionDrainageInfoStatus :: !VersionDrainageStatus
   , versionDrainageInfoLastchangedtime :: !(Maybe Timestamp)
   , versionDrainageInfoLastcheckedtime :: !(Maybe Timestamp)
   }
@@ -591,25 +591,25 @@ data VersionDrainageInfo = VersionDrainageInfo
 
 defaultVersionDrainageInfo :: VersionDrainageInfo
 defaultVersionDrainageInfo = VersionDrainageInfo
-  { versionDrainageInfoStatus = Nothing
+  { versionDrainageInfoStatus = (toEnum 0)
   , versionDrainageInfoLastchangedtime = Nothing
   , versionDrainageInfoLastcheckedtime = Nothing
   }
 
 instance MessageEncode VersionDrainageInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.versionDrainageInfoStatus)
+    (if fromEnum msg.versionDrainageInfoStatus == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.versionDrainageInfoStatus)))
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versionDrainageInfoLastchangedtime)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.versionDrainageInfoLastcheckedtime)
 
 instance MessageSize VersionDrainageInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.versionDrainageInfoStatus)
+    (if fromEnum msg.versionDrainageInfoStatus == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.versionDrainageInfoStatus)))
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versionDrainageInfoLastchangedtime)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.versionDrainageInfoLastcheckedtime)
 
 instance MessageDecode VersionDrainageInfo where
-  messageDecoder = loop Nothing Nothing Nothing
+  messageDecoder = loop (toEnum 0) Nothing Nothing
     where
       loop acc_0 acc_1 acc_2 = do
         mTag <- getTagOr
@@ -617,8 +617,8 @@ instance MessageDecode VersionDrainageInfo where
           Nothing -> pure (VersionDrainageInfo {versionDrainageInfoStatus = acc_0, versionDrainageInfoLastchangedtime = acc_1, versionDrainageInfoLastcheckedtime = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- decodeFieldMessage
-              loop (Just v) acc_1 acc_2
+              v <- decodeFieldEnum
+              loop v acc_1 acc_2
             2 -> do
               v <- decodeFieldMessage
               loop acc_0 (Just v) acc_2
@@ -654,7 +654,7 @@ data WorkerDeploymentInfo'WorkerDeploymentVersionSummary = WorkerDeploymentInfo'
   , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus :: !WorkerDeploymentVersionStatus
   , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion :: !(Maybe WorkerDeploymentVersion)
   , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus :: !(Maybe VersionDrainageStatus)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus :: !VersionDrainageStatus
   , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo :: !(Maybe VersionDrainageInfo)
   , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime :: !(Maybe Timestamp)
   , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime :: !(Maybe Timestamp)
@@ -672,7 +672,7 @@ defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary = WorkerDeploymentInf
   , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = (toEnum 0)
   , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion = Nothing
   , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = (toEnum 0)
   , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo = Nothing
   , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime = Nothing
   , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime = Nothing
@@ -688,7 +688,7 @@ instance MessageEncode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
     <> (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus == 0 then mempty else encodeFieldVarint 11 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus)))
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus)
+    <> (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus)))
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo)
     <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime)
     <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime)
@@ -703,7 +703,7 @@ instance MessageSize WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
     + (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus == 0 then 0 else fieldVarintSize 11 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus)))
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus)
+    + (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus)))
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo)
     + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime)
     + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime)
@@ -713,7 +713,7 @@ instance MessageSize WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
     + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime)
 
 instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
-  messageDecoder = loop "" (toEnum 0) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+  messageDecoder = loop "" (toEnum 0) Nothing Nothing (toEnum 0) Nothing Nothing Nothing Nothing Nothing Nothing Nothing
     where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 = do
         mTag <- getTagOr
@@ -733,8 +733,8 @@ instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 (Just v) acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11
             3 -> do
-              v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 (Just v) acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11
+              v <- decodeFieldEnum
+              loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11
             5 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v) acc_6 acc_7 acc_8 acc_9 acc_10 acc_11
@@ -1029,7 +1029,7 @@ instance MessageDecode RoutingConfig where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v) acc_8
             10 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
 
@@ -1084,7 +1084,7 @@ instance MessageDecode InheritedAutoUpgradeInfo where
               v <- decodeFieldMessage
               loop (Just v) acc_1
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 

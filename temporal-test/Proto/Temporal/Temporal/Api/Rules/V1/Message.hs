@@ -33,7 +33,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp hiding (WorkflowRule, WorkflowRuleAction, WorkflowRuleAction'ActionActivityPause, WorkflowRuleSpec, WorkflowRuleSpec'ActivityStartingTrigger)
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 
 
 data WorkflowRuleAction = WorkflowRuleAction

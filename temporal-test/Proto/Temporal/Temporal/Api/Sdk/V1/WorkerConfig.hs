@@ -70,7 +70,7 @@ instance MessageDecode WorkerConfig'SimplePollerBehavior where
           Nothing -> pure (WorkerConfig'SimplePollerBehavior {workerConfigSimplePollerBehaviorMaxpollers = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
 
@@ -119,13 +119,13 @@ instance MessageDecode WorkerConfig'AutoscalingPollerBehavior where
           Nothing -> pure (WorkerConfig'AutoscalingPollerBehavior {workerConfigAutoscalingPollerBehaviorMinpollers = acc_0, workerConfigAutoscalingPollerBehaviorMaxpollers = acc_1, workerConfigAutoscalingPollerBehaviorInitialpollers = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
@@ -177,7 +177,7 @@ instance MessageDecode WorkerConfig where
           Nothing -> pure (WorkerConfig {workerConfigWorkflowcachesize = acc_0, workerConfigPollerbehavior = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1
             2 -> do
               v <- decodeFieldMessage

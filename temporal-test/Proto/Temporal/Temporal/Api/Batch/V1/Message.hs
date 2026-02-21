@@ -33,15 +33,15 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
-import Proto.Google.Protobuf.FieldMask hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
-import Proto.Google.Protobuf.Timestamp hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
-import Proto.Temporal.Temporal.Api.Activity.V1.Message hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
-import Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
-import Proto.Temporal.Temporal.Api.Enums.V1.Reset hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
-import Proto.Temporal.Temporal.Api.Rules.V1.Message hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
-import Proto.Temporal.Temporal.Api.Workflow.V1.Message hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Google.Protobuf.FieldMask (FieldMask(..))
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Activity.V1.Message (ActivityOptions(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (Header(..), Payloads(..), ResetOptions(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation (BatchOperationState(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Reset (ResetReapplyType(..), ResetType(..))
+import Proto.Temporal.Temporal.Api.Rules.V1.Message (WorkflowRuleSpec(..))
+import Proto.Temporal.Temporal.Api.Workflow.V1.Message (PostResetOperation(..), WorkflowExecutionOptions(..))
 
 
 data BatchOperationInfo = BatchOperationInfo

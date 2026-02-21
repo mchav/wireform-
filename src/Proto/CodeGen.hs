@@ -197,7 +197,8 @@ generateModule opts reg filePath pf =
       body = concatMap (genTopLevel ctx []) (protoTopLevels pf)
       referencedTypes = collectReferencedTypes (protoTopLevels pf)
       importedModules = computeImports ctx referencedTypes
-      localHsNames = Set.fromList [tiHsName ti | (_, ti) <- Map.toList reg, tiModule ti == thisMod]
+      localHsNamesRaw = [tiHsName ti | (_, ti) <- Map.toList reg, tiModule ti == thisMod]
+      localHsNames = Set.fromList (localHsNamesRaw <> fmap ("default" <>) localHsNamesRaw)
   in vsep
     [ genModuleHeader opts filePath pf
     , mempty
@@ -281,7 +282,14 @@ resolveTypeWithScope ctx scope name =
         [ name
         , pkg <> "." <> name
         ] <> [pkg <> "." <> T.intercalate "." s <> "." <> name | s <- tails' scope, not (null s)]
-  in firstJust (\c -> Map.lookup c reg) candidates
+  in case firstJust (\c -> Map.lookup c reg) candidates of
+    Just ti -> Just ti
+    Nothing ->
+      let suffix = "." <> name
+          matches = [ti | (k, ti) <- Map.toList reg, T.isSuffixOf suffix k || k == name]
+      in case matches of
+        (ti:_) -> Just ti
+        []     -> Nothing
   where
     tails' [] = []
     tails' xs = xs : tails' (init xs)
@@ -343,17 +351,21 @@ genImports localNames externalImports = vsep $
   , pretty ("  fieldBoolSize, fieldFloatSize, fieldDoubleSize," :: Text)
   , pretty ("  fieldTextSize, fieldBytesSize)" :: Text)
   ]
-  <> fmap (genExternalImport localNames) (Map.toAscList externalImports)
+  <> fmap (genExternalImport localNames duplicateNames) (Map.toAscList externalImports)
+  where
+    allPairs = [(t, m) | (m, ts) <- Map.toAscList externalImports, t <- Set.toAscList ts]
+    nameCounts = Map.fromListWith (+) [(t, 1 :: Int) | (t, _) <- allPairs]
+    duplicateNames = Set.fromList [t | (t, c) <- Map.toList nameCounts, c > 1]
 
-genExternalImport :: Set Text -> (Text, Set Text) -> Doc ann
-genExternalImport localNames (modName, _types) =
-  let needsHiding = not (Set.null localNames)
-      hidingNames = Set.toAscList localNames
-  in if needsHiding
-     then pretty ("import " :: Text) <> pretty modName <> pretty (" hiding (" :: Text) <>
-          hsep (punctuate (pretty ("," :: Text)) (fmap pretty hidingNames)) <>
+genExternalImport :: Set Text -> Set Text -> (Text, Set Text) -> Doc ann
+genExternalImport localNames duplicateNames (modName, types) =
+  let conflicting = Set.union localNames duplicateNames
+      nonColliding = Set.filter (\t -> not (Set.member t conflicting)) types
+  in if Set.null nonColliding
+     then mempty
+     else pretty ("import " :: Text) <> pretty modName <> pretty (" (" :: Text) <>
+          hsep (punctuate (pretty ("," :: Text)) (fmap (\t -> pretty t <> pretty ("(..)" :: Text)) (Set.toAscList nonColliding))) <>
           pretty (")" :: Text)
-     else pretty ("import " :: Text) <> pretty modName
 
 -- ---------------------------------------------------------------------------
 -- Top-level generation
@@ -1178,7 +1190,7 @@ hsFieldType ctx scope ft = \case
   Nothing       -> case ft of
     FTScalar s | isUnboxableScalar s -> pretty ("{-# UNPACK #-} !" :: Text) <> hsScalarType s
     FTScalar _ -> pretty ("!" :: Text) <> hsFieldTypeInner ctx scope ft
-    FTNamed n -> case resolveType ctx n of
+    FTNamed n -> case resolveTypeWithScope ctx scope n of
       Just ti | tiKind ti == TKEnum -> pretty ("!" :: Text) <> pretty (tiHsName ti)
       _ -> pretty ("!(Maybe " :: Text) <> hsFieldTypeInner ctx scope ft <> pretty (")" :: Text)
 

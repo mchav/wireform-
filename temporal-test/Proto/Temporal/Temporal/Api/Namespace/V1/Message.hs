@@ -33,9 +33,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (BadBinaries, BadBinaryInfo, NamespaceConfig, NamespaceFilter, NamespaceInfo, NamespaceInfo'Capabilities, NamespaceInfo'Limits, UpdateNamespaceInfo)
-import Proto.Google.Protobuf.Timestamp hiding (BadBinaries, BadBinaryInfo, NamespaceConfig, NamespaceFilter, NamespaceInfo, NamespaceInfo'Capabilities, NamespaceInfo'Limits, UpdateNamespaceInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace hiding (BadBinaries, BadBinaryInfo, NamespaceConfig, NamespaceFilter, NamespaceInfo, NamespaceInfo'Capabilities, NamespaceInfo'Limits, UpdateNamespaceInfo)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ArchivalState(..), NamespaceState(..))
 
 
 data NamespaceInfo = NamespaceInfo
@@ -180,10 +180,10 @@ instance MessageDecode NamespaceInfo'Limits where
           Nothing -> pure (NamespaceInfo'Limits {namespaceInfoLimitsBlobsizelimiterror = acc_0, namespaceInfoLimitsMemosizelimiterror = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 

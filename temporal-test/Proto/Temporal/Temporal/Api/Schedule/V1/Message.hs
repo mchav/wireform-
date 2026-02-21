@@ -33,12 +33,12 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
-import Proto.Google.Protobuf.Timestamp hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
-import Proto.Temporal.Temporal.Api.Enums.V1.Schedule hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
-import Proto.Temporal.Temporal.Api.Workflow.V1.Message hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (Memo(..), SearchAttributes(..), WorkflowExecution(..), WorkflowType(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Schedule (ScheduleOverlapPolicy(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus(..))
+import Proto.Temporal.Temporal.Api.Workflow.V1.Message (NewWorkflowExecutionInfo(..))
 
 
 data CalendarSpec = CalendarSpec
@@ -173,13 +173,13 @@ instance MessageDecode Range where
           Nothing -> pure (Range {rangeStart = acc_0, rangeEnd = acc_1, rangeStep = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
@@ -685,7 +685,7 @@ instance MessageDecode ScheduleState where
               v <- decodeFieldBool
               loop acc_0 acc_1 v acc_3
             4 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
@@ -936,19 +936,19 @@ instance MessageDecode ScheduleInfo where
           Nothing -> pure (ScheduleInfo {scheduleInfoActioncount = acc_0, scheduleInfoMissedcatchupwindow = acc_1, scheduleInfoOverlapskipped = acc_2, scheduleInfoBufferdropped = acc_3, scheduleInfoBuffersize = acc_4, scheduleInfoRunningworkflows = acc_5, scheduleInfoRecentactions = acc_6, scheduleInfoFutureactiontimes = acc_7, scheduleInfoCreatetime = acc_8, scheduleInfoUpdatetime = acc_9, scheduleInfoInvalidscheduleerror = acc_10})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
             10 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
             11 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
             9 -> do
               v <- decodeFieldMessage

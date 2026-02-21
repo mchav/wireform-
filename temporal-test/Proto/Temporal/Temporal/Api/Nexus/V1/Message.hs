@@ -33,9 +33,10 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp hiding (CancelOperationRequest, CancelOperationResponse, Endpoint, EndpointSpec, EndpointTarget, EndpointTarget'External, EndpointTarget'Worker, Failure, HandlerError, Link, Request, Request'Capabilities, Response, StartOperationRequest, StartOperationResponse, StartOperationResponse'Async, StartOperationResponse'Sync, UnsuccessfulOperationError)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (CancelOperationRequest, CancelOperationResponse, Endpoint, EndpointSpec, EndpointTarget, EndpointTarget'External, EndpointTarget'Worker, Failure, HandlerError, Link, Request, Request'Capabilities, Response, StartOperationRequest, StartOperationResponse, StartOperationResponse'Async, StartOperationResponse'Sync, UnsuccessfulOperationError)
-import Proto.Temporal.Temporal.Api.Enums.V1.Nexus hiding (CancelOperationRequest, CancelOperationResponse, Endpoint, EndpointSpec, EndpointTarget, EndpointTarget'External, EndpointTarget'Worker, Failure, HandlerError, Link, Request, Request'Capabilities, Response, StartOperationRequest, StartOperationResponse, StartOperationResponse'Async, StartOperationResponse'Sync, UnsuccessfulOperationError)
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Nexus (NexusHandlerErrorRetryBehavior(..))
+import Proto.Temporal.Temporal.Api.Namespace.V1.Message (NamespaceInfo'Capabilities(..))
 
 
 data Failure = Failure
@@ -864,7 +865,7 @@ instance MessageDecode Endpoint where
           Nothing -> pure (Endpoint {endpointVersion = acc_0, endpointId = acc_1, endpointSpec = acc_2, endpointCreatedtime = acc_3, endpointLastmodifiedtime = acc_4, endpointUrlprefix = acc_5})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2 acc_3 acc_4 acc_5
             2 -> do
               v <- decodeFieldString

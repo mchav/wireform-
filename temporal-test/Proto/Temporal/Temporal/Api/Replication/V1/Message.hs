@@ -33,8 +33,8 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp hiding (ClusterReplicationConfig, FailoverStatus, NamespaceReplicationConfig)
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace hiding (ClusterReplicationConfig, FailoverStatus, NamespaceReplicationConfig)
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ReplicationState(..))
 
 
 data ClusterReplicationConfig = ClusterReplicationConfig
@@ -169,7 +169,7 @@ instance MessageDecode FailoverStatus where
               v <- decodeFieldMessage
               loop (Just v) acc_1
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 

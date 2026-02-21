@@ -33,9 +33,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (AddOrUpdateRemoteClusterRequest, AddOrUpdateRemoteClusterResponse, AddSearchAttributesRequest, AddSearchAttributesResponse, ClusterMetadata, CreateNexusEndpointRequest, CreateNexusEndpointResponse, DeleteNamespaceRequest, DeleteNamespaceResponse, DeleteNexusEndpointRequest, DeleteNexusEndpointResponse, GetNexusEndpointRequest, GetNexusEndpointResponse, ListClustersRequest, ListClustersResponse, ListNexusEndpointsRequest, ListNexusEndpointsResponse, ListSearchAttributesRequest, ListSearchAttributesResponse, RemoveRemoteClusterRequest, RemoveRemoteClusterResponse, RemoveSearchAttributesRequest, RemoveSearchAttributesResponse, UpdateNexusEndpointRequest, UpdateNexusEndpointResponse)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (AddOrUpdateRemoteClusterRequest, AddOrUpdateRemoteClusterResponse, AddSearchAttributesRequest, AddSearchAttributesResponse, ClusterMetadata, CreateNexusEndpointRequest, CreateNexusEndpointResponse, DeleteNamespaceRequest, DeleteNamespaceResponse, DeleteNexusEndpointRequest, DeleteNexusEndpointResponse, GetNexusEndpointRequest, GetNexusEndpointResponse, ListClustersRequest, ListClustersResponse, ListNexusEndpointsRequest, ListNexusEndpointsResponse, ListSearchAttributesRequest, ListSearchAttributesResponse, RemoveRemoteClusterRequest, RemoveRemoteClusterResponse, RemoveSearchAttributesRequest, RemoveSearchAttributesResponse, UpdateNexusEndpointRequest, UpdateNexusEndpointResponse)
-import Proto.Temporal.Temporal.Api.Nexus.V1.Message hiding (AddOrUpdateRemoteClusterRequest, AddOrUpdateRemoteClusterResponse, AddSearchAttributesRequest, AddSearchAttributesResponse, ClusterMetadata, CreateNexusEndpointRequest, CreateNexusEndpointResponse, DeleteNamespaceRequest, DeleteNamespaceResponse, DeleteNexusEndpointRequest, DeleteNexusEndpointResponse, GetNexusEndpointRequest, GetNexusEndpointResponse, ListClustersRequest, ListClustersResponse, ListNexusEndpointsRequest, ListNexusEndpointsResponse, ListSearchAttributesRequest, ListSearchAttributesResponse, RemoveRemoteClusterRequest, RemoveRemoteClusterResponse, RemoveSearchAttributesRequest, RemoveSearchAttributesResponse, UpdateNexusEndpointRequest, UpdateNexusEndpointResponse)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Common (IndexedValueType(..))
+import Proto.Temporal.Temporal.Api.Nexus.V1.Message (Endpoint(..), EndpointSpec(..))
 
 
 data AddSearchAttributesRequest = AddSearchAttributesRequest
@@ -613,7 +613,7 @@ instance MessageDecode ListClustersRequest where
           Nothing -> pure (ListClustersRequest {listClustersRequestPagesize = acc_0, listClustersRequestNextpagetoken = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1
             2 -> do
               v <- decodeFieldBytes
@@ -745,10 +745,10 @@ instance MessageDecode ClusterMetadata where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7
             4 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7
             5 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_7
             6 -> do
               v <- decodeFieldBool
@@ -976,7 +976,7 @@ instance MessageDecode UpdateNexusEndpointRequest where
               v <- decodeFieldString
               loop v acc_1 acc_2
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2
             3 -> do
               v <- decodeFieldMessage
@@ -1069,7 +1069,7 @@ instance MessageDecode DeleteNexusEndpointRequest where
               v <- decodeFieldString
               loop v acc_1
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
@@ -1152,7 +1152,7 @@ instance MessageDecode ListNexusEndpointsRequest where
           Nothing -> pure (ListNexusEndpointsRequest {listNexusEndpointsRequestPagesize = acc_0, listNexusEndpointsRequestNextpagetoken = acc_1, listNexusEndpointsRequestName = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2
             2 -> do
               v <- decodeFieldBytes

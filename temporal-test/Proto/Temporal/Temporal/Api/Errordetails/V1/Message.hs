@@ -33,11 +33,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Any hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
-import Proto.Temporal.Temporal.Api.Enums.V1.FailedCause hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
+import Proto.Google.Protobuf.Any (Any(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (WorkflowExecution(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.FailedCause (ResourceExhaustedCause(..), ResourceExhaustedScope(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (NamespaceState(..))
+import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
 
 
 data NotFoundFailure = NotFoundFailure
@@ -797,7 +797,7 @@ instance MessageDecode MultiOperationExecutionFailure'OperationStatus where
           Nothing -> pure (MultiOperationExecutionFailure'OperationStatus {multiOperationExecutionFailureOperationStatusCode = acc_0, multiOperationExecutionFailureOperationStatusMessage = acc_1, multiOperationExecutionFailureOperationStatusDetails = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2
             2 -> do
               v <- decodeFieldString

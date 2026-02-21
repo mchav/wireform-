@@ -33,11 +33,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.Nexus hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Payload(..), Payloads(..), WorkflowExecution(..), WorkflowType(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Common (ApplicationErrorCategory(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Nexus (NexusHandlerErrorRetryBehavior(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (RetryState(..), TimeoutType(..))
 
 
 data ApplicationFailureInfo = ApplicationFailureInfo
@@ -365,10 +365,10 @@ instance MessageDecode ActivityFailureInfo where
           Nothing -> pure (ActivityFailureInfo {activityFailureInfoScheduledeventid = acc_0, activityFailureInfoStartedeventid = acc_1, activityFailureInfoIdentity = acc_2, activityFailureInfoActivitytype = acc_3, activityFailureInfoActivityid = acc_4, activityFailureInfoRetrystate = acc_5})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2 acc_3 acc_4 acc_5
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2 acc_3 acc_4 acc_5
             3 -> do
               v <- decodeFieldString
@@ -454,10 +454,10 @@ instance MessageDecode ChildWorkflowExecutionFailureInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v) acc_3 acc_4 acc_5
             4 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 v acc_4 acc_5
             5 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 v acc_5
             6 -> do
               v <- decodeFieldEnum
@@ -525,7 +525,7 @@ instance MessageDecode NexusOperationFailureInfo where
           Nothing -> pure (NexusOperationFailureInfo {nexusOperationFailureInfoScheduledeventid = acc_0, nexusOperationFailureInfoEndpoint = acc_1, nexusOperationFailureInfoService = acc_2, nexusOperationFailureInfoOperation = acc_3, nexusOperationFailureInfoOperationid = acc_4, nexusOperationFailureInfoOperationtoken = acc_5})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2 acc_3 acc_4 acc_5
             2 -> do
               v <- decodeFieldString

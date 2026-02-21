@@ -33,10 +33,10 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (QueryRejected, WorkflowQuery, WorkflowQueryResult)
-import Proto.Temporal.Temporal.Api.Enums.V1.Query hiding (QueryRejected, WorkflowQuery, WorkflowQueryResult)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (QueryRejected, WorkflowQuery, WorkflowQueryResult)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (QueryRejected, WorkflowQuery, WorkflowQueryResult)
+import Proto.Temporal.Temporal.Api.Common.V1.Message (Header(..), Payloads(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Query (QueryResultType(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus(..))
+import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
 
 
 data WorkflowQuery = WorkflowQuery

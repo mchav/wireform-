@@ -33,7 +33,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (UserMetadata)
+import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
 
 
 data UserMetadata = UserMetadata

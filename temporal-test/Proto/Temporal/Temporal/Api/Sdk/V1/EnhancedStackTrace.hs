@@ -174,7 +174,7 @@ instance MessageDecode StackTraceFileSlice where
           Nothing -> pure (StackTraceFileSlice {stackTraceFileSliceLineoffset = acc_0, stackTraceFileSliceContent = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1
             2 -> do
               v <- decodeFieldString
@@ -237,10 +237,10 @@ instance MessageDecode StackTraceFileLocation where
               v <- decodeFieldString
               loop v acc_1 acc_2 acc_3 acc_4
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2 acc_3 acc_4
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v acc_3 acc_4
             4 -> do
               v <- decodeFieldString

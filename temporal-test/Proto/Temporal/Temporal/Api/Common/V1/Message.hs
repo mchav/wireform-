@@ -33,11 +33,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
-import Proto.Google.Protobuf.Empty hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
-import Proto.Temporal.Temporal.Api.Enums.V1.EventType hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
-import Proto.Temporal.Temporal.Api.Enums.V1.Reset hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Google.Protobuf.Empty (Empty(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Common (EncodingType(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.EventType (EventType(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Reset (ResetReapplyExcludeType(..), ResetReapplyType(..))
 
 
 data DataBlob = DataBlob
@@ -165,7 +165,7 @@ instance MessageDecode Payload'ExternalPayloadDetails where
           Nothing -> pure (Payload'ExternalPayloadDetails {payloadExternalPayloadDetailsSizebytes = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
 
@@ -544,7 +544,7 @@ instance MessageDecode RetryPolicy where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v) acc_3 acc_4
             4 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 v acc_4
             5 -> do
               v <- decodeFieldString
@@ -591,7 +591,7 @@ instance MessageDecode MeteringMetadata where
           Nothing -> pure (MeteringMetadata {meteringMetadataNonfirstlocalactivityexecutionattempts = acc_0})
           Just (Tag fn wt) -> case fn of
             13 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
 
@@ -773,7 +773,7 @@ instance MessageDecode ResetOptions where
               v <- decodeFieldMessage
               loop (Just (ResetOptions'Target'LastWorkflowTask v)) acc_1 acc_2 acc_3
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop (Just (ResetOptions'Target'WorkflowTaskId v)) acc_1 acc_2 acc_3
             4 -> do
               v <- decodeFieldString
@@ -1003,7 +1003,7 @@ instance MessageDecode Link'WorkflowEvent'EventReference where
           Nothing -> pure (Link'WorkflowEvent'EventReference {linkWorkflowEventEventReferenceEventid = acc_0, linkWorkflowEventEventReferenceEventtype = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1
             2 -> do
               v <- decodeFieldEnum
@@ -1266,7 +1266,7 @@ instance MessageDecode Priority where
           Nothing -> pure (Priority {priorityPrioritykey = acc_0, priorityFairnesskey = acc_1, priorityFairnessweight = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2
             2 -> do
               v <- decodeFieldString

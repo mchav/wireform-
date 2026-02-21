@@ -33,7 +33,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Any hiding (Message)
+import Proto.Google.Protobuf.Any (Any(..))
 
 
 data Message = Message
@@ -95,10 +95,10 @@ instance MessageDecode Message where
               v <- decodeFieldString
               loop acc_0 v acc_2 acc_3
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 (Just (Message'SequencingId'EventId v)) acc_3
             4 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 (Just (Message'SequencingId'CommandIndex v)) acc_3
             5 -> do
               v <- decodeFieldMessage

@@ -75,10 +75,10 @@ instance MessageDecode WorkflowTaskCompletedMetadata where
           Nothing -> pure (WorkflowTaskCompletedMetadata {workflowTaskCompletedMetadataCoreusedflags = acc_0, workflowTaskCompletedMetadataLangusedflags = acc_1, workflowTaskCompletedMetadataSdkname = acc_2, workflowTaskCompletedMetadataSdkversion = acc_3})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop (acc_0 <> VU.singleton v) acc_1 acc_2 acc_3
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3
             3 -> do
               v <- decodeFieldString

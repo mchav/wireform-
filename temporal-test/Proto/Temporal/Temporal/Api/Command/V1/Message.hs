@@ -33,13 +33,13 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
-import Proto.Temporal.Temporal.Api.Enums.V1.CommandType hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Header(..), Memo(..), Payload(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..), WorkflowExecution(..), WorkflowType(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.CommandType (CommandType(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (ContinueAsNewInitiator(..), ContinueAsNewVersioningBehavior(..), ParentClosePolicy(..), WorkflowIdReusePolicy(..))
+import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
+import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata(..))
+import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue(..))
 
 
 data ScheduleActivityTaskCommandAttributes = ScheduleActivityTaskCommandAttributes
@@ -206,7 +206,7 @@ instance MessageDecode RequestCancelActivityTaskCommandAttributes where
           Nothing -> pure (RequestCancelActivityTaskCommandAttributes {requestCancelActivityTaskCommandAttributesScheduledeventid = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
 
@@ -1252,7 +1252,7 @@ instance MessageDecode RequestCancelNexusOperationCommandAttributes where
           Nothing -> pure (RequestCancelNexusOperationCommandAttributes {requestCancelNexusOperationCommandAttributesScheduledeventid = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
 

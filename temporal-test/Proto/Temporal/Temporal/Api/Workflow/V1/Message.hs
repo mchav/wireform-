@@ -33,19 +33,19 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Google.Protobuf.Empty hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Google.Protobuf.FieldMask hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Google.Protobuf.Timestamp hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Activity.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.EventType hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Google.Protobuf.Empty (Empty(..))
+import Proto.Google.Protobuf.FieldMask (FieldMask(..))
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Activity.V1.Message (ActivityOptions(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Callback(..), Header(..), Link(..), Memo(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..), WorkerVersionStamp(..), WorkflowExecution(..), WorkflowType(..))
+import Proto.Temporal.Temporal.Api.Deployment.V1.Message (Deployment(..), WorkerDeploymentVersion(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Common (CallbackState(..), NexusOperationCancellationState(..), PendingNexusOperationState(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.EventType (EventType(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (ParentClosePolicy(..), PendingActivityState(..), PendingWorkflowTaskState(..), VersioningBehavior(..), WorkflowExecutionStatus(..), WorkflowIdReusePolicy(..))
+import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
+import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata(..))
+import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue(..))
 
 
 data WorkflowExecutionInfo = WorkflowExecutionInfo
@@ -191,7 +191,7 @@ instance MessageDecode WorkflowExecutionInfo where
               v <- decodeFieldEnum
               loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25
             6 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25
             7 -> do
               v <- decodeFieldString
@@ -215,10 +215,10 @@ instance MessageDecode WorkflowExecutionInfo where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 v acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25
             14 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 v acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25
             15 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 v acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25
             16 -> do
               v <- decodeFieldMessage
@@ -248,10 +248,10 @@ instance MessageDecode WorkflowExecutionInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 (Just v) acc_24 acc_25
             25 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 v acc_25
             26 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25
 
@@ -464,7 +464,7 @@ instance MessageDecode WorkflowExecutionVersioningInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v) acc_7
             8 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
@@ -963,10 +963,10 @@ instance MessageDecode PendingActivityInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v) acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
             7 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
             8 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
             9 -> do
               v <- decodeFieldMessage
@@ -1105,7 +1105,7 @@ instance MessageDecode PendingChildExecutionInfo where
               v <- decodeFieldString
               loop acc_0 acc_1 v acc_3 acc_4
             4 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 v acc_4
             5 -> do
               v <- decodeFieldEnum
@@ -1180,7 +1180,7 @@ instance MessageDecode PendingWorkflowTaskInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 (Just v) acc_4
             5 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
@@ -1298,7 +1298,7 @@ instance MessageDecode ResetPointInfo where
               v <- decodeFieldString
               loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6
             4 -> do
               v <- decodeFieldMessage
@@ -1642,7 +1642,7 @@ instance MessageDecode CallbackInfo where
               v <- decodeFieldEnum
               loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8
             5 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6 acc_7 acc_8
             6 -> do
               v <- decodeFieldMessage
@@ -1787,7 +1787,7 @@ instance MessageDecode PendingNexusOperationInfo where
               v <- decodeFieldEnum
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16
             8 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16
             9 -> do
               v <- decodeFieldMessage
@@ -1802,7 +1802,7 @@ instance MessageDecode PendingNexusOperationInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 (Just v) acc_12 acc_13 acc_14 acc_15 acc_16
             13 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 v acc_13 acc_14 acc_15 acc_16
             14 -> do
               v <- decodeFieldString
@@ -1900,7 +1900,7 @@ instance MessageDecode NexusOperationCancellationInfo where
               v <- decodeFieldEnum
               loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6
             4 -> do
               v <- decodeFieldMessage
@@ -1997,7 +1997,7 @@ instance ProtoFromJSON VersioningOverride'Override where
   protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 data VersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
-  { versioningOverridePinnedOverrideBehavior :: !(Maybe VersioningOverride'PinnedOverrideBehavior)
+  { versioningOverridePinnedOverrideBehavior :: !VersioningOverride'PinnedOverrideBehavior
   , versioningOverridePinnedOverrideVersion :: !(Maybe WorkerDeploymentVersion)
   }
   deriving stock (Show, Eq, Generic)
@@ -2005,7 +2005,7 @@ data VersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
 
 defaultVersioningOverride'PinnedOverride :: VersioningOverride'PinnedOverride
 defaultVersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
-  { versioningOverridePinnedOverrideBehavior = Nothing
+  { versioningOverridePinnedOverrideBehavior = (toEnum 0)
   , versioningOverridePinnedOverrideVersion = Nothing
   }
 
@@ -2236,7 +2236,7 @@ instance MessageDecode RequestIdInfo where
               v <- decodeFieldEnum
               loop v acc_1 acc_2
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2
             3 -> do
               v <- decodeFieldBool

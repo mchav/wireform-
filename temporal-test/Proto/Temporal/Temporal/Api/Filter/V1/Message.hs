@@ -33,8 +33,8 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp hiding (StartTimeFilter, StatusFilter, WorkflowExecutionFilter, WorkflowTypeFilter)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (StartTimeFilter, StatusFilter, WorkflowExecutionFilter, WorkflowTypeFilter)
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus(..))
 
 
 data WorkflowExecutionFilter = WorkflowExecutionFilter

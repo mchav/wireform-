@@ -33,9 +33,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (Acceptance, Input, Meta, Outcome, Rejection, Request, Response, UpdateRef, WaitPolicy)
-import Proto.Temporal.Temporal.Api.Enums.V1.Update hiding (Acceptance, Input, Meta, Outcome, Rejection, Request, Response, UpdateRef, WaitPolicy)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (Acceptance, Input, Meta, Outcome, Rejection, Request, Response, UpdateRef, WaitPolicy)
+import Proto.Temporal.Temporal.Api.Common.V1.Message (Header(..), Payloads(..), WorkflowExecution(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Update (UpdateWorkflowExecutionLifecycleStage(..))
+import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
 
 
 data WaitPolicy = WaitPolicy
@@ -379,7 +379,7 @@ instance MessageDecode Rejection where
               v <- decodeFieldString
               loop v acc_1 acc_2 acc_3
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2 acc_3
             3 -> do
               v <- decodeFieldMessage
@@ -439,7 +439,7 @@ instance MessageDecode Acceptance where
               v <- decodeFieldString
               loop v acc_1 acc_2
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2
             3 -> do
               v <- decodeFieldMessage

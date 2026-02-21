@@ -13,6 +13,7 @@ import Proto.Encode
 import Proto.JSON
 import Proto.Decode
 import Proto.Wire (Tag (..))
+import Proto.Wire.Encode (fieldTextSize)
 
 data FieldMask = FieldMask
   { paths :: !(V.Vector Text)
@@ -39,6 +40,9 @@ instance MessageDecode FieldMask where
             loop (V.snoc ps p)
           Just (Tag _ wt) -> skipField wt >> loop ps
   {-# INLINE messageDecoder #-}
+
+instance MessageSize FieldMask where
+  messageSize (FieldMask ps) = V.foldl' (\acc p -> acc + fieldTextSize 1 p) 0 ps
 
 instance ProtoToJSON FieldMask where
   protoToJSON _ = JsonNull

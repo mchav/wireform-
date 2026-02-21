@@ -33,12 +33,12 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
-import Proto.Google.Protobuf.Timestamp hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
-import Proto.Google.Protobuf.Wrappers hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
-import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
-import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Google.Protobuf.Wrappers (DoubleValue(..))
+import Proto.Temporal.Temporal.Api.Common.V1.Message (WorkerVersionCapabilities(..))
+import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentOptions(..), WorkerDeploymentVersion(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue (BuildIdTaskReachability(..), TaskQueueKind(..), TaskReachability(..))
 
 
 data TaskQueue = TaskQueue
@@ -289,7 +289,7 @@ defaultTaskQueueVersionInfo = TaskQueueVersionInfo
 
 instance MessageEncode TaskQueueVersionInfo where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldVarint 1 . fromIntegral k) (encodeFieldMessage 2 v)) mempty msg.taskQueueVersionInfoTypesinfo
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 ((\x -> encodeFieldVarint 1 (fromIntegral x)) k) (encodeFieldMessage 2 v)) mempty msg.taskQueueVersionInfoTypesinfo
     <> (if fromEnum msg.taskQueueVersionInfoTaskreachability == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.taskQueueVersionInfoTaskreachability)))
 
 instance MessageSize TaskQueueVersionInfo where
@@ -307,7 +307,7 @@ instance MessageDecode TaskQueueVersionInfo where
           Just (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
-              let decodeEntry = runDecoder (decodeMapEntry fromIntegral <$> decodeFieldVarint decodeFieldMessage 0 undefined) bs'
+              let decodeEntry = runDecoder (decodeMapEntry (fromIntegral <$> decodeFieldVarint) decodeFieldMessage 0 undefined) bs'
               case decodeEntry of
                 Left _ -> loop acc_0 acc_1
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_1
@@ -413,7 +413,7 @@ instance MessageDecode TaskQueueStats where
           Nothing -> pure (TaskQueueStats {taskQueueStatsApproximatebacklogcount = acc_0, taskQueueStatsApproximatebacklogage = acc_1, taskQueueStatsTasksaddrate = acc_2, taskQueueStatsTasksdispatchrate = acc_3})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2 acc_3
             2 -> do
               v <- decodeFieldMessage
@@ -481,13 +481,13 @@ instance MessageDecode TaskQueueStatus where
           Nothing -> pure (TaskQueueStatus {taskQueueStatusBacklogcounthint = acc_0, taskQueueStatusReadlevel = acc_1, taskQueueStatusAcklevel = acc_2, taskQueueStatusRatepersecond = acc_3, taskQueueStatusTaskidblock = acc_4})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2 acc_3 acc_4
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2 acc_3 acc_4
             3 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v acc_3 acc_4
             4 -> do
               v <- decodeFieldDouble
@@ -541,10 +541,10 @@ instance MessageDecode TaskIdBlock where
           Nothing -> pure (TaskIdBlock {taskIdBlockStartid = acc_0, taskIdBlockEndid = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
@@ -1133,7 +1133,7 @@ instance MessageDecode PollerScalingDecision where
           Nothing -> pure (PollerScalingDecision {pollerScalingDecisionPollrequestdeltasuggestion = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
 

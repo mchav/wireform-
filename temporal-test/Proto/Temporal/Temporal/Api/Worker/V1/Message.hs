@@ -33,10 +33,10 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration hiding (PluginInfo, WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerPollerInfo, WorkerSlotsInfo)
-import Proto.Google.Protobuf.Timestamp hiding (PluginInfo, WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerPollerInfo, WorkerSlotsInfo)
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message hiding (PluginInfo, WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerPollerInfo, WorkerSlotsInfo)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (PluginInfo, WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerPollerInfo, WorkerSlotsInfo)
+import Proto.Google.Protobuf.Duration (Duration(..))
+import Proto.Google.Protobuf.Timestamp (Timestamp(..))
+import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentVersion(..))
+import Proto.Temporal.Temporal.Api.Enums.V1.Common (WorkerStatus(..))
 
 
 data WorkerPollerInfo = WorkerPollerInfo
@@ -75,7 +75,7 @@ instance MessageDecode WorkerPollerInfo where
           Nothing -> pure (WorkerPollerInfo {workerPollerInfoCurrentpollers = acc_0, workerPollerInfoLastsuccessfulpolltime = acc_1, workerPollerInfoIsautoscaling = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2
             2 -> do
               v <- decodeFieldMessage
@@ -147,25 +147,25 @@ instance MessageDecode WorkerSlotsInfo where
           Nothing -> pure (WorkerSlotsInfo {workerSlotsInfoCurrentavailableslots = acc_0, workerSlotsInfoCurrentusedslots = acc_1, workerSlotsInfoSlotsupplierkind = acc_2, workerSlotsInfoTotalprocessedtasks = acc_3, workerSlotsInfoTotalfailedtasks = acc_4, workerSlotsInfoLastintervalprocessedtasks = acc_5, workerSlotsInfoLastintervalfailuretasks = acc_6})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
             2 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v acc_2 acc_3 acc_4 acc_5 acc_6
             3 -> do
               v <- decodeFieldString
               loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6
             4 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6
             5 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 v acc_5 acc_6
             6 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6
             7 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
@@ -428,13 +428,13 @@ instance MessageDecode WorkerHeartbeat where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 (Just v) acc_19 acc_20 acc_21 acc_22
             20 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 v acc_20 acc_21 acc_22
             21 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 v acc_21 acc_22
             22 -> do
-              v <- fromIntegral <$> decodeFieldVarint
+              v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 v acc_22
             23 -> do
               v <- decodeFieldMessage
