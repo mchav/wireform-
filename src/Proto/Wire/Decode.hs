@@ -74,7 +74,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8)
+import Data.Text.Encoding (decodeUtf8Lenient)
 import Data.Text.Internal.Encoding (validateUtf8Chunk)
 import Data.Word (Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
@@ -287,7 +287,7 @@ getText = Decoder $ \bs off ->
   case runDecoder# getLengthDelimited bs off of
     (# (# bytes, off' #) | #) ->
       if validateUtf8 bytes
-      then (# (# decodeUtf8 bytes, off' #) | #)
+      then (# (# decodeUtf8Lenient bytes, off' #) | #)
       else (# | InvalidUtf8 #)
     (# | e #) -> (# | e #)
 {-# INLINE getText #-}
