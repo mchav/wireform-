@@ -295,6 +295,20 @@ executable example-qq
     default-extensions:
       OverloadedStrings
 
+test-suite conformance-self-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , bytestring
+      , vector
+    hs-source-dirs:   test-conformance
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
 executable bench-grow
     import:           warnings
     main-is:          Main.hs
