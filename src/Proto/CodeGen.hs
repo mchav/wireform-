@@ -553,9 +553,12 @@ genNestedElement ctx scope = \case
 genMessageDataDecl :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genMessageDataDecl ctx scope msg =
   let tyN = scopedTypeName scope
+      userFields = concatMap (extractFieldDecl ctx scope) (msgElements msg)
+      unknownFieldDecl = pretty (unknownFieldAccessor scope) <+> pretty ("::" :: Text) <+> pretty ("![UnknownField]" :: Text)
+      allFields = userFields <> [unknownFieldDecl]
   in vsep
     [ pretty ("data " :: Text) <> pretty tyN <> pretty (" = " :: Text) <> pretty tyN
-    , indent 2 (braceFields (concatMap (extractFieldDecl ctx scope) (msgElements msg)))
+    , indent 2 (braceFields allFields)
     , indent 2 (pretty ("deriving stock (Show, Eq, Generic)" :: Text))
     , indent 2 (pretty ("deriving anyclass NFData" :: Text))
     ]
@@ -563,6 +566,9 @@ genMessageDataDecl ctx scope msg =
     braceFields [] = pretty ("{ }" :: Text)
     braceFields (f:fs) =
       vsep (pretty ("{ " :: Text) <> f : fmap (\x -> pretty (", " :: Text) <> x) fs) <> line <> pretty ("}" :: Text)
+
+unknownFieldAccessor :: [Text] -> Text
+unknownFieldAccessor scope = scopedFieldName scope "_unknownFields"
 
 extractFieldDecl :: GenCtx -> [Text] -> MessageElement -> [Doc ann]
 extractFieldDecl ctx scope = \case
@@ -636,7 +642,9 @@ genDefaultInstance ctx scope msg =
 
 genDefaultFields :: GenCtx -> [Text] -> [MessageElement] -> Doc ann
 genDefaultFields ctx scope elems =
-  let fields = concatMap extractDefault elems
+  let userFields = concatMap extractDefault elems
+      unknownDefault = pretty (unknownFieldAccessor scope) <+> pretty ("=" :: Text) <+> pretty ("[]" :: Text)
+      fields = userFields <> [unknownDefault]
   in case fields of
     [] -> pretty ("{ }" :: Text)
     (f:fs) -> vsep (pretty ("{ " :: Text) <> f : fmap (\x -> pretty (", " :: Text) <> x) fs) <> line <> pretty ("}" :: Text)
@@ -674,13 +682,15 @@ genEncodeInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genEncodeInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fields = extractAllFields ctx scope (msgElements msg)
+      unknownAcc = "msg." <> unknownFieldAccessor scope
   in vsep
     [ pretty ("instance MessageEncode " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
         [ pretty ("buildMessage msg =" :: Text)
         , indent 2 $ case fields of
-            [] -> pretty ("mempty" :: Text)
-            _  -> vsep (zipWith (\i f -> genFieldBuild ctx i f) [0..] fields)
+            [] -> pretty ("encodeUnknownFields " :: Text) <> pretty unknownAcc
+            _  -> vsep (zipWith (\i f -> genFieldBuild ctx i f) [0..] fields
+                       <> [pretty ("<> encodeUnknownFields " :: Text) <> pretty unknownAcc])
         ]
     ]
 
@@ -830,13 +840,15 @@ genSizeInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genSizeInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fields = extractAllFields ctx scope (msgElements msg)
+      unknownAcc = "msg." <> unknownFieldAccessor scope
   in vsep
     [ pretty ("instance MessageSize " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
         [ pretty ("messageSize msg =" :: Text)
         , indent 2 $ case fields of
-            [] -> pretty ("0" :: Text)
-            _  -> vsep (zipWith (\i f -> genFieldSizeExpr ctx i f) [0..] fields)
+            [] -> pretty ("unknownFieldsSize " :: Text) <> pretty unknownAcc
+            _  -> vsep (zipWith (\i f -> genFieldSizeExpr ctx i f) [0..] fields
+                       <> [pretty ("+ unknownFieldsSize " :: Text) <> pretty unknownAcc])
         ]
     ]
 
@@ -982,25 +994,31 @@ genDecodeInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fields = extractAllFields ctx scope (msgElements msg)
       allAccs = fmap (\(i, _) -> "acc_" <> T.pack (show i)) (zip [0..] fields)
+      unknownAcc = "acc_unknown_"
+      allAccsWithUnknown = allAccs <> [unknownAcc]
+      unknownFieldName = unknownFieldAccessor scope
   in vsep
     [ pretty ("instance MessageDecode " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
         [ pretty ("messageDecoder = " :: Text) <> pretty ("loop" :: Text) <+>
-          hsep (fmap (\fi -> pretty (fieldDefaultText ctx fi)) fields)
+          hsep (fmap (\fi -> pretty (fieldDefaultText ctx fi)) fields) <+> pretty ("[]" :: Text)
         , indent 2 $ pretty ("where" :: Text)
         , indent 4 $ vsep
-            [ pretty ("loop " :: Text) <> hsep (fmap pretty allAccs) <+> pretty ("= do" :: Text)
+            [ pretty ("loop " :: Text) <> hsep (fmap pretty allAccsWithUnknown) <+> pretty ("= do" :: Text)
             , indent 2 $ vsep
                 [ pretty ("mTag <- getTagOr" :: Text)
                 , pretty ("case mTag of" :: Text)
                 , indent 2 $ vsep
                     [ pretty ("Nothing -> pure (" :: Text) <> pretty tyN <+>
-                      braces (hsep (punctuate comma (fmap (\fi ->
-                        pretty (fifAccessor fi) <+> pretty ("=" :: Text) <+> pretty ("acc_" :: Text) <> pretty (T.pack (show (fifIndex fi)))
-                      ) fields))) <>
+                      braces (hsep (punctuate comma (
+                        fmap (\fi ->
+                          pretty (fifAccessor fi) <+> pretty ("=" :: Text) <+> pretty ("acc_" :: Text) <> pretty (T.pack (show (fifIndex fi)))
+                        ) fields
+                        <> [pretty unknownFieldName <+> pretty ("= reverse " :: Text) <> pretty unknownAcc]
+                      ))) <>
                       pretty (")" :: Text)
                     , pretty ("Just (Tag fn wt) -> case fn of" :: Text)
-                    , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccs) fields <> [genDefaultDecodeCase allAccs])
+                    , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccsWithUnknown) fields <> [genDefaultDecodeCase scope allAccsWithUnknown])
                     ]
                 ]
             ]
@@ -1091,9 +1109,16 @@ genOneofDecodeCase ctx scope ooName allAccs fi oof =
          ])
      ]
 
-genDefaultDecodeCase :: [Text] -> Doc ann
-genDefaultDecodeCase allAccs =
-  pretty ("_ -> skipField wt >> loop " :: Text) <> hsep (fmap pretty allAccs)
+genDefaultDecodeCase :: [Text] -> [Text] -> Doc ann
+genDefaultDecodeCase scope allAccsWithUnknown =
+  let unknownAcc = last allAccsWithUnknown
+      fieldAccs = init allAccsWithUnknown
+      newAccs = fieldAccs <> ["(uf : " <> unknownAcc <> ")"]
+  in pretty ("_ -> do" :: Text) <> line <>
+     indent 2 (vsep
+       [ pretty ("uf <- captureUnknownField fn wt" :: Text)
+       , pretty ("loop " :: Text) <> hsep (fmap pretty newAccs)
+       ])
 
 fieldDefaultText :: GenCtx -> FieldInfoFull -> Text
 fieldDefaultText ctx fi = case fifKind fi of

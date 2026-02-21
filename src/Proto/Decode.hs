@@ -75,12 +75,18 @@ module Proto.Decode
 
     -- * CPS failure
   , decodeFail
+
+    -- * Unknown field sizes
+  , unknownFieldsSize
   ) where
 
+import Data.Bits (shiftL, shiftR)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import Data.Int (Int32, Int64)
+import Control.DeepSeq (NFData(..))
+import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
@@ -352,6 +358,12 @@ data UnknownField
   | UnknownLenDelim  {-# UNPACK #-} !Int !ByteString
   deriving stock (Show, Eq)
 
+instance NFData UnknownField where
+  rnf (UnknownVarint a b) = rnf a `seq` rnf b
+  rnf (UnknownFixed64 a b) = rnf a `seq` rnf b
+  rnf (UnknownFixed32 a b) = rnf a `seq` rnf b
+  rnf (UnknownLenDelim a b) = rnf a `seq` rnf b
+
 -- | Capture an unknown field value during decoding.
 captureUnknownField :: Int -> WireType -> Decoder UnknownField
 captureUnknownField fn = \case
@@ -360,6 +372,27 @@ captureUnknownField fn = \case
   Wire32Bit           -> UnknownFixed32 fn <$> getFixed32
   WireLengthDelimited -> UnknownLenDelim fn <$> getLengthDelimited
   wt                  -> skipField wt >> decodeFail (CustomError ("Unsupported unknown wire type: " <> show wt))
+
+-- | Compute the wire-format size of unknown fields.
+unknownFieldsSize :: [UnknownField] -> Int
+unknownFieldsSize = foldl' (\acc uf -> acc + unknownFieldSize uf) 0
+  where
+    unknownFieldSize (UnknownVarint fn val) =
+      tagSz fn + varintSz val
+    unknownFieldSize (UnknownFixed64 fn _) =
+      tagSz fn + 8
+    unknownFieldSize (UnknownFixed32 fn _) =
+      tagSz fn + 4
+    unknownFieldSize (UnknownLenDelim fn val) =
+      tagSz fn + varintSz (fromIntegral (BS.length val)) + BS.length val
+    tagSz fn = varintSz (fromIntegral fn `shiftL` 3)
+    varintSz :: Word64 -> Int
+    varintSz n
+      | n < 0x80       = 1
+      | n < 0x4000     = 2
+      | n < 0x200000   = 3
+      | n < 0x10000000 = 4
+      | otherwise       = 5 + varintSz (n `shiftR` 35)
 
 -- | Re-encode unknown fields for round-trip preservation.
 encodeUnknownFields :: [UnknownField] -> B.Builder
