@@ -236,6 +236,59 @@ uint64_t hs_proto_decode_fixed64(const uint8_t *buf, int offset)
 }
 
 /*
+ * Fast UTF-8 validation.
+ * Returns 1 if the buffer is valid UTF-8, 0 otherwise.
+ * Does not allocate or throw exceptions.
+ */
+int hs_proto_validate_utf8(const uint8_t *buf, int len)
+{
+    int i = 0;
+    while (i < len) {
+        uint8_t b = buf[i];
+        if (b < 0x80) {
+            /* ASCII fast path: scan multiple bytes */
+            i++;
+            while (i < len && buf[i] < 0x80) i++;
+            continue;
+        }
+
+        int width;
+        uint32_t codepoint;
+        if ((b & 0xE0) == 0xC0) {
+            width = 2;
+            codepoint = b & 0x1F;
+            if (codepoint < 2) return 0; /* overlong */
+        } else if ((b & 0xF0) == 0xE0) {
+            width = 3;
+            codepoint = b & 0x0F;
+        } else if ((b & 0xF8) == 0xF0) {
+            width = 4;
+            codepoint = b & 0x07;
+            if (codepoint > 4) return 0; /* > U+10FFFF */
+        } else {
+            return 0; /* invalid lead byte */
+        }
+
+        if (i + width > len) return 0;
+
+        for (int j = 1; j < width; j++) {
+            uint8_t cb = buf[i + j];
+            if ((cb & 0xC0) != 0x80) return 0;
+            codepoint = (codepoint << 6) | (cb & 0x3F);
+        }
+
+        /* Reject overlong encodings and surrogates */
+        if (width == 3 && codepoint < 0x800) return 0;
+        if (width == 4 && codepoint < 0x10000) return 0;
+        if (codepoint >= 0xD800 && codepoint <= 0xDFFF) return 0;
+        if (codepoint > 0x10FFFF) return 0;
+
+        i += width;
+    }
+    return 1;
+}
+
+/*
  * Scan for the next field tag in a message buffer.
  * Skips the current field value based on wire type.
  * Returns the new offset after skipping, or -1 on error.

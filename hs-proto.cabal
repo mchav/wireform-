@@ -105,6 +105,7 @@ library
       Proto.Descriptor.Convert
       Proto.Internal.Maybe
       Proto.Internal.Either
+      Proto.Wire.Result
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native

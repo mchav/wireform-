@@ -90,6 +90,9 @@ module Proto.Decode
     -- * Three-way tag CPS (flattened, zero-allocation decode loop)
   , TagResult#
   , withTag
+
+    -- * Combined three-way result type
+  , DecRes# (..)
   ) where
 
 import Data.Bits (shiftL, shiftR)
@@ -105,6 +108,7 @@ import Data.Word (Word32, Word64)
 import Proto.Wire (Tag(..), WireType (..))
 import Proto.Wire.Decode
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64, putLengthDelimited)
+import Proto.Wire.Result
 
 -- | Typeclass for types that can be decoded from protobuf wire format.
 class MessageDecode a where

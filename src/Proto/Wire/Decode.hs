@@ -63,6 +63,9 @@ module Proto.Wire.Decode
     -- * Three-way tag result (flattened unboxed sum for the decode loop)
   , TagResult#
   , withTag
+
+    -- * Non-throwing UTF-8 validation (C FFI, no catch#)
+  , validateUtf8
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor)
@@ -71,8 +74,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
-import qualified Data.Text.Encoding as TE
-import Data.Word (Word32, Word64)
+import Data.Text.Encoding (decodeUtf8)
+import qualified Data.ByteString.Internal as BSI
+import Foreign.Ptr (Ptr, plusPtr)
+import Foreign.ForeignPtr (withForeignPtr)
+import System.IO.Unsafe (unsafeDupablePerformIO)
+import Data.Word (Word8, Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Exts (Int#, Int(I#), (+#), (>=#), isTrue#)
 import Control.DeepSeq (NFData(..))
@@ -282,9 +289,9 @@ getText :: Decoder Text
 getText = Decoder $ \bs off ->
   case runDecoder# getLengthDelimited bs off of
     (# (# bytes, off' #) | #) ->
-      case TE.decodeUtf8' bytes of
-        Left _  -> (# | InvalidUtf8 #)
-        Right t -> (# (# t, off' #) | #)
+      if validateUtf8 bytes
+      then (# (# decodeUtf8 bytes, off' #) | #)
+      else (# | InvalidUtf8 #)
     (# | e #) -> (# | e #)
 {-# INLINE getText #-}
 
@@ -416,4 +423,22 @@ decodeTagParts w =
     I# fn# -> case wt of
       I# wt# -> (# fn#, wt# #)
 {-# INLINE decodeTagParts #-}
+
+-- | C FFI UTF-8 validator. Returns 1 for valid, 0 for invalid.
+foreign import ccall unsafe "hs_proto_validate_utf8"
+  c_validate_utf8 :: Ptr Word8 -> Int -> Int
+
+-- | Validate UTF-8 without exceptions. Uses C FFI for the validation,
+-- then constructs Text only when valid. This avoids the catch#-based
+-- exception path in Data.Text.Encoding.decodeUtf8' which Core showed
+-- allocates Right/Left constructors in the hot decode path.
+validateUtf8 :: ByteString -> Bool
+validateUtf8 bs =
+  case BSI.toForeignPtr bs of
+    (fptr, off, len) ->
+      unsafeDupablePerformIO $
+        withForeignPtr fptr $ \ptr ->
+          let !r = c_validate_utf8 (ptr `plusPtr` off) len
+          in pure (r == 1)
+{-# INLINE validateUtf8 #-}
 
