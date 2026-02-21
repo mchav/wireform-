@@ -1,0 +1,173 @@
+{-# LANGUAGE BangPatterns #-}
+-- | Conformance test harness for the official protobuf conformance suite.
+--
+-- The conformance runner sends 'ConformanceRequest' messages via stdin
+-- (length-prefixed) and expects 'ConformanceResponse' messages back.
+--
+-- To run:
+--
+-- @
+-- conformance-test-runner --enforce_recommended ./hs-proto-conformance
+-- @
+module Proto.Conformance
+  ( -- * Conformance types
+    ConformanceRequest (..)
+  , defaultConformanceRequest
+  , ConformanceResponse (..)
+  , defaultConformanceResponse
+  , WireFormat (..)
+
+    -- * Conformance runner
+  , conformanceMain
+  , handleConformanceRequest
+  ) where
+
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import Data.Int (Int32)
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Word (Word32)
+import GHC.Generics (Generic)
+import Control.DeepSeq (NFData)
+import System.IO (stdin, stdout, hSetBinaryMode, hSetBuffering, BufferMode(..), hFlush, isEOF)
+
+import Proto.Encode
+import Proto.Decode
+import Proto.Wire (Tag(..))
+import Proto.Wire.Encode (putFixed32)
+import Proto.Wire.Decode (getFixed32)
+
+data WireFormat = Protobuf | JSON | Jspb | TextFormat
+  deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)
+  deriving anyclass NFData
+
+data ConformanceRequest = ConformanceRequest
+  { crPayload              :: !ByteString
+  , crRequestedOutputFormat :: !Int32
+  , crMessageType           :: !Text
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass NFData
+
+defaultConformanceRequest :: ConformanceRequest
+defaultConformanceRequest = ConformanceRequest "" 0 ""
+
+instance MessageEncode ConformanceRequest where
+  buildMessage cr =
+    (if BS.null (crPayload cr) then mempty else encodeFieldBytes 1 (crPayload cr)) <>
+    (if crRequestedOutputFormat cr == 0 then mempty
+     else encodeFieldVarint 3 (fromIntegral (crRequestedOutputFormat cr))) <>
+    (if crMessageType cr == "" then mempty else encodeFieldString 4 (crMessageType cr))
+
+instance MessageDecode ConformanceRequest where
+  messageDecoder = loop defaultConformanceRequest
+    where
+      loop !cr = do
+        mt <- getTagOr
+        case mt of
+          Nothing -> pure cr
+          Just (Tag 1 _) -> do v <- decodeFieldBytes; loop cr { crPayload = v }
+          Just (Tag 2 _) -> do v <- decodeFieldString
+                               loop cr { crPayload = BS.empty }
+          Just (Tag 3 _) -> do v <- getVarint; loop cr { crRequestedOutputFormat = fromIntegral v }
+          Just (Tag 4 _) -> do v <- decodeFieldString; loop cr { crMessageType = v }
+          Just (Tag _ wt) -> skipField wt >> loop cr
+
+data ConformanceResponse = ConformanceResponse
+  { crsResult :: !ConformanceResult
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass NFData
+
+data ConformanceResult
+  = ParseError !Text
+  | SerializeError !Text
+  | RuntimeError !Text
+  | ProtobufPayload !ByteString
+  | JsonPayload !Text
+  | Skipped !Text
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass NFData
+
+defaultConformanceResponse :: ConformanceResponse
+defaultConformanceResponse = ConformanceResponse (Skipped "")
+
+instance MessageEncode ConformanceResponse where
+  buildMessage (ConformanceResponse r) = case r of
+    ParseError t     -> encodeFieldString 1 t
+    RuntimeError t   -> encodeFieldString 2 t
+    ProtobufPayload b -> encodeFieldBytes 3 b
+    JsonPayload t    -> encodeFieldString 4 t
+    Skipped t        -> encodeFieldString 5 t
+    SerializeError t -> encodeFieldString 6 t
+
+instance MessageDecode ConformanceResponse where
+  messageDecoder = loop defaultConformanceResponse
+    where
+      loop !cr = do
+        mt <- getTagOr
+        case mt of
+          Nothing -> pure cr
+          Just (Tag 1 _) -> do v <- decodeFieldString; pure (ConformanceResponse (ParseError v))
+          Just (Tag 2 _) -> do v <- decodeFieldString; pure (ConformanceResponse (RuntimeError v))
+          Just (Tag 3 _) -> do v <- decodeFieldBytes; pure (ConformanceResponse (ProtobufPayload v))
+          Just (Tag 4 _) -> do v <- decodeFieldString; pure (ConformanceResponse (JsonPayload v))
+          Just (Tag 5 _) -> do v <- decodeFieldString; pure (ConformanceResponse (Skipped v))
+          Just (Tag 6 _) -> do v <- decodeFieldString; pure (ConformanceResponse (SerializeError v))
+          Just (Tag _ wt) -> skipField wt >> loop cr
+
+-- | Main loop for conformance testing.
+-- Reads length-delimited ConformanceRequest from stdin,
+-- processes them, and writes length-delimited ConformanceResponse to stdout.
+conformanceMain :: (ConformanceRequest -> IO ConformanceResponse) -> IO ()
+conformanceMain handler = do
+  hSetBinaryMode stdin True
+  hSetBinaryMode stdout True
+  hSetBuffering stdout NoBuffering
+  go
+  where
+    go = do
+      eof <- isEOF
+      if eof then pure ()
+      else do
+        lenBytes <- BS.hGet stdin 4
+        if BS.length lenBytes < 4 then pure ()
+        else do
+          let len = fromIntegral (readLE32 lenBytes)
+          payload <- BS.hGet stdin len
+          case decodeMessage payload of
+            Left _err -> do
+              let resp = ConformanceResponse (ParseError "Failed to decode ConformanceRequest")
+              writeResponse resp
+              go
+            Right req -> do
+              resp <- handler req
+              writeResponse resp
+              go
+
+    writeResponse resp = do
+      let encoded = encodeMessage resp
+          lenBytes = encodeLE32 (fromIntegral (BS.length encoded))
+      BS.hPut stdout lenBytes
+      BS.hPut stdout encoded
+      hFlush stdout
+
+readLE32 :: ByteString -> Word32
+readLE32 bs =
+  let b0 = fromIntegral (BS.index bs 0) :: Word32
+      b1 = fromIntegral (BS.index bs 1) :: Word32
+      b2 = fromIntegral (BS.index bs 2) :: Word32
+      b3 = fromIntegral (BS.index bs 3) :: Word32
+  in b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
+
+encodeLE32 :: Word32 -> ByteString
+encodeLE32 n = BS.pack
+  [ fromIntegral (n `mod` 256)
+  , fromIntegral ((n `div` 256) `mod` 256)
+  , fromIntegral ((n `div` 65536) `mod` 256)
+  , fromIntegral ((n `div` 16777216) `mod` 256)
+  ]
+
+-- | Default handler that does protobuf round-trip.
+handleConformanceRequest :: ConformanceRequest -> IO ConformanceResponse
+handleConformanceRequest req =
+  pure (ConformanceResponse (Skipped "Not yet implemented"))

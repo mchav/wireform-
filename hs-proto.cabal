@@ -92,6 +92,16 @@ library
       Proto.Google.Protobuf.Struct
       Proto.Registry
       Proto.Registry.TH
+      -- New modules
+      Proto.Dynamic
+      Proto.TextFormat
+      Proto.Conformance
+      Proto.CodeGen.Service
+      Proto.JSON.WellKnown
+      Proto.JSON.Aeson
+      Proto.Options.Custom
+      Proto.Google.Protobuf.Descriptor
+      Proto.Google.Protobuf.Compiler.Plugin
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native

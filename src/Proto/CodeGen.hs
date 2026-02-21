@@ -46,6 +46,7 @@ import Proto.AST
 import Proto.Options
 import Proto.Annotations (lookupSimpleOption, optionAsString)
 import Proto.Parser.Resolver (ResolvedProto(..))
+import qualified Proto.CodeGen.Service as Service
 
 data GenerateOpts = GenerateOpts
   { genModulePrefix    :: Text
@@ -486,7 +487,7 @@ genTopLevel :: GenCtx -> [Text] -> TopLevel -> [Doc ann]
 genTopLevel ctx scope = \case
   TLMessage msg -> genMessage ctx scope msg
   TLEnum ed     -> genEnum ctx scope ed
-  TLService _   -> []
+  TLService svc -> genServiceTopLevel ctx scope svc
   TLExtend _ _  -> []
   TLOption _    -> []
 
@@ -1339,6 +1340,13 @@ getJsonName :: [OptionDef] -> Maybe Text
 getJsonName = \case
   [] -> Nothing
   opts -> lookupSimpleOption "json_name" opts >>= optionAsString
+
+-- ---------------------------------------------------------------------------
+-- Service generation
+-- ---------------------------------------------------------------------------
+
+genServiceTopLevel :: GenCtx -> [Text] -> ServiceDef -> [Doc ann]
+genServiceTopLevel ctx scope svc = Service.genServiceDecls (gcPkg ctx) scope svc
 
 -- ---------------------------------------------------------------------------
 -- Enum generation
