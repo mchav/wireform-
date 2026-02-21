@@ -39,6 +39,7 @@ printProtoFile pf = T.intercalate "\n" $ filter (not . T.null) $
 printSyntax :: Syntax -> Text
 printSyntax Proto2 = "syntax = \"proto2\";"
 printSyntax Proto3 = "syntax = \"proto3\";"
+printSyntax (Editions ed) = "edition = \"" <> editionName ed <> "\";"
 
 printImport :: ImportDef -> Text
 printImport (ImportDef modifier path) =

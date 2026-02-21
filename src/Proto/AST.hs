@@ -1,11 +1,12 @@
 -- | Proto file abstract syntax tree.
 --
--- Supports both proto2 and proto3 syntax with full coverage of
+-- Supports proto2, proto3, and Editions (2023+) syntax with full coverage of
 -- messages, enums, services, oneofs, maps, extensions, and custom options.
 module Proto.AST
   ( -- * Top-level
     ProtoFile (..)
   , Syntax (..)
+  , Edition (..)
   , TopLevel (..)
   , ImportDef (..)
   , ImportModifier (..)
@@ -44,6 +45,17 @@ module Proto.AST
 
     -- * Field numbers
   , FieldNumber (..)
+
+    -- * Edition features
+  , FeatureSet (..)
+  , FieldPresenceFeature (..)
+  , EnumTypeFeature (..)
+  , RepeatedFieldEncodingFeature (..)
+  , Utf8ValidationFeature (..)
+  , MessageEncodingFeature (..)
+  , JsonFormatFeature (..)
+  , defaultFeatureSet
+  , featuresForEdition
   ) where
 
 import Data.Text (Text)
@@ -60,7 +72,12 @@ data ProtoFile = ProtoFile
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 
-data Syntax = Proto2 | Proto3
+data Syntax = Proto2 | Proto3 | Editions !Edition
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass NFData
+
+-- | Protobuf edition identifier (e.g. "2023", "2024").
+newtype Edition = Edition { editionName :: Text }
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass NFData
 
@@ -249,3 +266,59 @@ data ExtensionRangeBound
   | ExtBoundMax
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+
+-- | Feature settings for Protobuf Editions.
+-- Each feature controls a specific behavior that was previously
+-- implicit in proto2/proto3 syntax.
+data FeatureSet = FeatureSet
+  { featureFieldPresence        :: !FieldPresenceFeature
+  , featureEnumType             :: !EnumTypeFeature
+  , featureRepeatedFieldEncoding :: !RepeatedFieldEncodingFeature
+  , featureUtf8Validation       :: !Utf8ValidationFeature
+  , featureMessageEncoding      :: !MessageEncodingFeature
+  , featureJsonFormat           :: !JsonFormatFeature
+  } deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass NFData
+
+data FieldPresenceFeature = ExplicitPresence | ImplicitPresence | LegacyRequired
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass NFData
+
+data EnumTypeFeature = OpenEnum | ClosedEnum
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass NFData
+
+data RepeatedFieldEncodingFeature = PackedEncoding | ExpandedEncoding
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass NFData
+
+data Utf8ValidationFeature = Utf8Verify | Utf8None
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass NFData
+
+data MessageEncodingFeature = LengthPrefixedEncoding | DelimitedEncoding
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass NFData
+
+data JsonFormatFeature = JsonAllow | JsonLegacyBestEffort
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass NFData
+
+-- | Default feature set (matches proto3 defaults, which is edition 2023 default).
+defaultFeatureSet :: FeatureSet
+defaultFeatureSet = FeatureSet
+  { featureFieldPresence        = ExplicitPresence
+  , featureEnumType             = OpenEnum
+  , featureRepeatedFieldEncoding = PackedEncoding
+  , featureUtf8Validation       = Utf8Verify
+  , featureMessageEncoding      = LengthPrefixedEncoding
+  , featureJsonFormat           = JsonAllow
+  }
+
+-- | Get the default feature set for a given edition.
+featuresForEdition :: Edition -> FeatureSet
+featuresForEdition (Edition "2023") = defaultFeatureSet
+featuresForEdition (Edition "2024") = defaultFeatureSet
+  { featureFieldPresence = ExplicitPresence
+  }
+featuresForEdition _ = defaultFeatureSet

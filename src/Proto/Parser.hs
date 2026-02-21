@@ -1,7 +1,8 @@
 -- | Parser for the Protocol Buffers IDL (.proto files).
 --
--- Supports proto2 and proto3 syntax including messages, enums, services,
--- oneofs, map fields, extensions, imports, packages, and custom options.
+-- Supports proto2, proto3, and Editions (2023+) syntax including messages,
+-- enums, services, oneofs, map fields, extensions, imports, packages,
+-- and custom options.
 module Proto.Parser
   ( parseProtoFile
   , parseProto
@@ -27,7 +28,7 @@ parseProtoFile = parse parseProto
 parseProto :: Parser ProtoFile
 parseProto = do
   sc
-  syn <- option Proto3 syntaxDecl
+  syn <- option Proto3 syntaxOrEdition
   stmts <- many topLevelStmt
   eof
   let pkg     = firstJust (\case TLStmtPackage p -> Just p; _ -> Nothing) stmts
@@ -54,6 +55,9 @@ data TLStmt
   | TLStmtOption OptionDef
   | TLStmtTopLevel TopLevel
 
+syntaxOrEdition :: Parser Syntax
+syntaxOrEdition = syntaxDecl <|> editionDecl
+
 syntaxDecl :: Parser Syntax
 syntaxDecl = do
   reserved "syntax"
@@ -64,6 +68,14 @@ syntaxDecl = do
     "proto2" -> pure Proto2
     "proto3" -> pure Proto3
     _        -> fail ("Unknown syntax: " <> T.unpack s)
+
+editionDecl :: Parser Syntax
+editionDecl = do
+  reserved "edition"
+  equals
+  ed <- stringLiteral
+  semi
+  pure (Editions (Edition ed))
 
 topLevelStmt :: Parser TLStmt
 topLevelStmt = choice
