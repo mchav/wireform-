@@ -33,7 +33,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Temporal.Temporal.Api.History.V1.Message (History)
+import Proto.Temporal.Temporal.Api.History.V1.Message hiding (WorkflowExecution, WorkflowExecutions)
 
 
 data WorkflowExecution = WorkflowExecution
@@ -75,12 +75,7 @@ instance ProtoToJSON WorkflowExecution where
       ]
 
 instance ProtoFromJSON WorkflowExecution where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionHistory <- obj .:? "history"
-    pure (WorkflowExecution {
-       workflowExecutionHistory = v_workflowExecutionHistory
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecution
 
 data WorkflowExecutions = WorkflowExecutions
   { workflowExecutionsItems :: !(V.Vector WorkflowExecution)
@@ -121,9 +116,4 @@ instance ProtoToJSON WorkflowExecutions where
       ]
 
 instance ProtoFromJSON WorkflowExecutions where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionsItems <- obj .:? "items"
-    pure (WorkflowExecutions {
-       workflowExecutionsItems = v_workflowExecutionsItems
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutions

@@ -33,12 +33,12 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Google.Protobuf.Wrappers (DoubleValue)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (WorkerVersionCapabilities)
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentOptions, WorkerDeploymentVersion)
-import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue (BuildIdTaskReachability, TaskQueueKind, TaskReachability)
+import Proto.Google.Protobuf.Duration hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
+import Proto.Google.Protobuf.Timestamp hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
+import Proto.Google.Protobuf.Wrappers hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
+import Proto.Temporal.Temporal.Api.Deployment.V1.Message hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
+import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue hiding (BuildIdAssignmentRule, BuildIdReachability, CompatibleBuildIdRedirectRule, CompatibleVersionSet, ConfigMetadata, PollerInfo, PollerScalingDecision, RampByPercentage, RateLimit, RateLimitConfig, StickyExecutionAttributes, TaskIdBlock, TaskQueue, TaskQueueConfig, TaskQueueMetadata, TaskQueuePartitionMetadata, TaskQueueReachability, TaskQueueStats, TaskQueueStatus, TaskQueueTypeInfo, TaskQueueVersionInfo, TaskQueueVersionSelection, TaskQueueVersioningInfo, TimestampedBuildIdAssignmentRule, TimestampedCompatibleBuildIdRedirectRule)
 
 
 data TaskQueue = TaskQueue
@@ -95,16 +95,7 @@ instance ProtoToJSON TaskQueue where
       ]
 
 instance ProtoFromJSON TaskQueue where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueName <- obj .:? "name"
-    v_taskQueueKind <- obj .:? "kind"
-    v_taskQueueNormalname <- obj .:? "normalName"
-    pure (TaskQueue {
-       taskQueueName = v_taskQueueName
-      , taskQueueKind = v_taskQueueKind
-      , taskQueueNormalname = v_taskQueueNormalname
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueue
 
 data TaskQueueMetadata = TaskQueueMetadata
   { taskQueueMetadataMaxtaskspersecond :: !(Maybe DoubleValue)
@@ -145,12 +136,7 @@ instance ProtoToJSON TaskQueueMetadata where
       ]
 
 instance ProtoFromJSON TaskQueueMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueMetadataMaxtaskspersecond <- obj .:? "maxTasksPerSecond"
-    pure (TaskQueueMetadata {
-       taskQueueMetadataMaxtaskspersecond = v_taskQueueMetadataMaxtaskspersecond
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueMetadata
 
 data TaskQueueVersioningInfo = TaskQueueVersioningInfo
   { taskQueueVersioningInfoCurrentdeploymentversion :: !(Maybe WorkerDeploymentVersion)
@@ -230,22 +216,7 @@ instance ProtoToJSON TaskQueueVersioningInfo where
       ]
 
 instance ProtoFromJSON TaskQueueVersioningInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueVersioningInfoCurrentdeploymentversion <- obj .:? "currentDeploymentVersion"
-    v_taskQueueVersioningInfoCurrentversion <- obj .:? "currentVersion"
-    v_taskQueueVersioningInfoRampingdeploymentversion <- obj .:? "rampingDeploymentVersion"
-    v_taskQueueVersioningInfoRampingversion <- obj .:? "rampingVersion"
-    v_taskQueueVersioningInfoRampingversionpercentage <- obj .:? "rampingVersionPercentage"
-    v_taskQueueVersioningInfoUpdatetime <- obj .:? "updateTime"
-    pure (TaskQueueVersioningInfo {
-       taskQueueVersioningInfoCurrentdeploymentversion = v_taskQueueVersioningInfoCurrentdeploymentversion
-      , taskQueueVersioningInfoCurrentversion = v_taskQueueVersioningInfoCurrentversion
-      , taskQueueVersioningInfoRampingdeploymentversion = v_taskQueueVersioningInfoRampingdeploymentversion
-      , taskQueueVersioningInfoRampingversion = v_taskQueueVersioningInfoRampingversion
-      , taskQueueVersioningInfoRampingversionpercentage = v_taskQueueVersioningInfoRampingversionpercentage
-      , taskQueueVersioningInfoUpdatetime = v_taskQueueVersioningInfoUpdatetime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueVersioningInfo
 
 data TaskQueueVersionSelection = TaskQueueVersionSelection
   { taskQueueVersionSelectionBuildids :: !(V.Vector Text)
@@ -270,7 +241,7 @@ instance MessageEncode TaskQueueVersionSelection where
 
 instance MessageSize TaskQueueVersionSelection where
   messageSize msg =
-    (sizeRepeated 1 msg.taskQueueVersionSelectionBuildids)
+    0 {- TODO: repeated size -}
     + (if msg.taskQueueVersionSelectionUnversioned == False then 0 else fieldBoolSize 2)
     + (if msg.taskQueueVersionSelectionAllactive == False then 0 else fieldBoolSize 3)
 
@@ -301,16 +272,7 @@ instance ProtoToJSON TaskQueueVersionSelection where
       ]
 
 instance ProtoFromJSON TaskQueueVersionSelection where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueVersionSelectionBuildids <- obj .:? "buildIds"
-    v_taskQueueVersionSelectionUnversioned <- obj .:? "unversioned"
-    v_taskQueueVersionSelectionAllactive <- obj .:? "allActive"
-    pure (TaskQueueVersionSelection {
-       taskQueueVersionSelectionBuildids = v_taskQueueVersionSelectionBuildids
-      , taskQueueVersionSelectionUnversioned = v_taskQueueVersionSelectionUnversioned
-      , taskQueueVersionSelectionAllactive = v_taskQueueVersionSelectionAllactive
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueVersionSelection
 
 data TaskQueueVersionInfo = TaskQueueVersionInfo
   { taskQueueVersionInfoTypesinfo :: !(Map.Map Int32 TaskQueueTypeInfo)
@@ -344,20 +306,11 @@ instance MessageDecode TaskQueueVersionInfo where
           Nothing -> pure (TaskQueueVersionInfo {taskQueueVersionInfoTypesinfo = acc_0, taskQueueVersionInfoTaskreachability = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- fromIntegral <$> decodeFieldVarint; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' 0 undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry fromIntegral <$> decodeFieldVarint decodeFieldMessage 0 undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v)) acc_1
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_1
             2 -> do
               v <- decodeFieldEnum
               loop acc_0 v
@@ -370,14 +323,7 @@ instance ProtoToJSON TaskQueueVersionInfo where
       ]
 
 instance ProtoFromJSON TaskQueueVersionInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueVersionInfoTypesinfo <- obj .:? "typesInfo"
-    v_taskQueueVersionInfoTaskreachability <- obj .:? "taskReachability"
-    pure (TaskQueueVersionInfo {
-       taskQueueVersionInfoTypesinfo = v_taskQueueVersionInfoTypesinfo
-      , taskQueueVersionInfoTaskreachability = v_taskQueueVersionInfoTaskreachability
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueVersionInfo
 
 data TaskQueueTypeInfo = TaskQueueTypeInfo
   { taskQueueTypeInfoPollers :: !(V.Vector PollerInfo)
@@ -425,14 +371,7 @@ instance ProtoToJSON TaskQueueTypeInfo where
       ]
 
 instance ProtoFromJSON TaskQueueTypeInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueTypeInfoPollers <- obj .:? "pollers"
-    v_taskQueueTypeInfoStats <- obj .:? "stats"
-    pure (TaskQueueTypeInfo {
-       taskQueueTypeInfoPollers = v_taskQueueTypeInfoPollers
-      , taskQueueTypeInfoStats = v_taskQueueTypeInfoStats
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueTypeInfo
 
 data TaskQueueStats = TaskQueueStats
   { taskQueueStatsApproximatebacklogcount :: {-# UNPACK #-} !Int64
@@ -496,18 +435,7 @@ instance ProtoToJSON TaskQueueStats where
       ]
 
 instance ProtoFromJSON TaskQueueStats where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueStatsApproximatebacklogcount <- obj .:? "approximateBacklogCount"
-    v_taskQueueStatsApproximatebacklogage <- obj .:? "approximateBacklogAge"
-    v_taskQueueStatsTasksaddrate <- obj .:? "tasksAddRate"
-    v_taskQueueStatsTasksdispatchrate <- obj .:? "tasksDispatchRate"
-    pure (TaskQueueStats {
-       taskQueueStatsApproximatebacklogcount = v_taskQueueStatsApproximatebacklogcount
-      , taskQueueStatsApproximatebacklogage = v_taskQueueStatsApproximatebacklogage
-      , taskQueueStatsTasksaddrate = v_taskQueueStatsTasksaddrate
-      , taskQueueStatsTasksdispatchrate = v_taskQueueStatsTasksdispatchrate
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueStats
 
 data TaskQueueStatus = TaskQueueStatus
   { taskQueueStatusBacklogcounthint :: {-# UNPACK #-} !Int64
@@ -579,20 +507,7 @@ instance ProtoToJSON TaskQueueStatus where
       ]
 
 instance ProtoFromJSON TaskQueueStatus where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueStatusBacklogcounthint <- obj .:? "backlogCountHint"
-    v_taskQueueStatusReadlevel <- obj .:? "readLevel"
-    v_taskQueueStatusAcklevel <- obj .:? "ackLevel"
-    v_taskQueueStatusRatepersecond <- obj .:? "ratePerSecond"
-    v_taskQueueStatusTaskidblock <- obj .:? "taskIdBlock"
-    pure (TaskQueueStatus {
-       taskQueueStatusBacklogcounthint = v_taskQueueStatusBacklogcounthint
-      , taskQueueStatusReadlevel = v_taskQueueStatusReadlevel
-      , taskQueueStatusAcklevel = v_taskQueueStatusAcklevel
-      , taskQueueStatusRatepersecond = v_taskQueueStatusRatepersecond
-      , taskQueueStatusTaskidblock = v_taskQueueStatusTaskidblock
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueStatus
 
 data TaskIdBlock = TaskIdBlock
   { taskIdBlockStartid :: {-# UNPACK #-} !Int64
@@ -640,14 +555,7 @@ instance ProtoToJSON TaskIdBlock where
       ]
 
 instance ProtoFromJSON TaskIdBlock where
-  protoFromJSON (JsonObject obj) = do
-    v_taskIdBlockStartid <- obj .:? "startId"
-    v_taskIdBlockEndid <- obj .:? "endId"
-    pure (TaskIdBlock {
-       taskIdBlockStartid = v_taskIdBlockStartid
-      , taskIdBlockEndid = v_taskIdBlockEndid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskIdBlock
 
 data TaskQueuePartitionMetadata = TaskQueuePartitionMetadata
   { taskQueuePartitionMetadataKey :: !Text
@@ -695,14 +603,7 @@ instance ProtoToJSON TaskQueuePartitionMetadata where
       ]
 
 instance ProtoFromJSON TaskQueuePartitionMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueuePartitionMetadataKey <- obj .:? "key"
-    v_taskQueuePartitionMetadataOwnerhostname <- obj .:? "ownerHostName"
-    pure (TaskQueuePartitionMetadata {
-       taskQueuePartitionMetadataKey = v_taskQueuePartitionMetadataKey
-      , taskQueuePartitionMetadataOwnerhostname = v_taskQueuePartitionMetadataOwnerhostname
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueuePartitionMetadata
 
 data PollerInfo = PollerInfo
   { pollerInfoLastaccesstime :: !(Maybe Timestamp)
@@ -774,20 +675,7 @@ instance ProtoToJSON PollerInfo where
       ]
 
 instance ProtoFromJSON PollerInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_pollerInfoLastaccesstime <- obj .:? "lastAccessTime"
-    v_pollerInfoIdentity <- obj .:? "identity"
-    v_pollerInfoRatepersecond <- obj .:? "ratePerSecond"
-    v_pollerInfoWorkerversioncapabilities <- obj .:? "workerVersionCapabilities"
-    v_pollerInfoDeploymentoptions <- obj .:? "deploymentOptions"
-    pure (PollerInfo {
-       pollerInfoLastaccesstime = v_pollerInfoLastaccesstime
-      , pollerInfoIdentity = v_pollerInfoIdentity
-      , pollerInfoRatepersecond = v_pollerInfoRatepersecond
-      , pollerInfoWorkerversioncapabilities = v_pollerInfoWorkerversioncapabilities
-      , pollerInfoDeploymentoptions = v_pollerInfoDeploymentoptions
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPollerInfo
 
 data StickyExecutionAttributes = StickyExecutionAttributes
   { stickyExecutionAttributesWorkertaskqueue :: !(Maybe TaskQueue)
@@ -835,14 +723,7 @@ instance ProtoToJSON StickyExecutionAttributes where
       ]
 
 instance ProtoFromJSON StickyExecutionAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_stickyExecutionAttributesWorkertaskqueue <- obj .:? "workerTaskQueue"
-    v_stickyExecutionAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    pure (StickyExecutionAttributes {
-       stickyExecutionAttributesWorkertaskqueue = v_stickyExecutionAttributesWorkertaskqueue
-      , stickyExecutionAttributesScheduletostarttimeout = v_stickyExecutionAttributesScheduletostarttimeout
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStickyExecutionAttributes
 
 data CompatibleVersionSet = CompatibleVersionSet
   { compatibleVersionSetBuildids :: !(V.Vector Text)
@@ -861,7 +742,7 @@ instance MessageEncode CompatibleVersionSet where
 
 instance MessageSize CompatibleVersionSet where
   messageSize msg =
-    (sizeRepeated 1 msg.compatibleVersionSetBuildids)
+    0 {- TODO: repeated size -}
 
 instance MessageDecode CompatibleVersionSet where
   messageDecoder = loop V.empty
@@ -883,12 +764,7 @@ instance ProtoToJSON CompatibleVersionSet where
       ]
 
 instance ProtoFromJSON CompatibleVersionSet where
-  protoFromJSON (JsonObject obj) = do
-    v_compatibleVersionSetBuildids <- obj .:? "buildIds"
-    pure (CompatibleVersionSet {
-       compatibleVersionSetBuildids = v_compatibleVersionSetBuildids
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCompatibleVersionSet
 
 data TaskQueueReachability = TaskQueueReachability
   { taskQueueReachabilityTaskqueue :: !Text
@@ -936,14 +812,7 @@ instance ProtoToJSON TaskQueueReachability where
       ]
 
 instance ProtoFromJSON TaskQueueReachability where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueReachabilityTaskqueue <- obj .:? "taskQueue"
-    v_taskQueueReachabilityReachability <- obj .:? "reachability"
-    pure (TaskQueueReachability {
-       taskQueueReachabilityTaskqueue = v_taskQueueReachabilityTaskqueue
-      , taskQueueReachabilityReachability = v_taskQueueReachabilityReachability
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueReachability
 
 data BuildIdReachability = BuildIdReachability
   { buildIdReachabilityBuildid :: !Text
@@ -991,14 +860,7 @@ instance ProtoToJSON BuildIdReachability where
       ]
 
 instance ProtoFromJSON BuildIdReachability where
-  protoFromJSON (JsonObject obj) = do
-    v_buildIdReachabilityBuildid <- obj .:? "buildId"
-    v_buildIdReachabilityTaskqueuereachability <- obj .:? "taskQueueReachability"
-    pure (BuildIdReachability {
-       buildIdReachabilityBuildid = v_buildIdReachabilityBuildid
-      , buildIdReachabilityTaskqueuereachability = v_buildIdReachabilityTaskqueuereachability
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBuildIdReachability
 
 data RampByPercentage = RampByPercentage
   { rampByPercentageRamppercentage :: {-# UNPACK #-} !Float
@@ -1039,12 +901,7 @@ instance ProtoToJSON RampByPercentage where
       ]
 
 instance ProtoFromJSON RampByPercentage where
-  protoFromJSON (JsonObject obj) = do
-    v_rampByPercentageRamppercentage <- obj .:? "rampPercentage"
-    pure (RampByPercentage {
-       rampByPercentageRamppercentage = v_rampByPercentageRamppercentage
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRampByPercentage
 
 data BuildIdAssignmentRule = BuildIdAssignmentRule
   { buildIdAssignmentRuleTargetbuildid :: !Text
@@ -1053,9 +910,13 @@ data BuildIdAssignmentRule = BuildIdAssignmentRule
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data BuildIdAssignmentRule'Ramp
-  = BuildIdAssignmentRule'PercentageRamp !RampByPercentage
+  = BuildIdAssignmentRule'Ramp'PercentageRamp !RampByPercentage
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON BuildIdAssignmentRule'Ramp where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON BuildIdAssignmentRule'Ramp where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultBuildIdAssignmentRule :: BuildIdAssignmentRule
 defaultBuildIdAssignmentRule = BuildIdAssignmentRule
@@ -1068,12 +929,12 @@ instance MessageEncode BuildIdAssignmentRule where
     (if msg.buildIdAssignmentRuleTargetbuildid == T.empty then mempty else encodeFieldString 1 msg.buildIdAssignmentRuleTargetbuildid)
     <> (case msg.buildIdAssignmentRuleRamp of
       Nothing -> mempty
-      Just (BuildIdAssignmentRule'PercentageRamp v) -> encodeFieldMessage 3 v)
+      Just (BuildIdAssignmentRule'Ramp'PercentageRamp v) -> encodeFieldMessage 3 v)
 
 instance MessageSize BuildIdAssignmentRule where
   messageSize msg =
     (if msg.buildIdAssignmentRuleTargetbuildid == T.empty then 0 else fieldTextSize 1 msg.buildIdAssignmentRuleTargetbuildid)
-    + (case msg.buildIdAssignmentRuleRamp of { Nothing -> 0; Just (BuildIdAssignmentRule'PercentageRamp v) -> fieldMessageSize 3 (messageSize v) })
+    + (case msg.buildIdAssignmentRuleRamp of { Nothing -> 0; Just (BuildIdAssignmentRule'Ramp'PercentageRamp v) -> fieldMessageSize 3 (messageSize v) })
 
 instance MessageDecode BuildIdAssignmentRule where
   messageDecoder = loop "" Nothing
@@ -1088,7 +949,7 @@ instance MessageDecode BuildIdAssignmentRule where
               loop v acc_1
             3 -> do
               v <- decodeFieldMessage
-              loop acc_0 (Just (BuildIdAssignmentRule'PercentageRamp v))
+              loop acc_0 (Just (BuildIdAssignmentRule'Ramp'PercentageRamp v))
             _ -> skipField wt >> loop acc_0 acc_1
 
 instance ProtoToJSON BuildIdAssignmentRule where
@@ -1098,14 +959,7 @@ instance ProtoToJSON BuildIdAssignmentRule where
       ]
 
 instance ProtoFromJSON BuildIdAssignmentRule where
-  protoFromJSON (JsonObject obj) = do
-    v_buildIdAssignmentRuleTargetbuildid <- obj .:? "targetBuildId"
-    v_buildIdAssignmentRuleRamp <- obj .:? "ramp"
-    pure (BuildIdAssignmentRule {
-       buildIdAssignmentRuleTargetbuildid = v_buildIdAssignmentRuleTargetbuildid
-      , buildIdAssignmentRuleRamp = v_buildIdAssignmentRuleRamp
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBuildIdAssignmentRule
 
 data CompatibleBuildIdRedirectRule = CompatibleBuildIdRedirectRule
   { compatibleBuildIdRedirectRuleSourcebuildid :: !Text
@@ -1153,14 +1007,7 @@ instance ProtoToJSON CompatibleBuildIdRedirectRule where
       ]
 
 instance ProtoFromJSON CompatibleBuildIdRedirectRule where
-  protoFromJSON (JsonObject obj) = do
-    v_compatibleBuildIdRedirectRuleSourcebuildid <- obj .:? "sourceBuildId"
-    v_compatibleBuildIdRedirectRuleTargetbuildid <- obj .:? "targetBuildId"
-    pure (CompatibleBuildIdRedirectRule {
-       compatibleBuildIdRedirectRuleSourcebuildid = v_compatibleBuildIdRedirectRuleSourcebuildid
-      , compatibleBuildIdRedirectRuleTargetbuildid = v_compatibleBuildIdRedirectRuleTargetbuildid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCompatibleBuildIdRedirectRule
 
 data TimestampedBuildIdAssignmentRule = TimestampedBuildIdAssignmentRule
   { timestampedBuildIdAssignmentRuleRule :: !(Maybe BuildIdAssignmentRule)
@@ -1208,14 +1055,7 @@ instance ProtoToJSON TimestampedBuildIdAssignmentRule where
       ]
 
 instance ProtoFromJSON TimestampedBuildIdAssignmentRule where
-  protoFromJSON (JsonObject obj) = do
-    v_timestampedBuildIdAssignmentRuleRule <- obj .:? "rule"
-    v_timestampedBuildIdAssignmentRuleCreatetime <- obj .:? "createTime"
-    pure (TimestampedBuildIdAssignmentRule {
-       timestampedBuildIdAssignmentRuleRule = v_timestampedBuildIdAssignmentRuleRule
-      , timestampedBuildIdAssignmentRuleCreatetime = v_timestampedBuildIdAssignmentRuleCreatetime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTimestampedBuildIdAssignmentRule
 
 data TimestampedCompatibleBuildIdRedirectRule = TimestampedCompatibleBuildIdRedirectRule
   { timestampedCompatibleBuildIdRedirectRuleRule :: !(Maybe CompatibleBuildIdRedirectRule)
@@ -1263,14 +1103,7 @@ instance ProtoToJSON TimestampedCompatibleBuildIdRedirectRule where
       ]
 
 instance ProtoFromJSON TimestampedCompatibleBuildIdRedirectRule where
-  protoFromJSON (JsonObject obj) = do
-    v_timestampedCompatibleBuildIdRedirectRuleRule <- obj .:? "rule"
-    v_timestampedCompatibleBuildIdRedirectRuleCreatetime <- obj .:? "createTime"
-    pure (TimestampedCompatibleBuildIdRedirectRule {
-       timestampedCompatibleBuildIdRedirectRuleRule = v_timestampedCompatibleBuildIdRedirectRuleRule
-      , timestampedCompatibleBuildIdRedirectRuleCreatetime = v_timestampedCompatibleBuildIdRedirectRuleCreatetime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTimestampedCompatibleBuildIdRedirectRule
 
 data PollerScalingDecision = PollerScalingDecision
   { pollerScalingDecisionPollrequestdeltasuggestion :: {-# UNPACK #-} !Int32
@@ -1311,12 +1144,7 @@ instance ProtoToJSON PollerScalingDecision where
       ]
 
 instance ProtoFromJSON PollerScalingDecision where
-  protoFromJSON (JsonObject obj) = do
-    v_pollerScalingDecisionPollrequestdeltasuggestion <- obj .:? "pollRequestDeltaSuggestion"
-    pure (PollerScalingDecision {
-       pollerScalingDecisionPollrequestdeltasuggestion = v_pollerScalingDecisionPollrequestdeltasuggestion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPollerScalingDecision
 
 data RateLimit = RateLimit
   { rateLimitRequestspersecond :: {-# UNPACK #-} !Float
@@ -1357,12 +1185,7 @@ instance ProtoToJSON RateLimit where
       ]
 
 instance ProtoFromJSON RateLimit where
-  protoFromJSON (JsonObject obj) = do
-    v_rateLimitRequestspersecond <- obj .:? "requestsPerSecond"
-    pure (RateLimit {
-       rateLimitRequestspersecond = v_rateLimitRequestspersecond
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRateLimit
 
 data ConfigMetadata = ConfigMetadata
   { configMetadataReason :: !Text
@@ -1418,16 +1241,7 @@ instance ProtoToJSON ConfigMetadata where
       ]
 
 instance ProtoFromJSON ConfigMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_configMetadataReason <- obj .:? "reason"
-    v_configMetadataUpdateidentity <- obj .:? "updateIdentity"
-    v_configMetadataUpdatetime <- obj .:? "updateTime"
-    pure (ConfigMetadata {
-       configMetadataReason = v_configMetadataReason
-      , configMetadataUpdateidentity = v_configMetadataUpdateidentity
-      , configMetadataUpdatetime = v_configMetadataUpdatetime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultConfigMetadata
 
 data RateLimitConfig = RateLimitConfig
   { rateLimitConfigRatelimit :: !(Maybe RateLimit)
@@ -1475,14 +1289,7 @@ instance ProtoToJSON RateLimitConfig where
       ]
 
 instance ProtoFromJSON RateLimitConfig where
-  protoFromJSON (JsonObject obj) = do
-    v_rateLimitConfigRatelimit <- obj .:? "rateLimit"
-    v_rateLimitConfigMetadata <- obj .:? "metadata"
-    pure (RateLimitConfig {
-       rateLimitConfigRatelimit = v_rateLimitConfigRatelimit
-      , rateLimitConfigMetadata = v_rateLimitConfigMetadata
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRateLimitConfig
 
 data TaskQueueConfig = TaskQueueConfig
   { taskQueueConfigQueueratelimit :: !(Maybe RateLimitConfig)
@@ -1526,20 +1333,11 @@ instance MessageDecode TaskQueueConfig where
               v <- decodeFieldMessage
               loop acc_0 (Just v) acc_2
             3 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldFloat; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" 0
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldFloat "" 0) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2
-                Right (k, v) -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton k v))
+                Right (mk', mv') -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
 instance ProtoToJSON TaskQueueConfig where
@@ -1550,13 +1348,4 @@ instance ProtoToJSON TaskQueueConfig where
       ]
 
 instance ProtoFromJSON TaskQueueConfig where
-  protoFromJSON (JsonObject obj) = do
-    v_taskQueueConfigQueueratelimit <- obj .:? "queueRateLimit"
-    v_taskQueueConfigFairnesskeysratelimitdefault <- obj .:? "fairnessKeysRateLimitDefault"
-    v_taskQueueConfigFairnessweightoverrides <- obj .:? "fairnessWeightOverrides"
-    pure (TaskQueueConfig {
-       taskQueueConfigQueueratelimit = v_taskQueueConfigQueueratelimit
-      , taskQueueConfigFairnesskeysratelimitdefault = v_taskQueueConfigFairnesskeysratelimitdefault
-      , taskQueueConfigFairnessweightoverrides = v_taskQueueConfigFairnessweightoverrides
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTaskQueueConfig

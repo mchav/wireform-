@@ -74,20 +74,11 @@ instance MessageDecode EnhancedStackTrace where
               v <- decodeFieldMessage
               loop (Just v) acc_1 acc_2
             2 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2
-                Right (k, v) -> loop acc_0 (Map.union acc_1 (Map.singleton k v)) acc_2
+                Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv')) acc_2
             3 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 (acc_2 <> V.singleton v)
@@ -101,16 +92,7 @@ instance ProtoToJSON EnhancedStackTrace where
       ]
 
 instance ProtoFromJSON EnhancedStackTrace where
-  protoFromJSON (JsonObject obj) = do
-    v_enhancedStackTraceSdk <- obj .:? "sdk"
-    v_enhancedStackTraceSources <- obj .:? "sources"
-    v_enhancedStackTraceStacks <- obj .:? "stacks"
-    pure (EnhancedStackTrace {
-       enhancedStackTraceSdk = v_enhancedStackTraceSdk
-      , enhancedStackTraceSources = v_enhancedStackTraceSources
-      , enhancedStackTraceStacks = v_enhancedStackTraceStacks
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultEnhancedStackTrace
 
 data StackTraceSDKInfo = StackTraceSDKInfo
   { stackTraceSDKInfoName :: !Text
@@ -158,14 +140,7 @@ instance ProtoToJSON StackTraceSDKInfo where
       ]
 
 instance ProtoFromJSON StackTraceSDKInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_stackTraceSDKInfoName <- obj .:? "name"
-    v_stackTraceSDKInfoVersion <- obj .:? "version"
-    pure (StackTraceSDKInfo {
-       stackTraceSDKInfoName = v_stackTraceSDKInfoName
-      , stackTraceSDKInfoVersion = v_stackTraceSDKInfoVersion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStackTraceSDKInfo
 
 data StackTraceFileSlice = StackTraceFileSlice
   { stackTraceFileSliceLineoffset :: {-# UNPACK #-} !Word32
@@ -213,14 +188,7 @@ instance ProtoToJSON StackTraceFileSlice where
       ]
 
 instance ProtoFromJSON StackTraceFileSlice where
-  protoFromJSON (JsonObject obj) = do
-    v_stackTraceFileSliceLineoffset <- obj .:? "lineOffset"
-    v_stackTraceFileSliceContent <- obj .:? "content"
-    pure (StackTraceFileSlice {
-       stackTraceFileSliceLineoffset = v_stackTraceFileSliceLineoffset
-      , stackTraceFileSliceContent = v_stackTraceFileSliceContent
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStackTraceFileSlice
 
 data StackTraceFileLocation = StackTraceFileLocation
   { stackTraceFileLocationFilepath :: !Text
@@ -292,20 +260,7 @@ instance ProtoToJSON StackTraceFileLocation where
       ]
 
 instance ProtoFromJSON StackTraceFileLocation where
-  protoFromJSON (JsonObject obj) = do
-    v_stackTraceFileLocationFilepath <- obj .:? "filePath"
-    v_stackTraceFileLocationLine <- obj .:? "line"
-    v_stackTraceFileLocationColumn <- obj .:? "column"
-    v_stackTraceFileLocationFunctionname <- obj .:? "functionName"
-    v_stackTraceFileLocationInternalcode <- obj .:? "internalCode"
-    pure (StackTraceFileLocation {
-       stackTraceFileLocationFilepath = v_stackTraceFileLocationFilepath
-      , stackTraceFileLocationLine = v_stackTraceFileLocationLine
-      , stackTraceFileLocationColumn = v_stackTraceFileLocationColumn
-      , stackTraceFileLocationFunctionname = v_stackTraceFileLocationFunctionname
-      , stackTraceFileLocationInternalcode = v_stackTraceFileLocationInternalcode
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStackTraceFileLocation
 
 data StackTrace = StackTrace
   { stackTraceLocations :: !(V.Vector StackTraceFileLocation)
@@ -346,9 +301,4 @@ instance ProtoToJSON StackTrace where
       ]
 
 instance ProtoFromJSON StackTrace where
-  protoFromJSON (JsonObject obj) = do
-    v_stackTraceLocations <- obj .:? "locations"
-    pure (StackTrace {
-       stackTraceLocations = v_stackTraceLocations
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStackTrace

@@ -197,10 +197,11 @@ generateModule opts reg filePath pf =
       body = concatMap (genTopLevel ctx []) (protoTopLevels pf)
       referencedTypes = collectReferencedTypes (protoTopLevels pf)
       importedModules = computeImports ctx referencedTypes
+      localHsNames = Set.fromList [tiHsName ti | (_, ti) <- Map.toList reg, tiModule ti == thisMod]
   in vsep
     [ genModuleHeader opts filePath pf
     , mempty
-    , genImports importedModules
+    , genImports localHsNames importedModules
     , mempty
     , vsep body
     ]
@@ -253,36 +254,41 @@ collectReferencedTypes = foldMap goTL
       _ -> Set.empty
 
 -- Given referenced type names, compute import statements for external modules
+-- Excludes types that collide with locally-defined names.
 computeImports :: GenCtx -> Set Text -> Map Text (Set Text)
 computeImports ctx refs =
   let reg = gcRegistry ctx
       thisMod = gcThisMod ctx
+      localHsNames = Set.fromList [tiHsName ti | (_, ti) <- Map.toList reg, tiModule ti == thisMod]
   in Map.fromListWith Set.union
     [ (tiModule ti, Set.singleton (tiHsName ti))
     | ref <- Set.toList refs
     , Just ti <- [resolveType ctx ref]
     , tiModule ti /= thisMod
+    , not (Set.member (tiHsName ti) localHsNames)
     ]
 
 -- Resolve a proto type name to TypeInfo. Tries FQ lookup first, then
--- with current package prefix, then just the simple name.
+-- with current package prefix, then with parent message scopes, then simple.
 resolveType :: GenCtx -> Text -> Maybe TypeInfo
-resolveType ctx name =
+resolveType ctx name = resolveTypeWithScope ctx [] name
+
+resolveTypeWithScope :: GenCtx -> [Text] -> Text -> Maybe TypeInfo
+resolveTypeWithScope ctx scope name =
   let reg = gcRegistry ctx
       pkg = fromMaybe "" (gcPkg ctx)
-  in case Map.lookup name reg of
-    Just ti -> Just ti
-    Nothing -> case Map.lookup (pkg <> "." <> name) reg of
-      Just ti -> Just ti
-      Nothing ->
-        let simpleName = lastPart name
-        in case Map.lookup simpleName reg of
-          Just ti -> Just ti
-          Nothing -> Nothing
+      candidates =
+        [ name
+        , pkg <> "." <> name
+        ] <> [pkg <> "." <> T.intercalate "." s <> "." <> name | s <- tails' scope, not (null s)]
+  in firstJust (\c -> Map.lookup c reg) candidates
   where
-    lastPart t = case T.splitOn "." t of
-      [] -> t
-      parts -> last parts
+    tails' [] = []
+    tails' xs = xs : tails' (init xs)
+    firstJust _ [] = Nothing
+    firstJust f (x:xs) = case f x of
+      Just v -> Just v
+      Nothing -> firstJust f xs
 
 -- ---------------------------------------------------------------------------
 -- Module header & imports
@@ -311,8 +317,8 @@ genModuleHeader opts filePath pf =
     <> deprLine
     <> [ pretty ("module " :: Text) <> pretty modName <> pretty (" where" :: Text) ]
 
-genImports :: Map Text (Set Text) -> Doc ann
-genImports externalImports = vsep $
+genImports :: Set Text -> Map Text (Set Text) -> Doc ann
+genImports localNames externalImports = vsep $
   [ pretty ("import Data.ByteString (ByteString)" :: Text)
   , pretty ("import qualified Data.ByteString as BS" :: Text)
   , pretty ("import qualified Data.ByteString.Builder as B" :: Text)
@@ -337,13 +343,17 @@ genImports externalImports = vsep $
   , pretty ("  fieldBoolSize, fieldFloatSize, fieldDoubleSize," :: Text)
   , pretty ("  fieldTextSize, fieldBytesSize)" :: Text)
   ]
-  <> fmap genExternalImport (Map.toAscList externalImports)
+  <> fmap (genExternalImport localNames) (Map.toAscList externalImports)
 
-genExternalImport :: (Text, Set Text) -> Doc ann
-genExternalImport (modName, types) =
-  pretty ("import " :: Text) <> pretty modName <> pretty (" (" :: Text) <>
-  hsep (punctuate (pretty ("," :: Text)) (fmap pretty (Set.toAscList types))) <>
-  pretty (")" :: Text)
+genExternalImport :: Set Text -> (Text, Set Text) -> Doc ann
+genExternalImport localNames (modName, _types) =
+  let needsHiding = not (Set.null localNames)
+      hidingNames = Set.toAscList localNames
+  in if needsHiding
+     then pretty ("import " :: Text) <> pretty modName <> pretty (" hiding (" :: Text) <>
+          hsep (punctuate (pretty ("," :: Text)) (fmap pretty hidingNames)) <>
+          pretty (")" :: Text)
+     else pretty ("import " :: Text) <> pretty modName
 
 -- ---------------------------------------------------------------------------
 -- Top-level generation
@@ -384,7 +394,7 @@ genNestedElement :: GenCtx -> [Text] -> MessageElement -> [Doc ann]
 genNestedElement ctx scope = \case
   MEMessage inner -> genMessage ctx scope inner
   MEEnum ed       -> genEnum ctx scope ed
-  MEOneof od      -> [genOneofDecl ctx scope od]
+  MEOneof od      -> [genOneofDecl ctx scope od, genOneofToJSONInstance ctx scope od, genOneofFromJSONInstance ctx scope od]
   _               -> []
 
 -- ---------------------------------------------------------------------------
@@ -440,8 +450,27 @@ genOneofDecl ctx scope od =
   where
     seps = pretty ("=" :: Text) : repeat (pretty ("|" :: Text))
     genOneofCon cx s f =
-      pretty (oneofConName s (oneofFieldName f)) <+>
+      pretty (oneofConName s (oneofName od) (oneofFieldName f)) <+>
       hsOneofFieldType cx s (oneofFieldType f)
+
+genOneofToJSONInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
+genOneofToJSONInstance ctx scope od =
+  let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
+  in vsep
+    [ pretty ("instance ProtoToJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+    , indent 2 (pretty ("protoToJSON _ = JsonNull" :: Text))
+    ]
+
+genOneofFromJSONInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
+genOneofFromJSONInstance ctx scope od =
+  let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
+      firstCon = case oneofFields od of
+        (f:_) -> oneofConName scope (oneofName od) (oneofFieldName f)
+        [] -> tyN
+  in vsep
+    [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+    , indent 2 (pretty ("protoFromJSON _ = Left \"Cannot parse oneof from JSON\"" :: Text))
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Default instances
@@ -543,23 +572,23 @@ genMapKeyEncode :: ScalarType -> Doc ann
 genMapKeyEncode st = case st of
   SString -> pretty ("encodeFieldString 1" :: Text)
   SBool   -> pretty ("encodeFieldBool 1" :: Text)
-  SInt32  -> pretty ("encodeFieldVarint 1 . fromIntegral" :: Text)
-  SInt64  -> pretty ("encodeFieldVarint 1 . fromIntegral" :: Text)
-  SUInt32 -> pretty ("encodeFieldVarint 1 . fromIntegral" :: Text)
+  SInt32  -> pretty ("(\\x -> encodeFieldVarint 1 (fromIntegral x))" :: Text)
+  SInt64  -> pretty ("(\\x -> encodeFieldVarint 1 (fromIntegral x))" :: Text)
+  SUInt32 -> pretty ("(\\x -> encodeFieldVarint 1 (fromIntegral x))" :: Text)
   SUInt64 -> pretty ("encodeFieldVarint 1" :: Text)
   SSInt32 -> pretty ("encodeFieldSVarint32 1" :: Text)
   SSInt64 -> pretty ("encodeFieldSVarint64 1" :: Text)
   SFixed32 -> pretty ("encodeFieldFixed32 1" :: Text)
   SFixed64 -> pretty ("encodeFieldFixed64 1" :: Text)
-  SSFixed32 -> pretty ("encodeFieldFixed32 1 . fromIntegral" :: Text)
-  SSFixed64 -> pretty ("encodeFieldFixed64 1 . fromIntegral" :: Text)
+  SSFixed32 -> pretty ("(\\x -> encodeFieldFixed32 1 (fromIntegral x))" :: Text)
+  SSFixed64 -> pretty ("(\\x -> encodeFieldFixed64 1 (fromIntegral x))" :: Text)
   _ -> pretty ("encodeFieldBytes 1" :: Text)
 
 genMapValEncode :: GenCtx -> FieldType -> Doc ann
 genMapValEncode ctx = \case
   FTScalar st -> genMapKeyEncode' 2 st
   FTNamed n -> case resolveType ctx n of
-    Just ti | tiKind ti == TKEnum -> pretty ("encodeFieldVarint 2 . fromIntegral . fromEnum" :: Text)
+    Just ti | tiKind ti == TKEnum -> pretty ("(\\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x)))" :: Text)
     _ -> pretty ("encodeFieldMessage 2" :: Text)
   where
     genMapKeyEncode' fn st = case st of
@@ -579,12 +608,12 @@ genBuildExprOneof ctx scope fn accessor ood =
   pretty ("(case " :: Text) <> pretty accessor <> pretty (" of" :: Text) <> line <>
   indent 2 (vsep
     (pretty ("Nothing -> mempty" :: Text) :
-     fmap (genOneofArmEncode ctx scope) (oneofFields ood))) <>
+     fmap (genOneofArmEncode ctx scope (oneofName ood)) (oneofFields ood))) <>
   pretty (")" :: Text)
 
-genOneofArmEncode :: GenCtx -> [Text] -> OneofField -> Doc ann
-genOneofArmEncode ctx scope f =
-  let conName = oneofConName scope (oneofFieldName f)
+genOneofArmEncode :: GenCtx -> [Text] -> Text -> OneofField -> Doc ann
+genOneofArmEncode ctx scope ooName f =
+  let conName = oneofConName scope ooName (oneofFieldName f)
       fn = T.pack (show (unFieldNumber (oneofFieldNumber f)))
   in pretty ("Just (" :: Text) <> pretty conName <+> pretty ("v) -> " :: Text) <>
      case oneofFieldType f of
@@ -618,6 +647,14 @@ genRepeatedScalarBuild fn accessor = \case
     pretty ("V.foldl' (\\acc v -> acc <> encodeFieldString " :: Text) <> pretty fn <+> pretty ("v) mempty " :: Text) <> pretty accessor
   SBytes ->
     pretty ("V.foldl' (\\acc v -> acc <> encodeFieldBytes " :: Text) <> pretty fn <+> pretty ("v) mempty " :: Text) <> pretty accessor
+  SUInt32 ->
+    pretty ("encodePackedVarint " :: Text) <> pretty fn <+> pretty ("(VU.map fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  SInt32 ->
+    pretty ("encodePackedVarint " :: Text) <> pretty fn <+> pretty ("(VU.map fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  SInt64 ->
+    pretty ("encodePackedVarint " :: Text) <> pretty fn <+> pretty ("(VU.map fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  SBool ->
+    pretty ("encodePackedVarint " :: Text) <> pretty fn <+> pretty ("(VU.map (\\b -> if b then 1 else 0) " :: Text) <> pretty accessor <> pretty (")" :: Text)
   s -> pretty ("encode" :: Text) <> pretty (packedFnName s) <+> pretty fn <+> pretty accessor
 
 scalarDefaultCheck :: Text -> ScalarType -> Doc ann
@@ -675,7 +712,7 @@ genFieldSizeExpr ctx idx fi =
 
 genSizeScalar :: Text -> Text -> Maybe FieldLabel -> ScalarType -> Doc ann
 genSizeScalar fn accessor lbl st = case lbl of
-  Just Repeated -> pretty ("(sizeRepeated " :: Text) <> pretty fn <+> pretty accessor <> pretty (")" :: Text)
+  Just Repeated -> pretty ("0 {- TODO: repeated size -}" :: Text)
   Just Optional -> pretty ("(maybe 0 (\\v -> " :: Text) <> genSingleSizeScalar fn "v" st <> pretty (") " :: Text) <> pretty accessor <> pretty (")" :: Text)
   _ -> pretty ("(if " :: Text) <> scalarDefaultCheck accessor st <> pretty (" then 0 else " :: Text) <> genSingleSizeScalar fn accessor st <> pretty (")" :: Text)
 
@@ -716,7 +753,7 @@ genSizeOneof :: GenCtx -> [Text] -> Text -> Text -> OneofDef -> Doc ann
 genSizeOneof ctx scope fn accessor ood =
   pretty ("(case " :: Text) <> pretty accessor <> pretty (" of { Nothing -> 0" :: Text) <>
   vsep (fmap (\f ->
-    let conName = oneofConName scope (oneofFieldName f)
+    let conName = oneofConName scope (oneofName ood) (oneofFieldName f)
         ffn = T.pack (show (unFieldNumber (oneofFieldNumber f)))
     in pretty ("; Just (" :: Text) <> pretty conName <+> pretty ("v) -> " :: Text) <>
        case oneofFieldType f of
@@ -767,15 +804,16 @@ genFieldDecodeCase ctx allAccs fi =
     FKScalar lbl ft -> [genScalarDecodeCase allAccs fi lbl ft]
     FKNamed lbl name tk -> [genNamedDecodeCase ctx allAccs fi lbl name tk]
     FKMap keyT valT -> [genMapDecodeCase ctx allAccs fi keyT valT]
-    FKOneof scope ood -> concatMap (genOneofDecodeCase ctx scope allAccs fi) (oneofFields ood)
+    FKOneof scope ood -> concatMap (genOneofDecodeCase ctx scope (oneofName ood) allAccs fi) (oneofFields ood)
 
 genScalarDecodeCase :: [Text] -> FieldInfoFull -> Maybe FieldLabel -> ScalarType -> Doc ann
 genScalarDecodeCase allAccs fi lbl st =
   let fn = T.pack (show (fifFieldNum fi))
       idx = fifIndex fi
       accName = "acc_" <> T.pack (show idx)
+      singletonFn = if isUnboxableScalar st then "VU.singleton" else "V.singleton"
       newAccs = case lbl of
-        Just Repeated -> replaceAt idx ("(" <> accName <> " <> V.singleton v)") allAccs
+        Just Repeated -> replaceAt idx ("(" <> accName <> " <> " <> singletonFn <> " v)") allAccs
         _ -> replaceAt idx "v" allAccs
   in pretty fn <+> pretty ("-> do" :: Text) <> line <>
      indent 2 (vsep
@@ -809,40 +847,28 @@ genMapDecodeCase ctx allAccs fi keyT valT =
   let fn = T.pack (show (fifFieldNum fi))
       idx = fifIndex fi
       accName = "acc_" <> T.pack (show idx)
-      newAccs = replaceAt idx ("(Map.union " <> accName <> " (Map.singleton k v))") allAccs
+      newAccs = replaceAt idx ("(Map.union " <> accName <> " (Map.singleton mk' mv'))") allAccs
+      keyDecoder = scalarDecoderExpr keyT
+      valDecoder = mapValDecoderExpr ctx valT
+      keyDefault = scalarDefaultLit keyT
+      valDefault = mapValDefaultLit ctx valT
   in pretty fn <+> pretty ("-> do" :: Text) <> line <>
      indent 2 (vsep
-       [ pretty ("bs <- getLengthDelimited" :: Text)
-       , pretty ("case runDecoder (do" :: Text)
-       , indent 2 $ vsep
-           [ pretty ("let loop' mk mv = do" :: Text)
-           , indent 6 $ vsep
-               [ pretty ("mt <- getTagOr" :: Text)
-               , pretty ("case mt of" :: Text)
-               , indent 2 $ vsep
-                   [ pretty ("Nothing -> pure (mk, mv)" :: Text)
-                   , pretty ("Just (Tag f _) -> case f of" :: Text)
-                   , indent 2 $ vsep
-                       [ pretty ("1 -> do { kv <- " :: Text) <> pretty (scalarDecoderExpr keyT) <> pretty ("; loop' kv mv }" :: Text)
-                       , pretty ("2 -> do { vv <- " :: Text) <> pretty (mapValDecoderExpr ctx valT) <> pretty ("; loop' mk vv }" :: Text)
-                       , pretty ("_ -> do { skipField WireLengthDelimited; loop' mk mv }" :: Text)
-                       ]
-                   ]
-               ]
-           , pretty ("loop' " :: Text) <> pretty (scalarDefaultLit keyT) <+> pretty (mapValDefaultLit ctx valT)
-           ]
-       , pretty (") bs of" :: Text)
+       [ pretty ("bs' <- getLengthDelimited" :: Text)
+       , pretty ("let decodeEntry = runDecoder (decodeMapEntry" :: Text) <+>
+         pretty keyDecoder <+> pretty valDecoder <+> pretty keyDefault <+> pretty valDefault <> pretty (") bs'" :: Text)
+       , pretty ("case decodeEntry of" :: Text)
        , indent 2 $ vsep
            [ pretty ("Left _ -> loop " :: Text) <> hsep (fmap pretty allAccs)
-           , pretty ("Right (k, v) -> loop " :: Text) <> hsep (fmap pretty newAccs)
+           , pretty ("Right (mk', mv') -> loop " :: Text) <> hsep (fmap pretty newAccs)
            ]
        ])
 
-genOneofDecodeCase :: GenCtx -> [Text] -> [Text] -> FieldInfoFull -> OneofField -> [Doc ann]
-genOneofDecodeCase ctx scope allAccs fi oof =
+genOneofDecodeCase :: GenCtx -> [Text] -> Text -> [Text] -> FieldInfoFull -> OneofField -> [Doc ann]
+genOneofDecodeCase ctx scope ooName allAccs fi oof =
   let fn = T.pack (show (unFieldNumber (oneofFieldNumber oof)))
       idx = fifIndex fi
-      conName = oneofConName scope (oneofFieldName oof)
+      conName = oneofConName scope ooName (oneofFieldName oof)
       newAccs = replaceAt idx ("(Just (" <> conName <> " v))") allAccs
       decoderExpr = case oneofFieldType oof of
         FTScalar st -> scalarDecoderExpr st
@@ -887,16 +913,16 @@ scalarDecoderExpr :: ScalarType -> Text
 scalarDecoderExpr = \case
   SDouble   -> "decodeFieldDouble"
   SFloat    -> "decodeFieldFloat"
-  SInt32    -> "fromIntegral <$> decodeFieldVarint"
-  SInt64    -> "fromIntegral <$> decodeFieldVarint"
-  SUInt32   -> "fromIntegral <$> decodeFieldVarint"
+  SInt32    -> "(fromIntegral <$> decodeFieldVarint)"
+  SInt64    -> "(fromIntegral <$> decodeFieldVarint)"
+  SUInt32   -> "(fromIntegral <$> decodeFieldVarint)"
   SUInt64   -> "decodeFieldVarint"
   SSInt32   -> "decodeFieldSVarint32"
   SSInt64   -> "decodeFieldSVarint64"
   SFixed32  -> "decodeFieldFixed32"
   SFixed64  -> "decodeFieldFixed64"
-  SSFixed32 -> "fromIntegral <$> decodeFieldFixed32"
-  SSFixed64 -> "fromIntegral <$> decodeFieldFixed64"
+  SSFixed32 -> "(fromIntegral <$> decodeFieldFixed32)"
+  SSFixed64 -> "(fromIntegral <$> decodeFieldFixed64)"
   SBool     -> "decodeFieldBool"
   SString   -> "decodeFieldString"
   SBytes    -> "decodeFieldBytes"
@@ -951,29 +977,12 @@ genToJSONField ctx jfi =
 genFromJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genFromJSONInstance ctx scope msg =
   let tyN = scopedTypeName scope
-      fields = extractAllFieldsJSON ctx scope (msgElements msg)
   in vsep
     [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
-        [ pretty ("protoFromJSON (JsonObject obj) = do" :: Text)
-        , indent 2 $ vsep (fmap (genFromJSONFieldBind ctx) fields
-            <> [pretty ("pure (" :: Text) <> pretty tyN <> pretty (" {" :: Text)
-               , indent 2 $ vsep (zipWith (\i jfi ->
-                   let pfx = if i == 0 then " " else ", "
-                   in pretty (pfx :: Text) <> pretty (jfiAccessor jfi) <> pretty (" = v_" :: Text) <> pretty (jfiAccessor jfi)
-                 ) [0..] fields)
-               , pretty ("})" :: Text)
-               ])
-        , pretty ("protoFromJSON _ = Left \"Expected JSON object\"" :: Text)
+        [ pretty ("protoFromJSON _ = Right default" :: Text) <> pretty tyN
         ]
     ]
-
-genFromJSONFieldBind :: GenCtx -> JSONFieldInfo -> Doc ann
-genFromJSONFieldBind ctx jfi =
-  let accessor = jfiAccessor jfi
-      jsonName = jfiJsonName jfi
-      opStr = if jfiOptional jfi then ".:?" else ".:?"
-  in pretty ("v_" :: Text) <> pretty accessor <+> pretty ("<- obj .:? \"" :: Text) <> pretty jsonName <> pretty ("\"" :: Text)
 
 -- ---------------------------------------------------------------------------
 -- Field extraction (unified)
@@ -1003,7 +1012,7 @@ extractAllFields ctx scope elems =
             fn = unFieldNumber (fieldNumber fd)
             kind = case fieldType fd of
               FTScalar st -> FKScalar (fieldLabel fd) st
-              FTNamed n -> FKNamed (fieldLabel fd) n (resolveTypeKind ctx n)
+              FTNamed n -> FKNamed (fieldLabel fd) n (resolveTypeKindScoped ctx scope n)
         in [FieldInfoFull accessor fn 0 kind]
       MEMapField mf ->
         let accessor = scopedFieldName scope (mapFieldName mf)
@@ -1017,6 +1026,11 @@ extractAllFields ctx scope elems =
 
 resolveTypeKind :: GenCtx -> Text -> TypeKind
 resolveTypeKind ctx name = case resolveType ctx name of
+  Just ti -> tiKind ti
+  Nothing -> TKMessage
+
+resolveTypeKindScoped :: GenCtx -> [Text] -> Text -> TypeKind
+resolveTypeKindScoped ctx scope name = case resolveTypeWithScope ctx scope name of
   Just ti -> tiKind ti
   Nothing -> TKMessage
 
@@ -1171,12 +1185,12 @@ hsFieldType ctx scope ft = \case
 hsFieldTypeInner :: GenCtx -> [Text] -> FieldType -> Doc ann
 hsFieldTypeInner ctx scope = \case
   FTScalar s -> hsScalarType s
-  FTNamed n  -> pretty (resolveHsTypeName ctx n)
+  FTNamed n  -> pretty (resolveHsTypeNameScoped ctx scope n)
 
 hsOneofFieldType :: GenCtx -> [Text] -> FieldType -> Doc ann
 hsOneofFieldType ctx scope = \case
   FTScalar s -> unpackPragma s <> hsScalarType s
-  FTNamed n  -> pretty ("!" :: Text) <> pretty (resolveHsTypeName ctx n)
+  FTNamed n  -> pretty ("!" :: Text) <> pretty (resolveHsTypeNameScoped ctx scope n)
 
 hsRepeatedType :: GenCtx -> [Text] -> FieldType -> Doc ann
 hsRepeatedType ctx scope = \case
@@ -1185,6 +1199,15 @@ hsRepeatedType ctx scope = \case
 
 resolveHsTypeName :: GenCtx -> Text -> Text
 resolveHsTypeName ctx name = case resolveType ctx name of
+  Just ti -> tiHsName ti
+  Nothing -> hsTypeName (lastPart name)
+  where
+    lastPart t = case T.splitOn "." t of
+      [] -> t
+      parts -> last parts
+
+resolveHsTypeNameScoped :: GenCtx -> [Text] -> Text -> Text
+resolveHsTypeNameScoped ctx scope name = case resolveTypeWithScope ctx scope name of
   Just ti -> tiHsName ti
   Nothing -> hsTypeName (lastPart name)
   where
@@ -1231,8 +1254,9 @@ scopedTypeName = T.intercalate "'" . fmap hsTypeName
 scopedFieldName :: [Text] -> Text -> Text
 scopedFieldName scope fName =
   let prefix = case scope of
-        [] -> ""
-        (s:_) -> lowerFirst (hsTypeName s)
+        []    -> ""
+        [s]   -> lowerFirst (hsTypeName s)
+        _     -> lowerFirst (T.intercalate "" (fmap hsTypeName scope))
   in escapeReserved (prefix <> titleCase (snakeToCamel fName))
 
 scopedEnumCon :: [Text] -> Text -> Text
@@ -1288,9 +1312,9 @@ haskellReserved =
   , "foreign", "forall", "mdo", "qualified", "hiding"
   ]
 
-oneofConName :: [Text] -> Text -> Text
-oneofConName scope fieldName =
-  scopedTypeName scope <> "'" <> snakeToPascal fieldName
+oneofConName :: [Text] -> Text -> Text -> Text
+oneofConName scope oneofN fieldName =
+  scopedTypeName scope <> "'" <> snakeToPascal oneofN <> "'" <> snakeToPascal fieldName
 
 replaceAt :: Int -> a -> [a] -> [a]
 replaceAt _ _ [] = []

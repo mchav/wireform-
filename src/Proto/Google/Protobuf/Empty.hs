@@ -9,6 +9,7 @@ import Control.DeepSeq (NFData)
 
 import Proto.Encode
 import Proto.Decode
+import Proto.JSON
 import Proto.Message (IsMessage(..))
 import Proto.Wire (Tag (..))
 
@@ -39,3 +40,9 @@ instance MessageDecode Empty where
 
 instance IsMessage Empty where
   messageTypeName _ = "google.protobuf.Empty"
+
+instance ProtoToJSON Empty where
+  protoToJSON _ = JsonObject mempty
+
+instance ProtoFromJSON Empty where
+  protoFromJSON _ = Right Empty

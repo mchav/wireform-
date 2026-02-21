@@ -33,19 +33,19 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Google.Protobuf.Empty (Empty)
-import Proto.Google.Protobuf.FieldMask (FieldMask)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Activity.V1.Message (ActivityOptions)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType, Callback, Header, Link, Memo, Payloads, Priority, RetryPolicy, SearchAttributes, WorkerVersionStamp, WorkflowExecution, WorkflowType)
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (Deployment, WorkerDeploymentVersion)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (CallbackState, NexusOperationCancellationState, PendingNexusOperationState)
-import Proto.Temporal.Temporal.Api.Enums.V1.EventType (EventType)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (ParentClosePolicy, PendingActivityState, PendingWorkflowTaskState, VersioningBehavior, WorkflowExecutionStatus, WorkflowIdReusePolicy)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure)
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata)
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue)
+import Proto.Google.Protobuf.Duration hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Google.Protobuf.Empty hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Google.Protobuf.FieldMask hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Google.Protobuf.Timestamp hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Activity.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Deployment.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.EventType hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
+import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message hiding (CallbackInfo, CallbackInfo'Trigger, CallbackInfo'WorkflowClosed, DeploymentTransition, DeploymentVersionTransition, NewWorkflowExecutionInfo, NexusOperationCancellationInfo, OnConflictOptions, PendingActivityInfo, PendingActivityInfo'PauseInfo, PendingActivityInfo'PauseInfo'Manual, PendingActivityInfo'PauseInfo'Rule, PendingChildExecutionInfo, PendingNexusOperationInfo, PendingWorkflowTaskInfo, PostResetOperation, PostResetOperation'SignalWorkflow, PostResetOperation'UpdateWorkflowOptions, RequestIdInfo, ResetPointInfo, ResetPoints, VersioningOverride, VersioningOverride'PinnedOverride, VersioningOverride'PinnedOverrideBehavior, WorkflowExecutionConfig, WorkflowExecutionExtendedInfo, WorkflowExecutionInfo, WorkflowExecutionOptions, WorkflowExecutionPauseInfo, WorkflowExecutionVersioningInfo)
 
 
 data WorkflowExecutionInfo = WorkflowExecutionInfo
@@ -286,62 +286,7 @@ instance ProtoToJSON WorkflowExecutionInfo where
       ]
 
 instance ProtoFromJSON WorkflowExecutionInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionInfoExecution <- obj .:? "execution"
-    v_workflowExecutionInfoType <- obj .:? "type"
-    v_workflowExecutionInfoStarttime <- obj .:? "startTime"
-    v_workflowExecutionInfoClosetime <- obj .:? "closeTime"
-    v_workflowExecutionInfoStatus <- obj .:? "status"
-    v_workflowExecutionInfoHistorylength <- obj .:? "historyLength"
-    v_workflowExecutionInfoParentnamespaceid <- obj .:? "parentNamespaceId"
-    v_workflowExecutionInfoParentexecution <- obj .:? "parentExecution"
-    v_workflowExecutionInfoExecutiontime <- obj .:? "executionTime"
-    v_workflowExecutionInfoMemo <- obj .:? "memo"
-    v_workflowExecutionInfoSearchattributes <- obj .:? "searchAttributes"
-    v_workflowExecutionInfoAutoresetpoints <- obj .:? "autoResetPoints"
-    v_workflowExecutionInfoTaskqueue <- obj .:? "taskQueue"
-    v_workflowExecutionInfoStatetransitioncount <- obj .:? "stateTransitionCount"
-    v_workflowExecutionInfoHistorysizebytes <- obj .:? "historySizeBytes"
-    v_workflowExecutionInfoMostrecentworkerversionstamp <- obj .:? "mostRecentWorkerVersionStamp"
-    v_workflowExecutionInfoExecutionduration <- obj .:? "executionDuration"
-    v_workflowExecutionInfoRootexecution <- obj .:? "rootExecution"
-    v_workflowExecutionInfoAssignedbuildid <- obj .:? "assignedBuildId"
-    v_workflowExecutionInfoInheritedbuildid <- obj .:? "inheritedBuildId"
-    v_workflowExecutionInfoFirstrunid <- obj .:? "firstRunId"
-    v_workflowExecutionInfoVersioninginfo <- obj .:? "versioningInfo"
-    v_workflowExecutionInfoWorkerdeploymentname <- obj .:? "workerDeploymentName"
-    v_workflowExecutionInfoPriority <- obj .:? "priority"
-    v_workflowExecutionInfoExternalpayloadsizebytes <- obj .:? "externalPayloadSizeBytes"
-    v_workflowExecutionInfoExternalpayloadcount <- obj .:? "externalPayloadCount"
-    pure (WorkflowExecutionInfo {
-       workflowExecutionInfoExecution = v_workflowExecutionInfoExecution
-      , workflowExecutionInfoType = v_workflowExecutionInfoType
-      , workflowExecutionInfoStarttime = v_workflowExecutionInfoStarttime
-      , workflowExecutionInfoClosetime = v_workflowExecutionInfoClosetime
-      , workflowExecutionInfoStatus = v_workflowExecutionInfoStatus
-      , workflowExecutionInfoHistorylength = v_workflowExecutionInfoHistorylength
-      , workflowExecutionInfoParentnamespaceid = v_workflowExecutionInfoParentnamespaceid
-      , workflowExecutionInfoParentexecution = v_workflowExecutionInfoParentexecution
-      , workflowExecutionInfoExecutiontime = v_workflowExecutionInfoExecutiontime
-      , workflowExecutionInfoMemo = v_workflowExecutionInfoMemo
-      , workflowExecutionInfoSearchattributes = v_workflowExecutionInfoSearchattributes
-      , workflowExecutionInfoAutoresetpoints = v_workflowExecutionInfoAutoresetpoints
-      , workflowExecutionInfoTaskqueue = v_workflowExecutionInfoTaskqueue
-      , workflowExecutionInfoStatetransitioncount = v_workflowExecutionInfoStatetransitioncount
-      , workflowExecutionInfoHistorysizebytes = v_workflowExecutionInfoHistorysizebytes
-      , workflowExecutionInfoMostrecentworkerversionstamp = v_workflowExecutionInfoMostrecentworkerversionstamp
-      , workflowExecutionInfoExecutionduration = v_workflowExecutionInfoExecutionduration
-      , workflowExecutionInfoRootexecution = v_workflowExecutionInfoRootexecution
-      , workflowExecutionInfoAssignedbuildid = v_workflowExecutionInfoAssignedbuildid
-      , workflowExecutionInfoInheritedbuildid = v_workflowExecutionInfoInheritedbuildid
-      , workflowExecutionInfoFirstrunid = v_workflowExecutionInfoFirstrunid
-      , workflowExecutionInfoVersioninginfo = v_workflowExecutionInfoVersioninginfo
-      , workflowExecutionInfoWorkerdeploymentname = v_workflowExecutionInfoWorkerdeploymentname
-      , workflowExecutionInfoPriority = v_workflowExecutionInfoPriority
-      , workflowExecutionInfoExternalpayloadsizebytes = v_workflowExecutionInfoExternalpayloadsizebytes
-      , workflowExecutionInfoExternalpayloadcount = v_workflowExecutionInfoExternalpayloadcount
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutionInfo
 
 data WorkflowExecutionExtendedInfo = WorkflowExecutionExtendedInfo
   { workflowExecutionExtendedInfoExecutionexpirationtime :: !(Maybe Timestamp)
@@ -417,20 +362,11 @@ instance MessageDecode WorkflowExecutionExtendedInfo where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_7
             7 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
-                Right (k, v) -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Map.union acc_6 (Map.singleton k v)) acc_7
+                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Map.union acc_6 (Map.singleton mk' mv')) acc_7
             8 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v)
@@ -449,26 +385,7 @@ instance ProtoToJSON WorkflowExecutionExtendedInfo where
       ]
 
 instance ProtoFromJSON WorkflowExecutionExtendedInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionExtendedInfoExecutionexpirationtime <- obj .:? "executionExpirationTime"
-    v_workflowExecutionExtendedInfoRunexpirationtime <- obj .:? "runExpirationTime"
-    v_workflowExecutionExtendedInfoCancelrequested <- obj .:? "cancelRequested"
-    v_workflowExecutionExtendedInfoLastresettime <- obj .:? "lastResetTime"
-    v_workflowExecutionExtendedInfoOriginalstarttime <- obj .:? "originalStartTime"
-    v_workflowExecutionExtendedInfoResetrunid <- obj .:? "resetRunId"
-    v_workflowExecutionExtendedInfoRequestidinfos <- obj .:? "requestIdInfos"
-    v_workflowExecutionExtendedInfoPauseinfo <- obj .:? "pauseInfo"
-    pure (WorkflowExecutionExtendedInfo {
-       workflowExecutionExtendedInfoExecutionexpirationtime = v_workflowExecutionExtendedInfoExecutionexpirationtime
-      , workflowExecutionExtendedInfoRunexpirationtime = v_workflowExecutionExtendedInfoRunexpirationtime
-      , workflowExecutionExtendedInfoCancelrequested = v_workflowExecutionExtendedInfoCancelrequested
-      , workflowExecutionExtendedInfoLastresettime = v_workflowExecutionExtendedInfoLastresettime
-      , workflowExecutionExtendedInfoOriginalstarttime = v_workflowExecutionExtendedInfoOriginalstarttime
-      , workflowExecutionExtendedInfoResetrunid = v_workflowExecutionExtendedInfoResetrunid
-      , workflowExecutionExtendedInfoRequestidinfos = v_workflowExecutionExtendedInfoRequestidinfos
-      , workflowExecutionExtendedInfoPauseinfo = v_workflowExecutionExtendedInfoPauseinfo
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutionExtendedInfo
 
 data WorkflowExecutionVersioningInfo = WorkflowExecutionVersioningInfo
   { workflowExecutionVersioningInfoBehavior :: !VersioningBehavior
@@ -564,26 +481,7 @@ instance ProtoToJSON WorkflowExecutionVersioningInfo where
       ]
 
 instance ProtoFromJSON WorkflowExecutionVersioningInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionVersioningInfoBehavior <- obj .:? "behavior"
-    v_workflowExecutionVersioningInfoDeployment <- obj .:? "deployment"
-    v_workflowExecutionVersioningInfoVersion <- obj .:? "version"
-    v_workflowExecutionVersioningInfoDeploymentversion <- obj .:? "deploymentVersion"
-    v_workflowExecutionVersioningInfoVersioningoverride <- obj .:? "versioningOverride"
-    v_workflowExecutionVersioningInfoDeploymenttransition <- obj .:? "deploymentTransition"
-    v_workflowExecutionVersioningInfoVersiontransition <- obj .:? "versionTransition"
-    v_workflowExecutionVersioningInfoRevisionnumber <- obj .:? "revisionNumber"
-    pure (WorkflowExecutionVersioningInfo {
-       workflowExecutionVersioningInfoBehavior = v_workflowExecutionVersioningInfoBehavior
-      , workflowExecutionVersioningInfoDeployment = v_workflowExecutionVersioningInfoDeployment
-      , workflowExecutionVersioningInfoVersion = v_workflowExecutionVersioningInfoVersion
-      , workflowExecutionVersioningInfoDeploymentversion = v_workflowExecutionVersioningInfoDeploymentversion
-      , workflowExecutionVersioningInfoVersioningoverride = v_workflowExecutionVersioningInfoVersioningoverride
-      , workflowExecutionVersioningInfoDeploymenttransition = v_workflowExecutionVersioningInfoDeploymenttransition
-      , workflowExecutionVersioningInfoVersiontransition = v_workflowExecutionVersioningInfoVersiontransition
-      , workflowExecutionVersioningInfoRevisionnumber = v_workflowExecutionVersioningInfoRevisionnumber
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutionVersioningInfo
 
 data DeploymentTransition = DeploymentTransition
   { deploymentTransitionDeployment :: !(Maybe Deployment)
@@ -624,12 +522,7 @@ instance ProtoToJSON DeploymentTransition where
       ]
 
 instance ProtoFromJSON DeploymentTransition where
-  protoFromJSON (JsonObject obj) = do
-    v_deploymentTransitionDeployment <- obj .:? "deployment"
-    pure (DeploymentTransition {
-       deploymentTransitionDeployment = v_deploymentTransitionDeployment
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeploymentTransition
 
 data DeploymentVersionTransition = DeploymentVersionTransition
   { deploymentVersionTransitionVersion :: !Text
@@ -677,14 +570,7 @@ instance ProtoToJSON DeploymentVersionTransition where
       ]
 
 instance ProtoFromJSON DeploymentVersionTransition where
-  protoFromJSON (JsonObject obj) = do
-    v_deploymentVersionTransitionVersion <- obj .:? "version"
-    v_deploymentVersionTransitionDeploymentversion <- obj .:? "deploymentVersion"
-    pure (DeploymentVersionTransition {
-       deploymentVersionTransitionVersion = v_deploymentVersionTransitionVersion
-      , deploymentVersionTransitionDeploymentversion = v_deploymentVersionTransitionDeploymentversion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeploymentVersionTransition
 
 data WorkflowExecutionConfig = WorkflowExecutionConfig
   { workflowExecutionConfigTaskqueue :: !(Maybe TaskQueue)
@@ -756,20 +642,7 @@ instance ProtoToJSON WorkflowExecutionConfig where
       ]
 
 instance ProtoFromJSON WorkflowExecutionConfig where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionConfigTaskqueue <- obj .:? "taskQueue"
-    v_workflowExecutionConfigWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
-    v_workflowExecutionConfigWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    v_workflowExecutionConfigDefaultworkflowtasktimeout <- obj .:? "defaultWorkflowTaskTimeout"
-    v_workflowExecutionConfigUsermetadata <- obj .:? "userMetadata"
-    pure (WorkflowExecutionConfig {
-       workflowExecutionConfigTaskqueue = v_workflowExecutionConfigTaskqueue
-      , workflowExecutionConfigWorkflowexecutiontimeout = v_workflowExecutionConfigWorkflowexecutiontimeout
-      , workflowExecutionConfigWorkflowruntimeout = v_workflowExecutionConfigWorkflowruntimeout
-      , workflowExecutionConfigDefaultworkflowtasktimeout = v_workflowExecutionConfigDefaultworkflowtasktimeout
-      , workflowExecutionConfigUsermetadata = v_workflowExecutionConfigUsermetadata
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutionConfig
 
 data PendingActivityInfo = PendingActivityInfo
   { pendingActivityInfoActivityid :: !Text
@@ -794,46 +667,50 @@ data PendingActivityInfo = PendingActivityInfo
   , pendingActivityInfoLastworkerdeploymentversion :: !Text
   , pendingActivityInfoLastdeploymentversion :: !(Maybe WorkerDeploymentVersion)
   , pendingActivityInfoPriority :: !(Maybe Priority)
-  , pendingActivityInfoPauseinfo :: !(Maybe PauseInfo)
+  , pendingActivityInfoPauseinfo :: !(Maybe PendingActivityInfo'PauseInfo)
   , pendingActivityInfoActivityoptions :: !(Maybe ActivityOptions)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data PendingActivityInfo'AssignedBuildId
-  = PendingActivityInfo'UseWorkflowBuildId !Empty
-  | PendingActivityInfo'LastIndependentlyAssignedBuildId !Text
+  = PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId !Empty
+  | PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON PendingActivityInfo'AssignedBuildId where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON PendingActivityInfo'AssignedBuildId where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 data PendingActivityInfo'PauseInfo = PendingActivityInfo'PauseInfo
-  { pendingActivityInfoPausetime :: !(Maybe Timestamp)
-  , pendingActivityInfoPausedby :: !(Maybe PendingActivityInfo'PauseInfo'PausedBy)
+  { pendingActivityInfoPauseInfoPausetime :: !(Maybe Timestamp)
+  , pendingActivityInfoPauseInfoPausedby :: !(Maybe PendingActivityInfo'PauseInfo'PausedBy)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data PendingActivityInfo'PauseInfo'Manual = PendingActivityInfo'PauseInfo'Manual
-  { pendingActivityInfoIdentity :: !Text
-  , pendingActivityInfoReason :: !Text
+  { pendingActivityInfoPauseInfoManualIdentity :: !Text
+  , pendingActivityInfoPauseInfoManualReason :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPendingActivityInfo'PauseInfo'Manual :: PendingActivityInfo'PauseInfo'Manual
 defaultPendingActivityInfo'PauseInfo'Manual = PendingActivityInfo'PauseInfo'Manual
-  { pendingActivityInfoIdentity = ""
-  , pendingActivityInfoReason = ""
+  { pendingActivityInfoPauseInfoManualIdentity = ""
+  , pendingActivityInfoPauseInfoManualReason = ""
   }
 
 instance MessageEncode PendingActivityInfo'PauseInfo'Manual where
   buildMessage msg =
-    (if msg.pendingActivityInfoIdentity == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoIdentity)
-    <> (if msg.pendingActivityInfoReason == T.empty then mempty else encodeFieldString 2 msg.pendingActivityInfoReason)
+    (if msg.pendingActivityInfoPauseInfoManualIdentity == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoPauseInfoManualIdentity)
+    <> (if msg.pendingActivityInfoPauseInfoManualReason == T.empty then mempty else encodeFieldString 2 msg.pendingActivityInfoPauseInfoManualReason)
 
 instance MessageSize PendingActivityInfo'PauseInfo'Manual where
   messageSize msg =
-    (if msg.pendingActivityInfoIdentity == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoIdentity)
-    + (if msg.pendingActivityInfoReason == T.empty then 0 else fieldTextSize 2 msg.pendingActivityInfoReason)
+    (if msg.pendingActivityInfoPauseInfoManualIdentity == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoPauseInfoManualIdentity)
+    + (if msg.pendingActivityInfoPauseInfoManualReason == T.empty then 0 else fieldTextSize 2 msg.pendingActivityInfoPauseInfoManualReason)
 
 instance MessageDecode PendingActivityInfo'PauseInfo'Manual where
   messageDecoder = loop "" ""
@@ -841,7 +718,7 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Manual where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (PendingActivityInfo'PauseInfo'Manual {pendingActivityInfoIdentity = acc_0, pendingActivityInfoReason = acc_1})
+          Nothing -> pure (PendingActivityInfo'PauseInfo'Manual {pendingActivityInfoPauseInfoManualIdentity = acc_0, pendingActivityInfoPauseInfoManualReason = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -853,46 +730,39 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Manual where
 
 instance ProtoToJSON PendingActivityInfo'PauseInfo'Manual where
   protoToJSON msg = jsonObject
-      [ "identity" .= msg.pendingActivityInfoIdentity
-      , "reason" .= msg.pendingActivityInfoReason
+      [ "identity" .= msg.pendingActivityInfoPauseInfoManualIdentity
+      , "reason" .= msg.pendingActivityInfoPauseInfoManualReason
       ]
 
 instance ProtoFromJSON PendingActivityInfo'PauseInfo'Manual where
-  protoFromJSON (JsonObject obj) = do
-    v_pendingActivityInfoIdentity <- obj .:? "identity"
-    v_pendingActivityInfoReason <- obj .:? "reason"
-    pure (PendingActivityInfo'PauseInfo'Manual {
-       pendingActivityInfoIdentity = v_pendingActivityInfoIdentity
-      , pendingActivityInfoReason = v_pendingActivityInfoReason
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo'Manual
 
 data PendingActivityInfo'PauseInfo'Rule = PendingActivityInfo'PauseInfo'Rule
-  { pendingActivityInfoRuleid :: !Text
-  , pendingActivityInfoIdentity :: !Text
-  , pendingActivityInfoReason :: !Text
+  { pendingActivityInfoPauseInfoRuleRuleid :: !Text
+  , pendingActivityInfoPauseInfoRuleIdentity :: !Text
+  , pendingActivityInfoPauseInfoRuleReason :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPendingActivityInfo'PauseInfo'Rule :: PendingActivityInfo'PauseInfo'Rule
 defaultPendingActivityInfo'PauseInfo'Rule = PendingActivityInfo'PauseInfo'Rule
-  { pendingActivityInfoRuleid = ""
-  , pendingActivityInfoIdentity = ""
-  , pendingActivityInfoReason = ""
+  { pendingActivityInfoPauseInfoRuleRuleid = ""
+  , pendingActivityInfoPauseInfoRuleIdentity = ""
+  , pendingActivityInfoPauseInfoRuleReason = ""
   }
 
 instance MessageEncode PendingActivityInfo'PauseInfo'Rule where
   buildMessage msg =
-    (if msg.pendingActivityInfoRuleid == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoRuleid)
-    <> (if msg.pendingActivityInfoIdentity == T.empty then mempty else encodeFieldString 2 msg.pendingActivityInfoIdentity)
-    <> (if msg.pendingActivityInfoReason == T.empty then mempty else encodeFieldString 3 msg.pendingActivityInfoReason)
+    (if msg.pendingActivityInfoPauseInfoRuleRuleid == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoPauseInfoRuleRuleid)
+    <> (if msg.pendingActivityInfoPauseInfoRuleIdentity == T.empty then mempty else encodeFieldString 2 msg.pendingActivityInfoPauseInfoRuleIdentity)
+    <> (if msg.pendingActivityInfoPauseInfoRuleReason == T.empty then mempty else encodeFieldString 3 msg.pendingActivityInfoPauseInfoRuleReason)
 
 instance MessageSize PendingActivityInfo'PauseInfo'Rule where
   messageSize msg =
-    (if msg.pendingActivityInfoRuleid == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoRuleid)
-    + (if msg.pendingActivityInfoIdentity == T.empty then 0 else fieldTextSize 2 msg.pendingActivityInfoIdentity)
-    + (if msg.pendingActivityInfoReason == T.empty then 0 else fieldTextSize 3 msg.pendingActivityInfoReason)
+    (if msg.pendingActivityInfoPauseInfoRuleRuleid == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoPauseInfoRuleRuleid)
+    + (if msg.pendingActivityInfoPauseInfoRuleIdentity == T.empty then 0 else fieldTextSize 2 msg.pendingActivityInfoPauseInfoRuleIdentity)
+    + (if msg.pendingActivityInfoPauseInfoRuleReason == T.empty then 0 else fieldTextSize 3 msg.pendingActivityInfoPauseInfoRuleReason)
 
 instance MessageDecode PendingActivityInfo'PauseInfo'Rule where
   messageDecoder = loop "" "" ""
@@ -900,7 +770,7 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Rule where
       loop acc_0 acc_1 acc_2 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (PendingActivityInfo'PauseInfo'Rule {pendingActivityInfoRuleid = acc_0, pendingActivityInfoIdentity = acc_1, pendingActivityInfoReason = acc_2})
+          Nothing -> pure (PendingActivityInfo'PauseInfo'Rule {pendingActivityInfoPauseInfoRuleRuleid = acc_0, pendingActivityInfoPauseInfoRuleIdentity = acc_1, pendingActivityInfoPauseInfoRuleReason = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -915,47 +785,42 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Rule where
 
 instance ProtoToJSON PendingActivityInfo'PauseInfo'Rule where
   protoToJSON msg = jsonObject
-      [ "ruleId" .= msg.pendingActivityInfoRuleid
-      , "identity" .= msg.pendingActivityInfoIdentity
-      , "reason" .= msg.pendingActivityInfoReason
+      [ "ruleId" .= msg.pendingActivityInfoPauseInfoRuleRuleid
+      , "identity" .= msg.pendingActivityInfoPauseInfoRuleIdentity
+      , "reason" .= msg.pendingActivityInfoPauseInfoRuleReason
       ]
 
 instance ProtoFromJSON PendingActivityInfo'PauseInfo'Rule where
-  protoFromJSON (JsonObject obj) = do
-    v_pendingActivityInfoRuleid <- obj .:? "ruleId"
-    v_pendingActivityInfoIdentity <- obj .:? "identity"
-    v_pendingActivityInfoReason <- obj .:? "reason"
-    pure (PendingActivityInfo'PauseInfo'Rule {
-       pendingActivityInfoRuleid = v_pendingActivityInfoRuleid
-      , pendingActivityInfoIdentity = v_pendingActivityInfoIdentity
-      , pendingActivityInfoReason = v_pendingActivityInfoReason
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo'Rule
 data PendingActivityInfo'PauseInfo'PausedBy
-  = PendingActivityInfo'PauseInfo'Manual !Manual
-  | PendingActivityInfo'PauseInfo'Rule !Rule
+  = PendingActivityInfo'PauseInfo'PausedBy'Manual !PendingActivityInfo'PauseInfo'Manual
+  | PendingActivityInfo'PauseInfo'PausedBy'Rule !PendingActivityInfo'PauseInfo'Rule
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON PendingActivityInfo'PauseInfo'PausedBy where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON PendingActivityInfo'PauseInfo'PausedBy where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultPendingActivityInfo'PauseInfo :: PendingActivityInfo'PauseInfo
 defaultPendingActivityInfo'PauseInfo = PendingActivityInfo'PauseInfo
-  { pendingActivityInfoPausetime = Nothing
-  , pendingActivityInfoPausedby = Nothing
+  { pendingActivityInfoPauseInfoPausetime = Nothing
+  , pendingActivityInfoPauseInfoPausedby = Nothing
   }
 
 instance MessageEncode PendingActivityInfo'PauseInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.pendingActivityInfoPausetime)
-    <> (case msg.pendingActivityInfoPausedby of
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.pendingActivityInfoPauseInfoPausetime)
+    <> (case msg.pendingActivityInfoPauseInfoPausedby of
       Nothing -> mempty
-      Just (PendingActivityInfo'PauseInfo'Manual v) -> encodeFieldMessage 2 v
-      Just (PendingActivityInfo'PauseInfo'Rule v) -> encodeFieldMessage 4 v)
+      Just (PendingActivityInfo'PauseInfo'PausedBy'Manual v) -> encodeFieldMessage 2 v
+      Just (PendingActivityInfo'PauseInfo'PausedBy'Rule v) -> encodeFieldMessage 4 v)
 
 instance MessageSize PendingActivityInfo'PauseInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.pendingActivityInfoPausetime)
-    + (case msg.pendingActivityInfoPausedby of { Nothing -> 0; Just (PendingActivityInfo'PauseInfo'Manual v) -> fieldMessageSize 2 (messageSize v)
-    ; Just (PendingActivityInfo'PauseInfo'Rule v) -> fieldMessageSize 4 (messageSize v) })
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.pendingActivityInfoPauseInfoPausetime)
+    + (case msg.pendingActivityInfoPauseInfoPausedby of { Nothing -> 0; Just (PendingActivityInfo'PauseInfo'PausedBy'Manual v) -> fieldMessageSize 2 (messageSize v)
+    ; Just (PendingActivityInfo'PauseInfo'PausedBy'Rule v) -> fieldMessageSize 4 (messageSize v) })
 
 instance MessageDecode PendingActivityInfo'PauseInfo where
   messageDecoder = loop Nothing Nothing
@@ -963,34 +828,27 @@ instance MessageDecode PendingActivityInfo'PauseInfo where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (PendingActivityInfo'PauseInfo {pendingActivityInfoPausetime = acc_0, pendingActivityInfoPausedby = acc_1})
+          Nothing -> pure (PendingActivityInfo'PauseInfo {pendingActivityInfoPauseInfoPausetime = acc_0, pendingActivityInfoPauseInfoPausedby = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
               loop (Just v) acc_1
             2 -> do
               v <- decodeFieldMessage
-              loop acc_0 (Just (PendingActivityInfo'PauseInfo'Manual v))
+              loop acc_0 (Just (PendingActivityInfo'PauseInfo'PausedBy'Manual v))
             4 -> do
               v <- decodeFieldMessage
-              loop acc_0 (Just (PendingActivityInfo'PauseInfo'Rule v))
+              loop acc_0 (Just (PendingActivityInfo'PauseInfo'PausedBy'Rule v))
             _ -> skipField wt >> loop acc_0 acc_1
 
 instance ProtoToJSON PendingActivityInfo'PauseInfo where
   protoToJSON msg = jsonObject
-      [ "pauseTime" .= msg.pendingActivityInfoPausetime
-      , "pausedBy" .= msg.pendingActivityInfoPausedby
+      [ "pauseTime" .= msg.pendingActivityInfoPauseInfoPausetime
+      , "pausedBy" .= msg.pendingActivityInfoPauseInfoPausedby
       ]
 
 instance ProtoFromJSON PendingActivityInfo'PauseInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_pendingActivityInfoPausetime <- obj .:? "pauseTime"
-    v_pendingActivityInfoPausedby <- obj .:? "pausedBy"
-    pure (PendingActivityInfo'PauseInfo {
-       pendingActivityInfoPausetime = v_pendingActivityInfoPausetime
-      , pendingActivityInfoPausedby = v_pendingActivityInfoPausedby
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo
 
 defaultPendingActivityInfo :: PendingActivityInfo
 defaultPendingActivityInfo = PendingActivityInfo
@@ -1036,8 +894,8 @@ instance MessageEncode PendingActivityInfo where
     <> (if msg.pendingActivityInfoLastworkeridentity == T.empty then mempty else encodeFieldString 12 msg.pendingActivityInfoLastworkeridentity)
     <> (case msg.pendingActivityInfoAssignedbuildid of
       Nothing -> mempty
-      Just (PendingActivityInfo'UseWorkflowBuildId v) -> encodeFieldMessage 13 v
-      Just (PendingActivityInfo'LastIndependentlyAssignedBuildId v) -> encodeFieldString 14 v)
+      Just (PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId v) -> encodeFieldMessage 13 v
+      Just (PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId v) -> encodeFieldString 14 v)
     <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.pendingActivityInfoLastworkerversionstamp)
     <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.pendingActivityInfoCurrentretryinterval)
     <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.pendingActivityInfoLastattemptcompletetime)
@@ -1064,8 +922,8 @@ instance MessageSize PendingActivityInfo where
     + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.pendingActivityInfoExpirationtime)
     + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.pendingActivityInfoLastfailure)
     + (if msg.pendingActivityInfoLastworkeridentity == T.empty then 0 else fieldTextSize 12 msg.pendingActivityInfoLastworkeridentity)
-    + (case msg.pendingActivityInfoAssignedbuildid of { Nothing -> 0; Just (PendingActivityInfo'UseWorkflowBuildId v) -> fieldMessageSize 13 (messageSize v)
-    ; Just (PendingActivityInfo'LastIndependentlyAssignedBuildId v) -> fieldTextSize 14 v })
+    + (case msg.pendingActivityInfoAssignedbuildid of { Nothing -> 0; Just (PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId v) -> fieldMessageSize 13 (messageSize v)
+    ; Just (PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId v) -> fieldTextSize 14 v })
     + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.pendingActivityInfoLastworkerversionstamp)
     + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.pendingActivityInfoCurrentretryinterval)
     + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.pendingActivityInfoLastattemptcompletetime)
@@ -1124,10 +982,10 @@ instance MessageDecode PendingActivityInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 v acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
             13 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 (Just (PendingActivityInfo'UseWorkflowBuildId v)) acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 (Just (PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId v)) acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
             14 -> do
               v <- decodeFieldString
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 (Just (PendingActivityInfo'LastIndependentlyAssignedBuildId v)) acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 (Just (PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId v)) acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
             15 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 (Just v) acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
@@ -1192,58 +1050,7 @@ instance ProtoToJSON PendingActivityInfo where
       ]
 
 instance ProtoFromJSON PendingActivityInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_pendingActivityInfoActivityid <- obj .:? "activityId"
-    v_pendingActivityInfoActivitytype <- obj .:? "activityType"
-    v_pendingActivityInfoState <- obj .:? "state"
-    v_pendingActivityInfoHeartbeatdetails <- obj .:? "heartbeatDetails"
-    v_pendingActivityInfoLastheartbeattime <- obj .:? "lastHeartbeatTime"
-    v_pendingActivityInfoLaststartedtime <- obj .:? "lastStartedTime"
-    v_pendingActivityInfoAttempt <- obj .:? "attempt"
-    v_pendingActivityInfoMaximumattempts <- obj .:? "maximumAttempts"
-    v_pendingActivityInfoScheduledtime <- obj .:? "scheduledTime"
-    v_pendingActivityInfoExpirationtime <- obj .:? "expirationTime"
-    v_pendingActivityInfoLastfailure <- obj .:? "lastFailure"
-    v_pendingActivityInfoLastworkeridentity <- obj .:? "lastWorkerIdentity"
-    v_pendingActivityInfoAssignedbuildid <- obj .:? "assignedBuildId"
-    v_pendingActivityInfoLastworkerversionstamp <- obj .:? "lastWorkerVersionStamp"
-    v_pendingActivityInfoCurrentretryinterval <- obj .:? "currentRetryInterval"
-    v_pendingActivityInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    v_pendingActivityInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    v_pendingActivityInfoPaused <- obj .:? "paused"
-    v_pendingActivityInfoLastdeployment <- obj .:? "lastDeployment"
-    v_pendingActivityInfoLastworkerdeploymentversion <- obj .:? "lastWorkerDeploymentVersion"
-    v_pendingActivityInfoLastdeploymentversion <- obj .:? "lastDeploymentVersion"
-    v_pendingActivityInfoPriority <- obj .:? "priority"
-    v_pendingActivityInfoPauseinfo <- obj .:? "pauseInfo"
-    v_pendingActivityInfoActivityoptions <- obj .:? "activityOptions"
-    pure (PendingActivityInfo {
-       pendingActivityInfoActivityid = v_pendingActivityInfoActivityid
-      , pendingActivityInfoActivitytype = v_pendingActivityInfoActivitytype
-      , pendingActivityInfoState = v_pendingActivityInfoState
-      , pendingActivityInfoHeartbeatdetails = v_pendingActivityInfoHeartbeatdetails
-      , pendingActivityInfoLastheartbeattime = v_pendingActivityInfoLastheartbeattime
-      , pendingActivityInfoLaststartedtime = v_pendingActivityInfoLaststartedtime
-      , pendingActivityInfoAttempt = v_pendingActivityInfoAttempt
-      , pendingActivityInfoMaximumattempts = v_pendingActivityInfoMaximumattempts
-      , pendingActivityInfoScheduledtime = v_pendingActivityInfoScheduledtime
-      , pendingActivityInfoExpirationtime = v_pendingActivityInfoExpirationtime
-      , pendingActivityInfoLastfailure = v_pendingActivityInfoLastfailure
-      , pendingActivityInfoLastworkeridentity = v_pendingActivityInfoLastworkeridentity
-      , pendingActivityInfoAssignedbuildid = v_pendingActivityInfoAssignedbuildid
-      , pendingActivityInfoLastworkerversionstamp = v_pendingActivityInfoLastworkerversionstamp
-      , pendingActivityInfoCurrentretryinterval = v_pendingActivityInfoCurrentretryinterval
-      , pendingActivityInfoLastattemptcompletetime = v_pendingActivityInfoLastattemptcompletetime
-      , pendingActivityInfoNextattemptscheduletime = v_pendingActivityInfoNextattemptscheduletime
-      , pendingActivityInfoPaused = v_pendingActivityInfoPaused
-      , pendingActivityInfoLastdeployment = v_pendingActivityInfoLastdeployment
-      , pendingActivityInfoLastworkerdeploymentversion = v_pendingActivityInfoLastworkerdeploymentversion
-      , pendingActivityInfoLastdeploymentversion = v_pendingActivityInfoLastdeploymentversion
-      , pendingActivityInfoPriority = v_pendingActivityInfoPriority
-      , pendingActivityInfoPauseinfo = v_pendingActivityInfoPauseinfo
-      , pendingActivityInfoActivityoptions = v_pendingActivityInfoActivityoptions
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPendingActivityInfo
 
 data PendingChildExecutionInfo = PendingChildExecutionInfo
   { pendingChildExecutionInfoWorkflowid :: !Text
@@ -1315,20 +1122,7 @@ instance ProtoToJSON PendingChildExecutionInfo where
       ]
 
 instance ProtoFromJSON PendingChildExecutionInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_pendingChildExecutionInfoWorkflowid <- obj .:? "workflowId"
-    v_pendingChildExecutionInfoRunid <- obj .:? "runId"
-    v_pendingChildExecutionInfoWorkflowtypename <- obj .:? "workflowTypeName"
-    v_pendingChildExecutionInfoInitiatedid <- obj .:? "initiatedId"
-    v_pendingChildExecutionInfoParentclosepolicy <- obj .:? "parentClosePolicy"
-    pure (PendingChildExecutionInfo {
-       pendingChildExecutionInfoWorkflowid = v_pendingChildExecutionInfoWorkflowid
-      , pendingChildExecutionInfoRunid = v_pendingChildExecutionInfoRunid
-      , pendingChildExecutionInfoWorkflowtypename = v_pendingChildExecutionInfoWorkflowtypename
-      , pendingChildExecutionInfoInitiatedid = v_pendingChildExecutionInfoInitiatedid
-      , pendingChildExecutionInfoParentclosepolicy = v_pendingChildExecutionInfoParentclosepolicy
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPendingChildExecutionInfo
 
 data PendingWorkflowTaskInfo = PendingWorkflowTaskInfo
   { pendingWorkflowTaskInfoState :: !PendingWorkflowTaskState
@@ -1400,20 +1194,7 @@ instance ProtoToJSON PendingWorkflowTaskInfo where
       ]
 
 instance ProtoFromJSON PendingWorkflowTaskInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_pendingWorkflowTaskInfoState <- obj .:? "state"
-    v_pendingWorkflowTaskInfoScheduledtime <- obj .:? "scheduledTime"
-    v_pendingWorkflowTaskInfoOriginalscheduledtime <- obj .:? "originalScheduledTime"
-    v_pendingWorkflowTaskInfoStartedtime <- obj .:? "startedTime"
-    v_pendingWorkflowTaskInfoAttempt <- obj .:? "attempt"
-    pure (PendingWorkflowTaskInfo {
-       pendingWorkflowTaskInfoState = v_pendingWorkflowTaskInfoState
-      , pendingWorkflowTaskInfoScheduledtime = v_pendingWorkflowTaskInfoScheduledtime
-      , pendingWorkflowTaskInfoOriginalscheduledtime = v_pendingWorkflowTaskInfoOriginalscheduledtime
-      , pendingWorkflowTaskInfoStartedtime = v_pendingWorkflowTaskInfoStartedtime
-      , pendingWorkflowTaskInfoAttempt = v_pendingWorkflowTaskInfoAttempt
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPendingWorkflowTaskInfo
 
 data ResetPoints = ResetPoints
   { resetPointsPoints :: !(V.Vector ResetPointInfo)
@@ -1454,12 +1235,7 @@ instance ProtoToJSON ResetPoints where
       ]
 
 instance ProtoFromJSON ResetPoints where
-  protoFromJSON (JsonObject obj) = do
-    v_resetPointsPoints <- obj .:? "points"
-    pure (ResetPoints {
-       resetPointsPoints = v_resetPointsPoints
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultResetPoints
 
 data ResetPointInfo = ResetPointInfo
   { resetPointInfoBuildid :: !Text
@@ -1547,24 +1323,7 @@ instance ProtoToJSON ResetPointInfo where
       ]
 
 instance ProtoFromJSON ResetPointInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_resetPointInfoBuildid <- obj .:? "buildId"
-    v_resetPointInfoBinarychecksum <- obj .:? "binaryChecksum"
-    v_resetPointInfoRunid <- obj .:? "runId"
-    v_resetPointInfoFirstworkflowtaskcompletedid <- obj .:? "firstWorkflowTaskCompletedId"
-    v_resetPointInfoCreatetime <- obj .:? "createTime"
-    v_resetPointInfoExpiretime <- obj .:? "expireTime"
-    v_resetPointInfoResettable <- obj .:? "resettable"
-    pure (ResetPointInfo {
-       resetPointInfoBuildid = v_resetPointInfoBuildid
-      , resetPointInfoBinarychecksum = v_resetPointInfoBinarychecksum
-      , resetPointInfoRunid = v_resetPointInfoRunid
-      , resetPointInfoFirstworkflowtaskcompletedid = v_resetPointInfoFirstworkflowtaskcompletedid
-      , resetPointInfoCreatetime = v_resetPointInfoCreatetime
-      , resetPointInfoExpiretime = v_resetPointInfoExpiretime
-      , resetPointInfoResettable = v_resetPointInfoResettable
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultResetPointInfo
 
 data NewWorkflowExecutionInfo = NewWorkflowExecutionInfo
   { newWorkflowExecutionInfoWorkflowid :: !Text
@@ -1724,46 +1483,11 @@ instance ProtoToJSON NewWorkflowExecutionInfo where
       ]
 
 instance ProtoFromJSON NewWorkflowExecutionInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_newWorkflowExecutionInfoWorkflowid <- obj .:? "workflowId"
-    v_newWorkflowExecutionInfoWorkflowtype <- obj .:? "workflowType"
-    v_newWorkflowExecutionInfoTaskqueue <- obj .:? "taskQueue"
-    v_newWorkflowExecutionInfoInput <- obj .:? "input"
-    v_newWorkflowExecutionInfoWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
-    v_newWorkflowExecutionInfoWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    v_newWorkflowExecutionInfoWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    v_newWorkflowExecutionInfoWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
-    v_newWorkflowExecutionInfoRetrypolicy <- obj .:? "retryPolicy"
-    v_newWorkflowExecutionInfoCronschedule <- obj .:? "cronSchedule"
-    v_newWorkflowExecutionInfoMemo <- obj .:? "memo"
-    v_newWorkflowExecutionInfoSearchattributes <- obj .:? "searchAttributes"
-    v_newWorkflowExecutionInfoHeader <- obj .:? "header"
-    v_newWorkflowExecutionInfoUsermetadata <- obj .:? "userMetadata"
-    v_newWorkflowExecutionInfoVersioningoverride <- obj .:? "versioningOverride"
-    v_newWorkflowExecutionInfoPriority <- obj .:? "priority"
-    pure (NewWorkflowExecutionInfo {
-       newWorkflowExecutionInfoWorkflowid = v_newWorkflowExecutionInfoWorkflowid
-      , newWorkflowExecutionInfoWorkflowtype = v_newWorkflowExecutionInfoWorkflowtype
-      , newWorkflowExecutionInfoTaskqueue = v_newWorkflowExecutionInfoTaskqueue
-      , newWorkflowExecutionInfoInput = v_newWorkflowExecutionInfoInput
-      , newWorkflowExecutionInfoWorkflowexecutiontimeout = v_newWorkflowExecutionInfoWorkflowexecutiontimeout
-      , newWorkflowExecutionInfoWorkflowruntimeout = v_newWorkflowExecutionInfoWorkflowruntimeout
-      , newWorkflowExecutionInfoWorkflowtasktimeout = v_newWorkflowExecutionInfoWorkflowtasktimeout
-      , newWorkflowExecutionInfoWorkflowidreusepolicy = v_newWorkflowExecutionInfoWorkflowidreusepolicy
-      , newWorkflowExecutionInfoRetrypolicy = v_newWorkflowExecutionInfoRetrypolicy
-      , newWorkflowExecutionInfoCronschedule = v_newWorkflowExecutionInfoCronschedule
-      , newWorkflowExecutionInfoMemo = v_newWorkflowExecutionInfoMemo
-      , newWorkflowExecutionInfoSearchattributes = v_newWorkflowExecutionInfoSearchattributes
-      , newWorkflowExecutionInfoHeader = v_newWorkflowExecutionInfoHeader
-      , newWorkflowExecutionInfoUsermetadata = v_newWorkflowExecutionInfoUsermetadata
-      , newWorkflowExecutionInfoVersioningoverride = v_newWorkflowExecutionInfoVersioningoverride
-      , newWorkflowExecutionInfoPriority = v_newWorkflowExecutionInfoPriority
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNewWorkflowExecutionInfo
 
 data CallbackInfo = CallbackInfo
   { callbackInfoCallback :: !(Maybe Callback)
-  , callbackInfoTrigger :: !(Maybe Trigger)
+  , callbackInfoTrigger :: !(Maybe CallbackInfo'Trigger)
   , callbackInfoRegistrationtime :: !(Maybe Timestamp)
   , callbackInfoState :: !CallbackState
   , callbackInfoAttempt :: {-# UNPACK #-} !Int32
@@ -1807,36 +1531,36 @@ instance ProtoToJSON CallbackInfo'WorkflowClosed where
       []
 
 instance ProtoFromJSON CallbackInfo'WorkflowClosed where
-  protoFromJSON (JsonObject obj) = do
-    pure (CallbackInfo'WorkflowClosed {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCallbackInfo'WorkflowClosed
 
 data CallbackInfo'Trigger = CallbackInfo'Trigger
-  { callbackInfoVariant :: !(Maybe CallbackInfo'Trigger'Variant)
+  { callbackInfoTriggerVariant :: !(Maybe CallbackInfo'Trigger'Variant)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data CallbackInfo'Trigger'Variant
-  = CallbackInfo'Trigger'WorkflowClosed !WorkflowClosed
+  = CallbackInfo'Trigger'Variant'WorkflowClosed !CallbackInfo'WorkflowClosed
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON CallbackInfo'Trigger'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON CallbackInfo'Trigger'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultCallbackInfo'Trigger :: CallbackInfo'Trigger
 defaultCallbackInfo'Trigger = CallbackInfo'Trigger
-  { callbackInfoVariant = Nothing
+  { callbackInfoTriggerVariant = Nothing
   }
 
 instance MessageEncode CallbackInfo'Trigger where
   buildMessage msg =
-    (case msg.callbackInfoVariant of
+    (case msg.callbackInfoTriggerVariant of
       Nothing -> mempty
-      Just (CallbackInfo'Trigger'WorkflowClosed v) -> encodeFieldMessage 1 v)
+      Just (CallbackInfo'Trigger'Variant'WorkflowClosed v) -> encodeFieldMessage 1 v)
 
 instance MessageSize CallbackInfo'Trigger where
   messageSize msg =
-    (case msg.callbackInfoVariant of { Nothing -> 0; Just (CallbackInfo'Trigger'WorkflowClosed v) -> fieldMessageSize 1 (messageSize v) })
+    (case msg.callbackInfoTriggerVariant of { Nothing -> 0; Just (CallbackInfo'Trigger'Variant'WorkflowClosed v) -> fieldMessageSize 1 (messageSize v) })
 
 instance MessageDecode CallbackInfo'Trigger where
   messageDecoder = loop Nothing
@@ -1844,26 +1568,21 @@ instance MessageDecode CallbackInfo'Trigger where
       loop acc_0 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (CallbackInfo'Trigger {callbackInfoVariant = acc_0})
+          Nothing -> pure (CallbackInfo'Trigger {callbackInfoTriggerVariant = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (CallbackInfo'Trigger'WorkflowClosed v))
+              loop (Just (CallbackInfo'Trigger'Variant'WorkflowClosed v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON CallbackInfo'Trigger where
   protoToJSON msg = jsonObject
-      [ "variant" .= msg.callbackInfoVariant
+      [ "variant" .= msg.callbackInfoTriggerVariant
 
       ]
 
 instance ProtoFromJSON CallbackInfo'Trigger where
-  protoFromJSON (JsonObject obj) = do
-    v_callbackInfoVariant <- obj .:? "variant"
-    pure (CallbackInfo'Trigger {
-       callbackInfoVariant = v_callbackInfoVariant
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCallbackInfo'Trigger
 
 defaultCallbackInfo :: CallbackInfo
 defaultCallbackInfo = CallbackInfo
@@ -1953,28 +1672,7 @@ instance ProtoToJSON CallbackInfo where
       ]
 
 instance ProtoFromJSON CallbackInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_callbackInfoCallback <- obj .:? "callback"
-    v_callbackInfoTrigger <- obj .:? "trigger"
-    v_callbackInfoRegistrationtime <- obj .:? "registrationTime"
-    v_callbackInfoState <- obj .:? "state"
-    v_callbackInfoAttempt <- obj .:? "attempt"
-    v_callbackInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    v_callbackInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
-    v_callbackInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    v_callbackInfoBlockedreason <- obj .:? "blockedReason"
-    pure (CallbackInfo {
-       callbackInfoCallback = v_callbackInfoCallback
-      , callbackInfoTrigger = v_callbackInfoTrigger
-      , callbackInfoRegistrationtime = v_callbackInfoRegistrationtime
-      , callbackInfoState = v_callbackInfoState
-      , callbackInfoAttempt = v_callbackInfoAttempt
-      , callbackInfoLastattemptcompletetime = v_callbackInfoLastattemptcompletetime
-      , callbackInfoLastattemptfailure = v_callbackInfoLastattemptfailure
-      , callbackInfoNextattemptscheduletime = v_callbackInfoNextattemptscheduletime
-      , callbackInfoBlockedreason = v_callbackInfoBlockedreason
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCallbackInfo
 
 data PendingNexusOperationInfo = PendingNexusOperationInfo
   { pendingNexusOperationInfoEndpoint :: !Text
@@ -2142,44 +1840,7 @@ instance ProtoToJSON PendingNexusOperationInfo where
       ]
 
 instance ProtoFromJSON PendingNexusOperationInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_pendingNexusOperationInfoEndpoint <- obj .:? "endpoint"
-    v_pendingNexusOperationInfoService <- obj .:? "service"
-    v_pendingNexusOperationInfoOperation <- obj .:? "operation"
-    v_pendingNexusOperationInfoOperationid <- obj .:? "operationId"
-    v_pendingNexusOperationInfoScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    v_pendingNexusOperationInfoScheduledtime <- obj .:? "scheduledTime"
-    v_pendingNexusOperationInfoState <- obj .:? "state"
-    v_pendingNexusOperationInfoAttempt <- obj .:? "attempt"
-    v_pendingNexusOperationInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    v_pendingNexusOperationInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
-    v_pendingNexusOperationInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    v_pendingNexusOperationInfoCancellationinfo <- obj .:? "cancellationInfo"
-    v_pendingNexusOperationInfoScheduledeventid <- obj .:? "scheduledEventId"
-    v_pendingNexusOperationInfoBlockedreason <- obj .:? "blockedReason"
-    v_pendingNexusOperationInfoOperationtoken <- obj .:? "operationToken"
-    v_pendingNexusOperationInfoScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    v_pendingNexusOperationInfoStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    pure (PendingNexusOperationInfo {
-       pendingNexusOperationInfoEndpoint = v_pendingNexusOperationInfoEndpoint
-      , pendingNexusOperationInfoService = v_pendingNexusOperationInfoService
-      , pendingNexusOperationInfoOperation = v_pendingNexusOperationInfoOperation
-      , pendingNexusOperationInfoOperationid = v_pendingNexusOperationInfoOperationid
-      , pendingNexusOperationInfoScheduletoclosetimeout = v_pendingNexusOperationInfoScheduletoclosetimeout
-      , pendingNexusOperationInfoScheduledtime = v_pendingNexusOperationInfoScheduledtime
-      , pendingNexusOperationInfoState = v_pendingNexusOperationInfoState
-      , pendingNexusOperationInfoAttempt = v_pendingNexusOperationInfoAttempt
-      , pendingNexusOperationInfoLastattemptcompletetime = v_pendingNexusOperationInfoLastattemptcompletetime
-      , pendingNexusOperationInfoLastattemptfailure = v_pendingNexusOperationInfoLastattemptfailure
-      , pendingNexusOperationInfoNextattemptscheduletime = v_pendingNexusOperationInfoNextattemptscheduletime
-      , pendingNexusOperationInfoCancellationinfo = v_pendingNexusOperationInfoCancellationinfo
-      , pendingNexusOperationInfoScheduledeventid = v_pendingNexusOperationInfoScheduledeventid
-      , pendingNexusOperationInfoBlockedreason = v_pendingNexusOperationInfoBlockedreason
-      , pendingNexusOperationInfoOperationtoken = v_pendingNexusOperationInfoOperationtoken
-      , pendingNexusOperationInfoScheduletostarttimeout = v_pendingNexusOperationInfoScheduletostarttimeout
-      , pendingNexusOperationInfoStarttoclosetimeout = v_pendingNexusOperationInfoStarttoclosetimeout
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPendingNexusOperationInfo
 
 data NexusOperationCancellationInfo = NexusOperationCancellationInfo
   { nexusOperationCancellationInfoRequestedtime :: !(Maybe Timestamp)
@@ -2267,24 +1928,7 @@ instance ProtoToJSON NexusOperationCancellationInfo where
       ]
 
 instance ProtoFromJSON NexusOperationCancellationInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_nexusOperationCancellationInfoRequestedtime <- obj .:? "requestedTime"
-    v_nexusOperationCancellationInfoState <- obj .:? "state"
-    v_nexusOperationCancellationInfoAttempt <- obj .:? "attempt"
-    v_nexusOperationCancellationInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    v_nexusOperationCancellationInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
-    v_nexusOperationCancellationInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    v_nexusOperationCancellationInfoBlockedreason <- obj .:? "blockedReason"
-    pure (NexusOperationCancellationInfo {
-       nexusOperationCancellationInfoRequestedtime = v_nexusOperationCancellationInfoRequestedtime
-      , nexusOperationCancellationInfoState = v_nexusOperationCancellationInfoState
-      , nexusOperationCancellationInfoAttempt = v_nexusOperationCancellationInfoAttempt
-      , nexusOperationCancellationInfoLastattemptcompletetime = v_nexusOperationCancellationInfoLastattemptcompletetime
-      , nexusOperationCancellationInfoLastattemptfailure = v_nexusOperationCancellationInfoLastattemptfailure
-      , nexusOperationCancellationInfoNextattemptscheduletime = v_nexusOperationCancellationInfoNextattemptscheduletime
-      , nexusOperationCancellationInfoBlockedreason = v_nexusOperationCancellationInfoBlockedreason
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNexusOperationCancellationInfo
 
 data WorkflowExecutionOptions = WorkflowExecutionOptions
   { workflowExecutionOptionsVersioningoverride :: !(Maybe VersioningOverride)
@@ -2332,14 +1976,7 @@ instance ProtoToJSON WorkflowExecutionOptions where
       ]
 
 instance ProtoFromJSON WorkflowExecutionOptions where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionOptionsVersioningoverride <- obj .:? "versioningOverride"
-    v_workflowExecutionOptionsPriority <- obj .:? "priority"
-    pure (WorkflowExecutionOptions {
-       workflowExecutionOptionsVersioningoverride = v_workflowExecutionOptionsVersioningoverride
-      , workflowExecutionOptionsPriority = v_workflowExecutionOptionsPriority
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutionOptions
 
 data VersioningOverride = VersioningOverride
   { versioningOverrideOverride :: !(Maybe VersioningOverride'Override)
@@ -2350,45 +1987,49 @@ data VersioningOverride = VersioningOverride
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data VersioningOverride'Override
-  = VersioningOverride'Pinned !PinnedOverride
-  | VersioningOverride'AutoUpgrade {-# UNPACK #-} !Bool
+  = VersioningOverride'Override'Pinned !VersioningOverride'PinnedOverride
+  | VersioningOverride'Override'AutoUpgrade {-# UNPACK #-} !Bool
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON VersioningOverride'Override where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON VersioningOverride'Override where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 data VersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
-  { versioningOverrideBehavior :: !(Maybe PinnedOverrideBehavior)
-  , versioningOverrideVersion :: !(Maybe WorkerDeploymentVersion)
+  { versioningOverridePinnedOverrideBehavior :: !(Maybe VersioningOverride'PinnedOverrideBehavior)
+  , versioningOverridePinnedOverrideVersion :: !(Maybe WorkerDeploymentVersion)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultVersioningOverride'PinnedOverride :: VersioningOverride'PinnedOverride
 defaultVersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
-  { versioningOverrideBehavior = Nothing
-  , versioningOverrideVersion = Nothing
+  { versioningOverridePinnedOverrideBehavior = Nothing
+  , versioningOverridePinnedOverrideVersion = Nothing
   }
 
 instance MessageEncode VersioningOverride'PinnedOverride where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.versioningOverrideBehavior)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versioningOverrideVersion)
+    (if fromEnum msg.versioningOverridePinnedOverrideBehavior == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.versioningOverridePinnedOverrideBehavior)))
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versioningOverridePinnedOverrideVersion)
 
 instance MessageSize VersioningOverride'PinnedOverride where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.versioningOverrideBehavior)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versioningOverrideVersion)
+    (if fromEnum msg.versioningOverridePinnedOverrideBehavior == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.versioningOverridePinnedOverrideBehavior)))
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versioningOverridePinnedOverrideVersion)
 
 instance MessageDecode VersioningOverride'PinnedOverride where
-  messageDecoder = loop Nothing Nothing
+  messageDecoder = loop (toEnum 0) Nothing
     where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (VersioningOverride'PinnedOverride {versioningOverrideBehavior = acc_0, versioningOverrideVersion = acc_1})
+          Nothing -> pure (VersioningOverride'PinnedOverride {versioningOverridePinnedOverrideBehavior = acc_0, versioningOverridePinnedOverrideVersion = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- decodeFieldMessage
-              loop (Just v) acc_1
+              v <- decodeFieldEnum
+              loop v acc_1
             2 -> do
               v <- decodeFieldMessage
               loop acc_0 (Just v)
@@ -2396,19 +2037,12 @@ instance MessageDecode VersioningOverride'PinnedOverride where
 
 instance ProtoToJSON VersioningOverride'PinnedOverride where
   protoToJSON msg = jsonObject
-      [ "behavior" .= msg.versioningOverrideBehavior
-      , "version" .= msg.versioningOverrideVersion
+      [ "behavior" .= msg.versioningOverridePinnedOverrideBehavior
+      , "version" .= msg.versioningOverridePinnedOverrideVersion
       ]
 
 instance ProtoFromJSON VersioningOverride'PinnedOverride where
-  protoFromJSON (JsonObject obj) = do
-    v_versioningOverrideBehavior <- obj .:? "behavior"
-    v_versioningOverrideVersion <- obj .:? "version"
-    pure (VersioningOverride'PinnedOverride {
-       versioningOverrideBehavior = v_versioningOverrideBehavior
-      , versioningOverrideVersion = v_versioningOverrideVersion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultVersioningOverride'PinnedOverride
 
 data VersioningOverride'PinnedOverrideBehavior
   = VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorUnspecified
@@ -2457,16 +2091,16 @@ instance MessageEncode VersioningOverride where
   buildMessage msg =
     (case msg.versioningOverrideOverride of
       Nothing -> mempty
-      Just (VersioningOverride'Pinned v) -> encodeFieldMessage 3 v
-      Just (VersioningOverride'AutoUpgrade v) -> encodeFieldBool 4 v)
+      Just (VersioningOverride'Override'Pinned v) -> encodeFieldMessage 3 v
+      Just (VersioningOverride'Override'AutoUpgrade v) -> encodeFieldBool 4 v)
     <> (if fromEnum msg.versioningOverrideBehavior == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.versioningOverrideBehavior)))
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versioningOverrideDeployment)
     <> (if msg.versioningOverridePinnedversion == T.empty then mempty else encodeFieldString 9 msg.versioningOverridePinnedversion)
 
 instance MessageSize VersioningOverride where
   messageSize msg =
-    (case msg.versioningOverrideOverride of { Nothing -> 0; Just (VersioningOverride'Pinned v) -> fieldMessageSize 3 (messageSize v)
-    ; Just (VersioningOverride'AutoUpgrade v) -> fieldBoolSize 4 })
+    (case msg.versioningOverrideOverride of { Nothing -> 0; Just (VersioningOverride'Override'Pinned v) -> fieldMessageSize 3 (messageSize v)
+    ; Just (VersioningOverride'Override'AutoUpgrade v) -> fieldBoolSize 4 })
     + (if fromEnum msg.versioningOverrideBehavior == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.versioningOverrideBehavior)))
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versioningOverrideDeployment)
     + (if msg.versioningOverridePinnedversion == T.empty then 0 else fieldTextSize 9 msg.versioningOverridePinnedversion)
@@ -2481,10 +2115,10 @@ instance MessageDecode VersioningOverride where
           Just (Tag fn wt) -> case fn of
             3 -> do
               v <- decodeFieldMessage
-              loop (Just (VersioningOverride'Pinned v)) acc_1 acc_2 acc_3
+              loop (Just (VersioningOverride'Override'Pinned v)) acc_1 acc_2 acc_3
             4 -> do
               v <- decodeFieldBool
-              loop (Just (VersioningOverride'AutoUpgrade v)) acc_1 acc_2 acc_3
+              loop (Just (VersioningOverride'Override'AutoUpgrade v)) acc_1 acc_2 acc_3
             1 -> do
               v <- decodeFieldEnum
               loop acc_0 v acc_2 acc_3
@@ -2505,18 +2139,7 @@ instance ProtoToJSON VersioningOverride where
       ]
 
 instance ProtoFromJSON VersioningOverride where
-  protoFromJSON (JsonObject obj) = do
-    v_versioningOverrideOverride <- obj .:? "override"
-    v_versioningOverrideBehavior <- obj .:? "behavior"
-    v_versioningOverrideDeployment <- obj .:? "deployment"
-    v_versioningOverridePinnedversion <- obj .:? "pinnedVersion"
-    pure (VersioningOverride {
-       versioningOverrideOverride = v_versioningOverrideOverride
-      , versioningOverrideBehavior = v_versioningOverrideBehavior
-      , versioningOverrideDeployment = v_versioningOverrideDeployment
-      , versioningOverridePinnedversion = v_versioningOverridePinnedversion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultVersioningOverride
 
 data OnConflictOptions = OnConflictOptions
   { onConflictOptionsAttachrequestid :: {-# UNPACK #-} !Bool
@@ -2572,16 +2195,7 @@ instance ProtoToJSON OnConflictOptions where
       ]
 
 instance ProtoFromJSON OnConflictOptions where
-  protoFromJSON (JsonObject obj) = do
-    v_onConflictOptionsAttachrequestid <- obj .:? "attachRequestId"
-    v_onConflictOptionsAttachcompletioncallbacks <- obj .:? "attachCompletionCallbacks"
-    v_onConflictOptionsAttachlinks <- obj .:? "attachLinks"
-    pure (OnConflictOptions {
-       onConflictOptionsAttachrequestid = v_onConflictOptionsAttachrequestid
-      , onConflictOptionsAttachcompletioncallbacks = v_onConflictOptionsAttachcompletioncallbacks
-      , onConflictOptionsAttachlinks = v_onConflictOptionsAttachlinks
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultOnConflictOptions
 
 data RequestIdInfo = RequestIdInfo
   { requestIdInfoEventtype :: !EventType
@@ -2637,16 +2251,7 @@ instance ProtoToJSON RequestIdInfo where
       ]
 
 instance ProtoFromJSON RequestIdInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_requestIdInfoEventtype <- obj .:? "eventType"
-    v_requestIdInfoEventid <- obj .:? "eventId"
-    v_requestIdInfoBuffered <- obj .:? "buffered"
-    pure (RequestIdInfo {
-       requestIdInfoEventtype = v_requestIdInfoEventtype
-      , requestIdInfoEventid = v_requestIdInfoEventid
-      , requestIdInfoBuffered = v_requestIdInfoBuffered
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRequestIdInfo
 
 data PostResetOperation = PostResetOperation
   { postResetOperationVariant :: !(Maybe PostResetOperation'Variant)
@@ -2655,35 +2260,35 @@ data PostResetOperation = PostResetOperation
   deriving anyclass NFData
 
 data PostResetOperation'SignalWorkflow = PostResetOperation'SignalWorkflow
-  { postResetOperationSignalname :: !Text
-  , postResetOperationInput :: !(Maybe Payloads)
-  , postResetOperationHeader :: !(Maybe Header)
-  , postResetOperationLinks :: !(V.Vector Link)
+  { postResetOperationSignalWorkflowSignalname :: !Text
+  , postResetOperationSignalWorkflowInput :: !(Maybe Payloads)
+  , postResetOperationSignalWorkflowHeader :: !(Maybe Header)
+  , postResetOperationSignalWorkflowLinks :: !(V.Vector Link)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPostResetOperation'SignalWorkflow :: PostResetOperation'SignalWorkflow
 defaultPostResetOperation'SignalWorkflow = PostResetOperation'SignalWorkflow
-  { postResetOperationSignalname = ""
-  , postResetOperationInput = Nothing
-  , postResetOperationHeader = Nothing
-  , postResetOperationLinks = V.empty
+  { postResetOperationSignalWorkflowSignalname = ""
+  , postResetOperationSignalWorkflowInput = Nothing
+  , postResetOperationSignalWorkflowHeader = Nothing
+  , postResetOperationSignalWorkflowLinks = V.empty
   }
 
 instance MessageEncode PostResetOperation'SignalWorkflow where
   buildMessage msg =
-    (if msg.postResetOperationSignalname == T.empty then mempty else encodeFieldString 1 msg.postResetOperationSignalname)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.postResetOperationInput)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.postResetOperationHeader)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.postResetOperationLinks
+    (if msg.postResetOperationSignalWorkflowSignalname == T.empty then mempty else encodeFieldString 1 msg.postResetOperationSignalWorkflowSignalname)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.postResetOperationSignalWorkflowInput)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.postResetOperationSignalWorkflowHeader)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.postResetOperationSignalWorkflowLinks
 
 instance MessageSize PostResetOperation'SignalWorkflow where
   messageSize msg =
-    (if msg.postResetOperationSignalname == T.empty then 0 else fieldTextSize 1 msg.postResetOperationSignalname)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.postResetOperationInput)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.postResetOperationHeader)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.postResetOperationLinks)
+    (if msg.postResetOperationSignalWorkflowSignalname == T.empty then 0 else fieldTextSize 1 msg.postResetOperationSignalWorkflowSignalname)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.postResetOperationSignalWorkflowInput)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.postResetOperationSignalWorkflowHeader)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.postResetOperationSignalWorkflowLinks)
 
 instance MessageDecode PostResetOperation'SignalWorkflow where
   messageDecoder = loop "" Nothing Nothing V.empty
@@ -2691,7 +2296,7 @@ instance MessageDecode PostResetOperation'SignalWorkflow where
       loop acc_0 acc_1 acc_2 acc_3 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (PostResetOperation'SignalWorkflow {postResetOperationSignalname = acc_0, postResetOperationInput = acc_1, postResetOperationHeader = acc_2, postResetOperationLinks = acc_3})
+          Nothing -> pure (PostResetOperation'SignalWorkflow {postResetOperationSignalWorkflowSignalname = acc_0, postResetOperationSignalWorkflowInput = acc_1, postResetOperationSignalWorkflowHeader = acc_2, postResetOperationSignalWorkflowLinks = acc_3})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2709,48 +2314,37 @@ instance MessageDecode PostResetOperation'SignalWorkflow where
 
 instance ProtoToJSON PostResetOperation'SignalWorkflow where
   protoToJSON msg = jsonObject
-      [ "signalName" .= msg.postResetOperationSignalname
-      , "input" .= msg.postResetOperationInput
-      , "header" .= msg.postResetOperationHeader
-      , "links" .= msg.postResetOperationLinks
+      [ "signalName" .= msg.postResetOperationSignalWorkflowSignalname
+      , "input" .= msg.postResetOperationSignalWorkflowInput
+      , "header" .= msg.postResetOperationSignalWorkflowHeader
+      , "links" .= msg.postResetOperationSignalWorkflowLinks
       ]
 
 instance ProtoFromJSON PostResetOperation'SignalWorkflow where
-  protoFromJSON (JsonObject obj) = do
-    v_postResetOperationSignalname <- obj .:? "signalName"
-    v_postResetOperationInput <- obj .:? "input"
-    v_postResetOperationHeader <- obj .:? "header"
-    v_postResetOperationLinks <- obj .:? "links"
-    pure (PostResetOperation'SignalWorkflow {
-       postResetOperationSignalname = v_postResetOperationSignalname
-      , postResetOperationInput = v_postResetOperationInput
-      , postResetOperationHeader = v_postResetOperationHeader
-      , postResetOperationLinks = v_postResetOperationLinks
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPostResetOperation'SignalWorkflow
 
 data PostResetOperation'UpdateWorkflowOptions = PostResetOperation'UpdateWorkflowOptions
-  { postResetOperationWorkflowexecutionoptions :: !(Maybe WorkflowExecutionOptions)
-  , postResetOperationUpdatemask :: !(Maybe FieldMask)
+  { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions :: !(Maybe WorkflowExecutionOptions)
+  , postResetOperationUpdateWorkflowOptionsUpdatemask :: !(Maybe FieldMask)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPostResetOperation'UpdateWorkflowOptions :: PostResetOperation'UpdateWorkflowOptions
 defaultPostResetOperation'UpdateWorkflowOptions = PostResetOperation'UpdateWorkflowOptions
-  { postResetOperationWorkflowexecutionoptions = Nothing
-  , postResetOperationUpdatemask = Nothing
+  { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions = Nothing
+  , postResetOperationUpdateWorkflowOptionsUpdatemask = Nothing
   }
 
 instance MessageEncode PostResetOperation'UpdateWorkflowOptions where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.postResetOperationWorkflowexecutionoptions)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.postResetOperationUpdatemask)
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.postResetOperationUpdateWorkflowOptionsUpdatemask)
 
 instance MessageSize PostResetOperation'UpdateWorkflowOptions where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.postResetOperationWorkflowexecutionoptions)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.postResetOperationUpdatemask)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.postResetOperationUpdateWorkflowOptionsUpdatemask)
 
 instance MessageDecode PostResetOperation'UpdateWorkflowOptions where
   messageDecoder = loop Nothing Nothing
@@ -2758,7 +2352,7 @@ instance MessageDecode PostResetOperation'UpdateWorkflowOptions where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (PostResetOperation'UpdateWorkflowOptions {postResetOperationWorkflowexecutionoptions = acc_0, postResetOperationUpdatemask = acc_1})
+          Nothing -> pure (PostResetOperation'UpdateWorkflowOptions {postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions = acc_0, postResetOperationUpdateWorkflowOptionsUpdatemask = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2770,24 +2364,21 @@ instance MessageDecode PostResetOperation'UpdateWorkflowOptions where
 
 instance ProtoToJSON PostResetOperation'UpdateWorkflowOptions where
   protoToJSON msg = jsonObject
-      [ "workflowExecutionOptions" .= msg.postResetOperationWorkflowexecutionoptions
-      , "updateMask" .= msg.postResetOperationUpdatemask
+      [ "workflowExecutionOptions" .= msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
+      , "updateMask" .= msg.postResetOperationUpdateWorkflowOptionsUpdatemask
       ]
 
 instance ProtoFromJSON PostResetOperation'UpdateWorkflowOptions where
-  protoFromJSON (JsonObject obj) = do
-    v_postResetOperationWorkflowexecutionoptions <- obj .:? "workflowExecutionOptions"
-    v_postResetOperationUpdatemask <- obj .:? "updateMask"
-    pure (PostResetOperation'UpdateWorkflowOptions {
-       postResetOperationWorkflowexecutionoptions = v_postResetOperationWorkflowexecutionoptions
-      , postResetOperationUpdatemask = v_postResetOperationUpdatemask
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPostResetOperation'UpdateWorkflowOptions
 data PostResetOperation'Variant
-  = PostResetOperation'SignalWorkflow !SignalWorkflow
-  | PostResetOperation'UpdateWorkflowOptions !UpdateWorkflowOptions
+  = PostResetOperation'Variant'SignalWorkflow !PostResetOperation'SignalWorkflow
+  | PostResetOperation'Variant'UpdateWorkflowOptions !PostResetOperation'UpdateWorkflowOptions
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON PostResetOperation'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON PostResetOperation'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultPostResetOperation :: PostResetOperation
 defaultPostResetOperation = PostResetOperation
@@ -2798,13 +2389,13 @@ instance MessageEncode PostResetOperation where
   buildMessage msg =
     (case msg.postResetOperationVariant of
       Nothing -> mempty
-      Just (PostResetOperation'SignalWorkflow v) -> encodeFieldMessage 1 v
-      Just (PostResetOperation'UpdateWorkflowOptions v) -> encodeFieldMessage 2 v)
+      Just (PostResetOperation'Variant'SignalWorkflow v) -> encodeFieldMessage 1 v
+      Just (PostResetOperation'Variant'UpdateWorkflowOptions v) -> encodeFieldMessage 2 v)
 
 instance MessageSize PostResetOperation where
   messageSize msg =
-    (case msg.postResetOperationVariant of { Nothing -> 0; Just (PostResetOperation'SignalWorkflow v) -> fieldMessageSize 1 (messageSize v)
-    ; Just (PostResetOperation'UpdateWorkflowOptions v) -> fieldMessageSize 2 (messageSize v) })
+    (case msg.postResetOperationVariant of { Nothing -> 0; Just (PostResetOperation'Variant'SignalWorkflow v) -> fieldMessageSize 1 (messageSize v)
+    ; Just (PostResetOperation'Variant'UpdateWorkflowOptions v) -> fieldMessageSize 2 (messageSize v) })
 
 instance MessageDecode PostResetOperation where
   messageDecoder = loop Nothing
@@ -2816,10 +2407,10 @@ instance MessageDecode PostResetOperation where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (PostResetOperation'SignalWorkflow v))
+              loop (Just (PostResetOperation'Variant'SignalWorkflow v))
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (PostResetOperation'UpdateWorkflowOptions v))
+              loop (Just (PostResetOperation'Variant'UpdateWorkflowOptions v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON PostResetOperation where
@@ -2829,12 +2420,7 @@ instance ProtoToJSON PostResetOperation where
       ]
 
 instance ProtoFromJSON PostResetOperation where
-  protoFromJSON (JsonObject obj) = do
-    v_postResetOperationVariant <- obj .:? "variant"
-    pure (PostResetOperation {
-       postResetOperationVariant = v_postResetOperationVariant
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPostResetOperation
 
 data WorkflowExecutionPauseInfo = WorkflowExecutionPauseInfo
   { workflowExecutionPauseInfoIdentity :: !Text
@@ -2890,13 +2476,4 @@ instance ProtoToJSON WorkflowExecutionPauseInfo where
       ]
 
 instance ProtoFromJSON WorkflowExecutionPauseInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionPauseInfoIdentity <- obj .:? "identity"
-    v_workflowExecutionPauseInfoPausedtime <- obj .:? "pausedTime"
-    v_workflowExecutionPauseInfoReason <- obj .:? "reason"
-    pure (WorkflowExecutionPauseInfo {
-       workflowExecutionPauseInfoIdentity = v_workflowExecutionPauseInfoIdentity
-      , workflowExecutionPauseInfoPausedtime = v_workflowExecutionPauseInfoPausedtime
-      , workflowExecutionPauseInfoReason = v_workflowExecutionPauseInfoReason
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutionPauseInfo

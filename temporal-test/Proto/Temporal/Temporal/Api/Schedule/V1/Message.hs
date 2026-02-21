@@ -33,12 +33,12 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Memo, SearchAttributes, WorkflowExecution, WorkflowType)
-import Proto.Temporal.Temporal.Api.Enums.V1.Schedule (ScheduleOverlapPolicy)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus)
-import Proto.Temporal.Temporal.Api.Workflow.V1.Message (NewWorkflowExecutionInfo)
+import Proto.Google.Protobuf.Duration hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
+import Proto.Google.Protobuf.Timestamp hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
+import Proto.Temporal.Temporal.Api.Enums.V1.Schedule hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
+import Proto.Temporal.Temporal.Api.Workflow.V1.Message hiding (BackfillRequest, CalendarSpec, IntervalSpec, Range, Schedule, ScheduleAction, ScheduleActionResult, ScheduleInfo, ScheduleListEntry, ScheduleListInfo, SchedulePatch, SchedulePolicies, ScheduleSpec, ScheduleState, StructuredCalendarSpec, TriggerImmediatelyRequest)
 
 
 data CalendarSpec = CalendarSpec
@@ -135,26 +135,7 @@ instance ProtoToJSON CalendarSpec where
       ]
 
 instance ProtoFromJSON CalendarSpec where
-  protoFromJSON (JsonObject obj) = do
-    v_calendarSpecSecond <- obj .:? "second"
-    v_calendarSpecMinute <- obj .:? "minute"
-    v_calendarSpecHour <- obj .:? "hour"
-    v_calendarSpecDayofmonth <- obj .:? "dayOfMonth"
-    v_calendarSpecMonth <- obj .:? "month"
-    v_calendarSpecYear <- obj .:? "year"
-    v_calendarSpecDayofweek <- obj .:? "dayOfWeek"
-    v_calendarSpecComment <- obj .:? "comment"
-    pure (CalendarSpec {
-       calendarSpecSecond = v_calendarSpecSecond
-      , calendarSpecMinute = v_calendarSpecMinute
-      , calendarSpecHour = v_calendarSpecHour
-      , calendarSpecDayofmonth = v_calendarSpecDayofmonth
-      , calendarSpecMonth = v_calendarSpecMonth
-      , calendarSpecYear = v_calendarSpecYear
-      , calendarSpecDayofweek = v_calendarSpecDayofweek
-      , calendarSpecComment = v_calendarSpecComment
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCalendarSpec
 
 data Range = Range
   { rangeStart :: {-# UNPACK #-} !Int32
@@ -210,16 +191,7 @@ instance ProtoToJSON Range where
       ]
 
 instance ProtoFromJSON Range where
-  protoFromJSON (JsonObject obj) = do
-    v_rangeStart <- obj .:? "start"
-    v_rangeEnd <- obj .:? "end"
-    v_rangeStep <- obj .:? "step"
-    pure (Range {
-       rangeStart = v_rangeStart
-      , rangeEnd = v_rangeEnd
-      , rangeStep = v_rangeStep
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRange
 
 data StructuredCalendarSpec = StructuredCalendarSpec
   { structuredCalendarSpecSecond :: !(V.Vector Range)
@@ -315,26 +287,7 @@ instance ProtoToJSON StructuredCalendarSpec where
       ]
 
 instance ProtoFromJSON StructuredCalendarSpec where
-  protoFromJSON (JsonObject obj) = do
-    v_structuredCalendarSpecSecond <- obj .:? "second"
-    v_structuredCalendarSpecMinute <- obj .:? "minute"
-    v_structuredCalendarSpecHour <- obj .:? "hour"
-    v_structuredCalendarSpecDayofmonth <- obj .:? "dayOfMonth"
-    v_structuredCalendarSpecMonth <- obj .:? "month"
-    v_structuredCalendarSpecYear <- obj .:? "year"
-    v_structuredCalendarSpecDayofweek <- obj .:? "dayOfWeek"
-    v_structuredCalendarSpecComment <- obj .:? "comment"
-    pure (StructuredCalendarSpec {
-       structuredCalendarSpecSecond = v_structuredCalendarSpecSecond
-      , structuredCalendarSpecMinute = v_structuredCalendarSpecMinute
-      , structuredCalendarSpecHour = v_structuredCalendarSpecHour
-      , structuredCalendarSpecDayofmonth = v_structuredCalendarSpecDayofmonth
-      , structuredCalendarSpecMonth = v_structuredCalendarSpecMonth
-      , structuredCalendarSpecYear = v_structuredCalendarSpecYear
-      , structuredCalendarSpecDayofweek = v_structuredCalendarSpecDayofweek
-      , structuredCalendarSpecComment = v_structuredCalendarSpecComment
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStructuredCalendarSpec
 
 data IntervalSpec = IntervalSpec
   { intervalSpecInterval :: !(Maybe Duration)
@@ -382,14 +335,7 @@ instance ProtoToJSON IntervalSpec where
       ]
 
 instance ProtoFromJSON IntervalSpec where
-  protoFromJSON (JsonObject obj) = do
-    v_intervalSpecInterval <- obj .:? "interval"
-    v_intervalSpecPhase <- obj .:? "phase"
-    pure (IntervalSpec {
-       intervalSpecInterval = v_intervalSpecInterval
-      , intervalSpecPhase = v_intervalSpecPhase
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultIntervalSpec
 
 data ScheduleSpec = ScheduleSpec
   { scheduleSpecStructuredcalendar :: !(V.Vector StructuredCalendarSpec)
@@ -439,7 +385,7 @@ instance MessageEncode ScheduleSpec where
 instance MessageSize ScheduleSpec where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 7 (messageSize v)) 0 msg.scheduleSpecStructuredcalendar)
-    + (sizeRepeated 8 msg.scheduleSpecCronstring)
+    + 0 {- TODO: repeated size -}
     + (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.scheduleSpecCalendar)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.scheduleSpecInterval)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.scheduleSpecExcludecalendar)
@@ -509,32 +455,7 @@ instance ProtoToJSON ScheduleSpec where
       ]
 
 instance ProtoFromJSON ScheduleSpec where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleSpecStructuredcalendar <- obj .:? "structuredCalendar"
-    v_scheduleSpecCronstring <- obj .:? "cronString"
-    v_scheduleSpecCalendar <- obj .:? "calendar"
-    v_scheduleSpecInterval <- obj .:? "interval"
-    v_scheduleSpecExcludecalendar <- obj .:? "excludeCalendar"
-    v_scheduleSpecExcludestructuredcalendar <- obj .:? "excludeStructuredCalendar"
-    v_scheduleSpecStarttime <- obj .:? "startTime"
-    v_scheduleSpecEndtime <- obj .:? "endTime"
-    v_scheduleSpecJitter <- obj .:? "jitter"
-    v_scheduleSpecTimezonename <- obj .:? "timezoneName"
-    v_scheduleSpecTimezonedata <- obj .:? "timezoneData"
-    pure (ScheduleSpec {
-       scheduleSpecStructuredcalendar = v_scheduleSpecStructuredcalendar
-      , scheduleSpecCronstring = v_scheduleSpecCronstring
-      , scheduleSpecCalendar = v_scheduleSpecCalendar
-      , scheduleSpecInterval = v_scheduleSpecInterval
-      , scheduleSpecExcludecalendar = v_scheduleSpecExcludecalendar
-      , scheduleSpecExcludestructuredcalendar = v_scheduleSpecExcludestructuredcalendar
-      , scheduleSpecStarttime = v_scheduleSpecStarttime
-      , scheduleSpecEndtime = v_scheduleSpecEndtime
-      , scheduleSpecJitter = v_scheduleSpecJitter
-      , scheduleSpecTimezonename = v_scheduleSpecTimezonename
-      , scheduleSpecTimezonedata = v_scheduleSpecTimezonedata
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleSpec
 
 data SchedulePolicies = SchedulePolicies
   { schedulePoliciesOverlappolicy :: !ScheduleOverlapPolicy
@@ -598,18 +519,7 @@ instance ProtoToJSON SchedulePolicies where
       ]
 
 instance ProtoFromJSON SchedulePolicies where
-  protoFromJSON (JsonObject obj) = do
-    v_schedulePoliciesOverlappolicy <- obj .:? "overlapPolicy"
-    v_schedulePoliciesCatchupwindow <- obj .:? "catchupWindow"
-    v_schedulePoliciesPauseonfailure <- obj .:? "pauseOnFailure"
-    v_schedulePoliciesKeeporiginalworkflowid <- obj .:? "keepOriginalWorkflowId"
-    pure (SchedulePolicies {
-       schedulePoliciesOverlappolicy = v_schedulePoliciesOverlappolicy
-      , schedulePoliciesCatchupwindow = v_schedulePoliciesCatchupwindow
-      , schedulePoliciesPauseonfailure = v_schedulePoliciesPauseonfailure
-      , schedulePoliciesKeeporiginalworkflowid = v_schedulePoliciesKeeporiginalworkflowid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultSchedulePolicies
 
 data ScheduleAction = ScheduleAction
   { scheduleActionAction :: !(Maybe ScheduleAction'Action)
@@ -617,9 +527,13 @@ data ScheduleAction = ScheduleAction
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data ScheduleAction'Action
-  = ScheduleAction'StartWorkflow !NewWorkflowExecutionInfo
+  = ScheduleAction'Action'StartWorkflow !NewWorkflowExecutionInfo
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON ScheduleAction'Action where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON ScheduleAction'Action where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultScheduleAction :: ScheduleAction
 defaultScheduleAction = ScheduleAction
@@ -630,11 +544,11 @@ instance MessageEncode ScheduleAction where
   buildMessage msg =
     (case msg.scheduleActionAction of
       Nothing -> mempty
-      Just (ScheduleAction'StartWorkflow v) -> encodeFieldMessage 1 v)
+      Just (ScheduleAction'Action'StartWorkflow v) -> encodeFieldMessage 1 v)
 
 instance MessageSize ScheduleAction where
   messageSize msg =
-    (case msg.scheduleActionAction of { Nothing -> 0; Just (ScheduleAction'StartWorkflow v) -> fieldMessageSize 1 (messageSize v) })
+    (case msg.scheduleActionAction of { Nothing -> 0; Just (ScheduleAction'Action'StartWorkflow v) -> fieldMessageSize 1 (messageSize v) })
 
 instance MessageDecode ScheduleAction where
   messageDecoder = loop Nothing
@@ -646,7 +560,7 @@ instance MessageDecode ScheduleAction where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (ScheduleAction'StartWorkflow v))
+              loop (Just (ScheduleAction'Action'StartWorkflow v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON ScheduleAction where
@@ -656,12 +570,7 @@ instance ProtoToJSON ScheduleAction where
       ]
 
 instance ProtoFromJSON ScheduleAction where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleActionAction <- obj .:? "action"
-    pure (ScheduleAction {
-       scheduleActionAction = v_scheduleActionAction
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleAction
 
 data ScheduleActionResult = ScheduleActionResult
   { scheduleActionResultScheduletime :: !(Maybe Timestamp)
@@ -725,18 +634,7 @@ instance ProtoToJSON ScheduleActionResult where
       ]
 
 instance ProtoFromJSON ScheduleActionResult where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleActionResultScheduletime <- obj .:? "scheduleTime"
-    v_scheduleActionResultActualtime <- obj .:? "actualTime"
-    v_scheduleActionResultStartworkflowresult <- obj .:? "startWorkflowResult"
-    v_scheduleActionResultStartworkflowstatus <- obj .:? "startWorkflowStatus"
-    pure (ScheduleActionResult {
-       scheduleActionResultScheduletime = v_scheduleActionResultScheduletime
-      , scheduleActionResultActualtime = v_scheduleActionResultActualtime
-      , scheduleActionResultStartworkflowresult = v_scheduleActionResultStartworkflowresult
-      , scheduleActionResultStartworkflowstatus = v_scheduleActionResultStartworkflowstatus
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleActionResult
 
 data ScheduleState = ScheduleState
   { scheduleStateNotes :: !Text
@@ -800,18 +698,7 @@ instance ProtoToJSON ScheduleState where
       ]
 
 instance ProtoFromJSON ScheduleState where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleStateNotes <- obj .:? "notes"
-    v_scheduleStatePaused <- obj .:? "paused"
-    v_scheduleStateLimitedactions <- obj .:? "limitedActions"
-    v_scheduleStateRemainingactions <- obj .:? "remainingActions"
-    pure (ScheduleState {
-       scheduleStateNotes = v_scheduleStateNotes
-      , scheduleStatePaused = v_scheduleStatePaused
-      , scheduleStateLimitedactions = v_scheduleStateLimitedactions
-      , scheduleStateRemainingactions = v_scheduleStateRemainingactions
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleState
 
 data TriggerImmediatelyRequest = TriggerImmediatelyRequest
   { triggerImmediatelyRequestOverlappolicy :: !ScheduleOverlapPolicy
@@ -859,14 +746,7 @@ instance ProtoToJSON TriggerImmediatelyRequest where
       ]
 
 instance ProtoFromJSON TriggerImmediatelyRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_triggerImmediatelyRequestOverlappolicy <- obj .:? "overlapPolicy"
-    v_triggerImmediatelyRequestScheduledtime <- obj .:? "scheduledTime"
-    pure (TriggerImmediatelyRequest {
-       triggerImmediatelyRequestOverlappolicy = v_triggerImmediatelyRequestOverlappolicy
-      , triggerImmediatelyRequestScheduledtime = v_triggerImmediatelyRequestScheduledtime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTriggerImmediatelyRequest
 
 data BackfillRequest = BackfillRequest
   { backfillRequestStarttime :: !(Maybe Timestamp)
@@ -922,16 +802,7 @@ instance ProtoToJSON BackfillRequest where
       ]
 
 instance ProtoFromJSON BackfillRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_backfillRequestStarttime <- obj .:? "startTime"
-    v_backfillRequestEndtime <- obj .:? "endTime"
-    v_backfillRequestOverlappolicy <- obj .:? "overlapPolicy"
-    pure (BackfillRequest {
-       backfillRequestStarttime = v_backfillRequestStarttime
-      , backfillRequestEndtime = v_backfillRequestEndtime
-      , backfillRequestOverlappolicy = v_backfillRequestOverlappolicy
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBackfillRequest
 
 data SchedulePatch = SchedulePatch
   { schedulePatchTriggerimmediately :: !(Maybe TriggerImmediatelyRequest)
@@ -995,18 +866,7 @@ instance ProtoToJSON SchedulePatch where
       ]
 
 instance ProtoFromJSON SchedulePatch where
-  protoFromJSON (JsonObject obj) = do
-    v_schedulePatchTriggerimmediately <- obj .:? "triggerImmediately"
-    v_schedulePatchBackfillrequest <- obj .:? "backfillRequest"
-    v_schedulePatchPause <- obj .:? "pause"
-    v_schedulePatchUnpause <- obj .:? "unpause"
-    pure (SchedulePatch {
-       schedulePatchTriggerimmediately = v_schedulePatchTriggerimmediately
-      , schedulePatchBackfillrequest = v_schedulePatchBackfillrequest
-      , schedulePatchPause = v_schedulePatchPause
-      , schedulePatchUnpause = v_schedulePatchUnpause
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultSchedulePatch
 
 data ScheduleInfo = ScheduleInfo
   { scheduleInfoActioncount :: {-# UNPACK #-} !Int64
@@ -1126,32 +986,7 @@ instance ProtoToJSON ScheduleInfo where
       ]
 
 instance ProtoFromJSON ScheduleInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleInfoActioncount <- obj .:? "actionCount"
-    v_scheduleInfoMissedcatchupwindow <- obj .:? "missedCatchupWindow"
-    v_scheduleInfoOverlapskipped <- obj .:? "overlapSkipped"
-    v_scheduleInfoBufferdropped <- obj .:? "bufferDropped"
-    v_scheduleInfoBuffersize <- obj .:? "bufferSize"
-    v_scheduleInfoRunningworkflows <- obj .:? "runningWorkflows"
-    v_scheduleInfoRecentactions <- obj .:? "recentActions"
-    v_scheduleInfoFutureactiontimes <- obj .:? "futureActionTimes"
-    v_scheduleInfoCreatetime <- obj .:? "createTime"
-    v_scheduleInfoUpdatetime <- obj .:? "updateTime"
-    v_scheduleInfoInvalidscheduleerror <- obj .:? "invalidScheduleError"
-    pure (ScheduleInfo {
-       scheduleInfoActioncount = v_scheduleInfoActioncount
-      , scheduleInfoMissedcatchupwindow = v_scheduleInfoMissedcatchupwindow
-      , scheduleInfoOverlapskipped = v_scheduleInfoOverlapskipped
-      , scheduleInfoBufferdropped = v_scheduleInfoBufferdropped
-      , scheduleInfoBuffersize = v_scheduleInfoBuffersize
-      , scheduleInfoRunningworkflows = v_scheduleInfoRunningworkflows
-      , scheduleInfoRecentactions = v_scheduleInfoRecentactions
-      , scheduleInfoFutureactiontimes = v_scheduleInfoFutureactiontimes
-      , scheduleInfoCreatetime = v_scheduleInfoCreatetime
-      , scheduleInfoUpdatetime = v_scheduleInfoUpdatetime
-      , scheduleInfoInvalidscheduleerror = v_scheduleInfoInvalidscheduleerror
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleInfo
 
 data Schedule = Schedule
   { scheduleSpec :: !(Maybe ScheduleSpec)
@@ -1215,18 +1050,7 @@ instance ProtoToJSON Schedule where
       ]
 
 instance ProtoFromJSON Schedule where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleSpec <- obj .:? "spec"
-    v_scheduleAction <- obj .:? "action"
-    v_schedulePolicies <- obj .:? "policies"
-    v_scheduleState <- obj .:? "state"
-    pure (Schedule {
-       scheduleSpec = v_scheduleSpec
-      , scheduleAction = v_scheduleAction
-      , schedulePolicies = v_schedulePolicies
-      , scheduleState = v_scheduleState
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultSchedule
 
 data ScheduleListInfo = ScheduleListInfo
   { scheduleListInfoSpec :: !(Maybe ScheduleSpec)
@@ -1306,22 +1130,7 @@ instance ProtoToJSON ScheduleListInfo where
       ]
 
 instance ProtoFromJSON ScheduleListInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleListInfoSpec <- obj .:? "spec"
-    v_scheduleListInfoWorkflowtype <- obj .:? "workflowType"
-    v_scheduleListInfoNotes <- obj .:? "notes"
-    v_scheduleListInfoPaused <- obj .:? "paused"
-    v_scheduleListInfoRecentactions <- obj .:? "recentActions"
-    v_scheduleListInfoFutureactiontimes <- obj .:? "futureActionTimes"
-    pure (ScheduleListInfo {
-       scheduleListInfoSpec = v_scheduleListInfoSpec
-      , scheduleListInfoWorkflowtype = v_scheduleListInfoWorkflowtype
-      , scheduleListInfoNotes = v_scheduleListInfoNotes
-      , scheduleListInfoPaused = v_scheduleListInfoPaused
-      , scheduleListInfoRecentactions = v_scheduleListInfoRecentactions
-      , scheduleListInfoFutureactiontimes = v_scheduleListInfoFutureactiontimes
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleListInfo
 
 data ScheduleListEntry = ScheduleListEntry
   { scheduleListEntryScheduleid :: !Text
@@ -1385,15 +1194,4 @@ instance ProtoToJSON ScheduleListEntry where
       ]
 
 instance ProtoFromJSON ScheduleListEntry where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleListEntryScheduleid <- obj .:? "scheduleId"
-    v_scheduleListEntryMemo <- obj .:? "memo"
-    v_scheduleListEntrySearchattributes <- obj .:? "searchAttributes"
-    v_scheduleListEntryInfo <- obj .:? "info"
-    pure (ScheduleListEntry {
-       scheduleListEntryScheduleid = v_scheduleListEntryScheduleid
-      , scheduleListEntryMemo = v_scheduleListEntryMemo
-      , scheduleListEntrySearchattributes = v_scheduleListEntrySearchattributes
-      , scheduleListEntryInfo = v_scheduleListEntryInfo
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleListEntry

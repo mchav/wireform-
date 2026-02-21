@@ -33,10 +33,10 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentVersion)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (WorkerStatus)
+import Proto.Google.Protobuf.Duration hiding (PluginInfo, WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerPollerInfo, WorkerSlotsInfo)
+import Proto.Google.Protobuf.Timestamp hiding (PluginInfo, WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerPollerInfo, WorkerSlotsInfo)
+import Proto.Temporal.Temporal.Api.Deployment.V1.Message hiding (PluginInfo, WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerPollerInfo, WorkerSlotsInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (PluginInfo, WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerPollerInfo, WorkerSlotsInfo)
 
 
 data WorkerPollerInfo = WorkerPollerInfo
@@ -93,16 +93,7 @@ instance ProtoToJSON WorkerPollerInfo where
       ]
 
 instance ProtoFromJSON WorkerPollerInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workerPollerInfoCurrentpollers <- obj .:? "currentPollers"
-    v_workerPollerInfoLastsuccessfulpolltime <- obj .:? "lastSuccessfulPollTime"
-    v_workerPollerInfoIsautoscaling <- obj .:? "isAutoscaling"
-    pure (WorkerPollerInfo {
-       workerPollerInfoCurrentpollers = v_workerPollerInfoCurrentpollers
-      , workerPollerInfoLastsuccessfulpolltime = v_workerPollerInfoLastsuccessfulpolltime
-      , workerPollerInfoIsautoscaling = v_workerPollerInfoIsautoscaling
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerPollerInfo
 
 data WorkerSlotsInfo = WorkerSlotsInfo
   { workerSlotsInfoCurrentavailableslots :: {-# UNPACK #-} !Int32
@@ -190,24 +181,7 @@ instance ProtoToJSON WorkerSlotsInfo where
       ]
 
 instance ProtoFromJSON WorkerSlotsInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workerSlotsInfoCurrentavailableslots <- obj .:? "currentAvailableSlots"
-    v_workerSlotsInfoCurrentusedslots <- obj .:? "currentUsedSlots"
-    v_workerSlotsInfoSlotsupplierkind <- obj .:? "slotSupplierKind"
-    v_workerSlotsInfoTotalprocessedtasks <- obj .:? "totalProcessedTasks"
-    v_workerSlotsInfoTotalfailedtasks <- obj .:? "totalFailedTasks"
-    v_workerSlotsInfoLastintervalprocessedtasks <- obj .:? "lastIntervalProcessedTasks"
-    v_workerSlotsInfoLastintervalfailuretasks <- obj .:? "lastIntervalFailureTasks"
-    pure (WorkerSlotsInfo {
-       workerSlotsInfoCurrentavailableslots = v_workerSlotsInfoCurrentavailableslots
-      , workerSlotsInfoCurrentusedslots = v_workerSlotsInfoCurrentusedslots
-      , workerSlotsInfoSlotsupplierkind = v_workerSlotsInfoSlotsupplierkind
-      , workerSlotsInfoTotalprocessedtasks = v_workerSlotsInfoTotalprocessedtasks
-      , workerSlotsInfoTotalfailedtasks = v_workerSlotsInfoTotalfailedtasks
-      , workerSlotsInfoLastintervalprocessedtasks = v_workerSlotsInfoLastintervalprocessedtasks
-      , workerSlotsInfoLastintervalfailuretasks = v_workerSlotsInfoLastintervalfailuretasks
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerSlotsInfo
 
 data WorkerHostInfo = WorkerHostInfo
   { workerHostInfoHostname :: !Text
@@ -279,20 +253,7 @@ instance ProtoToJSON WorkerHostInfo where
       ]
 
 instance ProtoFromJSON WorkerHostInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workerHostInfoHostname <- obj .:? "hostName"
-    v_workerHostInfoWorkergroupingkey <- obj .:? "workerGroupingKey"
-    v_workerHostInfoProcessid <- obj .:? "processId"
-    v_workerHostInfoCurrenthostcpuusage <- obj .:? "currentHostCpuUsage"
-    v_workerHostInfoCurrenthostmemusage <- obj .:? "currentHostMemUsage"
-    pure (WorkerHostInfo {
-       workerHostInfoHostname = v_workerHostInfoHostname
-      , workerHostInfoWorkergroupingkey = v_workerHostInfoWorkergroupingkey
-      , workerHostInfoProcessid = v_workerHostInfoProcessid
-      , workerHostInfoCurrenthostcpuusage = v_workerHostInfoCurrenthostcpuusage
-      , workerHostInfoCurrenthostmemusage = v_workerHostInfoCurrenthostmemusage
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerHostInfo
 
 data WorkerHeartbeat = WorkerHeartbeat
   { workerHeartbeatWorkerinstancekey :: !Text
@@ -508,56 +469,7 @@ instance ProtoToJSON WorkerHeartbeat where
       ]
 
 instance ProtoFromJSON WorkerHeartbeat where
-  protoFromJSON (JsonObject obj) = do
-    v_workerHeartbeatWorkerinstancekey <- obj .:? "workerInstanceKey"
-    v_workerHeartbeatWorkeridentity <- obj .:? "workerIdentity"
-    v_workerHeartbeatHostinfo <- obj .:? "hostInfo"
-    v_workerHeartbeatTaskqueue <- obj .:? "taskQueue"
-    v_workerHeartbeatDeploymentversion <- obj .:? "deploymentVersion"
-    v_workerHeartbeatSdkname <- obj .:? "sdkName"
-    v_workerHeartbeatSdkversion <- obj .:? "sdkVersion"
-    v_workerHeartbeatStatus <- obj .:? "status"
-    v_workerHeartbeatStarttime <- obj .:? "startTime"
-    v_workerHeartbeatHeartbeattime <- obj .:? "heartbeatTime"
-    v_workerHeartbeatElapsedsincelastheartbeat <- obj .:? "elapsedSinceLastHeartbeat"
-    v_workerHeartbeatWorkflowtaskslotsinfo <- obj .:? "workflowTaskSlotsInfo"
-    v_workerHeartbeatActivitytaskslotsinfo <- obj .:? "activityTaskSlotsInfo"
-    v_workerHeartbeatNexustaskslotsinfo <- obj .:? "nexusTaskSlotsInfo"
-    v_workerHeartbeatLocalactivityslotsinfo <- obj .:? "localActivitySlotsInfo"
-    v_workerHeartbeatWorkflowpollerinfo <- obj .:? "workflowPollerInfo"
-    v_workerHeartbeatWorkflowstickypollerinfo <- obj .:? "workflowStickyPollerInfo"
-    v_workerHeartbeatActivitypollerinfo <- obj .:? "activityPollerInfo"
-    v_workerHeartbeatNexuspollerinfo <- obj .:? "nexusPollerInfo"
-    v_workerHeartbeatTotalstickycachehit <- obj .:? "totalStickyCacheHit"
-    v_workerHeartbeatTotalstickycachemiss <- obj .:? "totalStickyCacheMiss"
-    v_workerHeartbeatCurrentstickycachesize <- obj .:? "currentStickyCacheSize"
-    v_workerHeartbeatPlugins <- obj .:? "plugins"
-    pure (WorkerHeartbeat {
-       workerHeartbeatWorkerinstancekey = v_workerHeartbeatWorkerinstancekey
-      , workerHeartbeatWorkeridentity = v_workerHeartbeatWorkeridentity
-      , workerHeartbeatHostinfo = v_workerHeartbeatHostinfo
-      , workerHeartbeatTaskqueue = v_workerHeartbeatTaskqueue
-      , workerHeartbeatDeploymentversion = v_workerHeartbeatDeploymentversion
-      , workerHeartbeatSdkname = v_workerHeartbeatSdkname
-      , workerHeartbeatSdkversion = v_workerHeartbeatSdkversion
-      , workerHeartbeatStatus = v_workerHeartbeatStatus
-      , workerHeartbeatStarttime = v_workerHeartbeatStarttime
-      , workerHeartbeatHeartbeattime = v_workerHeartbeatHeartbeattime
-      , workerHeartbeatElapsedsincelastheartbeat = v_workerHeartbeatElapsedsincelastheartbeat
-      , workerHeartbeatWorkflowtaskslotsinfo = v_workerHeartbeatWorkflowtaskslotsinfo
-      , workerHeartbeatActivitytaskslotsinfo = v_workerHeartbeatActivitytaskslotsinfo
-      , workerHeartbeatNexustaskslotsinfo = v_workerHeartbeatNexustaskslotsinfo
-      , workerHeartbeatLocalactivityslotsinfo = v_workerHeartbeatLocalactivityslotsinfo
-      , workerHeartbeatWorkflowpollerinfo = v_workerHeartbeatWorkflowpollerinfo
-      , workerHeartbeatWorkflowstickypollerinfo = v_workerHeartbeatWorkflowstickypollerinfo
-      , workerHeartbeatActivitypollerinfo = v_workerHeartbeatActivitypollerinfo
-      , workerHeartbeatNexuspollerinfo = v_workerHeartbeatNexuspollerinfo
-      , workerHeartbeatTotalstickycachehit = v_workerHeartbeatTotalstickycachehit
-      , workerHeartbeatTotalstickycachemiss = v_workerHeartbeatTotalstickycachemiss
-      , workerHeartbeatCurrentstickycachesize = v_workerHeartbeatCurrentstickycachesize
-      , workerHeartbeatPlugins = v_workerHeartbeatPlugins
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerHeartbeat
 
 data WorkerInfo = WorkerInfo
   { workerInfoWorkerheartbeat :: !(Maybe WorkerHeartbeat)
@@ -598,12 +510,7 @@ instance ProtoToJSON WorkerInfo where
       ]
 
 instance ProtoFromJSON WorkerInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workerInfoWorkerheartbeat <- obj .:? "workerHeartbeat"
-    pure (WorkerInfo {
-       workerInfoWorkerheartbeat = v_workerInfoWorkerheartbeat
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerInfo
 
 data PluginInfo = PluginInfo
   { pluginInfoName :: !Text
@@ -651,11 +558,4 @@ instance ProtoToJSON PluginInfo where
       ]
 
 instance ProtoFromJSON PluginInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_pluginInfoName <- obj .:? "name"
-    v_pluginInfoVersion <- obj .:? "version"
-    pure (PluginInfo {
-       pluginInfoName = v_pluginInfoName
-      , pluginInfoVersion = v_pluginInfoVersion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPluginInfo

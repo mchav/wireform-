@@ -33,10 +33,10 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload)
-import Proto.Temporal.Temporal.Api.Enums.V1.Deployment (WorkerDeploymentVersionStatus, WorkerVersioningMode)
-import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue (RoutingConfigUpdateState, TaskQueueType)
+import Proto.Google.Protobuf.Timestamp hiding (Deployment, DeploymentInfo, DeploymentInfo'TaskQueueInfo, DeploymentListInfo, InheritedAutoUpgradeInfo, RoutingConfig, UpdateDeploymentMetadata, VersionDrainageInfo, VersionMetadata, WorkerDeploymentInfo, WorkerDeploymentInfo'WorkerDeploymentVersionSummary, WorkerDeploymentOptions, WorkerDeploymentVersion, WorkerDeploymentVersionInfo, WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (Deployment, DeploymentInfo, DeploymentInfo'TaskQueueInfo, DeploymentListInfo, InheritedAutoUpgradeInfo, RoutingConfig, UpdateDeploymentMetadata, VersionDrainageInfo, VersionMetadata, WorkerDeploymentInfo, WorkerDeploymentInfo'WorkerDeploymentVersionSummary, WorkerDeploymentOptions, WorkerDeploymentVersion, WorkerDeploymentVersionInfo, WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Deployment hiding (Deployment, DeploymentInfo, DeploymentInfo'TaskQueueInfo, DeploymentListInfo, InheritedAutoUpgradeInfo, RoutingConfig, UpdateDeploymentMetadata, VersionDrainageInfo, VersionMetadata, WorkerDeploymentInfo, WorkerDeploymentInfo'WorkerDeploymentVersionSummary, WorkerDeploymentOptions, WorkerDeploymentVersion, WorkerDeploymentVersionInfo, WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.TaskQueue hiding (Deployment, DeploymentInfo, DeploymentInfo'TaskQueueInfo, DeploymentListInfo, InheritedAutoUpgradeInfo, RoutingConfig, UpdateDeploymentMetadata, VersionDrainageInfo, VersionMetadata, WorkerDeploymentInfo, WorkerDeploymentInfo'WorkerDeploymentVersionSummary, WorkerDeploymentOptions, WorkerDeploymentVersion, WorkerDeploymentVersionInfo, WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
 
 
 data WorkerDeploymentOptions = WorkerDeploymentOptions
@@ -93,16 +93,7 @@ instance ProtoToJSON WorkerDeploymentOptions where
       ]
 
 instance ProtoFromJSON WorkerDeploymentOptions where
-  protoFromJSON (JsonObject obj) = do
-    v_workerDeploymentOptionsDeploymentname <- obj .:? "deploymentName"
-    v_workerDeploymentOptionsBuildid <- obj .:? "buildId"
-    v_workerDeploymentOptionsWorkerversioningmode <- obj .:? "workerVersioningMode"
-    pure (WorkerDeploymentOptions {
-       workerDeploymentOptionsDeploymentname = v_workerDeploymentOptionsDeploymentname
-      , workerDeploymentOptionsBuildid = v_workerDeploymentOptionsBuildid
-      , workerDeploymentOptionsWorkerversioningmode = v_workerDeploymentOptionsWorkerversioningmode
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerDeploymentOptions
 
 data Deployment = Deployment
   { deploymentSeriesname :: !Text
@@ -150,19 +141,12 @@ instance ProtoToJSON Deployment where
       ]
 
 instance ProtoFromJSON Deployment where
-  protoFromJSON (JsonObject obj) = do
-    v_deploymentSeriesname <- obj .:? "seriesName"
-    v_deploymentBuildid <- obj .:? "buildId"
-    pure (Deployment {
-       deploymentSeriesname = v_deploymentSeriesname
-      , deploymentBuildid = v_deploymentBuildid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeployment
 
 data DeploymentInfo = DeploymentInfo
   { deploymentInfoDeployment :: !(Maybe Deployment)
   , deploymentInfoCreatetime :: !(Maybe Timestamp)
-  , deploymentInfoTaskqueueinfos :: !(V.Vector TaskQueueInfo)
+  , deploymentInfoTaskqueueinfos :: !(V.Vector DeploymentInfo'TaskQueueInfo)
   , deploymentInfoMetadata :: !(Map.Map Text Payload)
   , deploymentInfoIscurrent :: {-# UNPACK #-} !Bool
   }
@@ -170,31 +154,31 @@ data DeploymentInfo = DeploymentInfo
   deriving anyclass NFData
 
 data DeploymentInfo'TaskQueueInfo = DeploymentInfo'TaskQueueInfo
-  { deploymentInfoName :: !Text
-  , deploymentInfoType :: !TaskQueueType
-  , deploymentInfoFirstpollertime :: !(Maybe Timestamp)
+  { deploymentInfoTaskQueueInfoName :: !Text
+  , deploymentInfoTaskQueueInfoType :: !TaskQueueType
+  , deploymentInfoTaskQueueInfoFirstpollertime :: !(Maybe Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultDeploymentInfo'TaskQueueInfo :: DeploymentInfo'TaskQueueInfo
 defaultDeploymentInfo'TaskQueueInfo = DeploymentInfo'TaskQueueInfo
-  { deploymentInfoName = ""
-  , deploymentInfoType = (toEnum 0)
-  , deploymentInfoFirstpollertime = Nothing
+  { deploymentInfoTaskQueueInfoName = ""
+  , deploymentInfoTaskQueueInfoType = (toEnum 0)
+  , deploymentInfoTaskQueueInfoFirstpollertime = Nothing
   }
 
 instance MessageEncode DeploymentInfo'TaskQueueInfo where
   buildMessage msg =
-    (if msg.deploymentInfoName == T.empty then mempty else encodeFieldString 1 msg.deploymentInfoName)
-    <> (if fromEnum msg.deploymentInfoType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.deploymentInfoType)))
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.deploymentInfoFirstpollertime)
+    (if msg.deploymentInfoTaskQueueInfoName == T.empty then mempty else encodeFieldString 1 msg.deploymentInfoTaskQueueInfoName)
+    <> (if fromEnum msg.deploymentInfoTaskQueueInfoType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.deploymentInfoTaskQueueInfoType)))
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.deploymentInfoTaskQueueInfoFirstpollertime)
 
 instance MessageSize DeploymentInfo'TaskQueueInfo where
   messageSize msg =
-    (if msg.deploymentInfoName == T.empty then 0 else fieldTextSize 1 msg.deploymentInfoName)
-    + (if fromEnum msg.deploymentInfoType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.deploymentInfoType)))
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.deploymentInfoFirstpollertime)
+    (if msg.deploymentInfoTaskQueueInfoName == T.empty then 0 else fieldTextSize 1 msg.deploymentInfoTaskQueueInfoName)
+    + (if fromEnum msg.deploymentInfoTaskQueueInfoType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.deploymentInfoTaskQueueInfoType)))
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.deploymentInfoTaskQueueInfoFirstpollertime)
 
 instance MessageDecode DeploymentInfo'TaskQueueInfo where
   messageDecoder = loop "" (toEnum 0) Nothing
@@ -202,7 +186,7 @@ instance MessageDecode DeploymentInfo'TaskQueueInfo where
       loop acc_0 acc_1 acc_2 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (DeploymentInfo'TaskQueueInfo {deploymentInfoName = acc_0, deploymentInfoType = acc_1, deploymentInfoFirstpollertime = acc_2})
+          Nothing -> pure (DeploymentInfo'TaskQueueInfo {deploymentInfoTaskQueueInfoName = acc_0, deploymentInfoTaskQueueInfoType = acc_1, deploymentInfoTaskQueueInfoFirstpollertime = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -217,22 +201,13 @@ instance MessageDecode DeploymentInfo'TaskQueueInfo where
 
 instance ProtoToJSON DeploymentInfo'TaskQueueInfo where
   protoToJSON msg = jsonObject
-      [ "name" .= msg.deploymentInfoName
-      , "type" .= msg.deploymentInfoType
-      , "firstPollerTime" .= msg.deploymentInfoFirstpollertime
+      [ "name" .= msg.deploymentInfoTaskQueueInfoName
+      , "type" .= msg.deploymentInfoTaskQueueInfoType
+      , "firstPollerTime" .= msg.deploymentInfoTaskQueueInfoFirstpollertime
       ]
 
 instance ProtoFromJSON DeploymentInfo'TaskQueueInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_deploymentInfoName <- obj .:? "name"
-    v_deploymentInfoType <- obj .:? "type"
-    v_deploymentInfoFirstpollertime <- obj .:? "firstPollerTime"
-    pure (DeploymentInfo'TaskQueueInfo {
-       deploymentInfoName = v_deploymentInfoName
-      , deploymentInfoType = v_deploymentInfoType
-      , deploymentInfoFirstpollertime = v_deploymentInfoFirstpollertime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeploymentInfo'TaskQueueInfo
 
 defaultDeploymentInfo :: DeploymentInfo
 defaultDeploymentInfo = DeploymentInfo
@@ -277,20 +252,11 @@ instance MessageDecode DeploymentInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (acc_2 <> V.singleton v) acc_3 acc_4
             4 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4
-                Right (k, v) -> loop acc_0 acc_1 acc_2 (Map.union acc_3 (Map.singleton k v)) acc_4
+                Right (mk', mv') -> loop acc_0 acc_1 acc_2 (Map.union acc_3 (Map.singleton mk' mv')) acc_4
             5 -> do
               v <- decodeFieldBool
               loop acc_0 acc_1 acc_2 acc_3 v
@@ -306,20 +272,7 @@ instance ProtoToJSON DeploymentInfo where
       ]
 
 instance ProtoFromJSON DeploymentInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_deploymentInfoDeployment <- obj .:? "deployment"
-    v_deploymentInfoCreatetime <- obj .:? "createTime"
-    v_deploymentInfoTaskqueueinfos <- obj .:? "taskQueueInfos"
-    v_deploymentInfoMetadata <- obj .:? "metadata"
-    v_deploymentInfoIscurrent <- obj .:? "isCurrent"
-    pure (DeploymentInfo {
-       deploymentInfoDeployment = v_deploymentInfoDeployment
-      , deploymentInfoCreatetime = v_deploymentInfoCreatetime
-      , deploymentInfoTaskqueueinfos = v_deploymentInfoTaskqueueinfos
-      , deploymentInfoMetadata = v_deploymentInfoMetadata
-      , deploymentInfoIscurrent = v_deploymentInfoIscurrent
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeploymentInfo
 
 data UpdateDeploymentMetadata = UpdateDeploymentMetadata
   { updateDeploymentMetadataUpsertentries :: !(Map.Map Text Payload)
@@ -342,7 +295,7 @@ instance MessageEncode UpdateDeploymentMetadata where
 instance MessageSize UpdateDeploymentMetadata where
   messageSize msg =
     (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.updateDeploymentMetadataUpsertentries)
-    + (sizeRepeated 2 msg.updateDeploymentMetadataRemoveentries)
+    + 0 {- TODO: repeated size -}
 
 instance MessageDecode UpdateDeploymentMetadata where
   messageDecoder = loop Map.empty V.empty
@@ -353,20 +306,11 @@ instance MessageDecode UpdateDeploymentMetadata where
           Nothing -> pure (UpdateDeploymentMetadata {updateDeploymentMetadataUpsertentries = acc_0, updateDeploymentMetadataRemoveentries = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v)) acc_1
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_1
             2 -> do
               v <- decodeFieldString
               loop acc_0 (acc_1 <> V.singleton v)
@@ -379,14 +323,7 @@ instance ProtoToJSON UpdateDeploymentMetadata where
       ]
 
 instance ProtoFromJSON UpdateDeploymentMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_updateDeploymentMetadataUpsertentries <- obj .:? "upsertEntries"
-    v_updateDeploymentMetadataRemoveentries <- obj .:? "removeEntries"
-    pure (UpdateDeploymentMetadata {
-       updateDeploymentMetadataUpsertentries = v_updateDeploymentMetadataUpsertentries
-      , updateDeploymentMetadataRemoveentries = v_updateDeploymentMetadataRemoveentries
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultUpdateDeploymentMetadata
 
 data DeploymentListInfo = DeploymentListInfo
   { deploymentListInfoDeployment :: !(Maybe Deployment)
@@ -442,16 +379,7 @@ instance ProtoToJSON DeploymentListInfo where
       ]
 
 instance ProtoFromJSON DeploymentListInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_deploymentListInfoDeployment <- obj .:? "deployment"
-    v_deploymentListInfoCreatetime <- obj .:? "createTime"
-    v_deploymentListInfoIscurrent <- obj .:? "isCurrent"
-    pure (DeploymentListInfo {
-       deploymentListInfoDeployment = v_deploymentListInfoDeployment
-      , deploymentListInfoCreatetime = v_deploymentListInfoCreatetime
-      , deploymentListInfoIscurrent = v_deploymentListInfoIscurrent
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeploymentListInfo
 
 data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
   { workerDeploymentVersionInfoVersion :: !Text
@@ -466,7 +394,7 @@ data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
   , workerDeploymentVersionInfoLastcurrenttime :: !(Maybe Timestamp)
   , workerDeploymentVersionInfoLastdeactivationtime :: !(Maybe Timestamp)
   , workerDeploymentVersionInfoRamppercentage :: {-# UNPACK #-} !Float
-  , workerDeploymentVersionInfoTaskqueueinfos :: !(V.Vector VersionTaskQueueInfo)
+  , workerDeploymentVersionInfoTaskqueueinfos :: !(V.Vector WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
   , workerDeploymentVersionInfoDrainageinfo :: !(Maybe VersionDrainageInfo)
   , workerDeploymentVersionInfoMetadata :: !(Maybe VersionMetadata)
   }
@@ -474,27 +402,27 @@ data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
   deriving anyclass NFData
 
 data WorkerDeploymentVersionInfo'VersionTaskQueueInfo = WorkerDeploymentVersionInfo'VersionTaskQueueInfo
-  { workerDeploymentVersionInfoName :: !Text
-  , workerDeploymentVersionInfoType :: !TaskQueueType
+  { workerDeploymentVersionInfoVersionTaskQueueInfoName :: !Text
+  , workerDeploymentVersionInfoVersionTaskQueueInfoType :: !TaskQueueType
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo :: WorkerDeploymentVersionInfo'VersionTaskQueueInfo
 defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo = WorkerDeploymentVersionInfo'VersionTaskQueueInfo
-  { workerDeploymentVersionInfoName = ""
-  , workerDeploymentVersionInfoType = (toEnum 0)
+  { workerDeploymentVersionInfoVersionTaskQueueInfoName = ""
+  , workerDeploymentVersionInfoVersionTaskQueueInfoType = (toEnum 0)
   }
 
 instance MessageEncode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   buildMessage msg =
-    (if msg.workerDeploymentVersionInfoName == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentVersionInfoName)
-    <> (if fromEnum msg.workerDeploymentVersionInfoType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.workerDeploymentVersionInfoType)))
+    (if msg.workerDeploymentVersionInfoVersionTaskQueueInfoName == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentVersionInfoVersionTaskQueueInfoName)
+    <> (if fromEnum msg.workerDeploymentVersionInfoVersionTaskQueueInfoType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.workerDeploymentVersionInfoVersionTaskQueueInfoType)))
 
 instance MessageSize WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   messageSize msg =
-    (if msg.workerDeploymentVersionInfoName == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentVersionInfoName)
-    + (if fromEnum msg.workerDeploymentVersionInfoType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.workerDeploymentVersionInfoType)))
+    (if msg.workerDeploymentVersionInfoVersionTaskQueueInfoName == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentVersionInfoVersionTaskQueueInfoName)
+    + (if fromEnum msg.workerDeploymentVersionInfoVersionTaskQueueInfoType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.workerDeploymentVersionInfoVersionTaskQueueInfoType)))
 
 instance MessageDecode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   messageDecoder = loop "" (toEnum 0)
@@ -502,7 +430,7 @@ instance MessageDecode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (WorkerDeploymentVersionInfo'VersionTaskQueueInfo {workerDeploymentVersionInfoName = acc_0, workerDeploymentVersionInfoType = acc_1})
+          Nothing -> pure (WorkerDeploymentVersionInfo'VersionTaskQueueInfo {workerDeploymentVersionInfoVersionTaskQueueInfoName = acc_0, workerDeploymentVersionInfoVersionTaskQueueInfoType = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -514,19 +442,12 @@ instance MessageDecode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
 
 instance ProtoToJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   protoToJSON msg = jsonObject
-      [ "name" .= msg.workerDeploymentVersionInfoName
-      , "type" .= msg.workerDeploymentVersionInfoType
+      [ "name" .= msg.workerDeploymentVersionInfoVersionTaskQueueInfoName
+      , "type" .= msg.workerDeploymentVersionInfoVersionTaskQueueInfoType
       ]
 
 instance ProtoFromJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workerDeploymentVersionInfoName <- obj .:? "name"
-    v_workerDeploymentVersionInfoType <- obj .:? "type"
-    pure (WorkerDeploymentVersionInfo'VersionTaskQueueInfo {
-       workerDeploymentVersionInfoName = v_workerDeploymentVersionInfoName
-      , workerDeploymentVersionInfoType = v_workerDeploymentVersionInfoType
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo
 
 defaultWorkerDeploymentVersionInfo :: WorkerDeploymentVersionInfo
 defaultWorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
@@ -658,40 +579,7 @@ instance ProtoToJSON WorkerDeploymentVersionInfo where
       ]
 
 instance ProtoFromJSON WorkerDeploymentVersionInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workerDeploymentVersionInfoVersion <- obj .:? "version"
-    v_workerDeploymentVersionInfoStatus <- obj .:? "status"
-    v_workerDeploymentVersionInfoDeploymentversion <- obj .:? "deploymentVersion"
-    v_workerDeploymentVersionInfoDeploymentname <- obj .:? "deploymentName"
-    v_workerDeploymentVersionInfoCreatetime <- obj .:? "createTime"
-    v_workerDeploymentVersionInfoRoutingchangedtime <- obj .:? "routingChangedTime"
-    v_workerDeploymentVersionInfoCurrentsincetime <- obj .:? "currentSinceTime"
-    v_workerDeploymentVersionInfoRampingsincetime <- obj .:? "rampingSinceTime"
-    v_workerDeploymentVersionInfoFirstactivationtime <- obj .:? "firstActivationTime"
-    v_workerDeploymentVersionInfoLastcurrenttime <- obj .:? "lastCurrentTime"
-    v_workerDeploymentVersionInfoLastdeactivationtime <- obj .:? "lastDeactivationTime"
-    v_workerDeploymentVersionInfoRamppercentage <- obj .:? "rampPercentage"
-    v_workerDeploymentVersionInfoTaskqueueinfos <- obj .:? "taskQueueInfos"
-    v_workerDeploymentVersionInfoDrainageinfo <- obj .:? "drainageInfo"
-    v_workerDeploymentVersionInfoMetadata <- obj .:? "metadata"
-    pure (WorkerDeploymentVersionInfo {
-       workerDeploymentVersionInfoVersion = v_workerDeploymentVersionInfoVersion
-      , workerDeploymentVersionInfoStatus = v_workerDeploymentVersionInfoStatus
-      , workerDeploymentVersionInfoDeploymentversion = v_workerDeploymentVersionInfoDeploymentversion
-      , workerDeploymentVersionInfoDeploymentname = v_workerDeploymentVersionInfoDeploymentname
-      , workerDeploymentVersionInfoCreatetime = v_workerDeploymentVersionInfoCreatetime
-      , workerDeploymentVersionInfoRoutingchangedtime = v_workerDeploymentVersionInfoRoutingchangedtime
-      , workerDeploymentVersionInfoCurrentsincetime = v_workerDeploymentVersionInfoCurrentsincetime
-      , workerDeploymentVersionInfoRampingsincetime = v_workerDeploymentVersionInfoRampingsincetime
-      , workerDeploymentVersionInfoFirstactivationtime = v_workerDeploymentVersionInfoFirstactivationtime
-      , workerDeploymentVersionInfoLastcurrenttime = v_workerDeploymentVersionInfoLastcurrenttime
-      , workerDeploymentVersionInfoLastdeactivationtime = v_workerDeploymentVersionInfoLastdeactivationtime
-      , workerDeploymentVersionInfoRamppercentage = v_workerDeploymentVersionInfoRamppercentage
-      , workerDeploymentVersionInfoTaskqueueinfos = v_workerDeploymentVersionInfoTaskqueueinfos
-      , workerDeploymentVersionInfoDrainageinfo = v_workerDeploymentVersionInfoDrainageinfo
-      , workerDeploymentVersionInfoMetadata = v_workerDeploymentVersionInfoMetadata
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerDeploymentVersionInfo
 
 data VersionDrainageInfo = VersionDrainageInfo
   { versionDrainageInfoStatus :: !(Maybe VersionDrainageStatus)
@@ -747,20 +635,11 @@ instance ProtoToJSON VersionDrainageInfo where
       ]
 
 instance ProtoFromJSON VersionDrainageInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_versionDrainageInfoStatus <- obj .:? "status"
-    v_versionDrainageInfoLastchangedtime <- obj .:? "lastChangedTime"
-    v_versionDrainageInfoLastcheckedtime <- obj .:? "lastCheckedTime"
-    pure (VersionDrainageInfo {
-       versionDrainageInfoStatus = v_versionDrainageInfoStatus
-      , versionDrainageInfoLastchangedtime = v_versionDrainageInfoLastchangedtime
-      , versionDrainageInfoLastcheckedtime = v_versionDrainageInfoLastcheckedtime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultVersionDrainageInfo
 
 data WorkerDeploymentInfo = WorkerDeploymentInfo
   { workerDeploymentInfoName :: !Text
-  , workerDeploymentInfoVersionsummaries :: !(V.Vector WorkerDeploymentVersionSummary)
+  , workerDeploymentInfoVersionsummaries :: !(V.Vector WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
   , workerDeploymentInfoCreatetime :: !(Maybe Timestamp)
   , workerDeploymentInfoRoutingconfig :: !(Maybe RoutingConfig)
   , workerDeploymentInfoLastmodifieridentity :: !Text
@@ -771,67 +650,67 @@ data WorkerDeploymentInfo = WorkerDeploymentInfo
   deriving anyclass NFData
 
 data WorkerDeploymentInfo'WorkerDeploymentVersionSummary = WorkerDeploymentInfo'WorkerDeploymentVersionSummary
-  { workerDeploymentInfoVersion :: !Text
-  , workerDeploymentInfoStatus :: !WorkerDeploymentVersionStatus
-  , workerDeploymentInfoDeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , workerDeploymentInfoCreatetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoDrainagestatus :: !(Maybe VersionDrainageStatus)
-  , workerDeploymentInfoDrainageinfo :: !(Maybe VersionDrainageInfo)
-  , workerDeploymentInfoCurrentsincetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoRampingsincetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoRoutingupdatetime :: !(Maybe Timestamp)
-  , workerDeploymentInfoFirstactivationtime :: !(Maybe Timestamp)
-  , workerDeploymentInfoLastcurrenttime :: !(Maybe Timestamp)
-  , workerDeploymentInfoLastdeactivationtime :: !(Maybe Timestamp)
+  { workerDeploymentInfoWorkerDeploymentVersionSummaryVersion :: !Text
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus :: !WorkerDeploymentVersionStatus
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion :: !(Maybe WorkerDeploymentVersion)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime :: !(Maybe Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus :: !(Maybe VersionDrainageStatus)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo :: !(Maybe VersionDrainageInfo)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime :: !(Maybe Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime :: !(Maybe Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime :: !(Maybe Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime :: !(Maybe Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime :: !(Maybe Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime :: !(Maybe Timestamp)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary :: WorkerDeploymentInfo'WorkerDeploymentVersionSummary
 defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary = WorkerDeploymentInfo'WorkerDeploymentVersionSummary
-  { workerDeploymentInfoVersion = ""
-  , workerDeploymentInfoStatus = (toEnum 0)
-  , workerDeploymentInfoDeploymentversion = Nothing
-  , workerDeploymentInfoCreatetime = Nothing
-  , workerDeploymentInfoDrainagestatus = Nothing
-  , workerDeploymentInfoDrainageinfo = Nothing
-  , workerDeploymentInfoCurrentsincetime = Nothing
-  , workerDeploymentInfoRampingsincetime = Nothing
-  , workerDeploymentInfoRoutingupdatetime = Nothing
-  , workerDeploymentInfoFirstactivationtime = Nothing
-  , workerDeploymentInfoLastcurrenttime = Nothing
-  , workerDeploymentInfoLastdeactivationtime = Nothing
+  { workerDeploymentInfoWorkerDeploymentVersionSummaryVersion = ""
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = (toEnum 0)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime = Nothing
   }
 
 instance MessageEncode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   buildMessage msg =
-    (if msg.workerDeploymentInfoVersion == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentInfoVersion)
-    <> (if fromEnum msg.workerDeploymentInfoStatus == 0 then mempty else encodeFieldVarint 11 (fromIntegral (fromEnum msg.workerDeploymentInfoStatus)))
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentInfoDeploymentversion)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workerDeploymentInfoCreatetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerDeploymentInfoDrainagestatus)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerDeploymentInfoDrainageinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workerDeploymentInfoCurrentsincetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.workerDeploymentInfoRampingsincetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.workerDeploymentInfoRoutingupdatetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workerDeploymentInfoFirstactivationtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workerDeploymentInfoLastcurrenttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.workerDeploymentInfoLastdeactivationtime)
+    (if msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion)
+    <> (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus == 0 then mempty else encodeFieldVarint 11 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus)))
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime)
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime)
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime)
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime)
+    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime)
 
 instance MessageSize WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   messageSize msg =
-    (if msg.workerDeploymentInfoVersion == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentInfoVersion)
-    + (if fromEnum msg.workerDeploymentInfoStatus == 0 then 0 else fieldVarintSize 11 (fromIntegral (fromEnum msg.workerDeploymentInfoStatus)))
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentInfoDeploymentversion)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workerDeploymentInfoCreatetime)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerDeploymentInfoDrainagestatus)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerDeploymentInfoDrainageinfo)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workerDeploymentInfoCurrentsincetime)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.workerDeploymentInfoRampingsincetime)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workerDeploymentInfoRoutingupdatetime)
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workerDeploymentInfoFirstactivationtime)
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workerDeploymentInfoLastcurrenttime)
-    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workerDeploymentInfoLastdeactivationtime)
+    (if msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion)
+    + (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus == 0 then 0 else fieldVarintSize 11 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus)))
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime)
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime)
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime)
+    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime)
 
 instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   messageDecoder = loop "" (toEnum 0) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
@@ -839,7 +718,7 @@ instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (WorkerDeploymentInfo'WorkerDeploymentVersionSummary {workerDeploymentInfoVersion = acc_0, workerDeploymentInfoStatus = acc_1, workerDeploymentInfoDeploymentversion = acc_2, workerDeploymentInfoCreatetime = acc_3, workerDeploymentInfoDrainagestatus = acc_4, workerDeploymentInfoDrainageinfo = acc_5, workerDeploymentInfoCurrentsincetime = acc_6, workerDeploymentInfoRampingsincetime = acc_7, workerDeploymentInfoRoutingupdatetime = acc_8, workerDeploymentInfoFirstactivationtime = acc_9, workerDeploymentInfoLastcurrenttime = acc_10, workerDeploymentInfoLastdeactivationtime = acc_11})
+          Nothing -> pure (WorkerDeploymentInfo'WorkerDeploymentVersionSummary {workerDeploymentInfoWorkerDeploymentVersionSummaryVersion = acc_0, workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = acc_1, workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion = acc_2, workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime = acc_3, workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = acc_4, workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo = acc_5, workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime = acc_6, workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime = acc_7, workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime = acc_8, workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime = acc_9, workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime = acc_10, workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime = acc_11})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -881,49 +760,22 @@ instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
 
 instance ProtoToJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   protoToJSON msg = jsonObject
-      [ "version" .= msg.workerDeploymentInfoVersion
-      , "status" .= msg.workerDeploymentInfoStatus
-      , "deploymentVersion" .= msg.workerDeploymentInfoDeploymentversion
-      , "createTime" .= msg.workerDeploymentInfoCreatetime
-      , "drainageStatus" .= msg.workerDeploymentInfoDrainagestatus
-      , "drainageInfo" .= msg.workerDeploymentInfoDrainageinfo
-      , "currentSinceTime" .= msg.workerDeploymentInfoCurrentsincetime
-      , "rampingSinceTime" .= msg.workerDeploymentInfoRampingsincetime
-      , "routingUpdateTime" .= msg.workerDeploymentInfoRoutingupdatetime
-      , "firstActivationTime" .= msg.workerDeploymentInfoFirstactivationtime
-      , "lastCurrentTime" .= msg.workerDeploymentInfoLastcurrenttime
-      , "lastDeactivationTime" .= msg.workerDeploymentInfoLastdeactivationtime
+      [ "version" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion
+      , "status" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus
+      , "deploymentVersion" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion
+      , "createTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime
+      , "drainageStatus" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus
+      , "drainageInfo" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo
+      , "currentSinceTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime
+      , "rampingSinceTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime
+      , "routingUpdateTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime
+      , "firstActivationTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime
+      , "lastCurrentTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime
+      , "lastDeactivationTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
       ]
 
 instance ProtoFromJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
-  protoFromJSON (JsonObject obj) = do
-    v_workerDeploymentInfoVersion <- obj .:? "version"
-    v_workerDeploymentInfoStatus <- obj .:? "status"
-    v_workerDeploymentInfoDeploymentversion <- obj .:? "deploymentVersion"
-    v_workerDeploymentInfoCreatetime <- obj .:? "createTime"
-    v_workerDeploymentInfoDrainagestatus <- obj .:? "drainageStatus"
-    v_workerDeploymentInfoDrainageinfo <- obj .:? "drainageInfo"
-    v_workerDeploymentInfoCurrentsincetime <- obj .:? "currentSinceTime"
-    v_workerDeploymentInfoRampingsincetime <- obj .:? "rampingSinceTime"
-    v_workerDeploymentInfoRoutingupdatetime <- obj .:? "routingUpdateTime"
-    v_workerDeploymentInfoFirstactivationtime <- obj .:? "firstActivationTime"
-    v_workerDeploymentInfoLastcurrenttime <- obj .:? "lastCurrentTime"
-    v_workerDeploymentInfoLastdeactivationtime <- obj .:? "lastDeactivationTime"
-    pure (WorkerDeploymentInfo'WorkerDeploymentVersionSummary {
-       workerDeploymentInfoVersion = v_workerDeploymentInfoVersion
-      , workerDeploymentInfoStatus = v_workerDeploymentInfoStatus
-      , workerDeploymentInfoDeploymentversion = v_workerDeploymentInfoDeploymentversion
-      , workerDeploymentInfoCreatetime = v_workerDeploymentInfoCreatetime
-      , workerDeploymentInfoDrainagestatus = v_workerDeploymentInfoDrainagestatus
-      , workerDeploymentInfoDrainageinfo = v_workerDeploymentInfoDrainageinfo
-      , workerDeploymentInfoCurrentsincetime = v_workerDeploymentInfoCurrentsincetime
-      , workerDeploymentInfoRampingsincetime = v_workerDeploymentInfoRampingsincetime
-      , workerDeploymentInfoRoutingupdatetime = v_workerDeploymentInfoRoutingupdatetime
-      , workerDeploymentInfoFirstactivationtime = v_workerDeploymentInfoFirstactivationtime
-      , workerDeploymentInfoLastcurrenttime = v_workerDeploymentInfoLastcurrenttime
-      , workerDeploymentInfoLastdeactivationtime = v_workerDeploymentInfoLastdeactivationtime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary
 
 defaultWorkerDeploymentInfo :: WorkerDeploymentInfo
 defaultWorkerDeploymentInfo = WorkerDeploymentInfo
@@ -999,24 +851,7 @@ instance ProtoToJSON WorkerDeploymentInfo where
       ]
 
 instance ProtoFromJSON WorkerDeploymentInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_workerDeploymentInfoName <- obj .:? "name"
-    v_workerDeploymentInfoVersionsummaries <- obj .:? "versionSummaries"
-    v_workerDeploymentInfoCreatetime <- obj .:? "createTime"
-    v_workerDeploymentInfoRoutingconfig <- obj .:? "routingConfig"
-    v_workerDeploymentInfoLastmodifieridentity <- obj .:? "lastModifierIdentity"
-    v_workerDeploymentInfoManageridentity <- obj .:? "managerIdentity"
-    v_workerDeploymentInfoRoutingconfigupdatestate <- obj .:? "routingConfigUpdateState"
-    pure (WorkerDeploymentInfo {
-       workerDeploymentInfoName = v_workerDeploymentInfoName
-      , workerDeploymentInfoVersionsummaries = v_workerDeploymentInfoVersionsummaries
-      , workerDeploymentInfoCreatetime = v_workerDeploymentInfoCreatetime
-      , workerDeploymentInfoRoutingconfig = v_workerDeploymentInfoRoutingconfig
-      , workerDeploymentInfoLastmodifieridentity = v_workerDeploymentInfoLastmodifieridentity
-      , workerDeploymentInfoManageridentity = v_workerDeploymentInfoManageridentity
-      , workerDeploymentInfoRoutingconfigupdatestate = v_workerDeploymentInfoRoutingconfigupdatestate
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerDeploymentInfo
 
 data WorkerDeploymentVersion = WorkerDeploymentVersion
   { workerDeploymentVersionBuildid :: !Text
@@ -1064,14 +899,7 @@ instance ProtoToJSON WorkerDeploymentVersion where
       ]
 
 instance ProtoFromJSON WorkerDeploymentVersion where
-  protoFromJSON (JsonObject obj) = do
-    v_workerDeploymentVersionBuildid <- obj .:? "buildId"
-    v_workerDeploymentVersionDeploymentname <- obj .:? "deploymentName"
-    pure (WorkerDeploymentVersion {
-       workerDeploymentVersionBuildid = v_workerDeploymentVersionBuildid
-      , workerDeploymentVersionDeploymentname = v_workerDeploymentVersionDeploymentname
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerDeploymentVersion
 
 data VersionMetadata = VersionMetadata
   { versionMetadataEntries :: !(Map.Map Text Payload)
@@ -1101,20 +929,11 @@ instance MessageDecode VersionMetadata where
           Nothing -> pure (VersionMetadata {versionMetadataEntries = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v))
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON VersionMetadata where
@@ -1124,12 +943,7 @@ instance ProtoToJSON VersionMetadata where
       ]
 
 instance ProtoFromJSON VersionMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_versionMetadataEntries <- obj .:? "entries"
-    pure (VersionMetadata {
-       versionMetadataEntries = v_versionMetadataEntries
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultVersionMetadata
 
 data RoutingConfig = RoutingConfig
   { routingConfigCurrentdeploymentversion :: !(Maybe WorkerDeploymentVersion)
@@ -1233,28 +1047,7 @@ instance ProtoToJSON RoutingConfig where
       ]
 
 instance ProtoFromJSON RoutingConfig where
-  protoFromJSON (JsonObject obj) = do
-    v_routingConfigCurrentdeploymentversion <- obj .:? "currentDeploymentVersion"
-    v_routingConfigCurrentversion <- obj .:? "currentVersion"
-    v_routingConfigRampingdeploymentversion <- obj .:? "rampingDeploymentVersion"
-    v_routingConfigRampingversion <- obj .:? "rampingVersion"
-    v_routingConfigRampingversionpercentage <- obj .:? "rampingVersionPercentage"
-    v_routingConfigCurrentversionchangedtime <- obj .:? "currentVersionChangedTime"
-    v_routingConfigRampingversionchangedtime <- obj .:? "rampingVersionChangedTime"
-    v_routingConfigRampingversionpercentagechangedtime <- obj .:? "rampingVersionPercentageChangedTime"
-    v_routingConfigRevisionnumber <- obj .:? "revisionNumber"
-    pure (RoutingConfig {
-       routingConfigCurrentdeploymentversion = v_routingConfigCurrentdeploymentversion
-      , routingConfigCurrentversion = v_routingConfigCurrentversion
-      , routingConfigRampingdeploymentversion = v_routingConfigRampingdeploymentversion
-      , routingConfigRampingversion = v_routingConfigRampingversion
-      , routingConfigRampingversionpercentage = v_routingConfigRampingversionpercentage
-      , routingConfigCurrentversionchangedtime = v_routingConfigCurrentversionchangedtime
-      , routingConfigRampingversionchangedtime = v_routingConfigRampingversionchangedtime
-      , routingConfigRampingversionpercentagechangedtime = v_routingConfigRampingversionpercentagechangedtime
-      , routingConfigRevisionnumber = v_routingConfigRevisionnumber
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRoutingConfig
 
 data InheritedAutoUpgradeInfo = InheritedAutoUpgradeInfo
   { inheritedAutoUpgradeInfoSourcedeploymentversion :: !(Maybe WorkerDeploymentVersion)
@@ -1302,11 +1095,4 @@ instance ProtoToJSON InheritedAutoUpgradeInfo where
       ]
 
 instance ProtoFromJSON InheritedAutoUpgradeInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_inheritedAutoUpgradeInfoSourcedeploymentversion <- obj .:? "sourceDeploymentVersion"
-    v_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber <- obj .:? "sourceDeploymentRevisionNumber"
-    pure (InheritedAutoUpgradeInfo {
-       inheritedAutoUpgradeInfoSourcedeploymentversion = v_inheritedAutoUpgradeInfoSourcedeploymentversion
-      , inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber = v_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultInheritedAutoUpgradeInfo

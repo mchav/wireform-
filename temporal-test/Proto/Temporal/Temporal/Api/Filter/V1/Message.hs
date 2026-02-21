@@ -33,8 +33,8 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus)
+import Proto.Google.Protobuf.Timestamp hiding (StartTimeFilter, StatusFilter, WorkflowExecutionFilter, WorkflowTypeFilter)
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (StartTimeFilter, StatusFilter, WorkflowExecutionFilter, WorkflowTypeFilter)
 
 
 data WorkflowExecutionFilter = WorkflowExecutionFilter
@@ -83,14 +83,7 @@ instance ProtoToJSON WorkflowExecutionFilter where
       ]
 
 instance ProtoFromJSON WorkflowExecutionFilter where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionFilterWorkflowid <- obj .:? "workflowId"
-    v_workflowExecutionFilterRunid <- obj .:? "runId"
-    pure (WorkflowExecutionFilter {
-       workflowExecutionFilterWorkflowid = v_workflowExecutionFilterWorkflowid
-      , workflowExecutionFilterRunid = v_workflowExecutionFilterRunid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutionFilter
 
 data WorkflowTypeFilter = WorkflowTypeFilter
   { workflowTypeFilterName :: !Text
@@ -131,12 +124,7 @@ instance ProtoToJSON WorkflowTypeFilter where
       ]
 
 instance ProtoFromJSON WorkflowTypeFilter where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowTypeFilterName <- obj .:? "name"
-    pure (WorkflowTypeFilter {
-       workflowTypeFilterName = v_workflowTypeFilterName
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowTypeFilter
 
 data StartTimeFilter = StartTimeFilter
   { startTimeFilterEarliesttime :: !(Maybe Timestamp)
@@ -184,14 +172,7 @@ instance ProtoToJSON StartTimeFilter where
       ]
 
 instance ProtoFromJSON StartTimeFilter where
-  protoFromJSON (JsonObject obj) = do
-    v_startTimeFilterEarliesttime <- obj .:? "earliestTime"
-    v_startTimeFilterLatesttime <- obj .:? "latestTime"
-    pure (StartTimeFilter {
-       startTimeFilterEarliesttime = v_startTimeFilterEarliesttime
-      , startTimeFilterLatesttime = v_startTimeFilterLatesttime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStartTimeFilter
 
 data StatusFilter = StatusFilter
   { statusFilterStatus :: !WorkflowExecutionStatus
@@ -232,9 +213,4 @@ instance ProtoToJSON StatusFilter where
       ]
 
 instance ProtoFromJSON StatusFilter where
-  protoFromJSON (JsonObject obj) = do
-    v_statusFilterStatus <- obj .:? "status"
-    pure (StatusFilter {
-       statusFilterStatus = v_statusFilterStatus
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStatusFilter

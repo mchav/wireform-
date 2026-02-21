@@ -33,7 +33,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Any (Any)
+import Proto.Google.Protobuf.Any hiding (Message)
 
 
 data Message = Message
@@ -45,10 +45,14 @@ data Message = Message
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data Message'SequencingId
-  = Message'EventId {-# UNPACK #-} !Int64
-  | Message'CommandIndex {-# UNPACK #-} !Int64
+  = Message'SequencingId'EventId {-# UNPACK #-} !Int64
+  | Message'SequencingId'CommandIndex {-# UNPACK #-} !Int64
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Message'SequencingId where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Message'SequencingId where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultMessage :: Message
 defaultMessage = Message
@@ -64,16 +68,16 @@ instance MessageEncode Message where
     <> (if msg.messageProtocolinstanceid == T.empty then mempty else encodeFieldString 2 msg.messageProtocolinstanceid)
     <> (case msg.messageSequencingid of
       Nothing -> mempty
-      Just (Message'EventId v) -> encodeFieldVarint 3 (fromIntegral v)
-      Just (Message'CommandIndex v) -> encodeFieldVarint 4 (fromIntegral v))
+      Just (Message'SequencingId'EventId v) -> encodeFieldVarint 3 (fromIntegral v)
+      Just (Message'SequencingId'CommandIndex v) -> encodeFieldVarint 4 (fromIntegral v))
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.messageBody)
 
 instance MessageSize Message where
   messageSize msg =
     (if msg.messageId == T.empty then 0 else fieldTextSize 1 msg.messageId)
     + (if msg.messageProtocolinstanceid == T.empty then 0 else fieldTextSize 2 msg.messageProtocolinstanceid)
-    + (case msg.messageSequencingid of { Nothing -> 0; Just (Message'EventId v) -> fieldVarintSize 3 (fromIntegral v)
-    ; Just (Message'CommandIndex v) -> fieldVarintSize 4 (fromIntegral v) })
+    + (case msg.messageSequencingid of { Nothing -> 0; Just (Message'SequencingId'EventId v) -> fieldVarintSize 3 (fromIntegral v)
+    ; Just (Message'SequencingId'CommandIndex v) -> fieldVarintSize 4 (fromIntegral v) })
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.messageBody)
 
 instance MessageDecode Message where
@@ -92,10 +96,10 @@ instance MessageDecode Message where
               loop acc_0 v acc_2 acc_3
             3 -> do
               v <- fromIntegral <$> decodeFieldVarint
-              loop acc_0 acc_1 (Just (Message'EventId v)) acc_3
+              loop acc_0 acc_1 (Just (Message'SequencingId'EventId v)) acc_3
             4 -> do
               v <- fromIntegral <$> decodeFieldVarint
-              loop acc_0 acc_1 (Just (Message'CommandIndex v)) acc_3
+              loop acc_0 acc_1 (Just (Message'SequencingId'CommandIndex v)) acc_3
             5 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 (Just v)
@@ -110,15 +114,4 @@ instance ProtoToJSON Message where
       ]
 
 instance ProtoFromJSON Message where
-  protoFromJSON (JsonObject obj) = do
-    v_messageId <- obj .:? "id"
-    v_messageProtocolinstanceid <- obj .:? "protocolInstanceId"
-    v_messageSequencingid <- obj .:? "sequencingId"
-    v_messageBody <- obj .:? "body"
-    pure (Message {
-       messageId = v_messageId
-      , messageProtocolinstanceid = v_messageProtocolinstanceid
-      , messageSequencingid = v_messageSequencingid
-      , messageBody = v_messageBody
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultMessage

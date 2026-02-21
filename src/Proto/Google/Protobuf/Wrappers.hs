@@ -20,6 +20,7 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
 
 import Proto.Encode
+import Proto.JSON
 import Proto.Decode
 import Proto.Wire (Tag (..))
 import Proto.Wire.Encode (fieldVarintSize, fieldBoolSize, fieldFloatSize,
@@ -215,3 +216,40 @@ instance MessageDecode BytesValue where
           Nothing -> pure (BytesValue v)
           Just (Tag 1 _) -> decodeFieldBytes >>= \x -> loop x
           Just (Tag _ wt) -> skipField wt >> loop v
+
+instance ProtoToJSON DoubleValue where
+  protoToJSON (DoubleValue v) = protoToJSON v
+instance ProtoFromJSON DoubleValue where
+  protoFromJSON v = DoubleValue <$> protoFromJSON v
+instance ProtoToJSON FloatValue where
+  protoToJSON (FloatValue v) = protoToJSON v
+instance ProtoFromJSON FloatValue where
+  protoFromJSON v = FloatValue <$> protoFromJSON v
+instance ProtoToJSON Int64Value where
+  protoToJSON (Int64Value v) = protoToJSON v
+instance ProtoFromJSON Int64Value where
+  protoFromJSON v = Int64Value <$> protoFromJSON v
+instance ProtoToJSON UInt64Value where
+  protoToJSON (UInt64Value v) = protoToJSON v
+instance ProtoFromJSON UInt64Value where
+  protoFromJSON v = UInt64Value <$> protoFromJSON v
+instance ProtoToJSON Int32Value where
+  protoToJSON (Int32Value v) = protoToJSON v
+instance ProtoFromJSON Int32Value where
+  protoFromJSON v = Int32Value <$> protoFromJSON v
+instance ProtoToJSON UInt32Value where
+  protoToJSON (UInt32Value v) = protoToJSON v
+instance ProtoFromJSON UInt32Value where
+  protoFromJSON v = UInt32Value <$> protoFromJSON v
+instance ProtoToJSON BoolValue where
+  protoToJSON (BoolValue v) = protoToJSON v
+instance ProtoFromJSON BoolValue where
+  protoFromJSON v = BoolValue <$> protoFromJSON v
+instance ProtoToJSON StringValue where
+  protoToJSON (StringValue v) = protoToJSON v
+instance ProtoFromJSON StringValue where
+  protoFromJSON v = StringValue <$> protoFromJSON v
+instance ProtoToJSON BytesValue where
+  protoToJSON (BytesValue v) = protoToJSON v
+instance ProtoFromJSON BytesValue where
+  protoFromJSON v = BytesValue <$> protoFromJSON v

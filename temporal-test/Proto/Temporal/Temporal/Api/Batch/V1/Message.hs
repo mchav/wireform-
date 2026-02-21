@@ -33,15 +33,15 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Google.Protobuf.FieldMask (FieldMask)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Activity.V1.Message (ActivityOptions)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Header, Payloads, ResetOptions)
-import Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation (BatchOperationState)
-import Proto.Temporal.Temporal.Api.Enums.V1.Reset (ResetReapplyType, ResetType)
-import Proto.Temporal.Temporal.Api.Rules.V1.Message (WorkflowRuleSpec)
-import Proto.Temporal.Temporal.Api.Workflow.V1.Message (PostResetOperation, WorkflowExecutionOptions)
+import Proto.Google.Protobuf.Duration hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Google.Protobuf.FieldMask hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Google.Protobuf.Timestamp hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Temporal.Temporal.Api.Activity.V1.Message hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Temporal.Temporal.Api.Enums.V1.BatchOperation hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Temporal.Temporal.Api.Enums.V1.Reset hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Temporal.Temporal.Api.Rules.V1.Message hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
+import Proto.Temporal.Temporal.Api.Workflow.V1.Message hiding (BatchOperationCancellation, BatchOperationDeletion, BatchOperationInfo, BatchOperationReset, BatchOperationResetActivities, BatchOperationSignal, BatchOperationTermination, BatchOperationTriggerWorkflowRule, BatchOperationUnpauseActivities, BatchOperationUpdateActivityOptions, BatchOperationUpdateWorkflowExecutionOptions)
 
 
 data BatchOperationInfo = BatchOperationInfo
@@ -106,18 +106,7 @@ instance ProtoToJSON BatchOperationInfo where
       ]
 
 instance ProtoFromJSON BatchOperationInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationInfoJobid <- obj .:? "jobId"
-    v_batchOperationInfoState <- obj .:? "state"
-    v_batchOperationInfoStarttime <- obj .:? "startTime"
-    v_batchOperationInfoClosetime <- obj .:? "closeTime"
-    pure (BatchOperationInfo {
-       batchOperationInfoJobid = v_batchOperationInfoJobid
-      , batchOperationInfoState = v_batchOperationInfoState
-      , batchOperationInfoStarttime = v_batchOperationInfoStarttime
-      , batchOperationInfoClosetime = v_batchOperationInfoClosetime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationInfo
 
 data BatchOperationTermination = BatchOperationTermination
   { batchOperationTerminationDetails :: !(Maybe Payloads)
@@ -165,14 +154,7 @@ instance ProtoToJSON BatchOperationTermination where
       ]
 
 instance ProtoFromJSON BatchOperationTermination where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationTerminationDetails <- obj .:? "details"
-    v_batchOperationTerminationIdentity <- obj .:? "identity"
-    pure (BatchOperationTermination {
-       batchOperationTerminationDetails = v_batchOperationTerminationDetails
-      , batchOperationTerminationIdentity = v_batchOperationTerminationIdentity
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationTermination
 
 data BatchOperationSignal = BatchOperationSignal
   { batchOperationSignalSignal :: !Text
@@ -236,18 +218,7 @@ instance ProtoToJSON BatchOperationSignal where
       ]
 
 instance ProtoFromJSON BatchOperationSignal where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationSignalSignal <- obj .:? "signal"
-    v_batchOperationSignalInput <- obj .:? "input"
-    v_batchOperationSignalHeader <- obj .:? "header"
-    v_batchOperationSignalIdentity <- obj .:? "identity"
-    pure (BatchOperationSignal {
-       batchOperationSignalSignal = v_batchOperationSignalSignal
-      , batchOperationSignalInput = v_batchOperationSignalInput
-      , batchOperationSignalHeader = v_batchOperationSignalHeader
-      , batchOperationSignalIdentity = v_batchOperationSignalIdentity
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationSignal
 
 data BatchOperationCancellation = BatchOperationCancellation
   { batchOperationCancellationIdentity :: !Text
@@ -288,12 +259,7 @@ instance ProtoToJSON BatchOperationCancellation where
       ]
 
 instance ProtoFromJSON BatchOperationCancellation where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationCancellationIdentity <- obj .:? "identity"
-    pure (BatchOperationCancellation {
-       batchOperationCancellationIdentity = v_batchOperationCancellationIdentity
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationCancellation
 
 data BatchOperationDeletion = BatchOperationDeletion
   { batchOperationDeletionIdentity :: !Text
@@ -334,12 +300,7 @@ instance ProtoToJSON BatchOperationDeletion where
       ]
 
 instance ProtoFromJSON BatchOperationDeletion where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationDeletionIdentity <- obj .:? "identity"
-    pure (BatchOperationDeletion {
-       batchOperationDeletionIdentity = v_batchOperationDeletionIdentity
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationDeletion
 
 data BatchOperationReset = BatchOperationReset
   { batchOperationResetIdentity :: !Text
@@ -411,20 +372,7 @@ instance ProtoToJSON BatchOperationReset where
       ]
 
 instance ProtoFromJSON BatchOperationReset where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationResetIdentity <- obj .:? "identity"
-    v_batchOperationResetOptions <- obj .:? "options"
-    v_batchOperationResetResettype <- obj .:? "resetType"
-    v_batchOperationResetResetreapplytype <- obj .:? "resetReapplyType"
-    v_batchOperationResetPostresetoperations <- obj .:? "postResetOperations"
-    pure (BatchOperationReset {
-       batchOperationResetIdentity = v_batchOperationResetIdentity
-      , batchOperationResetOptions = v_batchOperationResetOptions
-      , batchOperationResetResettype = v_batchOperationResetResettype
-      , batchOperationResetResetreapplytype = v_batchOperationResetResetreapplytype
-      , batchOperationResetPostresetoperations = v_batchOperationResetPostresetoperations
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationReset
 
 data BatchOperationUpdateWorkflowExecutionOptions = BatchOperationUpdateWorkflowExecutionOptions
   { batchOperationUpdateWorkflowExecutionOptionsIdentity :: !Text
@@ -480,16 +428,7 @@ instance ProtoToJSON BatchOperationUpdateWorkflowExecutionOptions where
       ]
 
 instance ProtoFromJSON BatchOperationUpdateWorkflowExecutionOptions where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationUpdateWorkflowExecutionOptionsIdentity <- obj .:? "identity"
-    v_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions <- obj .:? "workflowExecutionOptions"
-    v_batchOperationUpdateWorkflowExecutionOptionsUpdatemask <- obj .:? "updateMask"
-    pure (BatchOperationUpdateWorkflowExecutionOptions {
-       batchOperationUpdateWorkflowExecutionOptionsIdentity = v_batchOperationUpdateWorkflowExecutionOptionsIdentity
-      , batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions = v_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions
-      , batchOperationUpdateWorkflowExecutionOptionsUpdatemask = v_batchOperationUpdateWorkflowExecutionOptionsUpdatemask
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationUpdateWorkflowExecutionOptions
 
 data BatchOperationUnpauseActivities = BatchOperationUnpauseActivities
   { batchOperationUnpauseActivitiesIdentity :: !Text
@@ -501,10 +440,14 @@ data BatchOperationUnpauseActivities = BatchOperationUnpauseActivities
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data BatchOperationUnpauseActivities'Activity
-  = BatchOperationUnpauseActivities'Type !Text
-  | BatchOperationUnpauseActivities'MatchAll {-# UNPACK #-} !Bool
+  = BatchOperationUnpauseActivities'Activity'Type !Text
+  | BatchOperationUnpauseActivities'Activity'MatchAll {-# UNPACK #-} !Bool
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON BatchOperationUnpauseActivities'Activity where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON BatchOperationUnpauseActivities'Activity where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultBatchOperationUnpauseActivities :: BatchOperationUnpauseActivities
 defaultBatchOperationUnpauseActivities = BatchOperationUnpauseActivities
@@ -520,8 +463,8 @@ instance MessageEncode BatchOperationUnpauseActivities where
     (if msg.batchOperationUnpauseActivitiesIdentity == T.empty then mempty else encodeFieldString 1 msg.batchOperationUnpauseActivitiesIdentity)
     <> (case msg.batchOperationUnpauseActivitiesActivity of
       Nothing -> mempty
-      Just (BatchOperationUnpauseActivities'Type v) -> encodeFieldString 2 v
-      Just (BatchOperationUnpauseActivities'MatchAll v) -> encodeFieldBool 3 v)
+      Just (BatchOperationUnpauseActivities'Activity'Type v) -> encodeFieldString 2 v
+      Just (BatchOperationUnpauseActivities'Activity'MatchAll v) -> encodeFieldBool 3 v)
     <> (if msg.batchOperationUnpauseActivitiesResetattempts == False then mempty else encodeFieldBool 4 msg.batchOperationUnpauseActivitiesResetattempts)
     <> (if msg.batchOperationUnpauseActivitiesResetheartbeat == False then mempty else encodeFieldBool 5 msg.batchOperationUnpauseActivitiesResetheartbeat)
     <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.batchOperationUnpauseActivitiesJitter)
@@ -529,8 +472,8 @@ instance MessageEncode BatchOperationUnpauseActivities where
 instance MessageSize BatchOperationUnpauseActivities where
   messageSize msg =
     (if msg.batchOperationUnpauseActivitiesIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationUnpauseActivitiesIdentity)
-    + (case msg.batchOperationUnpauseActivitiesActivity of { Nothing -> 0; Just (BatchOperationUnpauseActivities'Type v) -> fieldTextSize 2 v
-    ; Just (BatchOperationUnpauseActivities'MatchAll v) -> fieldBoolSize 3 })
+    + (case msg.batchOperationUnpauseActivitiesActivity of { Nothing -> 0; Just (BatchOperationUnpauseActivities'Activity'Type v) -> fieldTextSize 2 v
+    ; Just (BatchOperationUnpauseActivities'Activity'MatchAll v) -> fieldBoolSize 3 })
     + (if msg.batchOperationUnpauseActivitiesResetattempts == False then 0 else fieldBoolSize 4)
     + (if msg.batchOperationUnpauseActivitiesResetheartbeat == False then 0 else fieldBoolSize 5)
     + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.batchOperationUnpauseActivitiesJitter)
@@ -548,10 +491,10 @@ instance MessageDecode BatchOperationUnpauseActivities where
               loop v acc_1 acc_2 acc_3 acc_4
             2 -> do
               v <- decodeFieldString
-              loop acc_0 (Just (BatchOperationUnpauseActivities'Type v)) acc_2 acc_3 acc_4
+              loop acc_0 (Just (BatchOperationUnpauseActivities'Activity'Type v)) acc_2 acc_3 acc_4
             3 -> do
               v <- decodeFieldBool
-              loop acc_0 (Just (BatchOperationUnpauseActivities'MatchAll v)) acc_2 acc_3 acc_4
+              loop acc_0 (Just (BatchOperationUnpauseActivities'Activity'MatchAll v)) acc_2 acc_3 acc_4
             4 -> do
               v <- decodeFieldBool
               loop acc_0 acc_1 v acc_3 acc_4
@@ -573,20 +516,7 @@ instance ProtoToJSON BatchOperationUnpauseActivities where
       ]
 
 instance ProtoFromJSON BatchOperationUnpauseActivities where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationUnpauseActivitiesIdentity <- obj .:? "identity"
-    v_batchOperationUnpauseActivitiesActivity <- obj .:? "activity"
-    v_batchOperationUnpauseActivitiesResetattempts <- obj .:? "resetAttempts"
-    v_batchOperationUnpauseActivitiesResetheartbeat <- obj .:? "resetHeartbeat"
-    v_batchOperationUnpauseActivitiesJitter <- obj .:? "jitter"
-    pure (BatchOperationUnpauseActivities {
-       batchOperationUnpauseActivitiesIdentity = v_batchOperationUnpauseActivitiesIdentity
-      , batchOperationUnpauseActivitiesActivity = v_batchOperationUnpauseActivitiesActivity
-      , batchOperationUnpauseActivitiesResetattempts = v_batchOperationUnpauseActivitiesResetattempts
-      , batchOperationUnpauseActivitiesResetheartbeat = v_batchOperationUnpauseActivitiesResetheartbeat
-      , batchOperationUnpauseActivitiesJitter = v_batchOperationUnpauseActivitiesJitter
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationUnpauseActivities
 
 data BatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
   { batchOperationTriggerWorkflowRuleIdentity :: !Text
@@ -595,10 +525,14 @@ data BatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data BatchOperationTriggerWorkflowRule'Rule
-  = BatchOperationTriggerWorkflowRule'Id !Text
-  | BatchOperationTriggerWorkflowRule'Spec !WorkflowRuleSpec
+  = BatchOperationTriggerWorkflowRule'Rule'Id !Text
+  | BatchOperationTriggerWorkflowRule'Rule'Spec !WorkflowRuleSpec
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON BatchOperationTriggerWorkflowRule'Rule where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON BatchOperationTriggerWorkflowRule'Rule where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultBatchOperationTriggerWorkflowRule :: BatchOperationTriggerWorkflowRule
 defaultBatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
@@ -611,14 +545,14 @@ instance MessageEncode BatchOperationTriggerWorkflowRule where
     (if msg.batchOperationTriggerWorkflowRuleIdentity == T.empty then mempty else encodeFieldString 1 msg.batchOperationTriggerWorkflowRuleIdentity)
     <> (case msg.batchOperationTriggerWorkflowRuleRule of
       Nothing -> mempty
-      Just (BatchOperationTriggerWorkflowRule'Id v) -> encodeFieldString 2 v
-      Just (BatchOperationTriggerWorkflowRule'Spec v) -> encodeFieldMessage 3 v)
+      Just (BatchOperationTriggerWorkflowRule'Rule'Id v) -> encodeFieldString 2 v
+      Just (BatchOperationTriggerWorkflowRule'Rule'Spec v) -> encodeFieldMessage 3 v)
 
 instance MessageSize BatchOperationTriggerWorkflowRule where
   messageSize msg =
     (if msg.batchOperationTriggerWorkflowRuleIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationTriggerWorkflowRuleIdentity)
-    + (case msg.batchOperationTriggerWorkflowRuleRule of { Nothing -> 0; Just (BatchOperationTriggerWorkflowRule'Id v) -> fieldTextSize 2 v
-    ; Just (BatchOperationTriggerWorkflowRule'Spec v) -> fieldMessageSize 3 (messageSize v) })
+    + (case msg.batchOperationTriggerWorkflowRuleRule of { Nothing -> 0; Just (BatchOperationTriggerWorkflowRule'Rule'Id v) -> fieldTextSize 2 v
+    ; Just (BatchOperationTriggerWorkflowRule'Rule'Spec v) -> fieldMessageSize 3 (messageSize v) })
 
 instance MessageDecode BatchOperationTriggerWorkflowRule where
   messageDecoder = loop "" Nothing
@@ -633,10 +567,10 @@ instance MessageDecode BatchOperationTriggerWorkflowRule where
               loop v acc_1
             2 -> do
               v <- decodeFieldString
-              loop acc_0 (Just (BatchOperationTriggerWorkflowRule'Id v))
+              loop acc_0 (Just (BatchOperationTriggerWorkflowRule'Rule'Id v))
             3 -> do
               v <- decodeFieldMessage
-              loop acc_0 (Just (BatchOperationTriggerWorkflowRule'Spec v))
+              loop acc_0 (Just (BatchOperationTriggerWorkflowRule'Rule'Spec v))
             _ -> skipField wt >> loop acc_0 acc_1
 
 instance ProtoToJSON BatchOperationTriggerWorkflowRule where
@@ -646,14 +580,7 @@ instance ProtoToJSON BatchOperationTriggerWorkflowRule where
       ]
 
 instance ProtoFromJSON BatchOperationTriggerWorkflowRule where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationTriggerWorkflowRuleIdentity <- obj .:? "identity"
-    v_batchOperationTriggerWorkflowRuleRule <- obj .:? "rule"
-    pure (BatchOperationTriggerWorkflowRule {
-       batchOperationTriggerWorkflowRuleIdentity = v_batchOperationTriggerWorkflowRuleIdentity
-      , batchOperationTriggerWorkflowRuleRule = v_batchOperationTriggerWorkflowRuleRule
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationTriggerWorkflowRule
 
 data BatchOperationResetActivities = BatchOperationResetActivities
   { batchOperationResetActivitiesIdentity :: !Text
@@ -667,10 +594,14 @@ data BatchOperationResetActivities = BatchOperationResetActivities
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data BatchOperationResetActivities'Activity
-  = BatchOperationResetActivities'Type !Text
-  | BatchOperationResetActivities'MatchAll {-# UNPACK #-} !Bool
+  = BatchOperationResetActivities'Activity'Type !Text
+  | BatchOperationResetActivities'Activity'MatchAll {-# UNPACK #-} !Bool
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON BatchOperationResetActivities'Activity where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON BatchOperationResetActivities'Activity where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultBatchOperationResetActivities :: BatchOperationResetActivities
 defaultBatchOperationResetActivities = BatchOperationResetActivities
@@ -688,8 +619,8 @@ instance MessageEncode BatchOperationResetActivities where
     (if msg.batchOperationResetActivitiesIdentity == T.empty then mempty else encodeFieldString 1 msg.batchOperationResetActivitiesIdentity)
     <> (case msg.batchOperationResetActivitiesActivity of
       Nothing -> mempty
-      Just (BatchOperationResetActivities'Type v) -> encodeFieldString 2 v
-      Just (BatchOperationResetActivities'MatchAll v) -> encodeFieldBool 3 v)
+      Just (BatchOperationResetActivities'Activity'Type v) -> encodeFieldString 2 v
+      Just (BatchOperationResetActivities'Activity'MatchAll v) -> encodeFieldBool 3 v)
     <> (if msg.batchOperationResetActivitiesResetattempts == False then mempty else encodeFieldBool 4 msg.batchOperationResetActivitiesResetattempts)
     <> (if msg.batchOperationResetActivitiesResetheartbeat == False then mempty else encodeFieldBool 5 msg.batchOperationResetActivitiesResetheartbeat)
     <> (if msg.batchOperationResetActivitiesKeeppaused == False then mempty else encodeFieldBool 6 msg.batchOperationResetActivitiesKeeppaused)
@@ -699,8 +630,8 @@ instance MessageEncode BatchOperationResetActivities where
 instance MessageSize BatchOperationResetActivities where
   messageSize msg =
     (if msg.batchOperationResetActivitiesIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationResetActivitiesIdentity)
-    + (case msg.batchOperationResetActivitiesActivity of { Nothing -> 0; Just (BatchOperationResetActivities'Type v) -> fieldTextSize 2 v
-    ; Just (BatchOperationResetActivities'MatchAll v) -> fieldBoolSize 3 })
+    + (case msg.batchOperationResetActivitiesActivity of { Nothing -> 0; Just (BatchOperationResetActivities'Activity'Type v) -> fieldTextSize 2 v
+    ; Just (BatchOperationResetActivities'Activity'MatchAll v) -> fieldBoolSize 3 })
     + (if msg.batchOperationResetActivitiesResetattempts == False then 0 else fieldBoolSize 4)
     + (if msg.batchOperationResetActivitiesResetheartbeat == False then 0 else fieldBoolSize 5)
     + (if msg.batchOperationResetActivitiesKeeppaused == False then 0 else fieldBoolSize 6)
@@ -720,10 +651,10 @@ instance MessageDecode BatchOperationResetActivities where
               loop v acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
             2 -> do
               v <- decodeFieldString
-              loop acc_0 (Just (BatchOperationResetActivities'Type v)) acc_2 acc_3 acc_4 acc_5 acc_6
+              loop acc_0 (Just (BatchOperationResetActivities'Activity'Type v)) acc_2 acc_3 acc_4 acc_5 acc_6
             3 -> do
               v <- decodeFieldBool
-              loop acc_0 (Just (BatchOperationResetActivities'MatchAll v)) acc_2 acc_3 acc_4 acc_5 acc_6
+              loop acc_0 (Just (BatchOperationResetActivities'Activity'MatchAll v)) acc_2 acc_3 acc_4 acc_5 acc_6
             4 -> do
               v <- decodeFieldBool
               loop acc_0 acc_1 v acc_3 acc_4 acc_5 acc_6
@@ -753,24 +684,7 @@ instance ProtoToJSON BatchOperationResetActivities where
       ]
 
 instance ProtoFromJSON BatchOperationResetActivities where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationResetActivitiesIdentity <- obj .:? "identity"
-    v_batchOperationResetActivitiesActivity <- obj .:? "activity"
-    v_batchOperationResetActivitiesResetattempts <- obj .:? "resetAttempts"
-    v_batchOperationResetActivitiesResetheartbeat <- obj .:? "resetHeartbeat"
-    v_batchOperationResetActivitiesKeeppaused <- obj .:? "keepPaused"
-    v_batchOperationResetActivitiesJitter <- obj .:? "jitter"
-    v_batchOperationResetActivitiesRestoreoriginaloptions <- obj .:? "restoreOriginalOptions"
-    pure (BatchOperationResetActivities {
-       batchOperationResetActivitiesIdentity = v_batchOperationResetActivitiesIdentity
-      , batchOperationResetActivitiesActivity = v_batchOperationResetActivitiesActivity
-      , batchOperationResetActivitiesResetattempts = v_batchOperationResetActivitiesResetattempts
-      , batchOperationResetActivitiesResetheartbeat = v_batchOperationResetActivitiesResetheartbeat
-      , batchOperationResetActivitiesKeeppaused = v_batchOperationResetActivitiesKeeppaused
-      , batchOperationResetActivitiesJitter = v_batchOperationResetActivitiesJitter
-      , batchOperationResetActivitiesRestoreoriginaloptions = v_batchOperationResetActivitiesRestoreoriginaloptions
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationResetActivities
 
 data BatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
   { batchOperationUpdateActivityOptionsIdentity :: !Text
@@ -782,10 +696,14 @@ data BatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data BatchOperationUpdateActivityOptions'Activity
-  = BatchOperationUpdateActivityOptions'Type !Text
-  | BatchOperationUpdateActivityOptions'MatchAll {-# UNPACK #-} !Bool
+  = BatchOperationUpdateActivityOptions'Activity'Type !Text
+  | BatchOperationUpdateActivityOptions'Activity'MatchAll {-# UNPACK #-} !Bool
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON BatchOperationUpdateActivityOptions'Activity where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON BatchOperationUpdateActivityOptions'Activity where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultBatchOperationUpdateActivityOptions :: BatchOperationUpdateActivityOptions
 defaultBatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
@@ -801,8 +719,8 @@ instance MessageEncode BatchOperationUpdateActivityOptions where
     (if msg.batchOperationUpdateActivityOptionsIdentity == T.empty then mempty else encodeFieldString 1 msg.batchOperationUpdateActivityOptionsIdentity)
     <> (case msg.batchOperationUpdateActivityOptionsActivity of
       Nothing -> mempty
-      Just (BatchOperationUpdateActivityOptions'Type v) -> encodeFieldString 2 v
-      Just (BatchOperationUpdateActivityOptions'MatchAll v) -> encodeFieldBool 3 v)
+      Just (BatchOperationUpdateActivityOptions'Activity'Type v) -> encodeFieldString 2 v
+      Just (BatchOperationUpdateActivityOptions'Activity'MatchAll v) -> encodeFieldBool 3 v)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.batchOperationUpdateActivityOptionsActivityoptions)
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.batchOperationUpdateActivityOptionsUpdatemask)
     <> (if msg.batchOperationUpdateActivityOptionsRestoreoriginal == False then mempty else encodeFieldBool 6 msg.batchOperationUpdateActivityOptionsRestoreoriginal)
@@ -810,8 +728,8 @@ instance MessageEncode BatchOperationUpdateActivityOptions where
 instance MessageSize BatchOperationUpdateActivityOptions where
   messageSize msg =
     (if msg.batchOperationUpdateActivityOptionsIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationUpdateActivityOptionsIdentity)
-    + (case msg.batchOperationUpdateActivityOptionsActivity of { Nothing -> 0; Just (BatchOperationUpdateActivityOptions'Type v) -> fieldTextSize 2 v
-    ; Just (BatchOperationUpdateActivityOptions'MatchAll v) -> fieldBoolSize 3 })
+    + (case msg.batchOperationUpdateActivityOptionsActivity of { Nothing -> 0; Just (BatchOperationUpdateActivityOptions'Activity'Type v) -> fieldTextSize 2 v
+    ; Just (BatchOperationUpdateActivityOptions'Activity'MatchAll v) -> fieldBoolSize 3 })
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.batchOperationUpdateActivityOptionsActivityoptions)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.batchOperationUpdateActivityOptionsUpdatemask)
     + (if msg.batchOperationUpdateActivityOptionsRestoreoriginal == False then 0 else fieldBoolSize 6)
@@ -829,10 +747,10 @@ instance MessageDecode BatchOperationUpdateActivityOptions where
               loop v acc_1 acc_2 acc_3 acc_4
             2 -> do
               v <- decodeFieldString
-              loop acc_0 (Just (BatchOperationUpdateActivityOptions'Type v)) acc_2 acc_3 acc_4
+              loop acc_0 (Just (BatchOperationUpdateActivityOptions'Activity'Type v)) acc_2 acc_3 acc_4
             3 -> do
               v <- decodeFieldBool
-              loop acc_0 (Just (BatchOperationUpdateActivityOptions'MatchAll v)) acc_2 acc_3 acc_4
+              loop acc_0 (Just (BatchOperationUpdateActivityOptions'Activity'MatchAll v)) acc_2 acc_3 acc_4
             4 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v) acc_3 acc_4
@@ -854,17 +772,4 @@ instance ProtoToJSON BatchOperationUpdateActivityOptions where
       ]
 
 instance ProtoFromJSON BatchOperationUpdateActivityOptions where
-  protoFromJSON (JsonObject obj) = do
-    v_batchOperationUpdateActivityOptionsIdentity <- obj .:? "identity"
-    v_batchOperationUpdateActivityOptionsActivity <- obj .:? "activity"
-    v_batchOperationUpdateActivityOptionsActivityoptions <- obj .:? "activityOptions"
-    v_batchOperationUpdateActivityOptionsUpdatemask <- obj .:? "updateMask"
-    v_batchOperationUpdateActivityOptionsRestoreoriginal <- obj .:? "restoreOriginal"
-    pure (BatchOperationUpdateActivityOptions {
-       batchOperationUpdateActivityOptionsIdentity = v_batchOperationUpdateActivityOptionsIdentity
-      , batchOperationUpdateActivityOptionsActivity = v_batchOperationUpdateActivityOptionsActivity
-      , batchOperationUpdateActivityOptionsActivityoptions = v_batchOperationUpdateActivityOptionsActivityoptions
-      , batchOperationUpdateActivityOptionsUpdatemask = v_batchOperationUpdateActivityOptionsUpdatemask
-      , batchOperationUpdateActivityOptionsRestoreoriginal = v_batchOperationUpdateActivityOptionsRestoreoriginal
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBatchOperationUpdateActivityOptions

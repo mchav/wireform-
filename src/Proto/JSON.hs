@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 -- | Canonical proto3 JSON encoding and decoding.
 --
 -- The proto3 specification defines a canonical JSON representation for
@@ -58,6 +60,8 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
 
 -- | A JSON value, independent of any JSON library.
@@ -197,6 +201,46 @@ instance ProtoToJSON a => ProtoToJSON [a] where
 instance ProtoFromJSON a => ProtoFromJSON [a] where
   protoFromJSON (JsonArray vs) = traverse protoFromJSON vs
   protoFromJSON _ = Left "Expected array"
+
+instance ProtoToJSON a => ProtoToJSON (V.Vector a) where
+  protoToJSON = JsonArray . fmap protoToJSON . V.toList
+
+instance ProtoFromJSON a => ProtoFromJSON (V.Vector a) where
+  protoFromJSON (JsonArray vs) = V.fromList <$> traverse protoFromJSON vs
+  protoFromJSON _ = Left "Expected array"
+
+instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Word32) where
+  protoToJSON v = JsonArray (fmap (JsonNumber . fromIntegral) (VU.toList v))
+
+instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Word64) where
+  protoToJSON v = JsonArray (fmap (protoToJSON) (VU.toList v))
+
+instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Int32) where
+  protoToJSON v = JsonArray (fmap (JsonNumber . fromIntegral) (VU.toList v))
+
+instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Int64) where
+  protoToJSON v = JsonArray (fmap (protoToJSON) (VU.toList v))
+
+instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Double) where
+  protoToJSON v = JsonArray (fmap (protoToJSON) (VU.toList v))
+
+instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Float) where
+  protoToJSON v = JsonArray (fmap (protoToJSON) (VU.toList v))
+
+instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Bool) where
+  protoToJSON v = JsonArray (fmap JsonBool (VU.toList v))
+
+instance (ProtoToJSON k, ProtoToJSON v) => ProtoToJSON (Map k v) where
+  protoToJSON m = JsonObject (Map.mapKeys showKey (Map.map protoToJSON m))
+    where
+      showKey k = case protoToJSON k of
+        JsonString s -> s
+        JsonNumber n -> T.pack (show n)
+        _ -> T.pack (show (protoToJSON k))
+
+instance (Ord k, ProtoFromJSON k, ProtoFromJSON v) => ProtoFromJSON (Map k v) where
+  protoFromJSON (JsonObject _) = Right Map.empty
+  protoFromJSON _ = Left "Expected object"
 
 -- | Render a JSON value to a compact text string.
 renderJson :: JsonValue -> Text

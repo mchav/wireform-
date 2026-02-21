@@ -33,10 +33,10 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Header, Payloads)
-import Proto.Temporal.Temporal.Api.Enums.V1.Query (QueryResultType)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (QueryRejected, WorkflowQuery, WorkflowQueryResult)
+import Proto.Temporal.Temporal.Api.Enums.V1.Query hiding (QueryRejected, WorkflowQuery, WorkflowQueryResult)
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (QueryRejected, WorkflowQuery, WorkflowQueryResult)
+import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (QueryRejected, WorkflowQuery, WorkflowQueryResult)
 
 
 data WorkflowQuery = WorkflowQuery
@@ -93,16 +93,7 @@ instance ProtoToJSON WorkflowQuery where
       ]
 
 instance ProtoFromJSON WorkflowQuery where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowQueryQuerytype <- obj .:? "queryType"
-    v_workflowQueryQueryargs <- obj .:? "queryArgs"
-    v_workflowQueryHeader <- obj .:? "header"
-    pure (WorkflowQuery {
-       workflowQueryQuerytype = v_workflowQueryQuerytype
-      , workflowQueryQueryargs = v_workflowQueryQueryargs
-      , workflowQueryHeader = v_workflowQueryHeader
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowQuery
 
 data WorkflowQueryResult = WorkflowQueryResult
   { workflowQueryResultResulttype :: !QueryResultType
@@ -166,18 +157,7 @@ instance ProtoToJSON WorkflowQueryResult where
       ]
 
 instance ProtoFromJSON WorkflowQueryResult where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowQueryResultResulttype <- obj .:? "resultType"
-    v_workflowQueryResultAnswer <- obj .:? "answer"
-    v_workflowQueryResultErrormessage <- obj .:? "errorMessage"
-    v_workflowQueryResultFailure <- obj .:? "failure"
-    pure (WorkflowQueryResult {
-       workflowQueryResultResulttype = v_workflowQueryResultResulttype
-      , workflowQueryResultAnswer = v_workflowQueryResultAnswer
-      , workflowQueryResultErrormessage = v_workflowQueryResultErrormessage
-      , workflowQueryResultFailure = v_workflowQueryResultFailure
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowQueryResult
 
 data QueryRejected = QueryRejected
   { queryRejectedStatus :: !WorkflowExecutionStatus
@@ -218,9 +198,4 @@ instance ProtoToJSON QueryRejected where
       ]
 
 instance ProtoFromJSON QueryRejected where
-  protoFromJSON (JsonObject obj) = do
-    v_queryRejectedStatus <- obj .:? "status"
-    pure (QueryRejected {
-       queryRejectedStatus = v_queryRejectedStatus
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultQueryRejected

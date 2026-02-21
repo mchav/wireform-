@@ -33,9 +33,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ArchivalState, NamespaceState)
+import Proto.Google.Protobuf.Duration hiding (BadBinaries, BadBinaryInfo, NamespaceConfig, NamespaceFilter, NamespaceInfo, NamespaceInfo'Capabilities, NamespaceInfo'Limits, UpdateNamespaceInfo)
+import Proto.Google.Protobuf.Timestamp hiding (BadBinaries, BadBinaryInfo, NamespaceConfig, NamespaceFilter, NamespaceInfo, NamespaceInfo'Capabilities, NamespaceInfo'Limits, UpdateNamespaceInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Namespace hiding (BadBinaries, BadBinaryInfo, NamespaceConfig, NamespaceFilter, NamespaceInfo, NamespaceInfo'Capabilities, NamespaceInfo'Limits, UpdateNamespaceInfo)
 
 
 data NamespaceInfo = NamespaceInfo
@@ -45,59 +45,59 @@ data NamespaceInfo = NamespaceInfo
   , namespaceInfoOwneremail :: !Text
   , namespaceInfoData :: !(Map.Map Text Text)
   , namespaceInfoId :: !Text
-  , namespaceInfoCapabilities :: !(Maybe Capabilities)
-  , namespaceInfoLimits :: !(Maybe Limits)
+  , namespaceInfoCapabilities :: !(Maybe NamespaceInfo'Capabilities)
+  , namespaceInfoLimits :: !(Maybe NamespaceInfo'Limits)
   , namespaceInfoSupportsschedules :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data NamespaceInfo'Capabilities = NamespaceInfo'Capabilities
-  { namespaceInfoEagerworkflowstart :: {-# UNPACK #-} !Bool
-  , namespaceInfoSyncupdate :: {-# UNPACK #-} !Bool
-  , namespaceInfoAsyncupdate :: {-# UNPACK #-} !Bool
-  , namespaceInfoWorkerheartbeats :: {-# UNPACK #-} !Bool
-  , namespaceInfoReportedproblemssearchattribute :: {-# UNPACK #-} !Bool
-  , namespaceInfoWorkflowpause :: {-# UNPACK #-} !Bool
-  , namespaceInfoStandaloneactivities :: {-# UNPACK #-} !Bool
-  , namespaceInfoWorkerpollcompleteonshutdown :: {-# UNPACK #-} !Bool
+  { namespaceInfoCapabilitiesEagerworkflowstart :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesSyncupdate :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesAsyncupdate :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesWorkerheartbeats :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesReportedproblemssearchattribute :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesWorkflowpause :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesStandaloneactivities :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesWorkerpollcompleteonshutdown :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNamespaceInfo'Capabilities :: NamespaceInfo'Capabilities
 defaultNamespaceInfo'Capabilities = NamespaceInfo'Capabilities
-  { namespaceInfoEagerworkflowstart = False
-  , namespaceInfoSyncupdate = False
-  , namespaceInfoAsyncupdate = False
-  , namespaceInfoWorkerheartbeats = False
-  , namespaceInfoReportedproblemssearchattribute = False
-  , namespaceInfoWorkflowpause = False
-  , namespaceInfoStandaloneactivities = False
-  , namespaceInfoWorkerpollcompleteonshutdown = False
+  { namespaceInfoCapabilitiesEagerworkflowstart = False
+  , namespaceInfoCapabilitiesSyncupdate = False
+  , namespaceInfoCapabilitiesAsyncupdate = False
+  , namespaceInfoCapabilitiesWorkerheartbeats = False
+  , namespaceInfoCapabilitiesReportedproblemssearchattribute = False
+  , namespaceInfoCapabilitiesWorkflowpause = False
+  , namespaceInfoCapabilitiesStandaloneactivities = False
+  , namespaceInfoCapabilitiesWorkerpollcompleteonshutdown = False
   }
 
 instance MessageEncode NamespaceInfo'Capabilities where
   buildMessage msg =
-    (if msg.namespaceInfoEagerworkflowstart == False then mempty else encodeFieldBool 1 msg.namespaceInfoEagerworkflowstart)
-    <> (if msg.namespaceInfoSyncupdate == False then mempty else encodeFieldBool 2 msg.namespaceInfoSyncupdate)
-    <> (if msg.namespaceInfoAsyncupdate == False then mempty else encodeFieldBool 3 msg.namespaceInfoAsyncupdate)
-    <> (if msg.namespaceInfoWorkerheartbeats == False then mempty else encodeFieldBool 4 msg.namespaceInfoWorkerheartbeats)
-    <> (if msg.namespaceInfoReportedproblemssearchattribute == False then mempty else encodeFieldBool 5 msg.namespaceInfoReportedproblemssearchattribute)
-    <> (if msg.namespaceInfoWorkflowpause == False then mempty else encodeFieldBool 6 msg.namespaceInfoWorkflowpause)
-    <> (if msg.namespaceInfoStandaloneactivities == False then mempty else encodeFieldBool 7 msg.namespaceInfoStandaloneactivities)
-    <> (if msg.namespaceInfoWorkerpollcompleteonshutdown == False then mempty else encodeFieldBool 8 msg.namespaceInfoWorkerpollcompleteonshutdown)
+    (if msg.namespaceInfoCapabilitiesEagerworkflowstart == False then mempty else encodeFieldBool 1 msg.namespaceInfoCapabilitiesEagerworkflowstart)
+    <> (if msg.namespaceInfoCapabilitiesSyncupdate == False then mempty else encodeFieldBool 2 msg.namespaceInfoCapabilitiesSyncupdate)
+    <> (if msg.namespaceInfoCapabilitiesAsyncupdate == False then mempty else encodeFieldBool 3 msg.namespaceInfoCapabilitiesAsyncupdate)
+    <> (if msg.namespaceInfoCapabilitiesWorkerheartbeats == False then mempty else encodeFieldBool 4 msg.namespaceInfoCapabilitiesWorkerheartbeats)
+    <> (if msg.namespaceInfoCapabilitiesReportedproblemssearchattribute == False then mempty else encodeFieldBool 5 msg.namespaceInfoCapabilitiesReportedproblemssearchattribute)
+    <> (if msg.namespaceInfoCapabilitiesWorkflowpause == False then mempty else encodeFieldBool 6 msg.namespaceInfoCapabilitiesWorkflowpause)
+    <> (if msg.namespaceInfoCapabilitiesStandaloneactivities == False then mempty else encodeFieldBool 7 msg.namespaceInfoCapabilitiesStandaloneactivities)
+    <> (if msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown == False then mempty else encodeFieldBool 8 msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown)
 
 instance MessageSize NamespaceInfo'Capabilities where
   messageSize msg =
-    (if msg.namespaceInfoEagerworkflowstart == False then 0 else fieldBoolSize 1)
-    + (if msg.namespaceInfoSyncupdate == False then 0 else fieldBoolSize 2)
-    + (if msg.namespaceInfoAsyncupdate == False then 0 else fieldBoolSize 3)
-    + (if msg.namespaceInfoWorkerheartbeats == False then 0 else fieldBoolSize 4)
-    + (if msg.namespaceInfoReportedproblemssearchattribute == False then 0 else fieldBoolSize 5)
-    + (if msg.namespaceInfoWorkflowpause == False then 0 else fieldBoolSize 6)
-    + (if msg.namespaceInfoStandaloneactivities == False then 0 else fieldBoolSize 7)
-    + (if msg.namespaceInfoWorkerpollcompleteonshutdown == False then 0 else fieldBoolSize 8)
+    (if msg.namespaceInfoCapabilitiesEagerworkflowstart == False then 0 else fieldBoolSize 1)
+    + (if msg.namespaceInfoCapabilitiesSyncupdate == False then 0 else fieldBoolSize 2)
+    + (if msg.namespaceInfoCapabilitiesAsyncupdate == False then 0 else fieldBoolSize 3)
+    + (if msg.namespaceInfoCapabilitiesWorkerheartbeats == False then 0 else fieldBoolSize 4)
+    + (if msg.namespaceInfoCapabilitiesReportedproblemssearchattribute == False then 0 else fieldBoolSize 5)
+    + (if msg.namespaceInfoCapabilitiesWorkflowpause == False then 0 else fieldBoolSize 6)
+    + (if msg.namespaceInfoCapabilitiesStandaloneactivities == False then 0 else fieldBoolSize 7)
+    + (if msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown == False then 0 else fieldBoolSize 8)
 
 instance MessageDecode NamespaceInfo'Capabilities where
   messageDecoder = loop False False False False False False False False
@@ -105,7 +105,7 @@ instance MessageDecode NamespaceInfo'Capabilities where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (NamespaceInfo'Capabilities {namespaceInfoEagerworkflowstart = acc_0, namespaceInfoSyncupdate = acc_1, namespaceInfoAsyncupdate = acc_2, namespaceInfoWorkerheartbeats = acc_3, namespaceInfoReportedproblemssearchattribute = acc_4, namespaceInfoWorkflowpause = acc_5, namespaceInfoStandaloneactivities = acc_6, namespaceInfoWorkerpollcompleteonshutdown = acc_7})
+          Nothing -> pure (NamespaceInfo'Capabilities {namespaceInfoCapabilitiesEagerworkflowstart = acc_0, namespaceInfoCapabilitiesSyncupdate = acc_1, namespaceInfoCapabilitiesAsyncupdate = acc_2, namespaceInfoCapabilitiesWorkerheartbeats = acc_3, namespaceInfoCapabilitiesReportedproblemssearchattribute = acc_4, namespaceInfoCapabilitiesWorkflowpause = acc_5, namespaceInfoCapabilitiesStandaloneactivities = acc_6, namespaceInfoCapabilitiesWorkerpollcompleteonshutdown = acc_7})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -135,60 +135,41 @@ instance MessageDecode NamespaceInfo'Capabilities where
 
 instance ProtoToJSON NamespaceInfo'Capabilities where
   protoToJSON msg = jsonObject
-      [ "eagerWorkflowStart" .= msg.namespaceInfoEagerworkflowstart
-      , "syncUpdate" .= msg.namespaceInfoSyncupdate
-      , "asyncUpdate" .= msg.namespaceInfoAsyncupdate
-      , "workerHeartbeats" .= msg.namespaceInfoWorkerheartbeats
-      , "reportedProblemsSearchAttribute" .= msg.namespaceInfoReportedproblemssearchattribute
-      , "workflowPause" .= msg.namespaceInfoWorkflowpause
-      , "standaloneActivities" .= msg.namespaceInfoStandaloneactivities
-      , "workerPollCompleteOnShutdown" .= msg.namespaceInfoWorkerpollcompleteonshutdown
+      [ "eagerWorkflowStart" .= msg.namespaceInfoCapabilitiesEagerworkflowstart
+      , "syncUpdate" .= msg.namespaceInfoCapabilitiesSyncupdate
+      , "asyncUpdate" .= msg.namespaceInfoCapabilitiesAsyncupdate
+      , "workerHeartbeats" .= msg.namespaceInfoCapabilitiesWorkerheartbeats
+      , "reportedProblemsSearchAttribute" .= msg.namespaceInfoCapabilitiesReportedproblemssearchattribute
+      , "workflowPause" .= msg.namespaceInfoCapabilitiesWorkflowpause
+      , "standaloneActivities" .= msg.namespaceInfoCapabilitiesStandaloneactivities
+      , "workerPollCompleteOnShutdown" .= msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
       ]
 
 instance ProtoFromJSON NamespaceInfo'Capabilities where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceInfoEagerworkflowstart <- obj .:? "eagerWorkflowStart"
-    v_namespaceInfoSyncupdate <- obj .:? "syncUpdate"
-    v_namespaceInfoAsyncupdate <- obj .:? "asyncUpdate"
-    v_namespaceInfoWorkerheartbeats <- obj .:? "workerHeartbeats"
-    v_namespaceInfoReportedproblemssearchattribute <- obj .:? "reportedProblemsSearchAttribute"
-    v_namespaceInfoWorkflowpause <- obj .:? "workflowPause"
-    v_namespaceInfoStandaloneactivities <- obj .:? "standaloneActivities"
-    v_namespaceInfoWorkerpollcompleteonshutdown <- obj .:? "workerPollCompleteOnShutdown"
-    pure (NamespaceInfo'Capabilities {
-       namespaceInfoEagerworkflowstart = v_namespaceInfoEagerworkflowstart
-      , namespaceInfoSyncupdate = v_namespaceInfoSyncupdate
-      , namespaceInfoAsyncupdate = v_namespaceInfoAsyncupdate
-      , namespaceInfoWorkerheartbeats = v_namespaceInfoWorkerheartbeats
-      , namespaceInfoReportedproblemssearchattribute = v_namespaceInfoReportedproblemssearchattribute
-      , namespaceInfoWorkflowpause = v_namespaceInfoWorkflowpause
-      , namespaceInfoStandaloneactivities = v_namespaceInfoStandaloneactivities
-      , namespaceInfoWorkerpollcompleteonshutdown = v_namespaceInfoWorkerpollcompleteonshutdown
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceInfo'Capabilities
 
 data NamespaceInfo'Limits = NamespaceInfo'Limits
-  { namespaceInfoBlobsizelimiterror :: {-# UNPACK #-} !Int64
-  , namespaceInfoMemosizelimiterror :: {-# UNPACK #-} !Int64
+  { namespaceInfoLimitsBlobsizelimiterror :: {-# UNPACK #-} !Int64
+  , namespaceInfoLimitsMemosizelimiterror :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNamespaceInfo'Limits :: NamespaceInfo'Limits
 defaultNamespaceInfo'Limits = NamespaceInfo'Limits
-  { namespaceInfoBlobsizelimiterror = 0
-  , namespaceInfoMemosizelimiterror = 0
+  { namespaceInfoLimitsBlobsizelimiterror = 0
+  , namespaceInfoLimitsMemosizelimiterror = 0
   }
 
 instance MessageEncode NamespaceInfo'Limits where
   buildMessage msg =
-    (if msg.namespaceInfoBlobsizelimiterror == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.namespaceInfoBlobsizelimiterror))
-    <> (if msg.namespaceInfoMemosizelimiterror == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.namespaceInfoMemosizelimiterror))
+    (if msg.namespaceInfoLimitsBlobsizelimiterror == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.namespaceInfoLimitsBlobsizelimiterror))
+    <> (if msg.namespaceInfoLimitsMemosizelimiterror == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.namespaceInfoLimitsMemosizelimiterror))
 
 instance MessageSize NamespaceInfo'Limits where
   messageSize msg =
-    (if msg.namespaceInfoBlobsizelimiterror == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.namespaceInfoBlobsizelimiterror))
-    + (if msg.namespaceInfoMemosizelimiterror == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.namespaceInfoMemosizelimiterror))
+    (if msg.namespaceInfoLimitsBlobsizelimiterror == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.namespaceInfoLimitsBlobsizelimiterror))
+    + (if msg.namespaceInfoLimitsMemosizelimiterror == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.namespaceInfoLimitsMemosizelimiterror))
 
 instance MessageDecode NamespaceInfo'Limits where
   messageDecoder = loop 0 0
@@ -196,7 +177,7 @@ instance MessageDecode NamespaceInfo'Limits where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (NamespaceInfo'Limits {namespaceInfoBlobsizelimiterror = acc_0, namespaceInfoMemosizelimiterror = acc_1})
+          Nothing -> pure (NamespaceInfo'Limits {namespaceInfoLimitsBlobsizelimiterror = acc_0, namespaceInfoLimitsMemosizelimiterror = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- fromIntegral <$> decodeFieldVarint
@@ -208,19 +189,12 @@ instance MessageDecode NamespaceInfo'Limits where
 
 instance ProtoToJSON NamespaceInfo'Limits where
   protoToJSON msg = jsonObject
-      [ "blobSizeLimitError" .= msg.namespaceInfoBlobsizelimiterror
-      , "memoSizeLimitError" .= msg.namespaceInfoMemosizelimiterror
+      [ "blobSizeLimitError" .= msg.namespaceInfoLimitsBlobsizelimiterror
+      , "memoSizeLimitError" .= msg.namespaceInfoLimitsMemosizelimiterror
       ]
 
 instance ProtoFromJSON NamespaceInfo'Limits where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceInfoBlobsizelimiterror <- obj .:? "blobSizeLimitError"
-    v_namespaceInfoMemosizelimiterror <- obj .:? "memoSizeLimitError"
-    pure (NamespaceInfo'Limits {
-       namespaceInfoBlobsizelimiterror = v_namespaceInfoBlobsizelimiterror
-      , namespaceInfoMemosizelimiterror = v_namespaceInfoMemosizelimiterror
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceInfo'Limits
 
 defaultNamespaceInfo :: NamespaceInfo
 defaultNamespaceInfo = NamespaceInfo
@@ -280,20 +254,11 @@ instance MessageDecode NamespaceInfo where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 v acc_4 acc_5 acc_6 acc_7 acc_8
             5 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
-                Right (k, v) -> loop acc_0 acc_1 acc_2 acc_3 (Map.union acc_4 (Map.singleton k v)) acc_5 acc_6 acc_7 acc_8
+                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 (Map.union acc_4 (Map.singleton mk' mv')) acc_5 acc_6 acc_7 acc_8
             6 -> do
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6 acc_7 acc_8
@@ -322,28 +287,7 @@ instance ProtoToJSON NamespaceInfo where
       ]
 
 instance ProtoFromJSON NamespaceInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceInfoName <- obj .:? "name"
-    v_namespaceInfoState <- obj .:? "state"
-    v_namespaceInfoDescription <- obj .:? "description"
-    v_namespaceInfoOwneremail <- obj .:? "ownerEmail"
-    v_namespaceInfoData <- obj .:? "data"
-    v_namespaceInfoId <- obj .:? "id"
-    v_namespaceInfoCapabilities <- obj .:? "capabilities"
-    v_namespaceInfoLimits <- obj .:? "limits"
-    v_namespaceInfoSupportsschedules <- obj .:? "supportsSchedules"
-    pure (NamespaceInfo {
-       namespaceInfoName = v_namespaceInfoName
-      , namespaceInfoState = v_namespaceInfoState
-      , namespaceInfoDescription = v_namespaceInfoDescription
-      , namespaceInfoOwneremail = v_namespaceInfoOwneremail
-      , namespaceInfoData = v_namespaceInfoData
-      , namespaceInfoId = v_namespaceInfoId
-      , namespaceInfoCapabilities = v_namespaceInfoCapabilities
-      , namespaceInfoLimits = v_namespaceInfoLimits
-      , namespaceInfoSupportsschedules = v_namespaceInfoSupportsschedules
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceInfo
 
 data NamespaceConfig = NamespaceConfig
   { namespaceConfigWorkflowexecutionretentionttl :: !(Maybe Duration)
@@ -415,20 +359,11 @@ instance MessageDecode NamespaceConfig where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v acc_6
             7 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
-                Right (k, v) -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Map.union acc_6 (Map.singleton k v))
+                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Map.union acc_6 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
 instance ProtoToJSON NamespaceConfig where
@@ -443,24 +378,7 @@ instance ProtoToJSON NamespaceConfig where
       ]
 
 instance ProtoFromJSON NamespaceConfig where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceConfigWorkflowexecutionretentionttl <- obj .:? "workflowExecutionRetentionTtl"
-    v_namespaceConfigBadbinaries <- obj .:? "badBinaries"
-    v_namespaceConfigHistoryarchivalstate <- obj .:? "historyArchivalState"
-    v_namespaceConfigHistoryarchivaluri <- obj .:? "historyArchivalUri"
-    v_namespaceConfigVisibilityarchivalstate <- obj .:? "visibilityArchivalState"
-    v_namespaceConfigVisibilityarchivaluri <- obj .:? "visibilityArchivalUri"
-    v_namespaceConfigCustomsearchattributealiases <- obj .:? "customSearchAttributeAliases"
-    pure (NamespaceConfig {
-       namespaceConfigWorkflowexecutionretentionttl = v_namespaceConfigWorkflowexecutionretentionttl
-      , namespaceConfigBadbinaries = v_namespaceConfigBadbinaries
-      , namespaceConfigHistoryarchivalstate = v_namespaceConfigHistoryarchivalstate
-      , namespaceConfigHistoryarchivaluri = v_namespaceConfigHistoryarchivaluri
-      , namespaceConfigVisibilityarchivalstate = v_namespaceConfigVisibilityarchivalstate
-      , namespaceConfigVisibilityarchivaluri = v_namespaceConfigVisibilityarchivaluri
-      , namespaceConfigCustomsearchattributealiases = v_namespaceConfigCustomsearchattributealiases
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceConfig
 
 data BadBinaries = BadBinaries
   { badBinariesBinaries :: !(Map.Map Text BadBinaryInfo)
@@ -490,20 +408,11 @@ instance MessageDecode BadBinaries where
           Nothing -> pure (BadBinaries {badBinariesBinaries = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v))
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON BadBinaries where
@@ -513,12 +422,7 @@ instance ProtoToJSON BadBinaries where
       ]
 
 instance ProtoFromJSON BadBinaries where
-  protoFromJSON (JsonObject obj) = do
-    v_badBinariesBinaries <- obj .:? "binaries"
-    pure (BadBinaries {
-       badBinariesBinaries = v_badBinariesBinaries
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBadBinaries
 
 data BadBinaryInfo = BadBinaryInfo
   { badBinaryInfoReason :: !Text
@@ -574,16 +478,7 @@ instance ProtoToJSON BadBinaryInfo where
       ]
 
 instance ProtoFromJSON BadBinaryInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_badBinaryInfoReason <- obj .:? "reason"
-    v_badBinaryInfoOperator <- obj .:? "operator"
-    v_badBinaryInfoCreatetime <- obj .:? "createTime"
-    pure (BadBinaryInfo {
-       badBinaryInfoReason = v_badBinaryInfoReason
-      , badBinaryInfoOperator = v_badBinaryInfoOperator
-      , badBinaryInfoCreatetime = v_badBinaryInfoCreatetime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultBadBinaryInfo
 
 data UpdateNamespaceInfo = UpdateNamespaceInfo
   { updateNamespaceInfoDescription :: !Text
@@ -631,20 +526,11 @@ instance MessageDecode UpdateNamespaceInfo where
               v <- decodeFieldString
               loop acc_0 v acc_2 acc_3
             3 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3
-                Right (k, v) -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton k v)) acc_3
+                Right (mk', mv') -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton mk' mv')) acc_3
             4 -> do
               v <- decodeFieldEnum
               loop acc_0 acc_1 acc_2 v
@@ -659,18 +545,7 @@ instance ProtoToJSON UpdateNamespaceInfo where
       ]
 
 instance ProtoFromJSON UpdateNamespaceInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_updateNamespaceInfoDescription <- obj .:? "description"
-    v_updateNamespaceInfoOwneremail <- obj .:? "ownerEmail"
-    v_updateNamespaceInfoData <- obj .:? "data"
-    v_updateNamespaceInfoState <- obj .:? "state"
-    pure (UpdateNamespaceInfo {
-       updateNamespaceInfoDescription = v_updateNamespaceInfoDescription
-      , updateNamespaceInfoOwneremail = v_updateNamespaceInfoOwneremail
-      , updateNamespaceInfoData = v_updateNamespaceInfoData
-      , updateNamespaceInfoState = v_updateNamespaceInfoState
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultUpdateNamespaceInfo
 
 data NamespaceFilter = NamespaceFilter
   { namespaceFilterIncludedeleted :: {-# UNPACK #-} !Bool
@@ -711,9 +586,4 @@ instance ProtoToJSON NamespaceFilter where
       ]
 
 instance ProtoFromJSON NamespaceFilter where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceFilterIncludedeleted <- obj .:? "includeDeleted"
-    pure (NamespaceFilter {
-       namespaceFilterIncludedeleted = v_namespaceFilterIncludedeleted
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceFilter

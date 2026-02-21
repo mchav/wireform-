@@ -33,10 +33,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload)
-import Proto.Temporal.Temporal.Api.Enums.V1.Nexus (NexusHandlerErrorRetryBehavior)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure)
+import Proto.Google.Protobuf.Timestamp hiding (CancelOperationRequest, CancelOperationResponse, Endpoint, EndpointSpec, EndpointTarget, EndpointTarget'External, EndpointTarget'Worker, Failure, HandlerError, Link, Request, Request'Capabilities, Response, StartOperationRequest, StartOperationResponse, StartOperationResponse'Async, StartOperationResponse'Sync, UnsuccessfulOperationError)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (CancelOperationRequest, CancelOperationResponse, Endpoint, EndpointSpec, EndpointTarget, EndpointTarget'External, EndpointTarget'Worker, Failure, HandlerError, Link, Request, Request'Capabilities, Response, StartOperationRequest, StartOperationResponse, StartOperationResponse'Async, StartOperationResponse'Sync, UnsuccessfulOperationError)
+import Proto.Temporal.Temporal.Api.Enums.V1.Nexus hiding (CancelOperationRequest, CancelOperationResponse, Endpoint, EndpointSpec, EndpointTarget, EndpointTarget'External, EndpointTarget'Worker, Failure, HandlerError, Link, Request, Request'Capabilities, Response, StartOperationRequest, StartOperationResponse, StartOperationResponse'Async, StartOperationResponse'Sync, UnsuccessfulOperationError)
 
 
 data Failure = Failure
@@ -89,20 +88,11 @@ instance MessageDecode Failure where
               v <- decodeFieldString
               loop acc_0 v acc_2 acc_3 acc_4
             2 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4
-                Right (k, v) -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton k v)) acc_3 acc_4
+                Right (mk', mv') -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton mk' mv')) acc_3 acc_4
             3 -> do
               v <- decodeFieldBytes
               loop acc_0 acc_1 acc_2 v acc_4
@@ -121,20 +111,7 @@ instance ProtoToJSON Failure where
       ]
 
 instance ProtoFromJSON Failure where
-  protoFromJSON (JsonObject obj) = do
-    v_failureMessage <- obj .:? "message"
-    v_failureStacktrace <- obj .:? "stackTrace"
-    v_failureMetadata <- obj .:? "metadata"
-    v_failureDetails <- obj .:? "details"
-    v_failureCause <- obj .:? "cause"
-    pure (Failure {
-       failureMessage = v_failureMessage
-      , failureStacktrace = v_failureStacktrace
-      , failureMetadata = v_failureMetadata
-      , failureDetails = v_failureDetails
-      , failureCause = v_failureCause
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultFailure
 
 data HandlerError = HandlerError
   { handlerErrorErrortype :: !Text
@@ -190,16 +167,7 @@ instance ProtoToJSON HandlerError where
       ]
 
 instance ProtoFromJSON HandlerError where
-  protoFromJSON (JsonObject obj) = do
-    v_handlerErrorErrortype <- obj .:? "errorType"
-    v_handlerErrorFailure <- obj .:? "failure"
-    v_handlerErrorRetrybehavior <- obj .:? "retryBehavior"
-    pure (HandlerError {
-       handlerErrorErrortype = v_handlerErrorErrortype
-      , handlerErrorFailure = v_handlerErrorFailure
-      , handlerErrorRetrybehavior = v_handlerErrorRetrybehavior
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultHandlerError
 
 data UnsuccessfulOperationError = UnsuccessfulOperationError
   { unsuccessfulOperationErrorOperationstate :: !Text
@@ -247,14 +215,7 @@ instance ProtoToJSON UnsuccessfulOperationError where
       ]
 
 instance ProtoFromJSON UnsuccessfulOperationError where
-  protoFromJSON (JsonObject obj) = do
-    v_unsuccessfulOperationErrorOperationstate <- obj .:? "operationState"
-    v_unsuccessfulOperationErrorFailure <- obj .:? "failure"
-    pure (UnsuccessfulOperationError {
-       unsuccessfulOperationErrorOperationstate = v_unsuccessfulOperationErrorOperationstate
-      , unsuccessfulOperationErrorFailure = v_unsuccessfulOperationErrorFailure
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultUnsuccessfulOperationError
 
 data Link = Link
   { linkUrl :: !Text
@@ -302,14 +263,7 @@ instance ProtoToJSON Link where
       ]
 
 instance ProtoFromJSON Link where
-  protoFromJSON (JsonObject obj) = do
-    v_linkUrl <- obj .:? "url"
-    v_linkType <- obj .:? "type"
-    pure (Link {
-       linkUrl = v_linkUrl
-      , linkType = v_linkType
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultLink
 
 data StartOperationRequest = StartOperationRequest
   { startOperationRequestService :: !Text
@@ -378,20 +332,11 @@ instance MessageDecode StartOperationRequest where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 (Just v) acc_5 acc_6
             6 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
-                Right (k, v) -> loop acc_0 acc_1 acc_2 acc_3 acc_4 (Map.union acc_5 (Map.singleton k v)) acc_6
+                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 (Map.union acc_5 (Map.singleton mk' mv')) acc_6
             7 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (acc_6 <> V.singleton v)
@@ -409,24 +354,7 @@ instance ProtoToJSON StartOperationRequest where
       ]
 
 instance ProtoFromJSON StartOperationRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_startOperationRequestService <- obj .:? "service"
-    v_startOperationRequestOperation <- obj .:? "operation"
-    v_startOperationRequestRequestid <- obj .:? "requestId"
-    v_startOperationRequestCallback <- obj .:? "callback"
-    v_startOperationRequestPayload <- obj .:? "payload"
-    v_startOperationRequestCallbackheader <- obj .:? "callbackHeader"
-    v_startOperationRequestLinks <- obj .:? "links"
-    pure (StartOperationRequest {
-       startOperationRequestService = v_startOperationRequestService
-      , startOperationRequestOperation = v_startOperationRequestOperation
-      , startOperationRequestRequestid = v_startOperationRequestRequestid
-      , startOperationRequestCallback = v_startOperationRequestCallback
-      , startOperationRequestPayload = v_startOperationRequestPayload
-      , startOperationRequestCallbackheader = v_startOperationRequestCallbackheader
-      , startOperationRequestLinks = v_startOperationRequestLinks
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStartOperationRequest
 
 data CancelOperationRequest = CancelOperationRequest
   { cancelOperationRequestService :: !Text
@@ -490,23 +418,12 @@ instance ProtoToJSON CancelOperationRequest where
       ]
 
 instance ProtoFromJSON CancelOperationRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_cancelOperationRequestService <- obj .:? "service"
-    v_cancelOperationRequestOperation <- obj .:? "operation"
-    v_cancelOperationRequestOperationid <- obj .:? "operationId"
-    v_cancelOperationRequestOperationtoken <- obj .:? "operationToken"
-    pure (CancelOperationRequest {
-       cancelOperationRequestService = v_cancelOperationRequestService
-      , cancelOperationRequestOperation = v_cancelOperationRequestOperation
-      , cancelOperationRequestOperationid = v_cancelOperationRequestOperationid
-      , cancelOperationRequestOperationtoken = v_cancelOperationRequestOperationtoken
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCancelOperationRequest
 
 data Request = Request
   { requestHeader :: !(Map.Map Text Text)
   , requestScheduledtime :: !(Maybe Timestamp)
-  , requestCapabilities :: !(Maybe Capabilities)
+  , requestCapabilities :: !(Maybe Request'Capabilities)
   , requestVariant :: !(Maybe Request'Variant)
   , requestEndpoint :: !Text
   }
@@ -514,23 +431,23 @@ data Request = Request
   deriving anyclass NFData
 
 data Request'Capabilities = Request'Capabilities
-  { requestTemporalfailureresponses :: {-# UNPACK #-} !Bool
+  { requestCapabilitiesTemporalfailureresponses :: {-# UNPACK #-} !Bool
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRequest'Capabilities :: Request'Capabilities
 defaultRequest'Capabilities = Request'Capabilities
-  { requestTemporalfailureresponses = False
+  { requestCapabilitiesTemporalfailureresponses = False
   }
 
 instance MessageEncode Request'Capabilities where
   buildMessage msg =
-    (if msg.requestTemporalfailureresponses == False then mempty else encodeFieldBool 1 msg.requestTemporalfailureresponses)
+    (if msg.requestCapabilitiesTemporalfailureresponses == False then mempty else encodeFieldBool 1 msg.requestCapabilitiesTemporalfailureresponses)
 
 instance MessageSize Request'Capabilities where
   messageSize msg =
-    (if msg.requestTemporalfailureresponses == False then 0 else fieldBoolSize 1)
+    (if msg.requestCapabilitiesTemporalfailureresponses == False then 0 else fieldBoolSize 1)
 
 instance MessageDecode Request'Capabilities where
   messageDecoder = loop False
@@ -538,7 +455,7 @@ instance MessageDecode Request'Capabilities where
       loop acc_0 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (Request'Capabilities {requestTemporalfailureresponses = acc_0})
+          Nothing -> pure (Request'Capabilities {requestCapabilitiesTemporalfailureresponses = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -547,22 +464,21 @@ instance MessageDecode Request'Capabilities where
 
 instance ProtoToJSON Request'Capabilities where
   protoToJSON msg = jsonObject
-      [ "temporalFailureResponses" .= msg.requestTemporalfailureresponses
+      [ "temporalFailureResponses" .= msg.requestCapabilitiesTemporalfailureresponses
 
       ]
 
 instance ProtoFromJSON Request'Capabilities where
-  protoFromJSON (JsonObject obj) = do
-    v_requestTemporalfailureresponses <- obj .:? "temporalFailureResponses"
-    pure (Request'Capabilities {
-       requestTemporalfailureresponses = v_requestTemporalfailureresponses
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRequest'Capabilities
 data Request'Variant
-  = Request'StartOperation !StartOperationRequest
-  | Request'CancelOperation !CancelOperationRequest
+  = Request'Variant'StartOperation !StartOperationRequest
+  | Request'Variant'CancelOperation !CancelOperationRequest
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Request'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Request'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultRequest :: Request
 defaultRequest = Request
@@ -580,8 +496,8 @@ instance MessageEncode Request where
     <> (maybe mempty (\v -> encodeFieldMessage 100 v) msg.requestCapabilities)
     <> (case msg.requestVariant of
       Nothing -> mempty
-      Just (Request'StartOperation v) -> encodeFieldMessage 3 v
-      Just (Request'CancelOperation v) -> encodeFieldMessage 4 v)
+      Just (Request'Variant'StartOperation v) -> encodeFieldMessage 3 v
+      Just (Request'Variant'CancelOperation v) -> encodeFieldMessage 4 v)
     <> (if msg.requestEndpoint == T.empty then mempty else encodeFieldString 10 msg.requestEndpoint)
 
 instance MessageSize Request where
@@ -589,8 +505,8 @@ instance MessageSize Request where
     (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.requestHeader)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.requestScheduledtime)
     + (maybe 0 (\v -> fieldMessageSize 100 (messageSize v)) msg.requestCapabilities)
-    + (case msg.requestVariant of { Nothing -> 0; Just (Request'StartOperation v) -> fieldMessageSize 3 (messageSize v)
-    ; Just (Request'CancelOperation v) -> fieldMessageSize 4 (messageSize v) })
+    + (case msg.requestVariant of { Nothing -> 0; Just (Request'Variant'StartOperation v) -> fieldMessageSize 3 (messageSize v)
+    ; Just (Request'Variant'CancelOperation v) -> fieldMessageSize 4 (messageSize v) })
     + (if msg.requestEndpoint == T.empty then 0 else fieldTextSize 10 msg.requestEndpoint)
 
 instance MessageDecode Request where
@@ -602,20 +518,11 @@ instance MessageDecode Request where
           Nothing -> pure (Request {requestHeader = acc_0, requestScheduledtime = acc_1, requestCapabilities = acc_2, requestVariant = acc_3, requestEndpoint = acc_4})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v)) acc_1 acc_2 acc_3 acc_4
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_1 acc_2 acc_3 acc_4
             2 -> do
               v <- decodeFieldMessage
               loop acc_0 (Just v) acc_2 acc_3 acc_4
@@ -624,10 +531,10 @@ instance MessageDecode Request where
               loop acc_0 acc_1 (Just v) acc_3 acc_4
             3 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (Just (Request'StartOperation v)) acc_4
+              loop acc_0 acc_1 acc_2 (Just (Request'Variant'StartOperation v)) acc_4
             4 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (Just (Request'CancelOperation v)) acc_4
+              loop acc_0 acc_1 acc_2 (Just (Request'Variant'CancelOperation v)) acc_4
             10 -> do
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 v
@@ -643,20 +550,7 @@ instance ProtoToJSON Request where
       ]
 
 instance ProtoFromJSON Request where
-  protoFromJSON (JsonObject obj) = do
-    v_requestHeader <- obj .:? "header"
-    v_requestScheduledtime <- obj .:? "scheduledTime"
-    v_requestCapabilities <- obj .:? "capabilities"
-    v_requestVariant <- obj .:? "variant"
-    v_requestEndpoint <- obj .:? "endpoint"
-    pure (Request {
-       requestHeader = v_requestHeader
-      , requestScheduledtime = v_requestScheduledtime
-      , requestCapabilities = v_requestCapabilities
-      , requestVariant = v_requestVariant
-      , requestEndpoint = v_requestEndpoint
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRequest
 
 data StartOperationResponse = StartOperationResponse
   { startOperationResponseVariant :: !(Maybe StartOperationResponse'Variant)
@@ -665,27 +559,27 @@ data StartOperationResponse = StartOperationResponse
   deriving anyclass NFData
 
 data StartOperationResponse'Sync = StartOperationResponse'Sync
-  { startOperationResponsePayload :: !(Maybe Payload)
-  , startOperationResponseLinks :: !(V.Vector Link)
+  { startOperationResponseSyncPayload :: !(Maybe Payload)
+  , startOperationResponseSyncLinks :: !(V.Vector Link)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultStartOperationResponse'Sync :: StartOperationResponse'Sync
 defaultStartOperationResponse'Sync = StartOperationResponse'Sync
-  { startOperationResponsePayload = Nothing
-  , startOperationResponseLinks = V.empty
+  { startOperationResponseSyncPayload = Nothing
+  , startOperationResponseSyncLinks = V.empty
   }
 
 instance MessageEncode StartOperationResponse'Sync where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.startOperationResponsePayload)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.startOperationResponseLinks
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.startOperationResponseSyncPayload)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.startOperationResponseSyncLinks
 
 instance MessageSize StartOperationResponse'Sync where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.startOperationResponsePayload)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.startOperationResponseLinks)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.startOperationResponseSyncPayload)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.startOperationResponseSyncLinks)
 
 instance MessageDecode StartOperationResponse'Sync where
   messageDecoder = loop Nothing V.empty
@@ -693,7 +587,7 @@ instance MessageDecode StartOperationResponse'Sync where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (StartOperationResponse'Sync {startOperationResponsePayload = acc_0, startOperationResponseLinks = acc_1})
+          Nothing -> pure (StartOperationResponse'Sync {startOperationResponseSyncPayload = acc_0, startOperationResponseSyncLinks = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -705,46 +599,39 @@ instance MessageDecode StartOperationResponse'Sync where
 
 instance ProtoToJSON StartOperationResponse'Sync where
   protoToJSON msg = jsonObject
-      [ "payload" .= msg.startOperationResponsePayload
-      , "links" .= msg.startOperationResponseLinks
+      [ "payload" .= msg.startOperationResponseSyncPayload
+      , "links" .= msg.startOperationResponseSyncLinks
       ]
 
 instance ProtoFromJSON StartOperationResponse'Sync where
-  protoFromJSON (JsonObject obj) = do
-    v_startOperationResponsePayload <- obj .:? "payload"
-    v_startOperationResponseLinks <- obj .:? "links"
-    pure (StartOperationResponse'Sync {
-       startOperationResponsePayload = v_startOperationResponsePayload
-      , startOperationResponseLinks = v_startOperationResponseLinks
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStartOperationResponse'Sync
 
 data StartOperationResponse'Async = StartOperationResponse'Async
-  { startOperationResponseOperationid :: !Text
-  , startOperationResponseLinks :: !(V.Vector Link)
-  , startOperationResponseOperationtoken :: !Text
+  { startOperationResponseAsyncOperationid :: !Text
+  , startOperationResponseAsyncLinks :: !(V.Vector Link)
+  , startOperationResponseAsyncOperationtoken :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultStartOperationResponse'Async :: StartOperationResponse'Async
 defaultStartOperationResponse'Async = StartOperationResponse'Async
-  { startOperationResponseOperationid = ""
-  , startOperationResponseLinks = V.empty
-  , startOperationResponseOperationtoken = ""
+  { startOperationResponseAsyncOperationid = ""
+  , startOperationResponseAsyncLinks = V.empty
+  , startOperationResponseAsyncOperationtoken = ""
   }
 
 instance MessageEncode StartOperationResponse'Async where
   buildMessage msg =
-    (if msg.startOperationResponseOperationid == T.empty then mempty else encodeFieldString 1 msg.startOperationResponseOperationid)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.startOperationResponseLinks
-    <> (if msg.startOperationResponseOperationtoken == T.empty then mempty else encodeFieldString 3 msg.startOperationResponseOperationtoken)
+    (if msg.startOperationResponseAsyncOperationid == T.empty then mempty else encodeFieldString 1 msg.startOperationResponseAsyncOperationid)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.startOperationResponseAsyncLinks
+    <> (if msg.startOperationResponseAsyncOperationtoken == T.empty then mempty else encodeFieldString 3 msg.startOperationResponseAsyncOperationtoken)
 
 instance MessageSize StartOperationResponse'Async where
   messageSize msg =
-    (if msg.startOperationResponseOperationid == T.empty then 0 else fieldTextSize 1 msg.startOperationResponseOperationid)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.startOperationResponseLinks)
-    + (if msg.startOperationResponseOperationtoken == T.empty then 0 else fieldTextSize 3 msg.startOperationResponseOperationtoken)
+    (if msg.startOperationResponseAsyncOperationid == T.empty then 0 else fieldTextSize 1 msg.startOperationResponseAsyncOperationid)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.startOperationResponseAsyncLinks)
+    + (if msg.startOperationResponseAsyncOperationtoken == T.empty then 0 else fieldTextSize 3 msg.startOperationResponseAsyncOperationtoken)
 
 instance MessageDecode StartOperationResponse'Async where
   messageDecoder = loop "" V.empty ""
@@ -752,7 +639,7 @@ instance MessageDecode StartOperationResponse'Async where
       loop acc_0 acc_1 acc_2 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (StartOperationResponse'Async {startOperationResponseOperationid = acc_0, startOperationResponseLinks = acc_1, startOperationResponseOperationtoken = acc_2})
+          Nothing -> pure (StartOperationResponse'Async {startOperationResponseAsyncOperationid = acc_0, startOperationResponseAsyncLinks = acc_1, startOperationResponseAsyncOperationtoken = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -767,29 +654,24 @@ instance MessageDecode StartOperationResponse'Async where
 
 instance ProtoToJSON StartOperationResponse'Async where
   protoToJSON msg = jsonObject
-      [ "operationId" .= msg.startOperationResponseOperationid
-      , "links" .= msg.startOperationResponseLinks
-      , "operationToken" .= msg.startOperationResponseOperationtoken
+      [ "operationId" .= msg.startOperationResponseAsyncOperationid
+      , "links" .= msg.startOperationResponseAsyncLinks
+      , "operationToken" .= msg.startOperationResponseAsyncOperationtoken
       ]
 
 instance ProtoFromJSON StartOperationResponse'Async where
-  protoFromJSON (JsonObject obj) = do
-    v_startOperationResponseOperationid <- obj .:? "operationId"
-    v_startOperationResponseLinks <- obj .:? "links"
-    v_startOperationResponseOperationtoken <- obj .:? "operationToken"
-    pure (StartOperationResponse'Async {
-       startOperationResponseOperationid = v_startOperationResponseOperationid
-      , startOperationResponseLinks = v_startOperationResponseLinks
-      , startOperationResponseOperationtoken = v_startOperationResponseOperationtoken
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStartOperationResponse'Async
 data StartOperationResponse'Variant
-  = StartOperationResponse'SyncSuccess !Sync
-  | StartOperationResponse'AsyncSuccess !Async
-  | StartOperationResponse'OperationError !UnsuccessfulOperationError
-  | StartOperationResponse'Failure !Failure
+  = StartOperationResponse'Variant'SyncSuccess !StartOperationResponse'Sync
+  | StartOperationResponse'Variant'AsyncSuccess !StartOperationResponse'Async
+  | StartOperationResponse'Variant'OperationError !UnsuccessfulOperationError
+  | StartOperationResponse'Variant'Failure !Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON StartOperationResponse'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON StartOperationResponse'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultStartOperationResponse :: StartOperationResponse
 defaultStartOperationResponse = StartOperationResponse
@@ -800,17 +682,17 @@ instance MessageEncode StartOperationResponse where
   buildMessage msg =
     (case msg.startOperationResponseVariant of
       Nothing -> mempty
-      Just (StartOperationResponse'SyncSuccess v) -> encodeFieldMessage 1 v
-      Just (StartOperationResponse'AsyncSuccess v) -> encodeFieldMessage 2 v
-      Just (StartOperationResponse'OperationError v) -> encodeFieldMessage 3 v
-      Just (StartOperationResponse'Failure v) -> encodeFieldMessage 4 v)
+      Just (StartOperationResponse'Variant'SyncSuccess v) -> encodeFieldMessage 1 v
+      Just (StartOperationResponse'Variant'AsyncSuccess v) -> encodeFieldMessage 2 v
+      Just (StartOperationResponse'Variant'OperationError v) -> encodeFieldMessage 3 v
+      Just (StartOperationResponse'Variant'Failure v) -> encodeFieldMessage 4 v)
 
 instance MessageSize StartOperationResponse where
   messageSize msg =
-    (case msg.startOperationResponseVariant of { Nothing -> 0; Just (StartOperationResponse'SyncSuccess v) -> fieldMessageSize 1 (messageSize v)
-    ; Just (StartOperationResponse'AsyncSuccess v) -> fieldMessageSize 2 (messageSize v)
-    ; Just (StartOperationResponse'OperationError v) -> fieldMessageSize 3 (messageSize v)
-    ; Just (StartOperationResponse'Failure v) -> fieldMessageSize 4 (messageSize v) })
+    (case msg.startOperationResponseVariant of { Nothing -> 0; Just (StartOperationResponse'Variant'SyncSuccess v) -> fieldMessageSize 1 (messageSize v)
+    ; Just (StartOperationResponse'Variant'AsyncSuccess v) -> fieldMessageSize 2 (messageSize v)
+    ; Just (StartOperationResponse'Variant'OperationError v) -> fieldMessageSize 3 (messageSize v)
+    ; Just (StartOperationResponse'Variant'Failure v) -> fieldMessageSize 4 (messageSize v) })
 
 instance MessageDecode StartOperationResponse where
   messageDecoder = loop Nothing
@@ -822,16 +704,16 @@ instance MessageDecode StartOperationResponse where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (StartOperationResponse'SyncSuccess v))
+              loop (Just (StartOperationResponse'Variant'SyncSuccess v))
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (StartOperationResponse'AsyncSuccess v))
+              loop (Just (StartOperationResponse'Variant'AsyncSuccess v))
             3 -> do
               v <- decodeFieldMessage
-              loop (Just (StartOperationResponse'OperationError v))
+              loop (Just (StartOperationResponse'Variant'OperationError v))
             4 -> do
               v <- decodeFieldMessage
-              loop (Just (StartOperationResponse'Failure v))
+              loop (Just (StartOperationResponse'Variant'Failure v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON StartOperationResponse where
@@ -841,12 +723,7 @@ instance ProtoToJSON StartOperationResponse where
       ]
 
 instance ProtoFromJSON StartOperationResponse where
-  protoFromJSON (JsonObject obj) = do
-    v_startOperationResponseVariant <- obj .:? "variant"
-    pure (StartOperationResponse {
-       startOperationResponseVariant = v_startOperationResponseVariant
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStartOperationResponse
 
 data CancelOperationResponse = CancelOperationResponse
   { }
@@ -880,11 +757,7 @@ instance ProtoToJSON CancelOperationResponse where
       []
 
 instance ProtoFromJSON CancelOperationResponse where
-  protoFromJSON (JsonObject obj) = do
-    pure (CancelOperationResponse {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCancelOperationResponse
 
 data Response = Response
   { responseVariant :: !(Maybe Response'Variant)
@@ -892,10 +765,14 @@ data Response = Response
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data Response'Variant
-  = Response'StartOperation !StartOperationResponse
-  | Response'CancelOperation !CancelOperationResponse
+  = Response'Variant'StartOperation !StartOperationResponse
+  | Response'Variant'CancelOperation !CancelOperationResponse
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Response'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Response'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultResponse :: Response
 defaultResponse = Response
@@ -906,13 +783,13 @@ instance MessageEncode Response where
   buildMessage msg =
     (case msg.responseVariant of
       Nothing -> mempty
-      Just (Response'StartOperation v) -> encodeFieldMessage 1 v
-      Just (Response'CancelOperation v) -> encodeFieldMessage 2 v)
+      Just (Response'Variant'StartOperation v) -> encodeFieldMessage 1 v
+      Just (Response'Variant'CancelOperation v) -> encodeFieldMessage 2 v)
 
 instance MessageSize Response where
   messageSize msg =
-    (case msg.responseVariant of { Nothing -> 0; Just (Response'StartOperation v) -> fieldMessageSize 1 (messageSize v)
-    ; Just (Response'CancelOperation v) -> fieldMessageSize 2 (messageSize v) })
+    (case msg.responseVariant of { Nothing -> 0; Just (Response'Variant'StartOperation v) -> fieldMessageSize 1 (messageSize v)
+    ; Just (Response'Variant'CancelOperation v) -> fieldMessageSize 2 (messageSize v) })
 
 instance MessageDecode Response where
   messageDecoder = loop Nothing
@@ -924,10 +801,10 @@ instance MessageDecode Response where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (Response'StartOperation v))
+              loop (Just (Response'Variant'StartOperation v))
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (Response'CancelOperation v))
+              loop (Just (Response'Variant'CancelOperation v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON Response where
@@ -937,12 +814,7 @@ instance ProtoToJSON Response where
       ]
 
 instance ProtoFromJSON Response where
-  protoFromJSON (JsonObject obj) = do
-    v_responseVariant <- obj .:? "variant"
-    pure (Response {
-       responseVariant = v_responseVariant
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultResponse
 
 data Endpoint = Endpoint
   { endpointVersion :: {-# UNPACK #-} !Int64
@@ -1022,22 +894,7 @@ instance ProtoToJSON Endpoint where
       ]
 
 instance ProtoFromJSON Endpoint where
-  protoFromJSON (JsonObject obj) = do
-    v_endpointVersion <- obj .:? "version"
-    v_endpointId <- obj .:? "id"
-    v_endpointSpec <- obj .:? "spec"
-    v_endpointCreatedtime <- obj .:? "createdTime"
-    v_endpointLastmodifiedtime <- obj .:? "lastModifiedTime"
-    v_endpointUrlprefix <- obj .:? "urlPrefix"
-    pure (Endpoint {
-       endpointVersion = v_endpointVersion
-      , endpointId = v_endpointId
-      , endpointSpec = v_endpointSpec
-      , endpointCreatedtime = v_endpointCreatedtime
-      , endpointLastmodifiedtime = v_endpointLastmodifiedtime
-      , endpointUrlprefix = v_endpointUrlprefix
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultEndpoint
 
 data EndpointSpec = EndpointSpec
   { endpointSpecName :: !Text
@@ -1093,16 +950,7 @@ instance ProtoToJSON EndpointSpec where
       ]
 
 instance ProtoFromJSON EndpointSpec where
-  protoFromJSON (JsonObject obj) = do
-    v_endpointSpecName <- obj .:? "name"
-    v_endpointSpecDescription <- obj .:? "description"
-    v_endpointSpecTarget <- obj .:? "target"
-    pure (EndpointSpec {
-       endpointSpecName = v_endpointSpecName
-      , endpointSpecDescription = v_endpointSpecDescription
-      , endpointSpecTarget = v_endpointSpecTarget
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultEndpointSpec
 
 data EndpointTarget = EndpointTarget
   { endpointTargetVariant :: !(Maybe EndpointTarget'Variant)
@@ -1111,27 +959,27 @@ data EndpointTarget = EndpointTarget
   deriving anyclass NFData
 
 data EndpointTarget'Worker = EndpointTarget'Worker
-  { endpointTargetNamespace :: !Text
-  , endpointTargetTaskqueue :: !Text
+  { endpointTargetWorkerNamespace :: !Text
+  , endpointTargetWorkerTaskqueue :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultEndpointTarget'Worker :: EndpointTarget'Worker
 defaultEndpointTarget'Worker = EndpointTarget'Worker
-  { endpointTargetNamespace = ""
-  , endpointTargetTaskqueue = ""
+  { endpointTargetWorkerNamespace = ""
+  , endpointTargetWorkerTaskqueue = ""
   }
 
 instance MessageEncode EndpointTarget'Worker where
   buildMessage msg =
-    (if msg.endpointTargetNamespace == T.empty then mempty else encodeFieldString 1 msg.endpointTargetNamespace)
-    <> (if msg.endpointTargetTaskqueue == T.empty then mempty else encodeFieldString 2 msg.endpointTargetTaskqueue)
+    (if msg.endpointTargetWorkerNamespace == T.empty then mempty else encodeFieldString 1 msg.endpointTargetWorkerNamespace)
+    <> (if msg.endpointTargetWorkerTaskqueue == T.empty then mempty else encodeFieldString 2 msg.endpointTargetWorkerTaskqueue)
 
 instance MessageSize EndpointTarget'Worker where
   messageSize msg =
-    (if msg.endpointTargetNamespace == T.empty then 0 else fieldTextSize 1 msg.endpointTargetNamespace)
-    + (if msg.endpointTargetTaskqueue == T.empty then 0 else fieldTextSize 2 msg.endpointTargetTaskqueue)
+    (if msg.endpointTargetWorkerNamespace == T.empty then 0 else fieldTextSize 1 msg.endpointTargetWorkerNamespace)
+    + (if msg.endpointTargetWorkerTaskqueue == T.empty then 0 else fieldTextSize 2 msg.endpointTargetWorkerTaskqueue)
 
 instance MessageDecode EndpointTarget'Worker where
   messageDecoder = loop "" ""
@@ -1139,7 +987,7 @@ instance MessageDecode EndpointTarget'Worker where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (EndpointTarget'Worker {endpointTargetNamespace = acc_0, endpointTargetTaskqueue = acc_1})
+          Nothing -> pure (EndpointTarget'Worker {endpointTargetWorkerNamespace = acc_0, endpointTargetWorkerTaskqueue = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1151,38 +999,31 @@ instance MessageDecode EndpointTarget'Worker where
 
 instance ProtoToJSON EndpointTarget'Worker where
   protoToJSON msg = jsonObject
-      [ "namespace" .= msg.endpointTargetNamespace
-      , "taskQueue" .= msg.endpointTargetTaskqueue
+      [ "namespace" .= msg.endpointTargetWorkerNamespace
+      , "taskQueue" .= msg.endpointTargetWorkerTaskqueue
       ]
 
 instance ProtoFromJSON EndpointTarget'Worker where
-  protoFromJSON (JsonObject obj) = do
-    v_endpointTargetNamespace <- obj .:? "namespace"
-    v_endpointTargetTaskqueue <- obj .:? "taskQueue"
-    pure (EndpointTarget'Worker {
-       endpointTargetNamespace = v_endpointTargetNamespace
-      , endpointTargetTaskqueue = v_endpointTargetTaskqueue
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultEndpointTarget'Worker
 
 data EndpointTarget'External = EndpointTarget'External
-  { endpointTargetUrl :: !Text
+  { endpointTargetExternalUrl :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultEndpointTarget'External :: EndpointTarget'External
 defaultEndpointTarget'External = EndpointTarget'External
-  { endpointTargetUrl = ""
+  { endpointTargetExternalUrl = ""
   }
 
 instance MessageEncode EndpointTarget'External where
   buildMessage msg =
-    (if msg.endpointTargetUrl == T.empty then mempty else encodeFieldString 1 msg.endpointTargetUrl)
+    (if msg.endpointTargetExternalUrl == T.empty then mempty else encodeFieldString 1 msg.endpointTargetExternalUrl)
 
 instance MessageSize EndpointTarget'External where
   messageSize msg =
-    (if msg.endpointTargetUrl == T.empty then 0 else fieldTextSize 1 msg.endpointTargetUrl)
+    (if msg.endpointTargetExternalUrl == T.empty then 0 else fieldTextSize 1 msg.endpointTargetExternalUrl)
 
 instance MessageDecode EndpointTarget'External where
   messageDecoder = loop ""
@@ -1190,7 +1031,7 @@ instance MessageDecode EndpointTarget'External where
       loop acc_0 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (EndpointTarget'External {endpointTargetUrl = acc_0})
+          Nothing -> pure (EndpointTarget'External {endpointTargetExternalUrl = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1199,22 +1040,21 @@ instance MessageDecode EndpointTarget'External where
 
 instance ProtoToJSON EndpointTarget'External where
   protoToJSON msg = jsonObject
-      [ "url" .= msg.endpointTargetUrl
+      [ "url" .= msg.endpointTargetExternalUrl
 
       ]
 
 instance ProtoFromJSON EndpointTarget'External where
-  protoFromJSON (JsonObject obj) = do
-    v_endpointTargetUrl <- obj .:? "url"
-    pure (EndpointTarget'External {
-       endpointTargetUrl = v_endpointTargetUrl
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultEndpointTarget'External
 data EndpointTarget'Variant
-  = EndpointTarget'Worker !Worker
-  | EndpointTarget'External !External
+  = EndpointTarget'Variant'Worker !EndpointTarget'Worker
+  | EndpointTarget'Variant'External !EndpointTarget'External
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON EndpointTarget'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON EndpointTarget'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultEndpointTarget :: EndpointTarget
 defaultEndpointTarget = EndpointTarget
@@ -1225,13 +1065,13 @@ instance MessageEncode EndpointTarget where
   buildMessage msg =
     (case msg.endpointTargetVariant of
       Nothing -> mempty
-      Just (EndpointTarget'Worker v) -> encodeFieldMessage 1 v
-      Just (EndpointTarget'External v) -> encodeFieldMessage 2 v)
+      Just (EndpointTarget'Variant'Worker v) -> encodeFieldMessage 1 v
+      Just (EndpointTarget'Variant'External v) -> encodeFieldMessage 2 v)
 
 instance MessageSize EndpointTarget where
   messageSize msg =
-    (case msg.endpointTargetVariant of { Nothing -> 0; Just (EndpointTarget'Worker v) -> fieldMessageSize 1 (messageSize v)
-    ; Just (EndpointTarget'External v) -> fieldMessageSize 2 (messageSize v) })
+    (case msg.endpointTargetVariant of { Nothing -> 0; Just (EndpointTarget'Variant'Worker v) -> fieldMessageSize 1 (messageSize v)
+    ; Just (EndpointTarget'Variant'External v) -> fieldMessageSize 2 (messageSize v) })
 
 instance MessageDecode EndpointTarget where
   messageDecoder = loop Nothing
@@ -1243,10 +1083,10 @@ instance MessageDecode EndpointTarget where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (EndpointTarget'Worker v))
+              loop (Just (EndpointTarget'Variant'Worker v))
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (EndpointTarget'External v))
+              loop (Just (EndpointTarget'Variant'External v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON EndpointTarget where
@@ -1256,9 +1096,4 @@ instance ProtoToJSON EndpointTarget where
       ]
 
 instance ProtoFromJSON EndpointTarget where
-  protoFromJSON (JsonObject obj) = do
-    v_endpointTargetVariant <- obj .:? "variant"
-    pure (EndpointTarget {
-       endpointTargetVariant = v_endpointTargetVariant
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultEndpointTarget

@@ -43,23 +43,23 @@ data WorkerConfig = WorkerConfig
   deriving anyclass NFData
 
 data WorkerConfig'SimplePollerBehavior = WorkerConfig'SimplePollerBehavior
-  { workerConfigMaxpollers :: {-# UNPACK #-} !Int32
+  { workerConfigSimplePollerBehaviorMaxpollers :: {-# UNPACK #-} !Int32
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerConfig'SimplePollerBehavior :: WorkerConfig'SimplePollerBehavior
 defaultWorkerConfig'SimplePollerBehavior = WorkerConfig'SimplePollerBehavior
-  { workerConfigMaxpollers = 0
+  { workerConfigSimplePollerBehaviorMaxpollers = 0
   }
 
 instance MessageEncode WorkerConfig'SimplePollerBehavior where
   buildMessage msg =
-    (if msg.workerConfigMaxpollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigMaxpollers))
+    (if msg.workerConfigSimplePollerBehaviorMaxpollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigSimplePollerBehaviorMaxpollers))
 
 instance MessageSize WorkerConfig'SimplePollerBehavior where
   messageSize msg =
-    (if msg.workerConfigMaxpollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigMaxpollers))
+    (if msg.workerConfigSimplePollerBehaviorMaxpollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigSimplePollerBehaviorMaxpollers))
 
 instance MessageDecode WorkerConfig'SimplePollerBehavior where
   messageDecoder = loop 0
@@ -67,7 +67,7 @@ instance MessageDecode WorkerConfig'SimplePollerBehavior where
       loop acc_0 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (WorkerConfig'SimplePollerBehavior {workerConfigMaxpollers = acc_0})
+          Nothing -> pure (WorkerConfig'SimplePollerBehavior {workerConfigSimplePollerBehaviorMaxpollers = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- fromIntegral <$> decodeFieldVarint
@@ -76,44 +76,39 @@ instance MessageDecode WorkerConfig'SimplePollerBehavior where
 
 instance ProtoToJSON WorkerConfig'SimplePollerBehavior where
   protoToJSON msg = jsonObject
-      [ "maxPollers" .= msg.workerConfigMaxpollers
+      [ "maxPollers" .= msg.workerConfigSimplePollerBehaviorMaxpollers
 
       ]
 
 instance ProtoFromJSON WorkerConfig'SimplePollerBehavior where
-  protoFromJSON (JsonObject obj) = do
-    v_workerConfigMaxpollers <- obj .:? "maxPollers"
-    pure (WorkerConfig'SimplePollerBehavior {
-       workerConfigMaxpollers = v_workerConfigMaxpollers
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerConfig'SimplePollerBehavior
 
 data WorkerConfig'AutoscalingPollerBehavior = WorkerConfig'AutoscalingPollerBehavior
-  { workerConfigMinpollers :: {-# UNPACK #-} !Int32
-  , workerConfigMaxpollers :: {-# UNPACK #-} !Int32
-  , workerConfigInitialpollers :: {-# UNPACK #-} !Int32
+  { workerConfigAutoscalingPollerBehaviorMinpollers :: {-# UNPACK #-} !Int32
+  , workerConfigAutoscalingPollerBehaviorMaxpollers :: {-# UNPACK #-} !Int32
+  , workerConfigAutoscalingPollerBehaviorInitialpollers :: {-# UNPACK #-} !Int32
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerConfig'AutoscalingPollerBehavior :: WorkerConfig'AutoscalingPollerBehavior
 defaultWorkerConfig'AutoscalingPollerBehavior = WorkerConfig'AutoscalingPollerBehavior
-  { workerConfigMinpollers = 0
-  , workerConfigMaxpollers = 0
-  , workerConfigInitialpollers = 0
+  { workerConfigAutoscalingPollerBehaviorMinpollers = 0
+  , workerConfigAutoscalingPollerBehaviorMaxpollers = 0
+  , workerConfigAutoscalingPollerBehaviorInitialpollers = 0
   }
 
 instance MessageEncode WorkerConfig'AutoscalingPollerBehavior where
   buildMessage msg =
-    (if msg.workerConfigMinpollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigMinpollers))
-    <> (if msg.workerConfigMaxpollers == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.workerConfigMaxpollers))
-    <> (if msg.workerConfigInitialpollers == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.workerConfigInitialpollers))
+    (if msg.workerConfigAutoscalingPollerBehaviorMinpollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMinpollers))
+    <> (if msg.workerConfigAutoscalingPollerBehaviorMaxpollers == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMaxpollers))
+    <> (if msg.workerConfigAutoscalingPollerBehaviorInitialpollers == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorInitialpollers))
 
 instance MessageSize WorkerConfig'AutoscalingPollerBehavior where
   messageSize msg =
-    (if msg.workerConfigMinpollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigMinpollers))
-    + (if msg.workerConfigMaxpollers == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.workerConfigMaxpollers))
-    + (if msg.workerConfigInitialpollers == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.workerConfigInitialpollers))
+    (if msg.workerConfigAutoscalingPollerBehaviorMinpollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMinpollers))
+    + (if msg.workerConfigAutoscalingPollerBehaviorMaxpollers == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMaxpollers))
+    + (if msg.workerConfigAutoscalingPollerBehaviorInitialpollers == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorInitialpollers))
 
 instance MessageDecode WorkerConfig'AutoscalingPollerBehavior where
   messageDecoder = loop 0 0 0
@@ -121,7 +116,7 @@ instance MessageDecode WorkerConfig'AutoscalingPollerBehavior where
       loop acc_0 acc_1 acc_2 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (WorkerConfig'AutoscalingPollerBehavior {workerConfigMinpollers = acc_0, workerConfigMaxpollers = acc_1, workerConfigInitialpollers = acc_2})
+          Nothing -> pure (WorkerConfig'AutoscalingPollerBehavior {workerConfigAutoscalingPollerBehaviorMinpollers = acc_0, workerConfigAutoscalingPollerBehaviorMaxpollers = acc_1, workerConfigAutoscalingPollerBehaviorInitialpollers = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- fromIntegral <$> decodeFieldVarint
@@ -136,27 +131,22 @@ instance MessageDecode WorkerConfig'AutoscalingPollerBehavior where
 
 instance ProtoToJSON WorkerConfig'AutoscalingPollerBehavior where
   protoToJSON msg = jsonObject
-      [ "minPollers" .= msg.workerConfigMinpollers
-      , "maxPollers" .= msg.workerConfigMaxpollers
-      , "initialPollers" .= msg.workerConfigInitialpollers
+      [ "minPollers" .= msg.workerConfigAutoscalingPollerBehaviorMinpollers
+      , "maxPollers" .= msg.workerConfigAutoscalingPollerBehaviorMaxpollers
+      , "initialPollers" .= msg.workerConfigAutoscalingPollerBehaviorInitialpollers
       ]
 
 instance ProtoFromJSON WorkerConfig'AutoscalingPollerBehavior where
-  protoFromJSON (JsonObject obj) = do
-    v_workerConfigMinpollers <- obj .:? "minPollers"
-    v_workerConfigMaxpollers <- obj .:? "maxPollers"
-    v_workerConfigInitialpollers <- obj .:? "initialPollers"
-    pure (WorkerConfig'AutoscalingPollerBehavior {
-       workerConfigMinpollers = v_workerConfigMinpollers
-      , workerConfigMaxpollers = v_workerConfigMaxpollers
-      , workerConfigInitialpollers = v_workerConfigInitialpollers
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerConfig'AutoscalingPollerBehavior
 data WorkerConfig'PollerBehavior
-  = WorkerConfig'SimplePollerBehavior !SimplePollerBehavior
-  | WorkerConfig'AutoscalingPollerBehavior !AutoscalingPollerBehavior
+  = WorkerConfig'PollerBehavior'SimplePollerBehavior !WorkerConfig'SimplePollerBehavior
+  | WorkerConfig'PollerBehavior'AutoscalingPollerBehavior !WorkerConfig'AutoscalingPollerBehavior
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON WorkerConfig'PollerBehavior where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON WorkerConfig'PollerBehavior where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultWorkerConfig :: WorkerConfig
 defaultWorkerConfig = WorkerConfig
@@ -169,14 +159,14 @@ instance MessageEncode WorkerConfig where
     (if msg.workerConfigWorkflowcachesize == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigWorkflowcachesize))
     <> (case msg.workerConfigPollerbehavior of
       Nothing -> mempty
-      Just (WorkerConfig'SimplePollerBehavior v) -> encodeFieldMessage 2 v
-      Just (WorkerConfig'AutoscalingPollerBehavior v) -> encodeFieldMessage 3 v)
+      Just (WorkerConfig'PollerBehavior'SimplePollerBehavior v) -> encodeFieldMessage 2 v
+      Just (WorkerConfig'PollerBehavior'AutoscalingPollerBehavior v) -> encodeFieldMessage 3 v)
 
 instance MessageSize WorkerConfig where
   messageSize msg =
     (if msg.workerConfigWorkflowcachesize == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigWorkflowcachesize))
-    + (case msg.workerConfigPollerbehavior of { Nothing -> 0; Just (WorkerConfig'SimplePollerBehavior v) -> fieldMessageSize 2 (messageSize v)
-    ; Just (WorkerConfig'AutoscalingPollerBehavior v) -> fieldMessageSize 3 (messageSize v) })
+    + (case msg.workerConfigPollerbehavior of { Nothing -> 0; Just (WorkerConfig'PollerBehavior'SimplePollerBehavior v) -> fieldMessageSize 2 (messageSize v)
+    ; Just (WorkerConfig'PollerBehavior'AutoscalingPollerBehavior v) -> fieldMessageSize 3 (messageSize v) })
 
 instance MessageDecode WorkerConfig where
   messageDecoder = loop 0 Nothing
@@ -191,10 +181,10 @@ instance MessageDecode WorkerConfig where
               loop v acc_1
             2 -> do
               v <- decodeFieldMessage
-              loop acc_0 (Just (WorkerConfig'SimplePollerBehavior v))
+              loop acc_0 (Just (WorkerConfig'PollerBehavior'SimplePollerBehavior v))
             3 -> do
               v <- decodeFieldMessage
-              loop acc_0 (Just (WorkerConfig'AutoscalingPollerBehavior v))
+              loop acc_0 (Just (WorkerConfig'PollerBehavior'AutoscalingPollerBehavior v))
             _ -> skipField wt >> loop acc_0 acc_1
 
 instance ProtoToJSON WorkerConfig where
@@ -204,11 +194,4 @@ instance ProtoToJSON WorkerConfig where
       ]
 
 instance ProtoFromJSON WorkerConfig where
-  protoFromJSON (JsonObject obj) = do
-    v_workerConfigWorkflowcachesize <- obj .:? "workflowCacheSize"
-    v_workerConfigPollerbehavior <- obj .:? "pollerBehavior"
-    pure (WorkerConfig {
-       workerConfigWorkflowcachesize = v_workerConfigWorkflowcachesize
-      , workerConfigPollerbehavior = v_workerConfigPollerbehavior
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerConfig

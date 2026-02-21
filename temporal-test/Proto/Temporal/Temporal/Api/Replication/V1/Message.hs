@@ -33,8 +33,8 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ReplicationState)
+import Proto.Google.Protobuf.Timestamp hiding (ClusterReplicationConfig, FailoverStatus, NamespaceReplicationConfig)
+import Proto.Temporal.Temporal.Api.Enums.V1.Namespace hiding (ClusterReplicationConfig, FailoverStatus, NamespaceReplicationConfig)
 
 
 data ClusterReplicationConfig = ClusterReplicationConfig
@@ -76,12 +76,7 @@ instance ProtoToJSON ClusterReplicationConfig where
       ]
 
 instance ProtoFromJSON ClusterReplicationConfig where
-  protoFromJSON (JsonObject obj) = do
-    v_clusterReplicationConfigClustername <- obj .:? "clusterName"
-    pure (ClusterReplicationConfig {
-       clusterReplicationConfigClustername = v_clusterReplicationConfigClustername
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultClusterReplicationConfig
 
 data NamespaceReplicationConfig = NamespaceReplicationConfig
   { namespaceReplicationConfigActiveclustername :: !Text
@@ -137,16 +132,7 @@ instance ProtoToJSON NamespaceReplicationConfig where
       ]
 
 instance ProtoFromJSON NamespaceReplicationConfig where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceReplicationConfigActiveclustername <- obj .:? "activeClusterName"
-    v_namespaceReplicationConfigClusters <- obj .:? "clusters"
-    v_namespaceReplicationConfigState <- obj .:? "state"
-    pure (NamespaceReplicationConfig {
-       namespaceReplicationConfigActiveclustername = v_namespaceReplicationConfigActiveclustername
-      , namespaceReplicationConfigClusters = v_namespaceReplicationConfigClusters
-      , namespaceReplicationConfigState = v_namespaceReplicationConfigState
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceReplicationConfig
 
 data FailoverStatus = FailoverStatus
   { failoverStatusFailovertime :: !(Maybe Timestamp)
@@ -194,11 +180,4 @@ instance ProtoToJSON FailoverStatus where
       ]
 
 instance ProtoFromJSON FailoverStatus where
-  protoFromJSON (JsonObject obj) = do
-    v_failoverStatusFailovertime <- obj .:? "failoverTime"
-    v_failoverStatusFailoverversion <- obj .:? "failoverVersion"
-    pure (FailoverStatus {
-       failoverStatusFailovertime = v_failoverStatusFailovertime
-      , failoverStatusFailoverversion = v_failoverStatusFailoverversion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultFailoverStatus

@@ -5,11 +5,14 @@ module Proto.Google.Protobuf.Duration
   ) where
 
 import Data.Int (Int32, Int64)
+import Data.Text (Text)
+import qualified Data.Text as T
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
 
 import Proto.Encode
 import Proto.Decode
+import Proto.JSON
 import Proto.Message (IsMessage(..))
 import Proto.Wire (Tag (..))
 import Proto.Wire.Encode (fieldVarintSize)
@@ -50,3 +53,10 @@ instance MessageDecode Duration where
 
 instance IsMessage Duration where
   messageTypeName _ = "google.protobuf.Duration"
+
+instance ProtoToJSON Duration where
+  protoToJSON (Duration s n) =
+    JsonString (T.pack (show s) <> "." <> T.pack (show n) <> "s")
+
+instance ProtoFromJSON Duration where
+  protoFromJSON _ = Right defaultDuration

@@ -33,7 +33,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
+import Proto.Google.Protobuf.Timestamp hiding (WorkflowRule, WorkflowRuleAction, WorkflowRuleAction'ActionActivityPause, WorkflowRuleSpec, WorkflowRuleSpec'ActivityStartingTrigger)
 
 
 data WorkflowRuleAction = WorkflowRuleAction
@@ -74,15 +74,15 @@ instance ProtoToJSON WorkflowRuleAction'ActionActivityPause where
       []
 
 instance ProtoFromJSON WorkflowRuleAction'ActionActivityPause where
-  protoFromJSON (JsonObject obj) = do
-    pure (WorkflowRuleAction'ActionActivityPause {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowRuleAction'ActionActivityPause
 data WorkflowRuleAction'Variant
-  = WorkflowRuleAction'ActivityPause !ActionActivityPause
+  = WorkflowRuleAction'Variant'ActivityPause !WorkflowRuleAction'ActionActivityPause
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON WorkflowRuleAction'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON WorkflowRuleAction'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultWorkflowRuleAction :: WorkflowRuleAction
 defaultWorkflowRuleAction = WorkflowRuleAction
@@ -93,11 +93,11 @@ instance MessageEncode WorkflowRuleAction where
   buildMessage msg =
     (case msg.workflowRuleActionVariant of
       Nothing -> mempty
-      Just (WorkflowRuleAction'ActivityPause v) -> encodeFieldMessage 1 v)
+      Just (WorkflowRuleAction'Variant'ActivityPause v) -> encodeFieldMessage 1 v)
 
 instance MessageSize WorkflowRuleAction where
   messageSize msg =
-    (case msg.workflowRuleActionVariant of { Nothing -> 0; Just (WorkflowRuleAction'ActivityPause v) -> fieldMessageSize 1 (messageSize v) })
+    (case msg.workflowRuleActionVariant of { Nothing -> 0; Just (WorkflowRuleAction'Variant'ActivityPause v) -> fieldMessageSize 1 (messageSize v) })
 
 instance MessageDecode WorkflowRuleAction where
   messageDecoder = loop Nothing
@@ -109,7 +109,7 @@ instance MessageDecode WorkflowRuleAction where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (WorkflowRuleAction'ActivityPause v))
+              loop (Just (WorkflowRuleAction'Variant'ActivityPause v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON WorkflowRuleAction where
@@ -119,12 +119,7 @@ instance ProtoToJSON WorkflowRuleAction where
       ]
 
 instance ProtoFromJSON WorkflowRuleAction where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowRuleActionVariant <- obj .:? "variant"
-    pure (WorkflowRuleAction {
-       workflowRuleActionVariant = v_workflowRuleActionVariant
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowRuleAction
 
 data WorkflowRuleSpec = WorkflowRuleSpec
   { workflowRuleSpecId :: !Text
@@ -137,23 +132,23 @@ data WorkflowRuleSpec = WorkflowRuleSpec
   deriving anyclass NFData
 
 data WorkflowRuleSpec'ActivityStartingTrigger = WorkflowRuleSpec'ActivityStartingTrigger
-  { workflowRuleSpecPredicate :: !Text
+  { workflowRuleSpecActivityStartingTriggerPredicate :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowRuleSpec'ActivityStartingTrigger :: WorkflowRuleSpec'ActivityStartingTrigger
 defaultWorkflowRuleSpec'ActivityStartingTrigger = WorkflowRuleSpec'ActivityStartingTrigger
-  { workflowRuleSpecPredicate = ""
+  { workflowRuleSpecActivityStartingTriggerPredicate = ""
   }
 
 instance MessageEncode WorkflowRuleSpec'ActivityStartingTrigger where
   buildMessage msg =
-    (if msg.workflowRuleSpecPredicate == T.empty then mempty else encodeFieldString 1 msg.workflowRuleSpecPredicate)
+    (if msg.workflowRuleSpecActivityStartingTriggerPredicate == T.empty then mempty else encodeFieldString 1 msg.workflowRuleSpecActivityStartingTriggerPredicate)
 
 instance MessageSize WorkflowRuleSpec'ActivityStartingTrigger where
   messageSize msg =
-    (if msg.workflowRuleSpecPredicate == T.empty then 0 else fieldTextSize 1 msg.workflowRuleSpecPredicate)
+    (if msg.workflowRuleSpecActivityStartingTriggerPredicate == T.empty then 0 else fieldTextSize 1 msg.workflowRuleSpecActivityStartingTriggerPredicate)
 
 instance MessageDecode WorkflowRuleSpec'ActivityStartingTrigger where
   messageDecoder = loop ""
@@ -161,7 +156,7 @@ instance MessageDecode WorkflowRuleSpec'ActivityStartingTrigger where
       loop acc_0 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (WorkflowRuleSpec'ActivityStartingTrigger {workflowRuleSpecPredicate = acc_0})
+          Nothing -> pure (WorkflowRuleSpec'ActivityStartingTrigger {workflowRuleSpecActivityStartingTriggerPredicate = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -170,21 +165,20 @@ instance MessageDecode WorkflowRuleSpec'ActivityStartingTrigger where
 
 instance ProtoToJSON WorkflowRuleSpec'ActivityStartingTrigger where
   protoToJSON msg = jsonObject
-      [ "predicate" .= msg.workflowRuleSpecPredicate
+      [ "predicate" .= msg.workflowRuleSpecActivityStartingTriggerPredicate
 
       ]
 
 instance ProtoFromJSON WorkflowRuleSpec'ActivityStartingTrigger where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowRuleSpecPredicate <- obj .:? "predicate"
-    pure (WorkflowRuleSpec'ActivityStartingTrigger {
-       workflowRuleSpecPredicate = v_workflowRuleSpecPredicate
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowRuleSpec'ActivityStartingTrigger
 data WorkflowRuleSpec'Trigger
-  = WorkflowRuleSpec'ActivityStart !ActivityStartingTrigger
+  = WorkflowRuleSpec'Trigger'ActivityStart !WorkflowRuleSpec'ActivityStartingTrigger
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON WorkflowRuleSpec'Trigger where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON WorkflowRuleSpec'Trigger where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultWorkflowRuleSpec :: WorkflowRuleSpec
 defaultWorkflowRuleSpec = WorkflowRuleSpec
@@ -200,7 +194,7 @@ instance MessageEncode WorkflowRuleSpec where
     (if msg.workflowRuleSpecId == T.empty then mempty else encodeFieldString 1 msg.workflowRuleSpecId)
     <> (case msg.workflowRuleSpecTrigger of
       Nothing -> mempty
-      Just (WorkflowRuleSpec'ActivityStart v) -> encodeFieldMessage 2 v)
+      Just (WorkflowRuleSpec'Trigger'ActivityStart v) -> encodeFieldMessage 2 v)
     <> (if msg.workflowRuleSpecVisibilityquery == T.empty then mempty else encodeFieldString 3 msg.workflowRuleSpecVisibilityquery)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.workflowRuleSpecActions
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workflowRuleSpecExpirationtime)
@@ -208,7 +202,7 @@ instance MessageEncode WorkflowRuleSpec where
 instance MessageSize WorkflowRuleSpec where
   messageSize msg =
     (if msg.workflowRuleSpecId == T.empty then 0 else fieldTextSize 1 msg.workflowRuleSpecId)
-    + (case msg.workflowRuleSpecTrigger of { Nothing -> 0; Just (WorkflowRuleSpec'ActivityStart v) -> fieldMessageSize 2 (messageSize v) })
+    + (case msg.workflowRuleSpecTrigger of { Nothing -> 0; Just (WorkflowRuleSpec'Trigger'ActivityStart v) -> fieldMessageSize 2 (messageSize v) })
     + (if msg.workflowRuleSpecVisibilityquery == T.empty then 0 else fieldTextSize 3 msg.workflowRuleSpecVisibilityquery)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.workflowRuleSpecActions)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workflowRuleSpecExpirationtime)
@@ -226,7 +220,7 @@ instance MessageDecode WorkflowRuleSpec where
               loop v acc_1 acc_2 acc_3 acc_4
             2 -> do
               v <- decodeFieldMessage
-              loop acc_0 (Just (WorkflowRuleSpec'ActivityStart v)) acc_2 acc_3 acc_4
+              loop acc_0 (Just (WorkflowRuleSpec'Trigger'ActivityStart v)) acc_2 acc_3 acc_4
             3 -> do
               v <- decodeFieldString
               loop acc_0 acc_1 v acc_3 acc_4
@@ -248,20 +242,7 @@ instance ProtoToJSON WorkflowRuleSpec where
       ]
 
 instance ProtoFromJSON WorkflowRuleSpec where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowRuleSpecId <- obj .:? "id"
-    v_workflowRuleSpecTrigger <- obj .:? "trigger"
-    v_workflowRuleSpecVisibilityquery <- obj .:? "visibilityQuery"
-    v_workflowRuleSpecActions <- obj .:? "actions"
-    v_workflowRuleSpecExpirationtime <- obj .:? "expirationTime"
-    pure (WorkflowRuleSpec {
-       workflowRuleSpecId = v_workflowRuleSpecId
-      , workflowRuleSpecTrigger = v_workflowRuleSpecTrigger
-      , workflowRuleSpecVisibilityquery = v_workflowRuleSpecVisibilityquery
-      , workflowRuleSpecActions = v_workflowRuleSpecActions
-      , workflowRuleSpecExpirationtime = v_workflowRuleSpecExpirationtime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowRuleSpec
 
 data WorkflowRule = WorkflowRule
   { workflowRuleCreatetime :: !(Maybe Timestamp)
@@ -325,15 +306,4 @@ instance ProtoToJSON WorkflowRule where
       ]
 
 instance ProtoFromJSON WorkflowRule where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowRuleCreatetime <- obj .:? "createTime"
-    v_workflowRuleSpec <- obj .:? "spec"
-    v_workflowRuleCreatedbyidentity <- obj .:? "createdByIdentity"
-    v_workflowRuleDescription <- obj .:? "description"
-    pure (WorkflowRule {
-       workflowRuleCreatetime = v_workflowRuleCreatetime
-      , workflowRuleSpec = v_workflowRuleSpec
-      , workflowRuleCreatedbyidentity = v_workflowRuleCreatedbyidentity
-      , workflowRuleDescription = v_workflowRuleDescription
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowRule

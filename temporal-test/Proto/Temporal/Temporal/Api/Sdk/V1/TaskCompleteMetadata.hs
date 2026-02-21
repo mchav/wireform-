@@ -54,15 +54,15 @@ defaultWorkflowTaskCompletedMetadata = WorkflowTaskCompletedMetadata
 
 instance MessageEncode WorkflowTaskCompletedMetadata where
   buildMessage msg =
-    encodePackedVarint 1 msg.workflowTaskCompletedMetadataCoreusedflags
-    <> encodePackedVarint 2 msg.workflowTaskCompletedMetadataLangusedflags
+    encodePackedVarint 1 (VU.map fromIntegral msg.workflowTaskCompletedMetadataCoreusedflags)
+    <> encodePackedVarint 2 (VU.map fromIntegral msg.workflowTaskCompletedMetadataLangusedflags)
     <> (if msg.workflowTaskCompletedMetadataSdkname == T.empty then mempty else encodeFieldString 3 msg.workflowTaskCompletedMetadataSdkname)
     <> (if msg.workflowTaskCompletedMetadataSdkversion == T.empty then mempty else encodeFieldString 4 msg.workflowTaskCompletedMetadataSdkversion)
 
 instance MessageSize WorkflowTaskCompletedMetadata where
   messageSize msg =
-    (sizeRepeated 1 msg.workflowTaskCompletedMetadataCoreusedflags)
-    + (sizeRepeated 2 msg.workflowTaskCompletedMetadataLangusedflags)
+    0 {- TODO: repeated size -}
+    + 0 {- TODO: repeated size -}
     + (if msg.workflowTaskCompletedMetadataSdkname == T.empty then 0 else fieldTextSize 3 msg.workflowTaskCompletedMetadataSdkname)
     + (if msg.workflowTaskCompletedMetadataSdkversion == T.empty then 0 else fieldTextSize 4 msg.workflowTaskCompletedMetadataSdkversion)
 
@@ -76,10 +76,10 @@ instance MessageDecode WorkflowTaskCompletedMetadata where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- fromIntegral <$> decodeFieldVarint
-              loop (acc_0 <> V.singleton v) acc_1 acc_2 acc_3
+              loop (acc_0 <> VU.singleton v) acc_1 acc_2 acc_3
             2 -> do
               v <- fromIntegral <$> decodeFieldVarint
-              loop acc_0 (acc_1 <> V.singleton v) acc_2 acc_3
+              loop acc_0 (acc_1 <> VU.singleton v) acc_2 acc_3
             3 -> do
               v <- decodeFieldString
               loop acc_0 acc_1 v acc_3
@@ -97,15 +97,4 @@ instance ProtoToJSON WorkflowTaskCompletedMetadata where
       ]
 
 instance ProtoFromJSON WorkflowTaskCompletedMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowTaskCompletedMetadataCoreusedflags <- obj .:? "coreUsedFlags"
-    v_workflowTaskCompletedMetadataLangusedflags <- obj .:? "langUsedFlags"
-    v_workflowTaskCompletedMetadataSdkname <- obj .:? "sdkName"
-    v_workflowTaskCompletedMetadataSdkversion <- obj .:? "sdkVersion"
-    pure (WorkflowTaskCompletedMetadata {
-       workflowTaskCompletedMetadataCoreusedflags = v_workflowTaskCompletedMetadataCoreusedflags
-      , workflowTaskCompletedMetadataLangusedflags = v_workflowTaskCompletedMetadataLangusedflags
-      , workflowTaskCompletedMetadataSdkname = v_workflowTaskCompletedMetadataSdkname
-      , workflowTaskCompletedMetadataSdkversion = v_workflowTaskCompletedMetadataSdkversion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowTaskCompletedMetadata

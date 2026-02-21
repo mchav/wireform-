@@ -81,14 +81,7 @@ instance ProtoToJSON WorkflowMetadata where
       ]
 
 instance ProtoFromJSON WorkflowMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowMetadataDefinition <- obj .:? "definition"
-    v_workflowMetadataCurrentdetails <- obj .:? "currentDetails"
-    pure (WorkflowMetadata {
-       workflowMetadataDefinition = v_workflowMetadataDefinition
-      , workflowMetadataCurrentdetails = v_workflowMetadataCurrentdetails
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowMetadata
 
 data WorkflowDefinition = WorkflowDefinition
   { workflowDefinitionType :: !Text
@@ -152,18 +145,7 @@ instance ProtoToJSON WorkflowDefinition where
       ]
 
 instance ProtoFromJSON WorkflowDefinition where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowDefinitionType <- obj .:? "type"
-    v_workflowDefinitionQuerydefinitions <- obj .:? "queryDefinitions"
-    v_workflowDefinitionSignaldefinitions <- obj .:? "signalDefinitions"
-    v_workflowDefinitionUpdatedefinitions <- obj .:? "updateDefinitions"
-    pure (WorkflowDefinition {
-       workflowDefinitionType = v_workflowDefinitionType
-      , workflowDefinitionQuerydefinitions = v_workflowDefinitionQuerydefinitions
-      , workflowDefinitionSignaldefinitions = v_workflowDefinitionSignaldefinitions
-      , workflowDefinitionUpdatedefinitions = v_workflowDefinitionUpdatedefinitions
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowDefinition
 
 data WorkflowInteractionDefinition = WorkflowInteractionDefinition
   { workflowInteractionDefinitionName :: !Text
@@ -211,11 +193,4 @@ instance ProtoToJSON WorkflowInteractionDefinition where
       ]
 
 instance ProtoFromJSON WorkflowInteractionDefinition where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowInteractionDefinitionName <- obj .:? "name"
-    v_workflowInteractionDefinitionDescription <- obj .:? "description"
-    pure (WorkflowInteractionDefinition {
-       workflowInteractionDefinitionName = v_workflowInteractionDefinitionName
-      , workflowInteractionDefinitionDescription = v_workflowInteractionDefinitionDescription
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowInteractionDefinition

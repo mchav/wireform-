@@ -33,9 +33,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Header, Payloads, WorkflowExecution)
-import Proto.Temporal.Temporal.Api.Enums.V1.Update (UpdateWorkflowExecutionLifecycleStage)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (Acceptance, Input, Meta, Outcome, Rejection, Request, Response, UpdateRef, WaitPolicy)
+import Proto.Temporal.Temporal.Api.Enums.V1.Update hiding (Acceptance, Input, Meta, Outcome, Rejection, Request, Response, UpdateRef, WaitPolicy)
+import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (Acceptance, Input, Meta, Outcome, Rejection, Request, Response, UpdateRef, WaitPolicy)
 
 
 data WaitPolicy = WaitPolicy
@@ -77,12 +77,7 @@ instance ProtoToJSON WaitPolicy where
       ]
 
 instance ProtoFromJSON WaitPolicy where
-  protoFromJSON (JsonObject obj) = do
-    v_waitPolicyLifecyclestage <- obj .:? "lifecycleStage"
-    pure (WaitPolicy {
-       waitPolicyLifecyclestage = v_waitPolicyLifecyclestage
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWaitPolicy
 
 data UpdateRef = UpdateRef
   { updateRefWorkflowexecution :: !(Maybe WorkflowExecution)
@@ -130,14 +125,7 @@ instance ProtoToJSON UpdateRef where
       ]
 
 instance ProtoFromJSON UpdateRef where
-  protoFromJSON (JsonObject obj) = do
-    v_updateRefWorkflowexecution <- obj .:? "workflowExecution"
-    v_updateRefUpdateid <- obj .:? "updateId"
-    pure (UpdateRef {
-       updateRefWorkflowexecution = v_updateRefWorkflowexecution
-      , updateRefUpdateid = v_updateRefUpdateid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultUpdateRef
 
 data Outcome = Outcome
   { outcomeValue :: !(Maybe Outcome'Value)
@@ -145,10 +133,14 @@ data Outcome = Outcome
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data Outcome'Value
-  = Outcome'Success !Payloads
-  | Outcome'Failure !Failure
+  = Outcome'Value'Success !Payloads
+  | Outcome'Value'Failure !Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Outcome'Value where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Outcome'Value where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultOutcome :: Outcome
 defaultOutcome = Outcome
@@ -159,13 +151,13 @@ instance MessageEncode Outcome where
   buildMessage msg =
     (case msg.outcomeValue of
       Nothing -> mempty
-      Just (Outcome'Success v) -> encodeFieldMessage 1 v
-      Just (Outcome'Failure v) -> encodeFieldMessage 2 v)
+      Just (Outcome'Value'Success v) -> encodeFieldMessage 1 v
+      Just (Outcome'Value'Failure v) -> encodeFieldMessage 2 v)
 
 instance MessageSize Outcome where
   messageSize msg =
-    (case msg.outcomeValue of { Nothing -> 0; Just (Outcome'Success v) -> fieldMessageSize 1 (messageSize v)
-    ; Just (Outcome'Failure v) -> fieldMessageSize 2 (messageSize v) })
+    (case msg.outcomeValue of { Nothing -> 0; Just (Outcome'Value'Success v) -> fieldMessageSize 1 (messageSize v)
+    ; Just (Outcome'Value'Failure v) -> fieldMessageSize 2 (messageSize v) })
 
 instance MessageDecode Outcome where
   messageDecoder = loop Nothing
@@ -177,10 +169,10 @@ instance MessageDecode Outcome where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (Outcome'Success v))
+              loop (Just (Outcome'Value'Success v))
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (Outcome'Failure v))
+              loop (Just (Outcome'Value'Failure v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON Outcome where
@@ -190,12 +182,7 @@ instance ProtoToJSON Outcome where
       ]
 
 instance ProtoFromJSON Outcome where
-  protoFromJSON (JsonObject obj) = do
-    v_outcomeValue <- obj .:? "value"
-    pure (Outcome {
-       outcomeValue = v_outcomeValue
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultOutcome
 
 data Meta = Meta
   { metaUpdateid :: !Text
@@ -243,14 +230,7 @@ instance ProtoToJSON Meta where
       ]
 
 instance ProtoFromJSON Meta where
-  protoFromJSON (JsonObject obj) = do
-    v_metaUpdateid <- obj .:? "updateId"
-    v_metaIdentity <- obj .:? "identity"
-    pure (Meta {
-       metaUpdateid = v_metaUpdateid
-      , metaIdentity = v_metaIdentity
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultMeta
 
 data Input = Input
   { inputHeader :: !(Maybe Header)
@@ -306,16 +286,7 @@ instance ProtoToJSON Input where
       ]
 
 instance ProtoFromJSON Input where
-  protoFromJSON (JsonObject obj) = do
-    v_inputHeader <- obj .:? "header"
-    v_inputName <- obj .:? "name"
-    v_inputArgs <- obj .:? "args"
-    pure (Input {
-       inputHeader = v_inputHeader
-      , inputName = v_inputName
-      , inputArgs = v_inputArgs
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultInput
 
 data Request = Request
   { requestMeta :: !(Maybe Meta)
@@ -363,14 +334,7 @@ instance ProtoToJSON Request where
       ]
 
 instance ProtoFromJSON Request where
-  protoFromJSON (JsonObject obj) = do
-    v_requestMeta <- obj .:? "meta"
-    v_requestInput <- obj .:? "input"
-    pure (Request {
-       requestMeta = v_requestMeta
-      , requestInput = v_requestInput
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRequest
 
 data Rejection = Rejection
   { rejectionRejectedrequestmessageid :: !Text
@@ -434,18 +398,7 @@ instance ProtoToJSON Rejection where
       ]
 
 instance ProtoFromJSON Rejection where
-  protoFromJSON (JsonObject obj) = do
-    v_rejectionRejectedrequestmessageid <- obj .:? "rejectedRequestMessageId"
-    v_rejectionRejectedrequestsequencingeventid <- obj .:? "rejectedRequestSequencingEventId"
-    v_rejectionRejectedrequest <- obj .:? "rejectedRequest"
-    v_rejectionFailure <- obj .:? "failure"
-    pure (Rejection {
-       rejectionRejectedrequestmessageid = v_rejectionRejectedrequestmessageid
-      , rejectionRejectedrequestsequencingeventid = v_rejectionRejectedrequestsequencingeventid
-      , rejectionRejectedrequest = v_rejectionRejectedrequest
-      , rejectionFailure = v_rejectionFailure
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRejection
 
 data Acceptance = Acceptance
   { acceptanceAcceptedrequestmessageid :: !Text
@@ -501,16 +454,7 @@ instance ProtoToJSON Acceptance where
       ]
 
 instance ProtoFromJSON Acceptance where
-  protoFromJSON (JsonObject obj) = do
-    v_acceptanceAcceptedrequestmessageid <- obj .:? "acceptedRequestMessageId"
-    v_acceptanceAcceptedrequestsequencingeventid <- obj .:? "acceptedRequestSequencingEventId"
-    v_acceptanceAcceptedrequest <- obj .:? "acceptedRequest"
-    pure (Acceptance {
-       acceptanceAcceptedrequestmessageid = v_acceptanceAcceptedrequestmessageid
-      , acceptanceAcceptedrequestsequencingeventid = v_acceptanceAcceptedrequestsequencingeventid
-      , acceptanceAcceptedrequest = v_acceptanceAcceptedrequest
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultAcceptance
 
 data Response = Response
   { responseMeta :: !(Maybe Meta)
@@ -558,11 +502,4 @@ instance ProtoToJSON Response where
       ]
 
 instance ProtoFromJSON Response where
-  protoFromJSON (JsonObject obj) = do
-    v_responseMeta <- obj .:? "meta"
-    v_responseOutcome <- obj .:? "outcome"
-    pure (Response {
-       responseMeta = v_responseMeta
-      , responseOutcome = v_responseOutcome
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultResponse

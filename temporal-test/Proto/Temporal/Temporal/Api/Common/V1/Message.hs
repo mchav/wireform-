@@ -33,11 +33,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Google.Protobuf.Empty (Empty)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (EncodingType)
-import Proto.Temporal.Temporal.Api.Enums.V1.EventType (EventType)
-import Proto.Temporal.Temporal.Api.Enums.V1.Reset (ResetReapplyExcludeType, ResetReapplyType)
+import Proto.Google.Protobuf.Duration hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
+import Proto.Google.Protobuf.Empty hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
+import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
+import Proto.Temporal.Temporal.Api.Enums.V1.EventType hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
+import Proto.Temporal.Temporal.Api.Enums.V1.Reset hiding (ActivityType, Callback, Callback'Internal, Callback'Nexus, DataBlob, Header, Link, Link'BatchJob, Link'WorkflowEvent, Link'WorkflowEvent'EventReference, Link'WorkflowEvent'RequestIdReference, Memo, MeteringMetadata, Payload, Payload'ExternalPayloadDetails, Payloads, Priority, ResetOptions, RetryPolicy, SearchAttributes, WorkerSelector, WorkerVersionCapabilities, WorkerVersionStamp, WorkflowExecution, WorkflowType)
 
 
 data DataBlob = DataBlob
@@ -86,14 +86,7 @@ instance ProtoToJSON DataBlob where
       ]
 
 instance ProtoFromJSON DataBlob where
-  protoFromJSON (JsonObject obj) = do
-    v_dataBlobEncodingtype <- obj .:? "encodingType"
-    v_dataBlobData <- obj .:? "data"
-    pure (DataBlob {
-       dataBlobEncodingtype = v_dataBlobEncodingtype
-      , dataBlobData = v_dataBlobData
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDataBlob
 
 data Payloads = Payloads
   { payloadsPayloads :: !(V.Vector Payload)
@@ -134,39 +127,34 @@ instance ProtoToJSON Payloads where
       ]
 
 instance ProtoFromJSON Payloads where
-  protoFromJSON (JsonObject obj) = do
-    v_payloadsPayloads <- obj .:? "payloads"
-    pure (Payloads {
-       payloadsPayloads = v_payloadsPayloads
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPayloads
 
 data Payload = Payload
   { payloadMetadata :: !(Map.Map Text ByteString)
   , payloadData :: !ByteString
-  , payloadExternalpayloads :: !(V.Vector ExternalPayloadDetails)
+  , payloadExternalpayloads :: !(V.Vector Payload'ExternalPayloadDetails)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data Payload'ExternalPayloadDetails = Payload'ExternalPayloadDetails
-  { payloadSizebytes :: {-# UNPACK #-} !Int64
+  { payloadExternalPayloadDetailsSizebytes :: {-# UNPACK #-} !Int64
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPayload'ExternalPayloadDetails :: Payload'ExternalPayloadDetails
 defaultPayload'ExternalPayloadDetails = Payload'ExternalPayloadDetails
-  { payloadSizebytes = 0
+  { payloadExternalPayloadDetailsSizebytes = 0
   }
 
 instance MessageEncode Payload'ExternalPayloadDetails where
   buildMessage msg =
-    (if msg.payloadSizebytes == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.payloadSizebytes))
+    (if msg.payloadExternalPayloadDetailsSizebytes == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.payloadExternalPayloadDetailsSizebytes))
 
 instance MessageSize Payload'ExternalPayloadDetails where
   messageSize msg =
-    (if msg.payloadSizebytes == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.payloadSizebytes))
+    (if msg.payloadExternalPayloadDetailsSizebytes == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.payloadExternalPayloadDetailsSizebytes))
 
 instance MessageDecode Payload'ExternalPayloadDetails where
   messageDecoder = loop 0
@@ -174,7 +162,7 @@ instance MessageDecode Payload'ExternalPayloadDetails where
       loop acc_0 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (Payload'ExternalPayloadDetails {payloadSizebytes = acc_0})
+          Nothing -> pure (Payload'ExternalPayloadDetails {payloadExternalPayloadDetailsSizebytes = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- fromIntegral <$> decodeFieldVarint
@@ -183,17 +171,12 @@ instance MessageDecode Payload'ExternalPayloadDetails where
 
 instance ProtoToJSON Payload'ExternalPayloadDetails where
   protoToJSON msg = jsonObject
-      [ "sizeBytes" .= msg.payloadSizebytes
+      [ "sizeBytes" .= msg.payloadExternalPayloadDetailsSizebytes
 
       ]
 
 instance ProtoFromJSON Payload'ExternalPayloadDetails where
-  protoFromJSON (JsonObject obj) = do
-    v_payloadSizebytes <- obj .:? "sizeBytes"
-    pure (Payload'ExternalPayloadDetails {
-       payloadSizebytes = v_payloadSizebytes
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPayload'ExternalPayloadDetails
 
 defaultPayload :: Payload
 defaultPayload = Payload
@@ -223,20 +206,11 @@ instance MessageDecode Payload where
           Nothing -> pure (Payload {payloadMetadata = acc_0, payloadData = acc_1, payloadExternalpayloads = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldBytes; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldBytes "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v)) acc_1 acc_2
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_1 acc_2
             2 -> do
               v <- decodeFieldBytes
               loop acc_0 v acc_2
@@ -253,16 +227,7 @@ instance ProtoToJSON Payload where
       ]
 
 instance ProtoFromJSON Payload where
-  protoFromJSON (JsonObject obj) = do
-    v_payloadMetadata <- obj .:? "metadata"
-    v_payloadData <- obj .:? "data"
-    v_payloadExternalpayloads <- obj .:? "externalPayloads"
-    pure (Payload {
-       payloadMetadata = v_payloadMetadata
-      , payloadData = v_payloadData
-      , payloadExternalpayloads = v_payloadExternalpayloads
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPayload
 
 data SearchAttributes = SearchAttributes
   { searchAttributesIndexedfields :: !(Map.Map Text Payload)
@@ -292,20 +257,11 @@ instance MessageDecode SearchAttributes where
           Nothing -> pure (SearchAttributes {searchAttributesIndexedfields = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v))
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON SearchAttributes where
@@ -315,12 +271,7 @@ instance ProtoToJSON SearchAttributes where
       ]
 
 instance ProtoFromJSON SearchAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_searchAttributesIndexedfields <- obj .:? "indexedFields"
-    pure (SearchAttributes {
-       searchAttributesIndexedfields = v_searchAttributesIndexedfields
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultSearchAttributes
 
 data Memo = Memo
   { memoFields :: !(Map.Map Text Payload)
@@ -350,20 +301,11 @@ instance MessageDecode Memo where
           Nothing -> pure (Memo {memoFields = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v))
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON Memo where
@@ -373,12 +315,7 @@ instance ProtoToJSON Memo where
       ]
 
 instance ProtoFromJSON Memo where
-  protoFromJSON (JsonObject obj) = do
-    v_memoFields <- obj .:? "fields"
-    pure (Memo {
-       memoFields = v_memoFields
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultMemo
 
 data Header = Header
   { headerFields :: !(Map.Map Text Payload)
@@ -408,20 +345,11 @@ instance MessageDecode Header where
           Nothing -> pure (Header {headerFields = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v))
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON Header where
@@ -431,12 +359,7 @@ instance ProtoToJSON Header where
       ]
 
 instance ProtoFromJSON Header where
-  protoFromJSON (JsonObject obj) = do
-    v_headerFields <- obj .:? "fields"
-    pure (Header {
-       headerFields = v_headerFields
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultHeader
 
 data WorkflowExecution = WorkflowExecution
   { workflowExecutionWorkflowid :: !Text
@@ -484,14 +407,7 @@ instance ProtoToJSON WorkflowExecution where
       ]
 
 instance ProtoFromJSON WorkflowExecution where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionWorkflowid <- obj .:? "workflowId"
-    v_workflowExecutionRunid <- obj .:? "runId"
-    pure (WorkflowExecution {
-       workflowExecutionWorkflowid = v_workflowExecutionWorkflowid
-      , workflowExecutionRunid = v_workflowExecutionRunid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecution
 
 data WorkflowType = WorkflowType
   { workflowTypeName :: !Text
@@ -532,12 +448,7 @@ instance ProtoToJSON WorkflowType where
       ]
 
 instance ProtoFromJSON WorkflowType where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowTypeName <- obj .:? "name"
-    pure (WorkflowType {
-       workflowTypeName = v_workflowTypeName
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowType
 
 data ActivityType = ActivityType
   { activityTypeName :: !Text
@@ -578,12 +489,7 @@ instance ProtoToJSON ActivityType where
       ]
 
 instance ProtoFromJSON ActivityType where
-  protoFromJSON (JsonObject obj) = do
-    v_activityTypeName <- obj .:? "name"
-    pure (ActivityType {
-       activityTypeName = v_activityTypeName
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultActivityType
 
 data RetryPolicy = RetryPolicy
   { retryPolicyInitialinterval :: !(Maybe Duration)
@@ -618,7 +524,7 @@ instance MessageSize RetryPolicy where
     + (if msg.retryPolicyBackoffcoefficient == 0 then 0 else fieldDoubleSize 2)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.retryPolicyMaximuminterval)
     + (if msg.retryPolicyMaximumattempts == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.retryPolicyMaximumattempts))
-    + (sizeRepeated 5 msg.retryPolicyNonretryableerrortypes)
+    + 0 {- TODO: repeated size -}
 
 instance MessageDecode RetryPolicy where
   messageDecoder = loop Nothing 0 Nothing 0 V.empty
@@ -655,20 +561,7 @@ instance ProtoToJSON RetryPolicy where
       ]
 
 instance ProtoFromJSON RetryPolicy where
-  protoFromJSON (JsonObject obj) = do
-    v_retryPolicyInitialinterval <- obj .:? "initialInterval"
-    v_retryPolicyBackoffcoefficient <- obj .:? "backoffCoefficient"
-    v_retryPolicyMaximuminterval <- obj .:? "maximumInterval"
-    v_retryPolicyMaximumattempts <- obj .:? "maximumAttempts"
-    v_retryPolicyNonretryableerrortypes <- obj .:? "nonRetryableErrorTypes"
-    pure (RetryPolicy {
-       retryPolicyInitialinterval = v_retryPolicyInitialinterval
-      , retryPolicyBackoffcoefficient = v_retryPolicyBackoffcoefficient
-      , retryPolicyMaximuminterval = v_retryPolicyMaximuminterval
-      , retryPolicyMaximumattempts = v_retryPolicyMaximumattempts
-      , retryPolicyNonretryableerrortypes = v_retryPolicyNonretryableerrortypes
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRetryPolicy
 
 data MeteringMetadata = MeteringMetadata
   { meteringMetadataNonfirstlocalactivityexecutionattempts :: {-# UNPACK #-} !Word32
@@ -709,12 +602,7 @@ instance ProtoToJSON MeteringMetadata where
       ]
 
 instance ProtoFromJSON MeteringMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_meteringMetadataNonfirstlocalactivityexecutionattempts <- obj .:? "nonfirstLocalActivityExecutionAttempts"
-    pure (MeteringMetadata {
-       meteringMetadataNonfirstlocalactivityexecutionattempts = v_meteringMetadataNonfirstlocalactivityexecutionattempts
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultMeteringMetadata
 
 data WorkerVersionStamp = WorkerVersionStamp
   { workerVersionStampBuildid :: !Text
@@ -762,14 +650,7 @@ instance ProtoToJSON WorkerVersionStamp where
       ]
 
 instance ProtoFromJSON WorkerVersionStamp where
-  protoFromJSON (JsonObject obj) = do
-    v_workerVersionStampBuildid <- obj .:? "buildId"
-    v_workerVersionStampUseversioning <- obj .:? "useVersioning"
-    pure (WorkerVersionStamp {
-       workerVersionStampBuildid = v_workerVersionStampBuildid
-      , workerVersionStampUseversioning = v_workerVersionStampUseversioning
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerVersionStamp
 
 data WorkerVersionCapabilities = WorkerVersionCapabilities
   { workerVersionCapabilitiesBuildid :: !Text
@@ -825,16 +706,7 @@ instance ProtoToJSON WorkerVersionCapabilities where
       ]
 
 instance ProtoFromJSON WorkerVersionCapabilities where
-  protoFromJSON (JsonObject obj) = do
-    v_workerVersionCapabilitiesBuildid <- obj .:? "buildId"
-    v_workerVersionCapabilitiesUseversioning <- obj .:? "useVersioning"
-    v_workerVersionCapabilitiesDeploymentseriesname <- obj .:? "deploymentSeriesName"
-    pure (WorkerVersionCapabilities {
-       workerVersionCapabilitiesBuildid = v_workerVersionCapabilitiesBuildid
-      , workerVersionCapabilitiesUseversioning = v_workerVersionCapabilitiesUseversioning
-      , workerVersionCapabilitiesDeploymentseriesname = v_workerVersionCapabilitiesDeploymentseriesname
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerVersionCapabilities
 
 data ResetOptions = ResetOptions
   { resetOptionsTarget :: !(Maybe ResetOptions'Target)
@@ -845,12 +717,16 @@ data ResetOptions = ResetOptions
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data ResetOptions'Target
-  = ResetOptions'FirstWorkflowTask !Empty
-  | ResetOptions'LastWorkflowTask !Empty
-  | ResetOptions'WorkflowTaskId {-# UNPACK #-} !Int64
-  | ResetOptions'BuildId !Text
+  = ResetOptions'Target'FirstWorkflowTask !Empty
+  | ResetOptions'Target'LastWorkflowTask !Empty
+  | ResetOptions'Target'WorkflowTaskId {-# UNPACK #-} !Int64
+  | ResetOptions'Target'BuildId !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON ResetOptions'Target where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON ResetOptions'Target where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultResetOptions :: ResetOptions
 defaultResetOptions = ResetOptions
@@ -864,20 +740,20 @@ instance MessageEncode ResetOptions where
   buildMessage msg =
     (case msg.resetOptionsTarget of
       Nothing -> mempty
-      Just (ResetOptions'FirstWorkflowTask v) -> encodeFieldMessage 1 v
-      Just (ResetOptions'LastWorkflowTask v) -> encodeFieldMessage 2 v
-      Just (ResetOptions'WorkflowTaskId v) -> encodeFieldVarint 3 (fromIntegral v)
-      Just (ResetOptions'BuildId v) -> encodeFieldString 4 v)
+      Just (ResetOptions'Target'FirstWorkflowTask v) -> encodeFieldMessage 1 v
+      Just (ResetOptions'Target'LastWorkflowTask v) -> encodeFieldMessage 2 v
+      Just (ResetOptions'Target'WorkflowTaskId v) -> encodeFieldVarint 3 (fromIntegral v)
+      Just (ResetOptions'Target'BuildId v) -> encodeFieldString 4 v)
     <> (if fromEnum msg.resetOptionsResetreapplytype == 0 then mempty else encodeFieldVarint 10 (fromIntegral (fromEnum msg.resetOptionsResetreapplytype)))
     <> (if msg.resetOptionsCurrentrunonly == False then mempty else encodeFieldBool 11 msg.resetOptionsCurrentrunonly)
     <> V.foldl' (\acc v -> acc <> encodeFieldVarint 12 (fromIntegral (fromEnum v))) mempty msg.resetOptionsResetreapplyexcludetypes
 
 instance MessageSize ResetOptions where
   messageSize msg =
-    (case msg.resetOptionsTarget of { Nothing -> 0; Just (ResetOptions'FirstWorkflowTask v) -> fieldMessageSize 1 (messageSize v)
-    ; Just (ResetOptions'LastWorkflowTask v) -> fieldMessageSize 2 (messageSize v)
-    ; Just (ResetOptions'WorkflowTaskId v) -> fieldVarintSize 3 (fromIntegral v)
-    ; Just (ResetOptions'BuildId v) -> fieldTextSize 4 v })
+    (case msg.resetOptionsTarget of { Nothing -> 0; Just (ResetOptions'Target'FirstWorkflowTask v) -> fieldMessageSize 1 (messageSize v)
+    ; Just (ResetOptions'Target'LastWorkflowTask v) -> fieldMessageSize 2 (messageSize v)
+    ; Just (ResetOptions'Target'WorkflowTaskId v) -> fieldVarintSize 3 (fromIntegral v)
+    ; Just (ResetOptions'Target'BuildId v) -> fieldTextSize 4 v })
     + (if fromEnum msg.resetOptionsResetreapplytype == 0 then 0 else fieldVarintSize 10 (fromIntegral (fromEnum msg.resetOptionsResetreapplytype)))
     + (if msg.resetOptionsCurrentrunonly == False then 0 else fieldBoolSize 11)
     + (V.foldl' (\acc v -> acc + fieldVarintSize 12 (fromIntegral (fromEnum v))) 0 msg.resetOptionsResetreapplyexcludetypes)
@@ -892,16 +768,16 @@ instance MessageDecode ResetOptions where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (ResetOptions'FirstWorkflowTask v)) acc_1 acc_2 acc_3
+              loop (Just (ResetOptions'Target'FirstWorkflowTask v)) acc_1 acc_2 acc_3
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (ResetOptions'LastWorkflowTask v)) acc_1 acc_2 acc_3
+              loop (Just (ResetOptions'Target'LastWorkflowTask v)) acc_1 acc_2 acc_3
             3 -> do
               v <- fromIntegral <$> decodeFieldVarint
-              loop (Just (ResetOptions'WorkflowTaskId v)) acc_1 acc_2 acc_3
+              loop (Just (ResetOptions'Target'WorkflowTaskId v)) acc_1 acc_2 acc_3
             4 -> do
               v <- decodeFieldString
-              loop (Just (ResetOptions'BuildId v)) acc_1 acc_2 acc_3
+              loop (Just (ResetOptions'Target'BuildId v)) acc_1 acc_2 acc_3
             10 -> do
               v <- decodeFieldEnum
               loop acc_0 v acc_2 acc_3
@@ -922,18 +798,7 @@ instance ProtoToJSON ResetOptions where
       ]
 
 instance ProtoFromJSON ResetOptions where
-  protoFromJSON (JsonObject obj) = do
-    v_resetOptionsTarget <- obj .:? "target"
-    v_resetOptionsResetreapplytype <- obj .:? "resetReapplyType"
-    v_resetOptionsCurrentrunonly <- obj .:? "currentRunOnly"
-    v_resetOptionsResetreapplyexcludetypes <- obj .:? "resetReapplyExcludeTypes"
-    pure (ResetOptions {
-       resetOptionsTarget = v_resetOptionsTarget
-      , resetOptionsResetreapplytype = v_resetOptionsResetreapplytype
-      , resetOptionsCurrentrunonly = v_resetOptionsCurrentrunonly
-      , resetOptionsResetreapplyexcludetypes = v_resetOptionsResetreapplyexcludetypes
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultResetOptions
 
 data Callback = Callback
   { callbackVariant :: !(Maybe Callback'Variant)
@@ -943,27 +808,27 @@ data Callback = Callback
   deriving anyclass NFData
 
 data Callback'Nexus = Callback'Nexus
-  { callbackUrl :: !Text
-  , callbackHeader :: !(Map.Map Text Text)
+  { callbackNexusUrl :: !Text
+  , callbackNexusHeader :: !(Map.Map Text Text)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultCallback'Nexus :: Callback'Nexus
 defaultCallback'Nexus = Callback'Nexus
-  { callbackUrl = ""
-  , callbackHeader = Map.empty
+  { callbackNexusUrl = ""
+  , callbackNexusHeader = Map.empty
   }
 
 instance MessageEncode Callback'Nexus where
   buildMessage msg =
-    (if msg.callbackUrl == T.empty then mempty else encodeFieldString 1 msg.callbackUrl)
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.callbackHeader
+    (if msg.callbackNexusUrl == T.empty then mempty else encodeFieldString 1 msg.callbackNexusUrl)
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.callbackNexusHeader
 
 instance MessageSize Callback'Nexus where
   messageSize msg =
-    (if msg.callbackUrl == T.empty then 0 else fieldTextSize 1 msg.callbackUrl)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 2 + 20) 0 msg.callbackHeader)
+    (if msg.callbackNexusUrl == T.empty then 0 else fieldTextSize 1 msg.callbackNexusUrl)
+    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 2 + 20) 0 msg.callbackNexusHeader)
 
 instance MessageDecode Callback'Nexus where
   messageDecoder = loop "" Map.empty
@@ -971,62 +836,46 @@ instance MessageDecode Callback'Nexus where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (Callback'Nexus {callbackUrl = acc_0, callbackHeader = acc_1})
+          Nothing -> pure (Callback'Nexus {callbackNexusUrl = acc_0, callbackNexusHeader = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
               loop v acc_1
             2 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1
-                Right (k, v) -> loop acc_0 (Map.union acc_1 (Map.singleton k v))
+                Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1
 
 instance ProtoToJSON Callback'Nexus where
   protoToJSON msg = jsonObject
-      [ "url" .= msg.callbackUrl
-      , "header" .= msg.callbackHeader
+      [ "url" .= msg.callbackNexusUrl
+      , "header" .= msg.callbackNexusHeader
       ]
 
 instance ProtoFromJSON Callback'Nexus where
-  protoFromJSON (JsonObject obj) = do
-    v_callbackUrl <- obj .:? "url"
-    v_callbackHeader <- obj .:? "header"
-    pure (Callback'Nexus {
-       callbackUrl = v_callbackUrl
-      , callbackHeader = v_callbackHeader
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCallback'Nexus
 
 data Callback'Internal = Callback'Internal
-  { callbackData :: !ByteString
+  { callbackInternalData :: !ByteString
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultCallback'Internal :: Callback'Internal
 defaultCallback'Internal = Callback'Internal
-  { callbackData = ""
+  { callbackInternalData = ""
   }
 
 instance MessageEncode Callback'Internal where
   buildMessage msg =
-    (if BS.null msg.callbackData then mempty else encodeFieldBytes 1 msg.callbackData)
+    (if BS.null msg.callbackInternalData then mempty else encodeFieldBytes 1 msg.callbackInternalData)
 
 instance MessageSize Callback'Internal where
   messageSize msg =
-    (if BS.null msg.callbackData then 0 else fieldBytesSize 1 msg.callbackData)
+    (if BS.null msg.callbackInternalData then 0 else fieldBytesSize 1 msg.callbackInternalData)
 
 instance MessageDecode Callback'Internal where
   messageDecoder = loop ""
@@ -1034,7 +883,7 @@ instance MessageDecode Callback'Internal where
       loop acc_0 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (Callback'Internal {callbackData = acc_0})
+          Nothing -> pure (Callback'Internal {callbackInternalData = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBytes
@@ -1043,22 +892,21 @@ instance MessageDecode Callback'Internal where
 
 instance ProtoToJSON Callback'Internal where
   protoToJSON msg = jsonObject
-      [ "data" .= msg.callbackData
+      [ "data" .= msg.callbackInternalData
 
       ]
 
 instance ProtoFromJSON Callback'Internal where
-  protoFromJSON (JsonObject obj) = do
-    v_callbackData <- obj .:? "data"
-    pure (Callback'Internal {
-       callbackData = v_callbackData
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCallback'Internal
 data Callback'Variant
-  = Callback'Nexus !Nexus
-  | Callback'Internal !Internal
+  = Callback'Variant'Nexus !Callback'Nexus
+  | Callback'Variant'Internal !Callback'Internal
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Callback'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Callback'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultCallback :: Callback
 defaultCallback = Callback
@@ -1070,14 +918,14 @@ instance MessageEncode Callback where
   buildMessage msg =
     (case msg.callbackVariant of
       Nothing -> mempty
-      Just (Callback'Nexus v) -> encodeFieldMessage 2 v
-      Just (Callback'Internal v) -> encodeFieldMessage 3 v)
+      Just (Callback'Variant'Nexus v) -> encodeFieldMessage 2 v
+      Just (Callback'Variant'Internal v) -> encodeFieldMessage 3 v)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 100 v) mempty msg.callbackLinks
 
 instance MessageSize Callback where
   messageSize msg =
-    (case msg.callbackVariant of { Nothing -> 0; Just (Callback'Nexus v) -> fieldMessageSize 2 (messageSize v)
-    ; Just (Callback'Internal v) -> fieldMessageSize 3 (messageSize v) })
+    (case msg.callbackVariant of { Nothing -> 0; Just (Callback'Variant'Nexus v) -> fieldMessageSize 2 (messageSize v)
+    ; Just (Callback'Variant'Internal v) -> fieldMessageSize 3 (messageSize v) })
     + (V.foldl' (\acc v -> acc + fieldMessageSize 100 (messageSize v)) 0 msg.callbackLinks)
 
 instance MessageDecode Callback where
@@ -1090,10 +938,10 @@ instance MessageDecode Callback where
           Just (Tag fn wt) -> case fn of
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (Callback'Nexus v)) acc_1
+              loop (Just (Callback'Variant'Nexus v)) acc_1
             3 -> do
               v <- decodeFieldMessage
-              loop (Just (Callback'Internal v)) acc_1
+              loop (Just (Callback'Variant'Internal v)) acc_1
             100 -> do
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
@@ -1106,14 +954,7 @@ instance ProtoToJSON Callback where
       ]
 
 instance ProtoFromJSON Callback where
-  protoFromJSON (JsonObject obj) = do
-    v_callbackVariant <- obj .:? "variant"
-    v_callbackLinks <- obj .:? "links"
-    pure (Callback {
-       callbackVariant = v_callbackVariant
-      , callbackLinks = v_callbackLinks
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCallback
 
 data Link = Link
   { linkVariant :: !(Maybe Link'Variant)
@@ -1122,36 +963,36 @@ data Link = Link
   deriving anyclass NFData
 
 data Link'WorkflowEvent = Link'WorkflowEvent
-  { linkNamespace :: !Text
-  , linkWorkflowid :: !Text
-  , linkRunid :: !Text
-  , linkReference :: !(Maybe Link'WorkflowEvent'Reference)
+  { linkWorkflowEventNamespace :: !Text
+  , linkWorkflowEventWorkflowid :: !Text
+  , linkWorkflowEventRunid :: !Text
+  , linkWorkflowEventReference :: !(Maybe Link'WorkflowEvent'Reference)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data Link'WorkflowEvent'EventReference = Link'WorkflowEvent'EventReference
-  { linkEventid :: {-# UNPACK #-} !Int64
-  , linkEventtype :: !EventType
+  { linkWorkflowEventEventReferenceEventid :: {-# UNPACK #-} !Int64
+  , linkWorkflowEventEventReferenceEventtype :: !EventType
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultLink'WorkflowEvent'EventReference :: Link'WorkflowEvent'EventReference
 defaultLink'WorkflowEvent'EventReference = Link'WorkflowEvent'EventReference
-  { linkEventid = 0
-  , linkEventtype = (toEnum 0)
+  { linkWorkflowEventEventReferenceEventid = 0
+  , linkWorkflowEventEventReferenceEventtype = (toEnum 0)
   }
 
 instance MessageEncode Link'WorkflowEvent'EventReference where
   buildMessage msg =
-    (if msg.linkEventid == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.linkEventid))
-    <> (if fromEnum msg.linkEventtype == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.linkEventtype)))
+    (if msg.linkWorkflowEventEventReferenceEventid == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.linkWorkflowEventEventReferenceEventid))
+    <> (if fromEnum msg.linkWorkflowEventEventReferenceEventtype == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.linkWorkflowEventEventReferenceEventtype)))
 
 instance MessageSize Link'WorkflowEvent'EventReference where
   messageSize msg =
-    (if msg.linkEventid == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.linkEventid))
-    + (if fromEnum msg.linkEventtype == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.linkEventtype)))
+    (if msg.linkWorkflowEventEventReferenceEventid == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.linkWorkflowEventEventReferenceEventid))
+    + (if fromEnum msg.linkWorkflowEventEventReferenceEventtype == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.linkWorkflowEventEventReferenceEventtype)))
 
 instance MessageDecode Link'WorkflowEvent'EventReference where
   messageDecoder = loop 0 (toEnum 0)
@@ -1159,7 +1000,7 @@ instance MessageDecode Link'WorkflowEvent'EventReference where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (Link'WorkflowEvent'EventReference {linkEventid = acc_0, linkEventtype = acc_1})
+          Nothing -> pure (Link'WorkflowEvent'EventReference {linkWorkflowEventEventReferenceEventid = acc_0, linkWorkflowEventEventReferenceEventtype = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- fromIntegral <$> decodeFieldVarint
@@ -1171,42 +1012,35 @@ instance MessageDecode Link'WorkflowEvent'EventReference where
 
 instance ProtoToJSON Link'WorkflowEvent'EventReference where
   protoToJSON msg = jsonObject
-      [ "eventId" .= msg.linkEventid
-      , "eventType" .= msg.linkEventtype
+      [ "eventId" .= msg.linkWorkflowEventEventReferenceEventid
+      , "eventType" .= msg.linkWorkflowEventEventReferenceEventtype
       ]
 
 instance ProtoFromJSON Link'WorkflowEvent'EventReference where
-  protoFromJSON (JsonObject obj) = do
-    v_linkEventid <- obj .:? "eventId"
-    v_linkEventtype <- obj .:? "eventType"
-    pure (Link'WorkflowEvent'EventReference {
-       linkEventid = v_linkEventid
-      , linkEventtype = v_linkEventtype
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultLink'WorkflowEvent'EventReference
 
 data Link'WorkflowEvent'RequestIdReference = Link'WorkflowEvent'RequestIdReference
-  { linkRequestid :: !Text
-  , linkEventtype :: !EventType
+  { linkWorkflowEventRequestIdReferenceRequestid :: !Text
+  , linkWorkflowEventRequestIdReferenceEventtype :: !EventType
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultLink'WorkflowEvent'RequestIdReference :: Link'WorkflowEvent'RequestIdReference
 defaultLink'WorkflowEvent'RequestIdReference = Link'WorkflowEvent'RequestIdReference
-  { linkRequestid = ""
-  , linkEventtype = (toEnum 0)
+  { linkWorkflowEventRequestIdReferenceRequestid = ""
+  , linkWorkflowEventRequestIdReferenceEventtype = (toEnum 0)
   }
 
 instance MessageEncode Link'WorkflowEvent'RequestIdReference where
   buildMessage msg =
-    (if msg.linkRequestid == T.empty then mempty else encodeFieldString 1 msg.linkRequestid)
-    <> (if fromEnum msg.linkEventtype == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.linkEventtype)))
+    (if msg.linkWorkflowEventRequestIdReferenceRequestid == T.empty then mempty else encodeFieldString 1 msg.linkWorkflowEventRequestIdReferenceRequestid)
+    <> (if fromEnum msg.linkWorkflowEventRequestIdReferenceEventtype == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.linkWorkflowEventRequestIdReferenceEventtype)))
 
 instance MessageSize Link'WorkflowEvent'RequestIdReference where
   messageSize msg =
-    (if msg.linkRequestid == T.empty then 0 else fieldTextSize 1 msg.linkRequestid)
-    + (if fromEnum msg.linkEventtype == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.linkEventtype)))
+    (if msg.linkWorkflowEventRequestIdReferenceRequestid == T.empty then 0 else fieldTextSize 1 msg.linkWorkflowEventRequestIdReferenceRequestid)
+    + (if fromEnum msg.linkWorkflowEventRequestIdReferenceEventtype == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.linkWorkflowEventRequestIdReferenceEventtype)))
 
 instance MessageDecode Link'WorkflowEvent'RequestIdReference where
   messageDecoder = loop "" (toEnum 0)
@@ -1214,7 +1048,7 @@ instance MessageDecode Link'WorkflowEvent'RequestIdReference where
       loop acc_0 acc_1 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (Link'WorkflowEvent'RequestIdReference {linkRequestid = acc_0, linkEventtype = acc_1})
+          Nothing -> pure (Link'WorkflowEvent'RequestIdReference {linkWorkflowEventRequestIdReferenceRequestid = acc_0, linkWorkflowEventRequestIdReferenceEventtype = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1226,50 +1060,47 @@ instance MessageDecode Link'WorkflowEvent'RequestIdReference where
 
 instance ProtoToJSON Link'WorkflowEvent'RequestIdReference where
   protoToJSON msg = jsonObject
-      [ "requestId" .= msg.linkRequestid
-      , "eventType" .= msg.linkEventtype
+      [ "requestId" .= msg.linkWorkflowEventRequestIdReferenceRequestid
+      , "eventType" .= msg.linkWorkflowEventRequestIdReferenceEventtype
       ]
 
 instance ProtoFromJSON Link'WorkflowEvent'RequestIdReference where
-  protoFromJSON (JsonObject obj) = do
-    v_linkRequestid <- obj .:? "requestId"
-    v_linkEventtype <- obj .:? "eventType"
-    pure (Link'WorkflowEvent'RequestIdReference {
-       linkRequestid = v_linkRequestid
-      , linkEventtype = v_linkEventtype
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultLink'WorkflowEvent'RequestIdReference
 data Link'WorkflowEvent'Reference
-  = Link'WorkflowEvent'EventRef !EventReference
-  | Link'WorkflowEvent'RequestIdRef !RequestIdReference
+  = Link'WorkflowEvent'Reference'EventRef !Link'WorkflowEvent'EventReference
+  | Link'WorkflowEvent'Reference'RequestIdRef !Link'WorkflowEvent'RequestIdReference
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Link'WorkflowEvent'Reference where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Link'WorkflowEvent'Reference where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultLink'WorkflowEvent :: Link'WorkflowEvent
 defaultLink'WorkflowEvent = Link'WorkflowEvent
-  { linkNamespace = ""
-  , linkWorkflowid = ""
-  , linkRunid = ""
-  , linkReference = Nothing
+  { linkWorkflowEventNamespace = ""
+  , linkWorkflowEventWorkflowid = ""
+  , linkWorkflowEventRunid = ""
+  , linkWorkflowEventReference = Nothing
   }
 
 instance MessageEncode Link'WorkflowEvent where
   buildMessage msg =
-    (if msg.linkNamespace == T.empty then mempty else encodeFieldString 1 msg.linkNamespace)
-    <> (if msg.linkWorkflowid == T.empty then mempty else encodeFieldString 2 msg.linkWorkflowid)
-    <> (if msg.linkRunid == T.empty then mempty else encodeFieldString 3 msg.linkRunid)
-    <> (case msg.linkReference of
+    (if msg.linkWorkflowEventNamespace == T.empty then mempty else encodeFieldString 1 msg.linkWorkflowEventNamespace)
+    <> (if msg.linkWorkflowEventWorkflowid == T.empty then mempty else encodeFieldString 2 msg.linkWorkflowEventWorkflowid)
+    <> (if msg.linkWorkflowEventRunid == T.empty then mempty else encodeFieldString 3 msg.linkWorkflowEventRunid)
+    <> (case msg.linkWorkflowEventReference of
       Nothing -> mempty
-      Just (Link'WorkflowEvent'EventRef v) -> encodeFieldMessage 100 v
-      Just (Link'WorkflowEvent'RequestIdRef v) -> encodeFieldMessage 101 v)
+      Just (Link'WorkflowEvent'Reference'EventRef v) -> encodeFieldMessage 100 v
+      Just (Link'WorkflowEvent'Reference'RequestIdRef v) -> encodeFieldMessage 101 v)
 
 instance MessageSize Link'WorkflowEvent where
   messageSize msg =
-    (if msg.linkNamespace == T.empty then 0 else fieldTextSize 1 msg.linkNamespace)
-    + (if msg.linkWorkflowid == T.empty then 0 else fieldTextSize 2 msg.linkWorkflowid)
-    + (if msg.linkRunid == T.empty then 0 else fieldTextSize 3 msg.linkRunid)
-    + (case msg.linkReference of { Nothing -> 0; Just (Link'WorkflowEvent'EventRef v) -> fieldMessageSize 100 (messageSize v)
-    ; Just (Link'WorkflowEvent'RequestIdRef v) -> fieldMessageSize 101 (messageSize v) })
+    (if msg.linkWorkflowEventNamespace == T.empty then 0 else fieldTextSize 1 msg.linkWorkflowEventNamespace)
+    + (if msg.linkWorkflowEventWorkflowid == T.empty then 0 else fieldTextSize 2 msg.linkWorkflowEventWorkflowid)
+    + (if msg.linkWorkflowEventRunid == T.empty then 0 else fieldTextSize 3 msg.linkWorkflowEventRunid)
+    + (case msg.linkWorkflowEventReference of { Nothing -> 0; Just (Link'WorkflowEvent'Reference'EventRef v) -> fieldMessageSize 100 (messageSize v)
+    ; Just (Link'WorkflowEvent'Reference'RequestIdRef v) -> fieldMessageSize 101 (messageSize v) })
 
 instance MessageDecode Link'WorkflowEvent where
   messageDecoder = loop "" "" "" Nothing
@@ -1277,7 +1108,7 @@ instance MessageDecode Link'WorkflowEvent where
       loop acc_0 acc_1 acc_2 acc_3 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (Link'WorkflowEvent {linkNamespace = acc_0, linkWorkflowid = acc_1, linkRunid = acc_2, linkReference = acc_3})
+          Nothing -> pure (Link'WorkflowEvent {linkWorkflowEventNamespace = acc_0, linkWorkflowEventWorkflowid = acc_1, linkWorkflowEventRunid = acc_2, linkWorkflowEventReference = acc_3})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1290,52 +1121,41 @@ instance MessageDecode Link'WorkflowEvent where
               loop acc_0 acc_1 v acc_3
             100 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (Just (Link'WorkflowEvent'EventRef v))
+              loop acc_0 acc_1 acc_2 (Just (Link'WorkflowEvent'Reference'EventRef v))
             101 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 (Just (Link'WorkflowEvent'RequestIdRef v))
+              loop acc_0 acc_1 acc_2 (Just (Link'WorkflowEvent'Reference'RequestIdRef v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
 instance ProtoToJSON Link'WorkflowEvent where
   protoToJSON msg = jsonObject
-      [ "namespace" .= msg.linkNamespace
-      , "workflowId" .= msg.linkWorkflowid
-      , "runId" .= msg.linkRunid
-      , "reference" .= msg.linkReference
+      [ "namespace" .= msg.linkWorkflowEventNamespace
+      , "workflowId" .= msg.linkWorkflowEventWorkflowid
+      , "runId" .= msg.linkWorkflowEventRunid
+      , "reference" .= msg.linkWorkflowEventReference
       ]
 
 instance ProtoFromJSON Link'WorkflowEvent where
-  protoFromJSON (JsonObject obj) = do
-    v_linkNamespace <- obj .:? "namespace"
-    v_linkWorkflowid <- obj .:? "workflowId"
-    v_linkRunid <- obj .:? "runId"
-    v_linkReference <- obj .:? "reference"
-    pure (Link'WorkflowEvent {
-       linkNamespace = v_linkNamespace
-      , linkWorkflowid = v_linkWorkflowid
-      , linkRunid = v_linkRunid
-      , linkReference = v_linkReference
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultLink'WorkflowEvent
 
 data Link'BatchJob = Link'BatchJob
-  { linkJobid :: !Text
+  { linkBatchJobJobid :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultLink'BatchJob :: Link'BatchJob
 defaultLink'BatchJob = Link'BatchJob
-  { linkJobid = ""
+  { linkBatchJobJobid = ""
   }
 
 instance MessageEncode Link'BatchJob where
   buildMessage msg =
-    (if msg.linkJobid == T.empty then mempty else encodeFieldString 1 msg.linkJobid)
+    (if msg.linkBatchJobJobid == T.empty then mempty else encodeFieldString 1 msg.linkBatchJobJobid)
 
 instance MessageSize Link'BatchJob where
   messageSize msg =
-    (if msg.linkJobid == T.empty then 0 else fieldTextSize 1 msg.linkJobid)
+    (if msg.linkBatchJobJobid == T.empty then 0 else fieldTextSize 1 msg.linkBatchJobJobid)
 
 instance MessageDecode Link'BatchJob where
   messageDecoder = loop ""
@@ -1343,7 +1163,7 @@ instance MessageDecode Link'BatchJob where
       loop acc_0 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (Link'BatchJob {linkJobid = acc_0})
+          Nothing -> pure (Link'BatchJob {linkBatchJobJobid = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1352,22 +1172,21 @@ instance MessageDecode Link'BatchJob where
 
 instance ProtoToJSON Link'BatchJob where
   protoToJSON msg = jsonObject
-      [ "jobId" .= msg.linkJobid
+      [ "jobId" .= msg.linkBatchJobJobid
 
       ]
 
 instance ProtoFromJSON Link'BatchJob where
-  protoFromJSON (JsonObject obj) = do
-    v_linkJobid <- obj .:? "jobId"
-    pure (Link'BatchJob {
-       linkJobid = v_linkJobid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultLink'BatchJob
 data Link'Variant
-  = Link'WorkflowEvent !WorkflowEvent
-  | Link'BatchJob !BatchJob
+  = Link'Variant'WorkflowEvent !Link'WorkflowEvent
+  | Link'Variant'BatchJob !Link'BatchJob
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Link'Variant where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Link'Variant where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultLink :: Link
 defaultLink = Link
@@ -1378,13 +1197,13 @@ instance MessageEncode Link where
   buildMessage msg =
     (case msg.linkVariant of
       Nothing -> mempty
-      Just (Link'WorkflowEvent v) -> encodeFieldMessage 1 v
-      Just (Link'BatchJob v) -> encodeFieldMessage 2 v)
+      Just (Link'Variant'WorkflowEvent v) -> encodeFieldMessage 1 v
+      Just (Link'Variant'BatchJob v) -> encodeFieldMessage 2 v)
 
 instance MessageSize Link where
   messageSize msg =
-    (case msg.linkVariant of { Nothing -> 0; Just (Link'WorkflowEvent v) -> fieldMessageSize 1 (messageSize v)
-    ; Just (Link'BatchJob v) -> fieldMessageSize 2 (messageSize v) })
+    (case msg.linkVariant of { Nothing -> 0; Just (Link'Variant'WorkflowEvent v) -> fieldMessageSize 1 (messageSize v)
+    ; Just (Link'Variant'BatchJob v) -> fieldMessageSize 2 (messageSize v) })
 
 instance MessageDecode Link where
   messageDecoder = loop Nothing
@@ -1396,10 +1215,10 @@ instance MessageDecode Link where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (Link'WorkflowEvent v))
+              loop (Just (Link'Variant'WorkflowEvent v))
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (Link'BatchJob v))
+              loop (Just (Link'Variant'BatchJob v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON Link where
@@ -1409,12 +1228,7 @@ instance ProtoToJSON Link where
       ]
 
 instance ProtoFromJSON Link where
-  protoFromJSON (JsonObject obj) = do
-    v_linkVariant <- obj .:? "variant"
-    pure (Link {
-       linkVariant = v_linkVariant
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultLink
 
 data Priority = Priority
   { priorityPrioritykey :: {-# UNPACK #-} !Int32
@@ -1470,16 +1284,7 @@ instance ProtoToJSON Priority where
       ]
 
 instance ProtoFromJSON Priority where
-  protoFromJSON (JsonObject obj) = do
-    v_priorityPrioritykey <- obj .:? "priorityKey"
-    v_priorityFairnesskey <- obj .:? "fairnessKey"
-    v_priorityFairnessweight <- obj .:? "fairnessWeight"
-    pure (Priority {
-       priorityPrioritykey = v_priorityPrioritykey
-      , priorityFairnesskey = v_priorityFairnesskey
-      , priorityFairnessweight = v_priorityFairnessweight
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPriority
 
 data WorkerSelector = WorkerSelector
   { workerSelectorSelector :: !(Maybe WorkerSelector'Selector)
@@ -1487,9 +1292,13 @@ data WorkerSelector = WorkerSelector
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data WorkerSelector'Selector
-  = WorkerSelector'WorkerInstanceKey !Text
+  = WorkerSelector'Selector'WorkerInstanceKey !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON WorkerSelector'Selector where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON WorkerSelector'Selector where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultWorkerSelector :: WorkerSelector
 defaultWorkerSelector = WorkerSelector
@@ -1500,11 +1309,11 @@ instance MessageEncode WorkerSelector where
   buildMessage msg =
     (case msg.workerSelectorSelector of
       Nothing -> mempty
-      Just (WorkerSelector'WorkerInstanceKey v) -> encodeFieldString 1 v)
+      Just (WorkerSelector'Selector'WorkerInstanceKey v) -> encodeFieldString 1 v)
 
 instance MessageSize WorkerSelector where
   messageSize msg =
-    (case msg.workerSelectorSelector of { Nothing -> 0; Just (WorkerSelector'WorkerInstanceKey v) -> fieldTextSize 1 v })
+    (case msg.workerSelectorSelector of { Nothing -> 0; Just (WorkerSelector'Selector'WorkerInstanceKey v) -> fieldTextSize 1 v })
 
 instance MessageDecode WorkerSelector where
   messageDecoder = loop Nothing
@@ -1516,7 +1325,7 @@ instance MessageDecode WorkerSelector where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
-              loop (Just (WorkerSelector'WorkerInstanceKey v))
+              loop (Just (WorkerSelector'Selector'WorkerInstanceKey v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON WorkerSelector where
@@ -1526,9 +1335,4 @@ instance ProtoToJSON WorkerSelector where
       ]
 
 instance ProtoFromJSON WorkerSelector where
-  protoFromJSON (JsonObject obj) = do
-    v_workerSelectorSelector <- obj .:? "selector"
-    pure (WorkerSelector {
-       workerSelectorSelector = v_workerSelectorSelector
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkerSelector

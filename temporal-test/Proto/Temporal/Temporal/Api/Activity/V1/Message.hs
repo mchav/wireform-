@@ -33,15 +33,15 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType, Header, Payloads, Priority, RetryPolicy, SearchAttributes)
-import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentVersion)
-import Proto.Temporal.Temporal.Api.Enums.V1.Activity (ActivityExecutionStatus)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (PendingActivityState)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure)
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata)
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue)
+import Proto.Google.Protobuf.Duration hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Google.Protobuf.Timestamp hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Temporal.Temporal.Api.Deployment.V1.Message hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Temporal.Temporal.Api.Enums.V1.Activity hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
+import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message hiding (ActivityExecutionInfo, ActivityExecutionListInfo, ActivityExecutionOutcome, ActivityOptions)
 
 
 data ActivityExecutionOutcome = ActivityExecutionOutcome
@@ -50,10 +50,14 @@ data ActivityExecutionOutcome = ActivityExecutionOutcome
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data ActivityExecutionOutcome'Value
-  = ActivityExecutionOutcome'Result !Payloads
-  | ActivityExecutionOutcome'Failure !Failure
+  = ActivityExecutionOutcome'Value'Result !Payloads
+  | ActivityExecutionOutcome'Value'Failure !Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON ActivityExecutionOutcome'Value where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON ActivityExecutionOutcome'Value where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultActivityExecutionOutcome :: ActivityExecutionOutcome
 defaultActivityExecutionOutcome = ActivityExecutionOutcome
@@ -64,13 +68,13 @@ instance MessageEncode ActivityExecutionOutcome where
   buildMessage msg =
     (case msg.activityExecutionOutcomeValue of
       Nothing -> mempty
-      Just (ActivityExecutionOutcome'Result v) -> encodeFieldMessage 1 v
-      Just (ActivityExecutionOutcome'Failure v) -> encodeFieldMessage 2 v)
+      Just (ActivityExecutionOutcome'Value'Result v) -> encodeFieldMessage 1 v
+      Just (ActivityExecutionOutcome'Value'Failure v) -> encodeFieldMessage 2 v)
 
 instance MessageSize ActivityExecutionOutcome where
   messageSize msg =
-    (case msg.activityExecutionOutcomeValue of { Nothing -> 0; Just (ActivityExecutionOutcome'Result v) -> fieldMessageSize 1 (messageSize v)
-    ; Just (ActivityExecutionOutcome'Failure v) -> fieldMessageSize 2 (messageSize v) })
+    (case msg.activityExecutionOutcomeValue of { Nothing -> 0; Just (ActivityExecutionOutcome'Value'Result v) -> fieldMessageSize 1 (messageSize v)
+    ; Just (ActivityExecutionOutcome'Value'Failure v) -> fieldMessageSize 2 (messageSize v) })
 
 instance MessageDecode ActivityExecutionOutcome where
   messageDecoder = loop Nothing
@@ -82,10 +86,10 @@ instance MessageDecode ActivityExecutionOutcome where
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
-              loop (Just (ActivityExecutionOutcome'Result v))
+              loop (Just (ActivityExecutionOutcome'Value'Result v))
             2 -> do
               v <- decodeFieldMessage
-              loop (Just (ActivityExecutionOutcome'Failure v))
+              loop (Just (ActivityExecutionOutcome'Value'Failure v))
             _ -> skipField wt >> loop acc_0
 
 instance ProtoToJSON ActivityExecutionOutcome where
@@ -95,12 +99,7 @@ instance ProtoToJSON ActivityExecutionOutcome where
       ]
 
 instance ProtoFromJSON ActivityExecutionOutcome where
-  protoFromJSON (JsonObject obj) = do
-    v_activityExecutionOutcomeValue <- obj .:? "value"
-    pure (ActivityExecutionOutcome {
-       activityExecutionOutcomeValue = v_activityExecutionOutcomeValue
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultActivityExecutionOutcome
 
 data ActivityOptions = ActivityOptions
   { activityOptionsTaskqueue :: !(Maybe TaskQueue)
@@ -188,24 +187,7 @@ instance ProtoToJSON ActivityOptions where
       ]
 
 instance ProtoFromJSON ActivityOptions where
-  protoFromJSON (JsonObject obj) = do
-    v_activityOptionsTaskqueue <- obj .:? "taskQueue"
-    v_activityOptionsScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    v_activityOptionsScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    v_activityOptionsStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    v_activityOptionsHeartbeattimeout <- obj .:? "heartbeatTimeout"
-    v_activityOptionsRetrypolicy <- obj .:? "retryPolicy"
-    v_activityOptionsPriority <- obj .:? "priority"
-    pure (ActivityOptions {
-       activityOptionsTaskqueue = v_activityOptionsTaskqueue
-      , activityOptionsScheduletoclosetimeout = v_activityOptionsScheduletoclosetimeout
-      , activityOptionsScheduletostarttimeout = v_activityOptionsScheduletostarttimeout
-      , activityOptionsStarttoclosetimeout = v_activityOptionsStarttoclosetimeout
-      , activityOptionsHeartbeattimeout = v_activityOptionsHeartbeattimeout
-      , activityOptionsRetrypolicy = v_activityOptionsRetrypolicy
-      , activityOptionsPriority = v_activityOptionsPriority
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultActivityOptions
 
 data ActivityExecutionInfo = ActivityExecutionInfo
   { activityExecutionInfoActivityid :: !Text
@@ -493,74 +475,7 @@ instance ProtoToJSON ActivityExecutionInfo where
       ]
 
 instance ProtoFromJSON ActivityExecutionInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_activityExecutionInfoActivityid <- obj .:? "activityId"
-    v_activityExecutionInfoRunid <- obj .:? "runId"
-    v_activityExecutionInfoActivitytype <- obj .:? "activityType"
-    v_activityExecutionInfoStatus <- obj .:? "status"
-    v_activityExecutionInfoRunstate <- obj .:? "runState"
-    v_activityExecutionInfoTaskqueue <- obj .:? "taskQueue"
-    v_activityExecutionInfoScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    v_activityExecutionInfoScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    v_activityExecutionInfoStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    v_activityExecutionInfoHeartbeattimeout <- obj .:? "heartbeatTimeout"
-    v_activityExecutionInfoRetrypolicy <- obj .:? "retryPolicy"
-    v_activityExecutionInfoHeartbeatdetails <- obj .:? "heartbeatDetails"
-    v_activityExecutionInfoLastheartbeattime <- obj .:? "lastHeartbeatTime"
-    v_activityExecutionInfoLaststartedtime <- obj .:? "lastStartedTime"
-    v_activityExecutionInfoAttempt <- obj .:? "attempt"
-    v_activityExecutionInfoExecutionduration <- obj .:? "executionDuration"
-    v_activityExecutionInfoScheduletime <- obj .:? "scheduleTime"
-    v_activityExecutionInfoExpirationtime <- obj .:? "expirationTime"
-    v_activityExecutionInfoClosetime <- obj .:? "closeTime"
-    v_activityExecutionInfoLastfailure <- obj .:? "lastFailure"
-    v_activityExecutionInfoLastworkeridentity <- obj .:? "lastWorkerIdentity"
-    v_activityExecutionInfoCurrentretryinterval <- obj .:? "currentRetryInterval"
-    v_activityExecutionInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    v_activityExecutionInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    v_activityExecutionInfoLastdeploymentversion <- obj .:? "lastDeploymentVersion"
-    v_activityExecutionInfoPriority <- obj .:? "priority"
-    v_activityExecutionInfoStatetransitioncount <- obj .:? "stateTransitionCount"
-    v_activityExecutionInfoStatesizebytes <- obj .:? "stateSizeBytes"
-    v_activityExecutionInfoSearchattributes <- obj .:? "searchAttributes"
-    v_activityExecutionInfoHeader <- obj .:? "header"
-    v_activityExecutionInfoUsermetadata <- obj .:? "userMetadata"
-    v_activityExecutionInfoCanceledreason <- obj .:? "canceledReason"
-    pure (ActivityExecutionInfo {
-       activityExecutionInfoActivityid = v_activityExecutionInfoActivityid
-      , activityExecutionInfoRunid = v_activityExecutionInfoRunid
-      , activityExecutionInfoActivitytype = v_activityExecutionInfoActivitytype
-      , activityExecutionInfoStatus = v_activityExecutionInfoStatus
-      , activityExecutionInfoRunstate = v_activityExecutionInfoRunstate
-      , activityExecutionInfoTaskqueue = v_activityExecutionInfoTaskqueue
-      , activityExecutionInfoScheduletoclosetimeout = v_activityExecutionInfoScheduletoclosetimeout
-      , activityExecutionInfoScheduletostarttimeout = v_activityExecutionInfoScheduletostarttimeout
-      , activityExecutionInfoStarttoclosetimeout = v_activityExecutionInfoStarttoclosetimeout
-      , activityExecutionInfoHeartbeattimeout = v_activityExecutionInfoHeartbeattimeout
-      , activityExecutionInfoRetrypolicy = v_activityExecutionInfoRetrypolicy
-      , activityExecutionInfoHeartbeatdetails = v_activityExecutionInfoHeartbeatdetails
-      , activityExecutionInfoLastheartbeattime = v_activityExecutionInfoLastheartbeattime
-      , activityExecutionInfoLaststartedtime = v_activityExecutionInfoLaststartedtime
-      , activityExecutionInfoAttempt = v_activityExecutionInfoAttempt
-      , activityExecutionInfoExecutionduration = v_activityExecutionInfoExecutionduration
-      , activityExecutionInfoScheduletime = v_activityExecutionInfoScheduletime
-      , activityExecutionInfoExpirationtime = v_activityExecutionInfoExpirationtime
-      , activityExecutionInfoClosetime = v_activityExecutionInfoClosetime
-      , activityExecutionInfoLastfailure = v_activityExecutionInfoLastfailure
-      , activityExecutionInfoLastworkeridentity = v_activityExecutionInfoLastworkeridentity
-      , activityExecutionInfoCurrentretryinterval = v_activityExecutionInfoCurrentretryinterval
-      , activityExecutionInfoLastattemptcompletetime = v_activityExecutionInfoLastattemptcompletetime
-      , activityExecutionInfoNextattemptscheduletime = v_activityExecutionInfoNextattemptscheduletime
-      , activityExecutionInfoLastdeploymentversion = v_activityExecutionInfoLastdeploymentversion
-      , activityExecutionInfoPriority = v_activityExecutionInfoPriority
-      , activityExecutionInfoStatetransitioncount = v_activityExecutionInfoStatetransitioncount
-      , activityExecutionInfoStatesizebytes = v_activityExecutionInfoStatesizebytes
-      , activityExecutionInfoSearchattributes = v_activityExecutionInfoSearchattributes
-      , activityExecutionInfoHeader = v_activityExecutionInfoHeader
-      , activityExecutionInfoUsermetadata = v_activityExecutionInfoUsermetadata
-      , activityExecutionInfoCanceledreason = v_activityExecutionInfoCanceledreason
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultActivityExecutionInfo
 
 data ActivityExecutionListInfo = ActivityExecutionListInfo
   { activityExecutionListInfoActivityid :: !Text
@@ -680,29 +595,4 @@ instance ProtoToJSON ActivityExecutionListInfo where
       ]
 
 instance ProtoFromJSON ActivityExecutionListInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_activityExecutionListInfoActivityid <- obj .:? "activityId"
-    v_activityExecutionListInfoRunid <- obj .:? "runId"
-    v_activityExecutionListInfoActivitytype <- obj .:? "activityType"
-    v_activityExecutionListInfoScheduletime <- obj .:? "scheduleTime"
-    v_activityExecutionListInfoClosetime <- obj .:? "closeTime"
-    v_activityExecutionListInfoStatus <- obj .:? "status"
-    v_activityExecutionListInfoSearchattributes <- obj .:? "searchAttributes"
-    v_activityExecutionListInfoTaskqueue <- obj .:? "taskQueue"
-    v_activityExecutionListInfoStatetransitioncount <- obj .:? "stateTransitionCount"
-    v_activityExecutionListInfoStatesizebytes <- obj .:? "stateSizeBytes"
-    v_activityExecutionListInfoExecutionduration <- obj .:? "executionDuration"
-    pure (ActivityExecutionListInfo {
-       activityExecutionListInfoActivityid = v_activityExecutionListInfoActivityid
-      , activityExecutionListInfoRunid = v_activityExecutionListInfoRunid
-      , activityExecutionListInfoActivitytype = v_activityExecutionListInfoActivitytype
-      , activityExecutionListInfoScheduletime = v_activityExecutionListInfoScheduletime
-      , activityExecutionListInfoClosetime = v_activityExecutionListInfoClosetime
-      , activityExecutionListInfoStatus = v_activityExecutionListInfoStatus
-      , activityExecutionListInfoSearchattributes = v_activityExecutionListInfoSearchattributes
-      , activityExecutionListInfoTaskqueue = v_activityExecutionListInfoTaskqueue
-      , activityExecutionListInfoStatetransitioncount = v_activityExecutionListInfoStatetransitioncount
-      , activityExecutionListInfoStatesizebytes = v_activityExecutionListInfoStatesizebytes
-      , activityExecutionListInfoExecutionduration = v_activityExecutionListInfoExecutionduration
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultActivityExecutionListInfo

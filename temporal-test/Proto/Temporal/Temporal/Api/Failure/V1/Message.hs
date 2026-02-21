@@ -33,11 +33,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType, Payload, Payloads, WorkflowExecution, WorkflowType)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (ApplicationErrorCategory)
-import Proto.Temporal.Temporal.Api.Enums.V1.Nexus (NexusHandlerErrorRetryBehavior)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (RetryState, TimeoutType)
+import Proto.Google.Protobuf.Duration hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Nexus hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (ActivityFailureInfo, ApplicationFailureInfo, CanceledFailureInfo, ChildWorkflowExecutionFailureInfo, Failure, MultiOperationExecutionAborted, NexusHandlerFailureInfo, NexusOperationFailureInfo, ResetWorkflowFailureInfo, ServerFailureInfo, TerminatedFailureInfo, TimeoutFailureInfo)
 
 
 data ApplicationFailureInfo = ApplicationFailureInfo
@@ -110,20 +110,7 @@ instance ProtoToJSON ApplicationFailureInfo where
       ]
 
 instance ProtoFromJSON ApplicationFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_applicationFailureInfoType <- obj .:? "type"
-    v_applicationFailureInfoNonretryable <- obj .:? "nonRetryable"
-    v_applicationFailureInfoDetails <- obj .:? "details"
-    v_applicationFailureInfoNextretrydelay <- obj .:? "nextRetryDelay"
-    v_applicationFailureInfoCategory <- obj .:? "category"
-    pure (ApplicationFailureInfo {
-       applicationFailureInfoType = v_applicationFailureInfoType
-      , applicationFailureInfoNonretryable = v_applicationFailureInfoNonretryable
-      , applicationFailureInfoDetails = v_applicationFailureInfoDetails
-      , applicationFailureInfoNextretrydelay = v_applicationFailureInfoNextretrydelay
-      , applicationFailureInfoCategory = v_applicationFailureInfoCategory
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultApplicationFailureInfo
 
 data TimeoutFailureInfo = TimeoutFailureInfo
   { timeoutFailureInfoTimeouttype :: !TimeoutType
@@ -171,14 +158,7 @@ instance ProtoToJSON TimeoutFailureInfo where
       ]
 
 instance ProtoFromJSON TimeoutFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_timeoutFailureInfoTimeouttype <- obj .:? "timeoutType"
-    v_timeoutFailureInfoLastheartbeatdetails <- obj .:? "lastHeartbeatDetails"
-    pure (TimeoutFailureInfo {
-       timeoutFailureInfoTimeouttype = v_timeoutFailureInfoTimeouttype
-      , timeoutFailureInfoLastheartbeatdetails = v_timeoutFailureInfoLastheartbeatdetails
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTimeoutFailureInfo
 
 data CanceledFailureInfo = CanceledFailureInfo
   { canceledFailureInfoDetails :: !(Maybe Payloads)
@@ -219,12 +199,7 @@ instance ProtoToJSON CanceledFailureInfo where
       ]
 
 instance ProtoFromJSON CanceledFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_canceledFailureInfoDetails <- obj .:? "details"
-    pure (CanceledFailureInfo {
-       canceledFailureInfoDetails = v_canceledFailureInfoDetails
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCanceledFailureInfo
 
 data TerminatedFailureInfo = TerminatedFailureInfo
   { }
@@ -258,11 +233,7 @@ instance ProtoToJSON TerminatedFailureInfo where
       []
 
 instance ProtoFromJSON TerminatedFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    pure (TerminatedFailureInfo {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultTerminatedFailureInfo
 
 data ServerFailureInfo = ServerFailureInfo
   { serverFailureInfoNonretryable :: {-# UNPACK #-} !Bool
@@ -303,12 +274,7 @@ instance ProtoToJSON ServerFailureInfo where
       ]
 
 instance ProtoFromJSON ServerFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_serverFailureInfoNonretryable <- obj .:? "nonRetryable"
-    pure (ServerFailureInfo {
-       serverFailureInfoNonretryable = v_serverFailureInfoNonretryable
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultServerFailureInfo
 
 data ResetWorkflowFailureInfo = ResetWorkflowFailureInfo
   { resetWorkflowFailureInfoLastheartbeatdetails :: !(Maybe Payloads)
@@ -349,12 +315,7 @@ instance ProtoToJSON ResetWorkflowFailureInfo where
       ]
 
 instance ProtoFromJSON ResetWorkflowFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_resetWorkflowFailureInfoLastheartbeatdetails <- obj .:? "lastHeartbeatDetails"
-    pure (ResetWorkflowFailureInfo {
-       resetWorkflowFailureInfoLastheartbeatdetails = v_resetWorkflowFailureInfoLastheartbeatdetails
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultResetWorkflowFailureInfo
 
 data ActivityFailureInfo = ActivityFailureInfo
   { activityFailureInfoScheduledeventid :: {-# UNPACK #-} !Int64
@@ -434,22 +395,7 @@ instance ProtoToJSON ActivityFailureInfo where
       ]
 
 instance ProtoFromJSON ActivityFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_activityFailureInfoScheduledeventid <- obj .:? "scheduledEventId"
-    v_activityFailureInfoStartedeventid <- obj .:? "startedEventId"
-    v_activityFailureInfoIdentity <- obj .:? "identity"
-    v_activityFailureInfoActivitytype <- obj .:? "activityType"
-    v_activityFailureInfoActivityid <- obj .:? "activityId"
-    v_activityFailureInfoRetrystate <- obj .:? "retryState"
-    pure (ActivityFailureInfo {
-       activityFailureInfoScheduledeventid = v_activityFailureInfoScheduledeventid
-      , activityFailureInfoStartedeventid = v_activityFailureInfoStartedeventid
-      , activityFailureInfoIdentity = v_activityFailureInfoIdentity
-      , activityFailureInfoActivitytype = v_activityFailureInfoActivitytype
-      , activityFailureInfoActivityid = v_activityFailureInfoActivityid
-      , activityFailureInfoRetrystate = v_activityFailureInfoRetrystate
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultActivityFailureInfo
 
 data ChildWorkflowExecutionFailureInfo = ChildWorkflowExecutionFailureInfo
   { childWorkflowExecutionFailureInfoNamespace :: !Text
@@ -529,22 +475,7 @@ instance ProtoToJSON ChildWorkflowExecutionFailureInfo where
       ]
 
 instance ProtoFromJSON ChildWorkflowExecutionFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_childWorkflowExecutionFailureInfoNamespace <- obj .:? "namespace"
-    v_childWorkflowExecutionFailureInfoWorkflowexecution <- obj .:? "workflowExecution"
-    v_childWorkflowExecutionFailureInfoWorkflowtype <- obj .:? "workflowType"
-    v_childWorkflowExecutionFailureInfoInitiatedeventid <- obj .:? "initiatedEventId"
-    v_childWorkflowExecutionFailureInfoStartedeventid <- obj .:? "startedEventId"
-    v_childWorkflowExecutionFailureInfoRetrystate <- obj .:? "retryState"
-    pure (ChildWorkflowExecutionFailureInfo {
-       childWorkflowExecutionFailureInfoNamespace = v_childWorkflowExecutionFailureInfoNamespace
-      , childWorkflowExecutionFailureInfoWorkflowexecution = v_childWorkflowExecutionFailureInfoWorkflowexecution
-      , childWorkflowExecutionFailureInfoWorkflowtype = v_childWorkflowExecutionFailureInfoWorkflowtype
-      , childWorkflowExecutionFailureInfoInitiatedeventid = v_childWorkflowExecutionFailureInfoInitiatedeventid
-      , childWorkflowExecutionFailureInfoStartedeventid = v_childWorkflowExecutionFailureInfoStartedeventid
-      , childWorkflowExecutionFailureInfoRetrystate = v_childWorkflowExecutionFailureInfoRetrystate
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultChildWorkflowExecutionFailureInfo
 
 data NexusOperationFailureInfo = NexusOperationFailureInfo
   { nexusOperationFailureInfoScheduledeventid :: {-# UNPACK #-} !Int64
@@ -624,22 +555,7 @@ instance ProtoToJSON NexusOperationFailureInfo where
       ]
 
 instance ProtoFromJSON NexusOperationFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_nexusOperationFailureInfoScheduledeventid <- obj .:? "scheduledEventId"
-    v_nexusOperationFailureInfoEndpoint <- obj .:? "endpoint"
-    v_nexusOperationFailureInfoService <- obj .:? "service"
-    v_nexusOperationFailureInfoOperation <- obj .:? "operation"
-    v_nexusOperationFailureInfoOperationid <- obj .:? "operationId"
-    v_nexusOperationFailureInfoOperationtoken <- obj .:? "operationToken"
-    pure (NexusOperationFailureInfo {
-       nexusOperationFailureInfoScheduledeventid = v_nexusOperationFailureInfoScheduledeventid
-      , nexusOperationFailureInfoEndpoint = v_nexusOperationFailureInfoEndpoint
-      , nexusOperationFailureInfoService = v_nexusOperationFailureInfoService
-      , nexusOperationFailureInfoOperation = v_nexusOperationFailureInfoOperation
-      , nexusOperationFailureInfoOperationid = v_nexusOperationFailureInfoOperationid
-      , nexusOperationFailureInfoOperationtoken = v_nexusOperationFailureInfoOperationtoken
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNexusOperationFailureInfo
 
 data NexusHandlerFailureInfo = NexusHandlerFailureInfo
   { nexusHandlerFailureInfoType :: !Text
@@ -687,14 +603,7 @@ instance ProtoToJSON NexusHandlerFailureInfo where
       ]
 
 instance ProtoFromJSON NexusHandlerFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_nexusHandlerFailureInfoType <- obj .:? "type"
-    v_nexusHandlerFailureInfoRetrybehavior <- obj .:? "retryBehavior"
-    pure (NexusHandlerFailureInfo {
-       nexusHandlerFailureInfoType = v_nexusHandlerFailureInfoType
-      , nexusHandlerFailureInfoRetrybehavior = v_nexusHandlerFailureInfoRetrybehavior
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNexusHandlerFailureInfo
 
 data Failure = Failure
   { failureMessage :: !Text
@@ -707,18 +616,22 @@ data Failure = Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data Failure'FailureInfo
-  = Failure'ApplicationFailureInfo !ApplicationFailureInfo
-  | Failure'TimeoutFailureInfo !TimeoutFailureInfo
-  | Failure'CanceledFailureInfo !CanceledFailureInfo
-  | Failure'TerminatedFailureInfo !TerminatedFailureInfo
-  | Failure'ServerFailureInfo !ServerFailureInfo
-  | Failure'ResetWorkflowFailureInfo !ResetWorkflowFailureInfo
-  | Failure'ActivityFailureInfo !ActivityFailureInfo
-  | Failure'ChildWorkflowExecutionFailureInfo !ChildWorkflowExecutionFailureInfo
-  | Failure'NexusOperationExecutionFailureInfo !NexusOperationFailureInfo
-  | Failure'NexusHandlerFailureInfo !NexusHandlerFailureInfo
+  = Failure'FailureInfo'ApplicationFailureInfo !ApplicationFailureInfo
+  | Failure'FailureInfo'TimeoutFailureInfo !TimeoutFailureInfo
+  | Failure'FailureInfo'CanceledFailureInfo !CanceledFailureInfo
+  | Failure'FailureInfo'TerminatedFailureInfo !TerminatedFailureInfo
+  | Failure'FailureInfo'ServerFailureInfo !ServerFailureInfo
+  | Failure'FailureInfo'ResetWorkflowFailureInfo !ResetWorkflowFailureInfo
+  | Failure'FailureInfo'ActivityFailureInfo !ActivityFailureInfo
+  | Failure'FailureInfo'ChildWorkflowExecutionFailureInfo !ChildWorkflowExecutionFailureInfo
+  | Failure'FailureInfo'NexusOperationExecutionFailureInfo !NexusOperationFailureInfo
+  | Failure'FailureInfo'NexusHandlerFailureInfo !NexusHandlerFailureInfo
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Failure'FailureInfo where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Failure'FailureInfo where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultFailure :: Failure
 defaultFailure = Failure
@@ -739,16 +652,16 @@ instance MessageEncode Failure where
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.failureCause)
     <> (case msg.failureFailureinfo of
       Nothing -> mempty
-      Just (Failure'ApplicationFailureInfo v) -> encodeFieldMessage 5 v
-      Just (Failure'TimeoutFailureInfo v) -> encodeFieldMessage 6 v
-      Just (Failure'CanceledFailureInfo v) -> encodeFieldMessage 7 v
-      Just (Failure'TerminatedFailureInfo v) -> encodeFieldMessage 8 v
-      Just (Failure'ServerFailureInfo v) -> encodeFieldMessage 9 v
-      Just (Failure'ResetWorkflowFailureInfo v) -> encodeFieldMessage 10 v
-      Just (Failure'ActivityFailureInfo v) -> encodeFieldMessage 11 v
-      Just (Failure'ChildWorkflowExecutionFailureInfo v) -> encodeFieldMessage 12 v
-      Just (Failure'NexusOperationExecutionFailureInfo v) -> encodeFieldMessage 13 v
-      Just (Failure'NexusHandlerFailureInfo v) -> encodeFieldMessage 14 v)
+      Just (Failure'FailureInfo'ApplicationFailureInfo v) -> encodeFieldMessage 5 v
+      Just (Failure'FailureInfo'TimeoutFailureInfo v) -> encodeFieldMessage 6 v
+      Just (Failure'FailureInfo'CanceledFailureInfo v) -> encodeFieldMessage 7 v
+      Just (Failure'FailureInfo'TerminatedFailureInfo v) -> encodeFieldMessage 8 v
+      Just (Failure'FailureInfo'ServerFailureInfo v) -> encodeFieldMessage 9 v
+      Just (Failure'FailureInfo'ResetWorkflowFailureInfo v) -> encodeFieldMessage 10 v
+      Just (Failure'FailureInfo'ActivityFailureInfo v) -> encodeFieldMessage 11 v
+      Just (Failure'FailureInfo'ChildWorkflowExecutionFailureInfo v) -> encodeFieldMessage 12 v
+      Just (Failure'FailureInfo'NexusOperationExecutionFailureInfo v) -> encodeFieldMessage 13 v
+      Just (Failure'FailureInfo'NexusHandlerFailureInfo v) -> encodeFieldMessage 14 v)
 
 instance MessageSize Failure where
   messageSize msg =
@@ -757,16 +670,16 @@ instance MessageSize Failure where
     + (if msg.failureStacktrace == T.empty then 0 else fieldTextSize 3 msg.failureStacktrace)
     + (maybe 0 (\v -> fieldMessageSize 20 (messageSize v)) msg.failureEncodedattributes)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.failureCause)
-    + (case msg.failureFailureinfo of { Nothing -> 0; Just (Failure'ApplicationFailureInfo v) -> fieldMessageSize 5 (messageSize v)
-    ; Just (Failure'TimeoutFailureInfo v) -> fieldMessageSize 6 (messageSize v)
-    ; Just (Failure'CanceledFailureInfo v) -> fieldMessageSize 7 (messageSize v)
-    ; Just (Failure'TerminatedFailureInfo v) -> fieldMessageSize 8 (messageSize v)
-    ; Just (Failure'ServerFailureInfo v) -> fieldMessageSize 9 (messageSize v)
-    ; Just (Failure'ResetWorkflowFailureInfo v) -> fieldMessageSize 10 (messageSize v)
-    ; Just (Failure'ActivityFailureInfo v) -> fieldMessageSize 11 (messageSize v)
-    ; Just (Failure'ChildWorkflowExecutionFailureInfo v) -> fieldMessageSize 12 (messageSize v)
-    ; Just (Failure'NexusOperationExecutionFailureInfo v) -> fieldMessageSize 13 (messageSize v)
-    ; Just (Failure'NexusHandlerFailureInfo v) -> fieldMessageSize 14 (messageSize v) })
+    + (case msg.failureFailureinfo of { Nothing -> 0; Just (Failure'FailureInfo'ApplicationFailureInfo v) -> fieldMessageSize 5 (messageSize v)
+    ; Just (Failure'FailureInfo'TimeoutFailureInfo v) -> fieldMessageSize 6 (messageSize v)
+    ; Just (Failure'FailureInfo'CanceledFailureInfo v) -> fieldMessageSize 7 (messageSize v)
+    ; Just (Failure'FailureInfo'TerminatedFailureInfo v) -> fieldMessageSize 8 (messageSize v)
+    ; Just (Failure'FailureInfo'ServerFailureInfo v) -> fieldMessageSize 9 (messageSize v)
+    ; Just (Failure'FailureInfo'ResetWorkflowFailureInfo v) -> fieldMessageSize 10 (messageSize v)
+    ; Just (Failure'FailureInfo'ActivityFailureInfo v) -> fieldMessageSize 11 (messageSize v)
+    ; Just (Failure'FailureInfo'ChildWorkflowExecutionFailureInfo v) -> fieldMessageSize 12 (messageSize v)
+    ; Just (Failure'FailureInfo'NexusOperationExecutionFailureInfo v) -> fieldMessageSize 13 (messageSize v)
+    ; Just (Failure'FailureInfo'NexusHandlerFailureInfo v) -> fieldMessageSize 14 (messageSize v) })
 
 instance MessageDecode Failure where
   messageDecoder = loop "" "" "" Nothing Nothing Nothing
@@ -793,34 +706,34 @@ instance MessageDecode Failure where
               loop acc_0 acc_1 acc_2 acc_3 (Just v) acc_5
             5 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'ApplicationFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'ApplicationFailureInfo v))
             6 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'TimeoutFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'TimeoutFailureInfo v))
             7 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'CanceledFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'CanceledFailureInfo v))
             8 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'TerminatedFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'TerminatedFailureInfo v))
             9 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'ServerFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'ServerFailureInfo v))
             10 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'ResetWorkflowFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'ResetWorkflowFailureInfo v))
             11 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'ActivityFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'ActivityFailureInfo v))
             12 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'ChildWorkflowExecutionFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'ChildWorkflowExecutionFailureInfo v))
             13 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'NexusOperationExecutionFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'NexusOperationExecutionFailureInfo v))
             14 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'NexusHandlerFailureInfo v))
+              loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'NexusHandlerFailureInfo v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
 instance ProtoToJSON Failure where
@@ -834,22 +747,7 @@ instance ProtoToJSON Failure where
       ]
 
 instance ProtoFromJSON Failure where
-  protoFromJSON (JsonObject obj) = do
-    v_failureMessage <- obj .:? "message"
-    v_failureSource <- obj .:? "source"
-    v_failureStacktrace <- obj .:? "stackTrace"
-    v_failureEncodedattributes <- obj .:? "encodedAttributes"
-    v_failureCause <- obj .:? "cause"
-    v_failureFailureinfo <- obj .:? "failureInfo"
-    pure (Failure {
-       failureMessage = v_failureMessage
-      , failureSource = v_failureSource
-      , failureStacktrace = v_failureStacktrace
-      , failureEncodedattributes = v_failureEncodedattributes
-      , failureCause = v_failureCause
-      , failureFailureinfo = v_failureFailureinfo
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultFailure
 
 data MultiOperationExecutionAborted = MultiOperationExecutionAborted
   { }
@@ -883,8 +781,4 @@ instance ProtoToJSON MultiOperationExecutionAborted where
       []
 
 instance ProtoFromJSON MultiOperationExecutionAborted where
-  protoFromJSON (JsonObject obj) = do
-    pure (MultiOperationExecutionAborted {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultMultiOperationExecutionAborted

@@ -33,9 +33,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (IndexedValueType)
-import Proto.Temporal.Temporal.Api.Nexus.V1.Message (Endpoint, EndpointSpec)
+import Proto.Google.Protobuf.Duration hiding (AddOrUpdateRemoteClusterRequest, AddOrUpdateRemoteClusterResponse, AddSearchAttributesRequest, AddSearchAttributesResponse, ClusterMetadata, CreateNexusEndpointRequest, CreateNexusEndpointResponse, DeleteNamespaceRequest, DeleteNamespaceResponse, DeleteNexusEndpointRequest, DeleteNexusEndpointResponse, GetNexusEndpointRequest, GetNexusEndpointResponse, ListClustersRequest, ListClustersResponse, ListNexusEndpointsRequest, ListNexusEndpointsResponse, ListSearchAttributesRequest, ListSearchAttributesResponse, RemoveRemoteClusterRequest, RemoveRemoteClusterResponse, RemoveSearchAttributesRequest, RemoveSearchAttributesResponse, UpdateNexusEndpointRequest, UpdateNexusEndpointResponse)
+import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (AddOrUpdateRemoteClusterRequest, AddOrUpdateRemoteClusterResponse, AddSearchAttributesRequest, AddSearchAttributesResponse, ClusterMetadata, CreateNexusEndpointRequest, CreateNexusEndpointResponse, DeleteNamespaceRequest, DeleteNamespaceResponse, DeleteNexusEndpointRequest, DeleteNexusEndpointResponse, GetNexusEndpointRequest, GetNexusEndpointResponse, ListClustersRequest, ListClustersResponse, ListNexusEndpointsRequest, ListNexusEndpointsResponse, ListSearchAttributesRequest, ListSearchAttributesResponse, RemoveRemoteClusterRequest, RemoveRemoteClusterResponse, RemoveSearchAttributesRequest, RemoveSearchAttributesResponse, UpdateNexusEndpointRequest, UpdateNexusEndpointResponse)
+import Proto.Temporal.Temporal.Api.Nexus.V1.Message hiding (AddOrUpdateRemoteClusterRequest, AddOrUpdateRemoteClusterResponse, AddSearchAttributesRequest, AddSearchAttributesResponse, ClusterMetadata, CreateNexusEndpointRequest, CreateNexusEndpointResponse, DeleteNamespaceRequest, DeleteNamespaceResponse, DeleteNexusEndpointRequest, DeleteNexusEndpointResponse, GetNexusEndpointRequest, GetNexusEndpointResponse, ListClustersRequest, ListClustersResponse, ListNexusEndpointsRequest, ListNexusEndpointsResponse, ListSearchAttributesRequest, ListSearchAttributesResponse, RemoveRemoteClusterRequest, RemoveRemoteClusterResponse, RemoveSearchAttributesRequest, RemoveSearchAttributesResponse, UpdateNexusEndpointRequest, UpdateNexusEndpointResponse)
 
 
 data AddSearchAttributesRequest = AddSearchAttributesRequest
@@ -53,7 +53,7 @@ defaultAddSearchAttributesRequest = AddSearchAttributesRequest
 
 instance MessageEncode AddSearchAttributesRequest where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldVarint 2 . fromIntegral . fromEnum v)) mempty msg.addSearchAttributesRequestSearchattributes
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.addSearchAttributesRequestSearchattributes
     <> (if msg.addSearchAttributesRequestNamespace == T.empty then mempty else encodeFieldString 2 msg.addSearchAttributesRequestNamespace)
 
 instance MessageSize AddSearchAttributesRequest where
@@ -70,20 +70,11 @@ instance MessageDecode AddSearchAttributesRequest where
           Nothing -> pure (AddSearchAttributesRequest {addSearchAttributesRequestSearchattributes = acc_0, addSearchAttributesRequestNamespace = acc_1})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldEnum; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" (toEnum 0)
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldEnum "" (toEnum 0)) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v)) acc_1
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_1
             2 -> do
               v <- decodeFieldString
               loop acc_0 v
@@ -96,14 +87,7 @@ instance ProtoToJSON AddSearchAttributesRequest where
       ]
 
 instance ProtoFromJSON AddSearchAttributesRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_addSearchAttributesRequestSearchattributes <- obj .:? "searchAttributes"
-    v_addSearchAttributesRequestNamespace <- obj .:? "namespace"
-    pure (AddSearchAttributesRequest {
-       addSearchAttributesRequestSearchattributes = v_addSearchAttributesRequestSearchattributes
-      , addSearchAttributesRequestNamespace = v_addSearchAttributesRequestNamespace
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultAddSearchAttributesRequest
 
 data AddSearchAttributesResponse = AddSearchAttributesResponse
   { }
@@ -137,11 +121,7 @@ instance ProtoToJSON AddSearchAttributesResponse where
       []
 
 instance ProtoFromJSON AddSearchAttributesResponse where
-  protoFromJSON (JsonObject obj) = do
-    pure (AddSearchAttributesResponse {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultAddSearchAttributesResponse
 
 data RemoveSearchAttributesRequest = RemoveSearchAttributesRequest
   { removeSearchAttributesRequestSearchattributes :: !(V.Vector Text)
@@ -163,7 +143,7 @@ instance MessageEncode RemoveSearchAttributesRequest where
 
 instance MessageSize RemoveSearchAttributesRequest where
   messageSize msg =
-    (sizeRepeated 1 msg.removeSearchAttributesRequestSearchattributes)
+    0 {- TODO: repeated size -}
     + (if msg.removeSearchAttributesRequestNamespace == T.empty then 0 else fieldTextSize 2 msg.removeSearchAttributesRequestNamespace)
 
 instance MessageDecode RemoveSearchAttributesRequest where
@@ -189,14 +169,7 @@ instance ProtoToJSON RemoveSearchAttributesRequest where
       ]
 
 instance ProtoFromJSON RemoveSearchAttributesRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_removeSearchAttributesRequestSearchattributes <- obj .:? "searchAttributes"
-    v_removeSearchAttributesRequestNamespace <- obj .:? "namespace"
-    pure (RemoveSearchAttributesRequest {
-       removeSearchAttributesRequestSearchattributes = v_removeSearchAttributesRequestSearchattributes
-      , removeSearchAttributesRequestNamespace = v_removeSearchAttributesRequestNamespace
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRemoveSearchAttributesRequest
 
 data RemoveSearchAttributesResponse = RemoveSearchAttributesResponse
   { }
@@ -230,11 +203,7 @@ instance ProtoToJSON RemoveSearchAttributesResponse where
       []
 
 instance ProtoFromJSON RemoveSearchAttributesResponse where
-  protoFromJSON (JsonObject obj) = do
-    pure (RemoveSearchAttributesResponse {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRemoveSearchAttributesResponse
 
 data ListSearchAttributesRequest = ListSearchAttributesRequest
   { listSearchAttributesRequestNamespace :: !Text
@@ -275,12 +244,7 @@ instance ProtoToJSON ListSearchAttributesRequest where
       ]
 
 instance ProtoFromJSON ListSearchAttributesRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_listSearchAttributesRequestNamespace <- obj .:? "namespace"
-    pure (ListSearchAttributesRequest {
-       listSearchAttributesRequestNamespace = v_listSearchAttributesRequestNamespace
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultListSearchAttributesRequest
 
 data ListSearchAttributesResponse = ListSearchAttributesResponse
   { listSearchAttributesResponseCustomattributes :: !(Map.Map Text IndexedValueType)
@@ -299,8 +263,8 @@ defaultListSearchAttributesResponse = ListSearchAttributesResponse
 
 instance MessageEncode ListSearchAttributesResponse where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldVarint 2 . fromIntegral . fromEnum v)) mempty msg.listSearchAttributesResponseCustomattributes
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) (encodeFieldVarint 2 . fromIntegral . fromEnum v)) mempty msg.listSearchAttributesResponseSystemattributes
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.listSearchAttributesResponseCustomattributes
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.listSearchAttributesResponseSystemattributes
     <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 3 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.listSearchAttributesResponseStorageschema
 
 instance MessageSize ListSearchAttributesResponse where
@@ -318,50 +282,23 @@ instance MessageDecode ListSearchAttributesResponse where
           Nothing -> pure (ListSearchAttributesResponse {listSearchAttributesResponseCustomattributes = acc_0, listSearchAttributesResponseSystemattributes = acc_1, listSearchAttributesResponseStorageschema = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldEnum; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" (toEnum 0)
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldEnum "" (toEnum 0)) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2
-                Right (k, v) -> loop (Map.union acc_0 (Map.singleton k v)) acc_1 acc_2
+                Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv')) acc_1 acc_2
             2 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldEnum; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" (toEnum 0)
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldEnum "" (toEnum 0)) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2
-                Right (k, v) -> loop acc_0 (Map.union acc_1 (Map.singleton k v)) acc_2
+                Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv')) acc_2
             3 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2
-                Right (k, v) -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton k v))
+                Right (mk', mv') -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
 instance ProtoToJSON ListSearchAttributesResponse where
@@ -372,16 +309,7 @@ instance ProtoToJSON ListSearchAttributesResponse where
       ]
 
 instance ProtoFromJSON ListSearchAttributesResponse where
-  protoFromJSON (JsonObject obj) = do
-    v_listSearchAttributesResponseCustomattributes <- obj .:? "customAttributes"
-    v_listSearchAttributesResponseSystemattributes <- obj .:? "systemAttributes"
-    v_listSearchAttributesResponseStorageschema <- obj .:? "storageSchema"
-    pure (ListSearchAttributesResponse {
-       listSearchAttributesResponseCustomattributes = v_listSearchAttributesResponseCustomattributes
-      , listSearchAttributesResponseSystemattributes = v_listSearchAttributesResponseSystemattributes
-      , listSearchAttributesResponseStorageschema = v_listSearchAttributesResponseStorageschema
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultListSearchAttributesResponse
 
 data DeleteNamespaceRequest = DeleteNamespaceRequest
   { deleteNamespaceRequestNamespace :: !Text
@@ -437,16 +365,7 @@ instance ProtoToJSON DeleteNamespaceRequest where
       ]
 
 instance ProtoFromJSON DeleteNamespaceRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_deleteNamespaceRequestNamespace <- obj .:? "namespace"
-    v_deleteNamespaceRequestNamespaceid <- obj .:? "namespaceId"
-    v_deleteNamespaceRequestNamespacedeletedelay <- obj .:? "namespaceDeleteDelay"
-    pure (DeleteNamespaceRequest {
-       deleteNamespaceRequestNamespace = v_deleteNamespaceRequestNamespace
-      , deleteNamespaceRequestNamespaceid = v_deleteNamespaceRequestNamespaceid
-      , deleteNamespaceRequestNamespacedeletedelay = v_deleteNamespaceRequestNamespacedeletedelay
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeleteNamespaceRequest
 
 data DeleteNamespaceResponse = DeleteNamespaceResponse
   { deleteNamespaceResponseDeletednamespace :: !Text
@@ -487,12 +406,7 @@ instance ProtoToJSON DeleteNamespaceResponse where
       ]
 
 instance ProtoFromJSON DeleteNamespaceResponse where
-  protoFromJSON (JsonObject obj) = do
-    v_deleteNamespaceResponseDeletednamespace <- obj .:? "deletedNamespace"
-    pure (DeleteNamespaceResponse {
-       deleteNamespaceResponseDeletednamespace = v_deleteNamespaceResponseDeletednamespace
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeleteNamespaceResponse
 
 data AddOrUpdateRemoteClusterRequest = AddOrUpdateRemoteClusterRequest
   { addOrUpdateRemoteClusterRequestFrontendaddress :: !Text
@@ -556,18 +470,7 @@ instance ProtoToJSON AddOrUpdateRemoteClusterRequest where
       ]
 
 instance ProtoFromJSON AddOrUpdateRemoteClusterRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_addOrUpdateRemoteClusterRequestFrontendaddress <- obj .:? "frontendAddress"
-    v_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection <- obj .:? "enableRemoteClusterConnection"
-    v_addOrUpdateRemoteClusterRequestFrontendhttpaddress <- obj .:? "frontendHttpAddress"
-    v_addOrUpdateRemoteClusterRequestEnablereplication <- obj .:? "enableReplication"
-    pure (AddOrUpdateRemoteClusterRequest {
-       addOrUpdateRemoteClusterRequestFrontendaddress = v_addOrUpdateRemoteClusterRequestFrontendaddress
-      , addOrUpdateRemoteClusterRequestEnableremoteclusterconnection = v_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection
-      , addOrUpdateRemoteClusterRequestFrontendhttpaddress = v_addOrUpdateRemoteClusterRequestFrontendhttpaddress
-      , addOrUpdateRemoteClusterRequestEnablereplication = v_addOrUpdateRemoteClusterRequestEnablereplication
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultAddOrUpdateRemoteClusterRequest
 
 data AddOrUpdateRemoteClusterResponse = AddOrUpdateRemoteClusterResponse
   { }
@@ -601,11 +504,7 @@ instance ProtoToJSON AddOrUpdateRemoteClusterResponse where
       []
 
 instance ProtoFromJSON AddOrUpdateRemoteClusterResponse where
-  protoFromJSON (JsonObject obj) = do
-    pure (AddOrUpdateRemoteClusterResponse {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultAddOrUpdateRemoteClusterResponse
 
 data RemoveRemoteClusterRequest = RemoveRemoteClusterRequest
   { removeRemoteClusterRequestClustername :: !Text
@@ -646,12 +545,7 @@ instance ProtoToJSON RemoveRemoteClusterRequest where
       ]
 
 instance ProtoFromJSON RemoveRemoteClusterRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_removeRemoteClusterRequestClustername <- obj .:? "clusterName"
-    pure (RemoveRemoteClusterRequest {
-       removeRemoteClusterRequestClustername = v_removeRemoteClusterRequestClustername
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRemoveRemoteClusterRequest
 
 data RemoveRemoteClusterResponse = RemoveRemoteClusterResponse
   { }
@@ -685,11 +579,7 @@ instance ProtoToJSON RemoveRemoteClusterResponse where
       []
 
 instance ProtoFromJSON RemoveRemoteClusterResponse where
-  protoFromJSON (JsonObject obj) = do
-    pure (RemoveRemoteClusterResponse {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRemoveRemoteClusterResponse
 
 data ListClustersRequest = ListClustersRequest
   { listClustersRequestPagesize :: {-# UNPACK #-} !Int32
@@ -737,14 +627,7 @@ instance ProtoToJSON ListClustersRequest where
       ]
 
 instance ProtoFromJSON ListClustersRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_listClustersRequestPagesize <- obj .:? "pageSize"
-    v_listClustersRequestNextpagetoken <- obj .:? "nextPageToken"
-    pure (ListClustersRequest {
-       listClustersRequestPagesize = v_listClustersRequestPagesize
-      , listClustersRequestNextpagetoken = v_listClustersRequestNextpagetoken
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultListClustersRequest
 
 data ListClustersResponse = ListClustersResponse
   { listClustersResponseClusters :: !(V.Vector ClusterMetadata)
@@ -792,14 +675,7 @@ instance ProtoToJSON ListClustersResponse where
       ]
 
 instance ProtoFromJSON ListClustersResponse where
-  protoFromJSON (JsonObject obj) = do
-    v_listClustersResponseClusters <- obj .:? "clusters"
-    v_listClustersResponseNextpagetoken <- obj .:? "nextPageToken"
-    pure (ListClustersResponse {
-       listClustersResponseClusters = v_listClustersResponseClusters
-      , listClustersResponseNextpagetoken = v_listClustersResponseNextpagetoken
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultListClustersResponse
 
 data ClusterMetadata = ClusterMetadata
   { clusterMetadataClustername :: !Text
@@ -895,26 +771,7 @@ instance ProtoToJSON ClusterMetadata where
       ]
 
 instance ProtoFromJSON ClusterMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_clusterMetadataClustername <- obj .:? "clusterName"
-    v_clusterMetadataClusterid <- obj .:? "clusterId"
-    v_clusterMetadataAddress <- obj .:? "address"
-    v_clusterMetadataHttpaddress <- obj .:? "httpAddress"
-    v_clusterMetadataInitialfailoverversion <- obj .:? "initialFailoverVersion"
-    v_clusterMetadataHistoryshardcount <- obj .:? "historyShardCount"
-    v_clusterMetadataIsconnectionenabled <- obj .:? "isConnectionEnabled"
-    v_clusterMetadataIsreplicationenabled <- obj .:? "isReplicationEnabled"
-    pure (ClusterMetadata {
-       clusterMetadataClustername = v_clusterMetadataClustername
-      , clusterMetadataClusterid = v_clusterMetadataClusterid
-      , clusterMetadataAddress = v_clusterMetadataAddress
-      , clusterMetadataHttpaddress = v_clusterMetadataHttpaddress
-      , clusterMetadataInitialfailoverversion = v_clusterMetadataInitialfailoverversion
-      , clusterMetadataHistoryshardcount = v_clusterMetadataHistoryshardcount
-      , clusterMetadataIsconnectionenabled = v_clusterMetadataIsconnectionenabled
-      , clusterMetadataIsreplicationenabled = v_clusterMetadataIsreplicationenabled
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultClusterMetadata
 
 data GetNexusEndpointRequest = GetNexusEndpointRequest
   { getNexusEndpointRequestId :: !Text
@@ -955,12 +812,7 @@ instance ProtoToJSON GetNexusEndpointRequest where
       ]
 
 instance ProtoFromJSON GetNexusEndpointRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_getNexusEndpointRequestId <- obj .:? "id"
-    pure (GetNexusEndpointRequest {
-       getNexusEndpointRequestId = v_getNexusEndpointRequestId
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultGetNexusEndpointRequest
 
 data GetNexusEndpointResponse = GetNexusEndpointResponse
   { getNexusEndpointResponseEndpoint :: !(Maybe Endpoint)
@@ -1001,12 +853,7 @@ instance ProtoToJSON GetNexusEndpointResponse where
       ]
 
 instance ProtoFromJSON GetNexusEndpointResponse where
-  protoFromJSON (JsonObject obj) = do
-    v_getNexusEndpointResponseEndpoint <- obj .:? "endpoint"
-    pure (GetNexusEndpointResponse {
-       getNexusEndpointResponseEndpoint = v_getNexusEndpointResponseEndpoint
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultGetNexusEndpointResponse
 
 data CreateNexusEndpointRequest = CreateNexusEndpointRequest
   { createNexusEndpointRequestSpec :: !(Maybe EndpointSpec)
@@ -1047,12 +894,7 @@ instance ProtoToJSON CreateNexusEndpointRequest where
       ]
 
 instance ProtoFromJSON CreateNexusEndpointRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_createNexusEndpointRequestSpec <- obj .:? "spec"
-    pure (CreateNexusEndpointRequest {
-       createNexusEndpointRequestSpec = v_createNexusEndpointRequestSpec
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCreateNexusEndpointRequest
 
 data CreateNexusEndpointResponse = CreateNexusEndpointResponse
   { createNexusEndpointResponseEndpoint :: !(Maybe Endpoint)
@@ -1093,12 +935,7 @@ instance ProtoToJSON CreateNexusEndpointResponse where
       ]
 
 instance ProtoFromJSON CreateNexusEndpointResponse where
-  protoFromJSON (JsonObject obj) = do
-    v_createNexusEndpointResponseEndpoint <- obj .:? "endpoint"
-    pure (CreateNexusEndpointResponse {
-       createNexusEndpointResponseEndpoint = v_createNexusEndpointResponseEndpoint
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCreateNexusEndpointResponse
 
 data UpdateNexusEndpointRequest = UpdateNexusEndpointRequest
   { updateNexusEndpointRequestId :: !Text
@@ -1154,16 +991,7 @@ instance ProtoToJSON UpdateNexusEndpointRequest where
       ]
 
 instance ProtoFromJSON UpdateNexusEndpointRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_updateNexusEndpointRequestId <- obj .:? "id"
-    v_updateNexusEndpointRequestVersion <- obj .:? "version"
-    v_updateNexusEndpointRequestSpec <- obj .:? "spec"
-    pure (UpdateNexusEndpointRequest {
-       updateNexusEndpointRequestId = v_updateNexusEndpointRequestId
-      , updateNexusEndpointRequestVersion = v_updateNexusEndpointRequestVersion
-      , updateNexusEndpointRequestSpec = v_updateNexusEndpointRequestSpec
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultUpdateNexusEndpointRequest
 
 data UpdateNexusEndpointResponse = UpdateNexusEndpointResponse
   { updateNexusEndpointResponseEndpoint :: !(Maybe Endpoint)
@@ -1204,12 +1032,7 @@ instance ProtoToJSON UpdateNexusEndpointResponse where
       ]
 
 instance ProtoFromJSON UpdateNexusEndpointResponse where
-  protoFromJSON (JsonObject obj) = do
-    v_updateNexusEndpointResponseEndpoint <- obj .:? "endpoint"
-    pure (UpdateNexusEndpointResponse {
-       updateNexusEndpointResponseEndpoint = v_updateNexusEndpointResponseEndpoint
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultUpdateNexusEndpointResponse
 
 data DeleteNexusEndpointRequest = DeleteNexusEndpointRequest
   { deleteNexusEndpointRequestId :: !Text
@@ -1257,14 +1080,7 @@ instance ProtoToJSON DeleteNexusEndpointRequest where
       ]
 
 instance ProtoFromJSON DeleteNexusEndpointRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_deleteNexusEndpointRequestId <- obj .:? "id"
-    v_deleteNexusEndpointRequestVersion <- obj .:? "version"
-    pure (DeleteNexusEndpointRequest {
-       deleteNexusEndpointRequestId = v_deleteNexusEndpointRequestId
-      , deleteNexusEndpointRequestVersion = v_deleteNexusEndpointRequestVersion
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeleteNexusEndpointRequest
 
 data DeleteNexusEndpointResponse = DeleteNexusEndpointResponse
   { }
@@ -1298,11 +1114,7 @@ instance ProtoToJSON DeleteNexusEndpointResponse where
       []
 
 instance ProtoFromJSON DeleteNexusEndpointResponse where
-  protoFromJSON (JsonObject obj) = do
-    pure (DeleteNexusEndpointResponse {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultDeleteNexusEndpointResponse
 
 data ListNexusEndpointsRequest = ListNexusEndpointsRequest
   { listNexusEndpointsRequestPagesize :: {-# UNPACK #-} !Int32
@@ -1358,16 +1170,7 @@ instance ProtoToJSON ListNexusEndpointsRequest where
       ]
 
 instance ProtoFromJSON ListNexusEndpointsRequest where
-  protoFromJSON (JsonObject obj) = do
-    v_listNexusEndpointsRequestPagesize <- obj .:? "pageSize"
-    v_listNexusEndpointsRequestNextpagetoken <- obj .:? "nextPageToken"
-    v_listNexusEndpointsRequestName <- obj .:? "name"
-    pure (ListNexusEndpointsRequest {
-       listNexusEndpointsRequestPagesize = v_listNexusEndpointsRequestPagesize
-      , listNexusEndpointsRequestNextpagetoken = v_listNexusEndpointsRequestNextpagetoken
-      , listNexusEndpointsRequestName = v_listNexusEndpointsRequestName
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultListNexusEndpointsRequest
 
 data ListNexusEndpointsResponse = ListNexusEndpointsResponse
   { listNexusEndpointsResponseNextpagetoken :: !ByteString
@@ -1415,11 +1218,4 @@ instance ProtoToJSON ListNexusEndpointsResponse where
       ]
 
 instance ProtoFromJSON ListNexusEndpointsResponse where
-  protoFromJSON (JsonObject obj) = do
-    v_listNexusEndpointsResponseNextpagetoken <- obj .:? "nextPageToken"
-    v_listNexusEndpointsResponseEndpoints <- obj .:? "endpoints"
-    pure (ListNexusEndpointsResponse {
-       listNexusEndpointsResponseNextpagetoken = v_listNexusEndpointsResponseNextpagetoken
-      , listNexusEndpointsResponseEndpoints = v_listNexusEndpointsResponseEndpoints
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultListNexusEndpointsResponse

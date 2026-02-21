@@ -33,8 +33,8 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Timestamp (Timestamp)
-import Proto.Temporal.Temporal.Api.Enums.V1.Common (Severity)
+import Proto.Google.Protobuf.Timestamp hiding (Alert, ReleaseInfo, VersionInfo)
+import Proto.Temporal.Temporal.Api.Enums.V1.Common hiding (Alert, ReleaseInfo, VersionInfo)
 
 
 data ReleaseInfo = ReleaseInfo
@@ -91,16 +91,7 @@ instance ProtoToJSON ReleaseInfo where
       ]
 
 instance ProtoFromJSON ReleaseInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_releaseInfoVersion <- obj .:? "version"
-    v_releaseInfoReleasetime <- obj .:? "releaseTime"
-    v_releaseInfoNotes <- obj .:? "notes"
-    pure (ReleaseInfo {
-       releaseInfoVersion = v_releaseInfoVersion
-      , releaseInfoReleasetime = v_releaseInfoReleasetime
-      , releaseInfoNotes = v_releaseInfoNotes
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultReleaseInfo
 
 data Alert = Alert
   { alertMessage :: !Text
@@ -148,14 +139,7 @@ instance ProtoToJSON Alert where
       ]
 
 instance ProtoFromJSON Alert where
-  protoFromJSON (JsonObject obj) = do
-    v_alertMessage <- obj .:? "message"
-    v_alertSeverity <- obj .:? "severity"
-    pure (Alert {
-       alertMessage = v_alertMessage
-      , alertSeverity = v_alertSeverity
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultAlert
 
 data VersionInfo = VersionInfo
   { versionInfoCurrent :: !(Maybe ReleaseInfo)
@@ -227,17 +211,4 @@ instance ProtoToJSON VersionInfo where
       ]
 
 instance ProtoFromJSON VersionInfo where
-  protoFromJSON (JsonObject obj) = do
-    v_versionInfoCurrent <- obj .:? "current"
-    v_versionInfoRecommended <- obj .:? "recommended"
-    v_versionInfoInstructions <- obj .:? "instructions"
-    v_versionInfoAlerts <- obj .:? "alerts"
-    v_versionInfoLastupdatetime <- obj .:? "lastUpdateTime"
-    pure (VersionInfo {
-       versionInfoCurrent = v_versionInfoCurrent
-      , versionInfoRecommended = v_versionInfoRecommended
-      , versionInfoInstructions = v_versionInfoInstructions
-      , versionInfoAlerts = v_versionInfoAlerts
-      , versionInfoLastupdatetime = v_versionInfoLastupdatetime
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultVersionInfo

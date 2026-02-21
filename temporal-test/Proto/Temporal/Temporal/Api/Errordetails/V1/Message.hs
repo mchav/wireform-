@@ -33,11 +33,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Any (Any)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (WorkflowExecution)
-import Proto.Temporal.Temporal.Api.Enums.V1.FailedCause (ResourceExhaustedCause, ResourceExhaustedScope)
-import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (NamespaceState)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure)
+import Proto.Google.Protobuf.Any hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
+import Proto.Temporal.Temporal.Api.Enums.V1.FailedCause hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
+import Proto.Temporal.Temporal.Api.Enums.V1.Namespace hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
+import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (ActivityExecutionAlreadyStartedFailure, CancellationAlreadyRequestedFailure, ClientVersionNotSupportedFailure, MultiOperationExecutionFailure, MultiOperationExecutionFailure'OperationStatus, NamespaceAlreadyExistsFailure, NamespaceInvalidStateFailure, NamespaceNotActiveFailure, NamespaceNotFoundFailure, NamespaceUnavailableFailure, NewerBuildExistsFailure, NotFoundFailure, PermissionDeniedFailure, QueryFailedFailure, ResourceExhaustedFailure, ServerVersionNotSupportedFailure, SystemWorkflowFailure, WorkflowExecutionAlreadyStartedFailure, WorkflowNotReadyFailure)
 
 
 data NotFoundFailure = NotFoundFailure
@@ -86,14 +86,7 @@ instance ProtoToJSON NotFoundFailure where
       ]
 
 instance ProtoFromJSON NotFoundFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_notFoundFailureCurrentcluster <- obj .:? "currentCluster"
-    v_notFoundFailureActivecluster <- obj .:? "activeCluster"
-    pure (NotFoundFailure {
-       notFoundFailureCurrentcluster = v_notFoundFailureCurrentcluster
-      , notFoundFailureActivecluster = v_notFoundFailureActivecluster
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNotFoundFailure
 
 data WorkflowExecutionAlreadyStartedFailure = WorkflowExecutionAlreadyStartedFailure
   { workflowExecutionAlreadyStartedFailureStartrequestid :: !Text
@@ -141,14 +134,7 @@ instance ProtoToJSON WorkflowExecutionAlreadyStartedFailure where
       ]
 
 instance ProtoFromJSON WorkflowExecutionAlreadyStartedFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_workflowExecutionAlreadyStartedFailureStartrequestid <- obj .:? "startRequestId"
-    v_workflowExecutionAlreadyStartedFailureRunid <- obj .:? "runId"
-    pure (WorkflowExecutionAlreadyStartedFailure {
-       workflowExecutionAlreadyStartedFailureStartrequestid = v_workflowExecutionAlreadyStartedFailureStartrequestid
-      , workflowExecutionAlreadyStartedFailureRunid = v_workflowExecutionAlreadyStartedFailureRunid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowExecutionAlreadyStartedFailure
 
 data NamespaceNotActiveFailure = NamespaceNotActiveFailure
   { namespaceNotActiveFailureNamespace :: !Text
@@ -204,16 +190,7 @@ instance ProtoToJSON NamespaceNotActiveFailure where
       ]
 
 instance ProtoFromJSON NamespaceNotActiveFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceNotActiveFailureNamespace <- obj .:? "namespace"
-    v_namespaceNotActiveFailureCurrentcluster <- obj .:? "currentCluster"
-    v_namespaceNotActiveFailureActivecluster <- obj .:? "activeCluster"
-    pure (NamespaceNotActiveFailure {
-       namespaceNotActiveFailureNamespace = v_namespaceNotActiveFailureNamespace
-      , namespaceNotActiveFailureCurrentcluster = v_namespaceNotActiveFailureCurrentcluster
-      , namespaceNotActiveFailureActivecluster = v_namespaceNotActiveFailureActivecluster
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceNotActiveFailure
 
 data NamespaceUnavailableFailure = NamespaceUnavailableFailure
   { namespaceUnavailableFailureNamespace :: !Text
@@ -254,12 +231,7 @@ instance ProtoToJSON NamespaceUnavailableFailure where
       ]
 
 instance ProtoFromJSON NamespaceUnavailableFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceUnavailableFailureNamespace <- obj .:? "namespace"
-    pure (NamespaceUnavailableFailure {
-       namespaceUnavailableFailureNamespace = v_namespaceUnavailableFailureNamespace
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceUnavailableFailure
 
 data NamespaceInvalidStateFailure = NamespaceInvalidStateFailure
   { namespaceInvalidStateFailureNamespace :: !Text
@@ -315,16 +287,7 @@ instance ProtoToJSON NamespaceInvalidStateFailure where
       ]
 
 instance ProtoFromJSON NamespaceInvalidStateFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceInvalidStateFailureNamespace <- obj .:? "namespace"
-    v_namespaceInvalidStateFailureState <- obj .:? "state"
-    v_namespaceInvalidStateFailureAllowedstates <- obj .:? "allowedStates"
-    pure (NamespaceInvalidStateFailure {
-       namespaceInvalidStateFailureNamespace = v_namespaceInvalidStateFailureNamespace
-      , namespaceInvalidStateFailureState = v_namespaceInvalidStateFailureState
-      , namespaceInvalidStateFailureAllowedstates = v_namespaceInvalidStateFailureAllowedstates
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceInvalidStateFailure
 
 data NamespaceNotFoundFailure = NamespaceNotFoundFailure
   { namespaceNotFoundFailureNamespace :: !Text
@@ -365,12 +328,7 @@ instance ProtoToJSON NamespaceNotFoundFailure where
       ]
 
 instance ProtoFromJSON NamespaceNotFoundFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_namespaceNotFoundFailureNamespace <- obj .:? "namespace"
-    pure (NamespaceNotFoundFailure {
-       namespaceNotFoundFailureNamespace = v_namespaceNotFoundFailureNamespace
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceNotFoundFailure
 
 data NamespaceAlreadyExistsFailure = NamespaceAlreadyExistsFailure
   { }
@@ -404,11 +362,7 @@ instance ProtoToJSON NamespaceAlreadyExistsFailure where
       []
 
 instance ProtoFromJSON NamespaceAlreadyExistsFailure where
-  protoFromJSON (JsonObject obj) = do
-    pure (NamespaceAlreadyExistsFailure {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNamespaceAlreadyExistsFailure
 
 data ClientVersionNotSupportedFailure = ClientVersionNotSupportedFailure
   { clientVersionNotSupportedFailureClientversion :: !Text
@@ -464,16 +418,7 @@ instance ProtoToJSON ClientVersionNotSupportedFailure where
       ]
 
 instance ProtoFromJSON ClientVersionNotSupportedFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_clientVersionNotSupportedFailureClientversion <- obj .:? "clientVersion"
-    v_clientVersionNotSupportedFailureClientname <- obj .:? "clientName"
-    v_clientVersionNotSupportedFailureSupportedversions <- obj .:? "supportedVersions"
-    pure (ClientVersionNotSupportedFailure {
-       clientVersionNotSupportedFailureClientversion = v_clientVersionNotSupportedFailureClientversion
-      , clientVersionNotSupportedFailureClientname = v_clientVersionNotSupportedFailureClientname
-      , clientVersionNotSupportedFailureSupportedversions = v_clientVersionNotSupportedFailureSupportedversions
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultClientVersionNotSupportedFailure
 
 data ServerVersionNotSupportedFailure = ServerVersionNotSupportedFailure
   { serverVersionNotSupportedFailureServerversion :: !Text
@@ -521,14 +466,7 @@ instance ProtoToJSON ServerVersionNotSupportedFailure where
       ]
 
 instance ProtoFromJSON ServerVersionNotSupportedFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_serverVersionNotSupportedFailureServerversion <- obj .:? "serverVersion"
-    v_serverVersionNotSupportedFailureClientsupportedserverversions <- obj .:? "clientSupportedServerVersions"
-    pure (ServerVersionNotSupportedFailure {
-       serverVersionNotSupportedFailureServerversion = v_serverVersionNotSupportedFailureServerversion
-      , serverVersionNotSupportedFailureClientsupportedserverversions = v_serverVersionNotSupportedFailureClientsupportedserverversions
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultServerVersionNotSupportedFailure
 
 data CancellationAlreadyRequestedFailure = CancellationAlreadyRequestedFailure
   { }
@@ -562,11 +500,7 @@ instance ProtoToJSON CancellationAlreadyRequestedFailure where
       []
 
 instance ProtoFromJSON CancellationAlreadyRequestedFailure where
-  protoFromJSON (JsonObject obj) = do
-    pure (CancellationAlreadyRequestedFailure {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCancellationAlreadyRequestedFailure
 
 data QueryFailedFailure = QueryFailedFailure
   { queryFailedFailureFailure :: !(Maybe Failure)
@@ -607,12 +541,7 @@ instance ProtoToJSON QueryFailedFailure where
       ]
 
 instance ProtoFromJSON QueryFailedFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_queryFailedFailureFailure <- obj .:? "failure"
-    pure (QueryFailedFailure {
-       queryFailedFailureFailure = v_queryFailedFailureFailure
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultQueryFailedFailure
 
 data PermissionDeniedFailure = PermissionDeniedFailure
   { permissionDeniedFailureReason :: !Text
@@ -653,12 +582,7 @@ instance ProtoToJSON PermissionDeniedFailure where
       ]
 
 instance ProtoFromJSON PermissionDeniedFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_permissionDeniedFailureReason <- obj .:? "reason"
-    pure (PermissionDeniedFailure {
-       permissionDeniedFailureReason = v_permissionDeniedFailureReason
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultPermissionDeniedFailure
 
 data ResourceExhaustedFailure = ResourceExhaustedFailure
   { resourceExhaustedFailureCause :: !ResourceExhaustedCause
@@ -706,14 +630,7 @@ instance ProtoToJSON ResourceExhaustedFailure where
       ]
 
 instance ProtoFromJSON ResourceExhaustedFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_resourceExhaustedFailureCause <- obj .:? "cause"
-    v_resourceExhaustedFailureScope <- obj .:? "scope"
-    pure (ResourceExhaustedFailure {
-       resourceExhaustedFailureCause = v_resourceExhaustedFailureCause
-      , resourceExhaustedFailureScope = v_resourceExhaustedFailureScope
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultResourceExhaustedFailure
 
 data SystemWorkflowFailure = SystemWorkflowFailure
   { systemWorkflowFailureWorkflowexecution :: !(Maybe WorkflowExecution)
@@ -761,14 +678,7 @@ instance ProtoToJSON SystemWorkflowFailure where
       ]
 
 instance ProtoFromJSON SystemWorkflowFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_systemWorkflowFailureWorkflowexecution <- obj .:? "workflowExecution"
-    v_systemWorkflowFailureWorkflowerror <- obj .:? "workflowError"
-    pure (SystemWorkflowFailure {
-       systemWorkflowFailureWorkflowexecution = v_systemWorkflowFailureWorkflowexecution
-      , systemWorkflowFailureWorkflowerror = v_systemWorkflowFailureWorkflowerror
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultSystemWorkflowFailure
 
 data WorkflowNotReadyFailure = WorkflowNotReadyFailure
   { }
@@ -802,11 +712,7 @@ instance ProtoToJSON WorkflowNotReadyFailure where
       []
 
 instance ProtoFromJSON WorkflowNotReadyFailure where
-  protoFromJSON (JsonObject obj) = do
-    pure (WorkflowNotReadyFailure {
-      
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultWorkflowNotReadyFailure
 
 data NewerBuildExistsFailure = NewerBuildExistsFailure
   { newerBuildExistsFailureDefaultbuildid :: !Text
@@ -847,45 +753,40 @@ instance ProtoToJSON NewerBuildExistsFailure where
       ]
 
 instance ProtoFromJSON NewerBuildExistsFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_newerBuildExistsFailureDefaultbuildid <- obj .:? "defaultBuildId"
-    pure (NewerBuildExistsFailure {
-       newerBuildExistsFailureDefaultbuildid = v_newerBuildExistsFailureDefaultbuildid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultNewerBuildExistsFailure
 
 data MultiOperationExecutionFailure = MultiOperationExecutionFailure
-  { multiOperationExecutionFailureStatuses :: !(V.Vector OperationStatus)
+  { multiOperationExecutionFailureStatuses :: !(V.Vector MultiOperationExecutionFailure'OperationStatus)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data MultiOperationExecutionFailure'OperationStatus = MultiOperationExecutionFailure'OperationStatus
-  { multiOperationExecutionFailureCode :: {-# UNPACK #-} !Int32
-  , multiOperationExecutionFailureMessage :: !Text
-  , multiOperationExecutionFailureDetails :: !(V.Vector Any)
+  { multiOperationExecutionFailureOperationStatusCode :: {-# UNPACK #-} !Int32
+  , multiOperationExecutionFailureOperationStatusMessage :: !Text
+  , multiOperationExecutionFailureOperationStatusDetails :: !(V.Vector Any)
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultMultiOperationExecutionFailure'OperationStatus :: MultiOperationExecutionFailure'OperationStatus
 defaultMultiOperationExecutionFailure'OperationStatus = MultiOperationExecutionFailure'OperationStatus
-  { multiOperationExecutionFailureCode = 0
-  , multiOperationExecutionFailureMessage = ""
-  , multiOperationExecutionFailureDetails = V.empty
+  { multiOperationExecutionFailureOperationStatusCode = 0
+  , multiOperationExecutionFailureOperationStatusMessage = ""
+  , multiOperationExecutionFailureOperationStatusDetails = V.empty
   }
 
 instance MessageEncode MultiOperationExecutionFailure'OperationStatus where
   buildMessage msg =
-    (if msg.multiOperationExecutionFailureCode == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.multiOperationExecutionFailureCode))
-    <> (if msg.multiOperationExecutionFailureMessage == T.empty then mempty else encodeFieldString 2 msg.multiOperationExecutionFailureMessage)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.multiOperationExecutionFailureDetails
+    (if msg.multiOperationExecutionFailureOperationStatusCode == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.multiOperationExecutionFailureOperationStatusCode))
+    <> (if msg.multiOperationExecutionFailureOperationStatusMessage == T.empty then mempty else encodeFieldString 2 msg.multiOperationExecutionFailureOperationStatusMessage)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.multiOperationExecutionFailureOperationStatusDetails
 
 instance MessageSize MultiOperationExecutionFailure'OperationStatus where
   messageSize msg =
-    (if msg.multiOperationExecutionFailureCode == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.multiOperationExecutionFailureCode))
-    + (if msg.multiOperationExecutionFailureMessage == T.empty then 0 else fieldTextSize 2 msg.multiOperationExecutionFailureMessage)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.multiOperationExecutionFailureDetails)
+    (if msg.multiOperationExecutionFailureOperationStatusCode == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.multiOperationExecutionFailureOperationStatusCode))
+    + (if msg.multiOperationExecutionFailureOperationStatusMessage == T.empty then 0 else fieldTextSize 2 msg.multiOperationExecutionFailureOperationStatusMessage)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.multiOperationExecutionFailureOperationStatusDetails)
 
 instance MessageDecode MultiOperationExecutionFailure'OperationStatus where
   messageDecoder = loop 0 "" V.empty
@@ -893,7 +794,7 @@ instance MessageDecode MultiOperationExecutionFailure'OperationStatus where
       loop acc_0 acc_1 acc_2 = do
         mTag <- getTagOr
         case mTag of
-          Nothing -> pure (MultiOperationExecutionFailure'OperationStatus {multiOperationExecutionFailureCode = acc_0, multiOperationExecutionFailureMessage = acc_1, multiOperationExecutionFailureDetails = acc_2})
+          Nothing -> pure (MultiOperationExecutionFailure'OperationStatus {multiOperationExecutionFailureOperationStatusCode = acc_0, multiOperationExecutionFailureOperationStatusMessage = acc_1, multiOperationExecutionFailureOperationStatusDetails = acc_2})
           Just (Tag fn wt) -> case fn of
             1 -> do
               v <- fromIntegral <$> decodeFieldVarint
@@ -908,22 +809,13 @@ instance MessageDecode MultiOperationExecutionFailure'OperationStatus where
 
 instance ProtoToJSON MultiOperationExecutionFailure'OperationStatus where
   protoToJSON msg = jsonObject
-      [ "code" .= msg.multiOperationExecutionFailureCode
-      , "message" .= msg.multiOperationExecutionFailureMessage
-      , "details" .= msg.multiOperationExecutionFailureDetails
+      [ "code" .= msg.multiOperationExecutionFailureOperationStatusCode
+      , "message" .= msg.multiOperationExecutionFailureOperationStatusMessage
+      , "details" .= msg.multiOperationExecutionFailureOperationStatusDetails
       ]
 
 instance ProtoFromJSON MultiOperationExecutionFailure'OperationStatus where
-  protoFromJSON (JsonObject obj) = do
-    v_multiOperationExecutionFailureCode <- obj .:? "code"
-    v_multiOperationExecutionFailureMessage <- obj .:? "message"
-    v_multiOperationExecutionFailureDetails <- obj .:? "details"
-    pure (MultiOperationExecutionFailure'OperationStatus {
-       multiOperationExecutionFailureCode = v_multiOperationExecutionFailureCode
-      , multiOperationExecutionFailureMessage = v_multiOperationExecutionFailureMessage
-      , multiOperationExecutionFailureDetails = v_multiOperationExecutionFailureDetails
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultMultiOperationExecutionFailure'OperationStatus
 
 defaultMultiOperationExecutionFailure :: MultiOperationExecutionFailure
 defaultMultiOperationExecutionFailure = MultiOperationExecutionFailure
@@ -958,12 +850,7 @@ instance ProtoToJSON MultiOperationExecutionFailure where
       ]
 
 instance ProtoFromJSON MultiOperationExecutionFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_multiOperationExecutionFailureStatuses <- obj .:? "statuses"
-    pure (MultiOperationExecutionFailure {
-       multiOperationExecutionFailureStatuses = v_multiOperationExecutionFailureStatuses
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultMultiOperationExecutionFailure
 
 data ActivityExecutionAlreadyStartedFailure = ActivityExecutionAlreadyStartedFailure
   { activityExecutionAlreadyStartedFailureStartrequestid :: !Text
@@ -1011,11 +898,4 @@ instance ProtoToJSON ActivityExecutionAlreadyStartedFailure where
       ]
 
 instance ProtoFromJSON ActivityExecutionAlreadyStartedFailure where
-  protoFromJSON (JsonObject obj) = do
-    v_activityExecutionAlreadyStartedFailureStartrequestid <- obj .:? "startRequestId"
-    v_activityExecutionAlreadyStartedFailureRunid <- obj .:? "runId"
-    pure (ActivityExecutionAlreadyStartedFailure {
-       activityExecutionAlreadyStartedFailureStartrequestid = v_activityExecutionAlreadyStartedFailureStartrequestid
-      , activityExecutionAlreadyStartedFailureRunid = v_activityExecutionAlreadyStartedFailureRunid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultActivityExecutionAlreadyStartedFailure

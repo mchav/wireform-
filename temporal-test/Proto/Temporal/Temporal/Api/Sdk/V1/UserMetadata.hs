@@ -33,7 +33,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (UserMetadata)
 
 
 data UserMetadata = UserMetadata
@@ -82,11 +82,4 @@ instance ProtoToJSON UserMetadata where
       ]
 
 instance ProtoFromJSON UserMetadata where
-  protoFromJSON (JsonObject obj) = do
-    v_userMetadataSummary <- obj .:? "summary"
-    v_userMetadataDetails <- obj .:? "details"
-    pure (UserMetadata {
-       userMetadataSummary = v_userMetadataSummary
-      , userMetadataDetails = v_userMetadataDetails
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultUserMetadata

@@ -52,6 +52,7 @@ import Control.DeepSeq (NFData)
 
 import Proto.Encode
 import Proto.Decode
+import Proto.JSON
 import Proto.Message (IsMessage (..))
 import Proto.Wire (Tag (..))
 import Proto.Wire.Encode (fieldTextSize, fieldBytesSize)
@@ -208,3 +209,9 @@ unpackAnyDynamic reg (Any tu v) =
   in case lookupType name reg of
     Nothing      -> Nothing
     Just decoder -> Just (decoder v)
+
+instance ProtoToJSON Any where
+  protoToJSON (Any tu _) = jsonObject [("@type", JsonString tu)]
+
+instance ProtoFromJSON Any where
+  protoFromJSON _ = Right defaultAny

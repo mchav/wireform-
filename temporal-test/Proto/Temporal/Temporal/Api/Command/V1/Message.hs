@@ -33,13 +33,13 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
   fieldTextSize, fieldBytesSize)
-import Proto.Google.Protobuf.Duration (Duration)
-import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType, Header, Memo, Payload, Payloads, Priority, RetryPolicy, SearchAttributes, WorkflowExecution, WorkflowType)
-import Proto.Temporal.Temporal.Api.Enums.V1.CommandType (CommandType)
-import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (ContinueAsNewInitiator, ContinueAsNewVersioningBehavior, ParentClosePolicy, WorkflowIdReusePolicy)
-import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure)
-import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata (UserMetadata)
-import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message (TaskQueue)
+import Proto.Google.Protobuf.Duration hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
+import Proto.Temporal.Temporal.Api.Common.V1.Message hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
+import Proto.Temporal.Temporal.Api.Enums.V1.CommandType hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
+import Proto.Temporal.Temporal.Api.Enums.V1.Workflow hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
+import Proto.Temporal.Temporal.Api.Failure.V1.Message hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
+import Proto.Temporal.Temporal.Api.Sdk.V1.UserMetadata hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
+import Proto.Temporal.Temporal.Api.Taskqueue.V1.Message hiding (CancelTimerCommandAttributes, CancelWorkflowExecutionCommandAttributes, Command, CompleteWorkflowExecutionCommandAttributes, ContinueAsNewWorkflowExecutionCommandAttributes, FailWorkflowExecutionCommandAttributes, ModifyWorkflowPropertiesCommandAttributes, ProtocolMessageCommandAttributes, RecordMarkerCommandAttributes, RequestCancelActivityTaskCommandAttributes, RequestCancelExternalWorkflowExecutionCommandAttributes, RequestCancelNexusOperationCommandAttributes, ScheduleActivityTaskCommandAttributes, ScheduleNexusOperationCommandAttributes, SignalExternalWorkflowExecutionCommandAttributes, StartChildWorkflowExecutionCommandAttributes, StartTimerCommandAttributes, UpsertWorkflowSearchAttributesCommandAttributes)
 
 
 data ScheduleActivityTaskCommandAttributes = ScheduleActivityTaskCommandAttributes
@@ -176,36 +176,7 @@ instance ProtoToJSON ScheduleActivityTaskCommandAttributes where
       ]
 
 instance ProtoFromJSON ScheduleActivityTaskCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleActivityTaskCommandAttributesActivityid <- obj .:? "activityId"
-    v_scheduleActivityTaskCommandAttributesActivitytype <- obj .:? "activityType"
-    v_scheduleActivityTaskCommandAttributesTaskqueue <- obj .:? "taskQueue"
-    v_scheduleActivityTaskCommandAttributesHeader <- obj .:? "header"
-    v_scheduleActivityTaskCommandAttributesInput <- obj .:? "input"
-    v_scheduleActivityTaskCommandAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    v_scheduleActivityTaskCommandAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    v_scheduleActivityTaskCommandAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    v_scheduleActivityTaskCommandAttributesHeartbeattimeout <- obj .:? "heartbeatTimeout"
-    v_scheduleActivityTaskCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
-    v_scheduleActivityTaskCommandAttributesRequesteagerexecution <- obj .:? "requestEagerExecution"
-    v_scheduleActivityTaskCommandAttributesUseworkflowbuildid <- obj .:? "useWorkflowBuildId"
-    v_scheduleActivityTaskCommandAttributesPriority <- obj .:? "priority"
-    pure (ScheduleActivityTaskCommandAttributes {
-       scheduleActivityTaskCommandAttributesActivityid = v_scheduleActivityTaskCommandAttributesActivityid
-      , scheduleActivityTaskCommandAttributesActivitytype = v_scheduleActivityTaskCommandAttributesActivitytype
-      , scheduleActivityTaskCommandAttributesTaskqueue = v_scheduleActivityTaskCommandAttributesTaskqueue
-      , scheduleActivityTaskCommandAttributesHeader = v_scheduleActivityTaskCommandAttributesHeader
-      , scheduleActivityTaskCommandAttributesInput = v_scheduleActivityTaskCommandAttributesInput
-      , scheduleActivityTaskCommandAttributesScheduletoclosetimeout = v_scheduleActivityTaskCommandAttributesScheduletoclosetimeout
-      , scheduleActivityTaskCommandAttributesScheduletostarttimeout = v_scheduleActivityTaskCommandAttributesScheduletostarttimeout
-      , scheduleActivityTaskCommandAttributesStarttoclosetimeout = v_scheduleActivityTaskCommandAttributesStarttoclosetimeout
-      , scheduleActivityTaskCommandAttributesHeartbeattimeout = v_scheduleActivityTaskCommandAttributesHeartbeattimeout
-      , scheduleActivityTaskCommandAttributesRetrypolicy = v_scheduleActivityTaskCommandAttributesRetrypolicy
-      , scheduleActivityTaskCommandAttributesRequesteagerexecution = v_scheduleActivityTaskCommandAttributesRequesteagerexecution
-      , scheduleActivityTaskCommandAttributesUseworkflowbuildid = v_scheduleActivityTaskCommandAttributesUseworkflowbuildid
-      , scheduleActivityTaskCommandAttributesPriority = v_scheduleActivityTaskCommandAttributesPriority
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleActivityTaskCommandAttributes
 
 data RequestCancelActivityTaskCommandAttributes = RequestCancelActivityTaskCommandAttributes
   { requestCancelActivityTaskCommandAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -246,12 +217,7 @@ instance ProtoToJSON RequestCancelActivityTaskCommandAttributes where
       ]
 
 instance ProtoFromJSON RequestCancelActivityTaskCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_requestCancelActivityTaskCommandAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    pure (RequestCancelActivityTaskCommandAttributes {
-       requestCancelActivityTaskCommandAttributesScheduledeventid = v_requestCancelActivityTaskCommandAttributesScheduledeventid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRequestCancelActivityTaskCommandAttributes
 
 data StartTimerCommandAttributes = StartTimerCommandAttributes
   { startTimerCommandAttributesTimerid :: !Text
@@ -299,14 +265,7 @@ instance ProtoToJSON StartTimerCommandAttributes where
       ]
 
 instance ProtoFromJSON StartTimerCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_startTimerCommandAttributesTimerid <- obj .:? "timerId"
-    v_startTimerCommandAttributesStarttofiretimeout <- obj .:? "startToFireTimeout"
-    pure (StartTimerCommandAttributes {
-       startTimerCommandAttributesTimerid = v_startTimerCommandAttributesTimerid
-      , startTimerCommandAttributesStarttofiretimeout = v_startTimerCommandAttributesStarttofiretimeout
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStartTimerCommandAttributes
 
 data CompleteWorkflowExecutionCommandAttributes = CompleteWorkflowExecutionCommandAttributes
   { completeWorkflowExecutionCommandAttributesResult :: !(Maybe Payloads)
@@ -347,12 +306,7 @@ instance ProtoToJSON CompleteWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON CompleteWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_completeWorkflowExecutionCommandAttributesResult <- obj .:? "result"
-    pure (CompleteWorkflowExecutionCommandAttributes {
-       completeWorkflowExecutionCommandAttributesResult = v_completeWorkflowExecutionCommandAttributesResult
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCompleteWorkflowExecutionCommandAttributes
 
 data FailWorkflowExecutionCommandAttributes = FailWorkflowExecutionCommandAttributes
   { failWorkflowExecutionCommandAttributesFailure :: !(Maybe Failure)
@@ -393,12 +347,7 @@ instance ProtoToJSON FailWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON FailWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_failWorkflowExecutionCommandAttributesFailure <- obj .:? "failure"
-    pure (FailWorkflowExecutionCommandAttributes {
-       failWorkflowExecutionCommandAttributesFailure = v_failWorkflowExecutionCommandAttributesFailure
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultFailWorkflowExecutionCommandAttributes
 
 data CancelTimerCommandAttributes = CancelTimerCommandAttributes
   { cancelTimerCommandAttributesTimerid :: !Text
@@ -439,12 +388,7 @@ instance ProtoToJSON CancelTimerCommandAttributes where
       ]
 
 instance ProtoFromJSON CancelTimerCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_cancelTimerCommandAttributesTimerid <- obj .:? "timerId"
-    pure (CancelTimerCommandAttributes {
-       cancelTimerCommandAttributesTimerid = v_cancelTimerCommandAttributesTimerid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCancelTimerCommandAttributes
 
 data CancelWorkflowExecutionCommandAttributes = CancelWorkflowExecutionCommandAttributes
   { cancelWorkflowExecutionCommandAttributesDetails :: !(Maybe Payloads)
@@ -485,12 +429,7 @@ instance ProtoToJSON CancelWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON CancelWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_cancelWorkflowExecutionCommandAttributesDetails <- obj .:? "details"
-    pure (CancelWorkflowExecutionCommandAttributes {
-       cancelWorkflowExecutionCommandAttributesDetails = v_cancelWorkflowExecutionCommandAttributesDetails
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCancelWorkflowExecutionCommandAttributes
 
 data RequestCancelExternalWorkflowExecutionCommandAttributes = RequestCancelExternalWorkflowExecutionCommandAttributes
   { requestCancelExternalWorkflowExecutionCommandAttributesNamespace :: !Text
@@ -570,22 +509,7 @@ instance ProtoToJSON RequestCancelExternalWorkflowExecutionCommandAttributes whe
       ]
 
 instance ProtoFromJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_requestCancelExternalWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
-    v_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid <- obj .:? "workflowId"
-    v_requestCancelExternalWorkflowExecutionCommandAttributesRunid <- obj .:? "runId"
-    v_requestCancelExternalWorkflowExecutionCommandAttributesControl <- obj .:? "control"
-    v_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
-    v_requestCancelExternalWorkflowExecutionCommandAttributesReason <- obj .:? "reason"
-    pure (RequestCancelExternalWorkflowExecutionCommandAttributes {
-       requestCancelExternalWorkflowExecutionCommandAttributesNamespace = v_requestCancelExternalWorkflowExecutionCommandAttributesNamespace
-      , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid = v_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid
-      , requestCancelExternalWorkflowExecutionCommandAttributesRunid = v_requestCancelExternalWorkflowExecutionCommandAttributesRunid
-      , requestCancelExternalWorkflowExecutionCommandAttributesControl = v_requestCancelExternalWorkflowExecutionCommandAttributesControl
-      , requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly = v_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly
-      , requestCancelExternalWorkflowExecutionCommandAttributesReason = v_requestCancelExternalWorkflowExecutionCommandAttributesReason
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRequestCancelExternalWorkflowExecutionCommandAttributes
 
 data SignalExternalWorkflowExecutionCommandAttributes = SignalExternalWorkflowExecutionCommandAttributes
   { signalExternalWorkflowExecutionCommandAttributesNamespace :: !Text
@@ -673,24 +597,7 @@ instance ProtoToJSON SignalExternalWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON SignalExternalWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_signalExternalWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
-    v_signalExternalWorkflowExecutionCommandAttributesExecution <- obj .:? "execution"
-    v_signalExternalWorkflowExecutionCommandAttributesSignalname <- obj .:? "signalName"
-    v_signalExternalWorkflowExecutionCommandAttributesInput <- obj .:? "input"
-    v_signalExternalWorkflowExecutionCommandAttributesControl <- obj .:? "control"
-    v_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
-    v_signalExternalWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
-    pure (SignalExternalWorkflowExecutionCommandAttributes {
-       signalExternalWorkflowExecutionCommandAttributesNamespace = v_signalExternalWorkflowExecutionCommandAttributesNamespace
-      , signalExternalWorkflowExecutionCommandAttributesExecution = v_signalExternalWorkflowExecutionCommandAttributesExecution
-      , signalExternalWorkflowExecutionCommandAttributesSignalname = v_signalExternalWorkflowExecutionCommandAttributesSignalname
-      , signalExternalWorkflowExecutionCommandAttributesInput = v_signalExternalWorkflowExecutionCommandAttributesInput
-      , signalExternalWorkflowExecutionCommandAttributesControl = v_signalExternalWorkflowExecutionCommandAttributesControl
-      , signalExternalWorkflowExecutionCommandAttributesChildworkflowonly = v_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly
-      , signalExternalWorkflowExecutionCommandAttributesHeader = v_signalExternalWorkflowExecutionCommandAttributesHeader
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionCommandAttributes
 
 data UpsertWorkflowSearchAttributesCommandAttributes = UpsertWorkflowSearchAttributesCommandAttributes
   { upsertWorkflowSearchAttributesCommandAttributesSearchattributes :: !(Maybe SearchAttributes)
@@ -731,12 +638,7 @@ instance ProtoToJSON UpsertWorkflowSearchAttributesCommandAttributes where
       ]
 
 instance ProtoFromJSON UpsertWorkflowSearchAttributesCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_upsertWorkflowSearchAttributesCommandAttributesSearchattributes <- obj .:? "searchAttributes"
-    pure (UpsertWorkflowSearchAttributesCommandAttributes {
-       upsertWorkflowSearchAttributesCommandAttributesSearchattributes = v_upsertWorkflowSearchAttributesCommandAttributesSearchattributes
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultUpsertWorkflowSearchAttributesCommandAttributes
 
 data ModifyWorkflowPropertiesCommandAttributes = ModifyWorkflowPropertiesCommandAttributes
   { modifyWorkflowPropertiesCommandAttributesUpsertedmemo :: !(Maybe Memo)
@@ -777,12 +679,7 @@ instance ProtoToJSON ModifyWorkflowPropertiesCommandAttributes where
       ]
 
 instance ProtoFromJSON ModifyWorkflowPropertiesCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_modifyWorkflowPropertiesCommandAttributesUpsertedmemo <- obj .:? "upsertedMemo"
-    pure (ModifyWorkflowPropertiesCommandAttributes {
-       modifyWorkflowPropertiesCommandAttributesUpsertedmemo = v_modifyWorkflowPropertiesCommandAttributesUpsertedmemo
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultModifyWorkflowPropertiesCommandAttributes
 
 data RecordMarkerCommandAttributes = RecordMarkerCommandAttributes
   { recordMarkerCommandAttributesMarkername :: !Text
@@ -827,20 +724,11 @@ instance MessageDecode RecordMarkerCommandAttributes where
               v <- decodeFieldString
               loop v acc_1 acc_2 acc_3
             2 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldMessage; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" undefined
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3
-                Right (k, v) -> loop acc_0 (Map.union acc_1 (Map.singleton k v)) acc_2 acc_3
+                Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv')) acc_2 acc_3
             3 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v) acc_3
@@ -858,18 +746,7 @@ instance ProtoToJSON RecordMarkerCommandAttributes where
       ]
 
 instance ProtoFromJSON RecordMarkerCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_recordMarkerCommandAttributesMarkername <- obj .:? "markerName"
-    v_recordMarkerCommandAttributesDetails <- obj .:? "details"
-    v_recordMarkerCommandAttributesHeader <- obj .:? "header"
-    v_recordMarkerCommandAttributesFailure <- obj .:? "failure"
-    pure (RecordMarkerCommandAttributes {
-       recordMarkerCommandAttributesMarkername = v_recordMarkerCommandAttributesMarkername
-      , recordMarkerCommandAttributesDetails = v_recordMarkerCommandAttributesDetails
-      , recordMarkerCommandAttributesHeader = v_recordMarkerCommandAttributesHeader
-      , recordMarkerCommandAttributesFailure = v_recordMarkerCommandAttributesFailure
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRecordMarkerCommandAttributes
 
 data ContinueAsNewWorkflowExecutionCommandAttributes = ContinueAsNewWorkflowExecutionCommandAttributes
   { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype :: !(Maybe WorkflowType)
@@ -1029,42 +906,7 @@ instance ProtoToJSON ContinueAsNewWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON ContinueAsNewWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype <- obj .:? "workflowType"
-    v_continueAsNewWorkflowExecutionCommandAttributesTaskqueue <- obj .:? "taskQueue"
-    v_continueAsNewWorkflowExecutionCommandAttributesInput <- obj .:? "input"
-    v_continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    v_continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    v_continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval <- obj .:? "backoffStartInterval"
-    v_continueAsNewWorkflowExecutionCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
-    v_continueAsNewWorkflowExecutionCommandAttributesInitiator <- obj .:? "initiator"
-    v_continueAsNewWorkflowExecutionCommandAttributesFailure <- obj .:? "failure"
-    v_continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult <- obj .:? "lastCompletionResult"
-    v_continueAsNewWorkflowExecutionCommandAttributesCronschedule <- obj .:? "cronSchedule"
-    v_continueAsNewWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
-    v_continueAsNewWorkflowExecutionCommandAttributesMemo <- obj .:? "memo"
-    v_continueAsNewWorkflowExecutionCommandAttributesSearchattributes <- obj .:? "searchAttributes"
-    v_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid <- obj .:? "inheritBuildId"
-    v_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior <- obj .:? "initialVersioningBehavior"
-    pure (ContinueAsNewWorkflowExecutionCommandAttributes {
-       continueAsNewWorkflowExecutionCommandAttributesWorkflowtype = v_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype
-      , continueAsNewWorkflowExecutionCommandAttributesTaskqueue = v_continueAsNewWorkflowExecutionCommandAttributesTaskqueue
-      , continueAsNewWorkflowExecutionCommandAttributesInput = v_continueAsNewWorkflowExecutionCommandAttributesInput
-      , continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout = v_continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout
-      , continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout = v_continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout
-      , continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval = v_continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval
-      , continueAsNewWorkflowExecutionCommandAttributesRetrypolicy = v_continueAsNewWorkflowExecutionCommandAttributesRetrypolicy
-      , continueAsNewWorkflowExecutionCommandAttributesInitiator = v_continueAsNewWorkflowExecutionCommandAttributesInitiator
-      , continueAsNewWorkflowExecutionCommandAttributesFailure = v_continueAsNewWorkflowExecutionCommandAttributesFailure
-      , continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult = v_continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult
-      , continueAsNewWorkflowExecutionCommandAttributesCronschedule = v_continueAsNewWorkflowExecutionCommandAttributesCronschedule
-      , continueAsNewWorkflowExecutionCommandAttributesHeader = v_continueAsNewWorkflowExecutionCommandAttributesHeader
-      , continueAsNewWorkflowExecutionCommandAttributesMemo = v_continueAsNewWorkflowExecutionCommandAttributesMemo
-      , continueAsNewWorkflowExecutionCommandAttributesSearchattributes = v_continueAsNewWorkflowExecutionCommandAttributesSearchattributes
-      , continueAsNewWorkflowExecutionCommandAttributesInheritbuildid = v_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid
-      , continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior = v_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultContinueAsNewWorkflowExecutionCommandAttributes
 
 data StartChildWorkflowExecutionCommandAttributes = StartChildWorkflowExecutionCommandAttributes
   { startChildWorkflowExecutionCommandAttributesNamespace :: !Text
@@ -1240,46 +1082,7 @@ instance ProtoToJSON StartChildWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON StartChildWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_startChildWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
-    v_startChildWorkflowExecutionCommandAttributesWorkflowid <- obj .:? "workflowId"
-    v_startChildWorkflowExecutionCommandAttributesWorkflowtype <- obj .:? "workflowType"
-    v_startChildWorkflowExecutionCommandAttributesTaskqueue <- obj .:? "taskQueue"
-    v_startChildWorkflowExecutionCommandAttributesInput <- obj .:? "input"
-    v_startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
-    v_startChildWorkflowExecutionCommandAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    v_startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    v_startChildWorkflowExecutionCommandAttributesParentclosepolicy <- obj .:? "parentClosePolicy"
-    v_startChildWorkflowExecutionCommandAttributesControl <- obj .:? "control"
-    v_startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
-    v_startChildWorkflowExecutionCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
-    v_startChildWorkflowExecutionCommandAttributesCronschedule <- obj .:? "cronSchedule"
-    v_startChildWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
-    v_startChildWorkflowExecutionCommandAttributesMemo <- obj .:? "memo"
-    v_startChildWorkflowExecutionCommandAttributesSearchattributes <- obj .:? "searchAttributes"
-    v_startChildWorkflowExecutionCommandAttributesInheritbuildid <- obj .:? "inheritBuildId"
-    v_startChildWorkflowExecutionCommandAttributesPriority <- obj .:? "priority"
-    pure (StartChildWorkflowExecutionCommandAttributes {
-       startChildWorkflowExecutionCommandAttributesNamespace = v_startChildWorkflowExecutionCommandAttributesNamespace
-      , startChildWorkflowExecutionCommandAttributesWorkflowid = v_startChildWorkflowExecutionCommandAttributesWorkflowid
-      , startChildWorkflowExecutionCommandAttributesWorkflowtype = v_startChildWorkflowExecutionCommandAttributesWorkflowtype
-      , startChildWorkflowExecutionCommandAttributesTaskqueue = v_startChildWorkflowExecutionCommandAttributesTaskqueue
-      , startChildWorkflowExecutionCommandAttributesInput = v_startChildWorkflowExecutionCommandAttributesInput
-      , startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout = v_startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout
-      , startChildWorkflowExecutionCommandAttributesWorkflowruntimeout = v_startChildWorkflowExecutionCommandAttributesWorkflowruntimeout
-      , startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout = v_startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout
-      , startChildWorkflowExecutionCommandAttributesParentclosepolicy = v_startChildWorkflowExecutionCommandAttributesParentclosepolicy
-      , startChildWorkflowExecutionCommandAttributesControl = v_startChildWorkflowExecutionCommandAttributesControl
-      , startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy = v_startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy
-      , startChildWorkflowExecutionCommandAttributesRetrypolicy = v_startChildWorkflowExecutionCommandAttributesRetrypolicy
-      , startChildWorkflowExecutionCommandAttributesCronschedule = v_startChildWorkflowExecutionCommandAttributesCronschedule
-      , startChildWorkflowExecutionCommandAttributesHeader = v_startChildWorkflowExecutionCommandAttributesHeader
-      , startChildWorkflowExecutionCommandAttributesMemo = v_startChildWorkflowExecutionCommandAttributesMemo
-      , startChildWorkflowExecutionCommandAttributesSearchattributes = v_startChildWorkflowExecutionCommandAttributesSearchattributes
-      , startChildWorkflowExecutionCommandAttributesInheritbuildid = v_startChildWorkflowExecutionCommandAttributesInheritbuildid
-      , startChildWorkflowExecutionCommandAttributesPriority = v_startChildWorkflowExecutionCommandAttributesPriority
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultStartChildWorkflowExecutionCommandAttributes
 
 data ProtocolMessageCommandAttributes = ProtocolMessageCommandAttributes
   { protocolMessageCommandAttributesMessageid :: !Text
@@ -1320,12 +1123,7 @@ instance ProtoToJSON ProtocolMessageCommandAttributes where
       ]
 
 instance ProtoFromJSON ProtocolMessageCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_protocolMessageCommandAttributesMessageid <- obj .:? "messageId"
-    pure (ProtocolMessageCommandAttributes {
-       protocolMessageCommandAttributesMessageid = v_protocolMessageCommandAttributesMessageid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultProtocolMessageCommandAttributes
 
 data ScheduleNexusOperationCommandAttributes = ScheduleNexusOperationCommandAttributes
   { scheduleNexusOperationCommandAttributesEndpoint :: !Text
@@ -1398,20 +1196,11 @@ instance MessageDecode ScheduleNexusOperationCommandAttributes where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 (Just v) acc_5 acc_6 acc_7
             6 -> do
-              bs <- getLengthDelimited
-              case runDecoder (do
-                let loop' mk mv = do
-                      mt <- getTagOr
-                      case mt of
-                        Nothing -> pure (mk, mv)
-                        Just (Tag f _) -> case f of
-                          1 -> do { kv <- decodeFieldString; loop' kv mv }
-                          2 -> do { vv <- decodeFieldString; loop' mk vv }
-                          _ -> do { skipField WireLengthDelimited; loop' mk mv }
-                loop' "" ""
-              ) bs of
+              bs' <- getLengthDelimited
+              let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldString "" "") bs'
+              case decodeEntry of
                 Left _ -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
-                Right (k, v) -> loop acc_0 acc_1 acc_2 acc_3 acc_4 (Map.union acc_5 (Map.singleton k v)) acc_6 acc_7
+                Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 (Map.union acc_5 (Map.singleton mk' mv')) acc_6 acc_7
             7 -> do
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v) acc_7
@@ -1433,26 +1222,7 @@ instance ProtoToJSON ScheduleNexusOperationCommandAttributes where
       ]
 
 instance ProtoFromJSON ScheduleNexusOperationCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_scheduleNexusOperationCommandAttributesEndpoint <- obj .:? "endpoint"
-    v_scheduleNexusOperationCommandAttributesService <- obj .:? "service"
-    v_scheduleNexusOperationCommandAttributesOperation <- obj .:? "operation"
-    v_scheduleNexusOperationCommandAttributesInput <- obj .:? "input"
-    v_scheduleNexusOperationCommandAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    v_scheduleNexusOperationCommandAttributesNexusheader <- obj .:? "nexusHeader"
-    v_scheduleNexusOperationCommandAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    v_scheduleNexusOperationCommandAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    pure (ScheduleNexusOperationCommandAttributes {
-       scheduleNexusOperationCommandAttributesEndpoint = v_scheduleNexusOperationCommandAttributesEndpoint
-      , scheduleNexusOperationCommandAttributesService = v_scheduleNexusOperationCommandAttributesService
-      , scheduleNexusOperationCommandAttributesOperation = v_scheduleNexusOperationCommandAttributesOperation
-      , scheduleNexusOperationCommandAttributesInput = v_scheduleNexusOperationCommandAttributesInput
-      , scheduleNexusOperationCommandAttributesScheduletoclosetimeout = v_scheduleNexusOperationCommandAttributesScheduletoclosetimeout
-      , scheduleNexusOperationCommandAttributesNexusheader = v_scheduleNexusOperationCommandAttributesNexusheader
-      , scheduleNexusOperationCommandAttributesScheduletostarttimeout = v_scheduleNexusOperationCommandAttributesScheduletostarttimeout
-      , scheduleNexusOperationCommandAttributesStarttoclosetimeout = v_scheduleNexusOperationCommandAttributesStarttoclosetimeout
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultScheduleNexusOperationCommandAttributes
 
 data RequestCancelNexusOperationCommandAttributes = RequestCancelNexusOperationCommandAttributes
   { requestCancelNexusOperationCommandAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -1493,12 +1263,7 @@ instance ProtoToJSON RequestCancelNexusOperationCommandAttributes where
       ]
 
 instance ProtoFromJSON RequestCancelNexusOperationCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    v_requestCancelNexusOperationCommandAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    pure (RequestCancelNexusOperationCommandAttributes {
-       requestCancelNexusOperationCommandAttributesScheduledeventid = v_requestCancelNexusOperationCommandAttributesScheduledeventid
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultRequestCancelNexusOperationCommandAttributes
 
 data Command = Command
   { commandCommandtype :: !CommandType
@@ -1508,25 +1273,29 @@ data Command = Command
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 data Command'Attributes
-  = Command'ScheduleActivityTaskCommandAttributes !ScheduleActivityTaskCommandAttributes
-  | Command'StartTimerCommandAttributes !StartTimerCommandAttributes
-  | Command'CompleteWorkflowExecutionCommandAttributes !CompleteWorkflowExecutionCommandAttributes
-  | Command'FailWorkflowExecutionCommandAttributes !FailWorkflowExecutionCommandAttributes
-  | Command'RequestCancelActivityTaskCommandAttributes !RequestCancelActivityTaskCommandAttributes
-  | Command'CancelTimerCommandAttributes !CancelTimerCommandAttributes
-  | Command'CancelWorkflowExecutionCommandAttributes !CancelWorkflowExecutionCommandAttributes
-  | Command'RequestCancelExternalWorkflowExecutionCommandAttributes !RequestCancelExternalWorkflowExecutionCommandAttributes
-  | Command'RecordMarkerCommandAttributes !RecordMarkerCommandAttributes
-  | Command'ContinueAsNewWorkflowExecutionCommandAttributes !ContinueAsNewWorkflowExecutionCommandAttributes
-  | Command'StartChildWorkflowExecutionCommandAttributes !StartChildWorkflowExecutionCommandAttributes
-  | Command'SignalExternalWorkflowExecutionCommandAttributes !SignalExternalWorkflowExecutionCommandAttributes
-  | Command'UpsertWorkflowSearchAttributesCommandAttributes !UpsertWorkflowSearchAttributesCommandAttributes
-  | Command'ProtocolMessageCommandAttributes !ProtocolMessageCommandAttributes
-  | Command'ModifyWorkflowPropertiesCommandAttributes !ModifyWorkflowPropertiesCommandAttributes
-  | Command'ScheduleNexusOperationCommandAttributes !ScheduleNexusOperationCommandAttributes
-  | Command'RequestCancelNexusOperationCommandAttributes !RequestCancelNexusOperationCommandAttributes
+  = Command'Attributes'ScheduleActivityTaskCommandAttributes !ScheduleActivityTaskCommandAttributes
+  | Command'Attributes'StartTimerCommandAttributes !StartTimerCommandAttributes
+  | Command'Attributes'CompleteWorkflowExecutionCommandAttributes !CompleteWorkflowExecutionCommandAttributes
+  | Command'Attributes'FailWorkflowExecutionCommandAttributes !FailWorkflowExecutionCommandAttributes
+  | Command'Attributes'RequestCancelActivityTaskCommandAttributes !RequestCancelActivityTaskCommandAttributes
+  | Command'Attributes'CancelTimerCommandAttributes !CancelTimerCommandAttributes
+  | Command'Attributes'CancelWorkflowExecutionCommandAttributes !CancelWorkflowExecutionCommandAttributes
+  | Command'Attributes'RequestCancelExternalWorkflowExecutionCommandAttributes !RequestCancelExternalWorkflowExecutionCommandAttributes
+  | Command'Attributes'RecordMarkerCommandAttributes !RecordMarkerCommandAttributes
+  | Command'Attributes'ContinueAsNewWorkflowExecutionCommandAttributes !ContinueAsNewWorkflowExecutionCommandAttributes
+  | Command'Attributes'StartChildWorkflowExecutionCommandAttributes !StartChildWorkflowExecutionCommandAttributes
+  | Command'Attributes'SignalExternalWorkflowExecutionCommandAttributes !SignalExternalWorkflowExecutionCommandAttributes
+  | Command'Attributes'UpsertWorkflowSearchAttributesCommandAttributes !UpsertWorkflowSearchAttributesCommandAttributes
+  | Command'Attributes'ProtocolMessageCommandAttributes !ProtocolMessageCommandAttributes
+  | Command'Attributes'ModifyWorkflowPropertiesCommandAttributes !ModifyWorkflowPropertiesCommandAttributes
+  | Command'Attributes'ScheduleNexusOperationCommandAttributes !ScheduleNexusOperationCommandAttributes
+  | Command'Attributes'RequestCancelNexusOperationCommandAttributes !RequestCancelNexusOperationCommandAttributes
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
+instance ProtoToJSON Command'Attributes where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Command'Attributes where
+  protoFromJSON _ = Left "Cannot parse oneof from JSON"
 
 defaultCommand :: Command
 defaultCommand = Command
@@ -1541,45 +1310,45 @@ instance MessageEncode Command where
     <> (maybe mempty (\v -> encodeFieldMessage 301 v) msg.commandUsermetadata)
     <> (case msg.commandAttributes of
       Nothing -> mempty
-      Just (Command'ScheduleActivityTaskCommandAttributes v) -> encodeFieldMessage 2 v
-      Just (Command'StartTimerCommandAttributes v) -> encodeFieldMessage 3 v
-      Just (Command'CompleteWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 4 v
-      Just (Command'FailWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 5 v
-      Just (Command'RequestCancelActivityTaskCommandAttributes v) -> encodeFieldMessage 6 v
-      Just (Command'CancelTimerCommandAttributes v) -> encodeFieldMessage 7 v
-      Just (Command'CancelWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 8 v
-      Just (Command'RequestCancelExternalWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 9 v
-      Just (Command'RecordMarkerCommandAttributes v) -> encodeFieldMessage 10 v
-      Just (Command'ContinueAsNewWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 11 v
-      Just (Command'StartChildWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 12 v
-      Just (Command'SignalExternalWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 13 v
-      Just (Command'UpsertWorkflowSearchAttributesCommandAttributes v) -> encodeFieldMessage 14 v
-      Just (Command'ProtocolMessageCommandAttributes v) -> encodeFieldMessage 15 v
-      Just (Command'ModifyWorkflowPropertiesCommandAttributes v) -> encodeFieldMessage 17 v
-      Just (Command'ScheduleNexusOperationCommandAttributes v) -> encodeFieldMessage 18 v
-      Just (Command'RequestCancelNexusOperationCommandAttributes v) -> encodeFieldMessage 19 v)
+      Just (Command'Attributes'ScheduleActivityTaskCommandAttributes v) -> encodeFieldMessage 2 v
+      Just (Command'Attributes'StartTimerCommandAttributes v) -> encodeFieldMessage 3 v
+      Just (Command'Attributes'CompleteWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 4 v
+      Just (Command'Attributes'FailWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 5 v
+      Just (Command'Attributes'RequestCancelActivityTaskCommandAttributes v) -> encodeFieldMessage 6 v
+      Just (Command'Attributes'CancelTimerCommandAttributes v) -> encodeFieldMessage 7 v
+      Just (Command'Attributes'CancelWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 8 v
+      Just (Command'Attributes'RequestCancelExternalWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 9 v
+      Just (Command'Attributes'RecordMarkerCommandAttributes v) -> encodeFieldMessage 10 v
+      Just (Command'Attributes'ContinueAsNewWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 11 v
+      Just (Command'Attributes'StartChildWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 12 v
+      Just (Command'Attributes'SignalExternalWorkflowExecutionCommandAttributes v) -> encodeFieldMessage 13 v
+      Just (Command'Attributes'UpsertWorkflowSearchAttributesCommandAttributes v) -> encodeFieldMessage 14 v
+      Just (Command'Attributes'ProtocolMessageCommandAttributes v) -> encodeFieldMessage 15 v
+      Just (Command'Attributes'ModifyWorkflowPropertiesCommandAttributes v) -> encodeFieldMessage 17 v
+      Just (Command'Attributes'ScheduleNexusOperationCommandAttributes v) -> encodeFieldMessage 18 v
+      Just (Command'Attributes'RequestCancelNexusOperationCommandAttributes v) -> encodeFieldMessage 19 v)
 
 instance MessageSize Command where
   messageSize msg =
     (if fromEnum msg.commandCommandtype == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.commandCommandtype)))
     + (maybe 0 (\v -> fieldMessageSize 301 (messageSize v)) msg.commandUsermetadata)
-    + (case msg.commandAttributes of { Nothing -> 0; Just (Command'ScheduleActivityTaskCommandAttributes v) -> fieldMessageSize 2 (messageSize v)
-    ; Just (Command'StartTimerCommandAttributes v) -> fieldMessageSize 3 (messageSize v)
-    ; Just (Command'CompleteWorkflowExecutionCommandAttributes v) -> fieldMessageSize 4 (messageSize v)
-    ; Just (Command'FailWorkflowExecutionCommandAttributes v) -> fieldMessageSize 5 (messageSize v)
-    ; Just (Command'RequestCancelActivityTaskCommandAttributes v) -> fieldMessageSize 6 (messageSize v)
-    ; Just (Command'CancelTimerCommandAttributes v) -> fieldMessageSize 7 (messageSize v)
-    ; Just (Command'CancelWorkflowExecutionCommandAttributes v) -> fieldMessageSize 8 (messageSize v)
-    ; Just (Command'RequestCancelExternalWorkflowExecutionCommandAttributes v) -> fieldMessageSize 9 (messageSize v)
-    ; Just (Command'RecordMarkerCommandAttributes v) -> fieldMessageSize 10 (messageSize v)
-    ; Just (Command'ContinueAsNewWorkflowExecutionCommandAttributes v) -> fieldMessageSize 11 (messageSize v)
-    ; Just (Command'StartChildWorkflowExecutionCommandAttributes v) -> fieldMessageSize 12 (messageSize v)
-    ; Just (Command'SignalExternalWorkflowExecutionCommandAttributes v) -> fieldMessageSize 13 (messageSize v)
-    ; Just (Command'UpsertWorkflowSearchAttributesCommandAttributes v) -> fieldMessageSize 14 (messageSize v)
-    ; Just (Command'ProtocolMessageCommandAttributes v) -> fieldMessageSize 15 (messageSize v)
-    ; Just (Command'ModifyWorkflowPropertiesCommandAttributes v) -> fieldMessageSize 17 (messageSize v)
-    ; Just (Command'ScheduleNexusOperationCommandAttributes v) -> fieldMessageSize 18 (messageSize v)
-    ; Just (Command'RequestCancelNexusOperationCommandAttributes v) -> fieldMessageSize 19 (messageSize v) })
+    + (case msg.commandAttributes of { Nothing -> 0; Just (Command'Attributes'ScheduleActivityTaskCommandAttributes v) -> fieldMessageSize 2 (messageSize v)
+    ; Just (Command'Attributes'StartTimerCommandAttributes v) -> fieldMessageSize 3 (messageSize v)
+    ; Just (Command'Attributes'CompleteWorkflowExecutionCommandAttributes v) -> fieldMessageSize 4 (messageSize v)
+    ; Just (Command'Attributes'FailWorkflowExecutionCommandAttributes v) -> fieldMessageSize 5 (messageSize v)
+    ; Just (Command'Attributes'RequestCancelActivityTaskCommandAttributes v) -> fieldMessageSize 6 (messageSize v)
+    ; Just (Command'Attributes'CancelTimerCommandAttributes v) -> fieldMessageSize 7 (messageSize v)
+    ; Just (Command'Attributes'CancelWorkflowExecutionCommandAttributes v) -> fieldMessageSize 8 (messageSize v)
+    ; Just (Command'Attributes'RequestCancelExternalWorkflowExecutionCommandAttributes v) -> fieldMessageSize 9 (messageSize v)
+    ; Just (Command'Attributes'RecordMarkerCommandAttributes v) -> fieldMessageSize 10 (messageSize v)
+    ; Just (Command'Attributes'ContinueAsNewWorkflowExecutionCommandAttributes v) -> fieldMessageSize 11 (messageSize v)
+    ; Just (Command'Attributes'StartChildWorkflowExecutionCommandAttributes v) -> fieldMessageSize 12 (messageSize v)
+    ; Just (Command'Attributes'SignalExternalWorkflowExecutionCommandAttributes v) -> fieldMessageSize 13 (messageSize v)
+    ; Just (Command'Attributes'UpsertWorkflowSearchAttributesCommandAttributes v) -> fieldMessageSize 14 (messageSize v)
+    ; Just (Command'Attributes'ProtocolMessageCommandAttributes v) -> fieldMessageSize 15 (messageSize v)
+    ; Just (Command'Attributes'ModifyWorkflowPropertiesCommandAttributes v) -> fieldMessageSize 17 (messageSize v)
+    ; Just (Command'Attributes'ScheduleNexusOperationCommandAttributes v) -> fieldMessageSize 18 (messageSize v)
+    ; Just (Command'Attributes'RequestCancelNexusOperationCommandAttributes v) -> fieldMessageSize 19 (messageSize v) })
 
 instance MessageDecode Command where
   messageDecoder = loop (toEnum 0) Nothing Nothing
@@ -1597,55 +1366,55 @@ instance MessageDecode Command where
               loop acc_0 (Just v) acc_2
             2 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'ScheduleActivityTaskCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'ScheduleActivityTaskCommandAttributes v))
             3 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'StartTimerCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'StartTimerCommandAttributes v))
             4 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'CompleteWorkflowExecutionCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'CompleteWorkflowExecutionCommandAttributes v))
             5 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'FailWorkflowExecutionCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'FailWorkflowExecutionCommandAttributes v))
             6 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'RequestCancelActivityTaskCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'RequestCancelActivityTaskCommandAttributes v))
             7 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'CancelTimerCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'CancelTimerCommandAttributes v))
             8 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'CancelWorkflowExecutionCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'CancelWorkflowExecutionCommandAttributes v))
             9 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'RequestCancelExternalWorkflowExecutionCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'RequestCancelExternalWorkflowExecutionCommandAttributes v))
             10 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'RecordMarkerCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'RecordMarkerCommandAttributes v))
             11 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'ContinueAsNewWorkflowExecutionCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'ContinueAsNewWorkflowExecutionCommandAttributes v))
             12 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'StartChildWorkflowExecutionCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'StartChildWorkflowExecutionCommandAttributes v))
             13 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'SignalExternalWorkflowExecutionCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'SignalExternalWorkflowExecutionCommandAttributes v))
             14 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'UpsertWorkflowSearchAttributesCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'UpsertWorkflowSearchAttributesCommandAttributes v))
             15 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'ProtocolMessageCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'ProtocolMessageCommandAttributes v))
             17 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'ModifyWorkflowPropertiesCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'ModifyWorkflowPropertiesCommandAttributes v))
             18 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'ScheduleNexusOperationCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'ScheduleNexusOperationCommandAttributes v))
             19 -> do
               v <- decodeFieldMessage
-              loop acc_0 acc_1 (Just (Command'RequestCancelNexusOperationCommandAttributes v))
+              loop acc_0 acc_1 (Just (Command'Attributes'RequestCancelNexusOperationCommandAttributes v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
 instance ProtoToJSON Command where
@@ -1656,13 +1425,4 @@ instance ProtoToJSON Command where
       ]
 
 instance ProtoFromJSON Command where
-  protoFromJSON (JsonObject obj) = do
-    v_commandCommandtype <- obj .:? "commandType"
-    v_commandUsermetadata <- obj .:? "userMetadata"
-    v_commandAttributes <- obj .:? "attributes"
-    pure (Command {
-       commandCommandtype = v_commandCommandtype
-      , commandUsermetadata = v_commandUsermetadata
-      , commandAttributes = v_commandAttributes
-    })
-  protoFromJSON _ = Left "Expected JSON object"
+  protoFromJSON _ = Right defaultCommand

@@ -10,6 +10,7 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
 
 import Proto.Encode
+import Proto.JSON
 import Proto.Decode
 import Proto.Wire (Tag (..))
 
@@ -38,3 +39,9 @@ instance MessageDecode FieldMask where
             loop (V.snoc ps p)
           Just (Tag _ wt) -> skipField wt >> loop ps
   {-# INLINE messageDecoder #-}
+
+instance ProtoToJSON FieldMask where
+  protoToJSON _ = JsonNull
+
+instance ProtoFromJSON FieldMask where
+  protoFromJSON _ = Right defaultFieldMask

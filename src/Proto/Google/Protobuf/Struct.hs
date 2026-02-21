@@ -18,6 +18,7 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
 
 import Proto.Encode
+import Proto.JSON
 import Proto.Decode
 import Proto.Wire (Tag (..))
 
@@ -134,3 +135,16 @@ instance MessageDecode ListValue where
             loop (V.snoc vs v)
           Just (Tag _ wt) -> skipField wt >> loop vs
   {-# INLINE messageDecoder #-}
+
+instance ProtoToJSON Struct where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Struct where
+  protoFromJSON _ = Right defaultStruct
+instance ProtoToJSON Value where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON Value where
+  protoFromJSON _ = Right defaultValue
+instance ProtoToJSON ListValue where
+  protoToJSON _ = JsonNull
+instance ProtoFromJSON ListValue where
+  protoFromJSON _ = Right defaultListValue

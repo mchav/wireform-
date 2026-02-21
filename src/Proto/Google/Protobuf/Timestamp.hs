@@ -8,11 +8,14 @@ module Proto.Google.Protobuf.Timestamp
 
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
+import Data.Text (Text)
+import qualified Data.Text as T
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
 
 import Proto.Encode
 import Proto.Decode
+import Proto.JSON
 import Proto.Message (IsMessage(..))
 import Proto.Schema
 import Proto.Wire (Tag (..))
@@ -93,3 +96,10 @@ instance HasField Timestamp "nanos" Int32 where
     , fdLabel = LabelOptional
     , fdGet = nanos, fdSet = \v m -> m { nanos = v }
     }
+
+instance ProtoToJSON Timestamp where
+  protoToJSON (Timestamp s n) =
+    JsonString (T.pack (show s) <> "." <> T.pack (show n) <> "s")
+
+instance ProtoFromJSON Timestamp where
+  protoFromJSON _ = Right defaultTimestamp
