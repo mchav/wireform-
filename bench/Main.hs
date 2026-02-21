@@ -197,10 +197,10 @@ instance MessageDecode BenchMsg where
   messageDecoder = loop 0 "" False
     where
       loop !val !name !active = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure (BenchMsg val name active)
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (BenchMsg val name active)
+          UJust (Tag fn wt) -> case fn of
             1 -> getVarint >>= \v -> loop v name active
             2 -> getText >>= \v -> loop val v active
             3 -> getVarint >>= \v -> loop val name (v /= 0)

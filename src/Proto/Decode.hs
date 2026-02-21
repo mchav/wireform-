@@ -1,3 +1,6 @@
+{-# LANGUAGE UnboxedSums #-}
+{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE MagicHash #-}
 -- | High-level decoding interface for protobuf messages.
 --
 -- This module provides the 'MessageDecode' typeclass and utilities for
@@ -174,7 +177,7 @@ decodeFieldMessage = do
 
 -- | CPS-compatible failure: calls the error continuation.
 decodeFail :: DecodeError -> Decoder a
-decodeFail e = Decoder $ \_ _ _ err -> err e
+decodeFail e = Decoder $ \_ _ -> (# | e #)
 {-# INLINE decodeFail #-}
 
 -- | Decode an enum field (as varint, then fromEnum).

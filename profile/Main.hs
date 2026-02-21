@@ -34,10 +34,10 @@ instance H.MessageDecode HSmall where
   messageDecoder = loop 0 "" False
     where
       loop !i !n !a = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure (HSmall i n a)
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (HSmall i n a)
+          UJust (Tag fn wt) -> case fn of
             1 -> getVarint >>= \v -> loop (fromIntegral v) n a
             2 -> getText >>= \v -> loop i v a
             3 -> getVarint >>= \v -> loop i n (v /= 0)
@@ -62,10 +62,10 @@ instance H.MessageDecode HWithRepeated where
   messageDecoder = loop [] [] []
     where
       loop !vals !tags !items = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure (HWithRepeated (V.fromList (reverse vals)) (V.fromList (reverse tags)) (V.fromList (reverse items)))
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (HWithRepeated (V.fromList (reverse vals)) (V.fromList (reverse tags)) (V.fromList (reverse items)))
+          UJust (Tag fn wt) -> case fn of
             1 -> case wt of
               WireLengthDelimited -> do
                 bs <- getLengthDelimited
