@@ -32,6 +32,7 @@ module Proto.Dynamic
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as Base64
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
@@ -39,6 +40,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Word (Word32, Word64)
 
 import Proto.Wire (Tag(..), WireType(..))
@@ -46,7 +48,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited)
 import Proto.Wire.Decode (Decoder, getTagOr, getVarint, getFixed32, getFixed64,
   getFloat, getDouble, getText, getLengthDelimited, skipField, runDecoder, DecodeError)
-import Proto.JSON (JsonValue(..), renderJson)
+import Proto.JSON (JsonValue(..))
 
 -- | A dynamically-typed protobuf value.
 data DynamicValue
@@ -153,7 +155,7 @@ dynValueToJson = \case
   DynDouble v  -> JsonNumber v
   DynBool v    -> JsonBool v
   DynString v  -> JsonString v
-  DynBytes _   -> JsonString "<bytes>"
+  DynBytes bs  -> JsonString (TE.decodeUtf8 (Base64.encode bs))
   DynEnum v    -> JsonNumber (fromIntegral v)
   DynMessage m -> dynamicToJson m
   DynRepeated vs -> JsonArray (fmap dynValueToJson vs)

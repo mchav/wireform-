@@ -52,7 +52,7 @@ module Proto.JSON
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Base16 as Base16  -- we'll use hex for simplicity
+import qualified Data.ByteString.Base64 as Base64
 import Data.Char (intToDigit)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
@@ -179,12 +179,12 @@ instance ProtoFromJSON Text where
   protoFromJSON _ = Left "Expected string"
 
 instance ProtoToJSON ByteString where
-  protoToJSON bs = JsonString (TE.decodeUtf8 (Base16.encode bs))
+  protoToJSON bs = JsonString (TE.decodeUtf8 (Base64.encode bs))
 
 instance ProtoFromJSON ByteString where
-  protoFromJSON (JsonString s) = case Base16.decode (TE.encodeUtf8 s) of
+  protoFromJSON (JsonString s) = case Base64.decode (TE.encodeUtf8 s) of
     Right bs -> Right bs
-    Left err -> Left ("Invalid hex bytes: " <> err)
+    Left err -> Left ("Invalid base64 bytes: " <> err)
   protoFromJSON _ = Left "Expected string"
 
 instance ProtoToJSON a => ProtoToJSON (Maybe a) where
