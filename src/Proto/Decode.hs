@@ -95,10 +95,12 @@ module Proto.Decode
   , DecRes# (..)
   ) where
 
-import Data.Bits (shiftL, shiftR)
+import Data.Bits (shiftL, shiftR, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Unsafe as BSU
+import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import Data.Int (Int32, Int64)
 import Control.DeepSeq (NFData(..))
 import Data.List (foldl')
@@ -228,17 +230,24 @@ decodePackedFixed32 = do
     Right vs -> pure vs
 {-# INLINE decodePackedFixed32 #-}
 
+-- | Decode packed fixed32 values. Count is known: byteLength / 4.
 decodeAllFixed32 :: ByteString -> Either DecodeError (VU.Vector Word32)
-decodeAllFixed32 bs = go [] 0
+decodeAllFixed32 bs
+  | r /= 0    = Left (CustomError "packed fixed32: byte length not multiple of 4")
+  | otherwise  = Right $ VU.generate n (\i -> readFixed32At bs (i * 4))
   where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getFixed32 bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+    (!n, !r) = BS.length bs `quotRem` 4
 
--- | Decode packed fixed64 values.
+readFixed32At :: ByteString -> Int -> Word32
+readFixed32At bs off =
+  let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word32
+      !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word32
+      !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word32
+      !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word32
+  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+{-# INLINE readFixed32At #-}
+
+-- | Decode packed fixed64 values. Count is known: byteLength / 8.
 decodePackedFixed64 :: Decoder (VU.Vector Word64)
 decodePackedFixed64 = do
   bs <- getLengthDelimited
@@ -248,16 +257,27 @@ decodePackedFixed64 = do
 {-# INLINE decodePackedFixed64 #-}
 
 decodeAllFixed64 :: ByteString -> Either DecodeError (VU.Vector Word64)
-decodeAllFixed64 bs = go [] 0
+decodeAllFixed64 bs
+  | r /= 0    = Left (CustomError "packed fixed64: byte length not multiple of 8")
+  | otherwise  = Right $ VU.generate n (\i -> readFixed64At bs (i * 8))
   where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getFixed64 bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+    (!n, !r) = BS.length bs `quotRem` 8
 
--- | Decode packed float values.
+readFixed64At :: ByteString -> Int -> Word64
+readFixed64At bs off =
+  let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word64
+      !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
+      !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word64
+      !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word64
+      !b4 = fromIntegral (BSU.unsafeIndex bs (off + 4)) :: Word64
+      !b5 = fromIntegral (BSU.unsafeIndex bs (off + 5)) :: Word64
+      !b6 = fromIntegral (BSU.unsafeIndex bs (off + 6)) :: Word64
+      !b7 = fromIntegral (BSU.unsafeIndex bs (off + 7)) :: Word64
+  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+     .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
+{-# INLINE readFixed64At #-}
+
+-- | Decode packed float values. Count is known: byteLength / 4.
 decodePackedFloat :: Decoder (VU.Vector Float)
 decodePackedFloat = do
   bs <- getLengthDelimited
@@ -267,16 +287,13 @@ decodePackedFloat = do
 {-# INLINE decodePackedFloat #-}
 
 decodeAllFloat :: ByteString -> Either DecodeError (VU.Vector Float)
-decodeAllFloat bs = go [] 0
+decodeAllFloat bs
+  | r /= 0    = Left (CustomError "packed float: byte length not multiple of 4")
+  | otherwise  = Right $ VU.generate n (\i -> castWord32ToFloat (readFixed32At bs (i * 4)))
   where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getFloat bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+    (!n, !r) = BS.length bs `quotRem` 4
 
--- | Decode packed double values.
+-- | Decode packed double values. Count is known: byteLength / 8.
 decodePackedDouble :: Decoder (VU.Vector Double)
 decodePackedDouble = do
   bs <- getLengthDelimited
@@ -286,14 +303,11 @@ decodePackedDouble = do
 {-# INLINE decodePackedDouble #-}
 
 decodeAllDouble :: ByteString -> Either DecodeError (VU.Vector Double)
-decodeAllDouble bs = go [] 0
+decodeAllDouble bs
+  | r /= 0    = Left (CustomError "packed double: byte length not multiple of 8")
+  | otherwise  = Right $ VU.generate n (\i -> castWord64ToDouble (readFixed64At bs (i * 8)))
   where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getDouble bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+    (!n, !r) = BS.length bs `quotRem` 8
 
 -- | Decode packed sint32 values.
 decodePackedSVarint32 :: Decoder (VU.Vector Int32)
