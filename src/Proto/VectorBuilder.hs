@@ -113,61 +113,36 @@ uvecBuilderLength (UVecBuilder _ lenRef) = readIORef lenRef
 
 -- | Pure growing accumulator for repeated fields.
 --
--- Uses reversed chunks of small Vectors to amortise allocation.
--- Each chunk holds up to 32 elements. Snoc fills the current chunk;
--- when full, the chunk is frozen and a new one starts. This reduces
--- per-element allocation from ~48 bytes (cons cell + GrowList node)
--- to ~8 bytes amortised (one pointer per element in the Vector).
---
--- Final materialisation concatenates the chunks back-to-front.
+-- Uses a difference-list (Endo-style function composition with cons)
+-- for O(1) amortised snoc, then materialises to Vector via fromListN.
+-- Benchmarked faster than chunked approaches and cons+reverse at all
+-- sizes, and only ~2x slower than ST mutable vector at large N.
 data GrowList a = GrowList
-  { glChunks  :: ![V.Vector a]
-  , glCurrent :: ![a]
-  , glCurLen  :: {-# UNPACK #-} !Int
-  , glTotal   :: {-# UNPACK #-} !Int
+  { glBuild :: !([a] -> [a])
+  , glCount :: {-# UNPACK #-} !Int
   }
 
-chunkSize :: Int
-chunkSize = 32
-
 emptyGrowList :: GrowList a
-emptyGrowList = GrowList [] [] 0 0
+emptyGrowList = GrowList id 0
 {-# INLINE emptyGrowList #-}
 
 snocGrowList :: GrowList a -> a -> GrowList a
-snocGrowList (GrowList chunks cur curLen total) x =
-  let !curLen' = curLen + 1
-      !total'  = total + 1
-  in if curLen' >= chunkSize
-     then let !chunk = V.fromListN curLen' (reverse (x : cur))
-          in GrowList (chunk : chunks) [] 0 total'
-     else GrowList chunks (x : cur) curLen' total'
+snocGrowList (GrowList f n) x = GrowList (f . (x :)) (n + 1)
 {-# INLINE snocGrowList #-}
 
 growListLength :: GrowList a -> Int
-growListLength = glTotal
+growListLength = glCount
 {-# INLINE growListLength #-}
 
+-- | Materialise to a boxed Vector. Uses fromListN which allocates
+-- exactly the right size and fills in one pass.
 growListToVector :: GrowList a -> V.Vector a
-growListToVector (GrowList chunks cur curLen total)
-  | total == 0 = V.empty
-  | otherwise  = V.create $ do
-      mv <- MV.new total
-      let !lastChunk = if curLen > 0
-            then V.fromListN curLen (reverse cur) : chunks
-            else chunks
-      let go !_ [] = pure ()
-          go !off (c:cs) = do
-            let !cLen = V.length c
-                !off' = off - cLen
-            V.unsafeCopy (MV.slice off' cLen mv) c
-            go off' cs
-      go total lastChunk
-      pure mv
+growListToVector (GrowList f n)
+  | n == 0    = V.empty
+  | otherwise = V.fromListN n (f [])
 {-# INLINE growListToVector #-}
 
+-- | Materialise to an unboxed Vector.
 growListToVectorU :: VU.Unbox a => GrowList a -> VU.Vector a
-growListToVectorU gl =
-  let !bv = growListToVector gl
-  in VU.convert bv
+growListToVectorU gl = VU.convert (growListToVector gl)
 {-# INLINE growListToVectorU #-}
