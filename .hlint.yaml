@@ -1,0 +1,17 @@
+# HLint configuration for hs-proto
+
+# Ignore suggestions that conflict with our coding style
+- ignore: {name: "Use list comprehension"}
+- ignore: {name: "Use newtype instead of data", within: [Proto.Wire.Result, Proto.Internal.Maybe, Proto.Internal.Either]}
+- ignore: {name: "Reduce duplication"}
+- ignore: {name: "Use camelCase", within: [Proto.Wire.Result]}
+
+# The generated well-known type modules have patterns from the codegen
+# that hlint may not like — ignore those files
+- ignore: {within: [Proto.Google.Protobuf.Timestamp, Proto.Google.Protobuf.Duration, Proto.Google.Protobuf.Empty, Proto.Google.Protobuf.FieldMask, Proto.Google.Protobuf.SourceContext, Proto.Google.Protobuf.Wrappers, Proto.Google.Protobuf.Struct]}
+
+# Temporal test files are generated
+- ignore: {within: "Proto.Temporalio.**"}
+
+# Unboxed sums/tuples trigger false positives
+- ignore: {name: "Redundant bracket", within: [Proto.Wire.Decode]}

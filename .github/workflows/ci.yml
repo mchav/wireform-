@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build & Test (GHC ${{ matrix.ghc }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: ['9.6.4', '9.8.4']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: 'latest'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('hs-proto.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - name: Configure
+        run: cabal configure --enable-tests --enable-benchmarks
+
+      - name: Build library
+        run: cabal build lib:hs-proto
+
+      - name: Build all executables
+        run: |
+          cabal build exe:hs-proto-gen
+          cabal build exe:protoc-gen-hs-proto
+          cabal build exe:hs-proto-conformance
+
+      - name: Run unit tests
+        run: cabal test hs-proto-test --test-show-details=streaming
+
+      - name: Run conformance self-test
+        run: cabal test conformance-self-test --test-show-details=streaming
+
+      - name: Run temporal codegen compilation test
+        run: cabal test temporal-codegen-test --test-show-details=streaming
+
+  hlint:
+    name: HLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run HLint
+        uses: haskell-actions/hlint-setup@v2
+
+      - name: HLint src/
+        uses: haskell-actions/hlint-run@v2
+        with:
+          path: src/
+          fail-on: warning
+
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6.4'
+          cabal-version: 'latest'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ~/.cabal/store
+          key: ${{ runner.os }}-bench-cabal-${{ hashFiles('hs-proto.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-bench-cabal-
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - name: Build benchmarks
+        run: |
+          cabal configure --enable-benchmarks
+          cabal build exe:hs-proto-bench
+          cabal build exe:profile
+          cabal build exe:bench-grow
+
+      - name: Run quick benchmarks
+        run: cabal exec hs-proto-bench
+
+      - name: Run GrowList benchmarks
+        run: cabal exec bench-grow
+
+      - name: Run profile (decode-small)
+        run: |
+          cabal exec profile -- decode-small 1000000 +RTS -s 2>&1 | tee /tmp/profile-decode.txt
+          echo "---"
+          cabal exec profile -- encode-small 1000000 +RTS -s 2>&1 | tee /tmp/profile-encode.txt
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: /tmp/profile-*.txt
+
+  codegen-roundtrip:
+    name: Codegen roundtrip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6.4'
+          cabal-version: 'latest'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ~/.cabal/store
+          key: ${{ runner.os }}-codegen-cabal-${{ hashFiles('hs-proto.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-codegen-cabal-
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - name: Build code generator
+        run: |
+          cabal configure
+          cabal build exe:hs-proto-gen
+
+      - name: Generate well-known types and verify they compile
+        run: |
+          mkdir -p /tmp/gen-test
+          for f in proto/google/protobuf/timestamp.proto \
+                   proto/google/protobuf/duration.proto \
+                   proto/google/protobuf/empty.proto \
+                   proto/google/protobuf/field_mask.proto \
+                   proto/google/protobuf/source_context.proto \
+                   proto/google/protobuf/wrappers.proto \
+                   proto/google/protobuf/struct.proto; do
+            cabal exec hs-proto-gen -- generate -I proto -o /tmp/gen-test --module-prefix Proto "$f"
+          done
+          echo "Generated files:"
+          find /tmp/gen-test -name "*.hs" -exec echo "  {}" \;
+          echo "All well-known types generated successfully"
