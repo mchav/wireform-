@@ -12,8 +12,8 @@ import Proto.Encode (encodeMessage)
 import Proto.Decode (decodeMessage, DecodeError)
 import Proto.JSON (protoToJSON, renderJson, JsonValue(..))
 
-import Proto.Temporal.Temporal.Api.Common.V1.Message
-import Proto.Temporal.Temporal.Api.Enums.V1.Common
+import Proto.Temporalio.Api.Common.V1.Message
+import Proto.Temporalio.Api.Enums.V1.Common
 
 main :: IO ()
 main = do

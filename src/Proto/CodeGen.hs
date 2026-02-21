@@ -234,18 +234,35 @@ registryForEnum modName pkg scope ed =
     }
 
 -- | Compute the Haskell module name for a proto file.
--- Uses the file path to derive a unique module name.
--- For "temporal/api/enums/v1/common.proto", produces
--- "Proto.Temporal.Temporal.Api.Enums.V1.Common"
+--
+-- Prefers @csharp_namespace@ if set (already PascalCase with dots), appending
+-- the proto file's base name for disambiguation when multiple files share a
+-- namespace (e.g. enum files). Falls back to the file path.
+--
+-- @csharp_namespace = "Temporalio.Api.Common.V1"@ with file @message.proto@
+-- produces @Proto.Temporalio.Api.Common.V1.Message@.
 moduleNameForProto :: GenerateOpts -> FilePath -> ProtoFile -> Text
-moduleNameForProto opts filePath _pf =
-  let cleaned = T.pack filePath
-      stripped = fromMaybe cleaned (T.stripSuffix ".proto" cleaned)
-      parts = T.splitOn "/" stripped
-      hsparts = fmap pathPartToModule parts
-  in genModulePrefix opts <> "." <> T.intercalate "." hsparts
+moduleNameForProto opts filePath pf =
+  let fo = extractFileOptions (protoOptions pf)
+      baseName = fileBaseName filePath
+  in case foCsharpNamespace fo of
+    Just ns -> genModulePrefix opts <> "." <> ns <> "." <> baseName
+    Nothing -> genModulePrefix opts <> "." <> moduleFromPath filePath
   where
+    fileBaseName fp =
+      let t = T.pack fp
+          stripped = fromMaybe t (T.stripSuffix ".proto" t)
+          parts = T.splitOn "/" stripped
+      in pathPartToModule (last parts)
+
+    moduleFromPath fp =
+      let t = T.pack fp
+          s = fromMaybe t (T.stripSuffix ".proto" t)
+          parts = T.splitOn "/" s
+      in T.intercalate "." (fmap pathPartToModule parts)
+
     pathPartToModule t = snakeToPascal (capitalize t)
+
     capitalize t = case T.uncons t of
       Just (c, rest) -> T.cons (toUpper c) rest
       Nothing        -> t
@@ -433,19 +450,26 @@ genQualifiedImport modName =
   pretty ("import qualified " :: Text) <> pretty modName <> pretty (" as " :: Text) <> pretty (moduleAlias modName)
 
 -- | Derive a short, deterministic alias from a module name.
--- \"Proto.Google.Protobuf.Timestamp\" -> \"PB_Timestamp\"
--- \"Proto.Temporal.Temporal.Api.Common.V1.Message\" -> \"PT_Common_V1_Message\"
+-- Strips common prefixes and uses initials for boilerplate segments.
+--
+-- @Proto.Google.Protobuf.Timestamp@             -> @PB_Timestamp@
+-- @Proto.Google.Protobuf.WellKnownTypes.Empty@  -> @PB_WellKnownTypes_Empty@
+-- @Proto.Temporalio.Api.Common.V1.Message@       -> @TA_Common_V1_Message@
+-- @Proto.Temporalio.Api.Enums.V1.Common@         -> @TA_Enums_V1_Common@
 moduleAlias :: Text -> Text
 moduleAlias modName =
   let parts = T.splitOn "." modName
       meaningful = dropBoilerplate parts
   in T.intercalate "_" meaningful
   where
-    dropBoilerplate ps = case ps of
+    dropBoilerplate = \case
       ("Proto" : "Google" : "Protobuf" : rest) -> "PB" : rest
-      ("Proto" : _ : _ : "Api" : rest) -> "PT" : rest
-      ("Proto" : _ : rest) -> "P" : rest
-      _ -> ps
+      ("Proto" : ns : "Api" : rest) -> initials ns : rest
+      ("Proto" : ns : rest) -> initials ns : rest
+      ps -> ps
+    initials t =
+      let uppers = T.filter (\c -> c >= 'A' && c <= 'Z') t
+      in if T.length uppers >= 2 then uppers else T.toUpper (T.take 2 t)
 
 -- ---------------------------------------------------------------------------
 -- Top-level generation
