@@ -1,0 +1,88 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+-- | Utility functions for @google.protobuf.Any@ — type-safe packing,
+-- unpacking, and a runtime 'MessageRegistry' for dynamic dispatch.
+module Proto.Google.Protobuf.Any.Util
+  ( -- * Type-safe packing / unpacking
+    packAny
+  , packAnyWithPrefix
+  , unpackAny
+  , isMessageType
+
+    -- * Type registry (re-exported from Proto.Registry)
+  , MessageRegistry
+  , emptyRegistry
+  , registerType
+  , lookupDecoder
+  , unpackAnyDynamic
+  , DynamicMessage (..)
+
+    -- * Utilities
+  , typeUrlPrefix
+  , typeUrlOf
+  , typeNameFromUrl
+
+    -- * Legacy aliases
+  , AnyTypeRegistry
+  , lookupType
+  ) where
+
+import Data.ByteString (ByteString)
+import Data.Proxy (Proxy (..))
+import Data.Text (Text)
+import qualified Data.Text as T
+
+import Proto.Encode (encodeMessage)
+import Proto.Decode (DecodeError, decodeMessage)
+import Proto.Message (IsMessage (..))
+import Proto.Google.Protobuf.Any (Any(..))
+import Proto.Registry (MessageRegistry, emptyRegistry, registerType, lookupDecoder, DynamicMessage(..))
+
+-- | Legacy alias.
+type AnyTypeRegistry = MessageRegistry
+
+-- | Legacy alias.
+lookupType :: Text -> MessageRegistry -> Maybe (ByteString -> Either DecodeError DynamicMessage)
+lookupType = lookupDecoder
+
+typeUrlPrefix :: Text
+typeUrlPrefix = "type.googleapis.com/"
+
+typeUrlOf :: forall a. IsMessage a => Proxy a -> Text
+typeUrlOf p = typeUrlPrefix <> messageTypeName p
+
+packAny :: forall a. IsMessage a => a -> Any
+packAny msg = Any
+  { anyTypeurl = typeUrlOf (Proxy :: Proxy a)
+  , anyValue   = encodeMessage msg
+  }
+
+packAnyWithPrefix :: forall a. IsMessage a => Text -> a -> Any
+packAnyWithPrefix prefix msg = Any
+  { anyTypeurl = prefix <> messageTypeName (Proxy :: Proxy a)
+  , anyValue   = encodeMessage msg
+  }
+
+unpackAny :: forall a. IsMessage a => Any -> Maybe (Either DecodeError a)
+unpackAny any'
+  | isTypeMatch (anyTypeurl any') (Proxy :: Proxy a) = Just (decodeMessage (anyValue any'))
+  | otherwise = Nothing
+
+isMessageType :: forall a. IsMessage a => Proxy a -> Any -> Bool
+isMessageType p any' = isTypeMatch (anyTypeurl any') p
+
+isTypeMatch :: forall a. IsMessage a => Text -> Proxy a -> Bool
+isTypeMatch tu p =
+  let expected = messageTypeName p
+  in typeNameFromUrl tu == expected
+
+typeNameFromUrl :: Text -> Text
+typeNameFromUrl tu = case T.breakOnEnd "/" tu of
+  ("", name) -> name
+  (_, name)  -> name
+
+unpackAnyDynamic :: MessageRegistry -> Any -> Maybe (Either DecodeError DynamicMessage)
+unpackAnyDynamic reg any' =
+  let name = typeNameFromUrl (anyTypeurl any')
+  in case lookupDecoder name reg of
+    Nothing      -> Nothing
+    Just decoder -> Just (decoder (anyValue any'))

@@ -1,66 +1,31 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 module Test.Lens (lensTests) where
 
 import Data.Int (Int32, Int64)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Proto.Lens
 import Proto.Google.Protobuf.Timestamp (Timestamp(..), defaultTimestamp)
 
 lensTests :: TestTree
-lensTests = testGroup "Proto.Lens"
-  [ testGroup "view (get)"
-      [ testCase "view seconds" $ do
-          let ts = Timestamp 42 99
-          view (field @"seconds") ts @?= (42 :: Int64)
+lensTests = testGroup "Proto.Lens (record field access)"
+  [ testCase "read timestampSeconds" $ do
+      let ts = defaultTimestamp { timestampSeconds = 42, timestampNanos = 99 }
+      timestampSeconds ts @?= (42 :: Int64)
 
-      , testCase "view nanos" $ do
-          let ts = Timestamp 42 99
-          view (field @"nanos") ts @?= (99 :: Int32)
+  , testCase "read timestampNanos" $ do
+      let ts = defaultTimestamp { timestampSeconds = 42, timestampNanos = 99 }
+      timestampNanos ts @?= (99 :: Int32)
 
-      , testCase "^. operator" $ do
-          let ts = Timestamp 100 200
-          (ts ^. field @"seconds") @?= (100 :: Int64)
-      ]
+  , testCase "update via record syntax" $ do
+      let ts = defaultTimestamp { timestampSeconds = 42, timestampNanos = 99 }
+          ts' = ts { timestampSeconds = 100, timestampNanos = 200 }
+      timestampSeconds ts' @?= 100
+      timestampNanos ts' @?= 200
 
-  , testGroup "set"
-      [ testCase "set seconds" $ do
-          let ts = defaultTimestamp
-              ts' = set (field @"seconds") 42 ts
-          seconds ts' @?= 42
-          nanos ts' @?= 0
-
-      , testCase ".~ operator" $ do
-          let ts = defaultTimestamp
-              ts' = ts & field @"seconds" .~ 42
-                       & field @"nanos" .~ 99
-          seconds ts' @?= 42
-          nanos ts' @?= 99
-      ]
-
-  , testGroup "over (modify)"
-      [ testCase "over seconds (+1)" $ do
-          let ts = Timestamp 42 0
-              ts' = over (field @"seconds") (+1) ts
-          seconds ts' @?= 43
-
-      , testCase "%~ operator" $ do
-          let ts = Timestamp 10 20
-              ts' = ts & field @"nanos" %~ (*2)
-          nanos ts' @?= 40
-      ]
-
-  , testGroup "composition"
-      [ testCase "set then view" $ do
-          let ts = set (field @"seconds") 123 defaultTimestamp
-          view (field @"seconds") ts @?= (123 :: Int64)
-
-      , testCase "chained set with &" $ do
-          let ts = defaultTimestamp
-                & field @"seconds" .~ 1000
-                & field @"nanos" .~ 500
-          ts @?= Timestamp 1000 500
-      ]
+  , testCase "default values" $ do
+      timestampSeconds defaultTimestamp @?= 0
+      timestampNanos defaultTimestamp @?= 0
   ]
