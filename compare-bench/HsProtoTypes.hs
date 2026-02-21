@@ -1,9 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE UnboxedSums #-}
+{-# LANGUAGE UnboxedTuples #-}
 -- | hs-proto types matching bench.proto for benchmark comparison.
 module HsProtoTypes where
 
@@ -12,8 +15,10 @@ import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word64)
 import GHC.Generics (Generic)
+import GHC.Exts (Int#, Int(I#))
 import Control.DeepSeq (NFData)
 
 import Proto.Encode
@@ -22,7 +27,7 @@ import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize,
   fieldBoolSize, fieldDoubleSize, fieldFloatSize, fieldMessageSize,
   putTag, putVarint, putLengthDelimited)
-import Proto.Wire.Decode (runDecoder', DecodeResult(..))
+import Proto.Wire.Decode (runDecoder', DecodeResult(..), Decoder(..), withTag)
 import Proto.VectorBuilder
 
 -- Small
@@ -49,17 +54,27 @@ instance MessageSize HSmall where
   {-# INLINE messageSize #-}
 
 instance MessageDecode HSmall where
-  messageDecoder = loop 0 "" False
+  messageDecoder = Decoder (\bs off -> loop 0 "" False bs off)
     where
-      loop !i !n !a = do
-        mt <- getTagOr
-        case mt of
-          Nothing -> pure (HSmall i n a)
-          Just (Tag fn wt) -> case fn of
-            1 -> getVarint >>= \v -> loop (fromIntegral v) n a
-            2 -> getText >>= \v -> loop i v a
-            3 -> getVarint >>= \v -> loop i n (v /= 0)
-            _ -> skipField wt >> loop i n a
+      loop :: Int64 -> Text -> Bool -> ByteString -> Int# -> (# (# HSmall, Int# #) | DecodeError #)
+      loop !i !n !a !bs !off =
+        withTag bs off
+          (\off' -> (# (# HSmall i n a, off' #) | #))
+          (\fn _wt off' -> case I# fn of
+            1 -> case runDecoder# getVarint bs off' of
+              (# (# v, off'' #) | #) -> loop (fromIntegral v) n a bs off''
+              (# | e #) -> (# | e #)
+            2 -> case runDecoder# getText bs off' of
+              (# (# v, off'' #) | #) -> loop i v a bs off''
+              (# | e #) -> (# | e #)
+            3 -> case runDecoder# getVarint bs off' of
+              (# (# v, off'' #) | #) -> loop i n (v /= 0) bs off''
+              (# | e #) -> (# | e #)
+            _ -> case runDecoder# (skipField (toEnum (I# _wt))) bs off' of
+              (# (# _, off'' #) | #) -> loop i n a bs off''
+              (# | e #) -> (# | e #)
+          )
+          (\e -> (# | e #))
   {-# INLINE messageDecoder #-}
 
 -- Medium
@@ -89,22 +104,42 @@ instance MessageEncode HMedium where
   {-# INLINE buildMessage #-}
 
 instance MessageDecode HMedium where
-  messageDecoder = loop "" 0 0 "" False 0 "" 0
+  messageDecoder = Decoder (\bs off -> loop "" 0 0 "" False 0 "" 0 bs off)
     where
-      loop !t !c !sc !p !e !ts !d !r = do
-        mt <- getTagOr
-        case mt of
-          Nothing -> pure (HMedium t c sc p e ts d r)
-          Just (Tag fn wt) -> case fn of
-            1 -> decodeFieldString >>= \v -> loop v c sc p e ts d r
-            2 -> getVarint >>= \v -> loop t (fromIntegral v) sc p e ts d r
-            3 -> getDouble >>= \v -> loop t c v p e ts d r
-            4 -> decodeFieldBytes >>= \v -> loop t c sc v e ts d r
-            5 -> getVarint >>= \v -> loop t c sc p (v /= 0) ts d r
-            6 -> getVarint >>= \v -> loop t c sc p e (fromIntegral v) d r
-            7 -> decodeFieldString >>= \v -> loop t c sc p e ts v r
-            8 -> getFloat >>= \v -> loop t c sc p e ts d v
-            _ -> skipField wt >> loop t c sc p e ts d r
+      loop :: Text -> Int32 -> Double -> ByteString -> Bool -> Int64 -> Text -> Float -> ByteString -> Int# -> (# (# HMedium, Int# #) | DecodeError #)
+      loop !t !c !sc !p !e !ts !d !r !bs !off =
+        withTag bs off
+          (\off' -> (# (# HMedium t c sc p e ts d r, off' #) | #))
+          (\fn _wt off' -> case I# fn of
+            1 -> case runDecoder# decodeFieldString bs off' of
+              (# (# v, off'' #) | #) -> loop v c sc p e ts d r bs off''
+              (# | err #) -> (# | err #)
+            2 -> case runDecoder# getVarint bs off' of
+              (# (# v, off'' #) | #) -> loop t (fromIntegral v) sc p e ts d r bs off''
+              (# | err #) -> (# | err #)
+            3 -> case runDecoder# getDouble bs off' of
+              (# (# v, off'' #) | #) -> loop t c v p e ts d r bs off''
+              (# | err #) -> (# | err #)
+            4 -> case runDecoder# decodeFieldBytes bs off' of
+              (# (# v, off'' #) | #) -> loop t c sc v e ts d r bs off''
+              (# | err #) -> (# | err #)
+            5 -> case runDecoder# getVarint bs off' of
+              (# (# v, off'' #) | #) -> loop t c sc p (v /= 0) ts d r bs off''
+              (# | err #) -> (# | err #)
+            6 -> case runDecoder# getVarint bs off' of
+              (# (# v, off'' #) | #) -> loop t c sc p e (fromIntegral v) d r bs off''
+              (# | err #) -> (# | err #)
+            7 -> case runDecoder# decodeFieldString bs off' of
+              (# (# v, off'' #) | #) -> loop t c sc p e ts v r bs off''
+              (# | err #) -> (# | err #)
+            8 -> case runDecoder# getFloat bs off' of
+              (# (# v, off'' #) | #) -> loop t c sc p e ts d v bs off''
+              (# | err #) -> (# | err #)
+            _ -> case runDecoder# (skipField (toEnum (I# _wt))) bs off' of
+              (# (# _, off'' #) | #) -> loop t c sc p e ts d r bs off''
+              (# | err #) -> (# | err #)
+          )
+          (\err -> (# | err #))
   {-# INLINE messageDecoder #-}
 
 -- WithNested
@@ -124,17 +159,27 @@ instance MessageEncode HWithNested where
   {-# INLINE buildMessage #-}
 
 instance MessageDecode HWithNested where
-  messageDecoder = loop 0 Nothing ""
+  messageDecoder = Decoder (\bs off -> loop 0 Nothing "" bs off)
     where
-      loop !i !inner !lbl = do
-        mt <- getTagOr
-        case mt of
-          Nothing -> pure (HWithNested i inner lbl)
-          Just (Tag fn wt) -> case fn of
-            1 -> getVarint >>= \v -> loop (fromIntegral v) inner lbl
-            2 -> decodeFieldMessage >>= \v -> loop i (Just v) lbl
-            3 -> decodeFieldString >>= \v -> loop i inner v
-            _ -> skipField wt >> loop i inner lbl
+      loop :: Int64 -> Maybe HSmall -> Text -> ByteString -> Int# -> (# (# HWithNested, Int# #) | DecodeError #)
+      loop !i !inner !lbl !bs !off =
+        withTag bs off
+          (\off' -> (# (# HWithNested i inner lbl, off' #) | #))
+          (\fn _wt off' -> case I# fn of
+            1 -> case runDecoder# getVarint bs off' of
+              (# (# v, off'' #) | #) -> loop (fromIntegral v) inner lbl bs off''
+              (# | e #) -> (# | e #)
+            2 -> case runDecoder# decodeFieldMessage bs off' of
+              (# (# v, off'' #) | #) -> loop i (Just v) lbl bs off''
+              (# | e #) -> (# | e #)
+            3 -> case runDecoder# decodeFieldString bs off' of
+              (# (# v, off'' #) | #) -> loop i inner v bs off''
+              (# | e #) -> (# | e #)
+            _ -> case runDecoder# (skipField (toEnum (I# _wt))) bs off' of
+              (# (# _, off'' #) | #) -> loop i inner lbl bs off''
+              (# | e #) -> (# | e #)
+          )
+          (\e -> (# | e #))
   {-# INLINE messageDecoder #-}
 
 -- WithRepeated
@@ -149,28 +194,39 @@ data HWithRepeated = HWithRepeated
 instance MessageEncode HWithRepeated where
   buildMessage m =
     (let vs = hwrValues m in if V.null vs then mempty
-       else encodePackedInt32 1 vs) <>
+       else encodePackedInt32 1 (VU.convert vs)) <>
     V.foldl' (\acc s -> acc <> encodeFieldString 2 s) mempty (hwrTags m) <>
     V.foldl' (\acc item -> acc <> encodeFieldMessageSized 3 item) mempty (hwrItems m)
   {-# INLINE buildMessage #-}
 
 instance MessageDecode HWithRepeated where
-  messageDecoder = loop emptyGrowList emptyGrowList emptyGrowList
+  messageDecoder = Decoder (\bs off -> loop emptyGrowList emptyGrowList emptyGrowList bs off)
     where
-      loop !vals !tags !items = do
-        mt <- getTagOr
-        case mt of
-          Nothing -> pure (HWithRepeated (growListToVector vals) (growListToVector tags) (growListToVector items))
-          Just (Tag fn wt) -> case fn of
-            1 -> case wt of
-              WireLengthDelimited -> do
-                bs <- getLengthDelimited
-                let !vals' = decodePackedInto vals bs
-                loop vals' tags items
-              _ -> getVarint >>= \v -> loop (snocGrowList vals (fromIntegral v)) tags items
-            2 -> decodeFieldString >>= \v -> loop vals (snocGrowList tags v) items
-            3 -> decodeFieldMessage >>= \v -> loop vals tags (snocGrowList items v)
-            _ -> skipField wt >> loop vals tags items
+      loop :: GrowList Int32 -> GrowList Text -> GrowList HSmall -> ByteString -> Int# -> (# (# HWithRepeated, Int# #) | DecodeError #)
+      loop !vals !tags !items !bs !off =
+        withTag bs off
+          (\off' -> (# (# HWithRepeated (growListToVector vals) (growListToVector tags) (growListToVector items), off' #) | #))
+          (\fn wt off' -> case I# fn of
+            1 -> case I# wt of
+              2 -> case runDecoder# getLengthDelimited bs off' of
+                (# (# chunk, off'' #) | #) ->
+                  let !vals' = decodePackedInto vals chunk
+                  in loop vals' tags items bs off''
+                (# | e #) -> (# | e #)
+              _ -> case runDecoder# getVarint bs off' of
+                (# (# v, off'' #) | #) -> loop (snocGrowList vals (fromIntegral v)) tags items bs off''
+                (# | e #) -> (# | e #)
+            2 -> case runDecoder# decodeFieldString bs off' of
+              (# (# v, off'' #) | #) -> loop vals (snocGrowList tags v) items bs off''
+              (# | e #) -> (# | e #)
+            3 -> case runDecoder# decodeFieldMessage bs off' of
+              (# (# v, off'' #) | #) -> loop vals tags (snocGrowList items v) bs off''
+              (# | e #) -> (# | e #)
+            _ -> case runDecoder# (skipField (toEnum (I# wt))) bs off' of
+              (# (# _, off'' #) | #) -> loop vals tags items bs off''
+              (# | e #) -> (# | e #)
+          )
+          (\e -> (# | e #))
   {-# INLINE messageDecoder #-}
 
 decodePackedInto :: GrowList Int32 -> ByteString -> GrowList Int32
