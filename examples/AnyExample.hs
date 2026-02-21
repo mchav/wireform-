@@ -22,7 +22,6 @@ import Proto.Google.Protobuf.Any.Util
 import Proto.Google.Protobuf.Timestamp
 import Proto.Google.Protobuf.Duration
 import Proto.Google.Protobuf.Empty
-import Proto.Google.Protobuf.WellKnownInstances ()
 import Proto.Message (IsMessage(..))
 
 data Event = Event

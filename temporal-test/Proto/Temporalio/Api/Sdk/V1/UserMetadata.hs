@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -77,6 +80,9 @@ instance MessageDecode UserMetadata where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage UserMetadata where
+  messageTypeName _ = "temporal.api.sdk.v1.UserMetadata"
+
 instance ProtoToJSON UserMetadata where
   protoToJSON msg = jsonObject
       [ "summary" .= msg.userMetadataSummary
@@ -92,3 +98,8 @@ instance ProtoFromJSON UserMetadata where
       , userMetadataDetails = maybe (userMetadataDetails defaultUserMetadata) id fld_userMetadataDetails
       }
   protoFromJSON _ = Right defaultUserMetadata
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy UserMetadata) .  id

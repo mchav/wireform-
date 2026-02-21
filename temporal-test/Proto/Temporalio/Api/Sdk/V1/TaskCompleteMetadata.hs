@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -90,6 +93,9 @@ instance MessageDecode WorkflowTaskCompletedMetadata where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage WorkflowTaskCompletedMetadata where
+  messageTypeName _ = "temporal.api.sdk.v1.WorkflowTaskCompletedMetadata"
+
 instance ProtoToJSON WorkflowTaskCompletedMetadata where
   protoToJSON msg = jsonObject
       [ "coreUsedFlags" .= msg.workflowTaskCompletedMetadataCoreusedflags
@@ -111,3 +117,8 @@ instance ProtoFromJSON WorkflowTaskCompletedMetadata where
       , workflowTaskCompletedMetadataSdkversion = maybe (workflowTaskCompletedMetadataSdkversion defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkversion
       }
   protoFromJSON _ = Right defaultWorkflowTaskCompletedMetadata
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowTaskCompletedMetadata) .  id

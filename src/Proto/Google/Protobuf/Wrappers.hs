@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -68,6 +71,9 @@ instance MessageDecode DoubleValue where
               v <- decodeFieldDouble
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage DoubleValue where
+  messageTypeName _ = "google.protobuf.DoubleValue"
 
 instance ProtoToJSON DoubleValue where
   protoToJSON msg = jsonObject
@@ -115,6 +121,9 @@ instance MessageDecode FloatValue where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage FloatValue where
+  messageTypeName _ = "google.protobuf.FloatValue"
+
 instance ProtoToJSON FloatValue where
   protoToJSON msg = jsonObject
       [ "value" .= msg.floatValueValue
@@ -160,6 +169,9 @@ instance MessageDecode Int64Value where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Int64Value where
+  messageTypeName _ = "google.protobuf.Int64Value"
 
 instance ProtoToJSON Int64Value where
   protoToJSON msg = jsonObject
@@ -207,6 +219,9 @@ instance MessageDecode UInt64Value where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage UInt64Value where
+  messageTypeName _ = "google.protobuf.UInt64Value"
+
 instance ProtoToJSON UInt64Value where
   protoToJSON msg = jsonObject
       [ "value" .= msg.uInt64ValueValue
@@ -252,6 +267,9 @@ instance MessageDecode Int32Value where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Int32Value where
+  messageTypeName _ = "google.protobuf.Int32Value"
 
 instance ProtoToJSON Int32Value where
   protoToJSON msg = jsonObject
@@ -299,6 +317,9 @@ instance MessageDecode UInt32Value where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage UInt32Value where
+  messageTypeName _ = "google.protobuf.UInt32Value"
+
 instance ProtoToJSON UInt32Value where
   protoToJSON msg = jsonObject
       [ "value" .= msg.uInt32ValueValue
@@ -344,6 +365,9 @@ instance MessageDecode BoolValue where
               v <- decodeFieldBool
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage BoolValue where
+  messageTypeName _ = "google.protobuf.BoolValue"
 
 instance ProtoToJSON BoolValue where
   protoToJSON msg = jsonObject
@@ -391,6 +415,9 @@ instance MessageDecode StringValue where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage StringValue where
+  messageTypeName _ = "google.protobuf.StringValue"
+
 instance ProtoToJSON StringValue where
   protoToJSON msg = jsonObject
       [ "value" .= msg.stringValueValue
@@ -437,6 +464,9 @@ instance MessageDecode BytesValue where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage BytesValue where
+  messageTypeName _ = "google.protobuf.BytesValue"
+
 instance ProtoToJSON BytesValue where
   protoToJSON msg = jsonObject
       [ "value" .= msg.bytesValueValue
@@ -450,3 +480,16 @@ instance ProtoFromJSON BytesValue where
       { bytesValueValue = maybe (bytesValueValue defaultBytesValue) id fld_bytesValueValue
       }
   protoFromJSON _ = Right defaultBytesValue
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy DoubleValue) .
+  Proto.Registry.registerType (Proxy :: Proxy FloatValue) .
+  Proto.Registry.registerType (Proxy :: Proxy Int64Value) .
+  Proto.Registry.registerType (Proxy :: Proxy UInt64Value) .
+  Proto.Registry.registerType (Proxy :: Proxy Int32Value) .
+  Proto.Registry.registerType (Proxy :: Proxy UInt32Value) .
+  Proto.Registry.registerType (Proxy :: Proxy BoolValue) .
+  Proto.Registry.registerType (Proxy :: Proxy StringValue) .
+  Proto.Registry.registerType (Proxy :: Proxy BytesValue) .  id

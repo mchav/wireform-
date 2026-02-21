@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -160,6 +163,9 @@ instance MessageDecode ScheduleActivityTaskCommandAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12
 
+instance IsMessage ScheduleActivityTaskCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.ScheduleActivityTaskCommandAttributes"
+
 instance ProtoToJSON ScheduleActivityTaskCommandAttributes where
   protoToJSON msg = jsonObject
       [ "activityId" .= msg.scheduleActivityTaskCommandAttributesActivityid
@@ -241,6 +247,9 @@ instance MessageDecode RequestCancelActivityTaskCommandAttributes where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage RequestCancelActivityTaskCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.RequestCancelActivityTaskCommandAttributes"
+
 instance ProtoToJSON RequestCancelActivityTaskCommandAttributes where
   protoToJSON msg = jsonObject
       [ "scheduledEventId" .= msg.requestCancelActivityTaskCommandAttributesScheduledeventid
@@ -294,6 +303,9 @@ instance MessageDecode StartTimerCommandAttributes where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage StartTimerCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.StartTimerCommandAttributes"
+
 instance ProtoToJSON StartTimerCommandAttributes where
   protoToJSON msg = jsonObject
       [ "timerId" .= msg.startTimerCommandAttributesTimerid
@@ -342,6 +354,9 @@ instance MessageDecode CompleteWorkflowExecutionCommandAttributes where
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage CompleteWorkflowExecutionCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.CompleteWorkflowExecutionCommandAttributes"
+
 instance ProtoToJSON CompleteWorkflowExecutionCommandAttributes where
   protoToJSON msg = jsonObject
       [ "result" .= msg.completeWorkflowExecutionCommandAttributesResult
@@ -387,6 +402,9 @@ instance MessageDecode FailWorkflowExecutionCommandAttributes where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage FailWorkflowExecutionCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.FailWorkflowExecutionCommandAttributes"
 
 instance ProtoToJSON FailWorkflowExecutionCommandAttributes where
   protoToJSON msg = jsonObject
@@ -434,6 +452,9 @@ instance MessageDecode CancelTimerCommandAttributes where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage CancelTimerCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.CancelTimerCommandAttributes"
+
 instance ProtoToJSON CancelTimerCommandAttributes where
   protoToJSON msg = jsonObject
       [ "timerId" .= msg.cancelTimerCommandAttributesTimerid
@@ -479,6 +500,9 @@ instance MessageDecode CancelWorkflowExecutionCommandAttributes where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage CancelWorkflowExecutionCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.CancelWorkflowExecutionCommandAttributes"
 
 instance ProtoToJSON CancelWorkflowExecutionCommandAttributes where
   protoToJSON msg = jsonObject
@@ -560,6 +584,9 @@ instance MessageDecode RequestCancelExternalWorkflowExecutionCommandAttributes w
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
+
+instance IsMessage RequestCancelExternalWorkflowExecutionCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.RequestCancelExternalWorkflowExecutionCommandAttributes"
 
 instance ProtoToJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
   protoToJSON msg = jsonObject
@@ -663,6 +690,9 @@ instance MessageDecode SignalExternalWorkflowExecutionCommandAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage SignalExternalWorkflowExecutionCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.SignalExternalWorkflowExecutionCommandAttributes"
+
 instance ProtoToJSON SignalExternalWorkflowExecutionCommandAttributes where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.signalExternalWorkflowExecutionCommandAttributesNamespace
@@ -726,6 +756,9 @@ instance MessageDecode UpsertWorkflowSearchAttributesCommandAttributes where
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage UpsertWorkflowSearchAttributesCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.UpsertWorkflowSearchAttributesCommandAttributes"
+
 instance ProtoToJSON UpsertWorkflowSearchAttributesCommandAttributes where
   protoToJSON msg = jsonObject
       [ "searchAttributes" .= msg.upsertWorkflowSearchAttributesCommandAttributesSearchattributes
@@ -771,6 +804,9 @@ instance MessageDecode ModifyWorkflowPropertiesCommandAttributes where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ModifyWorkflowPropertiesCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.ModifyWorkflowPropertiesCommandAttributes"
 
 instance ProtoToJSON ModifyWorkflowPropertiesCommandAttributes where
   protoToJSON msg = jsonObject
@@ -841,6 +877,9 @@ instance MessageDecode RecordMarkerCommandAttributes where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage RecordMarkerCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.RecordMarkerCommandAttributes"
 
 instance ProtoToJSON RecordMarkerCommandAttributes where
   protoToJSON msg = jsonObject
@@ -1000,6 +1039,9 @@ instance MessageDecode ContinueAsNewWorkflowExecutionCommandAttributes where
               v <- decodeFieldEnum
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15
+
+instance IsMessage ContinueAsNewWorkflowExecutionCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.ContinueAsNewWorkflowExecutionCommandAttributes"
 
 instance ProtoToJSON ContinueAsNewWorkflowExecutionCommandAttributes where
   protoToJSON msg = jsonObject
@@ -1210,6 +1252,9 @@ instance MessageDecode StartChildWorkflowExecutionCommandAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17
 
+instance IsMessage StartChildWorkflowExecutionCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.StartChildWorkflowExecutionCommandAttributes"
+
 instance ProtoToJSON StartChildWorkflowExecutionCommandAttributes where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.startChildWorkflowExecutionCommandAttributesNamespace
@@ -1305,6 +1350,9 @@ instance MessageDecode ProtocolMessageCommandAttributes where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ProtocolMessageCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.ProtocolMessageCommandAttributes"
 
 instance ProtoToJSON ProtocolMessageCommandAttributes where
   protoToJSON msg = jsonObject
@@ -1404,6 +1452,9 @@ instance MessageDecode ScheduleNexusOperationCommandAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage ScheduleNexusOperationCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.ScheduleNexusOperationCommandAttributes"
+
 instance ProtoToJSON ScheduleNexusOperationCommandAttributes where
   protoToJSON msg = jsonObject
       [ "endpoint" .= msg.scheduleNexusOperationCommandAttributesEndpoint
@@ -1469,6 +1520,9 @@ instance MessageDecode RequestCancelNexusOperationCommandAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage RequestCancelNexusOperationCommandAttributes where
+  messageTypeName _ = "temporal.api.command.v1.RequestCancelNexusOperationCommandAttributes"
 
 instance ProtoToJSON RequestCancelNexusOperationCommandAttributes where
   protoToJSON msg = jsonObject
@@ -1636,6 +1690,9 @@ instance MessageDecode Command where
               loop acc_0 acc_1 (Just (Command'Attributes'RequestCancelNexusOperationCommandAttributes v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage Command where
+  messageTypeName _ = "temporal.api.command.v1.Command"
+
 instance ProtoToJSON Command where
   protoToJSON msg = jsonObject
       [ "commandType" .= msg.commandCommandtype
@@ -1654,3 +1711,25 @@ instance ProtoFromJSON Command where
       , commandAttributes = maybe (commandAttributes defaultCommand) id fld_commandAttributes
       }
   protoFromJSON _ = Right defaultCommand
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleActivityTaskCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelActivityTaskCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy StartTimerCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy CompleteWorkflowExecutionCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy FailWorkflowExecutionCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy CancelTimerCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy CancelWorkflowExecutionCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelExternalWorkflowExecutionCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy SignalExternalWorkflowExecutionCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy UpsertWorkflowSearchAttributesCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ModifyWorkflowPropertiesCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy RecordMarkerCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ContinueAsNewWorkflowExecutionCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy StartChildWorkflowExecutionCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ProtocolMessageCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleNexusOperationCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelNexusOperationCommandAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy Command) .  id

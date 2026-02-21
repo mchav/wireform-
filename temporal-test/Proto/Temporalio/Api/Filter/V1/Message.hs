@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -78,6 +81,9 @@ instance MessageDecode WorkflowExecutionFilter where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage WorkflowExecutionFilter where
+  messageTypeName _ = "temporal.api.filter.v1.WorkflowExecutionFilter"
+
 instance ProtoToJSON WorkflowExecutionFilter where
   protoToJSON msg = jsonObject
       [ "workflowId" .= msg.workflowExecutionFilterWorkflowid
@@ -125,6 +131,9 @@ instance MessageDecode WorkflowTypeFilter where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage WorkflowTypeFilter where
+  messageTypeName _ = "temporal.api.filter.v1.WorkflowTypeFilter"
 
 instance ProtoToJSON WorkflowTypeFilter where
   protoToJSON msg = jsonObject
@@ -179,6 +188,9 @@ instance MessageDecode StartTimeFilter where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage StartTimeFilter where
+  messageTypeName _ = "temporal.api.filter.v1.StartTimeFilter"
+
 instance ProtoToJSON StartTimeFilter where
   protoToJSON msg = jsonObject
       [ "earliestTime" .= msg.startTimeFilterEarliesttime
@@ -227,6 +239,9 @@ instance MessageDecode StatusFilter where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage StatusFilter where
+  messageTypeName _ = "temporal.api.filter.v1.StatusFilter"
+
 instance ProtoToJSON StatusFilter where
   protoToJSON msg = jsonObject
       [ "status" .= msg.statusFilterStatus
@@ -240,3 +255,11 @@ instance ProtoFromJSON StatusFilter where
       { statusFilterStatus = maybe (statusFilterStatus defaultStatusFilter) id fld_statusFilterStatus
       }
   protoFromJSON _ = Right defaultStatusFilter
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionFilter) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowTypeFilter) .
+  Proto.Registry.registerType (Proxy :: Proxy StartTimeFilter) .
+  Proto.Registry.registerType (Proxy :: Proxy StatusFilter) .  id

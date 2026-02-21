@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -69,6 +72,9 @@ instance MessageDecode FieldMask where
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage FieldMask where
+  messageTypeName _ = "google.protobuf.FieldMask"
+
 instance ProtoToJSON FieldMask where
   protoToJSON msg = jsonObject
       [ "paths" .= msg.fieldMaskPaths
@@ -82,3 +88,8 @@ instance ProtoFromJSON FieldMask where
       { fieldMaskPaths = maybe (fieldMaskPaths defaultFieldMask) id fld_fieldMaskPaths
       }
   protoFromJSON _ = Right defaultFieldMask
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy FieldMask) .  id

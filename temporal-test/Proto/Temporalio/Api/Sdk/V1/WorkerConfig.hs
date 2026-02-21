@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -75,6 +78,9 @@ instance MessageDecode WorkerConfig'SimplePollerBehavior where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage WorkerConfig'SimplePollerBehavior where
+  messageTypeName _ = "temporal.api.sdk.v1.WorkerConfig.SimplePollerBehavior"
 
 instance ProtoToJSON WorkerConfig'SimplePollerBehavior where
   protoToJSON msg = jsonObject
@@ -135,6 +141,9 @@ instance MessageDecode WorkerConfig'AutoscalingPollerBehavior where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkerConfig'AutoscalingPollerBehavior where
+  messageTypeName _ = "temporal.api.sdk.v1.WorkerConfig.AutoscalingPollerBehavior"
 
 instance ProtoToJSON WorkerConfig'AutoscalingPollerBehavior where
   protoToJSON msg = jsonObject
@@ -203,6 +212,9 @@ instance MessageDecode WorkerConfig where
               loop acc_0 (Just (WorkerConfig'PollerBehavior'AutoscalingPollerBehavior v))
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage WorkerConfig where
+  messageTypeName _ = "temporal.api.sdk.v1.WorkerConfig"
+
 instance ProtoToJSON WorkerConfig where
   protoToJSON msg = jsonObject
       [ "workflowCacheSize" .= msg.workerConfigWorkflowcachesize
@@ -218,3 +230,10 @@ instance ProtoFromJSON WorkerConfig where
       , workerConfigPollerbehavior = maybe (workerConfigPollerbehavior defaultWorkerConfig) id fld_workerConfigPollerbehavior
       }
   protoFromJSON _ = Right defaultWorkerConfig
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkerConfig) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerConfig'SimplePollerBehavior) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerConfig'AutoscalingPollerBehavior) .  id

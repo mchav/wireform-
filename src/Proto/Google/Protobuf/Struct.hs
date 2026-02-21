@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -71,6 +74,9 @@ instance MessageDecode Struct where
                 Left _ -> loop acc_0
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Struct where
+  messageTypeName _ = "google.protobuf.Struct"
 
 instance ProtoToJSON Struct where
   protoToJSON msg = jsonObject
@@ -158,6 +164,9 @@ instance MessageDecode Value where
               loop (Just (Value'Kind'ListValue v))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage Value where
+  messageTypeName _ = "google.protobuf.Value"
+
 instance ProtoToJSON Value where
   protoToJSON msg = jsonObject
       [ "kind" .= msg.valueKind
@@ -232,6 +241,9 @@ instance MessageDecode ListValue where
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage ListValue where
+  messageTypeName _ = "google.protobuf.ListValue"
+
 instance ProtoToJSON ListValue where
   protoToJSON msg = jsonObject
       [ "values" .= msg.listValueValues
@@ -245,3 +257,10 @@ instance ProtoFromJSON ListValue where
       { listValueValues = maybe (listValueValues defaultListValue) id fld_listValueValues
       }
   protoFromJSON _ = Right defaultListValue
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy Struct) .
+  Proto.Registry.registerType (Proxy :: Proxy Value) .
+  Proto.Registry.registerType (Proxy :: Proxy ListValue) .  id

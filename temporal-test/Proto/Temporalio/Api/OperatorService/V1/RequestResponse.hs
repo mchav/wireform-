@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -82,6 +85,9 @@ instance MessageDecode AddSearchAttributesRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage AddSearchAttributesRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.AddSearchAttributesRequest"
+
 instance ProtoToJSON AddSearchAttributesRequest where
   protoToJSON msg = jsonObject
       [ "searchAttributes" .= msg.addSearchAttributesRequestSearchattributes
@@ -124,6 +130,9 @@ instance MessageDecode AddSearchAttributesResponse where
           Nothing -> pure (AddSearchAttributesResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage AddSearchAttributesResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.AddSearchAttributesResponse"
 
 instance ProtoToJSON AddSearchAttributesResponse where
   protoToJSON msg = jsonObject
@@ -171,6 +180,9 @@ instance MessageDecode RemoveSearchAttributesRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage RemoveSearchAttributesRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.RemoveSearchAttributesRequest"
+
 instance ProtoToJSON RemoveSearchAttributesRequest where
   protoToJSON msg = jsonObject
       [ "searchAttributes" .= msg.removeSearchAttributesRequestSearchattributes
@@ -214,6 +226,9 @@ instance MessageDecode RemoveSearchAttributesResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage RemoveSearchAttributesResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.RemoveSearchAttributesResponse"
+
 instance ProtoToJSON RemoveSearchAttributesResponse where
   protoToJSON msg = jsonObject
       []
@@ -252,6 +267,9 @@ instance MessageDecode ListSearchAttributesRequest where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ListSearchAttributesRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.ListSearchAttributesRequest"
 
 instance ProtoToJSON ListSearchAttributesRequest where
   protoToJSON msg = jsonObject
@@ -322,6 +340,9 @@ instance MessageDecode ListSearchAttributesResponse where
                 Right (mk', mv') -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage ListSearchAttributesResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.ListSearchAttributesResponse"
+
 instance ProtoToJSON ListSearchAttributesResponse where
   protoToJSON msg = jsonObject
       [ "customAttributes" .= msg.listSearchAttributesResponseCustomattributes
@@ -387,6 +408,9 @@ instance MessageDecode DeleteNamespaceRequest where
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage DeleteNamespaceRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.DeleteNamespaceRequest"
+
 instance ProtoToJSON DeleteNamespaceRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.deleteNamespaceRequestNamespace
@@ -437,6 +461,9 @@ instance MessageDecode DeleteNamespaceResponse where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage DeleteNamespaceResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.DeleteNamespaceResponse"
 
 instance ProtoToJSON DeleteNamespaceResponse where
   protoToJSON msg = jsonObject
@@ -505,6 +532,9 @@ instance MessageDecode AddOrUpdateRemoteClusterRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage AddOrUpdateRemoteClusterRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.AddOrUpdateRemoteClusterRequest"
+
 instance ProtoToJSON AddOrUpdateRemoteClusterRequest where
   protoToJSON msg = jsonObject
       [ "frontendAddress" .= msg.addOrUpdateRemoteClusterRequestFrontendaddress
@@ -554,6 +584,9 @@ instance MessageDecode AddOrUpdateRemoteClusterResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage AddOrUpdateRemoteClusterResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.AddOrUpdateRemoteClusterResponse"
+
 instance ProtoToJSON AddOrUpdateRemoteClusterResponse where
   protoToJSON msg = jsonObject
       []
@@ -592,6 +625,9 @@ instance MessageDecode RemoveRemoteClusterRequest where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage RemoveRemoteClusterRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.RemoveRemoteClusterRequest"
 
 instance ProtoToJSON RemoveRemoteClusterRequest where
   protoToJSON msg = jsonObject
@@ -633,6 +669,9 @@ instance MessageDecode RemoveRemoteClusterResponse where
           Nothing -> pure (RemoveRemoteClusterResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RemoveRemoteClusterResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.RemoveRemoteClusterResponse"
 
 instance ProtoToJSON RemoveRemoteClusterResponse where
   protoToJSON msg = jsonObject
@@ -679,6 +718,9 @@ instance MessageDecode ListClustersRequest where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListClustersRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.ListClustersRequest"
 
 instance ProtoToJSON ListClustersRequest where
   protoToJSON msg = jsonObject
@@ -734,6 +776,9 @@ instance MessageDecode ListClustersResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListClustersResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.ListClustersResponse"
 
 instance ProtoToJSON ListClustersResponse where
   protoToJSON msg = jsonObject
@@ -832,6 +877,9 @@ instance MessageDecode ClusterMetadata where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage ClusterMetadata where
+  messageTypeName _ = "temporal.api.operatorservice.v1.ClusterMetadata"
+
 instance ProtoToJSON ClusterMetadata where
   protoToJSON msg = jsonObject
       [ "clusterName" .= msg.clusterMetadataClustername
@@ -898,6 +946,9 @@ instance MessageDecode GetNexusEndpointRequest where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage GetNexusEndpointRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.GetNexusEndpointRequest"
+
 instance ProtoToJSON GetNexusEndpointRequest where
   protoToJSON msg = jsonObject
       [ "id" .= msg.getNexusEndpointRequestId
@@ -943,6 +994,9 @@ instance MessageDecode GetNexusEndpointResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage GetNexusEndpointResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.GetNexusEndpointResponse"
 
 instance ProtoToJSON GetNexusEndpointResponse where
   protoToJSON msg = jsonObject
@@ -990,6 +1044,9 @@ instance MessageDecode CreateNexusEndpointRequest where
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage CreateNexusEndpointRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.CreateNexusEndpointRequest"
+
 instance ProtoToJSON CreateNexusEndpointRequest where
   protoToJSON msg = jsonObject
       [ "spec" .= msg.createNexusEndpointRequestSpec
@@ -1035,6 +1092,9 @@ instance MessageDecode CreateNexusEndpointResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage CreateNexusEndpointResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.CreateNexusEndpointResponse"
 
 instance ProtoToJSON CreateNexusEndpointResponse where
   protoToJSON msg = jsonObject
@@ -1096,6 +1156,9 @@ instance MessageDecode UpdateNexusEndpointRequest where
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage UpdateNexusEndpointRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.UpdateNexusEndpointRequest"
+
 instance ProtoToJSON UpdateNexusEndpointRequest where
   protoToJSON msg = jsonObject
       [ "id" .= msg.updateNexusEndpointRequestId
@@ -1146,6 +1209,9 @@ instance MessageDecode UpdateNexusEndpointResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage UpdateNexusEndpointResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.UpdateNexusEndpointResponse"
 
 instance ProtoToJSON UpdateNexusEndpointResponse where
   protoToJSON msg = jsonObject
@@ -1200,6 +1266,9 @@ instance MessageDecode DeleteNexusEndpointRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DeleteNexusEndpointRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.DeleteNexusEndpointRequest"
+
 instance ProtoToJSON DeleteNexusEndpointRequest where
   protoToJSON msg = jsonObject
       [ "id" .= msg.deleteNexusEndpointRequestId
@@ -1242,6 +1311,9 @@ instance MessageDecode DeleteNexusEndpointResponse where
           Nothing -> pure (DeleteNexusEndpointResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage DeleteNexusEndpointResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.DeleteNexusEndpointResponse"
 
 instance ProtoToJSON DeleteNexusEndpointResponse where
   protoToJSON msg = jsonObject
@@ -1295,6 +1367,9 @@ instance MessageDecode ListNexusEndpointsRequest where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage ListNexusEndpointsRequest where
+  messageTypeName _ = "temporal.api.operatorservice.v1.ListNexusEndpointsRequest"
 
 instance ProtoToJSON ListNexusEndpointsRequest where
   protoToJSON msg = jsonObject
@@ -1354,6 +1429,9 @@ instance MessageDecode ListNexusEndpointsResponse where
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ListNexusEndpointsResponse where
+  messageTypeName _ = "temporal.api.operatorservice.v1.ListNexusEndpointsResponse"
+
 instance ProtoToJSON ListNexusEndpointsResponse where
   protoToJSON msg = jsonObject
       [ "nextPageToken" .= msg.listNexusEndpointsResponseNextpagetoken
@@ -1369,3 +1447,32 @@ instance ProtoFromJSON ListNexusEndpointsResponse where
       , listNexusEndpointsResponseEndpoints = maybe (listNexusEndpointsResponseEndpoints defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseEndpoints
       }
   protoFromJSON _ = Right defaultListNexusEndpointsResponse
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy AddSearchAttributesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy AddSearchAttributesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RemoveSearchAttributesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RemoveSearchAttributesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListSearchAttributesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListSearchAttributesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteNamespaceRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteNamespaceResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy AddOrUpdateRemoteClusterRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy AddOrUpdateRemoteClusterResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RemoveRemoteClusterRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RemoveRemoteClusterResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListClustersRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListClustersResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ClusterMetadata) .
+  Proto.Registry.registerType (Proxy :: Proxy GetNexusEndpointRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetNexusEndpointResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CreateNexusEndpointRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy CreateNexusEndpointResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateNexusEndpointRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateNexusEndpointResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteNexusEndpointRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteNexusEndpointResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListNexusEndpointsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListNexusEndpointsResponse) .  id

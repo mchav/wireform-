@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -86,6 +89,9 @@ instance MessageDecode WorkerPollerInfo where
               v <- decodeFieldBool
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkerPollerInfo where
+  messageTypeName _ = "temporal.api.worker.v1.WorkerPollerInfo"
 
 instance ProtoToJSON WorkerPollerInfo where
   protoToJSON msg = jsonObject
@@ -180,6 +186,9 @@ instance MessageDecode WorkerSlotsInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage WorkerSlotsInfo where
+  messageTypeName _ = "temporal.api.worker.v1.WorkerSlotsInfo"
+
 instance ProtoToJSON WorkerSlotsInfo where
   protoToJSON msg = jsonObject
       [ "currentAvailableSlots" .= msg.workerSlotsInfoCurrentavailableslots
@@ -270,6 +279,9 @@ instance MessageDecode WorkerHostInfo where
               v <- decodeFieldFloat
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
+
+instance IsMessage WorkerHostInfo where
+  messageTypeName _ = "temporal.api.worker.v1.WorkerHostInfo"
 
 instance ProtoToJSON WorkerHostInfo where
   protoToJSON msg = jsonObject
@@ -482,6 +494,9 @@ instance MessageDecode WorkerHeartbeat where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 (acc_22 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22
 
+instance IsMessage WorkerHeartbeat where
+  messageTypeName _ = "temporal.api.worker.v1.WorkerHeartbeat"
+
 instance ProtoToJSON WorkerHeartbeat where
   protoToJSON msg = jsonObject
       [ "workerInstanceKey" .= msg.workerHeartbeatWorkerinstancekey
@@ -593,6 +608,9 @@ instance MessageDecode WorkerInfo where
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage WorkerInfo where
+  messageTypeName _ = "temporal.api.worker.v1.WorkerInfo"
+
 instance ProtoToJSON WorkerInfo where
   protoToJSON msg = jsonObject
       [ "workerHeartbeat" .= msg.workerInfoWorkerheartbeat
@@ -646,6 +664,9 @@ instance MessageDecode PluginInfo where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage PluginInfo where
+  messageTypeName _ = "temporal.api.worker.v1.PluginInfo"
+
 instance ProtoToJSON PluginInfo where
   protoToJSON msg = jsonObject
       [ "name" .= msg.pluginInfoName
@@ -661,3 +682,13 @@ instance ProtoFromJSON PluginInfo where
       , pluginInfoVersion = maybe (pluginInfoVersion defaultPluginInfo) id fld_pluginInfoVersion
       }
   protoFromJSON _ = Right defaultPluginInfo
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkerPollerInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerSlotsInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerHostInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerHeartbeat) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy PluginInfo) .  id

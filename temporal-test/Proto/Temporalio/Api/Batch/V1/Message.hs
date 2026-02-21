@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -99,6 +102,9 @@ instance MessageDecode BatchOperationInfo where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage BatchOperationInfo where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationInfo"
+
 instance ProtoToJSON BatchOperationInfo where
   protoToJSON msg = jsonObject
       [ "jobId" .= msg.batchOperationInfoJobid
@@ -159,6 +165,9 @@ instance MessageDecode BatchOperationTermination where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage BatchOperationTermination where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationTermination"
 
 instance ProtoToJSON BatchOperationTermination where
   protoToJSON msg = jsonObject
@@ -229,6 +238,9 @@ instance MessageDecode BatchOperationSignal where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage BatchOperationSignal where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationSignal"
+
 instance ProtoToJSON BatchOperationSignal where
   protoToJSON msg = jsonObject
       [ "signal" .= msg.batchOperationSignalSignal
@@ -283,6 +295,9 @@ instance MessageDecode BatchOperationCancellation where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage BatchOperationCancellation where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationCancellation"
+
 instance ProtoToJSON BatchOperationCancellation where
   protoToJSON msg = jsonObject
       [ "identity" .= msg.batchOperationCancellationIdentity
@@ -328,6 +343,9 @@ instance MessageDecode BatchOperationDeletion where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage BatchOperationDeletion where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationDeletion"
 
 instance ProtoToJSON BatchOperationDeletion where
   protoToJSON msg = jsonObject
@@ -403,6 +421,9 @@ instance MessageDecode BatchOperationReset where
               loop acc_0 acc_1 acc_2 acc_3 (acc_4 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage BatchOperationReset where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationReset"
+
 instance ProtoToJSON BatchOperationReset where
   protoToJSON msg = jsonObject
       [ "identity" .= msg.batchOperationResetIdentity
@@ -473,6 +494,9 @@ instance MessageDecode BatchOperationUpdateWorkflowExecutionOptions where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage BatchOperationUpdateWorkflowExecutionOptions where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationUpdateWorkflowExecutionOptions"
 
 instance ProtoToJSON BatchOperationUpdateWorkflowExecutionOptions where
   protoToJSON msg = jsonObject
@@ -569,6 +593,9 @@ instance MessageDecode BatchOperationUnpauseActivities where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage BatchOperationUnpauseActivities where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationUnpauseActivities"
+
 instance ProtoToJSON BatchOperationUnpauseActivities where
   protoToJSON msg = jsonObject
       [ "identity" .= msg.batchOperationUnpauseActivitiesIdentity
@@ -648,6 +675,9 @@ instance MessageDecode BatchOperationTriggerWorkflowRule where
               v <- decodeFieldMessage
               loop acc_0 (Just (BatchOperationTriggerWorkflowRule'Rule'Spec v))
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage BatchOperationTriggerWorkflowRule where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationTriggerWorkflowRule"
 
 instance ProtoToJSON BatchOperationTriggerWorkflowRule where
   protoToJSON msg = jsonObject
@@ -754,6 +784,9 @@ instance MessageDecode BatchOperationResetActivities where
               v <- decodeFieldBool
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
+
+instance IsMessage BatchOperationResetActivities where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationResetActivities"
 
 instance ProtoToJSON BatchOperationResetActivities where
   protoToJSON msg = jsonObject
@@ -862,6 +895,9 @@ instance MessageDecode BatchOperationUpdateActivityOptions where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage BatchOperationUpdateActivityOptions where
+  messageTypeName _ = "temporal.api.batch.v1.BatchOperationUpdateActivityOptions"
+
 instance ProtoToJSON BatchOperationUpdateActivityOptions where
   protoToJSON msg = jsonObject
       [ "identity" .= msg.batchOperationUpdateActivityOptionsIdentity
@@ -886,3 +922,18 @@ instance ProtoFromJSON BatchOperationUpdateActivityOptions where
       , batchOperationUpdateActivityOptionsRestoreoriginal = maybe (batchOperationUpdateActivityOptionsRestoreoriginal defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsRestoreoriginal
       }
   protoFromJSON _ = Right defaultBatchOperationUpdateActivityOptions
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationTermination) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationSignal) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationCancellation) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationDeletion) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationReset) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationUpdateWorkflowExecutionOptions) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationUnpauseActivities) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationTriggerWorkflowRule) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationResetActivities) .
+  Proto.Registry.registerType (Proxy :: Proxy BatchOperationUpdateActivityOptions) .  id

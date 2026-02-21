@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -85,6 +88,9 @@ instance MessageDecode ReleaseInfo where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage ReleaseInfo where
+  messageTypeName _ = "temporal.api.version.v1.ReleaseInfo"
+
 instance ProtoToJSON ReleaseInfo where
   protoToJSON msg = jsonObject
       [ "version" .= msg.releaseInfoVersion
@@ -142,6 +148,9 @@ instance MessageDecode Alert where
               v <- decodeFieldEnum
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage Alert where
+  messageTypeName _ = "temporal.api.version.v1.Alert"
 
 instance ProtoToJSON Alert where
   protoToJSON msg = jsonObject
@@ -219,6 +228,9 @@ instance MessageDecode VersionInfo where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage VersionInfo where
+  messageTypeName _ = "temporal.api.version.v1.VersionInfo"
+
 instance ProtoToJSON VersionInfo where
   protoToJSON msg = jsonObject
       [ "current" .= msg.versionInfoCurrent
@@ -243,3 +255,10 @@ instance ProtoFromJSON VersionInfo where
       , versionInfoLastupdatetime = maybe (versionInfoLastupdatetime defaultVersionInfo) id fld_versionInfoLastupdatetime
       }
   protoFromJSON _ = Right defaultVersionInfo
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy ReleaseInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy Alert) .
+  Proto.Registry.registerType (Proxy :: Proxy VersionInfo) .  id

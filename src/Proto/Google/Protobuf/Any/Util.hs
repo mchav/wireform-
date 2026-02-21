@@ -1,9 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Utility functions for @google.protobuf.Any@ — type-safe packing,
--- unpacking, and a runtime 'TypeRegistry' for dynamic dispatch.
---
--- These are higher-level operations that sit on top of the generated
--- 'Any' data type.
+-- unpacking, and a runtime 'MessageRegistry' for dynamic dispatch.
 module Proto.Google.Protobuf.Any.Util
   ( -- * Type-safe packing / unpacking
     packAny
@@ -11,11 +8,11 @@ module Proto.Google.Protobuf.Any.Util
   , unpackAny
   , isMessageType
 
-    -- * Type registry for dynamic dispatch
-  , AnyTypeRegistry
+    -- * Type registry (re-exported from Proto.Registry)
+  , MessageRegistry
   , emptyRegistry
   , registerType
-  , lookupType
+  , lookupDecoder
   , unpackAnyDynamic
   , DynamicMessage (..)
 
@@ -23,19 +20,29 @@ module Proto.Google.Protobuf.Any.Util
   , typeUrlPrefix
   , typeUrlOf
   , typeNameFromUrl
+
+    -- * Legacy aliases
+  , AnyTypeRegistry
+  , lookupType
   ) where
 
 import Data.ByteString (ByteString)
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Proto.Encode (MessageEncode, encodeMessage)
-import Proto.Decode (MessageDecode, decodeMessage, DecodeError)
+import Proto.Encode (encodeMessage)
+import Proto.Decode (DecodeError, decodeMessage)
 import Proto.Message (IsMessage (..))
 import Proto.Google.Protobuf.Any (Any(..))
+import Proto.Registry (MessageRegistry, emptyRegistry, registerType, lookupDecoder, DynamicMessage(..))
+
+-- | Legacy alias.
+type AnyTypeRegistry = MessageRegistry
+
+-- | Legacy alias.
+lookupType :: Text -> MessageRegistry -> Maybe (ByteString -> Either DecodeError DynamicMessage)
+lookupType = lookupDecoder
 
 typeUrlPrefix :: Text
 typeUrlPrefix = "type.googleapis.com/"
@@ -73,31 +80,9 @@ typeNameFromUrl tu = case T.breakOnEnd "/" tu of
   ("", name) -> name
   (_, name)  -> name
 
-data DynamicMessage = forall a. (Show a, IsMessage a) => DynamicMessage !a
-
-instance Show DynamicMessage where
-  show (DynamicMessage a) = show a
-
-newtype AnyTypeRegistry = AnyTypeRegistry
-  (Map Text (ByteString -> Either DecodeError DynamicMessage))
-
-emptyRegistry :: AnyTypeRegistry
-emptyRegistry = AnyTypeRegistry Map.empty
-
-registerType :: forall a. (Show a, IsMessage a) => Proxy a -> AnyTypeRegistry -> AnyTypeRegistry
-registerType _ (AnyTypeRegistry m) =
-  let name = messageTypeName (Proxy :: Proxy a)
-      decoder bs' = case decodeMessage bs' of
-        Left e  -> Left e
-        Right v -> Right (DynamicMessage (v :: a))
-  in AnyTypeRegistry (Map.insert name decoder m)
-
-lookupType :: Text -> AnyTypeRegistry -> Maybe (ByteString -> Either DecodeError DynamicMessage)
-lookupType name (AnyTypeRegistry m) = Map.lookup name m
-
-unpackAnyDynamic :: AnyTypeRegistry -> Any -> Maybe (Either DecodeError DynamicMessage)
+unpackAnyDynamic :: MessageRegistry -> Any -> Maybe (Either DecodeError DynamicMessage)
 unpackAnyDynamic reg any' =
   let name = typeNameFromUrl (anyTypeurl any')
-  in case lookupType name reg of
+  in case lookupDecoder name reg of
     Nothing      -> Nothing
     Just decoder -> Just (decoder (anyValue any'))

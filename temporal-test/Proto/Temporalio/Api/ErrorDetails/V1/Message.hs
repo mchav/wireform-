@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -81,6 +84,9 @@ instance MessageDecode NotFoundFailure where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage NotFoundFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.NotFoundFailure"
+
 instance ProtoToJSON NotFoundFailure where
   protoToJSON msg = jsonObject
       [ "currentCluster" .= msg.notFoundFailureCurrentcluster
@@ -135,6 +141,9 @@ instance MessageDecode WorkflowExecutionAlreadyStartedFailure where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage WorkflowExecutionAlreadyStartedFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.WorkflowExecutionAlreadyStartedFailure"
 
 instance ProtoToJSON WorkflowExecutionAlreadyStartedFailure where
   protoToJSON msg = jsonObject
@@ -198,6 +207,9 @@ instance MessageDecode NamespaceNotActiveFailure where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage NamespaceNotActiveFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.NamespaceNotActiveFailure"
+
 instance ProtoToJSON NamespaceNotActiveFailure where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.namespaceNotActiveFailureNamespace
@@ -248,6 +260,9 @@ instance MessageDecode NamespaceUnavailableFailure where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage NamespaceUnavailableFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.NamespaceUnavailableFailure"
 
 instance ProtoToJSON NamespaceUnavailableFailure where
   protoToJSON msg = jsonObject
@@ -309,6 +324,9 @@ instance MessageDecode NamespaceInvalidStateFailure where
               loop acc_0 acc_1 (acc_2 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage NamespaceInvalidStateFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.NamespaceInvalidStateFailure"
+
 instance ProtoToJSON NamespaceInvalidStateFailure where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.namespaceInvalidStateFailureNamespace
@@ -360,6 +378,9 @@ instance MessageDecode NamespaceNotFoundFailure where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage NamespaceNotFoundFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.NamespaceNotFoundFailure"
+
 instance ProtoToJSON NamespaceNotFoundFailure where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.namespaceNotFoundFailureNamespace
@@ -400,6 +421,9 @@ instance MessageDecode NamespaceAlreadyExistsFailure where
           Nothing -> pure (NamespaceAlreadyExistsFailure {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage NamespaceAlreadyExistsFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.NamespaceAlreadyExistsFailure"
 
 instance ProtoToJSON NamespaceAlreadyExistsFailure where
   protoToJSON msg = jsonObject
@@ -453,6 +477,9 @@ instance MessageDecode ClientVersionNotSupportedFailure where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage ClientVersionNotSupportedFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.ClientVersionNotSupportedFailure"
 
 instance ProtoToJSON ClientVersionNotSupportedFailure where
   protoToJSON msg = jsonObject
@@ -512,6 +539,9 @@ instance MessageDecode ServerVersionNotSupportedFailure where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ServerVersionNotSupportedFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.ServerVersionNotSupportedFailure"
+
 instance ProtoToJSON ServerVersionNotSupportedFailure where
   protoToJSON msg = jsonObject
       [ "serverVersion" .= msg.serverVersionNotSupportedFailureServerversion
@@ -555,6 +585,9 @@ instance MessageDecode CancellationAlreadyRequestedFailure where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage CancellationAlreadyRequestedFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.CancellationAlreadyRequestedFailure"
+
 instance ProtoToJSON CancellationAlreadyRequestedFailure where
   protoToJSON msg = jsonObject
       []
@@ -593,6 +626,9 @@ instance MessageDecode QueryFailedFailure where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage QueryFailedFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.QueryFailedFailure"
 
 instance ProtoToJSON QueryFailedFailure where
   protoToJSON msg = jsonObject
@@ -639,6 +675,9 @@ instance MessageDecode PermissionDeniedFailure where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage PermissionDeniedFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.PermissionDeniedFailure"
 
 instance ProtoToJSON PermissionDeniedFailure where
   protoToJSON msg = jsonObject
@@ -692,6 +731,9 @@ instance MessageDecode ResourceExhaustedFailure where
               v <- decodeFieldEnum
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ResourceExhaustedFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.ResourceExhaustedFailure"
 
 instance ProtoToJSON ResourceExhaustedFailure where
   protoToJSON msg = jsonObject
@@ -748,6 +790,9 @@ instance MessageDecode SystemWorkflowFailure where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage SystemWorkflowFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.SystemWorkflowFailure"
+
 instance ProtoToJSON SystemWorkflowFailure where
   protoToJSON msg = jsonObject
       [ "workflowExecution" .= msg.systemWorkflowFailureWorkflowexecution
@@ -791,6 +836,9 @@ instance MessageDecode WorkflowNotReadyFailure where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage WorkflowNotReadyFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.WorkflowNotReadyFailure"
+
 instance ProtoToJSON WorkflowNotReadyFailure where
   protoToJSON msg = jsonObject
       []
@@ -829,6 +877,9 @@ instance MessageDecode NewerBuildExistsFailure where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage NewerBuildExistsFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.NewerBuildExistsFailure"
 
 instance ProtoToJSON NewerBuildExistsFailure where
   protoToJSON msg = jsonObject
@@ -896,6 +947,9 @@ instance MessageDecode MultiOperationExecutionFailure'OperationStatus where
               loop acc_0 acc_1 (acc_2 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage MultiOperationExecutionFailure'OperationStatus where
+  messageTypeName _ = "temporal.api.errordetails.v1.MultiOperationExecutionFailure.OperationStatus"
+
 instance ProtoToJSON MultiOperationExecutionFailure'OperationStatus where
   protoToJSON msg = jsonObject
       [ "code" .= msg.multiOperationExecutionFailureOperationStatusCode
@@ -940,6 +994,9 @@ instance MessageDecode MultiOperationExecutionFailure where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage MultiOperationExecutionFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.MultiOperationExecutionFailure"
 
 instance ProtoToJSON MultiOperationExecutionFailure where
   protoToJSON msg = jsonObject
@@ -994,6 +1051,9 @@ instance MessageDecode ActivityExecutionAlreadyStartedFailure where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ActivityExecutionAlreadyStartedFailure where
+  messageTypeName _ = "temporal.api.errordetails.v1.ActivityExecutionAlreadyStartedFailure"
+
 instance ProtoToJSON ActivityExecutionAlreadyStartedFailure where
   protoToJSON msg = jsonObject
       [ "startRequestId" .= msg.activityExecutionAlreadyStartedFailureStartrequestid
@@ -1009,3 +1069,26 @@ instance ProtoFromJSON ActivityExecutionAlreadyStartedFailure where
       , activityExecutionAlreadyStartedFailureRunid = maybe (activityExecutionAlreadyStartedFailureRunid defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureRunid
       }
   protoFromJSON _ = Right defaultActivityExecutionAlreadyStartedFailure
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy NotFoundFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionAlreadyStartedFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceNotActiveFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceUnavailableFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceInvalidStateFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceNotFoundFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceAlreadyExistsFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy ClientVersionNotSupportedFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy ServerVersionNotSupportedFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy CancellationAlreadyRequestedFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy QueryFailedFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy PermissionDeniedFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy ResourceExhaustedFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy SystemWorkflowFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowNotReadyFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy NewerBuildExistsFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy MultiOperationExecutionFailure) .
+  Proto.Registry.registerType (Proxy :: Proxy MultiOperationExecutionFailure'OperationStatus) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityExecutionAlreadyStartedFailure) .  id

@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -69,6 +72,9 @@ instance MessageDecode SourceContext where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage SourceContext where
+  messageTypeName _ = "google.protobuf.SourceContext"
+
 instance ProtoToJSON SourceContext where
   protoToJSON msg = jsonObject
       [ "fileName" .= msg.sourceContextFilename
@@ -82,3 +88,8 @@ instance ProtoFromJSON SourceContext where
       { sourceContextFilename = maybe (sourceContextFilename defaultSourceContext) id fld_sourceContextFilename
       }
   protoFromJSON _ = Right defaultSourceContext
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy SourceContext) .  id

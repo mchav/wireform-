@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -105,6 +108,9 @@ instance MessageDecode Failure where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage Failure where
+  messageTypeName _ = "temporal.api.nexus.v1.Failure"
+
 instance ProtoToJSON Failure where
   protoToJSON msg = jsonObject
       [ "message" .= msg.failureMessage
@@ -176,6 +182,9 @@ instance MessageDecode HandlerError where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage HandlerError where
+  messageTypeName _ = "temporal.api.nexus.v1.HandlerError"
+
 instance ProtoToJSON HandlerError where
   protoToJSON msg = jsonObject
       [ "errorType" .= msg.handlerErrorErrortype
@@ -234,6 +243,9 @@ instance MessageDecode UnsuccessfulOperationError where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage UnsuccessfulOperationError where
+  messageTypeName _ = "temporal.api.nexus.v1.UnsuccessfulOperationError"
+
 instance ProtoToJSON UnsuccessfulOperationError where
   protoToJSON msg = jsonObject
       [ "operationState" .= msg.unsuccessfulOperationErrorOperationstate
@@ -288,6 +300,9 @@ instance MessageDecode Link where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage Link where
+  messageTypeName _ = "temporal.api.nexus.v1.Link"
 
 instance ProtoToJSON Link where
   protoToJSON msg = jsonObject
@@ -382,6 +397,9 @@ instance MessageDecode StartOperationRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (acc_6 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage StartOperationRequest where
+  messageTypeName _ = "temporal.api.nexus.v1.StartOperationRequest"
+
 instance ProtoToJSON StartOperationRequest where
   protoToJSON msg = jsonObject
       [ "service" .= msg.startOperationRequestService
@@ -466,6 +484,9 @@ instance MessageDecode CancelOperationRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage CancelOperationRequest where
+  messageTypeName _ = "temporal.api.nexus.v1.CancelOperationRequest"
+
 instance ProtoToJSON CancelOperationRequest where
   protoToJSON msg = jsonObject
       [ "service" .= msg.cancelOperationRequestService
@@ -529,6 +550,9 @@ instance MessageDecode Request'Capabilities where
               v <- decodeFieldBool
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Request'Capabilities where
+  messageTypeName _ = "temporal.api.nexus.v1.Request.Capabilities"
 
 instance ProtoToJSON Request'Capabilities where
   protoToJSON msg = jsonObject
@@ -613,6 +637,9 @@ instance MessageDecode Request where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage Request where
+  messageTypeName _ = "temporal.api.nexus.v1.Request"
+
 instance ProtoToJSON Request where
   protoToJSON msg = jsonObject
       [ "header" .= msg.requestHeader
@@ -683,6 +710,9 @@ instance MessageDecode StartOperationResponse'Sync where
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage StartOperationResponse'Sync where
+  messageTypeName _ = "temporal.api.nexus.v1.StartOperationResponse.Sync"
+
 instance ProtoToJSON StartOperationResponse'Sync where
   protoToJSON msg = jsonObject
       [ "payload" .= msg.startOperationResponseSyncPayload
@@ -744,6 +774,9 @@ instance MessageDecode StartOperationResponse'Async where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage StartOperationResponse'Async where
+  messageTypeName _ = "temporal.api.nexus.v1.StartOperationResponse.Async"
 
 instance ProtoToJSON StartOperationResponse'Async where
   protoToJSON msg = jsonObject
@@ -818,6 +851,9 @@ instance MessageDecode StartOperationResponse where
               loop (Just (StartOperationResponse'Variant'Failure v))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage StartOperationResponse where
+  messageTypeName _ = "temporal.api.nexus.v1.StartOperationResponse"
+
 instance ProtoToJSON StartOperationResponse where
   protoToJSON msg = jsonObject
       [ "variant" .= msg.startOperationResponseVariant
@@ -858,6 +894,9 @@ instance MessageDecode CancelOperationResponse where
           Nothing -> pure (CancelOperationResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage CancelOperationResponse where
+  messageTypeName _ = "temporal.api.nexus.v1.CancelOperationResponse"
 
 instance ProtoToJSON CancelOperationResponse where
   protoToJSON msg = jsonObject
@@ -913,6 +952,9 @@ instance MessageDecode Response where
               v <- decodeFieldMessage
               loop (Just (Response'Variant'CancelOperation v))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Response where
+  messageTypeName _ = "temporal.api.nexus.v1.Response"
 
 instance ProtoToJSON Response where
   protoToJSON msg = jsonObject
@@ -995,6 +1037,9 @@ instance MessageDecode Endpoint where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage Endpoint where
+  messageTypeName _ = "temporal.api.nexus.v1.Endpoint"
+
 instance ProtoToJSON Endpoint where
   protoToJSON msg = jsonObject
       [ "version" .= msg.endpointVersion
@@ -1069,6 +1114,9 @@ instance MessageDecode EndpointSpec where
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage EndpointSpec where
+  messageTypeName _ = "temporal.api.nexus.v1.EndpointSpec"
+
 instance ProtoToJSON EndpointSpec where
   protoToJSON msg = jsonObject
       [ "name" .= msg.endpointSpecName
@@ -1133,6 +1181,9 @@ instance MessageDecode EndpointTarget'Worker where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage EndpointTarget'Worker where
+  messageTypeName _ = "temporal.api.nexus.v1.EndpointTarget.Worker"
+
 instance ProtoToJSON EndpointTarget'Worker where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.endpointTargetWorkerNamespace
@@ -1180,6 +1231,9 @@ instance MessageDecode EndpointTarget'External where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage EndpointTarget'External where
+  messageTypeName _ = "temporal.api.nexus.v1.EndpointTarget.External"
 
 instance ProtoToJSON EndpointTarget'External where
   protoToJSON msg = jsonObject
@@ -1237,6 +1291,9 @@ instance MessageDecode EndpointTarget where
               loop (Just (EndpointTarget'Variant'External v))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage EndpointTarget where
+  messageTypeName _ = "temporal.api.nexus.v1.EndpointTarget"
+
 instance ProtoToJSON EndpointTarget where
   protoToJSON msg = jsonObject
       [ "variant" .= msg.endpointTargetVariant
@@ -1250,3 +1307,25 @@ instance ProtoFromJSON EndpointTarget where
       { endpointTargetVariant = maybe (endpointTargetVariant defaultEndpointTarget) id fld_endpointTargetVariant
       }
   protoFromJSON _ = Right defaultEndpointTarget
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy Failure) .
+  Proto.Registry.registerType (Proxy :: Proxy HandlerError) .
+  Proto.Registry.registerType (Proxy :: Proxy UnsuccessfulOperationError) .
+  Proto.Registry.registerType (Proxy :: Proxy Link) .
+  Proto.Registry.registerType (Proxy :: Proxy StartOperationRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy CancelOperationRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy Request) .
+  Proto.Registry.registerType (Proxy :: Proxy Request'Capabilities) .
+  Proto.Registry.registerType (Proxy :: Proxy StartOperationResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy StartOperationResponse'Sync) .
+  Proto.Registry.registerType (Proxy :: Proxy StartOperationResponse'Async) .
+  Proto.Registry.registerType (Proxy :: Proxy CancelOperationResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy Response) .
+  Proto.Registry.registerType (Proxy :: Proxy Endpoint) .
+  Proto.Registry.registerType (Proxy :: Proxy EndpointSpec) .
+  Proto.Registry.registerType (Proxy :: Proxy EndpointTarget) .
+  Proto.Registry.registerType (Proxy :: Proxy EndpointTarget'Worker) .
+  Proto.Registry.registerType (Proxy :: Proxy EndpointTarget'External) .  id

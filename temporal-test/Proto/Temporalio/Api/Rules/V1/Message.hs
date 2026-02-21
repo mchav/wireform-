@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -71,6 +74,9 @@ instance MessageDecode WorkflowRuleAction'ActionActivityPause where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage WorkflowRuleAction'ActionActivityPause where
+  messageTypeName _ = "temporal.api.rules.v1.WorkflowRuleAction.ActionActivityPause"
+
 instance ProtoToJSON WorkflowRuleAction'ActionActivityPause where
   protoToJSON msg = jsonObject
       []
@@ -113,6 +119,9 @@ instance MessageDecode WorkflowRuleAction where
               v <- decodeFieldMessage
               loop (Just (WorkflowRuleAction'Variant'ActivityPause v))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage WorkflowRuleAction where
+  messageTypeName _ = "temporal.api.rules.v1.WorkflowRuleAction"
 
 instance ProtoToJSON WorkflowRuleAction where
   protoToJSON msg = jsonObject
@@ -169,6 +178,9 @@ instance MessageDecode WorkflowRuleSpec'ActivityStartingTrigger where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage WorkflowRuleSpec'ActivityStartingTrigger where
+  messageTypeName _ = "temporal.api.rules.v1.WorkflowRuleSpec.ActivityStartingTrigger"
 
 instance ProtoToJSON WorkflowRuleSpec'ActivityStartingTrigger where
   protoToJSON msg = jsonObject
@@ -243,6 +255,9 @@ instance MessageDecode WorkflowRuleSpec where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
+
+instance IsMessage WorkflowRuleSpec where
+  messageTypeName _ = "temporal.api.rules.v1.WorkflowRuleSpec"
 
 instance ProtoToJSON WorkflowRuleSpec where
   protoToJSON msg = jsonObject
@@ -322,6 +337,9 @@ instance MessageDecode WorkflowRule where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage WorkflowRule where
+  messageTypeName _ = "temporal.api.rules.v1.WorkflowRule"
+
 instance ProtoToJSON WorkflowRule where
   protoToJSON msg = jsonObject
       [ "createTime" .= msg.workflowRuleCreatetime
@@ -343,3 +361,12 @@ instance ProtoFromJSON WorkflowRule where
       , workflowRuleDescription = maybe (workflowRuleDescription defaultWorkflowRule) id fld_workflowRuleDescription
       }
   protoFromJSON _ = Right defaultWorkflowRule
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowRuleAction) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowRuleAction'ActionActivityPause) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowRuleSpec) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowRuleSpec'ActivityStartingTrigger) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowRule) .  id

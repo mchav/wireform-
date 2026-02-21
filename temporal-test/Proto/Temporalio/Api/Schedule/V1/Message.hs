@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -124,6 +127,9 @@ instance MessageDecode CalendarSpec where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage CalendarSpec where
+  messageTypeName _ = "temporal.api.schedule.v1.CalendarSpec"
+
 instance ProtoToJSON CalendarSpec where
   protoToJSON msg = jsonObject
       [ "second" .= msg.calendarSpecSecond
@@ -203,6 +209,9 @@ instance MessageDecode Range where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage Range where
+  messageTypeName _ = "temporal.api.schedule.v1.Range"
 
 instance ProtoToJSON Range where
   protoToJSON msg = jsonObject
@@ -304,6 +313,9 @@ instance MessageDecode StructuredCalendarSpec where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage StructuredCalendarSpec where
+  messageTypeName _ = "temporal.api.schedule.v1.StructuredCalendarSpec"
+
 instance ProtoToJSON StructuredCalendarSpec where
   protoToJSON msg = jsonObject
       [ "second" .= msg.structuredCalendarSpecSecond
@@ -376,6 +388,9 @@ instance MessageDecode IntervalSpec where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage IntervalSpec where
+  messageTypeName _ = "temporal.api.schedule.v1.IntervalSpec"
 
 instance ProtoToJSON IntervalSpec where
   protoToJSON msg = jsonObject
@@ -495,6 +510,9 @@ instance MessageDecode ScheduleSpec where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
 
+instance IsMessage ScheduleSpec where
+  messageTypeName _ = "temporal.api.schedule.v1.ScheduleSpec"
+
 instance ProtoToJSON ScheduleSpec where
   protoToJSON msg = jsonObject
       [ "structuredCalendar" .= msg.scheduleSpecStructuredcalendar
@@ -591,6 +609,9 @@ instance MessageDecode SchedulePolicies where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage SchedulePolicies where
+  messageTypeName _ = "temporal.api.schedule.v1.SchedulePolicies"
+
 instance ProtoToJSON SchedulePolicies where
   protoToJSON msg = jsonObject
       [ "overlapPolicy" .= msg.schedulePoliciesOverlappolicy
@@ -654,6 +675,9 @@ instance MessageDecode ScheduleAction where
               v <- decodeFieldMessage
               loop (Just (ScheduleAction'Action'StartWorkflow v))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ScheduleAction where
+  messageTypeName _ = "temporal.api.schedule.v1.ScheduleAction"
 
 instance ProtoToJSON ScheduleAction where
   protoToJSON msg = jsonObject
@@ -721,6 +745,9 @@ instance MessageDecode ScheduleActionResult where
               v <- decodeFieldEnum
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage ScheduleActionResult where
+  messageTypeName _ = "temporal.api.schedule.v1.ScheduleActionResult"
 
 instance ProtoToJSON ScheduleActionResult where
   protoToJSON msg = jsonObject
@@ -797,6 +824,9 @@ instance MessageDecode ScheduleState where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ScheduleState where
+  messageTypeName _ = "temporal.api.schedule.v1.ScheduleState"
+
 instance ProtoToJSON ScheduleState where
   protoToJSON msg = jsonObject
       [ "notes" .= msg.scheduleStateNotes
@@ -857,6 +887,9 @@ instance MessageDecode TriggerImmediatelyRequest where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage TriggerImmediatelyRequest where
+  messageTypeName _ = "temporal.api.schedule.v1.TriggerImmediatelyRequest"
 
 instance ProtoToJSON TriggerImmediatelyRequest where
   protoToJSON msg = jsonObject
@@ -919,6 +952,9 @@ instance MessageDecode BackfillRequest where
               v <- decodeFieldEnum
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage BackfillRequest where
+  messageTypeName _ = "temporal.api.schedule.v1.BackfillRequest"
 
 instance ProtoToJSON BackfillRequest where
   protoToJSON msg = jsonObject
@@ -991,6 +1027,9 @@ instance MessageDecode SchedulePatch where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage SchedulePatch where
+  messageTypeName _ = "temporal.api.schedule.v1.SchedulePatch"
 
 instance ProtoToJSON SchedulePatch where
   protoToJSON msg = jsonObject
@@ -1116,6 +1155,9 @@ instance MessageDecode ScheduleInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
 
+instance IsMessage ScheduleInfo where
+  messageTypeName _ = "temporal.api.schedule.v1.ScheduleInfo"
+
 instance ProtoToJSON ScheduleInfo where
   protoToJSON msg = jsonObject
       [ "actionCount" .= msg.scheduleInfoActioncount
@@ -1212,6 +1254,9 @@ instance MessageDecode Schedule where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage Schedule where
+  messageTypeName _ = "temporal.api.schedule.v1.Schedule"
+
 instance ProtoToJSON Schedule where
   protoToJSON msg = jsonObject
       [ "spec" .= msg.scheduleSpec
@@ -1301,6 +1346,9 @@ instance MessageDecode ScheduleListInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (acc_5 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage ScheduleListInfo where
+  messageTypeName _ = "temporal.api.schedule.v1.ScheduleListInfo"
+
 instance ProtoToJSON ScheduleListInfo where
   protoToJSON msg = jsonObject
       [ "spec" .= msg.scheduleListInfoSpec
@@ -1382,6 +1430,9 @@ instance MessageDecode ScheduleListEntry where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ScheduleListEntry where
+  messageTypeName _ = "temporal.api.schedule.v1.ScheduleListEntry"
+
 instance ProtoToJSON ScheduleListEntry where
   protoToJSON msg = jsonObject
       [ "scheduleId" .= msg.scheduleListEntryScheduleid
@@ -1403,3 +1454,23 @@ instance ProtoFromJSON ScheduleListEntry where
       , scheduleListEntryInfo = maybe (scheduleListEntryInfo defaultScheduleListEntry) id fld_scheduleListEntryInfo
       }
   protoFromJSON _ = Right defaultScheduleListEntry
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy CalendarSpec) .
+  Proto.Registry.registerType (Proxy :: Proxy Range) .
+  Proto.Registry.registerType (Proxy :: Proxy StructuredCalendarSpec) .
+  Proto.Registry.registerType (Proxy :: Proxy IntervalSpec) .
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleSpec) .
+  Proto.Registry.registerType (Proxy :: Proxy SchedulePolicies) .
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleAction) .
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleActionResult) .
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleState) .
+  Proto.Registry.registerType (Proxy :: Proxy TriggerImmediatelyRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy BackfillRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy SchedulePatch) .
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy Schedule) .
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleListInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy ScheduleListEntry) .  id

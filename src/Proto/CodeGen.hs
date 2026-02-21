@@ -293,12 +293,15 @@ generateModule opts reg filePath pf =
       body = concatMap (genTopLevel ctx []) (protoTopLevels pf)
       referencedTypes = collectReferencedTypes (protoTopLevels pf)
       importedModules = computeImports ctx referencedTypes
+      localMsgNames = collectLocalMessageNames [] (protoTopLevels pf)
   in vsep
     [ genModuleHeader opts filePath pf
     , mempty
     , genImports importedModules
     , mempty
     , vsep body
+    , mempty
+    , genRegisterModuleTypes localMsgNames
     ]
 
 generateModuleText :: GenerateOpts -> TypeRegistry -> FilePath -> ProtoFile -> Text
@@ -432,6 +435,9 @@ genImports externalModules = vsep $
   , pretty ("import Proto.Encode" :: Text)
   , pretty ("import Proto.Decode" :: Text)
   , pretty ("import Proto.JSON" :: Text)
+  , pretty ("import Data.Proxy (Proxy(..))" :: Text)
+  , pretty ("import Proto.Message (IsMessage(..))" :: Text)
+  , pretty ("import qualified Proto.Registry" :: Text)
   , pretty ("import Proto.Wire (Tag(..), WireType(..))" :: Text)
   , pretty ("import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64," :: Text)
   , pretty ("  putFloat, putDouble, putText, putByteString, putLengthDelimited," :: Text)
@@ -500,6 +506,8 @@ genMessage ctx scope msg =
         , genSizeInstance ctx scope' msg
         , mempty
         , genDecodeInstance ctx scope' msg
+        , mempty
+        , genIsMessageInstance ctx scope' msg
         , mempty
         , genToJSONInstance ctx scope' msg
         , mempty
@@ -1128,6 +1136,19 @@ mapValDefaultLit ctx = \case
 -- JSON instances
 -- ---------------------------------------------------------------------------
 
+genIsMessageInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
+genIsMessageInstance ctx scope msg =
+  let tyN = scopedTypeName scope
+      fqn = fqProtoName (gcPkg ctx) scope
+  in vsep
+    [ pretty ("instance IsMessage " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+    , indent 2 $ pretty ("messageTypeName _ = \"" :: Text) <> pretty fqn <> pretty ("\"" :: Text)
+    ]
+
+-- ---------------------------------------------------------------------------
+-- JSON instances
+-- ---------------------------------------------------------------------------
+
 genToJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genToJSONInstance ctx scope msg =
   let tyN = scopedTypeName scope
@@ -1205,6 +1226,38 @@ fqProtoName pkg scope =
   in case pkg of
     Just p  -> p <> "." <> msgName
     Nothing -> msgName
+
+-- | Collect all message type names (Haskell names) defined at any level in this file.
+collectLocalMessageNames :: [Text] -> [TopLevel] -> [Text]
+collectLocalMessageNames scope = concatMap go
+  where
+    go = \case
+      TLMessage msg ->
+        let scope' = scope <> [msgName msg]
+            tyN = scopedTypeName scope'
+        in tyN : concatMap (goElem scope') (msgElements msg)
+      _ -> []
+    goElem s = \case
+      MEMessage inner ->
+        let scope' = s <> [msgName inner]
+            tyN = scopedTypeName scope'
+        in tyN : concatMap (goElem scope') (msgElements inner)
+      _ -> []
+
+-- | Generate a @registerModuleTypes@ function that registers all message
+-- types in this module with an 'AnyTypeRegistry'.
+genRegisterModuleTypes :: [Text] -> Doc ann
+genRegisterModuleTypes msgNames = case msgNames of
+  [] -> mempty
+  _ -> vsep
+    [ pretty ("-- | Register all message types defined in this module." :: Text)
+    , pretty ("registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry" :: Text)
+    , pretty ("registerModuleTypes =" :: Text)
+    , indent 2 $ vsep (fmap (\n ->
+        pretty ("Proto.Registry.registerType (Proxy :: Proxy " :: Text) <> pretty n <> pretty (") ." :: Text)
+      ) msgNames)
+    <> indent 2 (pretty ("id" :: Text))
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Field extraction (unified)

@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -86,6 +89,9 @@ instance MessageDecode WorkflowQuery where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkflowQuery where
+  messageTypeName _ = "temporal.api.query.v1.WorkflowQuery"
 
 instance ProtoToJSON WorkflowQuery where
   protoToJSON msg = jsonObject
@@ -159,6 +165,9 @@ instance MessageDecode WorkflowQueryResult where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage WorkflowQueryResult where
+  messageTypeName _ = "temporal.api.query.v1.WorkflowQueryResult"
+
 instance ProtoToJSON WorkflowQueryResult where
   protoToJSON msg = jsonObject
       [ "resultType" .= msg.workflowQueryResultResulttype
@@ -213,6 +222,9 @@ instance MessageDecode QueryRejected where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage QueryRejected where
+  messageTypeName _ = "temporal.api.query.v1.QueryRejected"
+
 instance ProtoToJSON QueryRejected where
   protoToJSON msg = jsonObject
       [ "status" .= msg.queryRejectedStatus
@@ -226,3 +238,10 @@ instance ProtoFromJSON QueryRejected where
       { queryRejectedStatus = maybe (queryRejectedStatus defaultQueryRejected) id fld_queryRejectedStatus
       }
   protoFromJSON _ = Right defaultQueryRejected
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowQuery) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowQueryResult) .
+  Proto.Registry.registerType (Proxy :: Proxy QueryRejected) .  id

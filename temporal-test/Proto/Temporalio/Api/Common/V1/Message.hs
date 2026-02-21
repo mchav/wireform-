@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -81,6 +84,9 @@ instance MessageDecode DataBlob where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DataBlob where
+  messageTypeName _ = "temporal.api.common.v1.DataBlob"
+
 instance ProtoToJSON DataBlob where
   protoToJSON msg = jsonObject
       [ "encodingType" .= msg.dataBlobEncodingtype
@@ -128,6 +134,9 @@ instance MessageDecode Payloads where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Payloads where
+  messageTypeName _ = "temporal.api.common.v1.Payloads"
 
 instance ProtoToJSON Payloads where
   protoToJSON msg = jsonObject
@@ -182,6 +191,9 @@ instance MessageDecode Payload'ExternalPayloadDetails where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Payload'ExternalPayloadDetails where
+  messageTypeName _ = "temporal.api.common.v1.Payload.ExternalPayloadDetails"
 
 instance ProtoToJSON Payload'ExternalPayloadDetails where
   protoToJSON msg = jsonObject
@@ -238,6 +250,9 @@ instance MessageDecode Payload where
               loop acc_0 acc_1 (acc_2 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage Payload where
+  messageTypeName _ = "temporal.api.common.v1.Payload"
+
 instance ProtoToJSON Payload where
   protoToJSON msg = jsonObject
       [ "metadata" .= msg.payloadMetadata
@@ -292,6 +307,9 @@ instance MessageDecode SearchAttributes where
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage SearchAttributes where
+  messageTypeName _ = "temporal.api.common.v1.SearchAttributes"
+
 instance ProtoToJSON SearchAttributes where
   protoToJSON msg = jsonObject
       [ "indexedFields" .= msg.searchAttributesIndexedfields
@@ -341,6 +359,9 @@ instance MessageDecode Memo where
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage Memo where
+  messageTypeName _ = "temporal.api.common.v1.Memo"
+
 instance ProtoToJSON Memo where
   protoToJSON msg = jsonObject
       [ "fields" .= msg.memoFields
@@ -389,6 +410,9 @@ instance MessageDecode Header where
                 Left _ -> loop acc_0
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Header where
+  messageTypeName _ = "temporal.api.common.v1.Header"
 
 instance ProtoToJSON Header where
   protoToJSON msg = jsonObject
@@ -443,6 +467,9 @@ instance MessageDecode WorkflowExecution where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage WorkflowExecution where
+  messageTypeName _ = "temporal.api.common.v1.WorkflowExecution"
+
 instance ProtoToJSON WorkflowExecution where
   protoToJSON msg = jsonObject
       [ "workflowId" .= msg.workflowExecutionWorkflowid
@@ -491,6 +518,9 @@ instance MessageDecode WorkflowType where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage WorkflowType where
+  messageTypeName _ = "temporal.api.common.v1.WorkflowType"
+
 instance ProtoToJSON WorkflowType where
   protoToJSON msg = jsonObject
       [ "name" .= msg.workflowTypeName
@@ -536,6 +566,9 @@ instance MessageDecode ActivityType where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ActivityType where
+  messageTypeName _ = "temporal.api.common.v1.ActivityType"
 
 instance ProtoToJSON ActivityType where
   protoToJSON msg = jsonObject
@@ -611,6 +644,9 @@ instance MessageDecode RetryPolicy where
               loop acc_0 acc_1 acc_2 acc_3 (acc_4 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage RetryPolicy where
+  messageTypeName _ = "temporal.api.common.v1.RetryPolicy"
+
 instance ProtoToJSON RetryPolicy where
   protoToJSON msg = jsonObject
       [ "initialInterval" .= msg.retryPolicyInitialinterval
@@ -668,6 +704,9 @@ instance MessageDecode MeteringMetadata where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage MeteringMetadata where
+  messageTypeName _ = "temporal.api.common.v1.MeteringMetadata"
+
 instance ProtoToJSON MeteringMetadata where
   protoToJSON msg = jsonObject
       [ "nonfirstLocalActivityExecutionAttempts" .= msg.meteringMetadataNonfirstlocalactivityexecutionattempts
@@ -720,6 +759,9 @@ instance MessageDecode WorkerVersionStamp where
               v <- decodeFieldBool
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage WorkerVersionStamp where
+  messageTypeName _ = "temporal.api.common.v1.WorkerVersionStamp"
 
 instance ProtoToJSON WorkerVersionStamp where
   protoToJSON msg = jsonObject
@@ -782,6 +824,9 @@ instance MessageDecode WorkerVersionCapabilities where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkerVersionCapabilities where
+  messageTypeName _ = "temporal.api.common.v1.WorkerVersionCapabilities"
 
 instance ProtoToJSON WorkerVersionCapabilities where
   protoToJSON msg = jsonObject
@@ -883,6 +928,9 @@ instance MessageDecode ResetOptions where
               loop acc_0 acc_1 acc_2 (acc_3 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ResetOptions where
+  messageTypeName _ = "temporal.api.common.v1.ResetOptions"
+
 instance ProtoToJSON ResetOptions where
   protoToJSON msg = jsonObject
       [ "target" .= msg.resetOptionsTarget
@@ -954,6 +1002,9 @@ instance MessageDecode Callback'Nexus where
                 Right (mk', mv') -> loop acc_0 (Map.union acc_1 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage Callback'Nexus where
+  messageTypeName _ = "temporal.api.common.v1.Callback.Nexus"
+
 instance ProtoToJSON Callback'Nexus where
   protoToJSON msg = jsonObject
       [ "url" .= msg.callbackNexusUrl
@@ -1001,6 +1052,9 @@ instance MessageDecode Callback'Internal where
               v <- decodeFieldBytes
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Callback'Internal where
+  messageTypeName _ = "temporal.api.common.v1.Callback.Internal"
 
 instance ProtoToJSON Callback'Internal where
   protoToJSON msg = jsonObject
@@ -1063,6 +1117,9 @@ instance MessageDecode Callback where
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage Callback where
+  messageTypeName _ = "temporal.api.common.v1.Callback"
 
 instance ProtoToJSON Callback where
   protoToJSON msg = jsonObject
@@ -1134,6 +1191,9 @@ instance MessageDecode Link'WorkflowEvent'EventReference where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage Link'WorkflowEvent'EventReference where
+  messageTypeName _ = "temporal.api.common.v1.Link.WorkflowEvent.EventReference"
+
 instance ProtoToJSON Link'WorkflowEvent'EventReference where
   protoToJSON msg = jsonObject
       [ "eventId" .= msg.linkWorkflowEventEventReferenceEventid
@@ -1188,6 +1248,9 @@ instance MessageDecode Link'WorkflowEvent'RequestIdReference where
               v <- decodeFieldEnum
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage Link'WorkflowEvent'RequestIdReference where
+  messageTypeName _ = "temporal.api.common.v1.Link.WorkflowEvent.RequestIdReference"
 
 instance ProtoToJSON Link'WorkflowEvent'RequestIdReference where
   protoToJSON msg = jsonObject
@@ -1265,6 +1328,9 @@ instance MessageDecode Link'WorkflowEvent where
               loop acc_0 acc_1 acc_2 (Just (Link'WorkflowEvent'Reference'RequestIdRef v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage Link'WorkflowEvent where
+  messageTypeName _ = "temporal.api.common.v1.Link.WorkflowEvent"
+
 instance ProtoToJSON Link'WorkflowEvent where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.linkWorkflowEventNamespace
@@ -1318,6 +1384,9 @@ instance MessageDecode Link'BatchJob where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Link'BatchJob where
+  messageTypeName _ = "temporal.api.common.v1.Link.BatchJob"
 
 instance ProtoToJSON Link'BatchJob where
   protoToJSON msg = jsonObject
@@ -1374,6 +1443,9 @@ instance MessageDecode Link where
               v <- decodeFieldMessage
               loop (Just (Link'Variant'BatchJob v))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage Link where
+  messageTypeName _ = "temporal.api.common.v1.Link"
 
 instance ProtoToJSON Link where
   protoToJSON msg = jsonObject
@@ -1434,6 +1506,9 @@ instance MessageDecode Priority where
               v <- decodeFieldFloat
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage Priority where
+  messageTypeName _ = "temporal.api.common.v1.Priority"
 
 instance ProtoToJSON Priority where
   protoToJSON msg = jsonObject
@@ -1496,6 +1571,9 @@ instance MessageDecode WorkerSelector where
               loop (Just (WorkerSelector'Selector'WorkerInstanceKey v))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage WorkerSelector where
+  messageTypeName _ = "temporal.api.common.v1.WorkerSelector"
+
 instance ProtoToJSON WorkerSelector where
   protoToJSON msg = jsonObject
       [ "selector" .= msg.workerSelectorSelector
@@ -1509,3 +1587,32 @@ instance ProtoFromJSON WorkerSelector where
       { workerSelectorSelector = maybe (workerSelectorSelector defaultWorkerSelector) id fld_workerSelectorSelector
       }
   protoFromJSON _ = Right defaultWorkerSelector
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy DataBlob) .
+  Proto.Registry.registerType (Proxy :: Proxy Payloads) .
+  Proto.Registry.registerType (Proxy :: Proxy Payload) .
+  Proto.Registry.registerType (Proxy :: Proxy Payload'ExternalPayloadDetails) .
+  Proto.Registry.registerType (Proxy :: Proxy SearchAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy Memo) .
+  Proto.Registry.registerType (Proxy :: Proxy Header) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecution) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowType) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityType) .
+  Proto.Registry.registerType (Proxy :: Proxy RetryPolicy) .
+  Proto.Registry.registerType (Proxy :: Proxy MeteringMetadata) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerVersionStamp) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerVersionCapabilities) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetOptions) .
+  Proto.Registry.registerType (Proxy :: Proxy Callback) .
+  Proto.Registry.registerType (Proxy :: Proxy Callback'Nexus) .
+  Proto.Registry.registerType (Proxy :: Proxy Callback'Internal) .
+  Proto.Registry.registerType (Proxy :: Proxy Link) .
+  Proto.Registry.registerType (Proxy :: Proxy Link'WorkflowEvent) .
+  Proto.Registry.registerType (Proxy :: Proxy Link'WorkflowEvent'EventReference) .
+  Proto.Registry.registerType (Proxy :: Proxy Link'WorkflowEvent'RequestIdReference) .
+  Proto.Registry.registerType (Proxy :: Proxy Link'BatchJob) .
+  Proto.Registry.registerType (Proxy :: Proxy Priority) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerSelector) .  id

@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -135,6 +138,9 @@ instance MessageDecode NamespaceInfo'Capabilities where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage NamespaceInfo'Capabilities where
+  messageTypeName _ = "temporal.api.namespace.v1.NamespaceInfo.Capabilities"
+
 instance ProtoToJSON NamespaceInfo'Capabilities where
   protoToJSON msg = jsonObject
       [ "eagerWorkflowStart" .= msg.namespaceInfoCapabilitiesEagerworkflowstart
@@ -207,6 +213,9 @@ instance MessageDecode NamespaceInfo'Limits where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage NamespaceInfo'Limits where
+  messageTypeName _ = "temporal.api.namespace.v1.NamespaceInfo.Limits"
 
 instance ProtoToJSON NamespaceInfo'Limits where
   protoToJSON msg = jsonObject
@@ -300,6 +309,9 @@ instance MessageDecode NamespaceInfo where
               v <- decodeFieldBool
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
+
+instance IsMessage NamespaceInfo where
+  messageTypeName _ = "temporal.api.namespace.v1.NamespaceInfo"
 
 instance ProtoToJSON NamespaceInfo where
   protoToJSON msg = jsonObject
@@ -415,6 +427,9 @@ instance MessageDecode NamespaceConfig where
                 Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Map.union acc_6 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage NamespaceConfig where
+  messageTypeName _ = "temporal.api.namespace.v1.NamespaceConfig"
+
 instance ProtoToJSON NamespaceConfig where
   protoToJSON msg = jsonObject
       [ "workflowExecutionRetentionTtl" .= msg.namespaceConfigWorkflowexecutionretentionttl
@@ -481,6 +496,9 @@ instance MessageDecode BadBinaries where
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage BadBinaries where
+  messageTypeName _ = "temporal.api.namespace.v1.BadBinaries"
+
 instance ProtoToJSON BadBinaries where
   protoToJSON msg = jsonObject
       [ "binaries" .= msg.badBinariesBinaries
@@ -540,6 +558,9 @@ instance MessageDecode BadBinaryInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage BadBinaryInfo where
+  messageTypeName _ = "temporal.api.namespace.v1.BadBinaryInfo"
 
 instance ProtoToJSON BadBinaryInfo where
   protoToJSON msg = jsonObject
@@ -616,6 +637,9 @@ instance MessageDecode UpdateNamespaceInfo where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage UpdateNamespaceInfo where
+  messageTypeName _ = "temporal.api.namespace.v1.UpdateNamespaceInfo"
+
 instance ProtoToJSON UpdateNamespaceInfo where
   protoToJSON msg = jsonObject
       [ "description" .= msg.updateNamespaceInfoDescription
@@ -670,6 +694,9 @@ instance MessageDecode NamespaceFilter where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage NamespaceFilter where
+  messageTypeName _ = "temporal.api.namespace.v1.NamespaceFilter"
+
 instance ProtoToJSON NamespaceFilter where
   protoToJSON msg = jsonObject
       [ "includeDeleted" .= msg.namespaceFilterIncludedeleted
@@ -683,3 +710,15 @@ instance ProtoFromJSON NamespaceFilter where
       { namespaceFilterIncludedeleted = maybe (namespaceFilterIncludedeleted defaultNamespaceFilter) id fld_namespaceFilterIncludedeleted
       }
   protoFromJSON _ = Right defaultNamespaceFilter
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceInfo'Capabilities) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceInfo'Limits) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceConfig) .
+  Proto.Registry.registerType (Proxy :: Proxy BadBinaries) .
+  Proto.Registry.registerType (Proxy :: Proxy BadBinaryInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateNamespaceInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceFilter) .  id

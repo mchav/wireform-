@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -64,9 +67,17 @@ instance MessageDecode Empty where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage Empty where
+  messageTypeName _ = "google.protobuf.Empty"
+
 instance ProtoToJSON Empty where
   protoToJSON msg = jsonObject
       []
 
 instance ProtoFromJSON Empty where
   protoFromJSON _ = Right defaultEmpty
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy Empty) .  id

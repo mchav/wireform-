@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -69,6 +72,9 @@ instance MessageDecode WorkflowExecution where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage WorkflowExecution where
+  messageTypeName _ = "temporal.api.export.v1.WorkflowExecution"
 
 instance ProtoToJSON WorkflowExecution where
   protoToJSON msg = jsonObject
@@ -116,6 +122,9 @@ instance MessageDecode WorkflowExecutions where
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage WorkflowExecutions where
+  messageTypeName _ = "temporal.api.export.v1.WorkflowExecutions"
+
 instance ProtoToJSON WorkflowExecutions where
   protoToJSON msg = jsonObject
       [ "items" .= msg.workflowExecutionsItems
@@ -129,3 +138,9 @@ instance ProtoFromJSON WorkflowExecutions where
       { workflowExecutionsItems = maybe (workflowExecutionsItems defaultWorkflowExecutions) id fld_workflowExecutionsItems
       }
   protoFromJSON _ = Right defaultWorkflowExecutions
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecution) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutions) .  id

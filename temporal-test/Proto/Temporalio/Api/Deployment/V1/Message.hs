@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -87,6 +90,9 @@ instance MessageDecode WorkerDeploymentOptions where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage WorkerDeploymentOptions where
+  messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentOptions"
+
 instance ProtoToJSON WorkerDeploymentOptions where
   protoToJSON msg = jsonObject
       [ "deploymentName" .= msg.workerDeploymentOptionsDeploymentname
@@ -144,6 +150,9 @@ instance MessageDecode Deployment where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage Deployment where
+  messageTypeName _ = "temporal.api.deployment.v1.Deployment"
 
 instance ProtoToJSON Deployment where
   protoToJSON msg = jsonObject
@@ -217,6 +226,9 @@ instance MessageDecode DeploymentInfo'TaskQueueInfo where
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage DeploymentInfo'TaskQueueInfo where
+  messageTypeName _ = "temporal.api.deployment.v1.DeploymentInfo.TaskQueueInfo"
+
 instance ProtoToJSON DeploymentInfo'TaskQueueInfo where
   protoToJSON msg = jsonObject
       [ "name" .= msg.deploymentInfoTaskQueueInfoName
@@ -289,6 +301,9 @@ instance MessageDecode DeploymentInfo where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage DeploymentInfo where
+  messageTypeName _ = "temporal.api.deployment.v1.DeploymentInfo"
+
 instance ProtoToJSON DeploymentInfo where
   protoToJSON msg = jsonObject
       [ "deployment" .= msg.deploymentInfoDeployment
@@ -356,6 +371,9 @@ instance MessageDecode UpdateDeploymentMetadata where
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage UpdateDeploymentMetadata where
+  messageTypeName _ = "temporal.api.deployment.v1.UpdateDeploymentMetadata"
+
 instance ProtoToJSON UpdateDeploymentMetadata where
   protoToJSON msg = jsonObject
       [ "upsertEntries" .= msg.updateDeploymentMetadataUpsertentries
@@ -417,6 +435,9 @@ instance MessageDecode DeploymentListInfo where
               v <- decodeFieldBool
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage DeploymentListInfo where
+  messageTypeName _ = "temporal.api.deployment.v1.DeploymentListInfo"
 
 instance ProtoToJSON DeploymentListInfo where
   protoToJSON msg = jsonObject
@@ -495,6 +516,9 @@ instance MessageDecode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
               v <- decodeFieldEnum
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
+  messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentVersionInfo.VersionTaskQueueInfo"
 
 instance ProtoToJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   protoToJSON msg = jsonObject
@@ -622,6 +646,9 @@ instance MessageDecode WorkerDeploymentVersionInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14
 
+instance IsMessage WorkerDeploymentVersionInfo where
+  messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentVersionInfo"
+
 instance ProtoToJSON WorkerDeploymentVersionInfo where
   protoToJSON msg = jsonObject
       [ "version" .= msg.workerDeploymentVersionInfoVersion
@@ -722,6 +749,9 @@ instance MessageDecode VersionDrainageInfo where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage VersionDrainageInfo where
+  messageTypeName _ = "temporal.api.deployment.v1.VersionDrainageInfo"
 
 instance ProtoToJSON VersionDrainageInfo where
   protoToJSON msg = jsonObject
@@ -863,6 +893,9 @@ instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11
 
+instance IsMessage WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
+  messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentInfo.WorkerDeploymentVersionSummary"
+
 instance ProtoToJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   protoToJSON msg = jsonObject
       [ "version" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion
@@ -971,6 +1004,9 @@ instance MessageDecode WorkerDeploymentInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage WorkerDeploymentInfo where
+  messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentInfo"
+
 instance ProtoToJSON WorkerDeploymentInfo where
   protoToJSON msg = jsonObject
       [ "name" .= msg.workerDeploymentInfoName
@@ -1041,6 +1077,9 @@ instance MessageDecode WorkerDeploymentVersion where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage WorkerDeploymentVersion where
+  messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentVersion"
+
 instance ProtoToJSON WorkerDeploymentVersion where
   protoToJSON msg = jsonObject
       [ "buildId" .= msg.workerDeploymentVersionBuildid
@@ -1091,6 +1130,9 @@ instance MessageDecode VersionMetadata where
                 Left _ -> loop acc_0
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage VersionMetadata where
+  messageTypeName _ = "temporal.api.deployment.v1.VersionMetadata"
 
 instance ProtoToJSON VersionMetadata where
   protoToJSON msg = jsonObject
@@ -1194,6 +1236,9 @@ instance MessageDecode RoutingConfig where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
 
+instance IsMessage RoutingConfig where
+  messageTypeName _ = "temporal.api.deployment.v1.RoutingConfig"
+
 instance ProtoToJSON RoutingConfig where
   protoToJSON msg = jsonObject
       [ "currentDeploymentVersion" .= msg.routingConfigCurrentdeploymentversion
@@ -1270,6 +1315,9 @@ instance MessageDecode InheritedAutoUpgradeInfo where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage InheritedAutoUpgradeInfo where
+  messageTypeName _ = "temporal.api.deployment.v1.InheritedAutoUpgradeInfo"
+
 instance ProtoToJSON InheritedAutoUpgradeInfo where
   protoToJSON msg = jsonObject
       [ "sourceDeploymentVersion" .= msg.inheritedAutoUpgradeInfoSourcedeploymentversion
@@ -1285,3 +1333,22 @@ instance ProtoFromJSON InheritedAutoUpgradeInfo where
       , inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber = maybe (inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
       }
   protoFromJSON _ = Right defaultInheritedAutoUpgradeInfo
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkerDeploymentOptions) .
+  Proto.Registry.registerType (Proxy :: Proxy Deployment) .
+  Proto.Registry.registerType (Proxy :: Proxy DeploymentInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy DeploymentInfo'TaskQueueInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateDeploymentMetadata) .
+  Proto.Registry.registerType (Proxy :: Proxy DeploymentListInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerDeploymentVersionInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerDeploymentVersionInfo'VersionTaskQueueInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy VersionDrainageInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerDeploymentInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerDeploymentInfo'WorkerDeploymentVersionSummary) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkerDeploymentVersion) .
+  Proto.Registry.registerType (Proxy :: Proxy VersionMetadata) .
+  Proto.Registry.registerType (Proxy :: Proxy RoutingConfig) .
+  Proto.Registry.registerType (Proxy :: Proxy InheritedAutoUpgradeInfo) .  id

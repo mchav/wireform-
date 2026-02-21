@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -257,6 +260,9 @@ instance MessageDecode WorkflowExecutionInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25
 
+instance IsMessage WorkflowExecutionInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionInfo"
+
 instance ProtoToJSON WorkflowExecutionInfo where
   protoToJSON msg = jsonObject
       [ "execution" .= msg.workflowExecutionInfoExecution
@@ -429,6 +435,9 @@ instance MessageDecode WorkflowExecutionExtendedInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage WorkflowExecutionExtendedInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionExtendedInfo"
+
 instance ProtoToJSON WorkflowExecutionExtendedInfo where
   protoToJSON msg = jsonObject
       [ "executionExpirationTime" .= msg.workflowExecutionExtendedInfoExecutionexpirationtime
@@ -544,6 +553,9 @@ instance MessageDecode WorkflowExecutionVersioningInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage WorkflowExecutionVersioningInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionVersioningInfo"
+
 instance ProtoToJSON WorkflowExecutionVersioningInfo where
   protoToJSON msg = jsonObject
       [ "behavior" .= msg.workflowExecutionVersioningInfoBehavior
@@ -610,6 +622,9 @@ instance MessageDecode DeploymentTransition where
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage DeploymentTransition where
+  messageTypeName _ = "temporal.api.workflow.v1.DeploymentTransition"
+
 instance ProtoToJSON DeploymentTransition where
   protoToJSON msg = jsonObject
       [ "deployment" .= msg.deploymentTransitionDeployment
@@ -662,6 +677,9 @@ instance MessageDecode DeploymentVersionTransition where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage DeploymentVersionTransition where
+  messageTypeName _ = "temporal.api.workflow.v1.DeploymentVersionTransition"
 
 instance ProtoToJSON DeploymentVersionTransition where
   protoToJSON msg = jsonObject
@@ -738,6 +756,9 @@ instance MessageDecode WorkflowExecutionConfig where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
+
+instance IsMessage WorkflowExecutionConfig where
+  messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionConfig"
 
 instance ProtoToJSON WorkflowExecutionConfig where
   protoToJSON msg = jsonObject
@@ -848,6 +869,9 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Manual where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage PendingActivityInfo'PauseInfo'Manual where
+  messageTypeName _ = "temporal.api.workflow.v1.PendingActivityInfo.PauseInfo.Manual"
+
 instance ProtoToJSON PendingActivityInfo'PauseInfo'Manual where
   protoToJSON msg = jsonObject
       [ "identity" .= msg.pendingActivityInfoPauseInfoManualIdentity
@@ -909,6 +933,9 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Rule where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage PendingActivityInfo'PauseInfo'Rule where
+  messageTypeName _ = "temporal.api.workflow.v1.PendingActivityInfo.PauseInfo.Rule"
 
 instance ProtoToJSON PendingActivityInfo'PauseInfo'Rule where
   protoToJSON msg = jsonObject
@@ -976,6 +1003,9 @@ instance MessageDecode PendingActivityInfo'PauseInfo where
               v <- decodeFieldMessage
               loop acc_0 (Just (PendingActivityInfo'PauseInfo'PausedBy'Rule v))
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage PendingActivityInfo'PauseInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.PendingActivityInfo.PauseInfo"
 
 instance ProtoToJSON PendingActivityInfo'PauseInfo where
   protoToJSON msg = jsonObject
@@ -1164,6 +1194,9 @@ instance MessageDecode PendingActivityInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23
 
+instance IsMessage PendingActivityInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.PendingActivityInfo"
+
 instance ProtoToJSON PendingActivityInfo where
   protoToJSON msg = jsonObject
       [ "activityId" .= msg.pendingActivityInfoActivityid
@@ -1306,6 +1339,9 @@ instance MessageDecode PendingChildExecutionInfo where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage PendingChildExecutionInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.PendingChildExecutionInfo"
+
 instance ProtoToJSON PendingChildExecutionInfo where
   protoToJSON msg = jsonObject
       [ "workflowId" .= msg.pendingChildExecutionInfoWorkflowid
@@ -1391,6 +1427,9 @@ instance MessageDecode PendingWorkflowTaskInfo where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage PendingWorkflowTaskInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.PendingWorkflowTaskInfo"
+
 instance ProtoToJSON PendingWorkflowTaskInfo where
   protoToJSON msg = jsonObject
       [ "state" .= msg.pendingWorkflowTaskInfoState
@@ -1447,6 +1486,9 @@ instance MessageDecode ResetPoints where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ResetPoints where
+  messageTypeName _ = "temporal.api.workflow.v1.ResetPoints"
 
 instance ProtoToJSON ResetPoints where
   protoToJSON msg = jsonObject
@@ -1535,6 +1577,9 @@ instance MessageDecode ResetPointInfo where
               v <- decodeFieldBool
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
+
+instance IsMessage ResetPointInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.ResetPointInfo"
 
 instance ProtoToJSON ResetPointInfo where
   protoToJSON msg = jsonObject
@@ -1704,6 +1749,9 @@ instance MessageDecode NewWorkflowExecutionInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15
 
+instance IsMessage NewWorkflowExecutionInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.NewWorkflowExecutionInfo"
+
 instance ProtoToJSON NewWorkflowExecutionInfo where
   protoToJSON msg = jsonObject
       [ "workflowId" .= msg.newWorkflowExecutionInfoWorkflowid
@@ -1803,6 +1851,9 @@ instance MessageDecode CallbackInfo'WorkflowClosed where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage CallbackInfo'WorkflowClosed where
+  messageTypeName _ = "temporal.api.workflow.v1.CallbackInfo.WorkflowClosed"
+
 instance ProtoToJSON CallbackInfo'WorkflowClosed where
   protoToJSON msg = jsonObject
       []
@@ -1851,6 +1902,9 @@ instance MessageDecode CallbackInfo'Trigger where
               v <- decodeFieldMessage
               loop (Just (CallbackInfo'Trigger'Variant'WorkflowClosed v))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage CallbackInfo'Trigger where
+  messageTypeName _ = "temporal.api.workflow.v1.CallbackInfo.Trigger"
 
 instance ProtoToJSON CallbackInfo'Trigger where
   protoToJSON msg = jsonObject
@@ -1939,6 +1993,9 @@ instance MessageDecode CallbackInfo where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
+
+instance IsMessage CallbackInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.CallbackInfo"
 
 instance ProtoToJSON CallbackInfo where
   protoToJSON msg = jsonObject
@@ -2121,6 +2178,9 @@ instance MessageDecode PendingNexusOperationInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16
 
+instance IsMessage PendingNexusOperationInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.PendingNexusOperationInfo"
+
 instance ProtoToJSON PendingNexusOperationInfo where
   protoToJSON msg = jsonObject
       [ "endpoint" .= msg.pendingNexusOperationInfoEndpoint
@@ -2256,6 +2316,9 @@ instance MessageDecode NexusOperationCancellationInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage NexusOperationCancellationInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.NexusOperationCancellationInfo"
+
 instance ProtoToJSON NexusOperationCancellationInfo where
   protoToJSON msg = jsonObject
       [ "requestedTime" .= msg.nexusOperationCancellationInfoRequestedtime
@@ -2325,6 +2388,9 @@ instance MessageDecode WorkflowExecutionOptions where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage WorkflowExecutionOptions where
+  messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionOptions"
 
 instance ProtoToJSON WorkflowExecutionOptions where
   protoToJSON msg = jsonObject
@@ -2398,6 +2464,9 @@ instance MessageDecode VersioningOverride'PinnedOverride where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage VersioningOverride'PinnedOverride where
+  messageTypeName _ = "temporal.api.workflow.v1.VersioningOverride.PinnedOverride"
 
 instance ProtoToJSON VersioningOverride'PinnedOverride where
   protoToJSON msg = jsonObject
@@ -2499,6 +2568,9 @@ instance MessageDecode VersioningOverride where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage VersioningOverride where
+  messageTypeName _ = "temporal.api.workflow.v1.VersioningOverride"
+
 instance ProtoToJSON VersioningOverride where
   protoToJSON msg = jsonObject
       [ "override" .= msg.versioningOverrideOverride
@@ -2567,6 +2639,9 @@ instance MessageDecode OnConflictOptions where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage OnConflictOptions where
+  messageTypeName _ = "temporal.api.workflow.v1.OnConflictOptions"
+
 instance ProtoToJSON OnConflictOptions where
   protoToJSON msg = jsonObject
       [ "attachRequestId" .= msg.onConflictOptionsAttachrequestid
@@ -2631,6 +2706,9 @@ instance MessageDecode RequestIdInfo where
               v <- decodeFieldBool
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage RequestIdInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.RequestIdInfo"
 
 instance ProtoToJSON RequestIdInfo where
   protoToJSON msg = jsonObject
@@ -2710,6 +2788,9 @@ instance MessageDecode PostResetOperation'SignalWorkflow where
               loop acc_0 acc_1 acc_2 (acc_3 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage PostResetOperation'SignalWorkflow where
+  messageTypeName _ = "temporal.api.workflow.v1.PostResetOperation.SignalWorkflow"
+
 instance ProtoToJSON PostResetOperation'SignalWorkflow where
   protoToJSON msg = jsonObject
       [ "signalName" .= msg.postResetOperationSignalWorkflowSignalname
@@ -2771,6 +2852,9 @@ instance MessageDecode PostResetOperation'UpdateWorkflowOptions where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage PostResetOperation'UpdateWorkflowOptions where
+  messageTypeName _ = "temporal.api.workflow.v1.PostResetOperation.UpdateWorkflowOptions"
+
 instance ProtoToJSON PostResetOperation'UpdateWorkflowOptions where
   protoToJSON msg = jsonObject
       [ "workflowExecutionOptions" .= msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
@@ -2828,6 +2912,9 @@ instance MessageDecode PostResetOperation where
               v <- decodeFieldMessage
               loop (Just (PostResetOperation'Variant'UpdateWorkflowOptions v))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage PostResetOperation where
+  messageTypeName _ = "temporal.api.workflow.v1.PostResetOperation"
 
 instance ProtoToJSON PostResetOperation where
   protoToJSON msg = jsonObject
@@ -2889,6 +2976,9 @@ instance MessageDecode WorkflowExecutionPauseInfo where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage WorkflowExecutionPauseInfo where
+  messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionPauseInfo"
+
 instance ProtoToJSON WorkflowExecutionPauseInfo where
   protoToJSON msg = jsonObject
       [ "identity" .= msg.workflowExecutionPauseInfoIdentity
@@ -2907,3 +2997,36 @@ instance ProtoFromJSON WorkflowExecutionPauseInfo where
       , workflowExecutionPauseInfoReason = maybe (workflowExecutionPauseInfoReason defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoReason
       }
   protoFromJSON _ = Right defaultWorkflowExecutionPauseInfo
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionExtendedInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionVersioningInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy DeploymentTransition) .
+  Proto.Registry.registerType (Proxy :: Proxy DeploymentVersionTransition) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionConfig) .
+  Proto.Registry.registerType (Proxy :: Proxy PendingActivityInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy PendingActivityInfo'PauseInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy PendingActivityInfo'PauseInfo'Manual) .
+  Proto.Registry.registerType (Proxy :: Proxy PendingActivityInfo'PauseInfo'Rule) .
+  Proto.Registry.registerType (Proxy :: Proxy PendingChildExecutionInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy PendingWorkflowTaskInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetPoints) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetPointInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy NewWorkflowExecutionInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy CallbackInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy CallbackInfo'WorkflowClosed) .
+  Proto.Registry.registerType (Proxy :: Proxy CallbackInfo'Trigger) .
+  Proto.Registry.registerType (Proxy :: Proxy PendingNexusOperationInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationCancellationInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionOptions) .
+  Proto.Registry.registerType (Proxy :: Proxy VersioningOverride) .
+  Proto.Registry.registerType (Proxy :: Proxy VersioningOverride'PinnedOverride) .
+  Proto.Registry.registerType (Proxy :: Proxy OnConflictOptions) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestIdInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy PostResetOperation) .
+  Proto.Registry.registerType (Proxy :: Proxy PostResetOperation'SignalWorkflow) .
+  Proto.Registry.registerType (Proxy :: Proxy PostResetOperation'UpdateWorkflowOptions) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionPauseInfo) .  id

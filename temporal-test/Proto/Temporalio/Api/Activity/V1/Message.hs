@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -93,6 +96,9 @@ instance MessageDecode ActivityExecutionOutcome where
               v <- decodeFieldMessage
               loop (Just (ActivityExecutionOutcome'Value'Failure v))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ActivityExecutionOutcome where
+  messageTypeName _ = "temporal.api.activity.v1.ActivityExecutionOutcome"
 
 instance ProtoToJSON ActivityExecutionOutcome where
   protoToJSON msg = jsonObject
@@ -181,6 +187,9 @@ instance MessageDecode ActivityOptions where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
+
+instance IsMessage ActivityOptions where
+  messageTypeName _ = "temporal.api.activity.v1.ActivityOptions"
 
 instance ProtoToJSON ActivityOptions where
   protoToJSON msg = jsonObject
@@ -462,6 +471,9 @@ instance MessageDecode ActivityExecutionInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 acc_27 acc_28 acc_29 acc_30 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 acc_27 acc_28 acc_29 acc_30 acc_31
 
+instance IsMessage ActivityExecutionInfo where
+  messageTypeName _ = "temporal.api.activity.v1.ActivityExecutionInfo"
+
 instance ProtoToJSON ActivityExecutionInfo where
   protoToJSON msg = jsonObject
       [ "activityId" .= msg.activityExecutionInfoActivityid
@@ -670,6 +682,9 @@ instance MessageDecode ActivityExecutionListInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
 
+instance IsMessage ActivityExecutionListInfo where
+  messageTypeName _ = "temporal.api.activity.v1.ActivityExecutionListInfo"
+
 instance ProtoToJSON ActivityExecutionListInfo where
   protoToJSON msg = jsonObject
       [ "activityId" .= msg.activityExecutionListInfoActivityid
@@ -712,3 +727,11 @@ instance ProtoFromJSON ActivityExecutionListInfo where
       , activityExecutionListInfoExecutionduration = maybe (activityExecutionListInfoExecutionduration defaultActivityExecutionListInfo) id fld_activityExecutionListInfoExecutionduration
       }
   protoFromJSON _ = Right defaultActivityExecutionListInfo
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy ActivityExecutionOutcome) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityOptions) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityExecutionInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityExecutionListInfo) .  id

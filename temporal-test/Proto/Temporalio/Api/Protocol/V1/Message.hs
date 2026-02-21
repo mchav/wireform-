@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -107,6 +110,9 @@ instance MessageDecode Message where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage Message where
+  messageTypeName _ = "temporal.api.protocol.v1.Message"
+
 instance ProtoToJSON Message where
   protoToJSON msg = jsonObject
       [ "id" .= msg.messageId
@@ -128,3 +134,8 @@ instance ProtoFromJSON Message where
       , messageBody = maybe (messageBody defaultMessage) id fld_messageBody
       }
   protoFromJSON _ = Right defaultMessage
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy Message) .  id

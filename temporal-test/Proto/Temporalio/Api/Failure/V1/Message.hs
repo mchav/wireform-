@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -102,6 +105,9 @@ instance MessageDecode ApplicationFailureInfo where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage ApplicationFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.ApplicationFailureInfo"
+
 instance ProtoToJSON ApplicationFailureInfo where
   protoToJSON msg = jsonObject
       [ "type" .= msg.applicationFailureInfoType
@@ -166,6 +172,9 @@ instance MessageDecode TimeoutFailureInfo where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage TimeoutFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.TimeoutFailureInfo"
+
 instance ProtoToJSON TimeoutFailureInfo where
   protoToJSON msg = jsonObject
       [ "timeoutType" .= msg.timeoutFailureInfoTimeouttype
@@ -214,6 +223,9 @@ instance MessageDecode CanceledFailureInfo where
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage CanceledFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.CanceledFailureInfo"
+
 instance ProtoToJSON CanceledFailureInfo where
   protoToJSON msg = jsonObject
       [ "details" .= msg.canceledFailureInfoDetails
@@ -255,6 +267,9 @@ instance MessageDecode TerminatedFailureInfo where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage TerminatedFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.TerminatedFailureInfo"
+
 instance ProtoToJSON TerminatedFailureInfo where
   protoToJSON msg = jsonObject
       []
@@ -293,6 +308,9 @@ instance MessageDecode ServerFailureInfo where
               v <- decodeFieldBool
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ServerFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.ServerFailureInfo"
 
 instance ProtoToJSON ServerFailureInfo where
   protoToJSON msg = jsonObject
@@ -339,6 +357,9 @@ instance MessageDecode ResetWorkflowFailureInfo where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ResetWorkflowFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.ResetWorkflowFailureInfo"
 
 instance ProtoToJSON ResetWorkflowFailureInfo where
   protoToJSON msg = jsonObject
@@ -420,6 +441,9 @@ instance MessageDecode ActivityFailureInfo where
               v <- decodeFieldEnum
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
+
+instance IsMessage ActivityFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.ActivityFailureInfo"
 
 instance ProtoToJSON ActivityFailureInfo where
   protoToJSON msg = jsonObject
@@ -516,6 +540,9 @@ instance MessageDecode ChildWorkflowExecutionFailureInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage ChildWorkflowExecutionFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.ChildWorkflowExecutionFailureInfo"
+
 instance ProtoToJSON ChildWorkflowExecutionFailureInfo where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.childWorkflowExecutionFailureInfoNamespace
@@ -611,6 +638,9 @@ instance MessageDecode NexusOperationFailureInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage NexusOperationFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.NexusOperationFailureInfo"
+
 instance ProtoToJSON NexusOperationFailureInfo where
   protoToJSON msg = jsonObject
       [ "scheduledEventId" .= msg.nexusOperationFailureInfoScheduledeventid
@@ -677,6 +707,9 @@ instance MessageDecode NexusHandlerFailureInfo where
               v <- decodeFieldEnum
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage NexusHandlerFailureInfo where
+  messageTypeName _ = "temporal.api.failure.v1.NexusHandlerFailureInfo"
 
 instance ProtoToJSON NexusHandlerFailureInfo where
   protoToJSON msg = jsonObject
@@ -825,6 +858,9 @@ instance MessageDecode Failure where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just (Failure'FailureInfo'NexusHandlerFailureInfo v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage Failure where
+  messageTypeName _ = "temporal.api.failure.v1.Failure"
+
 instance ProtoToJSON Failure where
   protoToJSON msg = jsonObject
       [ "message" .= msg.failureMessage
@@ -880,9 +916,28 @@ instance MessageDecode MultiOperationExecutionAborted where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage MultiOperationExecutionAborted where
+  messageTypeName _ = "temporal.api.failure.v1.MultiOperationExecutionAborted"
+
 instance ProtoToJSON MultiOperationExecutionAborted where
   protoToJSON msg = jsonObject
       []
 
 instance ProtoFromJSON MultiOperationExecutionAborted where
   protoFromJSON _ = Right defaultMultiOperationExecutionAborted
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy ApplicationFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy TimeoutFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy CanceledFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy TerminatedFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy ServerFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetWorkflowFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy ChildWorkflowExecutionFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusHandlerFailureInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy Failure) .
+  Proto.Registry.registerType (Proxy :: Proxy MultiOperationExecutionAborted) .  id

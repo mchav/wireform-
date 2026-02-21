@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -71,6 +74,9 @@ instance MessageDecode WaitPolicy where
               v <- decodeFieldEnum
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage WaitPolicy where
+  messageTypeName _ = "temporal.api.update.v1.WaitPolicy"
 
 instance ProtoToJSON WaitPolicy where
   protoToJSON msg = jsonObject
@@ -124,6 +130,9 @@ instance MessageDecode UpdateRef where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage UpdateRef where
+  messageTypeName _ = "temporal.api.update.v1.UpdateRef"
 
 instance ProtoToJSON UpdateRef where
   protoToJSON msg = jsonObject
@@ -189,6 +198,9 @@ instance MessageDecode Outcome where
               loop (Just (Outcome'Value'Failure v))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage Outcome where
+  messageTypeName _ = "temporal.api.update.v1.Outcome"
+
 instance ProtoToJSON Outcome where
   protoToJSON msg = jsonObject
       [ "value" .= msg.outcomeValue
@@ -241,6 +253,9 @@ instance MessageDecode Meta where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage Meta where
+  messageTypeName _ = "temporal.api.update.v1.Meta"
 
 instance ProtoToJSON Meta where
   protoToJSON msg = jsonObject
@@ -304,6 +319,9 @@ instance MessageDecode Input where
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage Input where
+  messageTypeName _ = "temporal.api.update.v1.Input"
+
 instance ProtoToJSON Input where
   protoToJSON msg = jsonObject
       [ "header" .= msg.inputHeader
@@ -361,6 +379,9 @@ instance MessageDecode Request where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage Request where
+  messageTypeName _ = "temporal.api.update.v1.Request"
 
 instance ProtoToJSON Request where
   protoToJSON msg = jsonObject
@@ -431,6 +452,9 @@ instance MessageDecode Rejection where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage Rejection where
+  messageTypeName _ = "temporal.api.update.v1.Rejection"
+
 instance ProtoToJSON Rejection where
   protoToJSON msg = jsonObject
       [ "rejectedRequestMessageId" .= msg.rejectionRejectedrequestmessageid
@@ -499,6 +523,9 @@ instance MessageDecode Acceptance where
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage Acceptance where
+  messageTypeName _ = "temporal.api.update.v1.Acceptance"
+
 instance ProtoToJSON Acceptance where
   protoToJSON msg = jsonObject
       [ "acceptedRequestMessageId" .= msg.acceptanceAcceptedrequestmessageid
@@ -557,6 +584,9 @@ instance MessageDecode Response where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage Response where
+  messageTypeName _ = "temporal.api.update.v1.Response"
+
 instance ProtoToJSON Response where
   protoToJSON msg = jsonObject
       [ "meta" .= msg.responseMeta
@@ -572,3 +602,16 @@ instance ProtoFromJSON Response where
       , responseOutcome = maybe (responseOutcome defaultResponse) id fld_responseOutcome
       }
   protoFromJSON _ = Right defaultResponse
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WaitPolicy) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateRef) .
+  Proto.Registry.registerType (Proxy :: Proxy Outcome) .
+  Proto.Registry.registerType (Proxy :: Proxy Meta) .
+  Proto.Registry.registerType (Proxy :: Proxy Input) .
+  Proto.Registry.registerType (Proxy :: Proxy Request) .
+  Proto.Registry.registerType (Proxy :: Proxy Rejection) .
+  Proto.Registry.registerType (Proxy :: Proxy Acceptance) .
+  Proto.Registry.registerType (Proxy :: Proxy Response) .  id

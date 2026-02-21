@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -342,6 +345,9 @@ instance MessageDecode WorkflowExecutionStartedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 acc_27 acc_28 acc_29 acc_30 acc_31 acc_32 acc_33 acc_34 acc_35 acc_36 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 acc_27 acc_28 acc_29 acc_30 acc_31 acc_32 acc_33 acc_34 acc_35 acc_36 acc_37
 
+instance IsMessage WorkflowExecutionStartedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionStartedEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionStartedEventAttributes where
   protoToJSON msg = jsonObject
       [ "workflowType" .= msg.workflowExecutionStartedEventAttributesWorkflowtype
@@ -512,6 +518,9 @@ instance MessageDecode WorkflowExecutionCompletedEventAttributes where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage WorkflowExecutionCompletedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionCompletedEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionCompletedEventAttributes where
   protoToJSON msg = jsonObject
       [ "result" .= msg.workflowExecutionCompletedEventAttributesResult
@@ -584,6 +593,9 @@ instance MessageDecode WorkflowExecutionFailedEventAttributes where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage WorkflowExecutionFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionFailedEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionFailedEventAttributes where
   protoToJSON msg = jsonObject
       [ "failure" .= msg.workflowExecutionFailedEventAttributesFailure
@@ -644,6 +656,9 @@ instance MessageDecode WorkflowExecutionTimedOutEventAttributes where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage WorkflowExecutionTimedOutEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionTimedOutEventAttributes"
 
 instance ProtoToJSON WorkflowExecutionTimedOutEventAttributes where
   protoToJSON msg = jsonObject
@@ -798,6 +813,9 @@ instance MessageDecode WorkflowExecutionContinuedAsNewEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15
 
+instance IsMessage WorkflowExecutionContinuedAsNewEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionContinuedAsNewEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionContinuedAsNewEventAttributes where
   protoToJSON msg = jsonObject
       [ "newExecutionRunId" .= msg.workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid
@@ -901,6 +919,9 @@ instance MessageDecode WorkflowTaskScheduledEventAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkflowTaskScheduledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowTaskScheduledEventAttributes"
 
 instance ProtoToJSON WorkflowTaskScheduledEventAttributes where
   protoToJSON msg = jsonObject
@@ -1008,6 +1029,9 @@ instance MessageDecode WorkflowTaskStartedEventAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
+
+instance IsMessage WorkflowTaskStartedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowTaskStartedEventAttributes"
 
 instance ProtoToJSON WorkflowTaskStartedEventAttributes where
   protoToJSON msg = jsonObject
@@ -1155,6 +1179,9 @@ instance MessageDecode WorkflowTaskCompletedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11
 
+instance IsMessage WorkflowTaskCompletedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowTaskCompletedEventAttributes"
+
 instance ProtoToJSON WorkflowTaskCompletedEventAttributes where
   protoToJSON msg = jsonObject
       [ "scheduledEventId" .= msg.workflowTaskCompletedEventAttributesScheduledeventid
@@ -1246,6 +1273,9 @@ instance MessageDecode WorkflowTaskTimedOutEventAttributes where
               v <- decodeFieldEnum
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkflowTaskTimedOutEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowTaskTimedOutEventAttributes"
 
 instance ProtoToJSON WorkflowTaskTimedOutEventAttributes where
   protoToJSON msg = jsonObject
@@ -1360,6 +1390,9 @@ instance MessageDecode WorkflowTaskFailedEventAttributes where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9
+
+instance IsMessage WorkflowTaskFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowTaskFailedEventAttributes"
 
 instance ProtoToJSON WorkflowTaskFailedEventAttributes where
   protoToJSON msg = jsonObject
@@ -1517,6 +1550,9 @@ instance MessageDecode ActivityTaskScheduledEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12
 
+instance IsMessage ActivityTaskScheduledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ActivityTaskScheduledEventAttributes"
+
 instance ProtoToJSON ActivityTaskScheduledEventAttributes where
   protoToJSON msg = jsonObject
       [ "activityId" .= msg.activityTaskScheduledEventAttributesActivityid
@@ -1640,6 +1676,9 @@ instance MessageDecode ActivityTaskStartedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage ActivityTaskStartedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ActivityTaskStartedEventAttributes"
+
 instance ProtoToJSON ActivityTaskStartedEventAttributes where
   protoToJSON msg = jsonObject
       [ "scheduledEventId" .= msg.activityTaskStartedEventAttributesScheduledeventid
@@ -1730,6 +1769,9 @@ instance MessageDecode ActivityTaskCompletedEventAttributes where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
+
+instance IsMessage ActivityTaskCompletedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ActivityTaskCompletedEventAttributes"
 
 instance ProtoToJSON ActivityTaskCompletedEventAttributes where
   protoToJSON msg = jsonObject
@@ -1823,6 +1865,9 @@ instance MessageDecode ActivityTaskFailedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage ActivityTaskFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ActivityTaskFailedEventAttributes"
+
 instance ProtoToJSON ActivityTaskFailedEventAttributes where
   protoToJSON msg = jsonObject
       [ "failure" .= msg.activityTaskFailedEventAttributesFailure
@@ -1904,6 +1949,9 @@ instance MessageDecode ActivityTaskTimedOutEventAttributes where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ActivityTaskTimedOutEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ActivityTaskTimedOutEventAttributes"
+
 instance ProtoToJSON ActivityTaskTimedOutEventAttributes where
   protoToJSON msg = jsonObject
       [ "failure" .= msg.activityTaskTimedOutEventAttributesFailure
@@ -1964,6 +2012,9 @@ instance MessageDecode ActivityTaskCancelRequestedEventAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ActivityTaskCancelRequestedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ActivityTaskCancelRequestedEventAttributes"
 
 instance ProtoToJSON ActivityTaskCancelRequestedEventAttributes where
   protoToJSON msg = jsonObject
@@ -2048,6 +2099,9 @@ instance MessageDecode ActivityTaskCanceledEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage ActivityTaskCanceledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ActivityTaskCanceledEventAttributes"
+
 instance ProtoToJSON ActivityTaskCanceledEventAttributes where
   protoToJSON msg = jsonObject
       [ "details" .= msg.activityTaskCanceledEventAttributesDetails
@@ -2122,6 +2176,9 @@ instance MessageDecode TimerStartedEventAttributes where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage TimerStartedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.TimerStartedEventAttributes"
+
 instance ProtoToJSON TimerStartedEventAttributes where
   protoToJSON msg = jsonObject
       [ "timerId" .= msg.timerStartedEventAttributesTimerid
@@ -2179,6 +2236,9 @@ instance MessageDecode TimerFiredEventAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage TimerFiredEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.TimerFiredEventAttributes"
 
 instance ProtoToJSON TimerFiredEventAttributes where
   protoToJSON msg = jsonObject
@@ -2248,6 +2308,9 @@ instance MessageDecode TimerCanceledEventAttributes where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage TimerCanceledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.TimerCanceledEventAttributes"
 
 instance ProtoToJSON TimerCanceledEventAttributes where
   protoToJSON msg = jsonObject
@@ -2324,6 +2387,9 @@ instance MessageDecode WorkflowExecutionCancelRequestedEventAttributes where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage WorkflowExecutionCancelRequestedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionCancelRequestedEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionCancelRequestedEventAttributes where
   protoToJSON msg = jsonObject
       [ "cause" .= msg.workflowExecutionCancelRequestedEventAttributesCause
@@ -2384,6 +2450,9 @@ instance MessageDecode WorkflowExecutionCanceledEventAttributes where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage WorkflowExecutionCanceledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionCanceledEventAttributes"
 
 instance ProtoToJSON WorkflowExecutionCanceledEventAttributes where
   protoToJSON msg = jsonObject
@@ -2463,6 +2532,9 @@ instance MessageDecode MarkerRecordedEventAttributes where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
+
+instance IsMessage MarkerRecordedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.MarkerRecordedEventAttributes"
 
 instance ProtoToJSON MarkerRecordedEventAttributes where
   protoToJSON msg = jsonObject
@@ -2556,6 +2628,9 @@ instance MessageDecode WorkflowExecutionSignaledEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage WorkflowExecutionSignaledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionSignaledEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionSignaledEventAttributes where
   protoToJSON msg = jsonObject
       [ "signalName" .= msg.workflowExecutionSignaledEventAttributesSignalname
@@ -2629,6 +2704,9 @@ instance MessageDecode WorkflowExecutionTerminatedEventAttributes where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkflowExecutionTerminatedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionTerminatedEventAttributes"
 
 instance ProtoToJSON WorkflowExecutionTerminatedEventAttributes where
   protoToJSON msg = jsonObject
@@ -2722,6 +2800,9 @@ instance MessageDecode RequestCancelExternalWorkflowExecutionInitiatedEventAttri
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
+
+instance IsMessage RequestCancelExternalWorkflowExecutionInitiatedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.RequestCancelExternalWorkflowExecutionInitiatedEventAttributes"
 
 instance ProtoToJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttributes where
   protoToJSON msg = jsonObject
@@ -2828,6 +2909,9 @@ instance MessageDecode RequestCancelExternalWorkflowExecutionFailedEventAttribut
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage RequestCancelExternalWorkflowExecutionFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.RequestCancelExternalWorkflowExecutionFailedEventAttributes"
+
 instance ProtoToJSON RequestCancelExternalWorkflowExecutionFailedEventAttributes where
   protoToJSON msg = jsonObject
       [ "cause" .= msg.requestCancelExternalWorkflowExecutionFailedEventAttributesCause
@@ -2911,6 +2995,9 @@ instance MessageDecode ExternalWorkflowExecutionCancelRequestedEventAttributes w
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage ExternalWorkflowExecutionCancelRequestedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ExternalWorkflowExecutionCancelRequestedEventAttributes"
 
 instance ProtoToJSON ExternalWorkflowExecutionCancelRequestedEventAttributes where
   protoToJSON msg = jsonObject
@@ -3021,6 +3108,9 @@ instance MessageDecode SignalExternalWorkflowExecutionInitiatedEventAttributes w
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
+
+instance IsMessage SignalExternalWorkflowExecutionInitiatedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.SignalExternalWorkflowExecutionInitiatedEventAttributes"
 
 instance ProtoToJSON SignalExternalWorkflowExecutionInitiatedEventAttributes where
   protoToJSON msg = jsonObject
@@ -3133,6 +3223,9 @@ instance MessageDecode SignalExternalWorkflowExecutionFailedEventAttributes wher
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage SignalExternalWorkflowExecutionFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.SignalExternalWorkflowExecutionFailedEventAttributes"
+
 instance ProtoToJSON SignalExternalWorkflowExecutionFailedEventAttributes where
   protoToJSON msg = jsonObject
       [ "cause" .= msg.signalExternalWorkflowExecutionFailedEventAttributesCause
@@ -3224,6 +3317,9 @@ instance MessageDecode ExternalWorkflowExecutionSignaledEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage ExternalWorkflowExecutionSignaledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ExternalWorkflowExecutionSignaledEventAttributes"
+
 instance ProtoToJSON ExternalWorkflowExecutionSignaledEventAttributes where
   protoToJSON msg = jsonObject
       [ "initiatedEventId" .= msg.externalWorkflowExecutionSignaledEventAttributesInitiatedeventid
@@ -3288,6 +3384,9 @@ instance MessageDecode UpsertWorkflowSearchAttributesEventAttributes where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage UpsertWorkflowSearchAttributesEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.UpsertWorkflowSearchAttributesEventAttributes"
+
 instance ProtoToJSON UpsertWorkflowSearchAttributesEventAttributes where
   protoToJSON msg = jsonObject
       [ "workflowTaskCompletedEventId" .= msg.upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid
@@ -3342,6 +3441,9 @@ instance MessageDecode WorkflowPropertiesModifiedEventAttributes where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage WorkflowPropertiesModifiedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowPropertiesModifiedEventAttributes"
 
 instance ProtoToJSON WorkflowPropertiesModifiedEventAttributes where
   protoToJSON msg = jsonObject
@@ -3524,6 +3626,9 @@ instance MessageDecode StartChildWorkflowExecutionInitiatedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19
 
+instance IsMessage StartChildWorkflowExecutionInitiatedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.StartChildWorkflowExecutionInitiatedEventAttributes"
+
 instance ProtoToJSON StartChildWorkflowExecutionInitiatedEventAttributes where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.startChildWorkflowExecutionInitiatedEventAttributesNamespace
@@ -3675,6 +3780,9 @@ instance MessageDecode StartChildWorkflowExecutionFailedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage StartChildWorkflowExecutionFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.StartChildWorkflowExecutionFailedEventAttributes"
+
 instance ProtoToJSON StartChildWorkflowExecutionFailedEventAttributes where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.startChildWorkflowExecutionFailedEventAttributesNamespace
@@ -3775,6 +3883,9 @@ instance MessageDecode ChildWorkflowExecutionStartedEventAttributes where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
+
+instance IsMessage ChildWorkflowExecutionStartedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionStartedEventAttributes"
 
 instance ProtoToJSON ChildWorkflowExecutionStartedEventAttributes where
   protoToJSON msg = jsonObject
@@ -3877,6 +3988,9 @@ instance MessageDecode ChildWorkflowExecutionCompletedEventAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
+
+instance IsMessage ChildWorkflowExecutionCompletedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionCompletedEventAttributes"
 
 instance ProtoToJSON ChildWorkflowExecutionCompletedEventAttributes where
   protoToJSON msg = jsonObject
@@ -3990,6 +4104,9 @@ instance MessageDecode ChildWorkflowExecutionFailedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage ChildWorkflowExecutionFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionFailedEventAttributes"
+
 instance ProtoToJSON ChildWorkflowExecutionFailedEventAttributes where
   protoToJSON msg = jsonObject
       [ "failure" .= msg.childWorkflowExecutionFailedEventAttributesFailure
@@ -4098,6 +4215,9 @@ instance MessageDecode ChildWorkflowExecutionCanceledEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage ChildWorkflowExecutionCanceledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionCanceledEventAttributes"
+
 instance ProtoToJSON ChildWorkflowExecutionCanceledEventAttributes where
   protoToJSON msg = jsonObject
       [ "details" .= msg.childWorkflowExecutionCanceledEventAttributesDetails
@@ -4203,6 +4323,9 @@ instance MessageDecode ChildWorkflowExecutionTimedOutEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage ChildWorkflowExecutionTimedOutEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionTimedOutEventAttributes"
+
 instance ProtoToJSON ChildWorkflowExecutionTimedOutEventAttributes where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.childWorkflowExecutionTimedOutEventAttributesNamespace
@@ -4301,6 +4424,9 @@ instance MessageDecode ChildWorkflowExecutionTerminatedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage ChildWorkflowExecutionTerminatedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionTerminatedEventAttributes"
+
 instance ProtoToJSON ChildWorkflowExecutionTerminatedEventAttributes where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.childWorkflowExecutionTerminatedEventAttributesNamespace
@@ -4396,6 +4522,9 @@ instance MessageDecode WorkflowExecutionOptionsUpdatedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage WorkflowExecutionOptionsUpdatedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionOptionsUpdatedEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionOptionsUpdatedEventAttributes where
   protoToJSON msg = jsonObject
       [ "versioningOverride" .= msg.workflowExecutionOptionsUpdatedEventAttributesVersioningoverride
@@ -4484,6 +4613,9 @@ instance MessageDecode WorkflowPropertiesModifiedExternallyEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage WorkflowPropertiesModifiedExternallyEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowPropertiesModifiedExternallyEventAttributes"
+
 instance ProtoToJSON WorkflowPropertiesModifiedExternallyEventAttributes where
   protoToJSON msg = jsonObject
       [ "newTaskQueue" .= msg.workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue
@@ -4547,6 +4679,9 @@ instance MessageDecode ActivityPropertiesModifiedExternallyEventAttributes where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ActivityPropertiesModifiedExternallyEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.ActivityPropertiesModifiedExternallyEventAttributes"
 
 instance ProtoToJSON ActivityPropertiesModifiedExternallyEventAttributes where
   protoToJSON msg = jsonObject
@@ -4617,6 +4752,9 @@ instance MessageDecode WorkflowExecutionUpdateAcceptedEventAttributes where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage WorkflowExecutionUpdateAcceptedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUpdateAcceptedEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionUpdateAcceptedEventAttributes where
   protoToJSON msg = jsonObject
       [ "protocolInstanceId" .= msg.workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid
@@ -4684,6 +4822,9 @@ instance MessageDecode WorkflowExecutionUpdateCompletedEventAttributes where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkflowExecutionUpdateCompletedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUpdateCompletedEventAttributes"
 
 instance ProtoToJSON WorkflowExecutionUpdateCompletedEventAttributes where
   protoToJSON msg = jsonObject
@@ -4764,6 +4905,9 @@ instance MessageDecode WorkflowExecutionUpdateRejectedEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage WorkflowExecutionUpdateRejectedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUpdateRejectedEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionUpdateRejectedEventAttributes where
   protoToJSON msg = jsonObject
       [ "protocolInstanceId" .= msg.workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid
@@ -4828,6 +4972,9 @@ instance MessageDecode WorkflowExecutionUpdateAdmittedEventAttributes where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage WorkflowExecutionUpdateAdmittedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUpdateAdmittedEventAttributes"
+
 instance ProtoToJSON WorkflowExecutionUpdateAdmittedEventAttributes where
   protoToJSON msg = jsonObject
       [ "request" .= msg.workflowExecutionUpdateAdmittedEventAttributesRequest
@@ -4889,6 +5036,9 @@ instance MessageDecode WorkflowExecutionPausedEventAttributes where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkflowExecutionPausedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionPausedEventAttributes"
 
 instance ProtoToJSON WorkflowExecutionPausedEventAttributes where
   protoToJSON msg = jsonObject
@@ -4954,6 +5104,9 @@ instance MessageDecode WorkflowExecutionUnpausedEventAttributes where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage WorkflowExecutionUnpausedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUnpausedEventAttributes"
 
 instance ProtoToJSON WorkflowExecutionUnpausedEventAttributes where
   protoToJSON msg = jsonObject
@@ -5079,6 +5232,9 @@ instance MessageDecode NexusOperationScheduledEventAttributes where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
 
+instance IsMessage NexusOperationScheduledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationScheduledEventAttributes"
+
 instance ProtoToJSON NexusOperationScheduledEventAttributes where
   protoToJSON msg = jsonObject
       [ "endpoint" .= msg.nexusOperationScheduledEventAttributesEndpoint
@@ -5175,6 +5331,9 @@ instance MessageDecode NexusOperationStartedEventAttributes where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage NexusOperationStartedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationStartedEventAttributes"
+
 instance ProtoToJSON NexusOperationStartedEventAttributes where
   protoToJSON msg = jsonObject
       [ "scheduledEventId" .= msg.nexusOperationStartedEventAttributesScheduledeventid
@@ -5243,6 +5402,9 @@ instance MessageDecode NexusOperationCompletedEventAttributes where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage NexusOperationCompletedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationCompletedEventAttributes"
+
 instance ProtoToJSON NexusOperationCompletedEventAttributes where
   protoToJSON msg = jsonObject
       [ "scheduledEventId" .= msg.nexusOperationCompletedEventAttributesScheduledeventid
@@ -5307,6 +5469,9 @@ instance MessageDecode NexusOperationFailedEventAttributes where
               v <- decodeFieldString
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage NexusOperationFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationFailedEventAttributes"
 
 instance ProtoToJSON NexusOperationFailedEventAttributes where
   protoToJSON msg = jsonObject
@@ -5373,6 +5538,9 @@ instance MessageDecode NexusOperationTimedOutEventAttributes where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage NexusOperationTimedOutEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationTimedOutEventAttributes"
+
 instance ProtoToJSON NexusOperationTimedOutEventAttributes where
   protoToJSON msg = jsonObject
       [ "scheduledEventId" .= msg.nexusOperationTimedOutEventAttributesScheduledeventid
@@ -5438,6 +5606,9 @@ instance MessageDecode NexusOperationCanceledEventAttributes where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage NexusOperationCanceledEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationCanceledEventAttributes"
+
 instance ProtoToJSON NexusOperationCanceledEventAttributes where
   protoToJSON msg = jsonObject
       [ "scheduledEventId" .= msg.nexusOperationCanceledEventAttributesScheduledeventid
@@ -5495,6 +5666,9 @@ instance MessageDecode NexusOperationCancelRequestedEventAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage NexusOperationCancelRequestedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationCancelRequestedEventAttributes"
 
 instance ProtoToJSON NexusOperationCancelRequestedEventAttributes where
   protoToJSON msg = jsonObject
@@ -5557,6 +5731,9 @@ instance MessageDecode NexusOperationCancelRequestCompletedEventAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage NexusOperationCancelRequestCompletedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationCancelRequestCompletedEventAttributes"
 
 instance ProtoToJSON NexusOperationCancelRequestCompletedEventAttributes where
   protoToJSON msg = jsonObject
@@ -5629,6 +5806,9 @@ instance MessageDecode NexusOperationCancelRequestFailedEventAttributes where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage NexusOperationCancelRequestFailedEventAttributes where
+  messageTypeName _ = "temporal.api.history.v1.NexusOperationCancelRequestFailedEventAttributes"
 
 instance ProtoToJSON NexusOperationCancelRequestFailedEventAttributes where
   protoToJSON msg = jsonObject
@@ -6098,6 +6278,9 @@ instance MessageDecode HistoryEvent where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 (Just (HistoryEvent'Attributes'WorkflowExecutionUnpausedEventAttributes v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
 
+instance IsMessage HistoryEvent where
+  messageTypeName _ = "temporal.api.history.v1.HistoryEvent"
+
 instance ProtoToJSON HistoryEvent where
   protoToJSON msg = jsonObject
       [ "eventId" .= msg.historyEventEventid
@@ -6167,6 +6350,9 @@ instance MessageDecode History where
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage History where
+  messageTypeName _ = "temporal.api.history.v1.History"
+
 instance ProtoToJSON History where
   protoToJSON msg = jsonObject
       [ "events" .= msg.historyEvents
@@ -6180,3 +6366,68 @@ instance ProtoFromJSON History where
       { historyEvents = maybe (historyEvents defaultHistory) id fld_historyEvents
       }
   protoFromJSON _ = Right defaultHistory
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionStartedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionCompletedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionTimedOutEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionContinuedAsNewEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowTaskScheduledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowTaskStartedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowTaskCompletedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowTaskTimedOutEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowTaskFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityTaskScheduledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityTaskStartedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityTaskCompletedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityTaskFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityTaskTimedOutEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityTaskCancelRequestedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityTaskCanceledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy TimerStartedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy TimerFiredEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy TimerCanceledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionCancelRequestedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionCanceledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy MarkerRecordedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionSignaledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionTerminatedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelExternalWorkflowExecutionInitiatedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelExternalWorkflowExecutionFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ExternalWorkflowExecutionCancelRequestedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy SignalExternalWorkflowExecutionInitiatedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy SignalExternalWorkflowExecutionFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ExternalWorkflowExecutionSignaledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy UpsertWorkflowSearchAttributesEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowPropertiesModifiedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy StartChildWorkflowExecutionInitiatedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy StartChildWorkflowExecutionFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ChildWorkflowExecutionStartedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ChildWorkflowExecutionCompletedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ChildWorkflowExecutionFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ChildWorkflowExecutionCanceledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ChildWorkflowExecutionTimedOutEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ChildWorkflowExecutionTerminatedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionOptionsUpdatedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowPropertiesModifiedExternallyEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy ActivityPropertiesModifiedExternallyEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionUpdateAcceptedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionUpdateCompletedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionUpdateRejectedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionUpdateAdmittedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionPausedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowExecutionUnpausedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationScheduledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationStartedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationCompletedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationTimedOutEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationCanceledEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationCancelRequestedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationCancelRequestCompletedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy NexusOperationCancelRequestFailedEventAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy HistoryEvent) .
+  Proto.Registry.registerType (Proxy :: Proxy History) .  id

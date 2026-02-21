@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -89,6 +92,9 @@ instance MessageDecode TaskQueue where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage TaskQueue where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueue"
+
 instance ProtoToJSON TaskQueue where
   protoToJSON msg = jsonObject
       [ "name" .= msg.taskQueueName
@@ -139,6 +145,9 @@ instance MessageDecode TaskQueueMetadata where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage TaskQueueMetadata where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueMetadata"
 
 instance ProtoToJSON TaskQueueMetadata where
   protoToJSON msg = jsonObject
@@ -221,6 +230,9 @@ instance MessageDecode TaskQueueVersioningInfo where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage TaskQueueVersioningInfo where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueVersioningInfo"
+
 instance ProtoToJSON TaskQueueVersioningInfo where
   protoToJSON msg = jsonObject
       [ "currentDeploymentVersion" .= msg.taskQueueVersioningInfoCurrentdeploymentversion
@@ -295,6 +307,9 @@ instance MessageDecode TaskQueueVersionSelection where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage TaskQueueVersionSelection where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueVersionSelection"
+
 instance ProtoToJSON TaskQueueVersionSelection where
   protoToJSON msg = jsonObject
       [ "buildIds" .= msg.taskQueueVersionSelectionBuildids
@@ -356,6 +371,9 @@ instance MessageDecode TaskQueueVersionInfo where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage TaskQueueVersionInfo where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueVersionInfo"
+
 instance ProtoToJSON TaskQueueVersionInfo where
   protoToJSON msg = jsonObject
       [ "typesInfo" .= msg.taskQueueVersionInfoTypesinfo
@@ -410,6 +428,9 @@ instance MessageDecode TaskQueueTypeInfo where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage TaskQueueTypeInfo where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueTypeInfo"
 
 instance ProtoToJSON TaskQueueTypeInfo where
   protoToJSON msg = jsonObject
@@ -479,6 +500,9 @@ instance MessageDecode TaskQueueStats where
               v <- decodeFieldFloat
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage TaskQueueStats where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueStats"
 
 instance ProtoToJSON TaskQueueStats where
   protoToJSON msg = jsonObject
@@ -562,6 +586,9 @@ instance MessageDecode TaskQueueStatus where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage TaskQueueStatus where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueStatus"
+
 instance ProtoToJSON TaskQueueStatus where
   protoToJSON msg = jsonObject
       [ "backlogCountHint" .= msg.taskQueueStatusBacklogcounthint
@@ -626,6 +653,9 @@ instance MessageDecode TaskIdBlock where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage TaskIdBlock where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskIdBlock"
+
 instance ProtoToJSON TaskIdBlock where
   protoToJSON msg = jsonObject
       [ "startId" .= msg.taskIdBlockStartid
@@ -680,6 +710,9 @@ instance MessageDecode TaskQueuePartitionMetadata where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage TaskQueuePartitionMetadata where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueuePartitionMetadata"
 
 instance ProtoToJSON TaskQueuePartitionMetadata where
   protoToJSON msg = jsonObject
@@ -757,6 +790,9 @@ instance MessageDecode PollerInfo where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage PollerInfo where
+  messageTypeName _ = "temporal.api.taskqueue.v1.PollerInfo"
+
 instance ProtoToJSON PollerInfo where
   protoToJSON msg = jsonObject
       [ "lastAccessTime" .= msg.pollerInfoLastaccesstime
@@ -821,6 +857,9 @@ instance MessageDecode StickyExecutionAttributes where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage StickyExecutionAttributes where
+  messageTypeName _ = "temporal.api.taskqueue.v1.StickyExecutionAttributes"
+
 instance ProtoToJSON StickyExecutionAttributes where
   protoToJSON msg = jsonObject
       [ "workerTaskQueue" .= msg.stickyExecutionAttributesWorkertaskqueue
@@ -868,6 +907,9 @@ instance MessageDecode CompatibleVersionSet where
               v <- decodeFieldString
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage CompatibleVersionSet where
+  messageTypeName _ = "temporal.api.taskqueue.v1.CompatibleVersionSet"
 
 instance ProtoToJSON CompatibleVersionSet where
   protoToJSON msg = jsonObject
@@ -921,6 +963,9 @@ instance MessageDecode TaskQueueReachability where
               v <- decodeFieldEnum
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage TaskQueueReachability where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueReachability"
 
 instance ProtoToJSON TaskQueueReachability where
   protoToJSON msg = jsonObject
@@ -977,6 +1022,9 @@ instance MessageDecode BuildIdReachability where
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage BuildIdReachability where
+  messageTypeName _ = "temporal.api.taskqueue.v1.BuildIdReachability"
+
 instance ProtoToJSON BuildIdReachability where
   protoToJSON msg = jsonObject
       [ "buildId" .= msg.buildIdReachabilityBuildid
@@ -1024,6 +1072,9 @@ instance MessageDecode RampByPercentage where
               v <- decodeFieldFloat
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage RampByPercentage where
+  messageTypeName _ = "temporal.api.taskqueue.v1.RampByPercentage"
 
 instance ProtoToJSON RampByPercentage where
   protoToJSON msg = jsonObject
@@ -1088,6 +1139,9 @@ instance MessageDecode BuildIdAssignmentRule where
               loop acc_0 (Just (BuildIdAssignmentRule'Ramp'PercentageRamp v))
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage BuildIdAssignmentRule where
+  messageTypeName _ = "temporal.api.taskqueue.v1.BuildIdAssignmentRule"
+
 instance ProtoToJSON BuildIdAssignmentRule where
   protoToJSON msg = jsonObject
       [ "targetBuildId" .= msg.buildIdAssignmentRuleTargetbuildid
@@ -1142,6 +1196,9 @@ instance MessageDecode CompatibleBuildIdRedirectRule where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage CompatibleBuildIdRedirectRule where
+  messageTypeName _ = "temporal.api.taskqueue.v1.CompatibleBuildIdRedirectRule"
 
 instance ProtoToJSON CompatibleBuildIdRedirectRule where
   protoToJSON msg = jsonObject
@@ -1198,6 +1255,9 @@ instance MessageDecode TimestampedBuildIdAssignmentRule where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage TimestampedBuildIdAssignmentRule where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TimestampedBuildIdAssignmentRule"
+
 instance ProtoToJSON TimestampedBuildIdAssignmentRule where
   protoToJSON msg = jsonObject
       [ "rule" .= msg.timestampedBuildIdAssignmentRuleRule
@@ -1253,6 +1313,9 @@ instance MessageDecode TimestampedCompatibleBuildIdRedirectRule where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage TimestampedCompatibleBuildIdRedirectRule where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TimestampedCompatibleBuildIdRedirectRule"
+
 instance ProtoToJSON TimestampedCompatibleBuildIdRedirectRule where
   protoToJSON msg = jsonObject
       [ "rule" .= msg.timestampedCompatibleBuildIdRedirectRuleRule
@@ -1301,6 +1364,9 @@ instance MessageDecode PollerScalingDecision where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage PollerScalingDecision where
+  messageTypeName _ = "temporal.api.taskqueue.v1.PollerScalingDecision"
+
 instance ProtoToJSON PollerScalingDecision where
   protoToJSON msg = jsonObject
       [ "pollRequestDeltaSuggestion" .= msg.pollerScalingDecisionPollrequestdeltasuggestion
@@ -1346,6 +1412,9 @@ instance MessageDecode RateLimit where
               v <- decodeFieldFloat
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage RateLimit where
+  messageTypeName _ = "temporal.api.taskqueue.v1.RateLimit"
 
 instance ProtoToJSON RateLimit where
   protoToJSON msg = jsonObject
@@ -1407,6 +1476,9 @@ instance MessageDecode ConfigMetadata where
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage ConfigMetadata where
+  messageTypeName _ = "temporal.api.taskqueue.v1.ConfigMetadata"
+
 instance ProtoToJSON ConfigMetadata where
   protoToJSON msg = jsonObject
       [ "reason" .= msg.configMetadataReason
@@ -1464,6 +1536,9 @@ instance MessageDecode RateLimitConfig where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage RateLimitConfig where
+  messageTypeName _ = "temporal.api.taskqueue.v1.RateLimitConfig"
 
 instance ProtoToJSON RateLimitConfig where
   protoToJSON msg = jsonObject
@@ -1530,6 +1605,9 @@ instance MessageDecode TaskQueueConfig where
                 Right (mk', mv') -> loop acc_0 acc_1 (Map.union acc_2 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage TaskQueueConfig where
+  messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueConfig"
+
 instance ProtoToJSON TaskQueueConfig where
   protoToJSON msg = jsonObject
       [ "queueRateLimit" .= msg.taskQueueConfigQueueratelimit
@@ -1548,3 +1626,32 @@ instance ProtoFromJSON TaskQueueConfig where
       , taskQueueConfigFairnessweightoverrides = maybe (taskQueueConfigFairnessweightoverrides defaultTaskQueueConfig) id fld_taskQueueConfigFairnessweightoverrides
       }
   protoFromJSON _ = Right defaultTaskQueueConfig
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueue) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueMetadata) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueVersioningInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueVersionSelection) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueVersionInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueTypeInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueStats) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueStatus) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskIdBlock) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueuePartitionMetadata) .
+  Proto.Registry.registerType (Proxy :: Proxy PollerInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy StickyExecutionAttributes) .
+  Proto.Registry.registerType (Proxy :: Proxy CompatibleVersionSet) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueReachability) .
+  Proto.Registry.registerType (Proxy :: Proxy BuildIdReachability) .
+  Proto.Registry.registerType (Proxy :: Proxy RampByPercentage) .
+  Proto.Registry.registerType (Proxy :: Proxy BuildIdAssignmentRule) .
+  Proto.Registry.registerType (Proxy :: Proxy CompatibleBuildIdRedirectRule) .
+  Proto.Registry.registerType (Proxy :: Proxy TimestampedBuildIdAssignmentRule) .
+  Proto.Registry.registerType (Proxy :: Proxy TimestampedCompatibleBuildIdRedirectRule) .
+  Proto.Registry.registerType (Proxy :: Proxy PollerScalingDecision) .
+  Proto.Registry.registerType (Proxy :: Proxy RateLimit) .
+  Proto.Registry.registerType (Proxy :: Proxy ConfigMetadata) .
+  Proto.Registry.registerType (Proxy :: Proxy RateLimitConfig) .
+  Proto.Registry.registerType (Proxy :: Proxy TaskQueueConfig) .  id

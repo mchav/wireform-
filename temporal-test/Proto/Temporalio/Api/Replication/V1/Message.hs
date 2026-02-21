@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -70,6 +73,9 @@ instance MessageDecode ClusterReplicationConfig where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ClusterReplicationConfig where
+  messageTypeName _ = "temporal.api.replication.v1.ClusterReplicationConfig"
 
 instance ProtoToJSON ClusterReplicationConfig where
   protoToJSON msg = jsonObject
@@ -131,6 +137,9 @@ instance MessageDecode NamespaceReplicationConfig where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage NamespaceReplicationConfig where
+  messageTypeName _ = "temporal.api.replication.v1.NamespaceReplicationConfig"
+
 instance ProtoToJSON NamespaceReplicationConfig where
   protoToJSON msg = jsonObject
       [ "activeClusterName" .= msg.namespaceReplicationConfigActiveclustername
@@ -189,6 +198,9 @@ instance MessageDecode FailoverStatus where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage FailoverStatus where
+  messageTypeName _ = "temporal.api.replication.v1.FailoverStatus"
+
 instance ProtoToJSON FailoverStatus where
   protoToJSON msg = jsonObject
       [ "failoverTime" .= msg.failoverStatusFailovertime
@@ -204,3 +216,10 @@ instance ProtoFromJSON FailoverStatus where
       , failoverStatusFailoverversion = maybe (failoverStatusFailoverversion defaultFailoverStatus) id fld_failoverStatusFailoverversion
       }
   protoFromJSON _ = Right defaultFailoverStatus
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy ClusterReplicationConfig) .
+  Proto.Registry.registerType (Proxy :: Proxy NamespaceReplicationConfig) .
+  Proto.Registry.registerType (Proxy :: Proxy FailoverStatus) .  id

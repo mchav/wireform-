@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -76,6 +79,9 @@ instance MessageDecode Duration where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage Duration where
+  messageTypeName _ = "google.protobuf.Duration"
+
 instance ProtoToJSON Duration where
   protoToJSON msg =
     let s = msg.durationSeconds
@@ -90,3 +96,9 @@ instance ProtoToJSON Duration where
 instance ProtoFromJSON Duration where
   protoFromJSON (JsonString _) = Right defaultDuration
   protoFromJSON _ = Left "Expected duration string like \"3.5s\""
+
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy Duration) .  id

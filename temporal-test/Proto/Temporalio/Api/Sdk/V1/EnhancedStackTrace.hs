@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -86,6 +89,9 @@ instance MessageDecode EnhancedStackTrace where
               loop acc_0 acc_1 (acc_2 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage EnhancedStackTrace where
+  messageTypeName _ = "temporal.api.sdk.v1.EnhancedStackTrace"
+
 instance ProtoToJSON EnhancedStackTrace where
   protoToJSON msg = jsonObject
       [ "sdk" .= msg.enhancedStackTraceSdk
@@ -144,6 +150,9 @@ instance MessageDecode StackTraceSDKInfo where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage StackTraceSDKInfo where
+  messageTypeName _ = "temporal.api.sdk.v1.StackTraceSDKInfo"
+
 instance ProtoToJSON StackTraceSDKInfo where
   protoToJSON msg = jsonObject
       [ "name" .= msg.stackTraceSDKInfoName
@@ -198,6 +207,9 @@ instance MessageDecode StackTraceFileSlice where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage StackTraceFileSlice where
+  messageTypeName _ = "temporal.api.sdk.v1.StackTraceFileSlice"
 
 instance ProtoToJSON StackTraceFileSlice where
   protoToJSON msg = jsonObject
@@ -275,6 +287,9 @@ instance MessageDecode StackTraceFileLocation where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage StackTraceFileLocation where
+  messageTypeName _ = "temporal.api.sdk.v1.StackTraceFileLocation"
+
 instance ProtoToJSON StackTraceFileLocation where
   protoToJSON msg = jsonObject
       [ "filePath" .= msg.stackTraceFileLocationFilepath
@@ -332,6 +347,9 @@ instance MessageDecode StackTrace where
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage StackTrace where
+  messageTypeName _ = "temporal.api.sdk.v1.StackTrace"
+
 instance ProtoToJSON StackTrace where
   protoToJSON msg = jsonObject
       [ "locations" .= msg.stackTraceLocations
@@ -345,3 +363,12 @@ instance ProtoFromJSON StackTrace where
       { stackTraceLocations = maybe (stackTraceLocations defaultStackTrace) id fld_stackTraceLocations
       }
   protoFromJSON _ = Right defaultStackTrace
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy EnhancedStackTrace) .
+  Proto.Registry.registerType (Proxy :: Proxy StackTraceSDKInfo) .
+  Proto.Registry.registerType (Proxy :: Proxy StackTraceFileSlice) .
+  Proto.Registry.registerType (Proxy :: Proxy StackTraceFileLocation) .
+  Proto.Registry.registerType (Proxy :: Proxy StackTrace) .  id

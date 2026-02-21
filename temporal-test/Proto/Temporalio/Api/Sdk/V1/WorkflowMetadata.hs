@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -75,6 +78,9 @@ instance MessageDecode WorkflowMetadata where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage WorkflowMetadata where
+  messageTypeName _ = "temporal.api.sdk.v1.WorkflowMetadata"
 
 instance ProtoToJSON WorkflowMetadata where
   protoToJSON msg = jsonObject
@@ -145,6 +151,9 @@ instance MessageDecode WorkflowDefinition where
               loop acc_0 acc_1 acc_2 (acc_3 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage WorkflowDefinition where
+  messageTypeName _ = "temporal.api.sdk.v1.WorkflowDefinition"
+
 instance ProtoToJSON WorkflowDefinition where
   protoToJSON msg = jsonObject
       [ "type" .= msg.workflowDefinitionType
@@ -206,6 +215,9 @@ instance MessageDecode WorkflowInteractionDefinition where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage WorkflowInteractionDefinition where
+  messageTypeName _ = "temporal.api.sdk.v1.WorkflowInteractionDefinition"
+
 instance ProtoToJSON WorkflowInteractionDefinition where
   protoToJSON msg = jsonObject
       [ "name" .= msg.workflowInteractionDefinitionName
@@ -221,3 +233,10 @@ instance ProtoFromJSON WorkflowInteractionDefinition where
       , workflowInteractionDefinitionDescription = maybe (workflowInteractionDefinitionDescription defaultWorkflowInteractionDefinition) id fld_workflowInteractionDefinitionDescription
       }
   protoFromJSON _ = Right defaultWorkflowInteractionDefinition
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowMetadata) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowDefinition) .
+  Proto.Registry.registerType (Proxy :: Proxy WorkflowInteractionDefinition) .  id

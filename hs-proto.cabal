@@ -90,7 +90,8 @@ library
       Proto.Google.Protobuf.FieldMask
       Proto.Google.Protobuf.SourceContext
       Proto.Google.Protobuf.Struct
-      Proto.Google.Protobuf.WellKnownInstances
+      Proto.Registry
+      Proto.Registry.TH
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native

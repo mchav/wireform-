@@ -23,7 +23,6 @@ import Proto.Google.Protobuf.FieldMask
 import Proto.Google.Protobuf.SourceContext
 import Proto.Google.Protobuf.Struct
 import Proto.Message (IsMessage(..))
-import Proto.Google.Protobuf.WellKnownInstances ()
 
 wellKnownTests :: TestTree
 wellKnownTests = testGroup "Well-Known Types"

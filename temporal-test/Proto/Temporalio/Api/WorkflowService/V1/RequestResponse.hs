@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -193,6 +196,9 @@ instance MessageDecode RegisterNamespaceRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12
 
+instance IsMessage RegisterNamespaceRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RegisterNamespaceRequest"
+
 instance ProtoToJSON RegisterNamespaceRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.registerNamespaceRequestNamespace
@@ -269,6 +275,9 @@ instance MessageDecode RegisterNamespaceResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage RegisterNamespaceResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RegisterNamespaceResponse"
+
 instance ProtoToJSON RegisterNamespaceResponse where
   protoToJSON msg = jsonObject
       []
@@ -321,6 +330,9 @@ instance MessageDecode ListNamespacesRequest where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage ListNamespacesRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListNamespacesRequest"
 
 instance ProtoToJSON ListNamespacesRequest where
   protoToJSON msg = jsonObject
@@ -380,6 +392,9 @@ instance MessageDecode ListNamespacesResponse where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ListNamespacesResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListNamespacesResponse"
+
 instance ProtoToJSON ListNamespacesResponse where
   protoToJSON msg = jsonObject
       [ "namespaces" .= msg.listNamespacesResponseNamespaces
@@ -434,6 +449,9 @@ instance MessageDecode DescribeNamespaceRequest where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage DescribeNamespaceRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeNamespaceRequest"
 
 instance ProtoToJSON DescribeNamespaceRequest where
   protoToJSON msg = jsonObject
@@ -517,6 +535,9 @@ instance MessageDecode DescribeNamespaceResponse where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (acc_5 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
+
+instance IsMessage DescribeNamespaceResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeNamespaceResponse"
 
 instance ProtoToJSON DescribeNamespaceResponse where
   protoToJSON msg = jsonObject
@@ -620,6 +641,9 @@ instance MessageDecode UpdateNamespaceRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage UpdateNamespaceRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateNamespaceRequest"
+
 instance ProtoToJSON UpdateNamespaceRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateNamespaceRequestNamespace
@@ -711,6 +735,9 @@ instance MessageDecode UpdateNamespaceResponse where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage UpdateNamespaceResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateNamespaceResponse"
+
 instance ProtoToJSON UpdateNamespaceResponse where
   protoToJSON msg = jsonObject
       [ "namespaceInfo" .= msg.updateNamespaceResponseNamespaceinfo
@@ -775,6 +802,9 @@ instance MessageDecode DeprecateNamespaceRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DeprecateNamespaceRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeprecateNamespaceRequest"
+
 instance ProtoToJSON DeprecateNamespaceRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.deprecateNamespaceRequestNamespace
@@ -817,6 +847,9 @@ instance MessageDecode DeprecateNamespaceResponse where
           Nothing -> pure (DeprecateNamespaceResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage DeprecateNamespaceResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeprecateNamespaceResponse"
 
 instance ProtoToJSON DeprecateNamespaceResponse where
   protoToJSON msg = jsonObject
@@ -1046,6 +1079,9 @@ instance MessageDecode StartWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 acc_27
 
+instance IsMessage StartWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.StartWorkflowExecutionRequest"
+
 instance ProtoToJSON StartWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.startWorkflowExecutionRequestNamespace
@@ -1200,6 +1236,9 @@ instance MessageDecode StartWorkflowExecutionResponse where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage StartWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.StartWorkflowExecutionResponse"
+
 instance ProtoToJSON StartWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
       [ "runId" .= msg.startWorkflowExecutionResponseRunid
@@ -1299,6 +1338,9 @@ instance MessageDecode GetWorkflowExecutionHistoryRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage GetWorkflowExecutionHistoryRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryRequest"
+
 instance ProtoToJSON GetWorkflowExecutionHistoryRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.getWorkflowExecutionHistoryRequestNamespace
@@ -1383,6 +1425,9 @@ instance MessageDecode GetWorkflowExecutionHistoryResponse where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage GetWorkflowExecutionHistoryResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryResponse"
+
 instance ProtoToJSON GetWorkflowExecutionHistoryResponse where
   protoToJSON msg = jsonObject
       [ "history" .= msg.getWorkflowExecutionHistoryResponseHistory
@@ -1458,6 +1503,9 @@ instance MessageDecode GetWorkflowExecutionHistoryReverseRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage GetWorkflowExecutionHistoryReverseRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryReverseRequest"
+
 instance ProtoToJSON GetWorkflowExecutionHistoryReverseRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.getWorkflowExecutionHistoryReverseRequestNamespace
@@ -1518,6 +1566,9 @@ instance MessageDecode GetWorkflowExecutionHistoryReverseResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage GetWorkflowExecutionHistoryReverseResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryReverseResponse"
 
 instance ProtoToJSON GetWorkflowExecutionHistoryReverseResponse where
   protoToJSON msg = jsonObject
@@ -1608,6 +1659,9 @@ instance MessageDecode PollWorkflowTaskQueueRequest where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
+
+instance IsMessage PollWorkflowTaskQueueRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollWorkflowTaskQueueRequest"
 
 instance ProtoToJSON PollWorkflowTaskQueueRequest where
   protoToJSON msg = jsonObject
@@ -1780,6 +1834,9 @@ instance MessageDecode PollWorkflowTaskQueueResponse where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15
 
+instance IsMessage PollWorkflowTaskQueueResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollWorkflowTaskQueueResponse"
+
 instance ProtoToJSON PollWorkflowTaskQueueResponse where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.pollWorkflowTaskQueueResponseTasktoken
@@ -1891,6 +1948,9 @@ instance MessageDecode RespondWorkflowTaskCompletedRequest'Capabilities where
               v <- decodeFieldBool
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage RespondWorkflowTaskCompletedRequest'Capabilities where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondWorkflowTaskCompletedRequest.Capabilities"
 
 instance ProtoToJSON RespondWorkflowTaskCompletedRequest'Capabilities where
   protoToJSON msg = jsonObject
@@ -2031,6 +2091,9 @@ instance MessageDecode RespondWorkflowTaskCompletedRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16
 
+instance IsMessage RespondWorkflowTaskCompletedRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondWorkflowTaskCompletedRequest"
+
 instance ProtoToJSON RespondWorkflowTaskCompletedRequest where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.respondWorkflowTaskCompletedRequestTasktoken
@@ -2137,6 +2200,9 @@ instance MessageDecode RespondWorkflowTaskCompletedResponse where
               v <- (fromIntegral <$> decodeFieldVarint)
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage RespondWorkflowTaskCompletedResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondWorkflowTaskCompletedResponse"
 
 instance ProtoToJSON RespondWorkflowTaskCompletedResponse where
   protoToJSON msg = jsonObject
@@ -2252,6 +2318,9 @@ instance MessageDecode RespondWorkflowTaskFailedRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9
 
+instance IsMessage RespondWorkflowTaskFailedRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondWorkflowTaskFailedRequest"
+
 instance ProtoToJSON RespondWorkflowTaskFailedRequest where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.respondWorkflowTaskFailedRequestTasktoken
@@ -2318,6 +2387,9 @@ instance MessageDecode RespondWorkflowTaskFailedResponse where
           Nothing -> pure (RespondWorkflowTaskFailedResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RespondWorkflowTaskFailedResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondWorkflowTaskFailedResponse"
 
 instance ProtoToJSON RespondWorkflowTaskFailedResponse where
   protoToJSON msg = jsonObject
@@ -2399,6 +2471,9 @@ instance MessageDecode PollActivityTaskQueueRequest where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
+
+instance IsMessage PollActivityTaskQueueRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollActivityTaskQueueRequest"
 
 instance ProtoToJSON PollActivityTaskQueueRequest where
   protoToJSON msg = jsonObject
@@ -2596,6 +2671,9 @@ instance MessageDecode PollActivityTaskQueueResponse where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19
 
+instance IsMessage PollActivityTaskQueueResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollActivityTaskQueueResponse"
+
 instance ProtoToJSON PollActivityTaskQueueResponse where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.pollActivityTaskQueueResponseTasktoken
@@ -2719,6 +2797,9 @@ instance MessageDecode RecordActivityTaskHeartbeatRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage RecordActivityTaskHeartbeatRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RecordActivityTaskHeartbeatRequest"
+
 instance ProtoToJSON RecordActivityTaskHeartbeatRequest where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.recordActivityTaskHeartbeatRequestTasktoken
@@ -2786,6 +2867,9 @@ instance MessageDecode RecordActivityTaskHeartbeatResponse where
               v <- decodeFieldBool
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage RecordActivityTaskHeartbeatResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RecordActivityTaskHeartbeatResponse"
 
 instance ProtoToJSON RecordActivityTaskHeartbeatResponse where
   protoToJSON msg = jsonObject
@@ -2873,6 +2957,9 @@ instance MessageDecode RecordActivityTaskHeartbeatByIdRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage RecordActivityTaskHeartbeatByIdRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RecordActivityTaskHeartbeatByIdRequest"
+
 instance ProtoToJSON RecordActivityTaskHeartbeatByIdRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.recordActivityTaskHeartbeatByIdRequestNamespace
@@ -2946,6 +3033,9 @@ instance MessageDecode RecordActivityTaskHeartbeatByIdResponse where
               v <- decodeFieldBool
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage RecordActivityTaskHeartbeatByIdResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RecordActivityTaskHeartbeatByIdResponse"
 
 instance ProtoToJSON RecordActivityTaskHeartbeatByIdResponse where
   protoToJSON msg = jsonObject
@@ -3040,6 +3130,9 @@ instance MessageDecode RespondActivityTaskCompletedRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage RespondActivityTaskCompletedRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskCompletedRequest"
+
 instance ProtoToJSON RespondActivityTaskCompletedRequest where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.respondActivityTaskCompletedRequestTasktoken
@@ -3097,6 +3190,9 @@ instance MessageDecode RespondActivityTaskCompletedResponse where
           Nothing -> pure (RespondActivityTaskCompletedResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RespondActivityTaskCompletedResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskCompletedResponse"
 
 instance ProtoToJSON RespondActivityTaskCompletedResponse where
   protoToJSON msg = jsonObject
@@ -3172,6 +3268,9 @@ instance MessageDecode RespondActivityTaskCompletedByIdRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage RespondActivityTaskCompletedByIdRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskCompletedByIdRequest"
+
 instance ProtoToJSON RespondActivityTaskCompletedByIdRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.respondActivityTaskCompletedByIdRequestNamespace
@@ -3226,6 +3325,9 @@ instance MessageDecode RespondActivityTaskCompletedByIdResponse where
           Nothing -> pure (RespondActivityTaskCompletedByIdResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RespondActivityTaskCompletedByIdResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskCompletedByIdResponse"
 
 instance ProtoToJSON RespondActivityTaskCompletedByIdResponse where
   protoToJSON msg = jsonObject
@@ -3315,6 +3417,9 @@ instance MessageDecode RespondActivityTaskFailedRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage RespondActivityTaskFailedRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskFailedRequest"
+
 instance ProtoToJSON RespondActivityTaskFailedRequest where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.respondActivityTaskFailedRequestTasktoken
@@ -3380,6 +3485,9 @@ instance MessageDecode RespondActivityTaskFailedResponse where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage RespondActivityTaskFailedResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskFailedResponse"
 
 instance ProtoToJSON RespondActivityTaskFailedResponse where
   protoToJSON msg = jsonObject
@@ -3469,6 +3577,9 @@ instance MessageDecode RespondActivityTaskFailedByIdRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage RespondActivityTaskFailedByIdRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskFailedByIdRequest"
+
 instance ProtoToJSON RespondActivityTaskFailedByIdRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.respondActivityTaskFailedByIdRequestNamespace
@@ -3531,6 +3642,9 @@ instance MessageDecode RespondActivityTaskFailedByIdResponse where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage RespondActivityTaskFailedByIdResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskFailedByIdResponse"
 
 instance ProtoToJSON RespondActivityTaskFailedByIdResponse where
   protoToJSON msg = jsonObject
@@ -3620,6 +3734,9 @@ instance MessageDecode RespondActivityTaskCanceledRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage RespondActivityTaskCanceledRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskCanceledRequest"
+
 instance ProtoToJSON RespondActivityTaskCanceledRequest where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.respondActivityTaskCanceledRequestTasktoken
@@ -3677,6 +3794,9 @@ instance MessageDecode RespondActivityTaskCanceledResponse where
           Nothing -> pure (RespondActivityTaskCanceledResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RespondActivityTaskCanceledResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskCanceledResponse"
 
 instance ProtoToJSON RespondActivityTaskCanceledResponse where
   protoToJSON msg = jsonObject
@@ -3759,6 +3879,9 @@ instance MessageDecode RespondActivityTaskCanceledByIdRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage RespondActivityTaskCanceledByIdRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskCanceledByIdRequest"
+
 instance ProtoToJSON RespondActivityTaskCanceledByIdRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.respondActivityTaskCanceledByIdRequestNamespace
@@ -3816,6 +3939,9 @@ instance MessageDecode RespondActivityTaskCanceledByIdResponse where
           Nothing -> pure (RespondActivityTaskCanceledByIdResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RespondActivityTaskCanceledByIdResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondActivityTaskCanceledByIdResponse"
 
 instance ProtoToJSON RespondActivityTaskCanceledByIdResponse where
   protoToJSON msg = jsonObject
@@ -3898,6 +4024,9 @@ instance MessageDecode RequestCancelWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (acc_6 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage RequestCancelWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RequestCancelWorkflowExecutionRequest"
+
 instance ProtoToJSON RequestCancelWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.requestCancelWorkflowExecutionRequestNamespace
@@ -3955,6 +4084,9 @@ instance MessageDecode RequestCancelWorkflowExecutionResponse where
           Nothing -> pure (RequestCancelWorkflowExecutionResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RequestCancelWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RequestCancelWorkflowExecutionResponse"
 
 instance ProtoToJSON RequestCancelWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
@@ -4051,6 +4183,9 @@ instance MessageDecode SignalWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 (acc_8 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
 
+instance IsMessage SignalWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SignalWorkflowExecutionRequest"
+
 instance ProtoToJSON SignalWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.signalWorkflowExecutionRequestNamespace
@@ -4114,6 +4249,9 @@ instance MessageDecode SignalWorkflowExecutionResponse where
           Nothing -> pure (SignalWorkflowExecutionResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage SignalWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SignalWorkflowExecutionResponse"
 
 instance ProtoToJSON SignalWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
@@ -4322,6 +4460,9 @@ instance MessageDecode SignalWithStartWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24
 
+instance IsMessage SignalWithStartWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SignalWithStartWorkflowExecutionRequest"
+
 instance ProtoToJSON SignalWithStartWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.signalWithStartWorkflowExecutionRequestNamespace
@@ -4446,6 +4587,9 @@ instance MessageDecode SignalWithStartWorkflowExecutionResponse where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage SignalWithStartWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SignalWithStartWorkflowExecutionResponse"
+
 instance ProtoToJSON SignalWithStartWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
       [ "runId" .= msg.signalWithStartWorkflowExecutionResponseRunid
@@ -4550,6 +4694,9 @@ instance MessageDecode ResetWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
 
+instance IsMessage ResetWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ResetWorkflowExecutionRequest"
+
 instance ProtoToJSON ResetWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.resetWorkflowExecutionRequestNamespace
@@ -4618,6 +4765,9 @@ instance MessageDecode ResetWorkflowExecutionResponse where
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ResetWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ResetWorkflowExecutionResponse"
 
 instance ProtoToJSON ResetWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
@@ -4707,6 +4857,9 @@ instance MessageDecode TerminateWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (acc_6 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage TerminateWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.TerminateWorkflowExecutionRequest"
+
 instance ProtoToJSON TerminateWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.terminateWorkflowExecutionRequestNamespace
@@ -4765,6 +4918,9 @@ instance MessageDecode TerminateWorkflowExecutionResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage TerminateWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.TerminateWorkflowExecutionResponse"
+
 instance ProtoToJSON TerminateWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
       []
@@ -4811,6 +4967,9 @@ instance MessageDecode DeleteWorkflowExecutionRequest where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DeleteWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteWorkflowExecutionRequest"
+
 instance ProtoToJSON DeleteWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.deleteWorkflowExecutionRequestNamespace
@@ -4853,6 +5012,9 @@ instance MessageDecode DeleteWorkflowExecutionResponse where
           Nothing -> pure (DeleteWorkflowExecutionResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage DeleteWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteWorkflowExecutionResponse"
 
 instance ProtoToJSON DeleteWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
@@ -4937,6 +5099,9 @@ instance MessageDecode ListOpenWorkflowExecutionsRequest where
               loop acc_0 acc_1 acc_2 acc_3 (Just (ListOpenWorkflowExecutionsRequest'Filters'TypeFilter v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage ListOpenWorkflowExecutionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListOpenWorkflowExecutionsRequest"
+
 instance ProtoToJSON ListOpenWorkflowExecutionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listOpenWorkflowExecutionsRequestNamespace
@@ -5000,6 +5165,9 @@ instance MessageDecode ListOpenWorkflowExecutionsResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListOpenWorkflowExecutionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListOpenWorkflowExecutionsResponse"
 
 instance ProtoToJSON ListOpenWorkflowExecutionsResponse where
   protoToJSON msg = jsonObject
@@ -5099,6 +5267,9 @@ instance MessageDecode ListClosedWorkflowExecutionsRequest where
               loop acc_0 acc_1 acc_2 acc_3 (Just (ListClosedWorkflowExecutionsRequest'Filters'StatusFilter v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage ListClosedWorkflowExecutionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListClosedWorkflowExecutionsRequest"
+
 instance ProtoToJSON ListClosedWorkflowExecutionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listClosedWorkflowExecutionsRequestNamespace
@@ -5162,6 +5333,9 @@ instance MessageDecode ListClosedWorkflowExecutionsResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListClosedWorkflowExecutionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListClosedWorkflowExecutionsResponse"
 
 instance ProtoToJSON ListClosedWorkflowExecutionsResponse where
   protoToJSON msg = jsonObject
@@ -5232,6 +5406,9 @@ instance MessageDecode ListWorkflowExecutionsRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ListWorkflowExecutionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkflowExecutionsRequest"
+
 instance ProtoToJSON ListWorkflowExecutionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listWorkflowExecutionsRequestNamespace
@@ -5292,6 +5469,9 @@ instance MessageDecode ListWorkflowExecutionsResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListWorkflowExecutionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkflowExecutionsResponse"
 
 instance ProtoToJSON ListWorkflowExecutionsResponse where
   protoToJSON msg = jsonObject
@@ -5362,6 +5542,9 @@ instance MessageDecode ListArchivedWorkflowExecutionsRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ListArchivedWorkflowExecutionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListArchivedWorkflowExecutionsRequest"
+
 instance ProtoToJSON ListArchivedWorkflowExecutionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listArchivedWorkflowExecutionsRequestNamespace
@@ -5422,6 +5605,9 @@ instance MessageDecode ListArchivedWorkflowExecutionsResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListArchivedWorkflowExecutionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListArchivedWorkflowExecutionsResponse"
 
 instance ProtoToJSON ListArchivedWorkflowExecutionsResponse where
   protoToJSON msg = jsonObject
@@ -5492,6 +5678,9 @@ instance MessageDecode ScanWorkflowExecutionsRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ScanWorkflowExecutionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ScanWorkflowExecutionsRequest"
+
 instance ProtoToJSON ScanWorkflowExecutionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.scanWorkflowExecutionsRequestNamespace
@@ -5553,6 +5742,9 @@ instance MessageDecode ScanWorkflowExecutionsResponse where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ScanWorkflowExecutionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ScanWorkflowExecutionsResponse"
+
 instance ProtoToJSON ScanWorkflowExecutionsResponse where
   protoToJSON msg = jsonObject
       [ "executions" .= msg.scanWorkflowExecutionsResponseExecutions
@@ -5607,6 +5799,9 @@ instance MessageDecode CountWorkflowExecutionsRequest where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage CountWorkflowExecutionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountWorkflowExecutionsRequest"
 
 instance ProtoToJSON CountWorkflowExecutionsRequest where
   protoToJSON msg = jsonObject
@@ -5670,6 +5865,9 @@ instance MessageDecode CountWorkflowExecutionsResponse'AggregationGroup where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage CountWorkflowExecutionsResponse'AggregationGroup where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountWorkflowExecutionsResponse.AggregationGroup"
+
 instance ProtoToJSON CountWorkflowExecutionsResponse'AggregationGroup where
   protoToJSON msg = jsonObject
       [ "groupValues" .= msg.countWorkflowExecutionsResponseAggregationGroupGroupvalues
@@ -5718,6 +5916,9 @@ instance MessageDecode CountWorkflowExecutionsResponse where
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage CountWorkflowExecutionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountWorkflowExecutionsResponse"
+
 instance ProtoToJSON CountWorkflowExecutionsResponse where
   protoToJSON msg = jsonObject
       [ "count" .= msg.countWorkflowExecutionsResponseCount
@@ -5761,6 +5962,9 @@ instance MessageDecode GetSearchAttributesRequest where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage GetSearchAttributesRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetSearchAttributesRequest"
+
 instance ProtoToJSON GetSearchAttributesRequest where
   protoToJSON msg = jsonObject
       []
@@ -5802,6 +6006,9 @@ instance MessageDecode GetSearchAttributesResponse where
                 Left _ -> loop acc_0
                 Right (mk', mv') -> loop (Map.union acc_0 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage GetSearchAttributesResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetSearchAttributesResponse"
 
 instance ProtoToJSON GetSearchAttributesResponse where
   protoToJSON msg = jsonObject
@@ -5891,6 +6098,9 @@ instance MessageDecode RespondQueryTaskCompletedRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage RespondQueryTaskCompletedRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondQueryTaskCompletedRequest"
+
 instance ProtoToJSON RespondQueryTaskCompletedRequest where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.respondQueryTaskCompletedRequestTasktoken
@@ -5949,6 +6159,9 @@ instance MessageDecode RespondQueryTaskCompletedResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage RespondQueryTaskCompletedResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondQueryTaskCompletedResponse"
+
 instance ProtoToJSON RespondQueryTaskCompletedResponse where
   protoToJSON msg = jsonObject
       []
@@ -5995,6 +6208,9 @@ instance MessageDecode ResetStickyTaskQueueRequest where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ResetStickyTaskQueueRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ResetStickyTaskQueueRequest"
+
 instance ProtoToJSON ResetStickyTaskQueueRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.resetStickyTaskQueueRequestNamespace
@@ -6037,6 +6253,9 @@ instance MessageDecode ResetStickyTaskQueueResponse where
           Nothing -> pure (ResetStickyTaskQueueResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage ResetStickyTaskQueueResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ResetStickyTaskQueueResponse"
 
 instance ProtoToJSON ResetStickyTaskQueueResponse where
   protoToJSON msg = jsonObject
@@ -6126,6 +6345,9 @@ instance MessageDecode ShutdownWorkerRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (acc_7 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage ShutdownWorkerRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ShutdownWorkerRequest"
+
 instance ProtoToJSON ShutdownWorkerRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.shutdownWorkerRequestNamespace
@@ -6187,6 +6409,9 @@ instance MessageDecode ShutdownWorkerResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage ShutdownWorkerResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ShutdownWorkerResponse"
+
 instance ProtoToJSON ShutdownWorkerResponse where
   protoToJSON msg = jsonObject
       []
@@ -6246,6 +6471,9 @@ instance MessageDecode QueryWorkflowRequest where
               v <- decodeFieldEnum
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage QueryWorkflowRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.QueryWorkflowRequest"
 
 instance ProtoToJSON QueryWorkflowRequest where
   protoToJSON msg = jsonObject
@@ -6308,6 +6536,9 @@ instance MessageDecode QueryWorkflowResponse where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage QueryWorkflowResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.QueryWorkflowResponse"
+
 instance ProtoToJSON QueryWorkflowResponse where
   protoToJSON msg = jsonObject
       [ "queryResult" .= msg.queryWorkflowResponseQueryresult
@@ -6362,6 +6593,9 @@ instance MessageDecode DescribeWorkflowExecutionRequest where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage DescribeWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest"
 
 instance ProtoToJSON DescribeWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
@@ -6459,6 +6693,9 @@ instance MessageDecode DescribeWorkflowExecutionResponse where
               v <- decodeFieldMessage
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
+
+instance IsMessage DescribeWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse"
 
 instance ProtoToJSON DescribeWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
@@ -6596,6 +6833,9 @@ instance MessageDecode DescribeTaskQueueRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
 
+instance IsMessage DescribeTaskQueueRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeTaskQueueRequest"
+
 instance ProtoToJSON DescribeTaskQueueRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.describeTaskQueueRequestNamespace
@@ -6691,6 +6931,9 @@ instance MessageDecode DescribeTaskQueueResponse'EffectiveRateLimit where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DescribeTaskQueueResponse'EffectiveRateLimit where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeTaskQueueResponse.EffectiveRateLimit"
+
 instance ProtoToJSON DescribeTaskQueueResponse'EffectiveRateLimit where
   protoToJSON msg = jsonObject
       [ "requestsPerSecond" .= msg.describeTaskQueueResponseEffectiveRateLimitRequestspersecond
@@ -6781,6 +7024,9 @@ instance MessageDecode DescribeTaskQueueResponse where
                 Right (mk', mv') -> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Map.union acc_7 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage DescribeTaskQueueResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeTaskQueueResponse"
+
 instance ProtoToJSON DescribeTaskQueueResponse where
   protoToJSON msg = jsonObject
       [ "pollers" .= msg.describeTaskQueueResponsePollers
@@ -6841,6 +7087,9 @@ instance MessageDecode GetClusterInfoRequest where
           Nothing -> pure (GetClusterInfoRequest {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage GetClusterInfoRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetClusterInfoRequest"
 
 instance ProtoToJSON GetClusterInfoRequest where
   protoToJSON msg = jsonObject
@@ -6947,6 +7196,9 @@ instance MessageDecode GetClusterInfoResponse where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9
 
+instance IsMessage GetClusterInfoResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetClusterInfoResponse"
+
 instance ProtoToJSON GetClusterInfoResponse where
   protoToJSON msg = jsonObject
       [ "supportedClients" .= msg.getClusterInfoResponseSupportedclients
@@ -7013,6 +7265,9 @@ instance MessageDecode GetSystemInfoRequest where
           Nothing -> pure (GetSystemInfoRequest {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage GetSystemInfoRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetSystemInfoRequest"
 
 instance ProtoToJSON GetSystemInfoRequest where
   protoToJSON msg = jsonObject
@@ -7130,6 +7385,9 @@ instance MessageDecode GetSystemInfoResponse'Capabilities where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10
 
+instance IsMessage GetSystemInfoResponse'Capabilities where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetSystemInfoResponse.Capabilities"
+
 instance ProtoToJSON GetSystemInfoResponse'Capabilities where
   protoToJSON msg = jsonObject
       [ "signalAndQueryHeader" .= msg.getSystemInfoResponseCapabilitiesSignalandqueryheader
@@ -7205,6 +7463,9 @@ instance MessageDecode GetSystemInfoResponse where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage GetSystemInfoResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetSystemInfoResponse"
+
 instance ProtoToJSON GetSystemInfoResponse where
   protoToJSON msg = jsonObject
       [ "serverVersion" .= msg.getSystemInfoResponseServerversion
@@ -7260,6 +7521,9 @@ instance MessageDecode ListTaskQueuePartitionsRequest where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ListTaskQueuePartitionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListTaskQueuePartitionsRequest"
+
 instance ProtoToJSON ListTaskQueuePartitionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listTaskQueuePartitionsRequestNamespace
@@ -7314,6 +7578,9 @@ instance MessageDecode ListTaskQueuePartitionsResponse where
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListTaskQueuePartitionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListTaskQueuePartitionsResponse"
 
 instance ProtoToJSON ListTaskQueuePartitionsResponse where
   protoToJSON msg = jsonObject
@@ -7412,6 +7679,9 @@ instance MessageDecode CreateScheduleRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage CreateScheduleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CreateScheduleRequest"
+
 instance ProtoToJSON CreateScheduleRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.createScheduleRequestNamespace
@@ -7478,6 +7748,9 @@ instance MessageDecode CreateScheduleResponse where
               loop v
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage CreateScheduleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CreateScheduleResponse"
+
 instance ProtoToJSON CreateScheduleResponse where
   protoToJSON msg = jsonObject
       [ "conflictToken" .= msg.createScheduleResponseConflicttoken
@@ -7530,6 +7803,9 @@ instance MessageDecode DescribeScheduleRequest where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage DescribeScheduleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeScheduleRequest"
 
 instance ProtoToJSON DescribeScheduleRequest where
   protoToJSON msg = jsonObject
@@ -7606,6 +7882,9 @@ instance MessageDecode DescribeScheduleResponse where
               v <- decodeFieldBytes
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
+
+instance IsMessage DescribeScheduleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeScheduleResponse"
 
 instance ProtoToJSON DescribeScheduleResponse where
   protoToJSON msg = jsonObject
@@ -7706,6 +7985,9 @@ instance MessageDecode UpdateScheduleRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage UpdateScheduleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateScheduleRequest"
+
 instance ProtoToJSON UpdateScheduleRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateScheduleRequestNamespace
@@ -7763,6 +8045,9 @@ instance MessageDecode UpdateScheduleResponse where
           Nothing -> pure (UpdateScheduleResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage UpdateScheduleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateScheduleResponse"
 
 instance ProtoToJSON UpdateScheduleResponse where
   protoToJSON msg = jsonObject
@@ -7831,6 +8116,9 @@ instance MessageDecode PatchScheduleRequest where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage PatchScheduleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PatchScheduleRequest"
+
 instance ProtoToJSON PatchScheduleRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.patchScheduleRequestNamespace
@@ -7882,6 +8170,9 @@ instance MessageDecode PatchScheduleResponse where
           Nothing -> pure (PatchScheduleResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage PatchScheduleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PatchScheduleResponse"
 
 instance ProtoToJSON PatchScheduleResponse where
   protoToJSON msg = jsonObject
@@ -7943,6 +8234,9 @@ instance MessageDecode ListScheduleMatchingTimesRequest where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ListScheduleMatchingTimesRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListScheduleMatchingTimesRequest"
+
 instance ProtoToJSON ListScheduleMatchingTimesRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listScheduleMatchingTimesRequestNamespace
@@ -7996,6 +8290,9 @@ instance MessageDecode ListScheduleMatchingTimesResponse where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ListScheduleMatchingTimesResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListScheduleMatchingTimesResponse"
 
 instance ProtoToJSON ListScheduleMatchingTimesResponse where
   protoToJSON msg = jsonObject
@@ -8057,6 +8354,9 @@ instance MessageDecode DeleteScheduleRequest where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage DeleteScheduleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteScheduleRequest"
+
 instance ProtoToJSON DeleteScheduleRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.deleteScheduleRequestNamespace
@@ -8102,6 +8402,9 @@ instance MessageDecode DeleteScheduleResponse where
           Nothing -> pure (DeleteScheduleResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage DeleteScheduleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteScheduleResponse"
 
 instance ProtoToJSON DeleteScheduleResponse where
   protoToJSON msg = jsonObject
@@ -8162,6 +8465,9 @@ instance MessageDecode ListSchedulesRequest where
               v <- decodeFieldString
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage ListSchedulesRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListSchedulesRequest"
 
 instance ProtoToJSON ListSchedulesRequest where
   protoToJSON msg = jsonObject
@@ -8224,6 +8530,9 @@ instance MessageDecode ListSchedulesResponse where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ListSchedulesResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListSchedulesResponse"
+
 instance ProtoToJSON ListSchedulesResponse where
   protoToJSON msg = jsonObject
       [ "schedules" .= msg.listSchedulesResponseSchedules
@@ -8278,6 +8587,9 @@ instance MessageDecode CountSchedulesRequest where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage CountSchedulesRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountSchedulesRequest"
 
 instance ProtoToJSON CountSchedulesRequest where
   protoToJSON msg = jsonObject
@@ -8341,6 +8653,9 @@ instance MessageDecode CountSchedulesResponse'AggregationGroup where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage CountSchedulesResponse'AggregationGroup where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountSchedulesResponse.AggregationGroup"
+
 instance ProtoToJSON CountSchedulesResponse'AggregationGroup where
   protoToJSON msg = jsonObject
       [ "groupValues" .= msg.countSchedulesResponseAggregationGroupGroupvalues
@@ -8388,6 +8703,9 @@ instance MessageDecode CountSchedulesResponse where
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage CountSchedulesResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountSchedulesResponse"
 
 instance ProtoToJSON CountSchedulesResponse where
   protoToJSON msg = jsonObject
@@ -8459,6 +8777,9 @@ instance MessageDecode UpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleV
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage UpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerBuildIdCompatibilityRequest.AddNewCompatibleVersion"
+
 instance ProtoToJSON UpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion where
   protoToJSON msg = jsonObject
       [ "newBuildId" .= msg.updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionNewbuildid
@@ -8516,6 +8837,9 @@ instance MessageDecode UpdateWorkerBuildIdCompatibilityRequest'MergeSets where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage UpdateWorkerBuildIdCompatibilityRequest'MergeSets where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerBuildIdCompatibilityRequest.MergeSets"
 
 instance ProtoToJSON UpdateWorkerBuildIdCompatibilityRequest'MergeSets where
   protoToJSON msg = jsonObject
@@ -8605,6 +8929,9 @@ instance MessageDecode UpdateWorkerBuildIdCompatibilityRequest where
               loop acc_0 acc_1 (Just (UpdateWorkerBuildIdCompatibilityRequest'Operation'MergeSets v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage UpdateWorkerBuildIdCompatibilityRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerBuildIdCompatibilityRequest"
+
 instance ProtoToJSON UpdateWorkerBuildIdCompatibilityRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateWorkerBuildIdCompatibilityRequestNamespace
@@ -8650,6 +8977,9 @@ instance MessageDecode UpdateWorkerBuildIdCompatibilityResponse where
           Nothing -> pure (UpdateWorkerBuildIdCompatibilityResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage UpdateWorkerBuildIdCompatibilityResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerBuildIdCompatibilityResponse"
 
 instance ProtoToJSON UpdateWorkerBuildIdCompatibilityResponse where
   protoToJSON msg = jsonObject
@@ -8704,6 +9034,9 @@ instance MessageDecode GetWorkerBuildIdCompatibilityRequest where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage GetWorkerBuildIdCompatibilityRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkerBuildIdCompatibilityRequest"
+
 instance ProtoToJSON GetWorkerBuildIdCompatibilityRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.getWorkerBuildIdCompatibilityRequestNamespace
@@ -8754,6 +9087,9 @@ instance MessageDecode GetWorkerBuildIdCompatibilityResponse where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage GetWorkerBuildIdCompatibilityResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkerBuildIdCompatibilityResponse"
 
 instance ProtoToJSON GetWorkerBuildIdCompatibilityResponse where
   protoToJSON msg = jsonObject
@@ -8817,6 +9153,9 @@ instance MessageDecode UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmen
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesRequest.InsertBuildIdAssignmentRule"
+
 instance ProtoToJSON UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule where
   protoToJSON msg = jsonObject
       [ "ruleIndex" .= msg.updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRuleindex
@@ -8879,6 +9218,9 @@ instance MessageDecode UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignme
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesRequest.ReplaceBuildIdAssignmentRule"
+
 instance ProtoToJSON UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule where
   protoToJSON msg = jsonObject
       [ "ruleIndex" .= msg.updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRuleindex
@@ -8937,6 +9279,9 @@ instance MessageDecode UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmen
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesRequest.DeleteBuildIdAssignmentRule"
+
 instance ProtoToJSON UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule where
   protoToJSON msg = jsonObject
       [ "ruleIndex" .= msg.updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleRuleindex
@@ -8985,6 +9330,9 @@ instance MessageDecode UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRe
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesRequest.AddCompatibleBuildIdRedirectRule"
+
 instance ProtoToJSON UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule where
   protoToJSON msg = jsonObject
       [ "rule" .= msg.updateWorkerVersioningRulesRequestAddCompatibleBuildIdRedirectRuleRule
@@ -9031,6 +9379,9 @@ instance MessageDecode UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuild
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesRequest.ReplaceCompatibleBuildIdRedirectRule"
+
 instance ProtoToJSON UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule where
   protoToJSON msg = jsonObject
       [ "rule" .= msg.updateWorkerVersioningRulesRequestReplaceCompatibleBuildIdRedirectRuleRule
@@ -9076,6 +9427,9 @@ instance MessageDecode UpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildI
               v <- decodeFieldString
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage UpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesRequest.DeleteCompatibleBuildIdRedirectRule"
 
 instance ProtoToJSON UpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule where
   protoToJSON msg = jsonObject
@@ -9129,6 +9483,9 @@ instance MessageDecode UpdateWorkerVersioningRulesRequest'CommitBuildId where
               v <- decodeFieldBool
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage UpdateWorkerVersioningRulesRequest'CommitBuildId where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesRequest.CommitBuildId"
 
 instance ProtoToJSON UpdateWorkerVersioningRulesRequest'CommitBuildId where
   protoToJSON msg = jsonObject
@@ -9236,6 +9593,9 @@ instance MessageDecode UpdateWorkerVersioningRulesRequest where
               loop acc_0 acc_1 acc_2 (Just (UpdateWorkerVersioningRulesRequest'Operation'CommitBuildId v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage UpdateWorkerVersioningRulesRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesRequest"
+
 instance ProtoToJSON UpdateWorkerVersioningRulesRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateWorkerVersioningRulesRequestNamespace
@@ -9304,6 +9664,9 @@ instance MessageDecode UpdateWorkerVersioningRulesResponse where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage UpdateWorkerVersioningRulesResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerVersioningRulesResponse"
+
 instance ProtoToJSON UpdateWorkerVersioningRulesResponse where
   protoToJSON msg = jsonObject
       [ "assignmentRules" .= msg.updateWorkerVersioningRulesResponseAssignmentrules
@@ -9361,6 +9724,9 @@ instance MessageDecode GetWorkerVersioningRulesRequest where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage GetWorkerVersioningRulesRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkerVersioningRulesRequest"
 
 instance ProtoToJSON GetWorkerVersioningRulesRequest where
   protoToJSON msg = jsonObject
@@ -9423,6 +9789,9 @@ instance MessageDecode GetWorkerVersioningRulesResponse where
               v <- decodeFieldBytes
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage GetWorkerVersioningRulesResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkerVersioningRulesResponse"
 
 instance ProtoToJSON GetWorkerVersioningRulesResponse where
   protoToJSON msg = jsonObject
@@ -9496,6 +9865,9 @@ instance MessageDecode GetWorkerTaskReachabilityRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage GetWorkerTaskReachabilityRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkerTaskReachabilityRequest"
+
 instance ProtoToJSON GetWorkerTaskReachabilityRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.getWorkerTaskReachabilityRequestNamespace
@@ -9549,6 +9921,9 @@ instance MessageDecode GetWorkerTaskReachabilityResponse where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage GetWorkerTaskReachabilityResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetWorkerTaskReachabilityResponse"
 
 instance ProtoToJSON GetWorkerTaskReachabilityResponse where
   protoToJSON msg = jsonObject
@@ -9624,6 +9999,9 @@ instance MessageDecode UpdateWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage UpdateWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkflowExecutionRequest"
+
 instance ProtoToJSON UpdateWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateWorkflowExecutionRequestNamespace
@@ -9694,6 +10072,9 @@ instance MessageDecode UpdateWorkflowExecutionResponse where
               v <- decodeFieldEnum
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage UpdateWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkflowExecutionResponse"
 
 instance ProtoToJSON UpdateWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
@@ -9846,6 +10227,9 @@ instance MessageDecode StartBatchOperationRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just (StartBatchOperationRequest'Operation'UpdateActivityOptionsOperation v))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage StartBatchOperationRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.StartBatchOperationRequest"
+
 instance ProtoToJSON StartBatchOperationRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.startBatchOperationRequestNamespace
@@ -9903,6 +10287,9 @@ instance MessageDecode StartBatchOperationResponse where
           Nothing -> pure (StartBatchOperationResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage StartBatchOperationResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.StartBatchOperationResponse"
 
 instance ProtoToJSON StartBatchOperationResponse where
   protoToJSON msg = jsonObject
@@ -9964,6 +10351,9 @@ instance MessageDecode StopBatchOperationRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage StopBatchOperationRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.StopBatchOperationRequest"
+
 instance ProtoToJSON StopBatchOperationRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.stopBatchOperationRequestNamespace
@@ -10013,6 +10403,9 @@ instance MessageDecode StopBatchOperationResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage StopBatchOperationResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.StopBatchOperationResponse"
+
 instance ProtoToJSON StopBatchOperationResponse where
   protoToJSON msg = jsonObject
       []
@@ -10058,6 +10451,9 @@ instance MessageDecode DescribeBatchOperationRequest where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage DescribeBatchOperationRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeBatchOperationRequest"
 
 instance ProtoToJSON DescribeBatchOperationRequest where
   protoToJSON msg = jsonObject
@@ -10170,6 +10566,9 @@ instance MessageDecode DescribeBatchOperationResponse where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9
 
+instance IsMessage DescribeBatchOperationResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeBatchOperationResponse"
+
 instance ProtoToJSON DescribeBatchOperationResponse where
   protoToJSON msg = jsonObject
       [ "operationType" .= msg.describeBatchOperationResponseOperationtype
@@ -10256,6 +10655,9 @@ instance MessageDecode ListBatchOperationsRequest where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage ListBatchOperationsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListBatchOperationsRequest"
+
 instance ProtoToJSON ListBatchOperationsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listBatchOperationsRequestNamespace
@@ -10313,6 +10715,9 @@ instance MessageDecode ListBatchOperationsResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListBatchOperationsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListBatchOperationsResponse"
 
 instance ProtoToJSON ListBatchOperationsResponse where
   protoToJSON msg = jsonObject
@@ -10383,6 +10788,9 @@ instance MessageDecode PollWorkflowExecutionUpdateRequest where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage PollWorkflowExecutionUpdateRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollWorkflowExecutionUpdateRequest"
+
 instance ProtoToJSON PollWorkflowExecutionUpdateRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.pollWorkflowExecutionUpdateRequestNamespace
@@ -10450,6 +10858,9 @@ instance MessageDecode PollWorkflowExecutionUpdateResponse where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage PollWorkflowExecutionUpdateResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollWorkflowExecutionUpdateResponse"
 
 instance ProtoToJSON PollWorkflowExecutionUpdateResponse where
   protoToJSON msg = jsonObject
@@ -10544,6 +10955,9 @@ instance MessageDecode PollNexusTaskQueueRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (acc_6 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage PollNexusTaskQueueRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollNexusTaskQueueRequest"
+
 instance ProtoToJSON PollNexusTaskQueueRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.pollNexusTaskQueueRequestNamespace
@@ -10621,6 +11035,9 @@ instance MessageDecode PollNexusTaskQueueResponse where
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage PollNexusTaskQueueResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollNexusTaskQueueResponse"
+
 instance ProtoToJSON PollNexusTaskQueueResponse where
   protoToJSON msg = jsonObject
       [ "taskToken" .= msg.pollNexusTaskQueueResponseTasktoken
@@ -10693,6 +11110,9 @@ instance MessageDecode RespondNexusTaskCompletedRequest where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage RespondNexusTaskCompletedRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondNexusTaskCompletedRequest"
+
 instance ProtoToJSON RespondNexusTaskCompletedRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.respondNexusTaskCompletedRequestNamespace
@@ -10741,6 +11161,9 @@ instance MessageDecode RespondNexusTaskCompletedResponse where
           Nothing -> pure (RespondNexusTaskCompletedResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RespondNexusTaskCompletedResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondNexusTaskCompletedResponse"
 
 instance ProtoToJSON RespondNexusTaskCompletedResponse where
   protoToJSON msg = jsonObject
@@ -10809,6 +11232,9 @@ instance MessageDecode RespondNexusTaskFailedRequest where
               loop acc_0 acc_1 acc_2 acc_3 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage RespondNexusTaskFailedRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondNexusTaskFailedRequest"
+
 instance ProtoToJSON RespondNexusTaskFailedRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.respondNexusTaskFailedRequestNamespace
@@ -10860,6 +11286,9 @@ instance MessageDecode RespondNexusTaskFailedResponse where
           Nothing -> pure (RespondNexusTaskFailedResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RespondNexusTaskFailedResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RespondNexusTaskFailedResponse"
 
 instance ProtoToJSON RespondNexusTaskFailedResponse where
   protoToJSON msg = jsonObject
@@ -10923,6 +11352,9 @@ instance MessageDecode ExecuteMultiOperationRequest'Operation where
               loop (Just (ExecuteMultiOperationRequest'Operation'Operation'UpdateWorkflow v))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage ExecuteMultiOperationRequest'Operation where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ExecuteMultiOperationRequest.Operation"
+
 instance ProtoToJSON ExecuteMultiOperationRequest'Operation where
   protoToJSON msg = jsonObject
       [ "operation" .= msg.executeMultiOperationRequestOperationOperation
@@ -10968,6 +11400,9 @@ instance MessageDecode ExecuteMultiOperationRequest where
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ExecuteMultiOperationRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ExecuteMultiOperationRequest"
 
 instance ProtoToJSON ExecuteMultiOperationRequest where
   protoToJSON msg = jsonObject
@@ -11039,6 +11474,9 @@ instance MessageDecode ExecuteMultiOperationResponse'Response where
               loop (Just (ExecuteMultiOperationResponse'Response'Response'UpdateWorkflow v))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage ExecuteMultiOperationResponse'Response where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ExecuteMultiOperationResponse.Response"
+
 instance ProtoToJSON ExecuteMultiOperationResponse'Response where
   protoToJSON msg = jsonObject
       [ "response" .= msg.executeMultiOperationResponseResponseResponse
@@ -11078,6 +11516,9 @@ instance MessageDecode ExecuteMultiOperationResponse where
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage ExecuteMultiOperationResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ExecuteMultiOperationResponse"
 
 instance ProtoToJSON ExecuteMultiOperationResponse where
   protoToJSON msg = jsonObject
@@ -11189,6 +11630,9 @@ instance MessageDecode UpdateActivityOptionsRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage UpdateActivityOptionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateActivityOptionsRequest"
+
 instance ProtoToJSON UpdateActivityOptionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateActivityOptionsRequestNamespace
@@ -11251,6 +11695,9 @@ instance MessageDecode UpdateActivityOptionsResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage UpdateActivityOptionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateActivityOptionsResponse"
 
 instance ProtoToJSON UpdateActivityOptionsResponse where
   protoToJSON msg = jsonObject
@@ -11342,6 +11789,9 @@ instance MessageDecode PauseActivityRequest where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage PauseActivityRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PauseActivityRequest"
+
 instance ProtoToJSON PauseActivityRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.pauseActivityRequestNamespace
@@ -11393,6 +11843,9 @@ instance MessageDecode PauseActivityResponse where
           Nothing -> pure (PauseActivityResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage PauseActivityResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PauseActivityResponse"
 
 instance ProtoToJSON PauseActivityResponse where
   protoToJSON msg = jsonObject
@@ -11497,6 +11950,9 @@ instance MessageDecode UnpauseActivityRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6
 
+instance IsMessage UnpauseActivityRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UnpauseActivityRequest"
+
 instance ProtoToJSON UnpauseActivityRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.unpauseActivityRequestNamespace
@@ -11554,6 +12010,9 @@ instance MessageDecode UnpauseActivityResponse where
           Nothing -> pure (UnpauseActivityResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage UnpauseActivityResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UnpauseActivityResponse"
 
 instance ProtoToJSON UnpauseActivityResponse where
   protoToJSON msg = jsonObject
@@ -11665,6 +12124,9 @@ instance MessageDecode ResetActivityRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage ResetActivityRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ResetActivityRequest"
+
 instance ProtoToJSON ResetActivityRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.resetActivityRequestNamespace
@@ -11725,6 +12187,9 @@ instance MessageDecode ResetActivityResponse where
           Nothing -> pure (ResetActivityResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage ResetActivityResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ResetActivityResponse"
 
 instance ProtoToJSON ResetActivityResponse where
   protoToJSON msg = jsonObject
@@ -11793,6 +12258,9 @@ instance MessageDecode UpdateWorkflowExecutionOptionsRequest where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage UpdateWorkflowExecutionOptionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkflowExecutionOptionsRequest"
+
 instance ProtoToJSON UpdateWorkflowExecutionOptionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateWorkflowExecutionOptionsRequestNamespace
@@ -11850,6 +12318,9 @@ instance MessageDecode UpdateWorkflowExecutionOptionsResponse where
               loop (Just v)
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage UpdateWorkflowExecutionOptionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkflowExecutionOptionsResponse"
+
 instance ProtoToJSON UpdateWorkflowExecutionOptionsResponse where
   protoToJSON msg = jsonObject
       [ "workflowExecutionOptions" .= msg.updateWorkflowExecutionOptionsResponseWorkflowexecutionoptions
@@ -11903,6 +12374,9 @@ instance MessageDecode DescribeDeploymentRequest where
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DescribeDeploymentRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeDeploymentRequest"
+
 instance ProtoToJSON DescribeDeploymentRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.describeDeploymentRequestNamespace
@@ -11950,6 +12424,9 @@ instance MessageDecode DescribeDeploymentResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage DescribeDeploymentResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeDeploymentResponse"
 
 instance ProtoToJSON DescribeDeploymentResponse where
   protoToJSON msg = jsonObject
@@ -12017,6 +12494,9 @@ instance MessageDecode DescribeWorkerDeploymentVersionRequest where
               v <- decodeFieldBool
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
+
+instance IsMessage DescribeWorkerDeploymentVersionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkerDeploymentVersionRequest"
 
 instance ProtoToJSON DescribeWorkerDeploymentVersionRequest where
   protoToJSON msg = jsonObject
@@ -12103,6 +12583,9 @@ instance MessageDecode DescribeWorkerDeploymentVersionResponse'VersionTaskQueue 
                 Right (mk', mv') -> loop acc_0 acc_1 acc_2 (Map.union acc_3 (Map.singleton mk' mv'))
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage DescribeWorkerDeploymentVersionResponse'VersionTaskQueue where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkerDeploymentVersionResponse.VersionTaskQueue"
+
 instance ProtoToJSON DescribeWorkerDeploymentVersionResponse'VersionTaskQueue where
   protoToJSON msg = jsonObject
       [ "name" .= msg.describeWorkerDeploymentVersionResponseVersionTaskQueueName
@@ -12156,6 +12639,9 @@ instance MessageDecode DescribeWorkerDeploymentVersionResponse where
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage DescribeWorkerDeploymentVersionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkerDeploymentVersionResponse"
 
 instance ProtoToJSON DescribeWorkerDeploymentVersionResponse where
   protoToJSON msg = jsonObject
@@ -12212,6 +12698,9 @@ instance MessageDecode DescribeWorkerDeploymentRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DescribeWorkerDeploymentRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkerDeploymentRequest"
+
 instance ProtoToJSON DescribeWorkerDeploymentRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.describeWorkerDeploymentRequestNamespace
@@ -12266,6 +12755,9 @@ instance MessageDecode DescribeWorkerDeploymentResponse where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage DescribeWorkerDeploymentResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkerDeploymentResponse"
 
 instance ProtoToJSON DescribeWorkerDeploymentResponse where
   protoToJSON msg = jsonObject
@@ -12336,6 +12828,9 @@ instance MessageDecode ListDeploymentsRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ListDeploymentsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListDeploymentsRequest"
+
 instance ProtoToJSON ListDeploymentsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listDeploymentsRequestNamespace
@@ -12396,6 +12891,9 @@ instance MessageDecode ListDeploymentsResponse where
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListDeploymentsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListDeploymentsResponse"
 
 instance ProtoToJSON ListDeploymentsResponse where
   protoToJSON msg = jsonObject
@@ -12466,6 +12964,9 @@ instance MessageDecode SetCurrentDeploymentRequest where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage SetCurrentDeploymentRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SetCurrentDeploymentRequest"
+
 instance ProtoToJSON SetCurrentDeploymentRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.setCurrentDeploymentRequestNamespace
@@ -12526,6 +13027,9 @@ instance MessageDecode SetCurrentDeploymentResponse where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage SetCurrentDeploymentResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SetCurrentDeploymentResponse"
 
 instance ProtoToJSON SetCurrentDeploymentResponse where
   protoToJSON msg = jsonObject
@@ -12624,6 +13128,9 @@ instance MessageDecode SetWorkerDeploymentCurrentVersionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage SetWorkerDeploymentCurrentVersionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SetWorkerDeploymentCurrentVersionRequest"
+
 instance ProtoToJSON SetWorkerDeploymentCurrentVersionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.setWorkerDeploymentCurrentVersionRequestNamespace
@@ -12703,6 +13210,9 @@ instance MessageDecode SetWorkerDeploymentCurrentVersionResponse where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage SetWorkerDeploymentCurrentVersionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SetWorkerDeploymentCurrentVersionResponse"
 
 instance ProtoToJSON SetWorkerDeploymentCurrentVersionResponse where
   protoToJSON msg = jsonObject
@@ -12811,6 +13321,9 @@ instance MessageDecode SetWorkerDeploymentRampingVersionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8
 
+instance IsMessage SetWorkerDeploymentRampingVersionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SetWorkerDeploymentRampingVersionRequest"
+
 instance ProtoToJSON SetWorkerDeploymentRampingVersionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.setWorkerDeploymentRampingVersionRequestNamespace
@@ -12901,6 +13414,9 @@ instance MessageDecode SetWorkerDeploymentRampingVersionResponse where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage SetWorkerDeploymentRampingVersionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SetWorkerDeploymentRampingVersionResponse"
+
 instance ProtoToJSON SetWorkerDeploymentRampingVersionResponse where
   protoToJSON msg = jsonObject
       [ "conflictToken" .= msg.setWorkerDeploymentRampingVersionResponseConflicttoken
@@ -12968,6 +13484,9 @@ instance MessageDecode ListWorkerDeploymentsRequest where
               v <- decodeFieldBytes
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage ListWorkerDeploymentsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkerDeploymentsRequest"
 
 instance ProtoToJSON ListWorkerDeploymentsRequest where
   protoToJSON msg = jsonObject
@@ -13062,6 +13581,9 @@ instance MessageDecode ListWorkerDeploymentsResponse'WorkerDeploymentSummary whe
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage ListWorkerDeploymentsResponse'WorkerDeploymentSummary where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkerDeploymentsResponse.WorkerDeploymentSummary"
+
 instance ProtoToJSON ListWorkerDeploymentsResponse'WorkerDeploymentSummary where
   protoToJSON msg = jsonObject
       [ "name" .= msg.listWorkerDeploymentsResponseWorkerDeploymentSummaryName
@@ -13121,6 +13643,9 @@ instance MessageDecode ListWorkerDeploymentsResponse where
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListWorkerDeploymentsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkerDeploymentsResponse"
 
 instance ProtoToJSON ListWorkerDeploymentsResponse where
   protoToJSON msg = jsonObject
@@ -13198,6 +13723,9 @@ instance MessageDecode DeleteWorkerDeploymentVersionRequest where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage DeleteWorkerDeploymentVersionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteWorkerDeploymentVersionRequest"
+
 instance ProtoToJSON DeleteWorkerDeploymentVersionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.deleteWorkerDeploymentVersionRequestNamespace
@@ -13249,6 +13777,9 @@ instance MessageDecode DeleteWorkerDeploymentVersionResponse where
           Nothing -> pure (DeleteWorkerDeploymentVersionResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage DeleteWorkerDeploymentVersionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteWorkerDeploymentVersionResponse"
 
 instance ProtoToJSON DeleteWorkerDeploymentVersionResponse where
   protoToJSON msg = jsonObject
@@ -13303,6 +13834,9 @@ instance MessageDecode DeleteWorkerDeploymentRequest where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage DeleteWorkerDeploymentRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteWorkerDeploymentRequest"
+
 instance ProtoToJSON DeleteWorkerDeploymentRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.deleteWorkerDeploymentRequestNamespace
@@ -13348,6 +13882,9 @@ instance MessageDecode DeleteWorkerDeploymentResponse where
           Nothing -> pure (DeleteWorkerDeploymentResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage DeleteWorkerDeploymentResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteWorkerDeploymentResponse"
 
 instance ProtoToJSON DeleteWorkerDeploymentResponse where
   protoToJSON msg = jsonObject
@@ -13426,6 +13963,9 @@ instance MessageDecode UpdateWorkerDeploymentVersionMetadataRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage UpdateWorkerDeploymentVersionMetadataRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerDeploymentVersionMetadataRequest"
+
 instance ProtoToJSON UpdateWorkerDeploymentVersionMetadataRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateWorkerDeploymentVersionMetadataRequestNamespace
@@ -13485,6 +14025,9 @@ instance MessageDecode UpdateWorkerDeploymentVersionMetadataResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage UpdateWorkerDeploymentVersionMetadataResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerDeploymentVersionMetadataResponse"
 
 instance ProtoToJSON UpdateWorkerDeploymentVersionMetadataResponse where
   protoToJSON msg = jsonObject
@@ -13576,6 +14119,9 @@ instance MessageDecode SetWorkerDeploymentManagerRequest where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage SetWorkerDeploymentManagerRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SetWorkerDeploymentManagerRequest"
+
 instance ProtoToJSON SetWorkerDeploymentManagerRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.setWorkerDeploymentManagerRequestNamespace
@@ -13640,6 +14186,9 @@ instance MessageDecode SetWorkerDeploymentManagerResponse where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage SetWorkerDeploymentManagerResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.SetWorkerDeploymentManagerResponse"
+
 instance ProtoToJSON SetWorkerDeploymentManagerResponse where
   protoToJSON msg = jsonObject
       [ "conflictToken" .= msg.setWorkerDeploymentManagerResponseConflicttoken
@@ -13695,6 +14244,9 @@ instance MessageDecode GetCurrentDeploymentRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage GetCurrentDeploymentRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetCurrentDeploymentRequest"
+
 instance ProtoToJSON GetCurrentDeploymentRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.getCurrentDeploymentRequestNamespace
@@ -13742,6 +14294,9 @@ instance MessageDecode GetCurrentDeploymentResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage GetCurrentDeploymentResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetCurrentDeploymentResponse"
 
 instance ProtoToJSON GetCurrentDeploymentResponse where
   protoToJSON msg = jsonObject
@@ -13795,6 +14350,9 @@ instance MessageDecode GetDeploymentReachabilityRequest where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage GetDeploymentReachabilityRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetDeploymentReachabilityRequest"
 
 instance ProtoToJSON GetDeploymentReachabilityRequest where
   protoToJSON msg = jsonObject
@@ -13857,6 +14415,9 @@ instance MessageDecode GetDeploymentReachabilityResponse where
               v <- decodeFieldMessage
               loop acc_0 acc_1 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
+
+instance IsMessage GetDeploymentReachabilityResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.GetDeploymentReachabilityResponse"
 
 instance ProtoToJSON GetDeploymentReachabilityResponse where
   protoToJSON msg = jsonObject
@@ -13944,6 +14505,9 @@ instance MessageDecode CreateWorkflowRuleRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage CreateWorkflowRuleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CreateWorkflowRuleRequest"
+
 instance ProtoToJSON CreateWorkflowRuleRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.createWorkflowRuleRequestNamespace
@@ -14011,6 +14575,9 @@ instance MessageDecode CreateWorkflowRuleResponse where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage CreateWorkflowRuleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CreateWorkflowRuleResponse"
+
 instance ProtoToJSON CreateWorkflowRuleResponse where
   protoToJSON msg = jsonObject
       [ "rule" .= msg.createWorkflowRuleResponseRule
@@ -14066,6 +14633,9 @@ instance MessageDecode DescribeWorkflowRuleRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DescribeWorkflowRuleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkflowRuleRequest"
+
 instance ProtoToJSON DescribeWorkflowRuleRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.describeWorkflowRuleRequestNamespace
@@ -14113,6 +14683,9 @@ instance MessageDecode DescribeWorkflowRuleResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage DescribeWorkflowRuleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkflowRuleResponse"
 
 instance ProtoToJSON DescribeWorkflowRuleResponse where
   protoToJSON msg = jsonObject
@@ -14167,6 +14740,9 @@ instance MessageDecode DeleteWorkflowRuleRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DeleteWorkflowRuleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteWorkflowRuleRequest"
+
 instance ProtoToJSON DeleteWorkflowRuleRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.deleteWorkflowRuleRequestNamespace
@@ -14209,6 +14785,9 @@ instance MessageDecode DeleteWorkflowRuleResponse where
           Nothing -> pure (DeleteWorkflowRuleResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage DeleteWorkflowRuleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteWorkflowRuleResponse"
 
 instance ProtoToJSON DeleteWorkflowRuleResponse where
   protoToJSON msg = jsonObject
@@ -14255,6 +14834,9 @@ instance MessageDecode ListWorkflowRulesRequest where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListWorkflowRulesRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkflowRulesRequest"
 
 instance ProtoToJSON ListWorkflowRulesRequest where
   protoToJSON msg = jsonObject
@@ -14310,6 +14892,9 @@ instance MessageDecode ListWorkflowRulesResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListWorkflowRulesResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkflowRulesResponse"
 
 instance ProtoToJSON ListWorkflowRulesResponse where
   protoToJSON msg = jsonObject
@@ -14396,6 +14981,9 @@ instance MessageDecode TriggerWorkflowRuleRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage TriggerWorkflowRuleRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.TriggerWorkflowRuleRequest"
+
 instance ProtoToJSON TriggerWorkflowRuleRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.triggerWorkflowRuleRequestNamespace
@@ -14449,6 +15037,9 @@ instance MessageDecode TriggerWorkflowRuleResponse where
               v <- decodeFieldBool
               loop v
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage TriggerWorkflowRuleResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.TriggerWorkflowRuleResponse"
 
 instance ProtoToJSON TriggerWorkflowRuleResponse where
   protoToJSON msg = jsonObject
@@ -14510,6 +15101,9 @@ instance MessageDecode RecordWorkerHeartbeatRequest where
               loop acc_0 acc_1 (acc_2 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage RecordWorkerHeartbeatRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RecordWorkerHeartbeatRequest"
+
 instance ProtoToJSON RecordWorkerHeartbeatRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.recordWorkerHeartbeatRequestNamespace
@@ -14555,6 +15149,9 @@ instance MessageDecode RecordWorkerHeartbeatResponse where
           Nothing -> pure (RecordWorkerHeartbeatResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RecordWorkerHeartbeatResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RecordWorkerHeartbeatResponse"
 
 instance ProtoToJSON RecordWorkerHeartbeatResponse where
   protoToJSON msg = jsonObject
@@ -14616,6 +15213,9 @@ instance MessageDecode ListWorkersRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ListWorkersRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkersRequest"
+
 instance ProtoToJSON ListWorkersRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listWorkersRequestNamespace
@@ -14676,6 +15276,9 @@ instance MessageDecode ListWorkersResponse where
               v <- decodeFieldBytes
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage ListWorkersResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListWorkersResponse"
 
 instance ProtoToJSON ListWorkersResponse where
   protoToJSON msg = jsonObject
@@ -14744,6 +15347,9 @@ instance MessageDecode UpdateTaskQueueConfigRequest'RateLimitUpdate where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage UpdateTaskQueueConfigRequest'RateLimitUpdate where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateTaskQueueConfigRequest.RateLimitUpdate"
 
 instance ProtoToJSON UpdateTaskQueueConfigRequest'RateLimitUpdate where
   protoToJSON msg = jsonObject
@@ -14832,6 +15438,9 @@ instance MessageDecode UpdateTaskQueueConfigRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 (acc_7 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7
 
+instance IsMessage UpdateTaskQueueConfigRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateTaskQueueConfigRequest"
+
 instance ProtoToJSON UpdateTaskQueueConfigRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateTaskQueueConfigRequestNamespace
@@ -14897,6 +15506,9 @@ instance MessageDecode UpdateTaskQueueConfigResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage UpdateTaskQueueConfigResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateTaskQueueConfigResponse"
 
 instance ProtoToJSON UpdateTaskQueueConfigResponse where
   protoToJSON msg = jsonObject
@@ -14965,6 +15577,9 @@ instance MessageDecode FetchWorkerConfigRequest where
               loop acc_0 acc_1 acc_2 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage FetchWorkerConfigRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.FetchWorkerConfigRequest"
+
 instance ProtoToJSON FetchWorkerConfigRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.fetchWorkerConfigRequestNamespace
@@ -15018,6 +15633,9 @@ instance MessageDecode FetchWorkerConfigResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage FetchWorkerConfigResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.FetchWorkerConfigResponse"
 
 instance ProtoToJSON FetchWorkerConfigResponse where
   protoToJSON msg = jsonObject
@@ -15100,6 +15718,9 @@ instance MessageDecode UpdateWorkerConfigRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage UpdateWorkerConfigRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerConfigRequest"
+
 instance ProtoToJSON UpdateWorkerConfigRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.updateWorkerConfigRequestNamespace
@@ -15170,6 +15791,9 @@ instance MessageDecode UpdateWorkerConfigResponse where
               loop (Just (UpdateWorkerConfigResponse'Response'WorkerConfig v))
             _ -> skipField wt >> loop acc_0
 
+instance IsMessage UpdateWorkerConfigResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UpdateWorkerConfigResponse"
+
 instance ProtoToJSON UpdateWorkerConfigResponse where
   protoToJSON msg = jsonObject
       [ "response" .= msg.updateWorkerConfigResponseResponse
@@ -15223,6 +15847,9 @@ instance MessageDecode DescribeWorkerRequest where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage DescribeWorkerRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkerRequest"
+
 instance ProtoToJSON DescribeWorkerRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.describeWorkerRequestNamespace
@@ -15270,6 +15897,9 @@ instance MessageDecode DescribeWorkerResponse where
               v <- decodeFieldMessage
               loop (Just v)
             _ -> skipField wt >> loop acc_0
+
+instance IsMessage DescribeWorkerResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeWorkerResponse"
 
 instance ProtoToJSON DescribeWorkerResponse where
   protoToJSON msg = jsonObject
@@ -15352,6 +15982,9 @@ instance MessageDecode PauseWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage PauseWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PauseWorkflowExecutionRequest"
+
 instance ProtoToJSON PauseWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.pauseWorkflowExecutionRequestNamespace
@@ -15406,6 +16039,9 @@ instance MessageDecode PauseWorkflowExecutionResponse where
           Nothing -> pure (PauseWorkflowExecutionResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage PauseWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PauseWorkflowExecutionResponse"
 
 instance ProtoToJSON PauseWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
@@ -15481,6 +16117,9 @@ instance MessageDecode UnpauseWorkflowExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage UnpauseWorkflowExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UnpauseWorkflowExecutionRequest"
+
 instance ProtoToJSON UnpauseWorkflowExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.unpauseWorkflowExecutionRequestNamespace
@@ -15535,6 +16174,9 @@ instance MessageDecode UnpauseWorkflowExecutionResponse where
           Nothing -> pure (UnpauseWorkflowExecutionResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage UnpauseWorkflowExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.UnpauseWorkflowExecutionResponse"
 
 instance ProtoToJSON UnpauseWorkflowExecutionResponse where
   protoToJSON msg = jsonObject
@@ -15694,6 +16336,9 @@ instance MessageDecode StartActivityExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17
 
+instance IsMessage StartActivityExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.StartActivityExecutionRequest"
+
 instance ProtoToJSON StartActivityExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.startActivityExecutionRequestNamespace
@@ -15797,6 +16442,9 @@ instance MessageDecode StartActivityExecutionResponse where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage StartActivityExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.StartActivityExecutionResponse"
+
 instance ProtoToJSON StartActivityExecutionResponse where
   protoToJSON msg = jsonObject
       [ "runId" .= msg.startActivityExecutionResponseRunid
@@ -15879,6 +16527,9 @@ instance MessageDecode DescribeActivityExecutionRequest where
               v <- decodeFieldBytes
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
+
+instance IsMessage DescribeActivityExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeActivityExecutionRequest"
 
 instance ProtoToJSON DescribeActivityExecutionRequest where
   protoToJSON msg = jsonObject
@@ -15968,6 +16619,9 @@ instance MessageDecode DescribeActivityExecutionResponse where
               loop acc_0 acc_1 acc_2 acc_3 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4
 
+instance IsMessage DescribeActivityExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DescribeActivityExecutionResponse"
+
 instance ProtoToJSON DescribeActivityExecutionResponse where
   protoToJSON msg = jsonObject
       [ "runId" .= msg.describeActivityExecutionResponseRunid
@@ -16039,6 +16693,9 @@ instance MessageDecode PollActivityExecutionRequest where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage PollActivityExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollActivityExecutionRequest"
+
 instance ProtoToJSON PollActivityExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.pollActivityExecutionRequestNamespace
@@ -16096,6 +16753,9 @@ instance MessageDecode PollActivityExecutionResponse where
               v <- decodeFieldMessage
               loop acc_0 (Just v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage PollActivityExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.PollActivityExecutionResponse"
 
 instance ProtoToJSON PollActivityExecutionResponse where
   protoToJSON msg = jsonObject
@@ -16166,6 +16826,9 @@ instance MessageDecode ListActivityExecutionsRequest where
               loop acc_0 acc_1 acc_2 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3
 
+instance IsMessage ListActivityExecutionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListActivityExecutionsRequest"
+
 instance ProtoToJSON ListActivityExecutionsRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.listActivityExecutionsRequestNamespace
@@ -16227,6 +16890,9 @@ instance MessageDecode ListActivityExecutionsResponse where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage ListActivityExecutionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.ListActivityExecutionsResponse"
+
 instance ProtoToJSON ListActivityExecutionsResponse where
   protoToJSON msg = jsonObject
       [ "executions" .= msg.listActivityExecutionsResponseExecutions
@@ -16281,6 +16947,9 @@ instance MessageDecode CountActivityExecutionsRequest where
               v <- decodeFieldString
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage CountActivityExecutionsRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountActivityExecutionsRequest"
 
 instance ProtoToJSON CountActivityExecutionsRequest where
   protoToJSON msg = jsonObject
@@ -16344,6 +17013,9 @@ instance MessageDecode CountActivityExecutionsResponse'AggregationGroup where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage CountActivityExecutionsResponse'AggregationGroup where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountActivityExecutionsResponse.AggregationGroup"
+
 instance ProtoToJSON CountActivityExecutionsResponse'AggregationGroup where
   protoToJSON msg = jsonObject
       [ "groupValues" .= msg.countActivityExecutionsResponseAggregationGroupGroupvalues
@@ -16391,6 +17063,9 @@ instance MessageDecode CountActivityExecutionsResponse where
               v <- decodeFieldMessage
               loop acc_0 (acc_1 <> V.singleton v)
             _ -> skipField wt >> loop acc_0 acc_1
+
+instance IsMessage CountActivityExecutionsResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.CountActivityExecutionsResponse"
 
 instance ProtoToJSON CountActivityExecutionsResponse where
   protoToJSON msg = jsonObject
@@ -16475,6 +17150,9 @@ instance MessageDecode RequestCancelActivityExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage RequestCancelActivityExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RequestCancelActivityExecutionRequest"
+
 instance ProtoToJSON RequestCancelActivityExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.requestCancelActivityExecutionRequestNamespace
@@ -16529,6 +17207,9 @@ instance MessageDecode RequestCancelActivityExecutionResponse where
           Nothing -> pure (RequestCancelActivityExecutionResponse {})
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
+
+instance IsMessage RequestCancelActivityExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.RequestCancelActivityExecutionResponse"
 
 instance ProtoToJSON RequestCancelActivityExecutionResponse where
   protoToJSON msg = jsonObject
@@ -16604,6 +17285,9 @@ instance MessageDecode TerminateActivityExecutionRequest where
               loop acc_0 acc_1 acc_2 acc_3 acc_4 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5
 
+instance IsMessage TerminateActivityExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.TerminateActivityExecutionRequest"
+
 instance ProtoToJSON TerminateActivityExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.terminateActivityExecutionRequestNamespace
@@ -16659,6 +17343,9 @@ instance MessageDecode TerminateActivityExecutionResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage TerminateActivityExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.TerminateActivityExecutionResponse"
+
 instance ProtoToJSON TerminateActivityExecutionResponse where
   protoToJSON msg = jsonObject
       []
@@ -16712,6 +17399,9 @@ instance MessageDecode DeleteActivityExecutionRequest where
               loop acc_0 acc_1 v
             _ -> skipField wt >> loop acc_0 acc_1 acc_2
 
+instance IsMessage DeleteActivityExecutionRequest where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteActivityExecutionRequest"
+
 instance ProtoToJSON DeleteActivityExecutionRequest where
   protoToJSON msg = jsonObject
       [ "namespace" .= msg.deleteActivityExecutionRequestNamespace
@@ -16758,9 +17448,246 @@ instance MessageDecode DeleteActivityExecutionResponse where
           Just (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
+instance IsMessage DeleteActivityExecutionResponse where
+  messageTypeName _ = "temporal.api.workflowservice.v1.DeleteActivityExecutionResponse"
+
 instance ProtoToJSON DeleteActivityExecutionResponse where
   protoToJSON msg = jsonObject
       []
 
 instance ProtoFromJSON DeleteActivityExecutionResponse where
   protoFromJSON _ = Right defaultDeleteActivityExecutionResponse
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy RegisterNamespaceRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RegisterNamespaceResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListNamespacesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListNamespacesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeNamespaceRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeNamespaceResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateNamespaceRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateNamespaceResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DeprecateNamespaceRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeprecateNamespaceResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy StartWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy StartWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkflowExecutionHistoryRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkflowExecutionHistoryResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkflowExecutionHistoryReverseRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkflowExecutionHistoryReverseResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy PollWorkflowTaskQueueRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy PollWorkflowTaskQueueResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondWorkflowTaskCompletedRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondWorkflowTaskCompletedRequest'Capabilities) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondWorkflowTaskCompletedResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondWorkflowTaskFailedRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondWorkflowTaskFailedResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy PollActivityTaskQueueRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy PollActivityTaskQueueResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RecordActivityTaskHeartbeatRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RecordActivityTaskHeartbeatResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RecordActivityTaskHeartbeatByIdRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RecordActivityTaskHeartbeatByIdResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskCompletedRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskCompletedResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskCompletedByIdRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskCompletedByIdResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskFailedRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskFailedResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskFailedByIdRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskFailedByIdResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskCanceledRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskCanceledResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskCanceledByIdRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondActivityTaskCanceledByIdResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy SignalWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy SignalWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy SignalWithStartWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy SignalWithStartWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy TerminateWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy TerminateWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListOpenWorkflowExecutionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListOpenWorkflowExecutionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListClosedWorkflowExecutionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListClosedWorkflowExecutionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkflowExecutionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkflowExecutionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListArchivedWorkflowExecutionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListArchivedWorkflowExecutionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ScanWorkflowExecutionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ScanWorkflowExecutionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CountWorkflowExecutionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy CountWorkflowExecutionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CountWorkflowExecutionsResponse'AggregationGroup) .
+  Proto.Registry.registerType (Proxy :: Proxy GetSearchAttributesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetSearchAttributesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondQueryTaskCompletedRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondQueryTaskCompletedResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetStickyTaskQueueRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetStickyTaskQueueResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ShutdownWorkerRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ShutdownWorkerResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy QueryWorkflowRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy QueryWorkflowResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeTaskQueueRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeTaskQueueResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeTaskQueueResponse'EffectiveRateLimit) .
+  Proto.Registry.registerType (Proxy :: Proxy GetClusterInfoRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetClusterInfoResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetSystemInfoRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetSystemInfoResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetSystemInfoResponse'Capabilities) .
+  Proto.Registry.registerType (Proxy :: Proxy ListTaskQueuePartitionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListTaskQueuePartitionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CreateScheduleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy CreateScheduleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeScheduleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeScheduleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateScheduleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateScheduleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy PatchScheduleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy PatchScheduleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListScheduleMatchingTimesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListScheduleMatchingTimesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteScheduleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteScheduleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListSchedulesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListSchedulesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CountSchedulesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy CountSchedulesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CountSchedulesResponse'AggregationGroup) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerBuildIdCompatibilityRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerBuildIdCompatibilityRequest'MergeSets) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerBuildIdCompatibilityResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkerBuildIdCompatibilityRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkerBuildIdCompatibilityResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesRequest'CommitBuildId) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerVersioningRulesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkerVersioningRulesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkerVersioningRulesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkerTaskReachabilityRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetWorkerTaskReachabilityResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy StartBatchOperationRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy StartBatchOperationResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy StopBatchOperationRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy StopBatchOperationResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeBatchOperationRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeBatchOperationResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListBatchOperationsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListBatchOperationsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy PollWorkflowExecutionUpdateRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy PollWorkflowExecutionUpdateResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy PollNexusTaskQueueRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy PollNexusTaskQueueResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondNexusTaskCompletedRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondNexusTaskCompletedResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondNexusTaskFailedRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RespondNexusTaskFailedResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ExecuteMultiOperationRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ExecuteMultiOperationRequest'Operation) .
+  Proto.Registry.registerType (Proxy :: Proxy ExecuteMultiOperationResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ExecuteMultiOperationResponse'Response) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateActivityOptionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateActivityOptionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy PauseActivityRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy PauseActivityResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UnpauseActivityRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UnpauseActivityResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetActivityRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ResetActivityResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkflowExecutionOptionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkflowExecutionOptionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeDeploymentRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeDeploymentResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkerDeploymentVersionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkerDeploymentVersionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkerDeploymentVersionResponse'VersionTaskQueue) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkerDeploymentRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkerDeploymentResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListDeploymentsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListDeploymentsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy SetCurrentDeploymentRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy SetCurrentDeploymentResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy SetWorkerDeploymentCurrentVersionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy SetWorkerDeploymentCurrentVersionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy SetWorkerDeploymentRampingVersionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy SetWorkerDeploymentRampingVersionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkerDeploymentsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkerDeploymentsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkerDeploymentsResponse'WorkerDeploymentSummary) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteWorkerDeploymentVersionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteWorkerDeploymentVersionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteWorkerDeploymentRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteWorkerDeploymentResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerDeploymentVersionMetadataRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerDeploymentVersionMetadataResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy SetWorkerDeploymentManagerRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy SetWorkerDeploymentManagerResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetCurrentDeploymentRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetCurrentDeploymentResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy GetDeploymentReachabilityRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy GetDeploymentReachabilityResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CreateWorkflowRuleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy CreateWorkflowRuleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkflowRuleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkflowRuleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteWorkflowRuleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteWorkflowRuleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkflowRulesRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkflowRulesResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy TriggerWorkflowRuleRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy TriggerWorkflowRuleResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy RecordWorkerHeartbeatRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RecordWorkerHeartbeatResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkersRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListWorkersResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateTaskQueueConfigRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateTaskQueueConfigRequest'RateLimitUpdate) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateTaskQueueConfigResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy FetchWorkerConfigRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy FetchWorkerConfigResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerConfigRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UpdateWorkerConfigResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkerRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeWorkerResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy PauseWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy PauseWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy UnpauseWorkflowExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy UnpauseWorkflowExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy StartActivityExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy StartActivityExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeActivityExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DescribeActivityExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy PollActivityExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy PollActivityExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy ListActivityExecutionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy ListActivityExecutionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CountActivityExecutionsRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy CountActivityExecutionsResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy CountActivityExecutionsResponse'AggregationGroup) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelActivityExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy RequestCancelActivityExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy TerminateActivityExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy TerminateActivityExecutionResponse) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteActivityExecutionRequest) .
+  Proto.Registry.registerType (Proxy :: Proxy DeleteActivityExecutionResponse) .  id

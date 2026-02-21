@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -76,6 +79,9 @@ instance MessageDecode Timestamp where
               loop acc_0 v
             _ -> skipField wt >> loop acc_0 acc_1
 
+instance IsMessage Timestamp where
+  messageTypeName _ = "google.protobuf.Timestamp"
+
 instance ProtoToJSON Timestamp where
   protoToJSON msg =
     let s = msg.timestampSeconds
@@ -106,3 +112,9 @@ instance ProtoToJSON Timestamp where
 instance ProtoFromJSON Timestamp where
   protoFromJSON (JsonString _) = Right defaultTimestamp
   protoFromJSON _ = Left "Expected RFC 3339 timestamp string"
+
+
+-- | Register all message types defined in this module.
+registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
+registerModuleTypes =
+  Proto.Registry.registerType (Proxy :: Proxy Timestamp) .  id

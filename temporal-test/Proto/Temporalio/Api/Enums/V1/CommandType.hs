@@ -25,6 +25,9 @@ import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
 import Proto.JSON
+import Data.Proxy (Proxy(..))
+import Proto.Message (IsMessage(..))
+import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited,
@@ -149,3 +152,4 @@ instance ProtoFromJSON CommandType where
     JsonString "COMMAND_TYPE_REQUEST_CANCEL_NEXUS_OPERATION" -> Right CommandType'CommandTypeRequestCancelNexusOperation
     JsonNumber n -> Right (toEnum (round n))
     _ -> Left "Invalid enum value for CommandType"
+
