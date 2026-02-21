@@ -92,6 +92,20 @@ library
       Proto.Google.Protobuf.Struct
       Proto.Registry
       Proto.Registry.TH
+      -- New modules
+      Proto.Dynamic
+      Proto.TextFormat
+      Proto.Conformance
+      Proto.CodeGen.Service
+      Proto.JSON.WellKnown
+      Proto.JSON.Aeson
+      Proto.Options.Custom
+      Proto.Google.Protobuf.Descriptor
+      Proto.Google.Protobuf.Compiler.Plugin
+      Proto.Descriptor.Convert
+      Proto.Internal.Maybe
+      Proto.Internal.Either
+      Proto.Wire.Result
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
@@ -111,6 +125,7 @@ library
       , template-haskell >= 2.19   && < 2.21
       , prettyprinter    >= 1.7    && < 1.8
       , base16-bytestring >= 1.0  && < 1.1
+      , base64-bytestring >= 1.2  && < 1.3
 
     hs-source-dirs:   src
     default-language: GHC2021
@@ -276,6 +291,43 @@ executable example-qq
       , hs-proto
       , bytestring
     hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable bench-grow
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , vector
+
+    hs-source-dirs:   bench-grow
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+
+executable hs-proto-conformance
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+
+    hs-source-dirs:   conformance
+    default-language: GHC2021
+
+executable protoc-gen-hs-proto
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , text
+      , vector
+
+    hs-source-dirs:   protoc-plugin
     default-language: GHC2021
     default-extensions:
       OverloadedStrings

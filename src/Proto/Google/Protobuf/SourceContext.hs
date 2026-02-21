@@ -27,6 +27,8 @@ import Proto.Decode
 import Proto.JSON
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
+import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
+import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -39,9 +41,17 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
 
+-- | Serialized FileDescriptorProto for this .proto file.
+-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
+fileDescriptorProtoBytes :: ByteString
+fileDescriptorProtoBytes = case Base16.decode "0a24676f6f676c652f70726f746f6275662f736f757263655f636f6e746578742e70726f746f120f676f6f676c652e70726f746f62756622220a0d536f75726365436f6e7465787412110a0966696c655f6e616d65180120012809620670726f746f33" of
+  Right bs -> bs
+  Left _ -> ""
+
 
 data SourceContext = SourceContext
   { sourceContextFilename :: !Text
+  , sourceContextUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -49,31 +59,53 @@ data SourceContext = SourceContext
 defaultSourceContext :: SourceContext
 defaultSourceContext = SourceContext
   { sourceContextFilename = ""
+  , sourceContextUnknownfields = []
   }
 
 instance MessageEncode SourceContext where
   buildMessage msg =
     (if msg.sourceContextFilename == T.empty then mempty else encodeFieldString 1 msg.sourceContextFilename)
+    <> encodeUnknownFields msg.sourceContextUnknownfields
 
 instance MessageSize SourceContext where
   messageSize msg =
     (if msg.sourceContextFilename == T.empty then 0 else fieldTextSize 1 msg.sourceContextFilename)
+    + unknownFieldsSize msg.sourceContextUnknownfields
 
 instance MessageDecode SourceContext where
-  messageDecoder = loop ""
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop "" []
     where
-      loop acc_0 = do
-        mTag <- getTagOr
+      loop acc_0 acc_unknown_ = do
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (SourceContext {sourceContextFilename = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (SourceContext {sourceContextFilename = acc_0, sourceContextUnknownfields = reverse acc_unknown_})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
-              loop v
-            _ -> skipField wt >> loop acc_0
+              loop v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 (uf : acc_unknown_)
 
 instance IsMessage SourceContext where
   messageTypeName _ = "google.protobuf.SourceContext"
+
+instance ProtoMessage SourceContext where
+  protoMessageName _ = "google.protobuf.SourceContext"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultSourceContext
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "file_name"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType StringField
+        , fdLabel = LabelOptional
+        , fdGet = sourceContextFilename
+        , fdSet = \v m -> m { sourceContextFilename = v }
+        })
+    ]
 
 instance ProtoToJSON SourceContext where
   protoToJSON msg = jsonObject

@@ -27,6 +27,8 @@ import Proto.Decode
 import Proto.JSON
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
+import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
+import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -39,10 +41,18 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
 
+-- | Serialized FileDescriptorProto for this .proto file.
+-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
+fileDescriptorProtoBytes :: ByteString
+fileDescriptorProtoBytes = case Base16.decode "0a1f676f6f676c652f70726f746f6275662f74696d657374616d702e70726f746f120f676f6f676c652e70726f746f627566222b0a0954696d657374616d70120f0a077365636f6e6473180120012803120d0a056e616e6f73180220012805620670726f746f33" of
+  Right bs -> bs
+  Left _ -> ""
+
 
 data Timestamp = Timestamp
   { timestampSeconds :: {-# UNPACK #-} !Int64
   , timestampNanos :: {-# UNPACK #-} !Int32
+  , timestampUnknownfields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -51,36 +61,65 @@ defaultTimestamp :: Timestamp
 defaultTimestamp = Timestamp
   { timestampSeconds = 0
   , timestampNanos = 0
+  , timestampUnknownfields = []
   }
 
 instance MessageEncode Timestamp where
   buildMessage msg =
     (if msg.timestampSeconds == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.timestampSeconds))
     <> (if msg.timestampNanos == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.timestampNanos))
+    <> encodeUnknownFields msg.timestampUnknownfields
 
 instance MessageSize Timestamp where
   messageSize msg =
     (if msg.timestampSeconds == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.timestampSeconds))
     + (if msg.timestampNanos == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.timestampNanos))
+    + unknownFieldsSize msg.timestampUnknownfields
 
 instance MessageDecode Timestamp where
-  messageDecoder = loop 0 0
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop 0 0 []
     where
-      loop acc_0 acc_1 = do
-        mTag <- getTagOr
+      loop acc_0 acc_1 acc_unknown_ = do
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownfields = reverse acc_unknown_})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_1
+              loop v acc_1 acc_unknown_
             2 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 v
-            _ -> skipField wt >> loop acc_0 acc_1
+              loop acc_0 v acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop acc_0 acc_1 (uf : acc_unknown_)
 
 instance IsMessage Timestamp where
   messageTypeName _ = "google.protobuf.Timestamp"
+
+instance ProtoMessage Timestamp where
+  protoMessageName _ = "google.protobuf.Timestamp"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultTimestamp
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    [ (1, SomeField FieldDescriptor
+        { fdName = "seconds"
+        , fdNumber = 1
+        , fdTypeDesc = ScalarType Int64Field
+        , fdLabel = LabelOptional
+        , fdGet = timestampSeconds
+        , fdSet = \v m -> m { timestampSeconds = v }
+        }), (2, SomeField FieldDescriptor
+        { fdName = "nanos"
+        , fdNumber = 2
+        , fdTypeDesc = ScalarType Int32Field
+        , fdLabel = LabelOptional
+        , fdGet = timestampNanos
+        , fdSet = \v m -> m { timestampNanos = v }
+        })
+    ]
 
 instance ProtoToJSON Timestamp where
   protoToJSON msg =

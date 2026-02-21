@@ -1,3 +1,6 @@
+{-# LANGUAGE UnboxedSums #-}
+{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE MagicHash #-}
 -- | High-level decoding interface for protobuf messages.
 --
 -- This module provides the 'MessageDecode' typeclass and utilities for
@@ -75,18 +78,39 @@ module Proto.Decode
 
     -- * CPS failure
   , decodeFail
+
+    -- * Unknown field sizes
+  , unknownFieldsSize
+
+    -- * Unboxed internal types (re-exported for generated code)
+  , UMaybe (UJust, UNothing)
+  , umaybe
+  , getTagOrU
+
+    -- * Three-way tag CPS (flattened, zero-allocation decode loop)
+  , TagResult#
+  , withTag
+
+    -- * Combined three-way result type
+  , DecRes# (..)
   ) where
 
+import Data.Bits (shiftL, shiftR, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Unsafe as BSU
+import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import Data.Int (Int32, Int64)
+import Control.DeepSeq (NFData(..))
+import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
 import Proto.Wire (Tag(..), WireType (..))
 import Proto.Wire.Decode
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64, putLengthDelimited)
+import Proto.Wire.Result
 
 -- | Typeclass for types that can be decoded from protobuf wire format.
 class MessageDecode a where
@@ -163,7 +187,7 @@ decodeFieldMessage = do
 
 -- | CPS-compatible failure: calls the error continuation.
 decodeFail :: DecodeError -> Decoder a
-decodeFail e = Decoder $ \_ _ _ err -> err e
+decodeFail e = Decoder $ \_ _ -> (# | e #)
 {-# INLINE decodeFail #-}
 
 -- | Decode an enum field (as varint, then fromEnum).
@@ -206,17 +230,24 @@ decodePackedFixed32 = do
     Right vs -> pure vs
 {-# INLINE decodePackedFixed32 #-}
 
+-- | Decode packed fixed32 values. Count is known: byteLength / 4.
 decodeAllFixed32 :: ByteString -> Either DecodeError (VU.Vector Word32)
-decodeAllFixed32 bs = go [] 0
+decodeAllFixed32 bs
+  | r /= 0    = Left (CustomError "packed fixed32: byte length not multiple of 4")
+  | otherwise  = Right $ VU.generate n (\i -> readFixed32At bs (i * 4))
   where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getFixed32 bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+    (!n, !r) = BS.length bs `quotRem` 4
 
--- | Decode packed fixed64 values.
+readFixed32At :: ByteString -> Int -> Word32
+readFixed32At bs off =
+  let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word32
+      !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word32
+      !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word32
+      !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word32
+  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+{-# INLINE readFixed32At #-}
+
+-- | Decode packed fixed64 values. Count is known: byteLength / 8.
 decodePackedFixed64 :: Decoder (VU.Vector Word64)
 decodePackedFixed64 = do
   bs <- getLengthDelimited
@@ -226,16 +257,27 @@ decodePackedFixed64 = do
 {-# INLINE decodePackedFixed64 #-}
 
 decodeAllFixed64 :: ByteString -> Either DecodeError (VU.Vector Word64)
-decodeAllFixed64 bs = go [] 0
+decodeAllFixed64 bs
+  | r /= 0    = Left (CustomError "packed fixed64: byte length not multiple of 8")
+  | otherwise  = Right $ VU.generate n (\i -> readFixed64At bs (i * 8))
   where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getFixed64 bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+    (!n, !r) = BS.length bs `quotRem` 8
 
--- | Decode packed float values.
+readFixed64At :: ByteString -> Int -> Word64
+readFixed64At bs off =
+  let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word64
+      !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
+      !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word64
+      !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word64
+      !b4 = fromIntegral (BSU.unsafeIndex bs (off + 4)) :: Word64
+      !b5 = fromIntegral (BSU.unsafeIndex bs (off + 5)) :: Word64
+      !b6 = fromIntegral (BSU.unsafeIndex bs (off + 6)) :: Word64
+      !b7 = fromIntegral (BSU.unsafeIndex bs (off + 7)) :: Word64
+  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+     .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
+{-# INLINE readFixed64At #-}
+
+-- | Decode packed float values. Count is known: byteLength / 4.
 decodePackedFloat :: Decoder (VU.Vector Float)
 decodePackedFloat = do
   bs <- getLengthDelimited
@@ -245,16 +287,13 @@ decodePackedFloat = do
 {-# INLINE decodePackedFloat #-}
 
 decodeAllFloat :: ByteString -> Either DecodeError (VU.Vector Float)
-decodeAllFloat bs = go [] 0
+decodeAllFloat bs
+  | r /= 0    = Left (CustomError "packed float: byte length not multiple of 4")
+  | otherwise  = Right $ VU.generate n (\i -> castWord32ToFloat (readFixed32At bs (i * 4)))
   where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getFloat bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+    (!n, !r) = BS.length bs `quotRem` 4
 
--- | Decode packed double values.
+-- | Decode packed double values. Count is known: byteLength / 8.
 decodePackedDouble :: Decoder (VU.Vector Double)
 decodePackedDouble = do
   bs <- getLengthDelimited
@@ -264,14 +303,11 @@ decodePackedDouble = do
 {-# INLINE decodePackedDouble #-}
 
 decodeAllDouble :: ByteString -> Either DecodeError (VU.Vector Double)
-decodeAllDouble bs = go [] 0
+decodeAllDouble bs
+  | r /= 0    = Left (CustomError "packed double: byte length not multiple of 8")
+  | otherwise  = Right $ VU.generate n (\i -> castWord64ToDouble (readFixed64At bs (i * 8)))
   where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getDouble bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+    (!n, !r) = BS.length bs `quotRem` 8
 
 -- | Decode packed sint32 values.
 decodePackedSVarint32 :: Decoder (VU.Vector Int32)
@@ -352,6 +388,12 @@ data UnknownField
   | UnknownLenDelim  {-# UNPACK #-} !Int !ByteString
   deriving stock (Show, Eq)
 
+instance NFData UnknownField where
+  rnf (UnknownVarint a b) = rnf a `seq` rnf b
+  rnf (UnknownFixed64 a b) = rnf a `seq` rnf b
+  rnf (UnknownFixed32 a b) = rnf a `seq` rnf b
+  rnf (UnknownLenDelim a b) = rnf a `seq` rnf b
+
 -- | Capture an unknown field value during decoding.
 captureUnknownField :: Int -> WireType -> Decoder UnknownField
 captureUnknownField fn = \case
@@ -360,6 +402,27 @@ captureUnknownField fn = \case
   Wire32Bit           -> UnknownFixed32 fn <$> getFixed32
   WireLengthDelimited -> UnknownLenDelim fn <$> getLengthDelimited
   wt                  -> skipField wt >> decodeFail (CustomError ("Unsupported unknown wire type: " <> show wt))
+
+-- | Compute the wire-format size of unknown fields.
+unknownFieldsSize :: [UnknownField] -> Int
+unknownFieldsSize = foldl' (\acc uf -> acc + unknownFieldSize uf) 0
+  where
+    unknownFieldSize (UnknownVarint fn val) =
+      tagSz fn + varintSz val
+    unknownFieldSize (UnknownFixed64 fn _) =
+      tagSz fn + 8
+    unknownFieldSize (UnknownFixed32 fn _) =
+      tagSz fn + 4
+    unknownFieldSize (UnknownLenDelim fn val) =
+      tagSz fn + varintSz (fromIntegral (BS.length val)) + BS.length val
+    tagSz fn = varintSz (fromIntegral fn `shiftL` 3)
+    varintSz :: Word64 -> Int
+    varintSz n
+      | n < 0x80       = 1
+      | n < 0x4000     = 2
+      | n < 0x200000   = 3
+      | n < 0x10000000 = 4
+      | otherwise       = 5 + varintSz (n `shiftR` 35)
 
 -- | Re-encode unknown fields for round-trip preservation.
 encodeUnknownFields :: [UnknownField] -> B.Builder

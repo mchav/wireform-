@@ -36,6 +36,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
+
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter
@@ -45,6 +46,10 @@ import Proto.AST
 import Proto.Options
 import Proto.Annotations (lookupSimpleOption, optionAsString)
 import Proto.Parser.Resolver (ResolvedProto(..))
+import qualified Proto.CodeGen.Service as Service
+import Proto.Descriptor.Convert (serializeFileDescriptor)
+import qualified Data.ByteString.Base16 as Base16
+import qualified Data.Text.Encoding as TE
 
 data GenerateOpts = GenerateOpts
   { genModulePrefix    :: Text
@@ -299,6 +304,8 @@ generateModule opts reg filePath pf =
     , mempty
     , genImports importedModules
     , mempty
+    , genFileDescriptorBinding filePath pf
+    , mempty
     , vsep body
     , mempty
     , genRegisterModuleTypes localMsgNames
@@ -437,6 +444,8 @@ genImports externalModules = vsep $
   , pretty ("import Proto.JSON" :: Text)
   , pretty ("import Data.Proxy (Proxy(..))" :: Text)
   , pretty ("import Proto.Message (IsMessage(..))" :: Text)
+  , pretty ("import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))" :: Text)
+  , pretty ("import qualified Data.ByteString.Base16 as Base16" :: Text)
   , pretty ("import qualified Proto.Registry" :: Text)
   , pretty ("import Proto.Wire (Tag(..), WireType(..))" :: Text)
   , pretty ("import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64," :: Text)
@@ -477,6 +486,20 @@ moduleAlias modName =
       let uppers = T.filter (\c -> c >= 'A' && c <= 'Z') t
       in if T.length uppers >= 2 then uppers else T.toUpper (T.take 2 t)
 
+-- | Generate a top-level binding containing the serialized FileDescriptorProto.
+genFileDescriptorBinding :: FilePath -> ProtoFile -> Doc ann
+genFileDescriptorBinding filePath pf =
+  let fdpBytes = serializeFileDescriptor filePath pf
+      hexStr = TE.decodeUtf8 (Base16.encode fdpBytes)
+  in vsep
+    [ pretty ("-- | Serialized FileDescriptorProto for this .proto file." :: Text)
+    , pretty ("-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@." :: Text)
+    , pretty ("fileDescriptorProtoBytes :: ByteString" :: Text)
+    , pretty ("fileDescriptorProtoBytes = case Base16.decode \"" :: Text) <> pretty hexStr <> pretty ("\" of" :: Text)
+    , pretty ("  Right bs -> bs" :: Text)
+    , pretty ("  Left _ -> \"\"" :: Text)
+    ]
+
 -- ---------------------------------------------------------------------------
 -- Top-level generation
 -- ---------------------------------------------------------------------------
@@ -485,7 +508,7 @@ genTopLevel :: GenCtx -> [Text] -> TopLevel -> [Doc ann]
 genTopLevel ctx scope = \case
   TLMessage msg -> genMessage ctx scope msg
   TLEnum ed     -> genEnum ctx scope ed
-  TLService _   -> []
+  TLService svc -> genServiceTopLevel ctx scope svc
   TLExtend _ _  -> []
   TLOption _    -> []
 
@@ -509,6 +532,8 @@ genMessage ctx scope msg =
         , mempty
         , genIsMessageInstance ctx scope' msg
         , mempty
+        , genProtoMessageInstance ctx scope' msg
+        , mempty
         , genToJSONInstance ctx scope' msg
         , mempty
         , genFromJSONInstance ctx scope' msg
@@ -528,9 +553,12 @@ genNestedElement ctx scope = \case
 genMessageDataDecl :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genMessageDataDecl ctx scope msg =
   let tyN = scopedTypeName scope
+      userFields = concatMap (extractFieldDecl ctx scope) (msgElements msg)
+      unknownFieldDecl = pretty (unknownFieldAccessor scope) <+> pretty ("::" :: Text) <+> pretty ("![UnknownField]" :: Text)
+      allFields = userFields <> [unknownFieldDecl]
   in vsep
     [ pretty ("data " :: Text) <> pretty tyN <> pretty (" = " :: Text) <> pretty tyN
-    , indent 2 (braceFields (concatMap (extractFieldDecl ctx scope) (msgElements msg)))
+    , indent 2 (braceFields allFields)
     , indent 2 (pretty ("deriving stock (Show, Eq, Generic)" :: Text))
     , indent 2 (pretty ("deriving anyclass NFData" :: Text))
     ]
@@ -538,6 +566,9 @@ genMessageDataDecl ctx scope msg =
     braceFields [] = pretty ("{ }" :: Text)
     braceFields (f:fs) =
       vsep (pretty ("{ " :: Text) <> f : fmap (\x -> pretty (", " :: Text) <> x) fs) <> line <> pretty ("}" :: Text)
+
+unknownFieldAccessor :: [Text] -> Text
+unknownFieldAccessor scope = scopedFieldName scope "_unknownFields"
 
 extractFieldDecl :: GenCtx -> [Text] -> MessageElement -> [Doc ann]
 extractFieldDecl ctx scope = \case
@@ -611,7 +642,9 @@ genDefaultInstance ctx scope msg =
 
 genDefaultFields :: GenCtx -> [Text] -> [MessageElement] -> Doc ann
 genDefaultFields ctx scope elems =
-  let fields = concatMap extractDefault elems
+  let userFields = concatMap extractDefault elems
+      unknownDefault = pretty (unknownFieldAccessor scope) <+> pretty ("=" :: Text) <+> pretty ("[]" :: Text)
+      fields = userFields <> [unknownDefault]
   in case fields of
     [] -> pretty ("{ }" :: Text)
     (f:fs) -> vsep (pretty ("{ " :: Text) <> f : fmap (\x -> pretty (", " :: Text) <> x) fs) <> line <> pretty ("}" :: Text)
@@ -649,13 +682,15 @@ genEncodeInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genEncodeInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fields = extractAllFields ctx scope (msgElements msg)
+      unknownAcc = "msg." <> unknownFieldAccessor scope
   in vsep
     [ pretty ("instance MessageEncode " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
         [ pretty ("buildMessage msg =" :: Text)
         , indent 2 $ case fields of
-            [] -> pretty ("mempty" :: Text)
-            _  -> vsep (zipWith (\i f -> genFieldBuild ctx i f) [0..] fields)
+            [] -> pretty ("encodeUnknownFields " :: Text) <> pretty unknownAcc
+            _  -> vsep (zipWith (\i f -> genFieldBuild ctx i f) [0..] fields
+                       <> [pretty ("<> encodeUnknownFields " :: Text) <> pretty unknownAcc])
         ]
     ]
 
@@ -805,13 +840,15 @@ genSizeInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genSizeInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fields = extractAllFields ctx scope (msgElements msg)
+      unknownAcc = "msg." <> unknownFieldAccessor scope
   in vsep
     [ pretty ("instance MessageSize " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
         [ pretty ("messageSize msg =" :: Text)
         , indent 2 $ case fields of
-            [] -> pretty ("0" :: Text)
-            _  -> vsep (zipWith (\i f -> genFieldSizeExpr ctx i f) [0..] fields)
+            [] -> pretty ("unknownFieldsSize " :: Text) <> pretty unknownAcc
+            _  -> vsep (zipWith (\i f -> genFieldSizeExpr ctx i f) [0..] fields
+                       <> [pretty ("+ unknownFieldsSize " :: Text) <> pretty unknownAcc])
         ]
     ]
 
@@ -957,25 +994,32 @@ genDecodeInstance ctx scope msg =
   let tyN = scopedTypeName scope
       fields = extractAllFields ctx scope (msgElements msg)
       allAccs = fmap (\(i, _) -> "acc_" <> T.pack (show i)) (zip [0..] fields)
+      unknownAcc = "acc_unknown_"
+      allAccsWithUnknown = allAccs <> [unknownAcc]
+      unknownFieldName = unknownFieldAccessor scope
   in vsep
     [ pretty ("instance MessageDecode " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
-        [ pretty ("messageDecoder = " :: Text) <> pretty ("loop" :: Text) <+>
-          hsep (fmap (\fi -> pretty (fieldDefaultText ctx fi)) fields)
+        [ pretty ("{-# INLINE messageDecoder #-}" :: Text)
+        , pretty ("messageDecoder = " :: Text) <> pretty ("loop" :: Text) <+>
+          hsep (fmap (\fi -> pretty (fieldDefaultText ctx fi)) fields) <+> pretty ("[]" :: Text)
         , indent 2 $ pretty ("where" :: Text)
         , indent 4 $ vsep
-            [ pretty ("loop " :: Text) <> hsep (fmap pretty allAccs) <+> pretty ("= do" :: Text)
+            [ pretty ("loop " :: Text) <> hsep (fmap pretty allAccsWithUnknown) <+> pretty ("= do" :: Text)
             , indent 2 $ vsep
-                [ pretty ("mTag <- getTagOr" :: Text)
+                [ pretty ("mTag <- getTagOrU" :: Text)
                 , pretty ("case mTag of" :: Text)
                 , indent 2 $ vsep
-                    [ pretty ("Nothing -> pure (" :: Text) <> pretty tyN <+>
-                      braces (hsep (punctuate comma (fmap (\fi ->
-                        pretty (fifAccessor fi) <+> pretty ("=" :: Text) <+> pretty ("acc_" :: Text) <> pretty (T.pack (show (fifIndex fi)))
-                      ) fields))) <>
+                    [ pretty ("UNothing -> pure (" :: Text) <> pretty tyN <+>
+                      braces (hsep (punctuate comma (
+                        fmap (\fi ->
+                          pretty (fifAccessor fi) <+> pretty ("=" :: Text) <+> pretty ("acc_" :: Text) <> pretty (T.pack (show (fifIndex fi)))
+                        ) fields
+                        <> [pretty unknownFieldName <+> pretty ("= reverse " :: Text) <> pretty unknownAcc]
+                      ))) <>
                       pretty (")" :: Text)
-                    , pretty ("Just (Tag fn wt) -> case fn of" :: Text)
-                    , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccs) fields <> [genDefaultDecodeCase allAccs])
+                    , pretty ("UJust (Tag fn wt) -> case fn of" :: Text)
+                    , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccsWithUnknown) fields <> [genDefaultDecodeCase scope allAccsWithUnknown])
                     ]
                 ]
             ]
@@ -1066,9 +1110,16 @@ genOneofDecodeCase ctx scope ooName allAccs fi oof =
          ])
      ]
 
-genDefaultDecodeCase :: [Text] -> Doc ann
-genDefaultDecodeCase allAccs =
-  pretty ("_ -> skipField wt >> loop " :: Text) <> hsep (fmap pretty allAccs)
+genDefaultDecodeCase :: [Text] -> [Text] -> Doc ann
+genDefaultDecodeCase scope allAccsWithUnknown =
+  let unknownAcc = last allAccsWithUnknown
+      fieldAccs = init allAccsWithUnknown
+      newAccs = fieldAccs <> ["(uf : " <> unknownAcc <> ")"]
+  in pretty ("_ -> do" :: Text) <> line <>
+     indent 2 (vsep
+       [ pretty ("uf <- captureUnknownField fn wt" :: Text)
+       , pretty ("loop " :: Text) <> hsep (fmap pretty newAccs)
+       ])
 
 fieldDefaultText :: GenCtx -> FieldInfoFull -> Text
 fieldDefaultText ctx fi = case fifKind fi of
@@ -1144,6 +1195,90 @@ genIsMessageInstance ctx scope msg =
     [ pretty ("instance IsMessage " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ pretty ("messageTypeName _ = \"" :: Text) <> pretty fqn <> pretty ("\"" :: Text)
     ]
+
+genProtoMessageInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
+genProtoMessageInstance ctx scope msg =
+  let tyN = scopedTypeName scope
+      fqn = fqProtoName (gcPkg ctx) scope
+      pkg = fromMaybe "" (gcPkg ctx)
+      fields = extractMessageFieldsForSchema scope (msgElements msg)
+      defN = "default" <> tyN
+  in vsep
+    [ pretty ("instance ProtoMessage " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+    , indent 2 $ pretty ("protoMessageName _ = \"" :: Text) <> pretty fqn <> pretty ("\"" :: Text)
+    , indent 2 $ pretty ("protoPackageName _ = \"" :: Text) <> pretty pkg <> pretty ("\"" :: Text)
+    , indent 2 $ pretty ("protoDefaultValue = " :: Text) <> pretty defN
+    , indent 2 $ pretty ("protoFileDescriptorBytes _ = fileDescriptorProtoBytes" :: Text)
+    , indent 2 $ vsep
+        [ pretty ("protoFieldDescriptors _ = Map.fromList" :: Text)
+        , indent 2 $ genFieldDescriptorList scope fields
+        ]
+    ]
+
+data SchemaField = SchemaField
+  { sfName   :: Text
+  , sfNum    :: Int
+  , sfType   :: FieldType
+  , sfLabel  :: Maybe FieldLabel
+  }
+
+extractMessageFieldsForSchema :: [Text] -> [MessageElement] -> [SchemaField]
+extractMessageFieldsForSchema _scope = concatMap go
+  where
+    go (MEField fd) = [SchemaField (fieldName fd) (unFieldNumber (fieldNumber fd)) (fieldType fd) (fieldLabel fd)]
+    go (MEMapField mf) = [SchemaField (mapFieldName mf) (unFieldNumber (mapFieldNum mf)) (FTScalar SBytes) (Just Repeated)]
+    go (MEOneof od) = case oneofFields od of
+      (f:_) -> [SchemaField (oneofName od) (unFieldNumber (oneofFieldNumber f)) (FTNamed (oneofName od)) (Just Optional)]
+      []    -> []
+    go _ = []
+
+genFieldDescriptorList :: [Text] -> [SchemaField] -> Doc ann
+genFieldDescriptorList scope fields =
+  let entries = fmap (genFieldDescriptorEntry scope) fields
+  in case entries of
+    [] -> pretty ("[]" :: Text)
+    _  -> vsep [pretty ("[ " :: Text) <> head entries]
+      <> vsep (fmap (\e -> pretty (", " :: Text) <> e) (tail entries))
+      <> line <> pretty ("]" :: Text)
+
+genFieldDescriptorEntry :: [Text] -> SchemaField -> Doc ann
+genFieldDescriptorEntry scope sf =
+  let accN = scopedFieldName scope (sfName sf)
+  in pretty ("(" :: Text) <> pretty (T.pack (show (sfNum sf))) <> pretty (", SomeField FieldDescriptor" :: Text)
+    <> line <> indent 4 (vsep
+      [ pretty ("{ fdName = \"" :: Text) <> pretty (sfName sf) <> pretty ("\"" :: Text)
+      , pretty (", fdNumber = " :: Text) <> pretty (T.pack (show (sfNum sf)))
+      , pretty (", fdTypeDesc = " :: Text) <> genFieldTypeDesc (sfType sf)
+      , pretty (", fdLabel = " :: Text) <> genLabelLit (sfLabel sf)
+      , pretty (", fdGet = " :: Text) <> pretty accN
+      , pretty (", fdSet = \\v m -> m { " :: Text) <> pretty accN <> pretty (" = v }" :: Text)
+      , pretty ("})" :: Text)
+      ])
+
+genFieldTypeDesc :: FieldType -> Doc ann
+genFieldTypeDesc = \case
+  FTScalar SDouble   -> pretty ("ScalarType DoubleField" :: Text)
+  FTScalar SFloat    -> pretty ("ScalarType FloatField" :: Text)
+  FTScalar SInt32    -> pretty ("ScalarType Int32Field" :: Text)
+  FTScalar SInt64    -> pretty ("ScalarType Int64Field" :: Text)
+  FTScalar SUInt32   -> pretty ("ScalarType UInt32Field" :: Text)
+  FTScalar SUInt64   -> pretty ("ScalarType UInt64Field" :: Text)
+  FTScalar SSInt32   -> pretty ("ScalarType SInt32Field" :: Text)
+  FTScalar SSInt64   -> pretty ("ScalarType SInt64Field" :: Text)
+  FTScalar SFixed32  -> pretty ("ScalarType Fixed32Field" :: Text)
+  FTScalar SFixed64  -> pretty ("ScalarType Fixed64Field" :: Text)
+  FTScalar SSFixed32 -> pretty ("ScalarType SFixed32Field" :: Text)
+  FTScalar SSFixed64 -> pretty ("ScalarType SFixed64Field" :: Text)
+  FTScalar SBool     -> pretty ("ScalarType BoolField" :: Text)
+  FTScalar SString   -> pretty ("ScalarType StringField" :: Text)
+  FTScalar SBytes    -> pretty ("ScalarType BytesField" :: Text)
+  FTNamed n          -> pretty ("MessageType \"" :: Text) <> pretty n <> pretty ("\"" :: Text)
+
+genLabelLit :: Maybe FieldLabel -> Doc ann
+genLabelLit Nothing         = pretty ("LabelOptional" :: Text)
+genLabelLit (Just Optional) = pretty ("LabelOptional" :: Text)
+genLabelLit (Just Required) = pretty ("LabelRequired" :: Text)
+genLabelLit (Just Repeated) = pretty ("LabelRepeated" :: Text)
 
 -- ---------------------------------------------------------------------------
 -- JSON instances
@@ -1340,6 +1475,13 @@ getJsonName = \case
   opts -> lookupSimpleOption "json_name" opts >>= optionAsString
 
 -- ---------------------------------------------------------------------------
+-- Service generation
+-- ---------------------------------------------------------------------------
+
+genServiceTopLevel :: GenCtx -> [Text] -> ServiceDef -> [Doc ann]
+genServiceTopLevel ctx scope svc = Service.genServiceDecls (gcPkg ctx) scope svc
+
+-- ---------------------------------------------------------------------------
 -- Enum generation
 -- ---------------------------------------------------------------------------
 
@@ -1364,39 +1506,80 @@ genEnum ctx scope ed =
 genEnumDataDecl :: [Text] -> EnumDef -> Doc ann
 genEnumDataDecl scope ed =
   let tyN = scopedTypeName scope
-  in vsep
+      hasAlias = enumHasAliases ed
+      primaryVals = enumPrimaryValues ed
+      aliasVals = enumAliasValues ed
+      deriveLine = if hasAlias
+        then pretty ("deriving stock (Show, Eq, Ord, Generic)" :: Text)
+        else pretty ("deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)" :: Text)
+      aliasSyns = fmap (\ev ->
+        pretty ("pattern " :: Text) <> pretty (scopedEnumCon scope (evName ev)) <+>
+        pretty ("::" :: Text) <+> pretty tyN <> line <>
+        pretty ("pattern " :: Text) <> pretty (scopedEnumCon scope (evName ev)) <+>
+        pretty ("= " :: Text) <> pretty (scopedEnumCon scope (canonicalNameForNumber ed (evNumber ev)))
+        ) aliasVals
+  in vsep $
     [ pretty ("data " :: Text) <> pretty tyN
-    , indent 2 (vsep (zipWith (\pfx v -> pfx <+> pretty (scopedEnumCon scope (evName v))) seps (enumValues ed)))
-    , indent 2 (pretty ("deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)" :: Text))
+    , indent 2 (vsep (zipWith (\pfx v -> pfx <+> pretty (scopedEnumCon scope (evName v))) seps primaryVals))
+    , indent 2 deriveLine
     , indent 2 (pretty ("deriving anyclass NFData" :: Text))
-    ]
+    ] <> aliasSyns
   where
     seps = pretty ("=" :: Text) : repeat (pretty ("|" :: Text))
 
 genEnumToProto :: [Text] -> EnumDef -> Doc ann
 genEnumToProto scope ed =
   let tyN = scopedTypeName scope
+      primaryVals = enumPrimaryValues ed
       genCase ev =
         pretty ("toProtoEnum" :: Text) <> pretty tyN <+>
         pretty (scopedEnumCon scope (evName ev)) <+> pretty ("= " :: Text) <>
         pretty (T.pack (show (evNumber ev)))
   in vsep
     [ pretty ("toProtoEnum" :: Text) <> pretty tyN <+> pretty ("::" :: Text) <+> pretty tyN <+> pretty ("-> Int" :: Text)
-    , vsep (fmap genCase (enumValues ed))
+    , vsep (fmap genCase primaryVals)
     ]
 
 genEnumFromProto :: [Text] -> EnumDef -> Doc ann
 genEnumFromProto scope ed =
   let tyN = scopedTypeName scope
+      primaryVals = enumPrimaryValues ed
       genCase ev =
         pretty ("fromProtoEnum" :: Text) <> pretty tyN <+>
         pretty (T.pack (show (evNumber ev))) <+> pretty ("= Just " :: Text) <>
         pretty (scopedEnumCon scope (evName ev))
   in vsep
     [ pretty ("fromProtoEnum" :: Text) <> pretty tyN <+> pretty ("::" :: Text) <+> pretty ("Int -> Maybe " :: Text) <> pretty tyN
-    , vsep (fmap genCase (enumValues ed))
+    , vsep (fmap genCase primaryVals)
     , pretty ("fromProtoEnum" :: Text) <> pretty tyN <+> pretty ("_ = Nothing" :: Text)
     ]
+
+enumHasAliases :: EnumDef -> Bool
+enumHasAliases ed =
+  let nums = fmap evNumber (enumValues ed)
+  in length nums /= length (Set.fromList nums)
+
+enumPrimaryValues :: EnumDef -> [EnumValue]
+enumPrimaryValues ed = go Set.empty (enumValues ed)
+  where
+    go _ [] = []
+    go seen (ev:evs)
+      | Set.member (evNumber ev) seen = go seen evs
+      | otherwise = ev : go (Set.insert (evNumber ev) seen) evs
+
+enumAliasValues :: EnumDef -> [EnumValue]
+enumAliasValues ed = go Set.empty (enumValues ed)
+  where
+    go _ [] = []
+    go seen (ev:evs)
+      | Set.member (evNumber ev) seen = ev : go seen evs
+      | otherwise = go (Set.insert (evNumber ev) seen) evs
+
+canonicalNameForNumber :: EnumDef -> Int -> Text
+canonicalNameForNumber ed num =
+  case filter (\ev -> evNumber ev == num) (enumValues ed) of
+    (ev:_) -> evName ev
+    []     -> "UNKNOWN"
 
 genEnumEncodeInstance :: [Text] -> EnumDef -> Doc ann
 genEnumEncodeInstance scope ed =
@@ -1413,25 +1596,31 @@ genEnumEncodeInstance scope ed =
 genEnumToJSONInstance :: [Text] -> EnumDef -> Doc ann
 genEnumToJSONInstance scope ed =
   let tyN = scopedTypeName scope
+      primaryVals = enumPrimaryValues ed
       genCase ev =
         pretty ("protoToJSON " :: Text) <> pretty (scopedEnumCon scope (evName ev)) <+>
         pretty ("= JsonString \"" :: Text) <> pretty (evName ev) <> pretty ("\"" :: Text)
   in vsep
     [ pretty ("instance ProtoToJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
-    , indent 2 (vsep (fmap genCase (enumValues ed)))
+    , indent 2 (vsep (fmap genCase primaryVals))
     ]
 
 genEnumFromJSONInstance :: [Text] -> EnumDef -> Doc ann
 genEnumFromJSONInstance scope ed =
   let tyN = scopedTypeName scope
+      hasAlias = enumHasAliases ed
       genCase ev =
         pretty ("  JsonString \"" :: Text) <> pretty (evName ev) <> pretty ("\" -> Right " :: Text) <> pretty (scopedEnumCon scope (evName ev))
+      fallbackNumCase = if hasAlias
+        then pretty ("  JsonNumber n -> fromProtoEnum" :: Text) <> pretty tyN <>
+             pretty (" (round n) & maybe (Left \"Invalid enum\") Right" :: Text)
+        else pretty ("  JsonNumber n -> Right (toEnum (round n))" :: Text)
   in vsep
     [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
         [ pretty ("protoFromJSON = \\case" :: Text)
         , vsep (fmap genCase (enumValues ed))
-        , pretty ("  JsonNumber n -> Right (toEnum (round n))" :: Text)
+        , fallbackNumCase
         , pretty ("  _ -> Left " :: Text) <> pretty ("\"Invalid enum value for " :: Text) <> pretty tyN <> pretty ("\"" :: Text)
         ]
     ]

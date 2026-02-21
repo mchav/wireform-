@@ -27,6 +27,8 @@ import Proto.Decode
 import Proto.JSON
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
+import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
+import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -39,36 +41,56 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
 
+-- | Serialized FileDescriptorProto for this .proto file.
+-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
+fileDescriptorProtoBytes :: ByteString
+fileDescriptorProtoBytes = case Base16.decode "0a1b676f6f676c652f70726f746f6275662f656d7074792e70726f746f120f676f6f676c652e70726f746f62756622070a05456d707479620670726f746f33" of
+  Right bs -> bs
+  Left _ -> ""
+
 
 data Empty = Empty
-  { }
+  { emptyUnknownfields :: ![UnknownField]
+  }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultEmpty :: Empty
 defaultEmpty = Empty
-  { }
+  { emptyUnknownfields = []
+  }
 
 instance MessageEncode Empty where
   buildMessage msg =
-    mempty
+    encodeUnknownFields msg.emptyUnknownfields
 
 instance MessageSize Empty where
   messageSize msg =
-    0
+    unknownFieldsSize msg.emptyUnknownfields
 
 instance MessageDecode Empty where
-  messageDecoder = loop 
+  {-# INLINE messageDecoder #-}
+  messageDecoder = loop  []
     where
-      loop  = do
-        mTag <- getTagOr
+      loop acc_unknown_ = do
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Empty {})
-          Just (Tag fn wt) -> case fn of
-            _ -> skipField wt >> loop 
+          UNothing -> pure (Empty {emptyUnknownfields = reverse acc_unknown_})
+          UJust (Tag fn wt) -> case fn of
+            _ -> do
+              uf <- captureUnknownField fn wt
+              loop (uf : acc_unknown_)
 
 instance IsMessage Empty where
   messageTypeName _ = "google.protobuf.Empty"
+
+instance ProtoMessage Empty where
+  protoMessageName _ = "google.protobuf.Empty"
+  protoPackageName _ = "google.protobuf"
+  protoDefaultValue = defaultEmpty
+  protoFileDescriptorBytes _ = fileDescriptorProtoBytes
+  protoFieldDescriptors _ = Map.fromList
+    []
 
 instance ProtoToJSON Empty where
   protoToJSON msg = jsonObject

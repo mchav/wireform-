@@ -1,16 +1,22 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE UnboxedTuples #-}
 -- | Low-level, high-performance wire format decoding primitives.
 --
--- The decoder monad uses CPS (Continuation-Passing Style) to eliminate
--- allocation of intermediate result values on every bind. This is the
--- same technique used by high-performance parsing libraries like attoparsec.
+-- The decoder uses unboxed sums for the result type, avoiding heap
+-- allocation for intermediate decode results. Each decode operation
+-- returns @(# (# a, Int# #) | DecodeError #)@ — either a value with
+-- a new offset (on the stack, not heap) or an error.
 --
--- Each decoder operation takes success and failure continuations directly,
--- so the happy path (which is the hot path) never allocates a sum type.
+-- This approach is more robust than CPS: it doesn't depend on GHC
+-- successfully inlining all continuations, and the result type can
+-- be unboxed by GHC. On modern CPUs the branch prediction for the
+-- success/failure case split is near-perfect since decoding almost
+-- always succeeds.
 module Proto.Wire.Decode
-  ( -- * Decode monad (CPS)
+  ( -- * Decode result
     DecodeResult (..)
   , DecodeError (..)
 
@@ -46,8 +52,20 @@ module Proto.Wire.Decode
   , unZigZag32
   , unZigZag64
 
-    -- * Low-level CPS access (for generated code)
+    -- * Low-level access (for generated code)
   , runDecoder'
+
+    -- * Unboxed internal variants (zero-allocation hot path)
+  , UMaybe(UJust, UNothing)
+  , umaybe
+  , getTagOrU
+
+    -- * Three-way tag result (flattened unboxed sum for the decode loop)
+  , TagResult#
+  , withTag
+
+    -- * Non-throwing UTF-8 validation
+  , validateUtf8
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor)
@@ -56,9 +74,11 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
-import qualified Data.Text.Encoding as TE
+import Data.Text.Encoding (decodeUtf8Lenient)
+import Data.Text.Internal.Encoding (validateUtf8Chunk)
 import Data.Word (Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import GHC.Exts (Int#, Int(I#), (+#), (>=#), isTrue#)
 import Control.DeepSeq (NFData(..))
 
 import Proto.Wire (Tag (..), WireType (..), decodeTag)
@@ -92,97 +112,92 @@ data DecodeResult a
   | DecodeFail !DecodeError
   deriving stock (Show)
 
--- | CPS-transformed decoder monad.
---
--- Instead of returning an allocated DecodeResult on every >>=,
--- the decoder takes success and failure continuations. This means
--- the happy path (successful decode) never allocates intermediate
--- sum type constructors — the result flows directly through
--- continuation calls.
---
--- This is the Church encoding of the DecodeResult type:
--- instead of constructing DecodeOK/DecodeFail and pattern matching,
--- we pass the two "constructors" as function arguments.
+-- | Decoder monad using unboxed sums for the result.
+-- Returns either (value, new_offset) or an error, with no heap
+-- allocation for the result envelope.
 newtype Decoder a = Decoder
-  { unDecoder :: forall r.
-       ByteString                   -- input buffer
-    -> Int                          -- current offset
-    -> (a -> Int -> r)              -- success continuation (value, new offset)
-    -> (DecodeError -> r)           -- failure continuation
-    -> r
+  { runDecoder# :: ByteString -> Int# -> (# (# a, Int# #) | DecodeError #)
   }
 
 instance Functor Decoder where
-  fmap f (Decoder g) = Decoder $ \bs off ok err ->
-    g bs off (\a off' -> ok (f a) off') err
+  fmap f (Decoder g) = Decoder $ \bs off -> case g bs off of
+    (# (# a, off' #) | #) -> (# (# f a, off' #) | #)
+    (# | e #)              -> (# | e #)
   {-# INLINE fmap #-}
 
 instance Applicative Decoder where
-  pure a = Decoder $ \_ off ok _ -> ok a off
+  pure a = Decoder $ \_ off -> (# (# a, off #) | #)
   {-# INLINE pure #-}
-  Decoder f <*> Decoder g = Decoder $ \bs off ok err ->
-    f bs off (\fab off' -> g bs off' (\a off'' -> ok (fab a) off'') err) err
+  Decoder f <*> Decoder g = Decoder $ \bs off -> case f bs off of
+    (# (# fab, off' #) | #) -> case g bs off' of
+      (# (# a, off'' #) | #) -> (# (# fab a, off'' #) | #)
+      (# | e #)               -> (# | e #)
+    (# | e #)                -> (# | e #)
   {-# INLINE (<*>) #-}
 
 instance Monad Decoder where
-  Decoder g >>= f = Decoder $ \bs off ok err ->
-    g bs off (\a off' -> unDecoder (f a) bs off' ok err) err
+  Decoder g >>= f = Decoder $ \bs off -> case g bs off of
+    (# (# a, off' #) | #) -> runDecoder# (f a) bs off'
+    (# | e #)              -> (# | e #)
   {-# INLINE (>>=) #-}
 
 -- | Run a decoder on a ByteString, producing Either.
 runDecoder :: Decoder a -> ByteString -> Either DecodeError a
 runDecoder (Decoder f) bs =
-  f bs 0
-    (\a off -> if off == BS.length bs then Right a else Left ExtraBytes)
-    Left
+  case f bs 0# of
+    (# (# a, off' #) | #)
+      | I# off' == BS.length bs -> Right a
+      | otherwise -> Left ExtraBytes
+    (# | e #) -> Left e
 {-# INLINE runDecoder #-}
 
 -- | Run a decoder returning the legacy DecodeResult (for internal use).
 runDecoder' :: Decoder a -> ByteString -> Int -> DecodeResult a
-runDecoder' (Decoder f) bs off =
-  f bs off DecodeOK DecodeFail
+runDecoder' (Decoder f) bs (I# off) =
+  case f bs off of
+    (# (# a, off' #) | #) -> DecodeOK a (I# off')
+    (# | e #)              -> DecodeFail e
 {-# INLINE runDecoder' #-}
 
--- FFI imports for C-optimized decode functions
--- C FFI declarations for SIMD-optimized decode functions.
--- These are used as fallback for complex varints; the inline Haskell
--- fast path handles the 1-2 byte common case without FFI overhead.
+-- Helpers for offset arithmetic
+bsLen :: ByteString -> Int#
+bsLen bs = case BS.length bs of I# n -> n
+{-# INLINE bsLen #-}
 
--- | Decode a varint using the C FFI fast path with SWAR optimization.
+-- | Decode a varint. Inline fast path for 1-2 byte varints (most common).
 getVarint :: Decoder Word64
-getVarint = Decoder $ \bs off ok err ->
-  let len = BS.length bs
-  in if off >= len
-     then err UnexpectedEnd
+getVarint = Decoder $ \bs off ->
+  let len = bsLen bs
+  in if isTrue# (off >=# len)
+     then (# | UnexpectedEnd #)
      else
-       -- Inline fast path for 1-byte varints (most common: tags, booleans, small ints)
-       let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word64
+       let !b0 = fromIntegral (BSU.unsafeIndex bs (I# off)) :: Word64
        in if b0 < 0x80
-          then ok b0 (off + 1)
-          else if off + 1 >= len
-               then err UnexpectedEnd
-               else
-                 let !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
-                 in if b1 < 0x80
-                    then ok ((b0 .&. 0x7F) .|. (b1 `shiftL` 7)) (off + 2)
-                    else getVarintSlow bs off ok err
+          then (# (# b0, off +# 1# #) | #)
+          else let off1 = off +# 1#
+               in if isTrue# (off1 >=# len)
+                  then (# | UnexpectedEnd #)
+                  else
+                    let !b1 = fromIntegral (BSU.unsafeIndex bs (I# off1)) :: Word64
+                    in if b1 < 0x80
+                       then (# (# (b0 .&. 0x7F) .|. (b1 `shiftL` 7), off +# 2# #) | #)
+                       else getVarintSlow bs off
 {-# INLINE getVarint #-}
 
--- Slow path for 3+ byte varints
-getVarintSlow :: ByteString -> Int
-  -> (Word64 -> Int -> r) -> (DecodeError -> r) -> r
-getVarintSlow bs off ok err = go 0 0 off
+getVarintSlow :: ByteString -> Int# -> (# (# Word64, Int# #) | DecodeError #)
+getVarintSlow bs off0 = go 0 0 off0
   where
-    len = BS.length bs
+    len = bsLen bs
+    go :: Word64 -> Int -> Int# -> (# (# Word64, Int# #) | DecodeError #)
     go !acc !shift !pos
-      | shift > 63 = err InvalidVarint
-      | pos >= len = err UnexpectedEnd
-      | otherwise  =
-          let !b = BSU.unsafeIndex bs pos
+      | shift > 63             = (# | InvalidVarint #)
+      | isTrue# (pos >=# len) = (# | UnexpectedEnd #)
+      | otherwise               =
+          let !b = BSU.unsafeIndex bs (I# pos)
               !val = acc .|. ((fromIntegral b .&. 0x7F) `shiftL` shift)
           in if b < 0x80
-             then ok val (pos + 1)
-             else go val (shift + 7) (pos + 1)
+             then (# (# val, pos +# 1# #) | #)
+             else go val (shift + 7) (pos +# 1#)
 {-# INLINE getVarintSlow #-}
 
 getVarintSigned :: Decoder Int64
@@ -205,37 +220,39 @@ unZigZag64 :: Word64 -> Int64
 unZigZag64 n = fromIntegral ((n `shiftR` 1) `xor` negate (n .&. 1))
 {-# INLINE unZigZag64 #-}
 
--- | Decode a fixed32 (little-endian). Uses direct memory access.
+-- | Decode a fixed32 (little-endian).
 getFixed32 :: Decoder Word32
-getFixed32 = Decoder $ \bs off ok err ->
-  if off + 4 > BS.length bs
-  then err UnexpectedEnd
+getFixed32 = Decoder $ \bs off ->
+  if I# (off +# 4#) > BS.length bs
+  then (# | UnexpectedEnd #)
   else
-    let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word32
-        !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word32
-        !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word32
-        !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word32
+    let !i = I# off
+        !b0 = fromIntegral (BSU.unsafeIndex bs i) :: Word32
+        !b1 = fromIntegral (BSU.unsafeIndex bs (i + 1)) :: Word32
+        !b2 = fromIntegral (BSU.unsafeIndex bs (i + 2)) :: Word32
+        !b3 = fromIntegral (BSU.unsafeIndex bs (i + 3)) :: Word32
         !val = b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
-    in ok val (off + 4)
+    in (# (# val, off +# 4# #) | #)
 {-# INLINE getFixed32 #-}
 
--- | Decode a fixed64 (little-endian). Uses direct memory access.
+-- | Decode a fixed64 (little-endian).
 getFixed64 :: Decoder Word64
-getFixed64 = Decoder $ \bs off ok err ->
-  if off + 8 > BS.length bs
-  then err UnexpectedEnd
+getFixed64 = Decoder $ \bs off ->
+  if I# (off +# 8#) > BS.length bs
+  then (# | UnexpectedEnd #)
   else
-    let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word64
-        !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
-        !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word64
-        !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word64
-        !b4 = fromIntegral (BSU.unsafeIndex bs (off + 4)) :: Word64
-        !b5 = fromIntegral (BSU.unsafeIndex bs (off + 5)) :: Word64
-        !b6 = fromIntegral (BSU.unsafeIndex bs (off + 6)) :: Word64
-        !b7 = fromIntegral (BSU.unsafeIndex bs (off + 7)) :: Word64
+    let !i = I# off
+        !b0 = fromIntegral (BSU.unsafeIndex bs i) :: Word64
+        !b1 = fromIntegral (BSU.unsafeIndex bs (i + 1)) :: Word64
+        !b2 = fromIntegral (BSU.unsafeIndex bs (i + 2)) :: Word64
+        !b3 = fromIntegral (BSU.unsafeIndex bs (i + 3)) :: Word64
+        !b4 = fromIntegral (BSU.unsafeIndex bs (i + 4)) :: Word64
+        !b5 = fromIntegral (BSU.unsafeIndex bs (i + 5)) :: Word64
+        !b6 = fromIntegral (BSU.unsafeIndex bs (i + 6)) :: Word64
+        !b7 = fromIntegral (BSU.unsafeIndex bs (i + 7)) :: Word64
         !val = b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
            .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
-    in ok val (off + 8)
+    in (# (# val, off +# 8# #) | #)
 {-# INLINE getFixed64 #-}
 
 getFloat :: Decoder Float
@@ -246,19 +263,19 @@ getDouble :: Decoder Double
 getDouble = castWord64ToDouble <$> getFixed64
 {-# INLINE getDouble #-}
 
--- | Decode a length-delimited field. Zero-copy: returns a ByteString
--- slice of the input buffer.
+-- | Decode a length-delimited field. Zero-copy ByteString slice.
 getLengthDelimited :: Decoder ByteString
-getLengthDelimited = Decoder $ \bs off ok err ->
-  unDecoder getVarint bs off
-    (\lenW off' ->
-      let len = fromIntegral lenW
+getLengthDelimited = Decoder $ \bs off ->
+  case runDecoder# getVarint bs off of
+    (# (# lenW, off' #) | #) ->
+      let !len = fromIntegral lenW :: Int
       in if len < 0
-         then err NegativeLength
-         else if off' + len > BS.length bs
-         then err UnexpectedEnd
-         else ok (BSU.unsafeTake len (BSU.unsafeDrop off' bs)) (off' + len))
-    err
+         then (# | NegativeLength #)
+         else if I# off' + len > BS.length bs
+         then (# | UnexpectedEnd #)
+         else let !i = I# off'
+              in (# (# BSU.unsafeTake len (BSU.unsafeDrop i bs), case i + len of I# r -> r #) | #)
+    (# | e #) -> (# | e #)
 {-# INLINE getLengthDelimited #-}
 
 getByteString :: Decoder ByteString
@@ -266,32 +283,33 @@ getByteString = getLengthDelimited
 {-# INLINE getByteString #-}
 
 getText :: Decoder Text
-getText = Decoder $ \bs off ok err ->
-  unDecoder getLengthDelimited bs off
-    (\bytes off' ->
-      case TE.decodeUtf8' bytes of
-        Left _  -> err InvalidUtf8
-        Right t -> ok t off')
-    err
+getText = Decoder $ \bs off ->
+  case runDecoder# getLengthDelimited bs off of
+    (# (# bytes, off' #) | #) ->
+      if validateUtf8 bytes
+      then (# (# decodeUtf8Lenient bytes, off' #) | #)
+      else (# | InvalidUtf8 #)
+    (# | e #) -> (# | e #)
 {-# INLINE getText #-}
 
 getTag :: Decoder Tag
-getTag = Decoder $ \bs off ok err ->
-  unDecoder getVarint bs off
-    (\w off' ->
+getTag = Decoder $ \bs off ->
+  case runDecoder# getVarint bs off of
+    (# (# w, off' #) | #) ->
       case decodeTag w of
-        Just tag -> ok tag off'
-        Nothing  -> err (InvalidTag w))
-    err
+        Just tag -> (# (# tag, off' #) | #)
+        Nothing  -> (# | InvalidTag w #)
+    (# | e #) -> (# | e #)
 {-# INLINE getTag #-}
 
 -- | Try to decode a tag, returning Nothing at end-of-input.
--- CPS: the Nothing case flows directly to the success continuation.
 getTagOr :: Decoder (Maybe Tag)
-getTagOr = Decoder $ \bs off ok err ->
-  if off >= BS.length bs
-  then ok Nothing off
-  else unDecoder getTag bs off (\tag off' -> ok (Just tag) off') err
+getTagOr = Decoder $ \bs off ->
+  if isTrue# (off >=# bsLen bs)
+  then (# (# Nothing, off #) | #)
+  else case runDecoder# getTag bs off of
+    (# (# tag, off' #) | #) -> (# (# Just tag, off' #) | #)
+    (# | e #)               -> (# | e #)
 {-# INLINE getTagOr #-}
 
 -- | Skip over a field value based on its wire type.
@@ -299,39 +317,118 @@ skipField :: WireType -> Decoder ()
 skipField = \case
   WireVarint -> skipVarint
   Wire64Bit  -> skip 8
-  WireLengthDelimited -> Decoder $ \bs off ok err ->
-    unDecoder getVarint bs off
-      (\lenW off' ->
-        let len = fromIntegral lenW
-        in if off' + len > BS.length bs
-           then err UnexpectedEnd
-           else ok () (off' + len))
-      err
+  WireLengthDelimited -> Decoder $ \bs off ->
+    case runDecoder# getVarint bs off of
+      (# (# lenW, off' #) | #) ->
+        let !len = fromIntegral lenW :: Int
+        in if I# off' + len > BS.length bs
+           then (# | UnexpectedEnd #)
+           else (# (# (), case I# off' + len of I# r -> r #) | #)
+      (# | e #) -> (# | e #)
   WireStartGroup -> skipGroup
   WireEndGroup   -> pure ()
   Wire32Bit  -> skip 4
 
 skip :: Int -> Decoder ()
-skip n = Decoder $ \bs off ok err ->
-  if off + n > BS.length bs
-  then err UnexpectedEnd
-  else ok () (off + n)
+skip (I# n) = Decoder $ \bs off ->
+  if I# (off +# n) > BS.length bs
+  then (# | UnexpectedEnd #)
+  else (# (# (), off +# n #) | #)
 {-# INLINE skip #-}
 
 skipVarint :: Decoder ()
-skipVarint = Decoder $ \bs off ok err ->
-  let go !pos
-        | pos >= BS.length bs = err UnexpectedEnd
-        | BSU.unsafeIndex bs pos < 0x80 = ok () (pos + 1)
-        | otherwise = go (pos + 1)
-  in go off
+skipVarint = Decoder $ \bs off0 ->
+  let len = bsLen bs
+      go !pos
+        | isTrue# (pos >=# len) = (# | UnexpectedEnd #)
+        | BSU.unsafeIndex bs (I# pos) < 0x80 = (# (# (), pos +# 1# #) | #)
+        | otherwise = go (pos +# 1#)
+  in go off0
 {-# INLINE skipVarint #-}
 
 skipGroup :: Decoder ()
-skipGroup = Decoder $ \bs off ok err ->
-  unDecoder getTagOr bs off
-    (\mt off' -> case mt of
-      Nothing -> err UnexpectedEnd
-      Just (Tag _ WireEndGroup) -> ok () off'
-      Just (Tag _ wt) -> unDecoder (skipField wt >> skipGroup) bs off' ok err)
-    err
+skipGroup = Decoder $ \bs off ->
+  case runDecoder# getTagOrU bs off of
+    (# (# mt, off' #) | #) -> case mt of
+      UNothing -> (# | UnexpectedEnd #)
+      UJust (Tag _ WireEndGroup) -> (# (# (), off' #) | #)
+      UJust (Tag _ wt) -> runDecoder# (skipField wt >> skipGroup) bs off'
+    (# | e #) -> (# | e #)
+
+-- | Unboxed optional for zero-allocation tag-or-EOF in the decode loop.
+data UMaybe a = UMaybe (# (# #) | a #)
+
+pattern UJust :: a -> UMaybe a
+pattern UJust a = UMaybe (# | a #)
+
+pattern UNothing :: UMaybe a
+pattern UNothing = UMaybe (# (# #) | #)
+
+{-# COMPLETE UJust, UNothing #-}
+
+umaybe :: b -> (a -> b) -> UMaybe a -> b
+umaybe def f (UMaybe x) = case x of
+  (# (# #) | #) -> def
+  (# | a #)     -> f a
+{-# INLINE umaybe #-}
+
+-- | Like 'getTagOr' but returns 'UMaybe' to avoid allocating a boxed Maybe.
+getTagOrU :: Decoder (UMaybe Tag)
+getTagOrU = Decoder $ \bs off ->
+  if isTrue# (off >=# bsLen bs)
+  then (# (# UNothing, off #) | #)
+  else case runDecoder# getTag bs off of
+    (# (# tag, off' #) | #) -> (# (# UJust tag, off' #) | #)
+    (# | e #)               -> (# | e #)
+{-# INLINE getTagOrU #-}
+
+-- | Three-way unboxed result for the tag-or-EOF operation.
+-- Flattens what would otherwise be two nested unboxed sums
+-- (Decoder result × UMaybe) into a single three-way split.
+--
+-- * @(# (# #) | _ | _ #)@ — end of input (offset unchanged)
+-- * @(# _ | (# Int#, Int#, Int# #) | _ #)@ — got a tag: field number, wire type, new offset
+-- * @(# _ | _ | DecodeError #)@ — decode error
+type TagResult# = (# (# #) | (# Int#, Int#, Int# #) | DecodeError #)
+
+-- | CPS interface to the three-way tag result, specialized for decoder results.
+-- Avoids constructing any intermediate value — the continuation is applied
+-- directly to the unboxed field number and wire type.
+withTag
+  :: ByteString
+  -> Int#
+  -> (Int# -> (# (# a, Int# #) | DecodeError #))
+  -> (Int# -> Int# -> Int# -> (# (# a, Int# #) | DecodeError #))
+  -> (DecodeError -> (# (# a, Int# #) | DecodeError #))
+  -> (# (# a, Int# #) | DecodeError #)
+withTag bs off kEOF kTag kErr =
+  if isTrue# (off >=# bsLen bs)
+  then kEOF off
+  else case runDecoder# getVarint bs off of
+    (# (# w, off' #) | #) ->
+      case decodeTagParts w of
+        (# fn, wt #) -> kTag fn wt off'
+    (# | e #) -> kErr e
+{-# INLINE withTag #-}
+
+-- | Decode tag into unboxed field number and wire type.
+decodeTagParts :: Word64 -> (# Int#, Int# #)
+decodeTagParts w =
+  let fn = fromIntegral (w `shiftR` 3) :: Int
+      wt = fromIntegral (w .&. 0x07) :: Int
+  in case fn of
+    I# fn# -> case wt of
+      I# wt# -> (# fn#, wt# #)
+{-# INLINE decodeTagParts #-}
+
+-- | Validate UTF-8 without exceptions using text's own validator.
+-- This avoids the catch#-based exception path in decodeUtf8' which
+-- Core showed allocates Right/Left constructors in the hot decode path.
+-- validateUtf8Chunk returns (bytesConsumed, maybeState); if it consumed
+-- all bytes, the input is valid UTF-8.
+validateUtf8 :: ByteString -> Bool
+validateUtf8 bs =
+  let (n, _) = validateUtf8Chunk bs
+  in n == BS.length bs
+{-# INLINE validateUtf8 #-}
+

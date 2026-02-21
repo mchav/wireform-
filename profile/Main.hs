@@ -1,5 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UnboxedSums #-}
+{-# LANGUAGE UnboxedTuples #-}
 module Main where
 
 import Control.Monad (forM_)
@@ -16,6 +19,7 @@ import qualified Proto.Encode as H
 import qualified Proto.Decode as H
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Decode
+import GHC.Exts (Int#, Int(I#))
 
 data HSmall = HSmall
   { hsId     :: {-# UNPACK #-} !Int64
@@ -31,17 +35,27 @@ instance H.MessageEncode HSmall where
   {-# INLINE buildMessage #-}
 
 instance H.MessageDecode HSmall where
-  messageDecoder = loop 0 "" False
+  messageDecoder = Decoder (\bs off -> loop 0 "" False bs off)
     where
-      loop !i !n !a = do
-        mt <- getTagOr
-        case mt of
-          Nothing -> pure (HSmall i n a)
-          Just (Tag fn wt) -> case fn of
-            1 -> getVarint >>= \v -> loop (fromIntegral v) n a
-            2 -> getText >>= \v -> loop i v a
-            3 -> getVarint >>= \v -> loop i n (v /= 0)
-            _ -> skipField wt >> loop i n a
+      loop :: Int64 -> Text -> Bool -> BS.ByteString -> Int# -> (# (# HSmall, Int# #) | DecodeError #)
+      loop !i !n !a !bs !off =
+        withTag bs off
+          (\off' -> (# (# HSmall i n a, off' #) | #))
+          (\fn _wt off' -> case I# fn of
+            1 -> case runDecoder# getVarint bs off' of
+              (# (# v, off'' #) | #) -> loop (fromIntegral v) n a bs off''
+              (# | e #) -> (# | e #)
+            2 -> case runDecoder# getText bs off' of
+              (# (# v, off'' #) | #) -> loop i v a bs off''
+              (# | e #) -> (# | e #)
+            3 -> case runDecoder# getVarint bs off' of
+              (# (# v, off'' #) | #) -> loop i n (v /= 0) bs off''
+              (# | e #) -> (# | e #)
+            _ -> case runDecoder# (skipField (toEnum (I# _wt))) bs off' of
+              (# (# _, off'' #) | #) -> loop i n a bs off''
+              (# | e #) -> (# | e #)
+          )
+          (\e -> (# | e #))
   {-# INLINE messageDecoder #-}
 
 data HWithRepeated = HWithRepeated
@@ -62,10 +76,10 @@ instance H.MessageDecode HWithRepeated where
   messageDecoder = loop [] [] []
     where
       loop !vals !tags !items = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure (HWithRepeated (V.fromList (reverse vals)) (V.fromList (reverse tags)) (V.fromList (reverse items)))
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (HWithRepeated (V.fromList (reverse vals)) (V.fromList (reverse tags)) (V.fromList (reverse items)))
+          UJust (Tag fn wt) -> case fn of
             1 -> case wt of
               WireLengthDelimited -> do
                 bs <- getLengthDelimited

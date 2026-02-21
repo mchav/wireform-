@@ -1,0 +1,81 @@
+# Feature Gap Analysis: hs-proto vs Other Protobuf Libraries
+
+Analysis comparing hs-proto against proto-lens (Haskell), prost (Rust), and the
+official Google protobuf runtimes (Java, Python, Go, C++).
+
+## Implementation Status
+
+| # | Feature | Status | Module(s) |
+|---|---------|--------|-----------|
+| 1 | gRPC Service Stub Generation | **Implemented** | `Proto.CodeGen.Service` |
+| 2 | protoc Plugin Mode | **Implemented** | `Proto.Google.Protobuf.Compiler.Plugin`, `protoc-gen-hs-proto` exe |
+| 3 | Protobuf Editions Support | **Implemented** | `Proto.AST` (Editions, FeatureSet), `Proto.Parser` |
+| 4 | Full descriptor.proto Types | **Implemented** | `Proto.Google.Protobuf.Descriptor` |
+| 5 | Text Format (pbtxt) | **Implemented** | `Proto.TextFormat` |
+| 6 | Dynamic Messages | **Implemented** | `Proto.Dynamic` |
+| 7 | Conformance Test Harness | **Implemented** | `Proto.Conformance`, `hs-proto-conformance` exe |
+| 8 | Streaming/Incremental Decode | Deferred | — |
+| 9 | Well-Known Type JSON | **Implemented** | `Proto.JSON.WellKnown` |
+| 10 | aeson Integration | **Implemented** | `Proto.JSON.Aeson` |
+| 11 | Group Field Handling | **Already implemented** | `Proto.Wire.Decode.skipGroup` |
+| 12 | Custom Option Extensions | **Implemented** | `Proto.Options.Custom` |
+| 13 | Map/Oneof in TH Codegen | **Implemented** | `Proto.TH` |
+| 14 | Enum Alias Codegen | **Implemented** | `Proto.CodeGen` |
+
+### Details
+
+**1. gRPC Service Stub Generation** — The code generator now emits service
+declarations instead of discarding them. `Proto.CodeGen.Service` generates:
+- Server handler record types (one method handler field per RPC)
+- Client stub record types
+- Method metadata types with names and streaming modes
+- Service metadata (fully-qualified names, method paths)
+
+**2. protoc Plugin Mode** — `Proto.Google.Protobuf.Compiler.Plugin` provides
+`CodeGeneratorRequest`/`CodeGeneratorResponse` types with full encode/decode,
+plus a `pluginMain` entry point. The `protoc-gen-hs-proto` executable
+implements the protoc plugin protocol.
+
+**3. Protobuf Editions** — The AST now has `Editions Edition` as a `Syntax`
+variant. The parser handles `edition = "2023"` syntax. `FeatureSet` and all
+feature enum types are defined with `featuresForEdition` defaults.
+
+**4. descriptor.proto Types** — Hand-written Haskell types for the core
+descriptor hierarchy: `FileDescriptorSet`, `FileDescriptorProto`,
+`DescriptorProto`, `FieldDescriptorProto`, `EnumDescriptorProto`,
+`ServiceDescriptorProto`, `MethodDescriptorProto`, `OneofDescriptorProto`.
+
+**5. Text Format** — `Proto.TextFormat` provides rendering and parsing of
+the protobuf text format (pbtxt) for dynamic messages, with both compact
+and pretty-printed output modes.
+
+**6. Dynamic Messages** — `Proto.Dynamic` provides `DynamicMessage` backed
+by `Map Int DynamicValue`, with wire format encode/decode and JSON conversion.
+
+**7. Conformance Test Harness** — `Proto.Conformance` implements the
+length-prefixed stdin/stdout protocol for the official conformance runner.
+
+**9. Well-Known Type JSON** — Canonical JSON conversions:
+- Timestamp ↔ RFC 3339 strings
+- Duration ↔ "3.5s" format
+- FieldMask ↔ comma-separated paths
+- Struct/Value/ListValue ↔ native JSON
+
+**10. aeson Integration** — Bridge module providing patterns for converting
+between hs-proto's `JsonValue` and aeson's `Value` without a hard dependency.
+
+**12. Custom Option Extensions** — `CustomOptionRegistry` for tracking and
+resolving custom option extensions, with extraction from parsed proto files.
+
+**13. Map/Oneof in TH** — The TH code generator now handles `MEMapField`
+(generating `Map` fields) and `MEOneof` (generating `Maybe`-wrapped sum types).
+
+**14. Enum Alias** — The code generator detects `allow_alias` enums, generates
+only primary constructors with pattern synonyms for aliases, and skips
+deriving `Enum` for non-sequential numbering.
+
+### Remaining (Deferred)
+
+**8. Streaming/Incremental Decode** — Would require a streaming decoder
+interface (conduit/pipes/streaming). The current decoder requires a complete
+strict ByteString. This is the only feature not implemented.
