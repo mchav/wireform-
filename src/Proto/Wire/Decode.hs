@@ -59,6 +59,10 @@ module Proto.Wire.Decode
   , UMaybe(UJust, UNothing)
   , umaybe
   , getTagOrU
+
+    -- * Three-way tag result (flattened unboxed sum for the decode loop)
+  , TagResult#
+  , withTag
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor)
@@ -373,4 +377,43 @@ getTagOrU = Decoder $ \bs off ->
     (# (# tag, off' #) | #) -> (# (# UJust tag, off' #) | #)
     (# | e #)               -> (# | e #)
 {-# INLINE getTagOrU #-}
+
+-- | Three-way unboxed result for the tag-or-EOF operation.
+-- Flattens what would otherwise be two nested unboxed sums
+-- (Decoder result × UMaybe) into a single three-way split.
+--
+-- * @(# (# #) | _ | _ #)@ — end of input (offset unchanged)
+-- * @(# _ | (# Int#, Int#, Int# #) | _ #)@ — got a tag: field number, wire type, new offset
+-- * @(# _ | _ | DecodeError #)@ — decode error
+type TagResult# = (# (# #) | (# Int#, Int#, Int# #) | DecodeError #)
+
+-- | CPS interface to the three-way tag result, specialized for decoder results.
+-- Avoids constructing any intermediate value — the continuation is applied
+-- directly to the unboxed field number and wire type.
+withTag
+  :: ByteString
+  -> Int#
+  -> (Int# -> (# (# a, Int# #) | DecodeError #))
+  -> (Int# -> Int# -> Int# -> (# (# a, Int# #) | DecodeError #))
+  -> (DecodeError -> (# (# a, Int# #) | DecodeError #))
+  -> (# (# a, Int# #) | DecodeError #)
+withTag bs off kEOF kTag kErr =
+  if isTrue# (off >=# bsLen bs)
+  then kEOF off
+  else case runDecoder# getVarint bs off of
+    (# (# w, off' #) | #) ->
+      case decodeTagParts w of
+        (# fn, wt #) -> kTag fn wt off'
+    (# | e #) -> kErr e
+{-# INLINE withTag #-}
+
+-- | Decode tag into unboxed field number and wire type.
+decodeTagParts :: Word64 -> (# Int#, Int# #)
+decodeTagParts w =
+  let fn = fromIntegral (w `shiftR` 3) :: Int
+      wt = fromIntegral (w .&. 0x07) :: Int
+  in case fn of
+    I# fn# -> case wt of
+      I# wt# -> (# fn#, wt# #)
+{-# INLINE decodeTagParts #-}
 

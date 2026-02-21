@@ -86,6 +86,10 @@ module Proto.Decode
   , UMaybe (UJust, UNothing)
   , umaybe
   , getTagOrU
+
+    -- * Three-way tag CPS (flattened, zero-allocation decode loop)
+  , TagResult#
+  , withTag
   ) where
 
 import Data.Bits (shiftL, shiftR)

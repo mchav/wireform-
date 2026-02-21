@@ -1000,7 +1000,8 @@ genDecodeInstance ctx scope msg =
   in vsep
     [ pretty ("instance MessageDecode " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 $ vsep
-        [ pretty ("messageDecoder = " :: Text) <> pretty ("loop" :: Text) <+>
+        [ pretty ("{-# INLINE messageDecoder #-}" :: Text)
+        , pretty ("messageDecoder = " :: Text) <> pretty ("loop" :: Text) <+>
           hsep (fmap (\fi -> pretty (fieldDefaultText ctx fi)) fields) <+> pretty ("[]" :: Text)
         , indent 2 $ pretty ("where" :: Text)
         , indent 4 $ vsep
