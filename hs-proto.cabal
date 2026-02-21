@@ -290,6 +290,30 @@ executable example-qq
     default-extensions:
       OverloadedStrings
 
+executable hs-proto-conformance
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+
+    hs-source-dirs:   conformance
+    default-language: GHC2021
+
+executable protoc-gen-hs-proto
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , text
+      , vector
+
+    hs-source-dirs:   protoc-plugin
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
 benchmark compare-bench
     import:           warnings
     type:             exitcode-stdio-1.0
