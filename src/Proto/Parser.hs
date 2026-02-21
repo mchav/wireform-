@@ -141,10 +141,10 @@ aggregateLiteral = braces (many aggregateField)
 
 topLevelDef :: Parser TopLevel
 topLevelDef = choice
-  [ TLMessage <$> messageDef
-  , TLEnum    <$> enumDef
-  , TLService <$> serviceDef
-  , extendDef
+  [ try (TLMessage <$> messageDef)
+  , try (TLEnum    <$> enumDef)
+  , try (TLService <$> serviceDef)
+  , try extendDef
   ]
   where
     extendDef = do
@@ -165,9 +165,9 @@ messageElement = choice
   [ MEReserved   <$> reservedDecl
   , MEExtensions <$> extensionsDecl
   , MEOption     <$> optionDecl
-  , MEEnum       <$> enumDef
-  , MEMessage    <$> messageDef
-  , MEOneof      <$> oneofDef
+  , try (MEEnum       <$> enumDef)
+  , try (MEMessage    <$> messageDef)
+  , try (MEOneof      <$> oneofDef)
   , try (MEMapField <$> mapFieldDef)
   , MEField      <$> fieldDef
   ]
@@ -175,9 +175,9 @@ messageElement = choice
 fieldDef :: Parser FieldDef
 fieldDef = do
   lbl <- optional $ choice
-    [ Optional <$ reserved "optional"
-    , Required <$ reserved "required"
-    , Repeated <$ reserved "repeated"
+    [ try (Optional <$ reserved "optional")
+    , try (Required <$ reserved "required")
+    , try (Repeated <$ reserved "repeated")
     ]
   ft <- parseFieldType
   name <- identifier
@@ -262,6 +262,7 @@ oneofDef = do
     let os = concatMap (either (:[]) (const [])) items
     let fs = concatMap (either (const []) (:[])) items
     pure (fs, os)
+  _ <- optional semi
   pure OneofDef
     { oneofName    = name
     , oneofFields  = fields
@@ -318,19 +319,33 @@ extensionsDecl = do
         , extEnd   = fromMaybe (ExtBoundNum start) end'
         }
 
+data EnumItem = EIOption OptionDef | EIValue EnumValue | EIReserved
+
 enumDef :: Parser EnumDef
 enumDef = do
   reserved "enum"
   name <- identifier
-  (vals, opts) <- braces $ do
-    items <- many (Left <$> try optionDecl <|> Right <$> enumValueDef)
-    pure (concatMap (either (const []) (:[])) items
-         ,concatMap (either (:[]) (const [])) items)
+  items <- braces (many enumItem)
+  let vals = [v | EIValue v <- items]
+      opts = [o | EIOption o <- items]
   pure EnumDef
     { enumName    = name
     , enumValues  = vals
     , enumOptions = opts
     }
+
+enumItem :: Parser EnumItem
+enumItem = choice
+  [ EIOption <$> try optionDecl
+  , EIReserved <$ try enumReservedDecl
+  , EIValue <$> enumValueDef
+  ]
+
+enumReservedDecl :: Parser ()
+enumReservedDecl = do
+  reserved "reserved"
+  _ <- (stringLiteral `sepBy1` comma) <|> (fmap (T.pack . show) <$> (intLiteral `sepBy1` comma))
+  semi
 
 enumValueDef :: Parser EnumValue
 enumValueDef = do

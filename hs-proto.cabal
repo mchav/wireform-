@@ -161,6 +161,7 @@ executable hs-proto-gen
         base                 >= 4.17 && < 5
       , hs-proto
       , text
+      , containers
       , directory
       , filepath
       , optparse-applicative >= 0.17 && < 0.20

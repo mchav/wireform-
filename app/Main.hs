@@ -15,7 +15,9 @@
 -- @
 module Main where
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, forM)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.Directory (createDirectoryIfMissing)
@@ -26,9 +28,9 @@ import System.IO (hPutStrLn, stderr)
 import Options.Applicative
 
 import Proto.Parser.Resolver
-import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..))
+import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..),
+                      TypeRegistry, buildTypeRegistry, moduleNameForProto)
 import Proto.AST (ProtoFile(..))
-import Proto.CodeGen.Types (hsModuleName)
 import Proto.Print (printProtoFile)
 import Proto.Inspect (summarize, prettyPrintSummary)
 
@@ -78,7 +80,7 @@ cmdParser = subparser
   <> command "summary" (info (CmdSummary <$> summaryOptsParser)
       (progDesc "Print a structural summary of a .proto file"))
   )
-  <|> (CmdGenerate <$> genOptsParser)  -- default: generate
+  <|> (CmdGenerate <$> genOptsParser)
 
 genOptsParser :: Parser GenOpts
 genOptsParser = do
@@ -127,26 +129,40 @@ summaryOptsParser = SummaryOpts
   <*> argument str (metavar "FILE" <> help ".proto file to summarize")
 
 runGenerate :: GenOpts -> IO ()
-runGenerate go = forM_ (goInputFiles go) $ \inputFile -> do
-  result <- resolveProtoImports (goIncludeDirs go) inputFile
-  case result of
-    Left err -> do
-      hPutStrLn stderr (showResolveError err)
-      exitFailure
-    Right resolved -> do
-      let opts = defaultGenerateOpts
-            { genModulePrefix    = T.pack (goModulePrefix go)
-            , genLazySubmessages = goLazySubmessages go
-            }
-      let code = generateModuleText opts (rpFile resolved)
-      if goOutputDir go == "-"
-        then TIO.putStr code
-        else do
-          let modPath = modulePathFromProto opts (rpFile resolved)
-              outFile = goOutputDir go </> modPath <.> "hs"
-          createDirectoryIfMissing True (takeDirectory outFile)
-          TIO.writeFile outFile code
-          hPutStrLn stderr ("Wrote " <> outFile)
+runGenerate go = do
+  let codegenOpts = defaultGenerateOpts
+        { genModulePrefix    = T.pack (goModulePrefix go)
+        , genLazySubmessages = goLazySubmessages go
+        }
+  -- Phase 1: resolve all proto files and their transitive imports
+  resolvedList <- forM (goInputFiles go) $ \inputFile -> do
+    result <- resolveProtoImports (goIncludeDirs go) inputFile
+    case result of
+      Left err -> do
+        hPutStrLn stderr (showResolveError err)
+        exitFailure
+      Right resolved -> pure (inputFile, resolved)
+
+  -- Phase 2: build a global type registry from all resolved files
+  let allResolved = concatMap (\(fp, rp) -> (fp, rp) : collectTransitiveImports rp) resolvedList
+      registry = buildTypeRegistry codegenOpts allResolved
+
+  -- Phase 3: generate each input file
+  forM_ resolvedList $ \(inputFile, resolved) -> do
+    let protoRelPath = stripIncludeDirs (goIncludeDirs go) inputFile
+        code = generateModuleText codegenOpts registry protoRelPath (rpFile resolved)
+    if goOutputDir go == "-"
+      then TIO.putStr code
+      else do
+        let modPath = modulePathFromProto codegenOpts protoRelPath (rpFile resolved)
+            outFile = goOutputDir go </> modPath <.> "hs"
+        createDirectoryIfMissing True (takeDirectory outFile)
+        TIO.writeFile outFile code
+        hPutStrLn stderr ("Wrote " <> outFile)
+
+collectTransitiveImports :: ResolvedProto -> [(FilePath, ResolvedProto)]
+collectTransitiveImports rp =
+  concatMap (\(_, imp) -> (rpPath imp, imp) : collectTransitiveImports imp) (Map.toList (rpImports rp))
 
 runPrint :: PrintOpts -> IO ()
 runPrint po = do
@@ -168,13 +184,18 @@ showResolveError (FileNotFound _ importPath searched) =
   "Import not found: " <> T.unpack importPath <> "\nSearched: " <> show searched
 showResolveError (CircularImport chain) = "Circular import: " <> show chain
 
-modulePathFromProto :: GenerateOpts -> ProtoFile -> FilePath
-modulePathFromProto opts pf =
-  let prefix = T.unpack (genModulePrefix opts)
-      pkg = maybe "Generated" (T.unpack . hsModuleName) (protoPackage pf)
-      modName = prefix <> "." <> pkg
+modulePathFromProto :: GenerateOpts -> FilePath -> ProtoFile -> FilePath
+modulePathFromProto opts filePath pf =
+  let modName = T.unpack (moduleNameForProto opts filePath pf)
   in fmap dotToSlash modName
   where
     dotToSlash '.' = '/'
     dotToSlash c   = c
 
+stripIncludeDirs :: [FilePath] -> FilePath -> FilePath
+stripIncludeDirs dirs fp =
+  let t = T.pack fp
+      attempts = fmap (\d -> T.stripPrefix (T.pack (d <> "/")) t) dirs
+  in case [rest | Just rest <- attempts] of
+    (r:_) -> T.unpack r
+    []    -> fp
