@@ -12,7 +12,7 @@ import GHC.Exts (Int#)
 --
 -- * 'Done#' — end of input (carries offset)
 -- * 'Ok#' — decoded a value (carries value + new offset)
--- * 'Err#' — error (carries error description as String for now)
+-- * 'Err#' — error (carries error description)
 --
 -- This is used for operations like "get tag or end-of-input" where
 -- nesting Decoder (UMaybe Tag) would require two case splits.

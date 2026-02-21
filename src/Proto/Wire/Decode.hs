@@ -64,7 +64,7 @@ module Proto.Wire.Decode
   , TagResult#
   , withTag
 
-    -- * Non-throwing UTF-8 validation (C FFI, no catch#)
+    -- * Non-throwing UTF-8 validation
   , validateUtf8
   ) where
 
@@ -75,11 +75,8 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
-import qualified Data.ByteString.Internal as BSI
-import Foreign.Ptr (Ptr, plusPtr)
-import Foreign.ForeignPtr (withForeignPtr)
-import System.IO.Unsafe (unsafeDupablePerformIO)
-import Data.Word (Word8, Word32, Word64)
+import Data.Text.Internal.Encoding (validateUtf8Chunk)
+import Data.Word (Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Exts (Int#, Int(I#), (+#), (>=#), isTrue#)
 import Control.DeepSeq (NFData(..))
@@ -424,21 +421,14 @@ decodeTagParts w =
       I# wt# -> (# fn#, wt# #)
 {-# INLINE decodeTagParts #-}
 
--- | C FFI UTF-8 validator. Returns 1 for valid, 0 for invalid.
-foreign import ccall unsafe "hs_proto_validate_utf8"
-  c_validate_utf8 :: Ptr Word8 -> Int -> Int
-
--- | Validate UTF-8 without exceptions. Uses C FFI for the validation,
--- then constructs Text only when valid. This avoids the catch#-based
--- exception path in Data.Text.Encoding.decodeUtf8' which Core showed
--- allocates Right/Left constructors in the hot decode path.
+-- | Validate UTF-8 without exceptions using text's own validator.
+-- This avoids the catch#-based exception path in decodeUtf8' which
+-- Core showed allocates Right/Left constructors in the hot decode path.
+-- validateUtf8Chunk returns (bytesConsumed, maybeState); if it consumed
+-- all bytes, the input is valid UTF-8.
 validateUtf8 :: ByteString -> Bool
 validateUtf8 bs =
-  case BSI.toForeignPtr bs of
-    (fptr, off, len) ->
-      unsafeDupablePerformIO $
-        withForeignPtr fptr $ \ptr ->
-          let !r = c_validate_utf8 (ptr `plusPtr` off) len
-          in pure (r == 1)
+  let (n, _) = validateUtf8Chunk bs
+  in n == BS.length bs
 {-# INLINE validateUtf8 #-}
 
