@@ -67,10 +67,10 @@ instance MessageDecode Timestamp where
   messageDecoder = loop 0 0
     where
       loop acc_0 acc_1 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v acc_1

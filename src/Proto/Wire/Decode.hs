@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE UnboxedTuples #-}
 -- | Low-level, high-performance wire format decoding primitives.
 --
@@ -48,6 +50,11 @@ module Proto.Wire.Decode
 
     -- * Low-level CPS access (for generated code)
   , runDecoder'
+
+    -- * Unboxed internal variants (zero-allocation hot path)
+  , UMaybe(UJust, UNothing)
+  , umaybe
+  , getTagOrU
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor)
@@ -335,3 +342,30 @@ skipGroup = Decoder $ \bs off ok err ->
       Just (Tag _ WireEndGroup) -> ok () off'
       Just (Tag _ wt) -> unDecoder (skipField wt >> skipGroup) bs off' ok err)
     err
+
+-- | Unboxed optional, represented as an unboxed sum.
+-- Avoids allocating a Maybe constructor in the tight decode loop.
+data UMaybe a = UMaybe (# (# #) | a #)
+
+pattern UJust :: a -> UMaybe a
+pattern UJust a = UMaybe (# | a #)
+
+pattern UNothing :: UMaybe a
+pattern UNothing = UMaybe (# (# #) | #)
+
+{-# COMPLETE UJust, UNothing #-}
+
+umaybe :: b -> (a -> b) -> UMaybe a -> b
+umaybe def f (UMaybe x) = case x of
+  (# (# #) | #) -> def
+  (# | a #)     -> f a
+{-# INLINE umaybe #-}
+
+-- | Like 'getTagOr' but returns 'UMaybe' to avoid allocating a boxed Maybe
+-- on every field in the decode loop.
+getTagOrU :: Decoder (UMaybe Tag)
+getTagOrU = Decoder $ \bs off ok _err ->
+  if off >= BS.length bs
+  then ok UNothing off
+  else unDecoder getTag bs off (\tag off' -> ok (UJust tag) off') _err
+{-# INLINE getTagOrU #-}

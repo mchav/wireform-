@@ -61,15 +61,14 @@ instance MessageDecode ConformanceRequest where
   messageDecoder = loop defaultConformanceRequest
     where
       loop !cr = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure cr
-          Just (Tag 1 _) -> do v <- decodeFieldBytes; loop cr { crPayload = v }
-          Just (Tag 2 _) -> do _jsonPayload <- decodeFieldString
-                               loop cr { crPayload = BS.empty }
-          Just (Tag 3 _) -> do v <- getVarint; loop cr { crRequestedOutputFormat = fromIntegral v }
-          Just (Tag 4 _) -> do v <- decodeFieldString; loop cr { crMessageType = v }
-          Just (Tag _ wt) -> skipField wt >> loop cr
+          UNothing -> pure cr
+          UJust (Tag 1 _) -> do v <- decodeFieldBytes; loop cr { crPayload = v }
+          UJust (Tag 2 _) -> do { _jsonPayload <- decodeFieldString; loop cr { crPayload = BS.empty } }
+          UJust (Tag 3 _) -> do v <- getVarint; loop cr { crRequestedOutputFormat = fromIntegral v }
+          UJust (Tag 4 _) -> do v <- decodeFieldString; loop cr { crMessageType = v }
+          UJust (Tag _ wt) -> skipField wt >> loop cr
 
 data ConformanceResponse = ConformanceResponse
   { crsResult :: !ConformanceResult
@@ -102,16 +101,16 @@ instance MessageDecode ConformanceResponse where
   messageDecoder = loop defaultConformanceResponse
     where
       loop !cr = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure cr
-          Just (Tag 1 _) -> do v <- decodeFieldString; pure (ConformanceResponse (ParseError v))
-          Just (Tag 2 _) -> do v <- decodeFieldString; pure (ConformanceResponse (RuntimeError v))
-          Just (Tag 3 _) -> do v <- decodeFieldBytes; pure (ConformanceResponse (ProtobufPayload v))
-          Just (Tag 4 _) -> do v <- decodeFieldString; pure (ConformanceResponse (JsonPayload v))
-          Just (Tag 5 _) -> do v <- decodeFieldString; pure (ConformanceResponse (Skipped v))
-          Just (Tag 6 _) -> do v <- decodeFieldString; pure (ConformanceResponse (SerializeError v))
-          Just (Tag _ wt) -> skipField wt >> loop cr
+          UNothing -> pure cr
+          UJust (Tag 1 _) -> do v <- decodeFieldString; pure (ConformanceResponse (ParseError v))
+          UJust (Tag 2 _) -> do v <- decodeFieldString; pure (ConformanceResponse (RuntimeError v))
+          UJust (Tag 3 _) -> do v <- decodeFieldBytes; pure (ConformanceResponse (ProtobufPayload v))
+          UJust (Tag 4 _) -> do v <- decodeFieldString; pure (ConformanceResponse (JsonPayload v))
+          UJust (Tag 5 _) -> do v <- decodeFieldString; pure (ConformanceResponse (Skipped v))
+          UJust (Tag 6 _) -> do v <- decodeFieldString; pure (ConformanceResponse (SerializeError v))
+          UJust (Tag _ wt) -> skipField wt >> loop cr
 
 -- | Main loop for conformance testing.
 -- Reads length-delimited ConformanceRequest from stdin,

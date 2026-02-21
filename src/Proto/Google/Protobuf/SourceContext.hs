@@ -63,10 +63,10 @@ instance MessageDecode SourceContext where
   messageDecoder = loop ""
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (SourceContext {sourceContextFilename = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (SourceContext {sourceContextFilename = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
               loop v

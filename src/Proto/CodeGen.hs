@@ -1006,10 +1006,10 @@ genDecodeInstance ctx scope msg =
         , indent 4 $ vsep
             [ pretty ("loop " :: Text) <> hsep (fmap pretty allAccsWithUnknown) <+> pretty ("= do" :: Text)
             , indent 2 $ vsep
-                [ pretty ("mTag <- getTagOr" :: Text)
+                [ pretty ("mTag <- getTagOrU" :: Text)
                 , pretty ("case mTag of" :: Text)
                 , indent 2 $ vsep
-                    [ pretty ("Nothing -> pure (" :: Text) <> pretty tyN <+>
+                    [ pretty ("UNothing -> pure (" :: Text) <> pretty tyN <+>
                       braces (hsep (punctuate comma (
                         fmap (\fi ->
                           pretty (fifAccessor fi) <+> pretty ("=" :: Text) <+> pretty ("acc_" :: Text) <> pretty (T.pack (show (fifIndex fi)))
@@ -1017,7 +1017,7 @@ genDecodeInstance ctx scope msg =
                         <> [pretty unknownFieldName <+> pretty ("= reverse " :: Text) <> pretty unknownAcc]
                       ))) <>
                       pretty (")" :: Text)
-                    , pretty ("Just (Tag fn wt) -> case fn of" :: Text)
+                    , pretty ("UJust (Tag fn wt) -> case fn of" :: Text)
                     , indent 2 $ vsep (concatMap (genFieldDecodeCase ctx allAccsWithUnknown) fields <> [genDefaultDecodeCase scope allAccsWithUnknown])
                     ]
                 ]

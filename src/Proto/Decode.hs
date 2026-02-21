@@ -78,6 +78,11 @@ module Proto.Decode
 
     -- * Unknown field sizes
   , unknownFieldsSize
+
+    -- * Unboxed internal types (re-exported for generated code)
+  , UMaybe (UJust, UNothing)
+  , umaybe
+  , getTagOrU
   ) where
 
 import Data.Bits (shiftL, shiftR)

@@ -63,10 +63,10 @@ instance MessageDecode FieldMask where
   messageDecoder = loop V.empty
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (FieldMask {fieldMaskPaths = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
               loop (acc_0 <> V.singleton v)

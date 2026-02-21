@@ -61,10 +61,10 @@ instance MessageDecode Empty where
   messageDecoder = loop 
     where
       loop  = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Empty {})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (Empty {})
+          UJust (Tag fn wt) -> case fn of
             _ -> skipField wt >> loop 
 
 instance IsMessage Empty where

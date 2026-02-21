@@ -103,6 +103,8 @@ library
       Proto.Google.Protobuf.Descriptor
       Proto.Google.Protobuf.Compiler.Plugin
       Proto.Descriptor.Convert
+      Proto.Internal.Maybe
+      Proto.Internal.Either
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native

@@ -46,7 +46,7 @@ import Data.Word (Word32, Word64)
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited)
-import Proto.Wire.Decode (Decoder, getTagOr, getVarint, getFixed32, getFixed64,
+import Proto.Wire.Decode (Decoder, getTagOrU, UMaybe(UJust, UNothing), getVarint, getFixed32, getFixed64,
   getFloat, getDouble, getText, getLengthDelimited, skipField, runDecoder, DecodeError)
 import Proto.JSON (JsonValue(..))
 
@@ -121,10 +121,10 @@ decodeDynLoop :: Decoder DynamicMessage
 decodeDynLoop = go Map.empty
   where
     go !acc = do
-      mt <- getTagOr
+      mt <- getTagOrU
       case mt of
-        Nothing -> pure (DynamicMessage acc [])
-        Just (Tag fn wt) -> do
+        UNothing -> pure (DynamicMessage acc [])
+        UJust (Tag fn wt) -> do
           val <- decodeWireValue wt
           let acc' = case Map.lookup fn acc of
                 Nothing -> Map.insert fn val acc

@@ -53,13 +53,13 @@ instance MessageDecode CodeGeneratorRequest where
   messageDecoder = loop defaultCodeGeneratorRequest
     where
       loop !r = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure r
-          Just (Tag 1 _)  -> do v <- decodeFieldString; loop r { cgrFileToGenerate = V.snoc (cgrFileToGenerate r) v }
-          Just (Tag 2 _)  -> do v <- decodeFieldString; loop r { cgrParameter = v }
-          Just (Tag 15 _) -> do v <- decodeFieldMessage; loop r { cgrProtoFile = V.snoc (cgrProtoFile r) v }
-          Just (Tag _ wt) -> skipField wt >> loop r
+          UNothing -> pure r
+          UJust (Tag 1 _)  -> do v <- decodeFieldString; loop r { cgrFileToGenerate = V.snoc (cgrFileToGenerate r) v }
+          UJust (Tag 2 _)  -> do v <- decodeFieldString; loop r { cgrParameter = v }
+          UJust (Tag 15 _) -> do v <- decodeFieldMessage; loop r { cgrProtoFile = V.snoc (cgrProtoFile r) v }
+          UJust (Tag _ wt) -> skipField wt >> loop r
 
 data CodeGeneratorResponse = CodeGeneratorResponse
   { cgrsError   :: !Text
@@ -82,13 +82,13 @@ instance MessageDecode CodeGeneratorResponse where
   messageDecoder = loop defaultCodeGeneratorResponse
     where
       loop !r = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure r
-          Just (Tag 1 _)  -> do v <- decodeFieldString; loop r { cgrsError = v }
-          Just (Tag 2 _)  -> do v <- getVarint; loop r { cgrsSupportedFeatures = fromIntegral v }
-          Just (Tag 15 _) -> do v <- decodeFieldMessage; loop r { cgrsFile = V.snoc (cgrsFile r) v }
-          Just (Tag _ wt) -> skipField wt >> loop r
+          UNothing -> pure r
+          UJust (Tag 1 _)  -> do v <- decodeFieldString; loop r { cgrsError = v }
+          UJust (Tag 2 _)  -> do v <- getVarint; loop r { cgrsSupportedFeatures = fromIntegral v }
+          UJust (Tag 15 _) -> do v <- decodeFieldMessage; loop r { cgrsFile = V.snoc (cgrsFile r) v }
+          UJust (Tag _ wt) -> skipField wt >> loop r
 
 data CodeGeneratorResponseFile = CodeGeneratorResponseFile
   { cgrfName    :: !Text
@@ -108,12 +108,12 @@ instance MessageDecode CodeGeneratorResponseFile where
   messageDecoder = loop defaultCodeGeneratorResponseFile
     where
       loop !f = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure f
-          Just (Tag 1 _)  -> do v <- decodeFieldString; loop f { cgrfName = v }
-          Just (Tag 15 _) -> do v <- decodeFieldString; loop f { cgrfContent = v }
-          Just (Tag _ wt) -> skipField wt >> loop f
+          UNothing -> pure f
+          UJust (Tag 1 _)  -> do v <- decodeFieldString; loop f { cgrfName = v }
+          UJust (Tag 15 _) -> do v <- decodeFieldString; loop f { cgrfContent = v }
+          UJust (Tag _ wt) -> skipField wt >> loop f
 
 -- | Entry point for a protoc plugin.
 -- Reads a CodeGeneratorRequest from stdin, applies the handler,

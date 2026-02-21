@@ -31,11 +31,11 @@ genDecodeInstance msg =
         , indent 4 $ vsep
             [ pretty ("loop" :: Text) <+> hsep (fmap (pretty . fieldAccum) fields) <+> pretty ("= do" :: Text)
             , indent 2 $ vsep
-                [ pretty ("mTag <- getTagOr" :: Text)
+                [ pretty ("mTag <- getTagOrU" :: Text)
                 , pretty ("case mTag of" :: Text)
                 , indent 2 $ vsep
-                    [ pretty ("Nothing -> pure" :: Text) <+> genRecordCon msg fields
-                    , pretty ("Just (Tag fn wt) -> case fn of" :: Text)
+                    [ pretty ("UNothing -> pure" :: Text) <+> genRecordCon msg fields
+                    , pretty ("UJust (Tag fn wt) -> case fn of" :: Text)
                     , indent 2 $ vsep (fmap (genFieldCase allAccs) fields <> [genDefaultCase allAccs])
                     ]
                 ]

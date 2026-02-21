@@ -72,11 +72,11 @@ instance MessageDecode FileDescriptorSet where
   messageDecoder = loop V.empty
     where
       loop !fs = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure (FileDescriptorSet fs)
-          Just (Tag 1 _) -> do f <- decodeFieldMessage; loop (V.snoc fs f)
-          Just (Tag _ wt) -> skipField wt >> loop fs
+          UNothing -> pure (FileDescriptorSet fs)
+          UJust (Tag 1 _) -> do f <- decodeFieldMessage; loop (V.snoc fs f)
+          UJust (Tag _ wt) -> skipField wt >> loop fs
 
 data FileDescriptorProto = FileDescriptorProto
   { fdpName            :: !Text
@@ -109,18 +109,18 @@ instance MessageDecode FileDescriptorProto where
   messageDecoder = loop defaultFileDescriptorProto
     where
       loop !fdp = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure fdp
-          Just (Tag 1 _)  -> do v <- decodeFieldString; loop fdp { fdpName = v }
-          Just (Tag 2 _)  -> do v <- decodeFieldString; loop fdp { fdpPackage = v }
-          Just (Tag 3 _)  -> do v <- decodeFieldString; loop fdp { fdpDependency = V.snoc (fdpDependency fdp) v }
-          Just (Tag 4 _)  -> do v <- decodeFieldMessage; loop fdp { fdpMessageType = V.snoc (fdpMessageType fdp) v }
-          Just (Tag 5 _)  -> do v <- decodeFieldMessage; loop fdp { fdpEnumType = V.snoc (fdpEnumType fdp) v }
-          Just (Tag 6 _)  -> do v <- decodeFieldMessage; loop fdp { fdpService = V.snoc (fdpService fdp) v }
-          Just (Tag 12 _) -> do v <- decodeFieldString; loop fdp { fdpSyntax = v }
-          Just (Tag 14 _) -> do v <- decodeFieldString; loop fdp { fdpEdition = v }
-          Just (Tag _ wt) -> skipField wt >> loop fdp
+          UNothing -> pure fdp
+          UJust (Tag 1 _)  -> do v <- decodeFieldString; loop fdp { fdpName = v }
+          UJust (Tag 2 _)  -> do v <- decodeFieldString; loop fdp { fdpPackage = v }
+          UJust (Tag 3 _)  -> do v <- decodeFieldString; loop fdp { fdpDependency = V.snoc (fdpDependency fdp) v }
+          UJust (Tag 4 _)  -> do v <- decodeFieldMessage; loop fdp { fdpMessageType = V.snoc (fdpMessageType fdp) v }
+          UJust (Tag 5 _)  -> do v <- decodeFieldMessage; loop fdp { fdpEnumType = V.snoc (fdpEnumType fdp) v }
+          UJust (Tag 6 _)  -> do v <- decodeFieldMessage; loop fdp { fdpService = V.snoc (fdpService fdp) v }
+          UJust (Tag 12 _) -> do v <- decodeFieldString; loop fdp { fdpSyntax = v }
+          UJust (Tag 14 _) -> do v <- decodeFieldString; loop fdp { fdpEdition = v }
+          UJust (Tag _ wt) -> skipField wt >> loop fdp
 
 data DescriptorProto = DescriptorProto
   { dpName           :: !Text
@@ -146,15 +146,15 @@ instance MessageDecode DescriptorProto where
   messageDecoder = loop defaultDescriptorProto
     where
       loop !dp = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure dp
-          Just (Tag 1 _) -> do v <- decodeFieldString; loop dp { dpName = v }
-          Just (Tag 2 _) -> do v <- decodeFieldMessage; loop dp { dpField = V.snoc (dpField dp) v }
-          Just (Tag 3 _) -> do v <- decodeFieldMessage; loop dp { dpNestedType = V.snoc (dpNestedType dp) v }
-          Just (Tag 4 _) -> do v <- decodeFieldMessage; loop dp { dpEnumType = V.snoc (dpEnumType dp) v }
-          Just (Tag 8 _) -> do v <- decodeFieldMessage; loop dp { dpOneofDecl = V.snoc (dpOneofDecl dp) v }
-          Just (Tag _ wt) -> skipField wt >> loop dp
+          UNothing -> pure dp
+          UJust (Tag 1 _) -> do v <- decodeFieldString; loop dp { dpName = v }
+          UJust (Tag 2 _) -> do v <- decodeFieldMessage; loop dp { dpField = V.snoc (dpField dp) v }
+          UJust (Tag 3 _) -> do v <- decodeFieldMessage; loop dp { dpNestedType = V.snoc (dpNestedType dp) v }
+          UJust (Tag 4 _) -> do v <- decodeFieldMessage; loop dp { dpEnumType = V.snoc (dpEnumType dp) v }
+          UJust (Tag 8 _) -> do v <- decodeFieldMessage; loop dp { dpOneofDecl = V.snoc (dpOneofDecl dp) v }
+          UJust (Tag _ wt) -> skipField wt >> loop dp
 
 data FieldDescriptorType
   = TYPE_DOUBLE | TYPE_FLOAT | TYPE_INT64 | TYPE_UINT64 | TYPE_INT32
@@ -199,18 +199,18 @@ instance MessageDecode FieldDescriptorProto where
   messageDecoder = loop defaultFieldDescriptorProto
     where
       loop !f = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure f
-          Just (Tag 1 _)  -> do v <- decodeFieldString; loop f { fdpFieldName = v }
-          Just (Tag 3 _)  -> do v <- getVarint; loop f { fdpFieldNumber = fromIntegral v }
-          Just (Tag 4 _)  -> do v <- getVarint; loop f { fdpFieldLabel = fromIntegral v }
-          Just (Tag 5 _)  -> do v <- getVarint; loop f { fdpFieldType = fromIntegral v }
-          Just (Tag 6 _)  -> do v <- decodeFieldString; loop f { fdpFieldTypeName = v }
-          Just (Tag 7 _)  -> do v <- decodeFieldString; loop f { fdpFieldDefault = v }
-          Just (Tag 9 _)  -> do v <- getVarint; loop f { fdpFieldOneofIdx = fromIntegral v }
-          Just (Tag 10 _) -> do v <- decodeFieldString; loop f { fdpFieldJsonName = v }
-          Just (Tag _ wt) -> skipField wt >> loop f
+          UNothing -> pure f
+          UJust (Tag 1 _)  -> do v <- decodeFieldString; loop f { fdpFieldName = v }
+          UJust (Tag 3 _)  -> do v <- getVarint; loop f { fdpFieldNumber = fromIntegral v }
+          UJust (Tag 4 _)  -> do v <- getVarint; loop f { fdpFieldLabel = fromIntegral v }
+          UJust (Tag 5 _)  -> do v <- getVarint; loop f { fdpFieldType = fromIntegral v }
+          UJust (Tag 6 _)  -> do v <- decodeFieldString; loop f { fdpFieldTypeName = v }
+          UJust (Tag 7 _)  -> do v <- decodeFieldString; loop f { fdpFieldDefault = v }
+          UJust (Tag 9 _)  -> do v <- getVarint; loop f { fdpFieldOneofIdx = fromIntegral v }
+          UJust (Tag 10 _) -> do v <- decodeFieldString; loop f { fdpFieldJsonName = v }
+          UJust (Tag _ wt) -> skipField wt >> loop f
 
 data EnumDescriptorProto = EnumDescriptorProto
   { edpName  :: !Text
@@ -230,12 +230,12 @@ instance MessageDecode EnumDescriptorProto where
   messageDecoder = loop defaultEnumDescriptorProto
     where
       loop !e = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure e
-          Just (Tag 1 _) -> do v <- decodeFieldString; loop e { edpName = v }
-          Just (Tag 2 _) -> do v <- decodeFieldMessage; loop e { edpValue = V.snoc (edpValue e) v }
-          Just (Tag _ wt) -> skipField wt >> loop e
+          UNothing -> pure e
+          UJust (Tag 1 _) -> do v <- decodeFieldString; loop e { edpName = v }
+          UJust (Tag 2 _) -> do v <- decodeFieldMessage; loop e { edpValue = V.snoc (edpValue e) v }
+          UJust (Tag _ wt) -> skipField wt >> loop e
 
 data EnumValueDescriptorProto = EnumValueDescriptorProto
   { evdpName   :: !Text
@@ -255,12 +255,12 @@ instance MessageDecode EnumValueDescriptorProto where
   messageDecoder = loop defaultEnumValueDescriptorProto
     where
       loop !ev = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure ev
-          Just (Tag 1 _) -> do v <- decodeFieldString; loop ev { evdpName = v }
-          Just (Tag 2 _) -> do v <- getVarint; loop ev { evdpNumber = fromIntegral v }
-          Just (Tag _ wt) -> skipField wt >> loop ev
+          UNothing -> pure ev
+          UJust (Tag 1 _) -> do v <- decodeFieldString; loop ev { evdpName = v }
+          UJust (Tag 2 _) -> do v <- getVarint; loop ev { evdpNumber = fromIntegral v }
+          UJust (Tag _ wt) -> skipField wt >> loop ev
 
 data ServiceDescriptorProto = ServiceDescriptorProto
   { sdpName   :: !Text
@@ -280,12 +280,12 @@ instance MessageDecode ServiceDescriptorProto where
   messageDecoder = loop defaultServiceDescriptorProto
     where
       loop !s = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure s
-          Just (Tag 1 _) -> do v <- decodeFieldString; loop s { sdpName = v }
-          Just (Tag 2 _) -> do v <- decodeFieldMessage; loop s { sdpMethod = V.snoc (sdpMethod s) v }
-          Just (Tag _ wt) -> skipField wt >> loop s
+          UNothing -> pure s
+          UJust (Tag 1 _) -> do v <- decodeFieldString; loop s { sdpName = v }
+          UJust (Tag 2 _) -> do v <- decodeFieldMessage; loop s { sdpMethod = V.snoc (sdpMethod s) v }
+          UJust (Tag _ wt) -> skipField wt >> loop s
 
 data MethodDescriptorProto = MethodDescriptorProto
   { mdpName            :: !Text
@@ -311,15 +311,15 @@ instance MessageDecode MethodDescriptorProto where
   messageDecoder = loop defaultMethodDescriptorProto
     where
       loop !m = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure m
-          Just (Tag 1 _) -> do v <- decodeFieldString; loop m { mdpName = v }
-          Just (Tag 2 _) -> do v <- decodeFieldString; loop m { mdpInputType = v }
-          Just (Tag 3 _) -> do v <- decodeFieldString; loop m { mdpOutputType = v }
-          Just (Tag 5 _) -> do v <- decodeFieldBool; loop m { mdpClientStreaming = v }
-          Just (Tag 6 _) -> do v <- decodeFieldBool; loop m { mdpServerStreaming = v }
-          Just (Tag _ wt) -> skipField wt >> loop m
+          UNothing -> pure m
+          UJust (Tag 1 _) -> do v <- decodeFieldString; loop m { mdpName = v }
+          UJust (Tag 2 _) -> do v <- decodeFieldString; loop m { mdpInputType = v }
+          UJust (Tag 3 _) -> do v <- decodeFieldString; loop m { mdpOutputType = v }
+          UJust (Tag 5 _) -> do v <- decodeFieldBool; loop m { mdpClientStreaming = v }
+          UJust (Tag 6 _) -> do v <- decodeFieldBool; loop m { mdpServerStreaming = v }
+          UJust (Tag _ wt) -> skipField wt >> loop m
 
 data OneofDescriptorProto = OneofDescriptorProto
   { odpName :: !Text
@@ -336,8 +336,8 @@ instance MessageDecode OneofDescriptorProto where
   messageDecoder = loop defaultOneofDescriptorProto
     where
       loop !o = do
-        mt <- getTagOr
+        mt <- getTagOrU
         case mt of
-          Nothing -> pure o
-          Just (Tag 1 _) -> do v <- decodeFieldString; loop o { odpName = v }
-          Just (Tag _ wt) -> skipField wt >> loop o
+          UNothing -> pure o
+          UJust (Tag 1 _) -> do v <- decodeFieldString; loop o { odpName = v }
+          UJust (Tag _ wt) -> skipField wt >> loop o

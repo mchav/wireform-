@@ -67,10 +67,10 @@ instance MessageDecode Any where
   messageDecoder = loop "" ""
     where
       loop acc_0 acc_1 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Any {anyTypeurl = acc_0, anyValue = acc_1})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (Any {anyTypeurl = acc_0, anyValue = acc_1})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
               loop v acc_1

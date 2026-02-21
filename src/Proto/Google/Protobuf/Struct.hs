@@ -63,10 +63,10 @@ instance MessageDecode Struct where
   messageDecoder = loop Map.empty
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Struct {structFields = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (Struct {structFields = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
               let decodeEntry = runDecoder (decodeMapEntry decodeFieldString decodeFieldMessage "" undefined) bs'
@@ -140,10 +140,10 @@ instance MessageDecode Value where
   messageDecoder = loop Nothing
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Value {valueKind = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (Value {valueKind = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
               loop (Just (Value'Kind'NullValue v))
@@ -232,10 +232,10 @@ instance MessageDecode ListValue where
   messageDecoder = loop V.empty
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (ListValue {listValueValues = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (ListValue {listValueValues = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
               loop (acc_0 <> V.singleton v)

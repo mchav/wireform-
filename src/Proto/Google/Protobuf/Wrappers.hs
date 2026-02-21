@@ -63,10 +63,10 @@ instance MessageDecode DoubleValue where
   messageDecoder = loop 0
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (DoubleValue {doubleValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (DoubleValue {doubleValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldDouble
               loop v
@@ -112,10 +112,10 @@ instance MessageDecode FloatValue where
   messageDecoder = loop 0
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (FloatValue {floatValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (FloatValue {floatValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldFloat
               loop v
@@ -161,10 +161,10 @@ instance MessageDecode Int64Value where
   messageDecoder = loop 0
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Int64Value {int64ValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (Int64Value {int64ValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v
@@ -210,10 +210,10 @@ instance MessageDecode UInt64Value where
   messageDecoder = loop 0
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (UInt64Value {uInt64ValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (UInt64Value {uInt64ValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldVarint
               loop v
@@ -259,10 +259,10 @@ instance MessageDecode Int32Value where
   messageDecoder = loop 0
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (Int32Value {int32ValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (Int32Value {int32ValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v
@@ -308,10 +308,10 @@ instance MessageDecode UInt32Value where
   messageDecoder = loop 0
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (UInt32Value {uInt32ValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
               loop v
@@ -357,10 +357,10 @@ instance MessageDecode BoolValue where
   messageDecoder = loop False
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (BoolValue {boolValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (BoolValue {boolValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
               loop v
@@ -406,10 +406,10 @@ instance MessageDecode StringValue where
   messageDecoder = loop ""
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (StringValue {stringValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (StringValue {stringValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
               loop v
@@ -455,10 +455,10 @@ instance MessageDecode BytesValue where
   messageDecoder = loop ""
     where
       loop acc_0 = do
-        mTag <- getTagOr
+        mTag <- getTagOrU
         case mTag of
-          Nothing -> pure (BytesValue {bytesValueValue = acc_0})
-          Just (Tag fn wt) -> case fn of
+          UNothing -> pure (BytesValue {bytesValueValue = acc_0})
+          UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBytes
               loop v
