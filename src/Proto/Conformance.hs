@@ -35,8 +35,6 @@ import System.IO (stdin, stdout, hSetBinaryMode, hSetBuffering, BufferMode(..), 
 import Proto.Encode
 import Proto.Decode
 import Proto.Wire (Tag(..))
-import Proto.Wire.Encode (putFixed32)
-import Proto.Wire.Decode (getFixed32)
 
 data WireFormat = Protobuf | JSON | Jspb | TextFormat
   deriving stock (Show, Eq, Ord, Enum, Bounded, Generic)
@@ -67,7 +65,7 @@ instance MessageDecode ConformanceRequest where
         case mt of
           Nothing -> pure cr
           Just (Tag 1 _) -> do v <- decodeFieldBytes; loop cr { crPayload = v }
-          Just (Tag 2 _) -> do v <- decodeFieldString
+          Just (Tag 2 _) -> do _jsonPayload <- decodeFieldString
                                loop cr { crPayload = BS.empty }
           Just (Tag 3 _) -> do v <- getVarint; loop cr { crRequestedOutputFormat = fromIntegral v }
           Just (Tag 4 _) -> do v <- decodeFieldString; loop cr { crMessageType = v }
@@ -169,5 +167,5 @@ encodeLE32 n = BS.pack
 
 -- | Default handler that does protobuf round-trip.
 handleConformanceRequest :: ConformanceRequest -> IO ConformanceResponse
-handleConformanceRequest req =
+handleConformanceRequest _req =
   pure (ConformanceResponse (Skipped "Not yet implemented"))
