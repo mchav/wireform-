@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Any (Any(..))
 import Proto.Temporal.Temporal.Api.Common.V1.Message (WorkflowExecution(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.FailedCause (ResourceExhaustedCause(..), ResourceExhaustedScope(..))
@@ -86,6 +88,13 @@ instance ProtoToJSON NotFoundFailure where
       ]
 
 instance ProtoFromJSON NotFoundFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_notFoundFailureCurrentcluster <- obj .:? "currentCluster"
+    fld_notFoundFailureActivecluster <- obj .:? "activeCluster"
+    pure defaultNotFoundFailure
+      { notFoundFailureCurrentcluster = maybe (notFoundFailureCurrentcluster defaultNotFoundFailure) id fld_notFoundFailureCurrentcluster
+      , notFoundFailureActivecluster = maybe (notFoundFailureActivecluster defaultNotFoundFailure) id fld_notFoundFailureActivecluster
+      }
   protoFromJSON _ = Right defaultNotFoundFailure
 
 data WorkflowExecutionAlreadyStartedFailure = WorkflowExecutionAlreadyStartedFailure
@@ -134,6 +143,13 @@ instance ProtoToJSON WorkflowExecutionAlreadyStartedFailure where
       ]
 
 instance ProtoFromJSON WorkflowExecutionAlreadyStartedFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionAlreadyStartedFailureStartrequestid <- obj .:? "startRequestId"
+    fld_workflowExecutionAlreadyStartedFailureRunid <- obj .:? "runId"
+    pure defaultWorkflowExecutionAlreadyStartedFailure
+      { workflowExecutionAlreadyStartedFailureStartrequestid = maybe (workflowExecutionAlreadyStartedFailureStartrequestid defaultWorkflowExecutionAlreadyStartedFailure) id fld_workflowExecutionAlreadyStartedFailureStartrequestid
+      , workflowExecutionAlreadyStartedFailureRunid = maybe (workflowExecutionAlreadyStartedFailureRunid defaultWorkflowExecutionAlreadyStartedFailure) id fld_workflowExecutionAlreadyStartedFailureRunid
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionAlreadyStartedFailure
 
 data NamespaceNotActiveFailure = NamespaceNotActiveFailure
@@ -190,6 +206,15 @@ instance ProtoToJSON NamespaceNotActiveFailure where
       ]
 
 instance ProtoFromJSON NamespaceNotActiveFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceNotActiveFailureNamespace <- obj .:? "namespace"
+    fld_namespaceNotActiveFailureCurrentcluster <- obj .:? "currentCluster"
+    fld_namespaceNotActiveFailureActivecluster <- obj .:? "activeCluster"
+    pure defaultNamespaceNotActiveFailure
+      { namespaceNotActiveFailureNamespace = maybe (namespaceNotActiveFailureNamespace defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureNamespace
+      , namespaceNotActiveFailureCurrentcluster = maybe (namespaceNotActiveFailureCurrentcluster defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureCurrentcluster
+      , namespaceNotActiveFailureActivecluster = maybe (namespaceNotActiveFailureActivecluster defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureActivecluster
+      }
   protoFromJSON _ = Right defaultNamespaceNotActiveFailure
 
 data NamespaceUnavailableFailure = NamespaceUnavailableFailure
@@ -231,6 +256,11 @@ instance ProtoToJSON NamespaceUnavailableFailure where
       ]
 
 instance ProtoFromJSON NamespaceUnavailableFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceUnavailableFailureNamespace <- obj .:? "namespace"
+    pure defaultNamespaceUnavailableFailure
+      { namespaceUnavailableFailureNamespace = maybe (namespaceUnavailableFailureNamespace defaultNamespaceUnavailableFailure) id fld_namespaceUnavailableFailureNamespace
+      }
   protoFromJSON _ = Right defaultNamespaceUnavailableFailure
 
 data NamespaceInvalidStateFailure = NamespaceInvalidStateFailure
@@ -287,6 +317,15 @@ instance ProtoToJSON NamespaceInvalidStateFailure where
       ]
 
 instance ProtoFromJSON NamespaceInvalidStateFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceInvalidStateFailureNamespace <- obj .:? "namespace"
+    fld_namespaceInvalidStateFailureState <- obj .:? "state"
+    fld_namespaceInvalidStateFailureAllowedstates <- obj .:? "allowedStates"
+    pure defaultNamespaceInvalidStateFailure
+      { namespaceInvalidStateFailureNamespace = maybe (namespaceInvalidStateFailureNamespace defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureNamespace
+      , namespaceInvalidStateFailureState = maybe (namespaceInvalidStateFailureState defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureState
+      , namespaceInvalidStateFailureAllowedstates = maybe (namespaceInvalidStateFailureAllowedstates defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureAllowedstates
+      }
   protoFromJSON _ = Right defaultNamespaceInvalidStateFailure
 
 data NamespaceNotFoundFailure = NamespaceNotFoundFailure
@@ -328,6 +367,11 @@ instance ProtoToJSON NamespaceNotFoundFailure where
       ]
 
 instance ProtoFromJSON NamespaceNotFoundFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceNotFoundFailureNamespace <- obj .:? "namespace"
+    pure defaultNamespaceNotFoundFailure
+      { namespaceNotFoundFailureNamespace = maybe (namespaceNotFoundFailureNamespace defaultNamespaceNotFoundFailure) id fld_namespaceNotFoundFailureNamespace
+      }
   protoFromJSON _ = Right defaultNamespaceNotFoundFailure
 
 data NamespaceAlreadyExistsFailure = NamespaceAlreadyExistsFailure
@@ -418,6 +462,15 @@ instance ProtoToJSON ClientVersionNotSupportedFailure where
       ]
 
 instance ProtoFromJSON ClientVersionNotSupportedFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_clientVersionNotSupportedFailureClientversion <- obj .:? "clientVersion"
+    fld_clientVersionNotSupportedFailureClientname <- obj .:? "clientName"
+    fld_clientVersionNotSupportedFailureSupportedversions <- obj .:? "supportedVersions"
+    pure defaultClientVersionNotSupportedFailure
+      { clientVersionNotSupportedFailureClientversion = maybe (clientVersionNotSupportedFailureClientversion defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureClientversion
+      , clientVersionNotSupportedFailureClientname = maybe (clientVersionNotSupportedFailureClientname defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureClientname
+      , clientVersionNotSupportedFailureSupportedversions = maybe (clientVersionNotSupportedFailureSupportedversions defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureSupportedversions
+      }
   protoFromJSON _ = Right defaultClientVersionNotSupportedFailure
 
 data ServerVersionNotSupportedFailure = ServerVersionNotSupportedFailure
@@ -466,6 +519,13 @@ instance ProtoToJSON ServerVersionNotSupportedFailure where
       ]
 
 instance ProtoFromJSON ServerVersionNotSupportedFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_serverVersionNotSupportedFailureServerversion <- obj .:? "serverVersion"
+    fld_serverVersionNotSupportedFailureClientsupportedserverversions <- obj .:? "clientSupportedServerVersions"
+    pure defaultServerVersionNotSupportedFailure
+      { serverVersionNotSupportedFailureServerversion = maybe (serverVersionNotSupportedFailureServerversion defaultServerVersionNotSupportedFailure) id fld_serverVersionNotSupportedFailureServerversion
+      , serverVersionNotSupportedFailureClientsupportedserverversions = maybe (serverVersionNotSupportedFailureClientsupportedserverversions defaultServerVersionNotSupportedFailure) id fld_serverVersionNotSupportedFailureClientsupportedserverversions
+      }
   protoFromJSON _ = Right defaultServerVersionNotSupportedFailure
 
 data CancellationAlreadyRequestedFailure = CancellationAlreadyRequestedFailure
@@ -541,6 +601,11 @@ instance ProtoToJSON QueryFailedFailure where
       ]
 
 instance ProtoFromJSON QueryFailedFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_queryFailedFailureFailure <- obj .:? "failure"
+    pure defaultQueryFailedFailure
+      { queryFailedFailureFailure = maybe (queryFailedFailureFailure defaultQueryFailedFailure) id fld_queryFailedFailureFailure
+      }
   protoFromJSON _ = Right defaultQueryFailedFailure
 
 data PermissionDeniedFailure = PermissionDeniedFailure
@@ -582,6 +647,11 @@ instance ProtoToJSON PermissionDeniedFailure where
       ]
 
 instance ProtoFromJSON PermissionDeniedFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_permissionDeniedFailureReason <- obj .:? "reason"
+    pure defaultPermissionDeniedFailure
+      { permissionDeniedFailureReason = maybe (permissionDeniedFailureReason defaultPermissionDeniedFailure) id fld_permissionDeniedFailureReason
+      }
   protoFromJSON _ = Right defaultPermissionDeniedFailure
 
 data ResourceExhaustedFailure = ResourceExhaustedFailure
@@ -630,6 +700,13 @@ instance ProtoToJSON ResourceExhaustedFailure where
       ]
 
 instance ProtoFromJSON ResourceExhaustedFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_resourceExhaustedFailureCause <- obj .:? "cause"
+    fld_resourceExhaustedFailureScope <- obj .:? "scope"
+    pure defaultResourceExhaustedFailure
+      { resourceExhaustedFailureCause = maybe (resourceExhaustedFailureCause defaultResourceExhaustedFailure) id fld_resourceExhaustedFailureCause
+      , resourceExhaustedFailureScope = maybe (resourceExhaustedFailureScope defaultResourceExhaustedFailure) id fld_resourceExhaustedFailureScope
+      }
   protoFromJSON _ = Right defaultResourceExhaustedFailure
 
 data SystemWorkflowFailure = SystemWorkflowFailure
@@ -678,6 +755,13 @@ instance ProtoToJSON SystemWorkflowFailure where
       ]
 
 instance ProtoFromJSON SystemWorkflowFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_systemWorkflowFailureWorkflowexecution <- obj .:? "workflowExecution"
+    fld_systemWorkflowFailureWorkflowerror <- obj .:? "workflowError"
+    pure defaultSystemWorkflowFailure
+      { systemWorkflowFailureWorkflowexecution = maybe (systemWorkflowFailureWorkflowexecution defaultSystemWorkflowFailure) id fld_systemWorkflowFailureWorkflowexecution
+      , systemWorkflowFailureWorkflowerror = maybe (systemWorkflowFailureWorkflowerror defaultSystemWorkflowFailure) id fld_systemWorkflowFailureWorkflowerror
+      }
   protoFromJSON _ = Right defaultSystemWorkflowFailure
 
 data WorkflowNotReadyFailure = WorkflowNotReadyFailure
@@ -753,6 +837,11 @@ instance ProtoToJSON NewerBuildExistsFailure where
       ]
 
 instance ProtoFromJSON NewerBuildExistsFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_newerBuildExistsFailureDefaultbuildid <- obj .:? "defaultBuildId"
+    pure defaultNewerBuildExistsFailure
+      { newerBuildExistsFailureDefaultbuildid = maybe (newerBuildExistsFailureDefaultbuildid defaultNewerBuildExistsFailure) id fld_newerBuildExistsFailureDefaultbuildid
+      }
   protoFromJSON _ = Right defaultNewerBuildExistsFailure
 
 data MultiOperationExecutionFailure = MultiOperationExecutionFailure
@@ -815,6 +904,15 @@ instance ProtoToJSON MultiOperationExecutionFailure'OperationStatus where
       ]
 
 instance ProtoFromJSON MultiOperationExecutionFailure'OperationStatus where
+  protoFromJSON (JsonObject obj) = do
+    fld_multiOperationExecutionFailureOperationStatusCode <- obj .:? "code"
+    fld_multiOperationExecutionFailureOperationStatusMessage <- obj .:? "message"
+    fld_multiOperationExecutionFailureOperationStatusDetails <- obj .:? "details"
+    pure defaultMultiOperationExecutionFailure'OperationStatus
+      { multiOperationExecutionFailureOperationStatusCode = maybe (multiOperationExecutionFailureOperationStatusCode defaultMultiOperationExecutionFailure'OperationStatus) id fld_multiOperationExecutionFailureOperationStatusCode
+      , multiOperationExecutionFailureOperationStatusMessage = maybe (multiOperationExecutionFailureOperationStatusMessage defaultMultiOperationExecutionFailure'OperationStatus) id fld_multiOperationExecutionFailureOperationStatusMessage
+      , multiOperationExecutionFailureOperationStatusDetails = maybe (multiOperationExecutionFailureOperationStatusDetails defaultMultiOperationExecutionFailure'OperationStatus) id fld_multiOperationExecutionFailureOperationStatusDetails
+      }
   protoFromJSON _ = Right defaultMultiOperationExecutionFailure'OperationStatus
 
 defaultMultiOperationExecutionFailure :: MultiOperationExecutionFailure
@@ -850,6 +948,11 @@ instance ProtoToJSON MultiOperationExecutionFailure where
       ]
 
 instance ProtoFromJSON MultiOperationExecutionFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_multiOperationExecutionFailureStatuses <- obj .:? "statuses"
+    pure defaultMultiOperationExecutionFailure
+      { multiOperationExecutionFailureStatuses = maybe (multiOperationExecutionFailureStatuses defaultMultiOperationExecutionFailure) id fld_multiOperationExecutionFailureStatuses
+      }
   protoFromJSON _ = Right defaultMultiOperationExecutionFailure
 
 data ActivityExecutionAlreadyStartedFailure = ActivityExecutionAlreadyStartedFailure
@@ -898,4 +1001,11 @@ instance ProtoToJSON ActivityExecutionAlreadyStartedFailure where
       ]
 
 instance ProtoFromJSON ActivityExecutionAlreadyStartedFailure where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityExecutionAlreadyStartedFailureStartrequestid <- obj .:? "startRequestId"
+    fld_activityExecutionAlreadyStartedFailureRunid <- obj .:? "runId"
+    pure defaultActivityExecutionAlreadyStartedFailure
+      { activityExecutionAlreadyStartedFailureStartrequestid = maybe (activityExecutionAlreadyStartedFailureStartrequestid defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureStartrequestid
+      , activityExecutionAlreadyStartedFailureRunid = maybe (activityExecutionAlreadyStartedFailureRunid defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureRunid
+      }
   protoFromJSON _ = Right defaultActivityExecutionAlreadyStartedFailure

@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data EnhancedStackTrace = EnhancedStackTrace
@@ -59,7 +61,7 @@ instance MessageEncode EnhancedStackTrace where
 instance MessageSize EnhancedStackTrace where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.enhancedStackTraceSdk)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 2 + 20) 0 msg.enhancedStackTraceSources)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.enhancedStackTraceSources)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.enhancedStackTraceStacks)
 
 instance MessageDecode EnhancedStackTrace where
@@ -92,6 +94,15 @@ instance ProtoToJSON EnhancedStackTrace where
       ]
 
 instance ProtoFromJSON EnhancedStackTrace where
+  protoFromJSON (JsonObject obj) = do
+    fld_enhancedStackTraceSdk <- obj .:? "sdk"
+    fld_enhancedStackTraceSources <- obj .:? "sources"
+    fld_enhancedStackTraceStacks <- obj .:? "stacks"
+    pure defaultEnhancedStackTrace
+      { enhancedStackTraceSdk = maybe (enhancedStackTraceSdk defaultEnhancedStackTrace) id fld_enhancedStackTraceSdk
+      , enhancedStackTraceSources = maybe (enhancedStackTraceSources defaultEnhancedStackTrace) id fld_enhancedStackTraceSources
+      , enhancedStackTraceStacks = maybe (enhancedStackTraceStacks defaultEnhancedStackTrace) id fld_enhancedStackTraceStacks
+      }
   protoFromJSON _ = Right defaultEnhancedStackTrace
 
 data StackTraceSDKInfo = StackTraceSDKInfo
@@ -140,6 +151,13 @@ instance ProtoToJSON StackTraceSDKInfo where
       ]
 
 instance ProtoFromJSON StackTraceSDKInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_stackTraceSDKInfoName <- obj .:? "name"
+    fld_stackTraceSDKInfoVersion <- obj .:? "version"
+    pure defaultStackTraceSDKInfo
+      { stackTraceSDKInfoName = maybe (stackTraceSDKInfoName defaultStackTraceSDKInfo) id fld_stackTraceSDKInfoName
+      , stackTraceSDKInfoVersion = maybe (stackTraceSDKInfoVersion defaultStackTraceSDKInfo) id fld_stackTraceSDKInfoVersion
+      }
   protoFromJSON _ = Right defaultStackTraceSDKInfo
 
 data StackTraceFileSlice = StackTraceFileSlice
@@ -188,6 +206,13 @@ instance ProtoToJSON StackTraceFileSlice where
       ]
 
 instance ProtoFromJSON StackTraceFileSlice where
+  protoFromJSON (JsonObject obj) = do
+    fld_stackTraceFileSliceLineoffset <- obj .:? "lineOffset"
+    fld_stackTraceFileSliceContent <- obj .:? "content"
+    pure defaultStackTraceFileSlice
+      { stackTraceFileSliceLineoffset = maybe (stackTraceFileSliceLineoffset defaultStackTraceFileSlice) id fld_stackTraceFileSliceLineoffset
+      , stackTraceFileSliceContent = maybe (stackTraceFileSliceContent defaultStackTraceFileSlice) id fld_stackTraceFileSliceContent
+      }
   protoFromJSON _ = Right defaultStackTraceFileSlice
 
 data StackTraceFileLocation = StackTraceFileLocation
@@ -260,6 +285,19 @@ instance ProtoToJSON StackTraceFileLocation where
       ]
 
 instance ProtoFromJSON StackTraceFileLocation where
+  protoFromJSON (JsonObject obj) = do
+    fld_stackTraceFileLocationFilepath <- obj .:? "filePath"
+    fld_stackTraceFileLocationLine <- obj .:? "line"
+    fld_stackTraceFileLocationColumn <- obj .:? "column"
+    fld_stackTraceFileLocationFunctionname <- obj .:? "functionName"
+    fld_stackTraceFileLocationInternalcode <- obj .:? "internalCode"
+    pure defaultStackTraceFileLocation
+      { stackTraceFileLocationFilepath = maybe (stackTraceFileLocationFilepath defaultStackTraceFileLocation) id fld_stackTraceFileLocationFilepath
+      , stackTraceFileLocationLine = maybe (stackTraceFileLocationLine defaultStackTraceFileLocation) id fld_stackTraceFileLocationLine
+      , stackTraceFileLocationColumn = maybe (stackTraceFileLocationColumn defaultStackTraceFileLocation) id fld_stackTraceFileLocationColumn
+      , stackTraceFileLocationFunctionname = maybe (stackTraceFileLocationFunctionname defaultStackTraceFileLocation) id fld_stackTraceFileLocationFunctionname
+      , stackTraceFileLocationInternalcode = maybe (stackTraceFileLocationInternalcode defaultStackTraceFileLocation) id fld_stackTraceFileLocationInternalcode
+      }
   protoFromJSON _ = Right defaultStackTraceFileLocation
 
 data StackTrace = StackTrace
@@ -301,4 +339,9 @@ instance ProtoToJSON StackTrace where
       ]
 
 instance ProtoFromJSON StackTrace where
+  protoFromJSON (JsonObject obj) = do
+    fld_stackTraceLocations <- obj .:? "locations"
+    pure defaultStackTrace
+      { stackTraceLocations = maybe (stackTraceLocations defaultStackTrace) id fld_stackTraceLocations
+      }
   protoFromJSON _ = Right defaultStackTrace

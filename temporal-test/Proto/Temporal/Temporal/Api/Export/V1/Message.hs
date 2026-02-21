@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Temporal.Temporal.Api.History.V1.Message (History(..))
 
 
@@ -75,6 +77,11 @@ instance ProtoToJSON WorkflowExecution where
       ]
 
 instance ProtoFromJSON WorkflowExecution where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionHistory <- obj .:? "history"
+    pure defaultWorkflowExecution
+      { workflowExecutionHistory = maybe (workflowExecutionHistory defaultWorkflowExecution) id fld_workflowExecutionHistory
+      }
   protoFromJSON _ = Right defaultWorkflowExecution
 
 data WorkflowExecutions = WorkflowExecutions
@@ -116,4 +123,9 @@ instance ProtoToJSON WorkflowExecutions where
       ]
 
 instance ProtoFromJSON WorkflowExecutions where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionsItems <- obj .:? "items"
+    pure defaultWorkflowExecutions
+      { workflowExecutionsItems = maybe (workflowExecutionsItems defaultWorkflowExecutions) id fld_workflowExecutionsItems
+      }
   protoFromJSON _ = Right defaultWorkflowExecutions

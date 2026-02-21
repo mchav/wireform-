@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data SourceContext = SourceContext
@@ -74,4 +76,9 @@ instance ProtoToJSON SourceContext where
       ]
 
 instance ProtoFromJSON SourceContext where
+  protoFromJSON (JsonObject obj) = do
+    fld_sourceContextFilename <- obj .:? "fileName"
+    pure defaultSourceContext
+      { sourceContextFilename = maybe (sourceContextFilename defaultSourceContext) id fld_sourceContextFilename
+      }
   protoFromJSON _ = Right defaultSourceContext

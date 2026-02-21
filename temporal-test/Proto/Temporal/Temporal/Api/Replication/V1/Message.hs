@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ReplicationState(..))
 
@@ -76,6 +78,11 @@ instance ProtoToJSON ClusterReplicationConfig where
       ]
 
 instance ProtoFromJSON ClusterReplicationConfig where
+  protoFromJSON (JsonObject obj) = do
+    fld_clusterReplicationConfigClustername <- obj .:? "clusterName"
+    pure defaultClusterReplicationConfig
+      { clusterReplicationConfigClustername = maybe (clusterReplicationConfigClustername defaultClusterReplicationConfig) id fld_clusterReplicationConfigClustername
+      }
   protoFromJSON _ = Right defaultClusterReplicationConfig
 
 data NamespaceReplicationConfig = NamespaceReplicationConfig
@@ -132,6 +139,15 @@ instance ProtoToJSON NamespaceReplicationConfig where
       ]
 
 instance ProtoFromJSON NamespaceReplicationConfig where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceReplicationConfigActiveclustername <- obj .:? "activeClusterName"
+    fld_namespaceReplicationConfigClusters <- obj .:? "clusters"
+    fld_namespaceReplicationConfigState <- obj .:? "state"
+    pure defaultNamespaceReplicationConfig
+      { namespaceReplicationConfigActiveclustername = maybe (namespaceReplicationConfigActiveclustername defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigActiveclustername
+      , namespaceReplicationConfigClusters = maybe (namespaceReplicationConfigClusters defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigClusters
+      , namespaceReplicationConfigState = maybe (namespaceReplicationConfigState defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigState
+      }
   protoFromJSON _ = Right defaultNamespaceReplicationConfig
 
 data FailoverStatus = FailoverStatus
@@ -180,4 +196,11 @@ instance ProtoToJSON FailoverStatus where
       ]
 
 instance ProtoFromJSON FailoverStatus where
+  protoFromJSON (JsonObject obj) = do
+    fld_failoverStatusFailovertime <- obj .:? "failoverTime"
+    fld_failoverStatusFailoverversion <- obj .:? "failoverVersion"
+    pure defaultFailoverStatus
+      { failoverStatusFailovertime = maybe (failoverStatusFailovertime defaultFailoverStatus) id fld_failoverStatusFailovertime
+      , failoverStatusFailoverversion = maybe (failoverStatusFailoverversion defaultFailoverStatus) id fld_failoverStatusFailoverversion
+      }
   protoFromJSON _ = Right defaultFailoverStatus

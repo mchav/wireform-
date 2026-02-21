@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data Any = Any
@@ -81,4 +83,11 @@ instance ProtoToJSON Any where
       ]
 
 instance ProtoFromJSON Any where
+  protoFromJSON (JsonObject obj) = do
+    fld_anyTypeurl <- obj .:? "typeUrl"
+    fld_anyValue <- obj .:? "value"
+    pure defaultAny
+      { anyTypeurl = maybe (anyTypeurl defaultAny) id fld_anyTypeurl
+      , anyValue = maybe (anyValue defaultAny) id fld_anyValue
+      }
   protoFromJSON _ = Right defaultAny

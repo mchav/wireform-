@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Payload(..), Payloads(..), WorkflowExecution(..), WorkflowType(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Common (ApplicationErrorCategory(..))
@@ -110,6 +112,19 @@ instance ProtoToJSON ApplicationFailureInfo where
       ]
 
 instance ProtoFromJSON ApplicationFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_applicationFailureInfoType <- obj .:? "type"
+    fld_applicationFailureInfoNonretryable <- obj .:? "nonRetryable"
+    fld_applicationFailureInfoDetails <- obj .:? "details"
+    fld_applicationFailureInfoNextretrydelay <- obj .:? "nextRetryDelay"
+    fld_applicationFailureInfoCategory <- obj .:? "category"
+    pure defaultApplicationFailureInfo
+      { applicationFailureInfoType = maybe (applicationFailureInfoType defaultApplicationFailureInfo) id fld_applicationFailureInfoType
+      , applicationFailureInfoNonretryable = maybe (applicationFailureInfoNonretryable defaultApplicationFailureInfo) id fld_applicationFailureInfoNonretryable
+      , applicationFailureInfoDetails = maybe (applicationFailureInfoDetails defaultApplicationFailureInfo) id fld_applicationFailureInfoDetails
+      , applicationFailureInfoNextretrydelay = maybe (applicationFailureInfoNextretrydelay defaultApplicationFailureInfo) id fld_applicationFailureInfoNextretrydelay
+      , applicationFailureInfoCategory = maybe (applicationFailureInfoCategory defaultApplicationFailureInfo) id fld_applicationFailureInfoCategory
+      }
   protoFromJSON _ = Right defaultApplicationFailureInfo
 
 data TimeoutFailureInfo = TimeoutFailureInfo
@@ -158,6 +173,13 @@ instance ProtoToJSON TimeoutFailureInfo where
       ]
 
 instance ProtoFromJSON TimeoutFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_timeoutFailureInfoTimeouttype <- obj .:? "timeoutType"
+    fld_timeoutFailureInfoLastheartbeatdetails <- obj .:? "lastHeartbeatDetails"
+    pure defaultTimeoutFailureInfo
+      { timeoutFailureInfoTimeouttype = maybe (timeoutFailureInfoTimeouttype defaultTimeoutFailureInfo) id fld_timeoutFailureInfoTimeouttype
+      , timeoutFailureInfoLastheartbeatdetails = maybe (timeoutFailureInfoLastheartbeatdetails defaultTimeoutFailureInfo) id fld_timeoutFailureInfoLastheartbeatdetails
+      }
   protoFromJSON _ = Right defaultTimeoutFailureInfo
 
 data CanceledFailureInfo = CanceledFailureInfo
@@ -199,6 +221,11 @@ instance ProtoToJSON CanceledFailureInfo where
       ]
 
 instance ProtoFromJSON CanceledFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_canceledFailureInfoDetails <- obj .:? "details"
+    pure defaultCanceledFailureInfo
+      { canceledFailureInfoDetails = maybe (canceledFailureInfoDetails defaultCanceledFailureInfo) id fld_canceledFailureInfoDetails
+      }
   protoFromJSON _ = Right defaultCanceledFailureInfo
 
 data TerminatedFailureInfo = TerminatedFailureInfo
@@ -274,6 +301,11 @@ instance ProtoToJSON ServerFailureInfo where
       ]
 
 instance ProtoFromJSON ServerFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_serverFailureInfoNonretryable <- obj .:? "nonRetryable"
+    pure defaultServerFailureInfo
+      { serverFailureInfoNonretryable = maybe (serverFailureInfoNonretryable defaultServerFailureInfo) id fld_serverFailureInfoNonretryable
+      }
   protoFromJSON _ = Right defaultServerFailureInfo
 
 data ResetWorkflowFailureInfo = ResetWorkflowFailureInfo
@@ -315,6 +347,11 @@ instance ProtoToJSON ResetWorkflowFailureInfo where
       ]
 
 instance ProtoFromJSON ResetWorkflowFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_resetWorkflowFailureInfoLastheartbeatdetails <- obj .:? "lastHeartbeatDetails"
+    pure defaultResetWorkflowFailureInfo
+      { resetWorkflowFailureInfoLastheartbeatdetails = maybe (resetWorkflowFailureInfoLastheartbeatdetails defaultResetWorkflowFailureInfo) id fld_resetWorkflowFailureInfoLastheartbeatdetails
+      }
   protoFromJSON _ = Right defaultResetWorkflowFailureInfo
 
 data ActivityFailureInfo = ActivityFailureInfo
@@ -395,6 +432,21 @@ instance ProtoToJSON ActivityFailureInfo where
       ]
 
 instance ProtoFromJSON ActivityFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityFailureInfoScheduledeventid <- obj .:? "scheduledEventId"
+    fld_activityFailureInfoStartedeventid <- obj .:? "startedEventId"
+    fld_activityFailureInfoIdentity <- obj .:? "identity"
+    fld_activityFailureInfoActivitytype <- obj .:? "activityType"
+    fld_activityFailureInfoActivityid <- obj .:? "activityId"
+    fld_activityFailureInfoRetrystate <- obj .:? "retryState"
+    pure defaultActivityFailureInfo
+      { activityFailureInfoScheduledeventid = maybe (activityFailureInfoScheduledeventid defaultActivityFailureInfo) id fld_activityFailureInfoScheduledeventid
+      , activityFailureInfoStartedeventid = maybe (activityFailureInfoStartedeventid defaultActivityFailureInfo) id fld_activityFailureInfoStartedeventid
+      , activityFailureInfoIdentity = maybe (activityFailureInfoIdentity defaultActivityFailureInfo) id fld_activityFailureInfoIdentity
+      , activityFailureInfoActivitytype = maybe (activityFailureInfoActivitytype defaultActivityFailureInfo) id fld_activityFailureInfoActivitytype
+      , activityFailureInfoActivityid = maybe (activityFailureInfoActivityid defaultActivityFailureInfo) id fld_activityFailureInfoActivityid
+      , activityFailureInfoRetrystate = maybe (activityFailureInfoRetrystate defaultActivityFailureInfo) id fld_activityFailureInfoRetrystate
+      }
   protoFromJSON _ = Right defaultActivityFailureInfo
 
 data ChildWorkflowExecutionFailureInfo = ChildWorkflowExecutionFailureInfo
@@ -475,6 +527,21 @@ instance ProtoToJSON ChildWorkflowExecutionFailureInfo where
       ]
 
 instance ProtoFromJSON ChildWorkflowExecutionFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_childWorkflowExecutionFailureInfoNamespace <- obj .:? "namespace"
+    fld_childWorkflowExecutionFailureInfoWorkflowexecution <- obj .:? "workflowExecution"
+    fld_childWorkflowExecutionFailureInfoWorkflowtype <- obj .:? "workflowType"
+    fld_childWorkflowExecutionFailureInfoInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_childWorkflowExecutionFailureInfoStartedeventid <- obj .:? "startedEventId"
+    fld_childWorkflowExecutionFailureInfoRetrystate <- obj .:? "retryState"
+    pure defaultChildWorkflowExecutionFailureInfo
+      { childWorkflowExecutionFailureInfoNamespace = maybe (childWorkflowExecutionFailureInfoNamespace defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoNamespace
+      , childWorkflowExecutionFailureInfoWorkflowexecution = maybe (childWorkflowExecutionFailureInfoWorkflowexecution defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoWorkflowexecution
+      , childWorkflowExecutionFailureInfoWorkflowtype = maybe (childWorkflowExecutionFailureInfoWorkflowtype defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoWorkflowtype
+      , childWorkflowExecutionFailureInfoInitiatedeventid = maybe (childWorkflowExecutionFailureInfoInitiatedeventid defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoInitiatedeventid
+      , childWorkflowExecutionFailureInfoStartedeventid = maybe (childWorkflowExecutionFailureInfoStartedeventid defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoStartedeventid
+      , childWorkflowExecutionFailureInfoRetrystate = maybe (childWorkflowExecutionFailureInfoRetrystate defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoRetrystate
+      }
   protoFromJSON _ = Right defaultChildWorkflowExecutionFailureInfo
 
 data NexusOperationFailureInfo = NexusOperationFailureInfo
@@ -555,6 +622,21 @@ instance ProtoToJSON NexusOperationFailureInfo where
       ]
 
 instance ProtoFromJSON NexusOperationFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationFailureInfoScheduledeventid <- obj .:? "scheduledEventId"
+    fld_nexusOperationFailureInfoEndpoint <- obj .:? "endpoint"
+    fld_nexusOperationFailureInfoService <- obj .:? "service"
+    fld_nexusOperationFailureInfoOperation <- obj .:? "operation"
+    fld_nexusOperationFailureInfoOperationid <- obj .:? "operationId"
+    fld_nexusOperationFailureInfoOperationtoken <- obj .:? "operationToken"
+    pure defaultNexusOperationFailureInfo
+      { nexusOperationFailureInfoScheduledeventid = maybe (nexusOperationFailureInfoScheduledeventid defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoScheduledeventid
+      , nexusOperationFailureInfoEndpoint = maybe (nexusOperationFailureInfoEndpoint defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoEndpoint
+      , nexusOperationFailureInfoService = maybe (nexusOperationFailureInfoService defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoService
+      , nexusOperationFailureInfoOperation = maybe (nexusOperationFailureInfoOperation defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperation
+      , nexusOperationFailureInfoOperationid = maybe (nexusOperationFailureInfoOperationid defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperationid
+      , nexusOperationFailureInfoOperationtoken = maybe (nexusOperationFailureInfoOperationtoken defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperationtoken
+      }
   protoFromJSON _ = Right defaultNexusOperationFailureInfo
 
 data NexusHandlerFailureInfo = NexusHandlerFailureInfo
@@ -603,6 +685,13 @@ instance ProtoToJSON NexusHandlerFailureInfo where
       ]
 
 instance ProtoFromJSON NexusHandlerFailureInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusHandlerFailureInfoType <- obj .:? "type"
+    fld_nexusHandlerFailureInfoRetrybehavior <- obj .:? "retryBehavior"
+    pure defaultNexusHandlerFailureInfo
+      { nexusHandlerFailureInfoType = maybe (nexusHandlerFailureInfoType defaultNexusHandlerFailureInfo) id fld_nexusHandlerFailureInfoType
+      , nexusHandlerFailureInfoRetrybehavior = maybe (nexusHandlerFailureInfoRetrybehavior defaultNexusHandlerFailureInfo) id fld_nexusHandlerFailureInfoRetrybehavior
+      }
   protoFromJSON _ = Right defaultNexusHandlerFailureInfo
 
 data Failure = Failure
@@ -747,6 +836,21 @@ instance ProtoToJSON Failure where
       ]
 
 instance ProtoFromJSON Failure where
+  protoFromJSON (JsonObject obj) = do
+    fld_failureMessage <- obj .:? "message"
+    fld_failureSource <- obj .:? "source"
+    fld_failureStacktrace <- obj .:? "stackTrace"
+    fld_failureEncodedattributes <- obj .:? "encodedAttributes"
+    fld_failureCause <- obj .:? "cause"
+    fld_failureFailureinfo <- obj .:? "failureInfo"
+    pure defaultFailure
+      { failureMessage = maybe (failureMessage defaultFailure) id fld_failureMessage
+      , failureSource = maybe (failureSource defaultFailure) id fld_failureSource
+      , failureStacktrace = maybe (failureStacktrace defaultFailure) id fld_failureStacktrace
+      , failureEncodedattributes = maybe (failureEncodedattributes defaultFailure) id fld_failureEncodedattributes
+      , failureCause = maybe (failureCause defaultFailure) id fld_failureCause
+      , failureFailureinfo = maybe (failureFailureinfo defaultFailure) id fld_failureFailureinfo
+      }
   protoFromJSON _ = Right defaultFailure
 
 data MultiOperationExecutionAborted = MultiOperationExecutionAborted

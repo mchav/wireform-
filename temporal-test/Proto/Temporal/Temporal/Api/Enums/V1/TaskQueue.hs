@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data TaskQueueKind
@@ -59,8 +61,6 @@ instance MessageSize TaskQueueKind where
   messageSize _ = 0
 instance MessageDecode TaskQueueKind where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON TaskQueueKind where
   protoToJSON TaskQueueKind'TaskQueueKindUnspecified = JsonString "TASK_QUEUE_KIND_UNSPECIFIED"
@@ -102,8 +102,6 @@ instance MessageSize TaskQueueType where
   messageSize _ = 0
 instance MessageDecode TaskQueueType where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON TaskQueueType where
   protoToJSON TaskQueueType'TaskQueueTypeUnspecified = JsonString "TASK_QUEUE_TYPE_UNSPECIFIED"
@@ -151,8 +149,6 @@ instance MessageSize TaskReachability where
 instance MessageDecode TaskReachability where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON TaskReachability where
   protoToJSON TaskReachability'TaskReachabilityUnspecified = JsonString "TASK_REACHABILITY_UNSPECIFIED"
   protoToJSON TaskReachability'TaskReachabilityNewWorkflows = JsonString "TASK_REACHABILITY_NEW_WORKFLOWS"
@@ -198,8 +194,6 @@ instance MessageSize BuildIdTaskReachability where
 instance MessageDecode BuildIdTaskReachability where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON BuildIdTaskReachability where
   protoToJSON BuildIdTaskReachability'BuildIdTaskReachabilityUnspecified = JsonString "BUILD_ID_TASK_REACHABILITY_UNSPECIFIED"
   protoToJSON BuildIdTaskReachability'BuildIdTaskReachabilityReachable = JsonString "BUILD_ID_TASK_REACHABILITY_REACHABLE"
@@ -236,8 +230,6 @@ instance MessageSize DescribeTaskQueueMode where
   messageSize _ = 0
 instance MessageDecode DescribeTaskQueueMode where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON DescribeTaskQueueMode where
   protoToJSON DescribeTaskQueueMode'DescribeTaskQueueModeUnspecified = JsonString "DESCRIBE_TASK_QUEUE_MODE_UNSPECIFIED"
@@ -278,8 +270,6 @@ instance MessageSize RateLimitSource where
 instance MessageDecode RateLimitSource where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON RateLimitSource where
   protoToJSON RateLimitSource'RateLimitSourceUnspecified = JsonString "RATE_LIMIT_SOURCE_UNSPECIFIED"
   protoToJSON RateLimitSource'RateLimitSourceApi = JsonString "RATE_LIMIT_SOURCE_API"
@@ -319,8 +309,6 @@ instance MessageSize RoutingConfigUpdateState where
   messageSize _ = 0
 instance MessageDecode RoutingConfigUpdateState where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON RoutingConfigUpdateState where
   protoToJSON RoutingConfigUpdateState'RoutingConfigUpdateStateUnspecified = JsonString "ROUTING_CONFIG_UPDATE_STATE_UNSPECIFIED"

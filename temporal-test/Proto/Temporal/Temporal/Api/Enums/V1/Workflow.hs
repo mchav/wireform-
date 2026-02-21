@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data WorkflowIdReusePolicy
@@ -65,8 +67,6 @@ instance MessageSize WorkflowIdReusePolicy where
   messageSize _ = 0
 instance MessageDecode WorkflowIdReusePolicy where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON WorkflowIdReusePolicy where
   protoToJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyUnspecified = JsonString "WORKFLOW_ID_REUSE_POLICY_UNSPECIFIED"
@@ -113,8 +113,6 @@ instance MessageSize WorkflowIdConflictPolicy where
 instance MessageDecode WorkflowIdConflictPolicy where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON WorkflowIdConflictPolicy where
   protoToJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUnspecified = JsonString "WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED"
   protoToJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyFail = JsonString "WORKFLOW_ID_CONFLICT_POLICY_FAIL"
@@ -158,8 +156,6 @@ instance MessageSize ParentClosePolicy where
 instance MessageDecode ParentClosePolicy where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON ParentClosePolicy where
   protoToJSON ParentClosePolicy'ParentClosePolicyUnspecified = JsonString "PARENT_CLOSE_POLICY_UNSPECIFIED"
   protoToJSON ParentClosePolicy'ParentClosePolicyTerminate = JsonString "PARENT_CLOSE_POLICY_TERMINATE"
@@ -202,8 +198,6 @@ instance MessageSize ContinueAsNewInitiator where
   messageSize _ = 0
 instance MessageDecode ContinueAsNewInitiator where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ContinueAsNewInitiator where
   protoToJSON ContinueAsNewInitiator'ContinueAsNewInitiatorUnspecified = JsonString "CONTINUE_AS_NEW_INITIATOR_UNSPECIFIED"
@@ -262,8 +256,6 @@ instance MessageSize WorkflowExecutionStatus where
   messageSize _ = 0
 instance MessageDecode WorkflowExecutionStatus where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON WorkflowExecutionStatus where
   protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusUnspecified = JsonString "WORKFLOW_EXECUTION_STATUS_UNSPECIFIED"
@@ -324,8 +316,6 @@ instance MessageSize PendingActivityState where
 instance MessageDecode PendingActivityState where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON PendingActivityState where
   protoToJSON PendingActivityState'PendingActivityStateUnspecified = JsonString "PENDING_ACTIVITY_STATE_UNSPECIFIED"
   protoToJSON PendingActivityState'PendingActivityStateScheduled = JsonString "PENDING_ACTIVITY_STATE_SCHEDULED"
@@ -370,8 +360,6 @@ instance MessageSize PendingWorkflowTaskState where
 instance MessageDecode PendingWorkflowTaskState where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON PendingWorkflowTaskState where
   protoToJSON PendingWorkflowTaskState'PendingWorkflowTaskStateUnspecified = JsonString "PENDING_WORKFLOW_TASK_STATE_UNSPECIFIED"
   protoToJSON PendingWorkflowTaskState'PendingWorkflowTaskStateScheduled = JsonString "PENDING_WORKFLOW_TASK_STATE_SCHEDULED"
@@ -409,8 +397,6 @@ instance MessageSize HistoryEventFilterType where
   messageSize _ = 0
 instance MessageDecode HistoryEventFilterType where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON HistoryEventFilterType where
   protoToJSON HistoryEventFilterType'HistoryEventFilterTypeUnspecified = JsonString "HISTORY_EVENT_FILTER_TYPE_UNSPECIFIED"
@@ -464,8 +450,6 @@ instance MessageSize RetryState where
   messageSize _ = 0
 instance MessageDecode RetryState where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON RetryState where
   protoToJSON RetryState'RetryStateUnspecified = JsonString "RETRY_STATE_UNSPECIFIED"
@@ -521,8 +505,6 @@ instance MessageSize TimeoutType where
 instance MessageDecode TimeoutType where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON TimeoutType where
   protoToJSON TimeoutType'TimeoutTypeUnspecified = JsonString "TIMEOUT_TYPE_UNSPECIFIED"
   protoToJSON TimeoutType'TimeoutTypeStartToClose = JsonString "TIMEOUT_TYPE_START_TO_CLOSE"
@@ -565,8 +547,6 @@ instance MessageSize VersioningBehavior where
 instance MessageDecode VersioningBehavior where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON VersioningBehavior where
   protoToJSON VersioningBehavior'VersioningBehaviorUnspecified = JsonString "VERSIONING_BEHAVIOR_UNSPECIFIED"
   protoToJSON VersioningBehavior'VersioningBehaviorPinned = JsonString "VERSIONING_BEHAVIOR_PINNED"
@@ -601,8 +581,6 @@ instance MessageSize ContinueAsNewVersioningBehavior where
   messageSize _ = 0
 instance MessageDecode ContinueAsNewVersioningBehavior where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ContinueAsNewVersioningBehavior where
   protoToJSON ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorUnspecified = JsonString "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_UNSPECIFIED"
@@ -642,8 +620,6 @@ instance MessageSize SuggestContinueAsNewReason where
   messageSize _ = 0
 instance MessageDecode SuggestContinueAsNewReason where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON SuggestContinueAsNewReason where
   protoToJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonUnspecified = JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_UNSPECIFIED"

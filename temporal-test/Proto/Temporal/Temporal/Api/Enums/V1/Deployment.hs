@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data DeploymentReachability
@@ -62,8 +64,6 @@ instance MessageSize DeploymentReachability where
   messageSize _ = 0
 instance MessageDecode DeploymentReachability where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON DeploymentReachability where
   protoToJSON DeploymentReachability'DeploymentReachabilityUnspecified = JsonString "DEPLOYMENT_REACHABILITY_UNSPECIFIED"
@@ -105,8 +105,6 @@ instance MessageSize VersionDrainageStatus where
 instance MessageDecode VersionDrainageStatus where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON VersionDrainageStatus where
   protoToJSON VersionDrainageStatus'VersionDrainageStatusUnspecified = JsonString "VERSION_DRAINAGE_STATUS_UNSPECIFIED"
   protoToJSON VersionDrainageStatus'VersionDrainageStatusDraining = JsonString "VERSION_DRAINAGE_STATUS_DRAINING"
@@ -144,8 +142,6 @@ instance MessageSize WorkerVersioningMode where
   messageSize _ = 0
 instance MessageDecode WorkerVersioningMode where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON WorkerVersioningMode where
   protoToJSON WorkerVersioningMode'WorkerVersioningModeUnspecified = JsonString "WORKER_VERSIONING_MODE_UNSPECIFIED"
@@ -193,8 +189,6 @@ instance MessageSize WorkerDeploymentVersionStatus where
   messageSize _ = 0
 instance MessageDecode WorkerDeploymentVersionStatus where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON WorkerDeploymentVersionStatus where
   protoToJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusUnspecified = JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_UNSPECIFIED"

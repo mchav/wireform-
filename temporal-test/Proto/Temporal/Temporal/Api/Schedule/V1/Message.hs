@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Common.V1.Message (Memo(..), SearchAttributes(..), WorkflowExecution(..), WorkflowType(..))
@@ -135,6 +137,25 @@ instance ProtoToJSON CalendarSpec where
       ]
 
 instance ProtoFromJSON CalendarSpec where
+  protoFromJSON (JsonObject obj) = do
+    fld_calendarSpecSecond <- obj .:? "second"
+    fld_calendarSpecMinute <- obj .:? "minute"
+    fld_calendarSpecHour <- obj .:? "hour"
+    fld_calendarSpecDayofmonth <- obj .:? "dayOfMonth"
+    fld_calendarSpecMonth <- obj .:? "month"
+    fld_calendarSpecYear <- obj .:? "year"
+    fld_calendarSpecDayofweek <- obj .:? "dayOfWeek"
+    fld_calendarSpecComment <- obj .:? "comment"
+    pure defaultCalendarSpec
+      { calendarSpecSecond = maybe (calendarSpecSecond defaultCalendarSpec) id fld_calendarSpecSecond
+      , calendarSpecMinute = maybe (calendarSpecMinute defaultCalendarSpec) id fld_calendarSpecMinute
+      , calendarSpecHour = maybe (calendarSpecHour defaultCalendarSpec) id fld_calendarSpecHour
+      , calendarSpecDayofmonth = maybe (calendarSpecDayofmonth defaultCalendarSpec) id fld_calendarSpecDayofmonth
+      , calendarSpecMonth = maybe (calendarSpecMonth defaultCalendarSpec) id fld_calendarSpecMonth
+      , calendarSpecYear = maybe (calendarSpecYear defaultCalendarSpec) id fld_calendarSpecYear
+      , calendarSpecDayofweek = maybe (calendarSpecDayofweek defaultCalendarSpec) id fld_calendarSpecDayofweek
+      , calendarSpecComment = maybe (calendarSpecComment defaultCalendarSpec) id fld_calendarSpecComment
+      }
   protoFromJSON _ = Right defaultCalendarSpec
 
 data Range = Range
@@ -191,6 +212,15 @@ instance ProtoToJSON Range where
       ]
 
 instance ProtoFromJSON Range where
+  protoFromJSON (JsonObject obj) = do
+    fld_rangeStart <- obj .:? "start"
+    fld_rangeEnd <- obj .:? "end"
+    fld_rangeStep <- obj .:? "step"
+    pure defaultRange
+      { rangeStart = maybe (rangeStart defaultRange) id fld_rangeStart
+      , rangeEnd = maybe (rangeEnd defaultRange) id fld_rangeEnd
+      , rangeStep = maybe (rangeStep defaultRange) id fld_rangeStep
+      }
   protoFromJSON _ = Right defaultRange
 
 data StructuredCalendarSpec = StructuredCalendarSpec
@@ -287,6 +317,25 @@ instance ProtoToJSON StructuredCalendarSpec where
       ]
 
 instance ProtoFromJSON StructuredCalendarSpec where
+  protoFromJSON (JsonObject obj) = do
+    fld_structuredCalendarSpecSecond <- obj .:? "second"
+    fld_structuredCalendarSpecMinute <- obj .:? "minute"
+    fld_structuredCalendarSpecHour <- obj .:? "hour"
+    fld_structuredCalendarSpecDayofmonth <- obj .:? "dayOfMonth"
+    fld_structuredCalendarSpecMonth <- obj .:? "month"
+    fld_structuredCalendarSpecYear <- obj .:? "year"
+    fld_structuredCalendarSpecDayofweek <- obj .:? "dayOfWeek"
+    fld_structuredCalendarSpecComment <- obj .:? "comment"
+    pure defaultStructuredCalendarSpec
+      { structuredCalendarSpecSecond = maybe (structuredCalendarSpecSecond defaultStructuredCalendarSpec) id fld_structuredCalendarSpecSecond
+      , structuredCalendarSpecMinute = maybe (structuredCalendarSpecMinute defaultStructuredCalendarSpec) id fld_structuredCalendarSpecMinute
+      , structuredCalendarSpecHour = maybe (structuredCalendarSpecHour defaultStructuredCalendarSpec) id fld_structuredCalendarSpecHour
+      , structuredCalendarSpecDayofmonth = maybe (structuredCalendarSpecDayofmonth defaultStructuredCalendarSpec) id fld_structuredCalendarSpecDayofmonth
+      , structuredCalendarSpecMonth = maybe (structuredCalendarSpecMonth defaultStructuredCalendarSpec) id fld_structuredCalendarSpecMonth
+      , structuredCalendarSpecYear = maybe (structuredCalendarSpecYear defaultStructuredCalendarSpec) id fld_structuredCalendarSpecYear
+      , structuredCalendarSpecDayofweek = maybe (structuredCalendarSpecDayofweek defaultStructuredCalendarSpec) id fld_structuredCalendarSpecDayofweek
+      , structuredCalendarSpecComment = maybe (structuredCalendarSpecComment defaultStructuredCalendarSpec) id fld_structuredCalendarSpecComment
+      }
   protoFromJSON _ = Right defaultStructuredCalendarSpec
 
 data IntervalSpec = IntervalSpec
@@ -335,6 +384,13 @@ instance ProtoToJSON IntervalSpec where
       ]
 
 instance ProtoFromJSON IntervalSpec where
+  protoFromJSON (JsonObject obj) = do
+    fld_intervalSpecInterval <- obj .:? "interval"
+    fld_intervalSpecPhase <- obj .:? "phase"
+    pure defaultIntervalSpec
+      { intervalSpecInterval = maybe (intervalSpecInterval defaultIntervalSpec) id fld_intervalSpecInterval
+      , intervalSpecPhase = maybe (intervalSpecPhase defaultIntervalSpec) id fld_intervalSpecPhase
+      }
   protoFromJSON _ = Right defaultIntervalSpec
 
 data ScheduleSpec = ScheduleSpec
@@ -385,7 +441,7 @@ instance MessageEncode ScheduleSpec where
 instance MessageSize ScheduleSpec where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 7 (messageSize v)) 0 msg.scheduleSpecStructuredcalendar)
-    + 0 {- TODO: repeated size -}
+    + (V.foldl' (\acc v -> acc + fieldTextSize 8 v) 0 msg.scheduleSpecCronstring)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.scheduleSpecCalendar)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.scheduleSpecInterval)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.scheduleSpecExcludecalendar)
@@ -455,6 +511,31 @@ instance ProtoToJSON ScheduleSpec where
       ]
 
 instance ProtoFromJSON ScheduleSpec where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleSpecStructuredcalendar <- obj .:? "structuredCalendar"
+    fld_scheduleSpecCronstring <- obj .:? "cronString"
+    fld_scheduleSpecCalendar <- obj .:? "calendar"
+    fld_scheduleSpecInterval <- obj .:? "interval"
+    fld_scheduleSpecExcludecalendar <- obj .:? "excludeCalendar"
+    fld_scheduleSpecExcludestructuredcalendar <- obj .:? "excludeStructuredCalendar"
+    fld_scheduleSpecStarttime <- obj .:? "startTime"
+    fld_scheduleSpecEndtime <- obj .:? "endTime"
+    fld_scheduleSpecJitter <- obj .:? "jitter"
+    fld_scheduleSpecTimezonename <- obj .:? "timezoneName"
+    fld_scheduleSpecTimezonedata <- obj .:? "timezoneData"
+    pure defaultScheduleSpec
+      { scheduleSpecStructuredcalendar = maybe (scheduleSpecStructuredcalendar defaultScheduleSpec) id fld_scheduleSpecStructuredcalendar
+      , scheduleSpecCronstring = maybe (scheduleSpecCronstring defaultScheduleSpec) id fld_scheduleSpecCronstring
+      , scheduleSpecCalendar = maybe (scheduleSpecCalendar defaultScheduleSpec) id fld_scheduleSpecCalendar
+      , scheduleSpecInterval = maybe (scheduleSpecInterval defaultScheduleSpec) id fld_scheduleSpecInterval
+      , scheduleSpecExcludecalendar = maybe (scheduleSpecExcludecalendar defaultScheduleSpec) id fld_scheduleSpecExcludecalendar
+      , scheduleSpecExcludestructuredcalendar = maybe (scheduleSpecExcludestructuredcalendar defaultScheduleSpec) id fld_scheduleSpecExcludestructuredcalendar
+      , scheduleSpecStarttime = maybe (scheduleSpecStarttime defaultScheduleSpec) id fld_scheduleSpecStarttime
+      , scheduleSpecEndtime = maybe (scheduleSpecEndtime defaultScheduleSpec) id fld_scheduleSpecEndtime
+      , scheduleSpecJitter = maybe (scheduleSpecJitter defaultScheduleSpec) id fld_scheduleSpecJitter
+      , scheduleSpecTimezonename = maybe (scheduleSpecTimezonename defaultScheduleSpec) id fld_scheduleSpecTimezonename
+      , scheduleSpecTimezonedata = maybe (scheduleSpecTimezonedata defaultScheduleSpec) id fld_scheduleSpecTimezonedata
+      }
   protoFromJSON _ = Right defaultScheduleSpec
 
 data SchedulePolicies = SchedulePolicies
@@ -519,6 +600,17 @@ instance ProtoToJSON SchedulePolicies where
       ]
 
 instance ProtoFromJSON SchedulePolicies where
+  protoFromJSON (JsonObject obj) = do
+    fld_schedulePoliciesOverlappolicy <- obj .:? "overlapPolicy"
+    fld_schedulePoliciesCatchupwindow <- obj .:? "catchupWindow"
+    fld_schedulePoliciesPauseonfailure <- obj .:? "pauseOnFailure"
+    fld_schedulePoliciesKeeporiginalworkflowid <- obj .:? "keepOriginalWorkflowId"
+    pure defaultSchedulePolicies
+      { schedulePoliciesOverlappolicy = maybe (schedulePoliciesOverlappolicy defaultSchedulePolicies) id fld_schedulePoliciesOverlappolicy
+      , schedulePoliciesCatchupwindow = maybe (schedulePoliciesCatchupwindow defaultSchedulePolicies) id fld_schedulePoliciesCatchupwindow
+      , schedulePoliciesPauseonfailure = maybe (schedulePoliciesPauseonfailure defaultSchedulePolicies) id fld_schedulePoliciesPauseonfailure
+      , schedulePoliciesKeeporiginalworkflowid = maybe (schedulePoliciesKeeporiginalworkflowid defaultSchedulePolicies) id fld_schedulePoliciesKeeporiginalworkflowid
+      }
   protoFromJSON _ = Right defaultSchedulePolicies
 
 data ScheduleAction = ScheduleAction
@@ -570,6 +662,11 @@ instance ProtoToJSON ScheduleAction where
       ]
 
 instance ProtoFromJSON ScheduleAction where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleActionAction <- obj .:? "action"
+    pure defaultScheduleAction
+      { scheduleActionAction = maybe (scheduleActionAction defaultScheduleAction) id fld_scheduleActionAction
+      }
   protoFromJSON _ = Right defaultScheduleAction
 
 data ScheduleActionResult = ScheduleActionResult
@@ -634,6 +731,17 @@ instance ProtoToJSON ScheduleActionResult where
       ]
 
 instance ProtoFromJSON ScheduleActionResult where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleActionResultScheduletime <- obj .:? "scheduleTime"
+    fld_scheduleActionResultActualtime <- obj .:? "actualTime"
+    fld_scheduleActionResultStartworkflowresult <- obj .:? "startWorkflowResult"
+    fld_scheduleActionResultStartworkflowstatus <- obj .:? "startWorkflowStatus"
+    pure defaultScheduleActionResult
+      { scheduleActionResultScheduletime = maybe (scheduleActionResultScheduletime defaultScheduleActionResult) id fld_scheduleActionResultScheduletime
+      , scheduleActionResultActualtime = maybe (scheduleActionResultActualtime defaultScheduleActionResult) id fld_scheduleActionResultActualtime
+      , scheduleActionResultStartworkflowresult = maybe (scheduleActionResultStartworkflowresult defaultScheduleActionResult) id fld_scheduleActionResultStartworkflowresult
+      , scheduleActionResultStartworkflowstatus = maybe (scheduleActionResultStartworkflowstatus defaultScheduleActionResult) id fld_scheduleActionResultStartworkflowstatus
+      }
   protoFromJSON _ = Right defaultScheduleActionResult
 
 data ScheduleState = ScheduleState
@@ -698,6 +806,17 @@ instance ProtoToJSON ScheduleState where
       ]
 
 instance ProtoFromJSON ScheduleState where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleStateNotes <- obj .:? "notes"
+    fld_scheduleStatePaused <- obj .:? "paused"
+    fld_scheduleStateLimitedactions <- obj .:? "limitedActions"
+    fld_scheduleStateRemainingactions <- obj .:? "remainingActions"
+    pure defaultScheduleState
+      { scheduleStateNotes = maybe (scheduleStateNotes defaultScheduleState) id fld_scheduleStateNotes
+      , scheduleStatePaused = maybe (scheduleStatePaused defaultScheduleState) id fld_scheduleStatePaused
+      , scheduleStateLimitedactions = maybe (scheduleStateLimitedactions defaultScheduleState) id fld_scheduleStateLimitedactions
+      , scheduleStateRemainingactions = maybe (scheduleStateRemainingactions defaultScheduleState) id fld_scheduleStateRemainingactions
+      }
   protoFromJSON _ = Right defaultScheduleState
 
 data TriggerImmediatelyRequest = TriggerImmediatelyRequest
@@ -746,6 +865,13 @@ instance ProtoToJSON TriggerImmediatelyRequest where
       ]
 
 instance ProtoFromJSON TriggerImmediatelyRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_triggerImmediatelyRequestOverlappolicy <- obj .:? "overlapPolicy"
+    fld_triggerImmediatelyRequestScheduledtime <- obj .:? "scheduledTime"
+    pure defaultTriggerImmediatelyRequest
+      { triggerImmediatelyRequestOverlappolicy = maybe (triggerImmediatelyRequestOverlappolicy defaultTriggerImmediatelyRequest) id fld_triggerImmediatelyRequestOverlappolicy
+      , triggerImmediatelyRequestScheduledtime = maybe (triggerImmediatelyRequestScheduledtime defaultTriggerImmediatelyRequest) id fld_triggerImmediatelyRequestScheduledtime
+      }
   protoFromJSON _ = Right defaultTriggerImmediatelyRequest
 
 data BackfillRequest = BackfillRequest
@@ -802,6 +928,15 @@ instance ProtoToJSON BackfillRequest where
       ]
 
 instance ProtoFromJSON BackfillRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_backfillRequestStarttime <- obj .:? "startTime"
+    fld_backfillRequestEndtime <- obj .:? "endTime"
+    fld_backfillRequestOverlappolicy <- obj .:? "overlapPolicy"
+    pure defaultBackfillRequest
+      { backfillRequestStarttime = maybe (backfillRequestStarttime defaultBackfillRequest) id fld_backfillRequestStarttime
+      , backfillRequestEndtime = maybe (backfillRequestEndtime defaultBackfillRequest) id fld_backfillRequestEndtime
+      , backfillRequestOverlappolicy = maybe (backfillRequestOverlappolicy defaultBackfillRequest) id fld_backfillRequestOverlappolicy
+      }
   protoFromJSON _ = Right defaultBackfillRequest
 
 data SchedulePatch = SchedulePatch
@@ -866,6 +1001,17 @@ instance ProtoToJSON SchedulePatch where
       ]
 
 instance ProtoFromJSON SchedulePatch where
+  protoFromJSON (JsonObject obj) = do
+    fld_schedulePatchTriggerimmediately <- obj .:? "triggerImmediately"
+    fld_schedulePatchBackfillrequest <- obj .:? "backfillRequest"
+    fld_schedulePatchPause <- obj .:? "pause"
+    fld_schedulePatchUnpause <- obj .:? "unpause"
+    pure defaultSchedulePatch
+      { schedulePatchTriggerimmediately = maybe (schedulePatchTriggerimmediately defaultSchedulePatch) id fld_schedulePatchTriggerimmediately
+      , schedulePatchBackfillrequest = maybe (schedulePatchBackfillrequest defaultSchedulePatch) id fld_schedulePatchBackfillrequest
+      , schedulePatchPause = maybe (schedulePatchPause defaultSchedulePatch) id fld_schedulePatchPause
+      , schedulePatchUnpause = maybe (schedulePatchUnpause defaultSchedulePatch) id fld_schedulePatchUnpause
+      }
   protoFromJSON _ = Right defaultSchedulePatch
 
 data ScheduleInfo = ScheduleInfo
@@ -986,6 +1132,31 @@ instance ProtoToJSON ScheduleInfo where
       ]
 
 instance ProtoFromJSON ScheduleInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleInfoActioncount <- obj .:? "actionCount"
+    fld_scheduleInfoMissedcatchupwindow <- obj .:? "missedCatchupWindow"
+    fld_scheduleInfoOverlapskipped <- obj .:? "overlapSkipped"
+    fld_scheduleInfoBufferdropped <- obj .:? "bufferDropped"
+    fld_scheduleInfoBuffersize <- obj .:? "bufferSize"
+    fld_scheduleInfoRunningworkflows <- obj .:? "runningWorkflows"
+    fld_scheduleInfoRecentactions <- obj .:? "recentActions"
+    fld_scheduleInfoFutureactiontimes <- obj .:? "futureActionTimes"
+    fld_scheduleInfoCreatetime <- obj .:? "createTime"
+    fld_scheduleInfoUpdatetime <- obj .:? "updateTime"
+    fld_scheduleInfoInvalidscheduleerror <- obj .:? "invalidScheduleError"
+    pure defaultScheduleInfo
+      { scheduleInfoActioncount = maybe (scheduleInfoActioncount defaultScheduleInfo) id fld_scheduleInfoActioncount
+      , scheduleInfoMissedcatchupwindow = maybe (scheduleInfoMissedcatchupwindow defaultScheduleInfo) id fld_scheduleInfoMissedcatchupwindow
+      , scheduleInfoOverlapskipped = maybe (scheduleInfoOverlapskipped defaultScheduleInfo) id fld_scheduleInfoOverlapskipped
+      , scheduleInfoBufferdropped = maybe (scheduleInfoBufferdropped defaultScheduleInfo) id fld_scheduleInfoBufferdropped
+      , scheduleInfoBuffersize = maybe (scheduleInfoBuffersize defaultScheduleInfo) id fld_scheduleInfoBuffersize
+      , scheduleInfoRunningworkflows = maybe (scheduleInfoRunningworkflows defaultScheduleInfo) id fld_scheduleInfoRunningworkflows
+      , scheduleInfoRecentactions = maybe (scheduleInfoRecentactions defaultScheduleInfo) id fld_scheduleInfoRecentactions
+      , scheduleInfoFutureactiontimes = maybe (scheduleInfoFutureactiontimes defaultScheduleInfo) id fld_scheduleInfoFutureactiontimes
+      , scheduleInfoCreatetime = maybe (scheduleInfoCreatetime defaultScheduleInfo) id fld_scheduleInfoCreatetime
+      , scheduleInfoUpdatetime = maybe (scheduleInfoUpdatetime defaultScheduleInfo) id fld_scheduleInfoUpdatetime
+      , scheduleInfoInvalidscheduleerror = maybe (scheduleInfoInvalidscheduleerror defaultScheduleInfo) id fld_scheduleInfoInvalidscheduleerror
+      }
   protoFromJSON _ = Right defaultScheduleInfo
 
 data Schedule = Schedule
@@ -1050,6 +1221,17 @@ instance ProtoToJSON Schedule where
       ]
 
 instance ProtoFromJSON Schedule where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleSpec <- obj .:? "spec"
+    fld_scheduleAction <- obj .:? "action"
+    fld_schedulePolicies <- obj .:? "policies"
+    fld_scheduleState <- obj .:? "state"
+    pure defaultSchedule
+      { scheduleSpec = maybe (scheduleSpec defaultSchedule) id fld_scheduleSpec
+      , scheduleAction = maybe (scheduleAction defaultSchedule) id fld_scheduleAction
+      , schedulePolicies = maybe (schedulePolicies defaultSchedule) id fld_schedulePolicies
+      , scheduleState = maybe (scheduleState defaultSchedule) id fld_scheduleState
+      }
   protoFromJSON _ = Right defaultSchedule
 
 data ScheduleListInfo = ScheduleListInfo
@@ -1130,6 +1312,21 @@ instance ProtoToJSON ScheduleListInfo where
       ]
 
 instance ProtoFromJSON ScheduleListInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleListInfoSpec <- obj .:? "spec"
+    fld_scheduleListInfoWorkflowtype <- obj .:? "workflowType"
+    fld_scheduleListInfoNotes <- obj .:? "notes"
+    fld_scheduleListInfoPaused <- obj .:? "paused"
+    fld_scheduleListInfoRecentactions <- obj .:? "recentActions"
+    fld_scheduleListInfoFutureactiontimes <- obj .:? "futureActionTimes"
+    pure defaultScheduleListInfo
+      { scheduleListInfoSpec = maybe (scheduleListInfoSpec defaultScheduleListInfo) id fld_scheduleListInfoSpec
+      , scheduleListInfoWorkflowtype = maybe (scheduleListInfoWorkflowtype defaultScheduleListInfo) id fld_scheduleListInfoWorkflowtype
+      , scheduleListInfoNotes = maybe (scheduleListInfoNotes defaultScheduleListInfo) id fld_scheduleListInfoNotes
+      , scheduleListInfoPaused = maybe (scheduleListInfoPaused defaultScheduleListInfo) id fld_scheduleListInfoPaused
+      , scheduleListInfoRecentactions = maybe (scheduleListInfoRecentactions defaultScheduleListInfo) id fld_scheduleListInfoRecentactions
+      , scheduleListInfoFutureactiontimes = maybe (scheduleListInfoFutureactiontimes defaultScheduleListInfo) id fld_scheduleListInfoFutureactiontimes
+      }
   protoFromJSON _ = Right defaultScheduleListInfo
 
 data ScheduleListEntry = ScheduleListEntry
@@ -1194,4 +1391,15 @@ instance ProtoToJSON ScheduleListEntry where
       ]
 
 instance ProtoFromJSON ScheduleListEntry where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleListEntryScheduleid <- obj .:? "scheduleId"
+    fld_scheduleListEntryMemo <- obj .:? "memo"
+    fld_scheduleListEntrySearchattributes <- obj .:? "searchAttributes"
+    fld_scheduleListEntryInfo <- obj .:? "info"
+    pure defaultScheduleListEntry
+      { scheduleListEntryScheduleid = maybe (scheduleListEntryScheduleid defaultScheduleListEntry) id fld_scheduleListEntryScheduleid
+      , scheduleListEntryMemo = maybe (scheduleListEntryMemo defaultScheduleListEntry) id fld_scheduleListEntryMemo
+      , scheduleListEntrySearchattributes = maybe (scheduleListEntrySearchattributes defaultScheduleListEntry) id fld_scheduleListEntrySearchattributes
+      , scheduleListEntryInfo = maybe (scheduleListEntryInfo defaultScheduleListEntry) id fld_scheduleListEntryInfo
+      }
   protoFromJSON _ = Right defaultScheduleListEntry

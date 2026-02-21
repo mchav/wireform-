@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data WorkerConfig = WorkerConfig
@@ -81,6 +83,11 @@ instance ProtoToJSON WorkerConfig'SimplePollerBehavior where
       ]
 
 instance ProtoFromJSON WorkerConfig'SimplePollerBehavior where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerConfigSimplePollerBehaviorMaxpollers <- obj .:? "maxPollers"
+    pure defaultWorkerConfig'SimplePollerBehavior
+      { workerConfigSimplePollerBehaviorMaxpollers = maybe (workerConfigSimplePollerBehaviorMaxpollers defaultWorkerConfig'SimplePollerBehavior) id fld_workerConfigSimplePollerBehaviorMaxpollers
+      }
   protoFromJSON _ = Right defaultWorkerConfig'SimplePollerBehavior
 
 data WorkerConfig'AutoscalingPollerBehavior = WorkerConfig'AutoscalingPollerBehavior
@@ -137,6 +144,15 @@ instance ProtoToJSON WorkerConfig'AutoscalingPollerBehavior where
       ]
 
 instance ProtoFromJSON WorkerConfig'AutoscalingPollerBehavior where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerConfigAutoscalingPollerBehaviorMinpollers <- obj .:? "minPollers"
+    fld_workerConfigAutoscalingPollerBehaviorMaxpollers <- obj .:? "maxPollers"
+    fld_workerConfigAutoscalingPollerBehaviorInitialpollers <- obj .:? "initialPollers"
+    pure defaultWorkerConfig'AutoscalingPollerBehavior
+      { workerConfigAutoscalingPollerBehaviorMinpollers = maybe (workerConfigAutoscalingPollerBehaviorMinpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorMinpollers
+      , workerConfigAutoscalingPollerBehaviorMaxpollers = maybe (workerConfigAutoscalingPollerBehaviorMaxpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorMaxpollers
+      , workerConfigAutoscalingPollerBehaviorInitialpollers = maybe (workerConfigAutoscalingPollerBehaviorInitialpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorInitialpollers
+      }
   protoFromJSON _ = Right defaultWorkerConfig'AutoscalingPollerBehavior
 data WorkerConfig'PollerBehavior
   = WorkerConfig'PollerBehavior'SimplePollerBehavior !WorkerConfig'SimplePollerBehavior
@@ -194,4 +210,11 @@ instance ProtoToJSON WorkerConfig where
       ]
 
 instance ProtoFromJSON WorkerConfig where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerConfigWorkflowcachesize <- obj .:? "workflowCacheSize"
+    fld_workerConfigPollerbehavior <- obj .:? "pollerBehavior"
+    pure defaultWorkerConfig
+      { workerConfigWorkflowcachesize = maybe (workerConfigWorkflowcachesize defaultWorkerConfig) id fld_workerConfigWorkflowcachesize
+      , workerConfigPollerbehavior = maybe (workerConfigPollerbehavior defaultWorkerConfig) id fld_workerConfigPollerbehavior
+      }
   protoFromJSON _ = Right defaultWorkerConfig

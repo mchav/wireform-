@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Header(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..))
@@ -99,6 +101,11 @@ instance ProtoToJSON ActivityExecutionOutcome where
       ]
 
 instance ProtoFromJSON ActivityExecutionOutcome where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityExecutionOutcomeValue <- obj .:? "value"
+    pure defaultActivityExecutionOutcome
+      { activityExecutionOutcomeValue = maybe (activityExecutionOutcomeValue defaultActivityExecutionOutcome) id fld_activityExecutionOutcomeValue
+      }
   protoFromJSON _ = Right defaultActivityExecutionOutcome
 
 data ActivityOptions = ActivityOptions
@@ -187,6 +194,23 @@ instance ProtoToJSON ActivityOptions where
       ]
 
 instance ProtoFromJSON ActivityOptions where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityOptionsTaskqueue <- obj .:? "taskQueue"
+    fld_activityOptionsScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_activityOptionsScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    fld_activityOptionsStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    fld_activityOptionsHeartbeattimeout <- obj .:? "heartbeatTimeout"
+    fld_activityOptionsRetrypolicy <- obj .:? "retryPolicy"
+    fld_activityOptionsPriority <- obj .:? "priority"
+    pure defaultActivityOptions
+      { activityOptionsTaskqueue = maybe (activityOptionsTaskqueue defaultActivityOptions) id fld_activityOptionsTaskqueue
+      , activityOptionsScheduletoclosetimeout = maybe (activityOptionsScheduletoclosetimeout defaultActivityOptions) id fld_activityOptionsScheduletoclosetimeout
+      , activityOptionsScheduletostarttimeout = maybe (activityOptionsScheduletostarttimeout defaultActivityOptions) id fld_activityOptionsScheduletostarttimeout
+      , activityOptionsStarttoclosetimeout = maybe (activityOptionsStarttoclosetimeout defaultActivityOptions) id fld_activityOptionsStarttoclosetimeout
+      , activityOptionsHeartbeattimeout = maybe (activityOptionsHeartbeattimeout defaultActivityOptions) id fld_activityOptionsHeartbeattimeout
+      , activityOptionsRetrypolicy = maybe (activityOptionsRetrypolicy defaultActivityOptions) id fld_activityOptionsRetrypolicy
+      , activityOptionsPriority = maybe (activityOptionsPriority defaultActivityOptions) id fld_activityOptionsPriority
+      }
   protoFromJSON _ = Right defaultActivityOptions
 
 data ActivityExecutionInfo = ActivityExecutionInfo
@@ -475,6 +499,73 @@ instance ProtoToJSON ActivityExecutionInfo where
       ]
 
 instance ProtoFromJSON ActivityExecutionInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityExecutionInfoActivityid <- obj .:? "activityId"
+    fld_activityExecutionInfoRunid <- obj .:? "runId"
+    fld_activityExecutionInfoActivitytype <- obj .:? "activityType"
+    fld_activityExecutionInfoStatus <- obj .:? "status"
+    fld_activityExecutionInfoRunstate <- obj .:? "runState"
+    fld_activityExecutionInfoTaskqueue <- obj .:? "taskQueue"
+    fld_activityExecutionInfoScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_activityExecutionInfoScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    fld_activityExecutionInfoStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    fld_activityExecutionInfoHeartbeattimeout <- obj .:? "heartbeatTimeout"
+    fld_activityExecutionInfoRetrypolicy <- obj .:? "retryPolicy"
+    fld_activityExecutionInfoHeartbeatdetails <- obj .:? "heartbeatDetails"
+    fld_activityExecutionInfoLastheartbeattime <- obj .:? "lastHeartbeatTime"
+    fld_activityExecutionInfoLaststartedtime <- obj .:? "lastStartedTime"
+    fld_activityExecutionInfoAttempt <- obj .:? "attempt"
+    fld_activityExecutionInfoExecutionduration <- obj .:? "executionDuration"
+    fld_activityExecutionInfoScheduletime <- obj .:? "scheduleTime"
+    fld_activityExecutionInfoExpirationtime <- obj .:? "expirationTime"
+    fld_activityExecutionInfoClosetime <- obj .:? "closeTime"
+    fld_activityExecutionInfoLastfailure <- obj .:? "lastFailure"
+    fld_activityExecutionInfoLastworkeridentity <- obj .:? "lastWorkerIdentity"
+    fld_activityExecutionInfoCurrentretryinterval <- obj .:? "currentRetryInterval"
+    fld_activityExecutionInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
+    fld_activityExecutionInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
+    fld_activityExecutionInfoLastdeploymentversion <- obj .:? "lastDeploymentVersion"
+    fld_activityExecutionInfoPriority <- obj .:? "priority"
+    fld_activityExecutionInfoStatetransitioncount <- obj .:? "stateTransitionCount"
+    fld_activityExecutionInfoStatesizebytes <- obj .:? "stateSizeBytes"
+    fld_activityExecutionInfoSearchattributes <- obj .:? "searchAttributes"
+    fld_activityExecutionInfoHeader <- obj .:? "header"
+    fld_activityExecutionInfoUsermetadata <- obj .:? "userMetadata"
+    fld_activityExecutionInfoCanceledreason <- obj .:? "canceledReason"
+    pure defaultActivityExecutionInfo
+      { activityExecutionInfoActivityid = maybe (activityExecutionInfoActivityid defaultActivityExecutionInfo) id fld_activityExecutionInfoActivityid
+      , activityExecutionInfoRunid = maybe (activityExecutionInfoRunid defaultActivityExecutionInfo) id fld_activityExecutionInfoRunid
+      , activityExecutionInfoActivitytype = maybe (activityExecutionInfoActivitytype defaultActivityExecutionInfo) id fld_activityExecutionInfoActivitytype
+      , activityExecutionInfoStatus = maybe (activityExecutionInfoStatus defaultActivityExecutionInfo) id fld_activityExecutionInfoStatus
+      , activityExecutionInfoRunstate = maybe (activityExecutionInfoRunstate defaultActivityExecutionInfo) id fld_activityExecutionInfoRunstate
+      , activityExecutionInfoTaskqueue = maybe (activityExecutionInfoTaskqueue defaultActivityExecutionInfo) id fld_activityExecutionInfoTaskqueue
+      , activityExecutionInfoScheduletoclosetimeout = maybe (activityExecutionInfoScheduletoclosetimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduletoclosetimeout
+      , activityExecutionInfoScheduletostarttimeout = maybe (activityExecutionInfoScheduletostarttimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduletostarttimeout
+      , activityExecutionInfoStarttoclosetimeout = maybe (activityExecutionInfoStarttoclosetimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoStarttoclosetimeout
+      , activityExecutionInfoHeartbeattimeout = maybe (activityExecutionInfoHeartbeattimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoHeartbeattimeout
+      , activityExecutionInfoRetrypolicy = maybe (activityExecutionInfoRetrypolicy defaultActivityExecutionInfo) id fld_activityExecutionInfoRetrypolicy
+      , activityExecutionInfoHeartbeatdetails = maybe (activityExecutionInfoHeartbeatdetails defaultActivityExecutionInfo) id fld_activityExecutionInfoHeartbeatdetails
+      , activityExecutionInfoLastheartbeattime = maybe (activityExecutionInfoLastheartbeattime defaultActivityExecutionInfo) id fld_activityExecutionInfoLastheartbeattime
+      , activityExecutionInfoLaststartedtime = maybe (activityExecutionInfoLaststartedtime defaultActivityExecutionInfo) id fld_activityExecutionInfoLaststartedtime
+      , activityExecutionInfoAttempt = maybe (activityExecutionInfoAttempt defaultActivityExecutionInfo) id fld_activityExecutionInfoAttempt
+      , activityExecutionInfoExecutionduration = maybe (activityExecutionInfoExecutionduration defaultActivityExecutionInfo) id fld_activityExecutionInfoExecutionduration
+      , activityExecutionInfoScheduletime = maybe (activityExecutionInfoScheduletime defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduletime
+      , activityExecutionInfoExpirationtime = maybe (activityExecutionInfoExpirationtime defaultActivityExecutionInfo) id fld_activityExecutionInfoExpirationtime
+      , activityExecutionInfoClosetime = maybe (activityExecutionInfoClosetime defaultActivityExecutionInfo) id fld_activityExecutionInfoClosetime
+      , activityExecutionInfoLastfailure = maybe (activityExecutionInfoLastfailure defaultActivityExecutionInfo) id fld_activityExecutionInfoLastfailure
+      , activityExecutionInfoLastworkeridentity = maybe (activityExecutionInfoLastworkeridentity defaultActivityExecutionInfo) id fld_activityExecutionInfoLastworkeridentity
+      , activityExecutionInfoCurrentretryinterval = maybe (activityExecutionInfoCurrentretryinterval defaultActivityExecutionInfo) id fld_activityExecutionInfoCurrentretryinterval
+      , activityExecutionInfoLastattemptcompletetime = maybe (activityExecutionInfoLastattemptcompletetime defaultActivityExecutionInfo) id fld_activityExecutionInfoLastattemptcompletetime
+      , activityExecutionInfoNextattemptscheduletime = maybe (activityExecutionInfoNextattemptscheduletime defaultActivityExecutionInfo) id fld_activityExecutionInfoNextattemptscheduletime
+      , activityExecutionInfoLastdeploymentversion = maybe (activityExecutionInfoLastdeploymentversion defaultActivityExecutionInfo) id fld_activityExecutionInfoLastdeploymentversion
+      , activityExecutionInfoPriority = maybe (activityExecutionInfoPriority defaultActivityExecutionInfo) id fld_activityExecutionInfoPriority
+      , activityExecutionInfoStatetransitioncount = maybe (activityExecutionInfoStatetransitioncount defaultActivityExecutionInfo) id fld_activityExecutionInfoStatetransitioncount
+      , activityExecutionInfoStatesizebytes = maybe (activityExecutionInfoStatesizebytes defaultActivityExecutionInfo) id fld_activityExecutionInfoStatesizebytes
+      , activityExecutionInfoSearchattributes = maybe (activityExecutionInfoSearchattributes defaultActivityExecutionInfo) id fld_activityExecutionInfoSearchattributes
+      , activityExecutionInfoHeader = maybe (activityExecutionInfoHeader defaultActivityExecutionInfo) id fld_activityExecutionInfoHeader
+      , activityExecutionInfoUsermetadata = maybe (activityExecutionInfoUsermetadata defaultActivityExecutionInfo) id fld_activityExecutionInfoUsermetadata
+      , activityExecutionInfoCanceledreason = maybe (activityExecutionInfoCanceledreason defaultActivityExecutionInfo) id fld_activityExecutionInfoCanceledreason
+      }
   protoFromJSON _ = Right defaultActivityExecutionInfo
 
 data ActivityExecutionListInfo = ActivityExecutionListInfo
@@ -595,4 +686,29 @@ instance ProtoToJSON ActivityExecutionListInfo where
       ]
 
 instance ProtoFromJSON ActivityExecutionListInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityExecutionListInfoActivityid <- obj .:? "activityId"
+    fld_activityExecutionListInfoRunid <- obj .:? "runId"
+    fld_activityExecutionListInfoActivitytype <- obj .:? "activityType"
+    fld_activityExecutionListInfoScheduletime <- obj .:? "scheduleTime"
+    fld_activityExecutionListInfoClosetime <- obj .:? "closeTime"
+    fld_activityExecutionListInfoStatus <- obj .:? "status"
+    fld_activityExecutionListInfoSearchattributes <- obj .:? "searchAttributes"
+    fld_activityExecutionListInfoTaskqueue <- obj .:? "taskQueue"
+    fld_activityExecutionListInfoStatetransitioncount <- obj .:? "stateTransitionCount"
+    fld_activityExecutionListInfoStatesizebytes <- obj .:? "stateSizeBytes"
+    fld_activityExecutionListInfoExecutionduration <- obj .:? "executionDuration"
+    pure defaultActivityExecutionListInfo
+      { activityExecutionListInfoActivityid = maybe (activityExecutionListInfoActivityid defaultActivityExecutionListInfo) id fld_activityExecutionListInfoActivityid
+      , activityExecutionListInfoRunid = maybe (activityExecutionListInfoRunid defaultActivityExecutionListInfo) id fld_activityExecutionListInfoRunid
+      , activityExecutionListInfoActivitytype = maybe (activityExecutionListInfoActivitytype defaultActivityExecutionListInfo) id fld_activityExecutionListInfoActivitytype
+      , activityExecutionListInfoScheduletime = maybe (activityExecutionListInfoScheduletime defaultActivityExecutionListInfo) id fld_activityExecutionListInfoScheduletime
+      , activityExecutionListInfoClosetime = maybe (activityExecutionListInfoClosetime defaultActivityExecutionListInfo) id fld_activityExecutionListInfoClosetime
+      , activityExecutionListInfoStatus = maybe (activityExecutionListInfoStatus defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStatus
+      , activityExecutionListInfoSearchattributes = maybe (activityExecutionListInfoSearchattributes defaultActivityExecutionListInfo) id fld_activityExecutionListInfoSearchattributes
+      , activityExecutionListInfoTaskqueue = maybe (activityExecutionListInfoTaskqueue defaultActivityExecutionListInfo) id fld_activityExecutionListInfoTaskqueue
+      , activityExecutionListInfoStatetransitioncount = maybe (activityExecutionListInfoStatetransitioncount defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStatetransitioncount
+      , activityExecutionListInfoStatesizebytes = maybe (activityExecutionListInfoStatesizebytes defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStatesizebytes
+      , activityExecutionListInfoExecutionduration = maybe (activityExecutionListInfoExecutionduration defaultActivityExecutionListInfo) id fld_activityExecutionListInfoExecutionduration
+      }
   protoFromJSON _ = Right defaultActivityExecutionListInfo

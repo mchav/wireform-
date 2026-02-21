@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data EncodingType
@@ -59,8 +61,6 @@ instance MessageSize EncodingType where
   messageSize _ = 0
 instance MessageDecode EncodingType where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON EncodingType where
   protoToJSON EncodingType'EncodingTypeUnspecified = JsonString "ENCODING_TYPE_UNSPECIFIED"
@@ -115,8 +115,6 @@ instance MessageSize IndexedValueType where
 instance MessageDecode IndexedValueType where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON IndexedValueType where
   protoToJSON IndexedValueType'IndexedValueTypeUnspecified = JsonString "INDEXED_VALUE_TYPE_UNSPECIFIED"
   protoToJSON IndexedValueType'IndexedValueTypeText = JsonString "INDEXED_VALUE_TYPE_TEXT"
@@ -167,8 +165,6 @@ instance MessageSize Severity where
   messageSize _ = 0
 instance MessageDecode Severity where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON Severity where
   protoToJSON Severity'SeverityUnspecified = JsonString "SEVERITY_UNSPECIFIED"
@@ -222,8 +218,6 @@ instance MessageSize CallbackState where
 instance MessageDecode CallbackState where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON CallbackState where
   protoToJSON CallbackState'CallbackStateUnspecified = JsonString "CALLBACK_STATE_UNSPECIFIED"
   protoToJSON CallbackState'CallbackStateStandby = JsonString "CALLBACK_STATE_STANDBY"
@@ -275,8 +269,6 @@ instance MessageSize PendingNexusOperationState where
   messageSize _ = 0
 instance MessageDecode PendingNexusOperationState where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON PendingNexusOperationState where
   protoToJSON PendingNexusOperationState'PendingNexusOperationStateUnspecified = JsonString "PENDING_NEXUS_OPERATION_STATE_UNSPECIFIED"
@@ -332,8 +324,6 @@ instance MessageSize NexusOperationCancellationState where
 instance MessageDecode NexusOperationCancellationState where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON NexusOperationCancellationState where
   protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateUnspecified = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_UNSPECIFIED"
   protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateScheduled = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_SCHEDULED"
@@ -380,8 +370,6 @@ instance MessageSize WorkflowRuleActionScope where
 instance MessageDecode WorkflowRuleActionScope where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON WorkflowRuleActionScope where
   protoToJSON WorkflowRuleActionScope'WorkflowRuleActionScopeUnspecified = JsonString "WORKFLOW_RULE_ACTION_SCOPE_UNSPECIFIED"
   protoToJSON WorkflowRuleActionScope'WorkflowRuleActionScopeWorkflow = JsonString "WORKFLOW_RULE_ACTION_SCOPE_WORKFLOW"
@@ -416,8 +404,6 @@ instance MessageSize ApplicationErrorCategory where
   messageSize _ = 0
 instance MessageDecode ApplicationErrorCategory where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ApplicationErrorCategory where
   protoToJSON ApplicationErrorCategory'ApplicationErrorCategoryUnspecified = JsonString "APPLICATION_ERROR_CATEGORY_UNSPECIFIED"
@@ -457,8 +443,6 @@ instance MessageSize WorkerStatus where
   messageSize _ = 0
 instance MessageDecode WorkerStatus where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON WorkerStatus where
   protoToJSON WorkerStatus'WorkerStatusUnspecified = JsonString "WORKER_STATUS_UNSPECIFIED"

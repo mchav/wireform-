@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Deployment.V1.Message (WorkerDeploymentVersion(..))
@@ -93,6 +95,15 @@ instance ProtoToJSON WorkerPollerInfo where
       ]
 
 instance ProtoFromJSON WorkerPollerInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerPollerInfoCurrentpollers <- obj .:? "currentPollers"
+    fld_workerPollerInfoLastsuccessfulpolltime <- obj .:? "lastSuccessfulPollTime"
+    fld_workerPollerInfoIsautoscaling <- obj .:? "isAutoscaling"
+    pure defaultWorkerPollerInfo
+      { workerPollerInfoCurrentpollers = maybe (workerPollerInfoCurrentpollers defaultWorkerPollerInfo) id fld_workerPollerInfoCurrentpollers
+      , workerPollerInfoLastsuccessfulpolltime = maybe (workerPollerInfoLastsuccessfulpolltime defaultWorkerPollerInfo) id fld_workerPollerInfoLastsuccessfulpolltime
+      , workerPollerInfoIsautoscaling = maybe (workerPollerInfoIsautoscaling defaultWorkerPollerInfo) id fld_workerPollerInfoIsautoscaling
+      }
   protoFromJSON _ = Right defaultWorkerPollerInfo
 
 data WorkerSlotsInfo = WorkerSlotsInfo
@@ -181,6 +192,23 @@ instance ProtoToJSON WorkerSlotsInfo where
       ]
 
 instance ProtoFromJSON WorkerSlotsInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerSlotsInfoCurrentavailableslots <- obj .:? "currentAvailableSlots"
+    fld_workerSlotsInfoCurrentusedslots <- obj .:? "currentUsedSlots"
+    fld_workerSlotsInfoSlotsupplierkind <- obj .:? "slotSupplierKind"
+    fld_workerSlotsInfoTotalprocessedtasks <- obj .:? "totalProcessedTasks"
+    fld_workerSlotsInfoTotalfailedtasks <- obj .:? "totalFailedTasks"
+    fld_workerSlotsInfoLastintervalprocessedtasks <- obj .:? "lastIntervalProcessedTasks"
+    fld_workerSlotsInfoLastintervalfailuretasks <- obj .:? "lastIntervalFailureTasks"
+    pure defaultWorkerSlotsInfo
+      { workerSlotsInfoCurrentavailableslots = maybe (workerSlotsInfoCurrentavailableslots defaultWorkerSlotsInfo) id fld_workerSlotsInfoCurrentavailableslots
+      , workerSlotsInfoCurrentusedslots = maybe (workerSlotsInfoCurrentusedslots defaultWorkerSlotsInfo) id fld_workerSlotsInfoCurrentusedslots
+      , workerSlotsInfoSlotsupplierkind = maybe (workerSlotsInfoSlotsupplierkind defaultWorkerSlotsInfo) id fld_workerSlotsInfoSlotsupplierkind
+      , workerSlotsInfoTotalprocessedtasks = maybe (workerSlotsInfoTotalprocessedtasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoTotalprocessedtasks
+      , workerSlotsInfoTotalfailedtasks = maybe (workerSlotsInfoTotalfailedtasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoTotalfailedtasks
+      , workerSlotsInfoLastintervalprocessedtasks = maybe (workerSlotsInfoLastintervalprocessedtasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoLastintervalprocessedtasks
+      , workerSlotsInfoLastintervalfailuretasks = maybe (workerSlotsInfoLastintervalfailuretasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoLastintervalfailuretasks
+      }
   protoFromJSON _ = Right defaultWorkerSlotsInfo
 
 data WorkerHostInfo = WorkerHostInfo
@@ -253,6 +281,19 @@ instance ProtoToJSON WorkerHostInfo where
       ]
 
 instance ProtoFromJSON WorkerHostInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerHostInfoHostname <- obj .:? "hostName"
+    fld_workerHostInfoWorkergroupingkey <- obj .:? "workerGroupingKey"
+    fld_workerHostInfoProcessid <- obj .:? "processId"
+    fld_workerHostInfoCurrenthostcpuusage <- obj .:? "currentHostCpuUsage"
+    fld_workerHostInfoCurrenthostmemusage <- obj .:? "currentHostMemUsage"
+    pure defaultWorkerHostInfo
+      { workerHostInfoHostname = maybe (workerHostInfoHostname defaultWorkerHostInfo) id fld_workerHostInfoHostname
+      , workerHostInfoWorkergroupingkey = maybe (workerHostInfoWorkergroupingkey defaultWorkerHostInfo) id fld_workerHostInfoWorkergroupingkey
+      , workerHostInfoProcessid = maybe (workerHostInfoProcessid defaultWorkerHostInfo) id fld_workerHostInfoProcessid
+      , workerHostInfoCurrenthostcpuusage = maybe (workerHostInfoCurrenthostcpuusage defaultWorkerHostInfo) id fld_workerHostInfoCurrenthostcpuusage
+      , workerHostInfoCurrenthostmemusage = maybe (workerHostInfoCurrenthostmemusage defaultWorkerHostInfo) id fld_workerHostInfoCurrenthostmemusage
+      }
   protoFromJSON _ = Right defaultWorkerHostInfo
 
 data WorkerHeartbeat = WorkerHeartbeat
@@ -469,6 +510,55 @@ instance ProtoToJSON WorkerHeartbeat where
       ]
 
 instance ProtoFromJSON WorkerHeartbeat where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerHeartbeatWorkerinstancekey <- obj .:? "workerInstanceKey"
+    fld_workerHeartbeatWorkeridentity <- obj .:? "workerIdentity"
+    fld_workerHeartbeatHostinfo <- obj .:? "hostInfo"
+    fld_workerHeartbeatTaskqueue <- obj .:? "taskQueue"
+    fld_workerHeartbeatDeploymentversion <- obj .:? "deploymentVersion"
+    fld_workerHeartbeatSdkname <- obj .:? "sdkName"
+    fld_workerHeartbeatSdkversion <- obj .:? "sdkVersion"
+    fld_workerHeartbeatStatus <- obj .:? "status"
+    fld_workerHeartbeatStarttime <- obj .:? "startTime"
+    fld_workerHeartbeatHeartbeattime <- obj .:? "heartbeatTime"
+    fld_workerHeartbeatElapsedsincelastheartbeat <- obj .:? "elapsedSinceLastHeartbeat"
+    fld_workerHeartbeatWorkflowtaskslotsinfo <- obj .:? "workflowTaskSlotsInfo"
+    fld_workerHeartbeatActivitytaskslotsinfo <- obj .:? "activityTaskSlotsInfo"
+    fld_workerHeartbeatNexustaskslotsinfo <- obj .:? "nexusTaskSlotsInfo"
+    fld_workerHeartbeatLocalactivityslotsinfo <- obj .:? "localActivitySlotsInfo"
+    fld_workerHeartbeatWorkflowpollerinfo <- obj .:? "workflowPollerInfo"
+    fld_workerHeartbeatWorkflowstickypollerinfo <- obj .:? "workflowStickyPollerInfo"
+    fld_workerHeartbeatActivitypollerinfo <- obj .:? "activityPollerInfo"
+    fld_workerHeartbeatNexuspollerinfo <- obj .:? "nexusPollerInfo"
+    fld_workerHeartbeatTotalstickycachehit <- obj .:? "totalStickyCacheHit"
+    fld_workerHeartbeatTotalstickycachemiss <- obj .:? "totalStickyCacheMiss"
+    fld_workerHeartbeatCurrentstickycachesize <- obj .:? "currentStickyCacheSize"
+    fld_workerHeartbeatPlugins <- obj .:? "plugins"
+    pure defaultWorkerHeartbeat
+      { workerHeartbeatWorkerinstancekey = maybe (workerHeartbeatWorkerinstancekey defaultWorkerHeartbeat) id fld_workerHeartbeatWorkerinstancekey
+      , workerHeartbeatWorkeridentity = maybe (workerHeartbeatWorkeridentity defaultWorkerHeartbeat) id fld_workerHeartbeatWorkeridentity
+      , workerHeartbeatHostinfo = maybe (workerHeartbeatHostinfo defaultWorkerHeartbeat) id fld_workerHeartbeatHostinfo
+      , workerHeartbeatTaskqueue = maybe (workerHeartbeatTaskqueue defaultWorkerHeartbeat) id fld_workerHeartbeatTaskqueue
+      , workerHeartbeatDeploymentversion = maybe (workerHeartbeatDeploymentversion defaultWorkerHeartbeat) id fld_workerHeartbeatDeploymentversion
+      , workerHeartbeatSdkname = maybe (workerHeartbeatSdkname defaultWorkerHeartbeat) id fld_workerHeartbeatSdkname
+      , workerHeartbeatSdkversion = maybe (workerHeartbeatSdkversion defaultWorkerHeartbeat) id fld_workerHeartbeatSdkversion
+      , workerHeartbeatStatus = maybe (workerHeartbeatStatus defaultWorkerHeartbeat) id fld_workerHeartbeatStatus
+      , workerHeartbeatStarttime = maybe (workerHeartbeatStarttime defaultWorkerHeartbeat) id fld_workerHeartbeatStarttime
+      , workerHeartbeatHeartbeattime = maybe (workerHeartbeatHeartbeattime defaultWorkerHeartbeat) id fld_workerHeartbeatHeartbeattime
+      , workerHeartbeatElapsedsincelastheartbeat = maybe (workerHeartbeatElapsedsincelastheartbeat defaultWorkerHeartbeat) id fld_workerHeartbeatElapsedsincelastheartbeat
+      , workerHeartbeatWorkflowtaskslotsinfo = maybe (workerHeartbeatWorkflowtaskslotsinfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowtaskslotsinfo
+      , workerHeartbeatActivitytaskslotsinfo = maybe (workerHeartbeatActivitytaskslotsinfo defaultWorkerHeartbeat) id fld_workerHeartbeatActivitytaskslotsinfo
+      , workerHeartbeatNexustaskslotsinfo = maybe (workerHeartbeatNexustaskslotsinfo defaultWorkerHeartbeat) id fld_workerHeartbeatNexustaskslotsinfo
+      , workerHeartbeatLocalactivityslotsinfo = maybe (workerHeartbeatLocalactivityslotsinfo defaultWorkerHeartbeat) id fld_workerHeartbeatLocalactivityslotsinfo
+      , workerHeartbeatWorkflowpollerinfo = maybe (workerHeartbeatWorkflowpollerinfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowpollerinfo
+      , workerHeartbeatWorkflowstickypollerinfo = maybe (workerHeartbeatWorkflowstickypollerinfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowstickypollerinfo
+      , workerHeartbeatActivitypollerinfo = maybe (workerHeartbeatActivitypollerinfo defaultWorkerHeartbeat) id fld_workerHeartbeatActivitypollerinfo
+      , workerHeartbeatNexuspollerinfo = maybe (workerHeartbeatNexuspollerinfo defaultWorkerHeartbeat) id fld_workerHeartbeatNexuspollerinfo
+      , workerHeartbeatTotalstickycachehit = maybe (workerHeartbeatTotalstickycachehit defaultWorkerHeartbeat) id fld_workerHeartbeatTotalstickycachehit
+      , workerHeartbeatTotalstickycachemiss = maybe (workerHeartbeatTotalstickycachemiss defaultWorkerHeartbeat) id fld_workerHeartbeatTotalstickycachemiss
+      , workerHeartbeatCurrentstickycachesize = maybe (workerHeartbeatCurrentstickycachesize defaultWorkerHeartbeat) id fld_workerHeartbeatCurrentstickycachesize
+      , workerHeartbeatPlugins = maybe (workerHeartbeatPlugins defaultWorkerHeartbeat) id fld_workerHeartbeatPlugins
+      }
   protoFromJSON _ = Right defaultWorkerHeartbeat
 
 data WorkerInfo = WorkerInfo
@@ -510,6 +600,11 @@ instance ProtoToJSON WorkerInfo where
       ]
 
 instance ProtoFromJSON WorkerInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerInfoWorkerheartbeat <- obj .:? "workerHeartbeat"
+    pure defaultWorkerInfo
+      { workerInfoWorkerheartbeat = maybe (workerInfoWorkerheartbeat defaultWorkerInfo) id fld_workerInfoWorkerheartbeat
+      }
   protoFromJSON _ = Right defaultWorkerInfo
 
 data PluginInfo = PluginInfo
@@ -558,4 +653,11 @@ instance ProtoToJSON PluginInfo where
       ]
 
 instance ProtoFromJSON PluginInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_pluginInfoName <- obj .:? "name"
+    fld_pluginInfoVersion <- obj .:? "version"
+    pure defaultPluginInfo
+      { pluginInfoName = maybe (pluginInfoName defaultPluginInfo) id fld_pluginInfoName
+      , pluginInfoVersion = maybe (pluginInfoVersion defaultPluginInfo) id fld_pluginInfoVersion
+      }
   protoFromJSON _ = Right defaultPluginInfo

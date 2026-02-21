@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Callback(..), Header(..), Link(..), Memo(..), MeteringMetadata(..), Payload(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..), WorkerVersionStamp(..), WorkflowExecution(..), WorkflowType(..))
@@ -383,6 +385,85 @@ instance ProtoToJSON WorkflowExecutionStartedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionStartedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionStartedEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_workflowExecutionStartedEventAttributesParentworkflownamespace <- obj .:? "parentWorkflowNamespace"
+    fld_workflowExecutionStartedEventAttributesParentworkflownamespaceid <- obj .:? "parentWorkflowNamespaceId"
+    fld_workflowExecutionStartedEventAttributesParentworkflowexecution <- obj .:? "parentWorkflowExecution"
+    fld_workflowExecutionStartedEventAttributesParentinitiatedeventid <- obj .:? "parentInitiatedEventId"
+    fld_workflowExecutionStartedEventAttributesTaskqueue <- obj .:? "taskQueue"
+    fld_workflowExecutionStartedEventAttributesInput <- obj .:? "input"
+    fld_workflowExecutionStartedEventAttributesWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
+    fld_workflowExecutionStartedEventAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_workflowExecutionStartedEventAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
+    fld_workflowExecutionStartedEventAttributesContinuedexecutionrunid <- obj .:? "continuedExecutionRunId"
+    fld_workflowExecutionStartedEventAttributesInitiator <- obj .:? "initiator"
+    fld_workflowExecutionStartedEventAttributesContinuedfailure <- obj .:? "continuedFailure"
+    fld_workflowExecutionStartedEventAttributesLastcompletionresult <- obj .:? "lastCompletionResult"
+    fld_workflowExecutionStartedEventAttributesOriginalexecutionrunid <- obj .:? "originalExecutionRunId"
+    fld_workflowExecutionStartedEventAttributesIdentity <- obj .:? "identity"
+    fld_workflowExecutionStartedEventAttributesFirstexecutionrunid <- obj .:? "firstExecutionRunId"
+    fld_workflowExecutionStartedEventAttributesRetrypolicy <- obj .:? "retryPolicy"
+    fld_workflowExecutionStartedEventAttributesAttempt <- obj .:? "attempt"
+    fld_workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime <- obj .:? "workflowExecutionExpirationTime"
+    fld_workflowExecutionStartedEventAttributesCronschedule <- obj .:? "cronSchedule"
+    fld_workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff <- obj .:? "firstWorkflowTaskBackoff"
+    fld_workflowExecutionStartedEventAttributesMemo <- obj .:? "memo"
+    fld_workflowExecutionStartedEventAttributesSearchattributes <- obj .:? "searchAttributes"
+    fld_workflowExecutionStartedEventAttributesPrevautoresetpoints <- obj .:? "prevAutoResetPoints"
+    fld_workflowExecutionStartedEventAttributesHeader <- obj .:? "header"
+    fld_workflowExecutionStartedEventAttributesParentinitiatedeventversion <- obj .:? "parentInitiatedEventVersion"
+    fld_workflowExecutionStartedEventAttributesWorkflowid <- obj .:? "workflowId"
+    fld_workflowExecutionStartedEventAttributesSourceversionstamp <- obj .:? "sourceVersionStamp"
+    fld_workflowExecutionStartedEventAttributesCompletioncallbacks <- obj .:? "completionCallbacks"
+    fld_workflowExecutionStartedEventAttributesRootworkflowexecution <- obj .:? "rootWorkflowExecution"
+    fld_workflowExecutionStartedEventAttributesInheritedbuildid <- obj .:? "inheritedBuildId"
+    fld_workflowExecutionStartedEventAttributesVersioningoverride <- obj .:? "versioningOverride"
+    fld_workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion <- obj .:? "parentPinnedWorkerDeploymentVersion"
+    fld_workflowExecutionStartedEventAttributesPriority <- obj .:? "priority"
+    fld_workflowExecutionStartedEventAttributesInheritedpinnedversion <- obj .:? "inheritedPinnedVersion"
+    fld_workflowExecutionStartedEventAttributesInheritedautoupgradeinfo <- obj .:? "inheritedAutoUpgradeInfo"
+    fld_workflowExecutionStartedEventAttributesEagerexecutionaccepted <- obj .:? "eagerExecutionAccepted"
+    pure defaultWorkflowExecutionStartedEventAttributes
+      { workflowExecutionStartedEventAttributesWorkflowtype = maybe (workflowExecutionStartedEventAttributesWorkflowtype defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesWorkflowtype
+      , workflowExecutionStartedEventAttributesParentworkflownamespace = maybe (workflowExecutionStartedEventAttributesParentworkflownamespace defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesParentworkflownamespace
+      , workflowExecutionStartedEventAttributesParentworkflownamespaceid = maybe (workflowExecutionStartedEventAttributesParentworkflownamespaceid defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesParentworkflownamespaceid
+      , workflowExecutionStartedEventAttributesParentworkflowexecution = maybe (workflowExecutionStartedEventAttributesParentworkflowexecution defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesParentworkflowexecution
+      , workflowExecutionStartedEventAttributesParentinitiatedeventid = maybe (workflowExecutionStartedEventAttributesParentinitiatedeventid defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesParentinitiatedeventid
+      , workflowExecutionStartedEventAttributesTaskqueue = maybe (workflowExecutionStartedEventAttributesTaskqueue defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesTaskqueue
+      , workflowExecutionStartedEventAttributesInput = maybe (workflowExecutionStartedEventAttributesInput defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesInput
+      , workflowExecutionStartedEventAttributesWorkflowexecutiontimeout = maybe (workflowExecutionStartedEventAttributesWorkflowexecutiontimeout defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesWorkflowexecutiontimeout
+      , workflowExecutionStartedEventAttributesWorkflowruntimeout = maybe (workflowExecutionStartedEventAttributesWorkflowruntimeout defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesWorkflowruntimeout
+      , workflowExecutionStartedEventAttributesWorkflowtasktimeout = maybe (workflowExecutionStartedEventAttributesWorkflowtasktimeout defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesWorkflowtasktimeout
+      , workflowExecutionStartedEventAttributesContinuedexecutionrunid = maybe (workflowExecutionStartedEventAttributesContinuedexecutionrunid defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesContinuedexecutionrunid
+      , workflowExecutionStartedEventAttributesInitiator = maybe (workflowExecutionStartedEventAttributesInitiator defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesInitiator
+      , workflowExecutionStartedEventAttributesContinuedfailure = maybe (workflowExecutionStartedEventAttributesContinuedfailure defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesContinuedfailure
+      , workflowExecutionStartedEventAttributesLastcompletionresult = maybe (workflowExecutionStartedEventAttributesLastcompletionresult defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesLastcompletionresult
+      , workflowExecutionStartedEventAttributesOriginalexecutionrunid = maybe (workflowExecutionStartedEventAttributesOriginalexecutionrunid defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesOriginalexecutionrunid
+      , workflowExecutionStartedEventAttributesIdentity = maybe (workflowExecutionStartedEventAttributesIdentity defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesIdentity
+      , workflowExecutionStartedEventAttributesFirstexecutionrunid = maybe (workflowExecutionStartedEventAttributesFirstexecutionrunid defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesFirstexecutionrunid
+      , workflowExecutionStartedEventAttributesRetrypolicy = maybe (workflowExecutionStartedEventAttributesRetrypolicy defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesRetrypolicy
+      , workflowExecutionStartedEventAttributesAttempt = maybe (workflowExecutionStartedEventAttributesAttempt defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesAttempt
+      , workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime = maybe (workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime
+      , workflowExecutionStartedEventAttributesCronschedule = maybe (workflowExecutionStartedEventAttributesCronschedule defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesCronschedule
+      , workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff = maybe (workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff
+      , workflowExecutionStartedEventAttributesMemo = maybe (workflowExecutionStartedEventAttributesMemo defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesMemo
+      , workflowExecutionStartedEventAttributesSearchattributes = maybe (workflowExecutionStartedEventAttributesSearchattributes defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesSearchattributes
+      , workflowExecutionStartedEventAttributesPrevautoresetpoints = maybe (workflowExecutionStartedEventAttributesPrevautoresetpoints defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesPrevautoresetpoints
+      , workflowExecutionStartedEventAttributesHeader = maybe (workflowExecutionStartedEventAttributesHeader defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesHeader
+      , workflowExecutionStartedEventAttributesParentinitiatedeventversion = maybe (workflowExecutionStartedEventAttributesParentinitiatedeventversion defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesParentinitiatedeventversion
+      , workflowExecutionStartedEventAttributesWorkflowid = maybe (workflowExecutionStartedEventAttributesWorkflowid defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesWorkflowid
+      , workflowExecutionStartedEventAttributesSourceversionstamp = maybe (workflowExecutionStartedEventAttributesSourceversionstamp defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesSourceversionstamp
+      , workflowExecutionStartedEventAttributesCompletioncallbacks = maybe (workflowExecutionStartedEventAttributesCompletioncallbacks defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesCompletioncallbacks
+      , workflowExecutionStartedEventAttributesRootworkflowexecution = maybe (workflowExecutionStartedEventAttributesRootworkflowexecution defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesRootworkflowexecution
+      , workflowExecutionStartedEventAttributesInheritedbuildid = maybe (workflowExecutionStartedEventAttributesInheritedbuildid defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesInheritedbuildid
+      , workflowExecutionStartedEventAttributesVersioningoverride = maybe (workflowExecutionStartedEventAttributesVersioningoverride defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesVersioningoverride
+      , workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion = maybe (workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion
+      , workflowExecutionStartedEventAttributesPriority = maybe (workflowExecutionStartedEventAttributesPriority defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesPriority
+      , workflowExecutionStartedEventAttributesInheritedpinnedversion = maybe (workflowExecutionStartedEventAttributesInheritedpinnedversion defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesInheritedpinnedversion
+      , workflowExecutionStartedEventAttributesInheritedautoupgradeinfo = maybe (workflowExecutionStartedEventAttributesInheritedautoupgradeinfo defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesInheritedautoupgradeinfo
+      , workflowExecutionStartedEventAttributesEagerexecutionaccepted = maybe (workflowExecutionStartedEventAttributesEagerexecutionaccepted defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesEagerexecutionaccepted
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionStartedEventAttributes
 
 data WorkflowExecutionCompletedEventAttributes = WorkflowExecutionCompletedEventAttributes
@@ -439,6 +520,15 @@ instance ProtoToJSON WorkflowExecutionCompletedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionCompletedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionCompletedEventAttributesResult <- obj .:? "result"
+    fld_workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_workflowExecutionCompletedEventAttributesNewexecutionrunid <- obj .:? "newExecutionRunId"
+    pure defaultWorkflowExecutionCompletedEventAttributes
+      { workflowExecutionCompletedEventAttributesResult = maybe (workflowExecutionCompletedEventAttributesResult defaultWorkflowExecutionCompletedEventAttributes) id fld_workflowExecutionCompletedEventAttributesResult
+      , workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid = maybe (workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid defaultWorkflowExecutionCompletedEventAttributes) id fld_workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid
+      , workflowExecutionCompletedEventAttributesNewexecutionrunid = maybe (workflowExecutionCompletedEventAttributesNewexecutionrunid defaultWorkflowExecutionCompletedEventAttributes) id fld_workflowExecutionCompletedEventAttributesNewexecutionrunid
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionCompletedEventAttributes
 
 data WorkflowExecutionFailedEventAttributes = WorkflowExecutionFailedEventAttributes
@@ -503,6 +593,17 @@ instance ProtoToJSON WorkflowExecutionFailedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionFailedEventAttributesFailure <- obj .:? "failure"
+    fld_workflowExecutionFailedEventAttributesRetrystate <- obj .:? "retryState"
+    fld_workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_workflowExecutionFailedEventAttributesNewexecutionrunid <- obj .:? "newExecutionRunId"
+    pure defaultWorkflowExecutionFailedEventAttributes
+      { workflowExecutionFailedEventAttributesFailure = maybe (workflowExecutionFailedEventAttributesFailure defaultWorkflowExecutionFailedEventAttributes) id fld_workflowExecutionFailedEventAttributesFailure
+      , workflowExecutionFailedEventAttributesRetrystate = maybe (workflowExecutionFailedEventAttributesRetrystate defaultWorkflowExecutionFailedEventAttributes) id fld_workflowExecutionFailedEventAttributesRetrystate
+      , workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid = maybe (workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid defaultWorkflowExecutionFailedEventAttributes) id fld_workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
+      , workflowExecutionFailedEventAttributesNewexecutionrunid = maybe (workflowExecutionFailedEventAttributesNewexecutionrunid defaultWorkflowExecutionFailedEventAttributes) id fld_workflowExecutionFailedEventAttributesNewexecutionrunid
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionFailedEventAttributes
 
 data WorkflowExecutionTimedOutEventAttributes = WorkflowExecutionTimedOutEventAttributes
@@ -551,6 +652,13 @@ instance ProtoToJSON WorkflowExecutionTimedOutEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionTimedOutEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionTimedOutEventAttributesRetrystate <- obj .:? "retryState"
+    fld_workflowExecutionTimedOutEventAttributesNewexecutionrunid <- obj .:? "newExecutionRunId"
+    pure defaultWorkflowExecutionTimedOutEventAttributes
+      { workflowExecutionTimedOutEventAttributesRetrystate = maybe (workflowExecutionTimedOutEventAttributesRetrystate defaultWorkflowExecutionTimedOutEventAttributes) id fld_workflowExecutionTimedOutEventAttributesRetrystate
+      , workflowExecutionTimedOutEventAttributesNewexecutionrunid = maybe (workflowExecutionTimedOutEventAttributesNewexecutionrunid defaultWorkflowExecutionTimedOutEventAttributes) id fld_workflowExecutionTimedOutEventAttributesNewexecutionrunid
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionTimedOutEventAttributes
 
 data WorkflowExecutionContinuedAsNewEventAttributes = WorkflowExecutionContinuedAsNewEventAttributes
@@ -711,6 +819,41 @@ instance ProtoToJSON WorkflowExecutionContinuedAsNewEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionContinuedAsNewEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid <- obj .:? "newExecutionRunId"
+    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_workflowExecutionContinuedAsNewEventAttributesTaskqueue <- obj .:? "taskQueue"
+    fld_workflowExecutionContinuedAsNewEventAttributesInput <- obj .:? "input"
+    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
+    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval <- obj .:? "backoffStartInterval"
+    fld_workflowExecutionContinuedAsNewEventAttributesInitiator <- obj .:? "initiator"
+    fld_workflowExecutionContinuedAsNewEventAttributesFailure <- obj .:? "failure"
+    fld_workflowExecutionContinuedAsNewEventAttributesLastcompletionresult <- obj .:? "lastCompletionResult"
+    fld_workflowExecutionContinuedAsNewEventAttributesHeader <- obj .:? "header"
+    fld_workflowExecutionContinuedAsNewEventAttributesMemo <- obj .:? "memo"
+    fld_workflowExecutionContinuedAsNewEventAttributesSearchattributes <- obj .:? "searchAttributes"
+    fld_workflowExecutionContinuedAsNewEventAttributesInheritbuildid <- obj .:? "inheritBuildId"
+    fld_workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior <- obj .:? "initialVersioningBehavior"
+    pure defaultWorkflowExecutionContinuedAsNewEventAttributes
+      { workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid = maybe (workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid
+      , workflowExecutionContinuedAsNewEventAttributesWorkflowtype = maybe (workflowExecutionContinuedAsNewEventAttributesWorkflowtype defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtype
+      , workflowExecutionContinuedAsNewEventAttributesTaskqueue = maybe (workflowExecutionContinuedAsNewEventAttributesTaskqueue defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesTaskqueue
+      , workflowExecutionContinuedAsNewEventAttributesInput = maybe (workflowExecutionContinuedAsNewEventAttributesInput defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesInput
+      , workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout = maybe (workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout
+      , workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout = maybe (workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout
+      , workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid = maybe (workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid
+      , workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval = maybe (workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval
+      , workflowExecutionContinuedAsNewEventAttributesInitiator = maybe (workflowExecutionContinuedAsNewEventAttributesInitiator defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesInitiator
+      , workflowExecutionContinuedAsNewEventAttributesFailure = maybe (workflowExecutionContinuedAsNewEventAttributesFailure defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesFailure
+      , workflowExecutionContinuedAsNewEventAttributesLastcompletionresult = maybe (workflowExecutionContinuedAsNewEventAttributesLastcompletionresult defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesLastcompletionresult
+      , workflowExecutionContinuedAsNewEventAttributesHeader = maybe (workflowExecutionContinuedAsNewEventAttributesHeader defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesHeader
+      , workflowExecutionContinuedAsNewEventAttributesMemo = maybe (workflowExecutionContinuedAsNewEventAttributesMemo defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesMemo
+      , workflowExecutionContinuedAsNewEventAttributesSearchattributes = maybe (workflowExecutionContinuedAsNewEventAttributesSearchattributes defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesSearchattributes
+      , workflowExecutionContinuedAsNewEventAttributesInheritbuildid = maybe (workflowExecutionContinuedAsNewEventAttributesInheritbuildid defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesInheritbuildid
+      , workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior = maybe (workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionContinuedAsNewEventAttributes
 
 data WorkflowTaskScheduledEventAttributes = WorkflowTaskScheduledEventAttributes
@@ -767,6 +910,15 @@ instance ProtoToJSON WorkflowTaskScheduledEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowTaskScheduledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowTaskScheduledEventAttributesTaskqueue <- obj .:? "taskQueue"
+    fld_workflowTaskScheduledEventAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    fld_workflowTaskScheduledEventAttributesAttempt <- obj .:? "attempt"
+    pure defaultWorkflowTaskScheduledEventAttributes
+      { workflowTaskScheduledEventAttributesTaskqueue = maybe (workflowTaskScheduledEventAttributesTaskqueue defaultWorkflowTaskScheduledEventAttributes) id fld_workflowTaskScheduledEventAttributesTaskqueue
+      , workflowTaskScheduledEventAttributesStarttoclosetimeout = maybe (workflowTaskScheduledEventAttributesStarttoclosetimeout defaultWorkflowTaskScheduledEventAttributes) id fld_workflowTaskScheduledEventAttributesStarttoclosetimeout
+      , workflowTaskScheduledEventAttributesAttempt = maybe (workflowTaskScheduledEventAttributesAttempt defaultWorkflowTaskScheduledEventAttributes) id fld_workflowTaskScheduledEventAttributesAttempt
+      }
   protoFromJSON _ = Right defaultWorkflowTaskScheduledEventAttributes
 
 data WorkflowTaskStartedEventAttributes = WorkflowTaskStartedEventAttributes
@@ -871,6 +1023,27 @@ instance ProtoToJSON WorkflowTaskStartedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowTaskStartedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowTaskStartedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_workflowTaskStartedEventAttributesIdentity <- obj .:? "identity"
+    fld_workflowTaskStartedEventAttributesRequestid <- obj .:? "requestId"
+    fld_workflowTaskStartedEventAttributesSuggestcontinueasnew <- obj .:? "suggestContinueAsNew"
+    fld_workflowTaskStartedEventAttributesSuggestcontinueasnewreasons <- obj .:? "suggestContinueAsNewReasons"
+    fld_workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged <- obj .:? "targetWorkerDeploymentVersionChanged"
+    fld_workflowTaskStartedEventAttributesHistorysizebytes <- obj .:? "historySizeBytes"
+    fld_workflowTaskStartedEventAttributesWorkerversion <- obj .:? "workerVersion"
+    fld_workflowTaskStartedEventAttributesBuildidredirectcounter <- obj .:? "buildIdRedirectCounter"
+    pure defaultWorkflowTaskStartedEventAttributes
+      { workflowTaskStartedEventAttributesScheduledeventid = maybe (workflowTaskStartedEventAttributesScheduledeventid defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesScheduledeventid
+      , workflowTaskStartedEventAttributesIdentity = maybe (workflowTaskStartedEventAttributesIdentity defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesIdentity
+      , workflowTaskStartedEventAttributesRequestid = maybe (workflowTaskStartedEventAttributesRequestid defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesRequestid
+      , workflowTaskStartedEventAttributesSuggestcontinueasnew = maybe (workflowTaskStartedEventAttributesSuggestcontinueasnew defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesSuggestcontinueasnew
+      , workflowTaskStartedEventAttributesSuggestcontinueasnewreasons = maybe (workflowTaskStartedEventAttributesSuggestcontinueasnewreasons defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesSuggestcontinueasnewreasons
+      , workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged = maybe (workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged
+      , workflowTaskStartedEventAttributesHistorysizebytes = maybe (workflowTaskStartedEventAttributesHistorysizebytes defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesHistorysizebytes
+      , workflowTaskStartedEventAttributesWorkerversion = maybe (workflowTaskStartedEventAttributesWorkerversion defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesWorkerversion
+      , workflowTaskStartedEventAttributesBuildidredirectcounter = maybe (workflowTaskStartedEventAttributesBuildidredirectcounter defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesBuildidredirectcounter
+      }
   protoFromJSON _ = Right defaultWorkflowTaskStartedEventAttributes
 
 data WorkflowTaskCompletedEventAttributes = WorkflowTaskCompletedEventAttributes
@@ -999,6 +1172,33 @@ instance ProtoToJSON WorkflowTaskCompletedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowTaskCompletedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowTaskCompletedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_workflowTaskCompletedEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_workflowTaskCompletedEventAttributesIdentity <- obj .:? "identity"
+    fld_workflowTaskCompletedEventAttributesBinarychecksum <- obj .:? "binaryChecksum"
+    fld_workflowTaskCompletedEventAttributesWorkerversion <- obj .:? "workerVersion"
+    fld_workflowTaskCompletedEventAttributesSdkmetadata <- obj .:? "sdkMetadata"
+    fld_workflowTaskCompletedEventAttributesMeteringmetadata <- obj .:? "meteringMetadata"
+    fld_workflowTaskCompletedEventAttributesDeployment <- obj .:? "deployment"
+    fld_workflowTaskCompletedEventAttributesVersioningbehavior <- obj .:? "versioningBehavior"
+    fld_workflowTaskCompletedEventAttributesWorkerdeploymentversion <- obj .:? "workerDeploymentVersion"
+    fld_workflowTaskCompletedEventAttributesWorkerdeploymentname <- obj .:? "workerDeploymentName"
+    fld_workflowTaskCompletedEventAttributesDeploymentversion <- obj .:? "deploymentVersion"
+    pure defaultWorkflowTaskCompletedEventAttributes
+      { workflowTaskCompletedEventAttributesScheduledeventid = maybe (workflowTaskCompletedEventAttributesScheduledeventid defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesScheduledeventid
+      , workflowTaskCompletedEventAttributesStartedeventid = maybe (workflowTaskCompletedEventAttributesStartedeventid defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesStartedeventid
+      , workflowTaskCompletedEventAttributesIdentity = maybe (workflowTaskCompletedEventAttributesIdentity defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesIdentity
+      , workflowTaskCompletedEventAttributesBinarychecksum = maybe (workflowTaskCompletedEventAttributesBinarychecksum defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesBinarychecksum
+      , workflowTaskCompletedEventAttributesWorkerversion = maybe (workflowTaskCompletedEventAttributesWorkerversion defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesWorkerversion
+      , workflowTaskCompletedEventAttributesSdkmetadata = maybe (workflowTaskCompletedEventAttributesSdkmetadata defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesSdkmetadata
+      , workflowTaskCompletedEventAttributesMeteringmetadata = maybe (workflowTaskCompletedEventAttributesMeteringmetadata defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesMeteringmetadata
+      , workflowTaskCompletedEventAttributesDeployment = maybe (workflowTaskCompletedEventAttributesDeployment defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesDeployment
+      , workflowTaskCompletedEventAttributesVersioningbehavior = maybe (workflowTaskCompletedEventAttributesVersioningbehavior defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesVersioningbehavior
+      , workflowTaskCompletedEventAttributesWorkerdeploymentversion = maybe (workflowTaskCompletedEventAttributesWorkerdeploymentversion defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesWorkerdeploymentversion
+      , workflowTaskCompletedEventAttributesWorkerdeploymentname = maybe (workflowTaskCompletedEventAttributesWorkerdeploymentname defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesWorkerdeploymentname
+      , workflowTaskCompletedEventAttributesDeploymentversion = maybe (workflowTaskCompletedEventAttributesDeploymentversion defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesDeploymentversion
+      }
   protoFromJSON _ = Right defaultWorkflowTaskCompletedEventAttributes
 
 data WorkflowTaskTimedOutEventAttributes = WorkflowTaskTimedOutEventAttributes
@@ -1055,6 +1255,15 @@ instance ProtoToJSON WorkflowTaskTimedOutEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowTaskTimedOutEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowTaskTimedOutEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_workflowTaskTimedOutEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_workflowTaskTimedOutEventAttributesTimeouttype <- obj .:? "timeoutType"
+    pure defaultWorkflowTaskTimedOutEventAttributes
+      { workflowTaskTimedOutEventAttributesScheduledeventid = maybe (workflowTaskTimedOutEventAttributesScheduledeventid defaultWorkflowTaskTimedOutEventAttributes) id fld_workflowTaskTimedOutEventAttributesScheduledeventid
+      , workflowTaskTimedOutEventAttributesStartedeventid = maybe (workflowTaskTimedOutEventAttributesStartedeventid defaultWorkflowTaskTimedOutEventAttributes) id fld_workflowTaskTimedOutEventAttributesStartedeventid
+      , workflowTaskTimedOutEventAttributesTimeouttype = maybe (workflowTaskTimedOutEventAttributesTimeouttype defaultWorkflowTaskTimedOutEventAttributes) id fld_workflowTaskTimedOutEventAttributesTimeouttype
+      }
   protoFromJSON _ = Right defaultWorkflowTaskTimedOutEventAttributes
 
 data WorkflowTaskFailedEventAttributes = WorkflowTaskFailedEventAttributes
@@ -1167,6 +1376,29 @@ instance ProtoToJSON WorkflowTaskFailedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowTaskFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowTaskFailedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_workflowTaskFailedEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_workflowTaskFailedEventAttributesCause <- obj .:? "cause"
+    fld_workflowTaskFailedEventAttributesFailure <- obj .:? "failure"
+    fld_workflowTaskFailedEventAttributesIdentity <- obj .:? "identity"
+    fld_workflowTaskFailedEventAttributesBaserunid <- obj .:? "baseRunId"
+    fld_workflowTaskFailedEventAttributesNewrunid <- obj .:? "newRunId"
+    fld_workflowTaskFailedEventAttributesForkeventversion <- obj .:? "forkEventVersion"
+    fld_workflowTaskFailedEventAttributesBinarychecksum <- obj .:? "binaryChecksum"
+    fld_workflowTaskFailedEventAttributesWorkerversion <- obj .:? "workerVersion"
+    pure defaultWorkflowTaskFailedEventAttributes
+      { workflowTaskFailedEventAttributesScheduledeventid = maybe (workflowTaskFailedEventAttributesScheduledeventid defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesScheduledeventid
+      , workflowTaskFailedEventAttributesStartedeventid = maybe (workflowTaskFailedEventAttributesStartedeventid defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesStartedeventid
+      , workflowTaskFailedEventAttributesCause = maybe (workflowTaskFailedEventAttributesCause defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesCause
+      , workflowTaskFailedEventAttributesFailure = maybe (workflowTaskFailedEventAttributesFailure defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesFailure
+      , workflowTaskFailedEventAttributesIdentity = maybe (workflowTaskFailedEventAttributesIdentity defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesIdentity
+      , workflowTaskFailedEventAttributesBaserunid = maybe (workflowTaskFailedEventAttributesBaserunid defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesBaserunid
+      , workflowTaskFailedEventAttributesNewrunid = maybe (workflowTaskFailedEventAttributesNewrunid defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesNewrunid
+      , workflowTaskFailedEventAttributesForkeventversion = maybe (workflowTaskFailedEventAttributesForkeventversion defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesForkeventversion
+      , workflowTaskFailedEventAttributesBinarychecksum = maybe (workflowTaskFailedEventAttributesBinarychecksum defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesBinarychecksum
+      , workflowTaskFailedEventAttributesWorkerversion = maybe (workflowTaskFailedEventAttributesWorkerversion defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesWorkerversion
+      }
   protoFromJSON _ = Right defaultWorkflowTaskFailedEventAttributes
 
 data ActivityTaskScheduledEventAttributes = ActivityTaskScheduledEventAttributes
@@ -1303,6 +1535,35 @@ instance ProtoToJSON ActivityTaskScheduledEventAttributes where
       ]
 
 instance ProtoFromJSON ActivityTaskScheduledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityTaskScheduledEventAttributesActivityid <- obj .:? "activityId"
+    fld_activityTaskScheduledEventAttributesActivitytype <- obj .:? "activityType"
+    fld_activityTaskScheduledEventAttributesTaskqueue <- obj .:? "taskQueue"
+    fld_activityTaskScheduledEventAttributesHeader <- obj .:? "header"
+    fld_activityTaskScheduledEventAttributesInput <- obj .:? "input"
+    fld_activityTaskScheduledEventAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_activityTaskScheduledEventAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    fld_activityTaskScheduledEventAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    fld_activityTaskScheduledEventAttributesHeartbeattimeout <- obj .:? "heartbeatTimeout"
+    fld_activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_activityTaskScheduledEventAttributesRetrypolicy <- obj .:? "retryPolicy"
+    fld_activityTaskScheduledEventAttributesUseworkflowbuildid <- obj .:? "useWorkflowBuildId"
+    fld_activityTaskScheduledEventAttributesPriority <- obj .:? "priority"
+    pure defaultActivityTaskScheduledEventAttributes
+      { activityTaskScheduledEventAttributesActivityid = maybe (activityTaskScheduledEventAttributesActivityid defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesActivityid
+      , activityTaskScheduledEventAttributesActivitytype = maybe (activityTaskScheduledEventAttributesActivitytype defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesActivitytype
+      , activityTaskScheduledEventAttributesTaskqueue = maybe (activityTaskScheduledEventAttributesTaskqueue defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesTaskqueue
+      , activityTaskScheduledEventAttributesHeader = maybe (activityTaskScheduledEventAttributesHeader defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesHeader
+      , activityTaskScheduledEventAttributesInput = maybe (activityTaskScheduledEventAttributesInput defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesInput
+      , activityTaskScheduledEventAttributesScheduletoclosetimeout = maybe (activityTaskScheduledEventAttributesScheduletoclosetimeout defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesScheduletoclosetimeout
+      , activityTaskScheduledEventAttributesScheduletostarttimeout = maybe (activityTaskScheduledEventAttributesScheduletostarttimeout defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesScheduletostarttimeout
+      , activityTaskScheduledEventAttributesStarttoclosetimeout = maybe (activityTaskScheduledEventAttributesStarttoclosetimeout defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesStarttoclosetimeout
+      , activityTaskScheduledEventAttributesHeartbeattimeout = maybe (activityTaskScheduledEventAttributesHeartbeattimeout defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesHeartbeattimeout
+      , activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid = maybe (activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid
+      , activityTaskScheduledEventAttributesRetrypolicy = maybe (activityTaskScheduledEventAttributesRetrypolicy defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesRetrypolicy
+      , activityTaskScheduledEventAttributesUseworkflowbuildid = maybe (activityTaskScheduledEventAttributesUseworkflowbuildid defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesUseworkflowbuildid
+      , activityTaskScheduledEventAttributesPriority = maybe (activityTaskScheduledEventAttributesPriority defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesPriority
+      }
   protoFromJSON _ = Right defaultActivityTaskScheduledEventAttributes
 
 data ActivityTaskStartedEventAttributes = ActivityTaskStartedEventAttributes
@@ -1391,6 +1652,23 @@ instance ProtoToJSON ActivityTaskStartedEventAttributes where
       ]
 
 instance ProtoFromJSON ActivityTaskStartedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityTaskStartedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_activityTaskStartedEventAttributesIdentity <- obj .:? "identity"
+    fld_activityTaskStartedEventAttributesRequestid <- obj .:? "requestId"
+    fld_activityTaskStartedEventAttributesAttempt <- obj .:? "attempt"
+    fld_activityTaskStartedEventAttributesLastfailure <- obj .:? "lastFailure"
+    fld_activityTaskStartedEventAttributesWorkerversion <- obj .:? "workerVersion"
+    fld_activityTaskStartedEventAttributesBuildidredirectcounter <- obj .:? "buildIdRedirectCounter"
+    pure defaultActivityTaskStartedEventAttributes
+      { activityTaskStartedEventAttributesScheduledeventid = maybe (activityTaskStartedEventAttributesScheduledeventid defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesScheduledeventid
+      , activityTaskStartedEventAttributesIdentity = maybe (activityTaskStartedEventAttributesIdentity defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesIdentity
+      , activityTaskStartedEventAttributesRequestid = maybe (activityTaskStartedEventAttributesRequestid defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesRequestid
+      , activityTaskStartedEventAttributesAttempt = maybe (activityTaskStartedEventAttributesAttempt defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesAttempt
+      , activityTaskStartedEventAttributesLastfailure = maybe (activityTaskStartedEventAttributesLastfailure defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesLastfailure
+      , activityTaskStartedEventAttributesWorkerversion = maybe (activityTaskStartedEventAttributesWorkerversion defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesWorkerversion
+      , activityTaskStartedEventAttributesBuildidredirectcounter = maybe (activityTaskStartedEventAttributesBuildidredirectcounter defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesBuildidredirectcounter
+      }
   protoFromJSON _ = Right defaultActivityTaskStartedEventAttributes
 
 data ActivityTaskCompletedEventAttributes = ActivityTaskCompletedEventAttributes
@@ -1463,6 +1741,19 @@ instance ProtoToJSON ActivityTaskCompletedEventAttributes where
       ]
 
 instance ProtoFromJSON ActivityTaskCompletedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityTaskCompletedEventAttributesResult <- obj .:? "result"
+    fld_activityTaskCompletedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_activityTaskCompletedEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_activityTaskCompletedEventAttributesIdentity <- obj .:? "identity"
+    fld_activityTaskCompletedEventAttributesWorkerversion <- obj .:? "workerVersion"
+    pure defaultActivityTaskCompletedEventAttributes
+      { activityTaskCompletedEventAttributesResult = maybe (activityTaskCompletedEventAttributesResult defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesResult
+      , activityTaskCompletedEventAttributesScheduledeventid = maybe (activityTaskCompletedEventAttributesScheduledeventid defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesScheduledeventid
+      , activityTaskCompletedEventAttributesStartedeventid = maybe (activityTaskCompletedEventAttributesStartedeventid defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesStartedeventid
+      , activityTaskCompletedEventAttributesIdentity = maybe (activityTaskCompletedEventAttributesIdentity defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesIdentity
+      , activityTaskCompletedEventAttributesWorkerversion = maybe (activityTaskCompletedEventAttributesWorkerversion defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesWorkerversion
+      }
   protoFromJSON _ = Right defaultActivityTaskCompletedEventAttributes
 
 data ActivityTaskFailedEventAttributes = ActivityTaskFailedEventAttributes
@@ -1543,6 +1834,21 @@ instance ProtoToJSON ActivityTaskFailedEventAttributes where
       ]
 
 instance ProtoFromJSON ActivityTaskFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityTaskFailedEventAttributesFailure <- obj .:? "failure"
+    fld_activityTaskFailedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_activityTaskFailedEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_activityTaskFailedEventAttributesIdentity <- obj .:? "identity"
+    fld_activityTaskFailedEventAttributesRetrystate <- obj .:? "retryState"
+    fld_activityTaskFailedEventAttributesWorkerversion <- obj .:? "workerVersion"
+    pure defaultActivityTaskFailedEventAttributes
+      { activityTaskFailedEventAttributesFailure = maybe (activityTaskFailedEventAttributesFailure defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesFailure
+      , activityTaskFailedEventAttributesScheduledeventid = maybe (activityTaskFailedEventAttributesScheduledeventid defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesScheduledeventid
+      , activityTaskFailedEventAttributesStartedeventid = maybe (activityTaskFailedEventAttributesStartedeventid defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesStartedeventid
+      , activityTaskFailedEventAttributesIdentity = maybe (activityTaskFailedEventAttributesIdentity defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesIdentity
+      , activityTaskFailedEventAttributesRetrystate = maybe (activityTaskFailedEventAttributesRetrystate defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesRetrystate
+      , activityTaskFailedEventAttributesWorkerversion = maybe (activityTaskFailedEventAttributesWorkerversion defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesWorkerversion
+      }
   protoFromJSON _ = Right defaultActivityTaskFailedEventAttributes
 
 data ActivityTaskTimedOutEventAttributes = ActivityTaskTimedOutEventAttributes
@@ -1607,6 +1913,17 @@ instance ProtoToJSON ActivityTaskTimedOutEventAttributes where
       ]
 
 instance ProtoFromJSON ActivityTaskTimedOutEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityTaskTimedOutEventAttributesFailure <- obj .:? "failure"
+    fld_activityTaskTimedOutEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_activityTaskTimedOutEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_activityTaskTimedOutEventAttributesRetrystate <- obj .:? "retryState"
+    pure defaultActivityTaskTimedOutEventAttributes
+      { activityTaskTimedOutEventAttributesFailure = maybe (activityTaskTimedOutEventAttributesFailure defaultActivityTaskTimedOutEventAttributes) id fld_activityTaskTimedOutEventAttributesFailure
+      , activityTaskTimedOutEventAttributesScheduledeventid = maybe (activityTaskTimedOutEventAttributesScheduledeventid defaultActivityTaskTimedOutEventAttributes) id fld_activityTaskTimedOutEventAttributesScheduledeventid
+      , activityTaskTimedOutEventAttributesStartedeventid = maybe (activityTaskTimedOutEventAttributesStartedeventid defaultActivityTaskTimedOutEventAttributes) id fld_activityTaskTimedOutEventAttributesStartedeventid
+      , activityTaskTimedOutEventAttributesRetrystate = maybe (activityTaskTimedOutEventAttributesRetrystate defaultActivityTaskTimedOutEventAttributes) id fld_activityTaskTimedOutEventAttributesRetrystate
+      }
   protoFromJSON _ = Right defaultActivityTaskTimedOutEventAttributes
 
 data ActivityTaskCancelRequestedEventAttributes = ActivityTaskCancelRequestedEventAttributes
@@ -1655,6 +1972,13 @@ instance ProtoToJSON ActivityTaskCancelRequestedEventAttributes where
       ]
 
 instance ProtoFromJSON ActivityTaskCancelRequestedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityTaskCancelRequestedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    pure defaultActivityTaskCancelRequestedEventAttributes
+      { activityTaskCancelRequestedEventAttributesScheduledeventid = maybe (activityTaskCancelRequestedEventAttributesScheduledeventid defaultActivityTaskCancelRequestedEventAttributes) id fld_activityTaskCancelRequestedEventAttributesScheduledeventid
+      , activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid = maybe (activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid defaultActivityTaskCancelRequestedEventAttributes) id fld_activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid
+      }
   protoFromJSON _ = Right defaultActivityTaskCancelRequestedEventAttributes
 
 data ActivityTaskCanceledEventAttributes = ActivityTaskCanceledEventAttributes
@@ -1735,6 +2059,21 @@ instance ProtoToJSON ActivityTaskCanceledEventAttributes where
       ]
 
 instance ProtoFromJSON ActivityTaskCanceledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityTaskCanceledEventAttributesDetails <- obj .:? "details"
+    fld_activityTaskCanceledEventAttributesLatestcancelrequestedeventid <- obj .:? "latestCancelRequestedEventId"
+    fld_activityTaskCanceledEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_activityTaskCanceledEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_activityTaskCanceledEventAttributesIdentity <- obj .:? "identity"
+    fld_activityTaskCanceledEventAttributesWorkerversion <- obj .:? "workerVersion"
+    pure defaultActivityTaskCanceledEventAttributes
+      { activityTaskCanceledEventAttributesDetails = maybe (activityTaskCanceledEventAttributesDetails defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesDetails
+      , activityTaskCanceledEventAttributesLatestcancelrequestedeventid = maybe (activityTaskCanceledEventAttributesLatestcancelrequestedeventid defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesLatestcancelrequestedeventid
+      , activityTaskCanceledEventAttributesScheduledeventid = maybe (activityTaskCanceledEventAttributesScheduledeventid defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesScheduledeventid
+      , activityTaskCanceledEventAttributesStartedeventid = maybe (activityTaskCanceledEventAttributesStartedeventid defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesStartedeventid
+      , activityTaskCanceledEventAttributesIdentity = maybe (activityTaskCanceledEventAttributesIdentity defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesIdentity
+      , activityTaskCanceledEventAttributesWorkerversion = maybe (activityTaskCanceledEventAttributesWorkerversion defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesWorkerversion
+      }
   protoFromJSON _ = Right defaultActivityTaskCanceledEventAttributes
 
 data TimerStartedEventAttributes = TimerStartedEventAttributes
@@ -1791,6 +2130,15 @@ instance ProtoToJSON TimerStartedEventAttributes where
       ]
 
 instance ProtoFromJSON TimerStartedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_timerStartedEventAttributesTimerid <- obj .:? "timerId"
+    fld_timerStartedEventAttributesStarttofiretimeout <- obj .:? "startToFireTimeout"
+    fld_timerStartedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    pure defaultTimerStartedEventAttributes
+      { timerStartedEventAttributesTimerid = maybe (timerStartedEventAttributesTimerid defaultTimerStartedEventAttributes) id fld_timerStartedEventAttributesTimerid
+      , timerStartedEventAttributesStarttofiretimeout = maybe (timerStartedEventAttributesStarttofiretimeout defaultTimerStartedEventAttributes) id fld_timerStartedEventAttributesStarttofiretimeout
+      , timerStartedEventAttributesWorkflowtaskcompletedeventid = maybe (timerStartedEventAttributesWorkflowtaskcompletedeventid defaultTimerStartedEventAttributes) id fld_timerStartedEventAttributesWorkflowtaskcompletedeventid
+      }
   protoFromJSON _ = Right defaultTimerStartedEventAttributes
 
 data TimerFiredEventAttributes = TimerFiredEventAttributes
@@ -1839,6 +2187,13 @@ instance ProtoToJSON TimerFiredEventAttributes where
       ]
 
 instance ProtoFromJSON TimerFiredEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_timerFiredEventAttributesTimerid <- obj .:? "timerId"
+    fld_timerFiredEventAttributesStartedeventid <- obj .:? "startedEventId"
+    pure defaultTimerFiredEventAttributes
+      { timerFiredEventAttributesTimerid = maybe (timerFiredEventAttributesTimerid defaultTimerFiredEventAttributes) id fld_timerFiredEventAttributesTimerid
+      , timerFiredEventAttributesStartedeventid = maybe (timerFiredEventAttributesStartedeventid defaultTimerFiredEventAttributes) id fld_timerFiredEventAttributesStartedeventid
+      }
   protoFromJSON _ = Right defaultTimerFiredEventAttributes
 
 data TimerCanceledEventAttributes = TimerCanceledEventAttributes
@@ -1903,6 +2258,17 @@ instance ProtoToJSON TimerCanceledEventAttributes where
       ]
 
 instance ProtoFromJSON TimerCanceledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_timerCanceledEventAttributesTimerid <- obj .:? "timerId"
+    fld_timerCanceledEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_timerCanceledEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_timerCanceledEventAttributesIdentity <- obj .:? "identity"
+    pure defaultTimerCanceledEventAttributes
+      { timerCanceledEventAttributesTimerid = maybe (timerCanceledEventAttributesTimerid defaultTimerCanceledEventAttributes) id fld_timerCanceledEventAttributesTimerid
+      , timerCanceledEventAttributesStartedeventid = maybe (timerCanceledEventAttributesStartedeventid defaultTimerCanceledEventAttributes) id fld_timerCanceledEventAttributesStartedeventid
+      , timerCanceledEventAttributesWorkflowtaskcompletedeventid = maybe (timerCanceledEventAttributesWorkflowtaskcompletedeventid defaultTimerCanceledEventAttributes) id fld_timerCanceledEventAttributesWorkflowtaskcompletedeventid
+      , timerCanceledEventAttributesIdentity = maybe (timerCanceledEventAttributesIdentity defaultTimerCanceledEventAttributes) id fld_timerCanceledEventAttributesIdentity
+      }
   protoFromJSON _ = Right defaultTimerCanceledEventAttributes
 
 data WorkflowExecutionCancelRequestedEventAttributes = WorkflowExecutionCancelRequestedEventAttributes
@@ -1967,6 +2333,17 @@ instance ProtoToJSON WorkflowExecutionCancelRequestedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionCancelRequestedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionCancelRequestedEventAttributesCause <- obj .:? "cause"
+    fld_workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid <- obj .:? "externalInitiatedEventId"
+    fld_workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution <- obj .:? "externalWorkflowExecution"
+    fld_workflowExecutionCancelRequestedEventAttributesIdentity <- obj .:? "identity"
+    pure defaultWorkflowExecutionCancelRequestedEventAttributes
+      { workflowExecutionCancelRequestedEventAttributesCause = maybe (workflowExecutionCancelRequestedEventAttributesCause defaultWorkflowExecutionCancelRequestedEventAttributes) id fld_workflowExecutionCancelRequestedEventAttributesCause
+      , workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid = maybe (workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid defaultWorkflowExecutionCancelRequestedEventAttributes) id fld_workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid
+      , workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution = maybe (workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution defaultWorkflowExecutionCancelRequestedEventAttributes) id fld_workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution
+      , workflowExecutionCancelRequestedEventAttributesIdentity = maybe (workflowExecutionCancelRequestedEventAttributesIdentity defaultWorkflowExecutionCancelRequestedEventAttributes) id fld_workflowExecutionCancelRequestedEventAttributesIdentity
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionCancelRequestedEventAttributes
 
 data WorkflowExecutionCanceledEventAttributes = WorkflowExecutionCanceledEventAttributes
@@ -2015,6 +2392,13 @@ instance ProtoToJSON WorkflowExecutionCanceledEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionCanceledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_workflowExecutionCanceledEventAttributesDetails <- obj .:? "details"
+    pure defaultWorkflowExecutionCanceledEventAttributes
+      { workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid = maybe (workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid defaultWorkflowExecutionCanceledEventAttributes) id fld_workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid
+      , workflowExecutionCanceledEventAttributesDetails = maybe (workflowExecutionCanceledEventAttributesDetails defaultWorkflowExecutionCanceledEventAttributes) id fld_workflowExecutionCanceledEventAttributesDetails
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionCanceledEventAttributes
 
 data MarkerRecordedEventAttributes = MarkerRecordedEventAttributes
@@ -2047,7 +2431,7 @@ instance MessageEncode MarkerRecordedEventAttributes where
 instance MessageSize MarkerRecordedEventAttributes where
   messageSize msg =
     (if msg.markerRecordedEventAttributesMarkername == T.empty then 0 else fieldTextSize 1 msg.markerRecordedEventAttributesMarkername)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 2 + 20) 0 msg.markerRecordedEventAttributesDetails)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.markerRecordedEventAttributesDetails)
     + (if msg.markerRecordedEventAttributesWorkflowtaskcompletedeventid == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.markerRecordedEventAttributesWorkflowtaskcompletedeventid))
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.markerRecordedEventAttributesHeader)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.markerRecordedEventAttributesFailure)
@@ -2090,6 +2474,19 @@ instance ProtoToJSON MarkerRecordedEventAttributes where
       ]
 
 instance ProtoFromJSON MarkerRecordedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_markerRecordedEventAttributesMarkername <- obj .:? "markerName"
+    fld_markerRecordedEventAttributesDetails <- obj .:? "details"
+    fld_markerRecordedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_markerRecordedEventAttributesHeader <- obj .:? "header"
+    fld_markerRecordedEventAttributesFailure <- obj .:? "failure"
+    pure defaultMarkerRecordedEventAttributes
+      { markerRecordedEventAttributesMarkername = maybe (markerRecordedEventAttributesMarkername defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesMarkername
+      , markerRecordedEventAttributesDetails = maybe (markerRecordedEventAttributesDetails defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesDetails
+      , markerRecordedEventAttributesWorkflowtaskcompletedeventid = maybe (markerRecordedEventAttributesWorkflowtaskcompletedeventid defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesWorkflowtaskcompletedeventid
+      , markerRecordedEventAttributesHeader = maybe (markerRecordedEventAttributesHeader defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesHeader
+      , markerRecordedEventAttributesFailure = maybe (markerRecordedEventAttributesFailure defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesFailure
+      }
   protoFromJSON _ = Right defaultMarkerRecordedEventAttributes
 
 data WorkflowExecutionSignaledEventAttributes = WorkflowExecutionSignaledEventAttributes
@@ -2170,6 +2567,21 @@ instance ProtoToJSON WorkflowExecutionSignaledEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionSignaledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionSignaledEventAttributesSignalname <- obj .:? "signalName"
+    fld_workflowExecutionSignaledEventAttributesInput <- obj .:? "input"
+    fld_workflowExecutionSignaledEventAttributesIdentity <- obj .:? "identity"
+    fld_workflowExecutionSignaledEventAttributesHeader <- obj .:? "header"
+    fld_workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask <- obj .:? "skipGenerateWorkflowTask"
+    fld_workflowExecutionSignaledEventAttributesExternalworkflowexecution <- obj .:? "externalWorkflowExecution"
+    pure defaultWorkflowExecutionSignaledEventAttributes
+      { workflowExecutionSignaledEventAttributesSignalname = maybe (workflowExecutionSignaledEventAttributesSignalname defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesSignalname
+      , workflowExecutionSignaledEventAttributesInput = maybe (workflowExecutionSignaledEventAttributesInput defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesInput
+      , workflowExecutionSignaledEventAttributesIdentity = maybe (workflowExecutionSignaledEventAttributesIdentity defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesIdentity
+      , workflowExecutionSignaledEventAttributesHeader = maybe (workflowExecutionSignaledEventAttributesHeader defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesHeader
+      , workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask = maybe (workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask
+      , workflowExecutionSignaledEventAttributesExternalworkflowexecution = maybe (workflowExecutionSignaledEventAttributesExternalworkflowexecution defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesExternalworkflowexecution
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionSignaledEventAttributes
 
 data WorkflowExecutionTerminatedEventAttributes = WorkflowExecutionTerminatedEventAttributes
@@ -2226,6 +2638,15 @@ instance ProtoToJSON WorkflowExecutionTerminatedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionTerminatedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionTerminatedEventAttributesReason <- obj .:? "reason"
+    fld_workflowExecutionTerminatedEventAttributesDetails <- obj .:? "details"
+    fld_workflowExecutionTerminatedEventAttributesIdentity <- obj .:? "identity"
+    pure defaultWorkflowExecutionTerminatedEventAttributes
+      { workflowExecutionTerminatedEventAttributesReason = maybe (workflowExecutionTerminatedEventAttributesReason defaultWorkflowExecutionTerminatedEventAttributes) id fld_workflowExecutionTerminatedEventAttributesReason
+      , workflowExecutionTerminatedEventAttributesDetails = maybe (workflowExecutionTerminatedEventAttributesDetails defaultWorkflowExecutionTerminatedEventAttributes) id fld_workflowExecutionTerminatedEventAttributesDetails
+      , workflowExecutionTerminatedEventAttributesIdentity = maybe (workflowExecutionTerminatedEventAttributesIdentity defaultWorkflowExecutionTerminatedEventAttributes) id fld_workflowExecutionTerminatedEventAttributesIdentity
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionTerminatedEventAttributes
 
 data RequestCancelExternalWorkflowExecutionInitiatedEventAttributes = RequestCancelExternalWorkflowExecutionInitiatedEventAttributes
@@ -2314,6 +2735,23 @@ instance ProtoToJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttribu
       ]
 
 instance ProtoFromJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace <- obj .:? "namespace"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl <- obj .:? "control"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason <- obj .:? "reason"
+    pure defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes
+      { requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
+      , requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace
+      , requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid
+      , requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution
+      , requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl
+      , requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly
+      , requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason
+      }
   protoFromJSON _ = Right defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes
 
 data RequestCancelExternalWorkflowExecutionFailedEventAttributes = RequestCancelExternalWorkflowExecutionFailedEventAttributes
@@ -2402,6 +2840,23 @@ instance ProtoToJSON RequestCancelExternalWorkflowExecutionFailedEventAttributes
       ]
 
 instance ProtoFromJSON RequestCancelExternalWorkflowExecutionFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesCause <- obj .:? "cause"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace <- obj .:? "namespace"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesControl <- obj .:? "control"
+    pure defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes
+      { requestCancelExternalWorkflowExecutionFailedEventAttributesCause = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesCause defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesCause
+      , requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
+      , requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace
+      , requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid
+      , requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution
+      , requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid
+      , requestCancelExternalWorkflowExecutionFailedEventAttributesControl = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesControl defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesControl
+      }
   protoFromJSON _ = Right defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes
 
 data ExternalWorkflowExecutionCancelRequestedEventAttributes = ExternalWorkflowExecutionCancelRequestedEventAttributes
@@ -2466,6 +2921,17 @@ instance ProtoToJSON ExternalWorkflowExecutionCancelRequestedEventAttributes whe
       ]
 
 instance ProtoFromJSON ExternalWorkflowExecutionCancelRequestedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespace <- obj .:? "namespace"
+    fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    pure defaultExternalWorkflowExecutionCancelRequestedEventAttributes
+      { externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid = maybe (externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid defaultExternalWorkflowExecutionCancelRequestedEventAttributes) id fld_externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid
+      , externalWorkflowExecutionCancelRequestedEventAttributesNamespace = maybe (externalWorkflowExecutionCancelRequestedEventAttributesNamespace defaultExternalWorkflowExecutionCancelRequestedEventAttributes) id fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespace
+      , externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid = maybe (externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid defaultExternalWorkflowExecutionCancelRequestedEventAttributes) id fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid
+      , externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution = maybe (externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution defaultExternalWorkflowExecutionCancelRequestedEventAttributes) id fld_externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution
+      }
   protoFromJSON _ = Right defaultExternalWorkflowExecutionCancelRequestedEventAttributes
 
 data SignalExternalWorkflowExecutionInitiatedEventAttributes = SignalExternalWorkflowExecutionInitiatedEventAttributes
@@ -2570,6 +3036,27 @@ instance ProtoToJSON SignalExternalWorkflowExecutionInitiatedEventAttributes whe
       ]
 
 instance ProtoFromJSON SignalExternalWorkflowExecutionInitiatedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespace <- obj .:? "namespace"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesSignalname <- obj .:? "signalName"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesInput <- obj .:? "input"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesControl <- obj .:? "control"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesHeader <- obj .:? "header"
+    pure defaultSignalExternalWorkflowExecutionInitiatedEventAttributes
+      { signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
+      , signalExternalWorkflowExecutionInitiatedEventAttributesNamespace = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesNamespace defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespace
+      , signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid
+      , signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution
+      , signalExternalWorkflowExecutionInitiatedEventAttributesSignalname = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesSignalname defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesSignalname
+      , signalExternalWorkflowExecutionInitiatedEventAttributesInput = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesInput defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesInput
+      , signalExternalWorkflowExecutionInitiatedEventAttributesControl = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesControl defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesControl
+      , signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly
+      , signalExternalWorkflowExecutionInitiatedEventAttributesHeader = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesHeader defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesHeader
+      }
   protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionInitiatedEventAttributes
 
 data SignalExternalWorkflowExecutionFailedEventAttributes = SignalExternalWorkflowExecutionFailedEventAttributes
@@ -2658,6 +3145,23 @@ instance ProtoToJSON SignalExternalWorkflowExecutionFailedEventAttributes where
       ]
 
 instance ProtoFromJSON SignalExternalWorkflowExecutionFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_signalExternalWorkflowExecutionFailedEventAttributesCause <- obj .:? "cause"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesNamespace <- obj .:? "namespace"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesControl <- obj .:? "control"
+    pure defaultSignalExternalWorkflowExecutionFailedEventAttributes
+      { signalExternalWorkflowExecutionFailedEventAttributesCause = maybe (signalExternalWorkflowExecutionFailedEventAttributesCause defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesCause
+      , signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid = maybe (signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
+      , signalExternalWorkflowExecutionFailedEventAttributesNamespace = maybe (signalExternalWorkflowExecutionFailedEventAttributesNamespace defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesNamespace
+      , signalExternalWorkflowExecutionFailedEventAttributesNamespaceid = maybe (signalExternalWorkflowExecutionFailedEventAttributesNamespaceid defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesNamespaceid
+      , signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution = maybe (signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution
+      , signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid = maybe (signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid
+      , signalExternalWorkflowExecutionFailedEventAttributesControl = maybe (signalExternalWorkflowExecutionFailedEventAttributesControl defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesControl
+      }
   protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionFailedEventAttributes
 
 data ExternalWorkflowExecutionSignaledEventAttributes = ExternalWorkflowExecutionSignaledEventAttributes
@@ -2730,6 +3234,19 @@ instance ProtoToJSON ExternalWorkflowExecutionSignaledEventAttributes where
       ]
 
 instance ProtoFromJSON ExternalWorkflowExecutionSignaledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_externalWorkflowExecutionSignaledEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_externalWorkflowExecutionSignaledEventAttributesNamespace <- obj .:? "namespace"
+    fld_externalWorkflowExecutionSignaledEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_externalWorkflowExecutionSignaledEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_externalWorkflowExecutionSignaledEventAttributesControl <- obj .:? "control"
+    pure defaultExternalWorkflowExecutionSignaledEventAttributes
+      { externalWorkflowExecutionSignaledEventAttributesInitiatedeventid = maybe (externalWorkflowExecutionSignaledEventAttributesInitiatedeventid defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesInitiatedeventid
+      , externalWorkflowExecutionSignaledEventAttributesNamespace = maybe (externalWorkflowExecutionSignaledEventAttributesNamespace defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesNamespace
+      , externalWorkflowExecutionSignaledEventAttributesNamespaceid = maybe (externalWorkflowExecutionSignaledEventAttributesNamespaceid defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesNamespaceid
+      , externalWorkflowExecutionSignaledEventAttributesWorkflowexecution = maybe (externalWorkflowExecutionSignaledEventAttributesWorkflowexecution defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesWorkflowexecution
+      , externalWorkflowExecutionSignaledEventAttributesControl = maybe (externalWorkflowExecutionSignaledEventAttributesControl defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesControl
+      }
   protoFromJSON _ = Right defaultExternalWorkflowExecutionSignaledEventAttributes
 
 data UpsertWorkflowSearchAttributesEventAttributes = UpsertWorkflowSearchAttributesEventAttributes
@@ -2778,6 +3295,13 @@ instance ProtoToJSON UpsertWorkflowSearchAttributesEventAttributes where
       ]
 
 instance ProtoFromJSON UpsertWorkflowSearchAttributesEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_upsertWorkflowSearchAttributesEventAttributesSearchattributes <- obj .:? "searchAttributes"
+    pure defaultUpsertWorkflowSearchAttributesEventAttributes
+      { upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid = maybe (upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid defaultUpsertWorkflowSearchAttributesEventAttributes) id fld_upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid
+      , upsertWorkflowSearchAttributesEventAttributesSearchattributes = maybe (upsertWorkflowSearchAttributesEventAttributesSearchattributes defaultUpsertWorkflowSearchAttributesEventAttributes) id fld_upsertWorkflowSearchAttributesEventAttributesSearchattributes
+      }
   protoFromJSON _ = Right defaultUpsertWorkflowSearchAttributesEventAttributes
 
 data WorkflowPropertiesModifiedEventAttributes = WorkflowPropertiesModifiedEventAttributes
@@ -2826,6 +3350,13 @@ instance ProtoToJSON WorkflowPropertiesModifiedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowPropertiesModifiedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_workflowPropertiesModifiedEventAttributesUpsertedmemo <- obj .:? "upsertedMemo"
+    pure defaultWorkflowPropertiesModifiedEventAttributes
+      { workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid = maybe (workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid defaultWorkflowPropertiesModifiedEventAttributes) id fld_workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid
+      , workflowPropertiesModifiedEventAttributesUpsertedmemo = maybe (workflowPropertiesModifiedEventAttributesUpsertedmemo defaultWorkflowPropertiesModifiedEventAttributes) id fld_workflowPropertiesModifiedEventAttributesUpsertedmemo
+      }
   protoFromJSON _ = Right defaultWorkflowPropertiesModifiedEventAttributes
 
 data StartChildWorkflowExecutionInitiatedEventAttributes = StartChildWorkflowExecutionInitiatedEventAttributes
@@ -3018,6 +3549,49 @@ instance ProtoToJSON StartChildWorkflowExecutionInitiatedEventAttributes where
       ]
 
 instance ProtoFromJSON StartChildWorkflowExecutionInitiatedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_startChildWorkflowExecutionInitiatedEventAttributesNamespace <- obj .:? "namespace"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowid <- obj .:? "workflowId"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesTaskqueue <- obj .:? "taskQueue"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesInput <- obj .:? "input"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy <- obj .:? "parentClosePolicy"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesControl <- obj .:? "control"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy <- obj .:? "retryPolicy"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesCronschedule <- obj .:? "cronSchedule"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesHeader <- obj .:? "header"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesMemo <- obj .:? "memo"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesSearchattributes <- obj .:? "searchAttributes"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid <- obj .:? "inheritBuildId"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesPriority <- obj .:? "priority"
+    pure defaultStartChildWorkflowExecutionInitiatedEventAttributes
+      { startChildWorkflowExecutionInitiatedEventAttributesNamespace = maybe (startChildWorkflowExecutionInitiatedEventAttributesNamespace defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesNamespace
+      , startChildWorkflowExecutionInitiatedEventAttributesNamespaceid = maybe (startChildWorkflowExecutionInitiatedEventAttributesNamespaceid defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesNamespaceid
+      , startChildWorkflowExecutionInitiatedEventAttributesWorkflowid = maybe (startChildWorkflowExecutionInitiatedEventAttributesWorkflowid defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowid
+      , startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype = maybe (startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype
+      , startChildWorkflowExecutionInitiatedEventAttributesTaskqueue = maybe (startChildWorkflowExecutionInitiatedEventAttributesTaskqueue defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesTaskqueue
+      , startChildWorkflowExecutionInitiatedEventAttributesInput = maybe (startChildWorkflowExecutionInitiatedEventAttributesInput defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesInput
+      , startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout = maybe (startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout
+      , startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout = maybe (startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout
+      , startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout = maybe (startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout
+      , startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy = maybe (startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy
+      , startChildWorkflowExecutionInitiatedEventAttributesControl = maybe (startChildWorkflowExecutionInitiatedEventAttributesControl defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesControl
+      , startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid = maybe (startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
+      , startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy = maybe (startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy
+      , startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy = maybe (startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy
+      , startChildWorkflowExecutionInitiatedEventAttributesCronschedule = maybe (startChildWorkflowExecutionInitiatedEventAttributesCronschedule defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesCronschedule
+      , startChildWorkflowExecutionInitiatedEventAttributesHeader = maybe (startChildWorkflowExecutionInitiatedEventAttributesHeader defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesHeader
+      , startChildWorkflowExecutionInitiatedEventAttributesMemo = maybe (startChildWorkflowExecutionInitiatedEventAttributesMemo defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesMemo
+      , startChildWorkflowExecutionInitiatedEventAttributesSearchattributes = maybe (startChildWorkflowExecutionInitiatedEventAttributesSearchattributes defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesSearchattributes
+      , startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid = maybe (startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid
+      , startChildWorkflowExecutionInitiatedEventAttributesPriority = maybe (startChildWorkflowExecutionInitiatedEventAttributesPriority defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesPriority
+      }
   protoFromJSON _ = Right defaultStartChildWorkflowExecutionInitiatedEventAttributes
 
 data StartChildWorkflowExecutionFailedEventAttributes = StartChildWorkflowExecutionFailedEventAttributes
@@ -3114,6 +3688,25 @@ instance ProtoToJSON StartChildWorkflowExecutionFailedEventAttributes where
       ]
 
 instance ProtoFromJSON StartChildWorkflowExecutionFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_startChildWorkflowExecutionFailedEventAttributesNamespace <- obj .:? "namespace"
+    fld_startChildWorkflowExecutionFailedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowid <- obj .:? "workflowId"
+    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_startChildWorkflowExecutionFailedEventAttributesCause <- obj .:? "cause"
+    fld_startChildWorkflowExecutionFailedEventAttributesControl <- obj .:? "control"
+    fld_startChildWorkflowExecutionFailedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    pure defaultStartChildWorkflowExecutionFailedEventAttributes
+      { startChildWorkflowExecutionFailedEventAttributesNamespace = maybe (startChildWorkflowExecutionFailedEventAttributesNamespace defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesNamespace
+      , startChildWorkflowExecutionFailedEventAttributesNamespaceid = maybe (startChildWorkflowExecutionFailedEventAttributesNamespaceid defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesNamespaceid
+      , startChildWorkflowExecutionFailedEventAttributesWorkflowid = maybe (startChildWorkflowExecutionFailedEventAttributesWorkflowid defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesWorkflowid
+      , startChildWorkflowExecutionFailedEventAttributesWorkflowtype = maybe (startChildWorkflowExecutionFailedEventAttributesWorkflowtype defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtype
+      , startChildWorkflowExecutionFailedEventAttributesCause = maybe (startChildWorkflowExecutionFailedEventAttributesCause defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesCause
+      , startChildWorkflowExecutionFailedEventAttributesControl = maybe (startChildWorkflowExecutionFailedEventAttributesControl defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesControl
+      , startChildWorkflowExecutionFailedEventAttributesInitiatedeventid = maybe (startChildWorkflowExecutionFailedEventAttributesInitiatedeventid defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesInitiatedeventid
+      , startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid = maybe (startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
+      }
   protoFromJSON _ = Right defaultStartChildWorkflowExecutionFailedEventAttributes
 
 data ChildWorkflowExecutionStartedEventAttributes = ChildWorkflowExecutionStartedEventAttributes
@@ -3194,6 +3787,21 @@ instance ProtoToJSON ChildWorkflowExecutionStartedEventAttributes where
       ]
 
 instance ProtoFromJSON ChildWorkflowExecutionStartedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_childWorkflowExecutionStartedEventAttributesNamespace <- obj .:? "namespace"
+    fld_childWorkflowExecutionStartedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_childWorkflowExecutionStartedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_childWorkflowExecutionStartedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_childWorkflowExecutionStartedEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_childWorkflowExecutionStartedEventAttributesHeader <- obj .:? "header"
+    pure defaultChildWorkflowExecutionStartedEventAttributes
+      { childWorkflowExecutionStartedEventAttributesNamespace = maybe (childWorkflowExecutionStartedEventAttributesNamespace defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesNamespace
+      , childWorkflowExecutionStartedEventAttributesNamespaceid = maybe (childWorkflowExecutionStartedEventAttributesNamespaceid defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesNamespaceid
+      , childWorkflowExecutionStartedEventAttributesInitiatedeventid = maybe (childWorkflowExecutionStartedEventAttributesInitiatedeventid defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesInitiatedeventid
+      , childWorkflowExecutionStartedEventAttributesWorkflowexecution = maybe (childWorkflowExecutionStartedEventAttributesWorkflowexecution defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesWorkflowexecution
+      , childWorkflowExecutionStartedEventAttributesWorkflowtype = maybe (childWorkflowExecutionStartedEventAttributesWorkflowtype defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesWorkflowtype
+      , childWorkflowExecutionStartedEventAttributesHeader = maybe (childWorkflowExecutionStartedEventAttributesHeader defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesHeader
+      }
   protoFromJSON _ = Right defaultChildWorkflowExecutionStartedEventAttributes
 
 data ChildWorkflowExecutionCompletedEventAttributes = ChildWorkflowExecutionCompletedEventAttributes
@@ -3282,6 +3890,23 @@ instance ProtoToJSON ChildWorkflowExecutionCompletedEventAttributes where
       ]
 
 instance ProtoFromJSON ChildWorkflowExecutionCompletedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_childWorkflowExecutionCompletedEventAttributesResult <- obj .:? "result"
+    fld_childWorkflowExecutionCompletedEventAttributesNamespace <- obj .:? "namespace"
+    fld_childWorkflowExecutionCompletedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_childWorkflowExecutionCompletedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_childWorkflowExecutionCompletedEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_childWorkflowExecutionCompletedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_childWorkflowExecutionCompletedEventAttributesStartedeventid <- obj .:? "startedEventId"
+    pure defaultChildWorkflowExecutionCompletedEventAttributes
+      { childWorkflowExecutionCompletedEventAttributesResult = maybe (childWorkflowExecutionCompletedEventAttributesResult defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesResult
+      , childWorkflowExecutionCompletedEventAttributesNamespace = maybe (childWorkflowExecutionCompletedEventAttributesNamespace defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesNamespace
+      , childWorkflowExecutionCompletedEventAttributesNamespaceid = maybe (childWorkflowExecutionCompletedEventAttributesNamespaceid defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesNamespaceid
+      , childWorkflowExecutionCompletedEventAttributesWorkflowexecution = maybe (childWorkflowExecutionCompletedEventAttributesWorkflowexecution defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesWorkflowexecution
+      , childWorkflowExecutionCompletedEventAttributesWorkflowtype = maybe (childWorkflowExecutionCompletedEventAttributesWorkflowtype defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesWorkflowtype
+      , childWorkflowExecutionCompletedEventAttributesInitiatedeventid = maybe (childWorkflowExecutionCompletedEventAttributesInitiatedeventid defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesInitiatedeventid
+      , childWorkflowExecutionCompletedEventAttributesStartedeventid = maybe (childWorkflowExecutionCompletedEventAttributesStartedeventid defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesStartedeventid
+      }
   protoFromJSON _ = Right defaultChildWorkflowExecutionCompletedEventAttributes
 
 data ChildWorkflowExecutionFailedEventAttributes = ChildWorkflowExecutionFailedEventAttributes
@@ -3378,6 +4003,25 @@ instance ProtoToJSON ChildWorkflowExecutionFailedEventAttributes where
       ]
 
 instance ProtoFromJSON ChildWorkflowExecutionFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_childWorkflowExecutionFailedEventAttributesFailure <- obj .:? "failure"
+    fld_childWorkflowExecutionFailedEventAttributesNamespace <- obj .:? "namespace"
+    fld_childWorkflowExecutionFailedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_childWorkflowExecutionFailedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_childWorkflowExecutionFailedEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_childWorkflowExecutionFailedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_childWorkflowExecutionFailedEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_childWorkflowExecutionFailedEventAttributesRetrystate <- obj .:? "retryState"
+    pure defaultChildWorkflowExecutionFailedEventAttributes
+      { childWorkflowExecutionFailedEventAttributesFailure = maybe (childWorkflowExecutionFailedEventAttributesFailure defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesFailure
+      , childWorkflowExecutionFailedEventAttributesNamespace = maybe (childWorkflowExecutionFailedEventAttributesNamespace defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesNamespace
+      , childWorkflowExecutionFailedEventAttributesNamespaceid = maybe (childWorkflowExecutionFailedEventAttributesNamespaceid defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesNamespaceid
+      , childWorkflowExecutionFailedEventAttributesWorkflowexecution = maybe (childWorkflowExecutionFailedEventAttributesWorkflowexecution defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesWorkflowexecution
+      , childWorkflowExecutionFailedEventAttributesWorkflowtype = maybe (childWorkflowExecutionFailedEventAttributesWorkflowtype defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesWorkflowtype
+      , childWorkflowExecutionFailedEventAttributesInitiatedeventid = maybe (childWorkflowExecutionFailedEventAttributesInitiatedeventid defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesInitiatedeventid
+      , childWorkflowExecutionFailedEventAttributesStartedeventid = maybe (childWorkflowExecutionFailedEventAttributesStartedeventid defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesStartedeventid
+      , childWorkflowExecutionFailedEventAttributesRetrystate = maybe (childWorkflowExecutionFailedEventAttributesRetrystate defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesRetrystate
+      }
   protoFromJSON _ = Right defaultChildWorkflowExecutionFailedEventAttributes
 
 data ChildWorkflowExecutionCanceledEventAttributes = ChildWorkflowExecutionCanceledEventAttributes
@@ -3466,6 +4110,23 @@ instance ProtoToJSON ChildWorkflowExecutionCanceledEventAttributes where
       ]
 
 instance ProtoFromJSON ChildWorkflowExecutionCanceledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_childWorkflowExecutionCanceledEventAttributesDetails <- obj .:? "details"
+    fld_childWorkflowExecutionCanceledEventAttributesNamespace <- obj .:? "namespace"
+    fld_childWorkflowExecutionCanceledEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_childWorkflowExecutionCanceledEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_childWorkflowExecutionCanceledEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_childWorkflowExecutionCanceledEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_childWorkflowExecutionCanceledEventAttributesStartedeventid <- obj .:? "startedEventId"
+    pure defaultChildWorkflowExecutionCanceledEventAttributes
+      { childWorkflowExecutionCanceledEventAttributesDetails = maybe (childWorkflowExecutionCanceledEventAttributesDetails defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesDetails
+      , childWorkflowExecutionCanceledEventAttributesNamespace = maybe (childWorkflowExecutionCanceledEventAttributesNamespace defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesNamespace
+      , childWorkflowExecutionCanceledEventAttributesNamespaceid = maybe (childWorkflowExecutionCanceledEventAttributesNamespaceid defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesNamespaceid
+      , childWorkflowExecutionCanceledEventAttributesWorkflowexecution = maybe (childWorkflowExecutionCanceledEventAttributesWorkflowexecution defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesWorkflowexecution
+      , childWorkflowExecutionCanceledEventAttributesWorkflowtype = maybe (childWorkflowExecutionCanceledEventAttributesWorkflowtype defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesWorkflowtype
+      , childWorkflowExecutionCanceledEventAttributesInitiatedeventid = maybe (childWorkflowExecutionCanceledEventAttributesInitiatedeventid defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesInitiatedeventid
+      , childWorkflowExecutionCanceledEventAttributesStartedeventid = maybe (childWorkflowExecutionCanceledEventAttributesStartedeventid defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesStartedeventid
+      }
   protoFromJSON _ = Right defaultChildWorkflowExecutionCanceledEventAttributes
 
 data ChildWorkflowExecutionTimedOutEventAttributes = ChildWorkflowExecutionTimedOutEventAttributes
@@ -3554,6 +4215,23 @@ instance ProtoToJSON ChildWorkflowExecutionTimedOutEventAttributes where
       ]
 
 instance ProtoFromJSON ChildWorkflowExecutionTimedOutEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_childWorkflowExecutionTimedOutEventAttributesNamespace <- obj .:? "namespace"
+    fld_childWorkflowExecutionTimedOutEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_childWorkflowExecutionTimedOutEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_childWorkflowExecutionTimedOutEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_childWorkflowExecutionTimedOutEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_childWorkflowExecutionTimedOutEventAttributesStartedeventid <- obj .:? "startedEventId"
+    fld_childWorkflowExecutionTimedOutEventAttributesRetrystate <- obj .:? "retryState"
+    pure defaultChildWorkflowExecutionTimedOutEventAttributes
+      { childWorkflowExecutionTimedOutEventAttributesNamespace = maybe (childWorkflowExecutionTimedOutEventAttributesNamespace defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesNamespace
+      , childWorkflowExecutionTimedOutEventAttributesNamespaceid = maybe (childWorkflowExecutionTimedOutEventAttributesNamespaceid defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesNamespaceid
+      , childWorkflowExecutionTimedOutEventAttributesWorkflowexecution = maybe (childWorkflowExecutionTimedOutEventAttributesWorkflowexecution defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesWorkflowexecution
+      , childWorkflowExecutionTimedOutEventAttributesWorkflowtype = maybe (childWorkflowExecutionTimedOutEventAttributesWorkflowtype defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesWorkflowtype
+      , childWorkflowExecutionTimedOutEventAttributesInitiatedeventid = maybe (childWorkflowExecutionTimedOutEventAttributesInitiatedeventid defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesInitiatedeventid
+      , childWorkflowExecutionTimedOutEventAttributesStartedeventid = maybe (childWorkflowExecutionTimedOutEventAttributesStartedeventid defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesStartedeventid
+      , childWorkflowExecutionTimedOutEventAttributesRetrystate = maybe (childWorkflowExecutionTimedOutEventAttributesRetrystate defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesRetrystate
+      }
   protoFromJSON _ = Right defaultChildWorkflowExecutionTimedOutEventAttributes
 
 data ChildWorkflowExecutionTerminatedEventAttributes = ChildWorkflowExecutionTerminatedEventAttributes
@@ -3634,6 +4312,21 @@ instance ProtoToJSON ChildWorkflowExecutionTerminatedEventAttributes where
       ]
 
 instance ProtoFromJSON ChildWorkflowExecutionTerminatedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_childWorkflowExecutionTerminatedEventAttributesNamespace <- obj .:? "namespace"
+    fld_childWorkflowExecutionTerminatedEventAttributesNamespaceid <- obj .:? "namespaceId"
+    fld_childWorkflowExecutionTerminatedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+    fld_childWorkflowExecutionTerminatedEventAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_childWorkflowExecutionTerminatedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
+    fld_childWorkflowExecutionTerminatedEventAttributesStartedeventid <- obj .:? "startedEventId"
+    pure defaultChildWorkflowExecutionTerminatedEventAttributes
+      { childWorkflowExecutionTerminatedEventAttributesNamespace = maybe (childWorkflowExecutionTerminatedEventAttributesNamespace defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesNamespace
+      , childWorkflowExecutionTerminatedEventAttributesNamespaceid = maybe (childWorkflowExecutionTerminatedEventAttributesNamespaceid defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesNamespaceid
+      , childWorkflowExecutionTerminatedEventAttributesWorkflowexecution = maybe (childWorkflowExecutionTerminatedEventAttributesWorkflowexecution defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesWorkflowexecution
+      , childWorkflowExecutionTerminatedEventAttributesWorkflowtype = maybe (childWorkflowExecutionTerminatedEventAttributesWorkflowtype defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesWorkflowtype
+      , childWorkflowExecutionTerminatedEventAttributesInitiatedeventid = maybe (childWorkflowExecutionTerminatedEventAttributesInitiatedeventid defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesInitiatedeventid
+      , childWorkflowExecutionTerminatedEventAttributesStartedeventid = maybe (childWorkflowExecutionTerminatedEventAttributesStartedeventid defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesStartedeventid
+      }
   protoFromJSON _ = Right defaultChildWorkflowExecutionTerminatedEventAttributes
 
 data WorkflowExecutionOptionsUpdatedEventAttributes = WorkflowExecutionOptionsUpdatedEventAttributes
@@ -3714,6 +4407,21 @@ instance ProtoToJSON WorkflowExecutionOptionsUpdatedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionOptionsUpdatedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionOptionsUpdatedEventAttributesVersioningoverride <- obj .:? "versioningOverride"
+    fld_workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride <- obj .:? "unsetVersioningOverride"
+    fld_workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid <- obj .:? "attachedRequestId"
+    fld_workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks <- obj .:? "attachedCompletionCallbacks"
+    fld_workflowExecutionOptionsUpdatedEventAttributesIdentity <- obj .:? "identity"
+    fld_workflowExecutionOptionsUpdatedEventAttributesPriority <- obj .:? "priority"
+    pure defaultWorkflowExecutionOptionsUpdatedEventAttributes
+      { workflowExecutionOptionsUpdatedEventAttributesVersioningoverride = maybe (workflowExecutionOptionsUpdatedEventAttributesVersioningoverride defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesVersioningoverride
+      , workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride = maybe (workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride
+      , workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid = maybe (workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid
+      , workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks = maybe (workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks
+      , workflowExecutionOptionsUpdatedEventAttributesIdentity = maybe (workflowExecutionOptionsUpdatedEventAttributesIdentity defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesIdentity
+      , workflowExecutionOptionsUpdatedEventAttributesPriority = maybe (workflowExecutionOptionsUpdatedEventAttributesPriority defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesPriority
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionOptionsUpdatedEventAttributes
 
 data WorkflowPropertiesModifiedExternallyEventAttributes = WorkflowPropertiesModifiedExternallyEventAttributes
@@ -3786,6 +4494,19 @@ instance ProtoToJSON WorkflowPropertiesModifiedExternallyEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowPropertiesModifiedExternallyEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue <- obj .:? "newTaskQueue"
+    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout <- obj .:? "newWorkflowTaskTimeout"
+    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout <- obj .:? "newWorkflowRunTimeout"
+    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout <- obj .:? "newWorkflowExecutionTimeout"
+    fld_workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo <- obj .:? "upsertedMemo"
+    pure defaultWorkflowPropertiesModifiedExternallyEventAttributes
+      { workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue = maybe (workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue
+      , workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout = maybe (workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout
+      , workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout = maybe (workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout
+      , workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout = maybe (workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout
+      , workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo = maybe (workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo
+      }
   protoFromJSON _ = Right defaultWorkflowPropertiesModifiedExternallyEventAttributes
 
 data ActivityPropertiesModifiedExternallyEventAttributes = ActivityPropertiesModifiedExternallyEventAttributes
@@ -3834,6 +4555,13 @@ instance ProtoToJSON ActivityPropertiesModifiedExternallyEventAttributes where
       ]
 
 instance ProtoFromJSON ActivityPropertiesModifiedExternallyEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityPropertiesModifiedExternallyEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_activityPropertiesModifiedExternallyEventAttributesNewretrypolicy <- obj .:? "newRetryPolicy"
+    pure defaultActivityPropertiesModifiedExternallyEventAttributes
+      { activityPropertiesModifiedExternallyEventAttributesScheduledeventid = maybe (activityPropertiesModifiedExternallyEventAttributesScheduledeventid defaultActivityPropertiesModifiedExternallyEventAttributes) id fld_activityPropertiesModifiedExternallyEventAttributesScheduledeventid
+      , activityPropertiesModifiedExternallyEventAttributesNewretrypolicy = maybe (activityPropertiesModifiedExternallyEventAttributesNewretrypolicy defaultActivityPropertiesModifiedExternallyEventAttributes) id fld_activityPropertiesModifiedExternallyEventAttributesNewretrypolicy
+      }
   protoFromJSON _ = Right defaultActivityPropertiesModifiedExternallyEventAttributes
 
 data WorkflowExecutionUpdateAcceptedEventAttributes = WorkflowExecutionUpdateAcceptedEventAttributes
@@ -3898,6 +4626,17 @@ instance ProtoToJSON WorkflowExecutionUpdateAcceptedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionUpdateAcceptedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid <- obj .:? "protocolInstanceId"
+    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid <- obj .:? "acceptedRequestMessageId"
+    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid <- obj .:? "acceptedRequestSequencingEventId"
+    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest <- obj .:? "acceptedRequest"
+    pure defaultWorkflowExecutionUpdateAcceptedEventAttributes
+      { workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid = maybe (workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid defaultWorkflowExecutionUpdateAcceptedEventAttributes) id fld_workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid
+      , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid = maybe (workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid defaultWorkflowExecutionUpdateAcceptedEventAttributes) id fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid
+      , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid = maybe (workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid defaultWorkflowExecutionUpdateAcceptedEventAttributes) id fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid
+      , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest = maybe (workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest defaultWorkflowExecutionUpdateAcceptedEventAttributes) id fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionUpdateAcceptedEventAttributes
 
 data WorkflowExecutionUpdateCompletedEventAttributes = WorkflowExecutionUpdateCompletedEventAttributes
@@ -3954,6 +4693,15 @@ instance ProtoToJSON WorkflowExecutionUpdateCompletedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionUpdateCompletedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionUpdateCompletedEventAttributesMeta <- obj .:? "meta"
+    fld_workflowExecutionUpdateCompletedEventAttributesAcceptedeventid <- obj .:? "acceptedEventId"
+    fld_workflowExecutionUpdateCompletedEventAttributesOutcome <- obj .:? "outcome"
+    pure defaultWorkflowExecutionUpdateCompletedEventAttributes
+      { workflowExecutionUpdateCompletedEventAttributesMeta = maybe (workflowExecutionUpdateCompletedEventAttributesMeta defaultWorkflowExecutionUpdateCompletedEventAttributes) id fld_workflowExecutionUpdateCompletedEventAttributesMeta
+      , workflowExecutionUpdateCompletedEventAttributesAcceptedeventid = maybe (workflowExecutionUpdateCompletedEventAttributesAcceptedeventid defaultWorkflowExecutionUpdateCompletedEventAttributes) id fld_workflowExecutionUpdateCompletedEventAttributesAcceptedeventid
+      , workflowExecutionUpdateCompletedEventAttributesOutcome = maybe (workflowExecutionUpdateCompletedEventAttributesOutcome defaultWorkflowExecutionUpdateCompletedEventAttributes) id fld_workflowExecutionUpdateCompletedEventAttributesOutcome
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionUpdateCompletedEventAttributes
 
 data WorkflowExecutionUpdateRejectedEventAttributes = WorkflowExecutionUpdateRejectedEventAttributes
@@ -4026,6 +4774,19 @@ instance ProtoToJSON WorkflowExecutionUpdateRejectedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionUpdateRejectedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid <- obj .:? "protocolInstanceId"
+    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid <- obj .:? "rejectedRequestMessageId"
+    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid <- obj .:? "rejectedRequestSequencingEventId"
+    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequest <- obj .:? "rejectedRequest"
+    fld_workflowExecutionUpdateRejectedEventAttributesFailure <- obj .:? "failure"
+    pure defaultWorkflowExecutionUpdateRejectedEventAttributes
+      { workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid = maybe (workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid
+      , workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid = maybe (workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid
+      , workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid = maybe (workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid
+      , workflowExecutionUpdateRejectedEventAttributesRejectedrequest = maybe (workflowExecutionUpdateRejectedEventAttributesRejectedrequest defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequest
+      , workflowExecutionUpdateRejectedEventAttributesFailure = maybe (workflowExecutionUpdateRejectedEventAttributesFailure defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesFailure
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionUpdateRejectedEventAttributes
 
 data WorkflowExecutionUpdateAdmittedEventAttributes = WorkflowExecutionUpdateAdmittedEventAttributes
@@ -4074,6 +4835,13 @@ instance ProtoToJSON WorkflowExecutionUpdateAdmittedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionUpdateAdmittedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionUpdateAdmittedEventAttributesRequest <- obj .:? "request"
+    fld_workflowExecutionUpdateAdmittedEventAttributesOrigin <- obj .:? "origin"
+    pure defaultWorkflowExecutionUpdateAdmittedEventAttributes
+      { workflowExecutionUpdateAdmittedEventAttributesRequest = maybe (workflowExecutionUpdateAdmittedEventAttributesRequest defaultWorkflowExecutionUpdateAdmittedEventAttributes) id fld_workflowExecutionUpdateAdmittedEventAttributesRequest
+      , workflowExecutionUpdateAdmittedEventAttributesOrigin = maybe (workflowExecutionUpdateAdmittedEventAttributesOrigin defaultWorkflowExecutionUpdateAdmittedEventAttributes) id fld_workflowExecutionUpdateAdmittedEventAttributesOrigin
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionUpdateAdmittedEventAttributes
 
 data WorkflowExecutionPausedEventAttributes = WorkflowExecutionPausedEventAttributes
@@ -4130,6 +4898,15 @@ instance ProtoToJSON WorkflowExecutionPausedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionPausedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionPausedEventAttributesIdentity <- obj .:? "identity"
+    fld_workflowExecutionPausedEventAttributesReason <- obj .:? "reason"
+    fld_workflowExecutionPausedEventAttributesRequestid <- obj .:? "requestId"
+    pure defaultWorkflowExecutionPausedEventAttributes
+      { workflowExecutionPausedEventAttributesIdentity = maybe (workflowExecutionPausedEventAttributesIdentity defaultWorkflowExecutionPausedEventAttributes) id fld_workflowExecutionPausedEventAttributesIdentity
+      , workflowExecutionPausedEventAttributesReason = maybe (workflowExecutionPausedEventAttributesReason defaultWorkflowExecutionPausedEventAttributes) id fld_workflowExecutionPausedEventAttributesReason
+      , workflowExecutionPausedEventAttributesRequestid = maybe (workflowExecutionPausedEventAttributesRequestid defaultWorkflowExecutionPausedEventAttributes) id fld_workflowExecutionPausedEventAttributesRequestid
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionPausedEventAttributes
 
 data WorkflowExecutionUnpausedEventAttributes = WorkflowExecutionUnpausedEventAttributes
@@ -4186,6 +4963,15 @@ instance ProtoToJSON WorkflowExecutionUnpausedEventAttributes where
       ]
 
 instance ProtoFromJSON WorkflowExecutionUnpausedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionUnpausedEventAttributesIdentity <- obj .:? "identity"
+    fld_workflowExecutionUnpausedEventAttributesReason <- obj .:? "reason"
+    fld_workflowExecutionUnpausedEventAttributesRequestid <- obj .:? "requestId"
+    pure defaultWorkflowExecutionUnpausedEventAttributes
+      { workflowExecutionUnpausedEventAttributesIdentity = maybe (workflowExecutionUnpausedEventAttributesIdentity defaultWorkflowExecutionUnpausedEventAttributes) id fld_workflowExecutionUnpausedEventAttributesIdentity
+      , workflowExecutionUnpausedEventAttributesReason = maybe (workflowExecutionUnpausedEventAttributesReason defaultWorkflowExecutionUnpausedEventAttributes) id fld_workflowExecutionUnpausedEventAttributesReason
+      , workflowExecutionUnpausedEventAttributesRequestid = maybe (workflowExecutionUnpausedEventAttributesRequestid defaultWorkflowExecutionUnpausedEventAttributes) id fld_workflowExecutionUnpausedEventAttributesRequestid
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionUnpausedEventAttributes
 
 data NexusOperationScheduledEventAttributes = NexusOperationScheduledEventAttributes
@@ -4240,7 +5026,7 @@ instance MessageSize NexusOperationScheduledEventAttributes where
     + (if msg.nexusOperationScheduledEventAttributesOperation == T.empty then 0 else fieldTextSize 3 msg.nexusOperationScheduledEventAttributesOperation)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.nexusOperationScheduledEventAttributesInput)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.nexusOperationScheduledEventAttributesScheduletoclosetimeout)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 6 + 20) 0 msg.nexusOperationScheduledEventAttributesNexusheader)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 6 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.nexusOperationScheduledEventAttributesNexusheader)
     + (if msg.nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid == 0 then 0 else fieldVarintSize 7 (fromIntegral msg.nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid))
     + (if msg.nexusOperationScheduledEventAttributesRequestid == T.empty then 0 else fieldTextSize 8 msg.nexusOperationScheduledEventAttributesRequestid)
     + (if msg.nexusOperationScheduledEventAttributesEndpointid == T.empty then 0 else fieldTextSize 9 msg.nexusOperationScheduledEventAttributesEndpointid)
@@ -4309,6 +5095,31 @@ instance ProtoToJSON NexusOperationScheduledEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationScheduledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationScheduledEventAttributesEndpoint <- obj .:? "endpoint"
+    fld_nexusOperationScheduledEventAttributesService <- obj .:? "service"
+    fld_nexusOperationScheduledEventAttributesOperation <- obj .:? "operation"
+    fld_nexusOperationScheduledEventAttributesInput <- obj .:? "input"
+    fld_nexusOperationScheduledEventAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_nexusOperationScheduledEventAttributesNexusheader <- obj .:? "nexusHeader"
+    fld_nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_nexusOperationScheduledEventAttributesRequestid <- obj .:? "requestId"
+    fld_nexusOperationScheduledEventAttributesEndpointid <- obj .:? "endpointId"
+    fld_nexusOperationScheduledEventAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    fld_nexusOperationScheduledEventAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    pure defaultNexusOperationScheduledEventAttributes
+      { nexusOperationScheduledEventAttributesEndpoint = maybe (nexusOperationScheduledEventAttributesEndpoint defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesEndpoint
+      , nexusOperationScheduledEventAttributesService = maybe (nexusOperationScheduledEventAttributesService defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesService
+      , nexusOperationScheduledEventAttributesOperation = maybe (nexusOperationScheduledEventAttributesOperation defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesOperation
+      , nexusOperationScheduledEventAttributesInput = maybe (nexusOperationScheduledEventAttributesInput defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesInput
+      , nexusOperationScheduledEventAttributesScheduletoclosetimeout = maybe (nexusOperationScheduledEventAttributesScheduletoclosetimeout defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesScheduletoclosetimeout
+      , nexusOperationScheduledEventAttributesNexusheader = maybe (nexusOperationScheduledEventAttributesNexusheader defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesNexusheader
+      , nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid = maybe (nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid
+      , nexusOperationScheduledEventAttributesRequestid = maybe (nexusOperationScheduledEventAttributesRequestid defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesRequestid
+      , nexusOperationScheduledEventAttributesEndpointid = maybe (nexusOperationScheduledEventAttributesEndpointid defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesEndpointid
+      , nexusOperationScheduledEventAttributesScheduletostarttimeout = maybe (nexusOperationScheduledEventAttributesScheduletostarttimeout defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesScheduletostarttimeout
+      , nexusOperationScheduledEventAttributesStarttoclosetimeout = maybe (nexusOperationScheduledEventAttributesStarttoclosetimeout defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesStarttoclosetimeout
+      }
   protoFromJSON _ = Right defaultNexusOperationScheduledEventAttributes
 
 data NexusOperationStartedEventAttributes = NexusOperationStartedEventAttributes
@@ -4373,6 +5184,17 @@ instance ProtoToJSON NexusOperationStartedEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationStartedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationStartedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_nexusOperationStartedEventAttributesOperationid <- obj .:? "operationId"
+    fld_nexusOperationStartedEventAttributesRequestid <- obj .:? "requestId"
+    fld_nexusOperationStartedEventAttributesOperationtoken <- obj .:? "operationToken"
+    pure defaultNexusOperationStartedEventAttributes
+      { nexusOperationStartedEventAttributesScheduledeventid = maybe (nexusOperationStartedEventAttributesScheduledeventid defaultNexusOperationStartedEventAttributes) id fld_nexusOperationStartedEventAttributesScheduledeventid
+      , nexusOperationStartedEventAttributesOperationid = maybe (nexusOperationStartedEventAttributesOperationid defaultNexusOperationStartedEventAttributes) id fld_nexusOperationStartedEventAttributesOperationid
+      , nexusOperationStartedEventAttributesRequestid = maybe (nexusOperationStartedEventAttributesRequestid defaultNexusOperationStartedEventAttributes) id fld_nexusOperationStartedEventAttributesRequestid
+      , nexusOperationStartedEventAttributesOperationtoken = maybe (nexusOperationStartedEventAttributesOperationtoken defaultNexusOperationStartedEventAttributes) id fld_nexusOperationStartedEventAttributesOperationtoken
+      }
   protoFromJSON _ = Right defaultNexusOperationStartedEventAttributes
 
 data NexusOperationCompletedEventAttributes = NexusOperationCompletedEventAttributes
@@ -4429,6 +5251,15 @@ instance ProtoToJSON NexusOperationCompletedEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationCompletedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationCompletedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_nexusOperationCompletedEventAttributesResult <- obj .:? "result"
+    fld_nexusOperationCompletedEventAttributesRequestid <- obj .:? "requestId"
+    pure defaultNexusOperationCompletedEventAttributes
+      { nexusOperationCompletedEventAttributesScheduledeventid = maybe (nexusOperationCompletedEventAttributesScheduledeventid defaultNexusOperationCompletedEventAttributes) id fld_nexusOperationCompletedEventAttributesScheduledeventid
+      , nexusOperationCompletedEventAttributesResult = maybe (nexusOperationCompletedEventAttributesResult defaultNexusOperationCompletedEventAttributes) id fld_nexusOperationCompletedEventAttributesResult
+      , nexusOperationCompletedEventAttributesRequestid = maybe (nexusOperationCompletedEventAttributesRequestid defaultNexusOperationCompletedEventAttributes) id fld_nexusOperationCompletedEventAttributesRequestid
+      }
   protoFromJSON _ = Right defaultNexusOperationCompletedEventAttributes
 
 data NexusOperationFailedEventAttributes = NexusOperationFailedEventAttributes
@@ -4485,6 +5316,15 @@ instance ProtoToJSON NexusOperationFailedEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationFailedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_nexusOperationFailedEventAttributesFailure <- obj .:? "failure"
+    fld_nexusOperationFailedEventAttributesRequestid <- obj .:? "requestId"
+    pure defaultNexusOperationFailedEventAttributes
+      { nexusOperationFailedEventAttributesScheduledeventid = maybe (nexusOperationFailedEventAttributesScheduledeventid defaultNexusOperationFailedEventAttributes) id fld_nexusOperationFailedEventAttributesScheduledeventid
+      , nexusOperationFailedEventAttributesFailure = maybe (nexusOperationFailedEventAttributesFailure defaultNexusOperationFailedEventAttributes) id fld_nexusOperationFailedEventAttributesFailure
+      , nexusOperationFailedEventAttributesRequestid = maybe (nexusOperationFailedEventAttributesRequestid defaultNexusOperationFailedEventAttributes) id fld_nexusOperationFailedEventAttributesRequestid
+      }
   protoFromJSON _ = Right defaultNexusOperationFailedEventAttributes
 
 data NexusOperationTimedOutEventAttributes = NexusOperationTimedOutEventAttributes
@@ -4541,6 +5381,15 @@ instance ProtoToJSON NexusOperationTimedOutEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationTimedOutEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationTimedOutEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_nexusOperationTimedOutEventAttributesFailure <- obj .:? "failure"
+    fld_nexusOperationTimedOutEventAttributesRequestid <- obj .:? "requestId"
+    pure defaultNexusOperationTimedOutEventAttributes
+      { nexusOperationTimedOutEventAttributesScheduledeventid = maybe (nexusOperationTimedOutEventAttributesScheduledeventid defaultNexusOperationTimedOutEventAttributes) id fld_nexusOperationTimedOutEventAttributesScheduledeventid
+      , nexusOperationTimedOutEventAttributesFailure = maybe (nexusOperationTimedOutEventAttributesFailure defaultNexusOperationTimedOutEventAttributes) id fld_nexusOperationTimedOutEventAttributesFailure
+      , nexusOperationTimedOutEventAttributesRequestid = maybe (nexusOperationTimedOutEventAttributesRequestid defaultNexusOperationTimedOutEventAttributes) id fld_nexusOperationTimedOutEventAttributesRequestid
+      }
   protoFromJSON _ = Right defaultNexusOperationTimedOutEventAttributes
 
 data NexusOperationCanceledEventAttributes = NexusOperationCanceledEventAttributes
@@ -4597,6 +5446,15 @@ instance ProtoToJSON NexusOperationCanceledEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationCanceledEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationCanceledEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_nexusOperationCanceledEventAttributesFailure <- obj .:? "failure"
+    fld_nexusOperationCanceledEventAttributesRequestid <- obj .:? "requestId"
+    pure defaultNexusOperationCanceledEventAttributes
+      { nexusOperationCanceledEventAttributesScheduledeventid = maybe (nexusOperationCanceledEventAttributesScheduledeventid defaultNexusOperationCanceledEventAttributes) id fld_nexusOperationCanceledEventAttributesScheduledeventid
+      , nexusOperationCanceledEventAttributesFailure = maybe (nexusOperationCanceledEventAttributesFailure defaultNexusOperationCanceledEventAttributes) id fld_nexusOperationCanceledEventAttributesFailure
+      , nexusOperationCanceledEventAttributesRequestid = maybe (nexusOperationCanceledEventAttributesRequestid defaultNexusOperationCanceledEventAttributes) id fld_nexusOperationCanceledEventAttributesRequestid
+      }
   protoFromJSON _ = Right defaultNexusOperationCanceledEventAttributes
 
 data NexusOperationCancelRequestedEventAttributes = NexusOperationCancelRequestedEventAttributes
@@ -4645,6 +5503,13 @@ instance ProtoToJSON NexusOperationCancelRequestedEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationCancelRequestedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationCancelRequestedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    fld_nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    pure defaultNexusOperationCancelRequestedEventAttributes
+      { nexusOperationCancelRequestedEventAttributesScheduledeventid = maybe (nexusOperationCancelRequestedEventAttributesScheduledeventid defaultNexusOperationCancelRequestedEventAttributes) id fld_nexusOperationCancelRequestedEventAttributesScheduledeventid
+      , nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid = maybe (nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid defaultNexusOperationCancelRequestedEventAttributes) id fld_nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid
+      }
   protoFromJSON _ = Right defaultNexusOperationCancelRequestedEventAttributes
 
 data NexusOperationCancelRequestCompletedEventAttributes = NexusOperationCancelRequestCompletedEventAttributes
@@ -4701,6 +5566,15 @@ instance ProtoToJSON NexusOperationCancelRequestCompletedEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationCancelRequestCompletedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationCancelRequestCompletedEventAttributesRequestedeventid <- obj .:? "requestedEventId"
+    fld_nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_nexusOperationCancelRequestCompletedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    pure defaultNexusOperationCancelRequestCompletedEventAttributes
+      { nexusOperationCancelRequestCompletedEventAttributesRequestedeventid = maybe (nexusOperationCancelRequestCompletedEventAttributesRequestedeventid defaultNexusOperationCancelRequestCompletedEventAttributes) id fld_nexusOperationCancelRequestCompletedEventAttributesRequestedeventid
+      , nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid = maybe (nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid defaultNexusOperationCancelRequestCompletedEventAttributes) id fld_nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid
+      , nexusOperationCancelRequestCompletedEventAttributesScheduledeventid = maybe (nexusOperationCancelRequestCompletedEventAttributesScheduledeventid defaultNexusOperationCancelRequestCompletedEventAttributes) id fld_nexusOperationCancelRequestCompletedEventAttributesScheduledeventid
+      }
   protoFromJSON _ = Right defaultNexusOperationCancelRequestCompletedEventAttributes
 
 data NexusOperationCancelRequestFailedEventAttributes = NexusOperationCancelRequestFailedEventAttributes
@@ -4765,6 +5639,17 @@ instance ProtoToJSON NexusOperationCancelRequestFailedEventAttributes where
       ]
 
 instance ProtoFromJSON NexusOperationCancelRequestFailedEventAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationCancelRequestFailedEventAttributesRequestedeventid <- obj .:? "requestedEventId"
+    fld_nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+    fld_nexusOperationCancelRequestFailedEventAttributesFailure <- obj .:? "failure"
+    fld_nexusOperationCancelRequestFailedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    pure defaultNexusOperationCancelRequestFailedEventAttributes
+      { nexusOperationCancelRequestFailedEventAttributesRequestedeventid = maybe (nexusOperationCancelRequestFailedEventAttributesRequestedeventid defaultNexusOperationCancelRequestFailedEventAttributes) id fld_nexusOperationCancelRequestFailedEventAttributesRequestedeventid
+      , nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid = maybe (nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid defaultNexusOperationCancelRequestFailedEventAttributes) id fld_nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid
+      , nexusOperationCancelRequestFailedEventAttributesFailure = maybe (nexusOperationCancelRequestFailedEventAttributesFailure defaultNexusOperationCancelRequestFailedEventAttributes) id fld_nexusOperationCancelRequestFailedEventAttributesFailure
+      , nexusOperationCancelRequestFailedEventAttributesScheduledeventid = maybe (nexusOperationCancelRequestFailedEventAttributesScheduledeventid defaultNexusOperationCancelRequestFailedEventAttributes) id fld_nexusOperationCancelRequestFailedEventAttributesScheduledeventid
+      }
   protoFromJSON _ = Right defaultNexusOperationCancelRequestFailedEventAttributes
 
 data HistoryEvent = HistoryEvent
@@ -5227,6 +6112,27 @@ instance ProtoToJSON HistoryEvent where
       ]
 
 instance ProtoFromJSON HistoryEvent where
+  protoFromJSON (JsonObject obj) = do
+    fld_historyEventEventid <- obj .:? "eventId"
+    fld_historyEventEventtime <- obj .:? "eventTime"
+    fld_historyEventEventtype <- obj .:? "eventType"
+    fld_historyEventVersion <- obj .:? "version"
+    fld_historyEventTaskid <- obj .:? "taskId"
+    fld_historyEventWorkermayignore <- obj .:? "workerMayIgnore"
+    fld_historyEventUsermetadata <- obj .:? "userMetadata"
+    fld_historyEventLinks <- obj .:? "links"
+    fld_historyEventAttributes <- obj .:? "attributes"
+    pure defaultHistoryEvent
+      { historyEventEventid = maybe (historyEventEventid defaultHistoryEvent) id fld_historyEventEventid
+      , historyEventEventtime = maybe (historyEventEventtime defaultHistoryEvent) id fld_historyEventEventtime
+      , historyEventEventtype = maybe (historyEventEventtype defaultHistoryEvent) id fld_historyEventEventtype
+      , historyEventVersion = maybe (historyEventVersion defaultHistoryEvent) id fld_historyEventVersion
+      , historyEventTaskid = maybe (historyEventTaskid defaultHistoryEvent) id fld_historyEventTaskid
+      , historyEventWorkermayignore = maybe (historyEventWorkermayignore defaultHistoryEvent) id fld_historyEventWorkermayignore
+      , historyEventUsermetadata = maybe (historyEventUsermetadata defaultHistoryEvent) id fld_historyEventUsermetadata
+      , historyEventLinks = maybe (historyEventLinks defaultHistoryEvent) id fld_historyEventLinks
+      , historyEventAttributes = maybe (historyEventAttributes defaultHistoryEvent) id fld_historyEventAttributes
+      }
   protoFromJSON _ = Right defaultHistoryEvent
 
 data History = History
@@ -5268,4 +6174,9 @@ instance ProtoToJSON History where
       ]
 
 instance ProtoFromJSON History where
+  protoFromJSON (JsonObject obj) = do
+    fld_historyEvents <- obj .:? "events"
+    pure defaultHistory
+      { historyEvents = maybe (historyEvents defaultHistory) id fld_historyEvents
+      }
   protoFromJSON _ = Right defaultHistory

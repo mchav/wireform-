@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.FieldMask (FieldMask(..))
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
@@ -106,6 +108,17 @@ instance ProtoToJSON BatchOperationInfo where
       ]
 
 instance ProtoFromJSON BatchOperationInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationInfoJobid <- obj .:? "jobId"
+    fld_batchOperationInfoState <- obj .:? "state"
+    fld_batchOperationInfoStarttime <- obj .:? "startTime"
+    fld_batchOperationInfoClosetime <- obj .:? "closeTime"
+    pure defaultBatchOperationInfo
+      { batchOperationInfoJobid = maybe (batchOperationInfoJobid defaultBatchOperationInfo) id fld_batchOperationInfoJobid
+      , batchOperationInfoState = maybe (batchOperationInfoState defaultBatchOperationInfo) id fld_batchOperationInfoState
+      , batchOperationInfoStarttime = maybe (batchOperationInfoStarttime defaultBatchOperationInfo) id fld_batchOperationInfoStarttime
+      , batchOperationInfoClosetime = maybe (batchOperationInfoClosetime defaultBatchOperationInfo) id fld_batchOperationInfoClosetime
+      }
   protoFromJSON _ = Right defaultBatchOperationInfo
 
 data BatchOperationTermination = BatchOperationTermination
@@ -154,6 +167,13 @@ instance ProtoToJSON BatchOperationTermination where
       ]
 
 instance ProtoFromJSON BatchOperationTermination where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationTerminationDetails <- obj .:? "details"
+    fld_batchOperationTerminationIdentity <- obj .:? "identity"
+    pure defaultBatchOperationTermination
+      { batchOperationTerminationDetails = maybe (batchOperationTerminationDetails defaultBatchOperationTermination) id fld_batchOperationTerminationDetails
+      , batchOperationTerminationIdentity = maybe (batchOperationTerminationIdentity defaultBatchOperationTermination) id fld_batchOperationTerminationIdentity
+      }
   protoFromJSON _ = Right defaultBatchOperationTermination
 
 data BatchOperationSignal = BatchOperationSignal
@@ -218,6 +238,17 @@ instance ProtoToJSON BatchOperationSignal where
       ]
 
 instance ProtoFromJSON BatchOperationSignal where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationSignalSignal <- obj .:? "signal"
+    fld_batchOperationSignalInput <- obj .:? "input"
+    fld_batchOperationSignalHeader <- obj .:? "header"
+    fld_batchOperationSignalIdentity <- obj .:? "identity"
+    pure defaultBatchOperationSignal
+      { batchOperationSignalSignal = maybe (batchOperationSignalSignal defaultBatchOperationSignal) id fld_batchOperationSignalSignal
+      , batchOperationSignalInput = maybe (batchOperationSignalInput defaultBatchOperationSignal) id fld_batchOperationSignalInput
+      , batchOperationSignalHeader = maybe (batchOperationSignalHeader defaultBatchOperationSignal) id fld_batchOperationSignalHeader
+      , batchOperationSignalIdentity = maybe (batchOperationSignalIdentity defaultBatchOperationSignal) id fld_batchOperationSignalIdentity
+      }
   protoFromJSON _ = Right defaultBatchOperationSignal
 
 data BatchOperationCancellation = BatchOperationCancellation
@@ -259,6 +290,11 @@ instance ProtoToJSON BatchOperationCancellation where
       ]
 
 instance ProtoFromJSON BatchOperationCancellation where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationCancellationIdentity <- obj .:? "identity"
+    pure defaultBatchOperationCancellation
+      { batchOperationCancellationIdentity = maybe (batchOperationCancellationIdentity defaultBatchOperationCancellation) id fld_batchOperationCancellationIdentity
+      }
   protoFromJSON _ = Right defaultBatchOperationCancellation
 
 data BatchOperationDeletion = BatchOperationDeletion
@@ -300,6 +336,11 @@ instance ProtoToJSON BatchOperationDeletion where
       ]
 
 instance ProtoFromJSON BatchOperationDeletion where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationDeletionIdentity <- obj .:? "identity"
+    pure defaultBatchOperationDeletion
+      { batchOperationDeletionIdentity = maybe (batchOperationDeletionIdentity defaultBatchOperationDeletion) id fld_batchOperationDeletionIdentity
+      }
   protoFromJSON _ = Right defaultBatchOperationDeletion
 
 data BatchOperationReset = BatchOperationReset
@@ -372,6 +413,19 @@ instance ProtoToJSON BatchOperationReset where
       ]
 
 instance ProtoFromJSON BatchOperationReset where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationResetIdentity <- obj .:? "identity"
+    fld_batchOperationResetOptions <- obj .:? "options"
+    fld_batchOperationResetResettype <- obj .:? "resetType"
+    fld_batchOperationResetResetreapplytype <- obj .:? "resetReapplyType"
+    fld_batchOperationResetPostresetoperations <- obj .:? "postResetOperations"
+    pure defaultBatchOperationReset
+      { batchOperationResetIdentity = maybe (batchOperationResetIdentity defaultBatchOperationReset) id fld_batchOperationResetIdentity
+      , batchOperationResetOptions = maybe (batchOperationResetOptions defaultBatchOperationReset) id fld_batchOperationResetOptions
+      , batchOperationResetResettype = maybe (batchOperationResetResettype defaultBatchOperationReset) id fld_batchOperationResetResettype
+      , batchOperationResetResetreapplytype = maybe (batchOperationResetResetreapplytype defaultBatchOperationReset) id fld_batchOperationResetResetreapplytype
+      , batchOperationResetPostresetoperations = maybe (batchOperationResetPostresetoperations defaultBatchOperationReset) id fld_batchOperationResetPostresetoperations
+      }
   protoFromJSON _ = Right defaultBatchOperationReset
 
 data BatchOperationUpdateWorkflowExecutionOptions = BatchOperationUpdateWorkflowExecutionOptions
@@ -428,6 +482,15 @@ instance ProtoToJSON BatchOperationUpdateWorkflowExecutionOptions where
       ]
 
 instance ProtoFromJSON BatchOperationUpdateWorkflowExecutionOptions where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationUpdateWorkflowExecutionOptionsIdentity <- obj .:? "identity"
+    fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions <- obj .:? "workflowExecutionOptions"
+    fld_batchOperationUpdateWorkflowExecutionOptionsUpdatemask <- obj .:? "updateMask"
+    pure defaultBatchOperationUpdateWorkflowExecutionOptions
+      { batchOperationUpdateWorkflowExecutionOptionsIdentity = maybe (batchOperationUpdateWorkflowExecutionOptionsIdentity defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsIdentity
+      , batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions = maybe (batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions
+      , batchOperationUpdateWorkflowExecutionOptionsUpdatemask = maybe (batchOperationUpdateWorkflowExecutionOptionsUpdatemask defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsUpdatemask
+      }
   protoFromJSON _ = Right defaultBatchOperationUpdateWorkflowExecutionOptions
 
 data BatchOperationUnpauseActivities = BatchOperationUnpauseActivities
@@ -516,6 +579,19 @@ instance ProtoToJSON BatchOperationUnpauseActivities where
       ]
 
 instance ProtoFromJSON BatchOperationUnpauseActivities where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationUnpauseActivitiesIdentity <- obj .:? "identity"
+    fld_batchOperationUnpauseActivitiesActivity <- obj .:? "activity"
+    fld_batchOperationUnpauseActivitiesResetattempts <- obj .:? "resetAttempts"
+    fld_batchOperationUnpauseActivitiesResetheartbeat <- obj .:? "resetHeartbeat"
+    fld_batchOperationUnpauseActivitiesJitter <- obj .:? "jitter"
+    pure defaultBatchOperationUnpauseActivities
+      { batchOperationUnpauseActivitiesIdentity = maybe (batchOperationUnpauseActivitiesIdentity defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesIdentity
+      , batchOperationUnpauseActivitiesActivity = maybe (batchOperationUnpauseActivitiesActivity defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesActivity
+      , batchOperationUnpauseActivitiesResetattempts = maybe (batchOperationUnpauseActivitiesResetattempts defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesResetattempts
+      , batchOperationUnpauseActivitiesResetheartbeat = maybe (batchOperationUnpauseActivitiesResetheartbeat defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesResetheartbeat
+      , batchOperationUnpauseActivitiesJitter = maybe (batchOperationUnpauseActivitiesJitter defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesJitter
+      }
   protoFromJSON _ = Right defaultBatchOperationUnpauseActivities
 
 data BatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
@@ -580,6 +656,13 @@ instance ProtoToJSON BatchOperationTriggerWorkflowRule where
       ]
 
 instance ProtoFromJSON BatchOperationTriggerWorkflowRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationTriggerWorkflowRuleIdentity <- obj .:? "identity"
+    fld_batchOperationTriggerWorkflowRuleRule <- obj .:? "rule"
+    pure defaultBatchOperationTriggerWorkflowRule
+      { batchOperationTriggerWorkflowRuleIdentity = maybe (batchOperationTriggerWorkflowRuleIdentity defaultBatchOperationTriggerWorkflowRule) id fld_batchOperationTriggerWorkflowRuleIdentity
+      , batchOperationTriggerWorkflowRuleRule = maybe (batchOperationTriggerWorkflowRuleRule defaultBatchOperationTriggerWorkflowRule) id fld_batchOperationTriggerWorkflowRuleRule
+      }
   protoFromJSON _ = Right defaultBatchOperationTriggerWorkflowRule
 
 data BatchOperationResetActivities = BatchOperationResetActivities
@@ -684,6 +767,23 @@ instance ProtoToJSON BatchOperationResetActivities where
       ]
 
 instance ProtoFromJSON BatchOperationResetActivities where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationResetActivitiesIdentity <- obj .:? "identity"
+    fld_batchOperationResetActivitiesActivity <- obj .:? "activity"
+    fld_batchOperationResetActivitiesResetattempts <- obj .:? "resetAttempts"
+    fld_batchOperationResetActivitiesResetheartbeat <- obj .:? "resetHeartbeat"
+    fld_batchOperationResetActivitiesKeeppaused <- obj .:? "keepPaused"
+    fld_batchOperationResetActivitiesJitter <- obj .:? "jitter"
+    fld_batchOperationResetActivitiesRestoreoriginaloptions <- obj .:? "restoreOriginalOptions"
+    pure defaultBatchOperationResetActivities
+      { batchOperationResetActivitiesIdentity = maybe (batchOperationResetActivitiesIdentity defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesIdentity
+      , batchOperationResetActivitiesActivity = maybe (batchOperationResetActivitiesActivity defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesActivity
+      , batchOperationResetActivitiesResetattempts = maybe (batchOperationResetActivitiesResetattempts defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesResetattempts
+      , batchOperationResetActivitiesResetheartbeat = maybe (batchOperationResetActivitiesResetheartbeat defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesResetheartbeat
+      , batchOperationResetActivitiesKeeppaused = maybe (batchOperationResetActivitiesKeeppaused defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesKeeppaused
+      , batchOperationResetActivitiesJitter = maybe (batchOperationResetActivitiesJitter defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesJitter
+      , batchOperationResetActivitiesRestoreoriginaloptions = maybe (batchOperationResetActivitiesRestoreoriginaloptions defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesRestoreoriginaloptions
+      }
   protoFromJSON _ = Right defaultBatchOperationResetActivities
 
 data BatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
@@ -772,4 +872,17 @@ instance ProtoToJSON BatchOperationUpdateActivityOptions where
       ]
 
 instance ProtoFromJSON BatchOperationUpdateActivityOptions where
+  protoFromJSON (JsonObject obj) = do
+    fld_batchOperationUpdateActivityOptionsIdentity <- obj .:? "identity"
+    fld_batchOperationUpdateActivityOptionsActivity <- obj .:? "activity"
+    fld_batchOperationUpdateActivityOptionsActivityoptions <- obj .:? "activityOptions"
+    fld_batchOperationUpdateActivityOptionsUpdatemask <- obj .:? "updateMask"
+    fld_batchOperationUpdateActivityOptionsRestoreoriginal <- obj .:? "restoreOriginal"
+    pure defaultBatchOperationUpdateActivityOptions
+      { batchOperationUpdateActivityOptionsIdentity = maybe (batchOperationUpdateActivityOptionsIdentity defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsIdentity
+      , batchOperationUpdateActivityOptionsActivity = maybe (batchOperationUpdateActivityOptionsActivity defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsActivity
+      , batchOperationUpdateActivityOptionsActivityoptions = maybe (batchOperationUpdateActivityOptionsActivityoptions defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsActivityoptions
+      , batchOperationUpdateActivityOptionsUpdatemask = maybe (batchOperationUpdateActivityOptionsUpdatemask defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsUpdatemask
+      , batchOperationUpdateActivityOptionsRestoreoriginal = maybe (batchOperationUpdateActivityOptionsRestoreoriginal defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsRestoreoriginal
+      }
   protoFromJSON _ = Right defaultBatchOperationUpdateActivityOptions

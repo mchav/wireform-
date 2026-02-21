@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Deployment (VersionDrainageStatus(..), WorkerDeploymentVersionStatus(..), WorkerVersioningMode(..))
@@ -93,6 +95,15 @@ instance ProtoToJSON WorkerDeploymentOptions where
       ]
 
 instance ProtoFromJSON WorkerDeploymentOptions where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerDeploymentOptionsDeploymentname <- obj .:? "deploymentName"
+    fld_workerDeploymentOptionsBuildid <- obj .:? "buildId"
+    fld_workerDeploymentOptionsWorkerversioningmode <- obj .:? "workerVersioningMode"
+    pure defaultWorkerDeploymentOptions
+      { workerDeploymentOptionsDeploymentname = maybe (workerDeploymentOptionsDeploymentname defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsDeploymentname
+      , workerDeploymentOptionsBuildid = maybe (workerDeploymentOptionsBuildid defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsBuildid
+      , workerDeploymentOptionsWorkerversioningmode = maybe (workerDeploymentOptionsWorkerversioningmode defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsWorkerversioningmode
+      }
   protoFromJSON _ = Right defaultWorkerDeploymentOptions
 
 data Deployment = Deployment
@@ -141,6 +152,13 @@ instance ProtoToJSON Deployment where
       ]
 
 instance ProtoFromJSON Deployment where
+  protoFromJSON (JsonObject obj) = do
+    fld_deploymentSeriesname <- obj .:? "seriesName"
+    fld_deploymentBuildid <- obj .:? "buildId"
+    pure defaultDeployment
+      { deploymentSeriesname = maybe (deploymentSeriesname defaultDeployment) id fld_deploymentSeriesname
+      , deploymentBuildid = maybe (deploymentBuildid defaultDeployment) id fld_deploymentBuildid
+      }
   protoFromJSON _ = Right defaultDeployment
 
 data DeploymentInfo = DeploymentInfo
@@ -207,6 +225,15 @@ instance ProtoToJSON DeploymentInfo'TaskQueueInfo where
       ]
 
 instance ProtoFromJSON DeploymentInfo'TaskQueueInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_deploymentInfoTaskQueueInfoName <- obj .:? "name"
+    fld_deploymentInfoTaskQueueInfoType <- obj .:? "type"
+    fld_deploymentInfoTaskQueueInfoFirstpollertime <- obj .:? "firstPollerTime"
+    pure defaultDeploymentInfo'TaskQueueInfo
+      { deploymentInfoTaskQueueInfoName = maybe (deploymentInfoTaskQueueInfoName defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoName
+      , deploymentInfoTaskQueueInfoType = maybe (deploymentInfoTaskQueueInfoType defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoType
+      , deploymentInfoTaskQueueInfoFirstpollertime = maybe (deploymentInfoTaskQueueInfoFirstpollertime defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoFirstpollertime
+      }
   protoFromJSON _ = Right defaultDeploymentInfo'TaskQueueInfo
 
 defaultDeploymentInfo :: DeploymentInfo
@@ -231,7 +258,7 @@ instance MessageSize DeploymentInfo where
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.deploymentInfoDeployment)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.deploymentInfoCreatetime)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.deploymentInfoTaskqueueinfos)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 4 + 20) 0 msg.deploymentInfoMetadata)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 4 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.deploymentInfoMetadata)
     + (if msg.deploymentInfoIscurrent == False then 0 else fieldBoolSize 5)
 
 instance MessageDecode DeploymentInfo where
@@ -272,6 +299,19 @@ instance ProtoToJSON DeploymentInfo where
       ]
 
 instance ProtoFromJSON DeploymentInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_deploymentInfoDeployment <- obj .:? "deployment"
+    fld_deploymentInfoCreatetime <- obj .:? "createTime"
+    fld_deploymentInfoTaskqueueinfos <- obj .:? "taskQueueInfos"
+    fld_deploymentInfoMetadata <- obj .:? "metadata"
+    fld_deploymentInfoIscurrent <- obj .:? "isCurrent"
+    pure defaultDeploymentInfo
+      { deploymentInfoDeployment = maybe (deploymentInfoDeployment defaultDeploymentInfo) id fld_deploymentInfoDeployment
+      , deploymentInfoCreatetime = maybe (deploymentInfoCreatetime defaultDeploymentInfo) id fld_deploymentInfoCreatetime
+      , deploymentInfoTaskqueueinfos = maybe (deploymentInfoTaskqueueinfos defaultDeploymentInfo) id fld_deploymentInfoTaskqueueinfos
+      , deploymentInfoMetadata = maybe (deploymentInfoMetadata defaultDeploymentInfo) id fld_deploymentInfoMetadata
+      , deploymentInfoIscurrent = maybe (deploymentInfoIscurrent defaultDeploymentInfo) id fld_deploymentInfoIscurrent
+      }
   protoFromJSON _ = Right defaultDeploymentInfo
 
 data UpdateDeploymentMetadata = UpdateDeploymentMetadata
@@ -294,8 +334,8 @@ instance MessageEncode UpdateDeploymentMetadata where
 
 instance MessageSize UpdateDeploymentMetadata where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.updateDeploymentMetadataUpsertentries)
-    + 0 {- TODO: repeated size -}
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.updateDeploymentMetadataUpsertentries)
+    + (V.foldl' (\acc v -> acc + fieldTextSize 2 v) 0 msg.updateDeploymentMetadataRemoveentries)
 
 instance MessageDecode UpdateDeploymentMetadata where
   messageDecoder = loop Map.empty V.empty
@@ -323,6 +363,13 @@ instance ProtoToJSON UpdateDeploymentMetadata where
       ]
 
 instance ProtoFromJSON UpdateDeploymentMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateDeploymentMetadataUpsertentries <- obj .:? "upsertEntries"
+    fld_updateDeploymentMetadataRemoveentries <- obj .:? "removeEntries"
+    pure defaultUpdateDeploymentMetadata
+      { updateDeploymentMetadataUpsertentries = maybe (updateDeploymentMetadataUpsertentries defaultUpdateDeploymentMetadata) id fld_updateDeploymentMetadataUpsertentries
+      , updateDeploymentMetadataRemoveentries = maybe (updateDeploymentMetadataRemoveentries defaultUpdateDeploymentMetadata) id fld_updateDeploymentMetadataRemoveentries
+      }
   protoFromJSON _ = Right defaultUpdateDeploymentMetadata
 
 data DeploymentListInfo = DeploymentListInfo
@@ -379,6 +426,15 @@ instance ProtoToJSON DeploymentListInfo where
       ]
 
 instance ProtoFromJSON DeploymentListInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_deploymentListInfoDeployment <- obj .:? "deployment"
+    fld_deploymentListInfoCreatetime <- obj .:? "createTime"
+    fld_deploymentListInfoIscurrent <- obj .:? "isCurrent"
+    pure defaultDeploymentListInfo
+      { deploymentListInfoDeployment = maybe (deploymentListInfoDeployment defaultDeploymentListInfo) id fld_deploymentListInfoDeployment
+      , deploymentListInfoCreatetime = maybe (deploymentListInfoCreatetime defaultDeploymentListInfo) id fld_deploymentListInfoCreatetime
+      , deploymentListInfoIscurrent = maybe (deploymentListInfoIscurrent defaultDeploymentListInfo) id fld_deploymentListInfoIscurrent
+      }
   protoFromJSON _ = Right defaultDeploymentListInfo
 
 data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
@@ -447,6 +503,13 @@ instance ProtoToJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
       ]
 
 instance ProtoFromJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerDeploymentVersionInfoVersionTaskQueueInfoName <- obj .:? "name"
+    fld_workerDeploymentVersionInfoVersionTaskQueueInfoType <- obj .:? "type"
+    pure defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo
+      { workerDeploymentVersionInfoVersionTaskQueueInfoName = maybe (workerDeploymentVersionInfoVersionTaskQueueInfoName defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo) id fld_workerDeploymentVersionInfoVersionTaskQueueInfoName
+      , workerDeploymentVersionInfoVersionTaskQueueInfoType = maybe (workerDeploymentVersionInfoVersionTaskQueueInfoType defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo) id fld_workerDeploymentVersionInfoVersionTaskQueueInfoType
+      }
   protoFromJSON _ = Right defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo
 
 defaultWorkerDeploymentVersionInfo :: WorkerDeploymentVersionInfo
@@ -579,6 +642,39 @@ instance ProtoToJSON WorkerDeploymentVersionInfo where
       ]
 
 instance ProtoFromJSON WorkerDeploymentVersionInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerDeploymentVersionInfoVersion <- obj .:? "version"
+    fld_workerDeploymentVersionInfoStatus <- obj .:? "status"
+    fld_workerDeploymentVersionInfoDeploymentversion <- obj .:? "deploymentVersion"
+    fld_workerDeploymentVersionInfoDeploymentname <- obj .:? "deploymentName"
+    fld_workerDeploymentVersionInfoCreatetime <- obj .:? "createTime"
+    fld_workerDeploymentVersionInfoRoutingchangedtime <- obj .:? "routingChangedTime"
+    fld_workerDeploymentVersionInfoCurrentsincetime <- obj .:? "currentSinceTime"
+    fld_workerDeploymentVersionInfoRampingsincetime <- obj .:? "rampingSinceTime"
+    fld_workerDeploymentVersionInfoFirstactivationtime <- obj .:? "firstActivationTime"
+    fld_workerDeploymentVersionInfoLastcurrenttime <- obj .:? "lastCurrentTime"
+    fld_workerDeploymentVersionInfoLastdeactivationtime <- obj .:? "lastDeactivationTime"
+    fld_workerDeploymentVersionInfoRamppercentage <- obj .:? "rampPercentage"
+    fld_workerDeploymentVersionInfoTaskqueueinfos <- obj .:? "taskQueueInfos"
+    fld_workerDeploymentVersionInfoDrainageinfo <- obj .:? "drainageInfo"
+    fld_workerDeploymentVersionInfoMetadata <- obj .:? "metadata"
+    pure defaultWorkerDeploymentVersionInfo
+      { workerDeploymentVersionInfoVersion = maybe (workerDeploymentVersionInfoVersion defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoVersion
+      , workerDeploymentVersionInfoStatus = maybe (workerDeploymentVersionInfoStatus defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoStatus
+      , workerDeploymentVersionInfoDeploymentversion = maybe (workerDeploymentVersionInfoDeploymentversion defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDeploymentversion
+      , workerDeploymentVersionInfoDeploymentname = maybe (workerDeploymentVersionInfoDeploymentname defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDeploymentname
+      , workerDeploymentVersionInfoCreatetime = maybe (workerDeploymentVersionInfoCreatetime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoCreatetime
+      , workerDeploymentVersionInfoRoutingchangedtime = maybe (workerDeploymentVersionInfoRoutingchangedtime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRoutingchangedtime
+      , workerDeploymentVersionInfoCurrentsincetime = maybe (workerDeploymentVersionInfoCurrentsincetime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoCurrentsincetime
+      , workerDeploymentVersionInfoRampingsincetime = maybe (workerDeploymentVersionInfoRampingsincetime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRampingsincetime
+      , workerDeploymentVersionInfoFirstactivationtime = maybe (workerDeploymentVersionInfoFirstactivationtime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoFirstactivationtime
+      , workerDeploymentVersionInfoLastcurrenttime = maybe (workerDeploymentVersionInfoLastcurrenttime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoLastcurrenttime
+      , workerDeploymentVersionInfoLastdeactivationtime = maybe (workerDeploymentVersionInfoLastdeactivationtime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoLastdeactivationtime
+      , workerDeploymentVersionInfoRamppercentage = maybe (workerDeploymentVersionInfoRamppercentage defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRamppercentage
+      , workerDeploymentVersionInfoTaskqueueinfos = maybe (workerDeploymentVersionInfoTaskqueueinfos defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoTaskqueueinfos
+      , workerDeploymentVersionInfoDrainageinfo = maybe (workerDeploymentVersionInfoDrainageinfo defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDrainageinfo
+      , workerDeploymentVersionInfoMetadata = maybe (workerDeploymentVersionInfoMetadata defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoMetadata
+      }
   protoFromJSON _ = Right defaultWorkerDeploymentVersionInfo
 
 data VersionDrainageInfo = VersionDrainageInfo
@@ -635,6 +731,15 @@ instance ProtoToJSON VersionDrainageInfo where
       ]
 
 instance ProtoFromJSON VersionDrainageInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_versionDrainageInfoStatus <- obj .:? "status"
+    fld_versionDrainageInfoLastchangedtime <- obj .:? "lastChangedTime"
+    fld_versionDrainageInfoLastcheckedtime <- obj .:? "lastCheckedTime"
+    pure defaultVersionDrainageInfo
+      { versionDrainageInfoStatus = maybe (versionDrainageInfoStatus defaultVersionDrainageInfo) id fld_versionDrainageInfoStatus
+      , versionDrainageInfoLastchangedtime = maybe (versionDrainageInfoLastchangedtime defaultVersionDrainageInfo) id fld_versionDrainageInfoLastchangedtime
+      , versionDrainageInfoLastcheckedtime = maybe (versionDrainageInfoLastcheckedtime defaultVersionDrainageInfo) id fld_versionDrainageInfoLastcheckedtime
+      }
   protoFromJSON _ = Right defaultVersionDrainageInfo
 
 data WorkerDeploymentInfo = WorkerDeploymentInfo
@@ -775,6 +880,33 @@ instance ProtoToJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
       ]
 
 instance ProtoFromJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryVersion <- obj .:? "version"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryStatus <- obj .:? "status"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion <- obj .:? "deploymentVersion"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime <- obj .:? "createTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus <- obj .:? "drainageStatus"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo <- obj .:? "drainageInfo"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime <- obj .:? "currentSinceTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime <- obj .:? "rampingSinceTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime <- obj .:? "routingUpdateTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime <- obj .:? "firstActivationTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime <- obj .:? "lastCurrentTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime <- obj .:? "lastDeactivationTime"
+    pure defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary
+      { workerDeploymentInfoWorkerDeploymentVersionSummaryVersion = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryVersion defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryVersion
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryStatus defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryStatus
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
+      }
   protoFromJSON _ = Right defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary
 
 defaultWorkerDeploymentInfo :: WorkerDeploymentInfo
@@ -851,6 +983,23 @@ instance ProtoToJSON WorkerDeploymentInfo where
       ]
 
 instance ProtoFromJSON WorkerDeploymentInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerDeploymentInfoName <- obj .:? "name"
+    fld_workerDeploymentInfoVersionsummaries <- obj .:? "versionSummaries"
+    fld_workerDeploymentInfoCreatetime <- obj .:? "createTime"
+    fld_workerDeploymentInfoRoutingconfig <- obj .:? "routingConfig"
+    fld_workerDeploymentInfoLastmodifieridentity <- obj .:? "lastModifierIdentity"
+    fld_workerDeploymentInfoManageridentity <- obj .:? "managerIdentity"
+    fld_workerDeploymentInfoRoutingconfigupdatestate <- obj .:? "routingConfigUpdateState"
+    pure defaultWorkerDeploymentInfo
+      { workerDeploymentInfoName = maybe (workerDeploymentInfoName defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoName
+      , workerDeploymentInfoVersionsummaries = maybe (workerDeploymentInfoVersionsummaries defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoVersionsummaries
+      , workerDeploymentInfoCreatetime = maybe (workerDeploymentInfoCreatetime defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoCreatetime
+      , workerDeploymentInfoRoutingconfig = maybe (workerDeploymentInfoRoutingconfig defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoRoutingconfig
+      , workerDeploymentInfoLastmodifieridentity = maybe (workerDeploymentInfoLastmodifieridentity defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoLastmodifieridentity
+      , workerDeploymentInfoManageridentity = maybe (workerDeploymentInfoManageridentity defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoManageridentity
+      , workerDeploymentInfoRoutingconfigupdatestate = maybe (workerDeploymentInfoRoutingconfigupdatestate defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoRoutingconfigupdatestate
+      }
   protoFromJSON _ = Right defaultWorkerDeploymentInfo
 
 data WorkerDeploymentVersion = WorkerDeploymentVersion
@@ -899,6 +1048,13 @@ instance ProtoToJSON WorkerDeploymentVersion where
       ]
 
 instance ProtoFromJSON WorkerDeploymentVersion where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerDeploymentVersionBuildid <- obj .:? "buildId"
+    fld_workerDeploymentVersionDeploymentname <- obj .:? "deploymentName"
+    pure defaultWorkerDeploymentVersion
+      { workerDeploymentVersionBuildid = maybe (workerDeploymentVersionBuildid defaultWorkerDeploymentVersion) id fld_workerDeploymentVersionBuildid
+      , workerDeploymentVersionDeploymentname = maybe (workerDeploymentVersionDeploymentname defaultWorkerDeploymentVersion) id fld_workerDeploymentVersionDeploymentname
+      }
   protoFromJSON _ = Right defaultWorkerDeploymentVersion
 
 data VersionMetadata = VersionMetadata
@@ -918,7 +1074,7 @@ instance MessageEncode VersionMetadata where
 
 instance MessageSize VersionMetadata where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.versionMetadataEntries)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.versionMetadataEntries)
 
 instance MessageDecode VersionMetadata where
   messageDecoder = loop Map.empty
@@ -943,6 +1099,11 @@ instance ProtoToJSON VersionMetadata where
       ]
 
 instance ProtoFromJSON VersionMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_versionMetadataEntries <- obj .:? "entries"
+    pure defaultVersionMetadata
+      { versionMetadataEntries = maybe (versionMetadataEntries defaultVersionMetadata) id fld_versionMetadataEntries
+      }
   protoFromJSON _ = Right defaultVersionMetadata
 
 data RoutingConfig = RoutingConfig
@@ -1047,6 +1208,27 @@ instance ProtoToJSON RoutingConfig where
       ]
 
 instance ProtoFromJSON RoutingConfig where
+  protoFromJSON (JsonObject obj) = do
+    fld_routingConfigCurrentdeploymentversion <- obj .:? "currentDeploymentVersion"
+    fld_routingConfigCurrentversion <- obj .:? "currentVersion"
+    fld_routingConfigRampingdeploymentversion <- obj .:? "rampingDeploymentVersion"
+    fld_routingConfigRampingversion <- obj .:? "rampingVersion"
+    fld_routingConfigRampingversionpercentage <- obj .:? "rampingVersionPercentage"
+    fld_routingConfigCurrentversionchangedtime <- obj .:? "currentVersionChangedTime"
+    fld_routingConfigRampingversionchangedtime <- obj .:? "rampingVersionChangedTime"
+    fld_routingConfigRampingversionpercentagechangedtime <- obj .:? "rampingVersionPercentageChangedTime"
+    fld_routingConfigRevisionnumber <- obj .:? "revisionNumber"
+    pure defaultRoutingConfig
+      { routingConfigCurrentdeploymentversion = maybe (routingConfigCurrentdeploymentversion defaultRoutingConfig) id fld_routingConfigCurrentdeploymentversion
+      , routingConfigCurrentversion = maybe (routingConfigCurrentversion defaultRoutingConfig) id fld_routingConfigCurrentversion
+      , routingConfigRampingdeploymentversion = maybe (routingConfigRampingdeploymentversion defaultRoutingConfig) id fld_routingConfigRampingdeploymentversion
+      , routingConfigRampingversion = maybe (routingConfigRampingversion defaultRoutingConfig) id fld_routingConfigRampingversion
+      , routingConfigRampingversionpercentage = maybe (routingConfigRampingversionpercentage defaultRoutingConfig) id fld_routingConfigRampingversionpercentage
+      , routingConfigCurrentversionchangedtime = maybe (routingConfigCurrentversionchangedtime defaultRoutingConfig) id fld_routingConfigCurrentversionchangedtime
+      , routingConfigRampingversionchangedtime = maybe (routingConfigRampingversionchangedtime defaultRoutingConfig) id fld_routingConfigRampingversionchangedtime
+      , routingConfigRampingversionpercentagechangedtime = maybe (routingConfigRampingversionpercentagechangedtime defaultRoutingConfig) id fld_routingConfigRampingversionpercentagechangedtime
+      , routingConfigRevisionnumber = maybe (routingConfigRevisionnumber defaultRoutingConfig) id fld_routingConfigRevisionnumber
+      }
   protoFromJSON _ = Right defaultRoutingConfig
 
 data InheritedAutoUpgradeInfo = InheritedAutoUpgradeInfo
@@ -1095,4 +1277,11 @@ instance ProtoToJSON InheritedAutoUpgradeInfo where
       ]
 
 instance ProtoFromJSON InheritedAutoUpgradeInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_inheritedAutoUpgradeInfoSourcedeploymentversion <- obj .:? "sourceDeploymentVersion"
+    fld_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber <- obj .:? "sourceDeploymentRevisionNumber"
+    pure defaultInheritedAutoUpgradeInfo
+      { inheritedAutoUpgradeInfoSourcedeploymentversion = maybe (inheritedAutoUpgradeInfoSourcedeploymentversion defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourcedeploymentversion
+      , inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber = maybe (inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
+      }
   protoFromJSON _ = Right defaultInheritedAutoUpgradeInfo

@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Temporal.Temporal.Api.Common.V1.Message (Header(..), Payloads(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Query (QueryResultType(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus(..))
@@ -93,6 +95,15 @@ instance ProtoToJSON WorkflowQuery where
       ]
 
 instance ProtoFromJSON WorkflowQuery where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowQueryQuerytype <- obj .:? "queryType"
+    fld_workflowQueryQueryargs <- obj .:? "queryArgs"
+    fld_workflowQueryHeader <- obj .:? "header"
+    pure defaultWorkflowQuery
+      { workflowQueryQuerytype = maybe (workflowQueryQuerytype defaultWorkflowQuery) id fld_workflowQueryQuerytype
+      , workflowQueryQueryargs = maybe (workflowQueryQueryargs defaultWorkflowQuery) id fld_workflowQueryQueryargs
+      , workflowQueryHeader = maybe (workflowQueryHeader defaultWorkflowQuery) id fld_workflowQueryHeader
+      }
   protoFromJSON _ = Right defaultWorkflowQuery
 
 data WorkflowQueryResult = WorkflowQueryResult
@@ -157,6 +168,17 @@ instance ProtoToJSON WorkflowQueryResult where
       ]
 
 instance ProtoFromJSON WorkflowQueryResult where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowQueryResultResulttype <- obj .:? "resultType"
+    fld_workflowQueryResultAnswer <- obj .:? "answer"
+    fld_workflowQueryResultErrormessage <- obj .:? "errorMessage"
+    fld_workflowQueryResultFailure <- obj .:? "failure"
+    pure defaultWorkflowQueryResult
+      { workflowQueryResultResulttype = maybe (workflowQueryResultResulttype defaultWorkflowQueryResult) id fld_workflowQueryResultResulttype
+      , workflowQueryResultAnswer = maybe (workflowQueryResultAnswer defaultWorkflowQueryResult) id fld_workflowQueryResultAnswer
+      , workflowQueryResultErrormessage = maybe (workflowQueryResultErrormessage defaultWorkflowQueryResult) id fld_workflowQueryResultErrormessage
+      , workflowQueryResultFailure = maybe (workflowQueryResultFailure defaultWorkflowQueryResult) id fld_workflowQueryResultFailure
+      }
   protoFromJSON _ = Right defaultWorkflowQueryResult
 
 data QueryRejected = QueryRejected
@@ -198,4 +220,9 @@ instance ProtoToJSON QueryRejected where
       ]
 
 instance ProtoFromJSON QueryRejected where
+  protoFromJSON (JsonObject obj) = do
+    fld_queryRejectedStatus <- obj .:? "status"
+    pure defaultQueryRejected
+      { queryRejectedStatus = maybe (queryRejectedStatus defaultQueryRejected) id fld_queryRejectedStatus
+      }
   protoFromJSON _ = Right defaultQueryRejected

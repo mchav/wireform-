@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.Empty (Empty(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Common (EncodingType(..))
@@ -86,6 +88,13 @@ instance ProtoToJSON DataBlob where
       ]
 
 instance ProtoFromJSON DataBlob where
+  protoFromJSON (JsonObject obj) = do
+    fld_dataBlobEncodingtype <- obj .:? "encodingType"
+    fld_dataBlobData <- obj .:? "data"
+    pure defaultDataBlob
+      { dataBlobEncodingtype = maybe (dataBlobEncodingtype defaultDataBlob) id fld_dataBlobEncodingtype
+      , dataBlobData = maybe (dataBlobData defaultDataBlob) id fld_dataBlobData
+      }
   protoFromJSON _ = Right defaultDataBlob
 
 data Payloads = Payloads
@@ -127,6 +136,11 @@ instance ProtoToJSON Payloads where
       ]
 
 instance ProtoFromJSON Payloads where
+  protoFromJSON (JsonObject obj) = do
+    fld_payloadsPayloads <- obj .:? "payloads"
+    pure defaultPayloads
+      { payloadsPayloads = maybe (payloadsPayloads defaultPayloads) id fld_payloadsPayloads
+      }
   protoFromJSON _ = Right defaultPayloads
 
 data Payload = Payload
@@ -176,6 +190,11 @@ instance ProtoToJSON Payload'ExternalPayloadDetails where
       ]
 
 instance ProtoFromJSON Payload'ExternalPayloadDetails where
+  protoFromJSON (JsonObject obj) = do
+    fld_payloadExternalPayloadDetailsSizebytes <- obj .:? "sizeBytes"
+    pure defaultPayload'ExternalPayloadDetails
+      { payloadExternalPayloadDetailsSizebytes = maybe (payloadExternalPayloadDetailsSizebytes defaultPayload'ExternalPayloadDetails) id fld_payloadExternalPayloadDetailsSizebytes
+      }
   protoFromJSON _ = Right defaultPayload'ExternalPayloadDetails
 
 defaultPayload :: Payload
@@ -193,7 +212,7 @@ instance MessageEncode Payload where
 
 instance MessageSize Payload where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.payloadMetadata)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldBytesSize 2 v in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.payloadMetadata)
     + (if BS.null msg.payloadData then 0 else fieldBytesSize 2 msg.payloadData)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.payloadExternalpayloads)
 
@@ -227,6 +246,15 @@ instance ProtoToJSON Payload where
       ]
 
 instance ProtoFromJSON Payload where
+  protoFromJSON (JsonObject obj) = do
+    fld_payloadMetadata <- obj .:? "metadata"
+    fld_payloadData <- obj .:? "data"
+    fld_payloadExternalpayloads <- obj .:? "externalPayloads"
+    pure defaultPayload
+      { payloadMetadata = maybe (payloadMetadata defaultPayload) id fld_payloadMetadata
+      , payloadData = maybe (payloadData defaultPayload) id fld_payloadData
+      , payloadExternalpayloads = maybe (payloadExternalpayloads defaultPayload) id fld_payloadExternalpayloads
+      }
   protoFromJSON _ = Right defaultPayload
 
 data SearchAttributes = SearchAttributes
@@ -246,7 +274,7 @@ instance MessageEncode SearchAttributes where
 
 instance MessageSize SearchAttributes where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.searchAttributesIndexedfields)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.searchAttributesIndexedfields)
 
 instance MessageDecode SearchAttributes where
   messageDecoder = loop Map.empty
@@ -271,6 +299,11 @@ instance ProtoToJSON SearchAttributes where
       ]
 
 instance ProtoFromJSON SearchAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_searchAttributesIndexedfields <- obj .:? "indexedFields"
+    pure defaultSearchAttributes
+      { searchAttributesIndexedfields = maybe (searchAttributesIndexedfields defaultSearchAttributes) id fld_searchAttributesIndexedfields
+      }
   protoFromJSON _ = Right defaultSearchAttributes
 
 data Memo = Memo
@@ -290,7 +323,7 @@ instance MessageEncode Memo where
 
 instance MessageSize Memo where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.memoFields)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.memoFields)
 
 instance MessageDecode Memo where
   messageDecoder = loop Map.empty
@@ -315,6 +348,11 @@ instance ProtoToJSON Memo where
       ]
 
 instance ProtoFromJSON Memo where
+  protoFromJSON (JsonObject obj) = do
+    fld_memoFields <- obj .:? "fields"
+    pure defaultMemo
+      { memoFields = maybe (memoFields defaultMemo) id fld_memoFields
+      }
   protoFromJSON _ = Right defaultMemo
 
 data Header = Header
@@ -334,7 +372,7 @@ instance MessageEncode Header where
 
 instance MessageSize Header where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.headerFields)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.headerFields)
 
 instance MessageDecode Header where
   messageDecoder = loop Map.empty
@@ -359,6 +397,11 @@ instance ProtoToJSON Header where
       ]
 
 instance ProtoFromJSON Header where
+  protoFromJSON (JsonObject obj) = do
+    fld_headerFields <- obj .:? "fields"
+    pure defaultHeader
+      { headerFields = maybe (headerFields defaultHeader) id fld_headerFields
+      }
   protoFromJSON _ = Right defaultHeader
 
 data WorkflowExecution = WorkflowExecution
@@ -407,6 +450,13 @@ instance ProtoToJSON WorkflowExecution where
       ]
 
 instance ProtoFromJSON WorkflowExecution where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionWorkflowid <- obj .:? "workflowId"
+    fld_workflowExecutionRunid <- obj .:? "runId"
+    pure defaultWorkflowExecution
+      { workflowExecutionWorkflowid = maybe (workflowExecutionWorkflowid defaultWorkflowExecution) id fld_workflowExecutionWorkflowid
+      , workflowExecutionRunid = maybe (workflowExecutionRunid defaultWorkflowExecution) id fld_workflowExecutionRunid
+      }
   protoFromJSON _ = Right defaultWorkflowExecution
 
 data WorkflowType = WorkflowType
@@ -448,6 +498,11 @@ instance ProtoToJSON WorkflowType where
       ]
 
 instance ProtoFromJSON WorkflowType where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowTypeName <- obj .:? "name"
+    pure defaultWorkflowType
+      { workflowTypeName = maybe (workflowTypeName defaultWorkflowType) id fld_workflowTypeName
+      }
   protoFromJSON _ = Right defaultWorkflowType
 
 data ActivityType = ActivityType
@@ -489,6 +544,11 @@ instance ProtoToJSON ActivityType where
       ]
 
 instance ProtoFromJSON ActivityType where
+  protoFromJSON (JsonObject obj) = do
+    fld_activityTypeName <- obj .:? "name"
+    pure defaultActivityType
+      { activityTypeName = maybe (activityTypeName defaultActivityType) id fld_activityTypeName
+      }
   protoFromJSON _ = Right defaultActivityType
 
 data RetryPolicy = RetryPolicy
@@ -524,7 +584,7 @@ instance MessageSize RetryPolicy where
     + (if msg.retryPolicyBackoffcoefficient == 0 then 0 else fieldDoubleSize 2)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.retryPolicyMaximuminterval)
     + (if msg.retryPolicyMaximumattempts == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.retryPolicyMaximumattempts))
-    + 0 {- TODO: repeated size -}
+    + (V.foldl' (\acc v -> acc + fieldTextSize 5 v) 0 msg.retryPolicyNonretryableerrortypes)
 
 instance MessageDecode RetryPolicy where
   messageDecoder = loop Nothing 0 Nothing 0 V.empty
@@ -561,6 +621,19 @@ instance ProtoToJSON RetryPolicy where
       ]
 
 instance ProtoFromJSON RetryPolicy where
+  protoFromJSON (JsonObject obj) = do
+    fld_retryPolicyInitialinterval <- obj .:? "initialInterval"
+    fld_retryPolicyBackoffcoefficient <- obj .:? "backoffCoefficient"
+    fld_retryPolicyMaximuminterval <- obj .:? "maximumInterval"
+    fld_retryPolicyMaximumattempts <- obj .:? "maximumAttempts"
+    fld_retryPolicyNonretryableerrortypes <- obj .:? "nonRetryableErrorTypes"
+    pure defaultRetryPolicy
+      { retryPolicyInitialinterval = maybe (retryPolicyInitialinterval defaultRetryPolicy) id fld_retryPolicyInitialinterval
+      , retryPolicyBackoffcoefficient = maybe (retryPolicyBackoffcoefficient defaultRetryPolicy) id fld_retryPolicyBackoffcoefficient
+      , retryPolicyMaximuminterval = maybe (retryPolicyMaximuminterval defaultRetryPolicy) id fld_retryPolicyMaximuminterval
+      , retryPolicyMaximumattempts = maybe (retryPolicyMaximumattempts defaultRetryPolicy) id fld_retryPolicyMaximumattempts
+      , retryPolicyNonretryableerrortypes = maybe (retryPolicyNonretryableerrortypes defaultRetryPolicy) id fld_retryPolicyNonretryableerrortypes
+      }
   protoFromJSON _ = Right defaultRetryPolicy
 
 data MeteringMetadata = MeteringMetadata
@@ -602,6 +675,11 @@ instance ProtoToJSON MeteringMetadata where
       ]
 
 instance ProtoFromJSON MeteringMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_meteringMetadataNonfirstlocalactivityexecutionattempts <- obj .:? "nonfirstLocalActivityExecutionAttempts"
+    pure defaultMeteringMetadata
+      { meteringMetadataNonfirstlocalactivityexecutionattempts = maybe (meteringMetadataNonfirstlocalactivityexecutionattempts defaultMeteringMetadata) id fld_meteringMetadataNonfirstlocalactivityexecutionattempts
+      }
   protoFromJSON _ = Right defaultMeteringMetadata
 
 data WorkerVersionStamp = WorkerVersionStamp
@@ -650,6 +728,13 @@ instance ProtoToJSON WorkerVersionStamp where
       ]
 
 instance ProtoFromJSON WorkerVersionStamp where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerVersionStampBuildid <- obj .:? "buildId"
+    fld_workerVersionStampUseversioning <- obj .:? "useVersioning"
+    pure defaultWorkerVersionStamp
+      { workerVersionStampBuildid = maybe (workerVersionStampBuildid defaultWorkerVersionStamp) id fld_workerVersionStampBuildid
+      , workerVersionStampUseversioning = maybe (workerVersionStampUseversioning defaultWorkerVersionStamp) id fld_workerVersionStampUseversioning
+      }
   protoFromJSON _ = Right defaultWorkerVersionStamp
 
 data WorkerVersionCapabilities = WorkerVersionCapabilities
@@ -706,6 +791,15 @@ instance ProtoToJSON WorkerVersionCapabilities where
       ]
 
 instance ProtoFromJSON WorkerVersionCapabilities where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerVersionCapabilitiesBuildid <- obj .:? "buildId"
+    fld_workerVersionCapabilitiesUseversioning <- obj .:? "useVersioning"
+    fld_workerVersionCapabilitiesDeploymentseriesname <- obj .:? "deploymentSeriesName"
+    pure defaultWorkerVersionCapabilities
+      { workerVersionCapabilitiesBuildid = maybe (workerVersionCapabilitiesBuildid defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesBuildid
+      , workerVersionCapabilitiesUseversioning = maybe (workerVersionCapabilitiesUseversioning defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesUseversioning
+      , workerVersionCapabilitiesDeploymentseriesname = maybe (workerVersionCapabilitiesDeploymentseriesname defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesDeploymentseriesname
+      }
   protoFromJSON _ = Right defaultWorkerVersionCapabilities
 
 data ResetOptions = ResetOptions
@@ -798,6 +892,17 @@ instance ProtoToJSON ResetOptions where
       ]
 
 instance ProtoFromJSON ResetOptions where
+  protoFromJSON (JsonObject obj) = do
+    fld_resetOptionsTarget <- obj .:? "target"
+    fld_resetOptionsResetreapplytype <- obj .:? "resetReapplyType"
+    fld_resetOptionsCurrentrunonly <- obj .:? "currentRunOnly"
+    fld_resetOptionsResetreapplyexcludetypes <- obj .:? "resetReapplyExcludeTypes"
+    pure defaultResetOptions
+      { resetOptionsTarget = maybe (resetOptionsTarget defaultResetOptions) id fld_resetOptionsTarget
+      , resetOptionsResetreapplytype = maybe (resetOptionsResetreapplytype defaultResetOptions) id fld_resetOptionsResetreapplytype
+      , resetOptionsCurrentrunonly = maybe (resetOptionsCurrentrunonly defaultResetOptions) id fld_resetOptionsCurrentrunonly
+      , resetOptionsResetreapplyexcludetypes = maybe (resetOptionsResetreapplyexcludetypes defaultResetOptions) id fld_resetOptionsResetreapplyexcludetypes
+      }
   protoFromJSON _ = Right defaultResetOptions
 
 data Callback = Callback
@@ -828,7 +933,7 @@ instance MessageEncode Callback'Nexus where
 instance MessageSize Callback'Nexus where
   messageSize msg =
     (if msg.callbackNexusUrl == T.empty then 0 else fieldTextSize 1 msg.callbackNexusUrl)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 2 + 20) 0 msg.callbackNexusHeader)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.callbackNexusHeader)
 
 instance MessageDecode Callback'Nexus where
   messageDecoder = loop "" Map.empty
@@ -856,6 +961,13 @@ instance ProtoToJSON Callback'Nexus where
       ]
 
 instance ProtoFromJSON Callback'Nexus where
+  protoFromJSON (JsonObject obj) = do
+    fld_callbackNexusUrl <- obj .:? "url"
+    fld_callbackNexusHeader <- obj .:? "header"
+    pure defaultCallback'Nexus
+      { callbackNexusUrl = maybe (callbackNexusUrl defaultCallback'Nexus) id fld_callbackNexusUrl
+      , callbackNexusHeader = maybe (callbackNexusHeader defaultCallback'Nexus) id fld_callbackNexusHeader
+      }
   protoFromJSON _ = Right defaultCallback'Nexus
 
 data Callback'Internal = Callback'Internal
@@ -897,6 +1009,11 @@ instance ProtoToJSON Callback'Internal where
       ]
 
 instance ProtoFromJSON Callback'Internal where
+  protoFromJSON (JsonObject obj) = do
+    fld_callbackInternalData <- obj .:? "data"
+    pure defaultCallback'Internal
+      { callbackInternalData = maybe (callbackInternalData defaultCallback'Internal) id fld_callbackInternalData
+      }
   protoFromJSON _ = Right defaultCallback'Internal
 data Callback'Variant
   = Callback'Variant'Nexus !Callback'Nexus
@@ -954,6 +1071,13 @@ instance ProtoToJSON Callback where
       ]
 
 instance ProtoFromJSON Callback where
+  protoFromJSON (JsonObject obj) = do
+    fld_callbackVariant <- obj .:? "variant"
+    fld_callbackLinks <- obj .:? "links"
+    pure defaultCallback
+      { callbackVariant = maybe (callbackVariant defaultCallback) id fld_callbackVariant
+      , callbackLinks = maybe (callbackLinks defaultCallback) id fld_callbackLinks
+      }
   protoFromJSON _ = Right defaultCallback
 
 data Link = Link
@@ -1017,6 +1141,13 @@ instance ProtoToJSON Link'WorkflowEvent'EventReference where
       ]
 
 instance ProtoFromJSON Link'WorkflowEvent'EventReference where
+  protoFromJSON (JsonObject obj) = do
+    fld_linkWorkflowEventEventReferenceEventid <- obj .:? "eventId"
+    fld_linkWorkflowEventEventReferenceEventtype <- obj .:? "eventType"
+    pure defaultLink'WorkflowEvent'EventReference
+      { linkWorkflowEventEventReferenceEventid = maybe (linkWorkflowEventEventReferenceEventid defaultLink'WorkflowEvent'EventReference) id fld_linkWorkflowEventEventReferenceEventid
+      , linkWorkflowEventEventReferenceEventtype = maybe (linkWorkflowEventEventReferenceEventtype defaultLink'WorkflowEvent'EventReference) id fld_linkWorkflowEventEventReferenceEventtype
+      }
   protoFromJSON _ = Right defaultLink'WorkflowEvent'EventReference
 
 data Link'WorkflowEvent'RequestIdReference = Link'WorkflowEvent'RequestIdReference
@@ -1065,6 +1196,13 @@ instance ProtoToJSON Link'WorkflowEvent'RequestIdReference where
       ]
 
 instance ProtoFromJSON Link'WorkflowEvent'RequestIdReference where
+  protoFromJSON (JsonObject obj) = do
+    fld_linkWorkflowEventRequestIdReferenceRequestid <- obj .:? "requestId"
+    fld_linkWorkflowEventRequestIdReferenceEventtype <- obj .:? "eventType"
+    pure defaultLink'WorkflowEvent'RequestIdReference
+      { linkWorkflowEventRequestIdReferenceRequestid = maybe (linkWorkflowEventRequestIdReferenceRequestid defaultLink'WorkflowEvent'RequestIdReference) id fld_linkWorkflowEventRequestIdReferenceRequestid
+      , linkWorkflowEventRequestIdReferenceEventtype = maybe (linkWorkflowEventRequestIdReferenceEventtype defaultLink'WorkflowEvent'RequestIdReference) id fld_linkWorkflowEventRequestIdReferenceEventtype
+      }
   protoFromJSON _ = Right defaultLink'WorkflowEvent'RequestIdReference
 data Link'WorkflowEvent'Reference
   = Link'WorkflowEvent'Reference'EventRef !Link'WorkflowEvent'EventReference
@@ -1136,6 +1274,17 @@ instance ProtoToJSON Link'WorkflowEvent where
       ]
 
 instance ProtoFromJSON Link'WorkflowEvent where
+  protoFromJSON (JsonObject obj) = do
+    fld_linkWorkflowEventNamespace <- obj .:? "namespace"
+    fld_linkWorkflowEventWorkflowid <- obj .:? "workflowId"
+    fld_linkWorkflowEventRunid <- obj .:? "runId"
+    fld_linkWorkflowEventReference <- obj .:? "reference"
+    pure defaultLink'WorkflowEvent
+      { linkWorkflowEventNamespace = maybe (linkWorkflowEventNamespace defaultLink'WorkflowEvent) id fld_linkWorkflowEventNamespace
+      , linkWorkflowEventWorkflowid = maybe (linkWorkflowEventWorkflowid defaultLink'WorkflowEvent) id fld_linkWorkflowEventWorkflowid
+      , linkWorkflowEventRunid = maybe (linkWorkflowEventRunid defaultLink'WorkflowEvent) id fld_linkWorkflowEventRunid
+      , linkWorkflowEventReference = maybe (linkWorkflowEventReference defaultLink'WorkflowEvent) id fld_linkWorkflowEventReference
+      }
   protoFromJSON _ = Right defaultLink'WorkflowEvent
 
 data Link'BatchJob = Link'BatchJob
@@ -1177,6 +1326,11 @@ instance ProtoToJSON Link'BatchJob where
       ]
 
 instance ProtoFromJSON Link'BatchJob where
+  protoFromJSON (JsonObject obj) = do
+    fld_linkBatchJobJobid <- obj .:? "jobId"
+    pure defaultLink'BatchJob
+      { linkBatchJobJobid = maybe (linkBatchJobJobid defaultLink'BatchJob) id fld_linkBatchJobJobid
+      }
   protoFromJSON _ = Right defaultLink'BatchJob
 data Link'Variant
   = Link'Variant'WorkflowEvent !Link'WorkflowEvent
@@ -1228,6 +1382,11 @@ instance ProtoToJSON Link where
       ]
 
 instance ProtoFromJSON Link where
+  protoFromJSON (JsonObject obj) = do
+    fld_linkVariant <- obj .:? "variant"
+    pure defaultLink
+      { linkVariant = maybe (linkVariant defaultLink) id fld_linkVariant
+      }
   protoFromJSON _ = Right defaultLink
 
 data Priority = Priority
@@ -1284,6 +1443,15 @@ instance ProtoToJSON Priority where
       ]
 
 instance ProtoFromJSON Priority where
+  protoFromJSON (JsonObject obj) = do
+    fld_priorityPrioritykey <- obj .:? "priorityKey"
+    fld_priorityFairnesskey <- obj .:? "fairnessKey"
+    fld_priorityFairnessweight <- obj .:? "fairnessWeight"
+    pure defaultPriority
+      { priorityPrioritykey = maybe (priorityPrioritykey defaultPriority) id fld_priorityPrioritykey
+      , priorityFairnesskey = maybe (priorityFairnesskey defaultPriority) id fld_priorityFairnesskey
+      , priorityFairnessweight = maybe (priorityFairnessweight defaultPriority) id fld_priorityFairnessweight
+      }
   protoFromJSON _ = Right defaultPriority
 
 data WorkerSelector = WorkerSelector
@@ -1335,4 +1503,9 @@ instance ProtoToJSON WorkerSelector where
       ]
 
 instance ProtoFromJSON WorkerSelector where
+  protoFromJSON (JsonObject obj) = do
+    fld_workerSelectorSelector <- obj .:? "selector"
+    pure defaultWorkerSelector
+      { workerSelectorSelector = maybe (workerSelectorSelector defaultWorkerSelector) id fld_workerSelectorSelector
+      }
   protoFromJSON _ = Right defaultWorkerSelector

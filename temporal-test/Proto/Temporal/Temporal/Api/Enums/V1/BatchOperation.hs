@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data BatchOperationType
@@ -80,8 +82,6 @@ instance MessageSize BatchOperationType where
   messageSize _ = 0
 instance MessageDecode BatchOperationType where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON BatchOperationType where
   protoToJSON BatchOperationType'BatchOperationTypeUnspecified = JsonString "BATCH_OPERATION_TYPE_UNSPECIFIED"
@@ -137,8 +137,6 @@ instance MessageSize BatchOperationState where
   messageSize _ = 0
 instance MessageDecode BatchOperationState where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON BatchOperationState where
   protoToJSON BatchOperationState'BatchOperationStateUnspecified = JsonString "BATCH_OPERATION_STATE_UNSPECIFIED"

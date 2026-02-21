@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Google.Protobuf.Wrappers (DoubleValue(..))
@@ -95,6 +97,15 @@ instance ProtoToJSON TaskQueue where
       ]
 
 instance ProtoFromJSON TaskQueue where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueName <- obj .:? "name"
+    fld_taskQueueKind <- obj .:? "kind"
+    fld_taskQueueNormalname <- obj .:? "normalName"
+    pure defaultTaskQueue
+      { taskQueueName = maybe (taskQueueName defaultTaskQueue) id fld_taskQueueName
+      , taskQueueKind = maybe (taskQueueKind defaultTaskQueue) id fld_taskQueueKind
+      , taskQueueNormalname = maybe (taskQueueNormalname defaultTaskQueue) id fld_taskQueueNormalname
+      }
   protoFromJSON _ = Right defaultTaskQueue
 
 data TaskQueueMetadata = TaskQueueMetadata
@@ -136,6 +147,11 @@ instance ProtoToJSON TaskQueueMetadata where
       ]
 
 instance ProtoFromJSON TaskQueueMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueMetadataMaxtaskspersecond <- obj .:? "maxTasksPerSecond"
+    pure defaultTaskQueueMetadata
+      { taskQueueMetadataMaxtaskspersecond = maybe (taskQueueMetadataMaxtaskspersecond defaultTaskQueueMetadata) id fld_taskQueueMetadataMaxtaskspersecond
+      }
   protoFromJSON _ = Right defaultTaskQueueMetadata
 
 data TaskQueueVersioningInfo = TaskQueueVersioningInfo
@@ -216,6 +232,21 @@ instance ProtoToJSON TaskQueueVersioningInfo where
       ]
 
 instance ProtoFromJSON TaskQueueVersioningInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueVersioningInfoCurrentdeploymentversion <- obj .:? "currentDeploymentVersion"
+    fld_taskQueueVersioningInfoCurrentversion <- obj .:? "currentVersion"
+    fld_taskQueueVersioningInfoRampingdeploymentversion <- obj .:? "rampingDeploymentVersion"
+    fld_taskQueueVersioningInfoRampingversion <- obj .:? "rampingVersion"
+    fld_taskQueueVersioningInfoRampingversionpercentage <- obj .:? "rampingVersionPercentage"
+    fld_taskQueueVersioningInfoUpdatetime <- obj .:? "updateTime"
+    pure defaultTaskQueueVersioningInfo
+      { taskQueueVersioningInfoCurrentdeploymentversion = maybe (taskQueueVersioningInfoCurrentdeploymentversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoCurrentdeploymentversion
+      , taskQueueVersioningInfoCurrentversion = maybe (taskQueueVersioningInfoCurrentversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoCurrentversion
+      , taskQueueVersioningInfoRampingdeploymentversion = maybe (taskQueueVersioningInfoRampingdeploymentversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingdeploymentversion
+      , taskQueueVersioningInfoRampingversion = maybe (taskQueueVersioningInfoRampingversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingversion
+      , taskQueueVersioningInfoRampingversionpercentage = maybe (taskQueueVersioningInfoRampingversionpercentage defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingversionpercentage
+      , taskQueueVersioningInfoUpdatetime = maybe (taskQueueVersioningInfoUpdatetime defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoUpdatetime
+      }
   protoFromJSON _ = Right defaultTaskQueueVersioningInfo
 
 data TaskQueueVersionSelection = TaskQueueVersionSelection
@@ -241,7 +272,7 @@ instance MessageEncode TaskQueueVersionSelection where
 
 instance MessageSize TaskQueueVersionSelection where
   messageSize msg =
-    0 {- TODO: repeated size -}
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.taskQueueVersionSelectionBuildids)
     + (if msg.taskQueueVersionSelectionUnversioned == False then 0 else fieldBoolSize 2)
     + (if msg.taskQueueVersionSelectionAllactive == False then 0 else fieldBoolSize 3)
 
@@ -272,6 +303,15 @@ instance ProtoToJSON TaskQueueVersionSelection where
       ]
 
 instance ProtoFromJSON TaskQueueVersionSelection where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueVersionSelectionBuildids <- obj .:? "buildIds"
+    fld_taskQueueVersionSelectionUnversioned <- obj .:? "unversioned"
+    fld_taskQueueVersionSelectionAllactive <- obj .:? "allActive"
+    pure defaultTaskQueueVersionSelection
+      { taskQueueVersionSelectionBuildids = maybe (taskQueueVersionSelectionBuildids defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionBuildids
+      , taskQueueVersionSelectionUnversioned = maybe (taskQueueVersionSelectionUnversioned defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionUnversioned
+      , taskQueueVersionSelectionAllactive = maybe (taskQueueVersionSelectionAllactive defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionAllactive
+      }
   protoFromJSON _ = Right defaultTaskQueueVersionSelection
 
 data TaskQueueVersionInfo = TaskQueueVersionInfo
@@ -294,7 +334,7 @@ instance MessageEncode TaskQueueVersionInfo where
 
 instance MessageSize TaskQueueVersionInfo where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.taskQueueVersionInfoTypesinfo)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldVarintSize 1 (fromIntegral k) + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.taskQueueVersionInfoTypesinfo)
     + (if fromEnum msg.taskQueueVersionInfoTaskreachability == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.taskQueueVersionInfoTaskreachability)))
 
 instance MessageDecode TaskQueueVersionInfo where
@@ -323,6 +363,13 @@ instance ProtoToJSON TaskQueueVersionInfo where
       ]
 
 instance ProtoFromJSON TaskQueueVersionInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueVersionInfoTypesinfo <- obj .:? "typesInfo"
+    fld_taskQueueVersionInfoTaskreachability <- obj .:? "taskReachability"
+    pure defaultTaskQueueVersionInfo
+      { taskQueueVersionInfoTypesinfo = maybe (taskQueueVersionInfoTypesinfo defaultTaskQueueVersionInfo) id fld_taskQueueVersionInfoTypesinfo
+      , taskQueueVersionInfoTaskreachability = maybe (taskQueueVersionInfoTaskreachability defaultTaskQueueVersionInfo) id fld_taskQueueVersionInfoTaskreachability
+      }
   protoFromJSON _ = Right defaultTaskQueueVersionInfo
 
 data TaskQueueTypeInfo = TaskQueueTypeInfo
@@ -371,6 +418,13 @@ instance ProtoToJSON TaskQueueTypeInfo where
       ]
 
 instance ProtoFromJSON TaskQueueTypeInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueTypeInfoPollers <- obj .:? "pollers"
+    fld_taskQueueTypeInfoStats <- obj .:? "stats"
+    pure defaultTaskQueueTypeInfo
+      { taskQueueTypeInfoPollers = maybe (taskQueueTypeInfoPollers defaultTaskQueueTypeInfo) id fld_taskQueueTypeInfoPollers
+      , taskQueueTypeInfoStats = maybe (taskQueueTypeInfoStats defaultTaskQueueTypeInfo) id fld_taskQueueTypeInfoStats
+      }
   protoFromJSON _ = Right defaultTaskQueueTypeInfo
 
 data TaskQueueStats = TaskQueueStats
@@ -435,6 +489,17 @@ instance ProtoToJSON TaskQueueStats where
       ]
 
 instance ProtoFromJSON TaskQueueStats where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueStatsApproximatebacklogcount <- obj .:? "approximateBacklogCount"
+    fld_taskQueueStatsApproximatebacklogage <- obj .:? "approximateBacklogAge"
+    fld_taskQueueStatsTasksaddrate <- obj .:? "tasksAddRate"
+    fld_taskQueueStatsTasksdispatchrate <- obj .:? "tasksDispatchRate"
+    pure defaultTaskQueueStats
+      { taskQueueStatsApproximatebacklogcount = maybe (taskQueueStatsApproximatebacklogcount defaultTaskQueueStats) id fld_taskQueueStatsApproximatebacklogcount
+      , taskQueueStatsApproximatebacklogage = maybe (taskQueueStatsApproximatebacklogage defaultTaskQueueStats) id fld_taskQueueStatsApproximatebacklogage
+      , taskQueueStatsTasksaddrate = maybe (taskQueueStatsTasksaddrate defaultTaskQueueStats) id fld_taskQueueStatsTasksaddrate
+      , taskQueueStatsTasksdispatchrate = maybe (taskQueueStatsTasksdispatchrate defaultTaskQueueStats) id fld_taskQueueStatsTasksdispatchrate
+      }
   protoFromJSON _ = Right defaultTaskQueueStats
 
 data TaskQueueStatus = TaskQueueStatus
@@ -507,6 +572,19 @@ instance ProtoToJSON TaskQueueStatus where
       ]
 
 instance ProtoFromJSON TaskQueueStatus where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueStatusBacklogcounthint <- obj .:? "backlogCountHint"
+    fld_taskQueueStatusReadlevel <- obj .:? "readLevel"
+    fld_taskQueueStatusAcklevel <- obj .:? "ackLevel"
+    fld_taskQueueStatusRatepersecond <- obj .:? "ratePerSecond"
+    fld_taskQueueStatusTaskidblock <- obj .:? "taskIdBlock"
+    pure defaultTaskQueueStatus
+      { taskQueueStatusBacklogcounthint = maybe (taskQueueStatusBacklogcounthint defaultTaskQueueStatus) id fld_taskQueueStatusBacklogcounthint
+      , taskQueueStatusReadlevel = maybe (taskQueueStatusReadlevel defaultTaskQueueStatus) id fld_taskQueueStatusReadlevel
+      , taskQueueStatusAcklevel = maybe (taskQueueStatusAcklevel defaultTaskQueueStatus) id fld_taskQueueStatusAcklevel
+      , taskQueueStatusRatepersecond = maybe (taskQueueStatusRatepersecond defaultTaskQueueStatus) id fld_taskQueueStatusRatepersecond
+      , taskQueueStatusTaskidblock = maybe (taskQueueStatusTaskidblock defaultTaskQueueStatus) id fld_taskQueueStatusTaskidblock
+      }
   protoFromJSON _ = Right defaultTaskQueueStatus
 
 data TaskIdBlock = TaskIdBlock
@@ -555,6 +633,13 @@ instance ProtoToJSON TaskIdBlock where
       ]
 
 instance ProtoFromJSON TaskIdBlock where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskIdBlockStartid <- obj .:? "startId"
+    fld_taskIdBlockEndid <- obj .:? "endId"
+    pure defaultTaskIdBlock
+      { taskIdBlockStartid = maybe (taskIdBlockStartid defaultTaskIdBlock) id fld_taskIdBlockStartid
+      , taskIdBlockEndid = maybe (taskIdBlockEndid defaultTaskIdBlock) id fld_taskIdBlockEndid
+      }
   protoFromJSON _ = Right defaultTaskIdBlock
 
 data TaskQueuePartitionMetadata = TaskQueuePartitionMetadata
@@ -603,6 +688,13 @@ instance ProtoToJSON TaskQueuePartitionMetadata where
       ]
 
 instance ProtoFromJSON TaskQueuePartitionMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueuePartitionMetadataKey <- obj .:? "key"
+    fld_taskQueuePartitionMetadataOwnerhostname <- obj .:? "ownerHostName"
+    pure defaultTaskQueuePartitionMetadata
+      { taskQueuePartitionMetadataKey = maybe (taskQueuePartitionMetadataKey defaultTaskQueuePartitionMetadata) id fld_taskQueuePartitionMetadataKey
+      , taskQueuePartitionMetadataOwnerhostname = maybe (taskQueuePartitionMetadataOwnerhostname defaultTaskQueuePartitionMetadata) id fld_taskQueuePartitionMetadataOwnerhostname
+      }
   protoFromJSON _ = Right defaultTaskQueuePartitionMetadata
 
 data PollerInfo = PollerInfo
@@ -675,6 +767,19 @@ instance ProtoToJSON PollerInfo where
       ]
 
 instance ProtoFromJSON PollerInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollerInfoLastaccesstime <- obj .:? "lastAccessTime"
+    fld_pollerInfoIdentity <- obj .:? "identity"
+    fld_pollerInfoRatepersecond <- obj .:? "ratePerSecond"
+    fld_pollerInfoWorkerversioncapabilities <- obj .:? "workerVersionCapabilities"
+    fld_pollerInfoDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultPollerInfo
+      { pollerInfoLastaccesstime = maybe (pollerInfoLastaccesstime defaultPollerInfo) id fld_pollerInfoLastaccesstime
+      , pollerInfoIdentity = maybe (pollerInfoIdentity defaultPollerInfo) id fld_pollerInfoIdentity
+      , pollerInfoRatepersecond = maybe (pollerInfoRatepersecond defaultPollerInfo) id fld_pollerInfoRatepersecond
+      , pollerInfoWorkerversioncapabilities = maybe (pollerInfoWorkerversioncapabilities defaultPollerInfo) id fld_pollerInfoWorkerversioncapabilities
+      , pollerInfoDeploymentoptions = maybe (pollerInfoDeploymentoptions defaultPollerInfo) id fld_pollerInfoDeploymentoptions
+      }
   protoFromJSON _ = Right defaultPollerInfo
 
 data StickyExecutionAttributes = StickyExecutionAttributes
@@ -723,6 +828,13 @@ instance ProtoToJSON StickyExecutionAttributes where
       ]
 
 instance ProtoFromJSON StickyExecutionAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_stickyExecutionAttributesWorkertaskqueue <- obj .:? "workerTaskQueue"
+    fld_stickyExecutionAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    pure defaultStickyExecutionAttributes
+      { stickyExecutionAttributesWorkertaskqueue = maybe (stickyExecutionAttributesWorkertaskqueue defaultStickyExecutionAttributes) id fld_stickyExecutionAttributesWorkertaskqueue
+      , stickyExecutionAttributesScheduletostarttimeout = maybe (stickyExecutionAttributesScheduletostarttimeout defaultStickyExecutionAttributes) id fld_stickyExecutionAttributesScheduletostarttimeout
+      }
   protoFromJSON _ = Right defaultStickyExecutionAttributes
 
 data CompatibleVersionSet = CompatibleVersionSet
@@ -742,7 +854,7 @@ instance MessageEncode CompatibleVersionSet where
 
 instance MessageSize CompatibleVersionSet where
   messageSize msg =
-    0 {- TODO: repeated size -}
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.compatibleVersionSetBuildids)
 
 instance MessageDecode CompatibleVersionSet where
   messageDecoder = loop V.empty
@@ -764,6 +876,11 @@ instance ProtoToJSON CompatibleVersionSet where
       ]
 
 instance ProtoFromJSON CompatibleVersionSet where
+  protoFromJSON (JsonObject obj) = do
+    fld_compatibleVersionSetBuildids <- obj .:? "buildIds"
+    pure defaultCompatibleVersionSet
+      { compatibleVersionSetBuildids = maybe (compatibleVersionSetBuildids defaultCompatibleVersionSet) id fld_compatibleVersionSetBuildids
+      }
   protoFromJSON _ = Right defaultCompatibleVersionSet
 
 data TaskQueueReachability = TaskQueueReachability
@@ -812,6 +929,13 @@ instance ProtoToJSON TaskQueueReachability where
       ]
 
 instance ProtoFromJSON TaskQueueReachability where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueReachabilityTaskqueue <- obj .:? "taskQueue"
+    fld_taskQueueReachabilityReachability <- obj .:? "reachability"
+    pure defaultTaskQueueReachability
+      { taskQueueReachabilityTaskqueue = maybe (taskQueueReachabilityTaskqueue defaultTaskQueueReachability) id fld_taskQueueReachabilityTaskqueue
+      , taskQueueReachabilityReachability = maybe (taskQueueReachabilityReachability defaultTaskQueueReachability) id fld_taskQueueReachabilityReachability
+      }
   protoFromJSON _ = Right defaultTaskQueueReachability
 
 data BuildIdReachability = BuildIdReachability
@@ -860,6 +984,13 @@ instance ProtoToJSON BuildIdReachability where
       ]
 
 instance ProtoFromJSON BuildIdReachability where
+  protoFromJSON (JsonObject obj) = do
+    fld_buildIdReachabilityBuildid <- obj .:? "buildId"
+    fld_buildIdReachabilityTaskqueuereachability <- obj .:? "taskQueueReachability"
+    pure defaultBuildIdReachability
+      { buildIdReachabilityBuildid = maybe (buildIdReachabilityBuildid defaultBuildIdReachability) id fld_buildIdReachabilityBuildid
+      , buildIdReachabilityTaskqueuereachability = maybe (buildIdReachabilityTaskqueuereachability defaultBuildIdReachability) id fld_buildIdReachabilityTaskqueuereachability
+      }
   protoFromJSON _ = Right defaultBuildIdReachability
 
 data RampByPercentage = RampByPercentage
@@ -901,6 +1032,11 @@ instance ProtoToJSON RampByPercentage where
       ]
 
 instance ProtoFromJSON RampByPercentage where
+  protoFromJSON (JsonObject obj) = do
+    fld_rampByPercentageRamppercentage <- obj .:? "rampPercentage"
+    pure defaultRampByPercentage
+      { rampByPercentageRamppercentage = maybe (rampByPercentageRamppercentage defaultRampByPercentage) id fld_rampByPercentageRamppercentage
+      }
   protoFromJSON _ = Right defaultRampByPercentage
 
 data BuildIdAssignmentRule = BuildIdAssignmentRule
@@ -959,6 +1095,13 @@ instance ProtoToJSON BuildIdAssignmentRule where
       ]
 
 instance ProtoFromJSON BuildIdAssignmentRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_buildIdAssignmentRuleTargetbuildid <- obj .:? "targetBuildId"
+    fld_buildIdAssignmentRuleRamp <- obj .:? "ramp"
+    pure defaultBuildIdAssignmentRule
+      { buildIdAssignmentRuleTargetbuildid = maybe (buildIdAssignmentRuleTargetbuildid defaultBuildIdAssignmentRule) id fld_buildIdAssignmentRuleTargetbuildid
+      , buildIdAssignmentRuleRamp = maybe (buildIdAssignmentRuleRamp defaultBuildIdAssignmentRule) id fld_buildIdAssignmentRuleRamp
+      }
   protoFromJSON _ = Right defaultBuildIdAssignmentRule
 
 data CompatibleBuildIdRedirectRule = CompatibleBuildIdRedirectRule
@@ -1007,6 +1150,13 @@ instance ProtoToJSON CompatibleBuildIdRedirectRule where
       ]
 
 instance ProtoFromJSON CompatibleBuildIdRedirectRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_compatibleBuildIdRedirectRuleSourcebuildid <- obj .:? "sourceBuildId"
+    fld_compatibleBuildIdRedirectRuleTargetbuildid <- obj .:? "targetBuildId"
+    pure defaultCompatibleBuildIdRedirectRule
+      { compatibleBuildIdRedirectRuleSourcebuildid = maybe (compatibleBuildIdRedirectRuleSourcebuildid defaultCompatibleBuildIdRedirectRule) id fld_compatibleBuildIdRedirectRuleSourcebuildid
+      , compatibleBuildIdRedirectRuleTargetbuildid = maybe (compatibleBuildIdRedirectRuleTargetbuildid defaultCompatibleBuildIdRedirectRule) id fld_compatibleBuildIdRedirectRuleTargetbuildid
+      }
   protoFromJSON _ = Right defaultCompatibleBuildIdRedirectRule
 
 data TimestampedBuildIdAssignmentRule = TimestampedBuildIdAssignmentRule
@@ -1055,6 +1205,13 @@ instance ProtoToJSON TimestampedBuildIdAssignmentRule where
       ]
 
 instance ProtoFromJSON TimestampedBuildIdAssignmentRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_timestampedBuildIdAssignmentRuleRule <- obj .:? "rule"
+    fld_timestampedBuildIdAssignmentRuleCreatetime <- obj .:? "createTime"
+    pure defaultTimestampedBuildIdAssignmentRule
+      { timestampedBuildIdAssignmentRuleRule = maybe (timestampedBuildIdAssignmentRuleRule defaultTimestampedBuildIdAssignmentRule) id fld_timestampedBuildIdAssignmentRuleRule
+      , timestampedBuildIdAssignmentRuleCreatetime = maybe (timestampedBuildIdAssignmentRuleCreatetime defaultTimestampedBuildIdAssignmentRule) id fld_timestampedBuildIdAssignmentRuleCreatetime
+      }
   protoFromJSON _ = Right defaultTimestampedBuildIdAssignmentRule
 
 data TimestampedCompatibleBuildIdRedirectRule = TimestampedCompatibleBuildIdRedirectRule
@@ -1103,6 +1260,13 @@ instance ProtoToJSON TimestampedCompatibleBuildIdRedirectRule where
       ]
 
 instance ProtoFromJSON TimestampedCompatibleBuildIdRedirectRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_timestampedCompatibleBuildIdRedirectRuleRule <- obj .:? "rule"
+    fld_timestampedCompatibleBuildIdRedirectRuleCreatetime <- obj .:? "createTime"
+    pure defaultTimestampedCompatibleBuildIdRedirectRule
+      { timestampedCompatibleBuildIdRedirectRuleRule = maybe (timestampedCompatibleBuildIdRedirectRuleRule defaultTimestampedCompatibleBuildIdRedirectRule) id fld_timestampedCompatibleBuildIdRedirectRuleRule
+      , timestampedCompatibleBuildIdRedirectRuleCreatetime = maybe (timestampedCompatibleBuildIdRedirectRuleCreatetime defaultTimestampedCompatibleBuildIdRedirectRule) id fld_timestampedCompatibleBuildIdRedirectRuleCreatetime
+      }
   protoFromJSON _ = Right defaultTimestampedCompatibleBuildIdRedirectRule
 
 data PollerScalingDecision = PollerScalingDecision
@@ -1144,6 +1308,11 @@ instance ProtoToJSON PollerScalingDecision where
       ]
 
 instance ProtoFromJSON PollerScalingDecision where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollerScalingDecisionPollrequestdeltasuggestion <- obj .:? "pollRequestDeltaSuggestion"
+    pure defaultPollerScalingDecision
+      { pollerScalingDecisionPollrequestdeltasuggestion = maybe (pollerScalingDecisionPollrequestdeltasuggestion defaultPollerScalingDecision) id fld_pollerScalingDecisionPollrequestdeltasuggestion
+      }
   protoFromJSON _ = Right defaultPollerScalingDecision
 
 data RateLimit = RateLimit
@@ -1185,6 +1354,11 @@ instance ProtoToJSON RateLimit where
       ]
 
 instance ProtoFromJSON RateLimit where
+  protoFromJSON (JsonObject obj) = do
+    fld_rateLimitRequestspersecond <- obj .:? "requestsPerSecond"
+    pure defaultRateLimit
+      { rateLimitRequestspersecond = maybe (rateLimitRequestspersecond defaultRateLimit) id fld_rateLimitRequestspersecond
+      }
   protoFromJSON _ = Right defaultRateLimit
 
 data ConfigMetadata = ConfigMetadata
@@ -1241,6 +1415,15 @@ instance ProtoToJSON ConfigMetadata where
       ]
 
 instance ProtoFromJSON ConfigMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_configMetadataReason <- obj .:? "reason"
+    fld_configMetadataUpdateidentity <- obj .:? "updateIdentity"
+    fld_configMetadataUpdatetime <- obj .:? "updateTime"
+    pure defaultConfigMetadata
+      { configMetadataReason = maybe (configMetadataReason defaultConfigMetadata) id fld_configMetadataReason
+      , configMetadataUpdateidentity = maybe (configMetadataUpdateidentity defaultConfigMetadata) id fld_configMetadataUpdateidentity
+      , configMetadataUpdatetime = maybe (configMetadataUpdatetime defaultConfigMetadata) id fld_configMetadataUpdatetime
+      }
   protoFromJSON _ = Right defaultConfigMetadata
 
 data RateLimitConfig = RateLimitConfig
@@ -1289,6 +1472,13 @@ instance ProtoToJSON RateLimitConfig where
       ]
 
 instance ProtoFromJSON RateLimitConfig where
+  protoFromJSON (JsonObject obj) = do
+    fld_rateLimitConfigRatelimit <- obj .:? "rateLimit"
+    fld_rateLimitConfigMetadata <- obj .:? "metadata"
+    pure defaultRateLimitConfig
+      { rateLimitConfigRatelimit = maybe (rateLimitConfigRatelimit defaultRateLimitConfig) id fld_rateLimitConfigRatelimit
+      , rateLimitConfigMetadata = maybe (rateLimitConfigMetadata defaultRateLimitConfig) id fld_rateLimitConfigMetadata
+      }
   protoFromJSON _ = Right defaultRateLimitConfig
 
 data TaskQueueConfig = TaskQueueConfig
@@ -1316,7 +1506,7 @@ instance MessageSize TaskQueueConfig where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.taskQueueConfigQueueratelimit)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.taskQueueConfigFairnesskeysratelimitdefault)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 3 + 20) 0 msg.taskQueueConfigFairnessweightoverrides)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldFloatSize 2 in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.taskQueueConfigFairnessweightoverrides)
 
 instance MessageDecode TaskQueueConfig where
   messageDecoder = loop Nothing Nothing Map.empty
@@ -1348,4 +1538,13 @@ instance ProtoToJSON TaskQueueConfig where
       ]
 
 instance ProtoFromJSON TaskQueueConfig where
+  protoFromJSON (JsonObject obj) = do
+    fld_taskQueueConfigQueueratelimit <- obj .:? "queueRateLimit"
+    fld_taskQueueConfigFairnesskeysratelimitdefault <- obj .:? "fairnessKeysRateLimitDefault"
+    fld_taskQueueConfigFairnessweightoverrides <- obj .:? "fairnessWeightOverrides"
+    pure defaultTaskQueueConfig
+      { taskQueueConfigQueueratelimit = maybe (taskQueueConfigQueueratelimit defaultTaskQueueConfig) id fld_taskQueueConfigQueueratelimit
+      , taskQueueConfigFairnesskeysratelimitdefault = maybe (taskQueueConfigFairnesskeysratelimitdefault defaultTaskQueueConfig) id fld_taskQueueConfigFairnesskeysratelimitdefault
+      , taskQueueConfigFairnessweightoverrides = maybe (taskQueueConfigFairnessweightoverrides defaultTaskQueueConfig) id fld_taskQueueConfigFairnessweightoverrides
+      }
   protoFromJSON _ = Right defaultTaskQueueConfig

@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data QueryResultType
@@ -59,8 +61,6 @@ instance MessageSize QueryResultType where
   messageSize _ = 0
 instance MessageDecode QueryResultType where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON QueryResultType where
   protoToJSON QueryResultType'QueryResultTypeUnspecified = JsonString "QUERY_RESULT_TYPE_UNSPECIFIED"
@@ -102,8 +102,6 @@ instance MessageSize QueryRejectCondition where
   messageSize _ = 0
 instance MessageDecode QueryRejectCondition where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON QueryRejectCondition where
   protoToJSON QueryRejectCondition'QueryRejectConditionUnspecified = JsonString "QUERY_REJECT_CONDITION_UNSPECIFIED"

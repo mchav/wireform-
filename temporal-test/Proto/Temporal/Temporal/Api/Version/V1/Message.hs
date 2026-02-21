@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Common (Severity(..))
 
@@ -91,6 +93,15 @@ instance ProtoToJSON ReleaseInfo where
       ]
 
 instance ProtoFromJSON ReleaseInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_releaseInfoVersion <- obj .:? "version"
+    fld_releaseInfoReleasetime <- obj .:? "releaseTime"
+    fld_releaseInfoNotes <- obj .:? "notes"
+    pure defaultReleaseInfo
+      { releaseInfoVersion = maybe (releaseInfoVersion defaultReleaseInfo) id fld_releaseInfoVersion
+      , releaseInfoReleasetime = maybe (releaseInfoReleasetime defaultReleaseInfo) id fld_releaseInfoReleasetime
+      , releaseInfoNotes = maybe (releaseInfoNotes defaultReleaseInfo) id fld_releaseInfoNotes
+      }
   protoFromJSON _ = Right defaultReleaseInfo
 
 data Alert = Alert
@@ -139,6 +150,13 @@ instance ProtoToJSON Alert where
       ]
 
 instance ProtoFromJSON Alert where
+  protoFromJSON (JsonObject obj) = do
+    fld_alertMessage <- obj .:? "message"
+    fld_alertSeverity <- obj .:? "severity"
+    pure defaultAlert
+      { alertMessage = maybe (alertMessage defaultAlert) id fld_alertMessage
+      , alertSeverity = maybe (alertSeverity defaultAlert) id fld_alertSeverity
+      }
   protoFromJSON _ = Right defaultAlert
 
 data VersionInfo = VersionInfo
@@ -211,4 +229,17 @@ instance ProtoToJSON VersionInfo where
       ]
 
 instance ProtoFromJSON VersionInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_versionInfoCurrent <- obj .:? "current"
+    fld_versionInfoRecommended <- obj .:? "recommended"
+    fld_versionInfoInstructions <- obj .:? "instructions"
+    fld_versionInfoAlerts <- obj .:? "alerts"
+    fld_versionInfoLastupdatetime <- obj .:? "lastUpdateTime"
+    pure defaultVersionInfo
+      { versionInfoCurrent = maybe (versionInfoCurrent defaultVersionInfo) id fld_versionInfoCurrent
+      , versionInfoRecommended = maybe (versionInfoRecommended defaultVersionInfo) id fld_versionInfoRecommended
+      , versionInfoInstructions = maybe (versionInfoInstructions defaultVersionInfo) id fld_versionInfoInstructions
+      , versionInfoAlerts = maybe (versionInfoAlerts defaultVersionInfo) id fld_versionInfoAlerts
+      , versionInfoLastupdatetime = maybe (versionInfoLastupdatetime defaultVersionInfo) id fld_versionInfoLastupdatetime
+      }
   protoFromJSON _ = Right defaultVersionInfo

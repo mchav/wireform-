@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Namespace (ArchivalState(..), NamespaceState(..))
@@ -146,6 +148,25 @@ instance ProtoToJSON NamespaceInfo'Capabilities where
       ]
 
 instance ProtoFromJSON NamespaceInfo'Capabilities where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceInfoCapabilitiesEagerworkflowstart <- obj .:? "eagerWorkflowStart"
+    fld_namespaceInfoCapabilitiesSyncupdate <- obj .:? "syncUpdate"
+    fld_namespaceInfoCapabilitiesAsyncupdate <- obj .:? "asyncUpdate"
+    fld_namespaceInfoCapabilitiesWorkerheartbeats <- obj .:? "workerHeartbeats"
+    fld_namespaceInfoCapabilitiesReportedproblemssearchattribute <- obj .:? "reportedProblemsSearchAttribute"
+    fld_namespaceInfoCapabilitiesWorkflowpause <- obj .:? "workflowPause"
+    fld_namespaceInfoCapabilitiesStandaloneactivities <- obj .:? "standaloneActivities"
+    fld_namespaceInfoCapabilitiesWorkerpollcompleteonshutdown <- obj .:? "workerPollCompleteOnShutdown"
+    pure defaultNamespaceInfo'Capabilities
+      { namespaceInfoCapabilitiesEagerworkflowstart = maybe (namespaceInfoCapabilitiesEagerworkflowstart defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesEagerworkflowstart
+      , namespaceInfoCapabilitiesSyncupdate = maybe (namespaceInfoCapabilitiesSyncupdate defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesSyncupdate
+      , namespaceInfoCapabilitiesAsyncupdate = maybe (namespaceInfoCapabilitiesAsyncupdate defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesAsyncupdate
+      , namespaceInfoCapabilitiesWorkerheartbeats = maybe (namespaceInfoCapabilitiesWorkerheartbeats defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkerheartbeats
+      , namespaceInfoCapabilitiesReportedproblemssearchattribute = maybe (namespaceInfoCapabilitiesReportedproblemssearchattribute defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesReportedproblemssearchattribute
+      , namespaceInfoCapabilitiesWorkflowpause = maybe (namespaceInfoCapabilitiesWorkflowpause defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkflowpause
+      , namespaceInfoCapabilitiesStandaloneactivities = maybe (namespaceInfoCapabilitiesStandaloneactivities defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesStandaloneactivities
+      , namespaceInfoCapabilitiesWorkerpollcompleteonshutdown = maybe (namespaceInfoCapabilitiesWorkerpollcompleteonshutdown defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
+      }
   protoFromJSON _ = Right defaultNamespaceInfo'Capabilities
 
 data NamespaceInfo'Limits = NamespaceInfo'Limits
@@ -194,6 +215,13 @@ instance ProtoToJSON NamespaceInfo'Limits where
       ]
 
 instance ProtoFromJSON NamespaceInfo'Limits where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceInfoLimitsBlobsizelimiterror <- obj .:? "blobSizeLimitError"
+    fld_namespaceInfoLimitsMemosizelimiterror <- obj .:? "memoSizeLimitError"
+    pure defaultNamespaceInfo'Limits
+      { namespaceInfoLimitsBlobsizelimiterror = maybe (namespaceInfoLimitsBlobsizelimiterror defaultNamespaceInfo'Limits) id fld_namespaceInfoLimitsBlobsizelimiterror
+      , namespaceInfoLimitsMemosizelimiterror = maybe (namespaceInfoLimitsMemosizelimiterror defaultNamespaceInfo'Limits) id fld_namespaceInfoLimitsMemosizelimiterror
+      }
   protoFromJSON _ = Right defaultNamespaceInfo'Limits
 
 defaultNamespaceInfo :: NamespaceInfo
@@ -227,7 +255,7 @@ instance MessageSize NamespaceInfo where
     + (if fromEnum msg.namespaceInfoState == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.namespaceInfoState)))
     + (if msg.namespaceInfoDescription == T.empty then 0 else fieldTextSize 3 msg.namespaceInfoDescription)
     + (if msg.namespaceInfoOwneremail == T.empty then 0 else fieldTextSize 4 msg.namespaceInfoOwneremail)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 5 + 20) 0 msg.namespaceInfoData)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 5 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.namespaceInfoData)
     + (if msg.namespaceInfoId == T.empty then 0 else fieldTextSize 6 msg.namespaceInfoId)
     + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.namespaceInfoCapabilities)
     + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.namespaceInfoLimits)
@@ -287,6 +315,27 @@ instance ProtoToJSON NamespaceInfo where
       ]
 
 instance ProtoFromJSON NamespaceInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceInfoName <- obj .:? "name"
+    fld_namespaceInfoState <- obj .:? "state"
+    fld_namespaceInfoDescription <- obj .:? "description"
+    fld_namespaceInfoOwneremail <- obj .:? "ownerEmail"
+    fld_namespaceInfoData <- obj .:? "data"
+    fld_namespaceInfoId <- obj .:? "id"
+    fld_namespaceInfoCapabilities <- obj .:? "capabilities"
+    fld_namespaceInfoLimits <- obj .:? "limits"
+    fld_namespaceInfoSupportsschedules <- obj .:? "supportsSchedules"
+    pure defaultNamespaceInfo
+      { namespaceInfoName = maybe (namespaceInfoName defaultNamespaceInfo) id fld_namespaceInfoName
+      , namespaceInfoState = maybe (namespaceInfoState defaultNamespaceInfo) id fld_namespaceInfoState
+      , namespaceInfoDescription = maybe (namespaceInfoDescription defaultNamespaceInfo) id fld_namespaceInfoDescription
+      , namespaceInfoOwneremail = maybe (namespaceInfoOwneremail defaultNamespaceInfo) id fld_namespaceInfoOwneremail
+      , namespaceInfoData = maybe (namespaceInfoData defaultNamespaceInfo) id fld_namespaceInfoData
+      , namespaceInfoId = maybe (namespaceInfoId defaultNamespaceInfo) id fld_namespaceInfoId
+      , namespaceInfoCapabilities = maybe (namespaceInfoCapabilities defaultNamespaceInfo) id fld_namespaceInfoCapabilities
+      , namespaceInfoLimits = maybe (namespaceInfoLimits defaultNamespaceInfo) id fld_namespaceInfoLimits
+      , namespaceInfoSupportsschedules = maybe (namespaceInfoSupportsschedules defaultNamespaceInfo) id fld_namespaceInfoSupportsschedules
+      }
   protoFromJSON _ = Right defaultNamespaceInfo
 
 data NamespaceConfig = NamespaceConfig
@@ -330,7 +379,7 @@ instance MessageSize NamespaceConfig where
     + (if msg.namespaceConfigHistoryarchivaluri == T.empty then 0 else fieldTextSize 4 msg.namespaceConfigHistoryarchivaluri)
     + (if fromEnum msg.namespaceConfigVisibilityarchivalstate == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.namespaceConfigVisibilityarchivalstate)))
     + (if msg.namespaceConfigVisibilityarchivaluri == T.empty then 0 else fieldTextSize 6 msg.namespaceConfigVisibilityarchivaluri)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 7 + 20) 0 msg.namespaceConfigCustomsearchattributealiases)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 7 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.namespaceConfigCustomsearchattributealiases)
 
 instance MessageDecode NamespaceConfig where
   messageDecoder = loop Nothing Nothing (toEnum 0) "" (toEnum 0) "" Map.empty
@@ -378,6 +427,23 @@ instance ProtoToJSON NamespaceConfig where
       ]
 
 instance ProtoFromJSON NamespaceConfig where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceConfigWorkflowexecutionretentionttl <- obj .:? "workflowExecutionRetentionTtl"
+    fld_namespaceConfigBadbinaries <- obj .:? "badBinaries"
+    fld_namespaceConfigHistoryarchivalstate <- obj .:? "historyArchivalState"
+    fld_namespaceConfigHistoryarchivaluri <- obj .:? "historyArchivalUri"
+    fld_namespaceConfigVisibilityarchivalstate <- obj .:? "visibilityArchivalState"
+    fld_namespaceConfigVisibilityarchivaluri <- obj .:? "visibilityArchivalUri"
+    fld_namespaceConfigCustomsearchattributealiases <- obj .:? "customSearchAttributeAliases"
+    pure defaultNamespaceConfig
+      { namespaceConfigWorkflowexecutionretentionttl = maybe (namespaceConfigWorkflowexecutionretentionttl defaultNamespaceConfig) id fld_namespaceConfigWorkflowexecutionretentionttl
+      , namespaceConfigBadbinaries = maybe (namespaceConfigBadbinaries defaultNamespaceConfig) id fld_namespaceConfigBadbinaries
+      , namespaceConfigHistoryarchivalstate = maybe (namespaceConfigHistoryarchivalstate defaultNamespaceConfig) id fld_namespaceConfigHistoryarchivalstate
+      , namespaceConfigHistoryarchivaluri = maybe (namespaceConfigHistoryarchivaluri defaultNamespaceConfig) id fld_namespaceConfigHistoryarchivaluri
+      , namespaceConfigVisibilityarchivalstate = maybe (namespaceConfigVisibilityarchivalstate defaultNamespaceConfig) id fld_namespaceConfigVisibilityarchivalstate
+      , namespaceConfigVisibilityarchivaluri = maybe (namespaceConfigVisibilityarchivaluri defaultNamespaceConfig) id fld_namespaceConfigVisibilityarchivaluri
+      , namespaceConfigCustomsearchattributealiases = maybe (namespaceConfigCustomsearchattributealiases defaultNamespaceConfig) id fld_namespaceConfigCustomsearchattributealiases
+      }
   protoFromJSON _ = Right defaultNamespaceConfig
 
 data BadBinaries = BadBinaries
@@ -397,7 +463,7 @@ instance MessageEncode BadBinaries where
 
 instance MessageSize BadBinaries where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.badBinariesBinaries)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.badBinariesBinaries)
 
 instance MessageDecode BadBinaries where
   messageDecoder = loop Map.empty
@@ -422,6 +488,11 @@ instance ProtoToJSON BadBinaries where
       ]
 
 instance ProtoFromJSON BadBinaries where
+  protoFromJSON (JsonObject obj) = do
+    fld_badBinariesBinaries <- obj .:? "binaries"
+    pure defaultBadBinaries
+      { badBinariesBinaries = maybe (badBinariesBinaries defaultBadBinaries) id fld_badBinariesBinaries
+      }
   protoFromJSON _ = Right defaultBadBinaries
 
 data BadBinaryInfo = BadBinaryInfo
@@ -478,6 +549,15 @@ instance ProtoToJSON BadBinaryInfo where
       ]
 
 instance ProtoFromJSON BadBinaryInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_badBinaryInfoReason <- obj .:? "reason"
+    fld_badBinaryInfoOperator <- obj .:? "operator"
+    fld_badBinaryInfoCreatetime <- obj .:? "createTime"
+    pure defaultBadBinaryInfo
+      { badBinaryInfoReason = maybe (badBinaryInfoReason defaultBadBinaryInfo) id fld_badBinaryInfoReason
+      , badBinaryInfoOperator = maybe (badBinaryInfoOperator defaultBadBinaryInfo) id fld_badBinaryInfoOperator
+      , badBinaryInfoCreatetime = maybe (badBinaryInfoCreatetime defaultBadBinaryInfo) id fld_badBinaryInfoCreatetime
+      }
   protoFromJSON _ = Right defaultBadBinaryInfo
 
 data UpdateNamespaceInfo = UpdateNamespaceInfo
@@ -508,7 +588,7 @@ instance MessageSize UpdateNamespaceInfo where
   messageSize msg =
     (if msg.updateNamespaceInfoDescription == T.empty then 0 else fieldTextSize 1 msg.updateNamespaceInfoDescription)
     + (if msg.updateNamespaceInfoOwneremail == T.empty then 0 else fieldTextSize 2 msg.updateNamespaceInfoOwneremail)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 3 + 20) 0 msg.updateNamespaceInfoData)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.updateNamespaceInfoData)
     + (if fromEnum msg.updateNamespaceInfoState == 0 then 0 else fieldVarintSize 4 (fromIntegral (fromEnum msg.updateNamespaceInfoState)))
 
 instance MessageDecode UpdateNamespaceInfo where
@@ -545,6 +625,17 @@ instance ProtoToJSON UpdateNamespaceInfo where
       ]
 
 instance ProtoFromJSON UpdateNamespaceInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateNamespaceInfoDescription <- obj .:? "description"
+    fld_updateNamespaceInfoOwneremail <- obj .:? "ownerEmail"
+    fld_updateNamespaceInfoData <- obj .:? "data"
+    fld_updateNamespaceInfoState <- obj .:? "state"
+    pure defaultUpdateNamespaceInfo
+      { updateNamespaceInfoDescription = maybe (updateNamespaceInfoDescription defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoDescription
+      , updateNamespaceInfoOwneremail = maybe (updateNamespaceInfoOwneremail defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoOwneremail
+      , updateNamespaceInfoData = maybe (updateNamespaceInfoData defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoData
+      , updateNamespaceInfoState = maybe (updateNamespaceInfoState defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoState
+      }
   protoFromJSON _ = Right defaultUpdateNamespaceInfo
 
 data NamespaceFilter = NamespaceFilter
@@ -586,4 +677,9 @@ instance ProtoToJSON NamespaceFilter where
       ]
 
 instance ProtoFromJSON NamespaceFilter where
+  protoFromJSON (JsonObject obj) = do
+    fld_namespaceFilterIncludedeleted <- obj .:? "includeDeleted"
+    pure defaultNamespaceFilter
+      { namespaceFilterIncludedeleted = maybe (namespaceFilterIncludedeleted defaultNamespaceFilter) id fld_namespaceFilterIncludedeleted
+      }
   protoFromJSON _ = Right defaultNamespaceFilter

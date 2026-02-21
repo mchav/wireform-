@@ -230,6 +230,34 @@ instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Float) where
 instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Bool) where
   protoToJSON v = JsonArray (fmap JsonBool (VU.toList v))
 
+instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Word32) where
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON _ = Left "Expected array"
+
+instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Word64) where
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON _ = Left "Expected array"
+
+instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Int32) where
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON _ = Left "Expected array"
+
+instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Int64) where
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON _ = Left "Expected array"
+
+instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Double) where
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON _ = Left "Expected array"
+
+instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Float) where
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON _ = Left "Expected array"
+
+instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Bool) where
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON _ = Left "Expected array"
+
 instance (ProtoToJSON k, ProtoToJSON v) => ProtoToJSON (Map k v) where
   protoToJSON m = JsonObject (Map.mapKeys showKey (Map.map protoToJSON m))
     where
@@ -293,28 +321,86 @@ renderJsonString s = "\"" <> T.concatMap escapeChar s <> "\""
       | n < 16    = [intToDigit n]
       | otherwise  = showHex' (n `div` 16) <> [intToDigit (n `mod` 16)]
 
--- | Minimal JSON parser. For production use, consider using aeson.
--- This handles the subset needed for proto3 JSON.
+-- | Minimal recursive-descent JSON parser.
 parseJson :: Text -> Either String JsonValue
-parseJson t = case T.strip t of
-  "null"  -> Right JsonNull
-  "true"  -> Right (JsonBool True)
-  "false" -> Right (JsonBool False)
-  s | T.isPrefixOf "\"" s -> parseJsonString s
-    | T.isPrefixOf "[" s  -> parseJsonArray s
-    | T.isPrefixOf "{" s  -> parseJsonObject s
-    | otherwise           -> case reads (T.unpack s) of
-        [(n, "")] -> Right (JsonNumber n)
-        _         -> Left ("Invalid JSON: " <> T.unpack s)
+parseJson t = case parseValue (T.strip t) of
+  Right (v, rest) | T.null (T.strip rest) -> Right v
+  Right (_, rest) -> Left ("Trailing content: " <> T.unpack (T.take 20 rest))
+  Left e -> Left e
 
-parseJsonString :: Text -> Either String JsonValue
-parseJsonString s =
-  if T.length s >= 2 && T.head s == '"' && T.last s == '"'
-  then Right (JsonString (T.init (T.tail s)))
-  else Left "Invalid JSON string"
+parseValue :: Text -> Either String (JsonValue, Text)
+parseValue t =
+  let s = T.stripStart t
+  in if T.null s then Left "Unexpected end of input"
+     else case T.head s of
+       'n' | T.isPrefixOf "null" s  -> Right (JsonNull, T.drop 4 s)
+       't' | T.isPrefixOf "true" s  -> Right (JsonBool True, T.drop 4 s)
+       'f' | T.isPrefixOf "false" s -> Right (JsonBool False, T.drop 5 s)
+       '"' -> parseStr s
+       '[' -> parseArr (T.drop 1 s) []
+       '{' -> parseObj (T.drop 1 s) []
+       _   -> parseNum s
 
-parseJsonArray :: Text -> Either String JsonValue
-parseJsonArray _ = Right (JsonArray [])
+parseStr :: Text -> Either String (JsonValue, Text)
+parseStr s = case scanString (T.drop 1 s) [] of
+  Right (str, rest) -> Right (JsonString (T.pack str), rest)
+  Left e -> Left e
+  where
+    scanString t acc
+      | T.null t = Left "Unterminated string"
+      | otherwise = case T.head t of
+          '"'  -> Right (reverse acc, T.drop 1 t)
+          '\\' | T.length t >= 2 -> case T.index t 1 of
+                   'n'  -> scanString (T.drop 2 t) ('\n' : acc)
+                   'r'  -> scanString (T.drop 2 t) ('\r' : acc)
+                   't'  -> scanString (T.drop 2 t) ('\t' : acc)
+                   '"'  -> scanString (T.drop 2 t) ('"' : acc)
+                   '\\' -> scanString (T.drop 2 t) ('\\' : acc)
+                   '/'  -> scanString (T.drop 2 t) ('/' : acc)
+                   _    -> scanString (T.drop 2 t) (T.index t 1 : acc)
+               | otherwise -> Left "Unterminated escape"
+          c    -> scanString (T.drop 1 t) (c : acc)
 
-parseJsonObject :: Text -> Either String JsonValue
-parseJsonObject _ = Right (JsonObject Map.empty)
+parseNum :: Text -> Either String (JsonValue, Text)
+parseNum s =
+  let (numTxt, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || (c >= '0' && c <= '9')) s
+  in if T.null numTxt then Left ("Expected number at: " <> T.unpack (T.take 20 s))
+     else case reads (T.unpack numTxt) of
+       [(n, "")] -> Right (JsonNumber n, rest)
+       _         -> Left ("Invalid number: " <> T.unpack numTxt)
+
+parseArr :: Text -> [JsonValue] -> Either String (JsonValue, Text)
+parseArr t acc =
+  let s = T.stripStart t
+  in if T.null s then Left "Unterminated array"
+     else if T.head s == ']' then Right (JsonArray (reverse acc), T.drop 1 s)
+     else do
+       (v, rest) <- parseValue s
+       let rest' = T.stripStart rest
+       if T.null rest' then Left "Unterminated array"
+       else case T.head rest' of
+         ']' -> Right (JsonArray (reverse (v : acc)), T.drop 1 rest')
+         ',' -> parseArr (T.drop 1 rest') (v : acc)
+         _   -> Left ("Expected ',' or ']' in array, got: " <> T.unpack (T.take 10 rest'))
+
+parseObj :: Text -> [(Text, JsonValue)] -> Either String (JsonValue, Text)
+parseObj t acc =
+  let s = T.stripStart t
+  in if T.null s then Left "Unterminated object"
+     else if T.head s == '}' then Right (JsonObject (Map.fromList (reverse acc)), T.drop 1 s)
+     else case parseStr (T.stripStart s) of
+       Right (JsonString key, afterKey) ->
+         let afterColon = T.stripStart afterKey
+         in case T.uncons afterColon of
+              Just (':', rest) -> case parseValue rest of
+                Right (val, afterVal) ->
+                  let rest' = T.stripStart afterVal
+                  in if T.null rest' then Left "Unterminated object"
+                     else case T.head rest' of
+                       '}' -> Right (JsonObject (Map.fromList (reverse ((key, val) : acc))), T.drop 1 rest')
+                       ',' -> parseObj (T.drop 1 rest') ((key, val) : acc)
+                       _   -> Left ("Expected ',' or '}' in object, got: " <> T.unpack (T.take 10 rest'))
+                Left e -> Left e
+              _ -> Left ("Expected ':' after object key \"" <> T.unpack key <> "\"")
+       Right _ -> Left "Expected string key in object"
+       Left e -> Left e

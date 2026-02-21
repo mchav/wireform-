@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Common (IndexedValueType(..))
 import Proto.Temporal.Temporal.Api.Nexus.V1.Message (Endpoint(..), EndpointSpec(..))
@@ -58,7 +60,7 @@ instance MessageEncode AddSearchAttributesRequest where
 
 instance MessageSize AddSearchAttributesRequest where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.addSearchAttributesRequestSearchattributes)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.addSearchAttributesRequestSearchattributes)
     + (if msg.addSearchAttributesRequestNamespace == T.empty then 0 else fieldTextSize 2 msg.addSearchAttributesRequestNamespace)
 
 instance MessageDecode AddSearchAttributesRequest where
@@ -87,6 +89,13 @@ instance ProtoToJSON AddSearchAttributesRequest where
       ]
 
 instance ProtoFromJSON AddSearchAttributesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_addSearchAttributesRequestSearchattributes <- obj .:? "searchAttributes"
+    fld_addSearchAttributesRequestNamespace <- obj .:? "namespace"
+    pure defaultAddSearchAttributesRequest
+      { addSearchAttributesRequestSearchattributes = maybe (addSearchAttributesRequestSearchattributes defaultAddSearchAttributesRequest) id fld_addSearchAttributesRequestSearchattributes
+      , addSearchAttributesRequestNamespace = maybe (addSearchAttributesRequestNamespace defaultAddSearchAttributesRequest) id fld_addSearchAttributesRequestNamespace
+      }
   protoFromJSON _ = Right defaultAddSearchAttributesRequest
 
 data AddSearchAttributesResponse = AddSearchAttributesResponse
@@ -143,7 +152,7 @@ instance MessageEncode RemoveSearchAttributesRequest where
 
 instance MessageSize RemoveSearchAttributesRequest where
   messageSize msg =
-    0 {- TODO: repeated size -}
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.removeSearchAttributesRequestSearchattributes)
     + (if msg.removeSearchAttributesRequestNamespace == T.empty then 0 else fieldTextSize 2 msg.removeSearchAttributesRequestNamespace)
 
 instance MessageDecode RemoveSearchAttributesRequest where
@@ -169,6 +178,13 @@ instance ProtoToJSON RemoveSearchAttributesRequest where
       ]
 
 instance ProtoFromJSON RemoveSearchAttributesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_removeSearchAttributesRequestSearchattributes <- obj .:? "searchAttributes"
+    fld_removeSearchAttributesRequestNamespace <- obj .:? "namespace"
+    pure defaultRemoveSearchAttributesRequest
+      { removeSearchAttributesRequestSearchattributes = maybe (removeSearchAttributesRequestSearchattributes defaultRemoveSearchAttributesRequest) id fld_removeSearchAttributesRequestSearchattributes
+      , removeSearchAttributesRequestNamespace = maybe (removeSearchAttributesRequestNamespace defaultRemoveSearchAttributesRequest) id fld_removeSearchAttributesRequestNamespace
+      }
   protoFromJSON _ = Right defaultRemoveSearchAttributesRequest
 
 data RemoveSearchAttributesResponse = RemoveSearchAttributesResponse
@@ -244,6 +260,11 @@ instance ProtoToJSON ListSearchAttributesRequest where
       ]
 
 instance ProtoFromJSON ListSearchAttributesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listSearchAttributesRequestNamespace <- obj .:? "namespace"
+    pure defaultListSearchAttributesRequest
+      { listSearchAttributesRequestNamespace = maybe (listSearchAttributesRequestNamespace defaultListSearchAttributesRequest) id fld_listSearchAttributesRequestNamespace
+      }
   protoFromJSON _ = Right defaultListSearchAttributesRequest
 
 data ListSearchAttributesResponse = ListSearchAttributesResponse
@@ -269,9 +290,9 @@ instance MessageEncode ListSearchAttributesResponse where
 
 instance MessageSize ListSearchAttributesResponse where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.listSearchAttributesResponseCustomattributes)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 2 + 20) 0 msg.listSearchAttributesResponseSystemattributes)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 3 + 20) 0 msg.listSearchAttributesResponseStorageschema)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseCustomattributes)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseSystemattributes)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseStorageschema)
 
 instance MessageDecode ListSearchAttributesResponse where
   messageDecoder = loop Map.empty Map.empty Map.empty
@@ -309,6 +330,15 @@ instance ProtoToJSON ListSearchAttributesResponse where
       ]
 
 instance ProtoFromJSON ListSearchAttributesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listSearchAttributesResponseCustomattributes <- obj .:? "customAttributes"
+    fld_listSearchAttributesResponseSystemattributes <- obj .:? "systemAttributes"
+    fld_listSearchAttributesResponseStorageschema <- obj .:? "storageSchema"
+    pure defaultListSearchAttributesResponse
+      { listSearchAttributesResponseCustomattributes = maybe (listSearchAttributesResponseCustomattributes defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseCustomattributes
+      , listSearchAttributesResponseSystemattributes = maybe (listSearchAttributesResponseSystemattributes defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseSystemattributes
+      , listSearchAttributesResponseStorageschema = maybe (listSearchAttributesResponseStorageschema defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseStorageschema
+      }
   protoFromJSON _ = Right defaultListSearchAttributesResponse
 
 data DeleteNamespaceRequest = DeleteNamespaceRequest
@@ -365,6 +395,15 @@ instance ProtoToJSON DeleteNamespaceRequest where
       ]
 
 instance ProtoFromJSON DeleteNamespaceRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteNamespaceRequestNamespace <- obj .:? "namespace"
+    fld_deleteNamespaceRequestNamespaceid <- obj .:? "namespaceId"
+    fld_deleteNamespaceRequestNamespacedeletedelay <- obj .:? "namespaceDeleteDelay"
+    pure defaultDeleteNamespaceRequest
+      { deleteNamespaceRequestNamespace = maybe (deleteNamespaceRequestNamespace defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespace
+      , deleteNamespaceRequestNamespaceid = maybe (deleteNamespaceRequestNamespaceid defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespaceid
+      , deleteNamespaceRequestNamespacedeletedelay = maybe (deleteNamespaceRequestNamespacedeletedelay defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespacedeletedelay
+      }
   protoFromJSON _ = Right defaultDeleteNamespaceRequest
 
 data DeleteNamespaceResponse = DeleteNamespaceResponse
@@ -406,6 +445,11 @@ instance ProtoToJSON DeleteNamespaceResponse where
       ]
 
 instance ProtoFromJSON DeleteNamespaceResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteNamespaceResponseDeletednamespace <- obj .:? "deletedNamespace"
+    pure defaultDeleteNamespaceResponse
+      { deleteNamespaceResponseDeletednamespace = maybe (deleteNamespaceResponseDeletednamespace defaultDeleteNamespaceResponse) id fld_deleteNamespaceResponseDeletednamespace
+      }
   protoFromJSON _ = Right defaultDeleteNamespaceResponse
 
 data AddOrUpdateRemoteClusterRequest = AddOrUpdateRemoteClusterRequest
@@ -470,6 +514,17 @@ instance ProtoToJSON AddOrUpdateRemoteClusterRequest where
       ]
 
 instance ProtoFromJSON AddOrUpdateRemoteClusterRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_addOrUpdateRemoteClusterRequestFrontendaddress <- obj .:? "frontendAddress"
+    fld_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection <- obj .:? "enableRemoteClusterConnection"
+    fld_addOrUpdateRemoteClusterRequestFrontendhttpaddress <- obj .:? "frontendHttpAddress"
+    fld_addOrUpdateRemoteClusterRequestEnablereplication <- obj .:? "enableReplication"
+    pure defaultAddOrUpdateRemoteClusterRequest
+      { addOrUpdateRemoteClusterRequestFrontendaddress = maybe (addOrUpdateRemoteClusterRequestFrontendaddress defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestFrontendaddress
+      , addOrUpdateRemoteClusterRequestEnableremoteclusterconnection = maybe (addOrUpdateRemoteClusterRequestEnableremoteclusterconnection defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection
+      , addOrUpdateRemoteClusterRequestFrontendhttpaddress = maybe (addOrUpdateRemoteClusterRequestFrontendhttpaddress defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestFrontendhttpaddress
+      , addOrUpdateRemoteClusterRequestEnablereplication = maybe (addOrUpdateRemoteClusterRequestEnablereplication defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestEnablereplication
+      }
   protoFromJSON _ = Right defaultAddOrUpdateRemoteClusterRequest
 
 data AddOrUpdateRemoteClusterResponse = AddOrUpdateRemoteClusterResponse
@@ -545,6 +600,11 @@ instance ProtoToJSON RemoveRemoteClusterRequest where
       ]
 
 instance ProtoFromJSON RemoveRemoteClusterRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_removeRemoteClusterRequestClustername <- obj .:? "clusterName"
+    pure defaultRemoveRemoteClusterRequest
+      { removeRemoteClusterRequestClustername = maybe (removeRemoteClusterRequestClustername defaultRemoveRemoteClusterRequest) id fld_removeRemoteClusterRequestClustername
+      }
   protoFromJSON _ = Right defaultRemoveRemoteClusterRequest
 
 data RemoveRemoteClusterResponse = RemoveRemoteClusterResponse
@@ -627,6 +687,13 @@ instance ProtoToJSON ListClustersRequest where
       ]
 
 instance ProtoFromJSON ListClustersRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listClustersRequestPagesize <- obj .:? "pageSize"
+    fld_listClustersRequestNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListClustersRequest
+      { listClustersRequestPagesize = maybe (listClustersRequestPagesize defaultListClustersRequest) id fld_listClustersRequestPagesize
+      , listClustersRequestNextpagetoken = maybe (listClustersRequestNextpagetoken defaultListClustersRequest) id fld_listClustersRequestNextpagetoken
+      }
   protoFromJSON _ = Right defaultListClustersRequest
 
 data ListClustersResponse = ListClustersResponse
@@ -675,6 +742,13 @@ instance ProtoToJSON ListClustersResponse where
       ]
 
 instance ProtoFromJSON ListClustersResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listClustersResponseClusters <- obj .:? "clusters"
+    fld_listClustersResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListClustersResponse
+      { listClustersResponseClusters = maybe (listClustersResponseClusters defaultListClustersResponse) id fld_listClustersResponseClusters
+      , listClustersResponseNextpagetoken = maybe (listClustersResponseNextpagetoken defaultListClustersResponse) id fld_listClustersResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListClustersResponse
 
 data ClusterMetadata = ClusterMetadata
@@ -771,6 +845,25 @@ instance ProtoToJSON ClusterMetadata where
       ]
 
 instance ProtoFromJSON ClusterMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_clusterMetadataClustername <- obj .:? "clusterName"
+    fld_clusterMetadataClusterid <- obj .:? "clusterId"
+    fld_clusterMetadataAddress <- obj .:? "address"
+    fld_clusterMetadataHttpaddress <- obj .:? "httpAddress"
+    fld_clusterMetadataInitialfailoverversion <- obj .:? "initialFailoverVersion"
+    fld_clusterMetadataHistoryshardcount <- obj .:? "historyShardCount"
+    fld_clusterMetadataIsconnectionenabled <- obj .:? "isConnectionEnabled"
+    fld_clusterMetadataIsreplicationenabled <- obj .:? "isReplicationEnabled"
+    pure defaultClusterMetadata
+      { clusterMetadataClustername = maybe (clusterMetadataClustername defaultClusterMetadata) id fld_clusterMetadataClustername
+      , clusterMetadataClusterid = maybe (clusterMetadataClusterid defaultClusterMetadata) id fld_clusterMetadataClusterid
+      , clusterMetadataAddress = maybe (clusterMetadataAddress defaultClusterMetadata) id fld_clusterMetadataAddress
+      , clusterMetadataHttpaddress = maybe (clusterMetadataHttpaddress defaultClusterMetadata) id fld_clusterMetadataHttpaddress
+      , clusterMetadataInitialfailoverversion = maybe (clusterMetadataInitialfailoverversion defaultClusterMetadata) id fld_clusterMetadataInitialfailoverversion
+      , clusterMetadataHistoryshardcount = maybe (clusterMetadataHistoryshardcount defaultClusterMetadata) id fld_clusterMetadataHistoryshardcount
+      , clusterMetadataIsconnectionenabled = maybe (clusterMetadataIsconnectionenabled defaultClusterMetadata) id fld_clusterMetadataIsconnectionenabled
+      , clusterMetadataIsreplicationenabled = maybe (clusterMetadataIsreplicationenabled defaultClusterMetadata) id fld_clusterMetadataIsreplicationenabled
+      }
   protoFromJSON _ = Right defaultClusterMetadata
 
 data GetNexusEndpointRequest = GetNexusEndpointRequest
@@ -812,6 +905,11 @@ instance ProtoToJSON GetNexusEndpointRequest where
       ]
 
 instance ProtoFromJSON GetNexusEndpointRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_getNexusEndpointRequestId <- obj .:? "id"
+    pure defaultGetNexusEndpointRequest
+      { getNexusEndpointRequestId = maybe (getNexusEndpointRequestId defaultGetNexusEndpointRequest) id fld_getNexusEndpointRequestId
+      }
   protoFromJSON _ = Right defaultGetNexusEndpointRequest
 
 data GetNexusEndpointResponse = GetNexusEndpointResponse
@@ -853,6 +951,11 @@ instance ProtoToJSON GetNexusEndpointResponse where
       ]
 
 instance ProtoFromJSON GetNexusEndpointResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getNexusEndpointResponseEndpoint <- obj .:? "endpoint"
+    pure defaultGetNexusEndpointResponse
+      { getNexusEndpointResponseEndpoint = maybe (getNexusEndpointResponseEndpoint defaultGetNexusEndpointResponse) id fld_getNexusEndpointResponseEndpoint
+      }
   protoFromJSON _ = Right defaultGetNexusEndpointResponse
 
 data CreateNexusEndpointRequest = CreateNexusEndpointRequest
@@ -894,6 +997,11 @@ instance ProtoToJSON CreateNexusEndpointRequest where
       ]
 
 instance ProtoFromJSON CreateNexusEndpointRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_createNexusEndpointRequestSpec <- obj .:? "spec"
+    pure defaultCreateNexusEndpointRequest
+      { createNexusEndpointRequestSpec = maybe (createNexusEndpointRequestSpec defaultCreateNexusEndpointRequest) id fld_createNexusEndpointRequestSpec
+      }
   protoFromJSON _ = Right defaultCreateNexusEndpointRequest
 
 data CreateNexusEndpointResponse = CreateNexusEndpointResponse
@@ -935,6 +1043,11 @@ instance ProtoToJSON CreateNexusEndpointResponse where
       ]
 
 instance ProtoFromJSON CreateNexusEndpointResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_createNexusEndpointResponseEndpoint <- obj .:? "endpoint"
+    pure defaultCreateNexusEndpointResponse
+      { createNexusEndpointResponseEndpoint = maybe (createNexusEndpointResponseEndpoint defaultCreateNexusEndpointResponse) id fld_createNexusEndpointResponseEndpoint
+      }
   protoFromJSON _ = Right defaultCreateNexusEndpointResponse
 
 data UpdateNexusEndpointRequest = UpdateNexusEndpointRequest
@@ -991,6 +1104,15 @@ instance ProtoToJSON UpdateNexusEndpointRequest where
       ]
 
 instance ProtoFromJSON UpdateNexusEndpointRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateNexusEndpointRequestId <- obj .:? "id"
+    fld_updateNexusEndpointRequestVersion <- obj .:? "version"
+    fld_updateNexusEndpointRequestSpec <- obj .:? "spec"
+    pure defaultUpdateNexusEndpointRequest
+      { updateNexusEndpointRequestId = maybe (updateNexusEndpointRequestId defaultUpdateNexusEndpointRequest) id fld_updateNexusEndpointRequestId
+      , updateNexusEndpointRequestVersion = maybe (updateNexusEndpointRequestVersion defaultUpdateNexusEndpointRequest) id fld_updateNexusEndpointRequestVersion
+      , updateNexusEndpointRequestSpec = maybe (updateNexusEndpointRequestSpec defaultUpdateNexusEndpointRequest) id fld_updateNexusEndpointRequestSpec
+      }
   protoFromJSON _ = Right defaultUpdateNexusEndpointRequest
 
 data UpdateNexusEndpointResponse = UpdateNexusEndpointResponse
@@ -1032,6 +1154,11 @@ instance ProtoToJSON UpdateNexusEndpointResponse where
       ]
 
 instance ProtoFromJSON UpdateNexusEndpointResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateNexusEndpointResponseEndpoint <- obj .:? "endpoint"
+    pure defaultUpdateNexusEndpointResponse
+      { updateNexusEndpointResponseEndpoint = maybe (updateNexusEndpointResponseEndpoint defaultUpdateNexusEndpointResponse) id fld_updateNexusEndpointResponseEndpoint
+      }
   protoFromJSON _ = Right defaultUpdateNexusEndpointResponse
 
 data DeleteNexusEndpointRequest = DeleteNexusEndpointRequest
@@ -1080,6 +1207,13 @@ instance ProtoToJSON DeleteNexusEndpointRequest where
       ]
 
 instance ProtoFromJSON DeleteNexusEndpointRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteNexusEndpointRequestId <- obj .:? "id"
+    fld_deleteNexusEndpointRequestVersion <- obj .:? "version"
+    pure defaultDeleteNexusEndpointRequest
+      { deleteNexusEndpointRequestId = maybe (deleteNexusEndpointRequestId defaultDeleteNexusEndpointRequest) id fld_deleteNexusEndpointRequestId
+      , deleteNexusEndpointRequestVersion = maybe (deleteNexusEndpointRequestVersion defaultDeleteNexusEndpointRequest) id fld_deleteNexusEndpointRequestVersion
+      }
   protoFromJSON _ = Right defaultDeleteNexusEndpointRequest
 
 data DeleteNexusEndpointResponse = DeleteNexusEndpointResponse
@@ -1170,6 +1304,15 @@ instance ProtoToJSON ListNexusEndpointsRequest where
       ]
 
 instance ProtoFromJSON ListNexusEndpointsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listNexusEndpointsRequestPagesize <- obj .:? "pageSize"
+    fld_listNexusEndpointsRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listNexusEndpointsRequestName <- obj .:? "name"
+    pure defaultListNexusEndpointsRequest
+      { listNexusEndpointsRequestPagesize = maybe (listNexusEndpointsRequestPagesize defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestPagesize
+      , listNexusEndpointsRequestNextpagetoken = maybe (listNexusEndpointsRequestNextpagetoken defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestNextpagetoken
+      , listNexusEndpointsRequestName = maybe (listNexusEndpointsRequestName defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestName
+      }
   protoFromJSON _ = Right defaultListNexusEndpointsRequest
 
 data ListNexusEndpointsResponse = ListNexusEndpointsResponse
@@ -1218,4 +1361,11 @@ instance ProtoToJSON ListNexusEndpointsResponse where
       ]
 
 instance ProtoFromJSON ListNexusEndpointsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listNexusEndpointsResponseNextpagetoken <- obj .:? "nextPageToken"
+    fld_listNexusEndpointsResponseEndpoints <- obj .:? "endpoints"
+    pure defaultListNexusEndpointsResponse
+      { listNexusEndpointsResponseNextpagetoken = maybe (listNexusEndpointsResponseNextpagetoken defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseNextpagetoken
+      , listNexusEndpointsResponseEndpoints = maybe (listNexusEndpointsResponseEndpoints defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseEndpoints
+      }
   protoFromJSON _ = Right defaultListNexusEndpointsResponse

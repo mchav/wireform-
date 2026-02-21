@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data Struct = Struct
@@ -52,7 +54,7 @@ instance MessageEncode Struct where
 
 instance MessageSize Struct where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.structFields)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.structFields)
 
 instance MessageDecode Struct where
   messageDecoder = loop Map.empty
@@ -77,6 +79,11 @@ instance ProtoToJSON Struct where
       ]
 
 instance ProtoFromJSON Struct where
+  protoFromJSON (JsonObject obj) = do
+    fld_structFields <- obj .:? "fields"
+    pure defaultStruct
+      { structFields = maybe (structFields defaultStruct) id fld_structFields
+      }
   protoFromJSON _ = Right defaultStruct
 
 data Value = Value
@@ -107,7 +114,7 @@ instance MessageEncode Value where
   buildMessage msg =
     (case msg.valueKind of
       Nothing -> mempty
-      Just (Value'Kind'NullValue v) -> encodeFieldVarint 1 (fromIntegral (fromEnum v))
+      Just (Value'Kind'NullValue v) -> encodeFieldMessage 1 v
       Just (Value'Kind'NumberValue v) -> encodeFieldDouble 2 v
       Just (Value'Kind'StringValue v) -> encodeFieldString 3 v
       Just (Value'Kind'BoolValue v) -> encodeFieldBool 4 v
@@ -116,7 +123,7 @@ instance MessageEncode Value where
 
 instance MessageSize Value where
   messageSize msg =
-    (case msg.valueKind of { Nothing -> 0; Just (Value'Kind'NullValue v) -> fieldVarintSize 1 (fromIntegral (fromEnum v))
+    (case msg.valueKind of { Nothing -> 0; Just (Value'Kind'NullValue v) -> fieldMessageSize 1 (messageSize v)
     ; Just (Value'Kind'NumberValue v) -> fieldDoubleSize 2
     ; Just (Value'Kind'StringValue v) -> fieldTextSize 3 v
     ; Just (Value'Kind'BoolValue v) -> fieldBoolSize 4
@@ -132,7 +139,7 @@ instance MessageDecode Value where
           Nothing -> pure (Value {valueKind = acc_0})
           Just (Tag fn wt) -> case fn of
             1 -> do
-              v <- decodeFieldEnum
+              v <- decodeFieldMessage
               loop (Just (Value'Kind'NullValue v))
             2 -> do
               v <- decodeFieldDouble
@@ -158,6 +165,11 @@ instance ProtoToJSON Value where
       ]
 
 instance ProtoFromJSON Value where
+  protoFromJSON (JsonObject obj) = do
+    fld_valueKind <- obj .:? "kind"
+    pure defaultValue
+      { valueKind = maybe (valueKind defaultValue) id fld_valueKind
+      }
   protoFromJSON _ = Right defaultValue
 
 data NullValue
@@ -178,8 +190,6 @@ instance MessageSize NullValue where
   messageSize _ = 0
 instance MessageDecode NullValue where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON NullValue where
   protoToJSON NullValue'NullValue = JsonString "NULL_VALUE"
@@ -229,4 +239,9 @@ instance ProtoToJSON ListValue where
       ]
 
 instance ProtoFromJSON ListValue where
+  protoFromJSON (JsonObject obj) = do
+    fld_listValueValues <- obj .:? "values"
+    pure defaultListValue
+      { listValueValues = maybe (listValueValues defaultListValue) id fld_listValueValues
+      }
   protoFromJSON _ = Right defaultListValue

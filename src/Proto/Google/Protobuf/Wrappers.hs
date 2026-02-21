@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data DoubleValue = DoubleValue
@@ -74,6 +76,11 @@ instance ProtoToJSON DoubleValue where
       ]
 
 instance ProtoFromJSON DoubleValue where
+  protoFromJSON (JsonObject obj) = do
+    fld_doubleValueValue <- obj .:? "value"
+    pure defaultDoubleValue
+      { doubleValueValue = maybe (doubleValueValue defaultDoubleValue) id fld_doubleValueValue
+      }
   protoFromJSON _ = Right defaultDoubleValue
 
 data FloatValue = FloatValue
@@ -115,6 +122,11 @@ instance ProtoToJSON FloatValue where
       ]
 
 instance ProtoFromJSON FloatValue where
+  protoFromJSON (JsonObject obj) = do
+    fld_floatValueValue <- obj .:? "value"
+    pure defaultFloatValue
+      { floatValueValue = maybe (floatValueValue defaultFloatValue) id fld_floatValueValue
+      }
   protoFromJSON _ = Right defaultFloatValue
 
 data Int64Value = Int64Value
@@ -156,6 +168,11 @@ instance ProtoToJSON Int64Value where
       ]
 
 instance ProtoFromJSON Int64Value where
+  protoFromJSON (JsonObject obj) = do
+    fld_int64ValueValue <- obj .:? "value"
+    pure defaultInt64Value
+      { int64ValueValue = maybe (int64ValueValue defaultInt64Value) id fld_int64ValueValue
+      }
   protoFromJSON _ = Right defaultInt64Value
 
 data UInt64Value = UInt64Value
@@ -197,6 +214,11 @@ instance ProtoToJSON UInt64Value where
       ]
 
 instance ProtoFromJSON UInt64Value where
+  protoFromJSON (JsonObject obj) = do
+    fld_uInt64ValueValue <- obj .:? "value"
+    pure defaultUInt64Value
+      { uInt64ValueValue = maybe (uInt64ValueValue defaultUInt64Value) id fld_uInt64ValueValue
+      }
   protoFromJSON _ = Right defaultUInt64Value
 
 data Int32Value = Int32Value
@@ -238,6 +260,11 @@ instance ProtoToJSON Int32Value where
       ]
 
 instance ProtoFromJSON Int32Value where
+  protoFromJSON (JsonObject obj) = do
+    fld_int32ValueValue <- obj .:? "value"
+    pure defaultInt32Value
+      { int32ValueValue = maybe (int32ValueValue defaultInt32Value) id fld_int32ValueValue
+      }
   protoFromJSON _ = Right defaultInt32Value
 
 data UInt32Value = UInt32Value
@@ -279,6 +306,11 @@ instance ProtoToJSON UInt32Value where
       ]
 
 instance ProtoFromJSON UInt32Value where
+  protoFromJSON (JsonObject obj) = do
+    fld_uInt32ValueValue <- obj .:? "value"
+    pure defaultUInt32Value
+      { uInt32ValueValue = maybe (uInt32ValueValue defaultUInt32Value) id fld_uInt32ValueValue
+      }
   protoFromJSON _ = Right defaultUInt32Value
 
 data BoolValue = BoolValue
@@ -320,6 +352,11 @@ instance ProtoToJSON BoolValue where
       ]
 
 instance ProtoFromJSON BoolValue where
+  protoFromJSON (JsonObject obj) = do
+    fld_boolValueValue <- obj .:? "value"
+    pure defaultBoolValue
+      { boolValueValue = maybe (boolValueValue defaultBoolValue) id fld_boolValueValue
+      }
   protoFromJSON _ = Right defaultBoolValue
 
 data StringValue = StringValue
@@ -361,6 +398,11 @@ instance ProtoToJSON StringValue where
       ]
 
 instance ProtoFromJSON StringValue where
+  protoFromJSON (JsonObject obj) = do
+    fld_stringValueValue <- obj .:? "value"
+    pure defaultStringValue
+      { stringValueValue = maybe (stringValueValue defaultStringValue) id fld_stringValueValue
+      }
   protoFromJSON _ = Right defaultStringValue
 
 data BytesValue = BytesValue
@@ -402,4 +444,9 @@ instance ProtoToJSON BytesValue where
       ]
 
 instance ProtoFromJSON BytesValue where
+  protoFromJSON (JsonObject obj) = do
+    fld_bytesValueValue <- obj .:? "value"
+    pure defaultBytesValue
+      { bytesValueValue = maybe (bytesValueValue defaultBytesValue) id fld_bytesValueValue
+      }
   protoFromJSON _ = Right defaultBytesValue

@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Temporal.Temporal.Api.Common.V1.Message (ActivityType(..), Header(..), Memo(..), Payload(..), Payloads(..), Priority(..), RetryPolicy(..), SearchAttributes(..), WorkflowExecution(..), WorkflowType(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.CommandType (CommandType(..))
@@ -176,6 +178,35 @@ instance ProtoToJSON ScheduleActivityTaskCommandAttributes where
       ]
 
 instance ProtoFromJSON ScheduleActivityTaskCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleActivityTaskCommandAttributesActivityid <- obj .:? "activityId"
+    fld_scheduleActivityTaskCommandAttributesActivitytype <- obj .:? "activityType"
+    fld_scheduleActivityTaskCommandAttributesTaskqueue <- obj .:? "taskQueue"
+    fld_scheduleActivityTaskCommandAttributesHeader <- obj .:? "header"
+    fld_scheduleActivityTaskCommandAttributesInput <- obj .:? "input"
+    fld_scheduleActivityTaskCommandAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_scheduleActivityTaskCommandAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    fld_scheduleActivityTaskCommandAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    fld_scheduleActivityTaskCommandAttributesHeartbeattimeout <- obj .:? "heartbeatTimeout"
+    fld_scheduleActivityTaskCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
+    fld_scheduleActivityTaskCommandAttributesRequesteagerexecution <- obj .:? "requestEagerExecution"
+    fld_scheduleActivityTaskCommandAttributesUseworkflowbuildid <- obj .:? "useWorkflowBuildId"
+    fld_scheduleActivityTaskCommandAttributesPriority <- obj .:? "priority"
+    pure defaultScheduleActivityTaskCommandAttributes
+      { scheduleActivityTaskCommandAttributesActivityid = maybe (scheduleActivityTaskCommandAttributesActivityid defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesActivityid
+      , scheduleActivityTaskCommandAttributesActivitytype = maybe (scheduleActivityTaskCommandAttributesActivitytype defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesActivitytype
+      , scheduleActivityTaskCommandAttributesTaskqueue = maybe (scheduleActivityTaskCommandAttributesTaskqueue defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesTaskqueue
+      , scheduleActivityTaskCommandAttributesHeader = maybe (scheduleActivityTaskCommandAttributesHeader defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesHeader
+      , scheduleActivityTaskCommandAttributesInput = maybe (scheduleActivityTaskCommandAttributesInput defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesInput
+      , scheduleActivityTaskCommandAttributesScheduletoclosetimeout = maybe (scheduleActivityTaskCommandAttributesScheduletoclosetimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesScheduletoclosetimeout
+      , scheduleActivityTaskCommandAttributesScheduletostarttimeout = maybe (scheduleActivityTaskCommandAttributesScheduletostarttimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesScheduletostarttimeout
+      , scheduleActivityTaskCommandAttributesStarttoclosetimeout = maybe (scheduleActivityTaskCommandAttributesStarttoclosetimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesStarttoclosetimeout
+      , scheduleActivityTaskCommandAttributesHeartbeattimeout = maybe (scheduleActivityTaskCommandAttributesHeartbeattimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesHeartbeattimeout
+      , scheduleActivityTaskCommandAttributesRetrypolicy = maybe (scheduleActivityTaskCommandAttributesRetrypolicy defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesRetrypolicy
+      , scheduleActivityTaskCommandAttributesRequesteagerexecution = maybe (scheduleActivityTaskCommandAttributesRequesteagerexecution defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesRequesteagerexecution
+      , scheduleActivityTaskCommandAttributesUseworkflowbuildid = maybe (scheduleActivityTaskCommandAttributesUseworkflowbuildid defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesUseworkflowbuildid
+      , scheduleActivityTaskCommandAttributesPriority = maybe (scheduleActivityTaskCommandAttributesPriority defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesPriority
+      }
   protoFromJSON _ = Right defaultScheduleActivityTaskCommandAttributes
 
 data RequestCancelActivityTaskCommandAttributes = RequestCancelActivityTaskCommandAttributes
@@ -217,6 +248,11 @@ instance ProtoToJSON RequestCancelActivityTaskCommandAttributes where
       ]
 
 instance ProtoFromJSON RequestCancelActivityTaskCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestCancelActivityTaskCommandAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    pure defaultRequestCancelActivityTaskCommandAttributes
+      { requestCancelActivityTaskCommandAttributesScheduledeventid = maybe (requestCancelActivityTaskCommandAttributesScheduledeventid defaultRequestCancelActivityTaskCommandAttributes) id fld_requestCancelActivityTaskCommandAttributesScheduledeventid
+      }
   protoFromJSON _ = Right defaultRequestCancelActivityTaskCommandAttributes
 
 data StartTimerCommandAttributes = StartTimerCommandAttributes
@@ -265,6 +301,13 @@ instance ProtoToJSON StartTimerCommandAttributes where
       ]
 
 instance ProtoFromJSON StartTimerCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_startTimerCommandAttributesTimerid <- obj .:? "timerId"
+    fld_startTimerCommandAttributesStarttofiretimeout <- obj .:? "startToFireTimeout"
+    pure defaultStartTimerCommandAttributes
+      { startTimerCommandAttributesTimerid = maybe (startTimerCommandAttributesTimerid defaultStartTimerCommandAttributes) id fld_startTimerCommandAttributesTimerid
+      , startTimerCommandAttributesStarttofiretimeout = maybe (startTimerCommandAttributesStarttofiretimeout defaultStartTimerCommandAttributes) id fld_startTimerCommandAttributesStarttofiretimeout
+      }
   protoFromJSON _ = Right defaultStartTimerCommandAttributes
 
 data CompleteWorkflowExecutionCommandAttributes = CompleteWorkflowExecutionCommandAttributes
@@ -306,6 +349,11 @@ instance ProtoToJSON CompleteWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON CompleteWorkflowExecutionCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_completeWorkflowExecutionCommandAttributesResult <- obj .:? "result"
+    pure defaultCompleteWorkflowExecutionCommandAttributes
+      { completeWorkflowExecutionCommandAttributesResult = maybe (completeWorkflowExecutionCommandAttributesResult defaultCompleteWorkflowExecutionCommandAttributes) id fld_completeWorkflowExecutionCommandAttributesResult
+      }
   protoFromJSON _ = Right defaultCompleteWorkflowExecutionCommandAttributes
 
 data FailWorkflowExecutionCommandAttributes = FailWorkflowExecutionCommandAttributes
@@ -347,6 +395,11 @@ instance ProtoToJSON FailWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON FailWorkflowExecutionCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_failWorkflowExecutionCommandAttributesFailure <- obj .:? "failure"
+    pure defaultFailWorkflowExecutionCommandAttributes
+      { failWorkflowExecutionCommandAttributesFailure = maybe (failWorkflowExecutionCommandAttributesFailure defaultFailWorkflowExecutionCommandAttributes) id fld_failWorkflowExecutionCommandAttributesFailure
+      }
   protoFromJSON _ = Right defaultFailWorkflowExecutionCommandAttributes
 
 data CancelTimerCommandAttributes = CancelTimerCommandAttributes
@@ -388,6 +441,11 @@ instance ProtoToJSON CancelTimerCommandAttributes where
       ]
 
 instance ProtoFromJSON CancelTimerCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_cancelTimerCommandAttributesTimerid <- obj .:? "timerId"
+    pure defaultCancelTimerCommandAttributes
+      { cancelTimerCommandAttributesTimerid = maybe (cancelTimerCommandAttributesTimerid defaultCancelTimerCommandAttributes) id fld_cancelTimerCommandAttributesTimerid
+      }
   protoFromJSON _ = Right defaultCancelTimerCommandAttributes
 
 data CancelWorkflowExecutionCommandAttributes = CancelWorkflowExecutionCommandAttributes
@@ -429,6 +487,11 @@ instance ProtoToJSON CancelWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON CancelWorkflowExecutionCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_cancelWorkflowExecutionCommandAttributesDetails <- obj .:? "details"
+    pure defaultCancelWorkflowExecutionCommandAttributes
+      { cancelWorkflowExecutionCommandAttributesDetails = maybe (cancelWorkflowExecutionCommandAttributesDetails defaultCancelWorkflowExecutionCommandAttributes) id fld_cancelWorkflowExecutionCommandAttributesDetails
+      }
   protoFromJSON _ = Right defaultCancelWorkflowExecutionCommandAttributes
 
 data RequestCancelExternalWorkflowExecutionCommandAttributes = RequestCancelExternalWorkflowExecutionCommandAttributes
@@ -509,6 +572,21 @@ instance ProtoToJSON RequestCancelExternalWorkflowExecutionCommandAttributes whe
       ]
 
 instance ProtoFromJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid <- obj .:? "workflowId"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesRunid <- obj .:? "runId"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesControl <- obj .:? "control"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesReason <- obj .:? "reason"
+    pure defaultRequestCancelExternalWorkflowExecutionCommandAttributes
+      { requestCancelExternalWorkflowExecutionCommandAttributesNamespace = maybe (requestCancelExternalWorkflowExecutionCommandAttributesNamespace defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesNamespace
+      , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid = maybe (requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid
+      , requestCancelExternalWorkflowExecutionCommandAttributesRunid = maybe (requestCancelExternalWorkflowExecutionCommandAttributesRunid defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesRunid
+      , requestCancelExternalWorkflowExecutionCommandAttributesControl = maybe (requestCancelExternalWorkflowExecutionCommandAttributesControl defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesControl
+      , requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly = maybe (requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly
+      , requestCancelExternalWorkflowExecutionCommandAttributesReason = maybe (requestCancelExternalWorkflowExecutionCommandAttributesReason defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesReason
+      }
   protoFromJSON _ = Right defaultRequestCancelExternalWorkflowExecutionCommandAttributes
 
 data SignalExternalWorkflowExecutionCommandAttributes = SignalExternalWorkflowExecutionCommandAttributes
@@ -597,6 +675,23 @@ instance ProtoToJSON SignalExternalWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON SignalExternalWorkflowExecutionCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_signalExternalWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
+    fld_signalExternalWorkflowExecutionCommandAttributesExecution <- obj .:? "execution"
+    fld_signalExternalWorkflowExecutionCommandAttributesSignalname <- obj .:? "signalName"
+    fld_signalExternalWorkflowExecutionCommandAttributesInput <- obj .:? "input"
+    fld_signalExternalWorkflowExecutionCommandAttributesControl <- obj .:? "control"
+    fld_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
+    fld_signalExternalWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
+    pure defaultSignalExternalWorkflowExecutionCommandAttributes
+      { signalExternalWorkflowExecutionCommandAttributesNamespace = maybe (signalExternalWorkflowExecutionCommandAttributesNamespace defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesNamespace
+      , signalExternalWorkflowExecutionCommandAttributesExecution = maybe (signalExternalWorkflowExecutionCommandAttributesExecution defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesExecution
+      , signalExternalWorkflowExecutionCommandAttributesSignalname = maybe (signalExternalWorkflowExecutionCommandAttributesSignalname defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesSignalname
+      , signalExternalWorkflowExecutionCommandAttributesInput = maybe (signalExternalWorkflowExecutionCommandAttributesInput defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesInput
+      , signalExternalWorkflowExecutionCommandAttributesControl = maybe (signalExternalWorkflowExecutionCommandAttributesControl defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesControl
+      , signalExternalWorkflowExecutionCommandAttributesChildworkflowonly = maybe (signalExternalWorkflowExecutionCommandAttributesChildworkflowonly defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly
+      , signalExternalWorkflowExecutionCommandAttributesHeader = maybe (signalExternalWorkflowExecutionCommandAttributesHeader defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesHeader
+      }
   protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionCommandAttributes
 
 data UpsertWorkflowSearchAttributesCommandAttributes = UpsertWorkflowSearchAttributesCommandAttributes
@@ -638,6 +733,11 @@ instance ProtoToJSON UpsertWorkflowSearchAttributesCommandAttributes where
       ]
 
 instance ProtoFromJSON UpsertWorkflowSearchAttributesCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_upsertWorkflowSearchAttributesCommandAttributesSearchattributes <- obj .:? "searchAttributes"
+    pure defaultUpsertWorkflowSearchAttributesCommandAttributes
+      { upsertWorkflowSearchAttributesCommandAttributesSearchattributes = maybe (upsertWorkflowSearchAttributesCommandAttributesSearchattributes defaultUpsertWorkflowSearchAttributesCommandAttributes) id fld_upsertWorkflowSearchAttributesCommandAttributesSearchattributes
+      }
   protoFromJSON _ = Right defaultUpsertWorkflowSearchAttributesCommandAttributes
 
 data ModifyWorkflowPropertiesCommandAttributes = ModifyWorkflowPropertiesCommandAttributes
@@ -679,6 +779,11 @@ instance ProtoToJSON ModifyWorkflowPropertiesCommandAttributes where
       ]
 
 instance ProtoFromJSON ModifyWorkflowPropertiesCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_modifyWorkflowPropertiesCommandAttributesUpsertedmemo <- obj .:? "upsertedMemo"
+    pure defaultModifyWorkflowPropertiesCommandAttributes
+      { modifyWorkflowPropertiesCommandAttributesUpsertedmemo = maybe (modifyWorkflowPropertiesCommandAttributesUpsertedmemo defaultModifyWorkflowPropertiesCommandAttributes) id fld_modifyWorkflowPropertiesCommandAttributesUpsertedmemo
+      }
   protoFromJSON _ = Right defaultModifyWorkflowPropertiesCommandAttributes
 
 data RecordMarkerCommandAttributes = RecordMarkerCommandAttributes
@@ -708,7 +813,7 @@ instance MessageEncode RecordMarkerCommandAttributes where
 instance MessageSize RecordMarkerCommandAttributes where
   messageSize msg =
     (if msg.recordMarkerCommandAttributesMarkername == T.empty then 0 else fieldTextSize 1 msg.recordMarkerCommandAttributesMarkername)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 2 + 20) 0 msg.recordMarkerCommandAttributesDetails)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.recordMarkerCommandAttributesDetails)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.recordMarkerCommandAttributesHeader)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.recordMarkerCommandAttributesFailure)
 
@@ -746,6 +851,17 @@ instance ProtoToJSON RecordMarkerCommandAttributes where
       ]
 
 instance ProtoFromJSON RecordMarkerCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_recordMarkerCommandAttributesMarkername <- obj .:? "markerName"
+    fld_recordMarkerCommandAttributesDetails <- obj .:? "details"
+    fld_recordMarkerCommandAttributesHeader <- obj .:? "header"
+    fld_recordMarkerCommandAttributesFailure <- obj .:? "failure"
+    pure defaultRecordMarkerCommandAttributes
+      { recordMarkerCommandAttributesMarkername = maybe (recordMarkerCommandAttributesMarkername defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesMarkername
+      , recordMarkerCommandAttributesDetails = maybe (recordMarkerCommandAttributesDetails defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesDetails
+      , recordMarkerCommandAttributesHeader = maybe (recordMarkerCommandAttributesHeader defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesHeader
+      , recordMarkerCommandAttributesFailure = maybe (recordMarkerCommandAttributesFailure defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesFailure
+      }
   protoFromJSON _ = Right defaultRecordMarkerCommandAttributes
 
 data ContinueAsNewWorkflowExecutionCommandAttributes = ContinueAsNewWorkflowExecutionCommandAttributes
@@ -906,6 +1022,41 @@ instance ProtoToJSON ContinueAsNewWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON ContinueAsNewWorkflowExecutionCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_continueAsNewWorkflowExecutionCommandAttributesTaskqueue <- obj .:? "taskQueue"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInput <- obj .:? "input"
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
+    fld_continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval <- obj .:? "backoffStartInterval"
+    fld_continueAsNewWorkflowExecutionCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInitiator <- obj .:? "initiator"
+    fld_continueAsNewWorkflowExecutionCommandAttributesFailure <- obj .:? "failure"
+    fld_continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult <- obj .:? "lastCompletionResult"
+    fld_continueAsNewWorkflowExecutionCommandAttributesCronschedule <- obj .:? "cronSchedule"
+    fld_continueAsNewWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
+    fld_continueAsNewWorkflowExecutionCommandAttributesMemo <- obj .:? "memo"
+    fld_continueAsNewWorkflowExecutionCommandAttributesSearchattributes <- obj .:? "searchAttributes"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid <- obj .:? "inheritBuildId"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior <- obj .:? "initialVersioningBehavior"
+    pure defaultContinueAsNewWorkflowExecutionCommandAttributes
+      { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowtype defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype
+      , continueAsNewWorkflowExecutionCommandAttributesTaskqueue = maybe (continueAsNewWorkflowExecutionCommandAttributesTaskqueue defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesTaskqueue
+      , continueAsNewWorkflowExecutionCommandAttributesInput = maybe (continueAsNewWorkflowExecutionCommandAttributesInput defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInput
+      , continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout
+      , continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout
+      , continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval = maybe (continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval
+      , continueAsNewWorkflowExecutionCommandAttributesRetrypolicy = maybe (continueAsNewWorkflowExecutionCommandAttributesRetrypolicy defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesRetrypolicy
+      , continueAsNewWorkflowExecutionCommandAttributesInitiator = maybe (continueAsNewWorkflowExecutionCommandAttributesInitiator defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInitiator
+      , continueAsNewWorkflowExecutionCommandAttributesFailure = maybe (continueAsNewWorkflowExecutionCommandAttributesFailure defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesFailure
+      , continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult = maybe (continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult
+      , continueAsNewWorkflowExecutionCommandAttributesCronschedule = maybe (continueAsNewWorkflowExecutionCommandAttributesCronschedule defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesCronschedule
+      , continueAsNewWorkflowExecutionCommandAttributesHeader = maybe (continueAsNewWorkflowExecutionCommandAttributesHeader defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesHeader
+      , continueAsNewWorkflowExecutionCommandAttributesMemo = maybe (continueAsNewWorkflowExecutionCommandAttributesMemo defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesMemo
+      , continueAsNewWorkflowExecutionCommandAttributesSearchattributes = maybe (continueAsNewWorkflowExecutionCommandAttributesSearchattributes defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesSearchattributes
+      , continueAsNewWorkflowExecutionCommandAttributesInheritbuildid = maybe (continueAsNewWorkflowExecutionCommandAttributesInheritbuildid defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid
+      , continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior = maybe (continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
+      }
   protoFromJSON _ = Right defaultContinueAsNewWorkflowExecutionCommandAttributes
 
 data StartChildWorkflowExecutionCommandAttributes = StartChildWorkflowExecutionCommandAttributes
@@ -1082,6 +1233,45 @@ instance ProtoToJSON StartChildWorkflowExecutionCommandAttributes where
       ]
 
 instance ProtoFromJSON StartChildWorkflowExecutionCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_startChildWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowid <- obj .:? "workflowId"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowtype <- obj .:? "workflowType"
+    fld_startChildWorkflowExecutionCommandAttributesTaskqueue <- obj .:? "taskQueue"
+    fld_startChildWorkflowExecutionCommandAttributesInput <- obj .:? "input"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesParentclosepolicy <- obj .:? "parentClosePolicy"
+    fld_startChildWorkflowExecutionCommandAttributesControl <- obj .:? "control"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
+    fld_startChildWorkflowExecutionCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
+    fld_startChildWorkflowExecutionCommandAttributesCronschedule <- obj .:? "cronSchedule"
+    fld_startChildWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
+    fld_startChildWorkflowExecutionCommandAttributesMemo <- obj .:? "memo"
+    fld_startChildWorkflowExecutionCommandAttributesSearchattributes <- obj .:? "searchAttributes"
+    fld_startChildWorkflowExecutionCommandAttributesInheritbuildid <- obj .:? "inheritBuildId"
+    fld_startChildWorkflowExecutionCommandAttributesPriority <- obj .:? "priority"
+    pure defaultStartChildWorkflowExecutionCommandAttributes
+      { startChildWorkflowExecutionCommandAttributesNamespace = maybe (startChildWorkflowExecutionCommandAttributesNamespace defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesNamespace
+      , startChildWorkflowExecutionCommandAttributesWorkflowid = maybe (startChildWorkflowExecutionCommandAttributesWorkflowid defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowid
+      , startChildWorkflowExecutionCommandAttributesWorkflowtype = maybe (startChildWorkflowExecutionCommandAttributesWorkflowtype defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowtype
+      , startChildWorkflowExecutionCommandAttributesTaskqueue = maybe (startChildWorkflowExecutionCommandAttributesTaskqueue defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesTaskqueue
+      , startChildWorkflowExecutionCommandAttributesInput = maybe (startChildWorkflowExecutionCommandAttributesInput defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesInput
+      , startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout
+      , startChildWorkflowExecutionCommandAttributesWorkflowruntimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowruntimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowruntimeout
+      , startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout
+      , startChildWorkflowExecutionCommandAttributesParentclosepolicy = maybe (startChildWorkflowExecutionCommandAttributesParentclosepolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesParentclosepolicy
+      , startChildWorkflowExecutionCommandAttributesControl = maybe (startChildWorkflowExecutionCommandAttributesControl defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesControl
+      , startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy = maybe (startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy
+      , startChildWorkflowExecutionCommandAttributesRetrypolicy = maybe (startChildWorkflowExecutionCommandAttributesRetrypolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesRetrypolicy
+      , startChildWorkflowExecutionCommandAttributesCronschedule = maybe (startChildWorkflowExecutionCommandAttributesCronschedule defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesCronschedule
+      , startChildWorkflowExecutionCommandAttributesHeader = maybe (startChildWorkflowExecutionCommandAttributesHeader defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesHeader
+      , startChildWorkflowExecutionCommandAttributesMemo = maybe (startChildWorkflowExecutionCommandAttributesMemo defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesMemo
+      , startChildWorkflowExecutionCommandAttributesSearchattributes = maybe (startChildWorkflowExecutionCommandAttributesSearchattributes defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesSearchattributes
+      , startChildWorkflowExecutionCommandAttributesInheritbuildid = maybe (startChildWorkflowExecutionCommandAttributesInheritbuildid defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesInheritbuildid
+      , startChildWorkflowExecutionCommandAttributesPriority = maybe (startChildWorkflowExecutionCommandAttributesPriority defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesPriority
+      }
   protoFromJSON _ = Right defaultStartChildWorkflowExecutionCommandAttributes
 
 data ProtocolMessageCommandAttributes = ProtocolMessageCommandAttributes
@@ -1123,6 +1313,11 @@ instance ProtoToJSON ProtocolMessageCommandAttributes where
       ]
 
 instance ProtoFromJSON ProtocolMessageCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_protocolMessageCommandAttributesMessageid <- obj .:? "messageId"
+    pure defaultProtocolMessageCommandAttributes
+      { protocolMessageCommandAttributesMessageid = maybe (protocolMessageCommandAttributesMessageid defaultProtocolMessageCommandAttributes) id fld_protocolMessageCommandAttributesMessageid
+      }
   protoFromJSON _ = Right defaultProtocolMessageCommandAttributes
 
 data ScheduleNexusOperationCommandAttributes = ScheduleNexusOperationCommandAttributes
@@ -1168,7 +1363,7 @@ instance MessageSize ScheduleNexusOperationCommandAttributes where
     + (if msg.scheduleNexusOperationCommandAttributesOperation == T.empty then 0 else fieldTextSize 3 msg.scheduleNexusOperationCommandAttributesOperation)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.scheduleNexusOperationCommandAttributesInput)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.scheduleNexusOperationCommandAttributesScheduletoclosetimeout)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 6 + 20) 0 msg.scheduleNexusOperationCommandAttributesNexusheader)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 6 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.scheduleNexusOperationCommandAttributesNexusheader)
     + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.scheduleNexusOperationCommandAttributesScheduletostarttimeout)
     + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.scheduleNexusOperationCommandAttributesStarttoclosetimeout)
 
@@ -1222,6 +1417,25 @@ instance ProtoToJSON ScheduleNexusOperationCommandAttributes where
       ]
 
 instance ProtoFromJSON ScheduleNexusOperationCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_scheduleNexusOperationCommandAttributesEndpoint <- obj .:? "endpoint"
+    fld_scheduleNexusOperationCommandAttributesService <- obj .:? "service"
+    fld_scheduleNexusOperationCommandAttributesOperation <- obj .:? "operation"
+    fld_scheduleNexusOperationCommandAttributesInput <- obj .:? "input"
+    fld_scheduleNexusOperationCommandAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_scheduleNexusOperationCommandAttributesNexusheader <- obj .:? "nexusHeader"
+    fld_scheduleNexusOperationCommandAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    fld_scheduleNexusOperationCommandAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    pure defaultScheduleNexusOperationCommandAttributes
+      { scheduleNexusOperationCommandAttributesEndpoint = maybe (scheduleNexusOperationCommandAttributesEndpoint defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesEndpoint
+      , scheduleNexusOperationCommandAttributesService = maybe (scheduleNexusOperationCommandAttributesService defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesService
+      , scheduleNexusOperationCommandAttributesOperation = maybe (scheduleNexusOperationCommandAttributesOperation defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesOperation
+      , scheduleNexusOperationCommandAttributesInput = maybe (scheduleNexusOperationCommandAttributesInput defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesInput
+      , scheduleNexusOperationCommandAttributesScheduletoclosetimeout = maybe (scheduleNexusOperationCommandAttributesScheduletoclosetimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesScheduletoclosetimeout
+      , scheduleNexusOperationCommandAttributesNexusheader = maybe (scheduleNexusOperationCommandAttributesNexusheader defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesNexusheader
+      , scheduleNexusOperationCommandAttributesScheduletostarttimeout = maybe (scheduleNexusOperationCommandAttributesScheduletostarttimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesScheduletostarttimeout
+      , scheduleNexusOperationCommandAttributesStarttoclosetimeout = maybe (scheduleNexusOperationCommandAttributesStarttoclosetimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesStarttoclosetimeout
+      }
   protoFromJSON _ = Right defaultScheduleNexusOperationCommandAttributes
 
 data RequestCancelNexusOperationCommandAttributes = RequestCancelNexusOperationCommandAttributes
@@ -1263,6 +1477,11 @@ instance ProtoToJSON RequestCancelNexusOperationCommandAttributes where
       ]
 
 instance ProtoFromJSON RequestCancelNexusOperationCommandAttributes where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestCancelNexusOperationCommandAttributesScheduledeventid <- obj .:? "scheduledEventId"
+    pure defaultRequestCancelNexusOperationCommandAttributes
+      { requestCancelNexusOperationCommandAttributesScheduledeventid = maybe (requestCancelNexusOperationCommandAttributesScheduledeventid defaultRequestCancelNexusOperationCommandAttributes) id fld_requestCancelNexusOperationCommandAttributesScheduledeventid
+      }
   protoFromJSON _ = Right defaultRequestCancelNexusOperationCommandAttributes
 
 data Command = Command
@@ -1425,4 +1644,13 @@ instance ProtoToJSON Command where
       ]
 
 instance ProtoFromJSON Command where
+  protoFromJSON (JsonObject obj) = do
+    fld_commandCommandtype <- obj .:? "commandType"
+    fld_commandUsermetadata <- obj .:? "userMetadata"
+    fld_commandAttributes <- obj .:? "attributes"
+    pure defaultCommand
+      { commandCommandtype = maybe (commandCommandtype defaultCommand) id fld_commandCommandtype
+      , commandUsermetadata = maybe (commandUsermetadata defaultCommand) id fld_commandUsermetadata
+      , commandAttributes = maybe (commandAttributes defaultCommand) id fld_commandAttributes
+      }
   protoFromJSON _ = Right defaultCommand

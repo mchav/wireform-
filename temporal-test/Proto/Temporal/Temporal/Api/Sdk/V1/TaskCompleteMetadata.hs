@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data WorkflowTaskCompletedMetadata = WorkflowTaskCompletedMetadata
@@ -61,8 +63,8 @@ instance MessageEncode WorkflowTaskCompletedMetadata where
 
 instance MessageSize WorkflowTaskCompletedMetadata where
   messageSize msg =
-    0 {- TODO: repeated size -}
-    + 0 {- TODO: repeated size -}
+    (let pl = VU.foldl' (\a v -> a + varintSize32 v) 0 msg.workflowTaskCompletedMetadataCoreusedflags in if pl == 0 then 0 else tagSize 1 + varintSize (fromIntegral pl) + pl)
+    + (let pl = VU.foldl' (\a v -> a + varintSize32 v) 0 msg.workflowTaskCompletedMetadataLangusedflags in if pl == 0 then 0 else tagSize 2 + varintSize (fromIntegral pl) + pl)
     + (if msg.workflowTaskCompletedMetadataSdkname == T.empty then 0 else fieldTextSize 3 msg.workflowTaskCompletedMetadataSdkname)
     + (if msg.workflowTaskCompletedMetadataSdkversion == T.empty then 0 else fieldTextSize 4 msg.workflowTaskCompletedMetadataSdkversion)
 
@@ -97,4 +99,15 @@ instance ProtoToJSON WorkflowTaskCompletedMetadata where
       ]
 
 instance ProtoFromJSON WorkflowTaskCompletedMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowTaskCompletedMetadataCoreusedflags <- obj .:? "coreUsedFlags"
+    fld_workflowTaskCompletedMetadataLangusedflags <- obj .:? "langUsedFlags"
+    fld_workflowTaskCompletedMetadataSdkname <- obj .:? "sdkName"
+    fld_workflowTaskCompletedMetadataSdkversion <- obj .:? "sdkVersion"
+    pure defaultWorkflowTaskCompletedMetadata
+      { workflowTaskCompletedMetadataCoreusedflags = maybe (workflowTaskCompletedMetadataCoreusedflags defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataCoreusedflags
+      , workflowTaskCompletedMetadataLangusedflags = maybe (workflowTaskCompletedMetadataLangusedflags defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataLangusedflags
+      , workflowTaskCompletedMetadataSdkname = maybe (workflowTaskCompletedMetadataSdkname defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkname
+      , workflowTaskCompletedMetadataSdkversion = maybe (workflowTaskCompletedMetadataSdkversion defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkversion
+      }
   protoFromJSON _ = Right defaultWorkflowTaskCompletedMetadata

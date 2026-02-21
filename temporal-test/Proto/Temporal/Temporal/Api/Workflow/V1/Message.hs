@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.Empty (Empty(..))
 import Proto.Google.Protobuf.FieldMask (FieldMask(..))
@@ -286,6 +288,61 @@ instance ProtoToJSON WorkflowExecutionInfo where
       ]
 
 instance ProtoFromJSON WorkflowExecutionInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionInfoExecution <- obj .:? "execution"
+    fld_workflowExecutionInfoType <- obj .:? "type"
+    fld_workflowExecutionInfoStarttime <- obj .:? "startTime"
+    fld_workflowExecutionInfoClosetime <- obj .:? "closeTime"
+    fld_workflowExecutionInfoStatus <- obj .:? "status"
+    fld_workflowExecutionInfoHistorylength <- obj .:? "historyLength"
+    fld_workflowExecutionInfoParentnamespaceid <- obj .:? "parentNamespaceId"
+    fld_workflowExecutionInfoParentexecution <- obj .:? "parentExecution"
+    fld_workflowExecutionInfoExecutiontime <- obj .:? "executionTime"
+    fld_workflowExecutionInfoMemo <- obj .:? "memo"
+    fld_workflowExecutionInfoSearchattributes <- obj .:? "searchAttributes"
+    fld_workflowExecutionInfoAutoresetpoints <- obj .:? "autoResetPoints"
+    fld_workflowExecutionInfoTaskqueue <- obj .:? "taskQueue"
+    fld_workflowExecutionInfoStatetransitioncount <- obj .:? "stateTransitionCount"
+    fld_workflowExecutionInfoHistorysizebytes <- obj .:? "historySizeBytes"
+    fld_workflowExecutionInfoMostrecentworkerversionstamp <- obj .:? "mostRecentWorkerVersionStamp"
+    fld_workflowExecutionInfoExecutionduration <- obj .:? "executionDuration"
+    fld_workflowExecutionInfoRootexecution <- obj .:? "rootExecution"
+    fld_workflowExecutionInfoAssignedbuildid <- obj .:? "assignedBuildId"
+    fld_workflowExecutionInfoInheritedbuildid <- obj .:? "inheritedBuildId"
+    fld_workflowExecutionInfoFirstrunid <- obj .:? "firstRunId"
+    fld_workflowExecutionInfoVersioninginfo <- obj .:? "versioningInfo"
+    fld_workflowExecutionInfoWorkerdeploymentname <- obj .:? "workerDeploymentName"
+    fld_workflowExecutionInfoPriority <- obj .:? "priority"
+    fld_workflowExecutionInfoExternalpayloadsizebytes <- obj .:? "externalPayloadSizeBytes"
+    fld_workflowExecutionInfoExternalpayloadcount <- obj .:? "externalPayloadCount"
+    pure defaultWorkflowExecutionInfo
+      { workflowExecutionInfoExecution = maybe (workflowExecutionInfoExecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecution
+      , workflowExecutionInfoType = maybe (workflowExecutionInfoType defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoType
+      , workflowExecutionInfoStarttime = maybe (workflowExecutionInfoStarttime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoStarttime
+      , workflowExecutionInfoClosetime = maybe (workflowExecutionInfoClosetime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoClosetime
+      , workflowExecutionInfoStatus = maybe (workflowExecutionInfoStatus defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoStatus
+      , workflowExecutionInfoHistorylength = maybe (workflowExecutionInfoHistorylength defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoHistorylength
+      , workflowExecutionInfoParentnamespaceid = maybe (workflowExecutionInfoParentnamespaceid defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoParentnamespaceid
+      , workflowExecutionInfoParentexecution = maybe (workflowExecutionInfoParentexecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoParentexecution
+      , workflowExecutionInfoExecutiontime = maybe (workflowExecutionInfoExecutiontime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecutiontime
+      , workflowExecutionInfoMemo = maybe (workflowExecutionInfoMemo defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoMemo
+      , workflowExecutionInfoSearchattributes = maybe (workflowExecutionInfoSearchattributes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoSearchattributes
+      , workflowExecutionInfoAutoresetpoints = maybe (workflowExecutionInfoAutoresetpoints defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoAutoresetpoints
+      , workflowExecutionInfoTaskqueue = maybe (workflowExecutionInfoTaskqueue defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoTaskqueue
+      , workflowExecutionInfoStatetransitioncount = maybe (workflowExecutionInfoStatetransitioncount defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoStatetransitioncount
+      , workflowExecutionInfoHistorysizebytes = maybe (workflowExecutionInfoHistorysizebytes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoHistorysizebytes
+      , workflowExecutionInfoMostrecentworkerversionstamp = maybe (workflowExecutionInfoMostrecentworkerversionstamp defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoMostrecentworkerversionstamp
+      , workflowExecutionInfoExecutionduration = maybe (workflowExecutionInfoExecutionduration defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecutionduration
+      , workflowExecutionInfoRootexecution = maybe (workflowExecutionInfoRootexecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoRootexecution
+      , workflowExecutionInfoAssignedbuildid = maybe (workflowExecutionInfoAssignedbuildid defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoAssignedbuildid
+      , workflowExecutionInfoInheritedbuildid = maybe (workflowExecutionInfoInheritedbuildid defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoInheritedbuildid
+      , workflowExecutionInfoFirstrunid = maybe (workflowExecutionInfoFirstrunid defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoFirstrunid
+      , workflowExecutionInfoVersioninginfo = maybe (workflowExecutionInfoVersioninginfo defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoVersioninginfo
+      , workflowExecutionInfoWorkerdeploymentname = maybe (workflowExecutionInfoWorkerdeploymentname defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoWorkerdeploymentname
+      , workflowExecutionInfoPriority = maybe (workflowExecutionInfoPriority defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoPriority
+      , workflowExecutionInfoExternalpayloadsizebytes = maybe (workflowExecutionInfoExternalpayloadsizebytes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExternalpayloadsizebytes
+      , workflowExecutionInfoExternalpayloadcount = maybe (workflowExecutionInfoExternalpayloadcount defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExternalpayloadcount
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionInfo
 
 data WorkflowExecutionExtendedInfo = WorkflowExecutionExtendedInfo
@@ -332,7 +389,7 @@ instance MessageSize WorkflowExecutionExtendedInfo where
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionExtendedInfoLastresettime)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workflowExecutionExtendedInfoOriginalstarttime)
     + (if msg.workflowExecutionExtendedInfoResetrunid == T.empty then 0 else fieldTextSize 6 msg.workflowExecutionExtendedInfoResetrunid)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 7 + 20) 0 msg.workflowExecutionExtendedInfoRequestidinfos)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 7 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.workflowExecutionExtendedInfoRequestidinfos)
     + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workflowExecutionExtendedInfoPauseinfo)
 
 instance MessageDecode WorkflowExecutionExtendedInfo where
@@ -385,6 +442,25 @@ instance ProtoToJSON WorkflowExecutionExtendedInfo where
       ]
 
 instance ProtoFromJSON WorkflowExecutionExtendedInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionExtendedInfoExecutionexpirationtime <- obj .:? "executionExpirationTime"
+    fld_workflowExecutionExtendedInfoRunexpirationtime <- obj .:? "runExpirationTime"
+    fld_workflowExecutionExtendedInfoCancelrequested <- obj .:? "cancelRequested"
+    fld_workflowExecutionExtendedInfoLastresettime <- obj .:? "lastResetTime"
+    fld_workflowExecutionExtendedInfoOriginalstarttime <- obj .:? "originalStartTime"
+    fld_workflowExecutionExtendedInfoResetrunid <- obj .:? "resetRunId"
+    fld_workflowExecutionExtendedInfoRequestidinfos <- obj .:? "requestIdInfos"
+    fld_workflowExecutionExtendedInfoPauseinfo <- obj .:? "pauseInfo"
+    pure defaultWorkflowExecutionExtendedInfo
+      { workflowExecutionExtendedInfoExecutionexpirationtime = maybe (workflowExecutionExtendedInfoExecutionexpirationtime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoExecutionexpirationtime
+      , workflowExecutionExtendedInfoRunexpirationtime = maybe (workflowExecutionExtendedInfoRunexpirationtime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoRunexpirationtime
+      , workflowExecutionExtendedInfoCancelrequested = maybe (workflowExecutionExtendedInfoCancelrequested defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoCancelrequested
+      , workflowExecutionExtendedInfoLastresettime = maybe (workflowExecutionExtendedInfoLastresettime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoLastresettime
+      , workflowExecutionExtendedInfoOriginalstarttime = maybe (workflowExecutionExtendedInfoOriginalstarttime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoOriginalstarttime
+      , workflowExecutionExtendedInfoResetrunid = maybe (workflowExecutionExtendedInfoResetrunid defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoResetrunid
+      , workflowExecutionExtendedInfoRequestidinfos = maybe (workflowExecutionExtendedInfoRequestidinfos defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoRequestidinfos
+      , workflowExecutionExtendedInfoPauseinfo = maybe (workflowExecutionExtendedInfoPauseinfo defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoPauseinfo
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionExtendedInfo
 
 data WorkflowExecutionVersioningInfo = WorkflowExecutionVersioningInfo
@@ -481,6 +557,25 @@ instance ProtoToJSON WorkflowExecutionVersioningInfo where
       ]
 
 instance ProtoFromJSON WorkflowExecutionVersioningInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionVersioningInfoBehavior <- obj .:? "behavior"
+    fld_workflowExecutionVersioningInfoDeployment <- obj .:? "deployment"
+    fld_workflowExecutionVersioningInfoVersion <- obj .:? "version"
+    fld_workflowExecutionVersioningInfoDeploymentversion <- obj .:? "deploymentVersion"
+    fld_workflowExecutionVersioningInfoVersioningoverride <- obj .:? "versioningOverride"
+    fld_workflowExecutionVersioningInfoDeploymenttransition <- obj .:? "deploymentTransition"
+    fld_workflowExecutionVersioningInfoVersiontransition <- obj .:? "versionTransition"
+    fld_workflowExecutionVersioningInfoRevisionnumber <- obj .:? "revisionNumber"
+    pure defaultWorkflowExecutionVersioningInfo
+      { workflowExecutionVersioningInfoBehavior = maybe (workflowExecutionVersioningInfoBehavior defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoBehavior
+      , workflowExecutionVersioningInfoDeployment = maybe (workflowExecutionVersioningInfoDeployment defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeployment
+      , workflowExecutionVersioningInfoVersion = maybe (workflowExecutionVersioningInfoVersion defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersion
+      , workflowExecutionVersioningInfoDeploymentversion = maybe (workflowExecutionVersioningInfoDeploymentversion defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeploymentversion
+      , workflowExecutionVersioningInfoVersioningoverride = maybe (workflowExecutionVersioningInfoVersioningoverride defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersioningoverride
+      , workflowExecutionVersioningInfoDeploymenttransition = maybe (workflowExecutionVersioningInfoDeploymenttransition defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeploymenttransition
+      , workflowExecutionVersioningInfoVersiontransition = maybe (workflowExecutionVersioningInfoVersiontransition defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersiontransition
+      , workflowExecutionVersioningInfoRevisionnumber = maybe (workflowExecutionVersioningInfoRevisionnumber defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoRevisionnumber
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionVersioningInfo
 
 data DeploymentTransition = DeploymentTransition
@@ -522,6 +617,11 @@ instance ProtoToJSON DeploymentTransition where
       ]
 
 instance ProtoFromJSON DeploymentTransition where
+  protoFromJSON (JsonObject obj) = do
+    fld_deploymentTransitionDeployment <- obj .:? "deployment"
+    pure defaultDeploymentTransition
+      { deploymentTransitionDeployment = maybe (deploymentTransitionDeployment defaultDeploymentTransition) id fld_deploymentTransitionDeployment
+      }
   protoFromJSON _ = Right defaultDeploymentTransition
 
 data DeploymentVersionTransition = DeploymentVersionTransition
@@ -570,6 +670,13 @@ instance ProtoToJSON DeploymentVersionTransition where
       ]
 
 instance ProtoFromJSON DeploymentVersionTransition where
+  protoFromJSON (JsonObject obj) = do
+    fld_deploymentVersionTransitionVersion <- obj .:? "version"
+    fld_deploymentVersionTransitionDeploymentversion <- obj .:? "deploymentVersion"
+    pure defaultDeploymentVersionTransition
+      { deploymentVersionTransitionVersion = maybe (deploymentVersionTransitionVersion defaultDeploymentVersionTransition) id fld_deploymentVersionTransitionVersion
+      , deploymentVersionTransitionDeploymentversion = maybe (deploymentVersionTransitionDeploymentversion defaultDeploymentVersionTransition) id fld_deploymentVersionTransitionDeploymentversion
+      }
   protoFromJSON _ = Right defaultDeploymentVersionTransition
 
 data WorkflowExecutionConfig = WorkflowExecutionConfig
@@ -642,6 +749,19 @@ instance ProtoToJSON WorkflowExecutionConfig where
       ]
 
 instance ProtoFromJSON WorkflowExecutionConfig where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionConfigTaskqueue <- obj .:? "taskQueue"
+    fld_workflowExecutionConfigWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
+    fld_workflowExecutionConfigWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_workflowExecutionConfigDefaultworkflowtasktimeout <- obj .:? "defaultWorkflowTaskTimeout"
+    fld_workflowExecutionConfigUsermetadata <- obj .:? "userMetadata"
+    pure defaultWorkflowExecutionConfig
+      { workflowExecutionConfigTaskqueue = maybe (workflowExecutionConfigTaskqueue defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigTaskqueue
+      , workflowExecutionConfigWorkflowexecutiontimeout = maybe (workflowExecutionConfigWorkflowexecutiontimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigWorkflowexecutiontimeout
+      , workflowExecutionConfigWorkflowruntimeout = maybe (workflowExecutionConfigWorkflowruntimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigWorkflowruntimeout
+      , workflowExecutionConfigDefaultworkflowtasktimeout = maybe (workflowExecutionConfigDefaultworkflowtasktimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigDefaultworkflowtasktimeout
+      , workflowExecutionConfigUsermetadata = maybe (workflowExecutionConfigUsermetadata defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigUsermetadata
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionConfig
 
 data PendingActivityInfo = PendingActivityInfo
@@ -735,6 +855,13 @@ instance ProtoToJSON PendingActivityInfo'PauseInfo'Manual where
       ]
 
 instance ProtoFromJSON PendingActivityInfo'PauseInfo'Manual where
+  protoFromJSON (JsonObject obj) = do
+    fld_pendingActivityInfoPauseInfoManualIdentity <- obj .:? "identity"
+    fld_pendingActivityInfoPauseInfoManualReason <- obj .:? "reason"
+    pure defaultPendingActivityInfo'PauseInfo'Manual
+      { pendingActivityInfoPauseInfoManualIdentity = maybe (pendingActivityInfoPauseInfoManualIdentity defaultPendingActivityInfo'PauseInfo'Manual) id fld_pendingActivityInfoPauseInfoManualIdentity
+      , pendingActivityInfoPauseInfoManualReason = maybe (pendingActivityInfoPauseInfoManualReason defaultPendingActivityInfo'PauseInfo'Manual) id fld_pendingActivityInfoPauseInfoManualReason
+      }
   protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo'Manual
 
 data PendingActivityInfo'PauseInfo'Rule = PendingActivityInfo'PauseInfo'Rule
@@ -791,6 +918,15 @@ instance ProtoToJSON PendingActivityInfo'PauseInfo'Rule where
       ]
 
 instance ProtoFromJSON PendingActivityInfo'PauseInfo'Rule where
+  protoFromJSON (JsonObject obj) = do
+    fld_pendingActivityInfoPauseInfoRuleRuleid <- obj .:? "ruleId"
+    fld_pendingActivityInfoPauseInfoRuleIdentity <- obj .:? "identity"
+    fld_pendingActivityInfoPauseInfoRuleReason <- obj .:? "reason"
+    pure defaultPendingActivityInfo'PauseInfo'Rule
+      { pendingActivityInfoPauseInfoRuleRuleid = maybe (pendingActivityInfoPauseInfoRuleRuleid defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleRuleid
+      , pendingActivityInfoPauseInfoRuleIdentity = maybe (pendingActivityInfoPauseInfoRuleIdentity defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleIdentity
+      , pendingActivityInfoPauseInfoRuleReason = maybe (pendingActivityInfoPauseInfoRuleReason defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleReason
+      }
   protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo'Rule
 data PendingActivityInfo'PauseInfo'PausedBy
   = PendingActivityInfo'PauseInfo'PausedBy'Manual !PendingActivityInfo'PauseInfo'Manual
@@ -848,6 +984,13 @@ instance ProtoToJSON PendingActivityInfo'PauseInfo where
       ]
 
 instance ProtoFromJSON PendingActivityInfo'PauseInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_pendingActivityInfoPauseInfoPausetime <- obj .:? "pauseTime"
+    fld_pendingActivityInfoPauseInfoPausedby <- obj .:? "pausedBy"
+    pure defaultPendingActivityInfo'PauseInfo
+      { pendingActivityInfoPauseInfoPausetime = maybe (pendingActivityInfoPauseInfoPausetime defaultPendingActivityInfo'PauseInfo) id fld_pendingActivityInfoPauseInfoPausetime
+      , pendingActivityInfoPauseInfoPausedby = maybe (pendingActivityInfoPauseInfoPausedby defaultPendingActivityInfo'PauseInfo) id fld_pendingActivityInfoPauseInfoPausedby
+      }
   protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo
 
 defaultPendingActivityInfo :: PendingActivityInfo
@@ -1050,6 +1193,57 @@ instance ProtoToJSON PendingActivityInfo where
       ]
 
 instance ProtoFromJSON PendingActivityInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_pendingActivityInfoActivityid <- obj .:? "activityId"
+    fld_pendingActivityInfoActivitytype <- obj .:? "activityType"
+    fld_pendingActivityInfoState <- obj .:? "state"
+    fld_pendingActivityInfoHeartbeatdetails <- obj .:? "heartbeatDetails"
+    fld_pendingActivityInfoLastheartbeattime <- obj .:? "lastHeartbeatTime"
+    fld_pendingActivityInfoLaststartedtime <- obj .:? "lastStartedTime"
+    fld_pendingActivityInfoAttempt <- obj .:? "attempt"
+    fld_pendingActivityInfoMaximumattempts <- obj .:? "maximumAttempts"
+    fld_pendingActivityInfoScheduledtime <- obj .:? "scheduledTime"
+    fld_pendingActivityInfoExpirationtime <- obj .:? "expirationTime"
+    fld_pendingActivityInfoLastfailure <- obj .:? "lastFailure"
+    fld_pendingActivityInfoLastworkeridentity <- obj .:? "lastWorkerIdentity"
+    fld_pendingActivityInfoAssignedbuildid <- obj .:? "assignedBuildId"
+    fld_pendingActivityInfoLastworkerversionstamp <- obj .:? "lastWorkerVersionStamp"
+    fld_pendingActivityInfoCurrentretryinterval <- obj .:? "currentRetryInterval"
+    fld_pendingActivityInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
+    fld_pendingActivityInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
+    fld_pendingActivityInfoPaused <- obj .:? "paused"
+    fld_pendingActivityInfoLastdeployment <- obj .:? "lastDeployment"
+    fld_pendingActivityInfoLastworkerdeploymentversion <- obj .:? "lastWorkerDeploymentVersion"
+    fld_pendingActivityInfoLastdeploymentversion <- obj .:? "lastDeploymentVersion"
+    fld_pendingActivityInfoPriority <- obj .:? "priority"
+    fld_pendingActivityInfoPauseinfo <- obj .:? "pauseInfo"
+    fld_pendingActivityInfoActivityoptions <- obj .:? "activityOptions"
+    pure defaultPendingActivityInfo
+      { pendingActivityInfoActivityid = maybe (pendingActivityInfoActivityid defaultPendingActivityInfo) id fld_pendingActivityInfoActivityid
+      , pendingActivityInfoActivitytype = maybe (pendingActivityInfoActivitytype defaultPendingActivityInfo) id fld_pendingActivityInfoActivitytype
+      , pendingActivityInfoState = maybe (pendingActivityInfoState defaultPendingActivityInfo) id fld_pendingActivityInfoState
+      , pendingActivityInfoHeartbeatdetails = maybe (pendingActivityInfoHeartbeatdetails defaultPendingActivityInfo) id fld_pendingActivityInfoHeartbeatdetails
+      , pendingActivityInfoLastheartbeattime = maybe (pendingActivityInfoLastheartbeattime defaultPendingActivityInfo) id fld_pendingActivityInfoLastheartbeattime
+      , pendingActivityInfoLaststartedtime = maybe (pendingActivityInfoLaststartedtime defaultPendingActivityInfo) id fld_pendingActivityInfoLaststartedtime
+      , pendingActivityInfoAttempt = maybe (pendingActivityInfoAttempt defaultPendingActivityInfo) id fld_pendingActivityInfoAttempt
+      , pendingActivityInfoMaximumattempts = maybe (pendingActivityInfoMaximumattempts defaultPendingActivityInfo) id fld_pendingActivityInfoMaximumattempts
+      , pendingActivityInfoScheduledtime = maybe (pendingActivityInfoScheduledtime defaultPendingActivityInfo) id fld_pendingActivityInfoScheduledtime
+      , pendingActivityInfoExpirationtime = maybe (pendingActivityInfoExpirationtime defaultPendingActivityInfo) id fld_pendingActivityInfoExpirationtime
+      , pendingActivityInfoLastfailure = maybe (pendingActivityInfoLastfailure defaultPendingActivityInfo) id fld_pendingActivityInfoLastfailure
+      , pendingActivityInfoLastworkeridentity = maybe (pendingActivityInfoLastworkeridentity defaultPendingActivityInfo) id fld_pendingActivityInfoLastworkeridentity
+      , pendingActivityInfoAssignedbuildid = maybe (pendingActivityInfoAssignedbuildid defaultPendingActivityInfo) id fld_pendingActivityInfoAssignedbuildid
+      , pendingActivityInfoLastworkerversionstamp = maybe (pendingActivityInfoLastworkerversionstamp defaultPendingActivityInfo) id fld_pendingActivityInfoLastworkerversionstamp
+      , pendingActivityInfoCurrentretryinterval = maybe (pendingActivityInfoCurrentretryinterval defaultPendingActivityInfo) id fld_pendingActivityInfoCurrentretryinterval
+      , pendingActivityInfoLastattemptcompletetime = maybe (pendingActivityInfoLastattemptcompletetime defaultPendingActivityInfo) id fld_pendingActivityInfoLastattemptcompletetime
+      , pendingActivityInfoNextattemptscheduletime = maybe (pendingActivityInfoNextattemptscheduletime defaultPendingActivityInfo) id fld_pendingActivityInfoNextattemptscheduletime
+      , pendingActivityInfoPaused = maybe (pendingActivityInfoPaused defaultPendingActivityInfo) id fld_pendingActivityInfoPaused
+      , pendingActivityInfoLastdeployment = maybe (pendingActivityInfoLastdeployment defaultPendingActivityInfo) id fld_pendingActivityInfoLastdeployment
+      , pendingActivityInfoLastworkerdeploymentversion = maybe (pendingActivityInfoLastworkerdeploymentversion defaultPendingActivityInfo) id fld_pendingActivityInfoLastworkerdeploymentversion
+      , pendingActivityInfoLastdeploymentversion = maybe (pendingActivityInfoLastdeploymentversion defaultPendingActivityInfo) id fld_pendingActivityInfoLastdeploymentversion
+      , pendingActivityInfoPriority = maybe (pendingActivityInfoPriority defaultPendingActivityInfo) id fld_pendingActivityInfoPriority
+      , pendingActivityInfoPauseinfo = maybe (pendingActivityInfoPauseinfo defaultPendingActivityInfo) id fld_pendingActivityInfoPauseinfo
+      , pendingActivityInfoActivityoptions = maybe (pendingActivityInfoActivityoptions defaultPendingActivityInfo) id fld_pendingActivityInfoActivityoptions
+      }
   protoFromJSON _ = Right defaultPendingActivityInfo
 
 data PendingChildExecutionInfo = PendingChildExecutionInfo
@@ -1122,6 +1316,19 @@ instance ProtoToJSON PendingChildExecutionInfo where
       ]
 
 instance ProtoFromJSON PendingChildExecutionInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_pendingChildExecutionInfoWorkflowid <- obj .:? "workflowId"
+    fld_pendingChildExecutionInfoRunid <- obj .:? "runId"
+    fld_pendingChildExecutionInfoWorkflowtypename <- obj .:? "workflowTypeName"
+    fld_pendingChildExecutionInfoInitiatedid <- obj .:? "initiatedId"
+    fld_pendingChildExecutionInfoParentclosepolicy <- obj .:? "parentClosePolicy"
+    pure defaultPendingChildExecutionInfo
+      { pendingChildExecutionInfoWorkflowid = maybe (pendingChildExecutionInfoWorkflowid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoWorkflowid
+      , pendingChildExecutionInfoRunid = maybe (pendingChildExecutionInfoRunid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoRunid
+      , pendingChildExecutionInfoWorkflowtypename = maybe (pendingChildExecutionInfoWorkflowtypename defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoWorkflowtypename
+      , pendingChildExecutionInfoInitiatedid = maybe (pendingChildExecutionInfoInitiatedid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoInitiatedid
+      , pendingChildExecutionInfoParentclosepolicy = maybe (pendingChildExecutionInfoParentclosepolicy defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoParentclosepolicy
+      }
   protoFromJSON _ = Right defaultPendingChildExecutionInfo
 
 data PendingWorkflowTaskInfo = PendingWorkflowTaskInfo
@@ -1194,6 +1401,19 @@ instance ProtoToJSON PendingWorkflowTaskInfo where
       ]
 
 instance ProtoFromJSON PendingWorkflowTaskInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_pendingWorkflowTaskInfoState <- obj .:? "state"
+    fld_pendingWorkflowTaskInfoScheduledtime <- obj .:? "scheduledTime"
+    fld_pendingWorkflowTaskInfoOriginalscheduledtime <- obj .:? "originalScheduledTime"
+    fld_pendingWorkflowTaskInfoStartedtime <- obj .:? "startedTime"
+    fld_pendingWorkflowTaskInfoAttempt <- obj .:? "attempt"
+    pure defaultPendingWorkflowTaskInfo
+      { pendingWorkflowTaskInfoState = maybe (pendingWorkflowTaskInfoState defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoState
+      , pendingWorkflowTaskInfoScheduledtime = maybe (pendingWorkflowTaskInfoScheduledtime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoScheduledtime
+      , pendingWorkflowTaskInfoOriginalscheduledtime = maybe (pendingWorkflowTaskInfoOriginalscheduledtime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoOriginalscheduledtime
+      , pendingWorkflowTaskInfoStartedtime = maybe (pendingWorkflowTaskInfoStartedtime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoStartedtime
+      , pendingWorkflowTaskInfoAttempt = maybe (pendingWorkflowTaskInfoAttempt defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoAttempt
+      }
   protoFromJSON _ = Right defaultPendingWorkflowTaskInfo
 
 data ResetPoints = ResetPoints
@@ -1235,6 +1455,11 @@ instance ProtoToJSON ResetPoints where
       ]
 
 instance ProtoFromJSON ResetPoints where
+  protoFromJSON (JsonObject obj) = do
+    fld_resetPointsPoints <- obj .:? "points"
+    pure defaultResetPoints
+      { resetPointsPoints = maybe (resetPointsPoints defaultResetPoints) id fld_resetPointsPoints
+      }
   protoFromJSON _ = Right defaultResetPoints
 
 data ResetPointInfo = ResetPointInfo
@@ -1323,6 +1548,23 @@ instance ProtoToJSON ResetPointInfo where
       ]
 
 instance ProtoFromJSON ResetPointInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_resetPointInfoBuildid <- obj .:? "buildId"
+    fld_resetPointInfoBinarychecksum <- obj .:? "binaryChecksum"
+    fld_resetPointInfoRunid <- obj .:? "runId"
+    fld_resetPointInfoFirstworkflowtaskcompletedid <- obj .:? "firstWorkflowTaskCompletedId"
+    fld_resetPointInfoCreatetime <- obj .:? "createTime"
+    fld_resetPointInfoExpiretime <- obj .:? "expireTime"
+    fld_resetPointInfoResettable <- obj .:? "resettable"
+    pure defaultResetPointInfo
+      { resetPointInfoBuildid = maybe (resetPointInfoBuildid defaultResetPointInfo) id fld_resetPointInfoBuildid
+      , resetPointInfoBinarychecksum = maybe (resetPointInfoBinarychecksum defaultResetPointInfo) id fld_resetPointInfoBinarychecksum
+      , resetPointInfoRunid = maybe (resetPointInfoRunid defaultResetPointInfo) id fld_resetPointInfoRunid
+      , resetPointInfoFirstworkflowtaskcompletedid = maybe (resetPointInfoFirstworkflowtaskcompletedid defaultResetPointInfo) id fld_resetPointInfoFirstworkflowtaskcompletedid
+      , resetPointInfoCreatetime = maybe (resetPointInfoCreatetime defaultResetPointInfo) id fld_resetPointInfoCreatetime
+      , resetPointInfoExpiretime = maybe (resetPointInfoExpiretime defaultResetPointInfo) id fld_resetPointInfoExpiretime
+      , resetPointInfoResettable = maybe (resetPointInfoResettable defaultResetPointInfo) id fld_resetPointInfoResettable
+      }
   protoFromJSON _ = Right defaultResetPointInfo
 
 data NewWorkflowExecutionInfo = NewWorkflowExecutionInfo
@@ -1483,6 +1725,41 @@ instance ProtoToJSON NewWorkflowExecutionInfo where
       ]
 
 instance ProtoFromJSON NewWorkflowExecutionInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_newWorkflowExecutionInfoWorkflowid <- obj .:? "workflowId"
+    fld_newWorkflowExecutionInfoWorkflowtype <- obj .:? "workflowType"
+    fld_newWorkflowExecutionInfoTaskqueue <- obj .:? "taskQueue"
+    fld_newWorkflowExecutionInfoInput <- obj .:? "input"
+    fld_newWorkflowExecutionInfoWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
+    fld_newWorkflowExecutionInfoWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_newWorkflowExecutionInfoWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
+    fld_newWorkflowExecutionInfoWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
+    fld_newWorkflowExecutionInfoRetrypolicy <- obj .:? "retryPolicy"
+    fld_newWorkflowExecutionInfoCronschedule <- obj .:? "cronSchedule"
+    fld_newWorkflowExecutionInfoMemo <- obj .:? "memo"
+    fld_newWorkflowExecutionInfoSearchattributes <- obj .:? "searchAttributes"
+    fld_newWorkflowExecutionInfoHeader <- obj .:? "header"
+    fld_newWorkflowExecutionInfoUsermetadata <- obj .:? "userMetadata"
+    fld_newWorkflowExecutionInfoVersioningoverride <- obj .:? "versioningOverride"
+    fld_newWorkflowExecutionInfoPriority <- obj .:? "priority"
+    pure defaultNewWorkflowExecutionInfo
+      { newWorkflowExecutionInfoWorkflowid = maybe (newWorkflowExecutionInfoWorkflowid defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowid
+      , newWorkflowExecutionInfoWorkflowtype = maybe (newWorkflowExecutionInfoWorkflowtype defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowtype
+      , newWorkflowExecutionInfoTaskqueue = maybe (newWorkflowExecutionInfoTaskqueue defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoTaskqueue
+      , newWorkflowExecutionInfoInput = maybe (newWorkflowExecutionInfoInput defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoInput
+      , newWorkflowExecutionInfoWorkflowexecutiontimeout = maybe (newWorkflowExecutionInfoWorkflowexecutiontimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowexecutiontimeout
+      , newWorkflowExecutionInfoWorkflowruntimeout = maybe (newWorkflowExecutionInfoWorkflowruntimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowruntimeout
+      , newWorkflowExecutionInfoWorkflowtasktimeout = maybe (newWorkflowExecutionInfoWorkflowtasktimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowtasktimeout
+      , newWorkflowExecutionInfoWorkflowidreusepolicy = maybe (newWorkflowExecutionInfoWorkflowidreusepolicy defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowidreusepolicy
+      , newWorkflowExecutionInfoRetrypolicy = maybe (newWorkflowExecutionInfoRetrypolicy defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoRetrypolicy
+      , newWorkflowExecutionInfoCronschedule = maybe (newWorkflowExecutionInfoCronschedule defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoCronschedule
+      , newWorkflowExecutionInfoMemo = maybe (newWorkflowExecutionInfoMemo defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoMemo
+      , newWorkflowExecutionInfoSearchattributes = maybe (newWorkflowExecutionInfoSearchattributes defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoSearchattributes
+      , newWorkflowExecutionInfoHeader = maybe (newWorkflowExecutionInfoHeader defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoHeader
+      , newWorkflowExecutionInfoUsermetadata = maybe (newWorkflowExecutionInfoUsermetadata defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoUsermetadata
+      , newWorkflowExecutionInfoVersioningoverride = maybe (newWorkflowExecutionInfoVersioningoverride defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoVersioningoverride
+      , newWorkflowExecutionInfoPriority = maybe (newWorkflowExecutionInfoPriority defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoPriority
+      }
   protoFromJSON _ = Right defaultNewWorkflowExecutionInfo
 
 data CallbackInfo = CallbackInfo
@@ -1582,6 +1859,11 @@ instance ProtoToJSON CallbackInfo'Trigger where
       ]
 
 instance ProtoFromJSON CallbackInfo'Trigger where
+  protoFromJSON (JsonObject obj) = do
+    fld_callbackInfoTriggerVariant <- obj .:? "variant"
+    pure defaultCallbackInfo'Trigger
+      { callbackInfoTriggerVariant = maybe (callbackInfoTriggerVariant defaultCallbackInfo'Trigger) id fld_callbackInfoTriggerVariant
+      }
   protoFromJSON _ = Right defaultCallbackInfo'Trigger
 
 defaultCallbackInfo :: CallbackInfo
@@ -1672,6 +1954,27 @@ instance ProtoToJSON CallbackInfo where
       ]
 
 instance ProtoFromJSON CallbackInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_callbackInfoCallback <- obj .:? "callback"
+    fld_callbackInfoTrigger <- obj .:? "trigger"
+    fld_callbackInfoRegistrationtime <- obj .:? "registrationTime"
+    fld_callbackInfoState <- obj .:? "state"
+    fld_callbackInfoAttempt <- obj .:? "attempt"
+    fld_callbackInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
+    fld_callbackInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
+    fld_callbackInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
+    fld_callbackInfoBlockedreason <- obj .:? "blockedReason"
+    pure defaultCallbackInfo
+      { callbackInfoCallback = maybe (callbackInfoCallback defaultCallbackInfo) id fld_callbackInfoCallback
+      , callbackInfoTrigger = maybe (callbackInfoTrigger defaultCallbackInfo) id fld_callbackInfoTrigger
+      , callbackInfoRegistrationtime = maybe (callbackInfoRegistrationtime defaultCallbackInfo) id fld_callbackInfoRegistrationtime
+      , callbackInfoState = maybe (callbackInfoState defaultCallbackInfo) id fld_callbackInfoState
+      , callbackInfoAttempt = maybe (callbackInfoAttempt defaultCallbackInfo) id fld_callbackInfoAttempt
+      , callbackInfoLastattemptcompletetime = maybe (callbackInfoLastattemptcompletetime defaultCallbackInfo) id fld_callbackInfoLastattemptcompletetime
+      , callbackInfoLastattemptfailure = maybe (callbackInfoLastattemptfailure defaultCallbackInfo) id fld_callbackInfoLastattemptfailure
+      , callbackInfoNextattemptscheduletime = maybe (callbackInfoNextattemptscheduletime defaultCallbackInfo) id fld_callbackInfoNextattemptscheduletime
+      , callbackInfoBlockedreason = maybe (callbackInfoBlockedreason defaultCallbackInfo) id fld_callbackInfoBlockedreason
+      }
   protoFromJSON _ = Right defaultCallbackInfo
 
 data PendingNexusOperationInfo = PendingNexusOperationInfo
@@ -1840,6 +2143,43 @@ instance ProtoToJSON PendingNexusOperationInfo where
       ]
 
 instance ProtoFromJSON PendingNexusOperationInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_pendingNexusOperationInfoEndpoint <- obj .:? "endpoint"
+    fld_pendingNexusOperationInfoService <- obj .:? "service"
+    fld_pendingNexusOperationInfoOperation <- obj .:? "operation"
+    fld_pendingNexusOperationInfoOperationid <- obj .:? "operationId"
+    fld_pendingNexusOperationInfoScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_pendingNexusOperationInfoScheduledtime <- obj .:? "scheduledTime"
+    fld_pendingNexusOperationInfoState <- obj .:? "state"
+    fld_pendingNexusOperationInfoAttempt <- obj .:? "attempt"
+    fld_pendingNexusOperationInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
+    fld_pendingNexusOperationInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
+    fld_pendingNexusOperationInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
+    fld_pendingNexusOperationInfoCancellationinfo <- obj .:? "cancellationInfo"
+    fld_pendingNexusOperationInfoScheduledeventid <- obj .:? "scheduledEventId"
+    fld_pendingNexusOperationInfoBlockedreason <- obj .:? "blockedReason"
+    fld_pendingNexusOperationInfoOperationtoken <- obj .:? "operationToken"
+    fld_pendingNexusOperationInfoScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    fld_pendingNexusOperationInfoStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    pure defaultPendingNexusOperationInfo
+      { pendingNexusOperationInfoEndpoint = maybe (pendingNexusOperationInfoEndpoint defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoEndpoint
+      , pendingNexusOperationInfoService = maybe (pendingNexusOperationInfoService defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoService
+      , pendingNexusOperationInfoOperation = maybe (pendingNexusOperationInfoOperation defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoOperation
+      , pendingNexusOperationInfoOperationid = maybe (pendingNexusOperationInfoOperationid defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoOperationid
+      , pendingNexusOperationInfoScheduletoclosetimeout = maybe (pendingNexusOperationInfoScheduletoclosetimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduletoclosetimeout
+      , pendingNexusOperationInfoScheduledtime = maybe (pendingNexusOperationInfoScheduledtime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduledtime
+      , pendingNexusOperationInfoState = maybe (pendingNexusOperationInfoState defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoState
+      , pendingNexusOperationInfoAttempt = maybe (pendingNexusOperationInfoAttempt defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoAttempt
+      , pendingNexusOperationInfoLastattemptcompletetime = maybe (pendingNexusOperationInfoLastattemptcompletetime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoLastattemptcompletetime
+      , pendingNexusOperationInfoLastattemptfailure = maybe (pendingNexusOperationInfoLastattemptfailure defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoLastattemptfailure
+      , pendingNexusOperationInfoNextattemptscheduletime = maybe (pendingNexusOperationInfoNextattemptscheduletime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoNextattemptscheduletime
+      , pendingNexusOperationInfoCancellationinfo = maybe (pendingNexusOperationInfoCancellationinfo defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoCancellationinfo
+      , pendingNexusOperationInfoScheduledeventid = maybe (pendingNexusOperationInfoScheduledeventid defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduledeventid
+      , pendingNexusOperationInfoBlockedreason = maybe (pendingNexusOperationInfoBlockedreason defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoBlockedreason
+      , pendingNexusOperationInfoOperationtoken = maybe (pendingNexusOperationInfoOperationtoken defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoOperationtoken
+      , pendingNexusOperationInfoScheduletostarttimeout = maybe (pendingNexusOperationInfoScheduletostarttimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduletostarttimeout
+      , pendingNexusOperationInfoStarttoclosetimeout = maybe (pendingNexusOperationInfoStarttoclosetimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoStarttoclosetimeout
+      }
   protoFromJSON _ = Right defaultPendingNexusOperationInfo
 
 data NexusOperationCancellationInfo = NexusOperationCancellationInfo
@@ -1928,6 +2268,23 @@ instance ProtoToJSON NexusOperationCancellationInfo where
       ]
 
 instance ProtoFromJSON NexusOperationCancellationInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_nexusOperationCancellationInfoRequestedtime <- obj .:? "requestedTime"
+    fld_nexusOperationCancellationInfoState <- obj .:? "state"
+    fld_nexusOperationCancellationInfoAttempt <- obj .:? "attempt"
+    fld_nexusOperationCancellationInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
+    fld_nexusOperationCancellationInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
+    fld_nexusOperationCancellationInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
+    fld_nexusOperationCancellationInfoBlockedreason <- obj .:? "blockedReason"
+    pure defaultNexusOperationCancellationInfo
+      { nexusOperationCancellationInfoRequestedtime = maybe (nexusOperationCancellationInfoRequestedtime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoRequestedtime
+      , nexusOperationCancellationInfoState = maybe (nexusOperationCancellationInfoState defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoState
+      , nexusOperationCancellationInfoAttempt = maybe (nexusOperationCancellationInfoAttempt defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoAttempt
+      , nexusOperationCancellationInfoLastattemptcompletetime = maybe (nexusOperationCancellationInfoLastattemptcompletetime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoLastattemptcompletetime
+      , nexusOperationCancellationInfoLastattemptfailure = maybe (nexusOperationCancellationInfoLastattemptfailure defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoLastattemptfailure
+      , nexusOperationCancellationInfoNextattemptscheduletime = maybe (nexusOperationCancellationInfoNextattemptscheduletime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoNextattemptscheduletime
+      , nexusOperationCancellationInfoBlockedreason = maybe (nexusOperationCancellationInfoBlockedreason defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoBlockedreason
+      }
   protoFromJSON _ = Right defaultNexusOperationCancellationInfo
 
 data WorkflowExecutionOptions = WorkflowExecutionOptions
@@ -1976,6 +2333,13 @@ instance ProtoToJSON WorkflowExecutionOptions where
       ]
 
 instance ProtoFromJSON WorkflowExecutionOptions where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionOptionsVersioningoverride <- obj .:? "versioningOverride"
+    fld_workflowExecutionOptionsPriority <- obj .:? "priority"
+    pure defaultWorkflowExecutionOptions
+      { workflowExecutionOptionsVersioningoverride = maybe (workflowExecutionOptionsVersioningoverride defaultWorkflowExecutionOptions) id fld_workflowExecutionOptionsVersioningoverride
+      , workflowExecutionOptionsPriority = maybe (workflowExecutionOptionsPriority defaultWorkflowExecutionOptions) id fld_workflowExecutionOptionsPriority
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionOptions
 
 data VersioningOverride = VersioningOverride
@@ -2042,6 +2406,13 @@ instance ProtoToJSON VersioningOverride'PinnedOverride where
       ]
 
 instance ProtoFromJSON VersioningOverride'PinnedOverride where
+  protoFromJSON (JsonObject obj) = do
+    fld_versioningOverridePinnedOverrideBehavior <- obj .:? "behavior"
+    fld_versioningOverridePinnedOverrideVersion <- obj .:? "version"
+    pure defaultVersioningOverride'PinnedOverride
+      { versioningOverridePinnedOverrideBehavior = maybe (versioningOverridePinnedOverrideBehavior defaultVersioningOverride'PinnedOverride) id fld_versioningOverridePinnedOverrideBehavior
+      , versioningOverridePinnedOverrideVersion = maybe (versioningOverridePinnedOverrideVersion defaultVersioningOverride'PinnedOverride) id fld_versioningOverridePinnedOverrideVersion
+      }
   protoFromJSON _ = Right defaultVersioningOverride'PinnedOverride
 
 data VersioningOverride'PinnedOverrideBehavior
@@ -2065,8 +2436,6 @@ instance MessageSize VersioningOverride'PinnedOverrideBehavior where
   messageSize _ = 0
 instance MessageDecode VersioningOverride'PinnedOverrideBehavior where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON VersioningOverride'PinnedOverrideBehavior where
   protoToJSON VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorUnspecified = JsonString "PINNED_OVERRIDE_BEHAVIOR_UNSPECIFIED"
@@ -2139,6 +2508,17 @@ instance ProtoToJSON VersioningOverride where
       ]
 
 instance ProtoFromJSON VersioningOverride where
+  protoFromJSON (JsonObject obj) = do
+    fld_versioningOverrideOverride <- obj .:? "override"
+    fld_versioningOverrideBehavior <- obj .:? "behavior"
+    fld_versioningOverrideDeployment <- obj .:? "deployment"
+    fld_versioningOverridePinnedversion <- obj .:? "pinnedVersion"
+    pure defaultVersioningOverride
+      { versioningOverrideOverride = maybe (versioningOverrideOverride defaultVersioningOverride) id fld_versioningOverrideOverride
+      , versioningOverrideBehavior = maybe (versioningOverrideBehavior defaultVersioningOverride) id fld_versioningOverrideBehavior
+      , versioningOverrideDeployment = maybe (versioningOverrideDeployment defaultVersioningOverride) id fld_versioningOverrideDeployment
+      , versioningOverridePinnedversion = maybe (versioningOverridePinnedversion defaultVersioningOverride) id fld_versioningOverridePinnedversion
+      }
   protoFromJSON _ = Right defaultVersioningOverride
 
 data OnConflictOptions = OnConflictOptions
@@ -2195,6 +2575,15 @@ instance ProtoToJSON OnConflictOptions where
       ]
 
 instance ProtoFromJSON OnConflictOptions where
+  protoFromJSON (JsonObject obj) = do
+    fld_onConflictOptionsAttachrequestid <- obj .:? "attachRequestId"
+    fld_onConflictOptionsAttachcompletioncallbacks <- obj .:? "attachCompletionCallbacks"
+    fld_onConflictOptionsAttachlinks <- obj .:? "attachLinks"
+    pure defaultOnConflictOptions
+      { onConflictOptionsAttachrequestid = maybe (onConflictOptionsAttachrequestid defaultOnConflictOptions) id fld_onConflictOptionsAttachrequestid
+      , onConflictOptionsAttachcompletioncallbacks = maybe (onConflictOptionsAttachcompletioncallbacks defaultOnConflictOptions) id fld_onConflictOptionsAttachcompletioncallbacks
+      , onConflictOptionsAttachlinks = maybe (onConflictOptionsAttachlinks defaultOnConflictOptions) id fld_onConflictOptionsAttachlinks
+      }
   protoFromJSON _ = Right defaultOnConflictOptions
 
 data RequestIdInfo = RequestIdInfo
@@ -2251,6 +2640,15 @@ instance ProtoToJSON RequestIdInfo where
       ]
 
 instance ProtoFromJSON RequestIdInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestIdInfoEventtype <- obj .:? "eventType"
+    fld_requestIdInfoEventid <- obj .:? "eventId"
+    fld_requestIdInfoBuffered <- obj .:? "buffered"
+    pure defaultRequestIdInfo
+      { requestIdInfoEventtype = maybe (requestIdInfoEventtype defaultRequestIdInfo) id fld_requestIdInfoEventtype
+      , requestIdInfoEventid = maybe (requestIdInfoEventid defaultRequestIdInfo) id fld_requestIdInfoEventid
+      , requestIdInfoBuffered = maybe (requestIdInfoBuffered defaultRequestIdInfo) id fld_requestIdInfoBuffered
+      }
   protoFromJSON _ = Right defaultRequestIdInfo
 
 data PostResetOperation = PostResetOperation
@@ -2321,6 +2719,17 @@ instance ProtoToJSON PostResetOperation'SignalWorkflow where
       ]
 
 instance ProtoFromJSON PostResetOperation'SignalWorkflow where
+  protoFromJSON (JsonObject obj) = do
+    fld_postResetOperationSignalWorkflowSignalname <- obj .:? "signalName"
+    fld_postResetOperationSignalWorkflowInput <- obj .:? "input"
+    fld_postResetOperationSignalWorkflowHeader <- obj .:? "header"
+    fld_postResetOperationSignalWorkflowLinks <- obj .:? "links"
+    pure defaultPostResetOperation'SignalWorkflow
+      { postResetOperationSignalWorkflowSignalname = maybe (postResetOperationSignalWorkflowSignalname defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowSignalname
+      , postResetOperationSignalWorkflowInput = maybe (postResetOperationSignalWorkflowInput defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowInput
+      , postResetOperationSignalWorkflowHeader = maybe (postResetOperationSignalWorkflowHeader defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowHeader
+      , postResetOperationSignalWorkflowLinks = maybe (postResetOperationSignalWorkflowLinks defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowLinks
+      }
   protoFromJSON _ = Right defaultPostResetOperation'SignalWorkflow
 
 data PostResetOperation'UpdateWorkflowOptions = PostResetOperation'UpdateWorkflowOptions
@@ -2369,6 +2778,13 @@ instance ProtoToJSON PostResetOperation'UpdateWorkflowOptions where
       ]
 
 instance ProtoFromJSON PostResetOperation'UpdateWorkflowOptions where
+  protoFromJSON (JsonObject obj) = do
+    fld_postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions <- obj .:? "workflowExecutionOptions"
+    fld_postResetOperationUpdateWorkflowOptionsUpdatemask <- obj .:? "updateMask"
+    pure defaultPostResetOperation'UpdateWorkflowOptions
+      { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions = maybe (postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions defaultPostResetOperation'UpdateWorkflowOptions) id fld_postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
+      , postResetOperationUpdateWorkflowOptionsUpdatemask = maybe (postResetOperationUpdateWorkflowOptionsUpdatemask defaultPostResetOperation'UpdateWorkflowOptions) id fld_postResetOperationUpdateWorkflowOptionsUpdatemask
+      }
   protoFromJSON _ = Right defaultPostResetOperation'UpdateWorkflowOptions
 data PostResetOperation'Variant
   = PostResetOperation'Variant'SignalWorkflow !PostResetOperation'SignalWorkflow
@@ -2420,6 +2836,11 @@ instance ProtoToJSON PostResetOperation where
       ]
 
 instance ProtoFromJSON PostResetOperation where
+  protoFromJSON (JsonObject obj) = do
+    fld_postResetOperationVariant <- obj .:? "variant"
+    pure defaultPostResetOperation
+      { postResetOperationVariant = maybe (postResetOperationVariant defaultPostResetOperation) id fld_postResetOperationVariant
+      }
   protoFromJSON _ = Right defaultPostResetOperation
 
 data WorkflowExecutionPauseInfo = WorkflowExecutionPauseInfo
@@ -2476,4 +2897,13 @@ instance ProtoToJSON WorkflowExecutionPauseInfo where
       ]
 
 instance ProtoFromJSON WorkflowExecutionPauseInfo where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionPauseInfoIdentity <- obj .:? "identity"
+    fld_workflowExecutionPauseInfoPausedtime <- obj .:? "pausedTime"
+    fld_workflowExecutionPauseInfoReason <- obj .:? "reason"
+    pure defaultWorkflowExecutionPauseInfo
+      { workflowExecutionPauseInfoIdentity = maybe (workflowExecutionPauseInfoIdentity defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoIdentity
+      , workflowExecutionPauseInfoPausedtime = maybe (workflowExecutionPauseInfoPausedtime defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoPausedtime
+      , workflowExecutionPauseInfoReason = maybe (workflowExecutionPauseInfoReason defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoReason
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionPauseInfo

@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
 
 
@@ -82,4 +84,11 @@ instance ProtoToJSON UserMetadata where
       ]
 
 instance ProtoFromJSON UserMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_userMetadataSummary <- obj .:? "summary"
+    fld_userMetadataDetails <- obj .:? "details"
+    pure defaultUserMetadata
+      { userMetadataSummary = maybe (userMetadataSummary defaultUserMetadata) id fld_userMetadataSummary
+      , userMetadataDetails = maybe (userMetadataDetails defaultUserMetadata) id fld_userMetadataDetails
+      }
   protoFromJSON _ = Right defaultUserMetadata

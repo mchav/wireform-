@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data WorkflowMetadata = WorkflowMetadata
@@ -81,6 +83,13 @@ instance ProtoToJSON WorkflowMetadata where
       ]
 
 instance ProtoFromJSON WorkflowMetadata where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowMetadataDefinition <- obj .:? "definition"
+    fld_workflowMetadataCurrentdetails <- obj .:? "currentDetails"
+    pure defaultWorkflowMetadata
+      { workflowMetadataDefinition = maybe (workflowMetadataDefinition defaultWorkflowMetadata) id fld_workflowMetadataDefinition
+      , workflowMetadataCurrentdetails = maybe (workflowMetadataCurrentdetails defaultWorkflowMetadata) id fld_workflowMetadataCurrentdetails
+      }
   protoFromJSON _ = Right defaultWorkflowMetadata
 
 data WorkflowDefinition = WorkflowDefinition
@@ -145,6 +154,17 @@ instance ProtoToJSON WorkflowDefinition where
       ]
 
 instance ProtoFromJSON WorkflowDefinition where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowDefinitionType <- obj .:? "type"
+    fld_workflowDefinitionQuerydefinitions <- obj .:? "queryDefinitions"
+    fld_workflowDefinitionSignaldefinitions <- obj .:? "signalDefinitions"
+    fld_workflowDefinitionUpdatedefinitions <- obj .:? "updateDefinitions"
+    pure defaultWorkflowDefinition
+      { workflowDefinitionType = maybe (workflowDefinitionType defaultWorkflowDefinition) id fld_workflowDefinitionType
+      , workflowDefinitionQuerydefinitions = maybe (workflowDefinitionQuerydefinitions defaultWorkflowDefinition) id fld_workflowDefinitionQuerydefinitions
+      , workflowDefinitionSignaldefinitions = maybe (workflowDefinitionSignaldefinitions defaultWorkflowDefinition) id fld_workflowDefinitionSignaldefinitions
+      , workflowDefinitionUpdatedefinitions = maybe (workflowDefinitionUpdatedefinitions defaultWorkflowDefinition) id fld_workflowDefinitionUpdatedefinitions
+      }
   protoFromJSON _ = Right defaultWorkflowDefinition
 
 data WorkflowInteractionDefinition = WorkflowInteractionDefinition
@@ -193,4 +213,11 @@ instance ProtoToJSON WorkflowInteractionDefinition where
       ]
 
 instance ProtoFromJSON WorkflowInteractionDefinition where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowInteractionDefinitionName <- obj .:? "name"
+    fld_workflowInteractionDefinitionDescription <- obj .:? "description"
+    pure defaultWorkflowInteractionDefinition
+      { workflowInteractionDefinitionName = maybe (workflowInteractionDefinitionName defaultWorkflowInteractionDefinition) id fld_workflowInteractionDefinitionName
+      , workflowInteractionDefinitionDescription = maybe (workflowInteractionDefinitionDescription defaultWorkflowInteractionDefinition) id fld_workflowInteractionDefinitionDescription
+      }
   protoFromJSON _ = Right defaultWorkflowInteractionDefinition

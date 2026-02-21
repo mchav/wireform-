@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Duration (Duration(..))
 import Proto.Google.Protobuf.FieldMask (FieldMask(..))
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
@@ -131,7 +133,7 @@ instance MessageSize RegisterNamespaceRequest where
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.registerNamespaceRequestWorkflowexecutionretentionperiod)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 5 (messageSize v)) 0 msg.registerNamespaceRequestClusters)
     + (if msg.registerNamespaceRequestActiveclustername == T.empty then 0 else fieldTextSize 6 msg.registerNamespaceRequestActiveclustername)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 7 + 20) 0 msg.registerNamespaceRequestData)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 7 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.registerNamespaceRequestData)
     + (if msg.registerNamespaceRequestSecuritytoken == T.empty then 0 else fieldTextSize 8 msg.registerNamespaceRequestSecuritytoken)
     + (if msg.registerNamespaceRequestIsglobalnamespace == False then 0 else fieldBoolSize 9)
     + (if fromEnum msg.registerNamespaceRequestHistoryarchivalstate == 0 then 0 else fieldVarintSize 10 (fromIntegral (fromEnum msg.registerNamespaceRequestHistoryarchivalstate)))
@@ -209,6 +211,35 @@ instance ProtoToJSON RegisterNamespaceRequest where
       ]
 
 instance ProtoFromJSON RegisterNamespaceRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_registerNamespaceRequestNamespace <- obj .:? "namespace"
+    fld_registerNamespaceRequestDescription <- obj .:? "description"
+    fld_registerNamespaceRequestOwneremail <- obj .:? "ownerEmail"
+    fld_registerNamespaceRequestWorkflowexecutionretentionperiod <- obj .:? "workflowExecutionRetentionPeriod"
+    fld_registerNamespaceRequestClusters <- obj .:? "clusters"
+    fld_registerNamespaceRequestActiveclustername <- obj .:? "activeClusterName"
+    fld_registerNamespaceRequestData <- obj .:? "data"
+    fld_registerNamespaceRequestSecuritytoken <- obj .:? "securityToken"
+    fld_registerNamespaceRequestIsglobalnamespace <- obj .:? "isGlobalNamespace"
+    fld_registerNamespaceRequestHistoryarchivalstate <- obj .:? "historyArchivalState"
+    fld_registerNamespaceRequestHistoryarchivaluri <- obj .:? "historyArchivalUri"
+    fld_registerNamespaceRequestVisibilityarchivalstate <- obj .:? "visibilityArchivalState"
+    fld_registerNamespaceRequestVisibilityarchivaluri <- obj .:? "visibilityArchivalUri"
+    pure defaultRegisterNamespaceRequest
+      { registerNamespaceRequestNamespace = maybe (registerNamespaceRequestNamespace defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestNamespace
+      , registerNamespaceRequestDescription = maybe (registerNamespaceRequestDescription defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestDescription
+      , registerNamespaceRequestOwneremail = maybe (registerNamespaceRequestOwneremail defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestOwneremail
+      , registerNamespaceRequestWorkflowexecutionretentionperiod = maybe (registerNamespaceRequestWorkflowexecutionretentionperiod defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestWorkflowexecutionretentionperiod
+      , registerNamespaceRequestClusters = maybe (registerNamespaceRequestClusters defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestClusters
+      , registerNamespaceRequestActiveclustername = maybe (registerNamespaceRequestActiveclustername defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestActiveclustername
+      , registerNamespaceRequestData = maybe (registerNamespaceRequestData defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestData
+      , registerNamespaceRequestSecuritytoken = maybe (registerNamespaceRequestSecuritytoken defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestSecuritytoken
+      , registerNamespaceRequestIsglobalnamespace = maybe (registerNamespaceRequestIsglobalnamespace defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestIsglobalnamespace
+      , registerNamespaceRequestHistoryarchivalstate = maybe (registerNamespaceRequestHistoryarchivalstate defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestHistoryarchivalstate
+      , registerNamespaceRequestHistoryarchivaluri = maybe (registerNamespaceRequestHistoryarchivaluri defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestHistoryarchivaluri
+      , registerNamespaceRequestVisibilityarchivalstate = maybe (registerNamespaceRequestVisibilityarchivalstate defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestVisibilityarchivalstate
+      , registerNamespaceRequestVisibilityarchivaluri = maybe (registerNamespaceRequestVisibilityarchivaluri defaultRegisterNamespaceRequest) id fld_registerNamespaceRequestVisibilityarchivaluri
+      }
   protoFromJSON _ = Right defaultRegisterNamespaceRequest
 
 data RegisterNamespaceResponse = RegisterNamespaceResponse
@@ -299,6 +330,15 @@ instance ProtoToJSON ListNamespacesRequest where
       ]
 
 instance ProtoFromJSON ListNamespacesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listNamespacesRequestPagesize <- obj .:? "pageSize"
+    fld_listNamespacesRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listNamespacesRequestNamespacefilter <- obj .:? "namespaceFilter"
+    pure defaultListNamespacesRequest
+      { listNamespacesRequestPagesize = maybe (listNamespacesRequestPagesize defaultListNamespacesRequest) id fld_listNamespacesRequestPagesize
+      , listNamespacesRequestNextpagetoken = maybe (listNamespacesRequestNextpagetoken defaultListNamespacesRequest) id fld_listNamespacesRequestNextpagetoken
+      , listNamespacesRequestNamespacefilter = maybe (listNamespacesRequestNamespacefilter defaultListNamespacesRequest) id fld_listNamespacesRequestNamespacefilter
+      }
   protoFromJSON _ = Right defaultListNamespacesRequest
 
 data ListNamespacesResponse = ListNamespacesResponse
@@ -347,6 +387,13 @@ instance ProtoToJSON ListNamespacesResponse where
       ]
 
 instance ProtoFromJSON ListNamespacesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listNamespacesResponseNamespaces <- obj .:? "namespaces"
+    fld_listNamespacesResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListNamespacesResponse
+      { listNamespacesResponseNamespaces = maybe (listNamespacesResponseNamespaces defaultListNamespacesResponse) id fld_listNamespacesResponseNamespaces
+      , listNamespacesResponseNextpagetoken = maybe (listNamespacesResponseNextpagetoken defaultListNamespacesResponse) id fld_listNamespacesResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListNamespacesResponse
 
 data DescribeNamespaceRequest = DescribeNamespaceRequest
@@ -395,6 +442,13 @@ instance ProtoToJSON DescribeNamespaceRequest where
       ]
 
 instance ProtoFromJSON DescribeNamespaceRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeNamespaceRequestNamespace <- obj .:? "namespace"
+    fld_describeNamespaceRequestId <- obj .:? "id"
+    pure defaultDescribeNamespaceRequest
+      { describeNamespaceRequestNamespace = maybe (describeNamespaceRequestNamespace defaultDescribeNamespaceRequest) id fld_describeNamespaceRequestNamespace
+      , describeNamespaceRequestId = maybe (describeNamespaceRequestId defaultDescribeNamespaceRequest) id fld_describeNamespaceRequestId
+      }
   protoFromJSON _ = Right defaultDescribeNamespaceRequest
 
 data DescribeNamespaceResponse = DescribeNamespaceResponse
@@ -475,6 +529,21 @@ instance ProtoToJSON DescribeNamespaceResponse where
       ]
 
 instance ProtoFromJSON DescribeNamespaceResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeNamespaceResponseNamespaceinfo <- obj .:? "namespaceInfo"
+    fld_describeNamespaceResponseConfig <- obj .:? "config"
+    fld_describeNamespaceResponseReplicationconfig <- obj .:? "replicationConfig"
+    fld_describeNamespaceResponseFailoverversion <- obj .:? "failoverVersion"
+    fld_describeNamespaceResponseIsglobalnamespace <- obj .:? "isGlobalNamespace"
+    fld_describeNamespaceResponseFailoverhistory <- obj .:? "failoverHistory"
+    pure defaultDescribeNamespaceResponse
+      { describeNamespaceResponseNamespaceinfo = maybe (describeNamespaceResponseNamespaceinfo defaultDescribeNamespaceResponse) id fld_describeNamespaceResponseNamespaceinfo
+      , describeNamespaceResponseConfig = maybe (describeNamespaceResponseConfig defaultDescribeNamespaceResponse) id fld_describeNamespaceResponseConfig
+      , describeNamespaceResponseReplicationconfig = maybe (describeNamespaceResponseReplicationconfig defaultDescribeNamespaceResponse) id fld_describeNamespaceResponseReplicationconfig
+      , describeNamespaceResponseFailoverversion = maybe (describeNamespaceResponseFailoverversion defaultDescribeNamespaceResponse) id fld_describeNamespaceResponseFailoverversion
+      , describeNamespaceResponseIsglobalnamespace = maybe (describeNamespaceResponseIsglobalnamespace defaultDescribeNamespaceResponse) id fld_describeNamespaceResponseIsglobalnamespace
+      , describeNamespaceResponseFailoverhistory = maybe (describeNamespaceResponseFailoverhistory defaultDescribeNamespaceResponse) id fld_describeNamespaceResponseFailoverhistory
+      }
   protoFromJSON _ = Right defaultDescribeNamespaceResponse
 
 data UpdateNamespaceRequest = UpdateNamespaceRequest
@@ -563,6 +632,23 @@ instance ProtoToJSON UpdateNamespaceRequest where
       ]
 
 instance ProtoFromJSON UpdateNamespaceRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateNamespaceRequestNamespace <- obj .:? "namespace"
+    fld_updateNamespaceRequestUpdateinfo <- obj .:? "updateInfo"
+    fld_updateNamespaceRequestConfig <- obj .:? "config"
+    fld_updateNamespaceRequestReplicationconfig <- obj .:? "replicationConfig"
+    fld_updateNamespaceRequestSecuritytoken <- obj .:? "securityToken"
+    fld_updateNamespaceRequestDeletebadbinary <- obj .:? "deleteBadBinary"
+    fld_updateNamespaceRequestPromotenamespace <- obj .:? "promoteNamespace"
+    pure defaultUpdateNamespaceRequest
+      { updateNamespaceRequestNamespace = maybe (updateNamespaceRequestNamespace defaultUpdateNamespaceRequest) id fld_updateNamespaceRequestNamespace
+      , updateNamespaceRequestUpdateinfo = maybe (updateNamespaceRequestUpdateinfo defaultUpdateNamespaceRequest) id fld_updateNamespaceRequestUpdateinfo
+      , updateNamespaceRequestConfig = maybe (updateNamespaceRequestConfig defaultUpdateNamespaceRequest) id fld_updateNamespaceRequestConfig
+      , updateNamespaceRequestReplicationconfig = maybe (updateNamespaceRequestReplicationconfig defaultUpdateNamespaceRequest) id fld_updateNamespaceRequestReplicationconfig
+      , updateNamespaceRequestSecuritytoken = maybe (updateNamespaceRequestSecuritytoken defaultUpdateNamespaceRequest) id fld_updateNamespaceRequestSecuritytoken
+      , updateNamespaceRequestDeletebadbinary = maybe (updateNamespaceRequestDeletebadbinary defaultUpdateNamespaceRequest) id fld_updateNamespaceRequestDeletebadbinary
+      , updateNamespaceRequestPromotenamespace = maybe (updateNamespaceRequestPromotenamespace defaultUpdateNamespaceRequest) id fld_updateNamespaceRequestPromotenamespace
+      }
   protoFromJSON _ = Right defaultUpdateNamespaceRequest
 
 data UpdateNamespaceResponse = UpdateNamespaceResponse
@@ -635,6 +721,19 @@ instance ProtoToJSON UpdateNamespaceResponse where
       ]
 
 instance ProtoFromJSON UpdateNamespaceResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateNamespaceResponseNamespaceinfo <- obj .:? "namespaceInfo"
+    fld_updateNamespaceResponseConfig <- obj .:? "config"
+    fld_updateNamespaceResponseReplicationconfig <- obj .:? "replicationConfig"
+    fld_updateNamespaceResponseFailoverversion <- obj .:? "failoverVersion"
+    fld_updateNamespaceResponseIsglobalnamespace <- obj .:? "isGlobalNamespace"
+    pure defaultUpdateNamespaceResponse
+      { updateNamespaceResponseNamespaceinfo = maybe (updateNamespaceResponseNamespaceinfo defaultUpdateNamespaceResponse) id fld_updateNamespaceResponseNamespaceinfo
+      , updateNamespaceResponseConfig = maybe (updateNamespaceResponseConfig defaultUpdateNamespaceResponse) id fld_updateNamespaceResponseConfig
+      , updateNamespaceResponseReplicationconfig = maybe (updateNamespaceResponseReplicationconfig defaultUpdateNamespaceResponse) id fld_updateNamespaceResponseReplicationconfig
+      , updateNamespaceResponseFailoverversion = maybe (updateNamespaceResponseFailoverversion defaultUpdateNamespaceResponse) id fld_updateNamespaceResponseFailoverversion
+      , updateNamespaceResponseIsglobalnamespace = maybe (updateNamespaceResponseIsglobalnamespace defaultUpdateNamespaceResponse) id fld_updateNamespaceResponseIsglobalnamespace
+      }
   protoFromJSON _ = Right defaultUpdateNamespaceResponse
 
 data DeprecateNamespaceRequest = DeprecateNamespaceRequest
@@ -683,6 +782,13 @@ instance ProtoToJSON DeprecateNamespaceRequest where
       ]
 
 instance ProtoFromJSON DeprecateNamespaceRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deprecateNamespaceRequestNamespace <- obj .:? "namespace"
+    fld_deprecateNamespaceRequestSecuritytoken <- obj .:? "securityToken"
+    pure defaultDeprecateNamespaceRequest
+      { deprecateNamespaceRequestNamespace = maybe (deprecateNamespaceRequestNamespace defaultDeprecateNamespaceRequest) id fld_deprecateNamespaceRequestNamespace
+      , deprecateNamespaceRequestSecuritytoken = maybe (deprecateNamespaceRequestSecuritytoken defaultDeprecateNamespaceRequest) id fld_deprecateNamespaceRequestSecuritytoken
+      }
   protoFromJSON _ = Right defaultDeprecateNamespaceRequest
 
 data DeprecateNamespaceResponse = DeprecateNamespaceResponse
@@ -973,6 +1079,65 @@ instance ProtoToJSON StartWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON StartWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_startWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_startWorkflowExecutionRequestWorkflowid <- obj .:? "workflowId"
+    fld_startWorkflowExecutionRequestWorkflowtype <- obj .:? "workflowType"
+    fld_startWorkflowExecutionRequestTaskqueue <- obj .:? "taskQueue"
+    fld_startWorkflowExecutionRequestInput <- obj .:? "input"
+    fld_startWorkflowExecutionRequestWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
+    fld_startWorkflowExecutionRequestWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_startWorkflowExecutionRequestWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
+    fld_startWorkflowExecutionRequestIdentity <- obj .:? "identity"
+    fld_startWorkflowExecutionRequestRequestid <- obj .:? "requestId"
+    fld_startWorkflowExecutionRequestWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
+    fld_startWorkflowExecutionRequestWorkflowidconflictpolicy <- obj .:? "workflowIdConflictPolicy"
+    fld_startWorkflowExecutionRequestRetrypolicy <- obj .:? "retryPolicy"
+    fld_startWorkflowExecutionRequestCronschedule <- obj .:? "cronSchedule"
+    fld_startWorkflowExecutionRequestMemo <- obj .:? "memo"
+    fld_startWorkflowExecutionRequestSearchattributes <- obj .:? "searchAttributes"
+    fld_startWorkflowExecutionRequestHeader <- obj .:? "header"
+    fld_startWorkflowExecutionRequestRequesteagerexecution <- obj .:? "requestEagerExecution"
+    fld_startWorkflowExecutionRequestContinuedfailure <- obj .:? "continuedFailure"
+    fld_startWorkflowExecutionRequestLastcompletionresult <- obj .:? "lastCompletionResult"
+    fld_startWorkflowExecutionRequestWorkflowstartdelay <- obj .:? "workflowStartDelay"
+    fld_startWorkflowExecutionRequestCompletioncallbacks <- obj .:? "completionCallbacks"
+    fld_startWorkflowExecutionRequestUsermetadata <- obj .:? "userMetadata"
+    fld_startWorkflowExecutionRequestLinks <- obj .:? "links"
+    fld_startWorkflowExecutionRequestVersioningoverride <- obj .:? "versioningOverride"
+    fld_startWorkflowExecutionRequestOnconflictoptions <- obj .:? "onConflictOptions"
+    fld_startWorkflowExecutionRequestPriority <- obj .:? "priority"
+    fld_startWorkflowExecutionRequestEagerworkerdeploymentoptions <- obj .:? "eagerWorkerDeploymentOptions"
+    pure defaultStartWorkflowExecutionRequest
+      { startWorkflowExecutionRequestNamespace = maybe (startWorkflowExecutionRequestNamespace defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestNamespace
+      , startWorkflowExecutionRequestWorkflowid = maybe (startWorkflowExecutionRequestWorkflowid defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestWorkflowid
+      , startWorkflowExecutionRequestWorkflowtype = maybe (startWorkflowExecutionRequestWorkflowtype defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestWorkflowtype
+      , startWorkflowExecutionRequestTaskqueue = maybe (startWorkflowExecutionRequestTaskqueue defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestTaskqueue
+      , startWorkflowExecutionRequestInput = maybe (startWorkflowExecutionRequestInput defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestInput
+      , startWorkflowExecutionRequestWorkflowexecutiontimeout = maybe (startWorkflowExecutionRequestWorkflowexecutiontimeout defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestWorkflowexecutiontimeout
+      , startWorkflowExecutionRequestWorkflowruntimeout = maybe (startWorkflowExecutionRequestWorkflowruntimeout defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestWorkflowruntimeout
+      , startWorkflowExecutionRequestWorkflowtasktimeout = maybe (startWorkflowExecutionRequestWorkflowtasktimeout defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestWorkflowtasktimeout
+      , startWorkflowExecutionRequestIdentity = maybe (startWorkflowExecutionRequestIdentity defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestIdentity
+      , startWorkflowExecutionRequestRequestid = maybe (startWorkflowExecutionRequestRequestid defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestRequestid
+      , startWorkflowExecutionRequestWorkflowidreusepolicy = maybe (startWorkflowExecutionRequestWorkflowidreusepolicy defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestWorkflowidreusepolicy
+      , startWorkflowExecutionRequestWorkflowidconflictpolicy = maybe (startWorkflowExecutionRequestWorkflowidconflictpolicy defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestWorkflowidconflictpolicy
+      , startWorkflowExecutionRequestRetrypolicy = maybe (startWorkflowExecutionRequestRetrypolicy defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestRetrypolicy
+      , startWorkflowExecutionRequestCronschedule = maybe (startWorkflowExecutionRequestCronschedule defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestCronschedule
+      , startWorkflowExecutionRequestMemo = maybe (startWorkflowExecutionRequestMemo defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestMemo
+      , startWorkflowExecutionRequestSearchattributes = maybe (startWorkflowExecutionRequestSearchattributes defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestSearchattributes
+      , startWorkflowExecutionRequestHeader = maybe (startWorkflowExecutionRequestHeader defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestHeader
+      , startWorkflowExecutionRequestRequesteagerexecution = maybe (startWorkflowExecutionRequestRequesteagerexecution defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestRequesteagerexecution
+      , startWorkflowExecutionRequestContinuedfailure = maybe (startWorkflowExecutionRequestContinuedfailure defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestContinuedfailure
+      , startWorkflowExecutionRequestLastcompletionresult = maybe (startWorkflowExecutionRequestLastcompletionresult defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestLastcompletionresult
+      , startWorkflowExecutionRequestWorkflowstartdelay = maybe (startWorkflowExecutionRequestWorkflowstartdelay defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestWorkflowstartdelay
+      , startWorkflowExecutionRequestCompletioncallbacks = maybe (startWorkflowExecutionRequestCompletioncallbacks defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestCompletioncallbacks
+      , startWorkflowExecutionRequestUsermetadata = maybe (startWorkflowExecutionRequestUsermetadata defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestUsermetadata
+      , startWorkflowExecutionRequestLinks = maybe (startWorkflowExecutionRequestLinks defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestLinks
+      , startWorkflowExecutionRequestVersioningoverride = maybe (startWorkflowExecutionRequestVersioningoverride defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestVersioningoverride
+      , startWorkflowExecutionRequestOnconflictoptions = maybe (startWorkflowExecutionRequestOnconflictoptions defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestOnconflictoptions
+      , startWorkflowExecutionRequestPriority = maybe (startWorkflowExecutionRequestPriority defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestPriority
+      , startWorkflowExecutionRequestEagerworkerdeploymentoptions = maybe (startWorkflowExecutionRequestEagerworkerdeploymentoptions defaultStartWorkflowExecutionRequest) id fld_startWorkflowExecutionRequestEagerworkerdeploymentoptions
+      }
   protoFromJSON _ = Right defaultStartWorkflowExecutionRequest
 
 data StartWorkflowExecutionResponse = StartWorkflowExecutionResponse
@@ -1045,6 +1210,19 @@ instance ProtoToJSON StartWorkflowExecutionResponse where
       ]
 
 instance ProtoFromJSON StartWorkflowExecutionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_startWorkflowExecutionResponseRunid <- obj .:? "runId"
+    fld_startWorkflowExecutionResponseStarted <- obj .:? "started"
+    fld_startWorkflowExecutionResponseStatus <- obj .:? "status"
+    fld_startWorkflowExecutionResponseEagerworkflowtask <- obj .:? "eagerWorkflowTask"
+    fld_startWorkflowExecutionResponseLink <- obj .:? "link"
+    pure defaultStartWorkflowExecutionResponse
+      { startWorkflowExecutionResponseRunid = maybe (startWorkflowExecutionResponseRunid defaultStartWorkflowExecutionResponse) id fld_startWorkflowExecutionResponseRunid
+      , startWorkflowExecutionResponseStarted = maybe (startWorkflowExecutionResponseStarted defaultStartWorkflowExecutionResponse) id fld_startWorkflowExecutionResponseStarted
+      , startWorkflowExecutionResponseStatus = maybe (startWorkflowExecutionResponseStatus defaultStartWorkflowExecutionResponse) id fld_startWorkflowExecutionResponseStatus
+      , startWorkflowExecutionResponseEagerworkflowtask = maybe (startWorkflowExecutionResponseEagerworkflowtask defaultStartWorkflowExecutionResponse) id fld_startWorkflowExecutionResponseEagerworkflowtask
+      , startWorkflowExecutionResponseLink = maybe (startWorkflowExecutionResponseLink defaultStartWorkflowExecutionResponse) id fld_startWorkflowExecutionResponseLink
+      }
   protoFromJSON _ = Right defaultStartWorkflowExecutionResponse
 
 data GetWorkflowExecutionHistoryRequest = GetWorkflowExecutionHistoryRequest
@@ -1133,6 +1311,23 @@ instance ProtoToJSON GetWorkflowExecutionHistoryRequest where
       ]
 
 instance ProtoFromJSON GetWorkflowExecutionHistoryRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkflowExecutionHistoryRequestNamespace <- obj .:? "namespace"
+    fld_getWorkflowExecutionHistoryRequestExecution <- obj .:? "execution"
+    fld_getWorkflowExecutionHistoryRequestMaximumpagesize <- obj .:? "maximumPageSize"
+    fld_getWorkflowExecutionHistoryRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_getWorkflowExecutionHistoryRequestWaitnewevent <- obj .:? "waitNewEvent"
+    fld_getWorkflowExecutionHistoryRequestHistoryeventfiltertype <- obj .:? "historyEventFilterType"
+    fld_getWorkflowExecutionHistoryRequestSkiparchival <- obj .:? "skipArchival"
+    pure defaultGetWorkflowExecutionHistoryRequest
+      { getWorkflowExecutionHistoryRequestNamespace = maybe (getWorkflowExecutionHistoryRequestNamespace defaultGetWorkflowExecutionHistoryRequest) id fld_getWorkflowExecutionHistoryRequestNamespace
+      , getWorkflowExecutionHistoryRequestExecution = maybe (getWorkflowExecutionHistoryRequestExecution defaultGetWorkflowExecutionHistoryRequest) id fld_getWorkflowExecutionHistoryRequestExecution
+      , getWorkflowExecutionHistoryRequestMaximumpagesize = maybe (getWorkflowExecutionHistoryRequestMaximumpagesize defaultGetWorkflowExecutionHistoryRequest) id fld_getWorkflowExecutionHistoryRequestMaximumpagesize
+      , getWorkflowExecutionHistoryRequestNextpagetoken = maybe (getWorkflowExecutionHistoryRequestNextpagetoken defaultGetWorkflowExecutionHistoryRequest) id fld_getWorkflowExecutionHistoryRequestNextpagetoken
+      , getWorkflowExecutionHistoryRequestWaitnewevent = maybe (getWorkflowExecutionHistoryRequestWaitnewevent defaultGetWorkflowExecutionHistoryRequest) id fld_getWorkflowExecutionHistoryRequestWaitnewevent
+      , getWorkflowExecutionHistoryRequestHistoryeventfiltertype = maybe (getWorkflowExecutionHistoryRequestHistoryeventfiltertype defaultGetWorkflowExecutionHistoryRequest) id fld_getWorkflowExecutionHistoryRequestHistoryeventfiltertype
+      , getWorkflowExecutionHistoryRequestSkiparchival = maybe (getWorkflowExecutionHistoryRequestSkiparchival defaultGetWorkflowExecutionHistoryRequest) id fld_getWorkflowExecutionHistoryRequestSkiparchival
+      }
   protoFromJSON _ = Right defaultGetWorkflowExecutionHistoryRequest
 
 data GetWorkflowExecutionHistoryResponse = GetWorkflowExecutionHistoryResponse
@@ -1197,6 +1392,17 @@ instance ProtoToJSON GetWorkflowExecutionHistoryResponse where
       ]
 
 instance ProtoFromJSON GetWorkflowExecutionHistoryResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkflowExecutionHistoryResponseHistory <- obj .:? "history"
+    fld_getWorkflowExecutionHistoryResponseRawhistory <- obj .:? "rawHistory"
+    fld_getWorkflowExecutionHistoryResponseNextpagetoken <- obj .:? "nextPageToken"
+    fld_getWorkflowExecutionHistoryResponseArchived <- obj .:? "archived"
+    pure defaultGetWorkflowExecutionHistoryResponse
+      { getWorkflowExecutionHistoryResponseHistory = maybe (getWorkflowExecutionHistoryResponseHistory defaultGetWorkflowExecutionHistoryResponse) id fld_getWorkflowExecutionHistoryResponseHistory
+      , getWorkflowExecutionHistoryResponseRawhistory = maybe (getWorkflowExecutionHistoryResponseRawhistory defaultGetWorkflowExecutionHistoryResponse) id fld_getWorkflowExecutionHistoryResponseRawhistory
+      , getWorkflowExecutionHistoryResponseNextpagetoken = maybe (getWorkflowExecutionHistoryResponseNextpagetoken defaultGetWorkflowExecutionHistoryResponse) id fld_getWorkflowExecutionHistoryResponseNextpagetoken
+      , getWorkflowExecutionHistoryResponseArchived = maybe (getWorkflowExecutionHistoryResponseArchived defaultGetWorkflowExecutionHistoryResponse) id fld_getWorkflowExecutionHistoryResponseArchived
+      }
   protoFromJSON _ = Right defaultGetWorkflowExecutionHistoryResponse
 
 data GetWorkflowExecutionHistoryReverseRequest = GetWorkflowExecutionHistoryReverseRequest
@@ -1261,6 +1467,17 @@ instance ProtoToJSON GetWorkflowExecutionHistoryReverseRequest where
       ]
 
 instance ProtoFromJSON GetWorkflowExecutionHistoryReverseRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkflowExecutionHistoryReverseRequestNamespace <- obj .:? "namespace"
+    fld_getWorkflowExecutionHistoryReverseRequestExecution <- obj .:? "execution"
+    fld_getWorkflowExecutionHistoryReverseRequestMaximumpagesize <- obj .:? "maximumPageSize"
+    fld_getWorkflowExecutionHistoryReverseRequestNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultGetWorkflowExecutionHistoryReverseRequest
+      { getWorkflowExecutionHistoryReverseRequestNamespace = maybe (getWorkflowExecutionHistoryReverseRequestNamespace defaultGetWorkflowExecutionHistoryReverseRequest) id fld_getWorkflowExecutionHistoryReverseRequestNamespace
+      , getWorkflowExecutionHistoryReverseRequestExecution = maybe (getWorkflowExecutionHistoryReverseRequestExecution defaultGetWorkflowExecutionHistoryReverseRequest) id fld_getWorkflowExecutionHistoryReverseRequestExecution
+      , getWorkflowExecutionHistoryReverseRequestMaximumpagesize = maybe (getWorkflowExecutionHistoryReverseRequestMaximumpagesize defaultGetWorkflowExecutionHistoryReverseRequest) id fld_getWorkflowExecutionHistoryReverseRequestMaximumpagesize
+      , getWorkflowExecutionHistoryReverseRequestNextpagetoken = maybe (getWorkflowExecutionHistoryReverseRequestNextpagetoken defaultGetWorkflowExecutionHistoryReverseRequest) id fld_getWorkflowExecutionHistoryReverseRequestNextpagetoken
+      }
   protoFromJSON _ = Right defaultGetWorkflowExecutionHistoryReverseRequest
 
 data GetWorkflowExecutionHistoryReverseResponse = GetWorkflowExecutionHistoryReverseResponse
@@ -1309,6 +1526,13 @@ instance ProtoToJSON GetWorkflowExecutionHistoryReverseResponse where
       ]
 
 instance ProtoFromJSON GetWorkflowExecutionHistoryReverseResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkflowExecutionHistoryReverseResponseHistory <- obj .:? "history"
+    fld_getWorkflowExecutionHistoryReverseResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultGetWorkflowExecutionHistoryReverseResponse
+      { getWorkflowExecutionHistoryReverseResponseHistory = maybe (getWorkflowExecutionHistoryReverseResponseHistory defaultGetWorkflowExecutionHistoryReverseResponse) id fld_getWorkflowExecutionHistoryReverseResponseHistory
+      , getWorkflowExecutionHistoryReverseResponseNextpagetoken = maybe (getWorkflowExecutionHistoryReverseResponseNextpagetoken defaultGetWorkflowExecutionHistoryReverseResponse) id fld_getWorkflowExecutionHistoryReverseResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultGetWorkflowExecutionHistoryReverseResponse
 
 data PollWorkflowTaskQueueRequest = PollWorkflowTaskQueueRequest
@@ -1397,6 +1621,23 @@ instance ProtoToJSON PollWorkflowTaskQueueRequest where
       ]
 
 instance ProtoFromJSON PollWorkflowTaskQueueRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollWorkflowTaskQueueRequestNamespace <- obj .:? "namespace"
+    fld_pollWorkflowTaskQueueRequestTaskqueue <- obj .:? "taskQueue"
+    fld_pollWorkflowTaskQueueRequestIdentity <- obj .:? "identity"
+    fld_pollWorkflowTaskQueueRequestWorkerinstancekey <- obj .:? "workerInstanceKey"
+    fld_pollWorkflowTaskQueueRequestBinarychecksum <- obj .:? "binaryChecksum"
+    fld_pollWorkflowTaskQueueRequestWorkerversioncapabilities <- obj .:? "workerVersionCapabilities"
+    fld_pollWorkflowTaskQueueRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultPollWorkflowTaskQueueRequest
+      { pollWorkflowTaskQueueRequestNamespace = maybe (pollWorkflowTaskQueueRequestNamespace defaultPollWorkflowTaskQueueRequest) id fld_pollWorkflowTaskQueueRequestNamespace
+      , pollWorkflowTaskQueueRequestTaskqueue = maybe (pollWorkflowTaskQueueRequestTaskqueue defaultPollWorkflowTaskQueueRequest) id fld_pollWorkflowTaskQueueRequestTaskqueue
+      , pollWorkflowTaskQueueRequestIdentity = maybe (pollWorkflowTaskQueueRequestIdentity defaultPollWorkflowTaskQueueRequest) id fld_pollWorkflowTaskQueueRequestIdentity
+      , pollWorkflowTaskQueueRequestWorkerinstancekey = maybe (pollWorkflowTaskQueueRequestWorkerinstancekey defaultPollWorkflowTaskQueueRequest) id fld_pollWorkflowTaskQueueRequestWorkerinstancekey
+      , pollWorkflowTaskQueueRequestBinarychecksum = maybe (pollWorkflowTaskQueueRequestBinarychecksum defaultPollWorkflowTaskQueueRequest) id fld_pollWorkflowTaskQueueRequestBinarychecksum
+      , pollWorkflowTaskQueueRequestWorkerversioncapabilities = maybe (pollWorkflowTaskQueueRequestWorkerversioncapabilities defaultPollWorkflowTaskQueueRequest) id fld_pollWorkflowTaskQueueRequestWorkerversioncapabilities
+      , pollWorkflowTaskQueueRequestDeploymentoptions = maybe (pollWorkflowTaskQueueRequestDeploymentoptions defaultPollWorkflowTaskQueueRequest) id fld_pollWorkflowTaskQueueRequestDeploymentoptions
+      }
   protoFromJSON _ = Right defaultPollWorkflowTaskQueueRequest
 
 data PollWorkflowTaskQueueResponse = PollWorkflowTaskQueueResponse
@@ -1474,7 +1715,7 @@ instance MessageSize PollWorkflowTaskQueueResponse where
     + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue)
     + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.pollWorkflowTaskQueueResponseScheduledtime)
     + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.pollWorkflowTaskQueueResponseStartedtime)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 14 + 20) 0 msg.pollWorkflowTaskQueueResponseQueries)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 14 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.pollWorkflowTaskQueueResponseQueries)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 15 (messageSize v)) 0 msg.pollWorkflowTaskQueueResponseMessages)
     + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.pollWorkflowTaskQueueResponsePollerscalingdecision)
 
@@ -1560,6 +1801,41 @@ instance ProtoToJSON PollWorkflowTaskQueueResponse where
       ]
 
 instance ProtoFromJSON PollWorkflowTaskQueueResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollWorkflowTaskQueueResponseTasktoken <- obj .:? "taskToken"
+    fld_pollWorkflowTaskQueueResponseWorkflowexecution <- obj .:? "workflowExecution"
+    fld_pollWorkflowTaskQueueResponseWorkflowtype <- obj .:? "workflowType"
+    fld_pollWorkflowTaskQueueResponsePreviousstartedeventid <- obj .:? "previousStartedEventId"
+    fld_pollWorkflowTaskQueueResponseStartedeventid <- obj .:? "startedEventId"
+    fld_pollWorkflowTaskQueueResponseAttempt <- obj .:? "attempt"
+    fld_pollWorkflowTaskQueueResponseBacklogcounthint <- obj .:? "backlogCountHint"
+    fld_pollWorkflowTaskQueueResponseHistory <- obj .:? "history"
+    fld_pollWorkflowTaskQueueResponseNextpagetoken <- obj .:? "nextPageToken"
+    fld_pollWorkflowTaskQueueResponseQuery <- obj .:? "query"
+    fld_pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue <- obj .:? "workflowExecutionTaskQueue"
+    fld_pollWorkflowTaskQueueResponseScheduledtime <- obj .:? "scheduledTime"
+    fld_pollWorkflowTaskQueueResponseStartedtime <- obj .:? "startedTime"
+    fld_pollWorkflowTaskQueueResponseQueries <- obj .:? "queries"
+    fld_pollWorkflowTaskQueueResponseMessages <- obj .:? "messages"
+    fld_pollWorkflowTaskQueueResponsePollerscalingdecision <- obj .:? "pollerScalingDecision"
+    pure defaultPollWorkflowTaskQueueResponse
+      { pollWorkflowTaskQueueResponseTasktoken = maybe (pollWorkflowTaskQueueResponseTasktoken defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseTasktoken
+      , pollWorkflowTaskQueueResponseWorkflowexecution = maybe (pollWorkflowTaskQueueResponseWorkflowexecution defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseWorkflowexecution
+      , pollWorkflowTaskQueueResponseWorkflowtype = maybe (pollWorkflowTaskQueueResponseWorkflowtype defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseWorkflowtype
+      , pollWorkflowTaskQueueResponsePreviousstartedeventid = maybe (pollWorkflowTaskQueueResponsePreviousstartedeventid defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponsePreviousstartedeventid
+      , pollWorkflowTaskQueueResponseStartedeventid = maybe (pollWorkflowTaskQueueResponseStartedeventid defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseStartedeventid
+      , pollWorkflowTaskQueueResponseAttempt = maybe (pollWorkflowTaskQueueResponseAttempt defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseAttempt
+      , pollWorkflowTaskQueueResponseBacklogcounthint = maybe (pollWorkflowTaskQueueResponseBacklogcounthint defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseBacklogcounthint
+      , pollWorkflowTaskQueueResponseHistory = maybe (pollWorkflowTaskQueueResponseHistory defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseHistory
+      , pollWorkflowTaskQueueResponseNextpagetoken = maybe (pollWorkflowTaskQueueResponseNextpagetoken defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseNextpagetoken
+      , pollWorkflowTaskQueueResponseQuery = maybe (pollWorkflowTaskQueueResponseQuery defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseQuery
+      , pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue = maybe (pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue
+      , pollWorkflowTaskQueueResponseScheduledtime = maybe (pollWorkflowTaskQueueResponseScheduledtime defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseScheduledtime
+      , pollWorkflowTaskQueueResponseStartedtime = maybe (pollWorkflowTaskQueueResponseStartedtime defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseStartedtime
+      , pollWorkflowTaskQueueResponseQueries = maybe (pollWorkflowTaskQueueResponseQueries defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseQueries
+      , pollWorkflowTaskQueueResponseMessages = maybe (pollWorkflowTaskQueueResponseMessages defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponseMessages
+      , pollWorkflowTaskQueueResponsePollerscalingdecision = maybe (pollWorkflowTaskQueueResponsePollerscalingdecision defaultPollWorkflowTaskQueueResponse) id fld_pollWorkflowTaskQueueResponsePollerscalingdecision
+      }
   protoFromJSON _ = Right defaultPollWorkflowTaskQueueResponse
 
 data RespondWorkflowTaskCompletedRequest = RespondWorkflowTaskCompletedRequest
@@ -1623,6 +1899,11 @@ instance ProtoToJSON RespondWorkflowTaskCompletedRequest'Capabilities where
       ]
 
 instance ProtoFromJSON RespondWorkflowTaskCompletedRequest'Capabilities where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondWorkflowTaskCompletedRequestCapabilitiesDiscardspeculativeworkflowtaskwithevents <- obj .:? "discardSpeculativeWorkflowTaskWithEvents"
+    pure defaultRespondWorkflowTaskCompletedRequest'Capabilities
+      { respondWorkflowTaskCompletedRequestCapabilitiesDiscardspeculativeworkflowtaskwithevents = maybe (respondWorkflowTaskCompletedRequestCapabilitiesDiscardspeculativeworkflowtaskwithevents defaultRespondWorkflowTaskCompletedRequest'Capabilities) id fld_respondWorkflowTaskCompletedRequestCapabilitiesDiscardspeculativeworkflowtaskwithevents
+      }
   protoFromJSON _ = Right defaultRespondWorkflowTaskCompletedRequest'Capabilities
 
 defaultRespondWorkflowTaskCompletedRequest :: RespondWorkflowTaskCompletedRequest
@@ -1675,7 +1956,7 @@ instance MessageSize RespondWorkflowTaskCompletedRequest where
     + (if msg.respondWorkflowTaskCompletedRequestReturnnewworkflowtask == False then 0 else fieldBoolSize 5)
     + (if msg.respondWorkflowTaskCompletedRequestForcecreatenewworkflowtask == False then 0 else fieldBoolSize 6)
     + (if msg.respondWorkflowTaskCompletedRequestBinarychecksum == T.empty then 0 else fieldTextSize 7 msg.respondWorkflowTaskCompletedRequestBinarychecksum)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 8 + 20) 0 msg.respondWorkflowTaskCompletedRequestQueryresults)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 8 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.respondWorkflowTaskCompletedRequestQueryresults)
     + (if msg.respondWorkflowTaskCompletedRequestNamespace == T.empty then 0 else fieldTextSize 9 msg.respondWorkflowTaskCompletedRequestNamespace)
     + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.respondWorkflowTaskCompletedRequestWorkerversionstamp)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 11 (messageSize v)) 0 msg.respondWorkflowTaskCompletedRequestMessages)
@@ -1772,6 +2053,43 @@ instance ProtoToJSON RespondWorkflowTaskCompletedRequest where
       ]
 
 instance ProtoFromJSON RespondWorkflowTaskCompletedRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondWorkflowTaskCompletedRequestTasktoken <- obj .:? "taskToken"
+    fld_respondWorkflowTaskCompletedRequestCommands <- obj .:? "commands"
+    fld_respondWorkflowTaskCompletedRequestIdentity <- obj .:? "identity"
+    fld_respondWorkflowTaskCompletedRequestStickyattributes <- obj .:? "stickyAttributes"
+    fld_respondWorkflowTaskCompletedRequestReturnnewworkflowtask <- obj .:? "returnNewWorkflowTask"
+    fld_respondWorkflowTaskCompletedRequestForcecreatenewworkflowtask <- obj .:? "forceCreateNewWorkflowTask"
+    fld_respondWorkflowTaskCompletedRequestBinarychecksum <- obj .:? "binaryChecksum"
+    fld_respondWorkflowTaskCompletedRequestQueryresults <- obj .:? "queryResults"
+    fld_respondWorkflowTaskCompletedRequestNamespace <- obj .:? "namespace"
+    fld_respondWorkflowTaskCompletedRequestWorkerversionstamp <- obj .:? "workerVersionStamp"
+    fld_respondWorkflowTaskCompletedRequestMessages <- obj .:? "messages"
+    fld_respondWorkflowTaskCompletedRequestSdkmetadata <- obj .:? "sdkMetadata"
+    fld_respondWorkflowTaskCompletedRequestMeteringmetadata <- obj .:? "meteringMetadata"
+    fld_respondWorkflowTaskCompletedRequestCapabilities <- obj .:? "capabilities"
+    fld_respondWorkflowTaskCompletedRequestDeployment <- obj .:? "deployment"
+    fld_respondWorkflowTaskCompletedRequestVersioningbehavior <- obj .:? "versioningBehavior"
+    fld_respondWorkflowTaskCompletedRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultRespondWorkflowTaskCompletedRequest
+      { respondWorkflowTaskCompletedRequestTasktoken = maybe (respondWorkflowTaskCompletedRequestTasktoken defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestTasktoken
+      , respondWorkflowTaskCompletedRequestCommands = maybe (respondWorkflowTaskCompletedRequestCommands defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestCommands
+      , respondWorkflowTaskCompletedRequestIdentity = maybe (respondWorkflowTaskCompletedRequestIdentity defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestIdentity
+      , respondWorkflowTaskCompletedRequestStickyattributes = maybe (respondWorkflowTaskCompletedRequestStickyattributes defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestStickyattributes
+      , respondWorkflowTaskCompletedRequestReturnnewworkflowtask = maybe (respondWorkflowTaskCompletedRequestReturnnewworkflowtask defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestReturnnewworkflowtask
+      , respondWorkflowTaskCompletedRequestForcecreatenewworkflowtask = maybe (respondWorkflowTaskCompletedRequestForcecreatenewworkflowtask defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestForcecreatenewworkflowtask
+      , respondWorkflowTaskCompletedRequestBinarychecksum = maybe (respondWorkflowTaskCompletedRequestBinarychecksum defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestBinarychecksum
+      , respondWorkflowTaskCompletedRequestQueryresults = maybe (respondWorkflowTaskCompletedRequestQueryresults defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestQueryresults
+      , respondWorkflowTaskCompletedRequestNamespace = maybe (respondWorkflowTaskCompletedRequestNamespace defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestNamespace
+      , respondWorkflowTaskCompletedRequestWorkerversionstamp = maybe (respondWorkflowTaskCompletedRequestWorkerversionstamp defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestWorkerversionstamp
+      , respondWorkflowTaskCompletedRequestMessages = maybe (respondWorkflowTaskCompletedRequestMessages defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestMessages
+      , respondWorkflowTaskCompletedRequestSdkmetadata = maybe (respondWorkflowTaskCompletedRequestSdkmetadata defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestSdkmetadata
+      , respondWorkflowTaskCompletedRequestMeteringmetadata = maybe (respondWorkflowTaskCompletedRequestMeteringmetadata defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestMeteringmetadata
+      , respondWorkflowTaskCompletedRequestCapabilities = maybe (respondWorkflowTaskCompletedRequestCapabilities defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestCapabilities
+      , respondWorkflowTaskCompletedRequestDeployment = maybe (respondWorkflowTaskCompletedRequestDeployment defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestDeployment
+      , respondWorkflowTaskCompletedRequestVersioningbehavior = maybe (respondWorkflowTaskCompletedRequestVersioningbehavior defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestVersioningbehavior
+      , respondWorkflowTaskCompletedRequestDeploymentoptions = maybe (respondWorkflowTaskCompletedRequestDeploymentoptions defaultRespondWorkflowTaskCompletedRequest) id fld_respondWorkflowTaskCompletedRequestDeploymentoptions
+      }
   protoFromJSON _ = Right defaultRespondWorkflowTaskCompletedRequest
 
 data RespondWorkflowTaskCompletedResponse = RespondWorkflowTaskCompletedResponse
@@ -1828,6 +2146,15 @@ instance ProtoToJSON RespondWorkflowTaskCompletedResponse where
       ]
 
 instance ProtoFromJSON RespondWorkflowTaskCompletedResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondWorkflowTaskCompletedResponseWorkflowtask <- obj .:? "workflowTask"
+    fld_respondWorkflowTaskCompletedResponseActivitytasks <- obj .:? "activityTasks"
+    fld_respondWorkflowTaskCompletedResponseResethistoryeventid <- obj .:? "resetHistoryEventId"
+    pure defaultRespondWorkflowTaskCompletedResponse
+      { respondWorkflowTaskCompletedResponseWorkflowtask = maybe (respondWorkflowTaskCompletedResponseWorkflowtask defaultRespondWorkflowTaskCompletedResponse) id fld_respondWorkflowTaskCompletedResponseWorkflowtask
+      , respondWorkflowTaskCompletedResponseActivitytasks = maybe (respondWorkflowTaskCompletedResponseActivitytasks defaultRespondWorkflowTaskCompletedResponse) id fld_respondWorkflowTaskCompletedResponseActivitytasks
+      , respondWorkflowTaskCompletedResponseResethistoryeventid = maybe (respondWorkflowTaskCompletedResponseResethistoryeventid defaultRespondWorkflowTaskCompletedResponse) id fld_respondWorkflowTaskCompletedResponseResethistoryeventid
+      }
   protoFromJSON _ = Right defaultRespondWorkflowTaskCompletedResponse
 
 data RespondWorkflowTaskFailedRequest = RespondWorkflowTaskFailedRequest
@@ -1940,6 +2267,29 @@ instance ProtoToJSON RespondWorkflowTaskFailedRequest where
       ]
 
 instance ProtoFromJSON RespondWorkflowTaskFailedRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondWorkflowTaskFailedRequestTasktoken <- obj .:? "taskToken"
+    fld_respondWorkflowTaskFailedRequestCause <- obj .:? "cause"
+    fld_respondWorkflowTaskFailedRequestFailure <- obj .:? "failure"
+    fld_respondWorkflowTaskFailedRequestIdentity <- obj .:? "identity"
+    fld_respondWorkflowTaskFailedRequestBinarychecksum <- obj .:? "binaryChecksum"
+    fld_respondWorkflowTaskFailedRequestNamespace <- obj .:? "namespace"
+    fld_respondWorkflowTaskFailedRequestMessages <- obj .:? "messages"
+    fld_respondWorkflowTaskFailedRequestWorkerversion <- obj .:? "workerVersion"
+    fld_respondWorkflowTaskFailedRequestDeployment <- obj .:? "deployment"
+    fld_respondWorkflowTaskFailedRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultRespondWorkflowTaskFailedRequest
+      { respondWorkflowTaskFailedRequestTasktoken = maybe (respondWorkflowTaskFailedRequestTasktoken defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestTasktoken
+      , respondWorkflowTaskFailedRequestCause = maybe (respondWorkflowTaskFailedRequestCause defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestCause
+      , respondWorkflowTaskFailedRequestFailure = maybe (respondWorkflowTaskFailedRequestFailure defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestFailure
+      , respondWorkflowTaskFailedRequestIdentity = maybe (respondWorkflowTaskFailedRequestIdentity defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestIdentity
+      , respondWorkflowTaskFailedRequestBinarychecksum = maybe (respondWorkflowTaskFailedRequestBinarychecksum defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestBinarychecksum
+      , respondWorkflowTaskFailedRequestNamespace = maybe (respondWorkflowTaskFailedRequestNamespace defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestNamespace
+      , respondWorkflowTaskFailedRequestMessages = maybe (respondWorkflowTaskFailedRequestMessages defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestMessages
+      , respondWorkflowTaskFailedRequestWorkerversion = maybe (respondWorkflowTaskFailedRequestWorkerversion defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestWorkerversion
+      , respondWorkflowTaskFailedRequestDeployment = maybe (respondWorkflowTaskFailedRequestDeployment defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestDeployment
+      , respondWorkflowTaskFailedRequestDeploymentoptions = maybe (respondWorkflowTaskFailedRequestDeploymentoptions defaultRespondWorkflowTaskFailedRequest) id fld_respondWorkflowTaskFailedRequestDeploymentoptions
+      }
   protoFromJSON _ = Right defaultRespondWorkflowTaskFailedRequest
 
 data RespondWorkflowTaskFailedResponse = RespondWorkflowTaskFailedResponse
@@ -2062,6 +2412,23 @@ instance ProtoToJSON PollActivityTaskQueueRequest where
       ]
 
 instance ProtoFromJSON PollActivityTaskQueueRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollActivityTaskQueueRequestNamespace <- obj .:? "namespace"
+    fld_pollActivityTaskQueueRequestTaskqueue <- obj .:? "taskQueue"
+    fld_pollActivityTaskQueueRequestIdentity <- obj .:? "identity"
+    fld_pollActivityTaskQueueRequestWorkerinstancekey <- obj .:? "workerInstanceKey"
+    fld_pollActivityTaskQueueRequestTaskqueuemetadata <- obj .:? "taskQueueMetadata"
+    fld_pollActivityTaskQueueRequestWorkerversioncapabilities <- obj .:? "workerVersionCapabilities"
+    fld_pollActivityTaskQueueRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultPollActivityTaskQueueRequest
+      { pollActivityTaskQueueRequestNamespace = maybe (pollActivityTaskQueueRequestNamespace defaultPollActivityTaskQueueRequest) id fld_pollActivityTaskQueueRequestNamespace
+      , pollActivityTaskQueueRequestTaskqueue = maybe (pollActivityTaskQueueRequestTaskqueue defaultPollActivityTaskQueueRequest) id fld_pollActivityTaskQueueRequestTaskqueue
+      , pollActivityTaskQueueRequestIdentity = maybe (pollActivityTaskQueueRequestIdentity defaultPollActivityTaskQueueRequest) id fld_pollActivityTaskQueueRequestIdentity
+      , pollActivityTaskQueueRequestWorkerinstancekey = maybe (pollActivityTaskQueueRequestWorkerinstancekey defaultPollActivityTaskQueueRequest) id fld_pollActivityTaskQueueRequestWorkerinstancekey
+      , pollActivityTaskQueueRequestTaskqueuemetadata = maybe (pollActivityTaskQueueRequestTaskqueuemetadata defaultPollActivityTaskQueueRequest) id fld_pollActivityTaskQueueRequestTaskqueuemetadata
+      , pollActivityTaskQueueRequestWorkerversioncapabilities = maybe (pollActivityTaskQueueRequestWorkerversioncapabilities defaultPollActivityTaskQueueRequest) id fld_pollActivityTaskQueueRequestWorkerversioncapabilities
+      , pollActivityTaskQueueRequestDeploymentoptions = maybe (pollActivityTaskQueueRequestDeploymentoptions defaultPollActivityTaskQueueRequest) id fld_pollActivityTaskQueueRequestDeploymentoptions
+      }
   protoFromJSON _ = Right defaultPollActivityTaskQueueRequest
 
 data PollActivityTaskQueueResponse = PollActivityTaskQueueResponse
@@ -2254,6 +2621,49 @@ instance ProtoToJSON PollActivityTaskQueueResponse where
       ]
 
 instance ProtoFromJSON PollActivityTaskQueueResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollActivityTaskQueueResponseTasktoken <- obj .:? "taskToken"
+    fld_pollActivityTaskQueueResponseWorkflownamespace <- obj .:? "workflowNamespace"
+    fld_pollActivityTaskQueueResponseWorkflowtype <- obj .:? "workflowType"
+    fld_pollActivityTaskQueueResponseWorkflowexecution <- obj .:? "workflowExecution"
+    fld_pollActivityTaskQueueResponseActivitytype <- obj .:? "activityType"
+    fld_pollActivityTaskQueueResponseActivityid <- obj .:? "activityId"
+    fld_pollActivityTaskQueueResponseHeader <- obj .:? "header"
+    fld_pollActivityTaskQueueResponseInput <- obj .:? "input"
+    fld_pollActivityTaskQueueResponseHeartbeatdetails <- obj .:? "heartbeatDetails"
+    fld_pollActivityTaskQueueResponseScheduledtime <- obj .:? "scheduledTime"
+    fld_pollActivityTaskQueueResponseCurrentattemptscheduledtime <- obj .:? "currentAttemptScheduledTime"
+    fld_pollActivityTaskQueueResponseStartedtime <- obj .:? "startedTime"
+    fld_pollActivityTaskQueueResponseAttempt <- obj .:? "attempt"
+    fld_pollActivityTaskQueueResponseScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_pollActivityTaskQueueResponseStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    fld_pollActivityTaskQueueResponseHeartbeattimeout <- obj .:? "heartbeatTimeout"
+    fld_pollActivityTaskQueueResponseRetrypolicy <- obj .:? "retryPolicy"
+    fld_pollActivityTaskQueueResponsePollerscalingdecision <- obj .:? "pollerScalingDecision"
+    fld_pollActivityTaskQueueResponsePriority <- obj .:? "priority"
+    fld_pollActivityTaskQueueResponseActivityrunid <- obj .:? "activityRunId"
+    pure defaultPollActivityTaskQueueResponse
+      { pollActivityTaskQueueResponseTasktoken = maybe (pollActivityTaskQueueResponseTasktoken defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseTasktoken
+      , pollActivityTaskQueueResponseWorkflownamespace = maybe (pollActivityTaskQueueResponseWorkflownamespace defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseWorkflownamespace
+      , pollActivityTaskQueueResponseWorkflowtype = maybe (pollActivityTaskQueueResponseWorkflowtype defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseWorkflowtype
+      , pollActivityTaskQueueResponseWorkflowexecution = maybe (pollActivityTaskQueueResponseWorkflowexecution defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseWorkflowexecution
+      , pollActivityTaskQueueResponseActivitytype = maybe (pollActivityTaskQueueResponseActivitytype defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseActivitytype
+      , pollActivityTaskQueueResponseActivityid = maybe (pollActivityTaskQueueResponseActivityid defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseActivityid
+      , pollActivityTaskQueueResponseHeader = maybe (pollActivityTaskQueueResponseHeader defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseHeader
+      , pollActivityTaskQueueResponseInput = maybe (pollActivityTaskQueueResponseInput defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseInput
+      , pollActivityTaskQueueResponseHeartbeatdetails = maybe (pollActivityTaskQueueResponseHeartbeatdetails defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseHeartbeatdetails
+      , pollActivityTaskQueueResponseScheduledtime = maybe (pollActivityTaskQueueResponseScheduledtime defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseScheduledtime
+      , pollActivityTaskQueueResponseCurrentattemptscheduledtime = maybe (pollActivityTaskQueueResponseCurrentattemptscheduledtime defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseCurrentattemptscheduledtime
+      , pollActivityTaskQueueResponseStartedtime = maybe (pollActivityTaskQueueResponseStartedtime defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseStartedtime
+      , pollActivityTaskQueueResponseAttempt = maybe (pollActivityTaskQueueResponseAttempt defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseAttempt
+      , pollActivityTaskQueueResponseScheduletoclosetimeout = maybe (pollActivityTaskQueueResponseScheduletoclosetimeout defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseScheduletoclosetimeout
+      , pollActivityTaskQueueResponseStarttoclosetimeout = maybe (pollActivityTaskQueueResponseStarttoclosetimeout defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseStarttoclosetimeout
+      , pollActivityTaskQueueResponseHeartbeattimeout = maybe (pollActivityTaskQueueResponseHeartbeattimeout defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseHeartbeattimeout
+      , pollActivityTaskQueueResponseRetrypolicy = maybe (pollActivityTaskQueueResponseRetrypolicy defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseRetrypolicy
+      , pollActivityTaskQueueResponsePollerscalingdecision = maybe (pollActivityTaskQueueResponsePollerscalingdecision defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponsePollerscalingdecision
+      , pollActivityTaskQueueResponsePriority = maybe (pollActivityTaskQueueResponsePriority defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponsePriority
+      , pollActivityTaskQueueResponseActivityrunid = maybe (pollActivityTaskQueueResponseActivityrunid defaultPollActivityTaskQueueResponse) id fld_pollActivityTaskQueueResponseActivityrunid
+      }
   protoFromJSON _ = Right defaultPollActivityTaskQueueResponse
 
 data RecordActivityTaskHeartbeatRequest = RecordActivityTaskHeartbeatRequest
@@ -2318,6 +2728,17 @@ instance ProtoToJSON RecordActivityTaskHeartbeatRequest where
       ]
 
 instance ProtoFromJSON RecordActivityTaskHeartbeatRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_recordActivityTaskHeartbeatRequestTasktoken <- obj .:? "taskToken"
+    fld_recordActivityTaskHeartbeatRequestDetails <- obj .:? "details"
+    fld_recordActivityTaskHeartbeatRequestIdentity <- obj .:? "identity"
+    fld_recordActivityTaskHeartbeatRequestNamespace <- obj .:? "namespace"
+    pure defaultRecordActivityTaskHeartbeatRequest
+      { recordActivityTaskHeartbeatRequestTasktoken = maybe (recordActivityTaskHeartbeatRequestTasktoken defaultRecordActivityTaskHeartbeatRequest) id fld_recordActivityTaskHeartbeatRequestTasktoken
+      , recordActivityTaskHeartbeatRequestDetails = maybe (recordActivityTaskHeartbeatRequestDetails defaultRecordActivityTaskHeartbeatRequest) id fld_recordActivityTaskHeartbeatRequestDetails
+      , recordActivityTaskHeartbeatRequestIdentity = maybe (recordActivityTaskHeartbeatRequestIdentity defaultRecordActivityTaskHeartbeatRequest) id fld_recordActivityTaskHeartbeatRequestIdentity
+      , recordActivityTaskHeartbeatRequestNamespace = maybe (recordActivityTaskHeartbeatRequestNamespace defaultRecordActivityTaskHeartbeatRequest) id fld_recordActivityTaskHeartbeatRequestNamespace
+      }
   protoFromJSON _ = Right defaultRecordActivityTaskHeartbeatRequest
 
 data RecordActivityTaskHeartbeatResponse = RecordActivityTaskHeartbeatResponse
@@ -2374,6 +2795,15 @@ instance ProtoToJSON RecordActivityTaskHeartbeatResponse where
       ]
 
 instance ProtoFromJSON RecordActivityTaskHeartbeatResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_recordActivityTaskHeartbeatResponseCancelrequested <- obj .:? "cancelRequested"
+    fld_recordActivityTaskHeartbeatResponseActivitypaused <- obj .:? "activityPaused"
+    fld_recordActivityTaskHeartbeatResponseActivityreset <- obj .:? "activityReset"
+    pure defaultRecordActivityTaskHeartbeatResponse
+      { recordActivityTaskHeartbeatResponseCancelrequested = maybe (recordActivityTaskHeartbeatResponseCancelrequested defaultRecordActivityTaskHeartbeatResponse) id fld_recordActivityTaskHeartbeatResponseCancelrequested
+      , recordActivityTaskHeartbeatResponseActivitypaused = maybe (recordActivityTaskHeartbeatResponseActivitypaused defaultRecordActivityTaskHeartbeatResponse) id fld_recordActivityTaskHeartbeatResponseActivitypaused
+      , recordActivityTaskHeartbeatResponseActivityreset = maybe (recordActivityTaskHeartbeatResponseActivityreset defaultRecordActivityTaskHeartbeatResponse) id fld_recordActivityTaskHeartbeatResponseActivityreset
+      }
   protoFromJSON _ = Right defaultRecordActivityTaskHeartbeatResponse
 
 data RecordActivityTaskHeartbeatByIdRequest = RecordActivityTaskHeartbeatByIdRequest
@@ -2454,6 +2884,21 @@ instance ProtoToJSON RecordActivityTaskHeartbeatByIdRequest where
       ]
 
 instance ProtoFromJSON RecordActivityTaskHeartbeatByIdRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_recordActivityTaskHeartbeatByIdRequestNamespace <- obj .:? "namespace"
+    fld_recordActivityTaskHeartbeatByIdRequestWorkflowid <- obj .:? "workflowId"
+    fld_recordActivityTaskHeartbeatByIdRequestRunid <- obj .:? "runId"
+    fld_recordActivityTaskHeartbeatByIdRequestActivityid <- obj .:? "activityId"
+    fld_recordActivityTaskHeartbeatByIdRequestDetails <- obj .:? "details"
+    fld_recordActivityTaskHeartbeatByIdRequestIdentity <- obj .:? "identity"
+    pure defaultRecordActivityTaskHeartbeatByIdRequest
+      { recordActivityTaskHeartbeatByIdRequestNamespace = maybe (recordActivityTaskHeartbeatByIdRequestNamespace defaultRecordActivityTaskHeartbeatByIdRequest) id fld_recordActivityTaskHeartbeatByIdRequestNamespace
+      , recordActivityTaskHeartbeatByIdRequestWorkflowid = maybe (recordActivityTaskHeartbeatByIdRequestWorkflowid defaultRecordActivityTaskHeartbeatByIdRequest) id fld_recordActivityTaskHeartbeatByIdRequestWorkflowid
+      , recordActivityTaskHeartbeatByIdRequestRunid = maybe (recordActivityTaskHeartbeatByIdRequestRunid defaultRecordActivityTaskHeartbeatByIdRequest) id fld_recordActivityTaskHeartbeatByIdRequestRunid
+      , recordActivityTaskHeartbeatByIdRequestActivityid = maybe (recordActivityTaskHeartbeatByIdRequestActivityid defaultRecordActivityTaskHeartbeatByIdRequest) id fld_recordActivityTaskHeartbeatByIdRequestActivityid
+      , recordActivityTaskHeartbeatByIdRequestDetails = maybe (recordActivityTaskHeartbeatByIdRequestDetails defaultRecordActivityTaskHeartbeatByIdRequest) id fld_recordActivityTaskHeartbeatByIdRequestDetails
+      , recordActivityTaskHeartbeatByIdRequestIdentity = maybe (recordActivityTaskHeartbeatByIdRequestIdentity defaultRecordActivityTaskHeartbeatByIdRequest) id fld_recordActivityTaskHeartbeatByIdRequestIdentity
+      }
   protoFromJSON _ = Right defaultRecordActivityTaskHeartbeatByIdRequest
 
 data RecordActivityTaskHeartbeatByIdResponse = RecordActivityTaskHeartbeatByIdResponse
@@ -2510,6 +2955,15 @@ instance ProtoToJSON RecordActivityTaskHeartbeatByIdResponse where
       ]
 
 instance ProtoFromJSON RecordActivityTaskHeartbeatByIdResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_recordActivityTaskHeartbeatByIdResponseCancelrequested <- obj .:? "cancelRequested"
+    fld_recordActivityTaskHeartbeatByIdResponseActivitypaused <- obj .:? "activityPaused"
+    fld_recordActivityTaskHeartbeatByIdResponseActivityreset <- obj .:? "activityReset"
+    pure defaultRecordActivityTaskHeartbeatByIdResponse
+      { recordActivityTaskHeartbeatByIdResponseCancelrequested = maybe (recordActivityTaskHeartbeatByIdResponseCancelrequested defaultRecordActivityTaskHeartbeatByIdResponse) id fld_recordActivityTaskHeartbeatByIdResponseCancelrequested
+      , recordActivityTaskHeartbeatByIdResponseActivitypaused = maybe (recordActivityTaskHeartbeatByIdResponseActivitypaused defaultRecordActivityTaskHeartbeatByIdResponse) id fld_recordActivityTaskHeartbeatByIdResponseActivitypaused
+      , recordActivityTaskHeartbeatByIdResponseActivityreset = maybe (recordActivityTaskHeartbeatByIdResponseActivityreset defaultRecordActivityTaskHeartbeatByIdResponse) id fld_recordActivityTaskHeartbeatByIdResponseActivityreset
+      }
   protoFromJSON _ = Right defaultRecordActivityTaskHeartbeatByIdResponse
 
 data RespondActivityTaskCompletedRequest = RespondActivityTaskCompletedRequest
@@ -2598,6 +3052,23 @@ instance ProtoToJSON RespondActivityTaskCompletedRequest where
       ]
 
 instance ProtoFromJSON RespondActivityTaskCompletedRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondActivityTaskCompletedRequestTasktoken <- obj .:? "taskToken"
+    fld_respondActivityTaskCompletedRequestResult <- obj .:? "result"
+    fld_respondActivityTaskCompletedRequestIdentity <- obj .:? "identity"
+    fld_respondActivityTaskCompletedRequestNamespace <- obj .:? "namespace"
+    fld_respondActivityTaskCompletedRequestWorkerversion <- obj .:? "workerVersion"
+    fld_respondActivityTaskCompletedRequestDeployment <- obj .:? "deployment"
+    fld_respondActivityTaskCompletedRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultRespondActivityTaskCompletedRequest
+      { respondActivityTaskCompletedRequestTasktoken = maybe (respondActivityTaskCompletedRequestTasktoken defaultRespondActivityTaskCompletedRequest) id fld_respondActivityTaskCompletedRequestTasktoken
+      , respondActivityTaskCompletedRequestResult = maybe (respondActivityTaskCompletedRequestResult defaultRespondActivityTaskCompletedRequest) id fld_respondActivityTaskCompletedRequestResult
+      , respondActivityTaskCompletedRequestIdentity = maybe (respondActivityTaskCompletedRequestIdentity defaultRespondActivityTaskCompletedRequest) id fld_respondActivityTaskCompletedRequestIdentity
+      , respondActivityTaskCompletedRequestNamespace = maybe (respondActivityTaskCompletedRequestNamespace defaultRespondActivityTaskCompletedRequest) id fld_respondActivityTaskCompletedRequestNamespace
+      , respondActivityTaskCompletedRequestWorkerversion = maybe (respondActivityTaskCompletedRequestWorkerversion defaultRespondActivityTaskCompletedRequest) id fld_respondActivityTaskCompletedRequestWorkerversion
+      , respondActivityTaskCompletedRequestDeployment = maybe (respondActivityTaskCompletedRequestDeployment defaultRespondActivityTaskCompletedRequest) id fld_respondActivityTaskCompletedRequestDeployment
+      , respondActivityTaskCompletedRequestDeploymentoptions = maybe (respondActivityTaskCompletedRequestDeploymentoptions defaultRespondActivityTaskCompletedRequest) id fld_respondActivityTaskCompletedRequestDeploymentoptions
+      }
   protoFromJSON _ = Right defaultRespondActivityTaskCompletedRequest
 
 data RespondActivityTaskCompletedResponse = RespondActivityTaskCompletedResponse
@@ -2712,6 +3183,21 @@ instance ProtoToJSON RespondActivityTaskCompletedByIdRequest where
       ]
 
 instance ProtoFromJSON RespondActivityTaskCompletedByIdRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondActivityTaskCompletedByIdRequestNamespace <- obj .:? "namespace"
+    fld_respondActivityTaskCompletedByIdRequestWorkflowid <- obj .:? "workflowId"
+    fld_respondActivityTaskCompletedByIdRequestRunid <- obj .:? "runId"
+    fld_respondActivityTaskCompletedByIdRequestActivityid <- obj .:? "activityId"
+    fld_respondActivityTaskCompletedByIdRequestResult <- obj .:? "result"
+    fld_respondActivityTaskCompletedByIdRequestIdentity <- obj .:? "identity"
+    pure defaultRespondActivityTaskCompletedByIdRequest
+      { respondActivityTaskCompletedByIdRequestNamespace = maybe (respondActivityTaskCompletedByIdRequestNamespace defaultRespondActivityTaskCompletedByIdRequest) id fld_respondActivityTaskCompletedByIdRequestNamespace
+      , respondActivityTaskCompletedByIdRequestWorkflowid = maybe (respondActivityTaskCompletedByIdRequestWorkflowid defaultRespondActivityTaskCompletedByIdRequest) id fld_respondActivityTaskCompletedByIdRequestWorkflowid
+      , respondActivityTaskCompletedByIdRequestRunid = maybe (respondActivityTaskCompletedByIdRequestRunid defaultRespondActivityTaskCompletedByIdRequest) id fld_respondActivityTaskCompletedByIdRequestRunid
+      , respondActivityTaskCompletedByIdRequestActivityid = maybe (respondActivityTaskCompletedByIdRequestActivityid defaultRespondActivityTaskCompletedByIdRequest) id fld_respondActivityTaskCompletedByIdRequestActivityid
+      , respondActivityTaskCompletedByIdRequestResult = maybe (respondActivityTaskCompletedByIdRequestResult defaultRespondActivityTaskCompletedByIdRequest) id fld_respondActivityTaskCompletedByIdRequestResult
+      , respondActivityTaskCompletedByIdRequestIdentity = maybe (respondActivityTaskCompletedByIdRequestIdentity defaultRespondActivityTaskCompletedByIdRequest) id fld_respondActivityTaskCompletedByIdRequestIdentity
+      }
   protoFromJSON _ = Right defaultRespondActivityTaskCompletedByIdRequest
 
 data RespondActivityTaskCompletedByIdResponse = RespondActivityTaskCompletedByIdResponse
@@ -2842,6 +3328,25 @@ instance ProtoToJSON RespondActivityTaskFailedRequest where
       ]
 
 instance ProtoFromJSON RespondActivityTaskFailedRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondActivityTaskFailedRequestTasktoken <- obj .:? "taskToken"
+    fld_respondActivityTaskFailedRequestFailure <- obj .:? "failure"
+    fld_respondActivityTaskFailedRequestIdentity <- obj .:? "identity"
+    fld_respondActivityTaskFailedRequestNamespace <- obj .:? "namespace"
+    fld_respondActivityTaskFailedRequestLastheartbeatdetails <- obj .:? "lastHeartbeatDetails"
+    fld_respondActivityTaskFailedRequestWorkerversion <- obj .:? "workerVersion"
+    fld_respondActivityTaskFailedRequestDeployment <- obj .:? "deployment"
+    fld_respondActivityTaskFailedRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultRespondActivityTaskFailedRequest
+      { respondActivityTaskFailedRequestTasktoken = maybe (respondActivityTaskFailedRequestTasktoken defaultRespondActivityTaskFailedRequest) id fld_respondActivityTaskFailedRequestTasktoken
+      , respondActivityTaskFailedRequestFailure = maybe (respondActivityTaskFailedRequestFailure defaultRespondActivityTaskFailedRequest) id fld_respondActivityTaskFailedRequestFailure
+      , respondActivityTaskFailedRequestIdentity = maybe (respondActivityTaskFailedRequestIdentity defaultRespondActivityTaskFailedRequest) id fld_respondActivityTaskFailedRequestIdentity
+      , respondActivityTaskFailedRequestNamespace = maybe (respondActivityTaskFailedRequestNamespace defaultRespondActivityTaskFailedRequest) id fld_respondActivityTaskFailedRequestNamespace
+      , respondActivityTaskFailedRequestLastheartbeatdetails = maybe (respondActivityTaskFailedRequestLastheartbeatdetails defaultRespondActivityTaskFailedRequest) id fld_respondActivityTaskFailedRequestLastheartbeatdetails
+      , respondActivityTaskFailedRequestWorkerversion = maybe (respondActivityTaskFailedRequestWorkerversion defaultRespondActivityTaskFailedRequest) id fld_respondActivityTaskFailedRequestWorkerversion
+      , respondActivityTaskFailedRequestDeployment = maybe (respondActivityTaskFailedRequestDeployment defaultRespondActivityTaskFailedRequest) id fld_respondActivityTaskFailedRequestDeployment
+      , respondActivityTaskFailedRequestDeploymentoptions = maybe (respondActivityTaskFailedRequestDeploymentoptions defaultRespondActivityTaskFailedRequest) id fld_respondActivityTaskFailedRequestDeploymentoptions
+      }
   protoFromJSON _ = Right defaultRespondActivityTaskFailedRequest
 
 data RespondActivityTaskFailedResponse = RespondActivityTaskFailedResponse
@@ -2883,6 +3388,11 @@ instance ProtoToJSON RespondActivityTaskFailedResponse where
       ]
 
 instance ProtoFromJSON RespondActivityTaskFailedResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondActivityTaskFailedResponseFailures <- obj .:? "failures"
+    pure defaultRespondActivityTaskFailedResponse
+      { respondActivityTaskFailedResponseFailures = maybe (respondActivityTaskFailedResponseFailures defaultRespondActivityTaskFailedResponse) id fld_respondActivityTaskFailedResponseFailures
+      }
   protoFromJSON _ = Right defaultRespondActivityTaskFailedResponse
 
 data RespondActivityTaskFailedByIdRequest = RespondActivityTaskFailedByIdRequest
@@ -2971,6 +3481,23 @@ instance ProtoToJSON RespondActivityTaskFailedByIdRequest where
       ]
 
 instance ProtoFromJSON RespondActivityTaskFailedByIdRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondActivityTaskFailedByIdRequestNamespace <- obj .:? "namespace"
+    fld_respondActivityTaskFailedByIdRequestWorkflowid <- obj .:? "workflowId"
+    fld_respondActivityTaskFailedByIdRequestRunid <- obj .:? "runId"
+    fld_respondActivityTaskFailedByIdRequestActivityid <- obj .:? "activityId"
+    fld_respondActivityTaskFailedByIdRequestFailure <- obj .:? "failure"
+    fld_respondActivityTaskFailedByIdRequestIdentity <- obj .:? "identity"
+    fld_respondActivityTaskFailedByIdRequestLastheartbeatdetails <- obj .:? "lastHeartbeatDetails"
+    pure defaultRespondActivityTaskFailedByIdRequest
+      { respondActivityTaskFailedByIdRequestNamespace = maybe (respondActivityTaskFailedByIdRequestNamespace defaultRespondActivityTaskFailedByIdRequest) id fld_respondActivityTaskFailedByIdRequestNamespace
+      , respondActivityTaskFailedByIdRequestWorkflowid = maybe (respondActivityTaskFailedByIdRequestWorkflowid defaultRespondActivityTaskFailedByIdRequest) id fld_respondActivityTaskFailedByIdRequestWorkflowid
+      , respondActivityTaskFailedByIdRequestRunid = maybe (respondActivityTaskFailedByIdRequestRunid defaultRespondActivityTaskFailedByIdRequest) id fld_respondActivityTaskFailedByIdRequestRunid
+      , respondActivityTaskFailedByIdRequestActivityid = maybe (respondActivityTaskFailedByIdRequestActivityid defaultRespondActivityTaskFailedByIdRequest) id fld_respondActivityTaskFailedByIdRequestActivityid
+      , respondActivityTaskFailedByIdRequestFailure = maybe (respondActivityTaskFailedByIdRequestFailure defaultRespondActivityTaskFailedByIdRequest) id fld_respondActivityTaskFailedByIdRequestFailure
+      , respondActivityTaskFailedByIdRequestIdentity = maybe (respondActivityTaskFailedByIdRequestIdentity defaultRespondActivityTaskFailedByIdRequest) id fld_respondActivityTaskFailedByIdRequestIdentity
+      , respondActivityTaskFailedByIdRequestLastheartbeatdetails = maybe (respondActivityTaskFailedByIdRequestLastheartbeatdetails defaultRespondActivityTaskFailedByIdRequest) id fld_respondActivityTaskFailedByIdRequestLastheartbeatdetails
+      }
   protoFromJSON _ = Right defaultRespondActivityTaskFailedByIdRequest
 
 data RespondActivityTaskFailedByIdResponse = RespondActivityTaskFailedByIdResponse
@@ -3012,6 +3539,11 @@ instance ProtoToJSON RespondActivityTaskFailedByIdResponse where
       ]
 
 instance ProtoFromJSON RespondActivityTaskFailedByIdResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondActivityTaskFailedByIdResponseFailures <- obj .:? "failures"
+    pure defaultRespondActivityTaskFailedByIdResponse
+      { respondActivityTaskFailedByIdResponseFailures = maybe (respondActivityTaskFailedByIdResponseFailures defaultRespondActivityTaskFailedByIdResponse) id fld_respondActivityTaskFailedByIdResponseFailures
+      }
   protoFromJSON _ = Right defaultRespondActivityTaskFailedByIdResponse
 
 data RespondActivityTaskCanceledRequest = RespondActivityTaskCanceledRequest
@@ -3100,6 +3632,23 @@ instance ProtoToJSON RespondActivityTaskCanceledRequest where
       ]
 
 instance ProtoFromJSON RespondActivityTaskCanceledRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondActivityTaskCanceledRequestTasktoken <- obj .:? "taskToken"
+    fld_respondActivityTaskCanceledRequestDetails <- obj .:? "details"
+    fld_respondActivityTaskCanceledRequestIdentity <- obj .:? "identity"
+    fld_respondActivityTaskCanceledRequestNamespace <- obj .:? "namespace"
+    fld_respondActivityTaskCanceledRequestWorkerversion <- obj .:? "workerVersion"
+    fld_respondActivityTaskCanceledRequestDeployment <- obj .:? "deployment"
+    fld_respondActivityTaskCanceledRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultRespondActivityTaskCanceledRequest
+      { respondActivityTaskCanceledRequestTasktoken = maybe (respondActivityTaskCanceledRequestTasktoken defaultRespondActivityTaskCanceledRequest) id fld_respondActivityTaskCanceledRequestTasktoken
+      , respondActivityTaskCanceledRequestDetails = maybe (respondActivityTaskCanceledRequestDetails defaultRespondActivityTaskCanceledRequest) id fld_respondActivityTaskCanceledRequestDetails
+      , respondActivityTaskCanceledRequestIdentity = maybe (respondActivityTaskCanceledRequestIdentity defaultRespondActivityTaskCanceledRequest) id fld_respondActivityTaskCanceledRequestIdentity
+      , respondActivityTaskCanceledRequestNamespace = maybe (respondActivityTaskCanceledRequestNamespace defaultRespondActivityTaskCanceledRequest) id fld_respondActivityTaskCanceledRequestNamespace
+      , respondActivityTaskCanceledRequestWorkerversion = maybe (respondActivityTaskCanceledRequestWorkerversion defaultRespondActivityTaskCanceledRequest) id fld_respondActivityTaskCanceledRequestWorkerversion
+      , respondActivityTaskCanceledRequestDeployment = maybe (respondActivityTaskCanceledRequestDeployment defaultRespondActivityTaskCanceledRequest) id fld_respondActivityTaskCanceledRequestDeployment
+      , respondActivityTaskCanceledRequestDeploymentoptions = maybe (respondActivityTaskCanceledRequestDeploymentoptions defaultRespondActivityTaskCanceledRequest) id fld_respondActivityTaskCanceledRequestDeploymentoptions
+      }
   protoFromJSON _ = Right defaultRespondActivityTaskCanceledRequest
 
 data RespondActivityTaskCanceledResponse = RespondActivityTaskCanceledResponse
@@ -3222,6 +3771,23 @@ instance ProtoToJSON RespondActivityTaskCanceledByIdRequest where
       ]
 
 instance ProtoFromJSON RespondActivityTaskCanceledByIdRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondActivityTaskCanceledByIdRequestNamespace <- obj .:? "namespace"
+    fld_respondActivityTaskCanceledByIdRequestWorkflowid <- obj .:? "workflowId"
+    fld_respondActivityTaskCanceledByIdRequestRunid <- obj .:? "runId"
+    fld_respondActivityTaskCanceledByIdRequestActivityid <- obj .:? "activityId"
+    fld_respondActivityTaskCanceledByIdRequestDetails <- obj .:? "details"
+    fld_respondActivityTaskCanceledByIdRequestIdentity <- obj .:? "identity"
+    fld_respondActivityTaskCanceledByIdRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    pure defaultRespondActivityTaskCanceledByIdRequest
+      { respondActivityTaskCanceledByIdRequestNamespace = maybe (respondActivityTaskCanceledByIdRequestNamespace defaultRespondActivityTaskCanceledByIdRequest) id fld_respondActivityTaskCanceledByIdRequestNamespace
+      , respondActivityTaskCanceledByIdRequestWorkflowid = maybe (respondActivityTaskCanceledByIdRequestWorkflowid defaultRespondActivityTaskCanceledByIdRequest) id fld_respondActivityTaskCanceledByIdRequestWorkflowid
+      , respondActivityTaskCanceledByIdRequestRunid = maybe (respondActivityTaskCanceledByIdRequestRunid defaultRespondActivityTaskCanceledByIdRequest) id fld_respondActivityTaskCanceledByIdRequestRunid
+      , respondActivityTaskCanceledByIdRequestActivityid = maybe (respondActivityTaskCanceledByIdRequestActivityid defaultRespondActivityTaskCanceledByIdRequest) id fld_respondActivityTaskCanceledByIdRequestActivityid
+      , respondActivityTaskCanceledByIdRequestDetails = maybe (respondActivityTaskCanceledByIdRequestDetails defaultRespondActivityTaskCanceledByIdRequest) id fld_respondActivityTaskCanceledByIdRequestDetails
+      , respondActivityTaskCanceledByIdRequestIdentity = maybe (respondActivityTaskCanceledByIdRequestIdentity defaultRespondActivityTaskCanceledByIdRequest) id fld_respondActivityTaskCanceledByIdRequestIdentity
+      , respondActivityTaskCanceledByIdRequestDeploymentoptions = maybe (respondActivityTaskCanceledByIdRequestDeploymentoptions defaultRespondActivityTaskCanceledByIdRequest) id fld_respondActivityTaskCanceledByIdRequestDeploymentoptions
+      }
   protoFromJSON _ = Right defaultRespondActivityTaskCanceledByIdRequest
 
 data RespondActivityTaskCanceledByIdResponse = RespondActivityTaskCanceledByIdResponse
@@ -3344,6 +3910,23 @@ instance ProtoToJSON RequestCancelWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON RequestCancelWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestCancelWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_requestCancelWorkflowExecutionRequestWorkflowexecution <- obj .:? "workflowExecution"
+    fld_requestCancelWorkflowExecutionRequestIdentity <- obj .:? "identity"
+    fld_requestCancelWorkflowExecutionRequestRequestid <- obj .:? "requestId"
+    fld_requestCancelWorkflowExecutionRequestFirstexecutionrunid <- obj .:? "firstExecutionRunId"
+    fld_requestCancelWorkflowExecutionRequestReason <- obj .:? "reason"
+    fld_requestCancelWorkflowExecutionRequestLinks <- obj .:? "links"
+    pure defaultRequestCancelWorkflowExecutionRequest
+      { requestCancelWorkflowExecutionRequestNamespace = maybe (requestCancelWorkflowExecutionRequestNamespace defaultRequestCancelWorkflowExecutionRequest) id fld_requestCancelWorkflowExecutionRequestNamespace
+      , requestCancelWorkflowExecutionRequestWorkflowexecution = maybe (requestCancelWorkflowExecutionRequestWorkflowexecution defaultRequestCancelWorkflowExecutionRequest) id fld_requestCancelWorkflowExecutionRequestWorkflowexecution
+      , requestCancelWorkflowExecutionRequestIdentity = maybe (requestCancelWorkflowExecutionRequestIdentity defaultRequestCancelWorkflowExecutionRequest) id fld_requestCancelWorkflowExecutionRequestIdentity
+      , requestCancelWorkflowExecutionRequestRequestid = maybe (requestCancelWorkflowExecutionRequestRequestid defaultRequestCancelWorkflowExecutionRequest) id fld_requestCancelWorkflowExecutionRequestRequestid
+      , requestCancelWorkflowExecutionRequestFirstexecutionrunid = maybe (requestCancelWorkflowExecutionRequestFirstexecutionrunid defaultRequestCancelWorkflowExecutionRequest) id fld_requestCancelWorkflowExecutionRequestFirstexecutionrunid
+      , requestCancelWorkflowExecutionRequestReason = maybe (requestCancelWorkflowExecutionRequestReason defaultRequestCancelWorkflowExecutionRequest) id fld_requestCancelWorkflowExecutionRequestReason
+      , requestCancelWorkflowExecutionRequestLinks = maybe (requestCancelWorkflowExecutionRequestLinks defaultRequestCancelWorkflowExecutionRequest) id fld_requestCancelWorkflowExecutionRequestLinks
+      }
   protoFromJSON _ = Right defaultRequestCancelWorkflowExecutionRequest
 
 data RequestCancelWorkflowExecutionResponse = RequestCancelWorkflowExecutionResponse
@@ -3482,6 +4065,27 @@ instance ProtoToJSON SignalWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON SignalWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_signalWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_signalWorkflowExecutionRequestWorkflowexecution <- obj .:? "workflowExecution"
+    fld_signalWorkflowExecutionRequestSignalname <- obj .:? "signalName"
+    fld_signalWorkflowExecutionRequestInput <- obj .:? "input"
+    fld_signalWorkflowExecutionRequestIdentity <- obj .:? "identity"
+    fld_signalWorkflowExecutionRequestRequestid <- obj .:? "requestId"
+    fld_signalWorkflowExecutionRequestControl <- obj .:? "control"
+    fld_signalWorkflowExecutionRequestHeader <- obj .:? "header"
+    fld_signalWorkflowExecutionRequestLinks <- obj .:? "links"
+    pure defaultSignalWorkflowExecutionRequest
+      { signalWorkflowExecutionRequestNamespace = maybe (signalWorkflowExecutionRequestNamespace defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestNamespace
+      , signalWorkflowExecutionRequestWorkflowexecution = maybe (signalWorkflowExecutionRequestWorkflowexecution defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestWorkflowexecution
+      , signalWorkflowExecutionRequestSignalname = maybe (signalWorkflowExecutionRequestSignalname defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestSignalname
+      , signalWorkflowExecutionRequestInput = maybe (signalWorkflowExecutionRequestInput defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestInput
+      , signalWorkflowExecutionRequestIdentity = maybe (signalWorkflowExecutionRequestIdentity defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestIdentity
+      , signalWorkflowExecutionRequestRequestid = maybe (signalWorkflowExecutionRequestRequestid defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestRequestid
+      , signalWorkflowExecutionRequestControl = maybe (signalWorkflowExecutionRequestControl defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestControl
+      , signalWorkflowExecutionRequestHeader = maybe (signalWorkflowExecutionRequestHeader defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestHeader
+      , signalWorkflowExecutionRequestLinks = maybe (signalWorkflowExecutionRequestLinks defaultSignalWorkflowExecutionRequest) id fld_signalWorkflowExecutionRequestLinks
+      }
   protoFromJSON _ = Right defaultSignalWorkflowExecutionRequest
 
 data SignalWorkflowExecutionResponse = SignalWorkflowExecutionResponse
@@ -3748,6 +4352,59 @@ instance ProtoToJSON SignalWithStartWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON SignalWithStartWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_signalWithStartWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_signalWithStartWorkflowExecutionRequestWorkflowid <- obj .:? "workflowId"
+    fld_signalWithStartWorkflowExecutionRequestWorkflowtype <- obj .:? "workflowType"
+    fld_signalWithStartWorkflowExecutionRequestTaskqueue <- obj .:? "taskQueue"
+    fld_signalWithStartWorkflowExecutionRequestInput <- obj .:? "input"
+    fld_signalWithStartWorkflowExecutionRequestWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
+    fld_signalWithStartWorkflowExecutionRequestWorkflowruntimeout <- obj .:? "workflowRunTimeout"
+    fld_signalWithStartWorkflowExecutionRequestWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
+    fld_signalWithStartWorkflowExecutionRequestIdentity <- obj .:? "identity"
+    fld_signalWithStartWorkflowExecutionRequestRequestid <- obj .:? "requestId"
+    fld_signalWithStartWorkflowExecutionRequestWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
+    fld_signalWithStartWorkflowExecutionRequestWorkflowidconflictpolicy <- obj .:? "workflowIdConflictPolicy"
+    fld_signalWithStartWorkflowExecutionRequestSignalname <- obj .:? "signalName"
+    fld_signalWithStartWorkflowExecutionRequestSignalinput <- obj .:? "signalInput"
+    fld_signalWithStartWorkflowExecutionRequestControl <- obj .:? "control"
+    fld_signalWithStartWorkflowExecutionRequestRetrypolicy <- obj .:? "retryPolicy"
+    fld_signalWithStartWorkflowExecutionRequestCronschedule <- obj .:? "cronSchedule"
+    fld_signalWithStartWorkflowExecutionRequestMemo <- obj .:? "memo"
+    fld_signalWithStartWorkflowExecutionRequestSearchattributes <- obj .:? "searchAttributes"
+    fld_signalWithStartWorkflowExecutionRequestHeader <- obj .:? "header"
+    fld_signalWithStartWorkflowExecutionRequestWorkflowstartdelay <- obj .:? "workflowStartDelay"
+    fld_signalWithStartWorkflowExecutionRequestUsermetadata <- obj .:? "userMetadata"
+    fld_signalWithStartWorkflowExecutionRequestLinks <- obj .:? "links"
+    fld_signalWithStartWorkflowExecutionRequestVersioningoverride <- obj .:? "versioningOverride"
+    fld_signalWithStartWorkflowExecutionRequestPriority <- obj .:? "priority"
+    pure defaultSignalWithStartWorkflowExecutionRequest
+      { signalWithStartWorkflowExecutionRequestNamespace = maybe (signalWithStartWorkflowExecutionRequestNamespace defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestNamespace
+      , signalWithStartWorkflowExecutionRequestWorkflowid = maybe (signalWithStartWorkflowExecutionRequestWorkflowid defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestWorkflowid
+      , signalWithStartWorkflowExecutionRequestWorkflowtype = maybe (signalWithStartWorkflowExecutionRequestWorkflowtype defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestWorkflowtype
+      , signalWithStartWorkflowExecutionRequestTaskqueue = maybe (signalWithStartWorkflowExecutionRequestTaskqueue defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestTaskqueue
+      , signalWithStartWorkflowExecutionRequestInput = maybe (signalWithStartWorkflowExecutionRequestInput defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestInput
+      , signalWithStartWorkflowExecutionRequestWorkflowexecutiontimeout = maybe (signalWithStartWorkflowExecutionRequestWorkflowexecutiontimeout defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestWorkflowexecutiontimeout
+      , signalWithStartWorkflowExecutionRequestWorkflowruntimeout = maybe (signalWithStartWorkflowExecutionRequestWorkflowruntimeout defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestWorkflowruntimeout
+      , signalWithStartWorkflowExecutionRequestWorkflowtasktimeout = maybe (signalWithStartWorkflowExecutionRequestWorkflowtasktimeout defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestWorkflowtasktimeout
+      , signalWithStartWorkflowExecutionRequestIdentity = maybe (signalWithStartWorkflowExecutionRequestIdentity defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestIdentity
+      , signalWithStartWorkflowExecutionRequestRequestid = maybe (signalWithStartWorkflowExecutionRequestRequestid defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestRequestid
+      , signalWithStartWorkflowExecutionRequestWorkflowidreusepolicy = maybe (signalWithStartWorkflowExecutionRequestWorkflowidreusepolicy defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestWorkflowidreusepolicy
+      , signalWithStartWorkflowExecutionRequestWorkflowidconflictpolicy = maybe (signalWithStartWorkflowExecutionRequestWorkflowidconflictpolicy defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestWorkflowidconflictpolicy
+      , signalWithStartWorkflowExecutionRequestSignalname = maybe (signalWithStartWorkflowExecutionRequestSignalname defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestSignalname
+      , signalWithStartWorkflowExecutionRequestSignalinput = maybe (signalWithStartWorkflowExecutionRequestSignalinput defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestSignalinput
+      , signalWithStartWorkflowExecutionRequestControl = maybe (signalWithStartWorkflowExecutionRequestControl defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestControl
+      , signalWithStartWorkflowExecutionRequestRetrypolicy = maybe (signalWithStartWorkflowExecutionRequestRetrypolicy defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestRetrypolicy
+      , signalWithStartWorkflowExecutionRequestCronschedule = maybe (signalWithStartWorkflowExecutionRequestCronschedule defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestCronschedule
+      , signalWithStartWorkflowExecutionRequestMemo = maybe (signalWithStartWorkflowExecutionRequestMemo defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestMemo
+      , signalWithStartWorkflowExecutionRequestSearchattributes = maybe (signalWithStartWorkflowExecutionRequestSearchattributes defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestSearchattributes
+      , signalWithStartWorkflowExecutionRequestHeader = maybe (signalWithStartWorkflowExecutionRequestHeader defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestHeader
+      , signalWithStartWorkflowExecutionRequestWorkflowstartdelay = maybe (signalWithStartWorkflowExecutionRequestWorkflowstartdelay defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestWorkflowstartdelay
+      , signalWithStartWorkflowExecutionRequestUsermetadata = maybe (signalWithStartWorkflowExecutionRequestUsermetadata defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestUsermetadata
+      , signalWithStartWorkflowExecutionRequestLinks = maybe (signalWithStartWorkflowExecutionRequestLinks defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestLinks
+      , signalWithStartWorkflowExecutionRequestVersioningoverride = maybe (signalWithStartWorkflowExecutionRequestVersioningoverride defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestVersioningoverride
+      , signalWithStartWorkflowExecutionRequestPriority = maybe (signalWithStartWorkflowExecutionRequestPriority defaultSignalWithStartWorkflowExecutionRequest) id fld_signalWithStartWorkflowExecutionRequestPriority
+      }
   protoFromJSON _ = Right defaultSignalWithStartWorkflowExecutionRequest
 
 data SignalWithStartWorkflowExecutionResponse = SignalWithStartWorkflowExecutionResponse
@@ -3796,6 +4453,13 @@ instance ProtoToJSON SignalWithStartWorkflowExecutionResponse where
       ]
 
 instance ProtoFromJSON SignalWithStartWorkflowExecutionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_signalWithStartWorkflowExecutionResponseRunid <- obj .:? "runId"
+    fld_signalWithStartWorkflowExecutionResponseStarted <- obj .:? "started"
+    pure defaultSignalWithStartWorkflowExecutionResponse
+      { signalWithStartWorkflowExecutionResponseRunid = maybe (signalWithStartWorkflowExecutionResponseRunid defaultSignalWithStartWorkflowExecutionResponse) id fld_signalWithStartWorkflowExecutionResponseRunid
+      , signalWithStartWorkflowExecutionResponseStarted = maybe (signalWithStartWorkflowExecutionResponseStarted defaultSignalWithStartWorkflowExecutionResponse) id fld_signalWithStartWorkflowExecutionResponseStarted
+      }
   protoFromJSON _ = Right defaultSignalWithStartWorkflowExecutionResponse
 
 data ResetWorkflowExecutionRequest = ResetWorkflowExecutionRequest
@@ -3900,6 +4564,27 @@ instance ProtoToJSON ResetWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON ResetWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_resetWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_resetWorkflowExecutionRequestWorkflowexecution <- obj .:? "workflowExecution"
+    fld_resetWorkflowExecutionRequestReason <- obj .:? "reason"
+    fld_resetWorkflowExecutionRequestWorkflowtaskfinisheventid <- obj .:? "workflowTaskFinishEventId"
+    fld_resetWorkflowExecutionRequestRequestid <- obj .:? "requestId"
+    fld_resetWorkflowExecutionRequestResetreapplytype <- obj .:? "resetReapplyType"
+    fld_resetWorkflowExecutionRequestResetreapplyexcludetypes <- obj .:? "resetReapplyExcludeTypes"
+    fld_resetWorkflowExecutionRequestPostresetoperations <- obj .:? "postResetOperations"
+    fld_resetWorkflowExecutionRequestIdentity <- obj .:? "identity"
+    pure defaultResetWorkflowExecutionRequest
+      { resetWorkflowExecutionRequestNamespace = maybe (resetWorkflowExecutionRequestNamespace defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestNamespace
+      , resetWorkflowExecutionRequestWorkflowexecution = maybe (resetWorkflowExecutionRequestWorkflowexecution defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestWorkflowexecution
+      , resetWorkflowExecutionRequestReason = maybe (resetWorkflowExecutionRequestReason defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestReason
+      , resetWorkflowExecutionRequestWorkflowtaskfinisheventid = maybe (resetWorkflowExecutionRequestWorkflowtaskfinisheventid defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestWorkflowtaskfinisheventid
+      , resetWorkflowExecutionRequestRequestid = maybe (resetWorkflowExecutionRequestRequestid defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestRequestid
+      , resetWorkflowExecutionRequestResetreapplytype = maybe (resetWorkflowExecutionRequestResetreapplytype defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestResetreapplytype
+      , resetWorkflowExecutionRequestResetreapplyexcludetypes = maybe (resetWorkflowExecutionRequestResetreapplyexcludetypes defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestResetreapplyexcludetypes
+      , resetWorkflowExecutionRequestPostresetoperations = maybe (resetWorkflowExecutionRequestPostresetoperations defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestPostresetoperations
+      , resetWorkflowExecutionRequestIdentity = maybe (resetWorkflowExecutionRequestIdentity defaultResetWorkflowExecutionRequest) id fld_resetWorkflowExecutionRequestIdentity
+      }
   protoFromJSON _ = Right defaultResetWorkflowExecutionRequest
 
 data ResetWorkflowExecutionResponse = ResetWorkflowExecutionResponse
@@ -3941,6 +4626,11 @@ instance ProtoToJSON ResetWorkflowExecutionResponse where
       ]
 
 instance ProtoFromJSON ResetWorkflowExecutionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_resetWorkflowExecutionResponseRunid <- obj .:? "runId"
+    pure defaultResetWorkflowExecutionResponse
+      { resetWorkflowExecutionResponseRunid = maybe (resetWorkflowExecutionResponseRunid defaultResetWorkflowExecutionResponse) id fld_resetWorkflowExecutionResponseRunid
+      }
   protoFromJSON _ = Right defaultResetWorkflowExecutionResponse
 
 data TerminateWorkflowExecutionRequest = TerminateWorkflowExecutionRequest
@@ -4029,6 +4719,23 @@ instance ProtoToJSON TerminateWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON TerminateWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_terminateWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_terminateWorkflowExecutionRequestWorkflowexecution <- obj .:? "workflowExecution"
+    fld_terminateWorkflowExecutionRequestReason <- obj .:? "reason"
+    fld_terminateWorkflowExecutionRequestDetails <- obj .:? "details"
+    fld_terminateWorkflowExecutionRequestIdentity <- obj .:? "identity"
+    fld_terminateWorkflowExecutionRequestFirstexecutionrunid <- obj .:? "firstExecutionRunId"
+    fld_terminateWorkflowExecutionRequestLinks <- obj .:? "links"
+    pure defaultTerminateWorkflowExecutionRequest
+      { terminateWorkflowExecutionRequestNamespace = maybe (terminateWorkflowExecutionRequestNamespace defaultTerminateWorkflowExecutionRequest) id fld_terminateWorkflowExecutionRequestNamespace
+      , terminateWorkflowExecutionRequestWorkflowexecution = maybe (terminateWorkflowExecutionRequestWorkflowexecution defaultTerminateWorkflowExecutionRequest) id fld_terminateWorkflowExecutionRequestWorkflowexecution
+      , terminateWorkflowExecutionRequestReason = maybe (terminateWorkflowExecutionRequestReason defaultTerminateWorkflowExecutionRequest) id fld_terminateWorkflowExecutionRequestReason
+      , terminateWorkflowExecutionRequestDetails = maybe (terminateWorkflowExecutionRequestDetails defaultTerminateWorkflowExecutionRequest) id fld_terminateWorkflowExecutionRequestDetails
+      , terminateWorkflowExecutionRequestIdentity = maybe (terminateWorkflowExecutionRequestIdentity defaultTerminateWorkflowExecutionRequest) id fld_terminateWorkflowExecutionRequestIdentity
+      , terminateWorkflowExecutionRequestFirstexecutionrunid = maybe (terminateWorkflowExecutionRequestFirstexecutionrunid defaultTerminateWorkflowExecutionRequest) id fld_terminateWorkflowExecutionRequestFirstexecutionrunid
+      , terminateWorkflowExecutionRequestLinks = maybe (terminateWorkflowExecutionRequestLinks defaultTerminateWorkflowExecutionRequest) id fld_terminateWorkflowExecutionRequestLinks
+      }
   protoFromJSON _ = Right defaultTerminateWorkflowExecutionRequest
 
 data TerminateWorkflowExecutionResponse = TerminateWorkflowExecutionResponse
@@ -4111,6 +4818,13 @@ instance ProtoToJSON DeleteWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON DeleteWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_deleteWorkflowExecutionRequestWorkflowexecution <- obj .:? "workflowExecution"
+    pure defaultDeleteWorkflowExecutionRequest
+      { deleteWorkflowExecutionRequestNamespace = maybe (deleteWorkflowExecutionRequestNamespace defaultDeleteWorkflowExecutionRequest) id fld_deleteWorkflowExecutionRequestNamespace
+      , deleteWorkflowExecutionRequestWorkflowexecution = maybe (deleteWorkflowExecutionRequestWorkflowexecution defaultDeleteWorkflowExecutionRequest) id fld_deleteWorkflowExecutionRequestWorkflowexecution
+      }
   protoFromJSON _ = Right defaultDeleteWorkflowExecutionRequest
 
 data DeleteWorkflowExecutionResponse = DeleteWorkflowExecutionResponse
@@ -4233,6 +4947,19 @@ instance ProtoToJSON ListOpenWorkflowExecutionsRequest where
       ]
 
 instance ProtoFromJSON ListOpenWorkflowExecutionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listOpenWorkflowExecutionsRequestNamespace <- obj .:? "namespace"
+    fld_listOpenWorkflowExecutionsRequestMaximumpagesize <- obj .:? "maximumPageSize"
+    fld_listOpenWorkflowExecutionsRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listOpenWorkflowExecutionsRequestStarttimefilter <- obj .:? "startTimeFilter"
+    fld_listOpenWorkflowExecutionsRequestFilters <- obj .:? "filters"
+    pure defaultListOpenWorkflowExecutionsRequest
+      { listOpenWorkflowExecutionsRequestNamespace = maybe (listOpenWorkflowExecutionsRequestNamespace defaultListOpenWorkflowExecutionsRequest) id fld_listOpenWorkflowExecutionsRequestNamespace
+      , listOpenWorkflowExecutionsRequestMaximumpagesize = maybe (listOpenWorkflowExecutionsRequestMaximumpagesize defaultListOpenWorkflowExecutionsRequest) id fld_listOpenWorkflowExecutionsRequestMaximumpagesize
+      , listOpenWorkflowExecutionsRequestNextpagetoken = maybe (listOpenWorkflowExecutionsRequestNextpagetoken defaultListOpenWorkflowExecutionsRequest) id fld_listOpenWorkflowExecutionsRequestNextpagetoken
+      , listOpenWorkflowExecutionsRequestStarttimefilter = maybe (listOpenWorkflowExecutionsRequestStarttimefilter defaultListOpenWorkflowExecutionsRequest) id fld_listOpenWorkflowExecutionsRequestStarttimefilter
+      , listOpenWorkflowExecutionsRequestFilters = maybe (listOpenWorkflowExecutionsRequestFilters defaultListOpenWorkflowExecutionsRequest) id fld_listOpenWorkflowExecutionsRequestFilters
+      }
   protoFromJSON _ = Right defaultListOpenWorkflowExecutionsRequest
 
 data ListOpenWorkflowExecutionsResponse = ListOpenWorkflowExecutionsResponse
@@ -4281,6 +5008,13 @@ instance ProtoToJSON ListOpenWorkflowExecutionsResponse where
       ]
 
 instance ProtoFromJSON ListOpenWorkflowExecutionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listOpenWorkflowExecutionsResponseExecutions <- obj .:? "executions"
+    fld_listOpenWorkflowExecutionsResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListOpenWorkflowExecutionsResponse
+      { listOpenWorkflowExecutionsResponseExecutions = maybe (listOpenWorkflowExecutionsResponseExecutions defaultListOpenWorkflowExecutionsResponse) id fld_listOpenWorkflowExecutionsResponseExecutions
+      , listOpenWorkflowExecutionsResponseNextpagetoken = maybe (listOpenWorkflowExecutionsResponseNextpagetoken defaultListOpenWorkflowExecutionsResponse) id fld_listOpenWorkflowExecutionsResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListOpenWorkflowExecutionsResponse
 
 data ListClosedWorkflowExecutionsRequest = ListClosedWorkflowExecutionsRequest
@@ -4375,6 +5109,19 @@ instance ProtoToJSON ListClosedWorkflowExecutionsRequest where
       ]
 
 instance ProtoFromJSON ListClosedWorkflowExecutionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listClosedWorkflowExecutionsRequestNamespace <- obj .:? "namespace"
+    fld_listClosedWorkflowExecutionsRequestMaximumpagesize <- obj .:? "maximumPageSize"
+    fld_listClosedWorkflowExecutionsRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listClosedWorkflowExecutionsRequestStarttimefilter <- obj .:? "startTimeFilter"
+    fld_listClosedWorkflowExecutionsRequestFilters <- obj .:? "filters"
+    pure defaultListClosedWorkflowExecutionsRequest
+      { listClosedWorkflowExecutionsRequestNamespace = maybe (listClosedWorkflowExecutionsRequestNamespace defaultListClosedWorkflowExecutionsRequest) id fld_listClosedWorkflowExecutionsRequestNamespace
+      , listClosedWorkflowExecutionsRequestMaximumpagesize = maybe (listClosedWorkflowExecutionsRequestMaximumpagesize defaultListClosedWorkflowExecutionsRequest) id fld_listClosedWorkflowExecutionsRequestMaximumpagesize
+      , listClosedWorkflowExecutionsRequestNextpagetoken = maybe (listClosedWorkflowExecutionsRequestNextpagetoken defaultListClosedWorkflowExecutionsRequest) id fld_listClosedWorkflowExecutionsRequestNextpagetoken
+      , listClosedWorkflowExecutionsRequestStarttimefilter = maybe (listClosedWorkflowExecutionsRequestStarttimefilter defaultListClosedWorkflowExecutionsRequest) id fld_listClosedWorkflowExecutionsRequestStarttimefilter
+      , listClosedWorkflowExecutionsRequestFilters = maybe (listClosedWorkflowExecutionsRequestFilters defaultListClosedWorkflowExecutionsRequest) id fld_listClosedWorkflowExecutionsRequestFilters
+      }
   protoFromJSON _ = Right defaultListClosedWorkflowExecutionsRequest
 
 data ListClosedWorkflowExecutionsResponse = ListClosedWorkflowExecutionsResponse
@@ -4423,6 +5170,13 @@ instance ProtoToJSON ListClosedWorkflowExecutionsResponse where
       ]
 
 instance ProtoFromJSON ListClosedWorkflowExecutionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listClosedWorkflowExecutionsResponseExecutions <- obj .:? "executions"
+    fld_listClosedWorkflowExecutionsResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListClosedWorkflowExecutionsResponse
+      { listClosedWorkflowExecutionsResponseExecutions = maybe (listClosedWorkflowExecutionsResponseExecutions defaultListClosedWorkflowExecutionsResponse) id fld_listClosedWorkflowExecutionsResponseExecutions
+      , listClosedWorkflowExecutionsResponseNextpagetoken = maybe (listClosedWorkflowExecutionsResponseNextpagetoken defaultListClosedWorkflowExecutionsResponse) id fld_listClosedWorkflowExecutionsResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListClosedWorkflowExecutionsResponse
 
 data ListWorkflowExecutionsRequest = ListWorkflowExecutionsRequest
@@ -4487,6 +5241,17 @@ instance ProtoToJSON ListWorkflowExecutionsRequest where
       ]
 
 instance ProtoFromJSON ListWorkflowExecutionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkflowExecutionsRequestNamespace <- obj .:? "namespace"
+    fld_listWorkflowExecutionsRequestPagesize <- obj .:? "pageSize"
+    fld_listWorkflowExecutionsRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listWorkflowExecutionsRequestQuery <- obj .:? "query"
+    pure defaultListWorkflowExecutionsRequest
+      { listWorkflowExecutionsRequestNamespace = maybe (listWorkflowExecutionsRequestNamespace defaultListWorkflowExecutionsRequest) id fld_listWorkflowExecutionsRequestNamespace
+      , listWorkflowExecutionsRequestPagesize = maybe (listWorkflowExecutionsRequestPagesize defaultListWorkflowExecutionsRequest) id fld_listWorkflowExecutionsRequestPagesize
+      , listWorkflowExecutionsRequestNextpagetoken = maybe (listWorkflowExecutionsRequestNextpagetoken defaultListWorkflowExecutionsRequest) id fld_listWorkflowExecutionsRequestNextpagetoken
+      , listWorkflowExecutionsRequestQuery = maybe (listWorkflowExecutionsRequestQuery defaultListWorkflowExecutionsRequest) id fld_listWorkflowExecutionsRequestQuery
+      }
   protoFromJSON _ = Right defaultListWorkflowExecutionsRequest
 
 data ListWorkflowExecutionsResponse = ListWorkflowExecutionsResponse
@@ -4535,6 +5300,13 @@ instance ProtoToJSON ListWorkflowExecutionsResponse where
       ]
 
 instance ProtoFromJSON ListWorkflowExecutionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkflowExecutionsResponseExecutions <- obj .:? "executions"
+    fld_listWorkflowExecutionsResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListWorkflowExecutionsResponse
+      { listWorkflowExecutionsResponseExecutions = maybe (listWorkflowExecutionsResponseExecutions defaultListWorkflowExecutionsResponse) id fld_listWorkflowExecutionsResponseExecutions
+      , listWorkflowExecutionsResponseNextpagetoken = maybe (listWorkflowExecutionsResponseNextpagetoken defaultListWorkflowExecutionsResponse) id fld_listWorkflowExecutionsResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListWorkflowExecutionsResponse
 
 data ListArchivedWorkflowExecutionsRequest = ListArchivedWorkflowExecutionsRequest
@@ -4599,6 +5371,17 @@ instance ProtoToJSON ListArchivedWorkflowExecutionsRequest where
       ]
 
 instance ProtoFromJSON ListArchivedWorkflowExecutionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listArchivedWorkflowExecutionsRequestNamespace <- obj .:? "namespace"
+    fld_listArchivedWorkflowExecutionsRequestPagesize <- obj .:? "pageSize"
+    fld_listArchivedWorkflowExecutionsRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listArchivedWorkflowExecutionsRequestQuery <- obj .:? "query"
+    pure defaultListArchivedWorkflowExecutionsRequest
+      { listArchivedWorkflowExecutionsRequestNamespace = maybe (listArchivedWorkflowExecutionsRequestNamespace defaultListArchivedWorkflowExecutionsRequest) id fld_listArchivedWorkflowExecutionsRequestNamespace
+      , listArchivedWorkflowExecutionsRequestPagesize = maybe (listArchivedWorkflowExecutionsRequestPagesize defaultListArchivedWorkflowExecutionsRequest) id fld_listArchivedWorkflowExecutionsRequestPagesize
+      , listArchivedWorkflowExecutionsRequestNextpagetoken = maybe (listArchivedWorkflowExecutionsRequestNextpagetoken defaultListArchivedWorkflowExecutionsRequest) id fld_listArchivedWorkflowExecutionsRequestNextpagetoken
+      , listArchivedWorkflowExecutionsRequestQuery = maybe (listArchivedWorkflowExecutionsRequestQuery defaultListArchivedWorkflowExecutionsRequest) id fld_listArchivedWorkflowExecutionsRequestQuery
+      }
   protoFromJSON _ = Right defaultListArchivedWorkflowExecutionsRequest
 
 data ListArchivedWorkflowExecutionsResponse = ListArchivedWorkflowExecutionsResponse
@@ -4647,6 +5430,13 @@ instance ProtoToJSON ListArchivedWorkflowExecutionsResponse where
       ]
 
 instance ProtoFromJSON ListArchivedWorkflowExecutionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listArchivedWorkflowExecutionsResponseExecutions <- obj .:? "executions"
+    fld_listArchivedWorkflowExecutionsResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListArchivedWorkflowExecutionsResponse
+      { listArchivedWorkflowExecutionsResponseExecutions = maybe (listArchivedWorkflowExecutionsResponseExecutions defaultListArchivedWorkflowExecutionsResponse) id fld_listArchivedWorkflowExecutionsResponseExecutions
+      , listArchivedWorkflowExecutionsResponseNextpagetoken = maybe (listArchivedWorkflowExecutionsResponseNextpagetoken defaultListArchivedWorkflowExecutionsResponse) id fld_listArchivedWorkflowExecutionsResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListArchivedWorkflowExecutionsResponse
 
 data ScanWorkflowExecutionsRequest = ScanWorkflowExecutionsRequest
@@ -4711,6 +5501,17 @@ instance ProtoToJSON ScanWorkflowExecutionsRequest where
       ]
 
 instance ProtoFromJSON ScanWorkflowExecutionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_scanWorkflowExecutionsRequestNamespace <- obj .:? "namespace"
+    fld_scanWorkflowExecutionsRequestPagesize <- obj .:? "pageSize"
+    fld_scanWorkflowExecutionsRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_scanWorkflowExecutionsRequestQuery <- obj .:? "query"
+    pure defaultScanWorkflowExecutionsRequest
+      { scanWorkflowExecutionsRequestNamespace = maybe (scanWorkflowExecutionsRequestNamespace defaultScanWorkflowExecutionsRequest) id fld_scanWorkflowExecutionsRequestNamespace
+      , scanWorkflowExecutionsRequestPagesize = maybe (scanWorkflowExecutionsRequestPagesize defaultScanWorkflowExecutionsRequest) id fld_scanWorkflowExecutionsRequestPagesize
+      , scanWorkflowExecutionsRequestNextpagetoken = maybe (scanWorkflowExecutionsRequestNextpagetoken defaultScanWorkflowExecutionsRequest) id fld_scanWorkflowExecutionsRequestNextpagetoken
+      , scanWorkflowExecutionsRequestQuery = maybe (scanWorkflowExecutionsRequestQuery defaultScanWorkflowExecutionsRequest) id fld_scanWorkflowExecutionsRequestQuery
+      }
   protoFromJSON _ = Right defaultScanWorkflowExecutionsRequest
 
 data ScanWorkflowExecutionsResponse = ScanWorkflowExecutionsResponse
@@ -4759,6 +5560,13 @@ instance ProtoToJSON ScanWorkflowExecutionsResponse where
       ]
 
 instance ProtoFromJSON ScanWorkflowExecutionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_scanWorkflowExecutionsResponseExecutions <- obj .:? "executions"
+    fld_scanWorkflowExecutionsResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultScanWorkflowExecutionsResponse
+      { scanWorkflowExecutionsResponseExecutions = maybe (scanWorkflowExecutionsResponseExecutions defaultScanWorkflowExecutionsResponse) id fld_scanWorkflowExecutionsResponseExecutions
+      , scanWorkflowExecutionsResponseNextpagetoken = maybe (scanWorkflowExecutionsResponseNextpagetoken defaultScanWorkflowExecutionsResponse) id fld_scanWorkflowExecutionsResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultScanWorkflowExecutionsResponse
 
 data CountWorkflowExecutionsRequest = CountWorkflowExecutionsRequest
@@ -4807,6 +5615,13 @@ instance ProtoToJSON CountWorkflowExecutionsRequest where
       ]
 
 instance ProtoFromJSON CountWorkflowExecutionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_countWorkflowExecutionsRequestNamespace <- obj .:? "namespace"
+    fld_countWorkflowExecutionsRequestQuery <- obj .:? "query"
+    pure defaultCountWorkflowExecutionsRequest
+      { countWorkflowExecutionsRequestNamespace = maybe (countWorkflowExecutionsRequestNamespace defaultCountWorkflowExecutionsRequest) id fld_countWorkflowExecutionsRequestNamespace
+      , countWorkflowExecutionsRequestQuery = maybe (countWorkflowExecutionsRequestQuery defaultCountWorkflowExecutionsRequest) id fld_countWorkflowExecutionsRequestQuery
+      }
   protoFromJSON _ = Right defaultCountWorkflowExecutionsRequest
 
 data CountWorkflowExecutionsResponse = CountWorkflowExecutionsResponse
@@ -4862,6 +5677,13 @@ instance ProtoToJSON CountWorkflowExecutionsResponse'AggregationGroup where
       ]
 
 instance ProtoFromJSON CountWorkflowExecutionsResponse'AggregationGroup where
+  protoFromJSON (JsonObject obj) = do
+    fld_countWorkflowExecutionsResponseAggregationGroupGroupvalues <- obj .:? "groupValues"
+    fld_countWorkflowExecutionsResponseAggregationGroupCount <- obj .:? "count"
+    pure defaultCountWorkflowExecutionsResponse'AggregationGroup
+      { countWorkflowExecutionsResponseAggregationGroupGroupvalues = maybe (countWorkflowExecutionsResponseAggregationGroupGroupvalues defaultCountWorkflowExecutionsResponse'AggregationGroup) id fld_countWorkflowExecutionsResponseAggregationGroupGroupvalues
+      , countWorkflowExecutionsResponseAggregationGroupCount = maybe (countWorkflowExecutionsResponseAggregationGroupCount defaultCountWorkflowExecutionsResponse'AggregationGroup) id fld_countWorkflowExecutionsResponseAggregationGroupCount
+      }
   protoFromJSON _ = Right defaultCountWorkflowExecutionsResponse'AggregationGroup
 
 defaultCountWorkflowExecutionsResponse :: CountWorkflowExecutionsResponse
@@ -4903,6 +5725,13 @@ instance ProtoToJSON CountWorkflowExecutionsResponse where
       ]
 
 instance ProtoFromJSON CountWorkflowExecutionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_countWorkflowExecutionsResponseCount <- obj .:? "count"
+    fld_countWorkflowExecutionsResponseGroups <- obj .:? "groups"
+    pure defaultCountWorkflowExecutionsResponse
+      { countWorkflowExecutionsResponseCount = maybe (countWorkflowExecutionsResponseCount defaultCountWorkflowExecutionsResponse) id fld_countWorkflowExecutionsResponseCount
+      , countWorkflowExecutionsResponseGroups = maybe (countWorkflowExecutionsResponseGroups defaultCountWorkflowExecutionsResponse) id fld_countWorkflowExecutionsResponseGroups
+      }
   protoFromJSON _ = Right defaultCountWorkflowExecutionsResponse
 
 data GetSearchAttributesRequest = GetSearchAttributesRequest
@@ -4956,7 +5785,7 @@ instance MessageEncode GetSearchAttributesResponse where
 
 instance MessageSize GetSearchAttributesResponse where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.getSearchAttributesResponseKeys)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.getSearchAttributesResponseKeys)
 
 instance MessageDecode GetSearchAttributesResponse where
   messageDecoder = loop Map.empty
@@ -4981,6 +5810,11 @@ instance ProtoToJSON GetSearchAttributesResponse where
       ]
 
 instance ProtoFromJSON GetSearchAttributesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getSearchAttributesResponseKeys <- obj .:? "keys"
+    pure defaultGetSearchAttributesResponse
+      { getSearchAttributesResponseKeys = maybe (getSearchAttributesResponseKeys defaultGetSearchAttributesResponse) id fld_getSearchAttributesResponseKeys
+      }
   protoFromJSON _ = Right defaultGetSearchAttributesResponse
 
 data RespondQueryTaskCompletedRequest = RespondQueryTaskCompletedRequest
@@ -5069,6 +5903,23 @@ instance ProtoToJSON RespondQueryTaskCompletedRequest where
       ]
 
 instance ProtoFromJSON RespondQueryTaskCompletedRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondQueryTaskCompletedRequestTasktoken <- obj .:? "taskToken"
+    fld_respondQueryTaskCompletedRequestCompletedtype <- obj .:? "completedType"
+    fld_respondQueryTaskCompletedRequestQueryresult <- obj .:? "queryResult"
+    fld_respondQueryTaskCompletedRequestErrormessage <- obj .:? "errorMessage"
+    fld_respondQueryTaskCompletedRequestNamespace <- obj .:? "namespace"
+    fld_respondQueryTaskCompletedRequestFailure <- obj .:? "failure"
+    fld_respondQueryTaskCompletedRequestCause <- obj .:? "cause"
+    pure defaultRespondQueryTaskCompletedRequest
+      { respondQueryTaskCompletedRequestTasktoken = maybe (respondQueryTaskCompletedRequestTasktoken defaultRespondQueryTaskCompletedRequest) id fld_respondQueryTaskCompletedRequestTasktoken
+      , respondQueryTaskCompletedRequestCompletedtype = maybe (respondQueryTaskCompletedRequestCompletedtype defaultRespondQueryTaskCompletedRequest) id fld_respondQueryTaskCompletedRequestCompletedtype
+      , respondQueryTaskCompletedRequestQueryresult = maybe (respondQueryTaskCompletedRequestQueryresult defaultRespondQueryTaskCompletedRequest) id fld_respondQueryTaskCompletedRequestQueryresult
+      , respondQueryTaskCompletedRequestErrormessage = maybe (respondQueryTaskCompletedRequestErrormessage defaultRespondQueryTaskCompletedRequest) id fld_respondQueryTaskCompletedRequestErrormessage
+      , respondQueryTaskCompletedRequestNamespace = maybe (respondQueryTaskCompletedRequestNamespace defaultRespondQueryTaskCompletedRequest) id fld_respondQueryTaskCompletedRequestNamespace
+      , respondQueryTaskCompletedRequestFailure = maybe (respondQueryTaskCompletedRequestFailure defaultRespondQueryTaskCompletedRequest) id fld_respondQueryTaskCompletedRequestFailure
+      , respondQueryTaskCompletedRequestCause = maybe (respondQueryTaskCompletedRequestCause defaultRespondQueryTaskCompletedRequest) id fld_respondQueryTaskCompletedRequestCause
+      }
   protoFromJSON _ = Right defaultRespondQueryTaskCompletedRequest
 
 data RespondQueryTaskCompletedResponse = RespondQueryTaskCompletedResponse
@@ -5151,6 +6002,13 @@ instance ProtoToJSON ResetStickyTaskQueueRequest where
       ]
 
 instance ProtoFromJSON ResetStickyTaskQueueRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_resetStickyTaskQueueRequestNamespace <- obj .:? "namespace"
+    fld_resetStickyTaskQueueRequestExecution <- obj .:? "execution"
+    pure defaultResetStickyTaskQueueRequest
+      { resetStickyTaskQueueRequestNamespace = maybe (resetStickyTaskQueueRequestNamespace defaultResetStickyTaskQueueRequest) id fld_resetStickyTaskQueueRequestNamespace
+      , resetStickyTaskQueueRequestExecution = maybe (resetStickyTaskQueueRequestExecution defaultResetStickyTaskQueueRequest) id fld_resetStickyTaskQueueRequestExecution
+      }
   protoFromJSON _ = Right defaultResetStickyTaskQueueRequest
 
 data ResetStickyTaskQueueResponse = ResetStickyTaskQueueResponse
@@ -5281,6 +6139,25 @@ instance ProtoToJSON ShutdownWorkerRequest where
       ]
 
 instance ProtoFromJSON ShutdownWorkerRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_shutdownWorkerRequestNamespace <- obj .:? "namespace"
+    fld_shutdownWorkerRequestStickytaskqueue <- obj .:? "stickyTaskQueue"
+    fld_shutdownWorkerRequestIdentity <- obj .:? "identity"
+    fld_shutdownWorkerRequestReason <- obj .:? "reason"
+    fld_shutdownWorkerRequestWorkerheartbeat <- obj .:? "workerHeartbeat"
+    fld_shutdownWorkerRequestWorkerinstancekey <- obj .:? "workerInstanceKey"
+    fld_shutdownWorkerRequestTaskqueue <- obj .:? "taskQueue"
+    fld_shutdownWorkerRequestTaskqueuetypes <- obj .:? "taskQueueTypes"
+    pure defaultShutdownWorkerRequest
+      { shutdownWorkerRequestNamespace = maybe (shutdownWorkerRequestNamespace defaultShutdownWorkerRequest) id fld_shutdownWorkerRequestNamespace
+      , shutdownWorkerRequestStickytaskqueue = maybe (shutdownWorkerRequestStickytaskqueue defaultShutdownWorkerRequest) id fld_shutdownWorkerRequestStickytaskqueue
+      , shutdownWorkerRequestIdentity = maybe (shutdownWorkerRequestIdentity defaultShutdownWorkerRequest) id fld_shutdownWorkerRequestIdentity
+      , shutdownWorkerRequestReason = maybe (shutdownWorkerRequestReason defaultShutdownWorkerRequest) id fld_shutdownWorkerRequestReason
+      , shutdownWorkerRequestWorkerheartbeat = maybe (shutdownWorkerRequestWorkerheartbeat defaultShutdownWorkerRequest) id fld_shutdownWorkerRequestWorkerheartbeat
+      , shutdownWorkerRequestWorkerinstancekey = maybe (shutdownWorkerRequestWorkerinstancekey defaultShutdownWorkerRequest) id fld_shutdownWorkerRequestWorkerinstancekey
+      , shutdownWorkerRequestTaskqueue = maybe (shutdownWorkerRequestTaskqueue defaultShutdownWorkerRequest) id fld_shutdownWorkerRequestTaskqueue
+      , shutdownWorkerRequestTaskqueuetypes = maybe (shutdownWorkerRequestTaskqueuetypes defaultShutdownWorkerRequest) id fld_shutdownWorkerRequestTaskqueuetypes
+      }
   protoFromJSON _ = Right defaultShutdownWorkerRequest
 
 data ShutdownWorkerResponse = ShutdownWorkerResponse
@@ -5379,6 +6256,17 @@ instance ProtoToJSON QueryWorkflowRequest where
       ]
 
 instance ProtoFromJSON QueryWorkflowRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_queryWorkflowRequestNamespace <- obj .:? "namespace"
+    fld_queryWorkflowRequestExecution <- obj .:? "execution"
+    fld_queryWorkflowRequestQuery <- obj .:? "query"
+    fld_queryWorkflowRequestQueryrejectcondition <- obj .:? "queryRejectCondition"
+    pure defaultQueryWorkflowRequest
+      { queryWorkflowRequestNamespace = maybe (queryWorkflowRequestNamespace defaultQueryWorkflowRequest) id fld_queryWorkflowRequestNamespace
+      , queryWorkflowRequestExecution = maybe (queryWorkflowRequestExecution defaultQueryWorkflowRequest) id fld_queryWorkflowRequestExecution
+      , queryWorkflowRequestQuery = maybe (queryWorkflowRequestQuery defaultQueryWorkflowRequest) id fld_queryWorkflowRequestQuery
+      , queryWorkflowRequestQueryrejectcondition = maybe (queryWorkflowRequestQueryrejectcondition defaultQueryWorkflowRequest) id fld_queryWorkflowRequestQueryrejectcondition
+      }
   protoFromJSON _ = Right defaultQueryWorkflowRequest
 
 data QueryWorkflowResponse = QueryWorkflowResponse
@@ -5427,6 +6315,13 @@ instance ProtoToJSON QueryWorkflowResponse where
       ]
 
 instance ProtoFromJSON QueryWorkflowResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_queryWorkflowResponseQueryresult <- obj .:? "queryResult"
+    fld_queryWorkflowResponseQueryrejected <- obj .:? "queryRejected"
+    pure defaultQueryWorkflowResponse
+      { queryWorkflowResponseQueryresult = maybe (queryWorkflowResponseQueryresult defaultQueryWorkflowResponse) id fld_queryWorkflowResponseQueryresult
+      , queryWorkflowResponseQueryrejected = maybe (queryWorkflowResponseQueryrejected defaultQueryWorkflowResponse) id fld_queryWorkflowResponseQueryrejected
+      }
   protoFromJSON _ = Right defaultQueryWorkflowResponse
 
 data DescribeWorkflowExecutionRequest = DescribeWorkflowExecutionRequest
@@ -5475,6 +6370,13 @@ instance ProtoToJSON DescribeWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON DescribeWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_describeWorkflowExecutionRequestExecution <- obj .:? "execution"
+    pure defaultDescribeWorkflowExecutionRequest
+      { describeWorkflowExecutionRequestNamespace = maybe (describeWorkflowExecutionRequestNamespace defaultDescribeWorkflowExecutionRequest) id fld_describeWorkflowExecutionRequestNamespace
+      , describeWorkflowExecutionRequestExecution = maybe (describeWorkflowExecutionRequestExecution defaultDescribeWorkflowExecutionRequest) id fld_describeWorkflowExecutionRequestExecution
+      }
   protoFromJSON _ = Right defaultDescribeWorkflowExecutionRequest
 
 data DescribeWorkflowExecutionResponse = DescribeWorkflowExecutionResponse
@@ -5571,6 +6473,25 @@ instance ProtoToJSON DescribeWorkflowExecutionResponse where
       ]
 
 instance ProtoFromJSON DescribeWorkflowExecutionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkflowExecutionResponseExecutionconfig <- obj .:? "executionConfig"
+    fld_describeWorkflowExecutionResponseWorkflowexecutioninfo <- obj .:? "workflowExecutionInfo"
+    fld_describeWorkflowExecutionResponsePendingactivities <- obj .:? "pendingActivities"
+    fld_describeWorkflowExecutionResponsePendingchildren <- obj .:? "pendingChildren"
+    fld_describeWorkflowExecutionResponsePendingworkflowtask <- obj .:? "pendingWorkflowTask"
+    fld_describeWorkflowExecutionResponseCallbacks <- obj .:? "callbacks"
+    fld_describeWorkflowExecutionResponsePendingnexusoperations <- obj .:? "pendingNexusOperations"
+    fld_describeWorkflowExecutionResponseWorkflowextendedinfo <- obj .:? "workflowExtendedInfo"
+    pure defaultDescribeWorkflowExecutionResponse
+      { describeWorkflowExecutionResponseExecutionconfig = maybe (describeWorkflowExecutionResponseExecutionconfig defaultDescribeWorkflowExecutionResponse) id fld_describeWorkflowExecutionResponseExecutionconfig
+      , describeWorkflowExecutionResponseWorkflowexecutioninfo = maybe (describeWorkflowExecutionResponseWorkflowexecutioninfo defaultDescribeWorkflowExecutionResponse) id fld_describeWorkflowExecutionResponseWorkflowexecutioninfo
+      , describeWorkflowExecutionResponsePendingactivities = maybe (describeWorkflowExecutionResponsePendingactivities defaultDescribeWorkflowExecutionResponse) id fld_describeWorkflowExecutionResponsePendingactivities
+      , describeWorkflowExecutionResponsePendingchildren = maybe (describeWorkflowExecutionResponsePendingchildren defaultDescribeWorkflowExecutionResponse) id fld_describeWorkflowExecutionResponsePendingchildren
+      , describeWorkflowExecutionResponsePendingworkflowtask = maybe (describeWorkflowExecutionResponsePendingworkflowtask defaultDescribeWorkflowExecutionResponse) id fld_describeWorkflowExecutionResponsePendingworkflowtask
+      , describeWorkflowExecutionResponseCallbacks = maybe (describeWorkflowExecutionResponseCallbacks defaultDescribeWorkflowExecutionResponse) id fld_describeWorkflowExecutionResponseCallbacks
+      , describeWorkflowExecutionResponsePendingnexusoperations = maybe (describeWorkflowExecutionResponsePendingnexusoperations defaultDescribeWorkflowExecutionResponse) id fld_describeWorkflowExecutionResponsePendingnexusoperations
+      , describeWorkflowExecutionResponseWorkflowextendedinfo = maybe (describeWorkflowExecutionResponseWorkflowextendedinfo defaultDescribeWorkflowExecutionResponse) id fld_describeWorkflowExecutionResponseWorkflowextendedinfo
+      }
   protoFromJSON _ = Right defaultDescribeWorkflowExecutionResponse
 
 data DescribeTaskQueueRequest = DescribeTaskQueueRequest
@@ -5691,6 +6612,31 @@ instance ProtoToJSON DescribeTaskQueueRequest where
       ]
 
 instance ProtoFromJSON DescribeTaskQueueRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeTaskQueueRequestNamespace <- obj .:? "namespace"
+    fld_describeTaskQueueRequestTaskqueue <- obj .:? "taskQueue"
+    fld_describeTaskQueueRequestTaskqueuetype <- obj .:? "taskQueueType"
+    fld_describeTaskQueueRequestReportstats <- obj .:? "reportStats"
+    fld_describeTaskQueueRequestReportconfig <- obj .:? "reportConfig"
+    fld_describeTaskQueueRequestIncludetaskqueuestatus <- obj .:? "includeTaskQueueStatus"
+    fld_describeTaskQueueRequestApimode <- obj .:? "apiMode"
+    fld_describeTaskQueueRequestVersions <- obj .:? "versions"
+    fld_describeTaskQueueRequestTaskqueuetypes <- obj .:? "taskQueueTypes"
+    fld_describeTaskQueueRequestReportpollers <- obj .:? "reportPollers"
+    fld_describeTaskQueueRequestReporttaskreachability <- obj .:? "reportTaskReachability"
+    pure defaultDescribeTaskQueueRequest
+      { describeTaskQueueRequestNamespace = maybe (describeTaskQueueRequestNamespace defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestNamespace
+      , describeTaskQueueRequestTaskqueue = maybe (describeTaskQueueRequestTaskqueue defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestTaskqueue
+      , describeTaskQueueRequestTaskqueuetype = maybe (describeTaskQueueRequestTaskqueuetype defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestTaskqueuetype
+      , describeTaskQueueRequestReportstats = maybe (describeTaskQueueRequestReportstats defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestReportstats
+      , describeTaskQueueRequestReportconfig = maybe (describeTaskQueueRequestReportconfig defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestReportconfig
+      , describeTaskQueueRequestIncludetaskqueuestatus = maybe (describeTaskQueueRequestIncludetaskqueuestatus defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestIncludetaskqueuestatus
+      , describeTaskQueueRequestApimode = maybe (describeTaskQueueRequestApimode defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestApimode
+      , describeTaskQueueRequestVersions = maybe (describeTaskQueueRequestVersions defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestVersions
+      , describeTaskQueueRequestTaskqueuetypes = maybe (describeTaskQueueRequestTaskqueuetypes defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestTaskqueuetypes
+      , describeTaskQueueRequestReportpollers = maybe (describeTaskQueueRequestReportpollers defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestReportpollers
+      , describeTaskQueueRequestReporttaskreachability = maybe (describeTaskQueueRequestReporttaskreachability defaultDescribeTaskQueueRequest) id fld_describeTaskQueueRequestReporttaskreachability
+      }
   protoFromJSON _ = Right defaultDescribeTaskQueueRequest
 
 data DescribeTaskQueueResponse = DescribeTaskQueueResponse
@@ -5752,6 +6698,13 @@ instance ProtoToJSON DescribeTaskQueueResponse'EffectiveRateLimit where
       ]
 
 instance ProtoFromJSON DescribeTaskQueueResponse'EffectiveRateLimit where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeTaskQueueResponseEffectiveRateLimitRequestspersecond <- obj .:? "requestsPerSecond"
+    fld_describeTaskQueueResponseEffectiveRateLimitRatelimitsource <- obj .:? "rateLimitSource"
+    pure defaultDescribeTaskQueueResponse'EffectiveRateLimit
+      { describeTaskQueueResponseEffectiveRateLimitRequestspersecond = maybe (describeTaskQueueResponseEffectiveRateLimitRequestspersecond defaultDescribeTaskQueueResponse'EffectiveRateLimit) id fld_describeTaskQueueResponseEffectiveRateLimitRequestspersecond
+      , describeTaskQueueResponseEffectiveRateLimitRatelimitsource = maybe (describeTaskQueueResponseEffectiveRateLimitRatelimitsource defaultDescribeTaskQueueResponse'EffectiveRateLimit) id fld_describeTaskQueueResponseEffectiveRateLimitRatelimitsource
+      }
   protoFromJSON _ = Right defaultDescribeTaskQueueResponse'EffectiveRateLimit
 
 defaultDescribeTaskQueueResponse :: DescribeTaskQueueResponse
@@ -5781,12 +6734,12 @@ instance MessageSize DescribeTaskQueueResponse where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.describeTaskQueueResponsePollers)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.describeTaskQueueResponseStats)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 8 + 20) 0 msg.describeTaskQueueResponseStatsbyprioritykey)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldVarintSize 1 (fromIntegral k) + fieldMessageSize 2 (messageSize v) in acc + tagSize 8 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.describeTaskQueueResponseStatsbyprioritykey)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.describeTaskQueueResponseVersioninginfo)
     + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.describeTaskQueueResponseConfig)
     + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.describeTaskQueueResponseEffectiveratelimit)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.describeTaskQueueResponseTaskqueuestatus)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 3 + 20) 0 msg.describeTaskQueueResponseVersionsinfo)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.describeTaskQueueResponseVersionsinfo)
 
 instance MessageDecode DescribeTaskQueueResponse where
   messageDecoder = loop V.empty Nothing Map.empty Nothing Nothing Nothing Nothing Map.empty
@@ -5841,6 +6794,25 @@ instance ProtoToJSON DescribeTaskQueueResponse where
       ]
 
 instance ProtoFromJSON DescribeTaskQueueResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeTaskQueueResponsePollers <- obj .:? "pollers"
+    fld_describeTaskQueueResponseStats <- obj .:? "stats"
+    fld_describeTaskQueueResponseStatsbyprioritykey <- obj .:? "statsByPriorityKey"
+    fld_describeTaskQueueResponseVersioninginfo <- obj .:? "versioningInfo"
+    fld_describeTaskQueueResponseConfig <- obj .:? "config"
+    fld_describeTaskQueueResponseEffectiveratelimit <- obj .:? "effectiveRateLimit"
+    fld_describeTaskQueueResponseTaskqueuestatus <- obj .:? "taskQueueStatus"
+    fld_describeTaskQueueResponseVersionsinfo <- obj .:? "versionsInfo"
+    pure defaultDescribeTaskQueueResponse
+      { describeTaskQueueResponsePollers = maybe (describeTaskQueueResponsePollers defaultDescribeTaskQueueResponse) id fld_describeTaskQueueResponsePollers
+      , describeTaskQueueResponseStats = maybe (describeTaskQueueResponseStats defaultDescribeTaskQueueResponse) id fld_describeTaskQueueResponseStats
+      , describeTaskQueueResponseStatsbyprioritykey = maybe (describeTaskQueueResponseStatsbyprioritykey defaultDescribeTaskQueueResponse) id fld_describeTaskQueueResponseStatsbyprioritykey
+      , describeTaskQueueResponseVersioninginfo = maybe (describeTaskQueueResponseVersioninginfo defaultDescribeTaskQueueResponse) id fld_describeTaskQueueResponseVersioninginfo
+      , describeTaskQueueResponseConfig = maybe (describeTaskQueueResponseConfig defaultDescribeTaskQueueResponse) id fld_describeTaskQueueResponseConfig
+      , describeTaskQueueResponseEffectiveratelimit = maybe (describeTaskQueueResponseEffectiveratelimit defaultDescribeTaskQueueResponse) id fld_describeTaskQueueResponseEffectiveratelimit
+      , describeTaskQueueResponseTaskqueuestatus = maybe (describeTaskQueueResponseTaskqueuestatus defaultDescribeTaskQueueResponse) id fld_describeTaskQueueResponseTaskqueuestatus
+      , describeTaskQueueResponseVersionsinfo = maybe (describeTaskQueueResponseVersionsinfo defaultDescribeTaskQueueResponse) id fld_describeTaskQueueResponseVersionsinfo
+      }
   protoFromJSON _ = Right defaultDescribeTaskQueueResponse
 
 data GetClusterInfoRequest = GetClusterInfoRequest
@@ -5921,7 +6893,7 @@ instance MessageEncode GetClusterInfoResponse where
 
 instance MessageSize GetClusterInfoResponse where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.getClusterInfoResponseSupportedclients)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.getClusterInfoResponseSupportedclients)
     + (if msg.getClusterInfoResponseServerversion == T.empty then 0 else fieldTextSize 2 msg.getClusterInfoResponseServerversion)
     + (if msg.getClusterInfoResponseClusterid == T.empty then 0 else fieldTextSize 3 msg.getClusterInfoResponseClusterid)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.getClusterInfoResponseVersioninfo)
@@ -5990,6 +6962,29 @@ instance ProtoToJSON GetClusterInfoResponse where
       ]
 
 instance ProtoFromJSON GetClusterInfoResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getClusterInfoResponseSupportedclients <- obj .:? "supportedClients"
+    fld_getClusterInfoResponseServerversion <- obj .:? "serverVersion"
+    fld_getClusterInfoResponseClusterid <- obj .:? "clusterId"
+    fld_getClusterInfoResponseVersioninfo <- obj .:? "versionInfo"
+    fld_getClusterInfoResponseClustername <- obj .:? "clusterName"
+    fld_getClusterInfoResponseHistoryshardcount <- obj .:? "historyShardCount"
+    fld_getClusterInfoResponsePersistencestore <- obj .:? "persistenceStore"
+    fld_getClusterInfoResponseVisibilitystore <- obj .:? "visibilityStore"
+    fld_getClusterInfoResponseInitialfailoverversion <- obj .:? "initialFailoverVersion"
+    fld_getClusterInfoResponseFailoverversionincrement <- obj .:? "failoverVersionIncrement"
+    pure defaultGetClusterInfoResponse
+      { getClusterInfoResponseSupportedclients = maybe (getClusterInfoResponseSupportedclients defaultGetClusterInfoResponse) id fld_getClusterInfoResponseSupportedclients
+      , getClusterInfoResponseServerversion = maybe (getClusterInfoResponseServerversion defaultGetClusterInfoResponse) id fld_getClusterInfoResponseServerversion
+      , getClusterInfoResponseClusterid = maybe (getClusterInfoResponseClusterid defaultGetClusterInfoResponse) id fld_getClusterInfoResponseClusterid
+      , getClusterInfoResponseVersioninfo = maybe (getClusterInfoResponseVersioninfo defaultGetClusterInfoResponse) id fld_getClusterInfoResponseVersioninfo
+      , getClusterInfoResponseClustername = maybe (getClusterInfoResponseClustername defaultGetClusterInfoResponse) id fld_getClusterInfoResponseClustername
+      , getClusterInfoResponseHistoryshardcount = maybe (getClusterInfoResponseHistoryshardcount defaultGetClusterInfoResponse) id fld_getClusterInfoResponseHistoryshardcount
+      , getClusterInfoResponsePersistencestore = maybe (getClusterInfoResponsePersistencestore defaultGetClusterInfoResponse) id fld_getClusterInfoResponsePersistencestore
+      , getClusterInfoResponseVisibilitystore = maybe (getClusterInfoResponseVisibilitystore defaultGetClusterInfoResponse) id fld_getClusterInfoResponseVisibilitystore
+      , getClusterInfoResponseInitialfailoverversion = maybe (getClusterInfoResponseInitialfailoverversion defaultGetClusterInfoResponse) id fld_getClusterInfoResponseInitialfailoverversion
+      , getClusterInfoResponseFailoverversionincrement = maybe (getClusterInfoResponseFailoverversionincrement defaultGetClusterInfoResponse) id fld_getClusterInfoResponseFailoverversionincrement
+      }
   protoFromJSON _ = Right defaultGetClusterInfoResponse
 
 data GetSystemInfoRequest = GetSystemInfoRequest
@@ -6151,6 +7146,31 @@ instance ProtoToJSON GetSystemInfoResponse'Capabilities where
       ]
 
 instance ProtoFromJSON GetSystemInfoResponse'Capabilities where
+  protoFromJSON (JsonObject obj) = do
+    fld_getSystemInfoResponseCapabilitiesSignalandqueryheader <- obj .:? "signalAndQueryHeader"
+    fld_getSystemInfoResponseCapabilitiesInternalerrordifferentiation <- obj .:? "internalErrorDifferentiation"
+    fld_getSystemInfoResponseCapabilitiesActivityfailureincludeheartbeat <- obj .:? "activityFailureIncludeHeartbeat"
+    fld_getSystemInfoResponseCapabilitiesSupportsschedules <- obj .:? "supportsSchedules"
+    fld_getSystemInfoResponseCapabilitiesEncodedfailureattributes <- obj .:? "encodedFailureAttributes"
+    fld_getSystemInfoResponseCapabilitiesBuildidbasedversioning <- obj .:? "buildIdBasedVersioning"
+    fld_getSystemInfoResponseCapabilitiesUpsertmemo <- obj .:? "upsertMemo"
+    fld_getSystemInfoResponseCapabilitiesEagerworkflowstart <- obj .:? "eagerWorkflowStart"
+    fld_getSystemInfoResponseCapabilitiesSdkmetadata <- obj .:? "sdkMetadata"
+    fld_getSystemInfoResponseCapabilitiesCountgroupbyexecutionstatus <- obj .:? "countGroupByExecutionStatus"
+    fld_getSystemInfoResponseCapabilitiesNexus <- obj .:? "nexus"
+    pure defaultGetSystemInfoResponse'Capabilities
+      { getSystemInfoResponseCapabilitiesSignalandqueryheader = maybe (getSystemInfoResponseCapabilitiesSignalandqueryheader defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesSignalandqueryheader
+      , getSystemInfoResponseCapabilitiesInternalerrordifferentiation = maybe (getSystemInfoResponseCapabilitiesInternalerrordifferentiation defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesInternalerrordifferentiation
+      , getSystemInfoResponseCapabilitiesActivityfailureincludeheartbeat = maybe (getSystemInfoResponseCapabilitiesActivityfailureincludeheartbeat defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesActivityfailureincludeheartbeat
+      , getSystemInfoResponseCapabilitiesSupportsschedules = maybe (getSystemInfoResponseCapabilitiesSupportsschedules defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesSupportsschedules
+      , getSystemInfoResponseCapabilitiesEncodedfailureattributes = maybe (getSystemInfoResponseCapabilitiesEncodedfailureattributes defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesEncodedfailureattributes
+      , getSystemInfoResponseCapabilitiesBuildidbasedversioning = maybe (getSystemInfoResponseCapabilitiesBuildidbasedversioning defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesBuildidbasedversioning
+      , getSystemInfoResponseCapabilitiesUpsertmemo = maybe (getSystemInfoResponseCapabilitiesUpsertmemo defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesUpsertmemo
+      , getSystemInfoResponseCapabilitiesEagerworkflowstart = maybe (getSystemInfoResponseCapabilitiesEagerworkflowstart defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesEagerworkflowstart
+      , getSystemInfoResponseCapabilitiesSdkmetadata = maybe (getSystemInfoResponseCapabilitiesSdkmetadata defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesSdkmetadata
+      , getSystemInfoResponseCapabilitiesCountgroupbyexecutionstatus = maybe (getSystemInfoResponseCapabilitiesCountgroupbyexecutionstatus defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesCountgroupbyexecutionstatus
+      , getSystemInfoResponseCapabilitiesNexus = maybe (getSystemInfoResponseCapabilitiesNexus defaultGetSystemInfoResponse'Capabilities) id fld_getSystemInfoResponseCapabilitiesNexus
+      }
   protoFromJSON _ = Right defaultGetSystemInfoResponse'Capabilities
 
 defaultGetSystemInfoResponse :: GetSystemInfoResponse
@@ -6192,6 +7212,13 @@ instance ProtoToJSON GetSystemInfoResponse where
       ]
 
 instance ProtoFromJSON GetSystemInfoResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getSystemInfoResponseServerversion <- obj .:? "serverVersion"
+    fld_getSystemInfoResponseCapabilities <- obj .:? "capabilities"
+    pure defaultGetSystemInfoResponse
+      { getSystemInfoResponseServerversion = maybe (getSystemInfoResponseServerversion defaultGetSystemInfoResponse) id fld_getSystemInfoResponseServerversion
+      , getSystemInfoResponseCapabilities = maybe (getSystemInfoResponseCapabilities defaultGetSystemInfoResponse) id fld_getSystemInfoResponseCapabilities
+      }
   protoFromJSON _ = Right defaultGetSystemInfoResponse
 
 data ListTaskQueuePartitionsRequest = ListTaskQueuePartitionsRequest
@@ -6240,6 +7267,13 @@ instance ProtoToJSON ListTaskQueuePartitionsRequest where
       ]
 
 instance ProtoFromJSON ListTaskQueuePartitionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listTaskQueuePartitionsRequestNamespace <- obj .:? "namespace"
+    fld_listTaskQueuePartitionsRequestTaskqueue <- obj .:? "taskQueue"
+    pure defaultListTaskQueuePartitionsRequest
+      { listTaskQueuePartitionsRequestNamespace = maybe (listTaskQueuePartitionsRequestNamespace defaultListTaskQueuePartitionsRequest) id fld_listTaskQueuePartitionsRequestNamespace
+      , listTaskQueuePartitionsRequestTaskqueue = maybe (listTaskQueuePartitionsRequestTaskqueue defaultListTaskQueuePartitionsRequest) id fld_listTaskQueuePartitionsRequestTaskqueue
+      }
   protoFromJSON _ = Right defaultListTaskQueuePartitionsRequest
 
 data ListTaskQueuePartitionsResponse = ListTaskQueuePartitionsResponse
@@ -6288,6 +7322,13 @@ instance ProtoToJSON ListTaskQueuePartitionsResponse where
       ]
 
 instance ProtoFromJSON ListTaskQueuePartitionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listTaskQueuePartitionsResponseActivitytaskqueuepartitions <- obj .:? "activityTaskQueuePartitions"
+    fld_listTaskQueuePartitionsResponseWorkflowtaskqueuepartitions <- obj .:? "workflowTaskQueuePartitions"
+    pure defaultListTaskQueuePartitionsResponse
+      { listTaskQueuePartitionsResponseActivitytaskqueuepartitions = maybe (listTaskQueuePartitionsResponseActivitytaskqueuepartitions defaultListTaskQueuePartitionsResponse) id fld_listTaskQueuePartitionsResponseActivitytaskqueuepartitions
+      , listTaskQueuePartitionsResponseWorkflowtaskqueuepartitions = maybe (listTaskQueuePartitionsResponseWorkflowtaskqueuepartitions defaultListTaskQueuePartitionsResponse) id fld_listTaskQueuePartitionsResponseWorkflowtaskqueuepartitions
+      }
   protoFromJSON _ = Right defaultListTaskQueuePartitionsResponse
 
 data CreateScheduleRequest = CreateScheduleRequest
@@ -6384,6 +7425,25 @@ instance ProtoToJSON CreateScheduleRequest where
       ]
 
 instance ProtoFromJSON CreateScheduleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_createScheduleRequestNamespace <- obj .:? "namespace"
+    fld_createScheduleRequestScheduleid <- obj .:? "scheduleId"
+    fld_createScheduleRequestSchedule <- obj .:? "schedule"
+    fld_createScheduleRequestInitialpatch <- obj .:? "initialPatch"
+    fld_createScheduleRequestIdentity <- obj .:? "identity"
+    fld_createScheduleRequestRequestid <- obj .:? "requestId"
+    fld_createScheduleRequestMemo <- obj .:? "memo"
+    fld_createScheduleRequestSearchattributes <- obj .:? "searchAttributes"
+    pure defaultCreateScheduleRequest
+      { createScheduleRequestNamespace = maybe (createScheduleRequestNamespace defaultCreateScheduleRequest) id fld_createScheduleRequestNamespace
+      , createScheduleRequestScheduleid = maybe (createScheduleRequestScheduleid defaultCreateScheduleRequest) id fld_createScheduleRequestScheduleid
+      , createScheduleRequestSchedule = maybe (createScheduleRequestSchedule defaultCreateScheduleRequest) id fld_createScheduleRequestSchedule
+      , createScheduleRequestInitialpatch = maybe (createScheduleRequestInitialpatch defaultCreateScheduleRequest) id fld_createScheduleRequestInitialpatch
+      , createScheduleRequestIdentity = maybe (createScheduleRequestIdentity defaultCreateScheduleRequest) id fld_createScheduleRequestIdentity
+      , createScheduleRequestRequestid = maybe (createScheduleRequestRequestid defaultCreateScheduleRequest) id fld_createScheduleRequestRequestid
+      , createScheduleRequestMemo = maybe (createScheduleRequestMemo defaultCreateScheduleRequest) id fld_createScheduleRequestMemo
+      , createScheduleRequestSearchattributes = maybe (createScheduleRequestSearchattributes defaultCreateScheduleRequest) id fld_createScheduleRequestSearchattributes
+      }
   protoFromJSON _ = Right defaultCreateScheduleRequest
 
 data CreateScheduleResponse = CreateScheduleResponse
@@ -6425,6 +7485,11 @@ instance ProtoToJSON CreateScheduleResponse where
       ]
 
 instance ProtoFromJSON CreateScheduleResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_createScheduleResponseConflicttoken <- obj .:? "conflictToken"
+    pure defaultCreateScheduleResponse
+      { createScheduleResponseConflicttoken = maybe (createScheduleResponseConflicttoken defaultCreateScheduleResponse) id fld_createScheduleResponseConflicttoken
+      }
   protoFromJSON _ = Right defaultCreateScheduleResponse
 
 data DescribeScheduleRequest = DescribeScheduleRequest
@@ -6473,6 +7538,13 @@ instance ProtoToJSON DescribeScheduleRequest where
       ]
 
 instance ProtoFromJSON DescribeScheduleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeScheduleRequestNamespace <- obj .:? "namespace"
+    fld_describeScheduleRequestScheduleid <- obj .:? "scheduleId"
+    pure defaultDescribeScheduleRequest
+      { describeScheduleRequestNamespace = maybe (describeScheduleRequestNamespace defaultDescribeScheduleRequest) id fld_describeScheduleRequestNamespace
+      , describeScheduleRequestScheduleid = maybe (describeScheduleRequestScheduleid defaultDescribeScheduleRequest) id fld_describeScheduleRequestScheduleid
+      }
   protoFromJSON _ = Right defaultDescribeScheduleRequest
 
 data DescribeScheduleResponse = DescribeScheduleResponse
@@ -6545,6 +7617,19 @@ instance ProtoToJSON DescribeScheduleResponse where
       ]
 
 instance ProtoFromJSON DescribeScheduleResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeScheduleResponseSchedule <- obj .:? "schedule"
+    fld_describeScheduleResponseInfo <- obj .:? "info"
+    fld_describeScheduleResponseMemo <- obj .:? "memo"
+    fld_describeScheduleResponseSearchattributes <- obj .:? "searchAttributes"
+    fld_describeScheduleResponseConflicttoken <- obj .:? "conflictToken"
+    pure defaultDescribeScheduleResponse
+      { describeScheduleResponseSchedule = maybe (describeScheduleResponseSchedule defaultDescribeScheduleResponse) id fld_describeScheduleResponseSchedule
+      , describeScheduleResponseInfo = maybe (describeScheduleResponseInfo defaultDescribeScheduleResponse) id fld_describeScheduleResponseInfo
+      , describeScheduleResponseMemo = maybe (describeScheduleResponseMemo defaultDescribeScheduleResponse) id fld_describeScheduleResponseMemo
+      , describeScheduleResponseSearchattributes = maybe (describeScheduleResponseSearchattributes defaultDescribeScheduleResponse) id fld_describeScheduleResponseSearchattributes
+      , describeScheduleResponseConflicttoken = maybe (describeScheduleResponseConflicttoken defaultDescribeScheduleResponse) id fld_describeScheduleResponseConflicttoken
+      }
   protoFromJSON _ = Right defaultDescribeScheduleResponse
 
 data UpdateScheduleRequest = UpdateScheduleRequest
@@ -6633,6 +7718,23 @@ instance ProtoToJSON UpdateScheduleRequest where
       ]
 
 instance ProtoFromJSON UpdateScheduleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateScheduleRequestNamespace <- obj .:? "namespace"
+    fld_updateScheduleRequestScheduleid <- obj .:? "scheduleId"
+    fld_updateScheduleRequestSchedule <- obj .:? "schedule"
+    fld_updateScheduleRequestConflicttoken <- obj .:? "conflictToken"
+    fld_updateScheduleRequestIdentity <- obj .:? "identity"
+    fld_updateScheduleRequestRequestid <- obj .:? "requestId"
+    fld_updateScheduleRequestSearchattributes <- obj .:? "searchAttributes"
+    pure defaultUpdateScheduleRequest
+      { updateScheduleRequestNamespace = maybe (updateScheduleRequestNamespace defaultUpdateScheduleRequest) id fld_updateScheduleRequestNamespace
+      , updateScheduleRequestScheduleid = maybe (updateScheduleRequestScheduleid defaultUpdateScheduleRequest) id fld_updateScheduleRequestScheduleid
+      , updateScheduleRequestSchedule = maybe (updateScheduleRequestSchedule defaultUpdateScheduleRequest) id fld_updateScheduleRequestSchedule
+      , updateScheduleRequestConflicttoken = maybe (updateScheduleRequestConflicttoken defaultUpdateScheduleRequest) id fld_updateScheduleRequestConflicttoken
+      , updateScheduleRequestIdentity = maybe (updateScheduleRequestIdentity defaultUpdateScheduleRequest) id fld_updateScheduleRequestIdentity
+      , updateScheduleRequestRequestid = maybe (updateScheduleRequestRequestid defaultUpdateScheduleRequest) id fld_updateScheduleRequestRequestid
+      , updateScheduleRequestSearchattributes = maybe (updateScheduleRequestSearchattributes defaultUpdateScheduleRequest) id fld_updateScheduleRequestSearchattributes
+      }
   protoFromJSON _ = Right defaultUpdateScheduleRequest
 
 data UpdateScheduleResponse = UpdateScheduleResponse
@@ -6739,6 +7841,19 @@ instance ProtoToJSON PatchScheduleRequest where
       ]
 
 instance ProtoFromJSON PatchScheduleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_patchScheduleRequestNamespace <- obj .:? "namespace"
+    fld_patchScheduleRequestScheduleid <- obj .:? "scheduleId"
+    fld_patchScheduleRequestPatch <- obj .:? "patch"
+    fld_patchScheduleRequestIdentity <- obj .:? "identity"
+    fld_patchScheduleRequestRequestid <- obj .:? "requestId"
+    pure defaultPatchScheduleRequest
+      { patchScheduleRequestNamespace = maybe (patchScheduleRequestNamespace defaultPatchScheduleRequest) id fld_patchScheduleRequestNamespace
+      , patchScheduleRequestScheduleid = maybe (patchScheduleRequestScheduleid defaultPatchScheduleRequest) id fld_patchScheduleRequestScheduleid
+      , patchScheduleRequestPatch = maybe (patchScheduleRequestPatch defaultPatchScheduleRequest) id fld_patchScheduleRequestPatch
+      , patchScheduleRequestIdentity = maybe (patchScheduleRequestIdentity defaultPatchScheduleRequest) id fld_patchScheduleRequestIdentity
+      , patchScheduleRequestRequestid = maybe (patchScheduleRequestRequestid defaultPatchScheduleRequest) id fld_patchScheduleRequestRequestid
+      }
   protoFromJSON _ = Right defaultPatchScheduleRequest
 
 data PatchScheduleResponse = PatchScheduleResponse
@@ -6837,6 +7952,17 @@ instance ProtoToJSON ListScheduleMatchingTimesRequest where
       ]
 
 instance ProtoFromJSON ListScheduleMatchingTimesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listScheduleMatchingTimesRequestNamespace <- obj .:? "namespace"
+    fld_listScheduleMatchingTimesRequestScheduleid <- obj .:? "scheduleId"
+    fld_listScheduleMatchingTimesRequestStarttime <- obj .:? "startTime"
+    fld_listScheduleMatchingTimesRequestEndtime <- obj .:? "endTime"
+    pure defaultListScheduleMatchingTimesRequest
+      { listScheduleMatchingTimesRequestNamespace = maybe (listScheduleMatchingTimesRequestNamespace defaultListScheduleMatchingTimesRequest) id fld_listScheduleMatchingTimesRequestNamespace
+      , listScheduleMatchingTimesRequestScheduleid = maybe (listScheduleMatchingTimesRequestScheduleid defaultListScheduleMatchingTimesRequest) id fld_listScheduleMatchingTimesRequestScheduleid
+      , listScheduleMatchingTimesRequestStarttime = maybe (listScheduleMatchingTimesRequestStarttime defaultListScheduleMatchingTimesRequest) id fld_listScheduleMatchingTimesRequestStarttime
+      , listScheduleMatchingTimesRequestEndtime = maybe (listScheduleMatchingTimesRequestEndtime defaultListScheduleMatchingTimesRequest) id fld_listScheduleMatchingTimesRequestEndtime
+      }
   protoFromJSON _ = Right defaultListScheduleMatchingTimesRequest
 
 data ListScheduleMatchingTimesResponse = ListScheduleMatchingTimesResponse
@@ -6878,6 +8004,11 @@ instance ProtoToJSON ListScheduleMatchingTimesResponse where
       ]
 
 instance ProtoFromJSON ListScheduleMatchingTimesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listScheduleMatchingTimesResponseStarttime <- obj .:? "startTime"
+    pure defaultListScheduleMatchingTimesResponse
+      { listScheduleMatchingTimesResponseStarttime = maybe (listScheduleMatchingTimesResponseStarttime defaultListScheduleMatchingTimesResponse) id fld_listScheduleMatchingTimesResponseStarttime
+      }
   protoFromJSON _ = Right defaultListScheduleMatchingTimesResponse
 
 data DeleteScheduleRequest = DeleteScheduleRequest
@@ -6934,6 +8065,15 @@ instance ProtoToJSON DeleteScheduleRequest where
       ]
 
 instance ProtoFromJSON DeleteScheduleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteScheduleRequestNamespace <- obj .:? "namespace"
+    fld_deleteScheduleRequestScheduleid <- obj .:? "scheduleId"
+    fld_deleteScheduleRequestIdentity <- obj .:? "identity"
+    pure defaultDeleteScheduleRequest
+      { deleteScheduleRequestNamespace = maybe (deleteScheduleRequestNamespace defaultDeleteScheduleRequest) id fld_deleteScheduleRequestNamespace
+      , deleteScheduleRequestScheduleid = maybe (deleteScheduleRequestScheduleid defaultDeleteScheduleRequest) id fld_deleteScheduleRequestScheduleid
+      , deleteScheduleRequestIdentity = maybe (deleteScheduleRequestIdentity defaultDeleteScheduleRequest) id fld_deleteScheduleRequestIdentity
+      }
   protoFromJSON _ = Right defaultDeleteScheduleRequest
 
 data DeleteScheduleResponse = DeleteScheduleResponse
@@ -7032,6 +8172,17 @@ instance ProtoToJSON ListSchedulesRequest where
       ]
 
 instance ProtoFromJSON ListSchedulesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listSchedulesRequestNamespace <- obj .:? "namespace"
+    fld_listSchedulesRequestMaximumpagesize <- obj .:? "maximumPageSize"
+    fld_listSchedulesRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listSchedulesRequestQuery <- obj .:? "query"
+    pure defaultListSchedulesRequest
+      { listSchedulesRequestNamespace = maybe (listSchedulesRequestNamespace defaultListSchedulesRequest) id fld_listSchedulesRequestNamespace
+      , listSchedulesRequestMaximumpagesize = maybe (listSchedulesRequestMaximumpagesize defaultListSchedulesRequest) id fld_listSchedulesRequestMaximumpagesize
+      , listSchedulesRequestNextpagetoken = maybe (listSchedulesRequestNextpagetoken defaultListSchedulesRequest) id fld_listSchedulesRequestNextpagetoken
+      , listSchedulesRequestQuery = maybe (listSchedulesRequestQuery defaultListSchedulesRequest) id fld_listSchedulesRequestQuery
+      }
   protoFromJSON _ = Right defaultListSchedulesRequest
 
 data ListSchedulesResponse = ListSchedulesResponse
@@ -7080,6 +8231,13 @@ instance ProtoToJSON ListSchedulesResponse where
       ]
 
 instance ProtoFromJSON ListSchedulesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listSchedulesResponseSchedules <- obj .:? "schedules"
+    fld_listSchedulesResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListSchedulesResponse
+      { listSchedulesResponseSchedules = maybe (listSchedulesResponseSchedules defaultListSchedulesResponse) id fld_listSchedulesResponseSchedules
+      , listSchedulesResponseNextpagetoken = maybe (listSchedulesResponseNextpagetoken defaultListSchedulesResponse) id fld_listSchedulesResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListSchedulesResponse
 
 data CountSchedulesRequest = CountSchedulesRequest
@@ -7128,6 +8286,13 @@ instance ProtoToJSON CountSchedulesRequest where
       ]
 
 instance ProtoFromJSON CountSchedulesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_countSchedulesRequestNamespace <- obj .:? "namespace"
+    fld_countSchedulesRequestQuery <- obj .:? "query"
+    pure defaultCountSchedulesRequest
+      { countSchedulesRequestNamespace = maybe (countSchedulesRequestNamespace defaultCountSchedulesRequest) id fld_countSchedulesRequestNamespace
+      , countSchedulesRequestQuery = maybe (countSchedulesRequestQuery defaultCountSchedulesRequest) id fld_countSchedulesRequestQuery
+      }
   protoFromJSON _ = Right defaultCountSchedulesRequest
 
 data CountSchedulesResponse = CountSchedulesResponse
@@ -7183,6 +8348,13 @@ instance ProtoToJSON CountSchedulesResponse'AggregationGroup where
       ]
 
 instance ProtoFromJSON CountSchedulesResponse'AggregationGroup where
+  protoFromJSON (JsonObject obj) = do
+    fld_countSchedulesResponseAggregationGroupGroupvalues <- obj .:? "groupValues"
+    fld_countSchedulesResponseAggregationGroupCount <- obj .:? "count"
+    pure defaultCountSchedulesResponse'AggregationGroup
+      { countSchedulesResponseAggregationGroupGroupvalues = maybe (countSchedulesResponseAggregationGroupGroupvalues defaultCountSchedulesResponse'AggregationGroup) id fld_countSchedulesResponseAggregationGroupGroupvalues
+      , countSchedulesResponseAggregationGroupCount = maybe (countSchedulesResponseAggregationGroupCount defaultCountSchedulesResponse'AggregationGroup) id fld_countSchedulesResponseAggregationGroupCount
+      }
   protoFromJSON _ = Right defaultCountSchedulesResponse'AggregationGroup
 
 defaultCountSchedulesResponse :: CountSchedulesResponse
@@ -7224,6 +8396,13 @@ instance ProtoToJSON CountSchedulesResponse where
       ]
 
 instance ProtoFromJSON CountSchedulesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_countSchedulesResponseCount <- obj .:? "count"
+    fld_countSchedulesResponseGroups <- obj .:? "groups"
+    pure defaultCountSchedulesResponse
+      { countSchedulesResponseCount = maybe (countSchedulesResponseCount defaultCountSchedulesResponse) id fld_countSchedulesResponseCount
+      , countSchedulesResponseGroups = maybe (countSchedulesResponseGroups defaultCountSchedulesResponse) id fld_countSchedulesResponseGroups
+      }
   protoFromJSON _ = Right defaultCountSchedulesResponse
 
 data UpdateWorkerBuildIdCompatibilityRequest = UpdateWorkerBuildIdCompatibilityRequest
@@ -7288,6 +8467,15 @@ instance ProtoToJSON UpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVer
       ]
 
 instance ProtoFromJSON UpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionNewbuildid <- obj .:? "newBuildId"
+    fld_updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionExistingcompatiblebuildid <- obj .:? "existingCompatibleBuildId"
+    fld_updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionMakesetdefault <- obj .:? "makeSetDefault"
+    pure defaultUpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion
+      { updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionNewbuildid = maybe (updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionNewbuildid defaultUpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion) id fld_updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionNewbuildid
+      , updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionExistingcompatiblebuildid = maybe (updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionExistingcompatiblebuildid defaultUpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion) id fld_updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionExistingcompatiblebuildid
+      , updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionMakesetdefault = maybe (updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionMakesetdefault defaultUpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion) id fld_updateWorkerBuildIdCompatibilityRequestAddNewCompatibleVersionMakesetdefault
+      }
   protoFromJSON _ = Right defaultUpdateWorkerBuildIdCompatibilityRequest'AddNewCompatibleVersion
 
 data UpdateWorkerBuildIdCompatibilityRequest'MergeSets = UpdateWorkerBuildIdCompatibilityRequest'MergeSets
@@ -7336,6 +8524,13 @@ instance ProtoToJSON UpdateWorkerBuildIdCompatibilityRequest'MergeSets where
       ]
 
 instance ProtoFromJSON UpdateWorkerBuildIdCompatibilityRequest'MergeSets where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerBuildIdCompatibilityRequestMergeSetsPrimarysetbuildid <- obj .:? "primarySetBuildId"
+    fld_updateWorkerBuildIdCompatibilityRequestMergeSetsSecondarysetbuildid <- obj .:? "secondarySetBuildId"
+    pure defaultUpdateWorkerBuildIdCompatibilityRequest'MergeSets
+      { updateWorkerBuildIdCompatibilityRequestMergeSetsPrimarysetbuildid = maybe (updateWorkerBuildIdCompatibilityRequestMergeSetsPrimarysetbuildid defaultUpdateWorkerBuildIdCompatibilityRequest'MergeSets) id fld_updateWorkerBuildIdCompatibilityRequestMergeSetsPrimarysetbuildid
+      , updateWorkerBuildIdCompatibilityRequestMergeSetsSecondarysetbuildid = maybe (updateWorkerBuildIdCompatibilityRequestMergeSetsSecondarysetbuildid defaultUpdateWorkerBuildIdCompatibilityRequest'MergeSets) id fld_updateWorkerBuildIdCompatibilityRequestMergeSetsSecondarysetbuildid
+      }
   protoFromJSON _ = Right defaultUpdateWorkerBuildIdCompatibilityRequest'MergeSets
 data UpdateWorkerBuildIdCompatibilityRequest'Operation
   = UpdateWorkerBuildIdCompatibilityRequest'Operation'AddNewBuildIdInNewDefaultSet !Text
@@ -7418,6 +8613,15 @@ instance ProtoToJSON UpdateWorkerBuildIdCompatibilityRequest where
       ]
 
 instance ProtoFromJSON UpdateWorkerBuildIdCompatibilityRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerBuildIdCompatibilityRequestNamespace <- obj .:? "namespace"
+    fld_updateWorkerBuildIdCompatibilityRequestTaskqueue <- obj .:? "taskQueue"
+    fld_updateWorkerBuildIdCompatibilityRequestOperation <- obj .:? "operation"
+    pure defaultUpdateWorkerBuildIdCompatibilityRequest
+      { updateWorkerBuildIdCompatibilityRequestNamespace = maybe (updateWorkerBuildIdCompatibilityRequestNamespace defaultUpdateWorkerBuildIdCompatibilityRequest) id fld_updateWorkerBuildIdCompatibilityRequestNamespace
+      , updateWorkerBuildIdCompatibilityRequestTaskqueue = maybe (updateWorkerBuildIdCompatibilityRequestTaskqueue defaultUpdateWorkerBuildIdCompatibilityRequest) id fld_updateWorkerBuildIdCompatibilityRequestTaskqueue
+      , updateWorkerBuildIdCompatibilityRequestOperation = maybe (updateWorkerBuildIdCompatibilityRequestOperation defaultUpdateWorkerBuildIdCompatibilityRequest) id fld_updateWorkerBuildIdCompatibilityRequestOperation
+      }
   protoFromJSON _ = Right defaultUpdateWorkerBuildIdCompatibilityRequest
 
 data UpdateWorkerBuildIdCompatibilityResponse = UpdateWorkerBuildIdCompatibilityResponse
@@ -7508,6 +8712,15 @@ instance ProtoToJSON GetWorkerBuildIdCompatibilityRequest where
       ]
 
 instance ProtoFromJSON GetWorkerBuildIdCompatibilityRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkerBuildIdCompatibilityRequestNamespace <- obj .:? "namespace"
+    fld_getWorkerBuildIdCompatibilityRequestTaskqueue <- obj .:? "taskQueue"
+    fld_getWorkerBuildIdCompatibilityRequestMaxsets <- obj .:? "maxSets"
+    pure defaultGetWorkerBuildIdCompatibilityRequest
+      { getWorkerBuildIdCompatibilityRequestNamespace = maybe (getWorkerBuildIdCompatibilityRequestNamespace defaultGetWorkerBuildIdCompatibilityRequest) id fld_getWorkerBuildIdCompatibilityRequestNamespace
+      , getWorkerBuildIdCompatibilityRequestTaskqueue = maybe (getWorkerBuildIdCompatibilityRequestTaskqueue defaultGetWorkerBuildIdCompatibilityRequest) id fld_getWorkerBuildIdCompatibilityRequestTaskqueue
+      , getWorkerBuildIdCompatibilityRequestMaxsets = maybe (getWorkerBuildIdCompatibilityRequestMaxsets defaultGetWorkerBuildIdCompatibilityRequest) id fld_getWorkerBuildIdCompatibilityRequestMaxsets
+      }
   protoFromJSON _ = Right defaultGetWorkerBuildIdCompatibilityRequest
 
 data GetWorkerBuildIdCompatibilityResponse = GetWorkerBuildIdCompatibilityResponse
@@ -7549,6 +8762,11 @@ instance ProtoToJSON GetWorkerBuildIdCompatibilityResponse where
       ]
 
 instance ProtoFromJSON GetWorkerBuildIdCompatibilityResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkerBuildIdCompatibilityResponseMajorversionsets <- obj .:? "majorVersionSets"
+    pure defaultGetWorkerBuildIdCompatibilityResponse
+      { getWorkerBuildIdCompatibilityResponseMajorversionsets = maybe (getWorkerBuildIdCompatibilityResponseMajorversionsets defaultGetWorkerBuildIdCompatibilityResponse) id fld_getWorkerBuildIdCompatibilityResponseMajorversionsets
+      }
   protoFromJSON _ = Right defaultGetWorkerBuildIdCompatibilityResponse
 
 data UpdateWorkerVersioningRulesRequest = UpdateWorkerVersioningRulesRequest
@@ -7606,6 +8824,13 @@ instance ProtoToJSON UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentR
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRuleindex <- obj .:? "ruleIndex"
+    fld_updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRule <- obj .:? "rule"
+    pure defaultUpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule
+      { updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRuleindex = maybe (updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRuleindex defaultUpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule) id fld_updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRuleindex
+      , updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRule = maybe (updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRule defaultUpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule) id fld_updateWorkerVersioningRulesRequestInsertBuildIdAssignmentRuleRule
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule
 
 data UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule = UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule
@@ -7662,6 +8887,15 @@ instance ProtoToJSON UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignment
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRuleindex <- obj .:? "ruleIndex"
+    fld_updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRule <- obj .:? "rule"
+    fld_updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleForce <- obj .:? "force"
+    pure defaultUpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule
+      { updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRuleindex = maybe (updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRuleindex defaultUpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule) id fld_updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRuleindex
+      , updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRule = maybe (updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRule defaultUpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule) id fld_updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleRule
+      , updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleForce = maybe (updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleForce defaultUpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule) id fld_updateWorkerVersioningRulesRequestReplaceBuildIdAssignmentRuleForce
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'ReplaceBuildIdAssignmentRule
 
 data UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule = UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule
@@ -7710,6 +8944,13 @@ instance ProtoToJSON UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentR
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleRuleindex <- obj .:? "ruleIndex"
+    fld_updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleForce <- obj .:? "force"
+    pure defaultUpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule
+      { updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleRuleindex = maybe (updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleRuleindex defaultUpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule) id fld_updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleRuleindex
+      , updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleForce = maybe (updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleForce defaultUpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule) id fld_updateWorkerVersioningRulesRequestDeleteBuildIdAssignmentRuleForce
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'DeleteBuildIdAssignmentRule
 
 data UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule = UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule
@@ -7751,6 +8992,11 @@ instance ProtoToJSON UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedi
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesRequestAddCompatibleBuildIdRedirectRuleRule <- obj .:? "rule"
+    pure defaultUpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule
+      { updateWorkerVersioningRulesRequestAddCompatibleBuildIdRedirectRuleRule = maybe (updateWorkerVersioningRulesRequestAddCompatibleBuildIdRedirectRuleRule defaultUpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule) id fld_updateWorkerVersioningRulesRequestAddCompatibleBuildIdRedirectRuleRule
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'AddCompatibleBuildIdRedirectRule
 
 data UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule = UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule
@@ -7792,6 +9038,11 @@ instance ProtoToJSON UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildId
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesRequestReplaceCompatibleBuildIdRedirectRuleRule <- obj .:? "rule"
+    pure defaultUpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule
+      { updateWorkerVersioningRulesRequestReplaceCompatibleBuildIdRedirectRuleRule = maybe (updateWorkerVersioningRulesRequestReplaceCompatibleBuildIdRedirectRuleRule defaultUpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule) id fld_updateWorkerVersioningRulesRequestReplaceCompatibleBuildIdRedirectRuleRule
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'ReplaceCompatibleBuildIdRedirectRule
 
 data UpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule = UpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule
@@ -7833,6 +9084,11 @@ instance ProtoToJSON UpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdR
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesRequestDeleteCompatibleBuildIdRedirectRuleSourcebuildid <- obj .:? "sourceBuildId"
+    pure defaultUpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule
+      { updateWorkerVersioningRulesRequestDeleteCompatibleBuildIdRedirectRuleSourcebuildid = maybe (updateWorkerVersioningRulesRequestDeleteCompatibleBuildIdRedirectRuleSourcebuildid defaultUpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule) id fld_updateWorkerVersioningRulesRequestDeleteCompatibleBuildIdRedirectRuleSourcebuildid
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'DeleteCompatibleBuildIdRedirectRule
 
 data UpdateWorkerVersioningRulesRequest'CommitBuildId = UpdateWorkerVersioningRulesRequest'CommitBuildId
@@ -7881,6 +9137,13 @@ instance ProtoToJSON UpdateWorkerVersioningRulesRequest'CommitBuildId where
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesRequest'CommitBuildId where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesRequestCommitBuildIdTargetbuildid <- obj .:? "targetBuildId"
+    fld_updateWorkerVersioningRulesRequestCommitBuildIdForce <- obj .:? "force"
+    pure defaultUpdateWorkerVersioningRulesRequest'CommitBuildId
+      { updateWorkerVersioningRulesRequestCommitBuildIdTargetbuildid = maybe (updateWorkerVersioningRulesRequestCommitBuildIdTargetbuildid defaultUpdateWorkerVersioningRulesRequest'CommitBuildId) id fld_updateWorkerVersioningRulesRequestCommitBuildIdTargetbuildid
+      , updateWorkerVersioningRulesRequestCommitBuildIdForce = maybe (updateWorkerVersioningRulesRequestCommitBuildIdForce defaultUpdateWorkerVersioningRulesRequest'CommitBuildId) id fld_updateWorkerVersioningRulesRequestCommitBuildIdForce
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest'CommitBuildId
 data UpdateWorkerVersioningRulesRequest'Operation
   = UpdateWorkerVersioningRulesRequest'Operation'InsertAssignmentRule !UpdateWorkerVersioningRulesRequest'InsertBuildIdAssignmentRule
@@ -7982,6 +9245,17 @@ instance ProtoToJSON UpdateWorkerVersioningRulesRequest where
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesRequestNamespace <- obj .:? "namespace"
+    fld_updateWorkerVersioningRulesRequestTaskqueue <- obj .:? "taskQueue"
+    fld_updateWorkerVersioningRulesRequestConflicttoken <- obj .:? "conflictToken"
+    fld_updateWorkerVersioningRulesRequestOperation <- obj .:? "operation"
+    pure defaultUpdateWorkerVersioningRulesRequest
+      { updateWorkerVersioningRulesRequestNamespace = maybe (updateWorkerVersioningRulesRequestNamespace defaultUpdateWorkerVersioningRulesRequest) id fld_updateWorkerVersioningRulesRequestNamespace
+      , updateWorkerVersioningRulesRequestTaskqueue = maybe (updateWorkerVersioningRulesRequestTaskqueue defaultUpdateWorkerVersioningRulesRequest) id fld_updateWorkerVersioningRulesRequestTaskqueue
+      , updateWorkerVersioningRulesRequestConflicttoken = maybe (updateWorkerVersioningRulesRequestConflicttoken defaultUpdateWorkerVersioningRulesRequest) id fld_updateWorkerVersioningRulesRequestConflicttoken
+      , updateWorkerVersioningRulesRequestOperation = maybe (updateWorkerVersioningRulesRequestOperation defaultUpdateWorkerVersioningRulesRequest) id fld_updateWorkerVersioningRulesRequestOperation
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesRequest
 
 data UpdateWorkerVersioningRulesResponse = UpdateWorkerVersioningRulesResponse
@@ -8038,6 +9312,15 @@ instance ProtoToJSON UpdateWorkerVersioningRulesResponse where
       ]
 
 instance ProtoFromJSON UpdateWorkerVersioningRulesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerVersioningRulesResponseAssignmentrules <- obj .:? "assignmentRules"
+    fld_updateWorkerVersioningRulesResponseCompatibleredirectrules <- obj .:? "compatibleRedirectRules"
+    fld_updateWorkerVersioningRulesResponseConflicttoken <- obj .:? "conflictToken"
+    pure defaultUpdateWorkerVersioningRulesResponse
+      { updateWorkerVersioningRulesResponseAssignmentrules = maybe (updateWorkerVersioningRulesResponseAssignmentrules defaultUpdateWorkerVersioningRulesResponse) id fld_updateWorkerVersioningRulesResponseAssignmentrules
+      , updateWorkerVersioningRulesResponseCompatibleredirectrules = maybe (updateWorkerVersioningRulesResponseCompatibleredirectrules defaultUpdateWorkerVersioningRulesResponse) id fld_updateWorkerVersioningRulesResponseCompatibleredirectrules
+      , updateWorkerVersioningRulesResponseConflicttoken = maybe (updateWorkerVersioningRulesResponseConflicttoken defaultUpdateWorkerVersioningRulesResponse) id fld_updateWorkerVersioningRulesResponseConflicttoken
+      }
   protoFromJSON _ = Right defaultUpdateWorkerVersioningRulesResponse
 
 data GetWorkerVersioningRulesRequest = GetWorkerVersioningRulesRequest
@@ -8086,6 +9369,13 @@ instance ProtoToJSON GetWorkerVersioningRulesRequest where
       ]
 
 instance ProtoFromJSON GetWorkerVersioningRulesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkerVersioningRulesRequestNamespace <- obj .:? "namespace"
+    fld_getWorkerVersioningRulesRequestTaskqueue <- obj .:? "taskQueue"
+    pure defaultGetWorkerVersioningRulesRequest
+      { getWorkerVersioningRulesRequestNamespace = maybe (getWorkerVersioningRulesRequestNamespace defaultGetWorkerVersioningRulesRequest) id fld_getWorkerVersioningRulesRequestNamespace
+      , getWorkerVersioningRulesRequestTaskqueue = maybe (getWorkerVersioningRulesRequestTaskqueue defaultGetWorkerVersioningRulesRequest) id fld_getWorkerVersioningRulesRequestTaskqueue
+      }
   protoFromJSON _ = Right defaultGetWorkerVersioningRulesRequest
 
 data GetWorkerVersioningRulesResponse = GetWorkerVersioningRulesResponse
@@ -8142,6 +9432,15 @@ instance ProtoToJSON GetWorkerVersioningRulesResponse where
       ]
 
 instance ProtoFromJSON GetWorkerVersioningRulesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkerVersioningRulesResponseAssignmentrules <- obj .:? "assignmentRules"
+    fld_getWorkerVersioningRulesResponseCompatibleredirectrules <- obj .:? "compatibleRedirectRules"
+    fld_getWorkerVersioningRulesResponseConflicttoken <- obj .:? "conflictToken"
+    pure defaultGetWorkerVersioningRulesResponse
+      { getWorkerVersioningRulesResponseAssignmentrules = maybe (getWorkerVersioningRulesResponseAssignmentrules defaultGetWorkerVersioningRulesResponse) id fld_getWorkerVersioningRulesResponseAssignmentrules
+      , getWorkerVersioningRulesResponseCompatibleredirectrules = maybe (getWorkerVersioningRulesResponseCompatibleredirectrules defaultGetWorkerVersioningRulesResponse) id fld_getWorkerVersioningRulesResponseCompatibleredirectrules
+      , getWorkerVersioningRulesResponseConflicttoken = maybe (getWorkerVersioningRulesResponseConflicttoken defaultGetWorkerVersioningRulesResponse) id fld_getWorkerVersioningRulesResponseConflicttoken
+      }
   protoFromJSON _ = Right defaultGetWorkerVersioningRulesResponse
 
 data GetWorkerTaskReachabilityRequest = GetWorkerTaskReachabilityRequest
@@ -8171,8 +9470,8 @@ instance MessageEncode GetWorkerTaskReachabilityRequest where
 instance MessageSize GetWorkerTaskReachabilityRequest where
   messageSize msg =
     (if msg.getWorkerTaskReachabilityRequestNamespace == T.empty then 0 else fieldTextSize 1 msg.getWorkerTaskReachabilityRequestNamespace)
-    + 0 {- TODO: repeated size -}
-    + 0 {- TODO: repeated size -}
+    + (V.foldl' (\acc v -> acc + fieldTextSize 2 v) 0 msg.getWorkerTaskReachabilityRequestBuildids)
+    + (V.foldl' (\acc v -> acc + fieldTextSize 3 v) 0 msg.getWorkerTaskReachabilityRequestTaskqueues)
     + (if fromEnum msg.getWorkerTaskReachabilityRequestReachability == 0 then 0 else fieldVarintSize 4 (fromIntegral (fromEnum msg.getWorkerTaskReachabilityRequestReachability)))
 
 instance MessageDecode GetWorkerTaskReachabilityRequest where
@@ -8206,6 +9505,17 @@ instance ProtoToJSON GetWorkerTaskReachabilityRequest where
       ]
 
 instance ProtoFromJSON GetWorkerTaskReachabilityRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkerTaskReachabilityRequestNamespace <- obj .:? "namespace"
+    fld_getWorkerTaskReachabilityRequestBuildids <- obj .:? "buildIds"
+    fld_getWorkerTaskReachabilityRequestTaskqueues <- obj .:? "taskQueues"
+    fld_getWorkerTaskReachabilityRequestReachability <- obj .:? "reachability"
+    pure defaultGetWorkerTaskReachabilityRequest
+      { getWorkerTaskReachabilityRequestNamespace = maybe (getWorkerTaskReachabilityRequestNamespace defaultGetWorkerTaskReachabilityRequest) id fld_getWorkerTaskReachabilityRequestNamespace
+      , getWorkerTaskReachabilityRequestBuildids = maybe (getWorkerTaskReachabilityRequestBuildids defaultGetWorkerTaskReachabilityRequest) id fld_getWorkerTaskReachabilityRequestBuildids
+      , getWorkerTaskReachabilityRequestTaskqueues = maybe (getWorkerTaskReachabilityRequestTaskqueues defaultGetWorkerTaskReachabilityRequest) id fld_getWorkerTaskReachabilityRequestTaskqueues
+      , getWorkerTaskReachabilityRequestReachability = maybe (getWorkerTaskReachabilityRequestReachability defaultGetWorkerTaskReachabilityRequest) id fld_getWorkerTaskReachabilityRequestReachability
+      }
   protoFromJSON _ = Right defaultGetWorkerTaskReachabilityRequest
 
 data GetWorkerTaskReachabilityResponse = GetWorkerTaskReachabilityResponse
@@ -8247,6 +9557,11 @@ instance ProtoToJSON GetWorkerTaskReachabilityResponse where
       ]
 
 instance ProtoFromJSON GetWorkerTaskReachabilityResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getWorkerTaskReachabilityResponseBuildidreachability <- obj .:? "buildIdReachability"
+    pure defaultGetWorkerTaskReachabilityResponse
+      { getWorkerTaskReachabilityResponseBuildidreachability = maybe (getWorkerTaskReachabilityResponseBuildidreachability defaultGetWorkerTaskReachabilityResponse) id fld_getWorkerTaskReachabilityResponseBuildidreachability
+      }
   protoFromJSON _ = Right defaultGetWorkerTaskReachabilityResponse
 
 data UpdateWorkflowExecutionRequest = UpdateWorkflowExecutionRequest
@@ -8319,6 +9634,19 @@ instance ProtoToJSON UpdateWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON UpdateWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_updateWorkflowExecutionRequestWorkflowexecution <- obj .:? "workflowExecution"
+    fld_updateWorkflowExecutionRequestFirstexecutionrunid <- obj .:? "firstExecutionRunId"
+    fld_updateWorkflowExecutionRequestWaitpolicy <- obj .:? "waitPolicy"
+    fld_updateWorkflowExecutionRequestRequest <- obj .:? "request"
+    pure defaultUpdateWorkflowExecutionRequest
+      { updateWorkflowExecutionRequestNamespace = maybe (updateWorkflowExecutionRequestNamespace defaultUpdateWorkflowExecutionRequest) id fld_updateWorkflowExecutionRequestNamespace
+      , updateWorkflowExecutionRequestWorkflowexecution = maybe (updateWorkflowExecutionRequestWorkflowexecution defaultUpdateWorkflowExecutionRequest) id fld_updateWorkflowExecutionRequestWorkflowexecution
+      , updateWorkflowExecutionRequestFirstexecutionrunid = maybe (updateWorkflowExecutionRequestFirstexecutionrunid defaultUpdateWorkflowExecutionRequest) id fld_updateWorkflowExecutionRequestFirstexecutionrunid
+      , updateWorkflowExecutionRequestWaitpolicy = maybe (updateWorkflowExecutionRequestWaitpolicy defaultUpdateWorkflowExecutionRequest) id fld_updateWorkflowExecutionRequestWaitpolicy
+      , updateWorkflowExecutionRequestRequest = maybe (updateWorkflowExecutionRequestRequest defaultUpdateWorkflowExecutionRequest) id fld_updateWorkflowExecutionRequestRequest
+      }
   protoFromJSON _ = Right defaultUpdateWorkflowExecutionRequest
 
 data UpdateWorkflowExecutionResponse = UpdateWorkflowExecutionResponse
@@ -8375,6 +9703,15 @@ instance ProtoToJSON UpdateWorkflowExecutionResponse where
       ]
 
 instance ProtoFromJSON UpdateWorkflowExecutionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkflowExecutionResponseUpdateref <- obj .:? "updateRef"
+    fld_updateWorkflowExecutionResponseOutcome <- obj .:? "outcome"
+    fld_updateWorkflowExecutionResponseStage <- obj .:? "stage"
+    pure defaultUpdateWorkflowExecutionResponse
+      { updateWorkflowExecutionResponseUpdateref = maybe (updateWorkflowExecutionResponseUpdateref defaultUpdateWorkflowExecutionResponse) id fld_updateWorkflowExecutionResponseUpdateref
+      , updateWorkflowExecutionResponseOutcome = maybe (updateWorkflowExecutionResponseOutcome defaultUpdateWorkflowExecutionResponse) id fld_updateWorkflowExecutionResponseOutcome
+      , updateWorkflowExecutionResponseStage = maybe (updateWorkflowExecutionResponseStage defaultUpdateWorkflowExecutionResponse) id fld_updateWorkflowExecutionResponseStage
+      }
   protoFromJSON _ = Right defaultUpdateWorkflowExecutionResponse
 
 data StartBatchOperationRequest = StartBatchOperationRequest
@@ -8521,6 +9858,23 @@ instance ProtoToJSON StartBatchOperationRequest where
       ]
 
 instance ProtoFromJSON StartBatchOperationRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_startBatchOperationRequestNamespace <- obj .:? "namespace"
+    fld_startBatchOperationRequestVisibilityquery <- obj .:? "visibilityQuery"
+    fld_startBatchOperationRequestJobid <- obj .:? "jobId"
+    fld_startBatchOperationRequestReason <- obj .:? "reason"
+    fld_startBatchOperationRequestExecutions <- obj .:? "executions"
+    fld_startBatchOperationRequestMaxoperationspersecond <- obj .:? "maxOperationsPerSecond"
+    fld_startBatchOperationRequestOperation <- obj .:? "operation"
+    pure defaultStartBatchOperationRequest
+      { startBatchOperationRequestNamespace = maybe (startBatchOperationRequestNamespace defaultStartBatchOperationRequest) id fld_startBatchOperationRequestNamespace
+      , startBatchOperationRequestVisibilityquery = maybe (startBatchOperationRequestVisibilityquery defaultStartBatchOperationRequest) id fld_startBatchOperationRequestVisibilityquery
+      , startBatchOperationRequestJobid = maybe (startBatchOperationRequestJobid defaultStartBatchOperationRequest) id fld_startBatchOperationRequestJobid
+      , startBatchOperationRequestReason = maybe (startBatchOperationRequestReason defaultStartBatchOperationRequest) id fld_startBatchOperationRequestReason
+      , startBatchOperationRequestExecutions = maybe (startBatchOperationRequestExecutions defaultStartBatchOperationRequest) id fld_startBatchOperationRequestExecutions
+      , startBatchOperationRequestMaxoperationspersecond = maybe (startBatchOperationRequestMaxoperationspersecond defaultStartBatchOperationRequest) id fld_startBatchOperationRequestMaxoperationspersecond
+      , startBatchOperationRequestOperation = maybe (startBatchOperationRequestOperation defaultStartBatchOperationRequest) id fld_startBatchOperationRequestOperation
+      }
   protoFromJSON _ = Right defaultStartBatchOperationRequest
 
 data StartBatchOperationResponse = StartBatchOperationResponse
@@ -8619,6 +9973,17 @@ instance ProtoToJSON StopBatchOperationRequest where
       ]
 
 instance ProtoFromJSON StopBatchOperationRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_stopBatchOperationRequestNamespace <- obj .:? "namespace"
+    fld_stopBatchOperationRequestJobid <- obj .:? "jobId"
+    fld_stopBatchOperationRequestReason <- obj .:? "reason"
+    fld_stopBatchOperationRequestIdentity <- obj .:? "identity"
+    pure defaultStopBatchOperationRequest
+      { stopBatchOperationRequestNamespace = maybe (stopBatchOperationRequestNamespace defaultStopBatchOperationRequest) id fld_stopBatchOperationRequestNamespace
+      , stopBatchOperationRequestJobid = maybe (stopBatchOperationRequestJobid defaultStopBatchOperationRequest) id fld_stopBatchOperationRequestJobid
+      , stopBatchOperationRequestReason = maybe (stopBatchOperationRequestReason defaultStopBatchOperationRequest) id fld_stopBatchOperationRequestReason
+      , stopBatchOperationRequestIdentity = maybe (stopBatchOperationRequestIdentity defaultStopBatchOperationRequest) id fld_stopBatchOperationRequestIdentity
+      }
   protoFromJSON _ = Right defaultStopBatchOperationRequest
 
 data StopBatchOperationResponse = StopBatchOperationResponse
@@ -8701,6 +10066,13 @@ instance ProtoToJSON DescribeBatchOperationRequest where
       ]
 
 instance ProtoFromJSON DescribeBatchOperationRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeBatchOperationRequestNamespace <- obj .:? "namespace"
+    fld_describeBatchOperationRequestJobid <- obj .:? "jobId"
+    pure defaultDescribeBatchOperationRequest
+      { describeBatchOperationRequestNamespace = maybe (describeBatchOperationRequestNamespace defaultDescribeBatchOperationRequest) id fld_describeBatchOperationRequestNamespace
+      , describeBatchOperationRequestJobid = maybe (describeBatchOperationRequestJobid defaultDescribeBatchOperationRequest) id fld_describeBatchOperationRequestJobid
+      }
   protoFromJSON _ = Right defaultDescribeBatchOperationRequest
 
 data DescribeBatchOperationResponse = DescribeBatchOperationResponse
@@ -8813,6 +10185,29 @@ instance ProtoToJSON DescribeBatchOperationResponse where
       ]
 
 instance ProtoFromJSON DescribeBatchOperationResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeBatchOperationResponseOperationtype <- obj .:? "operationType"
+    fld_describeBatchOperationResponseJobid <- obj .:? "jobId"
+    fld_describeBatchOperationResponseState <- obj .:? "state"
+    fld_describeBatchOperationResponseStarttime <- obj .:? "startTime"
+    fld_describeBatchOperationResponseClosetime <- obj .:? "closeTime"
+    fld_describeBatchOperationResponseTotaloperationcount <- obj .:? "totalOperationCount"
+    fld_describeBatchOperationResponseCompleteoperationcount <- obj .:? "completeOperationCount"
+    fld_describeBatchOperationResponseFailureoperationcount <- obj .:? "failureOperationCount"
+    fld_describeBatchOperationResponseIdentity <- obj .:? "identity"
+    fld_describeBatchOperationResponseReason <- obj .:? "reason"
+    pure defaultDescribeBatchOperationResponse
+      { describeBatchOperationResponseOperationtype = maybe (describeBatchOperationResponseOperationtype defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseOperationtype
+      , describeBatchOperationResponseJobid = maybe (describeBatchOperationResponseJobid defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseJobid
+      , describeBatchOperationResponseState = maybe (describeBatchOperationResponseState defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseState
+      , describeBatchOperationResponseStarttime = maybe (describeBatchOperationResponseStarttime defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseStarttime
+      , describeBatchOperationResponseClosetime = maybe (describeBatchOperationResponseClosetime defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseClosetime
+      , describeBatchOperationResponseTotaloperationcount = maybe (describeBatchOperationResponseTotaloperationcount defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseTotaloperationcount
+      , describeBatchOperationResponseCompleteoperationcount = maybe (describeBatchOperationResponseCompleteoperationcount defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseCompleteoperationcount
+      , describeBatchOperationResponseFailureoperationcount = maybe (describeBatchOperationResponseFailureoperationcount defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseFailureoperationcount
+      , describeBatchOperationResponseIdentity = maybe (describeBatchOperationResponseIdentity defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseIdentity
+      , describeBatchOperationResponseReason = maybe (describeBatchOperationResponseReason defaultDescribeBatchOperationResponse) id fld_describeBatchOperationResponseReason
+      }
   protoFromJSON _ = Right defaultDescribeBatchOperationResponse
 
 data ListBatchOperationsRequest = ListBatchOperationsRequest
@@ -8869,6 +10264,15 @@ instance ProtoToJSON ListBatchOperationsRequest where
       ]
 
 instance ProtoFromJSON ListBatchOperationsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listBatchOperationsRequestNamespace <- obj .:? "namespace"
+    fld_listBatchOperationsRequestPagesize <- obj .:? "pageSize"
+    fld_listBatchOperationsRequestNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListBatchOperationsRequest
+      { listBatchOperationsRequestNamespace = maybe (listBatchOperationsRequestNamespace defaultListBatchOperationsRequest) id fld_listBatchOperationsRequestNamespace
+      , listBatchOperationsRequestPagesize = maybe (listBatchOperationsRequestPagesize defaultListBatchOperationsRequest) id fld_listBatchOperationsRequestPagesize
+      , listBatchOperationsRequestNextpagetoken = maybe (listBatchOperationsRequestNextpagetoken defaultListBatchOperationsRequest) id fld_listBatchOperationsRequestNextpagetoken
+      }
   protoFromJSON _ = Right defaultListBatchOperationsRequest
 
 data ListBatchOperationsResponse = ListBatchOperationsResponse
@@ -8917,6 +10321,13 @@ instance ProtoToJSON ListBatchOperationsResponse where
       ]
 
 instance ProtoFromJSON ListBatchOperationsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listBatchOperationsResponseOperationinfo <- obj .:? "operationInfo"
+    fld_listBatchOperationsResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListBatchOperationsResponse
+      { listBatchOperationsResponseOperationinfo = maybe (listBatchOperationsResponseOperationinfo defaultListBatchOperationsResponse) id fld_listBatchOperationsResponseOperationinfo
+      , listBatchOperationsResponseNextpagetoken = maybe (listBatchOperationsResponseNextpagetoken defaultListBatchOperationsResponse) id fld_listBatchOperationsResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListBatchOperationsResponse
 
 data PollWorkflowExecutionUpdateRequest = PollWorkflowExecutionUpdateRequest
@@ -8981,6 +10392,17 @@ instance ProtoToJSON PollWorkflowExecutionUpdateRequest where
       ]
 
 instance ProtoFromJSON PollWorkflowExecutionUpdateRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollWorkflowExecutionUpdateRequestNamespace <- obj .:? "namespace"
+    fld_pollWorkflowExecutionUpdateRequestUpdateref <- obj .:? "updateRef"
+    fld_pollWorkflowExecutionUpdateRequestIdentity <- obj .:? "identity"
+    fld_pollWorkflowExecutionUpdateRequestWaitpolicy <- obj .:? "waitPolicy"
+    pure defaultPollWorkflowExecutionUpdateRequest
+      { pollWorkflowExecutionUpdateRequestNamespace = maybe (pollWorkflowExecutionUpdateRequestNamespace defaultPollWorkflowExecutionUpdateRequest) id fld_pollWorkflowExecutionUpdateRequestNamespace
+      , pollWorkflowExecutionUpdateRequestUpdateref = maybe (pollWorkflowExecutionUpdateRequestUpdateref defaultPollWorkflowExecutionUpdateRequest) id fld_pollWorkflowExecutionUpdateRequestUpdateref
+      , pollWorkflowExecutionUpdateRequestIdentity = maybe (pollWorkflowExecutionUpdateRequestIdentity defaultPollWorkflowExecutionUpdateRequest) id fld_pollWorkflowExecutionUpdateRequestIdentity
+      , pollWorkflowExecutionUpdateRequestWaitpolicy = maybe (pollWorkflowExecutionUpdateRequestWaitpolicy defaultPollWorkflowExecutionUpdateRequest) id fld_pollWorkflowExecutionUpdateRequestWaitpolicy
+      }
   protoFromJSON _ = Right defaultPollWorkflowExecutionUpdateRequest
 
 data PollWorkflowExecutionUpdateResponse = PollWorkflowExecutionUpdateResponse
@@ -9037,6 +10459,15 @@ instance ProtoToJSON PollWorkflowExecutionUpdateResponse where
       ]
 
 instance ProtoFromJSON PollWorkflowExecutionUpdateResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollWorkflowExecutionUpdateResponseOutcome <- obj .:? "outcome"
+    fld_pollWorkflowExecutionUpdateResponseStage <- obj .:? "stage"
+    fld_pollWorkflowExecutionUpdateResponseUpdateref <- obj .:? "updateRef"
+    pure defaultPollWorkflowExecutionUpdateResponse
+      { pollWorkflowExecutionUpdateResponseOutcome = maybe (pollWorkflowExecutionUpdateResponseOutcome defaultPollWorkflowExecutionUpdateResponse) id fld_pollWorkflowExecutionUpdateResponseOutcome
+      , pollWorkflowExecutionUpdateResponseStage = maybe (pollWorkflowExecutionUpdateResponseStage defaultPollWorkflowExecutionUpdateResponse) id fld_pollWorkflowExecutionUpdateResponseStage
+      , pollWorkflowExecutionUpdateResponseUpdateref = maybe (pollWorkflowExecutionUpdateResponseUpdateref defaultPollWorkflowExecutionUpdateResponse) id fld_pollWorkflowExecutionUpdateResponseUpdateref
+      }
   protoFromJSON _ = Right defaultPollWorkflowExecutionUpdateResponse
 
 data PollNexusTaskQueueRequest = PollNexusTaskQueueRequest
@@ -9125,6 +10556,23 @@ instance ProtoToJSON PollNexusTaskQueueRequest where
       ]
 
 instance ProtoFromJSON PollNexusTaskQueueRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollNexusTaskQueueRequestNamespace <- obj .:? "namespace"
+    fld_pollNexusTaskQueueRequestIdentity <- obj .:? "identity"
+    fld_pollNexusTaskQueueRequestWorkerinstancekey <- obj .:? "workerInstanceKey"
+    fld_pollNexusTaskQueueRequestTaskqueue <- obj .:? "taskQueue"
+    fld_pollNexusTaskQueueRequestWorkerversioncapabilities <- obj .:? "workerVersionCapabilities"
+    fld_pollNexusTaskQueueRequestDeploymentoptions <- obj .:? "deploymentOptions"
+    fld_pollNexusTaskQueueRequestWorkerheartbeat <- obj .:? "workerHeartbeat"
+    pure defaultPollNexusTaskQueueRequest
+      { pollNexusTaskQueueRequestNamespace = maybe (pollNexusTaskQueueRequestNamespace defaultPollNexusTaskQueueRequest) id fld_pollNexusTaskQueueRequestNamespace
+      , pollNexusTaskQueueRequestIdentity = maybe (pollNexusTaskQueueRequestIdentity defaultPollNexusTaskQueueRequest) id fld_pollNexusTaskQueueRequestIdentity
+      , pollNexusTaskQueueRequestWorkerinstancekey = maybe (pollNexusTaskQueueRequestWorkerinstancekey defaultPollNexusTaskQueueRequest) id fld_pollNexusTaskQueueRequestWorkerinstancekey
+      , pollNexusTaskQueueRequestTaskqueue = maybe (pollNexusTaskQueueRequestTaskqueue defaultPollNexusTaskQueueRequest) id fld_pollNexusTaskQueueRequestTaskqueue
+      , pollNexusTaskQueueRequestWorkerversioncapabilities = maybe (pollNexusTaskQueueRequestWorkerversioncapabilities defaultPollNexusTaskQueueRequest) id fld_pollNexusTaskQueueRequestWorkerversioncapabilities
+      , pollNexusTaskQueueRequestDeploymentoptions = maybe (pollNexusTaskQueueRequestDeploymentoptions defaultPollNexusTaskQueueRequest) id fld_pollNexusTaskQueueRequestDeploymentoptions
+      , pollNexusTaskQueueRequestWorkerheartbeat = maybe (pollNexusTaskQueueRequestWorkerheartbeat defaultPollNexusTaskQueueRequest) id fld_pollNexusTaskQueueRequestWorkerheartbeat
+      }
   protoFromJSON _ = Right defaultPollNexusTaskQueueRequest
 
 data PollNexusTaskQueueResponse = PollNexusTaskQueueResponse
@@ -9181,6 +10629,15 @@ instance ProtoToJSON PollNexusTaskQueueResponse where
       ]
 
 instance ProtoFromJSON PollNexusTaskQueueResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollNexusTaskQueueResponseTasktoken <- obj .:? "taskToken"
+    fld_pollNexusTaskQueueResponseRequest <- obj .:? "request"
+    fld_pollNexusTaskQueueResponsePollerscalingdecision <- obj .:? "pollerScalingDecision"
+    pure defaultPollNexusTaskQueueResponse
+      { pollNexusTaskQueueResponseTasktoken = maybe (pollNexusTaskQueueResponseTasktoken defaultPollNexusTaskQueueResponse) id fld_pollNexusTaskQueueResponseTasktoken
+      , pollNexusTaskQueueResponseRequest = maybe (pollNexusTaskQueueResponseRequest defaultPollNexusTaskQueueResponse) id fld_pollNexusTaskQueueResponseRequest
+      , pollNexusTaskQueueResponsePollerscalingdecision = maybe (pollNexusTaskQueueResponsePollerscalingdecision defaultPollNexusTaskQueueResponse) id fld_pollNexusTaskQueueResponsePollerscalingdecision
+      }
   protoFromJSON _ = Right defaultPollNexusTaskQueueResponse
 
 data RespondNexusTaskCompletedRequest = RespondNexusTaskCompletedRequest
@@ -9245,6 +10702,17 @@ instance ProtoToJSON RespondNexusTaskCompletedRequest where
       ]
 
 instance ProtoFromJSON RespondNexusTaskCompletedRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondNexusTaskCompletedRequestNamespace <- obj .:? "namespace"
+    fld_respondNexusTaskCompletedRequestIdentity <- obj .:? "identity"
+    fld_respondNexusTaskCompletedRequestTasktoken <- obj .:? "taskToken"
+    fld_respondNexusTaskCompletedRequestResponse <- obj .:? "response"
+    pure defaultRespondNexusTaskCompletedRequest
+      { respondNexusTaskCompletedRequestNamespace = maybe (respondNexusTaskCompletedRequestNamespace defaultRespondNexusTaskCompletedRequest) id fld_respondNexusTaskCompletedRequestNamespace
+      , respondNexusTaskCompletedRequestIdentity = maybe (respondNexusTaskCompletedRequestIdentity defaultRespondNexusTaskCompletedRequest) id fld_respondNexusTaskCompletedRequestIdentity
+      , respondNexusTaskCompletedRequestTasktoken = maybe (respondNexusTaskCompletedRequestTasktoken defaultRespondNexusTaskCompletedRequest) id fld_respondNexusTaskCompletedRequestTasktoken
+      , respondNexusTaskCompletedRequestResponse = maybe (respondNexusTaskCompletedRequestResponse defaultRespondNexusTaskCompletedRequest) id fld_respondNexusTaskCompletedRequestResponse
+      }
   protoFromJSON _ = Right defaultRespondNexusTaskCompletedRequest
 
 data RespondNexusTaskCompletedResponse = RespondNexusTaskCompletedResponse
@@ -9351,6 +10819,19 @@ instance ProtoToJSON RespondNexusTaskFailedRequest where
       ]
 
 instance ProtoFromJSON RespondNexusTaskFailedRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_respondNexusTaskFailedRequestNamespace <- obj .:? "namespace"
+    fld_respondNexusTaskFailedRequestIdentity <- obj .:? "identity"
+    fld_respondNexusTaskFailedRequestTasktoken <- obj .:? "taskToken"
+    fld_respondNexusTaskFailedRequestError <- obj .:? "error"
+    fld_respondNexusTaskFailedRequestFailure <- obj .:? "failure"
+    pure defaultRespondNexusTaskFailedRequest
+      { respondNexusTaskFailedRequestNamespace = maybe (respondNexusTaskFailedRequestNamespace defaultRespondNexusTaskFailedRequest) id fld_respondNexusTaskFailedRequestNamespace
+      , respondNexusTaskFailedRequestIdentity = maybe (respondNexusTaskFailedRequestIdentity defaultRespondNexusTaskFailedRequest) id fld_respondNexusTaskFailedRequestIdentity
+      , respondNexusTaskFailedRequestTasktoken = maybe (respondNexusTaskFailedRequestTasktoken defaultRespondNexusTaskFailedRequest) id fld_respondNexusTaskFailedRequestTasktoken
+      , respondNexusTaskFailedRequestError = maybe (respondNexusTaskFailedRequestError defaultRespondNexusTaskFailedRequest) id fld_respondNexusTaskFailedRequestError
+      , respondNexusTaskFailedRequestFailure = maybe (respondNexusTaskFailedRequestFailure defaultRespondNexusTaskFailedRequest) id fld_respondNexusTaskFailedRequestFailure
+      }
   protoFromJSON _ = Right defaultRespondNexusTaskFailedRequest
 
 data RespondNexusTaskFailedResponse = RespondNexusTaskFailedResponse
@@ -9449,6 +10930,11 @@ instance ProtoToJSON ExecuteMultiOperationRequest'Operation where
       ]
 
 instance ProtoFromJSON ExecuteMultiOperationRequest'Operation where
+  protoFromJSON (JsonObject obj) = do
+    fld_executeMultiOperationRequestOperationOperation <- obj .:? "operation"
+    pure defaultExecuteMultiOperationRequest'Operation
+      { executeMultiOperationRequestOperationOperation = maybe (executeMultiOperationRequestOperationOperation defaultExecuteMultiOperationRequest'Operation) id fld_executeMultiOperationRequestOperationOperation
+      }
   protoFromJSON _ = Right defaultExecuteMultiOperationRequest'Operation
 
 defaultExecuteMultiOperationRequest :: ExecuteMultiOperationRequest
@@ -9490,6 +10976,13 @@ instance ProtoToJSON ExecuteMultiOperationRequest where
       ]
 
 instance ProtoFromJSON ExecuteMultiOperationRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_executeMultiOperationRequestNamespace <- obj .:? "namespace"
+    fld_executeMultiOperationRequestOperations <- obj .:? "operations"
+    pure defaultExecuteMultiOperationRequest
+      { executeMultiOperationRequestNamespace = maybe (executeMultiOperationRequestNamespace defaultExecuteMultiOperationRequest) id fld_executeMultiOperationRequestNamespace
+      , executeMultiOperationRequestOperations = maybe (executeMultiOperationRequestOperations defaultExecuteMultiOperationRequest) id fld_executeMultiOperationRequestOperations
+      }
   protoFromJSON _ = Right defaultExecuteMultiOperationRequest
 
 data ExecuteMultiOperationResponse = ExecuteMultiOperationResponse
@@ -9553,6 +11046,11 @@ instance ProtoToJSON ExecuteMultiOperationResponse'Response where
       ]
 
 instance ProtoFromJSON ExecuteMultiOperationResponse'Response where
+  protoFromJSON (JsonObject obj) = do
+    fld_executeMultiOperationResponseResponseResponse <- obj .:? "response"
+    pure defaultExecuteMultiOperationResponse'Response
+      { executeMultiOperationResponseResponseResponse = maybe (executeMultiOperationResponseResponseResponse defaultExecuteMultiOperationResponse'Response) id fld_executeMultiOperationResponseResponseResponse
+      }
   protoFromJSON _ = Right defaultExecuteMultiOperationResponse'Response
 
 defaultExecuteMultiOperationResponse :: ExecuteMultiOperationResponse
@@ -9588,6 +11086,11 @@ instance ProtoToJSON ExecuteMultiOperationResponse where
       ]
 
 instance ProtoFromJSON ExecuteMultiOperationResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_executeMultiOperationResponseResponses <- obj .:? "responses"
+    pure defaultExecuteMultiOperationResponse
+      { executeMultiOperationResponseResponses = maybe (executeMultiOperationResponseResponses defaultExecuteMultiOperationResponse) id fld_executeMultiOperationResponseResponses
+      }
   protoFromJSON _ = Right defaultExecuteMultiOperationResponse
 
 data UpdateActivityOptionsRequest = UpdateActivityOptionsRequest
@@ -9698,6 +11201,23 @@ instance ProtoToJSON UpdateActivityOptionsRequest where
       ]
 
 instance ProtoFromJSON UpdateActivityOptionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateActivityOptionsRequestNamespace <- obj .:? "namespace"
+    fld_updateActivityOptionsRequestExecution <- obj .:? "execution"
+    fld_updateActivityOptionsRequestIdentity <- obj .:? "identity"
+    fld_updateActivityOptionsRequestActivityoptions <- obj .:? "activityOptions"
+    fld_updateActivityOptionsRequestUpdatemask <- obj .:? "updateMask"
+    fld_updateActivityOptionsRequestActivity <- obj .:? "activity"
+    fld_updateActivityOptionsRequestRestoreoriginal <- obj .:? "restoreOriginal"
+    pure defaultUpdateActivityOptionsRequest
+      { updateActivityOptionsRequestNamespace = maybe (updateActivityOptionsRequestNamespace defaultUpdateActivityOptionsRequest) id fld_updateActivityOptionsRequestNamespace
+      , updateActivityOptionsRequestExecution = maybe (updateActivityOptionsRequestExecution defaultUpdateActivityOptionsRequest) id fld_updateActivityOptionsRequestExecution
+      , updateActivityOptionsRequestIdentity = maybe (updateActivityOptionsRequestIdentity defaultUpdateActivityOptionsRequest) id fld_updateActivityOptionsRequestIdentity
+      , updateActivityOptionsRequestActivityoptions = maybe (updateActivityOptionsRequestActivityoptions defaultUpdateActivityOptionsRequest) id fld_updateActivityOptionsRequestActivityoptions
+      , updateActivityOptionsRequestUpdatemask = maybe (updateActivityOptionsRequestUpdatemask defaultUpdateActivityOptionsRequest) id fld_updateActivityOptionsRequestUpdatemask
+      , updateActivityOptionsRequestActivity = maybe (updateActivityOptionsRequestActivity defaultUpdateActivityOptionsRequest) id fld_updateActivityOptionsRequestActivity
+      , updateActivityOptionsRequestRestoreoriginal = maybe (updateActivityOptionsRequestRestoreoriginal defaultUpdateActivityOptionsRequest) id fld_updateActivityOptionsRequestRestoreoriginal
+      }
   protoFromJSON _ = Right defaultUpdateActivityOptionsRequest
 
 data UpdateActivityOptionsResponse = UpdateActivityOptionsResponse
@@ -9739,6 +11259,11 @@ instance ProtoToJSON UpdateActivityOptionsResponse where
       ]
 
 instance ProtoFromJSON UpdateActivityOptionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateActivityOptionsResponseActivityoptions <- obj .:? "activityOptions"
+    pure defaultUpdateActivityOptionsResponse
+      { updateActivityOptionsResponseActivityoptions = maybe (updateActivityOptionsResponseActivityoptions defaultUpdateActivityOptionsResponse) id fld_updateActivityOptionsResponseActivityoptions
+      }
   protoFromJSON _ = Right defaultUpdateActivityOptionsResponse
 
 data PauseActivityRequest = PauseActivityRequest
@@ -9827,6 +11352,19 @@ instance ProtoToJSON PauseActivityRequest where
       ]
 
 instance ProtoFromJSON PauseActivityRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_pauseActivityRequestNamespace <- obj .:? "namespace"
+    fld_pauseActivityRequestExecution <- obj .:? "execution"
+    fld_pauseActivityRequestIdentity <- obj .:? "identity"
+    fld_pauseActivityRequestActivity <- obj .:? "activity"
+    fld_pauseActivityRequestReason <- obj .:? "reason"
+    pure defaultPauseActivityRequest
+      { pauseActivityRequestNamespace = maybe (pauseActivityRequestNamespace defaultPauseActivityRequest) id fld_pauseActivityRequestNamespace
+      , pauseActivityRequestExecution = maybe (pauseActivityRequestExecution defaultPauseActivityRequest) id fld_pauseActivityRequestExecution
+      , pauseActivityRequestIdentity = maybe (pauseActivityRequestIdentity defaultPauseActivityRequest) id fld_pauseActivityRequestIdentity
+      , pauseActivityRequestActivity = maybe (pauseActivityRequestActivity defaultPauseActivityRequest) id fld_pauseActivityRequestActivity
+      , pauseActivityRequestReason = maybe (pauseActivityRequestReason defaultPauseActivityRequest) id fld_pauseActivityRequestReason
+      }
   protoFromJSON _ = Right defaultPauseActivityRequest
 
 data PauseActivityResponse = PauseActivityResponse
@@ -9971,6 +11509,23 @@ instance ProtoToJSON UnpauseActivityRequest where
       ]
 
 instance ProtoFromJSON UnpauseActivityRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_unpauseActivityRequestNamespace <- obj .:? "namespace"
+    fld_unpauseActivityRequestExecution <- obj .:? "execution"
+    fld_unpauseActivityRequestIdentity <- obj .:? "identity"
+    fld_unpauseActivityRequestActivity <- obj .:? "activity"
+    fld_unpauseActivityRequestResetattempts <- obj .:? "resetAttempts"
+    fld_unpauseActivityRequestResetheartbeat <- obj .:? "resetHeartbeat"
+    fld_unpauseActivityRequestJitter <- obj .:? "jitter"
+    pure defaultUnpauseActivityRequest
+      { unpauseActivityRequestNamespace = maybe (unpauseActivityRequestNamespace defaultUnpauseActivityRequest) id fld_unpauseActivityRequestNamespace
+      , unpauseActivityRequestExecution = maybe (unpauseActivityRequestExecution defaultUnpauseActivityRequest) id fld_unpauseActivityRequestExecution
+      , unpauseActivityRequestIdentity = maybe (unpauseActivityRequestIdentity defaultUnpauseActivityRequest) id fld_unpauseActivityRequestIdentity
+      , unpauseActivityRequestActivity = maybe (unpauseActivityRequestActivity defaultUnpauseActivityRequest) id fld_unpauseActivityRequestActivity
+      , unpauseActivityRequestResetattempts = maybe (unpauseActivityRequestResetattempts defaultUnpauseActivityRequest) id fld_unpauseActivityRequestResetattempts
+      , unpauseActivityRequestResetheartbeat = maybe (unpauseActivityRequestResetheartbeat defaultUnpauseActivityRequest) id fld_unpauseActivityRequestResetheartbeat
+      , unpauseActivityRequestJitter = maybe (unpauseActivityRequestJitter defaultUnpauseActivityRequest) id fld_unpauseActivityRequestJitter
+      }
   protoFromJSON _ = Right defaultUnpauseActivityRequest
 
 data UnpauseActivityResponse = UnpauseActivityResponse
@@ -10123,6 +11678,25 @@ instance ProtoToJSON ResetActivityRequest where
       ]
 
 instance ProtoFromJSON ResetActivityRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_resetActivityRequestNamespace <- obj .:? "namespace"
+    fld_resetActivityRequestExecution <- obj .:? "execution"
+    fld_resetActivityRequestIdentity <- obj .:? "identity"
+    fld_resetActivityRequestActivity <- obj .:? "activity"
+    fld_resetActivityRequestResetheartbeat <- obj .:? "resetHeartbeat"
+    fld_resetActivityRequestKeeppaused <- obj .:? "keepPaused"
+    fld_resetActivityRequestJitter <- obj .:? "jitter"
+    fld_resetActivityRequestRestoreoriginaloptions <- obj .:? "restoreOriginalOptions"
+    pure defaultResetActivityRequest
+      { resetActivityRequestNamespace = maybe (resetActivityRequestNamespace defaultResetActivityRequest) id fld_resetActivityRequestNamespace
+      , resetActivityRequestExecution = maybe (resetActivityRequestExecution defaultResetActivityRequest) id fld_resetActivityRequestExecution
+      , resetActivityRequestIdentity = maybe (resetActivityRequestIdentity defaultResetActivityRequest) id fld_resetActivityRequestIdentity
+      , resetActivityRequestActivity = maybe (resetActivityRequestActivity defaultResetActivityRequest) id fld_resetActivityRequestActivity
+      , resetActivityRequestResetheartbeat = maybe (resetActivityRequestResetheartbeat defaultResetActivityRequest) id fld_resetActivityRequestResetheartbeat
+      , resetActivityRequestKeeppaused = maybe (resetActivityRequestKeeppaused defaultResetActivityRequest) id fld_resetActivityRequestKeeppaused
+      , resetActivityRequestJitter = maybe (resetActivityRequestJitter defaultResetActivityRequest) id fld_resetActivityRequestJitter
+      , resetActivityRequestRestoreoriginaloptions = maybe (resetActivityRequestRestoreoriginaloptions defaultResetActivityRequest) id fld_resetActivityRequestRestoreoriginaloptions
+      }
   protoFromJSON _ = Right defaultResetActivityRequest
 
 data ResetActivityResponse = ResetActivityResponse
@@ -10229,6 +11803,19 @@ instance ProtoToJSON UpdateWorkflowExecutionOptionsRequest where
       ]
 
 instance ProtoFromJSON UpdateWorkflowExecutionOptionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkflowExecutionOptionsRequestNamespace <- obj .:? "namespace"
+    fld_updateWorkflowExecutionOptionsRequestWorkflowexecution <- obj .:? "workflowExecution"
+    fld_updateWorkflowExecutionOptionsRequestWorkflowexecutionoptions <- obj .:? "workflowExecutionOptions"
+    fld_updateWorkflowExecutionOptionsRequestUpdatemask <- obj .:? "updateMask"
+    fld_updateWorkflowExecutionOptionsRequestIdentity <- obj .:? "identity"
+    pure defaultUpdateWorkflowExecutionOptionsRequest
+      { updateWorkflowExecutionOptionsRequestNamespace = maybe (updateWorkflowExecutionOptionsRequestNamespace defaultUpdateWorkflowExecutionOptionsRequest) id fld_updateWorkflowExecutionOptionsRequestNamespace
+      , updateWorkflowExecutionOptionsRequestWorkflowexecution = maybe (updateWorkflowExecutionOptionsRequestWorkflowexecution defaultUpdateWorkflowExecutionOptionsRequest) id fld_updateWorkflowExecutionOptionsRequestWorkflowexecution
+      , updateWorkflowExecutionOptionsRequestWorkflowexecutionoptions = maybe (updateWorkflowExecutionOptionsRequestWorkflowexecutionoptions defaultUpdateWorkflowExecutionOptionsRequest) id fld_updateWorkflowExecutionOptionsRequestWorkflowexecutionoptions
+      , updateWorkflowExecutionOptionsRequestUpdatemask = maybe (updateWorkflowExecutionOptionsRequestUpdatemask defaultUpdateWorkflowExecutionOptionsRequest) id fld_updateWorkflowExecutionOptionsRequestUpdatemask
+      , updateWorkflowExecutionOptionsRequestIdentity = maybe (updateWorkflowExecutionOptionsRequestIdentity defaultUpdateWorkflowExecutionOptionsRequest) id fld_updateWorkflowExecutionOptionsRequestIdentity
+      }
   protoFromJSON _ = Right defaultUpdateWorkflowExecutionOptionsRequest
 
 data UpdateWorkflowExecutionOptionsResponse = UpdateWorkflowExecutionOptionsResponse
@@ -10270,6 +11857,11 @@ instance ProtoToJSON UpdateWorkflowExecutionOptionsResponse where
       ]
 
 instance ProtoFromJSON UpdateWorkflowExecutionOptionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkflowExecutionOptionsResponseWorkflowexecutionoptions <- obj .:? "workflowExecutionOptions"
+    pure defaultUpdateWorkflowExecutionOptionsResponse
+      { updateWorkflowExecutionOptionsResponseWorkflowexecutionoptions = maybe (updateWorkflowExecutionOptionsResponseWorkflowexecutionoptions defaultUpdateWorkflowExecutionOptionsResponse) id fld_updateWorkflowExecutionOptionsResponseWorkflowexecutionoptions
+      }
   protoFromJSON _ = Right defaultUpdateWorkflowExecutionOptionsResponse
 
 data DescribeDeploymentRequest = DescribeDeploymentRequest
@@ -10318,6 +11910,13 @@ instance ProtoToJSON DescribeDeploymentRequest where
       ]
 
 instance ProtoFromJSON DescribeDeploymentRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeDeploymentRequestNamespace <- obj .:? "namespace"
+    fld_describeDeploymentRequestDeployment <- obj .:? "deployment"
+    pure defaultDescribeDeploymentRequest
+      { describeDeploymentRequestNamespace = maybe (describeDeploymentRequestNamespace defaultDescribeDeploymentRequest) id fld_describeDeploymentRequestNamespace
+      , describeDeploymentRequestDeployment = maybe (describeDeploymentRequestDeployment defaultDescribeDeploymentRequest) id fld_describeDeploymentRequestDeployment
+      }
   protoFromJSON _ = Right defaultDescribeDeploymentRequest
 
 data DescribeDeploymentResponse = DescribeDeploymentResponse
@@ -10359,6 +11958,11 @@ instance ProtoToJSON DescribeDeploymentResponse where
       ]
 
 instance ProtoFromJSON DescribeDeploymentResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeDeploymentResponseDeploymentinfo <- obj .:? "deploymentInfo"
+    pure defaultDescribeDeploymentResponse
+      { describeDeploymentResponseDeploymentinfo = maybe (describeDeploymentResponseDeploymentinfo defaultDescribeDeploymentResponse) id fld_describeDeploymentResponseDeploymentinfo
+      }
   protoFromJSON _ = Right defaultDescribeDeploymentResponse
 
 data DescribeWorkerDeploymentVersionRequest = DescribeWorkerDeploymentVersionRequest
@@ -10423,6 +12027,17 @@ instance ProtoToJSON DescribeWorkerDeploymentVersionRequest where
       ]
 
 instance ProtoFromJSON DescribeWorkerDeploymentVersionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkerDeploymentVersionRequestNamespace <- obj .:? "namespace"
+    fld_describeWorkerDeploymentVersionRequestVersion <- obj .:? "version"
+    fld_describeWorkerDeploymentVersionRequestDeploymentversion <- obj .:? "deploymentVersion"
+    fld_describeWorkerDeploymentVersionRequestReporttaskqueuestats <- obj .:? "reportTaskQueueStats"
+    pure defaultDescribeWorkerDeploymentVersionRequest
+      { describeWorkerDeploymentVersionRequestNamespace = maybe (describeWorkerDeploymentVersionRequestNamespace defaultDescribeWorkerDeploymentVersionRequest) id fld_describeWorkerDeploymentVersionRequestNamespace
+      , describeWorkerDeploymentVersionRequestVersion = maybe (describeWorkerDeploymentVersionRequestVersion defaultDescribeWorkerDeploymentVersionRequest) id fld_describeWorkerDeploymentVersionRequestVersion
+      , describeWorkerDeploymentVersionRequestDeploymentversion = maybe (describeWorkerDeploymentVersionRequestDeploymentversion defaultDescribeWorkerDeploymentVersionRequest) id fld_describeWorkerDeploymentVersionRequestDeploymentversion
+      , describeWorkerDeploymentVersionRequestReporttaskqueuestats = maybe (describeWorkerDeploymentVersionRequestReporttaskqueuestats defaultDescribeWorkerDeploymentVersionRequest) id fld_describeWorkerDeploymentVersionRequestReporttaskqueuestats
+      }
   protoFromJSON _ = Right defaultDescribeWorkerDeploymentVersionRequest
 
 data DescribeWorkerDeploymentVersionResponse = DescribeWorkerDeploymentVersionResponse
@@ -10461,7 +12076,7 @@ instance MessageSize DescribeWorkerDeploymentVersionResponse'VersionTaskQueue wh
     (if msg.describeWorkerDeploymentVersionResponseVersionTaskQueueName == T.empty then 0 else fieldTextSize 1 msg.describeWorkerDeploymentVersionResponseVersionTaskQueueName)
     + (if fromEnum msg.describeWorkerDeploymentVersionResponseVersionTaskQueueType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.describeWorkerDeploymentVersionResponseVersionTaskQueueType)))
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.describeWorkerDeploymentVersionResponseVersionTaskQueueStats)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 4 + 20) 0 msg.describeWorkerDeploymentVersionResponseVersionTaskQueueStatsbyprioritykey)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldVarintSize 1 (fromIntegral k) + fieldMessageSize 2 (messageSize v) in acc + tagSize 4 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.describeWorkerDeploymentVersionResponseVersionTaskQueueStatsbyprioritykey)
 
 instance MessageDecode DescribeWorkerDeploymentVersionResponse'VersionTaskQueue where
   messageDecoder = loop "" (toEnum 0) Nothing Map.empty
@@ -10497,6 +12112,17 @@ instance ProtoToJSON DescribeWorkerDeploymentVersionResponse'VersionTaskQueue wh
       ]
 
 instance ProtoFromJSON DescribeWorkerDeploymentVersionResponse'VersionTaskQueue where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkerDeploymentVersionResponseVersionTaskQueueName <- obj .:? "name"
+    fld_describeWorkerDeploymentVersionResponseVersionTaskQueueType <- obj .:? "type"
+    fld_describeWorkerDeploymentVersionResponseVersionTaskQueueStats <- obj .:? "stats"
+    fld_describeWorkerDeploymentVersionResponseVersionTaskQueueStatsbyprioritykey <- obj .:? "statsByPriorityKey"
+    pure defaultDescribeWorkerDeploymentVersionResponse'VersionTaskQueue
+      { describeWorkerDeploymentVersionResponseVersionTaskQueueName = maybe (describeWorkerDeploymentVersionResponseVersionTaskQueueName defaultDescribeWorkerDeploymentVersionResponse'VersionTaskQueue) id fld_describeWorkerDeploymentVersionResponseVersionTaskQueueName
+      , describeWorkerDeploymentVersionResponseVersionTaskQueueType = maybe (describeWorkerDeploymentVersionResponseVersionTaskQueueType defaultDescribeWorkerDeploymentVersionResponse'VersionTaskQueue) id fld_describeWorkerDeploymentVersionResponseVersionTaskQueueType
+      , describeWorkerDeploymentVersionResponseVersionTaskQueueStats = maybe (describeWorkerDeploymentVersionResponseVersionTaskQueueStats defaultDescribeWorkerDeploymentVersionResponse'VersionTaskQueue) id fld_describeWorkerDeploymentVersionResponseVersionTaskQueueStats
+      , describeWorkerDeploymentVersionResponseVersionTaskQueueStatsbyprioritykey = maybe (describeWorkerDeploymentVersionResponseVersionTaskQueueStatsbyprioritykey defaultDescribeWorkerDeploymentVersionResponse'VersionTaskQueue) id fld_describeWorkerDeploymentVersionResponseVersionTaskQueueStatsbyprioritykey
+      }
   protoFromJSON _ = Right defaultDescribeWorkerDeploymentVersionResponse'VersionTaskQueue
 
 defaultDescribeWorkerDeploymentVersionResponse :: DescribeWorkerDeploymentVersionResponse
@@ -10538,6 +12164,13 @@ instance ProtoToJSON DescribeWorkerDeploymentVersionResponse where
       ]
 
 instance ProtoFromJSON DescribeWorkerDeploymentVersionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkerDeploymentVersionResponseWorkerdeploymentversioninfo <- obj .:? "workerDeploymentVersionInfo"
+    fld_describeWorkerDeploymentVersionResponseVersiontaskqueues <- obj .:? "versionTaskQueues"
+    pure defaultDescribeWorkerDeploymentVersionResponse
+      { describeWorkerDeploymentVersionResponseWorkerdeploymentversioninfo = maybe (describeWorkerDeploymentVersionResponseWorkerdeploymentversioninfo defaultDescribeWorkerDeploymentVersionResponse) id fld_describeWorkerDeploymentVersionResponseWorkerdeploymentversioninfo
+      , describeWorkerDeploymentVersionResponseVersiontaskqueues = maybe (describeWorkerDeploymentVersionResponseVersiontaskqueues defaultDescribeWorkerDeploymentVersionResponse) id fld_describeWorkerDeploymentVersionResponseVersiontaskqueues
+      }
   protoFromJSON _ = Right defaultDescribeWorkerDeploymentVersionResponse
 
 data DescribeWorkerDeploymentRequest = DescribeWorkerDeploymentRequest
@@ -10586,6 +12219,13 @@ instance ProtoToJSON DescribeWorkerDeploymentRequest where
       ]
 
 instance ProtoFromJSON DescribeWorkerDeploymentRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkerDeploymentRequestNamespace <- obj .:? "namespace"
+    fld_describeWorkerDeploymentRequestDeploymentname <- obj .:? "deploymentName"
+    pure defaultDescribeWorkerDeploymentRequest
+      { describeWorkerDeploymentRequestNamespace = maybe (describeWorkerDeploymentRequestNamespace defaultDescribeWorkerDeploymentRequest) id fld_describeWorkerDeploymentRequestNamespace
+      , describeWorkerDeploymentRequestDeploymentname = maybe (describeWorkerDeploymentRequestDeploymentname defaultDescribeWorkerDeploymentRequest) id fld_describeWorkerDeploymentRequestDeploymentname
+      }
   protoFromJSON _ = Right defaultDescribeWorkerDeploymentRequest
 
 data DescribeWorkerDeploymentResponse = DescribeWorkerDeploymentResponse
@@ -10634,6 +12274,13 @@ instance ProtoToJSON DescribeWorkerDeploymentResponse where
       ]
 
 instance ProtoFromJSON DescribeWorkerDeploymentResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkerDeploymentResponseConflicttoken <- obj .:? "conflictToken"
+    fld_describeWorkerDeploymentResponseWorkerdeploymentinfo <- obj .:? "workerDeploymentInfo"
+    pure defaultDescribeWorkerDeploymentResponse
+      { describeWorkerDeploymentResponseConflicttoken = maybe (describeWorkerDeploymentResponseConflicttoken defaultDescribeWorkerDeploymentResponse) id fld_describeWorkerDeploymentResponseConflicttoken
+      , describeWorkerDeploymentResponseWorkerdeploymentinfo = maybe (describeWorkerDeploymentResponseWorkerdeploymentinfo defaultDescribeWorkerDeploymentResponse) id fld_describeWorkerDeploymentResponseWorkerdeploymentinfo
+      }
   protoFromJSON _ = Right defaultDescribeWorkerDeploymentResponse
 
 data ListDeploymentsRequest = ListDeploymentsRequest
@@ -10698,6 +12345,17 @@ instance ProtoToJSON ListDeploymentsRequest where
       ]
 
 instance ProtoFromJSON ListDeploymentsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listDeploymentsRequestNamespace <- obj .:? "namespace"
+    fld_listDeploymentsRequestPagesize <- obj .:? "pageSize"
+    fld_listDeploymentsRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listDeploymentsRequestSeriesname <- obj .:? "seriesName"
+    pure defaultListDeploymentsRequest
+      { listDeploymentsRequestNamespace = maybe (listDeploymentsRequestNamespace defaultListDeploymentsRequest) id fld_listDeploymentsRequestNamespace
+      , listDeploymentsRequestPagesize = maybe (listDeploymentsRequestPagesize defaultListDeploymentsRequest) id fld_listDeploymentsRequestPagesize
+      , listDeploymentsRequestNextpagetoken = maybe (listDeploymentsRequestNextpagetoken defaultListDeploymentsRequest) id fld_listDeploymentsRequestNextpagetoken
+      , listDeploymentsRequestSeriesname = maybe (listDeploymentsRequestSeriesname defaultListDeploymentsRequest) id fld_listDeploymentsRequestSeriesname
+      }
   protoFromJSON _ = Right defaultListDeploymentsRequest
 
 data ListDeploymentsResponse = ListDeploymentsResponse
@@ -10746,6 +12404,13 @@ instance ProtoToJSON ListDeploymentsResponse where
       ]
 
 instance ProtoFromJSON ListDeploymentsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listDeploymentsResponseNextpagetoken <- obj .:? "nextPageToken"
+    fld_listDeploymentsResponseDeployments <- obj .:? "deployments"
+    pure defaultListDeploymentsResponse
+      { listDeploymentsResponseNextpagetoken = maybe (listDeploymentsResponseNextpagetoken defaultListDeploymentsResponse) id fld_listDeploymentsResponseNextpagetoken
+      , listDeploymentsResponseDeployments = maybe (listDeploymentsResponseDeployments defaultListDeploymentsResponse) id fld_listDeploymentsResponseDeployments
+      }
   protoFromJSON _ = Right defaultListDeploymentsResponse
 
 data SetCurrentDeploymentRequest = SetCurrentDeploymentRequest
@@ -10810,6 +12475,17 @@ instance ProtoToJSON SetCurrentDeploymentRequest where
       ]
 
 instance ProtoFromJSON SetCurrentDeploymentRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_setCurrentDeploymentRequestNamespace <- obj .:? "namespace"
+    fld_setCurrentDeploymentRequestDeployment <- obj .:? "deployment"
+    fld_setCurrentDeploymentRequestIdentity <- obj .:? "identity"
+    fld_setCurrentDeploymentRequestUpdatemetadata <- obj .:? "updateMetadata"
+    pure defaultSetCurrentDeploymentRequest
+      { setCurrentDeploymentRequestNamespace = maybe (setCurrentDeploymentRequestNamespace defaultSetCurrentDeploymentRequest) id fld_setCurrentDeploymentRequestNamespace
+      , setCurrentDeploymentRequestDeployment = maybe (setCurrentDeploymentRequestDeployment defaultSetCurrentDeploymentRequest) id fld_setCurrentDeploymentRequestDeployment
+      , setCurrentDeploymentRequestIdentity = maybe (setCurrentDeploymentRequestIdentity defaultSetCurrentDeploymentRequest) id fld_setCurrentDeploymentRequestIdentity
+      , setCurrentDeploymentRequestUpdatemetadata = maybe (setCurrentDeploymentRequestUpdatemetadata defaultSetCurrentDeploymentRequest) id fld_setCurrentDeploymentRequestUpdatemetadata
+      }
   protoFromJSON _ = Right defaultSetCurrentDeploymentRequest
 
 data SetCurrentDeploymentResponse = SetCurrentDeploymentResponse
@@ -10858,6 +12534,13 @@ instance ProtoToJSON SetCurrentDeploymentResponse where
       ]
 
 instance ProtoFromJSON SetCurrentDeploymentResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_setCurrentDeploymentResponseCurrentdeploymentinfo <- obj .:? "currentDeploymentInfo"
+    fld_setCurrentDeploymentResponsePreviousdeploymentinfo <- obj .:? "previousDeploymentInfo"
+    pure defaultSetCurrentDeploymentResponse
+      { setCurrentDeploymentResponseCurrentdeploymentinfo = maybe (setCurrentDeploymentResponseCurrentdeploymentinfo defaultSetCurrentDeploymentResponse) id fld_setCurrentDeploymentResponseCurrentdeploymentinfo
+      , setCurrentDeploymentResponsePreviousdeploymentinfo = maybe (setCurrentDeploymentResponsePreviousdeploymentinfo defaultSetCurrentDeploymentResponse) id fld_setCurrentDeploymentResponsePreviousdeploymentinfo
+      }
   protoFromJSON _ = Right defaultSetCurrentDeploymentResponse
 
 data SetWorkerDeploymentCurrentVersionRequest = SetWorkerDeploymentCurrentVersionRequest
@@ -10954,6 +12637,25 @@ instance ProtoToJSON SetWorkerDeploymentCurrentVersionRequest where
       ]
 
 instance ProtoFromJSON SetWorkerDeploymentCurrentVersionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_setWorkerDeploymentCurrentVersionRequestNamespace <- obj .:? "namespace"
+    fld_setWorkerDeploymentCurrentVersionRequestDeploymentname <- obj .:? "deploymentName"
+    fld_setWorkerDeploymentCurrentVersionRequestVersion <- obj .:? "version"
+    fld_setWorkerDeploymentCurrentVersionRequestBuildid <- obj .:? "buildId"
+    fld_setWorkerDeploymentCurrentVersionRequestConflicttoken <- obj .:? "conflictToken"
+    fld_setWorkerDeploymentCurrentVersionRequestIdentity <- obj .:? "identity"
+    fld_setWorkerDeploymentCurrentVersionRequestIgnoremissingtaskqueues <- obj .:? "ignoreMissingTaskQueues"
+    fld_setWorkerDeploymentCurrentVersionRequestAllownopollers <- obj .:? "allowNoPollers"
+    pure defaultSetWorkerDeploymentCurrentVersionRequest
+      { setWorkerDeploymentCurrentVersionRequestNamespace = maybe (setWorkerDeploymentCurrentVersionRequestNamespace defaultSetWorkerDeploymentCurrentVersionRequest) id fld_setWorkerDeploymentCurrentVersionRequestNamespace
+      , setWorkerDeploymentCurrentVersionRequestDeploymentname = maybe (setWorkerDeploymentCurrentVersionRequestDeploymentname defaultSetWorkerDeploymentCurrentVersionRequest) id fld_setWorkerDeploymentCurrentVersionRequestDeploymentname
+      , setWorkerDeploymentCurrentVersionRequestVersion = maybe (setWorkerDeploymentCurrentVersionRequestVersion defaultSetWorkerDeploymentCurrentVersionRequest) id fld_setWorkerDeploymentCurrentVersionRequestVersion
+      , setWorkerDeploymentCurrentVersionRequestBuildid = maybe (setWorkerDeploymentCurrentVersionRequestBuildid defaultSetWorkerDeploymentCurrentVersionRequest) id fld_setWorkerDeploymentCurrentVersionRequestBuildid
+      , setWorkerDeploymentCurrentVersionRequestConflicttoken = maybe (setWorkerDeploymentCurrentVersionRequestConflicttoken defaultSetWorkerDeploymentCurrentVersionRequest) id fld_setWorkerDeploymentCurrentVersionRequestConflicttoken
+      , setWorkerDeploymentCurrentVersionRequestIdentity = maybe (setWorkerDeploymentCurrentVersionRequestIdentity defaultSetWorkerDeploymentCurrentVersionRequest) id fld_setWorkerDeploymentCurrentVersionRequestIdentity
+      , setWorkerDeploymentCurrentVersionRequestIgnoremissingtaskqueues = maybe (setWorkerDeploymentCurrentVersionRequestIgnoremissingtaskqueues defaultSetWorkerDeploymentCurrentVersionRequest) id fld_setWorkerDeploymentCurrentVersionRequestIgnoremissingtaskqueues
+      , setWorkerDeploymentCurrentVersionRequestAllownopollers = maybe (setWorkerDeploymentCurrentVersionRequestAllownopollers defaultSetWorkerDeploymentCurrentVersionRequest) id fld_setWorkerDeploymentCurrentVersionRequestAllownopollers
+      }
   protoFromJSON _ = Right defaultSetWorkerDeploymentCurrentVersionRequest
 
 data SetWorkerDeploymentCurrentVersionResponse = SetWorkerDeploymentCurrentVersionResponse
@@ -11010,6 +12712,15 @@ instance ProtoToJSON SetWorkerDeploymentCurrentVersionResponse where
       ]
 
 instance ProtoFromJSON SetWorkerDeploymentCurrentVersionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_setWorkerDeploymentCurrentVersionResponseConflicttoken <- obj .:? "conflictToken"
+    fld_setWorkerDeploymentCurrentVersionResponsePreviousversion <- obj .:? "previousVersion"
+    fld_setWorkerDeploymentCurrentVersionResponsePreviousdeploymentversion <- obj .:? "previousDeploymentVersion"
+    pure defaultSetWorkerDeploymentCurrentVersionResponse
+      { setWorkerDeploymentCurrentVersionResponseConflicttoken = maybe (setWorkerDeploymentCurrentVersionResponseConflicttoken defaultSetWorkerDeploymentCurrentVersionResponse) id fld_setWorkerDeploymentCurrentVersionResponseConflicttoken
+      , setWorkerDeploymentCurrentVersionResponsePreviousversion = maybe (setWorkerDeploymentCurrentVersionResponsePreviousversion defaultSetWorkerDeploymentCurrentVersionResponse) id fld_setWorkerDeploymentCurrentVersionResponsePreviousversion
+      , setWorkerDeploymentCurrentVersionResponsePreviousdeploymentversion = maybe (setWorkerDeploymentCurrentVersionResponsePreviousdeploymentversion defaultSetWorkerDeploymentCurrentVersionResponse) id fld_setWorkerDeploymentCurrentVersionResponsePreviousdeploymentversion
+      }
   protoFromJSON _ = Right defaultSetWorkerDeploymentCurrentVersionResponse
 
 data SetWorkerDeploymentRampingVersionRequest = SetWorkerDeploymentRampingVersionRequest
@@ -11114,6 +12825,27 @@ instance ProtoToJSON SetWorkerDeploymentRampingVersionRequest where
       ]
 
 instance ProtoFromJSON SetWorkerDeploymentRampingVersionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_setWorkerDeploymentRampingVersionRequestNamespace <- obj .:? "namespace"
+    fld_setWorkerDeploymentRampingVersionRequestDeploymentname <- obj .:? "deploymentName"
+    fld_setWorkerDeploymentRampingVersionRequestVersion <- obj .:? "version"
+    fld_setWorkerDeploymentRampingVersionRequestBuildid <- obj .:? "buildId"
+    fld_setWorkerDeploymentRampingVersionRequestPercentage <- obj .:? "percentage"
+    fld_setWorkerDeploymentRampingVersionRequestConflicttoken <- obj .:? "conflictToken"
+    fld_setWorkerDeploymentRampingVersionRequestIdentity <- obj .:? "identity"
+    fld_setWorkerDeploymentRampingVersionRequestIgnoremissingtaskqueues <- obj .:? "ignoreMissingTaskQueues"
+    fld_setWorkerDeploymentRampingVersionRequestAllownopollers <- obj .:? "allowNoPollers"
+    pure defaultSetWorkerDeploymentRampingVersionRequest
+      { setWorkerDeploymentRampingVersionRequestNamespace = maybe (setWorkerDeploymentRampingVersionRequestNamespace defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestNamespace
+      , setWorkerDeploymentRampingVersionRequestDeploymentname = maybe (setWorkerDeploymentRampingVersionRequestDeploymentname defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestDeploymentname
+      , setWorkerDeploymentRampingVersionRequestVersion = maybe (setWorkerDeploymentRampingVersionRequestVersion defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestVersion
+      , setWorkerDeploymentRampingVersionRequestBuildid = maybe (setWorkerDeploymentRampingVersionRequestBuildid defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestBuildid
+      , setWorkerDeploymentRampingVersionRequestPercentage = maybe (setWorkerDeploymentRampingVersionRequestPercentage defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestPercentage
+      , setWorkerDeploymentRampingVersionRequestConflicttoken = maybe (setWorkerDeploymentRampingVersionRequestConflicttoken defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestConflicttoken
+      , setWorkerDeploymentRampingVersionRequestIdentity = maybe (setWorkerDeploymentRampingVersionRequestIdentity defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestIdentity
+      , setWorkerDeploymentRampingVersionRequestIgnoremissingtaskqueues = maybe (setWorkerDeploymentRampingVersionRequestIgnoremissingtaskqueues defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestIgnoremissingtaskqueues
+      , setWorkerDeploymentRampingVersionRequestAllownopollers = maybe (setWorkerDeploymentRampingVersionRequestAllownopollers defaultSetWorkerDeploymentRampingVersionRequest) id fld_setWorkerDeploymentRampingVersionRequestAllownopollers
+      }
   protoFromJSON _ = Right defaultSetWorkerDeploymentRampingVersionRequest
 
 data SetWorkerDeploymentRampingVersionResponse = SetWorkerDeploymentRampingVersionResponse
@@ -11178,6 +12910,17 @@ instance ProtoToJSON SetWorkerDeploymentRampingVersionResponse where
       ]
 
 instance ProtoFromJSON SetWorkerDeploymentRampingVersionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_setWorkerDeploymentRampingVersionResponseConflicttoken <- obj .:? "conflictToken"
+    fld_setWorkerDeploymentRampingVersionResponsePreviousversion <- obj .:? "previousVersion"
+    fld_setWorkerDeploymentRampingVersionResponsePreviousdeploymentversion <- obj .:? "previousDeploymentVersion"
+    fld_setWorkerDeploymentRampingVersionResponsePreviouspercentage <- obj .:? "previousPercentage"
+    pure defaultSetWorkerDeploymentRampingVersionResponse
+      { setWorkerDeploymentRampingVersionResponseConflicttoken = maybe (setWorkerDeploymentRampingVersionResponseConflicttoken defaultSetWorkerDeploymentRampingVersionResponse) id fld_setWorkerDeploymentRampingVersionResponseConflicttoken
+      , setWorkerDeploymentRampingVersionResponsePreviousversion = maybe (setWorkerDeploymentRampingVersionResponsePreviousversion defaultSetWorkerDeploymentRampingVersionResponse) id fld_setWorkerDeploymentRampingVersionResponsePreviousversion
+      , setWorkerDeploymentRampingVersionResponsePreviousdeploymentversion = maybe (setWorkerDeploymentRampingVersionResponsePreviousdeploymentversion defaultSetWorkerDeploymentRampingVersionResponse) id fld_setWorkerDeploymentRampingVersionResponsePreviousdeploymentversion
+      , setWorkerDeploymentRampingVersionResponsePreviouspercentage = maybe (setWorkerDeploymentRampingVersionResponsePreviouspercentage defaultSetWorkerDeploymentRampingVersionResponse) id fld_setWorkerDeploymentRampingVersionResponsePreviouspercentage
+      }
   protoFromJSON _ = Right defaultSetWorkerDeploymentRampingVersionResponse
 
 data ListWorkerDeploymentsRequest = ListWorkerDeploymentsRequest
@@ -11234,6 +12977,15 @@ instance ProtoToJSON ListWorkerDeploymentsRequest where
       ]
 
 instance ProtoFromJSON ListWorkerDeploymentsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkerDeploymentsRequestNamespace <- obj .:? "namespace"
+    fld_listWorkerDeploymentsRequestPagesize <- obj .:? "pageSize"
+    fld_listWorkerDeploymentsRequestNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListWorkerDeploymentsRequest
+      { listWorkerDeploymentsRequestNamespace = maybe (listWorkerDeploymentsRequestNamespace defaultListWorkerDeploymentsRequest) id fld_listWorkerDeploymentsRequestNamespace
+      , listWorkerDeploymentsRequestPagesize = maybe (listWorkerDeploymentsRequestPagesize defaultListWorkerDeploymentsRequest) id fld_listWorkerDeploymentsRequestPagesize
+      , listWorkerDeploymentsRequestNextpagetoken = maybe (listWorkerDeploymentsRequestNextpagetoken defaultListWorkerDeploymentsRequest) id fld_listWorkerDeploymentsRequestNextpagetoken
+      }
   protoFromJSON _ = Right defaultListWorkerDeploymentsRequest
 
 data ListWorkerDeploymentsResponse = ListWorkerDeploymentsResponse
@@ -11321,6 +13073,21 @@ instance ProtoToJSON ListWorkerDeploymentsResponse'WorkerDeploymentSummary where
       ]
 
 instance ProtoFromJSON ListWorkerDeploymentsResponse'WorkerDeploymentSummary where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryName <- obj .:? "name"
+    fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryCreatetime <- obj .:? "createTime"
+    fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryRoutingconfig <- obj .:? "routingConfig"
+    fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryLatestversionsummary <- obj .:? "latestVersionSummary"
+    fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryCurrentversionsummary <- obj .:? "currentVersionSummary"
+    fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryRampingversionsummary <- obj .:? "rampingVersionSummary"
+    pure defaultListWorkerDeploymentsResponse'WorkerDeploymentSummary
+      { listWorkerDeploymentsResponseWorkerDeploymentSummaryName = maybe (listWorkerDeploymentsResponseWorkerDeploymentSummaryName defaultListWorkerDeploymentsResponse'WorkerDeploymentSummary) id fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryName
+      , listWorkerDeploymentsResponseWorkerDeploymentSummaryCreatetime = maybe (listWorkerDeploymentsResponseWorkerDeploymentSummaryCreatetime defaultListWorkerDeploymentsResponse'WorkerDeploymentSummary) id fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryCreatetime
+      , listWorkerDeploymentsResponseWorkerDeploymentSummaryRoutingconfig = maybe (listWorkerDeploymentsResponseWorkerDeploymentSummaryRoutingconfig defaultListWorkerDeploymentsResponse'WorkerDeploymentSummary) id fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryRoutingconfig
+      , listWorkerDeploymentsResponseWorkerDeploymentSummaryLatestversionsummary = maybe (listWorkerDeploymentsResponseWorkerDeploymentSummaryLatestversionsummary defaultListWorkerDeploymentsResponse'WorkerDeploymentSummary) id fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryLatestversionsummary
+      , listWorkerDeploymentsResponseWorkerDeploymentSummaryCurrentversionsummary = maybe (listWorkerDeploymentsResponseWorkerDeploymentSummaryCurrentversionsummary defaultListWorkerDeploymentsResponse'WorkerDeploymentSummary) id fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryCurrentversionsummary
+      , listWorkerDeploymentsResponseWorkerDeploymentSummaryRampingversionsummary = maybe (listWorkerDeploymentsResponseWorkerDeploymentSummaryRampingversionsummary defaultListWorkerDeploymentsResponse'WorkerDeploymentSummary) id fld_listWorkerDeploymentsResponseWorkerDeploymentSummaryRampingversionsummary
+      }
   protoFromJSON _ = Right defaultListWorkerDeploymentsResponse'WorkerDeploymentSummary
 
 defaultListWorkerDeploymentsResponse :: ListWorkerDeploymentsResponse
@@ -11362,6 +13129,13 @@ instance ProtoToJSON ListWorkerDeploymentsResponse where
       ]
 
 instance ProtoFromJSON ListWorkerDeploymentsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkerDeploymentsResponseNextpagetoken <- obj .:? "nextPageToken"
+    fld_listWorkerDeploymentsResponseWorkerdeployments <- obj .:? "workerDeployments"
+    pure defaultListWorkerDeploymentsResponse
+      { listWorkerDeploymentsResponseNextpagetoken = maybe (listWorkerDeploymentsResponseNextpagetoken defaultListWorkerDeploymentsResponse) id fld_listWorkerDeploymentsResponseNextpagetoken
+      , listWorkerDeploymentsResponseWorkerdeployments = maybe (listWorkerDeploymentsResponseWorkerdeployments defaultListWorkerDeploymentsResponse) id fld_listWorkerDeploymentsResponseWorkerdeployments
+      }
   protoFromJSON _ = Right defaultListWorkerDeploymentsResponse
 
 data DeleteWorkerDeploymentVersionRequest = DeleteWorkerDeploymentVersionRequest
@@ -11434,6 +13208,19 @@ instance ProtoToJSON DeleteWorkerDeploymentVersionRequest where
       ]
 
 instance ProtoFromJSON DeleteWorkerDeploymentVersionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteWorkerDeploymentVersionRequestNamespace <- obj .:? "namespace"
+    fld_deleteWorkerDeploymentVersionRequestVersion <- obj .:? "version"
+    fld_deleteWorkerDeploymentVersionRequestDeploymentversion <- obj .:? "deploymentVersion"
+    fld_deleteWorkerDeploymentVersionRequestSkipdrainage <- obj .:? "skipDrainage"
+    fld_deleteWorkerDeploymentVersionRequestIdentity <- obj .:? "identity"
+    pure defaultDeleteWorkerDeploymentVersionRequest
+      { deleteWorkerDeploymentVersionRequestNamespace = maybe (deleteWorkerDeploymentVersionRequestNamespace defaultDeleteWorkerDeploymentVersionRequest) id fld_deleteWorkerDeploymentVersionRequestNamespace
+      , deleteWorkerDeploymentVersionRequestVersion = maybe (deleteWorkerDeploymentVersionRequestVersion defaultDeleteWorkerDeploymentVersionRequest) id fld_deleteWorkerDeploymentVersionRequestVersion
+      , deleteWorkerDeploymentVersionRequestDeploymentversion = maybe (deleteWorkerDeploymentVersionRequestDeploymentversion defaultDeleteWorkerDeploymentVersionRequest) id fld_deleteWorkerDeploymentVersionRequestDeploymentversion
+      , deleteWorkerDeploymentVersionRequestSkipdrainage = maybe (deleteWorkerDeploymentVersionRequestSkipdrainage defaultDeleteWorkerDeploymentVersionRequest) id fld_deleteWorkerDeploymentVersionRequestSkipdrainage
+      , deleteWorkerDeploymentVersionRequestIdentity = maybe (deleteWorkerDeploymentVersionRequestIdentity defaultDeleteWorkerDeploymentVersionRequest) id fld_deleteWorkerDeploymentVersionRequestIdentity
+      }
   protoFromJSON _ = Right defaultDeleteWorkerDeploymentVersionRequest
 
 data DeleteWorkerDeploymentVersionResponse = DeleteWorkerDeploymentVersionResponse
@@ -11524,6 +13311,15 @@ instance ProtoToJSON DeleteWorkerDeploymentRequest where
       ]
 
 instance ProtoFromJSON DeleteWorkerDeploymentRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteWorkerDeploymentRequestNamespace <- obj .:? "namespace"
+    fld_deleteWorkerDeploymentRequestDeploymentname <- obj .:? "deploymentName"
+    fld_deleteWorkerDeploymentRequestIdentity <- obj .:? "identity"
+    pure defaultDeleteWorkerDeploymentRequest
+      { deleteWorkerDeploymentRequestNamespace = maybe (deleteWorkerDeploymentRequestNamespace defaultDeleteWorkerDeploymentRequest) id fld_deleteWorkerDeploymentRequestNamespace
+      , deleteWorkerDeploymentRequestDeploymentname = maybe (deleteWorkerDeploymentRequestDeploymentname defaultDeleteWorkerDeploymentRequest) id fld_deleteWorkerDeploymentRequestDeploymentname
+      , deleteWorkerDeploymentRequestIdentity = maybe (deleteWorkerDeploymentRequestIdentity defaultDeleteWorkerDeploymentRequest) id fld_deleteWorkerDeploymentRequestIdentity
+      }
   protoFromJSON _ = Right defaultDeleteWorkerDeploymentRequest
 
 data DeleteWorkerDeploymentResponse = DeleteWorkerDeploymentResponse
@@ -11595,8 +13391,8 @@ instance MessageSize UpdateWorkerDeploymentVersionMetadataRequest where
     (if msg.updateWorkerDeploymentVersionMetadataRequestNamespace == T.empty then 0 else fieldTextSize 1 msg.updateWorkerDeploymentVersionMetadataRequestNamespace)
     + (if msg.updateWorkerDeploymentVersionMetadataRequestVersion == T.empty then 0 else fieldTextSize 2 msg.updateWorkerDeploymentVersionMetadataRequestVersion)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.updateWorkerDeploymentVersionMetadataRequestDeploymentversion)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 3 + 20) 0 msg.updateWorkerDeploymentVersionMetadataRequestUpsertentries)
-    + 0 {- TODO: repeated size -}
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.updateWorkerDeploymentVersionMetadataRequestUpsertentries)
+    + (V.foldl' (\acc v -> acc + fieldTextSize 4 v) 0 msg.updateWorkerDeploymentVersionMetadataRequestRemoveentries)
     + (if msg.updateWorkerDeploymentVersionMetadataRequestIdentity == T.empty then 0 else fieldTextSize 6 msg.updateWorkerDeploymentVersionMetadataRequestIdentity)
 
 instance MessageDecode UpdateWorkerDeploymentVersionMetadataRequest where
@@ -11641,6 +13437,21 @@ instance ProtoToJSON UpdateWorkerDeploymentVersionMetadataRequest where
       ]
 
 instance ProtoFromJSON UpdateWorkerDeploymentVersionMetadataRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerDeploymentVersionMetadataRequestNamespace <- obj .:? "namespace"
+    fld_updateWorkerDeploymentVersionMetadataRequestVersion <- obj .:? "version"
+    fld_updateWorkerDeploymentVersionMetadataRequestDeploymentversion <- obj .:? "deploymentVersion"
+    fld_updateWorkerDeploymentVersionMetadataRequestUpsertentries <- obj .:? "upsertEntries"
+    fld_updateWorkerDeploymentVersionMetadataRequestRemoveentries <- obj .:? "removeEntries"
+    fld_updateWorkerDeploymentVersionMetadataRequestIdentity <- obj .:? "identity"
+    pure defaultUpdateWorkerDeploymentVersionMetadataRequest
+      { updateWorkerDeploymentVersionMetadataRequestNamespace = maybe (updateWorkerDeploymentVersionMetadataRequestNamespace defaultUpdateWorkerDeploymentVersionMetadataRequest) id fld_updateWorkerDeploymentVersionMetadataRequestNamespace
+      , updateWorkerDeploymentVersionMetadataRequestVersion = maybe (updateWorkerDeploymentVersionMetadataRequestVersion defaultUpdateWorkerDeploymentVersionMetadataRequest) id fld_updateWorkerDeploymentVersionMetadataRequestVersion
+      , updateWorkerDeploymentVersionMetadataRequestDeploymentversion = maybe (updateWorkerDeploymentVersionMetadataRequestDeploymentversion defaultUpdateWorkerDeploymentVersionMetadataRequest) id fld_updateWorkerDeploymentVersionMetadataRequestDeploymentversion
+      , updateWorkerDeploymentVersionMetadataRequestUpsertentries = maybe (updateWorkerDeploymentVersionMetadataRequestUpsertentries defaultUpdateWorkerDeploymentVersionMetadataRequest) id fld_updateWorkerDeploymentVersionMetadataRequestUpsertentries
+      , updateWorkerDeploymentVersionMetadataRequestRemoveentries = maybe (updateWorkerDeploymentVersionMetadataRequestRemoveentries defaultUpdateWorkerDeploymentVersionMetadataRequest) id fld_updateWorkerDeploymentVersionMetadataRequestRemoveentries
+      , updateWorkerDeploymentVersionMetadataRequestIdentity = maybe (updateWorkerDeploymentVersionMetadataRequestIdentity defaultUpdateWorkerDeploymentVersionMetadataRequest) id fld_updateWorkerDeploymentVersionMetadataRequestIdentity
+      }
   protoFromJSON _ = Right defaultUpdateWorkerDeploymentVersionMetadataRequest
 
 data UpdateWorkerDeploymentVersionMetadataResponse = UpdateWorkerDeploymentVersionMetadataResponse
@@ -11682,6 +13493,11 @@ instance ProtoToJSON UpdateWorkerDeploymentVersionMetadataResponse where
       ]
 
 instance ProtoFromJSON UpdateWorkerDeploymentVersionMetadataResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerDeploymentVersionMetadataResponseMetadata <- obj .:? "metadata"
+    pure defaultUpdateWorkerDeploymentVersionMetadataResponse
+      { updateWorkerDeploymentVersionMetadataResponseMetadata = maybe (updateWorkerDeploymentVersionMetadataResponseMetadata defaultUpdateWorkerDeploymentVersionMetadataResponse) id fld_updateWorkerDeploymentVersionMetadataResponseMetadata
+      }
   protoFromJSON _ = Right defaultUpdateWorkerDeploymentVersionMetadataResponse
 
 data SetWorkerDeploymentManagerRequest = SetWorkerDeploymentManagerRequest
@@ -11770,6 +13586,19 @@ instance ProtoToJSON SetWorkerDeploymentManagerRequest where
       ]
 
 instance ProtoFromJSON SetWorkerDeploymentManagerRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_setWorkerDeploymentManagerRequestNamespace <- obj .:? "namespace"
+    fld_setWorkerDeploymentManagerRequestDeploymentname <- obj .:? "deploymentName"
+    fld_setWorkerDeploymentManagerRequestNewmanageridentity <- obj .:? "newManagerIdentity"
+    fld_setWorkerDeploymentManagerRequestConflicttoken <- obj .:? "conflictToken"
+    fld_setWorkerDeploymentManagerRequestIdentity <- obj .:? "identity"
+    pure defaultSetWorkerDeploymentManagerRequest
+      { setWorkerDeploymentManagerRequestNamespace = maybe (setWorkerDeploymentManagerRequestNamespace defaultSetWorkerDeploymentManagerRequest) id fld_setWorkerDeploymentManagerRequestNamespace
+      , setWorkerDeploymentManagerRequestDeploymentname = maybe (setWorkerDeploymentManagerRequestDeploymentname defaultSetWorkerDeploymentManagerRequest) id fld_setWorkerDeploymentManagerRequestDeploymentname
+      , setWorkerDeploymentManagerRequestNewmanageridentity = maybe (setWorkerDeploymentManagerRequestNewmanageridentity defaultSetWorkerDeploymentManagerRequest) id fld_setWorkerDeploymentManagerRequestNewmanageridentity
+      , setWorkerDeploymentManagerRequestConflicttoken = maybe (setWorkerDeploymentManagerRequestConflicttoken defaultSetWorkerDeploymentManagerRequest) id fld_setWorkerDeploymentManagerRequestConflicttoken
+      , setWorkerDeploymentManagerRequestIdentity = maybe (setWorkerDeploymentManagerRequestIdentity defaultSetWorkerDeploymentManagerRequest) id fld_setWorkerDeploymentManagerRequestIdentity
+      }
   protoFromJSON _ = Right defaultSetWorkerDeploymentManagerRequest
 
 data SetWorkerDeploymentManagerResponse = SetWorkerDeploymentManagerResponse
@@ -11818,6 +13647,13 @@ instance ProtoToJSON SetWorkerDeploymentManagerResponse where
       ]
 
 instance ProtoFromJSON SetWorkerDeploymentManagerResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_setWorkerDeploymentManagerResponseConflicttoken <- obj .:? "conflictToken"
+    fld_setWorkerDeploymentManagerResponsePreviousmanageridentity <- obj .:? "previousManagerIdentity"
+    pure defaultSetWorkerDeploymentManagerResponse
+      { setWorkerDeploymentManagerResponseConflicttoken = maybe (setWorkerDeploymentManagerResponseConflicttoken defaultSetWorkerDeploymentManagerResponse) id fld_setWorkerDeploymentManagerResponseConflicttoken
+      , setWorkerDeploymentManagerResponsePreviousmanageridentity = maybe (setWorkerDeploymentManagerResponsePreviousmanageridentity defaultSetWorkerDeploymentManagerResponse) id fld_setWorkerDeploymentManagerResponsePreviousmanageridentity
+      }
   protoFromJSON _ = Right defaultSetWorkerDeploymentManagerResponse
 
 data GetCurrentDeploymentRequest = GetCurrentDeploymentRequest
@@ -11866,6 +13702,13 @@ instance ProtoToJSON GetCurrentDeploymentRequest where
       ]
 
 instance ProtoFromJSON GetCurrentDeploymentRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_getCurrentDeploymentRequestNamespace <- obj .:? "namespace"
+    fld_getCurrentDeploymentRequestSeriesname <- obj .:? "seriesName"
+    pure defaultGetCurrentDeploymentRequest
+      { getCurrentDeploymentRequestNamespace = maybe (getCurrentDeploymentRequestNamespace defaultGetCurrentDeploymentRequest) id fld_getCurrentDeploymentRequestNamespace
+      , getCurrentDeploymentRequestSeriesname = maybe (getCurrentDeploymentRequestSeriesname defaultGetCurrentDeploymentRequest) id fld_getCurrentDeploymentRequestSeriesname
+      }
   protoFromJSON _ = Right defaultGetCurrentDeploymentRequest
 
 data GetCurrentDeploymentResponse = GetCurrentDeploymentResponse
@@ -11907,6 +13750,11 @@ instance ProtoToJSON GetCurrentDeploymentResponse where
       ]
 
 instance ProtoFromJSON GetCurrentDeploymentResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getCurrentDeploymentResponseCurrentdeploymentinfo <- obj .:? "currentDeploymentInfo"
+    pure defaultGetCurrentDeploymentResponse
+      { getCurrentDeploymentResponseCurrentdeploymentinfo = maybe (getCurrentDeploymentResponseCurrentdeploymentinfo defaultGetCurrentDeploymentResponse) id fld_getCurrentDeploymentResponseCurrentdeploymentinfo
+      }
   protoFromJSON _ = Right defaultGetCurrentDeploymentResponse
 
 data GetDeploymentReachabilityRequest = GetDeploymentReachabilityRequest
@@ -11955,6 +13803,13 @@ instance ProtoToJSON GetDeploymentReachabilityRequest where
       ]
 
 instance ProtoFromJSON GetDeploymentReachabilityRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_getDeploymentReachabilityRequestNamespace <- obj .:? "namespace"
+    fld_getDeploymentReachabilityRequestDeployment <- obj .:? "deployment"
+    pure defaultGetDeploymentReachabilityRequest
+      { getDeploymentReachabilityRequestNamespace = maybe (getDeploymentReachabilityRequestNamespace defaultGetDeploymentReachabilityRequest) id fld_getDeploymentReachabilityRequestNamespace
+      , getDeploymentReachabilityRequestDeployment = maybe (getDeploymentReachabilityRequestDeployment defaultGetDeploymentReachabilityRequest) id fld_getDeploymentReachabilityRequestDeployment
+      }
   protoFromJSON _ = Right defaultGetDeploymentReachabilityRequest
 
 data GetDeploymentReachabilityResponse = GetDeploymentReachabilityResponse
@@ -12011,6 +13866,15 @@ instance ProtoToJSON GetDeploymentReachabilityResponse where
       ]
 
 instance ProtoFromJSON GetDeploymentReachabilityResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_getDeploymentReachabilityResponseDeploymentinfo <- obj .:? "deploymentInfo"
+    fld_getDeploymentReachabilityResponseReachability <- obj .:? "reachability"
+    fld_getDeploymentReachabilityResponseLastupdatetime <- obj .:? "lastUpdateTime"
+    pure defaultGetDeploymentReachabilityResponse
+      { getDeploymentReachabilityResponseDeploymentinfo = maybe (getDeploymentReachabilityResponseDeploymentinfo defaultGetDeploymentReachabilityResponse) id fld_getDeploymentReachabilityResponseDeploymentinfo
+      , getDeploymentReachabilityResponseReachability = maybe (getDeploymentReachabilityResponseReachability defaultGetDeploymentReachabilityResponse) id fld_getDeploymentReachabilityResponseReachability
+      , getDeploymentReachabilityResponseLastupdatetime = maybe (getDeploymentReachabilityResponseLastupdatetime defaultGetDeploymentReachabilityResponse) id fld_getDeploymentReachabilityResponseLastupdatetime
+      }
   protoFromJSON _ = Right defaultGetDeploymentReachabilityResponse
 
 data CreateWorkflowRuleRequest = CreateWorkflowRuleRequest
@@ -12091,6 +13955,21 @@ instance ProtoToJSON CreateWorkflowRuleRequest where
       ]
 
 instance ProtoFromJSON CreateWorkflowRuleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_createWorkflowRuleRequestNamespace <- obj .:? "namespace"
+    fld_createWorkflowRuleRequestSpec <- obj .:? "spec"
+    fld_createWorkflowRuleRequestForcescan <- obj .:? "forceScan"
+    fld_createWorkflowRuleRequestRequestid <- obj .:? "requestId"
+    fld_createWorkflowRuleRequestIdentity <- obj .:? "identity"
+    fld_createWorkflowRuleRequestDescription <- obj .:? "description"
+    pure defaultCreateWorkflowRuleRequest
+      { createWorkflowRuleRequestNamespace = maybe (createWorkflowRuleRequestNamespace defaultCreateWorkflowRuleRequest) id fld_createWorkflowRuleRequestNamespace
+      , createWorkflowRuleRequestSpec = maybe (createWorkflowRuleRequestSpec defaultCreateWorkflowRuleRequest) id fld_createWorkflowRuleRequestSpec
+      , createWorkflowRuleRequestForcescan = maybe (createWorkflowRuleRequestForcescan defaultCreateWorkflowRuleRequest) id fld_createWorkflowRuleRequestForcescan
+      , createWorkflowRuleRequestRequestid = maybe (createWorkflowRuleRequestRequestid defaultCreateWorkflowRuleRequest) id fld_createWorkflowRuleRequestRequestid
+      , createWorkflowRuleRequestIdentity = maybe (createWorkflowRuleRequestIdentity defaultCreateWorkflowRuleRequest) id fld_createWorkflowRuleRequestIdentity
+      , createWorkflowRuleRequestDescription = maybe (createWorkflowRuleRequestDescription defaultCreateWorkflowRuleRequest) id fld_createWorkflowRuleRequestDescription
+      }
   protoFromJSON _ = Right defaultCreateWorkflowRuleRequest
 
 data CreateWorkflowRuleResponse = CreateWorkflowRuleResponse
@@ -12139,6 +14018,13 @@ instance ProtoToJSON CreateWorkflowRuleResponse where
       ]
 
 instance ProtoFromJSON CreateWorkflowRuleResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_createWorkflowRuleResponseRule <- obj .:? "rule"
+    fld_createWorkflowRuleResponseJobid <- obj .:? "jobId"
+    pure defaultCreateWorkflowRuleResponse
+      { createWorkflowRuleResponseRule = maybe (createWorkflowRuleResponseRule defaultCreateWorkflowRuleResponse) id fld_createWorkflowRuleResponseRule
+      , createWorkflowRuleResponseJobid = maybe (createWorkflowRuleResponseJobid defaultCreateWorkflowRuleResponse) id fld_createWorkflowRuleResponseJobid
+      }
   protoFromJSON _ = Right defaultCreateWorkflowRuleResponse
 
 data DescribeWorkflowRuleRequest = DescribeWorkflowRuleRequest
@@ -12187,6 +14073,13 @@ instance ProtoToJSON DescribeWorkflowRuleRequest where
       ]
 
 instance ProtoFromJSON DescribeWorkflowRuleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkflowRuleRequestNamespace <- obj .:? "namespace"
+    fld_describeWorkflowRuleRequestRuleid <- obj .:? "ruleId"
+    pure defaultDescribeWorkflowRuleRequest
+      { describeWorkflowRuleRequestNamespace = maybe (describeWorkflowRuleRequestNamespace defaultDescribeWorkflowRuleRequest) id fld_describeWorkflowRuleRequestNamespace
+      , describeWorkflowRuleRequestRuleid = maybe (describeWorkflowRuleRequestRuleid defaultDescribeWorkflowRuleRequest) id fld_describeWorkflowRuleRequestRuleid
+      }
   protoFromJSON _ = Right defaultDescribeWorkflowRuleRequest
 
 data DescribeWorkflowRuleResponse = DescribeWorkflowRuleResponse
@@ -12228,6 +14121,11 @@ instance ProtoToJSON DescribeWorkflowRuleResponse where
       ]
 
 instance ProtoFromJSON DescribeWorkflowRuleResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkflowRuleResponseRule <- obj .:? "rule"
+    pure defaultDescribeWorkflowRuleResponse
+      { describeWorkflowRuleResponseRule = maybe (describeWorkflowRuleResponseRule defaultDescribeWorkflowRuleResponse) id fld_describeWorkflowRuleResponseRule
+      }
   protoFromJSON _ = Right defaultDescribeWorkflowRuleResponse
 
 data DeleteWorkflowRuleRequest = DeleteWorkflowRuleRequest
@@ -12276,6 +14174,13 @@ instance ProtoToJSON DeleteWorkflowRuleRequest where
       ]
 
 instance ProtoFromJSON DeleteWorkflowRuleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteWorkflowRuleRequestNamespace <- obj .:? "namespace"
+    fld_deleteWorkflowRuleRequestRuleid <- obj .:? "ruleId"
+    pure defaultDeleteWorkflowRuleRequest
+      { deleteWorkflowRuleRequestNamespace = maybe (deleteWorkflowRuleRequestNamespace defaultDeleteWorkflowRuleRequest) id fld_deleteWorkflowRuleRequestNamespace
+      , deleteWorkflowRuleRequestRuleid = maybe (deleteWorkflowRuleRequestRuleid defaultDeleteWorkflowRuleRequest) id fld_deleteWorkflowRuleRequestRuleid
+      }
   protoFromJSON _ = Right defaultDeleteWorkflowRuleRequest
 
 data DeleteWorkflowRuleResponse = DeleteWorkflowRuleResponse
@@ -12358,6 +14263,13 @@ instance ProtoToJSON ListWorkflowRulesRequest where
       ]
 
 instance ProtoFromJSON ListWorkflowRulesRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkflowRulesRequestNamespace <- obj .:? "namespace"
+    fld_listWorkflowRulesRequestNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListWorkflowRulesRequest
+      { listWorkflowRulesRequestNamespace = maybe (listWorkflowRulesRequestNamespace defaultListWorkflowRulesRequest) id fld_listWorkflowRulesRequestNamespace
+      , listWorkflowRulesRequestNextpagetoken = maybe (listWorkflowRulesRequestNextpagetoken defaultListWorkflowRulesRequest) id fld_listWorkflowRulesRequestNextpagetoken
+      }
   protoFromJSON _ = Right defaultListWorkflowRulesRequest
 
 data ListWorkflowRulesResponse = ListWorkflowRulesResponse
@@ -12406,6 +14318,13 @@ instance ProtoToJSON ListWorkflowRulesResponse where
       ]
 
 instance ProtoFromJSON ListWorkflowRulesResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkflowRulesResponseRules <- obj .:? "rules"
+    fld_listWorkflowRulesResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListWorkflowRulesResponse
+      { listWorkflowRulesResponseRules = maybe (listWorkflowRulesResponseRules defaultListWorkflowRulesResponse) id fld_listWorkflowRulesResponseRules
+      , listWorkflowRulesResponseNextpagetoken = maybe (listWorkflowRulesResponseNextpagetoken defaultListWorkflowRulesResponse) id fld_listWorkflowRulesResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListWorkflowRulesResponse
 
 data TriggerWorkflowRuleRequest = TriggerWorkflowRuleRequest
@@ -12486,6 +14405,17 @@ instance ProtoToJSON TriggerWorkflowRuleRequest where
       ]
 
 instance ProtoFromJSON TriggerWorkflowRuleRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_triggerWorkflowRuleRequestNamespace <- obj .:? "namespace"
+    fld_triggerWorkflowRuleRequestExecution <- obj .:? "execution"
+    fld_triggerWorkflowRuleRequestRule <- obj .:? "rule"
+    fld_triggerWorkflowRuleRequestIdentity <- obj .:? "identity"
+    pure defaultTriggerWorkflowRuleRequest
+      { triggerWorkflowRuleRequestNamespace = maybe (triggerWorkflowRuleRequestNamespace defaultTriggerWorkflowRuleRequest) id fld_triggerWorkflowRuleRequestNamespace
+      , triggerWorkflowRuleRequestExecution = maybe (triggerWorkflowRuleRequestExecution defaultTriggerWorkflowRuleRequest) id fld_triggerWorkflowRuleRequestExecution
+      , triggerWorkflowRuleRequestRule = maybe (triggerWorkflowRuleRequestRule defaultTriggerWorkflowRuleRequest) id fld_triggerWorkflowRuleRequestRule
+      , triggerWorkflowRuleRequestIdentity = maybe (triggerWorkflowRuleRequestIdentity defaultTriggerWorkflowRuleRequest) id fld_triggerWorkflowRuleRequestIdentity
+      }
   protoFromJSON _ = Right defaultTriggerWorkflowRuleRequest
 
 data TriggerWorkflowRuleResponse = TriggerWorkflowRuleResponse
@@ -12527,6 +14457,11 @@ instance ProtoToJSON TriggerWorkflowRuleResponse where
       ]
 
 instance ProtoFromJSON TriggerWorkflowRuleResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_triggerWorkflowRuleResponseApplied <- obj .:? "applied"
+    pure defaultTriggerWorkflowRuleResponse
+      { triggerWorkflowRuleResponseApplied = maybe (triggerWorkflowRuleResponseApplied defaultTriggerWorkflowRuleResponse) id fld_triggerWorkflowRuleResponseApplied
+      }
   protoFromJSON _ = Right defaultTriggerWorkflowRuleResponse
 
 data RecordWorkerHeartbeatRequest = RecordWorkerHeartbeatRequest
@@ -12583,6 +14518,15 @@ instance ProtoToJSON RecordWorkerHeartbeatRequest where
       ]
 
 instance ProtoFromJSON RecordWorkerHeartbeatRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_recordWorkerHeartbeatRequestNamespace <- obj .:? "namespace"
+    fld_recordWorkerHeartbeatRequestIdentity <- obj .:? "identity"
+    fld_recordWorkerHeartbeatRequestWorkerheartbeat <- obj .:? "workerHeartbeat"
+    pure defaultRecordWorkerHeartbeatRequest
+      { recordWorkerHeartbeatRequestNamespace = maybe (recordWorkerHeartbeatRequestNamespace defaultRecordWorkerHeartbeatRequest) id fld_recordWorkerHeartbeatRequestNamespace
+      , recordWorkerHeartbeatRequestIdentity = maybe (recordWorkerHeartbeatRequestIdentity defaultRecordWorkerHeartbeatRequest) id fld_recordWorkerHeartbeatRequestIdentity
+      , recordWorkerHeartbeatRequestWorkerheartbeat = maybe (recordWorkerHeartbeatRequestWorkerheartbeat defaultRecordWorkerHeartbeatRequest) id fld_recordWorkerHeartbeatRequestWorkerheartbeat
+      }
   protoFromJSON _ = Right defaultRecordWorkerHeartbeatRequest
 
 data RecordWorkerHeartbeatResponse = RecordWorkerHeartbeatResponse
@@ -12681,6 +14625,17 @@ instance ProtoToJSON ListWorkersRequest where
       ]
 
 instance ProtoFromJSON ListWorkersRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkersRequestNamespace <- obj .:? "namespace"
+    fld_listWorkersRequestPagesize <- obj .:? "pageSize"
+    fld_listWorkersRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listWorkersRequestQuery <- obj .:? "query"
+    pure defaultListWorkersRequest
+      { listWorkersRequestNamespace = maybe (listWorkersRequestNamespace defaultListWorkersRequest) id fld_listWorkersRequestNamespace
+      , listWorkersRequestPagesize = maybe (listWorkersRequestPagesize defaultListWorkersRequest) id fld_listWorkersRequestPagesize
+      , listWorkersRequestNextpagetoken = maybe (listWorkersRequestNextpagetoken defaultListWorkersRequest) id fld_listWorkersRequestNextpagetoken
+      , listWorkersRequestQuery = maybe (listWorkersRequestQuery defaultListWorkersRequest) id fld_listWorkersRequestQuery
+      }
   protoFromJSON _ = Right defaultListWorkersRequest
 
 data ListWorkersResponse = ListWorkersResponse
@@ -12729,6 +14684,13 @@ instance ProtoToJSON ListWorkersResponse where
       ]
 
 instance ProtoFromJSON ListWorkersResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listWorkersResponseWorkersinfo <- obj .:? "workersInfo"
+    fld_listWorkersResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListWorkersResponse
+      { listWorkersResponseWorkersinfo = maybe (listWorkersResponseWorkersinfo defaultListWorkersResponse) id fld_listWorkersResponseWorkersinfo
+      , listWorkersResponseNextpagetoken = maybe (listWorkersResponseNextpagetoken defaultListWorkersResponse) id fld_listWorkersResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListWorkersResponse
 
 data UpdateTaskQueueConfigRequest = UpdateTaskQueueConfigRequest
@@ -12790,6 +14752,13 @@ instance ProtoToJSON UpdateTaskQueueConfigRequest'RateLimitUpdate where
       ]
 
 instance ProtoFromJSON UpdateTaskQueueConfigRequest'RateLimitUpdate where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateTaskQueueConfigRequestRateLimitUpdateRatelimit <- obj .:? "rateLimit"
+    fld_updateTaskQueueConfigRequestRateLimitUpdateReason <- obj .:? "reason"
+    pure defaultUpdateTaskQueueConfigRequest'RateLimitUpdate
+      { updateTaskQueueConfigRequestRateLimitUpdateRatelimit = maybe (updateTaskQueueConfigRequestRateLimitUpdateRatelimit defaultUpdateTaskQueueConfigRequest'RateLimitUpdate) id fld_updateTaskQueueConfigRequestRateLimitUpdateRatelimit
+      , updateTaskQueueConfigRequestRateLimitUpdateReason = maybe (updateTaskQueueConfigRequestRateLimitUpdateReason defaultUpdateTaskQueueConfigRequest'RateLimitUpdate) id fld_updateTaskQueueConfigRequestRateLimitUpdateReason
+      }
   protoFromJSON _ = Right defaultUpdateTaskQueueConfigRequest'RateLimitUpdate
 
 defaultUpdateTaskQueueConfigRequest :: UpdateTaskQueueConfigRequest
@@ -12823,8 +14792,8 @@ instance MessageSize UpdateTaskQueueConfigRequest where
     + (if fromEnum msg.updateTaskQueueConfigRequestTaskqueuetype == 0 then 0 else fieldVarintSize 4 (fromIntegral (fromEnum msg.updateTaskQueueConfigRequestTaskqueuetype)))
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.updateTaskQueueConfigRequestUpdatequeueratelimit)
     + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.updateTaskQueueConfigRequestUpdatefairnesskeyratelimitdefault)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 7 + 20) 0 msg.updateTaskQueueConfigRequestSetfairnessweightoverrides)
-    + 0 {- TODO: repeated size -}
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldFloatSize 2 in acc + tagSize 7 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.updateTaskQueueConfigRequestSetfairnessweightoverrides)
+    + (V.foldl' (\acc v -> acc + fieldTextSize 8 v) 0 msg.updateTaskQueueConfigRequestUnsetfairnessweightoverrides)
 
 instance MessageDecode UpdateTaskQueueConfigRequest where
   messageDecoder = loop "" "" "" (toEnum 0) Nothing Nothing Map.empty V.empty
@@ -12876,6 +14845,25 @@ instance ProtoToJSON UpdateTaskQueueConfigRequest where
       ]
 
 instance ProtoFromJSON UpdateTaskQueueConfigRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateTaskQueueConfigRequestNamespace <- obj .:? "namespace"
+    fld_updateTaskQueueConfigRequestIdentity <- obj .:? "identity"
+    fld_updateTaskQueueConfigRequestTaskqueue <- obj .:? "taskQueue"
+    fld_updateTaskQueueConfigRequestTaskqueuetype <- obj .:? "taskQueueType"
+    fld_updateTaskQueueConfigRequestUpdatequeueratelimit <- obj .:? "updateQueueRateLimit"
+    fld_updateTaskQueueConfigRequestUpdatefairnesskeyratelimitdefault <- obj .:? "updateFairnessKeyRateLimitDefault"
+    fld_updateTaskQueueConfigRequestSetfairnessweightoverrides <- obj .:? "setFairnessWeightOverrides"
+    fld_updateTaskQueueConfigRequestUnsetfairnessweightoverrides <- obj .:? "unsetFairnessWeightOverrides"
+    pure defaultUpdateTaskQueueConfigRequest
+      { updateTaskQueueConfigRequestNamespace = maybe (updateTaskQueueConfigRequestNamespace defaultUpdateTaskQueueConfigRequest) id fld_updateTaskQueueConfigRequestNamespace
+      , updateTaskQueueConfigRequestIdentity = maybe (updateTaskQueueConfigRequestIdentity defaultUpdateTaskQueueConfigRequest) id fld_updateTaskQueueConfigRequestIdentity
+      , updateTaskQueueConfigRequestTaskqueue = maybe (updateTaskQueueConfigRequestTaskqueue defaultUpdateTaskQueueConfigRequest) id fld_updateTaskQueueConfigRequestTaskqueue
+      , updateTaskQueueConfigRequestTaskqueuetype = maybe (updateTaskQueueConfigRequestTaskqueuetype defaultUpdateTaskQueueConfigRequest) id fld_updateTaskQueueConfigRequestTaskqueuetype
+      , updateTaskQueueConfigRequestUpdatequeueratelimit = maybe (updateTaskQueueConfigRequestUpdatequeueratelimit defaultUpdateTaskQueueConfigRequest) id fld_updateTaskQueueConfigRequestUpdatequeueratelimit
+      , updateTaskQueueConfigRequestUpdatefairnesskeyratelimitdefault = maybe (updateTaskQueueConfigRequestUpdatefairnesskeyratelimitdefault defaultUpdateTaskQueueConfigRequest) id fld_updateTaskQueueConfigRequestUpdatefairnesskeyratelimitdefault
+      , updateTaskQueueConfigRequestSetfairnessweightoverrides = maybe (updateTaskQueueConfigRequestSetfairnessweightoverrides defaultUpdateTaskQueueConfigRequest) id fld_updateTaskQueueConfigRequestSetfairnessweightoverrides
+      , updateTaskQueueConfigRequestUnsetfairnessweightoverrides = maybe (updateTaskQueueConfigRequestUnsetfairnessweightoverrides defaultUpdateTaskQueueConfigRequest) id fld_updateTaskQueueConfigRequestUnsetfairnessweightoverrides
+      }
   protoFromJSON _ = Right defaultUpdateTaskQueueConfigRequest
 
 data UpdateTaskQueueConfigResponse = UpdateTaskQueueConfigResponse
@@ -12917,6 +14905,11 @@ instance ProtoToJSON UpdateTaskQueueConfigResponse where
       ]
 
 instance ProtoFromJSON UpdateTaskQueueConfigResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateTaskQueueConfigResponseConfig <- obj .:? "config"
+    pure defaultUpdateTaskQueueConfigResponse
+      { updateTaskQueueConfigResponseConfig = maybe (updateTaskQueueConfigResponseConfig defaultUpdateTaskQueueConfigResponse) id fld_updateTaskQueueConfigResponseConfig
+      }
   protoFromJSON _ = Right defaultUpdateTaskQueueConfigResponse
 
 data FetchWorkerConfigRequest = FetchWorkerConfigRequest
@@ -12981,6 +14974,17 @@ instance ProtoToJSON FetchWorkerConfigRequest where
       ]
 
 instance ProtoFromJSON FetchWorkerConfigRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_fetchWorkerConfigRequestNamespace <- obj .:? "namespace"
+    fld_fetchWorkerConfigRequestIdentity <- obj .:? "identity"
+    fld_fetchWorkerConfigRequestReason <- obj .:? "reason"
+    fld_fetchWorkerConfigRequestSelector <- obj .:? "selector"
+    pure defaultFetchWorkerConfigRequest
+      { fetchWorkerConfigRequestNamespace = maybe (fetchWorkerConfigRequestNamespace defaultFetchWorkerConfigRequest) id fld_fetchWorkerConfigRequestNamespace
+      , fetchWorkerConfigRequestIdentity = maybe (fetchWorkerConfigRequestIdentity defaultFetchWorkerConfigRequest) id fld_fetchWorkerConfigRequestIdentity
+      , fetchWorkerConfigRequestReason = maybe (fetchWorkerConfigRequestReason defaultFetchWorkerConfigRequest) id fld_fetchWorkerConfigRequestReason
+      , fetchWorkerConfigRequestSelector = maybe (fetchWorkerConfigRequestSelector defaultFetchWorkerConfigRequest) id fld_fetchWorkerConfigRequestSelector
+      }
   protoFromJSON _ = Right defaultFetchWorkerConfigRequest
 
 data FetchWorkerConfigResponse = FetchWorkerConfigResponse
@@ -13022,6 +15026,11 @@ instance ProtoToJSON FetchWorkerConfigResponse where
       ]
 
 instance ProtoFromJSON FetchWorkerConfigResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_fetchWorkerConfigResponseWorkerconfig <- obj .:? "workerConfig"
+    pure defaultFetchWorkerConfigResponse
+      { fetchWorkerConfigResponseWorkerconfig = maybe (fetchWorkerConfigResponseWorkerconfig defaultFetchWorkerConfigResponse) id fld_fetchWorkerConfigResponseWorkerconfig
+      }
   protoFromJSON _ = Right defaultFetchWorkerConfigResponse
 
 data UpdateWorkerConfigRequest = UpdateWorkerConfigRequest
@@ -13102,6 +15111,21 @@ instance ProtoToJSON UpdateWorkerConfigRequest where
       ]
 
 instance ProtoFromJSON UpdateWorkerConfigRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerConfigRequestNamespace <- obj .:? "namespace"
+    fld_updateWorkerConfigRequestIdentity <- obj .:? "identity"
+    fld_updateWorkerConfigRequestReason <- obj .:? "reason"
+    fld_updateWorkerConfigRequestWorkerconfig <- obj .:? "workerConfig"
+    fld_updateWorkerConfigRequestUpdatemask <- obj .:? "updateMask"
+    fld_updateWorkerConfigRequestSelector <- obj .:? "selector"
+    pure defaultUpdateWorkerConfigRequest
+      { updateWorkerConfigRequestNamespace = maybe (updateWorkerConfigRequestNamespace defaultUpdateWorkerConfigRequest) id fld_updateWorkerConfigRequestNamespace
+      , updateWorkerConfigRequestIdentity = maybe (updateWorkerConfigRequestIdentity defaultUpdateWorkerConfigRequest) id fld_updateWorkerConfigRequestIdentity
+      , updateWorkerConfigRequestReason = maybe (updateWorkerConfigRequestReason defaultUpdateWorkerConfigRequest) id fld_updateWorkerConfigRequestReason
+      , updateWorkerConfigRequestWorkerconfig = maybe (updateWorkerConfigRequestWorkerconfig defaultUpdateWorkerConfigRequest) id fld_updateWorkerConfigRequestWorkerconfig
+      , updateWorkerConfigRequestUpdatemask = maybe (updateWorkerConfigRequestUpdatemask defaultUpdateWorkerConfigRequest) id fld_updateWorkerConfigRequestUpdatemask
+      , updateWorkerConfigRequestSelector = maybe (updateWorkerConfigRequestSelector defaultUpdateWorkerConfigRequest) id fld_updateWorkerConfigRequestSelector
+      }
   protoFromJSON _ = Right defaultUpdateWorkerConfigRequest
 
 data UpdateWorkerConfigResponse = UpdateWorkerConfigResponse
@@ -13153,6 +15177,11 @@ instance ProtoToJSON UpdateWorkerConfigResponse where
       ]
 
 instance ProtoFromJSON UpdateWorkerConfigResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateWorkerConfigResponseResponse <- obj .:? "response"
+    pure defaultUpdateWorkerConfigResponse
+      { updateWorkerConfigResponseResponse = maybe (updateWorkerConfigResponseResponse defaultUpdateWorkerConfigResponse) id fld_updateWorkerConfigResponseResponse
+      }
   protoFromJSON _ = Right defaultUpdateWorkerConfigResponse
 
 data DescribeWorkerRequest = DescribeWorkerRequest
@@ -13201,6 +15230,13 @@ instance ProtoToJSON DescribeWorkerRequest where
       ]
 
 instance ProtoFromJSON DescribeWorkerRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkerRequestNamespace <- obj .:? "namespace"
+    fld_describeWorkerRequestWorkerinstancekey <- obj .:? "workerInstanceKey"
+    pure defaultDescribeWorkerRequest
+      { describeWorkerRequestNamespace = maybe (describeWorkerRequestNamespace defaultDescribeWorkerRequest) id fld_describeWorkerRequestNamespace
+      , describeWorkerRequestWorkerinstancekey = maybe (describeWorkerRequestWorkerinstancekey defaultDescribeWorkerRequest) id fld_describeWorkerRequestWorkerinstancekey
+      }
   protoFromJSON _ = Right defaultDescribeWorkerRequest
 
 data DescribeWorkerResponse = DescribeWorkerResponse
@@ -13242,6 +15278,11 @@ instance ProtoToJSON DescribeWorkerResponse where
       ]
 
 instance ProtoFromJSON DescribeWorkerResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeWorkerResponseWorkerinfo <- obj .:? "workerInfo"
+    pure defaultDescribeWorkerResponse
+      { describeWorkerResponseWorkerinfo = maybe (describeWorkerResponseWorkerinfo defaultDescribeWorkerResponse) id fld_describeWorkerResponseWorkerinfo
+      }
   protoFromJSON _ = Right defaultDescribeWorkerResponse
 
 data PauseWorkflowExecutionRequest = PauseWorkflowExecutionRequest
@@ -13322,6 +15363,21 @@ instance ProtoToJSON PauseWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON PauseWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_pauseWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_pauseWorkflowExecutionRequestWorkflowid <- obj .:? "workflowId"
+    fld_pauseWorkflowExecutionRequestRunid <- obj .:? "runId"
+    fld_pauseWorkflowExecutionRequestIdentity <- obj .:? "identity"
+    fld_pauseWorkflowExecutionRequestReason <- obj .:? "reason"
+    fld_pauseWorkflowExecutionRequestRequestid <- obj .:? "requestId"
+    pure defaultPauseWorkflowExecutionRequest
+      { pauseWorkflowExecutionRequestNamespace = maybe (pauseWorkflowExecutionRequestNamespace defaultPauseWorkflowExecutionRequest) id fld_pauseWorkflowExecutionRequestNamespace
+      , pauseWorkflowExecutionRequestWorkflowid = maybe (pauseWorkflowExecutionRequestWorkflowid defaultPauseWorkflowExecutionRequest) id fld_pauseWorkflowExecutionRequestWorkflowid
+      , pauseWorkflowExecutionRequestRunid = maybe (pauseWorkflowExecutionRequestRunid defaultPauseWorkflowExecutionRequest) id fld_pauseWorkflowExecutionRequestRunid
+      , pauseWorkflowExecutionRequestIdentity = maybe (pauseWorkflowExecutionRequestIdentity defaultPauseWorkflowExecutionRequest) id fld_pauseWorkflowExecutionRequestIdentity
+      , pauseWorkflowExecutionRequestReason = maybe (pauseWorkflowExecutionRequestReason defaultPauseWorkflowExecutionRequest) id fld_pauseWorkflowExecutionRequestReason
+      , pauseWorkflowExecutionRequestRequestid = maybe (pauseWorkflowExecutionRequestRequestid defaultPauseWorkflowExecutionRequest) id fld_pauseWorkflowExecutionRequestRequestid
+      }
   protoFromJSON _ = Right defaultPauseWorkflowExecutionRequest
 
 data PauseWorkflowExecutionResponse = PauseWorkflowExecutionResponse
@@ -13436,6 +15492,21 @@ instance ProtoToJSON UnpauseWorkflowExecutionRequest where
       ]
 
 instance ProtoFromJSON UnpauseWorkflowExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_unpauseWorkflowExecutionRequestNamespace <- obj .:? "namespace"
+    fld_unpauseWorkflowExecutionRequestWorkflowid <- obj .:? "workflowId"
+    fld_unpauseWorkflowExecutionRequestRunid <- obj .:? "runId"
+    fld_unpauseWorkflowExecutionRequestIdentity <- obj .:? "identity"
+    fld_unpauseWorkflowExecutionRequestReason <- obj .:? "reason"
+    fld_unpauseWorkflowExecutionRequestRequestid <- obj .:? "requestId"
+    pure defaultUnpauseWorkflowExecutionRequest
+      { unpauseWorkflowExecutionRequestNamespace = maybe (unpauseWorkflowExecutionRequestNamespace defaultUnpauseWorkflowExecutionRequest) id fld_unpauseWorkflowExecutionRequestNamespace
+      , unpauseWorkflowExecutionRequestWorkflowid = maybe (unpauseWorkflowExecutionRequestWorkflowid defaultUnpauseWorkflowExecutionRequest) id fld_unpauseWorkflowExecutionRequestWorkflowid
+      , unpauseWorkflowExecutionRequestRunid = maybe (unpauseWorkflowExecutionRequestRunid defaultUnpauseWorkflowExecutionRequest) id fld_unpauseWorkflowExecutionRequestRunid
+      , unpauseWorkflowExecutionRequestIdentity = maybe (unpauseWorkflowExecutionRequestIdentity defaultUnpauseWorkflowExecutionRequest) id fld_unpauseWorkflowExecutionRequestIdentity
+      , unpauseWorkflowExecutionRequestReason = maybe (unpauseWorkflowExecutionRequestReason defaultUnpauseWorkflowExecutionRequest) id fld_unpauseWorkflowExecutionRequestReason
+      , unpauseWorkflowExecutionRequestRequestid = maybe (unpauseWorkflowExecutionRequestRequestid defaultUnpauseWorkflowExecutionRequest) id fld_unpauseWorkflowExecutionRequestRequestid
+      }
   protoFromJSON _ = Right defaultUnpauseWorkflowExecutionRequest
 
 data UnpauseWorkflowExecutionResponse = UnpauseWorkflowExecutionResponse
@@ -13646,6 +15717,45 @@ instance ProtoToJSON StartActivityExecutionRequest where
       ]
 
 instance ProtoFromJSON StartActivityExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_startActivityExecutionRequestNamespace <- obj .:? "namespace"
+    fld_startActivityExecutionRequestIdentity <- obj .:? "identity"
+    fld_startActivityExecutionRequestRequestid <- obj .:? "requestId"
+    fld_startActivityExecutionRequestActivityid <- obj .:? "activityId"
+    fld_startActivityExecutionRequestActivitytype <- obj .:? "activityType"
+    fld_startActivityExecutionRequestTaskqueue <- obj .:? "taskQueue"
+    fld_startActivityExecutionRequestScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
+    fld_startActivityExecutionRequestScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+    fld_startActivityExecutionRequestStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+    fld_startActivityExecutionRequestHeartbeattimeout <- obj .:? "heartbeatTimeout"
+    fld_startActivityExecutionRequestRetrypolicy <- obj .:? "retryPolicy"
+    fld_startActivityExecutionRequestInput <- obj .:? "input"
+    fld_startActivityExecutionRequestIdreusepolicy <- obj .:? "idReusePolicy"
+    fld_startActivityExecutionRequestIdconflictpolicy <- obj .:? "idConflictPolicy"
+    fld_startActivityExecutionRequestSearchattributes <- obj .:? "searchAttributes"
+    fld_startActivityExecutionRequestHeader <- obj .:? "header"
+    fld_startActivityExecutionRequestUsermetadata <- obj .:? "userMetadata"
+    fld_startActivityExecutionRequestPriority <- obj .:? "priority"
+    pure defaultStartActivityExecutionRequest
+      { startActivityExecutionRequestNamespace = maybe (startActivityExecutionRequestNamespace defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestNamespace
+      , startActivityExecutionRequestIdentity = maybe (startActivityExecutionRequestIdentity defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestIdentity
+      , startActivityExecutionRequestRequestid = maybe (startActivityExecutionRequestRequestid defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestRequestid
+      , startActivityExecutionRequestActivityid = maybe (startActivityExecutionRequestActivityid defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestActivityid
+      , startActivityExecutionRequestActivitytype = maybe (startActivityExecutionRequestActivitytype defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestActivitytype
+      , startActivityExecutionRequestTaskqueue = maybe (startActivityExecutionRequestTaskqueue defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestTaskqueue
+      , startActivityExecutionRequestScheduletoclosetimeout = maybe (startActivityExecutionRequestScheduletoclosetimeout defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestScheduletoclosetimeout
+      , startActivityExecutionRequestScheduletostarttimeout = maybe (startActivityExecutionRequestScheduletostarttimeout defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestScheduletostarttimeout
+      , startActivityExecutionRequestStarttoclosetimeout = maybe (startActivityExecutionRequestStarttoclosetimeout defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestStarttoclosetimeout
+      , startActivityExecutionRequestHeartbeattimeout = maybe (startActivityExecutionRequestHeartbeattimeout defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestHeartbeattimeout
+      , startActivityExecutionRequestRetrypolicy = maybe (startActivityExecutionRequestRetrypolicy defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestRetrypolicy
+      , startActivityExecutionRequestInput = maybe (startActivityExecutionRequestInput defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestInput
+      , startActivityExecutionRequestIdreusepolicy = maybe (startActivityExecutionRequestIdreusepolicy defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestIdreusepolicy
+      , startActivityExecutionRequestIdconflictpolicy = maybe (startActivityExecutionRequestIdconflictpolicy defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestIdconflictpolicy
+      , startActivityExecutionRequestSearchattributes = maybe (startActivityExecutionRequestSearchattributes defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestSearchattributes
+      , startActivityExecutionRequestHeader = maybe (startActivityExecutionRequestHeader defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestHeader
+      , startActivityExecutionRequestUsermetadata = maybe (startActivityExecutionRequestUsermetadata defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestUsermetadata
+      , startActivityExecutionRequestPriority = maybe (startActivityExecutionRequestPriority defaultStartActivityExecutionRequest) id fld_startActivityExecutionRequestPriority
+      }
   protoFromJSON _ = Right defaultStartActivityExecutionRequest
 
 data StartActivityExecutionResponse = StartActivityExecutionResponse
@@ -13694,6 +15804,13 @@ instance ProtoToJSON StartActivityExecutionResponse where
       ]
 
 instance ProtoFromJSON StartActivityExecutionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_startActivityExecutionResponseRunid <- obj .:? "runId"
+    fld_startActivityExecutionResponseStarted <- obj .:? "started"
+    pure defaultStartActivityExecutionResponse
+      { startActivityExecutionResponseRunid = maybe (startActivityExecutionResponseRunid defaultStartActivityExecutionResponse) id fld_startActivityExecutionResponseRunid
+      , startActivityExecutionResponseStarted = maybe (startActivityExecutionResponseStarted defaultStartActivityExecutionResponse) id fld_startActivityExecutionResponseStarted
+      }
   protoFromJSON _ = Right defaultStartActivityExecutionResponse
 
 data DescribeActivityExecutionRequest = DescribeActivityExecutionRequest
@@ -13774,6 +15891,21 @@ instance ProtoToJSON DescribeActivityExecutionRequest where
       ]
 
 instance ProtoFromJSON DescribeActivityExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeActivityExecutionRequestNamespace <- obj .:? "namespace"
+    fld_describeActivityExecutionRequestActivityid <- obj .:? "activityId"
+    fld_describeActivityExecutionRequestRunid <- obj .:? "runId"
+    fld_describeActivityExecutionRequestIncludeinput <- obj .:? "includeInput"
+    fld_describeActivityExecutionRequestIncludeoutcome <- obj .:? "includeOutcome"
+    fld_describeActivityExecutionRequestLongpolltoken <- obj .:? "longPollToken"
+    pure defaultDescribeActivityExecutionRequest
+      { describeActivityExecutionRequestNamespace = maybe (describeActivityExecutionRequestNamespace defaultDescribeActivityExecutionRequest) id fld_describeActivityExecutionRequestNamespace
+      , describeActivityExecutionRequestActivityid = maybe (describeActivityExecutionRequestActivityid defaultDescribeActivityExecutionRequest) id fld_describeActivityExecutionRequestActivityid
+      , describeActivityExecutionRequestRunid = maybe (describeActivityExecutionRequestRunid defaultDescribeActivityExecutionRequest) id fld_describeActivityExecutionRequestRunid
+      , describeActivityExecutionRequestIncludeinput = maybe (describeActivityExecutionRequestIncludeinput defaultDescribeActivityExecutionRequest) id fld_describeActivityExecutionRequestIncludeinput
+      , describeActivityExecutionRequestIncludeoutcome = maybe (describeActivityExecutionRequestIncludeoutcome defaultDescribeActivityExecutionRequest) id fld_describeActivityExecutionRequestIncludeoutcome
+      , describeActivityExecutionRequestLongpolltoken = maybe (describeActivityExecutionRequestLongpolltoken defaultDescribeActivityExecutionRequest) id fld_describeActivityExecutionRequestLongpolltoken
+      }
   protoFromJSON _ = Right defaultDescribeActivityExecutionRequest
 
 data DescribeActivityExecutionResponse = DescribeActivityExecutionResponse
@@ -13846,6 +15978,19 @@ instance ProtoToJSON DescribeActivityExecutionResponse where
       ]
 
 instance ProtoFromJSON DescribeActivityExecutionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_describeActivityExecutionResponseRunid <- obj .:? "runId"
+    fld_describeActivityExecutionResponseInfo <- obj .:? "info"
+    fld_describeActivityExecutionResponseInput <- obj .:? "input"
+    fld_describeActivityExecutionResponseOutcome <- obj .:? "outcome"
+    fld_describeActivityExecutionResponseLongpolltoken <- obj .:? "longPollToken"
+    pure defaultDescribeActivityExecutionResponse
+      { describeActivityExecutionResponseRunid = maybe (describeActivityExecutionResponseRunid defaultDescribeActivityExecutionResponse) id fld_describeActivityExecutionResponseRunid
+      , describeActivityExecutionResponseInfo = maybe (describeActivityExecutionResponseInfo defaultDescribeActivityExecutionResponse) id fld_describeActivityExecutionResponseInfo
+      , describeActivityExecutionResponseInput = maybe (describeActivityExecutionResponseInput defaultDescribeActivityExecutionResponse) id fld_describeActivityExecutionResponseInput
+      , describeActivityExecutionResponseOutcome = maybe (describeActivityExecutionResponseOutcome defaultDescribeActivityExecutionResponse) id fld_describeActivityExecutionResponseOutcome
+      , describeActivityExecutionResponseLongpolltoken = maybe (describeActivityExecutionResponseLongpolltoken defaultDescribeActivityExecutionResponse) id fld_describeActivityExecutionResponseLongpolltoken
+      }
   protoFromJSON _ = Right defaultDescribeActivityExecutionResponse
 
 data PollActivityExecutionRequest = PollActivityExecutionRequest
@@ -13902,6 +16047,15 @@ instance ProtoToJSON PollActivityExecutionRequest where
       ]
 
 instance ProtoFromJSON PollActivityExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollActivityExecutionRequestNamespace <- obj .:? "namespace"
+    fld_pollActivityExecutionRequestActivityid <- obj .:? "activityId"
+    fld_pollActivityExecutionRequestRunid <- obj .:? "runId"
+    pure defaultPollActivityExecutionRequest
+      { pollActivityExecutionRequestNamespace = maybe (pollActivityExecutionRequestNamespace defaultPollActivityExecutionRequest) id fld_pollActivityExecutionRequestNamespace
+      , pollActivityExecutionRequestActivityid = maybe (pollActivityExecutionRequestActivityid defaultPollActivityExecutionRequest) id fld_pollActivityExecutionRequestActivityid
+      , pollActivityExecutionRequestRunid = maybe (pollActivityExecutionRequestRunid defaultPollActivityExecutionRequest) id fld_pollActivityExecutionRequestRunid
+      }
   protoFromJSON _ = Right defaultPollActivityExecutionRequest
 
 data PollActivityExecutionResponse = PollActivityExecutionResponse
@@ -13950,6 +16104,13 @@ instance ProtoToJSON PollActivityExecutionResponse where
       ]
 
 instance ProtoFromJSON PollActivityExecutionResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_pollActivityExecutionResponseRunid <- obj .:? "runId"
+    fld_pollActivityExecutionResponseOutcome <- obj .:? "outcome"
+    pure defaultPollActivityExecutionResponse
+      { pollActivityExecutionResponseRunid = maybe (pollActivityExecutionResponseRunid defaultPollActivityExecutionResponse) id fld_pollActivityExecutionResponseRunid
+      , pollActivityExecutionResponseOutcome = maybe (pollActivityExecutionResponseOutcome defaultPollActivityExecutionResponse) id fld_pollActivityExecutionResponseOutcome
+      }
   protoFromJSON _ = Right defaultPollActivityExecutionResponse
 
 data ListActivityExecutionsRequest = ListActivityExecutionsRequest
@@ -14014,6 +16175,17 @@ instance ProtoToJSON ListActivityExecutionsRequest where
       ]
 
 instance ProtoFromJSON ListActivityExecutionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_listActivityExecutionsRequestNamespace <- obj .:? "namespace"
+    fld_listActivityExecutionsRequestPagesize <- obj .:? "pageSize"
+    fld_listActivityExecutionsRequestNextpagetoken <- obj .:? "nextPageToken"
+    fld_listActivityExecutionsRequestQuery <- obj .:? "query"
+    pure defaultListActivityExecutionsRequest
+      { listActivityExecutionsRequestNamespace = maybe (listActivityExecutionsRequestNamespace defaultListActivityExecutionsRequest) id fld_listActivityExecutionsRequestNamespace
+      , listActivityExecutionsRequestPagesize = maybe (listActivityExecutionsRequestPagesize defaultListActivityExecutionsRequest) id fld_listActivityExecutionsRequestPagesize
+      , listActivityExecutionsRequestNextpagetoken = maybe (listActivityExecutionsRequestNextpagetoken defaultListActivityExecutionsRequest) id fld_listActivityExecutionsRequestNextpagetoken
+      , listActivityExecutionsRequestQuery = maybe (listActivityExecutionsRequestQuery defaultListActivityExecutionsRequest) id fld_listActivityExecutionsRequestQuery
+      }
   protoFromJSON _ = Right defaultListActivityExecutionsRequest
 
 data ListActivityExecutionsResponse = ListActivityExecutionsResponse
@@ -14062,6 +16234,13 @@ instance ProtoToJSON ListActivityExecutionsResponse where
       ]
 
 instance ProtoFromJSON ListActivityExecutionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_listActivityExecutionsResponseExecutions <- obj .:? "executions"
+    fld_listActivityExecutionsResponseNextpagetoken <- obj .:? "nextPageToken"
+    pure defaultListActivityExecutionsResponse
+      { listActivityExecutionsResponseExecutions = maybe (listActivityExecutionsResponseExecutions defaultListActivityExecutionsResponse) id fld_listActivityExecutionsResponseExecutions
+      , listActivityExecutionsResponseNextpagetoken = maybe (listActivityExecutionsResponseNextpagetoken defaultListActivityExecutionsResponse) id fld_listActivityExecutionsResponseNextpagetoken
+      }
   protoFromJSON _ = Right defaultListActivityExecutionsResponse
 
 data CountActivityExecutionsRequest = CountActivityExecutionsRequest
@@ -14110,6 +16289,13 @@ instance ProtoToJSON CountActivityExecutionsRequest where
       ]
 
 instance ProtoFromJSON CountActivityExecutionsRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_countActivityExecutionsRequestNamespace <- obj .:? "namespace"
+    fld_countActivityExecutionsRequestQuery <- obj .:? "query"
+    pure defaultCountActivityExecutionsRequest
+      { countActivityExecutionsRequestNamespace = maybe (countActivityExecutionsRequestNamespace defaultCountActivityExecutionsRequest) id fld_countActivityExecutionsRequestNamespace
+      , countActivityExecutionsRequestQuery = maybe (countActivityExecutionsRequestQuery defaultCountActivityExecutionsRequest) id fld_countActivityExecutionsRequestQuery
+      }
   protoFromJSON _ = Right defaultCountActivityExecutionsRequest
 
 data CountActivityExecutionsResponse = CountActivityExecutionsResponse
@@ -14165,6 +16351,13 @@ instance ProtoToJSON CountActivityExecutionsResponse'AggregationGroup where
       ]
 
 instance ProtoFromJSON CountActivityExecutionsResponse'AggregationGroup where
+  protoFromJSON (JsonObject obj) = do
+    fld_countActivityExecutionsResponseAggregationGroupGroupvalues <- obj .:? "groupValues"
+    fld_countActivityExecutionsResponseAggregationGroupCount <- obj .:? "count"
+    pure defaultCountActivityExecutionsResponse'AggregationGroup
+      { countActivityExecutionsResponseAggregationGroupGroupvalues = maybe (countActivityExecutionsResponseAggregationGroupGroupvalues defaultCountActivityExecutionsResponse'AggregationGroup) id fld_countActivityExecutionsResponseAggregationGroupGroupvalues
+      , countActivityExecutionsResponseAggregationGroupCount = maybe (countActivityExecutionsResponseAggregationGroupCount defaultCountActivityExecutionsResponse'AggregationGroup) id fld_countActivityExecutionsResponseAggregationGroupCount
+      }
   protoFromJSON _ = Right defaultCountActivityExecutionsResponse'AggregationGroup
 
 defaultCountActivityExecutionsResponse :: CountActivityExecutionsResponse
@@ -14206,6 +16399,13 @@ instance ProtoToJSON CountActivityExecutionsResponse where
       ]
 
 instance ProtoFromJSON CountActivityExecutionsResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_countActivityExecutionsResponseCount <- obj .:? "count"
+    fld_countActivityExecutionsResponseGroups <- obj .:? "groups"
+    pure defaultCountActivityExecutionsResponse
+      { countActivityExecutionsResponseCount = maybe (countActivityExecutionsResponseCount defaultCountActivityExecutionsResponse) id fld_countActivityExecutionsResponseCount
+      , countActivityExecutionsResponseGroups = maybe (countActivityExecutionsResponseGroups defaultCountActivityExecutionsResponse) id fld_countActivityExecutionsResponseGroups
+      }
   protoFromJSON _ = Right defaultCountActivityExecutionsResponse
 
 data RequestCancelActivityExecutionRequest = RequestCancelActivityExecutionRequest
@@ -14286,6 +16486,21 @@ instance ProtoToJSON RequestCancelActivityExecutionRequest where
       ]
 
 instance ProtoFromJSON RequestCancelActivityExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestCancelActivityExecutionRequestNamespace <- obj .:? "namespace"
+    fld_requestCancelActivityExecutionRequestActivityid <- obj .:? "activityId"
+    fld_requestCancelActivityExecutionRequestRunid <- obj .:? "runId"
+    fld_requestCancelActivityExecutionRequestIdentity <- obj .:? "identity"
+    fld_requestCancelActivityExecutionRequestRequestid <- obj .:? "requestId"
+    fld_requestCancelActivityExecutionRequestReason <- obj .:? "reason"
+    pure defaultRequestCancelActivityExecutionRequest
+      { requestCancelActivityExecutionRequestNamespace = maybe (requestCancelActivityExecutionRequestNamespace defaultRequestCancelActivityExecutionRequest) id fld_requestCancelActivityExecutionRequestNamespace
+      , requestCancelActivityExecutionRequestActivityid = maybe (requestCancelActivityExecutionRequestActivityid defaultRequestCancelActivityExecutionRequest) id fld_requestCancelActivityExecutionRequestActivityid
+      , requestCancelActivityExecutionRequestRunid = maybe (requestCancelActivityExecutionRequestRunid defaultRequestCancelActivityExecutionRequest) id fld_requestCancelActivityExecutionRequestRunid
+      , requestCancelActivityExecutionRequestIdentity = maybe (requestCancelActivityExecutionRequestIdentity defaultRequestCancelActivityExecutionRequest) id fld_requestCancelActivityExecutionRequestIdentity
+      , requestCancelActivityExecutionRequestRequestid = maybe (requestCancelActivityExecutionRequestRequestid defaultRequestCancelActivityExecutionRequest) id fld_requestCancelActivityExecutionRequestRequestid
+      , requestCancelActivityExecutionRequestReason = maybe (requestCancelActivityExecutionRequestReason defaultRequestCancelActivityExecutionRequest) id fld_requestCancelActivityExecutionRequestReason
+      }
   protoFromJSON _ = Right defaultRequestCancelActivityExecutionRequest
 
 data RequestCancelActivityExecutionResponse = RequestCancelActivityExecutionResponse
@@ -14400,6 +16615,21 @@ instance ProtoToJSON TerminateActivityExecutionRequest where
       ]
 
 instance ProtoFromJSON TerminateActivityExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_terminateActivityExecutionRequestNamespace <- obj .:? "namespace"
+    fld_terminateActivityExecutionRequestActivityid <- obj .:? "activityId"
+    fld_terminateActivityExecutionRequestRunid <- obj .:? "runId"
+    fld_terminateActivityExecutionRequestIdentity <- obj .:? "identity"
+    fld_terminateActivityExecutionRequestRequestid <- obj .:? "requestId"
+    fld_terminateActivityExecutionRequestReason <- obj .:? "reason"
+    pure defaultTerminateActivityExecutionRequest
+      { terminateActivityExecutionRequestNamespace = maybe (terminateActivityExecutionRequestNamespace defaultTerminateActivityExecutionRequest) id fld_terminateActivityExecutionRequestNamespace
+      , terminateActivityExecutionRequestActivityid = maybe (terminateActivityExecutionRequestActivityid defaultTerminateActivityExecutionRequest) id fld_terminateActivityExecutionRequestActivityid
+      , terminateActivityExecutionRequestRunid = maybe (terminateActivityExecutionRequestRunid defaultTerminateActivityExecutionRequest) id fld_terminateActivityExecutionRequestRunid
+      , terminateActivityExecutionRequestIdentity = maybe (terminateActivityExecutionRequestIdentity defaultTerminateActivityExecutionRequest) id fld_terminateActivityExecutionRequestIdentity
+      , terminateActivityExecutionRequestRequestid = maybe (terminateActivityExecutionRequestRequestid defaultTerminateActivityExecutionRequest) id fld_terminateActivityExecutionRequestRequestid
+      , terminateActivityExecutionRequestReason = maybe (terminateActivityExecutionRequestReason defaultTerminateActivityExecutionRequest) id fld_terminateActivityExecutionRequestReason
+      }
   protoFromJSON _ = Right defaultTerminateActivityExecutionRequest
 
 data TerminateActivityExecutionResponse = TerminateActivityExecutionResponse
@@ -14490,6 +16720,15 @@ instance ProtoToJSON DeleteActivityExecutionRequest where
       ]
 
 instance ProtoFromJSON DeleteActivityExecutionRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_deleteActivityExecutionRequestNamespace <- obj .:? "namespace"
+    fld_deleteActivityExecutionRequestActivityid <- obj .:? "activityId"
+    fld_deleteActivityExecutionRequestRunid <- obj .:? "runId"
+    pure defaultDeleteActivityExecutionRequest
+      { deleteActivityExecutionRequestNamespace = maybe (deleteActivityExecutionRequestNamespace defaultDeleteActivityExecutionRequest) id fld_deleteActivityExecutionRequestNamespace
+      , deleteActivityExecutionRequestActivityid = maybe (deleteActivityExecutionRequestActivityid defaultDeleteActivityExecutionRequest) id fld_deleteActivityExecutionRequestActivityid
+      , deleteActivityExecutionRequestRunid = maybe (deleteActivityExecutionRequestRunid defaultDeleteActivityExecutionRequest) id fld_deleteActivityExecutionRequestRunid
+      }
   protoFromJSON _ = Right defaultDeleteActivityExecutionRequest
 
 data DeleteActivityExecutionResponse = DeleteActivityExecutionResponse

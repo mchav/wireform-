@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data ResetReapplyExcludeType
@@ -65,8 +67,6 @@ instance MessageSize ResetReapplyExcludeType where
   messageSize _ = 0
 instance MessageDecode ResetReapplyExcludeType where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ResetReapplyExcludeType where
   protoToJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeUnspecified = JsonString "RESET_REAPPLY_EXCLUDE_TYPE_UNSPECIFIED"
@@ -113,8 +113,6 @@ instance MessageSize ResetReapplyType where
 instance MessageDecode ResetReapplyType where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON ResetReapplyType where
   protoToJSON ResetReapplyType'ResetReapplyTypeUnspecified = JsonString "RESET_REAPPLY_TYPE_UNSPECIFIED"
   protoToJSON ResetReapplyType'ResetReapplyTypeSignal = JsonString "RESET_REAPPLY_TYPE_SIGNAL"
@@ -154,8 +152,6 @@ instance MessageSize ResetType where
   messageSize _ = 0
 instance MessageDecode ResetType where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ResetType where
   protoToJSON ResetType'ResetTypeUnspecified = JsonString "RESET_TYPE_UNSPECIFIED"

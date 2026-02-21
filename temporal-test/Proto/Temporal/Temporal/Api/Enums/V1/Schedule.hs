@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data ScheduleOverlapPolicy
@@ -71,8 +73,6 @@ instance MessageSize ScheduleOverlapPolicy where
   messageSize _ = 0
 instance MessageDecode ScheduleOverlapPolicy where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ScheduleOverlapPolicy where
   protoToJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyUnspecified = JsonString "SCHEDULE_OVERLAP_POLICY_UNSPECIFIED"

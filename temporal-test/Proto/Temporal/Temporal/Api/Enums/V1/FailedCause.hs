@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data WorkflowTaskFailedCause
@@ -165,8 +167,6 @@ instance MessageSize WorkflowTaskFailedCause where
 instance MessageDecode WorkflowTaskFailedCause where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON WorkflowTaskFailedCause where
   protoToJSON WorkflowTaskFailedCause'WorkflowTaskFailedCauseUnspecified = JsonString "WORKFLOW_TASK_FAILED_CAUSE_UNSPECIFIED"
   protoToJSON WorkflowTaskFailedCause'WorkflowTaskFailedCauseUnhandledCommand = JsonString "WORKFLOW_TASK_FAILED_CAUSE_UNHANDLED_COMMAND"
@@ -275,8 +275,6 @@ instance MessageSize StartChildWorkflowExecutionFailedCause where
 instance MessageDecode StartChildWorkflowExecutionFailedCause where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON StartChildWorkflowExecutionFailedCause where
   protoToJSON StartChildWorkflowExecutionFailedCause'StartChildWorkflowExecutionFailedCauseUnspecified = JsonString "START_CHILD_WORKFLOW_EXECUTION_FAILED_CAUSE_UNSPECIFIED"
   protoToJSON StartChildWorkflowExecutionFailedCause'StartChildWorkflowExecutionFailedCauseWorkflowAlreadyExists = JsonString "START_CHILD_WORKFLOW_EXECUTION_FAILED_CAUSE_WORKFLOW_ALREADY_EXISTS"
@@ -314,8 +312,6 @@ instance MessageSize CancelExternalWorkflowExecutionFailedCause where
   messageSize _ = 0
 instance MessageDecode CancelExternalWorkflowExecutionFailedCause where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON CancelExternalWorkflowExecutionFailedCause where
   protoToJSON CancelExternalWorkflowExecutionFailedCause'CancelExternalWorkflowExecutionFailedCauseUnspecified = JsonString "CANCEL_EXTERNAL_WORKFLOW_EXECUTION_FAILED_CAUSE_UNSPECIFIED"
@@ -357,8 +353,6 @@ instance MessageSize SignalExternalWorkflowExecutionFailedCause where
   messageSize _ = 0
 instance MessageDecode SignalExternalWorkflowExecutionFailedCause where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON SignalExternalWorkflowExecutionFailedCause where
   protoToJSON SignalExternalWorkflowExecutionFailedCause'SignalExternalWorkflowExecutionFailedCauseUnspecified = JsonString "SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_FAILED_CAUSE_UNSPECIFIED"
@@ -424,8 +418,6 @@ instance MessageSize ResourceExhaustedCause where
 instance MessageDecode ResourceExhaustedCause where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON ResourceExhaustedCause where
   protoToJSON ResourceExhaustedCause'ResourceExhaustedCauseUnspecified = JsonString "RESOURCE_EXHAUSTED_CAUSE_UNSPECIFIED"
   protoToJSON ResourceExhaustedCause'ResourceExhaustedCauseRpsLimit = JsonString "RESOURCE_EXHAUSTED_CAUSE_RPS_LIMIT"
@@ -479,8 +471,6 @@ instance MessageSize ResourceExhaustedScope where
   messageSize _ = 0
 instance MessageDecode ResourceExhaustedScope where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ResourceExhaustedScope where
   protoToJSON ResourceExhaustedScope'ResourceExhaustedScopeUnspecified = JsonString "RESOURCE_EXHAUSTED_SCOPE_UNSPECIFIED"

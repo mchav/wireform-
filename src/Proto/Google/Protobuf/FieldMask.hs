@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data FieldMask = FieldMask
@@ -52,7 +54,7 @@ instance MessageEncode FieldMask where
 
 instance MessageSize FieldMask where
   messageSize msg =
-    0 {- TODO: repeated size -}
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths)
 
 instance MessageDecode FieldMask where
   messageDecoder = loop V.empty
@@ -74,4 +76,9 @@ instance ProtoToJSON FieldMask where
       ]
 
 instance ProtoFromJSON FieldMask where
+  protoFromJSON (JsonObject obj) = do
+    fld_fieldMaskPaths <- obj .:? "paths"
+    pure defaultFieldMask
+      { fieldMaskPaths = maybe (fieldMaskPaths defaultFieldMask) id fld_fieldMaskPaths
+      }
   protoFromJSON _ = Right defaultFieldMask

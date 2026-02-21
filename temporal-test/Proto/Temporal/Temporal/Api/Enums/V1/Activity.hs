@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data ActivityExecutionStatus
@@ -71,8 +73,6 @@ instance MessageSize ActivityExecutionStatus where
   messageSize _ = 0
 instance MessageDecode ActivityExecutionStatus where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ActivityExecutionStatus where
   protoToJSON ActivityExecutionStatus'ActivityExecutionStatusUnspecified = JsonString "ACTIVITY_EXECUTION_STATUS_UNSPECIFIED"
@@ -123,8 +123,6 @@ instance MessageSize ActivityIdReusePolicy where
 instance MessageDecode ActivityIdReusePolicy where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON ActivityIdReusePolicy where
   protoToJSON ActivityIdReusePolicy'ActivityIdReusePolicyUnspecified = JsonString "ACTIVITY_ID_REUSE_POLICY_UNSPECIFIED"
   protoToJSON ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicate = JsonString "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE"
@@ -164,8 +162,6 @@ instance MessageSize ActivityIdConflictPolicy where
   messageSize _ = 0
 instance MessageDecode ActivityIdConflictPolicy where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ActivityIdConflictPolicy where
   protoToJSON ActivityIdConflictPolicy'ActivityIdConflictPolicyUnspecified = JsonString "ACTIVITY_ID_CONFLICT_POLICY_UNSPECIFIED"

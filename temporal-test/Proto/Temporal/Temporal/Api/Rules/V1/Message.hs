@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 
 
@@ -119,6 +121,11 @@ instance ProtoToJSON WorkflowRuleAction where
       ]
 
 instance ProtoFromJSON WorkflowRuleAction where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowRuleActionVariant <- obj .:? "variant"
+    pure defaultWorkflowRuleAction
+      { workflowRuleActionVariant = maybe (workflowRuleActionVariant defaultWorkflowRuleAction) id fld_workflowRuleActionVariant
+      }
   protoFromJSON _ = Right defaultWorkflowRuleAction
 
 data WorkflowRuleSpec = WorkflowRuleSpec
@@ -170,6 +177,11 @@ instance ProtoToJSON WorkflowRuleSpec'ActivityStartingTrigger where
       ]
 
 instance ProtoFromJSON WorkflowRuleSpec'ActivityStartingTrigger where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowRuleSpecActivityStartingTriggerPredicate <- obj .:? "predicate"
+    pure defaultWorkflowRuleSpec'ActivityStartingTrigger
+      { workflowRuleSpecActivityStartingTriggerPredicate = maybe (workflowRuleSpecActivityStartingTriggerPredicate defaultWorkflowRuleSpec'ActivityStartingTrigger) id fld_workflowRuleSpecActivityStartingTriggerPredicate
+      }
   protoFromJSON _ = Right defaultWorkflowRuleSpec'ActivityStartingTrigger
 data WorkflowRuleSpec'Trigger
   = WorkflowRuleSpec'Trigger'ActivityStart !WorkflowRuleSpec'ActivityStartingTrigger
@@ -242,6 +254,19 @@ instance ProtoToJSON WorkflowRuleSpec where
       ]
 
 instance ProtoFromJSON WorkflowRuleSpec where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowRuleSpecId <- obj .:? "id"
+    fld_workflowRuleSpecTrigger <- obj .:? "trigger"
+    fld_workflowRuleSpecVisibilityquery <- obj .:? "visibilityQuery"
+    fld_workflowRuleSpecActions <- obj .:? "actions"
+    fld_workflowRuleSpecExpirationtime <- obj .:? "expirationTime"
+    pure defaultWorkflowRuleSpec
+      { workflowRuleSpecId = maybe (workflowRuleSpecId defaultWorkflowRuleSpec) id fld_workflowRuleSpecId
+      , workflowRuleSpecTrigger = maybe (workflowRuleSpecTrigger defaultWorkflowRuleSpec) id fld_workflowRuleSpecTrigger
+      , workflowRuleSpecVisibilityquery = maybe (workflowRuleSpecVisibilityquery defaultWorkflowRuleSpec) id fld_workflowRuleSpecVisibilityquery
+      , workflowRuleSpecActions = maybe (workflowRuleSpecActions defaultWorkflowRuleSpec) id fld_workflowRuleSpecActions
+      , workflowRuleSpecExpirationtime = maybe (workflowRuleSpecExpirationtime defaultWorkflowRuleSpec) id fld_workflowRuleSpecExpirationtime
+      }
   protoFromJSON _ = Right defaultWorkflowRuleSpec
 
 data WorkflowRule = WorkflowRule
@@ -306,4 +331,15 @@ instance ProtoToJSON WorkflowRule where
       ]
 
 instance ProtoFromJSON WorkflowRule where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowRuleCreatetime <- obj .:? "createTime"
+    fld_workflowRuleSpec <- obj .:? "spec"
+    fld_workflowRuleCreatedbyidentity <- obj .:? "createdByIdentity"
+    fld_workflowRuleDescription <- obj .:? "description"
+    pure defaultWorkflowRule
+      { workflowRuleCreatetime = maybe (workflowRuleCreatetime defaultWorkflowRule) id fld_workflowRuleCreatetime
+      , workflowRuleSpec = maybe (workflowRuleSpec defaultWorkflowRule) id fld_workflowRuleSpec
+      , workflowRuleCreatedbyidentity = maybe (workflowRuleCreatedbyidentity defaultWorkflowRule) id fld_workflowRuleCreatedbyidentity
+      , workflowRuleDescription = maybe (workflowRuleDescription defaultWorkflowRule) id fld_workflowRuleDescription
+      }
   protoFromJSON _ = Right defaultWorkflowRule

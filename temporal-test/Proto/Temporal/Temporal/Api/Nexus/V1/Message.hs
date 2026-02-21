@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Common.V1.Message (Payload(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Nexus (NexusHandlerErrorRetryBehavior(..))
@@ -70,7 +72,7 @@ instance MessageSize Failure where
   messageSize msg =
     (if msg.failureMessage == T.empty then 0 else fieldTextSize 1 msg.failureMessage)
     + (if msg.failureStacktrace == T.empty then 0 else fieldTextSize 4 msg.failureStacktrace)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 2 + 20) 0 msg.failureMetadata)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.failureMetadata)
     + (if BS.null msg.failureDetails then 0 else fieldBytesSize 3 msg.failureDetails)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.failureCause)
 
@@ -112,6 +114,19 @@ instance ProtoToJSON Failure where
       ]
 
 instance ProtoFromJSON Failure where
+  protoFromJSON (JsonObject obj) = do
+    fld_failureMessage <- obj .:? "message"
+    fld_failureStacktrace <- obj .:? "stackTrace"
+    fld_failureMetadata <- obj .:? "metadata"
+    fld_failureDetails <- obj .:? "details"
+    fld_failureCause <- obj .:? "cause"
+    pure defaultFailure
+      { failureMessage = maybe (failureMessage defaultFailure) id fld_failureMessage
+      , failureStacktrace = maybe (failureStacktrace defaultFailure) id fld_failureStacktrace
+      , failureMetadata = maybe (failureMetadata defaultFailure) id fld_failureMetadata
+      , failureDetails = maybe (failureDetails defaultFailure) id fld_failureDetails
+      , failureCause = maybe (failureCause defaultFailure) id fld_failureCause
+      }
   protoFromJSON _ = Right defaultFailure
 
 data HandlerError = HandlerError
@@ -168,6 +183,15 @@ instance ProtoToJSON HandlerError where
       ]
 
 instance ProtoFromJSON HandlerError where
+  protoFromJSON (JsonObject obj) = do
+    fld_handlerErrorErrortype <- obj .:? "errorType"
+    fld_handlerErrorFailure <- obj .:? "failure"
+    fld_handlerErrorRetrybehavior <- obj .:? "retryBehavior"
+    pure defaultHandlerError
+      { handlerErrorErrortype = maybe (handlerErrorErrortype defaultHandlerError) id fld_handlerErrorErrortype
+      , handlerErrorFailure = maybe (handlerErrorFailure defaultHandlerError) id fld_handlerErrorFailure
+      , handlerErrorRetrybehavior = maybe (handlerErrorRetrybehavior defaultHandlerError) id fld_handlerErrorRetrybehavior
+      }
   protoFromJSON _ = Right defaultHandlerError
 
 data UnsuccessfulOperationError = UnsuccessfulOperationError
@@ -216,6 +240,13 @@ instance ProtoToJSON UnsuccessfulOperationError where
       ]
 
 instance ProtoFromJSON UnsuccessfulOperationError where
+  protoFromJSON (JsonObject obj) = do
+    fld_unsuccessfulOperationErrorOperationstate <- obj .:? "operationState"
+    fld_unsuccessfulOperationErrorFailure <- obj .:? "failure"
+    pure defaultUnsuccessfulOperationError
+      { unsuccessfulOperationErrorOperationstate = maybe (unsuccessfulOperationErrorOperationstate defaultUnsuccessfulOperationError) id fld_unsuccessfulOperationErrorOperationstate
+      , unsuccessfulOperationErrorFailure = maybe (unsuccessfulOperationErrorFailure defaultUnsuccessfulOperationError) id fld_unsuccessfulOperationErrorFailure
+      }
   protoFromJSON _ = Right defaultUnsuccessfulOperationError
 
 data Link = Link
@@ -264,6 +295,13 @@ instance ProtoToJSON Link where
       ]
 
 instance ProtoFromJSON Link where
+  protoFromJSON (JsonObject obj) = do
+    fld_linkUrl <- obj .:? "url"
+    fld_linkType <- obj .:? "type"
+    pure defaultLink
+      { linkUrl = maybe (linkUrl defaultLink) id fld_linkUrl
+      , linkType = maybe (linkType defaultLink) id fld_linkType
+      }
   protoFromJSON _ = Right defaultLink
 
 data StartOperationRequest = StartOperationRequest
@@ -306,7 +344,7 @@ instance MessageSize StartOperationRequest where
     + (if msg.startOperationRequestRequestid == T.empty then 0 else fieldTextSize 3 msg.startOperationRequestRequestid)
     + (if msg.startOperationRequestCallback == T.empty then 0 else fieldTextSize 4 msg.startOperationRequestCallback)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.startOperationRequestPayload)
-    + (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 6 + 20) 0 msg.startOperationRequestCallbackheader)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 6 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.startOperationRequestCallbackheader)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 7 (messageSize v)) 0 msg.startOperationRequestLinks)
 
 instance MessageDecode StartOperationRequest where
@@ -355,6 +393,23 @@ instance ProtoToJSON StartOperationRequest where
       ]
 
 instance ProtoFromJSON StartOperationRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_startOperationRequestService <- obj .:? "service"
+    fld_startOperationRequestOperation <- obj .:? "operation"
+    fld_startOperationRequestRequestid <- obj .:? "requestId"
+    fld_startOperationRequestCallback <- obj .:? "callback"
+    fld_startOperationRequestPayload <- obj .:? "payload"
+    fld_startOperationRequestCallbackheader <- obj .:? "callbackHeader"
+    fld_startOperationRequestLinks <- obj .:? "links"
+    pure defaultStartOperationRequest
+      { startOperationRequestService = maybe (startOperationRequestService defaultStartOperationRequest) id fld_startOperationRequestService
+      , startOperationRequestOperation = maybe (startOperationRequestOperation defaultStartOperationRequest) id fld_startOperationRequestOperation
+      , startOperationRequestRequestid = maybe (startOperationRequestRequestid defaultStartOperationRequest) id fld_startOperationRequestRequestid
+      , startOperationRequestCallback = maybe (startOperationRequestCallback defaultStartOperationRequest) id fld_startOperationRequestCallback
+      , startOperationRequestPayload = maybe (startOperationRequestPayload defaultStartOperationRequest) id fld_startOperationRequestPayload
+      , startOperationRequestCallbackheader = maybe (startOperationRequestCallbackheader defaultStartOperationRequest) id fld_startOperationRequestCallbackheader
+      , startOperationRequestLinks = maybe (startOperationRequestLinks defaultStartOperationRequest) id fld_startOperationRequestLinks
+      }
   protoFromJSON _ = Right defaultStartOperationRequest
 
 data CancelOperationRequest = CancelOperationRequest
@@ -419,6 +474,17 @@ instance ProtoToJSON CancelOperationRequest where
       ]
 
 instance ProtoFromJSON CancelOperationRequest where
+  protoFromJSON (JsonObject obj) = do
+    fld_cancelOperationRequestService <- obj .:? "service"
+    fld_cancelOperationRequestOperation <- obj .:? "operation"
+    fld_cancelOperationRequestOperationid <- obj .:? "operationId"
+    fld_cancelOperationRequestOperationtoken <- obj .:? "operationToken"
+    pure defaultCancelOperationRequest
+      { cancelOperationRequestService = maybe (cancelOperationRequestService defaultCancelOperationRequest) id fld_cancelOperationRequestService
+      , cancelOperationRequestOperation = maybe (cancelOperationRequestOperation defaultCancelOperationRequest) id fld_cancelOperationRequestOperation
+      , cancelOperationRequestOperationid = maybe (cancelOperationRequestOperationid defaultCancelOperationRequest) id fld_cancelOperationRequestOperationid
+      , cancelOperationRequestOperationtoken = maybe (cancelOperationRequestOperationtoken defaultCancelOperationRequest) id fld_cancelOperationRequestOperationtoken
+      }
   protoFromJSON _ = Right defaultCancelOperationRequest
 
 data Request = Request
@@ -470,6 +536,11 @@ instance ProtoToJSON Request'Capabilities where
       ]
 
 instance ProtoFromJSON Request'Capabilities where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestCapabilitiesTemporalfailureresponses <- obj .:? "temporalFailureResponses"
+    pure defaultRequest'Capabilities
+      { requestCapabilitiesTemporalfailureresponses = maybe (requestCapabilitiesTemporalfailureresponses defaultRequest'Capabilities) id fld_requestCapabilitiesTemporalfailureresponses
+      }
   protoFromJSON _ = Right defaultRequest'Capabilities
 data Request'Variant
   = Request'Variant'StartOperation !StartOperationRequest
@@ -503,7 +574,7 @@ instance MessageEncode Request where
 
 instance MessageSize Request where
   messageSize msg =
-    (Map.foldlWithKey' (\acc _ _ -> acc + tagSize 1 + 20) 0 msg.requestHeader)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.requestHeader)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.requestScheduledtime)
     + (maybe 0 (\v -> fieldMessageSize 100 (messageSize v)) msg.requestCapabilities)
     + (case msg.requestVariant of { Nothing -> 0; Just (Request'Variant'StartOperation v) -> fieldMessageSize 3 (messageSize v)
@@ -551,6 +622,19 @@ instance ProtoToJSON Request where
       ]
 
 instance ProtoFromJSON Request where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestHeader <- obj .:? "header"
+    fld_requestScheduledtime <- obj .:? "scheduledTime"
+    fld_requestCapabilities <- obj .:? "capabilities"
+    fld_requestVariant <- obj .:? "variant"
+    fld_requestEndpoint <- obj .:? "endpoint"
+    pure defaultRequest
+      { requestHeader = maybe (requestHeader defaultRequest) id fld_requestHeader
+      , requestScheduledtime = maybe (requestScheduledtime defaultRequest) id fld_requestScheduledtime
+      , requestCapabilities = maybe (requestCapabilities defaultRequest) id fld_requestCapabilities
+      , requestVariant = maybe (requestVariant defaultRequest) id fld_requestVariant
+      , requestEndpoint = maybe (requestEndpoint defaultRequest) id fld_requestEndpoint
+      }
   protoFromJSON _ = Right defaultRequest
 
 data StartOperationResponse = StartOperationResponse
@@ -605,6 +689,13 @@ instance ProtoToJSON StartOperationResponse'Sync where
       ]
 
 instance ProtoFromJSON StartOperationResponse'Sync where
+  protoFromJSON (JsonObject obj) = do
+    fld_startOperationResponseSyncPayload <- obj .:? "payload"
+    fld_startOperationResponseSyncLinks <- obj .:? "links"
+    pure defaultStartOperationResponse'Sync
+      { startOperationResponseSyncPayload = maybe (startOperationResponseSyncPayload defaultStartOperationResponse'Sync) id fld_startOperationResponseSyncPayload
+      , startOperationResponseSyncLinks = maybe (startOperationResponseSyncLinks defaultStartOperationResponse'Sync) id fld_startOperationResponseSyncLinks
+      }
   protoFromJSON _ = Right defaultStartOperationResponse'Sync
 
 data StartOperationResponse'Async = StartOperationResponse'Async
@@ -661,6 +752,15 @@ instance ProtoToJSON StartOperationResponse'Async where
       ]
 
 instance ProtoFromJSON StartOperationResponse'Async where
+  protoFromJSON (JsonObject obj) = do
+    fld_startOperationResponseAsyncOperationid <- obj .:? "operationId"
+    fld_startOperationResponseAsyncLinks <- obj .:? "links"
+    fld_startOperationResponseAsyncOperationtoken <- obj .:? "operationToken"
+    pure defaultStartOperationResponse'Async
+      { startOperationResponseAsyncOperationid = maybe (startOperationResponseAsyncOperationid defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncOperationid
+      , startOperationResponseAsyncLinks = maybe (startOperationResponseAsyncLinks defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncLinks
+      , startOperationResponseAsyncOperationtoken = maybe (startOperationResponseAsyncOperationtoken defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncOperationtoken
+      }
   protoFromJSON _ = Right defaultStartOperationResponse'Async
 data StartOperationResponse'Variant
   = StartOperationResponse'Variant'SyncSuccess !StartOperationResponse'Sync
@@ -724,6 +824,11 @@ instance ProtoToJSON StartOperationResponse where
       ]
 
 instance ProtoFromJSON StartOperationResponse where
+  protoFromJSON (JsonObject obj) = do
+    fld_startOperationResponseVariant <- obj .:? "variant"
+    pure defaultStartOperationResponse
+      { startOperationResponseVariant = maybe (startOperationResponseVariant defaultStartOperationResponse) id fld_startOperationResponseVariant
+      }
   protoFromJSON _ = Right defaultStartOperationResponse
 
 data CancelOperationResponse = CancelOperationResponse
@@ -815,6 +920,11 @@ instance ProtoToJSON Response where
       ]
 
 instance ProtoFromJSON Response where
+  protoFromJSON (JsonObject obj) = do
+    fld_responseVariant <- obj .:? "variant"
+    pure defaultResponse
+      { responseVariant = maybe (responseVariant defaultResponse) id fld_responseVariant
+      }
   protoFromJSON _ = Right defaultResponse
 
 data Endpoint = Endpoint
@@ -895,6 +1005,21 @@ instance ProtoToJSON Endpoint where
       ]
 
 instance ProtoFromJSON Endpoint where
+  protoFromJSON (JsonObject obj) = do
+    fld_endpointVersion <- obj .:? "version"
+    fld_endpointId <- obj .:? "id"
+    fld_endpointSpec <- obj .:? "spec"
+    fld_endpointCreatedtime <- obj .:? "createdTime"
+    fld_endpointLastmodifiedtime <- obj .:? "lastModifiedTime"
+    fld_endpointUrlprefix <- obj .:? "urlPrefix"
+    pure defaultEndpoint
+      { endpointVersion = maybe (endpointVersion defaultEndpoint) id fld_endpointVersion
+      , endpointId = maybe (endpointId defaultEndpoint) id fld_endpointId
+      , endpointSpec = maybe (endpointSpec defaultEndpoint) id fld_endpointSpec
+      , endpointCreatedtime = maybe (endpointCreatedtime defaultEndpoint) id fld_endpointCreatedtime
+      , endpointLastmodifiedtime = maybe (endpointLastmodifiedtime defaultEndpoint) id fld_endpointLastmodifiedtime
+      , endpointUrlprefix = maybe (endpointUrlprefix defaultEndpoint) id fld_endpointUrlprefix
+      }
   protoFromJSON _ = Right defaultEndpoint
 
 data EndpointSpec = EndpointSpec
@@ -951,6 +1076,15 @@ instance ProtoToJSON EndpointSpec where
       ]
 
 instance ProtoFromJSON EndpointSpec where
+  protoFromJSON (JsonObject obj) = do
+    fld_endpointSpecName <- obj .:? "name"
+    fld_endpointSpecDescription <- obj .:? "description"
+    fld_endpointSpecTarget <- obj .:? "target"
+    pure defaultEndpointSpec
+      { endpointSpecName = maybe (endpointSpecName defaultEndpointSpec) id fld_endpointSpecName
+      , endpointSpecDescription = maybe (endpointSpecDescription defaultEndpointSpec) id fld_endpointSpecDescription
+      , endpointSpecTarget = maybe (endpointSpecTarget defaultEndpointSpec) id fld_endpointSpecTarget
+      }
   protoFromJSON _ = Right defaultEndpointSpec
 
 data EndpointTarget = EndpointTarget
@@ -1005,6 +1139,13 @@ instance ProtoToJSON EndpointTarget'Worker where
       ]
 
 instance ProtoFromJSON EndpointTarget'Worker where
+  protoFromJSON (JsonObject obj) = do
+    fld_endpointTargetWorkerNamespace <- obj .:? "namespace"
+    fld_endpointTargetWorkerTaskqueue <- obj .:? "taskQueue"
+    pure defaultEndpointTarget'Worker
+      { endpointTargetWorkerNamespace = maybe (endpointTargetWorkerNamespace defaultEndpointTarget'Worker) id fld_endpointTargetWorkerNamespace
+      , endpointTargetWorkerTaskqueue = maybe (endpointTargetWorkerTaskqueue defaultEndpointTarget'Worker) id fld_endpointTargetWorkerTaskqueue
+      }
   protoFromJSON _ = Right defaultEndpointTarget'Worker
 
 data EndpointTarget'External = EndpointTarget'External
@@ -1046,6 +1187,11 @@ instance ProtoToJSON EndpointTarget'External where
       ]
 
 instance ProtoFromJSON EndpointTarget'External where
+  protoFromJSON (JsonObject obj) = do
+    fld_endpointTargetExternalUrl <- obj .:? "url"
+    pure defaultEndpointTarget'External
+      { endpointTargetExternalUrl = maybe (endpointTargetExternalUrl defaultEndpointTarget'External) id fld_endpointTargetExternalUrl
+      }
   protoFromJSON _ = Right defaultEndpointTarget'External
 data EndpointTarget'Variant
   = EndpointTarget'Variant'Worker !EndpointTarget'Worker
@@ -1097,4 +1243,9 @@ instance ProtoToJSON EndpointTarget where
       ]
 
 instance ProtoFromJSON EndpointTarget where
+  protoFromJSON (JsonObject obj) = do
+    fld_endpointTargetVariant <- obj .:? "variant"
+    pure defaultEndpointTarget
+      { endpointTargetVariant = maybe (endpointTargetVariant defaultEndpointTarget) id fld_endpointTargetVariant
+      }
   protoFromJSON _ = Right defaultEndpointTarget

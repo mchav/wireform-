@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data NamespaceState
@@ -62,8 +64,6 @@ instance MessageSize NamespaceState where
   messageSize _ = 0
 instance MessageDecode NamespaceState where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON NamespaceState where
   protoToJSON NamespaceState'NamespaceStateUnspecified = JsonString "NAMESPACE_STATE_UNSPECIFIED"
@@ -105,8 +105,6 @@ instance MessageSize ArchivalState where
 instance MessageDecode ArchivalState where
   messageDecoder = pure (toEnum 0)
 
-
-
 instance ProtoToJSON ArchivalState where
   protoToJSON ArchivalState'ArchivalStateUnspecified = JsonString "ARCHIVAL_STATE_UNSPECIFIED"
   protoToJSON ArchivalState'ArchivalStateDisabled = JsonString "ARCHIVAL_STATE_DISABLED"
@@ -144,8 +142,6 @@ instance MessageSize ReplicationState where
   messageSize _ = 0
 instance MessageDecode ReplicationState where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON ReplicationState where
   protoToJSON ReplicationState'ReplicationStateUnspecified = JsonString "REPLICATION_STATE_UNSPECIFIED"

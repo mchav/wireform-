@@ -428,7 +428,9 @@ genImports localNames externalImports = vsep $
   , pretty ("  varintSize, tagSize, fieldMessageSize," :: Text)
   , pretty ("  fieldVarintSize, fieldFixed32Size, fieldFixed64Size," :: Text)
   , pretty ("  fieldBoolSize, fieldFloatSize, fieldDoubleSize," :: Text)
-  , pretty ("  fieldTextSize, fieldBytesSize)" :: Text)
+  , pretty ("  fieldTextSize, fieldBytesSize," :: Text)
+  , pretty ("  fieldSVarint32Size, fieldSVarint64Size," :: Text)
+  , pretty ("  varintSize32, zigZag32, zigZag64)" :: Text)
   ]
   <> let winnerMap = buildWinnerMap externalImports
      in fmap (genExternalImport localNames winnerMap) (Map.toAscList externalImports)
@@ -793,14 +795,47 @@ genFieldSizeExpr ctx idx fi =
   in op <> case fifKind fi of
     FKScalar lbl ft -> genSizeScalar fn accessor lbl ft
     FKNamed lbl name tk -> genSizeNamed ctx fn accessor lbl name tk
-    FKMap keyT valT -> genSizeMap fn accessor
+    FKMap keyT valT -> genSizeMap ctx fn accessor keyT valT
     FKOneof scope ood -> genSizeOneof ctx scope fn accessor ood
 
 genSizeScalar :: Text -> Text -> Maybe FieldLabel -> ScalarType -> Doc ann
 genSizeScalar fn accessor lbl st = case lbl of
-  Just Repeated -> pretty ("0 {- TODO: repeated size -}" :: Text)
+  Just Repeated -> genRepeatedSizeScalar fn accessor st
   Just Optional -> pretty ("(maybe 0 (\\v -> " :: Text) <> genSingleSizeScalar fn "v" st <> pretty (") " :: Text) <> pretty accessor <> pretty (")" :: Text)
   _ -> pretty ("(if " :: Text) <> scalarDefaultCheck accessor st <> pretty (" then 0 else " :: Text) <> genSingleSizeScalar fn accessor st <> pretty (")" :: Text)
+
+genRepeatedSizeScalar :: Text -> Text -> ScalarType -> Doc ann
+genRepeatedSizeScalar fn accessor = \case
+  SString ->
+    pretty ("(V.foldl' (\\acc v -> acc + fieldTextSize " :: Text) <> pretty fn <+> pretty ("v) 0 " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  SBytes ->
+    pretty ("(V.foldl' (\\acc v -> acc + fieldBytesSize " :: Text) <> pretty fn <+> pretty ("v) 0 " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  SDouble ->
+    pretty ("(let n = VU.length " :: Text) <> pretty accessor <> pretty (" in if n == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral (n * 8)) + n * 8)" :: Text)
+  SFloat ->
+    pretty ("(let n = VU.length " :: Text) <> pretty accessor <> pretty (" in if n == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral (n * 4)) + n * 4)" :: Text)
+  SFixed32 ->
+    pretty ("(let n = VU.length " :: Text) <> pretty accessor <> pretty (" in if n == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral (n * 4)) + n * 4)" :: Text)
+  SFixed64 ->
+    pretty ("(let n = VU.length " :: Text) <> pretty accessor <> pretty (" in if n == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral (n * 8)) + n * 8)" :: Text)
+  SSFixed32 ->
+    pretty ("(let n = VU.length " :: Text) <> pretty accessor <> pretty (" in if n == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral (n * 4)) + n * 4)" :: Text)
+  SSFixed64 ->
+    pretty ("(let n = VU.length " :: Text) <> pretty accessor <> pretty (" in if n == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral (n * 8)) + n * 8)" :: Text)
+  SBool ->
+    pretty ("(let n = VU.length " :: Text) <> pretty accessor <> pretty (" in if n == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral n) + n)" :: Text)
+  SUInt64 ->
+    pretty ("(let pl = VU.foldl' (\\a v -> a + varintSize v) 0 " :: Text) <> pretty accessor <> pretty (" in if pl == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral pl) + pl)" :: Text)
+  SUInt32 ->
+    pretty ("(let pl = VU.foldl' (\\a v -> a + varintSize32 v) 0 " :: Text) <> pretty accessor <> pretty (" in if pl == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral pl) + pl)" :: Text)
+  SInt32 ->
+    pretty ("(let pl = VU.foldl' (\\a v -> a + varintSize (fromIntegral v)) 0 " :: Text) <> pretty accessor <> pretty (" in if pl == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral pl) + pl)" :: Text)
+  SInt64 ->
+    pretty ("(let pl = VU.foldl' (\\a v -> a + varintSize (fromIntegral v)) 0 " :: Text) <> pretty accessor <> pretty (" in if pl == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral pl) + pl)" :: Text)
+  SSInt32 ->
+    pretty ("(let pl = VU.foldl' (\\a v -> a + varintSize (fromIntegral (zigZag32 v))) 0 " :: Text) <> pretty accessor <> pretty (" in if pl == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral pl) + pl)" :: Text)
+  SSInt64 ->
+    pretty ("(let pl = VU.foldl' (\\a v -> a + varintSize (zigZag64 v)) 0 " :: Text) <> pretty accessor <> pretty (" in if pl == 0 then 0 else tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral pl) + pl)" :: Text)
 
 genSingleSizeScalar :: Text -> Text -> ScalarType -> Doc ann
 genSingleSizeScalar fn accessor = \case
@@ -831,9 +866,44 @@ genSizeNamed ctx fn accessor lbl name tk = case tk of
     Just Optional -> pretty ("(maybe 0 (\\v -> fieldMessageSize " :: Text) <> pretty fn <+> pretty ("(messageSize v)) " :: Text) <> pretty accessor <> pretty (")" :: Text)
     _ -> pretty ("(maybe 0 (\\v -> fieldMessageSize " :: Text) <> pretty fn <+> pretty ("(messageSize v)) " :: Text) <> pretty accessor <> pretty (")" :: Text)
 
-genSizeMap :: Text -> Text -> Doc ann
-genSizeMap fn accessor =
-  pretty ("(Map.foldlWithKey' (\\acc _ _ -> acc + tagSize " :: Text) <> pretty fn <> pretty (" + 20) 0 " :: Text) <> pretty accessor <> pretty (")" :: Text)
+genSizeMap :: GenCtx -> Text -> Text -> ScalarType -> FieldType -> Doc ann
+genSizeMap ctx fn accessor keyT valT =
+  let keySizeExpr = mapKeySizeExpr keyT
+      valSizeExpr = mapValSizeExpr ctx valT
+  in pretty ("(Map.foldlWithKey' (\\acc k v -> let entrySz = " :: Text) <> keySizeExpr <> pretty (" + " :: Text) <> valSizeExpr <>
+     pretty (" in acc + tagSize " :: Text) <> pretty fn <> pretty (" + varintSize (fromIntegral entrySz) + entrySz) 0 " :: Text) <> pretty accessor <> pretty (")" :: Text)
+
+mapKeySizeExpr :: ScalarType -> Doc ann
+mapKeySizeExpr = \case
+  SString  -> pretty ("fieldTextSize 1 k" :: Text)
+  SBool    -> pretty ("fieldBoolSize 1" :: Text)
+  SInt32   -> pretty ("fieldVarintSize 1 (fromIntegral k)" :: Text)
+  SInt64   -> pretty ("fieldVarintSize 1 (fromIntegral k)" :: Text)
+  SUInt32  -> pretty ("fieldVarintSize 1 (fromIntegral k)" :: Text)
+  SUInt64  -> pretty ("fieldVarintSize 1 k" :: Text)
+  SSInt32  -> pretty ("fieldSVarint32Size 1 k" :: Text)
+  SSInt64  -> pretty ("fieldSVarint64Size 1 k" :: Text)
+  SFixed32 -> pretty ("fieldFixed32Size 1" :: Text)
+  SFixed64 -> pretty ("fieldFixed64Size 1" :: Text)
+  SSFixed32 -> pretty ("fieldFixed32Size 1" :: Text)
+  SSFixed64 -> pretty ("fieldFixed64Size 1" :: Text)
+  _        -> pretty ("fieldBytesSize 1 k" :: Text)
+
+mapValSizeExpr :: GenCtx -> FieldType -> Doc ann
+mapValSizeExpr ctx = \case
+  FTScalar SString  -> pretty ("fieldTextSize 2 v" :: Text)
+  FTScalar SBytes   -> pretty ("fieldBytesSize 2 v" :: Text)
+  FTScalar SBool    -> pretty ("fieldBoolSize 2" :: Text)
+  FTScalar SDouble  -> pretty ("fieldDoubleSize 2" :: Text)
+  FTScalar SFloat   -> pretty ("fieldFloatSize 2" :: Text)
+  FTScalar SFixed32 -> pretty ("fieldFixed32Size 2" :: Text)
+  FTScalar SFixed64 -> pretty ("fieldFixed64Size 2" :: Text)
+  FTScalar SSFixed32 -> pretty ("fieldFixed32Size 2" :: Text)
+  FTScalar SSFixed64 -> pretty ("fieldFixed64Size 2" :: Text)
+  FTScalar s -> pretty ("fieldVarintSize 2 (fromIntegral v)" :: Text)
+  FTNamed n -> case resolveType ctx n of
+    Just ti | tiKind ti == TKEnum -> pretty ("fieldVarintSize 2 (fromIntegral (fromEnum v))" :: Text)
+    _ -> pretty ("fieldMessageSize 2 (messageSize v)" :: Text)
 
 genSizeOneof :: GenCtx -> [Text] -> Text -> Text -> OneofDef -> Doc ann
 genSizeOneof ctx scope fn accessor ood =
@@ -1078,12 +1148,36 @@ genFromJSONInstance ctx scope msg =
       [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
       , pretty (joFromJSON jo)
       ]
-    Nothing -> vsep
-      [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
-      , indent 2 $ vsep
-          [ pretty ("protoFromJSON _ = Right default" :: Text) <> pretty tyN
+    Nothing ->
+      let fields = extractAllFieldsJSON ctx scope (msgElements msg)
+      in case fields of
+        [] -> vsep
+          [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+          , indent 2 $ pretty ("protoFromJSON _ = Right default" :: Text) <> pretty tyN
           ]
-      ]
+        _ -> vsep
+          [ pretty ("instance ProtoFromJSON " :: Text) <> pretty tyN <> pretty (" where" :: Text)
+          , indent 2 $ vsep
+              [ pretty ("protoFromJSON (JsonObject obj) = do" :: Text)
+              , indent 2 $ vsep
+                  (fmap genFromJSONFieldBind fields
+                  <> [ pretty ("pure default" :: Text) <> pretty tyN
+                     , indent 2 $ vsep
+                         (pretty ("{ " :: Text) <> genFromJSONFieldAssign tyN (head fields)
+                         : fmap (\jfi -> pretty (", " :: Text) <> genFromJSONFieldAssign tyN jfi) (tail fields)
+                         <> [pretty ("}" :: Text)])
+                     ])
+              , pretty ("protoFromJSON _ = Right default" :: Text) <> pretty tyN
+              ]
+          ]
+
+genFromJSONFieldBind :: JSONFieldInfo -> Doc ann
+genFromJSONFieldBind jfi =
+  pretty ("fld_" :: Text) <> pretty (jfiAccessor jfi) <+> pretty ("<- obj .:? \"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
+
+genFromJSONFieldAssign :: Text -> JSONFieldInfo -> Doc ann
+genFromJSONFieldAssign tyN jfi =
+  pretty (jfiAccessor jfi) <+> pretty ("= maybe (" :: Text) <> pretty (jfiAccessor jfi) <+> pretty ("default" :: Text) <> pretty tyN <> pretty (") id fld_" :: Text) <> pretty (jfiAccessor jfi)
 
 fqProtoName :: Maybe Text -> [Text] -> Text
 fqProtoName pkg scope =
@@ -1189,8 +1283,6 @@ genEnum ctx scope ed =
      , mempty
      , genEnumEncodeInstance scope' ed
      , mempty
-     , genEnumSizeInstance scope' ed
-     , mempty
      , genEnumToJSONInstance scope' ed
      , mempty
      , genEnumFromJSONInstance scope' ed
@@ -1244,9 +1336,6 @@ genEnumEncodeInstance scope ed =
     , pretty ("instance MessageDecode " :: Text) <> pretty tyN <> pretty (" where" :: Text)
     , indent 2 (pretty ("messageDecoder = pure (toEnum 0)" :: Text))
     ]
-
-genEnumSizeInstance :: [Text] -> EnumDef -> Doc ann
-genEnumSizeInstance _ _ = mempty
 
 genEnumToJSONInstance :: [Text] -> EnumDef -> Doc ann
 genEnumToJSONInstance scope ed =

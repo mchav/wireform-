@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Temporal.Temporal.Api.Common.V1.Message (Header(..), Payloads(..), WorkflowExecution(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Update (UpdateWorkflowExecutionLifecycleStage(..))
 import Proto.Temporal.Temporal.Api.Failure.V1.Message (Failure(..))
@@ -77,6 +79,11 @@ instance ProtoToJSON WaitPolicy where
       ]
 
 instance ProtoFromJSON WaitPolicy where
+  protoFromJSON (JsonObject obj) = do
+    fld_waitPolicyLifecyclestage <- obj .:? "lifecycleStage"
+    pure defaultWaitPolicy
+      { waitPolicyLifecyclestage = maybe (waitPolicyLifecyclestage defaultWaitPolicy) id fld_waitPolicyLifecyclestage
+      }
   protoFromJSON _ = Right defaultWaitPolicy
 
 data UpdateRef = UpdateRef
@@ -125,6 +132,13 @@ instance ProtoToJSON UpdateRef where
       ]
 
 instance ProtoFromJSON UpdateRef where
+  protoFromJSON (JsonObject obj) = do
+    fld_updateRefWorkflowexecution <- obj .:? "workflowExecution"
+    fld_updateRefUpdateid <- obj .:? "updateId"
+    pure defaultUpdateRef
+      { updateRefWorkflowexecution = maybe (updateRefWorkflowexecution defaultUpdateRef) id fld_updateRefWorkflowexecution
+      , updateRefUpdateid = maybe (updateRefUpdateid defaultUpdateRef) id fld_updateRefUpdateid
+      }
   protoFromJSON _ = Right defaultUpdateRef
 
 data Outcome = Outcome
@@ -182,6 +196,11 @@ instance ProtoToJSON Outcome where
       ]
 
 instance ProtoFromJSON Outcome where
+  protoFromJSON (JsonObject obj) = do
+    fld_outcomeValue <- obj .:? "value"
+    pure defaultOutcome
+      { outcomeValue = maybe (outcomeValue defaultOutcome) id fld_outcomeValue
+      }
   protoFromJSON _ = Right defaultOutcome
 
 data Meta = Meta
@@ -230,6 +249,13 @@ instance ProtoToJSON Meta where
       ]
 
 instance ProtoFromJSON Meta where
+  protoFromJSON (JsonObject obj) = do
+    fld_metaUpdateid <- obj .:? "updateId"
+    fld_metaIdentity <- obj .:? "identity"
+    pure defaultMeta
+      { metaUpdateid = maybe (metaUpdateid defaultMeta) id fld_metaUpdateid
+      , metaIdentity = maybe (metaIdentity defaultMeta) id fld_metaIdentity
+      }
   protoFromJSON _ = Right defaultMeta
 
 data Input = Input
@@ -286,6 +312,15 @@ instance ProtoToJSON Input where
       ]
 
 instance ProtoFromJSON Input where
+  protoFromJSON (JsonObject obj) = do
+    fld_inputHeader <- obj .:? "header"
+    fld_inputName <- obj .:? "name"
+    fld_inputArgs <- obj .:? "args"
+    pure defaultInput
+      { inputHeader = maybe (inputHeader defaultInput) id fld_inputHeader
+      , inputName = maybe (inputName defaultInput) id fld_inputName
+      , inputArgs = maybe (inputArgs defaultInput) id fld_inputArgs
+      }
   protoFromJSON _ = Right defaultInput
 
 data Request = Request
@@ -334,6 +369,13 @@ instance ProtoToJSON Request where
       ]
 
 instance ProtoFromJSON Request where
+  protoFromJSON (JsonObject obj) = do
+    fld_requestMeta <- obj .:? "meta"
+    fld_requestInput <- obj .:? "input"
+    pure defaultRequest
+      { requestMeta = maybe (requestMeta defaultRequest) id fld_requestMeta
+      , requestInput = maybe (requestInput defaultRequest) id fld_requestInput
+      }
   protoFromJSON _ = Right defaultRequest
 
 data Rejection = Rejection
@@ -398,6 +440,17 @@ instance ProtoToJSON Rejection where
       ]
 
 instance ProtoFromJSON Rejection where
+  protoFromJSON (JsonObject obj) = do
+    fld_rejectionRejectedrequestmessageid <- obj .:? "rejectedRequestMessageId"
+    fld_rejectionRejectedrequestsequencingeventid <- obj .:? "rejectedRequestSequencingEventId"
+    fld_rejectionRejectedrequest <- obj .:? "rejectedRequest"
+    fld_rejectionFailure <- obj .:? "failure"
+    pure defaultRejection
+      { rejectionRejectedrequestmessageid = maybe (rejectionRejectedrequestmessageid defaultRejection) id fld_rejectionRejectedrequestmessageid
+      , rejectionRejectedrequestsequencingeventid = maybe (rejectionRejectedrequestsequencingeventid defaultRejection) id fld_rejectionRejectedrequestsequencingeventid
+      , rejectionRejectedrequest = maybe (rejectionRejectedrequest defaultRejection) id fld_rejectionRejectedrequest
+      , rejectionFailure = maybe (rejectionFailure defaultRejection) id fld_rejectionFailure
+      }
   protoFromJSON _ = Right defaultRejection
 
 data Acceptance = Acceptance
@@ -454,6 +507,15 @@ instance ProtoToJSON Acceptance where
       ]
 
 instance ProtoFromJSON Acceptance where
+  protoFromJSON (JsonObject obj) = do
+    fld_acceptanceAcceptedrequestmessageid <- obj .:? "acceptedRequestMessageId"
+    fld_acceptanceAcceptedrequestsequencingeventid <- obj .:? "acceptedRequestSequencingEventId"
+    fld_acceptanceAcceptedrequest <- obj .:? "acceptedRequest"
+    pure defaultAcceptance
+      { acceptanceAcceptedrequestmessageid = maybe (acceptanceAcceptedrequestmessageid defaultAcceptance) id fld_acceptanceAcceptedrequestmessageid
+      , acceptanceAcceptedrequestsequencingeventid = maybe (acceptanceAcceptedrequestsequencingeventid defaultAcceptance) id fld_acceptanceAcceptedrequestsequencingeventid
+      , acceptanceAcceptedrequest = maybe (acceptanceAcceptedrequest defaultAcceptance) id fld_acceptanceAcceptedrequest
+      }
   protoFromJSON _ = Right defaultAcceptance
 
 data Response = Response
@@ -502,4 +564,11 @@ instance ProtoToJSON Response where
       ]
 
 instance ProtoFromJSON Response where
+  protoFromJSON (JsonObject obj) = do
+    fld_responseMeta <- obj .:? "meta"
+    fld_responseOutcome <- obj .:? "outcome"
+    pure defaultResponse
+      { responseMeta = maybe (responseMeta defaultResponse) id fld_responseMeta
+      , responseOutcome = maybe (responseOutcome defaultResponse) id fld_responseOutcome
+      }
   protoFromJSON _ = Right defaultResponse

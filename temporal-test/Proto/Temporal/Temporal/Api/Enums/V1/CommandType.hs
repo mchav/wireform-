@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 
 
 data CommandType
@@ -104,8 +106,6 @@ instance MessageSize CommandType where
   messageSize _ = 0
 instance MessageDecode CommandType where
   messageDecoder = pure (toEnum 0)
-
-
 
 instance ProtoToJSON CommandType where
   protoToJSON CommandType'CommandTypeUnspecified = JsonString "COMMAND_TYPE_UNSPECIFIED"

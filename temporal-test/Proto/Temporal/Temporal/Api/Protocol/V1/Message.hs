@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Any (Any(..))
 
 
@@ -114,4 +116,15 @@ instance ProtoToJSON Message where
       ]
 
 instance ProtoFromJSON Message where
+  protoFromJSON (JsonObject obj) = do
+    fld_messageId <- obj .:? "id"
+    fld_messageProtocolinstanceid <- obj .:? "protocolInstanceId"
+    fld_messageSequencingid <- obj .:? "sequencingId"
+    fld_messageBody <- obj .:? "body"
+    pure defaultMessage
+      { messageId = maybe (messageId defaultMessage) id fld_messageId
+      , messageProtocolinstanceid = maybe (messageProtocolinstanceid defaultMessage) id fld_messageProtocolinstanceid
+      , messageSequencingid = maybe (messageSequencingid defaultMessage) id fld_messageSequencingid
+      , messageBody = maybe (messageBody defaultMessage) id fld_messageBody
+      }
   protoFromJSON _ = Right defaultMessage

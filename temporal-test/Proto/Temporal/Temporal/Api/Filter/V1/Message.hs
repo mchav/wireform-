@@ -32,7 +32,9 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   varintSize, tagSize, fieldMessageSize,
   fieldVarintSize, fieldFixed32Size, fieldFixed64Size,
   fieldBoolSize, fieldFloatSize, fieldDoubleSize,
-  fieldTextSize, fieldBytesSize)
+  fieldTextSize, fieldBytesSize,
+  fieldSVarint32Size, fieldSVarint64Size,
+  varintSize32, zigZag32, zigZag64)
 import Proto.Google.Protobuf.Timestamp (Timestamp(..))
 import Proto.Temporal.Temporal.Api.Enums.V1.Workflow (WorkflowExecutionStatus(..))
 
@@ -83,6 +85,13 @@ instance ProtoToJSON WorkflowExecutionFilter where
       ]
 
 instance ProtoFromJSON WorkflowExecutionFilter where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowExecutionFilterWorkflowid <- obj .:? "workflowId"
+    fld_workflowExecutionFilterRunid <- obj .:? "runId"
+    pure defaultWorkflowExecutionFilter
+      { workflowExecutionFilterWorkflowid = maybe (workflowExecutionFilterWorkflowid defaultWorkflowExecutionFilter) id fld_workflowExecutionFilterWorkflowid
+      , workflowExecutionFilterRunid = maybe (workflowExecutionFilterRunid defaultWorkflowExecutionFilter) id fld_workflowExecutionFilterRunid
+      }
   protoFromJSON _ = Right defaultWorkflowExecutionFilter
 
 data WorkflowTypeFilter = WorkflowTypeFilter
@@ -124,6 +133,11 @@ instance ProtoToJSON WorkflowTypeFilter where
       ]
 
 instance ProtoFromJSON WorkflowTypeFilter where
+  protoFromJSON (JsonObject obj) = do
+    fld_workflowTypeFilterName <- obj .:? "name"
+    pure defaultWorkflowTypeFilter
+      { workflowTypeFilterName = maybe (workflowTypeFilterName defaultWorkflowTypeFilter) id fld_workflowTypeFilterName
+      }
   protoFromJSON _ = Right defaultWorkflowTypeFilter
 
 data StartTimeFilter = StartTimeFilter
@@ -172,6 +186,13 @@ instance ProtoToJSON StartTimeFilter where
       ]
 
 instance ProtoFromJSON StartTimeFilter where
+  protoFromJSON (JsonObject obj) = do
+    fld_startTimeFilterEarliesttime <- obj .:? "earliestTime"
+    fld_startTimeFilterLatesttime <- obj .:? "latestTime"
+    pure defaultStartTimeFilter
+      { startTimeFilterEarliesttime = maybe (startTimeFilterEarliesttime defaultStartTimeFilter) id fld_startTimeFilterEarliesttime
+      , startTimeFilterLatesttime = maybe (startTimeFilterLatesttime defaultStartTimeFilter) id fld_startTimeFilterLatesttime
+      }
   protoFromJSON _ = Right defaultStartTimeFilter
 
 data StatusFilter = StatusFilter
@@ -213,4 +234,9 @@ instance ProtoToJSON StatusFilter where
       ]
 
 instance ProtoFromJSON StatusFilter where
+  protoFromJSON (JsonObject obj) = do
+    fld_statusFilterStatus <- obj .:? "status"
+    pure defaultStatusFilter
+      { statusFilterStatus = maybe (statusFilterStatus defaultStatusFilter) id fld_statusFilterStatus
+      }
   protoFromJSON _ = Right defaultStatusFilter
