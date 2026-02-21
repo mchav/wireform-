@@ -7,6 +7,7 @@ import Test.Tasty.HUnit
 
 import Proto.AST
 import Proto.Parser
+import qualified Data.Map.Strict as Map
 import Proto.CodeGen
 import Proto.CodeGen.Types
 import Proto.Annotations
@@ -41,7 +42,8 @@ codeGenTests = testGroup "Code Generation"
           case parseProtoFile "<test>" input of
             Left e -> assertFailure (show e)
             Right pf -> do
-              let code = generateModuleText defaultGenerateOpts pf
+              let emptyReg = Map.empty :: TypeRegistry
+                  code = generateModuleText defaultGenerateOpts emptyReg "<test>" pf
               assertBool "Should contain data Person" (T.isInfixOf "data Person" code)
               assertBool "Should contain name field" (T.isInfixOf "name" code)
               assertBool "Should contain module header" (T.isInfixOf "module" code)
@@ -57,7 +59,8 @@ codeGenTests = testGroup "Code Generation"
           case parseProtoFile "<test>" input of
             Left e -> assertFailure (show e)
             Right pf -> do
-              let code = generateModuleText defaultGenerateOpts pf
+              let emptyReg = Map.empty :: TypeRegistry
+                  code = generateModuleText defaultGenerateOpts emptyReg "<test>" pf
               assertBool "Should contain data Status" (T.isInfixOf "data Status" code)
               assertBool "Should contain Active" (T.isInfixOf "Active" code)
       ]
