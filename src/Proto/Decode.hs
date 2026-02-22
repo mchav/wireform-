@@ -94,7 +94,7 @@ module Proto.Decode
   , DecRes# (..)
   ) where
 
-import Data.Bits (shiftL, shiftR, (.|.))
+import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -108,7 +108,7 @@ import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
 import Proto.Wire (Tag(..), WireType (..))
 import Proto.Wire.Decode
-import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64, putLengthDelimited)
+import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64, putLengthDelimited, varintSize, tagSize)
 import Proto.Wire.Result
 
 -- | Typeclass for types that can be decoded from protobuf wire format.
@@ -407,21 +407,13 @@ unknownFieldsSize :: [UnknownField] -> Int
 unknownFieldsSize = foldl' (\acc uf -> acc + unknownFieldSize uf) 0
   where
     unknownFieldSize (UnknownVarint fn val) =
-      tagSz fn + varintSz val
+      tagSize fn + varintSize val
     unknownFieldSize (UnknownFixed64 fn _) =
-      tagSz fn + 8
+      tagSize fn + 8
     unknownFieldSize (UnknownFixed32 fn _) =
-      tagSz fn + 4
+      tagSize fn + 4
     unknownFieldSize (UnknownLenDelim fn val) =
-      tagSz fn + varintSz (fromIntegral (BS.length val)) + BS.length val
-    tagSz fn = varintSz (fromIntegral fn `shiftL` 3)
-    varintSz :: Word64 -> Int
-    varintSz n
-      | n < 0x80       = 1
-      | n < 0x4000     = 2
-      | n < 0x200000   = 3
-      | n < 0x10000000 = 4
-      | otherwise       = 5 + varintSz (n `shiftR` 35)
+      tagSize fn + varintSize (fromIntegral (BS.length val)) + BS.length val
 
 -- | Re-encode unknown fields for round-trip preservation.
 encodeUnknownFields :: [UnknownField] -> B.Builder

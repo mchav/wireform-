@@ -143,14 +143,14 @@ decodeWireValue = \case
 -- | Convert a dynamic message to JSON (field numbers as keys).
 dynamicToJson :: DynamicMessage -> JsonValue
 dynamicToJson (DynamicMessage fs _) =
-  JsonObject (Map.mapKeys (T.pack . show) (fmap dynValueToJson fs))
+  JsonObject (Map.mapKeys intToText (fmap dynValueToJson fs))
 
 dynValueToJson :: DynamicValue -> JsonValue
 dynValueToJson = \case
   DynVarint v  -> JsonNumber (fromIntegral v)
   DynSVarint v -> JsonNumber (fromIntegral v)
   DynFixed32 v -> JsonNumber (fromIntegral v)
-  DynFixed64 v -> JsonString (T.pack (show v))
+  DynFixed64 v -> JsonString (word64ToText v)
   DynFloat v   -> JsonNumber (realToFrac v)
   DynDouble v  -> JsonNumber v
   DynBool v    -> JsonBool v
@@ -160,3 +160,16 @@ dynValueToJson = \case
   DynMessage m -> dynamicToJson m
   DynRepeated vs -> JsonArray (fmap dynValueToJson vs)
   DynMap _     -> JsonObject mempty
+
+intToText :: Int -> Text
+intToText n
+  | n < 0     = "-" <> word64ToText (fromIntegral (negate n))
+  | otherwise = word64ToText (fromIntegral n)
+
+word64ToText :: Word64 -> Text
+word64ToText 0 = "0"
+word64ToText n = go T.empty n
+  where
+    go !acc 0 = acc
+    go !acc v = let (!q, !r) = v `quotRem` 10
+                in go (T.cons (toEnum (fromIntegral r + 48)) acc) q

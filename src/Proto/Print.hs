@@ -88,7 +88,7 @@ printField fd =
   maybe "" (\l -> printLabel l <> " ") (fieldLabel fd)
   <> printFieldType (fieldType fd) <> " "
   <> fieldName fd <> " = "
-  <> T.pack (show (unFieldNumber (fieldNumber fd)))
+  <> intToText (unFieldNumber (fieldNumber fd))
   <> printFieldOptions (fieldOptions fd)
   <> ";"
 
@@ -125,7 +125,7 @@ printMapField mf =
   "map<" <> printScalarType (mapKeyType mf) <> ", "
   <> printFieldType (mapValueType mf) <> "> "
   <> mapFieldName mf <> " = "
-  <> T.pack (show (unFieldNumber (mapFieldNum mf)))
+  <> intToText (unFieldNumber (mapFieldNum mf))
   <> printFieldOptions (mapOptions mf)
   <> ";"
 
@@ -140,7 +140,7 @@ printOneofField :: OneofField -> Text
 printOneofField f =
   printFieldType (oneofFieldType f) <> " "
   <> oneofFieldName f <> " = "
-  <> T.pack (show (unFieldNumber (oneofFieldNumber f)))
+  <> intToText (unFieldNumber (oneofFieldNumber f))
   <> printFieldOptions (oneofFieldOptions f)
   <> ";"
 
@@ -159,7 +159,7 @@ printEnum depth ed =
 
 printEnumValue :: EnumValue -> Text
 printEnumValue ev =
-  evName ev <> " = " <> T.pack (show (evNumber ev))
+  evName ev <> " = " <> intToText (evNumber ev)
   <> printFieldOptions (evOptions ev) <> ";"
 
 -- | Render a service definition.
@@ -205,7 +205,7 @@ printOptionNamePart = \case
 printConstant :: Constant -> Text
 printConstant = \case
   CIdent t     -> t
-  CInt n       -> T.pack (show n)
+  CInt n       -> integerToText n
   CFloat d     -> T.pack (show d)
   CString s    -> "\"" <> escapeProtoString s <> "\""
   CBool True   -> "true"
@@ -233,18 +233,38 @@ printReserved = \case
 
 printReservedRange :: ReservedRange -> Text
 printReservedRange = \case
-  ReservedSingle n    -> T.pack (show n)
-  ReservedRange lo hi -> T.pack (show lo) <> " to " <> T.pack (show hi)
+  ReservedSingle n    -> intToText n
+  ReservedRange lo hi -> intToText lo <> " to " <> intToText hi
 
 printExtensionRanges :: [ExtensionRange] -> Text
 printExtensionRanges = T.intercalate ", " . fmap printExtRange
   where
     printExtRange er =
-      T.pack (show (extStart er)) <>
+      intToText (extStart er) <>
       case extEnd er of
         ExtBoundNum n | n == extStart er -> ""
-        ExtBoundNum n -> " to " <> T.pack (show n)
+        ExtBoundNum n -> " to " <> intToText n
         ExtBoundMax   -> " to max"
 
 indent :: Int -> Text
 indent n = T.replicate (n * 2) " "
+
+intToText :: Int -> Text
+intToText n
+  | n < 0     = "-" <> intToText (negate n)
+  | n < 10    = T.singleton (toEnum (n + 48))
+  | otherwise = go T.empty n
+  where
+    go !acc 0 = acc
+    go !acc v = let (!q, !r) = v `quotRem` 10
+                in go (T.cons (toEnum (r + 48)) acc) q
+
+integerToText :: Integer -> Text
+integerToText n
+  | n < 0     = "-" <> integerToText (negate n)
+  | n < 10    = T.singleton (toEnum (fromIntegral n + 48))
+  | otherwise = go T.empty n
+  where
+    go !acc 0 = acc
+    go !acc v = let (!q, !r) = v `quotRem` 10
+                in go (T.cons (toEnum (fromIntegral r + 48)) acc) q

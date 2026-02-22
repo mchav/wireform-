@@ -60,6 +60,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
@@ -126,12 +127,12 @@ instance ProtoFromJSON Int32 where
   protoFromJSON _ = Left "Expected number"
 
 instance ProtoToJSON Int64 where
-  protoToJSON n = JsonString (T.pack (show n))
+  protoToJSON n = JsonString (int64ToText n)
 
 instance ProtoFromJSON Int64 where
-  protoFromJSON (JsonString s) = case reads (T.unpack s) of
-    [(n, "")] -> Right n
-    _         -> Left "Invalid int64 string"
+  protoFromJSON (JsonString s) = case TR.signed TR.decimal s of
+    Right (n, rest) | T.null rest -> Right n
+    _ -> Left "Invalid int64 string"
   protoFromJSON (JsonNumber n) = Right (round n)
   protoFromJSON _ = Left "Expected int64 string or number"
 
@@ -143,12 +144,12 @@ instance ProtoFromJSON Word32 where
   protoFromJSON _ = Left "Expected number"
 
 instance ProtoToJSON Word64 where
-  protoToJSON n = JsonString (T.pack (show n))
+  protoToJSON n = JsonString (word64ToText n)
 
 instance ProtoFromJSON Word64 where
-  protoFromJSON (JsonString s) = case reads (T.unpack s) of
-    [(n, "")] -> Right n
-    _         -> Left "Invalid uint64 string"
+  protoFromJSON (JsonString s) = case TR.decimal s of
+    Right (n, rest) | T.null rest -> Right n
+    _ -> Left "Invalid uint64 string"
   protoFromJSON (JsonNumber n) = Right (round n)
   protoFromJSON _ = Left "Expected uint64 string or number"
 
@@ -263,8 +264,8 @@ instance (ProtoToJSON k, ProtoToJSON v) => ProtoToJSON (Map k v) where
     where
       showKey k = case protoToJSON k of
         JsonString s -> s
-        JsonNumber n -> T.pack (show n)
-        _ -> T.pack (show (protoToJSON k))
+        JsonNumber n -> doubleToText n
+        _ -> renderJson (protoToJSON k)
 
 instance (Ord k, ProtoFromJSON k, ProtoFromJSON v) => ProtoFromJSON (Map k v) where
   protoFromJSON (JsonObject _) = Right Map.empty
@@ -275,7 +276,7 @@ renderJson :: JsonValue -> Text
 renderJson = \case
   JsonNull     -> "null"
   JsonBool b   -> if b then "true" else "false"
-  JsonNumber n -> T.pack (show n)
+  JsonNumber n -> doubleToText n
   JsonString s -> renderJsonString s
   JsonArray vs -> "[" <> T.intercalate "," (fmap renderJson vs) <> "]"
   JsonObject m ->
@@ -290,7 +291,7 @@ renderJsonPretty = go 0
     go !indent = \case
       JsonNull     -> "null"
       JsonBool b   -> if b then "true" else "false"
-      JsonNumber n -> T.pack (show n)
+      JsonNumber n -> doubleToText n
       JsonString s -> renderJsonString s
       JsonArray [] -> "[]"
       JsonArray vs ->
@@ -320,6 +321,29 @@ renderJsonString s = "\"" <> T.concatMap escapeChar s <> "\""
     showHex' n
       | n < 16    = [intToDigit n]
       | otherwise  = let (!q, !r) = n `quotRem` 16 in showHex' q <> [intToDigit r]
+
+-- Numeric-to-Text helpers that avoid String intermediates.
+
+int64ToText :: Int64 -> Text
+int64ToText n
+  | n < 0     = "-" <> word64ToText (fromIntegral (negate n))
+  | otherwise = word64ToText (fromIntegral n)
+
+word64ToText :: Word64 -> Text
+word64ToText 0 = "0"
+word64ToText n = go T.empty n
+  where
+    go !acc 0 = acc
+    go !acc v = let (!q, !r) = v `quotRem` 10
+                in go (T.cons (toEnum (fromIntegral r + 48)) acc) q
+
+doubleToText :: Double -> Text
+doubleToText d
+  | isNaN d      = "NaN"
+  | isInfinite d = if d > 0 then "Infinity" else "-Infinity"
+  | d == fromInteger rd = int64ToText (fromIntegral rd)
+  | otherwise    = T.pack (show d)
+  where rd = round d :: Integer
 
 -- | Minimal recursive-descent JSON parser.
 parseJson :: Text -> Either String JsonValue
@@ -365,9 +389,9 @@ parseNum :: Text -> Either String (JsonValue, Text)
 parseNum s =
   let (numTxt, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || isDigit c) s
   in if T.null numTxt then Left ("Expected number at: " <> T.unpack (T.take 20 s))
-     else case reads (T.unpack numTxt) of
-       [(n, "")] -> Right (JsonNumber n, rest)
-       _         -> Left ("Invalid number: " <> T.unpack numTxt)
+     else case TR.signed TR.double numTxt of
+       Right (n, leftover) | T.null leftover -> Right (JsonNumber n, rest)
+       _ -> Left ("Invalid number: " <> T.unpack numTxt)
 
 parseArr :: Text -> [JsonValue] -> Either String (JsonValue, Text)
 parseArr t acc =

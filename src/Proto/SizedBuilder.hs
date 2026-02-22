@@ -33,7 +33,7 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Builder.Extra as BE
 import qualified Data.ByteString.Lazy as BL
 
-import Proto.Wire.Encode (putVarint)
+import Proto.Wire.Encode (putVarint, varintSize)
 
 -- | A builder that tracks its own byte size.
 data SizedBuilder = SizedBuilder
@@ -99,16 +99,7 @@ withSubMessage sb =
   let !payloadSize = sbSize sb
       !lenPrefixBuilder = putVarint (fromIntegral payloadSize)
   in SizedBuilder
-       { sbSize    = varintSizeOf payloadSize + payloadSize
+       { sbSize    = varintSize (fromIntegral payloadSize) + payloadSize
        , sbBuilder = lenPrefixBuilder <> sbBuilder sb
        }
-  where
-    varintSizeOf :: Int -> Int
-    varintSizeOf !n
-      | n < 0x80       = 1
-      | n < 0x4000     = 2
-      | n < 0x200000   = 3
-      | n < 0x10000000 = 4
-      | otherwise       = 5
-    {-# INLINE varintSizeOf #-}
 {-# INLINE withSubMessage #-}

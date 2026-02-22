@@ -72,10 +72,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
+import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.Foldable as Foldable
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -260,7 +262,7 @@ foldList f = go mempty
 
 -- | Fold over a Seq to encode each element.
 foldSeq :: (a -> B.Builder) -> Seq a -> B.Builder
-foldSeq f = foldl (\acc v -> acc <> f v) mempty
+foldSeq f = foldl' (\acc v -> acc <> f v) mempty . Foldable.toList
 {-# INLINE foldSeq #-}
 
 
@@ -280,7 +282,7 @@ snocVector = V.snoc
 {-# INLINE snocVector #-}
 
 snocList :: [a] -> a -> [a]
-snocList xs x = xs <> [x]  -- not ideal; DList is better for building
+snocList xs x = xs ++ [x]
 {-# INLINE snocList #-}
 
 snocSeq :: Seq a -> a -> Seq a
