@@ -16,10 +16,9 @@ module Proto.Parser.Error
   ) where
 
 import Data.List (intercalate)
-import Data.List.NonEmpty (NonEmpty(..))
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (catMaybes)
-import Data.Proxy (Proxy(..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -51,61 +50,67 @@ renderOneError sourceLines bundle err =
       line = unPos (sourceLine sp)
       col = unPos (sourceColumn sp)
       (summary, details) = describeError err
-      lineNumWidth = length (show line)
+      lineNumWidth = max 1 (length (show line))
       pad = replicate lineNumWidth ' '
-      contextBefore = if line >= 2
+      mainLine = showSourceLine sourceLines line lineNumWidth
+      -- When error is past EOF (line doesn't exist), show the last available line
+      -- and point to the end of it
+      useFallback = mainLine == Nothing && line >= 2
+      fallbackLine = if useFallback
         then showSourceLine sourceLines (line - 1) lineNumWidth
         else Nothing
-      mainLine = showSourceLine sourceLines line lineNumWidth
-      pointer = makePointer lineNumWidth col (pointerWidth err sourceLines line col)
+      effectiveLine = if mainLine /= Nothing then mainLine else fallbackLine
+      effectiveCol = if mainLine /= Nothing then col
+        else maybe col (\l -> T.length l + 1) (getSourceLine sourceLines (line - 1))
+      -- Show context line before the effective error line, avoiding duplicates
+      contextLineNum = if useFallback then line - 2 else line - 1
+      contextBefore = if contextLineNum >= 1
+        then showSourceLine sourceLines contextLineNum lineNumWidth
+        else Nothing
+      pointer = makePointer lineNumWidth effectiveCol (pointerWidth err)
   in unlines $ catMaybes
     [ Just $ "error: " <> summary
     , Just $ pad <> " --> " <> filePath <> ":" <> show line <> ":" <> show col
     , Just $ pad <> " |"
     , contextBefore
-    , mainLine
+    , effectiveLine
     , Just $ pointer <> " " <> details
     , Just $ pad <> " |"
     ]
 
-showSourceLine :: [Text] -> Int -> Int -> Maybe String
-showSourceLine sourceLines lineNum lineNumWidth
+getSourceLine :: [Text] -> Int -> Maybe Text
+getSourceLine sourceLines lineNum
   | lineNum < 1 || lineNum > length sourceLines = Nothing
-  | otherwise =
-    let content = T.unpack (sourceLines !! (lineNum - 1))
-        num = show lineNum
-        padding = replicate (lineNumWidth - length num) ' '
-    in Just $ padding <> num <> " | " <> content
+  | otherwise = Just (sourceLines !! (lineNum - 1))
+
+showSourceLine :: [Text] -> Int -> Int -> Maybe String
+showSourceLine sourceLines lineNum lineNumWidth = do
+  content <- getSourceLine sourceLines lineNum
+  let num = show lineNum
+      padding = replicate (lineNumWidth - length num) ' '
+  pure $ padding <> num <> " | " <> T.unpack content
 
 makePointer :: Int -> Int -> Int -> String
 makePointer lineNumWidth col width =
   let pad = replicate lineNumWidth ' '
-      caretPad = replicate (col - 1) ' '
+      caretPad = replicate (max 0 (col - 1)) ' '
       carets = if width <= 1
         then "^"
         else replicate width '^'
   in pad <> " | " <> caretPad <> carets
 
-pointerWidth :: ParseError Text Void -> [Text] -> Int -> Int -> Int
-pointerWidth err sourceLines line col =
-  case err of
-    TrivialError _ (Just (Tokens ts)) _ ->
-      max 1 (NE.length ts)
-    TrivialError _ (Just EndOfInput) _ -> 1
-    TrivialError _ (Just (Label _)) _ -> 1
-    TrivialError _ Nothing _ -> 1
-    FancyError _ _ -> 1
+pointerWidth :: ParseError Text Void -> Int
+pointerWidth = \case
+  TrivialError _ (Just (Tokens ts)) _ -> max 1 (NE.length ts)
+  _ -> 1
 
 describeError :: ParseError Text Void -> (String, String)
 describeError (TrivialError _ unexpected' expected') =
-  let summary = describeUnexpected unexpected'
-      details = describeExpected expected'
-  in (summary, details)
+  (describeUnexpected unexpected', describeExpected expected')
 describeError (FancyError _ fancyErrors) =
-  let msgs = Set.toList fancyErrors
-  in case msgs of
+  case Set.toList fancyErrors of
     [] -> ("syntax error", "")
-    _  -> (describeFancySet msgs, "")
+    msgs -> (describeFancySet msgs, "")
 
 describeUnexpected :: Maybe (ErrorItem Char) -> String
 describeUnexpected Nothing = "syntax error"
@@ -152,22 +157,22 @@ categorizeExpected = foldl go (ExpectedGroup [] [] False)
     go acc EndOfInput = acc { egEOI = True }
 
 showToken :: String -> String
-showToken [c] | c == ';' = "';'"
-              | c == '{' = "'{'"
-              | c == '}' = "'}'"
-              | c == '=' = "'='"
-              | c == '(' = "'('"
-              | c == ')' = "')'"
-              | c == '<' = "'<'"
-              | c == '>' = "'>'"
-              | c == '[' = "'['"
-              | c == ']' = "']'"
-              | c == ',' = "','"
-              | c == '.' = "'.'"
-              | c == '"' = "'\"'"
+showToken [c] | c == ';'  = "';'"
+              | c == '{'  = "'{'"
+              | c == '}'  = "'}'"
+              | c == '='  = "'='"
+              | c == '('  = "'('"
+              | c == ')'  = "')'"
+              | c == '<'  = "'<'"
+              | c == '>'  = "'>'"
+              | c == '['  = "'['"
+              | c == ']'  = "']'"
+              | c == ','  = "','"
+              | c == '.'  = "'.'"
+              | c == '"'  = "'\"'"
               | c == '\'' = "\"'\""
               | c == '\n' = "newline"
-              | c == ' ' = "space"
+              | c == ' '  = "space"
 showToken s = "\"" <> s <> "\""
 
 formatExpectedGroups :: ExpectedGroup -> String

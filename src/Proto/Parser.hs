@@ -66,11 +66,11 @@ syntaxDecl = do
   reserved "syntax"
   equals
   s <- stringLiteral
-  semi
   case s of
-    "proto2" -> pure Proto2
-    "proto3" -> pure Proto3
-    _        -> fail ("Unknown syntax: " <> T.unpack s)
+    "proto2" -> semi >> pure Proto2
+    "proto3" -> semi >> pure Proto3
+    _        -> fail ("unknown syntax \"" <> T.unpack s
+                     <> "\": expected \"proto2\" or \"proto3\"")
 
 editionDecl :: Parser Syntax
 editionDecl = do
@@ -81,12 +81,25 @@ editionDecl = do
   pure (Editions (Edition ed))
 
 topLevelStmt :: Parser TLStmt
-topLevelStmt = choice
-  [ try (TLStmtPackage  <$> packageDecl)
-  , try (TLStmtImport   <$> importDecl)
-  , try (TLStmtOption   <$> optionDecl)
-  , TLStmtTopLevel <$> topLevelDef
-  ] <?> "top-level declaration (message, enum, service, import, package, or option)"
+topLevelStmt = do
+  kw <- lookAhead (identifier <?> "top-level declaration (message, enum, service, import, package, or option)")
+  case kw of
+    "package"  -> TLStmtPackage <$> packageDecl
+    "import"   -> TLStmtImport <$> importDecl
+    "option"   -> TLStmtOption <$> optionDecl
+    "message"  -> TLStmtTopLevel . TLMessage <$> messageDef
+    "enum"     -> TLStmtTopLevel . TLEnum <$> enumDef
+    "service"  -> TLStmtTopLevel . TLService <$> serviceDef
+    "extend"   -> TLStmtTopLevel <$> extendDef
+    _          -> fail ("unexpected keyword '" <> T.unpack kw
+                       <> "', expected one of: message, enum, service, import, package, option, or extend")
+
+extendDef :: Parser TopLevel
+extendDef = do
+  reserved "extend"
+  name <- fullIdent
+  fields <- braces (many fieldDef)
+  pure (TLExtend name fields)
 
 packageDecl :: Parser Text
 packageDecl = do
@@ -154,38 +167,25 @@ aggregateLiteral = braces (many aggregateField)
       _ <- optional (comma <|> semi)
       pure (key, val)
 
-topLevelDef :: Parser TopLevel
-topLevelDef = choice
-  [ try (TLMessage <$> messageDef)
-  , try (TLEnum    <$> enumDef)
-  , try (TLService <$> serviceDef)
-  , try extendDef
-  ] <?> "top-level definition (message, enum, service, or extend)"
-  where
-    extendDef = do
-      reserved "extend"
-      name <- fullIdent
-      fields <- braces (many fieldDef)
-      pure (TLExtend name fields)
-
 messageDef :: Parser MessageDef
 messageDef = do
   reserved "message"
-  name <- identifier
+  name <- identifier <?> "message name"
   elems <- braces (many messageElement)
   pure MessageDef { msgName = name, msgElements = elems }
 
 messageElement :: Parser MessageElement
-messageElement = choice
-  [ try (MEReserved   <$> reservedDecl)
-  , try (MEExtensions <$> extensionsDecl)
-  , try (MEOption     <$> optionDecl)
-  , try (MEEnum       <$> enumDef)
-  , try (MEMessage    <$> messageDef)
-  , try (MEOneof      <$> oneofDef)
-  , try (MEMapField   <$> mapFieldDef)
-  , MEField           <$> fieldDef
-  ] <?> "message element (field, enum, message, oneof, map, option, reserved, or extensions)"
+messageElement = do
+  kw <- lookAhead (identifier <?> "message element (field, enum, message, oneof, map, option, reserved, or extensions)")
+  case kw of
+    "reserved"   -> MEReserved <$> reservedDecl
+    "extensions" -> MEExtensions <$> extensionsDecl
+    "option"     -> MEOption <$> optionDecl
+    "enum"       -> MEEnum <$> enumDef
+    "message"    -> MEMessage <$> messageDef
+    "oneof"      -> MEOneof <$> oneofDef
+    "map"        -> MEMapField <$> mapFieldDef
+    _            -> MEField <$> fieldDef
 
 fieldDef :: Parser FieldDef
 fieldDef = do
