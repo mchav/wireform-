@@ -59,8 +59,8 @@ import Proto.CodeGen.Combinators (txt, tshow, braceBlock, instanceHead)
 import Proto.CodeGen.Hooks
 import qualified Proto.CodeGen.Service as Service
 import Proto.Descriptor.Convert (serializeFileDescriptor)
-import qualified Data.ByteString.Base16 as Base16
-import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString as BS
+import Data.Word (Word8)
 
 -- ---------------------------------------------------------------------------
 -- Options
@@ -479,7 +479,6 @@ genImports externalModules = vsep $
   , txt "import Data.Proxy (Proxy(..))"
   , txt "import Proto.Message (IsMessage(..))"
   , txt "import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))"
-  , txt "import qualified Data.ByteString.Base16 as Base16"
   , txt "import qualified Proto.Registry"
   , txt "import Proto.Wire (Tag(..), WireType(..))"
   , txt "import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,"
@@ -524,15 +523,27 @@ moduleAlias modName =
 genFileDescriptorBinding :: FilePath -> ProtoFile -> Doc ann
 genFileDescriptorBinding filePath pf =
   let fdpBytes = serializeFileDescriptor filePath pf
-      hexStr = TE.decodeUtf8 (Base16.encode fdpBytes)
+      escapedLit = byteStringToHsLiteral fdpBytes
   in vsep
     [ txt "-- | Serialized FileDescriptorProto for this .proto file."
     , txt "-- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@."
     , txt "fileDescriptorProtoBytes :: ByteString"
-    , pretty ("fileDescriptorProtoBytes = case Base16.decode \"" :: Text) <> pretty hexStr <> pretty ("\" of" :: Text)
-    , txt "  Right bs -> bs"
-    , pretty ("  Left _ -> \"\"" :: Text)
+    , txt "fileDescriptorProtoBytes = " <> pretty ("\"" :: Text) <> pretty escapedLit <> pretty ("\"" :: Text)
     ]
+
+-- | Render a 'ByteString' as a Haskell string literal body using @\\xHH@ escapes.
+byteStringToHsLiteral :: BS.ByteString -> Text
+byteStringToHsLiteral = T.concat . fmap escapeWord8 . BS.unpack
+  where
+    escapeWord8 :: Word8 -> Text
+    escapeWord8 w =
+      let hi = hexNibble (w `div` 16)
+          lo = hexNibble (w `mod` 16)
+      in T.pack ['\\', 'x', hi, lo]
+    hexNibble :: Word8 -> Char
+    hexNibble n
+      | n < 10    = toEnum (fromEnum '0' + fromIntegral n)
+      | otherwise = toEnum (fromEnum 'a' + fromIntegral n - 10)
 
 -- ---------------------------------------------------------------------------
 -- Top-level generation

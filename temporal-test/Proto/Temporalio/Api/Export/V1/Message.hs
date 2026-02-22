@@ -36,7 +36,6 @@ import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBy
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
-import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -53,9 +52,7 @@ import qualified Proto.Temporalio.Api.History.V1.Message as TE_History_V1_Messag
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
 fileDescriptorProtoBytes :: ByteString
-fileDescriptorProtoBytes = case Base16.decode "0a2474656d706f72616c2f6170692f6578706f72742f76312f6d6573736167652e70726f746f121674656d706f72616c2e6170692e6578706f72742e76311a2574656d706f72616c2f6170692f686973746f72792f76312f6d6573736167652e70726f746f22450a11576f726b666c6f77457865637574696f6e12300a07686973746f727918012001280b321f74656d706f72616c2e6170692e686973746f72792e76312e486973746f727922360a12576f726b666c6f77457865637574696f6e7312200a056974656d7318012003280b3211576f726b666c6f77457865637574696f6e620670726f746f33" of
-  Right bs -> bs
-  Left _ -> ""
+fileDescriptorProtoBytes = "\x0a\x24\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2f\x61\x70\x69\x2f\x65\x78\x70\x6f\x72\x74\x2f\x76\x31\x2f\x6d\x65\x73\x73\x61\x67\x65\x2e\x70\x72\x6f\x74\x6f\x12\x16\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2e\x61\x70\x69\x2e\x65\x78\x70\x6f\x72\x74\x2e\x76\x31\x1a\x25\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2f\x61\x70\x69\x2f\x68\x69\x73\x74\x6f\x72\x79\x2f\x76\x31\x2f\x6d\x65\x73\x73\x61\x67\x65\x2e\x70\x72\x6f\x74\x6f\x22\x45\x0a\x11\x57\x6f\x72\x6b\x66\x6c\x6f\x77\x45\x78\x65\x63\x75\x74\x69\x6f\x6e\x12\x30\x0a\x07\x68\x69\x73\x74\x6f\x72\x79\x18\x01\x20\x01\x28\x0b\x32\x1f\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2e\x61\x70\x69\x2e\x68\x69\x73\x74\x6f\x72\x79\x2e\x76\x31\x2e\x48\x69\x73\x74\x6f\x72\x79\x22\x36\x0a\x12\x57\x6f\x72\x6b\x66\x6c\x6f\x77\x45\x78\x65\x63\x75\x74\x69\x6f\x6e\x73\x12\x20\x0a\x05\x69\x74\x65\x6d\x73\x18\x01\x20\x03\x28\x0b\x32\x11\x57\x6f\x72\x6b\x66\x6c\x6f\x77\x45\x78\x65\x63\x75\x74\x69\x6f\x6e\x62\x06\x70\x72\x6f\x74\x6f\x33"
 
 
 data WorkflowExecution = WorkflowExecution

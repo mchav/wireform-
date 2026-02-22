@@ -524,7 +524,6 @@ test-suite temporal-codegen-test
         base             >= 4.16 && < 5
       , hs-proto
       , aeson
-      , base16-bytestring
       , bytestring
       , containers
       , deepseq

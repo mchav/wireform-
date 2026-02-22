@@ -36,7 +36,6 @@ import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBy
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
-import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -52,9 +51,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
 fileDescriptorProtoBytes :: ByteString
-fileDescriptorProtoBytes = case Base16.decode "0a19676f6f676c652f70726f746f6275662f616e792e70726f746f120f676f6f676c652e70726f746f62756622260a03416e7912100a08747970655f75726c180120012809120d0a0576616c756518022001280c620670726f746f33" of
-  Right bs -> bs
-  Left _ -> ""
+fileDescriptorProtoBytes = "\x0a\x19\x67\x6f\x6f\x67\x6c\x65\x2f\x70\x72\x6f\x74\x6f\x62\x75\x66\x2f\x61\x6e\x79\x2e\x70\x72\x6f\x74\x6f\x12\x0f\x67\x6f\x6f\x67\x6c\x65\x2e\x70\x72\x6f\x74\x6f\x62\x75\x66\x22\x26\x0a\x03\x41\x6e\x79\x12\x10\x0a\x08\x74\x79\x70\x65\x5f\x75\x72\x6c\x18\x01\x20\x01\x28\x09\x12\x0d\x0a\x05\x76\x61\x6c\x75\x65\x18\x02\x20\x01\x28\x0c\x62\x06\x70\x72\x6f\x74\x6f\x33"
 
 
 data Any = Any
