@@ -39,15 +39,41 @@ module Proto.JSON
   , protoWord64FromJSON
   , protoDoubleFromJSON
   , protoFloatFromJSON
+
+    -- * Representation-aware bytes field helpers
+    -- | These handle all 'BytesRep' variants (strict, lazy, short).
+  , lazyBytesFieldToJSON
+  , parseLazyBytesFieldMaybe
+  , shortBytesFieldToJSON
+  , parseShortBytesFieldMaybe
+  , protoLazyBytesToJSON
+  , protoLazyBytesFromJSON
+  , protoShortBytesToJSON
+  , protoShortBytesFromJSON
+
+    -- * Representation-aware string field helpers
+    -- | These handle all 'StringRep' variants (strict text, lazy text,
+    -- short bytestring, String).
+  , lazyTextFieldToJSON
+  , parseLazyTextFieldMaybe
+  , shortTextFieldToJSON
+  , parseShortTextFieldMaybe
+  , hsStringFieldToJSON
+  , parseHsStringFieldMaybe
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as Base64
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Short as SBS
 import Data.Int (Int64)
 import Data.Scientific (fromFloatDigits, toRealFloat)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Data.Text.Read as TR
 import Data.Word (Word64)
 
@@ -55,10 +81,6 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as VU
-import Data.Int (Int32)
-import Data.Word (Word32)
 
 -- | Build a JSON object from key-value pairs (for generated code).
 jsonObject :: [(Text, Aeson.Value)] -> Aeson.Value
@@ -153,6 +175,92 @@ protoBytesFromJSON (Aeson.String s) = case Base64.decode (TE.encodeUtf8 s) of
   Right bs -> pure bs
   Left err -> fail ("Invalid base64 bytes: " <> err)
 protoBytesFromJSON _ = fail "Expected base64 string for bytes"
+
+-- ---------------------------------------------------------------------------
+-- Lazy ByteString (base64)
+-- ---------------------------------------------------------------------------
+
+protoLazyBytesToJSON :: BL.ByteString -> Aeson.Value
+protoLazyBytesToJSON = protoBytesToJSON . BL.toStrict
+
+protoLazyBytesFromJSON :: Aeson.Value -> Aeson.Parser BL.ByteString
+protoLazyBytesFromJSON v = BL.fromStrict <$> protoBytesFromJSON v
+
+lazyBytesFieldToJSON :: Text -> BL.ByteString -> (Text, Aeson.Value)
+lazyBytesFieldToJSON key lbs = (key, protoLazyBytesToJSON lbs)
+
+parseLazyBytesFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe BL.ByteString)
+parseLazyBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just v         -> Just <$> protoLazyBytesFromJSON v
+
+-- ---------------------------------------------------------------------------
+-- ShortByteString (base64)
+-- ---------------------------------------------------------------------------
+
+protoShortBytesToJSON :: SBS.ShortByteString -> Aeson.Value
+protoShortBytesToJSON = protoBytesToJSON . SBS.fromShort
+
+protoShortBytesFromJSON :: Aeson.Value -> Aeson.Parser SBS.ShortByteString
+protoShortBytesFromJSON v = SBS.toShort <$> protoBytesFromJSON v
+
+shortBytesFieldToJSON :: Text -> SBS.ShortByteString -> (Text, Aeson.Value)
+shortBytesFieldToJSON key sbs = (key, protoShortBytesToJSON sbs)
+
+parseShortBytesFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe SBS.ShortByteString)
+parseShortBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just v         -> Just <$> protoShortBytesFromJSON v
+
+-- ---------------------------------------------------------------------------
+-- Lazy Text (JSON string)
+-- ---------------------------------------------------------------------------
+
+lazyTextFieldToJSON :: Text -> TL.Text -> (Text, Aeson.Value)
+lazyTextFieldToJSON key lt = (key, Aeson.String (TL.toStrict lt))
+
+parseLazyTextFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe TL.Text)
+parseLazyTextFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.String s) -> pure (Just (TL.fromStrict s))
+  Just _ -> fail ("Expected string for field: " <> T.unpack key)
+
+-- ---------------------------------------------------------------------------
+-- ShortByteString as text (UTF-8 stored in SBS)
+-- ---------------------------------------------------------------------------
+
+shortTextFieldToJSON :: Text -> SBS.ShortByteString -> (Text, Aeson.Value)
+shortTextFieldToJSON key sbs = case TE.decodeUtf8' (SBS.fromShort sbs) of
+  Right t -> (key, Aeson.String t)
+  Left _  -> (key, Aeson.String "")
+
+parseShortTextFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe SBS.ShortByteString)
+parseShortTextFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.String s) -> pure (Just (SBS.toShort (TE.encodeUtf8 s)))
+  Just _ -> fail ("Expected string for field: " <> T.unpack key)
+
+-- ---------------------------------------------------------------------------
+-- Haskell String (JSON string)
+-- ---------------------------------------------------------------------------
+
+hsStringFieldToJSON :: Text -> String -> (Text, Aeson.Value)
+hsStringFieldToJSON key s = (key, Aeson.String (T.pack s))
+
+parseHsStringFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe String)
+parseHsStringFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.String s) -> pure (Just (T.unpack s))
+  Just _ -> fail ("Expected string for field: " <> T.unpack key)
+
+-- ---------------------------------------------------------------------------
+-- Internal numeric helpers
+-- ---------------------------------------------------------------------------
 
 int64ToText :: Int64 -> Text
 int64ToText n
