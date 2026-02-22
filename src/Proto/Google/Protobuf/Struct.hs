@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 -- | Auto-generated protobuf types from package @google.protobuf@.
 --
@@ -11,6 +10,7 @@
 module Proto.Google.Protobuf.Struct where
 
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import Data.Int (Int32, Int64)
@@ -69,7 +69,7 @@ instance MessageEncode Struct where
 
 instance MessageSize Struct where
   messageSize msg =
-    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.structFields)
+    Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.structFields
     + unknownFieldsSize msg.structUnknownfields
 
 instance MessageDecode Struct where
@@ -120,7 +120,7 @@ instance ProtoFromJSON Struct where
   protoFromJSON (JsonObject obj) = do
     fld_structFields <- obj .:? "fields"
     pure defaultStruct
-      { structFields = maybe (structFields defaultStruct) id fld_structFields
+      { structFields = Data.Maybe.fromMaybe (structFields defaultStruct) fld_structFields
       }
   protoFromJSON _ = Right defaultStruct
 
@@ -232,7 +232,7 @@ instance ProtoFromJSON Value where
   protoFromJSON (JsonObject obj) = do
     fld_valueKind <- obj .:? "kind"
     pure defaultValue
-      { valueKind = maybe (valueKind defaultValue) id fld_valueKind
+      { valueKind = Data.Maybe.fromMaybe (valueKind defaultValue) fld_valueKind
       }
   protoFromJSON _ = Right defaultValue
 
@@ -284,7 +284,7 @@ instance MessageEncode ListValue where
 
 instance MessageSize ListValue where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.listValueValues)
+    V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.listValueValues
     + unknownFieldsSize msg.listValueUnknownfields
 
 instance MessageDecode ListValue where
@@ -332,7 +332,7 @@ instance ProtoFromJSON ListValue where
   protoFromJSON (JsonObject obj) = do
     fld_listValueValues <- obj .:? "values"
     pure defaultListValue
-      { listValueValues = maybe (listValueValues defaultListValue) id fld_listValueValues
+      { listValueValues = Data.Maybe.fromMaybe (listValueValues defaultListValue) fld_listValueValues
       }
   protoFromJSON _ = Right defaultListValue
 
@@ -341,4 +341,4 @@ registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageR
 registerModuleTypes =
   Proto.Registry.registerType (Proxy :: Proxy Struct) .
   Proto.Registry.registerType (Proxy :: Proxy Value) .
-  Proto.Registry.registerType (Proxy :: Proxy ListValue) .  id
+  Proto.Registry.registerType (Proxy :: Proxy ListValue)

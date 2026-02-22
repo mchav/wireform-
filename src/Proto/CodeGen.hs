@@ -30,7 +30,7 @@ module Proto.CodeGen
   , escapeReserved
   ) where
 
-import Data.Char (toLower, toUpper, isUpper)
+import Data.Char (isAsciiUpper, toLower, toUpper, isUpper)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -351,7 +351,7 @@ collectReferencedTypes = foldMap goTL
     goElem = \case
       MEField fd -> goFT (fieldType fd)
       MEMapField mf -> goFT (mapValueType mf)
-      MEOneof od -> foldMap (\f -> goFT (oneofFieldType f)) (oneofFields od)
+      MEOneof od -> foldMap (goFT . oneofFieldType) (oneofFields od)
       MEMessage inner -> goMsg inner
       _ -> Set.empty
     goFT = \case
@@ -372,7 +372,7 @@ computeImports ctx refs =
 -- Resolve a proto type name to TypeInfo. Tries FQ lookup first, then
 -- with current package prefix, then with parent message scopes, then simple.
 resolveType :: GenCtx -> Text -> Maybe TypeInfo
-resolveType ctx name = resolveTypeWithScope ctx [] name
+resolveType ctx = resolveTypeWithScope ctx []
 
 resolveTypeWithScope :: GenCtx -> [Text] -> Text -> Maybe TypeInfo
 resolveTypeWithScope ctx scope name =
@@ -382,7 +382,7 @@ resolveTypeWithScope ctx scope name =
         [ name
         , pkg <> "." <> name
         ] <> [pkg <> "." <> T.intercalate "." s <> "." <> name | s <- tails' scope, not (null s)]
-  in case firstJust (\c -> Map.lookup c reg) candidates of
+  in case firstJust (`Map.lookup` reg) candidates of
     Just ti -> Just ti
     Nothing ->
       let suffix = "." <> name
@@ -483,7 +483,7 @@ moduleAlias modName =
       ("Proto" : ns : rest) -> initials ns : rest
       ps -> ps
     initials t =
-      let uppers = T.filter (\c -> c >= 'A' && c <= 'Z') t
+      let uppers = T.filter isAsciiUpper t
       in if T.length uppers >= 2 then uppers else T.toUpper (T.take 2 t)
 
 -- | Generate a top-level binding containing the serialized FileDescriptorProto.
@@ -689,7 +689,7 @@ genEncodeInstance ctx scope msg =
         [ pretty ("buildMessage msg =" :: Text)
         , indent 2 $ case fields of
             [] -> pretty ("encodeUnknownFields " :: Text) <> pretty unknownAcc
-            _  -> vsep (zipWith (\i f -> genFieldBuild ctx i f) [0..] fields
+            _  -> vsep (zipWith (genFieldBuild ctx) [0..] fields
                        <> [pretty ("<> encodeUnknownFields " :: Text) <> pretty unknownAcc])
         ]
     ]
@@ -847,7 +847,7 @@ genSizeInstance ctx scope msg =
         [ pretty ("messageSize msg =" :: Text)
         , indent 2 $ case fields of
             [] -> pretty ("unknownFieldsSize " :: Text) <> pretty unknownAcc
-            _  -> vsep (zipWith (\i f -> genFieldSizeExpr ctx i f) [0..] fields
+            _  -> vsep (zipWith (genFieldSizeExpr ctx) [0..] fields
                        <> [pretty ("+ unknownFieldsSize " :: Text) <> pretty unknownAcc])
         ]
     ]
@@ -1002,7 +1002,7 @@ genDecodeInstance ctx scope msg =
     , indent 2 $ vsep
         [ pretty ("{-# INLINE messageDecoder #-}" :: Text)
         , pretty ("messageDecoder = " :: Text) <> pretty ("loop" :: Text) <+>
-          hsep (fmap (\fi -> pretty (fieldDefaultText ctx fi)) fields) <+> pretty ("[]" :: Text)
+          hsep (fmap (pretty . fieldDefaultText ctx) fields) <+> pretty ("[]" :: Text)
         , indent 2 $ pretty ("where" :: Text)
         , indent 4 $ vsep
             [ pretty ("loop " :: Text) <> hsep (fmap pretty allAccsWithUnknown) <+> pretty ("= do" :: Text)
@@ -1435,14 +1435,10 @@ extractAllFields ctx scope elems =
       _ -> []
 
 resolveTypeKind :: GenCtx -> Text -> TypeKind
-resolveTypeKind ctx name = case resolveType ctx name of
-  Just ti -> tiKind ti
-  Nothing -> TKMessage
+resolveTypeKind ctx name = maybe TKMessage tiKind (resolveType ctx name)
 
 resolveTypeKindScoped :: GenCtx -> [Text] -> Text -> TypeKind
-resolveTypeKindScoped ctx scope name = case resolveTypeWithScope ctx scope name of
-  Just ti -> tiKind ti
-  Nothing -> TKMessage
+resolveTypeKindScoped ctx scope name = maybe TKMessage tiKind (resolveTypeWithScope ctx scope name)
 
 -- JSON field info
 data JSONFieldInfo = JSONFieldInfo
@@ -1479,7 +1475,7 @@ getJsonName = \case
 -- ---------------------------------------------------------------------------
 
 genServiceTopLevel :: GenCtx -> [Text] -> ServiceDef -> [Doc ann]
-genServiceTopLevel ctx scope svc = Service.genServiceDecls (gcPkg ctx) scope svc
+genServiceTopLevel ctx = Service.genServiceDecls (gcPkg ctx)
 
 -- ---------------------------------------------------------------------------
 -- Enum generation

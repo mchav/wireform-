@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 -- | Protobuf text format (pbtxt) serialization and deserialization.
 --
 -- The text format is a human-readable representation of protobuf messages,
@@ -28,6 +27,7 @@ module Proto.TextFormat
   , TextField (..)
   ) where
 
+import Data.Char (isDigit)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as Base16
@@ -168,7 +168,7 @@ parseTextValue t
   | T.head t == '"' = parseTextString t
   | T.isPrefixOf "true" t = Right (TVBool True, T.drop 4 t)
   | T.isPrefixOf "false" t = Right (TVBool False, T.drop 5 t)
-  | T.head t == '-' || (T.head t >= '0' && T.head t <= '9') = parseTextNumber t
+  | T.head t == '-' || isDigit (T.head t) = parseTextNumber t
   | otherwise =
       let (ident, rest) = T.span (\c -> c /= '\n' && c /= ' ' && c /= ';' && c /= ',' && c /= '}') t
       in Right (TVIdent ident, rest)
@@ -191,7 +191,7 @@ parseTextString t = go (T.drop 1 t) []
 
 parseTextNumber :: Text -> Either String (TextValue, Text)
 parseTextNumber t =
-  let (numStr, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || (c >= '0' && c <= '9')) t
+  let (numStr, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || isDigit c) t
   in if T.any (== '.') numStr || T.any (\c -> c == 'e' || c == 'E') numStr
      then case reads (T.unpack numStr) of
        [(n, "")] -> Right (TVNumber n, rest)

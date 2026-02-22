@@ -29,7 +29,7 @@ genEncodeInstance msg =
         [ pretty ("buildMessage msg =" :: Text)
         , indent 2 $ case fields of
             [] -> pretty ("mempty" :: Text)
-            _  -> vsep (fmap (\(i, f) -> genFieldBuild i f) (zip [0..] fields))
+            _  -> vsep (fmap (uncurry genFieldBuild) (zip [0..] fields))
         ]
     ]
   where
@@ -99,7 +99,7 @@ genSizeInstance msg =
         [ pretty ("messageSize msg =" :: Text)
         , indent 2 $ case fields of
             [] -> pretty ("0" :: Text)
-            _  -> vsep (fmap (\(i, f) -> genFieldSize i f) (zip [0..] fields))
+            _  -> vsep (fmap (uncurry genFieldSize) (zip [0..] fields))
         ]
     ]
   where

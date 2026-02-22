@@ -19,6 +19,7 @@ module Proto.JSON.WellKnown
   , parseRfc3339
   ) where
 
+import Data.Char (isDigit)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -123,7 +124,7 @@ parseRfc3339 t = do
   let stripped = T.strip t
   case T.breakOn "T" stripped of
     (datePart, rest)
-      | T.null rest -> Left ("Invalid RFC 3339 timestamp: missing T separator")
+      | T.null rest -> Left "Invalid RFC 3339 timestamp: missing T separator"
       | otherwise -> do
           let timePart' = T.drop 1 rest
               timePart = T.dropWhileEnd (\c -> c == 'Z' || c == 'z') timePart'
@@ -176,7 +177,7 @@ parseFracNanos :: Text -> Int32
 parseFracNanos t
   | T.null t  = 0
   | T.head t == '.' =
-      let digits = T.takeWhile (\c -> c >= '0' && c <= '9') (T.tail t)
+      let digits = T.takeWhile isDigit (T.tail t)
           padded = T.take 9 (digits <> T.replicate (9 - T.length digits) "0")
       in case readInt padded of
            Right n -> fromIntegral n

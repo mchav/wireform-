@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 -- | Auto-generated protobuf types from package @google.protobuf@.
 --
@@ -86,10 +85,10 @@ instance MessageDecode Duration where
           UNothing -> pure (Duration {durationSeconds = acc_0, durationNanos = acc_1, durationUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
+              v <- fromIntegral <$> decodeFieldVarint
               loop v acc_1 acc_unknown_
             2 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
+              v <- fromIntegral <$> decodeFieldVarint
               loop acc_0 v acc_unknown_
             _ -> do
               uf <- captureUnknownField fn wt
@@ -126,7 +125,7 @@ instance ProtoToJSON Duration where
     let s = msg.durationSeconds
         n = msg.durationNanos
         nanoStr = if n == 0 then T.pack "" else T.pack "." <> dropTrailingZeros (pad9 (abs (fromIntegral n)))
-        dropTrailingZeros t = case T.stripSuffix (T.pack "0") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }
+        dropTrailingZeros t = maybe t dropTrailingZeros (T.stripSuffix (T.pack "0") t)
         pad9 x = let sx = T.pack (show x) in T.replicate (9 - T.length sx) (T.pack "0") <> sx
         sign = if s < 0 || n < 0 then T.pack "-" else T.pack ""
     in JsonString (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack "s")
@@ -140,4 +139,4 @@ instance ProtoFromJSON Duration where
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy Duration) .  id
+  Proto.Registry.registerType (Proxy :: Proxy Duration)

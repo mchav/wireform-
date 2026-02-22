@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 -- | Auto-generated protobuf types from package @google.protobuf@.
 --
@@ -11,6 +10,7 @@
 module Proto.Google.Protobuf.FieldMask where
 
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import Data.Int (Int32, Int64)
@@ -69,7 +69,7 @@ instance MessageEncode FieldMask where
 
 instance MessageSize FieldMask where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths)
+    V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths
     + unknownFieldsSize msg.fieldMaskUnknownfields
 
 instance MessageDecode FieldMask where
@@ -117,11 +117,11 @@ instance ProtoFromJSON FieldMask where
   protoFromJSON (JsonObject obj) = do
     fld_fieldMaskPaths <- obj .:? "paths"
     pure defaultFieldMask
-      { fieldMaskPaths = maybe (fieldMaskPaths defaultFieldMask) id fld_fieldMaskPaths
+      { fieldMaskPaths = Data.Maybe.fromMaybe (fieldMaskPaths defaultFieldMask) fld_fieldMaskPaths
       }
   protoFromJSON _ = Right defaultFieldMask
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy FieldMask) .  id
+  Proto.Registry.registerType (Proxy :: Proxy FieldMask)

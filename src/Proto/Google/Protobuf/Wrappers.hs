@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 -- | Auto-generated protobuf types from package @google.protobuf@.
 --
@@ -11,6 +10,7 @@
 module Proto.Google.Protobuf.Wrappers where
 
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import Data.Int (Int32, Int64)
@@ -117,7 +117,7 @@ instance ProtoFromJSON DoubleValue where
   protoFromJSON (JsonObject obj) = do
     fld_doubleValueValue <- obj .:? "value"
     pure defaultDoubleValue
-      { doubleValueValue = maybe (doubleValueValue defaultDoubleValue) id fld_doubleValueValue
+      { doubleValueValue = Data.Maybe.fromMaybe (doubleValueValue defaultDoubleValue) fld_doubleValueValue
       }
   protoFromJSON _ = Right defaultDoubleValue
 
@@ -189,7 +189,7 @@ instance ProtoFromJSON FloatValue where
   protoFromJSON (JsonObject obj) = do
     fld_floatValueValue <- obj .:? "value"
     pure defaultFloatValue
-      { floatValueValue = maybe (floatValueValue defaultFloatValue) id fld_floatValueValue
+      { floatValueValue = Data.Maybe.fromMaybe (floatValueValue defaultFloatValue) fld_floatValueValue
       }
   protoFromJSON _ = Right defaultFloatValue
 
@@ -226,7 +226,7 @@ instance MessageDecode Int64Value where
           UNothing -> pure (Int64Value {int64ValueValue = acc_0, int64ValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
+              v <- fromIntegral <$> decodeFieldVarint
               loop v acc_unknown_
             _ -> do
               uf <- captureUnknownField fn wt
@@ -261,7 +261,7 @@ instance ProtoFromJSON Int64Value where
   protoFromJSON (JsonObject obj) = do
     fld_int64ValueValue <- obj .:? "value"
     pure defaultInt64Value
-      { int64ValueValue = maybe (int64ValueValue defaultInt64Value) id fld_int64ValueValue
+      { int64ValueValue = Data.Maybe.fromMaybe (int64ValueValue defaultInt64Value) fld_int64ValueValue
       }
   protoFromJSON _ = Right defaultInt64Value
 
@@ -333,7 +333,7 @@ instance ProtoFromJSON UInt64Value where
   protoFromJSON (JsonObject obj) = do
     fld_uInt64ValueValue <- obj .:? "value"
     pure defaultUInt64Value
-      { uInt64ValueValue = maybe (uInt64ValueValue defaultUInt64Value) id fld_uInt64ValueValue
+      { uInt64ValueValue = Data.Maybe.fromMaybe (uInt64ValueValue defaultUInt64Value) fld_uInt64ValueValue
       }
   protoFromJSON _ = Right defaultUInt64Value
 
@@ -370,7 +370,7 @@ instance MessageDecode Int32Value where
           UNothing -> pure (Int32Value {int32ValueValue = acc_0, int32ValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
+              v <- fromIntegral <$> decodeFieldVarint
               loop v acc_unknown_
             _ -> do
               uf <- captureUnknownField fn wt
@@ -405,7 +405,7 @@ instance ProtoFromJSON Int32Value where
   protoFromJSON (JsonObject obj) = do
     fld_int32ValueValue <- obj .:? "value"
     pure defaultInt32Value
-      { int32ValueValue = maybe (int32ValueValue defaultInt32Value) id fld_int32ValueValue
+      { int32ValueValue = Data.Maybe.fromMaybe (int32ValueValue defaultInt32Value) fld_int32ValueValue
       }
   protoFromJSON _ = Right defaultInt32Value
 
@@ -442,7 +442,7 @@ instance MessageDecode UInt32Value where
           UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0, uInt32ValueUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
+              v <- fromIntegral <$> decodeFieldVarint
               loop v acc_unknown_
             _ -> do
               uf <- captureUnknownField fn wt
@@ -477,7 +477,7 @@ instance ProtoFromJSON UInt32Value where
   protoFromJSON (JsonObject obj) = do
     fld_uInt32ValueValue <- obj .:? "value"
     pure defaultUInt32Value
-      { uInt32ValueValue = maybe (uInt32ValueValue defaultUInt32Value) id fld_uInt32ValueValue
+      { uInt32ValueValue = Data.Maybe.fromMaybe (uInt32ValueValue defaultUInt32Value) fld_uInt32ValueValue
       }
   protoFromJSON _ = Right defaultUInt32Value
 
@@ -496,12 +496,12 @@ defaultBoolValue = BoolValue
 
 instance MessageEncode BoolValue where
   buildMessage msg =
-    (if msg.boolValueValue == False then mempty else encodeFieldBool 1 msg.boolValueValue)
+    (if not msg.boolValueValue then mempty else encodeFieldBool 1 msg.boolValueValue)
     <> encodeUnknownFields msg.boolValueUnknownfields
 
 instance MessageSize BoolValue where
   messageSize msg =
-    (if msg.boolValueValue == False then 0 else fieldBoolSize 1)
+    (if not msg.boolValueValue then 0 else fieldBoolSize 1)
     + unknownFieldsSize msg.boolValueUnknownfields
 
 instance MessageDecode BoolValue where
@@ -549,7 +549,7 @@ instance ProtoFromJSON BoolValue where
   protoFromJSON (JsonObject obj) = do
     fld_boolValueValue <- obj .:? "value"
     pure defaultBoolValue
-      { boolValueValue = maybe (boolValueValue defaultBoolValue) id fld_boolValueValue
+      { boolValueValue = Data.Maybe.fromMaybe (boolValueValue defaultBoolValue) fld_boolValueValue
       }
   protoFromJSON _ = Right defaultBoolValue
 
@@ -621,7 +621,7 @@ instance ProtoFromJSON StringValue where
   protoFromJSON (JsonObject obj) = do
     fld_stringValueValue <- obj .:? "value"
     pure defaultStringValue
-      { stringValueValue = maybe (stringValueValue defaultStringValue) id fld_stringValueValue
+      { stringValueValue = Data.Maybe.fromMaybe (stringValueValue defaultStringValue) fld_stringValueValue
       }
   protoFromJSON _ = Right defaultStringValue
 
@@ -693,7 +693,7 @@ instance ProtoFromJSON BytesValue where
   protoFromJSON (JsonObject obj) = do
     fld_bytesValueValue <- obj .:? "value"
     pure defaultBytesValue
-      { bytesValueValue = maybe (bytesValueValue defaultBytesValue) id fld_bytesValueValue
+      { bytesValueValue = Data.Maybe.fromMaybe (bytesValueValue defaultBytesValue) fld_bytesValueValue
       }
   protoFromJSON _ = Right defaultBytesValue
 
@@ -708,4 +708,4 @@ registerModuleTypes =
   Proto.Registry.registerType (Proxy :: Proxy UInt32Value) .
   Proto.Registry.registerType (Proxy :: Proxy BoolValue) .
   Proto.Registry.registerType (Proxy :: Proxy StringValue) .
-  Proto.Registry.registerType (Proxy :: Proxy BytesValue) .  id
+  Proto.Registry.registerType (Proxy :: Proxy BytesValue)

@@ -56,8 +56,8 @@ import Proto.Decode
 import Proto.Wire (Tag(..))
 import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize, fieldBoolSize)
 
-data FileDescriptorSet = FileDescriptorSet
-  { fdsFile :: !(V.Vector FileDescriptorProto)
+newtype FileDescriptorSet = FileDescriptorSet
+  { fdsFile :: V.Vector FileDescriptorProto
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 
@@ -321,8 +321,8 @@ instance MessageDecode MethodDescriptorProto where
           UJust (Tag 6 _) -> do v <- decodeFieldBool; loop m { mdpServerStreaming = v }
           UJust (Tag _ wt) -> skipField wt >> loop m
 
-data OneofDescriptorProto = OneofDescriptorProto
-  { odpName :: !Text
+newtype OneofDescriptorProto = OneofDescriptorProto
+  { odpName :: Text
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 

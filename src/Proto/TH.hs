@@ -38,7 +38,7 @@ import qualified Data.ByteString.Short as SBS
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isNothing, mapMaybe)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
@@ -65,7 +65,7 @@ hsFieldName :: Text -> Text
 hsFieldName = snakeToCamel
 
 hsEnumCon :: Text -> Text -> Text
-hsEnumCon _enumName valName = snakeToPascal valName
+hsEnumCon _enumName = snakeToPascal
 
 -- | Options for compile-time proto loading.
 data LoadOpts = LoadOpts
@@ -110,7 +110,7 @@ messageToDecls' cfg msg = do
   let tyName = mkName (T.unpack (hsTypeName (msgName msg)))
       fields = extractMessageFields cfg (msgName msg) (msgElements msg)
 
-  nestedDecls <- fmap concat $ mapM (\case
+  nestedDecls <- concat <$> mapM (\case
     MEMessage inner -> messageToDecls' cfg inner
     MEEnum ed       -> enumToDecls ed
     _               -> pure []) (msgElements msg)
@@ -271,7 +271,7 @@ bytesTypeQ = \case
 repeatedTypeQ :: RepeatedRep -> Q Type -> Q Type
 repeatedTypeQ = \case
   VectorRep -> appT (conT ''V.Vector)
-  ListRep   -> \t -> appT listT t
+  ListRep   -> appT listT
   SeqRep    -> appT (conT ''Seq)
 
 optionalTypeQ :: OptionalRep -> Q Type -> Q Type
@@ -320,7 +320,7 @@ defaultValueExpr (FSField _ _ lbl ft rep) = case lbl of
     FTScalar SBytes  -> emptyBytesQ (frBytes rep)
     FTScalar _       -> litE (integerL 0)
     FTNamed _        -> conE 'Nothing
-defaultValueExpr (FSMap _ _ _ _) = [| Map.empty |]
+defaultValueExpr (FSMap {}) = [| Map.empty |]
 defaultValueExpr (FSOneof _ _) = conE 'Nothing
 
 emptyRepeatedQ :: RepeatedRep -> Q Exp
@@ -360,8 +360,8 @@ mkFieldEncode msgVar (FSField name num lbl ft rep) = do
   let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
       fn = litE (integerL (fromIntegral num))
   case lbl of
-    Just Repeated -> [| $(foldRepeatedQ (frRepeated rep)) (\v -> $(encodeFnQ ft rep) $fn v) $accessor |]
-    Just Optional -> [| maybe mempty (\v -> $(encodeFnQ ft rep) $fn v) $accessor |]
+    Just Repeated -> [| $(foldRepeatedQ (frRepeated rep)) ($(encodeFnQ ft rep) $fn) $accessor |]
+    Just Optional -> [| maybe mempty ($(encodeFnQ ft rep) $fn) $accessor |]
     _ -> [| if $(defaultCheckQ ft rep accessor)
             then mempty
             else $(encodeFnQ ft rep) $fn $accessor |]
@@ -415,7 +415,7 @@ defaultCheckQ ft rep accessor = case ft of
   FTScalar SString -> defaultCheckStringQ (frString rep) accessor
   FTScalar SBytes  -> defaultCheckBytesQ (frBytes rep) accessor
   FTScalar _       -> [| $accessor == 0 |]
-  FTNamed _        -> [| $accessor == Nothing |]
+  FTNamed _        -> [| isNothing $accessor |]
 
 defaultCheckStringQ :: StringRep -> Q Exp -> Q Exp
 defaultCheckStringQ rep accessor = case rep of
@@ -459,7 +459,7 @@ mkDecodeInstance tyName fields = do
                  (normalB [| $(decodeFnQ ft rep) >>= \v -> $loopCall |]) []]
           FSMap _ num _kt _vt ->
             [match (litP (integerL (fromIntegral num)))
-              (normalB [| Decode.decodeFieldBytes >>= \_ -> $passThruLoop |]) []]
+              (normalB [| Decode.decodeFieldBytes >> $passThruLoop |]) []]
           FSOneof _ ofs ->
             fmap (\of' ->
               let ofNum = unFieldNumber (oneofFieldNumber of')
@@ -542,8 +542,8 @@ mkFieldSize msgVar (FSField name num lbl ft rep) = do
   let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
       fn = litE (integerL (fromIntegral num))
   case lbl of
-    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated rep)) (\v -> $(sizeFnQ ft) $fn v) $accessor |]
-    Just Optional -> [| maybe 0 (\v -> $(sizeFnQ ft) $fn v) $accessor |]
+    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated rep)) ($(sizeFnQ ft) $fn) $accessor |]
+    Just Optional -> [| maybe 0 ($(sizeFnQ ft) $fn) $accessor |]
     _ -> [| if $(defaultCheckQ ft rep accessor)
             then 0
             else $(sizeFnQ ft) $fn $accessor |]

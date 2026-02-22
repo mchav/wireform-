@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 -- | Optional aeson integration for protobuf JSON.
 --
 -- This module bridges between hs-proto's dependency-free 'JsonValue'

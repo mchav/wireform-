@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 -- | Auto-generated protobuf types from package @google.protobuf@.
 --
@@ -16,6 +15,7 @@ import qualified Data.ByteString.Builder as B
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Maybe (fromMaybe)
 import Data.Word (Word32, Word64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -93,12 +93,12 @@ instance ProtoFromJSON Any where
     fld_anyTypeurl <- obj .:? "typeUrl"
     fld_anyValue <- obj .:? "value"
     pure defaultAny
-      { anyTypeurl = maybe (anyTypeurl defaultAny) id fld_anyTypeurl
-      , anyValue = maybe (anyValue defaultAny) id fld_anyValue
+      { anyTypeurl = fromMaybe (anyTypeurl defaultAny) fld_anyTypeurl
+      , anyValue = fromMaybe (anyValue defaultAny) fld_anyValue
       }
   protoFromJSON _ = Right defaultAny
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy Any) .  id
+  Proto.Registry.registerType (Proxy :: Proxy Any)

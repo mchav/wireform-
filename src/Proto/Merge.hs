@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 -- | Message merge semantics as defined by the protobuf specification.
 --
 -- When decoding, if the same field number appears multiple times:
@@ -50,7 +49,7 @@ class Mergeable a where
 -- | Merge optional (Maybe) fields: incoming Just wins, otherwise keep existing.
 mergeOptional :: Mergeable a => Maybe a -> Maybe a -> Maybe a
 mergeOptional existing incoming = case (existing, incoming) of
-  (_, Just b)         -> Just (maybe b (\a -> mergeFrom a b) existing)
+  (_, Just b)         -> Just (maybe b (`mergeFrom` b) existing)
   (Just a, Nothing)   -> Just a
   (Nothing, Nothing)  -> Nothing
 

@@ -96,8 +96,8 @@ data CompatError = CompatError
   , ceRule     :: !Text     -- short rule identifier
   } deriving stock (Show, Eq)
 
-data CompatResult = CompatResult
-  { crErrors :: ![CompatError]
+newtype CompatResult = CompatResult
+  { crErrors :: [CompatError]
   } deriving stock (Show, Eq)
 
 instance Semigroup CompatResult where

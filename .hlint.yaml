@@ -1,17 +1,12 @@
-# HLint configuration for hs-proto
+# False positives: hlint cannot see variable references inside TH splices.
+# The lambdas \v and \mt bind variables used by $loopCall / $(caseE ...) via
+# varE (mkName "v") / varE (mkName "mt").
+- ignore: {name: "Use const", within: [Proto.TH]}
 
-# Ignore suggestions that conflict with our coding style
-- ignore: {name: "Use list comprehension"}
-- ignore: {name: "Use newtype instead of data", within: [Proto.Wire.Result, Proto.Internal.Maybe, Proto.Internal.Either]}
-- ignore: {name: "Reduce duplication"}
-- ignore: {name: "Use camelCase", within: [Proto.Wire.Result]}
+# False positive: maybe BaseMaybe.Nothing BaseMaybe.Just converts between
+# two distinct Maybe types (Proto.Internal.Maybe.Maybe vs Data.Maybe.Maybe).
+- ignore: {name: "Redundant maybe", within: [Proto.Internal.Maybe]}
 
-# The generated well-known type modules have patterns from the codegen
-# that hlint may not like — ignore those files
-- ignore: {within: [Proto.Google.Protobuf.Timestamp, Proto.Google.Protobuf.Duration, Proto.Google.Protobuf.Empty, Proto.Google.Protobuf.FieldMask, Proto.Google.Protobuf.SourceContext, Proto.Google.Protobuf.Wrappers, Proto.Google.Protobuf.Struct]}
-
-# Temporal test files are generated
-- ignore: {within: "Proto.Temporalio.**"}
-
-# Unboxed sums/tuples trigger false positives
-- ignore: {name: "Redundant bracket", within: [Proto.Wire.Decode]}
+# Intentional: these types use unboxed sums where data (not newtype) is
+# required for the pattern synonym machinery and to preserve semantics.
+- ignore: {name: "Use newtype instead of data", within: [Proto.Wire.Decode, Proto.Internal.Either, Proto.Internal.Maybe]}

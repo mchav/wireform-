@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE UnboxedTuples #-}
 -- | Low-level, high-performance wire format decoding primitives.
 --
@@ -185,7 +184,7 @@ getVarint = Decoder $ \bs off ->
 {-# INLINE getVarint #-}
 
 getVarintSlow :: ByteString -> Int# -> (# (# Word64, Int# #) | DecodeError #)
-getVarintSlow bs off0 = go 0 0 off0
+getVarintSlow bs = go 0 0
   where
     len = bsLen bs
     go :: Word64 -> Int -> Int# -> (# (# Word64, Int# #) | DecodeError #)

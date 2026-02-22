@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 -- | Auto-generated protobuf types from package @google.protobuf@.
 --
@@ -86,10 +85,10 @@ instance MessageDecode Timestamp where
           UNothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownfields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
+              v <- fromIntegral <$> decodeFieldVarint
               loop v acc_1 acc_unknown_
             2 -> do
-              v <- (fromIntegral <$> decodeFieldVarint)
+              v <- fromIntegral <$> decodeFieldVarint
               loop acc_0 v acc_unknown_
             _ -> do
               uf <- captureUnknownField fn wt
@@ -142,7 +141,7 @@ instance ProtoToJSON Timestamp where
         pad4 x = let sx = T.pack (show (abs x)) in T.replicate (4 - T.length sx) (T.pack "0") <> sx
         pad9 x = let sx = T.pack (show (abs x)) in T.replicate (9 - T.length sx) (T.pack "0") <> sx
         nanoStr = if n == 0 then T.pack "" else T.pack "." <> dropTrailingZeros (pad9 (fromIntegral n))
-        dropTrailingZeros t = case T.stripSuffix (T.pack "0") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }
+        dropTrailingZeros t = maybe t dropTrailingZeros (T.stripSuffix (T.pack "0") t)
     in JsonString (pad4 y' <> T.pack "-" <> pad2 (fromIntegral m) <> T.pack "-" <> pad2 (fromIntegral d)
          <> T.pack "T" <> pad2 hours <> T.pack ":" <> pad2 mins <> T.pack ":" <> pad2 secs
          <> nanoStr <> T.pack "Z")
@@ -156,4 +155,4 @@ instance ProtoFromJSON Timestamp where
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy Timestamp) .  id
+  Proto.Registry.registerType (Proxy :: Proxy Timestamp)

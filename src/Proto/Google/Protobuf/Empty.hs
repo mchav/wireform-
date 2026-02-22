@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 -- | Auto-generated protobuf types from package @google.protobuf@.
 --
@@ -49,8 +48,8 @@ fileDescriptorProtoBytes = case Base16.decode "0a1b676f6f676c652f70726f746f62756
   Left _ -> ""
 
 
-data Empty = Empty
-  { emptyUnknownfields :: ![UnknownField]
+newtype Empty = Empty
+  { emptyUnknownfields :: [UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -76,10 +75,9 @@ instance MessageDecode Empty where
         mTag <- getTagOrU
         case mTag of
           UNothing -> pure (Empty {emptyUnknownfields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
-            _ -> do
-              uf <- captureUnknownField fn wt
-              loop (uf : acc_unknown_)
+          UJust (Tag fn wt) -> do
+            uf <- captureUnknownField fn wt
+            loop (uf : acc_unknown_)
 
 instance IsMessage Empty where
   messageTypeName _ = "google.protobuf.Empty"
@@ -89,8 +87,7 @@ instance ProtoMessage Empty where
   protoPackageName _ = "google.protobuf"
   protoDefaultValue = defaultEmpty
   protoFileDescriptorBytes _ = fileDescriptorProtoBytes
-  protoFieldDescriptors _ = Map.fromList
-    []
+  protoFieldDescriptors _ = Map.empty
 
 instance ProtoToJSON Empty where
   protoToJSON msg = jsonObject
@@ -102,4 +99,4 @@ instance ProtoFromJSON Empty where
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy Empty) .  id
+  Proto.Registry.registerType (Proxy :: Proxy Empty)

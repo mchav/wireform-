@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 -- | Field presence tracking for proto3 optional fields.
 --
 -- In proto3, scalar fields with the @optional@ keyword have explicit

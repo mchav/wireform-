@@ -140,5 +140,5 @@ resolveProtoImports
   :: [FilePath]  -- ^ Include directories
   -> FilePath    -- ^ Proto file path
   -> IO (Either ResolveError ResolvedProto)
-resolveProtoImports includeDirs path =
-  resolveProtoFile (defaultResolveConfig { rcIncludeDirs = includeDirs }) path
+resolveProtoImports includeDirs =
+  resolveProtoFile (defaultResolveConfig { rcIncludeDirs = includeDirs })

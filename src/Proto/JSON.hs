@@ -53,7 +53,7 @@ module Proto.JSON
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base64 as Base64
-import Data.Char (intToDigit)
+import Data.Char (intToDigit, isDigit)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -213,49 +213,49 @@ instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Word32) where
   protoToJSON v = JsonArray (fmap (JsonNumber . fromIntegral) (VU.toList v))
 
 instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Word64) where
-  protoToJSON v = JsonArray (fmap (protoToJSON) (VU.toList v))
+  protoToJSON v = JsonArray (fmap protoToJSON (VU.toList v))
 
 instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Int32) where
   protoToJSON v = JsonArray (fmap (JsonNumber . fromIntegral) (VU.toList v))
 
 instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Int64) where
-  protoToJSON v = JsonArray (fmap (protoToJSON) (VU.toList v))
+  protoToJSON v = JsonArray (fmap protoToJSON (VU.toList v))
 
 instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Double) where
-  protoToJSON v = JsonArray (fmap (protoToJSON) (VU.toList v))
+  protoToJSON v = JsonArray (fmap protoToJSON (VU.toList v))
 
 instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Float) where
-  protoToJSON v = JsonArray (fmap (protoToJSON) (VU.toList v))
+  protoToJSON v = JsonArray (fmap protoToJSON (VU.toList v))
 
 instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Bool) where
   protoToJSON v = JsonArray (fmap JsonBool (VU.toList v))
 
 instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Word32) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
   protoFromJSON _ = Left "Expected array"
 
 instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Word64) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
   protoFromJSON _ = Left "Expected array"
 
 instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Int32) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
   protoFromJSON _ = Left "Expected array"
 
 instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Int64) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
   protoFromJSON _ = Left "Expected array"
 
 instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Double) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
   protoFromJSON _ = Left "Expected array"
 
 instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Float) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
   protoFromJSON _ = Left "Expected array"
 
 instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Bool) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse (\v -> protoFromJSON v) vs
+  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
   protoFromJSON _ = Left "Expected array"
 
 instance (ProtoToJSON k, ProtoToJSON v) => ProtoToJSON (Map k v) where
@@ -363,7 +363,7 @@ parseStr s = case scanString (T.drop 1 s) [] of
 
 parseNum :: Text -> Either String (JsonValue, Text)
 parseNum s =
-  let (numTxt, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || (c >= '0' && c <= '9')) s
+  let (numTxt, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || isDigit c) s
   in if T.null numTxt then Left ("Expected number at: " <> T.unpack (T.take 20 s))
      else case reads (T.unpack numTxt) of
        [(n, "")] -> Right (JsonNumber n, rest)

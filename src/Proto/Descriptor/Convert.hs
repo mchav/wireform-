@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 -- | Convert hs-proto's AST types to descriptor.proto types.
 --
 -- This enables bundling schema metadata with generated types:
@@ -15,6 +14,7 @@ module Proto.Descriptor.Convert
 
 import Data.ByteString (ByteString)
 import Data.Int (Int32)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -27,7 +27,7 @@ import Proto.Google.Protobuf.Descriptor
 astToFileDescriptor :: FilePath -> ProtoFile -> FileDescriptorProto
 astToFileDescriptor path pf = defaultFileDescriptorProto
   { fdpName       = T.pack path
-  , fdpPackage    = maybe "" id (protoPackage pf)
+  , fdpPackage    = fromMaybe "" (protoPackage pf)
   , fdpDependency = V.fromList (fmap importPath (protoImports pf))
   , fdpMessageType = V.fromList (concatMap topMessages (protoTopLevels pf))
   , fdpEnumType    = V.fromList (concatMap topEnums (protoTopLevels pf))

@@ -15,6 +15,7 @@ module Proto.CodeGen.Service
   , genServiceModule
   ) where
 
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter
@@ -39,7 +40,7 @@ genServiceDecls pkg scope svc =
 -- | Generate a complete module for a service.
 genServiceModule :: Maybe Text -> Text -> ServiceDef -> Doc ann
 genServiceModule pkg prefix svc =
-  let modName = prefix <> "." <> hsModuleName' (maybe "" id pkg) <> "." <> hsTypeName' (svcName svc)
+  let modName = prefix <> "." <> hsModuleName' (fromMaybe "" pkg) <> "." <> hsTypeName' (svcName svc)
   in vsep
     [ pretty ("{-# LANGUAGE OverloadedStrings #-}" :: Text)
     , pretty ("-- | Generated gRPC service interface for " :: Text) <> pretty (svcName svc)

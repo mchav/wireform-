@@ -1,5 +1,3 @@
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
 -- | Low-level, high-performance wire format encoding primitives.
 --
 -- All encoding is done via 'Data.ByteString.Builder' for zero-copy

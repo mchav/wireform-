@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 -- | Auto-generated protobuf types from package @google.protobuf@.
 --
@@ -11,6 +10,7 @@
 module Proto.Google.Protobuf.SourceContext where
 
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import Data.Int (Int32, Int64)
@@ -117,11 +117,11 @@ instance ProtoFromJSON SourceContext where
   protoFromJSON (JsonObject obj) = do
     fld_sourceContextFilename <- obj .:? "fileName"
     pure defaultSourceContext
-      { sourceContextFilename = maybe (sourceContextFilename defaultSourceContext) id fld_sourceContextFilename
+      { sourceContextFilename = Data.Maybe.fromMaybe (sourceContextFilename defaultSourceContext) fld_sourceContextFilename
       }
   protoFromJSON _ = Right defaultSourceContext
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
 registerModuleTypes =
-  Proto.Registry.registerType (Proxy :: Proxy SourceContext) .  id
+  Proto.Registry.registerType (Proxy :: Proxy SourceContext)
