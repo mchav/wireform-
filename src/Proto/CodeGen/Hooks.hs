@@ -1,58 +1,151 @@
 -- | Attribute-driven codegen hook system.
 --
--- This module provides a mechanism for custom protobuf attributes (options)
--- to influence Haskell code generation. Users register hooks that inspect
--- options on proto elements and produce additional Haskell code.
+-- Protobuf custom options (attributes) can drive additional Haskell code
+-- generation. This module provides hook types for both the text-based
+-- code generator ('CodeGenHooks') and the Template Haskell splice path
+-- ('THHooks'), sharing the same context types.
 --
--- == Usage
+-- = Three integration points
+--
+-- There are three ways proto files get turned into Haskell code in hs-proto,
+-- and hooks plug into all of them:
+--
+-- 1. __Text-based codegen__ (@hs-proto-gen@ CLI, 'Proto.Setup', 'Proto.CodeGen.generateModuleText'):
+--    set the 'genHooks' field of 'Proto.CodeGen.GenerateOpts'.
+-- 2. __Template Haskell splices__ ('Proto.TH.loadProtoWith'):
+--    set the 'loTHHooks' field of 'Proto.TH.LoadOpts'.
+-- 3. __Cabal Setup.hs__ ('Proto.Setup.protoGenPreBuildHook'):
+--    set 'Proto.Setup.pgcHooks' in 'Proto.Setup.ProtoGenConfig'.
+--
+-- = Text-based codegen hooks
+--
+-- Use 'CodeGenHooks' when generating Haskell source as 'Text'. Each hook
+-- receives a typed context and returns @['Text']@ lines to append after
+-- the element's standard generated code.
 --
 -- @
 -- import Proto.CodeGen.Hooks
--- import Proto.CodeGen (GenerateOpts(..), defaultGenerateOpts)
+-- import Proto.CodeGen ('Proto.CodeGen.GenerateOpts'(..), 'Proto.CodeGen.defaultGenerateOpts')
 --
--- myHooks :: CodeGenHooks
--- myHooks = mempty
---   { onMessageCodeGen = \\ctx ->
---       if hasAttribute \"(generate_lens)\" (mhcOptions ctx)
---         then [\"-- TODO: generate lenses for \" <> mhcHsTypeName ctx]
---         else []
+-- -- Add a comment after every message that has the (audited) annotation
+-- auditHook :: 'CodeGenHooks'
+-- auditHook = 'onMessageAttribute' "audited" $ \\val ctx ->
+--   case val of
+--     'CBool' True ->
+--       [ "-- | WARNING: " \<> 'mhcHsTypeName' ctx
+--         \<> " is an audited message (proto: " \<> 'mhcFqProtoName' ctx \<> ")"
+--       ]
+--     _ -> []
+--
+-- opts :: 'Proto.CodeGen.GenerateOpts'
+-- opts = 'Proto.CodeGen.defaultGenerateOpts' { 'Proto.CodeGen.genHooks' = auditHook }
+-- @
+--
+-- Given this proto:
+--
+-- @
+-- message Transfer {
+--   option (audited) = true;
+--   string from = 1;
+--   string to   = 2;
+--   int64 amount = 3;
+-- }
+-- @
+--
+-- The generated module will contain, after @Transfer@'s instances:
+--
+-- @
+-- -- | WARNING: Transfer is an audited message (proto: myapp.Transfer)
+-- @
+--
+-- = Template Haskell hooks
+--
+-- Use 'THHooks' when loading proto files via Template Haskell. Each hook
+-- receives the same context types but returns @'Language.Haskell.TH.Q' ['Language.Haskell.TH.Dec']@
+-- — real TH declarations spliced into the calling module.
+--
+-- @
+-- {-\# LANGUAGE TemplateHaskell \#-}
+-- import Proto.TH
+-- import Proto.CodeGen.Hooks
+--
+-- showHook :: 'THHooks'
+-- showHook = mempty
+--   { 'thOnMessage' = \\ctx -> do
+--       -- For every message, generate a \"describe\" function
+--       let tyStr = 'Data.Text.unpack' ('mhcHsTypeName' ctx)
+--           fnName = 'Language.Haskell.TH.mkName' ("describe" \<> tyStr)
+--       sig  \<- 'Language.Haskell.TH.sigD' fnName [t| String |]
+--       body \<- 'Language.Haskell.TH.valD' ('Language.Haskell.TH.varP' fnName)
+--                ('Language.Haskell.TH.normalB' ('Language.Haskell.TH.litE' ('Language.Haskell.TH.stringL' ("Proto message: " \<> tyStr)))) []
+--       pure [sig, body]
 --   }
 --
--- opts :: GenerateOpts
--- opts = defaultGenerateOpts { genHooks = myHooks }
+-- \$(loadProtoWith defaultLoadOpts { loTHHooks = showHook } "person.proto")
+--
+-- -- Now @describePerson :: String@ is available.
 -- @
 --
--- Hooks are composable via their 'Semigroup' and 'Monoid' instances, so
--- multiple independent hooks can be combined with @(<>)@.
+-- = Composing hooks
 --
--- == Attribute matching
---
--- The 'onAttribute' and 'onMessageAttribute' combinators create hooks
--- triggered by specific named extension options:
+-- Both 'CodeGenHooks' and 'THHooks' are 'Semigroup' and 'Monoid', so
+-- independent hooks compose with @(\<>)@:
 --
 -- @
--- lensHook :: CodeGenHooks
--- lensHook = onMessageAttribute \"generate_lens\" $ \\val ctx ->
+-- allHooks :: 'CodeGenHooks'
+-- allHooks = auditHook \<> loggingHook \<> metricsHook
+-- @
+--
+-- = Attribute-driven constructors
+--
+-- 'onMessageAttribute', 'onEnumAttribute', etc. create hooks that only
+-- fire when a specific extension option is present:
+--
+-- @
+-- -- Only fires on messages with option (generate_lens) = true;
+-- lensHook :: 'CodeGenHooks'
+-- lensHook = 'onMessageAttribute' "generate_lens" $ \\val ctx ->
 --   case val of
---     CBool True -> [\"-- generate lenses for \" <> mhcHsTypeName ctx]
---     _          -> []
+--     'CBool' True -> ["makeLenses ''" \<> 'mhcHsTypeName' ctx]
+--     _           -> []
+-- @
+--
+-- The equivalent for TH:
+--
+-- @
+-- thLensHook :: 'THHooks'
+-- thLensHook = 'thOnMessageAttribute' "generate_lens" $ \\val ctx ->
+--   case val of
+--     'CBool' True -> do
+--       -- ... generate TH declarations ...
+--       pure []
+--     _ -> pure []
 -- @
 module Proto.CodeGen.Hooks
-  ( -- * Hook record
+  ( -- * Text-based codegen hooks
     CodeGenHooks (..)
   , defaultCodeGenHooks
 
-    -- * Hook contexts
+    -- * Template Haskell codegen hooks
+  , THHooks (..)
+  , defaultTHHooks
+
+    -- * Hook contexts (shared by both hook types)
   , FileHookCtx (..)
   , MessageHookCtx (..)
   , EnumHookCtx (..)
   , ServiceHookCtx (..)
 
-    -- * Attribute-driven hook constructors
+    -- * Attribute-driven constructors (text codegen)
   , onMessageAttribute
   , onEnumAttribute
   , onServiceAttribute
   , onFileAttribute
+
+    -- * Attribute-driven constructors (Template Haskell)
+  , thOnMessageAttribute
+  , thOnEnumAttribute
+  , thOnFileAttribute
 
     -- * Querying attributes in hooks
   , lookupAttribute
@@ -69,6 +162,7 @@ module Proto.CodeGen.Hooks
 
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
+import Language.Haskell.TH (Q, Dec)
 
 import Proto.AST
 
@@ -149,7 +243,40 @@ instance Monoid CodeGenHooks where
   mempty = defaultCodeGenHooks
 
 -- ---------------------------------------------------------------------------
--- Attribute-driven hook constructors
+-- Template Haskell hooks
+-- ---------------------------------------------------------------------------
+
+-- | Hooks for the Template Haskell code generation path.
+--
+-- Each field receives the same context types as 'CodeGenHooks' but returns
+-- @'Q' ['Dec']@ — actual TH declarations that are spliced into the module
+-- alongside the standard generated types and instances.
+data THHooks = THHooks
+  { thOnFile    :: !(FileHookCtx -> Q [Dec])
+  , thOnMessage :: !(MessageHookCtx -> Q [Dec])
+  , thOnEnum    :: !(EnumHookCtx -> Q [Dec])
+  }
+
+-- | No-op TH hooks (produce no extra declarations).
+defaultTHHooks :: THHooks
+defaultTHHooks = THHooks
+  { thOnFile    = const (pure [])
+  , thOnMessage = const (pure [])
+  , thOnEnum    = const (pure [])
+  }
+
+instance Semigroup THHooks where
+  a <> b = THHooks
+    { thOnFile    = \ctx -> (<>) <$> thOnFile a ctx    <*> thOnFile b ctx
+    , thOnMessage = \ctx -> (<>) <$> thOnMessage a ctx <*> thOnMessage b ctx
+    , thOnEnum    = \ctx -> (<>) <$> thOnEnum a ctx    <*> thOnEnum b ctx
+    }
+
+instance Monoid THHooks where
+  mempty = defaultTHHooks
+
+-- ---------------------------------------------------------------------------
+-- Attribute-driven hook constructors (text codegen)
 -- ---------------------------------------------------------------------------
 
 -- | Create a hook that fires on messages bearing a specific extension option.
@@ -191,6 +318,37 @@ onFileAttribute attrName f = mempty
       case lookupAttribute attrName (fhcFileOptions ctx) of
         Just val -> f val ctx
         Nothing  -> []
+  }
+
+-- ---------------------------------------------------------------------------
+-- Attribute-driven hook constructors (Template Haskell)
+-- ---------------------------------------------------------------------------
+
+-- | Create a TH hook that fires on messages bearing a specific extension option.
+thOnMessageAttribute :: Text -> (Constant -> MessageHookCtx -> Q [Dec]) -> THHooks
+thOnMessageAttribute attrName f = mempty
+  { thOnMessage = \ctx ->
+      case lookupAttribute attrName (mhcOptions ctx) of
+        Just val -> f val ctx
+        Nothing  -> pure []
+  }
+
+-- | Create a TH hook that fires on enums bearing a specific extension option.
+thOnEnumAttribute :: Text -> (Constant -> EnumHookCtx -> Q [Dec]) -> THHooks
+thOnEnumAttribute attrName f = mempty
+  { thOnEnum = \ctx ->
+      case lookupAttribute attrName (ehcOptions ctx) of
+        Just val -> f val ctx
+        Nothing  -> pure []
+  }
+
+-- | Create a TH hook that fires when a file-level extension option is present.
+thOnFileAttribute :: Text -> (Constant -> FileHookCtx -> Q [Dec]) -> THHooks
+thOnFileAttribute attrName f = mempty
+  { thOnFile = \ctx ->
+      case lookupAttribute attrName (fhcFileOptions ctx) of
+        Just val -> f val ctx
+        Nothing  -> pure []
   }
 
 -- ---------------------------------------------------------------------------

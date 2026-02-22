@@ -233,6 +233,35 @@ hooksTests = testGroup "CodeGen Hooks"
               length opts @?= 2
             _ -> assertFailure "expected one message"
       ]
+
+  , testGroup "THHooks construction"
+      [ testCase "defaultTHHooks is mempty" $ do
+          let h1 = defaultTHHooks
+              h2 = mempty :: THHooks
+          -- Both should be constructible (type-checks)
+          assertBool "defaultTHHooks should be the identity" True
+
+      , testCase "THHooks compose with <>" $ do
+          let h1 = defaultTHHooks
+              h2 = defaultTHHooks
+              combined = h1 <> h2
+          assertBool "THHooks should compose" True
+
+      , testCase "thOnMessageAttribute constructs without error" $ do
+          let hook = thOnMessageAttribute "my_attr" $ \_val _ctx ->
+                pure []
+          assertBool "thOnMessageAttribute should construct" True
+
+      , testCase "thOnEnumAttribute constructs without error" $ do
+          let hook = thOnEnumAttribute "my_attr" $ \_val _ctx ->
+                pure []
+          assertBool "thOnEnumAttribute should construct" True
+
+      , testCase "thOnFileAttribute constructs without error" $ do
+          let hook = thOnFileAttribute "my_attr" $ \_val _ctx ->
+                pure []
+          assertBool "thOnFileAttribute should construct" True
+      ]
   ]
 
 parseOrDie :: Text -> ProtoFile

@@ -251,6 +251,7 @@ executable example-codegen
         base             >= 4.16 && < 5
       , hs-proto
       , text
+      , containers
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:
