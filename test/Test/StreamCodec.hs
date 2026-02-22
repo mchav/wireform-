@@ -13,13 +13,21 @@ import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog
 
 import Proto.Decode (MessageDecode (..))
-import Proto.Decode.Stream (decodeMessageLazy, decodeMessageStream)
+import Proto.Decode.Stream
+  ( IDecode (..)
+  , decodeMessageIncremental
+  , decodeMessageLazy
+  , decodeMessageStream
+  )
 import Proto.Encode (MessageEncode (..), MessageSize (..), encodeMessage, encodeMessageSized)
 import Proto.Encode.Lazy
-  ( encodeMessageLazy
+  ( IEncode (..)
+  , encodeMessageLazy
   , encodeMessageLazySized
   , encodeMessageStream
   , encodeMessageStreamSized
+  , newStreamEncoder
+  , newStreamEncoderSized
   )
 import Proto.Wire (Tag (..), WireType (..))
 import Proto.Wire.Decode (DecodeError (..), Decoder, getTagOr, getVarint, getText, skipField)
@@ -30,6 +38,9 @@ streamCodecTests = testGroup "Streaming & Lazy Codecs"
   [ lazyEncodeTests
   , lazyDecodeTests
   , streamRoundtripTests
+  , incrementalDecodeTests
+  , incrementalEncodeTests
+  , incrementalRoundtripTests
   ]
 
 -- -----------------------------------------------------------------------
@@ -129,6 +140,191 @@ streamRoundtripTests = testGroup "Stream framing roundtrip"
   ]
 
 -- -----------------------------------------------------------------------
+-- Incremental decoder
+-- -----------------------------------------------------------------------
+
+incrementalDecodeTests :: TestTree
+incrementalDecodeTests = testGroup "Incremental decoder"
+  [ testProperty "single message fed all at once" $ property $ do
+      msg <- genSMsg
+      let framed = frameMessage msg
+      case feed decodeMessageIncremental framed of
+        IDone decoded leftover -> do
+          decoded === msg
+          BS.null leftover === True
+        other -> do
+          annotate (show other)
+          failure
+
+  , testProperty "single message fed byte-by-byte" $ property $ do
+      msg <- genSMsg
+      let framed = frameMessage msg
+          chunks = fmap BS.singleton (BS.unpack framed)
+      case feedAll decodeMessageIncremental chunks of
+        IDone decoded leftover -> do
+          decoded === msg
+          BS.null leftover === True
+        other -> do
+          annotate (show other)
+          failure
+
+  , testProperty "preserves leftover bytes" $ property $ do
+      msg <- genSMsg
+      extra <- forAll $ Gen.bytes (Range.linear 1 50)
+      let framed = frameMessage msg <> extra
+      case feed decodeMessageIncremental framed of
+        IDone decoded leftover -> do
+          decoded === msg
+          leftover === extra
+        other -> do
+          annotate (show other)
+          failure
+
+  , testProperty "two messages fed together" $ property $ do
+      msg1 <- genSMsg
+      msg2 <- genSMsg
+      let framed = frameMessage msg1 <> frameMessage msg2
+      case feed decodeMessageIncremental framed of
+        IDone decoded1 leftover1 -> do
+          decoded1 === msg1
+          case feed decodeMessageIncremental leftover1 of
+            IDone decoded2 leftover2 -> do
+              decoded2 === msg2
+              BS.null leftover2 === True
+            other -> do
+              annotate ("second: " <> show other)
+              failure
+        other -> do
+          annotate ("first: " <> show other)
+          failure
+
+  , testProperty "split at arbitrary byte boundary" $ property $ do
+      msg <- genSMsg
+      let framed = frameMessage msg
+      splitPos <- forAll $ Gen.int (Range.linear 0 (BS.length framed))
+      let (chunk1, chunk2) = BS.splitAt splitPos framed
+          dec0 = feed decodeMessageIncremental chunk1
+      case dec0 of
+        IDone decoded _ -> decoded === msg
+        IPartial _ ->
+          case feed dec0 chunk2 of
+            IDone decoded leftover -> do
+              decoded === msg
+              BS.null leftover === True
+            other -> do
+              annotate (show other)
+              failure
+        other -> do
+          annotate (show other)
+          failure
+
+  , testCase "empty message" $ do
+      let framed = BS.singleton 0
+      case feed decodeMessageIncremental framed of
+        IDone decoded leftover -> do
+          decoded @?= SMsg 0 "" False
+          BS.null leftover @?= True
+        other -> assertFailure (show other)
+
+  , testCase "Nothing at start yields IFail" $ do
+      case decodeMessageIncremental @SMsg of
+        IPartial k -> case k Nothing of
+          IFail UnexpectedEnd _ -> pure ()
+          other -> assertFailure ("Expected IFail UnexpectedEnd, got: " <> show other)
+        other -> assertFailure ("Expected IPartial, got: " <> show other)
+
+  , testCase "truncated varint" $ do
+      let chunk = BS.pack [0x80, 0x80]
+      case feed decodeMessageIncremental chunk of
+        IPartial k -> case k Nothing of
+          IFail UnexpectedEnd _ -> pure ()
+          other -> assertFailure ("Expected IFail UnexpectedEnd, got: " <> show (other :: IDecode SMsg))
+        other -> assertFailure ("Expected IPartial, got: " <> show (other :: IDecode SMsg))
+
+  , testCase "truncated payload" $ do
+      let chunk = BS.pack [0x0A, 0x01]
+      case feed decodeMessageIncremental chunk of
+        IPartial k -> case k Nothing of
+          IFail UnexpectedEnd _ -> pure ()
+          other -> assertFailure ("Expected IFail, got: " <> show (other :: IDecode SMsg))
+        other -> assertFailure ("Expected IPartial, got: " <> show (other :: IDecode SMsg))
+  ]
+
+-- -----------------------------------------------------------------------
+-- Incremental encoder
+-- -----------------------------------------------------------------------
+
+incrementalEncodeTests :: TestTree
+incrementalEncodeTests = testGroup "Incremental encoder"
+  [ testProperty "single message produces correct frame" $ property $ do
+      msg <- genSMsg
+      let expected = frameMessage msg
+      case newStreamEncoder of
+        IEncReady f -> case f (Just msg) of
+          IEncChunk bs next -> do
+            bs === expected
+            case next of
+              IEncReady _ -> success
+              other -> do
+                annotate ("Expected IEncReady, got: " <> show other)
+                failure
+          other -> do
+            annotate ("Expected IEncChunk, got: " <> show other)
+            failure
+        other -> do
+          annotate ("Expected IEncReady, got: " <> show other)
+          failure
+
+  , testProperty "sized encoder matches non-sized" $ property $ do
+      msg <- genSMsg
+      let plain = stepEncoder newStreamEncoder (Just msg)
+          sized = stepEncoder newStreamEncoderSized (Just msg)
+      case (plain, sized) of
+        (IEncChunk bs1 _, IEncChunk bs2 _) -> bs1 === bs2
+        other -> do
+          annotate (show other)
+          failure
+
+  , testCase "Nothing produces IEncDone" $ do
+      case newStreamEncoder @SMsg of
+        IEncReady f -> case f Nothing of
+          IEncDone -> pure ()
+          other -> assertFailure ("Expected IEncDone, got: " <> show other)
+        other -> assertFailure ("Expected IEncReady, got: " <> show other)
+
+  , testProperty "multiple messages" $ property $ do
+      msgs <- forAll $ Gen.list (Range.linear 1 15) genSMsg'
+      let chunks = collectEncoder newStreamEncoder msgs
+          expected = BL.toStrict (encodeMessageStream msgs)
+      BS.concat chunks === expected
+  ]
+
+-- -----------------------------------------------------------------------
+-- Incremental roundtrip (encode → decode)
+-- -----------------------------------------------------------------------
+
+incrementalRoundtripTests :: TestTree
+incrementalRoundtripTests = testGroup "Incremental encode-decode roundtrip"
+  [ testProperty "stream via incremental encoder → incremental decoder" $ property $ do
+      msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
+      let encoded = BS.concat (collectEncoder newStreamEncoder msgs)
+          decoded = decodeAllIncremental encoded
+      decoded === fmap Right msgs
+
+  , testProperty "stream via incremental encoder (sized) → incremental decoder" $ property $ do
+      msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
+      let encoded = BS.concat (collectEncoder newStreamEncoderSized msgs)
+          decoded = decodeAllIncremental encoded
+      decoded === fmap Right msgs
+
+  , testProperty "incremental encoder matches lazy stream encoder" $ property $ do
+      msgs <- forAll $ Gen.list (Range.linear 0 20) genSMsg'
+      let fromIncremental = BS.concat (collectEncoder newStreamEncoder msgs)
+          fromLazy = BL.toStrict (encodeMessageStream msgs)
+      fromIncremental === fromLazy
+  ]
+
+-- -----------------------------------------------------------------------
 -- Test message type
 -- -----------------------------------------------------------------------
 
@@ -187,3 +383,52 @@ fromRight' (Left e) = error ("unexpected decode error: " <> show e)
 
 buildToBS :: B.Builder -> BS.ByteString
 buildToBS = BL.toStrict . B.toLazyByteString
+
+-- | Frame a message with a varint length prefix (strict).
+frameMessage :: (MessageEncode a) => a -> BS.ByteString
+frameMessage msg =
+  let payload = encodeMessage msg
+  in buildToBS (putVarint (fromIntegral (BS.length payload)) <> B.byteString payload)
+
+-- | Feed a single chunk to an incremental decoder.
+feed :: IDecode a -> BS.ByteString -> IDecode a
+feed (IPartial k) bs = k (Just bs)
+feed done _           = done
+
+-- | Feed a list of chunks, then signal EOF.
+feedAll :: IDecode a -> [BS.ByteString] -> IDecode a
+feedAll dec [] = case dec of
+  IPartial k -> k Nothing
+  other      -> other
+feedAll dec (c : cs) = case dec of
+  IPartial k -> feedAll (k (Just c)) cs
+  other      -> other
+
+-- | Step an encoder with one input.
+stepEncoder :: IEncode a -> Maybe a -> IEncode a
+stepEncoder (IEncReady f) ma = f ma
+stepEncoder other _           = other
+
+-- | Collect all output chunks from an incremental encoder fed a list of messages.
+collectEncoder :: IEncode a -> [a] -> [BS.ByteString]
+collectEncoder enc msgs = go enc msgs
+  where
+    go (IEncReady f) (m : ms) = drainChunks (f (Just m)) ms
+    go (IEncReady f) []       = drainChunks (f Nothing) []
+    go (IEncChunk bs k) ms    = bs : go k ms
+    go IEncDone _             = []
+
+    drainChunks (IEncChunk bs k) ms = bs : drainChunks k ms
+    drainChunks other ms            = go other ms
+
+-- | Decode all messages from a strict ByteString using the incremental decoder.
+decodeAllIncremental :: MessageDecode a => BS.ByteString -> [Either DecodeError a]
+decodeAllIncremental bs
+  | BS.null bs = []
+  | otherwise = case feed decodeMessageIncremental bs of
+      IDone a leftover -> Right a : decodeAllIncremental leftover
+      IFail e _        -> [Left e]
+      IPartial k       -> case k Nothing of
+        IDone a leftover -> Right a : decodeAllIncremental leftover
+        IFail e _        -> [Left e]
+        IPartial _       -> [Left (CustomError "unexpected IPartial after EOF")]
