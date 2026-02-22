@@ -392,12 +392,12 @@ resolveTypeWithScope ctx scope name =
       candidates =
         [ name
         , pkg <> "." <> name
-        ] <> [pkg <> "." <> T.intercalate "." s <> "." <> name | s <- tails' scope, not (null s)]
+        ] <> fmap (\s -> pkg <> "." <> T.intercalate "." s <> "." <> name) (filter (not . null) (tails' scope))
   in case firstJust (`Map.lookup` reg) candidates of
     Just ti -> Just ti
     Nothing ->
       let suffix = "." <> name
-          matches = [ti | (k, ti) <- Map.toList reg, T.isSuffixOf suffix k || k == name]
+          matches = fmap snd (filter (\(k, _) -> T.isSuffixOf suffix k || k == name) (Map.toList reg))
       in case matches of
         (ti:_) -> Just ti
         []     -> Nothing
