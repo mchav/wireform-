@@ -157,6 +157,7 @@ test-suite hs-proto-test
       Test.Options
       Test.Lens
       Test.StreamCodec
+      Test.JSON
 
     build-depends:
         base             >= 4.16 && < 5

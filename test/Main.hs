@@ -13,6 +13,7 @@ import Test.Schema (schemaTests)
 import Test.Options (optionsTests)
 import Test.Lens (lensTests)
 import Test.StreamCodec (streamCodecTests)
+import Test.JSON (jsonTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -27,4 +28,5 @@ main = defaultMain $ testGroup "hs-proto"
   , optionsTests
   , lensTests
   , streamCodecTests
+  , jsonTests
   ]
