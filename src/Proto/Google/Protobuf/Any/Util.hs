@@ -54,12 +54,14 @@ packAny :: forall a. IsMessage a => a -> Any
 packAny msg = Any
   { anyTypeurl = typeUrlOf (Proxy :: Proxy a)
   , anyValue   = encodeMessage msg
+  , anyUnknownfields = []
   }
 
 packAnyWithPrefix :: forall a. IsMessage a => Text -> a -> Any
 packAnyWithPrefix prefix msg = Any
   { anyTypeurl = prefix <> messageTypeName (Proxy :: Proxy a)
   , anyValue   = encodeMessage msg
+  , anyUnknownfields = []
   }
 
 unpackAny :: forall a. IsMessage a => Any -> Maybe (Either DecodeError a)

@@ -379,6 +379,21 @@ benchmark compare-bench
       DeriveAnyClass
       OverloadedStrings
 
+executable gen-wkt
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.17 && < 5
+      , hs-proto
+      , containers
+      , text
+      , directory
+      , filepath
+    hs-source-dirs:   gen-wkt
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
 executable profile
     import:           warnings
     main-is:          Main.hs
