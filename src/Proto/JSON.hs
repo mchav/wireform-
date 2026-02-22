@@ -60,6 +60,12 @@ module Proto.JSON
   , parseShortTextFieldMaybe
   , hsStringFieldToJSON
   , parseHsStringFieldMaybe
+
+    -- * Map representation helpers
+  , ordMapToJSON
+  , hashMapToJSON
+  , parseOrdMapFromJSON
+  , parseHashMapFromJSON
   ) where
 
 import Data.ByteString (ByteString)
@@ -67,7 +73,11 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as Base64
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
+import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Scientific (fromFloatDigits, toRealFloat)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -257,6 +267,50 @@ parseHsStringFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) ob
   Just Aeson.Null -> pure Nothing
   Just (Aeson.String s) -> pure (Just (T.unpack s))
   Just _ -> fail ("Expected string for field: " <> T.unpack key)
+
+-- ---------------------------------------------------------------------------
+-- Map representation helpers
+-- ---------------------------------------------------------------------------
+
+-- | Convert an ordered Map to a JSON object. Keys are converted to text
+-- via their 'ToJSON' instance (proto map keys are always scalar types).
+ordMapToJSON :: (Aeson.ToJSON k, Aeson.ToJSON v) => Map k v -> Aeson.Value
+ordMapToJSON m = Aeson.Object (AesonKM.fromList
+  (fmap (\(k, v) -> (AesonKey.fromText (keyToText k), Aeson.toJSON v)) (Map.toList m)))
+
+-- | Convert a HashMap to a JSON object.
+hashMapToJSON :: (Aeson.ToJSON k, Aeson.ToJSON v) => HM.HashMap k v -> Aeson.Value
+hashMapToJSON m = Aeson.Object (AesonKM.fromList
+  (fmap (\(k, v) -> (AesonKey.fromText (keyToText k), Aeson.toJSON v)) (HM.toList m)))
+
+keyToText :: Aeson.ToJSON k => k -> Text
+keyToText k = case Aeson.toJSON k of
+  Aeson.String s -> s
+  Aeson.Number n -> T.pack (show n)
+  Aeson.Bool b   -> if b then "true" else "false"
+  other          -> T.pack (show other)
+
+-- | Parse a JSON object into an ordered Map.
+parseOrdMapFromJSON :: (Ord k, Aeson.FromJSON k, Aeson.FromJSON v) => Aeson.Value -> Aeson.Parser (Map k v)
+parseOrdMapFromJSON (Aeson.Object o) =
+  Map.fromList <$> traverse parseEntry (AesonKM.toList o)
+  where
+    parseEntry (k, v) = do
+      key <- Aeson.parseJSON (Aeson.String (AesonKey.toText k))
+      val <- Aeson.parseJSON v
+      pure (key, val)
+parseOrdMapFromJSON _ = fail "Expected JSON object for map field"
+
+-- | Parse a JSON object into a HashMap.
+parseHashMapFromJSON :: (Eq k, Hashable k, Aeson.FromJSON k, Aeson.FromJSON v) => Aeson.Value -> Aeson.Parser (HM.HashMap k v)
+parseHashMapFromJSON (Aeson.Object o) =
+  HM.fromList <$> traverse parseEntry (AesonKM.toList o)
+  where
+    parseEntry (k, v) = do
+      key <- Aeson.parseJSON (Aeson.String (AesonKey.toText k))
+      val <- Aeson.parseJSON v
+      pure (key, val)
+parseHashMapFromJSON _ = fail "Expected JSON object for map field"
 
 -- ---------------------------------------------------------------------------
 -- Internal numeric helpers

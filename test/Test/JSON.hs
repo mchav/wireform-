@@ -2,10 +2,13 @@ module Test.JSON (jsonTests) where
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
 import qualified Data.Aeson.Types as AesonT
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -178,6 +181,81 @@ jsonTests = testGroup "JSON representation helpers"
           strictVal === shortVal
           strictVal === stringVal
       ]
+
+  , testGroup "Map representations"
+      [ testGroup "Ordered Map (Map.Map)"
+          [ testProperty "ordMapToJSON roundtrip" $ property $ do
+              keys <- forAll $ Gen.list (Range.linear 0 10)
+                        (Gen.text (Range.linear 1 20) Gen.alphaNum)
+              vals <- forAll $ Gen.list (Range.linear 0 10)
+                        (Gen.int32 (Range.linear (-1000) 1000))
+              let m = Map.fromList (zip keys vals)
+                  encoded = ordMapToJSON m
+              parsed <- evalEither (AesonT.parseEither parseOrdMapFromJSON encoded)
+              parsed === m
+
+          , testCase "ordMapToJSON empty" $ do
+              let m = Map.empty :: Map.Map Text Int
+                  encoded = ordMapToJSON m
+              encoded @?= Aeson.object []
+
+          , testCase "ordMapToJSON preserves entries" $ do
+              let m = Map.fromList [("a" :: Text, 1 :: Int), ("b", 2)]
+                  Aeson.Object o = ordMapToJSON m
+              AesonT.parseEither (parseOrdMapFromJSON . Aeson.Object) o @?= Right m
+          ]
+
+      , testGroup "HashMap"
+          [ testProperty "hashMapToJSON roundtrip" $ property $ do
+              keys <- forAll $ Gen.list (Range.linear 0 10)
+                        (Gen.text (Range.linear 1 20) Gen.alphaNum)
+              vals <- forAll $ Gen.list (Range.linear 0 10)
+                        (Gen.int32 (Range.linear (-1000) 1000))
+              let m = HM.fromList (zip keys vals)
+                  encoded = hashMapToJSON m
+              parsed <- evalEither (AesonT.parseEither parseHashMapFromJSON encoded)
+              parsed === m
+
+          , testCase "hashMapToJSON empty" $ do
+              let m = HM.empty :: HM.HashMap Text Int
+                  encoded = hashMapToJSON m
+              encoded @?= Aeson.object []
+
+          , testCase "hashMapToJSON preserves entries" $ do
+              let m = HM.fromList [("x" :: Text, True), ("y", False)]
+                  Aeson.Object o = hashMapToJSON m
+              AesonT.parseEither (parseHashMapFromJSON . Aeson.Object) o @?= Right m
+          ]
+
+      , testGroup "Cross-representation consistency"
+          [ testProperty "ordMap and hashMap produce same JSON" $ property $ do
+              keys <- forAll $ Gen.list (Range.linear 0 10)
+                        (Gen.text (Range.linear 1 20) Gen.alphaNum)
+              vals <- forAll $ Gen.list (Range.linear 0 10)
+                        (Gen.int32 (Range.linear (-1000) 1000))
+              let ordM = Map.fromList (zip keys vals)
+                  hashM = HM.fromList (zip keys vals)
+                  ordJSON = ordMapToJSON ordM
+                  hashJSON = hashMapToJSON hashM
+              normalizeObject ordJSON === normalizeObject hashJSON
+
+          , testProperty "ordMap JSON parses as hashMap and vice versa" $ property $ do
+              keys <- forAll $ Gen.list (Range.linear 0 10)
+                        (Gen.text (Range.linear 1 20) Gen.alphaNum)
+              vals <- forAll $ Gen.list (Range.linear 0 10)
+                        (Gen.int32 (Range.linear (-1000) 1000))
+              let ordM = Map.fromList (zip keys vals)
+                  encoded = ordMapToJSON ordM
+              parsedAsHash <- evalEither (AesonT.parseEither parseHashMapFromJSON encoded)
+              Map.fromList (HM.toList parsedAsHash) === ordM
+          ]
+
+      , testCase "parseOrdMapFromJSON non-object -> fail" $
+          assertParserFails (parseOrdMapFromJSON (Aeson.String "nope") :: AesonT.Parser (Map.Map Text Int))
+
+      , testCase "parseHashMapFromJSON non-object -> fail" $
+          assertParserFails (parseHashMapFromJSON (Aeson.Number 42) :: AesonT.Parser (HM.HashMap Text Int))
+      ]
   ]
 
 mkObj :: [(Text, Aeson.Value)] -> Aeson.Object
@@ -194,3 +272,8 @@ assertParserFails :: AesonT.Parser a -> IO ()
 assertParserFails p = case AesonT.parseEither (const p) () of
   Left _  -> pure ()
   Right _ -> assertFailure "Expected parser to fail"
+
+normalizeObject :: Aeson.Value -> Map.Map Text Aeson.Value
+normalizeObject (Aeson.Object o) =
+  Map.fromList (fmap (\(k, v) -> (AesonKey.toText k, v)) (AesonKM.toList o))
+normalizeObject _ = Map.empty
