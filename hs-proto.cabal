@@ -108,6 +108,12 @@ library
       Proto.Wire.Result
       Proto.Decode.Stream
       Proto.Encode.Lazy
+      -- Well-known type utilities
+      Proto.Google.Protobuf.Timestamp.Util
+      Proto.Google.Protobuf.Duration.Util
+      Proto.Google.Protobuf.FieldMask.Util
+      Proto.Google.Protobuf.Wrappers.Util
+      Proto.Google.Protobuf.Struct.Util
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
@@ -132,6 +138,7 @@ library
       , scientific        >= 0.3  && < 0.4
       , hashable          >= 1.3  && < 1.6
       , unordered-containers >= 0.2.16 && < 0.3
+      , time              >= 1.9    && < 1.15
 
     hs-source-dirs:   src
     default-language: GHC2021
@@ -153,6 +160,7 @@ test-suite hs-proto-test
       Test.Roundtrip
       Test.CodeGen
       Test.WellKnown
+      Test.WellKnownUtil
       Test.PrintInspect
       Test.Compat
       Test.Schema
@@ -171,6 +179,7 @@ test-suite hs-proto-test
       , aeson
       , hashable
       , unordered-containers
+      , time
       , hedgehog         >= 1.0  && < 1.5
       , tasty            >= 1.4  && < 1.6
       , tasty-hedgehog   >= 1.0  && < 1.5

@@ -7,6 +7,7 @@ import Test.Wire (wireTests)
 import Test.Roundtrip (roundtripTests)
 import Test.CodeGen (codeGenTests)
 import Test.WellKnown (wellKnownTests)
+import Test.WellKnownUtil (wellKnownUtilTests)
 import Test.PrintInspect (printInspectTests)
 import Test.Compat (compatTests)
 import Test.Schema (schemaTests)
@@ -22,6 +23,7 @@ main = defaultMain $ testGroup "hs-proto"
   , roundtripTests
   , codeGenTests
   , wellKnownTests
+  , wellKnownUtilTests
   , printInspectTests
   , compatTests
   , schemaTests
