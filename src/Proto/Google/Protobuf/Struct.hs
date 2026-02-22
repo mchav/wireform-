@@ -25,9 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -54,7 +59,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a1c676f6f676c652f70726f746f62756
 
 data Struct = Struct
   { structFields :: !(Map.Map Text Value)
-  , structUnknownfields :: ![UnknownField]
+  , structUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -62,18 +67,18 @@ data Struct = Struct
 defaultStruct :: Struct
 defaultStruct = Struct
   { structFields = Map.empty
-  , structUnknownfields = []
+  , structUnknownFields = []
   }
 
 instance MessageEncode Struct where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.structFields
-    <> encodeUnknownFields msg.structUnknownfields
+    <> encodeUnknownFields msg.structUnknownFields
 
 instance MessageSize Struct where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.structFields)
-    + unknownFieldsSize msg.structUnknownfields
+    + unknownFieldsSize msg.structUnknownFields
 
 instance MessageDecode Struct where
   {-# INLINE messageDecoder #-}
@@ -82,7 +87,7 @@ instance MessageDecode Struct where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Struct {structFields = acc_0, structUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Struct {structFields = acc_0, structUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -113,23 +118,25 @@ instance ProtoMessage Struct where
         })
     ]
 
-instance ProtoToJSON Struct where
-  protoToJSON msg = jsonObject
-      [ "fields" .= msg.structFields
+instance Aeson.ToJSON Struct where
+  toJSON msg = jsonObject
+      [ "fields" .=: msg.structFields
 
       ]
 
-instance ProtoFromJSON Struct where
-  protoFromJSON (JsonObject obj) = do
-    fld_structFields <- obj .:? "fields"
+instance Aeson.FromJSON Struct where
+  parseJSON = Aeson.withObject "Struct" $ \obj -> do
+    fld_structFields <- parseFieldMaybe obj "fields"
     pure defaultStruct
       { structFields = maybe (structFields defaultStruct) id fld_structFields
       }
-  protoFromJSON _ = Right defaultStruct
+
+instance Hashable Struct where
+  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.structFields
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
-  , valueUnknownfields :: ![UnknownField]
+  , valueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -142,15 +149,22 @@ data Value'Kind
   | Value'Kind'ListValue !ListValue
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Value'Kind where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Value'Kind where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Value'Kind where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Value'Kind where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
+instance Hashable Value'Kind where
+  hashWithSalt salt (Value'Kind'NullValue v) = salt `hashWithSalt` (0 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'NumberValue v) = salt `hashWithSalt` (1 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'StringValue v) = salt `hashWithSalt` (2 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'BoolValue v) = salt `hashWithSalt` (3 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'StructValue v) = salt `hashWithSalt` (4 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'ListValue v) = salt `hashWithSalt` (5 :: Int) `hashWithSalt` v
 
 defaultValue :: Value
 defaultValue = Value
   { valueKind = Nothing
-  , valueUnknownfields = []
+  , valueUnknownFields = []
   }
 
 instance MessageEncode Value where
@@ -163,7 +177,7 @@ instance MessageEncode Value where
       Just (Value'Kind'BoolValue v) -> encodeFieldBool 4 v
       Just (Value'Kind'StructValue v) -> encodeFieldMessage 5 v
       Just (Value'Kind'ListValue v) -> encodeFieldMessage 6 v)
-    <> encodeUnknownFields msg.valueUnknownfields
+    <> encodeUnknownFields msg.valueUnknownFields
 
 instance MessageSize Value where
   messageSize msg =
@@ -173,7 +187,7 @@ instance MessageSize Value where
     ; Just (Value'Kind'BoolValue v) -> fieldBoolSize 4
     ; Just (Value'Kind'StructValue v) -> fieldMessageSize 5 (messageSize v)
     ; Just (Value'Kind'ListValue v) -> fieldMessageSize 6 (messageSize v) })
-    + unknownFieldsSize msg.valueUnknownfields
+    + unknownFieldsSize msg.valueUnknownFields
 
 instance MessageDecode Value where
   {-# INLINE messageDecoder #-}
@@ -182,7 +196,7 @@ instance MessageDecode Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Value {valueKind = acc_0, valueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Value {valueKind = acc_0, valueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -225,19 +239,21 @@ instance ProtoMessage Value where
         })
     ]
 
-instance ProtoToJSON Value where
-  protoToJSON msg = jsonObject
-      [ "kind" .= msg.valueKind
+instance Aeson.ToJSON Value where
+  toJSON msg = jsonObject
+      [ "kind" .=: msg.valueKind
 
       ]
 
-instance ProtoFromJSON Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_valueKind <- obj .:? "kind"
+instance Aeson.FromJSON Value where
+  parseJSON = Aeson.withObject "Value" $ \obj -> do
+    fld_valueKind <- parseFieldMaybe obj "kind"
     pure defaultValue
       { valueKind = maybe (valueKind defaultValue) id fld_valueKind
       }
-  protoFromJSON _ = Right defaultValue
+
+instance Hashable Value where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.valueKind
 
 data NullValue
   = NullValue'NullValue
@@ -258,18 +274,21 @@ instance MessageSize NullValue where
 instance MessageDecode NullValue where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON NullValue where
-  protoToJSON NullValue'NullValue = JsonString "NULL_VALUE"
+instance Aeson.ToJSON NullValue where
+  toJSON NullValue'NullValue = Aeson.String "NULL_VALUE"
 
-instance ProtoFromJSON NullValue where
-  protoFromJSON = \case
-    JsonString "NULL_VALUE" -> Right NullValue'NullValue
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for NullValue"
+instance Aeson.FromJSON NullValue where
+  parseJSON = \case
+    Aeson.String "NULL_VALUE" -> pure NullValue'NullValue
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for NullValue"
+
+instance Hashable NullValue where
+  hashWithSalt salt x = hashWithSalt salt (toProtoEnumNullValue x)
 
 data ListValue = ListValue
   { listValueValues :: !(V.Vector Value)
-  , listValueUnknownfields :: ![UnknownField]
+  , listValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -277,18 +296,18 @@ data ListValue = ListValue
 defaultListValue :: ListValue
 defaultListValue = ListValue
   { listValueValues = V.empty
-  , listValueUnknownfields = []
+  , listValueUnknownFields = []
   }
 
 instance MessageEncode ListValue where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.listValueValues
-    <> encodeUnknownFields msg.listValueUnknownfields
+    <> encodeUnknownFields msg.listValueUnknownFields
 
 instance MessageSize ListValue where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.listValueValues)
-    + unknownFieldsSize msg.listValueUnknownfields
+    + unknownFieldsSize msg.listValueUnknownFields
 
 instance MessageDecode ListValue where
   {-# INLINE messageDecoder #-}
@@ -297,7 +316,7 @@ instance MessageDecode ListValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListValue {listValueValues = acc_0, listValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ListValue {listValueValues = acc_0, listValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -325,19 +344,21 @@ instance ProtoMessage ListValue where
         })
     ]
 
-instance ProtoToJSON ListValue where
-  protoToJSON msg = jsonObject
-      [ "values" .= msg.listValueValues
+instance Aeson.ToJSON ListValue where
+  toJSON msg = jsonObject
+      [ "values" .=: msg.listValueValues
 
       ]
 
-instance ProtoFromJSON ListValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_listValueValues <- obj .:? "values"
+instance Aeson.FromJSON ListValue where
+  parseJSON = Aeson.withObject "ListValue" $ \obj -> do
+    fld_listValueValues <- parseFieldMaybe obj "values"
     pure defaultListValue
       { listValueValues = maybe (listValueValues defaultListValue) id fld_listValueValues
       }
-  protoFromJSON _ = Right defaultListValue
+
+instance Hashable ListValue where
+  hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.listValueValues
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

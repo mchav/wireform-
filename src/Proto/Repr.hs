@@ -26,6 +26,7 @@ module Proto.Repr
     StringRep (..)
   , BytesRep (..)
   , RepeatedRep (..)
+  , MapRep (..)
   , OptionalRep (..)
 
     -- * Per-field configuration
@@ -62,6 +63,13 @@ module Proto.Repr
   , snocVector, snocList, snocSeq
   , nullVector, nullList, nullSeq
 
+    -- * Map operations
+  , emptyOrdMap, emptyHashMap
+  , insertOrdMap, insertHashMap
+  , nullOrdMap, nullHashMap
+  , foldOrdMap, foldHashMap
+  , sizeOrdMap, sizeHashMap
+
     -- * Default values
   , emptyStrictText, emptyLazyText
   , emptyShortBytes, emptyHsString
@@ -72,6 +80,9 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
+import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict as HM
+import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
@@ -108,6 +119,12 @@ data RepeatedRep
   | SeqRep            -- ^ Data.Sequence.Seq (O(log n) snoc, good for building)
   deriving stock (Show, Eq, Ord)
 
+-- | How to represent proto @map@ fields.
+data MapRep
+  = OrdMapRep         -- ^ Data.Map.Strict.Map (default, ordered, O(log n) lookup)
+  | HashMapRep        -- ^ Data.HashMap.Strict.HashMap (unordered, O(1) avg lookup)
+  deriving stock (Show, Eq, Ord)
+
 -- | How to represent proto optional/nullable fields.
 data OptionalRep
   = MaybeRep          -- ^ Maybe a (default)
@@ -120,15 +137,17 @@ data FieldRep = FieldRep
   , frBytes    :: !BytesRep
   , frRepeated :: !RepeatedRep
   , frOptional :: !OptionalRep
+  , frMap      :: !MapRep
   } deriving stock (Show, Eq, Ord)
 
--- | Sensible defaults: strict Text, strict ByteString, Vector, Maybe.
+-- | Sensible defaults: strict Text, strict ByteString, Vector, Maybe, ordered Map.
 defaultFieldRep :: FieldRep
 defaultFieldRep = FieldRep
   { frString   = StrictTextRep
   , frBytes    = StrictBytesRep
   , frRepeated = VectorRep
   , frOptional = MaybeRep
+  , frMap      = OrdMapRep
   }
 
 -- | Configuration table mapping (message, field) pairs to representation choices.
@@ -260,7 +279,7 @@ foldList f = go mempty
 
 -- | Fold over a Seq to encode each element.
 foldSeq :: (a -> B.Builder) -> Seq a -> B.Builder
-foldSeq f = foldl (\acc v -> acc <> f v) mempty
+foldSeq f = foldl' (\acc v -> acc <> f v) mempty
 {-# INLINE foldSeq #-}
 
 
@@ -280,7 +299,7 @@ snocVector = V.snoc
 {-# INLINE snocVector #-}
 
 snocList :: [a] -> a -> [a]
-snocList xs x = xs <> [x]  -- not ideal; DList is better for building
+snocList xs x = xs ++ [x]
 {-# INLINE snocList #-}
 
 snocSeq :: Seq a -> a -> Seq a
@@ -313,3 +332,39 @@ emptyShortBytes = SBS.empty
 
 emptyHsString :: String
 emptyHsString = ""
+
+-- Map operations for each map representation.
+
+emptyOrdMap :: Map k v
+emptyOrdMap = Map.empty
+
+emptyHashMap :: HM.HashMap k v
+emptyHashMap = HM.empty
+
+insertOrdMap :: Ord k => k -> v -> Map k v -> Map k v
+insertOrdMap = Map.insert
+{-# INLINE insertOrdMap #-}
+
+insertHashMap :: (Eq k, Hashable k) => k -> v -> HM.HashMap k v -> HM.HashMap k v
+insertHashMap = HM.insert
+{-# INLINE insertHashMap #-}
+
+nullOrdMap :: Map k v -> Bool
+nullOrdMap = Map.null
+
+nullHashMap :: HM.HashMap k v -> Bool
+nullHashMap = HM.null
+
+foldOrdMap :: (a -> k -> v -> a) -> a -> Map k v -> a
+foldOrdMap = Map.foldlWithKey'
+{-# INLINE foldOrdMap #-}
+
+foldHashMap :: (a -> k -> v -> a) -> a -> HM.HashMap k v -> a
+foldHashMap = HM.foldlWithKey'
+{-# INLINE foldHashMap #-}
+
+sizeOrdMap :: Map k v -> Int
+sizeOrdMap = Map.size
+
+sizeHashMap :: HM.HashMap k v -> Int
+sizeHashMap = HM.size

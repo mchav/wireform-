@@ -1,406 +1,353 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
--- | Canonical proto3 JSON encoding and decoding.
+-- | Proto3 canonical JSON encoding and decoding via aeson.
 --
--- The proto3 specification defines a canonical JSON representation for
--- all protobuf messages. This module provides the typeclass and helpers
--- for converting between protobuf messages and JSON (represented as
--- a simple AST to avoid an aeson dependency).
+-- This module re-exports the aeson types and provides helpers for
+-- proto-canonical JSON representations:
 --
--- JSON mapping rules (per proto3 spec):
---
--- * int32/sint32/sfixed32 → JSON number
--- * int64/sint64/sfixed64/uint64/fixed64 → JSON string (64-bit values
---   are strings because JS numbers lose precision)
--- * float/double → JSON number (Infinity/NaN as strings)
--- * bool → JSON true/false
--- * string → JSON string
--- * bytes → JSON string (base64-encoded)
--- * enum → JSON string (enum value name)
--- * message → JSON object
--- * repeated → JSON array
--- * map → JSON object
--- * oneof → only the set field appears
--- * Timestamp → "2024-01-15T12:00:00Z" (RFC 3339)
--- * Duration → "3600.000s"
--- * Any → { "\@type": "url", ... inlined fields }
--- * Struct → native JSON object
--- * Value → native JSON value
--- * Wrappers → the unwrapped value directly
+-- * 64-bit integers encoded as JSON strings (JavaScript precision limits)
+-- * bytes as base64 strings
+-- * float\/double with Infinity\/NaN as string sentinels
+-- * enum values as their proto name strings
 module Proto.JSON
-  ( -- * JSON value AST (dependency-free)
-    JsonValue (..)
+  ( -- * Re-exports from aeson
+    Aeson.Value (..)
+  , Aeson.ToJSON (..)
+  , Aeson.FromJSON (..)
+  , Aeson.object
+  , (Aeson..=)
 
-    -- * Conversion typeclasses
-  , ProtoToJSON (..)
-  , ProtoFromJSON (..)
-
-    -- * JSON rendering
-  , renderJson
-  , renderJsonPretty
-
-    -- * JSON parsing
-  , parseJson
-
-    -- * Helpers for implementing instances
+    -- * Object construction helpers for generated code
   , jsonObject
   , jsonField
-  , (.=)
-  , (.:)
-  , (.:?)
+  , protoObject
+  , (.=:)
+  , bytesFieldToJSON
+  , parseField
+  , parseFieldMaybe
+  , parseBytesFieldMaybe
+
+    -- * Proto-specific scalar JSON encoding
+  , protoInt64ToJSON
+  , protoWord64ToJSON
+  , protoFloatToJSON
+  , protoDoubleToJSON
+  , protoBytesToJSON
+  , protoBytesFromJSON
+  , protoInt64FromJSON
+  , protoWord64FromJSON
+  , protoDoubleFromJSON
+  , protoFloatFromJSON
+
+    -- * Representation-aware bytes field helpers
+    -- | These handle all 'BytesRep' variants (strict, lazy, short).
+  , lazyBytesFieldToJSON
+  , parseLazyBytesFieldMaybe
+  , shortBytesFieldToJSON
+  , parseShortBytesFieldMaybe
+  , protoLazyBytesToJSON
+  , protoLazyBytesFromJSON
+  , protoShortBytesToJSON
+  , protoShortBytesFromJSON
+
+    -- * Representation-aware string field helpers
+    -- | These handle all 'StringRep' variants (strict text, lazy text,
+    -- short bytestring, String).
+  , lazyTextFieldToJSON
+  , parseLazyTextFieldMaybe
+  , shortTextFieldToJSON
+  , parseShortTextFieldMaybe
+  , hsStringFieldToJSON
+  , parseHsStringFieldMaybe
+
+    -- * Map representation helpers
+  , ordMapToJSON
+  , hashMapToJSON
+  , parseOrdMapFromJSON
+  , parseHashMapFromJSON
+
+    -- * Bytes map helpers (maps with ByteString values)
+  , bytesMapFieldToJSON
+  , parseBytesMapFieldMaybe
   ) where
 
+import Data.Bifunctor (bimap, first)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as Base64
-import Data.Char (intToDigit, isDigit)
-import Data.Int (Int32, Int64)
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Short as SBS
+import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict as HM
+import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Scientific (fromFloatDigits, toRealFloat)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as VU
-import Data.Word (Word32, Word64)
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TLE
+import qualified Data.Text.Read as TR
+import Data.Word (Word64)
 
--- | A JSON value, independent of any JSON library.
--- This avoids a hard dependency on aeson while still providing
--- a complete JSON representation.
-data JsonValue
-  = JsonNull
-  | JsonBool !Bool
-  | JsonNumber !Double
-  | JsonString !Text
-  | JsonArray ![JsonValue]
-  | JsonObject !(Map Text JsonValue)
-  deriving stock (Show, Eq)
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
 
--- | Convert a protobuf message to its canonical JSON representation.
-class ProtoToJSON a where
-  protoToJSON :: a -> JsonValue
+-- | Build a JSON object from key-value pairs (for generated code).
+jsonObject :: [(Text, Aeson.Value)] -> Aeson.Value
+jsonObject = Aeson.Object . AesonKM.fromList . fmap (first AesonKey.fromText)
 
--- | Parse a protobuf message from its JSON representation.
-class ProtoFromJSON a where
-  protoFromJSON :: JsonValue -> Either String a
-
--- | Build a JSON object from key-value pairs.
-jsonObject :: [(Text, JsonValue)] -> JsonValue
-jsonObject = JsonObject . Map.fromList
-
--- | Create a JSON field pair (for building objects).
-jsonField :: Text -> JsonValue -> (Text, JsonValue)
+-- | Create a JSON field pair.
+jsonField :: Text -> Aeson.Value -> (Text, Aeson.Value)
 jsonField = (,)
 
--- | Infix operator for building JSON fields.
-(.=) :: ProtoToJSON a => Text -> a -> (Text, JsonValue)
-key .= val = (key, protoToJSON val)
+-- | Build a proto JSON object with field-skipping for default values.
+protoObject :: [(Text, Aeson.Value)] -> Aeson.Value
+protoObject = jsonObject
 
--- | Look up a required field in a JSON object.
-(.:) :: ProtoFromJSON a => Map Text JsonValue -> Text -> Either String a
-obj .: key = case Map.lookup key obj of
-  Nothing -> Left ("Missing field: " <> T.unpack key)
-  Just v  -> protoFromJSON v
+-- | Build a JSON field pair using 'ToJSON'.
+(.=:) :: Aeson.ToJSON a => Text -> a -> (Text, Aeson.Value)
+key .=: val = (key, Aeson.toJSON val)
 
--- | Look up an optional field in a JSON object.
-(.:?) :: ProtoFromJSON a => Map Text JsonValue -> Text -> Either String (Maybe a)
-obj .:? key = case Map.lookup key obj of
-  Nothing     -> Right Nothing
-  Just JsonNull -> Right Nothing
-  Just v      -> fmap Just (protoFromJSON v)
+-- | Parse a required field from a JSON object (for generated FromJSON).
+parseField :: Aeson.FromJSON a => Aeson.Object -> Text -> Aeson.Parser a
+parseField obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing -> fail ("Missing field: " <> T.unpack key)
+  Just v  -> Aeson.parseJSON v
 
--- Scalar instances
+-- | Parse an optional field from a JSON object (for generated FromJSON).
+parseFieldMaybe :: Aeson.FromJSON a => Aeson.Object -> Text -> Aeson.Parser (Maybe a)
+parseFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just v         -> Just <$> Aeson.parseJSON v
 
-instance ProtoToJSON Bool where
-  protoToJSON = JsonBool
+-- | Encode a bytes field as a base64 JSON string field pair.
+bytesFieldToJSON :: Text -> ByteString -> (Text, Aeson.Value)
+bytesFieldToJSON key bs = (key, protoBytesToJSON bs)
 
-instance ProtoFromJSON Bool where
-  protoFromJSON (JsonBool b) = Right b
-  protoFromJSON _ = Left "Expected boolean"
+-- | Parse an optional bytes field from base64.
+parseBytesFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe ByteString)
+parseBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just v         -> Just <$> protoBytesFromJSON v
 
-instance ProtoToJSON Int32 where
-  protoToJSON = JsonNumber . fromIntegral
+-- Proto3 canonical JSON: 64-bit integers are encoded as strings.
 
-instance ProtoFromJSON Int32 where
-  protoFromJSON (JsonNumber n) = Right (round n)
-  protoFromJSON _ = Left "Expected number"
+protoInt64ToJSON :: Int64 -> Aeson.Value
+protoInt64ToJSON n = Aeson.String (int64ToText n)
 
-instance ProtoToJSON Int64 where
-  protoToJSON n = JsonString (T.pack (show n))
+protoWord64ToJSON :: Word64 -> Aeson.Value
+protoWord64ToJSON n = Aeson.String (word64ToText n)
 
-instance ProtoFromJSON Int64 where
-  protoFromJSON (JsonString s) = case reads (T.unpack s) of
-    [(n, "")] -> Right n
-    _         -> Left "Invalid int64 string"
-  protoFromJSON (JsonNumber n) = Right (round n)
-  protoFromJSON _ = Left "Expected int64 string or number"
+protoInt64FromJSON :: Aeson.Value -> Aeson.Parser Int64
+protoInt64FromJSON (Aeson.String s) = case TR.signed TR.decimal s of
+  Right (n, rest) | T.null rest -> pure n
+  _ -> fail "Invalid int64 string"
+protoInt64FromJSON (Aeson.Number n) = pure (round n)
+protoInt64FromJSON _ = fail "Expected int64 string or number"
 
-instance ProtoToJSON Word32 where
-  protoToJSON = JsonNumber . fromIntegral
+protoWord64FromJSON :: Aeson.Value -> Aeson.Parser Word64
+protoWord64FromJSON (Aeson.String s) = case TR.decimal s of
+  Right (n, rest) | T.null rest -> pure n
+  _ -> fail "Invalid uint64 string"
+protoWord64FromJSON (Aeson.Number n) = pure (round n)
+protoWord64FromJSON _ = fail "Expected uint64 string or number"
 
-instance ProtoFromJSON Word32 where
-  protoFromJSON (JsonNumber n) = Right (round n)
-  protoFromJSON _ = Left "Expected number"
+-- Proto3 canonical JSON: floats with NaN/Infinity as strings.
 
-instance ProtoToJSON Word64 where
-  protoToJSON n = JsonString (T.pack (show n))
+protoDoubleToJSON :: Double -> Aeson.Value
+protoDoubleToJSON d
+  | isNaN d      = Aeson.String "NaN"
+  | isInfinite d = Aeson.String (if d > 0 then "Infinity" else "-Infinity")
+  | otherwise    = Aeson.Number (fromFloatDigits d)
 
-instance ProtoFromJSON Word64 where
-  protoFromJSON (JsonString s) = case reads (T.unpack s) of
-    [(n, "")] -> Right n
-    _         -> Left "Invalid uint64 string"
-  protoFromJSON (JsonNumber n) = Right (round n)
-  protoFromJSON _ = Left "Expected uint64 string or number"
+protoFloatToJSON :: Float -> Aeson.Value
+protoFloatToJSON = protoDoubleToJSON . realToFrac
 
-instance ProtoToJSON Double where
-  protoToJSON d
-    | isNaN d      = JsonString "NaN"
-    | isInfinite d = JsonString (if d > 0 then "Infinity" else "-Infinity")
-    | otherwise    = JsonNumber d
+protoDoubleFromJSON :: Aeson.Value -> Aeson.Parser Double
+protoDoubleFromJSON (Aeson.Number n) = pure (toRealFloat n)
+protoDoubleFromJSON (Aeson.String "NaN") = pure (0/0)
+protoDoubleFromJSON (Aeson.String "Infinity") = pure (1/0)
+protoDoubleFromJSON (Aeson.String "-Infinity") = pure (negate (1/0))
+protoDoubleFromJSON _ = fail "Expected number or special float string"
 
-instance ProtoFromJSON Double where
-  protoFromJSON (JsonNumber n) = Right n
-  protoFromJSON (JsonString "NaN") = Right (0/0)
-  protoFromJSON (JsonString "Infinity") = Right (1/0)
-  protoFromJSON (JsonString "-Infinity") = Right (negate (1/0))
-  protoFromJSON _ = Left "Expected number"
+protoFloatFromJSON :: Aeson.Value -> Aeson.Parser Float
+protoFloatFromJSON v = realToFrac <$> protoDoubleFromJSON v
 
-instance ProtoToJSON Float where
-  protoToJSON = protoToJSON . (realToFrac :: Float -> Double)
+-- Proto3 canonical JSON: bytes as base64.
 
-instance ProtoFromJSON Float where
-  protoFromJSON v = realToFrac <$> (protoFromJSON v :: Either String Double)
+protoBytesToJSON :: ByteString -> Aeson.Value
+protoBytesToJSON bs = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
 
-instance ProtoToJSON Text where
-  protoToJSON = JsonString
+protoBytesFromJSON :: Aeson.Value -> Aeson.Parser ByteString
+protoBytesFromJSON (Aeson.String s) = case Base64.decode (TE.encodeUtf8 s) of
+  Right bs -> pure bs
+  Left err -> fail ("Invalid base64 bytes: " <> err)
+protoBytesFromJSON _ = fail "Expected base64 string for bytes"
 
-instance ProtoFromJSON Text where
-  protoFromJSON (JsonString s) = Right s
-  protoFromJSON _ = Left "Expected string"
+-- ---------------------------------------------------------------------------
+-- Lazy ByteString (base64)
+-- ---------------------------------------------------------------------------
 
-instance ProtoToJSON ByteString where
-  protoToJSON bs = JsonString (TE.decodeUtf8 (Base64.encode bs))
+protoLazyBytesToJSON :: BL.ByteString -> Aeson.Value
+protoLazyBytesToJSON = protoBytesToJSON . BL.toStrict
 
-instance ProtoFromJSON ByteString where
-  protoFromJSON (JsonString s) = case Base64.decode (TE.encodeUtf8 s) of
-    Right bs -> Right bs
-    Left err -> Left ("Invalid base64 bytes: " <> err)
-  protoFromJSON _ = Left "Expected string"
+protoLazyBytesFromJSON :: Aeson.Value -> Aeson.Parser BL.ByteString
+protoLazyBytesFromJSON v = BL.fromStrict <$> protoBytesFromJSON v
 
-instance ProtoToJSON a => ProtoToJSON (Maybe a) where
-  protoToJSON Nothing  = JsonNull
-  protoToJSON (Just a) = protoToJSON a
+lazyBytesFieldToJSON :: Text -> BL.ByteString -> (Text, Aeson.Value)
+lazyBytesFieldToJSON key lbs = (key, protoLazyBytesToJSON lbs)
 
-instance ProtoFromJSON a => ProtoFromJSON (Maybe a) where
-  protoFromJSON JsonNull = Right Nothing
-  protoFromJSON v = Just <$> protoFromJSON v
+parseLazyBytesFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe BL.ByteString)
+parseLazyBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just v         -> Just <$> protoLazyBytesFromJSON v
 
-instance ProtoToJSON a => ProtoToJSON [a] where
-  protoToJSON = JsonArray . fmap protoToJSON
+-- ---------------------------------------------------------------------------
+-- ShortByteString (base64)
+-- ---------------------------------------------------------------------------
 
-instance ProtoFromJSON a => ProtoFromJSON [a] where
-  protoFromJSON (JsonArray vs) = traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+protoShortBytesToJSON :: SBS.ShortByteString -> Aeson.Value
+protoShortBytesToJSON = protoBytesToJSON . SBS.fromShort
 
-instance ProtoToJSON a => ProtoToJSON (V.Vector a) where
-  protoToJSON = JsonArray . fmap protoToJSON . V.toList
+protoShortBytesFromJSON :: Aeson.Value -> Aeson.Parser SBS.ShortByteString
+protoShortBytesFromJSON v = SBS.toShort <$> protoBytesFromJSON v
 
-instance ProtoFromJSON a => ProtoFromJSON (V.Vector a) where
-  protoFromJSON (JsonArray vs) = V.fromList <$> traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+shortBytesFieldToJSON :: Text -> SBS.ShortByteString -> (Text, Aeson.Value)
+shortBytesFieldToJSON key sbs = (key, protoShortBytesToJSON sbs)
 
-instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Word32) where
-  protoToJSON v = JsonArray (fmap (JsonNumber . fromIntegral) (VU.toList v))
+parseShortBytesFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe SBS.ShortByteString)
+parseShortBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just v         -> Just <$> protoShortBytesFromJSON v
 
-instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Word64) where
-  protoToJSON v = JsonArray (fmap protoToJSON (VU.toList v))
+-- ---------------------------------------------------------------------------
+-- Lazy Text (JSON string)
+-- ---------------------------------------------------------------------------
 
-instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Int32) where
-  protoToJSON v = JsonArray (fmap (JsonNumber . fromIntegral) (VU.toList v))
+lazyTextFieldToJSON :: Text -> TL.Text -> (Text, Aeson.Value)
+lazyTextFieldToJSON key lt = (key, Aeson.String (TL.toStrict lt))
 
-instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Int64) where
-  protoToJSON v = JsonArray (fmap protoToJSON (VU.toList v))
+parseLazyTextFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe TL.Text)
+parseLazyTextFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.String s) -> pure (Just (TL.fromStrict s))
+  Just _ -> fail ("Expected string for field: " <> T.unpack key)
 
-instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Double) where
-  protoToJSON v = JsonArray (fmap protoToJSON (VU.toList v))
+-- ---------------------------------------------------------------------------
+-- ShortByteString as text (UTF-8 stored in SBS)
+-- ---------------------------------------------------------------------------
 
-instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Float) where
-  protoToJSON v = JsonArray (fmap protoToJSON (VU.toList v))
+shortTextFieldToJSON :: Text -> SBS.ShortByteString -> (Text, Aeson.Value)
+shortTextFieldToJSON key sbs = case TE.decodeUtf8' (SBS.fromShort sbs) of
+  Right t -> (key, Aeson.String t)
+  Left _  -> (key, Aeson.String "")
 
-instance {-# OVERLAPPING #-} ProtoToJSON (VU.Vector Bool) where
-  protoToJSON v = JsonArray (fmap JsonBool (VU.toList v))
+parseShortTextFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe SBS.ShortByteString)
+parseShortTextFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.String s) -> pure (Just (SBS.toShort (TE.encodeUtf8 s)))
+  Just _ -> fail ("Expected string for field: " <> T.unpack key)
 
-instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Word32) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+-- ---------------------------------------------------------------------------
+-- Haskell String (JSON string)
+-- ---------------------------------------------------------------------------
 
-instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Word64) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+hsStringFieldToJSON :: Text -> String -> (Text, Aeson.Value)
+hsStringFieldToJSON key s = (key, Aeson.String (T.pack s))
 
-instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Int32) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+parseHsStringFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe String)
+parseHsStringFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.String s) -> pure (Just (T.unpack s))
+  Just _ -> fail ("Expected string for field: " <> T.unpack key)
 
-instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Int64) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+-- ---------------------------------------------------------------------------
+-- Map representation helpers
+-- ---------------------------------------------------------------------------
 
-instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Double) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+-- | Convert an ordered Map to a JSON object. Keys are converted to text
+-- via their 'ToJSON' instance (proto map keys are always scalar types).
+ordMapToJSON :: (Aeson.ToJSON k, Aeson.ToJSON v) => Map k v -> Aeson.Value
+ordMapToJSON m = Aeson.Object (AesonKM.fromList
+  (fmap (\(k, v) -> (AesonKey.fromText (keyToText k), Aeson.toJSON v)) (Map.toList m)))
 
-instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Float) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+-- | Convert a HashMap to a JSON object.
+hashMapToJSON :: (Aeson.ToJSON k, Aeson.ToJSON v) => HM.HashMap k v -> Aeson.Value
+hashMapToJSON m = Aeson.Object (AesonKM.fromList
+  (fmap (\(k, v) -> (AesonKey.fromText (keyToText k), Aeson.toJSON v)) (HM.toList m)))
 
-instance {-# OVERLAPPING #-} ProtoFromJSON (VU.Vector Bool) where
-  protoFromJSON (JsonArray vs) = VU.fromList <$> traverse protoFromJSON vs
-  protoFromJSON _ = Left "Expected array"
+keyToText :: Aeson.ToJSON k => k -> Text
+keyToText k = case Aeson.toJSON k of
+  Aeson.String s -> s
+  Aeson.Number n -> T.pack (show n)
+  Aeson.Bool b   -> if b then "true" else "false"
+  other          -> T.pack (show other)
 
-instance (ProtoToJSON k, ProtoToJSON v) => ProtoToJSON (Map k v) where
-  protoToJSON m = JsonObject (Map.mapKeys showKey (Map.map protoToJSON m))
-    where
-      showKey k = case protoToJSON k of
-        JsonString s -> s
-        JsonNumber n -> T.pack (show n)
-        _ -> T.pack (show (protoToJSON k))
-
-instance (Ord k, ProtoFromJSON k, ProtoFromJSON v) => ProtoFromJSON (Map k v) where
-  protoFromJSON (JsonObject _) = Right Map.empty
-  protoFromJSON _ = Left "Expected object"
-
--- | Render a JSON value to a compact text string.
-renderJson :: JsonValue -> Text
-renderJson = \case
-  JsonNull     -> "null"
-  JsonBool b   -> if b then "true" else "false"
-  JsonNumber n -> T.pack (show n)
-  JsonString s -> renderJsonString s
-  JsonArray vs -> "[" <> T.intercalate "," (fmap renderJson vs) <> "]"
-  JsonObject m ->
-    let fields = Map.toAscList m
-        renderField (k, v) = renderJsonString k <> ":" <> renderJson v
-    in "{" <> T.intercalate "," (fmap renderField fields) <> "}"
-
--- | Render a JSON value with indentation.
-renderJsonPretty :: JsonValue -> Text
-renderJsonPretty = go 0
+-- | Parse a JSON object into an ordered Map.
+parseOrdMapFromJSON :: (Ord k, Aeson.FromJSON k, Aeson.FromJSON v) => Aeson.Value -> Aeson.Parser (Map k v)
+parseOrdMapFromJSON (Aeson.Object o) =
+  Map.fromList <$> traverse parseEntry (AesonKM.toList o)
   where
-    go !indent = \case
-      JsonNull     -> "null"
-      JsonBool b   -> if b then "true" else "false"
-      JsonNumber n -> T.pack (show n)
-      JsonString s -> renderJsonString s
-      JsonArray [] -> "[]"
-      JsonArray vs ->
-        "[\n" <>
-        T.intercalate ",\n" (fmap (\v -> pad (indent + 2) <> go (indent + 2) v) vs) <>
-        "\n" <> pad indent <> "]"
-      JsonObject m | Map.null m -> "{}"
-      JsonObject m ->
-        let fields = Map.toAscList m
-            renderField (k, v) = pad (indent + 2) <> renderJsonString k <> ": " <> go (indent + 2) v
-        in "{\n" <> T.intercalate ",\n" (fmap renderField fields) <> "\n" <> pad indent <> "}"
+    parseEntry (k, v) = do
+      key <- Aeson.parseJSON (Aeson.String (AesonKey.toText k))
+      val <- Aeson.parseJSON v
+      pure (key, val)
+parseOrdMapFromJSON _ = fail "Expected JSON object for map field"
 
-    pad n = T.replicate n " "
-
-renderJsonString :: Text -> Text
-renderJsonString s = "\"" <> T.concatMap escapeChar s <> "\""
+-- | Parse a JSON object into a HashMap.
+parseHashMapFromJSON :: (Eq k, Hashable k, Aeson.FromJSON k, Aeson.FromJSON v) => Aeson.Value -> Aeson.Parser (HM.HashMap k v)
+parseHashMapFromJSON (Aeson.Object o) =
+  HM.fromList <$> traverse parseEntry (AesonKM.toList o)
   where
-    escapeChar '"'  = "\\\""
-    escapeChar '\\' = "\\\\"
-    escapeChar '\n' = "\\n"
-    escapeChar '\r' = "\\r"
-    escapeChar '\t' = "\\t"
-    escapeChar c
-      | c < ' '   = "\\u" <> T.pack (pad4 (showHex' (fromEnum c)))
-      | otherwise  = T.singleton c
-    pad4 xs = replicate (4 - length xs) '0' <> xs
-    showHex' n
-      | n < 16    = [intToDigit n]
-      | otherwise  = let (!q, !r) = n `quotRem` 16 in showHex' q <> [intToDigit r]
+    parseEntry (k, v) = do
+      key <- Aeson.parseJSON (Aeson.String (AesonKey.toText k))
+      val <- Aeson.parseJSON v
+      pure (key, val)
+parseHashMapFromJSON _ = fail "Expected JSON object for map field"
 
--- | Minimal recursive-descent JSON parser.
-parseJson :: Text -> Either String JsonValue
-parseJson t = case parseValue (T.strip t) of
-  Right (v, rest) | T.null (T.strip rest) -> Right v
-  Right (_, rest) -> Left ("Trailing content: " <> T.unpack (T.take 20 rest))
-  Left e -> Left e
+-- ---------------------------------------------------------------------------
+-- Bytes map helpers (Map k ByteString, common in proto APIs)
+-- ---------------------------------------------------------------------------
 
-parseValue :: Text -> Either String (JsonValue, Text)
-parseValue t =
-  let s = T.stripStart t
-  in if T.null s then Left "Unexpected end of input"
-     else case T.head s of
-       'n' | T.isPrefixOf "null" s  -> Right (JsonNull, T.drop 4 s)
-       't' | T.isPrefixOf "true" s  -> Right (JsonBool True, T.drop 4 s)
-       'f' | T.isPrefixOf "false" s -> Right (JsonBool False, T.drop 5 s)
-       '"' -> parseStr s
-       '[' -> parseArr (T.drop 1 s) []
-       '{' -> parseObj (T.drop 1 s) []
-       _   -> parseNum s
+bytesMapFieldToJSON :: Text -> Map Text ByteString -> (Text, Aeson.Value)
+bytesMapFieldToJSON key m =
+  (key, Aeson.Object (AesonKM.fromList
+    (fmap (bimap AesonKey.fromText protoBytesToJSON) (Map.toList m))))
 
-parseStr :: Text -> Either String (JsonValue, Text)
-parseStr s = case scanString (T.drop 1 s) [] of
-  Right (str, rest) -> Right (JsonString (T.pack str), rest)
-  Left e -> Left e
+parseBytesMapFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe (Map Text ByteString))
+parseBytesMapFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.Object o) -> do
+    pairs <- traverse (\(k, v) -> (,) (AesonKey.toText k) <$> protoBytesFromJSON v) (AesonKM.toList o)
+    pure (Just (Map.fromList pairs))
+  Just _ -> fail ("Expected object for bytes map field: " <> T.unpack key)
+
+-- ---------------------------------------------------------------------------
+-- Internal numeric helpers
+-- ---------------------------------------------------------------------------
+
+int64ToText :: Int64 -> Text
+int64ToText n
+  | n < 0     = "-" <> word64ToText (fromIntegral (negate n))
+  | otherwise = word64ToText (fromIntegral n)
+
+word64ToText :: Word64 -> Text
+word64ToText 0 = "0"
+word64ToText n = go T.empty n
   where
-    scanString t acc
-      | T.null t = Left "Unterminated string"
-      | otherwise = case T.head t of
-          '"'  -> Right (reverse acc, T.drop 1 t)
-          '\\' | T.length t >= 2 -> case T.index t 1 of
-                   'n'  -> scanString (T.drop 2 t) ('\n' : acc)
-                   'r'  -> scanString (T.drop 2 t) ('\r' : acc)
-                   't'  -> scanString (T.drop 2 t) ('\t' : acc)
-                   '"'  -> scanString (T.drop 2 t) ('"' : acc)
-                   '\\' -> scanString (T.drop 2 t) ('\\' : acc)
-                   '/'  -> scanString (T.drop 2 t) ('/' : acc)
-                   _    -> scanString (T.drop 2 t) (T.index t 1 : acc)
-               | otherwise -> Left "Unterminated escape"
-          c    -> scanString (T.drop 1 t) (c : acc)
-
-parseNum :: Text -> Either String (JsonValue, Text)
-parseNum s =
-  let (numTxt, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || isDigit c) s
-  in if T.null numTxt then Left ("Expected number at: " <> T.unpack (T.take 20 s))
-     else case reads (T.unpack numTxt) of
-       [(n, "")] -> Right (JsonNumber n, rest)
-       _         -> Left ("Invalid number: " <> T.unpack numTxt)
-
-parseArr :: Text -> [JsonValue] -> Either String (JsonValue, Text)
-parseArr t acc =
-  let s = T.stripStart t
-  in if T.null s then Left "Unterminated array"
-     else if T.head s == ']' then Right (JsonArray (reverse acc), T.drop 1 s)
-     else do
-       (v, rest) <- parseValue s
-       let rest' = T.stripStart rest
-       if T.null rest' then Left "Unterminated array"
-       else case T.head rest' of
-         ']' -> Right (JsonArray (reverse (v : acc)), T.drop 1 rest')
-         ',' -> parseArr (T.drop 1 rest') (v : acc)
-         _   -> Left ("Expected ',' or ']' in array, got: " <> T.unpack (T.take 10 rest'))
-
-parseObj :: Text -> [(Text, JsonValue)] -> Either String (JsonValue, Text)
-parseObj t acc =
-  let s = T.stripStart t
-  in if T.null s then Left "Unterminated object"
-     else if T.head s == '}' then Right (JsonObject (Map.fromList (reverse acc)), T.drop 1 s)
-     else case parseStr (T.stripStart s) of
-       Right (JsonString key, afterKey) ->
-         let afterColon = T.stripStart afterKey
-         in case T.uncons afterColon of
-              Just (':', rest) -> case parseValue rest of
-                Right (val, afterVal) ->
-                  let rest' = T.stripStart afterVal
-                  in if T.null rest' then Left "Unterminated object"
-                     else case T.head rest' of
-                       '}' -> Right (JsonObject (Map.fromList (reverse ((key, val) : acc))), T.drop 1 rest')
-                       ',' -> parseObj (T.drop 1 rest') ((key, val) : acc)
-                       _   -> Left ("Expected ',' or '}' in object, got: " <> T.unpack (T.take 10 rest'))
-                Left e -> Left e
-              _ -> Left ("Expected ':' after object key \"" <> T.unpack key <> "\"")
-       Right _ -> Left "Expected string key in object"
-       Left e -> Left e
+    go !acc 0 = acc
+    go !acc v = let (!q, !r) = v `quotRem` 10
+                in go (T.cons (toEnum (fromIntegral r + 48)) acc) q

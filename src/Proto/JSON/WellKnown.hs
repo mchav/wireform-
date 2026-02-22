@@ -2,8 +2,7 @@
 -- | Proto3 canonical JSON mapping for well-known types.
 --
 -- These functions provide the canonical conversions specified by the
--- proto3 JSON specification. Use these when you need spec-compliant
--- JSON rather than the default field-level format.
+-- proto3 JSON specification.
 module Proto.JSON.WellKnown
   ( timestampToJSON
   , timestampFromJSON
@@ -19,16 +18,21 @@ module Proto.JSON.WellKnown
   , parseRfc3339
   ) where
 
+import Data.Bifunctor (bimap)
 import Data.Char (isDigit)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Scientific (fromFloatDigits, toRealFloat)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+
 import Proto.Google.Protobuf.Timestamp
 import Proto.Google.Protobuf.Duration
 import Proto.Google.Protobuf.FieldMask
@@ -36,11 +40,11 @@ import Proto.Google.Protobuf.Struct
 
 -- Timestamp: RFC 3339 format "YYYY-MM-DDThh:mm:ss[.nnn]Z"
 
-timestampToJSON :: Timestamp -> JsonValue
-timestampToJSON ts = JsonString (formatRfc3339 (timestampSeconds ts) (timestampNanos ts))
+timestampToJSON :: Timestamp -> Aeson.Value
+timestampToJSON ts = Aeson.String (formatRfc3339 (timestampSeconds ts) (timestampNanos ts))
 
-timestampFromJSON :: JsonValue -> Either String Timestamp
-timestampFromJSON (JsonString t) = parseRfc3339 t
+timestampFromJSON :: Aeson.Value -> Either String Timestamp
+timestampFromJSON (Aeson.String t) = parseRfc3339 t
 timestampFromJSON _ = Left "Expected RFC 3339 string for Timestamp"
 
 formatRfc3339 :: Int64 -> Int32 -> Text
@@ -99,14 +103,12 @@ daysFromCivil y m d =
       !doe = yoe * 365 + yoe `quot` 4 - yoe `quot` 100 + doy
   in era * 146097 + doe
 
--- | Zero-padded integer to Text, no String intermediate.
 padInt :: Int -> Int -> Text
 padInt width n =
   let !raw = intToText n
       !pad = width - T.length raw
   in if pad <= 0 then raw else T.replicate pad "0" <> raw
 
--- | Int to Text without going through String.
 intToText :: Int -> Text
 intToText n
   | n < 0     = "-" <> intToText (negate n)
@@ -136,7 +138,7 @@ parseRfc3339 t = do
           Right Timestamp
             { timestampSeconds = totalSecs
             , timestampNanos = ptNanos time
-            , timestampUnknownfields = []
+            , timestampUnknownFields = []
             }
 
 data ParsedDate = ParsedDate
@@ -184,7 +186,6 @@ parseFracNanos t
            Left _  -> 0
   | otherwise = 0
 
--- | Parse Int from Text without going through String.
 readInt :: Text -> Either String Int
 readInt t = case TR.signed TR.decimal t of
   Right (n, rest) | T.null rest -> Right n
@@ -193,7 +194,7 @@ readInt t = case TR.signed TR.decimal t of
 
 -- Duration: "3.5s" format
 
-durationToJSON :: Duration -> JsonValue
+durationToJSON :: Duration -> Aeson.Value
 durationToJSON dur =
   let !s = durationSeconds dur
       !n = durationNanos dur
@@ -201,10 +202,10 @@ durationToJSON dur =
       nanoStr
         | n == 0    = ""
         | otherwise = "." <> T.dropWhileEnd (== '0') (padInt 9 (fromIntegral (abs n)))
-  in JsonString (secStr <> nanoStr <> "s")
+  in Aeson.String (secStr <> nanoStr <> "s")
 
-durationFromJSON :: JsonValue -> Either String Duration
-durationFromJSON (JsonString t) = parseDuration t
+durationFromJSON :: Aeson.Value -> Either String Duration
+durationFromJSON (Aeson.String t) = parseDuration t
 durationFromJSON _ = Left "Expected duration string"
 
 parseDuration :: Text -> Either String Duration
@@ -219,47 +220,51 @@ parseDuration t = do
         Right Duration
           { durationSeconds = fromIntegral secs
           , durationNanos = nanos
-          , durationUnknownfields = []
+          , durationUnknownFields = []
           }
 
 -- FieldMask: comma-separated paths
 
-fieldMaskToJSON :: FieldMask -> JsonValue
-fieldMaskToJSON fm = JsonString (T.intercalate "," (V.toList (fieldMaskPaths fm)))
+fieldMaskToJSON :: FieldMask -> Aeson.Value
+fieldMaskToJSON fm = Aeson.String (T.intercalate "," (V.toList (fieldMaskPaths fm)))
 
-fieldMaskFromJSON :: JsonValue -> Either String FieldMask
-fieldMaskFromJSON (JsonString t)
-  | T.null t  = Right (FieldMask { fieldMaskPaths = V.empty, fieldMaskUnknownfields = [] })
-  | otherwise = Right (FieldMask { fieldMaskPaths = V.fromList (T.splitOn "," t), fieldMaskUnknownfields = [] })
+fieldMaskFromJSON :: Aeson.Value -> Either String FieldMask
+fieldMaskFromJSON (Aeson.String t)
+  | T.null t  = Right (FieldMask { fieldMaskPaths = V.empty, fieldMaskUnknownFields = [] })
+  | otherwise = Right (FieldMask { fieldMaskPaths = V.fromList (T.splitOn "," t), fieldMaskUnknownFields = [] })
 fieldMaskFromJSON _ = Left "Expected string for FieldMask"
 
 -- Struct/Value: native JSON
 
-structToJSON :: Struct -> JsonValue
-structToJSON s = JsonObject (fmap valueToJSON (structFields s))
+structToJSON :: Struct -> Aeson.Value
+structToJSON s =
+  Aeson.Object (AesonKM.fromList
+    (fmap (bimap AesonKey.fromText valueToJSON) (Map.toList (structFields s))))
 
-structFromJSON :: JsonValue -> Either String Struct
-structFromJSON (JsonObject m) = Right defaultStruct { structFields = fmap jsonToValue m }
+structFromJSON :: Aeson.Value -> Either String Struct
+structFromJSON (Aeson.Object o) =
+  Right defaultStruct { structFields = Map.fromList
+    (fmap (bimap AesonKey.toText jsonToValue) (AesonKM.toList o)) }
 structFromJSON _ = Left "Expected object for Struct"
 
-valueToJSON :: Value -> JsonValue
+valueToJSON :: Value -> Aeson.Value
 valueToJSON v = case valueKind v of
-  Nothing -> JsonNull
+  Nothing -> Aeson.Null
   Just vk -> case vk of
-    Value'Kind'NullValue _   -> JsonNull
-    Value'Kind'NumberValue d -> JsonNumber d
-    Value'Kind'StringValue s -> JsonString s
-    Value'Kind'BoolValue b   -> JsonBool b
+    Value'Kind'NullValue _   -> Aeson.Null
+    Value'Kind'NumberValue d -> Aeson.Number (fromFloatDigits d)
+    Value'Kind'StringValue s -> Aeson.String s
+    Value'Kind'BoolValue b   -> Aeson.Bool b
     Value'Kind'StructValue s -> structToJSON s
-    Value'Kind'ListValue l   -> JsonArray (V.toList (fmap valueToJSON (listValueValues l)))
+    Value'Kind'ListValue l   -> Aeson.Array (fmap valueToJSON (listValueValues l))
 
-valueFromJSON :: JsonValue -> Either String Value
+valueFromJSON :: Aeson.Value -> Either String Value
 valueFromJSON jv = Right (jsonToValue jv)
 
-jsonToValue :: JsonValue -> Value
-jsonToValue JsonNull = defaultValue { valueKind = Just (Value'Kind'NullValue NullValue'NullValue) }
-jsonToValue (JsonBool b) = defaultValue { valueKind = Just (Value'Kind'BoolValue b) }
-jsonToValue (JsonNumber n) = defaultValue { valueKind = Just (Value'Kind'NumberValue n) }
-jsonToValue (JsonString s) = defaultValue { valueKind = Just (Value'Kind'StringValue s) }
-jsonToValue (JsonArray vs) = defaultValue { valueKind = Just (Value'Kind'ListValue (defaultListValue { listValueValues = V.fromList (fmap jsonToValue vs) })) }
-jsonToValue (JsonObject m) = defaultValue { valueKind = Just (Value'Kind'StructValue (defaultStruct { structFields = fmap jsonToValue m })) }
+jsonToValue :: Aeson.Value -> Value
+jsonToValue Aeson.Null = defaultValue { valueKind = Just (Value'Kind'NullValue NullValue'NullValue) }
+jsonToValue (Aeson.Bool b) = defaultValue { valueKind = Just (Value'Kind'BoolValue b) }
+jsonToValue (Aeson.Number n) = defaultValue { valueKind = Just (Value'Kind'NumberValue (toRealFloat n)) }
+jsonToValue (Aeson.String s) = defaultValue { valueKind = Just (Value'Kind'StringValue s) }
+jsonToValue (Aeson.Array vs) = defaultValue { valueKind = Just (Value'Kind'ListValue (defaultListValue { listValueValues = fmap jsonToValue vs })) }
+jsonToValue (Aeson.Object o) = defaultValue { valueKind = Just (Value'Kind'StructValue (defaultStruct { structFields = Map.fromList (fmap (bimap AesonKey.toText jsonToValue) (AesonKM.toList o)) })) }

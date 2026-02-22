@@ -1,6 +1,7 @@
 module Test.WellKnown (wellKnownTests) where
 
 import qualified Data.ByteString as BS
+import Data.Hashable (hash, hashWithSalt)
 import Data.Proxy (Proxy(..))
 import qualified Data.Vector as V
 import Hedgehog
@@ -12,7 +13,7 @@ import Test.Tasty.Hedgehog
 
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON (protoToJSON, JsonValue(..))
+import qualified Data.Aeson as Aeson
 import Proto.Google.Protobuf.Timestamp
 import Proto.Google.Protobuf.Duration
 import Proto.Google.Protobuf.Any
@@ -44,15 +45,15 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "JSON canonical RFC 3339" $ do
           let msg = defaultTimestamp { timestampSeconds = 1708000000, timestampNanos = 0 }
-          protoToJSON msg @?= JsonString "2024-02-15T12:26:40Z"
+          Aeson.toJSON msg @?= Aeson.String "2024-02-15T12:26:40Z"
 
       , testCase "JSON with nanos" $ do
           let msg = defaultTimestamp { timestampSeconds = 0, timestampNanos = 123456789 }
-          protoToJSON msg @?= JsonString "1970-01-01T00:00:00.123456789Z"
+          Aeson.toJSON msg @?= Aeson.String "1970-01-01T00:00:00.123456789Z"
 
       , testCase "JSON nanos trailing zeros trimmed" $ do
           let msg = defaultTimestamp { timestampSeconds = 0, timestampNanos = 100000000 }
-          protoToJSON msg @?= JsonString "1970-01-01T00:00:00.1Z"
+          Aeson.toJSON msg @?= Aeson.String "1970-01-01T00:00:00.1Z"
       ]
 
   , testGroup "Duration"
@@ -65,22 +66,22 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "JSON canonical seconds" $ do
           let msg = defaultDuration { durationSeconds = 3600, durationNanos = 0 }
-          protoToJSON msg @?= JsonString "3600s"
+          Aeson.toJSON msg @?= Aeson.String "3600s"
 
       , testCase "JSON with nanos" $ do
           let msg = defaultDuration { durationSeconds = 1, durationNanos = 500000000 }
-          protoToJSON msg @?= JsonString "1.5s"
+          Aeson.toJSON msg @?= Aeson.String "1.5s"
 
       , testCase "JSON negative" $ do
           let msg = defaultDuration { durationSeconds = -1, durationNanos = -500000000 }
-          protoToJSON msg @?= JsonString "-1.5s"
+          Aeson.toJSON msg @?= Aeson.String "-1.5s"
       ]
 
   , testGroup "Any"
       [ testProperty "raw Any roundtrip" $ property $ do
           tu <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
           v <- forAll $ Gen.bytes (Range.linear 0 200)
-          let msg = defaultAny { anyTypeurl = tu, anyValue = v }
+          let msg = defaultAny { anyTypeUrl = tu, anyValue = v }
               encoded = encodeMessage msg
           decodeMessage encoded === Right msg
 
@@ -89,7 +90,7 @@ wellKnownTests = testGroup "Well-Known Types"
           n <- forAll $ Gen.int32 (Range.linear 0 999999999)
           let ts = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
               packed = packAny ts
-          anyTypeurl packed === "type.googleapis.com/google.protobuf.Timestamp"
+          anyTypeUrl packed === "type.googleapis.com/google.protobuf.Timestamp"
           case unpackAny packed of
             Just (Right decoded) -> decoded === ts
             Just (Left err) -> do annotate (show err); failure
@@ -106,7 +107,7 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "packAny Empty" $ do
           let packed = packAny defaultEmpty
-          anyTypeurl packed @?= "type.googleapis.com/google.protobuf.Empty"
+          anyTypeUrl packed @?= "type.googleapis.com/google.protobuf.Empty"
           case unpackAny packed :: Maybe (Either DecodeError Empty) of
             Just (Right _) -> pure ()
             other -> assertFailure ("Expected Just (Right Empty), got " <> show other)
@@ -132,7 +133,7 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "packAnyWithPrefix custom prefix" $ do
           let packed = packAnyWithPrefix "myhost/" (defaultTimestamp { timestampSeconds = 1 })
-          anyTypeurl packed @?= "myhost/google.protobuf.Timestamp"
+          anyTypeUrl packed @?= "myhost/google.protobuf.Timestamp"
           case unpackAny packed of
             Just (Right ts) -> ts @?= defaultTimestamp { timestampSeconds = 1 }
             _ -> assertFailure "Should unpack with any prefix"
@@ -161,7 +162,7 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "TypeRegistry unknown type returns Nothing" $ do
           let registry = registerType (Proxy :: Proxy Timestamp) emptyRegistry
-              unknownAny = defaultAny { anyTypeurl = "type.googleapis.com/unknown.Type" }
+              unknownAny = defaultAny { anyTypeUrl = "type.googleapis.com/unknown.Type" }
           case unpackAnyDynamic registry unknownAny of
             Nothing -> pure ()
             Just _  -> assertFailure "Should return Nothing for unknown type"
@@ -228,7 +229,7 @@ wellKnownTests = testGroup "Well-Known Types"
   , testGroup "SourceContext"
       [ testProperty "roundtrip" $ property $ do
           fn <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
-          let msg = defaultSourceContext { sourceContextFilename = fn }
+          let msg = defaultSourceContext { sourceContextFileName = fn }
           decodeMessage (encodeMessage msg) === Right msg
       ]
 
@@ -274,5 +275,33 @@ wellKnownTests = testGroup "Well-Known Types"
           n <- forAll $ Gen.int32 (Range.linear 0 999999)
           let msg = defaultDuration { durationSeconds = s, durationNanos = n }
           encodeMessageSized msg === encodeMessage msg
+      ]
+
+  , testGroup "Hashable instances"
+      [ testProperty "Timestamp: equal values have equal hashes" $ property $ do
+          s <- forAll $ Gen.int64 (Range.linear 0 1000000)
+          n <- forAll $ Gen.int32 (Range.linear 0 999999)
+          let msg = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
+          hash msg === hash msg
+
+      , testCase "Timestamp: different values have different hashes" $ do
+          let m1 = defaultTimestamp { timestampSeconds = 100 }
+              m2 = defaultTimestamp { timestampSeconds = 200 }
+          assertBool "hashes should differ" (hash m1 /= hash m2)
+
+      , testCase "Duration: hashWithSalt works" $ do
+          let msg = defaultDuration { durationSeconds = 42, durationNanos = 123 }
+          hashWithSalt 0 msg `seq` pure ()
+
+      , testCase "Empty: hashable" $ do
+          hash defaultEmpty `seq` pure ()
+
+      , testProperty "FieldMask: hashable with vector field" $ property $ do
+          ps <- forAll $ Gen.list (Range.linear 0 5) (Gen.text (Range.linear 1 10) Gen.alphaNum)
+          let msg = defaultFieldMask { fieldMaskPaths = V.fromList ps }
+          hash msg `seq` pure ()
+
+      , testProperty "Struct: hashable with map field" $ property $ do
+          hash defaultStruct `seq` pure ()
       ]
   ]

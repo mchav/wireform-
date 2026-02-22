@@ -25,9 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -54,7 +59,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a1e676f6f676c652f70726f746f62756
 
 data DoubleValue = DoubleValue
   { doubleValueValue :: {-# UNPACK #-} !Double
-  , doubleValueUnknownfields :: ![UnknownField]
+  , doubleValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -62,18 +67,18 @@ data DoubleValue = DoubleValue
 defaultDoubleValue :: DoubleValue
 defaultDoubleValue = DoubleValue
   { doubleValueValue = 0
-  , doubleValueUnknownfields = []
+  , doubleValueUnknownFields = []
   }
 
 instance MessageEncode DoubleValue where
   buildMessage msg =
     (if msg.doubleValueValue == 0 then mempty else encodeFieldDouble 1 msg.doubleValueValue)
-    <> encodeUnknownFields msg.doubleValueUnknownfields
+    <> encodeUnknownFields msg.doubleValueUnknownFields
 
 instance MessageSize DoubleValue where
   messageSize msg =
     (if msg.doubleValueValue == 0 then 0 else fieldDoubleSize 1)
-    + unknownFieldsSize msg.doubleValueUnknownfields
+    + unknownFieldsSize msg.doubleValueUnknownFields
 
 instance MessageDecode DoubleValue where
   {-# INLINE messageDecoder #-}
@@ -82,7 +87,7 @@ instance MessageDecode DoubleValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DoubleValue {doubleValueValue = acc_0, doubleValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DoubleValue {doubleValueValue = acc_0, doubleValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldDouble
@@ -110,23 +115,25 @@ instance ProtoMessage DoubleValue where
         })
     ]
 
-instance ProtoToJSON DoubleValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.doubleValueValue
+instance Aeson.ToJSON DoubleValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.doubleValueValue
 
       ]
 
-instance ProtoFromJSON DoubleValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_doubleValueValue <- obj .:? "value"
+instance Aeson.FromJSON DoubleValue where
+  parseJSON = Aeson.withObject "DoubleValue" $ \obj -> do
+    fld_doubleValueValue <- parseFieldMaybe obj "value"
     pure defaultDoubleValue
       { doubleValueValue = maybe (doubleValueValue defaultDoubleValue) id fld_doubleValueValue
       }
-  protoFromJSON _ = Right defaultDoubleValue
+
+instance Hashable DoubleValue where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.doubleValueValue
 
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
-  , floatValueUnknownfields :: ![UnknownField]
+  , floatValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -134,18 +141,18 @@ data FloatValue = FloatValue
 defaultFloatValue :: FloatValue
 defaultFloatValue = FloatValue
   { floatValueValue = 0
-  , floatValueUnknownfields = []
+  , floatValueUnknownFields = []
   }
 
 instance MessageEncode FloatValue where
   buildMessage msg =
     (if msg.floatValueValue == 0 then mempty else encodeFieldFloat 1 msg.floatValueValue)
-    <> encodeUnknownFields msg.floatValueUnknownfields
+    <> encodeUnknownFields msg.floatValueUnknownFields
 
 instance MessageSize FloatValue where
   messageSize msg =
     (if msg.floatValueValue == 0 then 0 else fieldFloatSize 1)
-    + unknownFieldsSize msg.floatValueUnknownfields
+    + unknownFieldsSize msg.floatValueUnknownFields
 
 instance MessageDecode FloatValue where
   {-# INLINE messageDecoder #-}
@@ -154,7 +161,7 @@ instance MessageDecode FloatValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (FloatValue {floatValueValue = acc_0, floatValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (FloatValue {floatValueValue = acc_0, floatValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldFloat
@@ -182,23 +189,25 @@ instance ProtoMessage FloatValue where
         })
     ]
 
-instance ProtoToJSON FloatValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.floatValueValue
+instance Aeson.ToJSON FloatValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.floatValueValue
 
       ]
 
-instance ProtoFromJSON FloatValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_floatValueValue <- obj .:? "value"
+instance Aeson.FromJSON FloatValue where
+  parseJSON = Aeson.withObject "FloatValue" $ \obj -> do
+    fld_floatValueValue <- parseFieldMaybe obj "value"
     pure defaultFloatValue
       { floatValueValue = maybe (floatValueValue defaultFloatValue) id fld_floatValueValue
       }
-  protoFromJSON _ = Right defaultFloatValue
+
+instance Hashable FloatValue where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.floatValueValue
 
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
-  , int64ValueUnknownfields :: ![UnknownField]
+  , int64ValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -206,18 +215,18 @@ data Int64Value = Int64Value
 defaultInt64Value :: Int64Value
 defaultInt64Value = Int64Value
   { int64ValueValue = 0
-  , int64ValueUnknownfields = []
+  , int64ValueUnknownFields = []
   }
 
 instance MessageEncode Int64Value where
   buildMessage msg =
     (if msg.int64ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.int64ValueValue))
-    <> encodeUnknownFields msg.int64ValueUnknownfields
+    <> encodeUnknownFields msg.int64ValueUnknownFields
 
 instance MessageSize Int64Value where
   messageSize msg =
     (if msg.int64ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.int64ValueValue))
-    + unknownFieldsSize msg.int64ValueUnknownfields
+    + unknownFieldsSize msg.int64ValueUnknownFields
 
 instance MessageDecode Int64Value where
   {-# INLINE messageDecoder #-}
@@ -226,7 +235,7 @@ instance MessageDecode Int64Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Int64Value {int64ValueValue = acc_0, int64ValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Int64Value {int64ValueValue = acc_0, int64ValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -254,23 +263,25 @@ instance ProtoMessage Int64Value where
         })
     ]
 
-instance ProtoToJSON Int64Value where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.int64ValueValue
+instance Aeson.ToJSON Int64Value where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.int64ValueValue
 
       ]
 
-instance ProtoFromJSON Int64Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_int64ValueValue <- obj .:? "value"
+instance Aeson.FromJSON Int64Value where
+  parseJSON = Aeson.withObject "Int64Value" $ \obj -> do
+    fld_int64ValueValue <- parseFieldMaybe obj "value"
     pure defaultInt64Value
       { int64ValueValue = maybe (int64ValueValue defaultInt64Value) id fld_int64ValueValue
       }
-  protoFromJSON _ = Right defaultInt64Value
+
+instance Hashable Int64Value where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.int64ValueValue
 
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
-  , uInt64ValueUnknownfields :: ![UnknownField]
+  , uInt64ValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -278,18 +289,18 @@ data UInt64Value = UInt64Value
 defaultUInt64Value :: UInt64Value
 defaultUInt64Value = UInt64Value
   { uInt64ValueValue = 0
-  , uInt64ValueUnknownfields = []
+  , uInt64ValueUnknownFields = []
   }
 
 instance MessageEncode UInt64Value where
   buildMessage msg =
     (if msg.uInt64ValueValue == 0 then mempty else encodeFieldVarint 1 msg.uInt64ValueValue)
-    <> encodeUnknownFields msg.uInt64ValueUnknownfields
+    <> encodeUnknownFields msg.uInt64ValueUnknownFields
 
 instance MessageSize UInt64Value where
   messageSize msg =
     (if msg.uInt64ValueValue == 0 then 0 else fieldVarintSize 1 msg.uInt64ValueValue)
-    + unknownFieldsSize msg.uInt64ValueUnknownfields
+    + unknownFieldsSize msg.uInt64ValueUnknownFields
 
 instance MessageDecode UInt64Value where
   {-# INLINE messageDecoder #-}
@@ -298,7 +309,7 @@ instance MessageDecode UInt64Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UInt64Value {uInt64ValueValue = acc_0, uInt64ValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UInt64Value {uInt64ValueValue = acc_0, uInt64ValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldVarint
@@ -326,23 +337,25 @@ instance ProtoMessage UInt64Value where
         })
     ]
 
-instance ProtoToJSON UInt64Value where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.uInt64ValueValue
+instance Aeson.ToJSON UInt64Value where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.uInt64ValueValue
 
       ]
 
-instance ProtoFromJSON UInt64Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_uInt64ValueValue <- obj .:? "value"
+instance Aeson.FromJSON UInt64Value where
+  parseJSON = Aeson.withObject "UInt64Value" $ \obj -> do
+    fld_uInt64ValueValue <- parseFieldMaybe obj "value"
     pure defaultUInt64Value
       { uInt64ValueValue = maybe (uInt64ValueValue defaultUInt64Value) id fld_uInt64ValueValue
       }
-  protoFromJSON _ = Right defaultUInt64Value
+
+instance Hashable UInt64Value where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.uInt64ValueValue
 
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
-  , int32ValueUnknownfields :: ![UnknownField]
+  , int32ValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -350,18 +363,18 @@ data Int32Value = Int32Value
 defaultInt32Value :: Int32Value
 defaultInt32Value = Int32Value
   { int32ValueValue = 0
-  , int32ValueUnknownfields = []
+  , int32ValueUnknownFields = []
   }
 
 instance MessageEncode Int32Value where
   buildMessage msg =
     (if msg.int32ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.int32ValueValue))
-    <> encodeUnknownFields msg.int32ValueUnknownfields
+    <> encodeUnknownFields msg.int32ValueUnknownFields
 
 instance MessageSize Int32Value where
   messageSize msg =
     (if msg.int32ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.int32ValueValue))
-    + unknownFieldsSize msg.int32ValueUnknownfields
+    + unknownFieldsSize msg.int32ValueUnknownFields
 
 instance MessageDecode Int32Value where
   {-# INLINE messageDecoder #-}
@@ -370,7 +383,7 @@ instance MessageDecode Int32Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Int32Value {int32ValueValue = acc_0, int32ValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Int32Value {int32ValueValue = acc_0, int32ValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -398,23 +411,25 @@ instance ProtoMessage Int32Value where
         })
     ]
 
-instance ProtoToJSON Int32Value where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.int32ValueValue
+instance Aeson.ToJSON Int32Value where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.int32ValueValue
 
       ]
 
-instance ProtoFromJSON Int32Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_int32ValueValue <- obj .:? "value"
+instance Aeson.FromJSON Int32Value where
+  parseJSON = Aeson.withObject "Int32Value" $ \obj -> do
+    fld_int32ValueValue <- parseFieldMaybe obj "value"
     pure defaultInt32Value
       { int32ValueValue = maybe (int32ValueValue defaultInt32Value) id fld_int32ValueValue
       }
-  protoFromJSON _ = Right defaultInt32Value
+
+instance Hashable Int32Value where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.int32ValueValue
 
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
-  , uInt32ValueUnknownfields :: ![UnknownField]
+  , uInt32ValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -422,18 +437,18 @@ data UInt32Value = UInt32Value
 defaultUInt32Value :: UInt32Value
 defaultUInt32Value = UInt32Value
   { uInt32ValueValue = 0
-  , uInt32ValueUnknownfields = []
+  , uInt32ValueUnknownFields = []
   }
 
 instance MessageEncode UInt32Value where
   buildMessage msg =
     (if msg.uInt32ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.uInt32ValueValue))
-    <> encodeUnknownFields msg.uInt32ValueUnknownfields
+    <> encodeUnknownFields msg.uInt32ValueUnknownFields
 
 instance MessageSize UInt32Value where
   messageSize msg =
     (if msg.uInt32ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.uInt32ValueValue))
-    + unknownFieldsSize msg.uInt32ValueUnknownfields
+    + unknownFieldsSize msg.uInt32ValueUnknownFields
 
 instance MessageDecode UInt32Value where
   {-# INLINE messageDecoder #-}
@@ -442,7 +457,7 @@ instance MessageDecode UInt32Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0, uInt32ValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0, uInt32ValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -470,23 +485,25 @@ instance ProtoMessage UInt32Value where
         })
     ]
 
-instance ProtoToJSON UInt32Value where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.uInt32ValueValue
+instance Aeson.ToJSON UInt32Value where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.uInt32ValueValue
 
       ]
 
-instance ProtoFromJSON UInt32Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_uInt32ValueValue <- obj .:? "value"
+instance Aeson.FromJSON UInt32Value where
+  parseJSON = Aeson.withObject "UInt32Value" $ \obj -> do
+    fld_uInt32ValueValue <- parseFieldMaybe obj "value"
     pure defaultUInt32Value
       { uInt32ValueValue = maybe (uInt32ValueValue defaultUInt32Value) id fld_uInt32ValueValue
       }
-  protoFromJSON _ = Right defaultUInt32Value
+
+instance Hashable UInt32Value where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.uInt32ValueValue
 
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
-  , boolValueUnknownfields :: ![UnknownField]
+  , boolValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -494,18 +511,18 @@ data BoolValue = BoolValue
 defaultBoolValue :: BoolValue
 defaultBoolValue = BoolValue
   { boolValueValue = False
-  , boolValueUnknownfields = []
+  , boolValueUnknownFields = []
   }
 
 instance MessageEncode BoolValue where
   buildMessage msg =
     (if msg.boolValueValue == False then mempty else encodeFieldBool 1 msg.boolValueValue)
-    <> encodeUnknownFields msg.boolValueUnknownfields
+    <> encodeUnknownFields msg.boolValueUnknownFields
 
 instance MessageSize BoolValue where
   messageSize msg =
     (if msg.boolValueValue == False then 0 else fieldBoolSize 1)
-    + unknownFieldsSize msg.boolValueUnknownfields
+    + unknownFieldsSize msg.boolValueUnknownFields
 
 instance MessageDecode BoolValue where
   {-# INLINE messageDecoder #-}
@@ -514,7 +531,7 @@ instance MessageDecode BoolValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BoolValue {boolValueValue = acc_0, boolValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BoolValue {boolValueValue = acc_0, boolValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -542,23 +559,25 @@ instance ProtoMessage BoolValue where
         })
     ]
 
-instance ProtoToJSON BoolValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.boolValueValue
+instance Aeson.ToJSON BoolValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.boolValueValue
 
       ]
 
-instance ProtoFromJSON BoolValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_boolValueValue <- obj .:? "value"
+instance Aeson.FromJSON BoolValue where
+  parseJSON = Aeson.withObject "BoolValue" $ \obj -> do
+    fld_boolValueValue <- parseFieldMaybe obj "value"
     pure defaultBoolValue
       { boolValueValue = maybe (boolValueValue defaultBoolValue) id fld_boolValueValue
       }
-  protoFromJSON _ = Right defaultBoolValue
+
+instance Hashable BoolValue where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.boolValueValue
 
 data StringValue = StringValue
   { stringValueValue :: !Text
-  , stringValueUnknownfields :: ![UnknownField]
+  , stringValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -566,18 +585,18 @@ data StringValue = StringValue
 defaultStringValue :: StringValue
 defaultStringValue = StringValue
   { stringValueValue = ""
-  , stringValueUnknownfields = []
+  , stringValueUnknownFields = []
   }
 
 instance MessageEncode StringValue where
   buildMessage msg =
     (if msg.stringValueValue == T.empty then mempty else encodeFieldString 1 msg.stringValueValue)
-    <> encodeUnknownFields msg.stringValueUnknownfields
+    <> encodeUnknownFields msg.stringValueUnknownFields
 
 instance MessageSize StringValue where
   messageSize msg =
     (if msg.stringValueValue == T.empty then 0 else fieldTextSize 1 msg.stringValueValue)
-    + unknownFieldsSize msg.stringValueUnknownfields
+    + unknownFieldsSize msg.stringValueUnknownFields
 
 instance MessageDecode StringValue where
   {-# INLINE messageDecoder #-}
@@ -586,7 +605,7 @@ instance MessageDecode StringValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StringValue {stringValueValue = acc_0, stringValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StringValue {stringValueValue = acc_0, stringValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -614,23 +633,25 @@ instance ProtoMessage StringValue where
         })
     ]
 
-instance ProtoToJSON StringValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.stringValueValue
+instance Aeson.ToJSON StringValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.stringValueValue
 
       ]
 
-instance ProtoFromJSON StringValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_stringValueValue <- obj .:? "value"
+instance Aeson.FromJSON StringValue where
+  parseJSON = Aeson.withObject "StringValue" $ \obj -> do
+    fld_stringValueValue <- parseFieldMaybe obj "value"
     pure defaultStringValue
       { stringValueValue = maybe (stringValueValue defaultStringValue) id fld_stringValueValue
       }
-  protoFromJSON _ = Right defaultStringValue
+
+instance Hashable StringValue where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.stringValueValue
 
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
-  , bytesValueUnknownfields :: ![UnknownField]
+  , bytesValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -638,18 +659,18 @@ data BytesValue = BytesValue
 defaultBytesValue :: BytesValue
 defaultBytesValue = BytesValue
   { bytesValueValue = ""
-  , bytesValueUnknownfields = []
+  , bytesValueUnknownFields = []
   }
 
 instance MessageEncode BytesValue where
   buildMessage msg =
     (if BS.null msg.bytesValueValue then mempty else encodeFieldBytes 1 msg.bytesValueValue)
-    <> encodeUnknownFields msg.bytesValueUnknownfields
+    <> encodeUnknownFields msg.bytesValueUnknownFields
 
 instance MessageSize BytesValue where
   messageSize msg =
     (if BS.null msg.bytesValueValue then 0 else fieldBytesSize 1 msg.bytesValueValue)
-    + unknownFieldsSize msg.bytesValueUnknownfields
+    + unknownFieldsSize msg.bytesValueUnknownFields
 
 instance MessageDecode BytesValue where
   {-# INLINE messageDecoder #-}
@@ -658,7 +679,7 @@ instance MessageDecode BytesValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BytesValue {bytesValueValue = acc_0, bytesValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BytesValue {bytesValueValue = acc_0, bytesValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBytes
@@ -686,19 +707,21 @@ instance ProtoMessage BytesValue where
         })
     ]
 
-instance ProtoToJSON BytesValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.bytesValueValue
+instance Aeson.ToJSON BytesValue where
+  toJSON msg = jsonObject
+      [ bytesFieldToJSON "value" msg.bytesValueValue
 
       ]
 
-instance ProtoFromJSON BytesValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_bytesValueValue <- obj .:? "value"
+instance Aeson.FromJSON BytesValue where
+  parseJSON = Aeson.withObject "BytesValue" $ \obj -> do
+    fld_bytesValueValue <- parseBytesFieldMaybe obj "value"
     pure defaultBytesValue
       { bytesValueValue = maybe (bytesValueValue defaultBytesValue) id fld_bytesValueValue
       }
-  protoFromJSON _ = Right defaultBytesValue
+
+instance Hashable BytesValue where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.bytesValueValue
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -99,7 +99,6 @@ library
       Proto.Conformance
       Proto.CodeGen.Service
       Proto.JSON.WellKnown
-      Proto.JSON.Aeson
       Proto.Options.Custom
       Proto.Google.Protobuf.Descriptor
       Proto.Google.Protobuf.Compiler.Plugin
@@ -129,6 +128,10 @@ library
       , prettyprinter    >= 1.7    && < 1.8
       , base16-bytestring >= 1.0  && < 1.1
       , base64-bytestring >= 1.2  && < 1.3
+      , aeson             >= 2.1  && < 2.3
+      , scientific        >= 0.3  && < 0.4
+      , hashable          >= 1.3  && < 1.6
+      , unordered-containers >= 0.2.16 && < 0.3
 
     hs-source-dirs:   src
     default-language: GHC2021
@@ -156,6 +159,7 @@ test-suite hs-proto-test
       Test.Options
       Test.Lens
       Test.StreamCodec
+      Test.JSON
 
     build-depends:
         base             >= 4.16 && < 5
@@ -164,6 +168,9 @@ test-suite hs-proto-test
       , containers
       , text
       , vector
+      , aeson
+      , hashable
+      , unordered-containers
       , hedgehog         >= 1.0  && < 1.5
       , tasty            >= 1.4  && < 1.6
       , tasty-hedgehog   >= 1.0  && < 1.5
@@ -514,11 +521,14 @@ test-suite temporal-codegen-test
     build-depends:
         base             >= 4.16 && < 5
       , hs-proto
+      , aeson
+      , base16-bytestring
       , bytestring
       , containers
+      , deepseq
+      , hashable
       , text
       , vector
-      , deepseq
     hs-source-dirs:   temporal-test
     default-language: GHC2021
     default-extensions:

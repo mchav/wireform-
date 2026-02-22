@@ -12,6 +12,7 @@
 -- Users wire up the transport layer by providing implementations.
 module Proto.CodeGen.Service
   ( genServiceDecls
+  , genServiceDeclsQualified
   , genServiceModule
   ) where
 
@@ -23,6 +24,20 @@ import Prettyprinter
 import Data.Char (toLower, toUpper)
 import Proto.AST
 import Proto.CodeGen.Combinators (txt)
+
+-- | Generate service declarations with a type qualifier function.
+genServiceDeclsQualified :: Maybe Text -> [Text] -> (Text -> Text) -> ServiceDef -> [Doc ann]
+genServiceDeclsQualified pkg scope qualify svc =
+  [ mempty
+  , genServiceDoc pkg svc
+  , genServerTypeQ scope qualify svc
+  , mempty
+  , genClientTypeQ scope qualify svc
+  , mempty
+  , genMethodInfos scope svc
+  , mempty
+  , genServiceMeta scope svc
+  ]
 
 -- | Generate all declarations for a service definition.
 genServiceDecls :: Maybe Text -> [Text] -> ServiceDef -> [Doc ann]
@@ -162,6 +177,53 @@ genServiceMeta scope svc =
     , pretty (T.toLower tyN <> "MethodPaths = " :: Text) <>
       pretty (T.pack (show (fmap (\r -> "/" <> fullName <> "/" <> rpcName r) (svcRpcs svc))))
     ]
+
+genServerTypeQ :: [Text] -> (Text -> Text) -> ServiceDef -> Doc ann
+genServerTypeQ scope qualify svc =
+  let tyN = svcTypeName scope svc <> "Server"
+  in vsep
+    [ txt "-- | Server handler record for @" <> pretty (svcName svc) <> txt "@."
+    , txt "-- Each field is a handler function for one RPC method."
+    , txt "-- Implement all fields to create a server."
+    , txt "data " <> pretty tyN <> txt " m = " <> pretty tyN
+    , indent 2 (braceFields (fmap (genServerFieldQ scope qualify) (svcRpcs svc)))
+    ]
+
+genServerFieldQ :: [Text] -> (Text -> Text) -> RpcDef -> Doc ann
+genServerFieldQ scope qualify rpc =
+  let fname = lowerFirst' (snakeToCamel' (rpcName rpc)) <> "Handler"
+  in pretty (escapeReserved' fname) <+> txt "::" <+> genRpcTypeQ qualify rpc
+
+genRpcTypeQ :: (Text -> Text) -> RpcDef -> Doc ann
+genRpcTypeQ qualify rpc = case (rpcInputStr rpc, rpcOutputStr rpc) of
+  (NoStream, NoStream) ->
+    pretty (qualify (rpcInput rpc)) <+> txt "-> m" <+> pretty (qualify (rpcOutput rpc))
+  (Streaming, NoStream) ->
+    txt "m " <> pretty (qualify (rpcInput rpc)) <+>
+    txt "-> m" <+> pretty (qualify (rpcOutput rpc))
+  (NoStream, Streaming) ->
+    pretty (qualify (rpcInput rpc)) <+>
+    txt "-> (" <> pretty (qualify (rpcOutput rpc)) <+>
+    txt "-> m ()) -> m ()"
+  (Streaming, Streaming) ->
+    txt "m " <> pretty (qualify (rpcInput rpc)) <+>
+    txt "-> (" <> pretty (qualify (rpcOutput rpc)) <+>
+    txt "-> m ()) -> m ()"
+
+genClientTypeQ :: [Text] -> (Text -> Text) -> ServiceDef -> Doc ann
+genClientTypeQ scope qualify svc =
+  let tyN = svcTypeName scope svc <> "Client"
+  in vsep
+    [ txt "-- | Client stub record for @" <> pretty (svcName svc) <> txt "@."
+    , txt "-- Each field is a function for calling one RPC method."
+    , txt "data " <> pretty tyN <> txt " m = " <> pretty tyN
+    , indent 2 (braceFields (fmap (genClientFieldQ scope qualify) (svcRpcs svc)))
+    ]
+
+genClientFieldQ :: [Text] -> (Text -> Text) -> RpcDef -> Doc ann
+genClientFieldQ scope qualify rpc =
+  let fname = lowerFirst' (snakeToCamel' (rpcName rpc))
+  in pretty (escapeReserved' fname) <+> txt "::" <+> genRpcTypeQ qualify rpc
 
 svcTypeName :: [Text] -> ServiceDef -> Text
 svcTypeName scope svc = T.intercalate "'" (fmap hsTypeName' (scope <> [svcName svc]))

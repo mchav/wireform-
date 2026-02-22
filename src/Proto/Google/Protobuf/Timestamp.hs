@@ -25,9 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -55,7 +60,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a1f676f6f676c652f70726f746f62756
 data Timestamp = Timestamp
   { timestampSeconds :: {-# UNPACK #-} !Int64
   , timestampNanos :: {-# UNPACK #-} !Int32
-  , timestampUnknownfields :: ![UnknownField]
+  , timestampUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -64,20 +69,20 @@ defaultTimestamp :: Timestamp
 defaultTimestamp = Timestamp
   { timestampSeconds = 0
   , timestampNanos = 0
-  , timestampUnknownfields = []
+  , timestampUnknownFields = []
   }
 
 instance MessageEncode Timestamp where
   buildMessage msg =
     (if msg.timestampSeconds == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.timestampSeconds))
     <> (if msg.timestampNanos == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.timestampNanos))
-    <> encodeUnknownFields msg.timestampUnknownfields
+    <> encodeUnknownFields msg.timestampUnknownFields
 
 instance MessageSize Timestamp where
   messageSize msg =
     (if msg.timestampSeconds == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.timestampSeconds))
     + (if msg.timestampNanos == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.timestampNanos))
-    + unknownFieldsSize msg.timestampUnknownfields
+    + unknownFieldsSize msg.timestampUnknownFields
 
 instance MessageDecode Timestamp where
   {-# INLINE messageDecoder #-}
@@ -86,7 +91,7 @@ instance MessageDecode Timestamp where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -124,8 +129,8 @@ instance ProtoMessage Timestamp where
         })
     ]
 
-instance ProtoToJSON Timestamp where
-  protoToJSON msg =
+instance Aeson.ToJSON Timestamp where
+  toJSON msg =
     let s = msg.timestampSeconds
         n = msg.timestampNanos
         (rawDays, remSec) = s `divMod` 86400
@@ -146,15 +151,18 @@ instance ProtoToJSON Timestamp where
         pad9 x = let sx = T.pack (show (abs x)) in T.replicate (9 - T.length sx) (T.pack "0") <> sx
         nanoStr = if n == 0 then T.pack "" else T.pack "." <> dropTrailingZeros (pad9 (fromIntegral n))
         dropTrailingZeros t = case T.stripSuffix (T.pack "0") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }
-    in JsonString (pad4 y' <> T.pack "-" <> pad2 (fromIntegral m) <> T.pack "-" <> pad2 (fromIntegral d)
+    in Aeson.String (pad4 y' <> T.pack "-" <> pad2 (fromIntegral m) <> T.pack "-" <> pad2 (fromIntegral d)
          <> T.pack "T" <> pad2 hours <> T.pack ":" <> pad2 mins <> T.pack ":" <> pad2 secs
          <> nanoStr <> T.pack "Z")
 
 
-instance ProtoFromJSON Timestamp where
-  protoFromJSON (JsonString _) = Right defaultTimestamp
-  protoFromJSON _ = Left "Expected RFC 3339 timestamp string"
+instance Aeson.FromJSON Timestamp where
+  parseJSON (Aeson.String _) = pure defaultTimestamp
+  parseJSON _ = fail "Expected RFC 3339 timestamp string"
 
+
+instance Hashable Timestamp where
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timestampSeconds) msg.timestampNanos
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

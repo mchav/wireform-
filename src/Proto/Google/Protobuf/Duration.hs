@@ -25,9 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -55,7 +60,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a1e676f6f676c652f70726f746f62756
 data Duration = Duration
   { durationSeconds :: {-# UNPACK #-} !Int64
   , durationNanos :: {-# UNPACK #-} !Int32
-  , durationUnknownfields :: ![UnknownField]
+  , durationUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -64,20 +69,20 @@ defaultDuration :: Duration
 defaultDuration = Duration
   { durationSeconds = 0
   , durationNanos = 0
-  , durationUnknownfields = []
+  , durationUnknownFields = []
   }
 
 instance MessageEncode Duration where
   buildMessage msg =
     (if msg.durationSeconds == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.durationSeconds))
     <> (if msg.durationNanos == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.durationNanos))
-    <> encodeUnknownFields msg.durationUnknownfields
+    <> encodeUnknownFields msg.durationUnknownFields
 
 instance MessageSize Duration where
   messageSize msg =
     (if msg.durationSeconds == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.durationSeconds))
     + (if msg.durationNanos == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.durationNanos))
-    + unknownFieldsSize msg.durationUnknownfields
+    + unknownFieldsSize msg.durationUnknownFields
 
 instance MessageDecode Duration where
   {-# INLINE messageDecoder #-}
@@ -86,7 +91,7 @@ instance MessageDecode Duration where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Duration {durationSeconds = acc_0, durationNanos = acc_1, durationUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Duration {durationSeconds = acc_0, durationNanos = acc_1, durationUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -124,21 +129,24 @@ instance ProtoMessage Duration where
         })
     ]
 
-instance ProtoToJSON Duration where
-  protoToJSON msg =
+instance Aeson.ToJSON Duration where
+  toJSON msg =
     let s = msg.durationSeconds
         n = msg.durationNanos
         nanoStr = if n == 0 then T.pack "" else T.pack "." <> dropTrailingZeros (pad9 (abs (fromIntegral n)))
         dropTrailingZeros t = case T.stripSuffix (T.pack "0") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }
         pad9 x = let sx = T.pack (show x) in T.replicate (9 - T.length sx) (T.pack "0") <> sx
         sign = if s < 0 || n < 0 then T.pack "-" else T.pack ""
-    in JsonString (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack "s")
+    in Aeson.String (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack "s")
 
 
-instance ProtoFromJSON Duration where
-  protoFromJSON (JsonString _) = Right defaultDuration
-  protoFromJSON _ = Left "Expected duration string like \"3.5s\""
+instance Aeson.FromJSON Duration where
+  parseJSON (Aeson.String _) = pure defaultDuration
+  parseJSON _ = fail "Expected duration string like \"3.5s\""
 
+
+instance Hashable Duration where
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.durationSeconds) msg.durationNanos
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

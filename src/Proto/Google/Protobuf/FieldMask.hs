@@ -25,9 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -54,7 +59,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a20676f6f676c652f70726f746f62756
 
 data FieldMask = FieldMask
   { fieldMaskPaths :: !(V.Vector Text)
-  , fieldMaskUnknownfields :: ![UnknownField]
+  , fieldMaskUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -62,18 +67,18 @@ data FieldMask = FieldMask
 defaultFieldMask :: FieldMask
 defaultFieldMask = FieldMask
   { fieldMaskPaths = V.empty
-  , fieldMaskUnknownfields = []
+  , fieldMaskUnknownFields = []
   }
 
 instance MessageEncode FieldMask where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.fieldMaskPaths
-    <> encodeUnknownFields msg.fieldMaskUnknownfields
+    <> encodeUnknownFields msg.fieldMaskUnknownFields
 
 instance MessageSize FieldMask where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths)
-    + unknownFieldsSize msg.fieldMaskUnknownfields
+    + unknownFieldsSize msg.fieldMaskUnknownFields
 
 instance MessageDecode FieldMask where
   {-# INLINE messageDecoder #-}
@@ -82,7 +87,7 @@ instance MessageDecode FieldMask where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -110,19 +115,21 @@ instance ProtoMessage FieldMask where
         })
     ]
 
-instance ProtoToJSON FieldMask where
-  protoToJSON msg = jsonObject
-      [ "paths" .= msg.fieldMaskPaths
+instance Aeson.ToJSON FieldMask where
+  toJSON msg = jsonObject
+      [ "paths" .=: msg.fieldMaskPaths
 
       ]
 
-instance ProtoFromJSON FieldMask where
-  protoFromJSON (JsonObject obj) = do
-    fld_fieldMaskPaths <- obj .:? "paths"
+instance Aeson.FromJSON FieldMask where
+  parseJSON = Aeson.withObject "FieldMask" $ \obj -> do
+    fld_fieldMaskPaths <- parseFieldMaybe obj "paths"
     pure defaultFieldMask
       { fieldMaskPaths = maybe (fieldMaskPaths defaultFieldMask) id fld_fieldMaskPaths
       }
-  protoFromJSON _ = Right defaultFieldMask
+
+instance Hashable FieldMask where
+  hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.fieldMaskPaths
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

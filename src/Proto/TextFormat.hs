@@ -36,6 +36,8 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Read as TR
+import Data.Int (Int64)
 import Data.Word (Word64)
 
 import Proto.Dynamic
@@ -68,7 +70,7 @@ renderDyn :: Int -> Bool -> DynamicMessage -> Text
 renderDyn depth pretty (DynamicMessage fs _) =
   let sep = if pretty then "\n" else " "
       fieldTexts = Map.foldlWithKey' (\acc fn val ->
-        acc <> renderDynField depth pretty (T.pack (show fn)) val <> sep
+        acc <> renderDynField depth pretty (intToText fn) val <> sep
         ) "" fs
   in fieldTexts
 
@@ -87,13 +89,13 @@ renderDynField depth pretty name val =
     DynString s -> ind <> name <> ": \"" <> escapeText s <> "\""
     DynBytes bs -> ind <> name <> ": \"" <> TE.decodeUtf8 (Base16.encode bs) <> "\""
     DynBool b -> ind <> name <> ": " <> (if b then "true" else "false")
-    DynVarint v -> ind <> name <> ": " <> T.pack (show v)
-    DynSVarint v -> ind <> name <> ": " <> T.pack (show v)
-    DynFixed32 v -> ind <> name <> ": " <> T.pack (show v)
-    DynFixed64 v -> ind <> name <> ": " <> T.pack (show v)
+    DynVarint v -> ind <> name <> ": " <> word64ToText v
+    DynSVarint v -> ind <> name <> ": " <> int64ToText v
+    DynFixed32 v -> ind <> name <> ": " <> word64ToText (fromIntegral v)
+    DynFixed64 v -> ind <> name <> ": " <> word64ToText v
     DynFloat v -> ind <> name <> ": " <> T.pack (show v)
     DynDouble v -> ind <> name <> ": " <> T.pack (show v)
-    DynEnum v -> ind <> name <> ": " <> T.pack (show v)
+    DynEnum v -> ind <> name <> ": " <> intToText v
     DynMap _ -> ind <> name <> " {}"
 
 escapeText :: Text -> Text
@@ -114,8 +116,8 @@ textToDynamic t = case parseFields (T.strip t) of
 
 fieldsToDynamic :: [TextField] -> DynamicMessage
 fieldsToDynamic tfs =
-  let numbered = fmap (\tf -> case reads (T.unpack (tfName tf)) of
-        [(n, "")] -> (n, textValueToDyn (tfValue tf))
+  let numbered = fmap (\tf -> case TR.decimal (tfName tf) of
+        Right (n, rest) | T.null rest -> (n, textValueToDyn (tfValue tf))
         _ -> (0, textValueToDyn (tfValue tf))) tfs
   in DynamicMessage (Map.fromList numbered) []
 
@@ -193,9 +195,27 @@ parseTextNumber :: Text -> Either String (TextValue, Text)
 parseTextNumber t =
   let (numStr, rest) = T.span (\c -> c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || isDigit c) t
   in if T.any (== '.') numStr || T.any (\c -> c == 'e' || c == 'E') numStr
-     then case reads (T.unpack numStr) of
-       [(n, "")] -> Right (TVNumber n, rest)
+     then case TR.signed TR.double numStr of
+       Right (n, leftover) | T.null leftover -> Right (TVNumber n, rest)
        _ -> Left ("Invalid number: " <> T.unpack numStr)
-     else case reads (T.unpack numStr) of
-       [(n, "")] -> Right (TVInteger n, rest)
+     else case TR.signed TR.decimal numStr of
+       Right (n, leftover) | T.null leftover -> Right (TVInteger n, rest)
        _ -> Left ("Invalid integer: " <> T.unpack numStr)
+
+intToText :: Int -> Text
+intToText n
+  | n < 0     = "-" <> word64ToText (fromIntegral (negate n))
+  | otherwise = word64ToText (fromIntegral n)
+
+int64ToText :: Int64 -> Text
+int64ToText n
+  | n < 0     = "-" <> word64ToText (fromIntegral (negate n))
+  | otherwise = word64ToText (fromIntegral n)
+
+word64ToText :: Word64 -> Text
+word64ToText 0 = "0"
+word64ToText n = go T.empty n
+  where
+    go !acc 0 = acc
+    go !acc v = let (!q, !r) = v `quotRem` 10
+                in go (T.cons (toEnum (fromIntegral r + 48)) acc) q

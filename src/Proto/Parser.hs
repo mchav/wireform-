@@ -10,7 +10,7 @@ module Proto.Parser
   ) where
 
 import Control.Monad (void)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Megaparsec
@@ -338,8 +338,8 @@ enumDef = do
   reserved "enum"
   name <- identifier
   items <- braces (many enumItem)
-  let vals = [v | EIValue v <- items]
-      opts = [o | EIOption o <- items]
+  let vals = mapMaybe (\case EIValue v -> Just v; _ -> Nothing) items
+      opts = mapMaybe (\case EIOption o -> Just o; _ -> Nothing) items
   pure EnumDef
     { enumName    = name
     , enumValues  = vals

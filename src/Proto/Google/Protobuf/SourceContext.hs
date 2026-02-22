@@ -25,9 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -53,27 +58,27 @@ fileDescriptorProtoBytes = case Base16.decode "0a24676f6f676c652f70726f746f62756
 
 
 data SourceContext = SourceContext
-  { sourceContextFilename :: !Text
-  , sourceContextUnknownfields :: ![UnknownField]
+  { sourceContextFileName :: !Text
+  , sourceContextUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultSourceContext :: SourceContext
 defaultSourceContext = SourceContext
-  { sourceContextFilename = ""
-  , sourceContextUnknownfields = []
+  { sourceContextFileName = ""
+  , sourceContextUnknownFields = []
   }
 
 instance MessageEncode SourceContext where
   buildMessage msg =
-    (if msg.sourceContextFilename == T.empty then mempty else encodeFieldString 1 msg.sourceContextFilename)
-    <> encodeUnknownFields msg.sourceContextUnknownfields
+    (if msg.sourceContextFileName == T.empty then mempty else encodeFieldString 1 msg.sourceContextFileName)
+    <> encodeUnknownFields msg.sourceContextUnknownFields
 
 instance MessageSize SourceContext where
   messageSize msg =
-    (if msg.sourceContextFilename == T.empty then 0 else fieldTextSize 1 msg.sourceContextFilename)
-    + unknownFieldsSize msg.sourceContextUnknownfields
+    (if msg.sourceContextFileName == T.empty then 0 else fieldTextSize 1 msg.sourceContextFileName)
+    + unknownFieldsSize msg.sourceContextUnknownFields
 
 instance MessageDecode SourceContext where
   {-# INLINE messageDecoder #-}
@@ -82,7 +87,7 @@ instance MessageDecode SourceContext where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (SourceContext {sourceContextFilename = acc_0, sourceContextUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (SourceContext {sourceContextFileName = acc_0, sourceContextUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -105,24 +110,26 @@ instance ProtoMessage SourceContext where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = sourceContextFilename
-        , fdSet = \v m -> m { sourceContextFilename = v }
+        , fdGet = sourceContextFileName
+        , fdSet = \v m -> m { sourceContextFileName = v }
         })
     ]
 
-instance ProtoToJSON SourceContext where
-  protoToJSON msg = jsonObject
-      [ "fileName" .= msg.sourceContextFilename
+instance Aeson.ToJSON SourceContext where
+  toJSON msg = jsonObject
+      [ "fileName" .=: msg.sourceContextFileName
 
       ]
 
-instance ProtoFromJSON SourceContext where
-  protoFromJSON (JsonObject obj) = do
-    fld_sourceContextFilename <- obj .:? "fileName"
+instance Aeson.FromJSON SourceContext where
+  parseJSON = Aeson.withObject "SourceContext" $ \obj -> do
+    fld_sourceContextFileName <- parseFieldMaybe obj "fileName"
     pure defaultSourceContext
-      { sourceContextFilename = maybe (sourceContextFilename defaultSourceContext) id fld_sourceContextFilename
+      { sourceContextFileName = maybe (sourceContextFileName defaultSourceContext) id fld_sourceContextFileName
       }
-  protoFromJSON _ = Right defaultSourceContext
+
+instance Hashable SourceContext where
+  hashWithSalt salt msg = hashWithSalt (salt) msg.sourceContextFileName
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

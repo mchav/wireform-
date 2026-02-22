@@ -25,9 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -53,23 +58,23 @@ fileDescriptorProtoBytes = case Base16.decode "0a1b676f6f676c652f70726f746f62756
 
 
 data Empty = Empty
-  { emptyUnknownfields :: ![UnknownField]
+  { emptyUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultEmpty :: Empty
 defaultEmpty = Empty
-  { emptyUnknownfields = []
+  { emptyUnknownFields = []
   }
 
 instance MessageEncode Empty where
   buildMessage msg =
-    encodeUnknownFields msg.emptyUnknownfields
+    encodeUnknownFields msg.emptyUnknownFields
 
 instance MessageSize Empty where
   messageSize msg =
-    unknownFieldsSize msg.emptyUnknownfields
+    unknownFieldsSize msg.emptyUnknownFields
 
 instance MessageDecode Empty where
   {-# INLINE messageDecoder #-}
@@ -78,7 +83,7 @@ instance MessageDecode Empty where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Empty {emptyUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Empty {emptyUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -95,12 +100,15 @@ instance ProtoMessage Empty where
   protoFieldDescriptors _ = Map.fromList
     []
 
-instance ProtoToJSON Empty where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON Empty where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON Empty where
-  protoFromJSON _ = Right defaultEmpty
+instance Aeson.FromJSON Empty where
+  parseJSON _ = pure defaultEmpty
+
+instance Hashable Empty where
+  hashWithSalt salt _ = salt
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

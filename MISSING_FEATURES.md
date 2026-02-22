@@ -14,7 +14,7 @@ official Google protobuf runtimes (Java, Python, Go, C++).
 | 5 | Text Format (pbtxt) | **Implemented** | `Proto.TextFormat` |
 | 6 | Dynamic Messages | **Implemented** | `Proto.Dynamic` |
 | 7 | Conformance Test Harness | **Implemented** | `Proto.Conformance`, `hs-proto-conformance` exe |
-| 8 | Streaming/Incremental Decode | Deferred | — |
+| 8 | Streaming/Incremental Decode | **Implemented** | `Proto.Decode.Stream`, `Proto.Encode.Lazy` |
 | 9 | Well-Known Type JSON | **Implemented** | `Proto.JSON.WellKnown` |
 | 10 | aeson Integration | **Implemented** | `Proto.JSON.Aeson` |
 | 11 | Group Field Handling | **Already implemented** | `Proto.Wire.Decode.skipGroup` |
@@ -61,8 +61,8 @@ length-prefixed stdin/stdout protocol for the official conformance runner.
 - FieldMask ↔ comma-separated paths
 - Struct/Value/ListValue ↔ native JSON
 
-**10. aeson Integration** — Bridge module providing patterns for converting
-between hs-proto's `JsonValue` and aeson's `Value` without a hard dependency.
+**10. aeson Integration** — Full aeson integration. Generated types get
+`ToJSON`/`FromJSON` instances directly. The library depends on aeson.
 
 **12. Custom Option Extensions** — `CustomOptionRegistry` for tracking and
 resolving custom option extensions, with extraction from parsed proto files.
@@ -74,8 +74,9 @@ resolving custom option extensions, with extraction from parsed proto files.
 only primary constructors with pattern synonyms for aliases, and skips
 deriving `Enum` for non-sequential numbering.
 
-### Remaining (Deferred)
+### All features implemented
 
-**8. Streaming/Incremental Decode** — Would require a streaming decoder
-interface (conduit/pipes/streaming). The current decoder requires a complete
-strict ByteString. This is the only feature not implemented.
+All originally-identified feature gaps have been closed, including:
+
+**8. Streaming/Incremental Decode** — Implemented in `Proto.Decode.Stream`
+(incremental/resumable decoder) and `Proto.Encode.Lazy` (push-based encoder).
