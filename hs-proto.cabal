@@ -98,6 +98,7 @@ library
       Proto.TextFormat
       Proto.Conformance
       Proto.CodeGen.Service
+      Proto.CodeGen.Hooks
       Proto.JSON.WellKnown
       Proto.Options.Custom
       Proto.Google.Protobuf.Descriptor
@@ -160,6 +161,7 @@ test-suite hs-proto-test
       Test.Lens
       Test.StreamCodec
       Test.JSON
+      Test.Hooks
 
     build-depends:
         base             >= 4.16 && < 5

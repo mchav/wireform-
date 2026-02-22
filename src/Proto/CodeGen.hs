@@ -34,6 +34,9 @@ module Proto.CodeGen
   , tshow
   , braceBlock
   , instanceHead
+
+    -- * Codegen hooks (re-exported from Hooks)
+  , module Proto.CodeGen.Hooks
   ) where
 
 import Data.Char (isAsciiUpper, toLower, toUpper, isUpper)
@@ -53,6 +56,7 @@ import Proto.Options
 import Proto.Annotations (lookupSimpleOption, optionAsString)
 import Proto.Parser.Resolver (ResolvedProto(..))
 import Proto.CodeGen.Combinators (txt, tshow, braceBlock, instanceHead)
+import Proto.CodeGen.Hooks
 import qualified Proto.CodeGen.Service as Service
 import Proto.Descriptor.Convert (serializeFileDescriptor)
 import qualified Data.ByteString.Base16 as Base16
@@ -71,6 +75,7 @@ data GenerateOpts = GenerateOpts
   , genPackedRepeated  :: Bool
   , genLazySubmessages :: Bool
   , genJsonOverrides   :: Map Text JsonOverride
+  , genHooks           :: CodeGenHooks
   }
 
 -- | Custom JSON instance override for a specific FQ proto message name.
@@ -91,6 +96,7 @@ defaultGenerateOpts = GenerateOpts
   , genPackedRepeated  = True
   , genLazySubmessages = False
   , genJsonOverrides   = defaultJsonOverrides
+  , genHooks           = defaultCodeGenHooks
   }
 
 -- | Built-in JSON overrides for well-known types that require canonical
@@ -310,7 +316,14 @@ generateModule opts reg filePath pf =
       referencedTypes = collectReferencedTypes (protoTopLevels pf)
       importedModules = computeImports ctx referencedTypes
       localMsgNames = collectLocalMessageNames [] (protoTopLevels pf)
-  in vsep
+      fileHookCtx = FileHookCtx
+        { fhcProtoFile   = pf
+        , fhcModuleName  = thisMod
+        , fhcFileOptions = protoOptions pf
+        }
+      fileHookOutput = onFileCodeGen (genHooks opts) fileHookCtx
+      fileHookDocs = fmap pretty fileHookOutput
+  in vsep $
     [ genModuleHeader opts filePath pf
     , mempty
     , genImports importedModules
@@ -320,7 +333,9 @@ generateModule opts reg filePath pf =
     , vsep body
     , mempty
     , genRegisterModuleTypes localMsgNames
-    ]
+    ] <> case fileHookDocs of
+      [] -> []
+      ds -> [mempty, vsep ds]
 
 generateModuleText :: GenerateOpts -> TypeRegistry -> FilePath -> ProtoFile -> Text
 generateModuleText opts reg filePath pf =
@@ -536,6 +551,15 @@ genMessage ctx scope msg =
   let scope' = scope <> [msgName msg]
       tyN = scopedTypeName scope'
       nestedDefs = concatMap (genNestedElement ctx scope') (msgElements msg)
+      hookCtx = MessageHookCtx
+        { mhcMessageDef  = msg
+        , mhcScope       = scope'
+        , mhcHsTypeName  = tyN
+        , mhcFqProtoName = fqProtoName (gcPkg ctx) scope'
+        , mhcOptions     = messageOptions msg
+        }
+      hookOutput = onMessageCodeGen (genHooks (gcOpts ctx)) hookCtx
+      hookDocs = fmap pretty hookOutput
   in [ mempty
      , genMessageDataDecl ctx scope' msg
      ]
@@ -559,6 +583,9 @@ genMessage ctx scope msg =
         , mempty
         , genHashableInstance ctx scope' msg
         ]
+     <> case hookDocs of
+          [] -> []
+          ds -> [mempty, vsep ds]
 
 genNestedElement :: GenCtx -> [Text] -> MessageElement -> [Doc ann]
 genNestedElement ctx scope = \case
@@ -1588,7 +1615,20 @@ genServiceTopLevel ctx scope svc =
                 | otherwise -> tiHsName ti
         Nothing -> hsTypeName (lastPart name)
       lastPart t = case T.splitOn "." t of { [] -> t; parts -> last parts }
-  in importDocs <> Service.genServiceDeclsQualified (gcPkg ctx) scope qualifyRpcType svc
+      svcScope = scope <> [svcName svc]
+      hookCtx = ServiceHookCtx
+        { shcServiceDef = svc
+        , shcScope      = svcScope
+        , shcHsTypeName = T.intercalate "'" (fmap hsTypeName svcScope)
+        , shcOptions    = svcOptions svc
+        }
+      hookOutput = onServiceCodeGen (genHooks (gcOpts ctx)) hookCtx
+      hookDocs = fmap pretty hookOutput
+  in importDocs
+     <> Service.genServiceDeclsQualified (gcPkg ctx) scope qualifyRpcType svc
+     <> case hookDocs of
+          [] -> []
+          ds -> [mempty, vsep ds]
 
 -- ---------------------------------------------------------------------------
 -- Enum generation
@@ -1598,6 +1638,14 @@ genEnum :: GenCtx -> [Text] -> EnumDef -> [Doc ann]
 genEnum ctx scope ed =
   let scope' = scope <> [enumName ed]
       tyN = scopedTypeName scope'
+      hookCtx = EnumHookCtx
+        { ehcEnumDef    = ed
+        , ehcScope      = scope'
+        , ehcHsTypeName = tyN
+        , ehcOptions    = enumOptions ed
+        }
+      hookOutput = onEnumCodeGen (genHooks (gcOpts ctx)) hookCtx
+      hookDocs = fmap pretty hookOutput
   in [ mempty
      , genEnumDataDecl scope' ed
      , mempty
@@ -1613,6 +1661,9 @@ genEnum ctx scope ed =
      , mempty
      , genEnumHashableInstance scope' ed
      ]
+     <> case hookDocs of
+          [] -> []
+          ds -> [mempty, vsep ds]
 
 genEnumDataDecl :: [Text] -> EnumDef -> Doc ann
 genEnumDataDecl scope ed =
