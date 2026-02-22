@@ -29,7 +29,7 @@ module Proto.Google.Protobuf.Timestamp.Util
 
 import Data.Int (Int32, Int64)
 import Data.Time.Clock (UTCTime)
-import Data.Time.Clock.POSIX (POSIXTime, posixSecondsToUTCTime, utcTimeToPOSIXTime, getPOSIXTime)
+import Data.Time.Clock.POSIX (POSIXTime, posixSecondsToUTCTime, utcTimeToPOSIXSeconds, getPOSIXTime)
 
 import Proto.Google.Protobuf.Timestamp (Timestamp(..), defaultTimestamp)
 import Proto.Google.Protobuf.Duration (Duration(..), defaultDuration)
@@ -39,7 +39,7 @@ nanosPerSecond = 1000000000
 
 -- | Convert a 'UTCTime' to a 'Timestamp'.
 timestampFromUTCTime :: UTCTime -> Timestamp
-timestampFromUTCTime = timestampFromPOSIXTime . utcTimeToPOSIXTime
+timestampFromUTCTime = timestampFromPOSIXTime . utcTimeToPOSIXSeconds
 
 -- | Convert a 'Timestamp' to a 'UTCTime'.
 timestampToUTCTime :: Timestamp -> UTCTime

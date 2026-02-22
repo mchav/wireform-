@@ -234,7 +234,7 @@ fieldMaskUtilTests = testGroup "FieldMask.Util"
   , testCase "intersection with parent coverage" $ do
       let a = fromPaths ["a"]
           b = fromPaths ["a.b"]
-      toPaths (intersection a b) @?= ["a", "a.b"]
+      toPaths (intersection a b) @?= ["a.b"]
 
   , testCase "subtractMask" $ do
       let a = fromPaths ["x", "y", "z"]
