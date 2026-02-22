@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -110,46 +114,46 @@ instance MessageSize CommandType where
 instance MessageDecode CommandType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON CommandType where
-  protoToJSON CommandType'CommandTypeUnspecified = JsonString "COMMAND_TYPE_UNSPECIFIED"
-  protoToJSON CommandType'CommandTypeScheduleActivityTask = JsonString "COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK"
-  protoToJSON CommandType'CommandTypeRequestCancelActivityTask = JsonString "COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK"
-  protoToJSON CommandType'CommandTypeStartTimer = JsonString "COMMAND_TYPE_START_TIMER"
-  protoToJSON CommandType'CommandTypeCompleteWorkflowExecution = JsonString "COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION"
-  protoToJSON CommandType'CommandTypeFailWorkflowExecution = JsonString "COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION"
-  protoToJSON CommandType'CommandTypeCancelTimer = JsonString "COMMAND_TYPE_CANCEL_TIMER"
-  protoToJSON CommandType'CommandTypeCancelWorkflowExecution = JsonString "COMMAND_TYPE_CANCEL_WORKFLOW_EXECUTION"
-  protoToJSON CommandType'CommandTypeRequestCancelExternalWorkflowExecution = JsonString "COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION"
-  protoToJSON CommandType'CommandTypeRecordMarker = JsonString "COMMAND_TYPE_RECORD_MARKER"
-  protoToJSON CommandType'CommandTypeContinueAsNewWorkflowExecution = JsonString "COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION"
-  protoToJSON CommandType'CommandTypeStartChildWorkflowExecution = JsonString "COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION"
-  protoToJSON CommandType'CommandTypeSignalExternalWorkflowExecution = JsonString "COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION"
-  protoToJSON CommandType'CommandTypeUpsertWorkflowSearchAttributes = JsonString "COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES"
-  protoToJSON CommandType'CommandTypeProtocolMessage = JsonString "COMMAND_TYPE_PROTOCOL_MESSAGE"
-  protoToJSON CommandType'CommandTypeModifyWorkflowProperties = JsonString "COMMAND_TYPE_MODIFY_WORKFLOW_PROPERTIES"
-  protoToJSON CommandType'CommandTypeScheduleNexusOperation = JsonString "COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION"
-  protoToJSON CommandType'CommandTypeRequestCancelNexusOperation = JsonString "COMMAND_TYPE_REQUEST_CANCEL_NEXUS_OPERATION"
+instance Aeson.ToJSON CommandType where
+  toJSON CommandType'CommandTypeUnspecified = Aeson.String "COMMAND_TYPE_UNSPECIFIED"
+  toJSON CommandType'CommandTypeScheduleActivityTask = Aeson.String "COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK"
+  toJSON CommandType'CommandTypeRequestCancelActivityTask = Aeson.String "COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK"
+  toJSON CommandType'CommandTypeStartTimer = Aeson.String "COMMAND_TYPE_START_TIMER"
+  toJSON CommandType'CommandTypeCompleteWorkflowExecution = Aeson.String "COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION"
+  toJSON CommandType'CommandTypeFailWorkflowExecution = Aeson.String "COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION"
+  toJSON CommandType'CommandTypeCancelTimer = Aeson.String "COMMAND_TYPE_CANCEL_TIMER"
+  toJSON CommandType'CommandTypeCancelWorkflowExecution = Aeson.String "COMMAND_TYPE_CANCEL_WORKFLOW_EXECUTION"
+  toJSON CommandType'CommandTypeRequestCancelExternalWorkflowExecution = Aeson.String "COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION"
+  toJSON CommandType'CommandTypeRecordMarker = Aeson.String "COMMAND_TYPE_RECORD_MARKER"
+  toJSON CommandType'CommandTypeContinueAsNewWorkflowExecution = Aeson.String "COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION"
+  toJSON CommandType'CommandTypeStartChildWorkflowExecution = Aeson.String "COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION"
+  toJSON CommandType'CommandTypeSignalExternalWorkflowExecution = Aeson.String "COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION"
+  toJSON CommandType'CommandTypeUpsertWorkflowSearchAttributes = Aeson.String "COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES"
+  toJSON CommandType'CommandTypeProtocolMessage = Aeson.String "COMMAND_TYPE_PROTOCOL_MESSAGE"
+  toJSON CommandType'CommandTypeModifyWorkflowProperties = Aeson.String "COMMAND_TYPE_MODIFY_WORKFLOW_PROPERTIES"
+  toJSON CommandType'CommandTypeScheduleNexusOperation = Aeson.String "COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION"
+  toJSON CommandType'CommandTypeRequestCancelNexusOperation = Aeson.String "COMMAND_TYPE_REQUEST_CANCEL_NEXUS_OPERATION"
 
-instance ProtoFromJSON CommandType where
-  protoFromJSON = \case
-    JsonString "COMMAND_TYPE_UNSPECIFIED" -> Right CommandType'CommandTypeUnspecified
-    JsonString "COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK" -> Right CommandType'CommandTypeScheduleActivityTask
-    JsonString "COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK" -> Right CommandType'CommandTypeRequestCancelActivityTask
-    JsonString "COMMAND_TYPE_START_TIMER" -> Right CommandType'CommandTypeStartTimer
-    JsonString "COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION" -> Right CommandType'CommandTypeCompleteWorkflowExecution
-    JsonString "COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION" -> Right CommandType'CommandTypeFailWorkflowExecution
-    JsonString "COMMAND_TYPE_CANCEL_TIMER" -> Right CommandType'CommandTypeCancelTimer
-    JsonString "COMMAND_TYPE_CANCEL_WORKFLOW_EXECUTION" -> Right CommandType'CommandTypeCancelWorkflowExecution
-    JsonString "COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION" -> Right CommandType'CommandTypeRequestCancelExternalWorkflowExecution
-    JsonString "COMMAND_TYPE_RECORD_MARKER" -> Right CommandType'CommandTypeRecordMarker
-    JsonString "COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION" -> Right CommandType'CommandTypeContinueAsNewWorkflowExecution
-    JsonString "COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION" -> Right CommandType'CommandTypeStartChildWorkflowExecution
-    JsonString "COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION" -> Right CommandType'CommandTypeSignalExternalWorkflowExecution
-    JsonString "COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES" -> Right CommandType'CommandTypeUpsertWorkflowSearchAttributes
-    JsonString "COMMAND_TYPE_PROTOCOL_MESSAGE" -> Right CommandType'CommandTypeProtocolMessage
-    JsonString "COMMAND_TYPE_MODIFY_WORKFLOW_PROPERTIES" -> Right CommandType'CommandTypeModifyWorkflowProperties
-    JsonString "COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION" -> Right CommandType'CommandTypeScheduleNexusOperation
-    JsonString "COMMAND_TYPE_REQUEST_CANCEL_NEXUS_OPERATION" -> Right CommandType'CommandTypeRequestCancelNexusOperation
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for CommandType"
+instance Aeson.FromJSON CommandType where
+  parseJSON = \case
+    Aeson.String "COMMAND_TYPE_UNSPECIFIED" -> pure CommandType'CommandTypeUnspecified
+    Aeson.String "COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK" -> pure CommandType'CommandTypeScheduleActivityTask
+    Aeson.String "COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK" -> pure CommandType'CommandTypeRequestCancelActivityTask
+    Aeson.String "COMMAND_TYPE_START_TIMER" -> pure CommandType'CommandTypeStartTimer
+    Aeson.String "COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION" -> pure CommandType'CommandTypeCompleteWorkflowExecution
+    Aeson.String "COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION" -> pure CommandType'CommandTypeFailWorkflowExecution
+    Aeson.String "COMMAND_TYPE_CANCEL_TIMER" -> pure CommandType'CommandTypeCancelTimer
+    Aeson.String "COMMAND_TYPE_CANCEL_WORKFLOW_EXECUTION" -> pure CommandType'CommandTypeCancelWorkflowExecution
+    Aeson.String "COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION" -> pure CommandType'CommandTypeRequestCancelExternalWorkflowExecution
+    Aeson.String "COMMAND_TYPE_RECORD_MARKER" -> pure CommandType'CommandTypeRecordMarker
+    Aeson.String "COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION" -> pure CommandType'CommandTypeContinueAsNewWorkflowExecution
+    Aeson.String "COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION" -> pure CommandType'CommandTypeStartChildWorkflowExecution
+    Aeson.String "COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION" -> pure CommandType'CommandTypeSignalExternalWorkflowExecution
+    Aeson.String "COMMAND_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES" -> pure CommandType'CommandTypeUpsertWorkflowSearchAttributes
+    Aeson.String "COMMAND_TYPE_PROTOCOL_MESSAGE" -> pure CommandType'CommandTypeProtocolMessage
+    Aeson.String "COMMAND_TYPE_MODIFY_WORKFLOW_PROPERTIES" -> pure CommandType'CommandTypeModifyWorkflowProperties
+    Aeson.String "COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION" -> pure CommandType'CommandTypeScheduleNexusOperation
+    Aeson.String "COMMAND_TYPE_REQUEST_CANCEL_NEXUS_OPERATION" -> pure CommandType'CommandTypeRequestCancelNexusOperation
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for CommandType"
 

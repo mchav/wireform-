@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -91,24 +95,23 @@ instance MessageDecode ReleaseInfo where
 instance IsMessage ReleaseInfo where
   messageTypeName _ = "temporal.api.version.v1.ReleaseInfo"
 
-instance ProtoToJSON ReleaseInfo where
-  protoToJSON msg = jsonObject
-      [ "version" .= msg.releaseInfoVersion
-      , "releaseTime" .= msg.releaseInfoReleasetime
-      , "notes" .= msg.releaseInfoNotes
+instance Aeson.ToJSON ReleaseInfo where
+  toJSON msg = jsonObject
+      [ "version" .=: msg.releaseInfoVersion
+      , "releaseTime" .=: msg.releaseInfoReleasetime
+      , "notes" .=: msg.releaseInfoNotes
       ]
 
-instance ProtoFromJSON ReleaseInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_releaseInfoVersion <- obj .:? "version"
-    fld_releaseInfoReleasetime <- obj .:? "releaseTime"
-    fld_releaseInfoNotes <- obj .:? "notes"
+instance Aeson.FromJSON ReleaseInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_releaseInfoVersion <- parseFieldMaybe obj "version"
+    fld_releaseInfoReleasetime <- parseFieldMaybe obj "releaseTime"
+    fld_releaseInfoNotes <- parseFieldMaybe obj "notes"
     pure defaultReleaseInfo
       { releaseInfoVersion = maybe (releaseInfoVersion defaultReleaseInfo) id fld_releaseInfoVersion
       , releaseInfoReleasetime = maybe (releaseInfoReleasetime defaultReleaseInfo) id fld_releaseInfoReleasetime
       , releaseInfoNotes = maybe (releaseInfoNotes defaultReleaseInfo) id fld_releaseInfoNotes
       }
-  protoFromJSON _ = Right defaultReleaseInfo
 
 data Alert = Alert
   { alertMessage :: !Text
@@ -152,21 +155,20 @@ instance MessageDecode Alert where
 instance IsMessage Alert where
   messageTypeName _ = "temporal.api.version.v1.Alert"
 
-instance ProtoToJSON Alert where
-  protoToJSON msg = jsonObject
-      [ "message" .= msg.alertMessage
-      , "severity" .= msg.alertSeverity
+instance Aeson.ToJSON Alert where
+  toJSON msg = jsonObject
+      [ "message" .=: msg.alertMessage
+      , "severity" .=: msg.alertSeverity
       ]
 
-instance ProtoFromJSON Alert where
-  protoFromJSON (JsonObject obj) = do
-    fld_alertMessage <- obj .:? "message"
-    fld_alertSeverity <- obj .:? "severity"
+instance Aeson.FromJSON Alert where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_alertMessage <- parseFieldMaybe obj "message"
+    fld_alertSeverity <- parseFieldMaybe obj "severity"
     pure defaultAlert
       { alertMessage = maybe (alertMessage defaultAlert) id fld_alertMessage
       , alertSeverity = maybe (alertSeverity defaultAlert) id fld_alertSeverity
       }
-  protoFromJSON _ = Right defaultAlert
 
 data VersionInfo = VersionInfo
   { versionInfoCurrent :: !(Maybe ReleaseInfo)
@@ -231,22 +233,22 @@ instance MessageDecode VersionInfo where
 instance IsMessage VersionInfo where
   messageTypeName _ = "temporal.api.version.v1.VersionInfo"
 
-instance ProtoToJSON VersionInfo where
-  protoToJSON msg = jsonObject
-      [ "current" .= msg.versionInfoCurrent
-      , "recommended" .= msg.versionInfoRecommended
-      , "instructions" .= msg.versionInfoInstructions
-      , "alerts" .= msg.versionInfoAlerts
-      , "lastUpdateTime" .= msg.versionInfoLastupdatetime
+instance Aeson.ToJSON VersionInfo where
+  toJSON msg = jsonObject
+      [ "current" .=: msg.versionInfoCurrent
+      , "recommended" .=: msg.versionInfoRecommended
+      , "instructions" .=: msg.versionInfoInstructions
+      , "alerts" .=: msg.versionInfoAlerts
+      , "lastUpdateTime" .=: msg.versionInfoLastupdatetime
       ]
 
-instance ProtoFromJSON VersionInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_versionInfoCurrent <- obj .:? "current"
-    fld_versionInfoRecommended <- obj .:? "recommended"
-    fld_versionInfoInstructions <- obj .:? "instructions"
-    fld_versionInfoAlerts <- obj .:? "alerts"
-    fld_versionInfoLastupdatetime <- obj .:? "lastUpdateTime"
+instance Aeson.FromJSON VersionInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_versionInfoCurrent <- parseFieldMaybe obj "current"
+    fld_versionInfoRecommended <- parseFieldMaybe obj "recommended"
+    fld_versionInfoInstructions <- parseFieldMaybe obj "instructions"
+    fld_versionInfoAlerts <- parseFieldMaybe obj "alerts"
+    fld_versionInfoLastupdatetime <- parseFieldMaybe obj "lastUpdateTime"
     pure defaultVersionInfo
       { versionInfoCurrent = maybe (versionInfoCurrent defaultVersionInfo) id fld_versionInfoCurrent
       , versionInfoRecommended = maybe (versionInfoRecommended defaultVersionInfo) id fld_versionInfoRecommended
@@ -254,7 +256,7 @@ instance ProtoFromJSON VersionInfo where
       , versionInfoAlerts = maybe (versionInfoAlerts defaultVersionInfo) id fld_versionInfoAlerts
       , versionInfoLastupdatetime = maybe (versionInfoLastupdatetime defaultVersionInfo) id fld_versionInfoLastupdatetime
       }
-  protoFromJSON _ = Right defaultVersionInfo
+  parseJSON _ = pure defaultVersionInfo
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

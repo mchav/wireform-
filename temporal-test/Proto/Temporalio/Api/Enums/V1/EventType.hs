@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -236,130 +240,130 @@ instance MessageSize EventType where
 instance MessageDecode EventType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON EventType where
-  protoToJSON EventType'EventTypeUnspecified = JsonString "EVENT_TYPE_UNSPECIFIED"
-  protoToJSON EventType'EventTypeWorkflowExecutionStarted = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED"
-  protoToJSON EventType'EventTypeWorkflowExecutionCompleted = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED"
-  protoToJSON EventType'EventTypeWorkflowExecutionFailed = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED"
-  protoToJSON EventType'EventTypeWorkflowExecutionTimedOut = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT"
-  protoToJSON EventType'EventTypeWorkflowTaskScheduled = JsonString "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED"
-  protoToJSON EventType'EventTypeWorkflowTaskStarted = JsonString "EVENT_TYPE_WORKFLOW_TASK_STARTED"
-  protoToJSON EventType'EventTypeWorkflowTaskCompleted = JsonString "EVENT_TYPE_WORKFLOW_TASK_COMPLETED"
-  protoToJSON EventType'EventTypeWorkflowTaskTimedOut = JsonString "EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT"
-  protoToJSON EventType'EventTypeWorkflowTaskFailed = JsonString "EVENT_TYPE_WORKFLOW_TASK_FAILED"
-  protoToJSON EventType'EventTypeActivityTaskScheduled = JsonString "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED"
-  protoToJSON EventType'EventTypeActivityTaskStarted = JsonString "EVENT_TYPE_ACTIVITY_TASK_STARTED"
-  protoToJSON EventType'EventTypeActivityTaskCompleted = JsonString "EVENT_TYPE_ACTIVITY_TASK_COMPLETED"
-  protoToJSON EventType'EventTypeActivityTaskFailed = JsonString "EVENT_TYPE_ACTIVITY_TASK_FAILED"
-  protoToJSON EventType'EventTypeActivityTaskTimedOut = JsonString "EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT"
-  protoToJSON EventType'EventTypeActivityTaskCancelRequested = JsonString "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED"
-  protoToJSON EventType'EventTypeActivityTaskCanceled = JsonString "EVENT_TYPE_ACTIVITY_TASK_CANCELED"
-  protoToJSON EventType'EventTypeTimerStarted = JsonString "EVENT_TYPE_TIMER_STARTED"
-  protoToJSON EventType'EventTypeTimerFired = JsonString "EVENT_TYPE_TIMER_FIRED"
-  protoToJSON EventType'EventTypeTimerCanceled = JsonString "EVENT_TYPE_TIMER_CANCELED"
-  protoToJSON EventType'EventTypeWorkflowExecutionCancelRequested = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_CANCEL_REQUESTED"
-  protoToJSON EventType'EventTypeWorkflowExecutionCanceled = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED"
-  protoToJSON EventType'EventTypeRequestCancelExternalWorkflowExecutionInitiated = JsonString "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED"
-  protoToJSON EventType'EventTypeRequestCancelExternalWorkflowExecutionFailed = JsonString "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_FAILED"
-  protoToJSON EventType'EventTypeExternalWorkflowExecutionCancelRequested = JsonString "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_CANCEL_REQUESTED"
-  protoToJSON EventType'EventTypeMarkerRecorded = JsonString "EVENT_TYPE_MARKER_RECORDED"
-  protoToJSON EventType'EventTypeWorkflowExecutionSignaled = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED"
-  protoToJSON EventType'EventTypeWorkflowExecutionTerminated = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED"
-  protoToJSON EventType'EventTypeWorkflowExecutionContinuedAsNew = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW"
-  protoToJSON EventType'EventTypeStartChildWorkflowExecutionInitiated = JsonString "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED"
-  protoToJSON EventType'EventTypeStartChildWorkflowExecutionFailed = JsonString "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED"
-  protoToJSON EventType'EventTypeChildWorkflowExecutionStarted = JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED"
-  protoToJSON EventType'EventTypeChildWorkflowExecutionCompleted = JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED"
-  protoToJSON EventType'EventTypeChildWorkflowExecutionFailed = JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED"
-  protoToJSON EventType'EventTypeChildWorkflowExecutionCanceled = JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED"
-  protoToJSON EventType'EventTypeChildWorkflowExecutionTimedOut = JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT"
-  protoToJSON EventType'EventTypeChildWorkflowExecutionTerminated = JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED"
-  protoToJSON EventType'EventTypeSignalExternalWorkflowExecutionInitiated = JsonString "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED"
-  protoToJSON EventType'EventTypeSignalExternalWorkflowExecutionFailed = JsonString "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_FAILED"
-  protoToJSON EventType'EventTypeExternalWorkflowExecutionSignaled = JsonString "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED"
-  protoToJSON EventType'EventTypeUpsertWorkflowSearchAttributes = JsonString "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES"
-  protoToJSON EventType'EventTypeWorkflowExecutionUpdateAdmitted = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ADMITTED"
-  protoToJSON EventType'EventTypeWorkflowExecutionUpdateAccepted = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED"
-  protoToJSON EventType'EventTypeWorkflowExecutionUpdateRejected = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED"
-  protoToJSON EventType'EventTypeWorkflowExecutionUpdateCompleted = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED"
-  protoToJSON EventType'EventTypeWorkflowPropertiesModifiedExternally = JsonString "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED_EXTERNALLY"
-  protoToJSON EventType'EventTypeActivityPropertiesModifiedExternally = JsonString "EVENT_TYPE_ACTIVITY_PROPERTIES_MODIFIED_EXTERNALLY"
-  protoToJSON EventType'EventTypeWorkflowPropertiesModified = JsonString "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED"
-  protoToJSON EventType'EventTypeNexusOperationScheduled = JsonString "EVENT_TYPE_NEXUS_OPERATION_SCHEDULED"
-  protoToJSON EventType'EventTypeNexusOperationStarted = JsonString "EVENT_TYPE_NEXUS_OPERATION_STARTED"
-  protoToJSON EventType'EventTypeNexusOperationCompleted = JsonString "EVENT_TYPE_NEXUS_OPERATION_COMPLETED"
-  protoToJSON EventType'EventTypeNexusOperationFailed = JsonString "EVENT_TYPE_NEXUS_OPERATION_FAILED"
-  protoToJSON EventType'EventTypeNexusOperationCanceled = JsonString "EVENT_TYPE_NEXUS_OPERATION_CANCELED"
-  protoToJSON EventType'EventTypeNexusOperationTimedOut = JsonString "EVENT_TYPE_NEXUS_OPERATION_TIMED_OUT"
-  protoToJSON EventType'EventTypeNexusOperationCancelRequested = JsonString "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED"
-  protoToJSON EventType'EventTypeWorkflowExecutionOptionsUpdated = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_OPTIONS_UPDATED"
-  protoToJSON EventType'EventTypeNexusOperationCancelRequestCompleted = JsonString "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED"
-  protoToJSON EventType'EventTypeNexusOperationCancelRequestFailed = JsonString "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED"
-  protoToJSON EventType'EventTypeWorkflowExecutionPaused = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_PAUSED"
-  protoToJSON EventType'EventTypeWorkflowExecutionUnpaused = JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UNPAUSED"
+instance Aeson.ToJSON EventType where
+  toJSON EventType'EventTypeUnspecified = Aeson.String "EVENT_TYPE_UNSPECIFIED"
+  toJSON EventType'EventTypeWorkflowExecutionStarted = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED"
+  toJSON EventType'EventTypeWorkflowExecutionCompleted = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED"
+  toJSON EventType'EventTypeWorkflowExecutionFailed = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED"
+  toJSON EventType'EventTypeWorkflowExecutionTimedOut = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT"
+  toJSON EventType'EventTypeWorkflowTaskScheduled = Aeson.String "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED"
+  toJSON EventType'EventTypeWorkflowTaskStarted = Aeson.String "EVENT_TYPE_WORKFLOW_TASK_STARTED"
+  toJSON EventType'EventTypeWorkflowTaskCompleted = Aeson.String "EVENT_TYPE_WORKFLOW_TASK_COMPLETED"
+  toJSON EventType'EventTypeWorkflowTaskTimedOut = Aeson.String "EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT"
+  toJSON EventType'EventTypeWorkflowTaskFailed = Aeson.String "EVENT_TYPE_WORKFLOW_TASK_FAILED"
+  toJSON EventType'EventTypeActivityTaskScheduled = Aeson.String "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED"
+  toJSON EventType'EventTypeActivityTaskStarted = Aeson.String "EVENT_TYPE_ACTIVITY_TASK_STARTED"
+  toJSON EventType'EventTypeActivityTaskCompleted = Aeson.String "EVENT_TYPE_ACTIVITY_TASK_COMPLETED"
+  toJSON EventType'EventTypeActivityTaskFailed = Aeson.String "EVENT_TYPE_ACTIVITY_TASK_FAILED"
+  toJSON EventType'EventTypeActivityTaskTimedOut = Aeson.String "EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT"
+  toJSON EventType'EventTypeActivityTaskCancelRequested = Aeson.String "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED"
+  toJSON EventType'EventTypeActivityTaskCanceled = Aeson.String "EVENT_TYPE_ACTIVITY_TASK_CANCELED"
+  toJSON EventType'EventTypeTimerStarted = Aeson.String "EVENT_TYPE_TIMER_STARTED"
+  toJSON EventType'EventTypeTimerFired = Aeson.String "EVENT_TYPE_TIMER_FIRED"
+  toJSON EventType'EventTypeTimerCanceled = Aeson.String "EVENT_TYPE_TIMER_CANCELED"
+  toJSON EventType'EventTypeWorkflowExecutionCancelRequested = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_CANCEL_REQUESTED"
+  toJSON EventType'EventTypeWorkflowExecutionCanceled = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED"
+  toJSON EventType'EventTypeRequestCancelExternalWorkflowExecutionInitiated = Aeson.String "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED"
+  toJSON EventType'EventTypeRequestCancelExternalWorkflowExecutionFailed = Aeson.String "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_FAILED"
+  toJSON EventType'EventTypeExternalWorkflowExecutionCancelRequested = Aeson.String "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_CANCEL_REQUESTED"
+  toJSON EventType'EventTypeMarkerRecorded = Aeson.String "EVENT_TYPE_MARKER_RECORDED"
+  toJSON EventType'EventTypeWorkflowExecutionSignaled = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED"
+  toJSON EventType'EventTypeWorkflowExecutionTerminated = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED"
+  toJSON EventType'EventTypeWorkflowExecutionContinuedAsNew = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW"
+  toJSON EventType'EventTypeStartChildWorkflowExecutionInitiated = Aeson.String "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED"
+  toJSON EventType'EventTypeStartChildWorkflowExecutionFailed = Aeson.String "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED"
+  toJSON EventType'EventTypeChildWorkflowExecutionStarted = Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED"
+  toJSON EventType'EventTypeChildWorkflowExecutionCompleted = Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED"
+  toJSON EventType'EventTypeChildWorkflowExecutionFailed = Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED"
+  toJSON EventType'EventTypeChildWorkflowExecutionCanceled = Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED"
+  toJSON EventType'EventTypeChildWorkflowExecutionTimedOut = Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT"
+  toJSON EventType'EventTypeChildWorkflowExecutionTerminated = Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED"
+  toJSON EventType'EventTypeSignalExternalWorkflowExecutionInitiated = Aeson.String "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED"
+  toJSON EventType'EventTypeSignalExternalWorkflowExecutionFailed = Aeson.String "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_FAILED"
+  toJSON EventType'EventTypeExternalWorkflowExecutionSignaled = Aeson.String "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED"
+  toJSON EventType'EventTypeUpsertWorkflowSearchAttributes = Aeson.String "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES"
+  toJSON EventType'EventTypeWorkflowExecutionUpdateAdmitted = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ADMITTED"
+  toJSON EventType'EventTypeWorkflowExecutionUpdateAccepted = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED"
+  toJSON EventType'EventTypeWorkflowExecutionUpdateRejected = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED"
+  toJSON EventType'EventTypeWorkflowExecutionUpdateCompleted = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED"
+  toJSON EventType'EventTypeWorkflowPropertiesModifiedExternally = Aeson.String "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED_EXTERNALLY"
+  toJSON EventType'EventTypeActivityPropertiesModifiedExternally = Aeson.String "EVENT_TYPE_ACTIVITY_PROPERTIES_MODIFIED_EXTERNALLY"
+  toJSON EventType'EventTypeWorkflowPropertiesModified = Aeson.String "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED"
+  toJSON EventType'EventTypeNexusOperationScheduled = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_SCHEDULED"
+  toJSON EventType'EventTypeNexusOperationStarted = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_STARTED"
+  toJSON EventType'EventTypeNexusOperationCompleted = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_COMPLETED"
+  toJSON EventType'EventTypeNexusOperationFailed = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_FAILED"
+  toJSON EventType'EventTypeNexusOperationCanceled = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_CANCELED"
+  toJSON EventType'EventTypeNexusOperationTimedOut = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_TIMED_OUT"
+  toJSON EventType'EventTypeNexusOperationCancelRequested = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED"
+  toJSON EventType'EventTypeWorkflowExecutionOptionsUpdated = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_OPTIONS_UPDATED"
+  toJSON EventType'EventTypeNexusOperationCancelRequestCompleted = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED"
+  toJSON EventType'EventTypeNexusOperationCancelRequestFailed = Aeson.String "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED"
+  toJSON EventType'EventTypeWorkflowExecutionPaused = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_PAUSED"
+  toJSON EventType'EventTypeWorkflowExecutionUnpaused = Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UNPAUSED"
 
-instance ProtoFromJSON EventType where
-  protoFromJSON = \case
-    JsonString "EVENT_TYPE_UNSPECIFIED" -> Right EventType'EventTypeUnspecified
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED" -> Right EventType'EventTypeWorkflowExecutionStarted
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED" -> Right EventType'EventTypeWorkflowExecutionCompleted
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED" -> Right EventType'EventTypeWorkflowExecutionFailed
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT" -> Right EventType'EventTypeWorkflowExecutionTimedOut
-    JsonString "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED" -> Right EventType'EventTypeWorkflowTaskScheduled
-    JsonString "EVENT_TYPE_WORKFLOW_TASK_STARTED" -> Right EventType'EventTypeWorkflowTaskStarted
-    JsonString "EVENT_TYPE_WORKFLOW_TASK_COMPLETED" -> Right EventType'EventTypeWorkflowTaskCompleted
-    JsonString "EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT" -> Right EventType'EventTypeWorkflowTaskTimedOut
-    JsonString "EVENT_TYPE_WORKFLOW_TASK_FAILED" -> Right EventType'EventTypeWorkflowTaskFailed
-    JsonString "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED" -> Right EventType'EventTypeActivityTaskScheduled
-    JsonString "EVENT_TYPE_ACTIVITY_TASK_STARTED" -> Right EventType'EventTypeActivityTaskStarted
-    JsonString "EVENT_TYPE_ACTIVITY_TASK_COMPLETED" -> Right EventType'EventTypeActivityTaskCompleted
-    JsonString "EVENT_TYPE_ACTIVITY_TASK_FAILED" -> Right EventType'EventTypeActivityTaskFailed
-    JsonString "EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT" -> Right EventType'EventTypeActivityTaskTimedOut
-    JsonString "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED" -> Right EventType'EventTypeActivityTaskCancelRequested
-    JsonString "EVENT_TYPE_ACTIVITY_TASK_CANCELED" -> Right EventType'EventTypeActivityTaskCanceled
-    JsonString "EVENT_TYPE_TIMER_STARTED" -> Right EventType'EventTypeTimerStarted
-    JsonString "EVENT_TYPE_TIMER_FIRED" -> Right EventType'EventTypeTimerFired
-    JsonString "EVENT_TYPE_TIMER_CANCELED" -> Right EventType'EventTypeTimerCanceled
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_CANCEL_REQUESTED" -> Right EventType'EventTypeWorkflowExecutionCancelRequested
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED" -> Right EventType'EventTypeWorkflowExecutionCanceled
-    JsonString "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED" -> Right EventType'EventTypeRequestCancelExternalWorkflowExecutionInitiated
-    JsonString "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_FAILED" -> Right EventType'EventTypeRequestCancelExternalWorkflowExecutionFailed
-    JsonString "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_CANCEL_REQUESTED" -> Right EventType'EventTypeExternalWorkflowExecutionCancelRequested
-    JsonString "EVENT_TYPE_MARKER_RECORDED" -> Right EventType'EventTypeMarkerRecorded
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED" -> Right EventType'EventTypeWorkflowExecutionSignaled
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED" -> Right EventType'EventTypeWorkflowExecutionTerminated
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW" -> Right EventType'EventTypeWorkflowExecutionContinuedAsNew
-    JsonString "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED" -> Right EventType'EventTypeStartChildWorkflowExecutionInitiated
-    JsonString "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED" -> Right EventType'EventTypeStartChildWorkflowExecutionFailed
-    JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED" -> Right EventType'EventTypeChildWorkflowExecutionStarted
-    JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED" -> Right EventType'EventTypeChildWorkflowExecutionCompleted
-    JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED" -> Right EventType'EventTypeChildWorkflowExecutionFailed
-    JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED" -> Right EventType'EventTypeChildWorkflowExecutionCanceled
-    JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT" -> Right EventType'EventTypeChildWorkflowExecutionTimedOut
-    JsonString "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED" -> Right EventType'EventTypeChildWorkflowExecutionTerminated
-    JsonString "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED" -> Right EventType'EventTypeSignalExternalWorkflowExecutionInitiated
-    JsonString "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_FAILED" -> Right EventType'EventTypeSignalExternalWorkflowExecutionFailed
-    JsonString "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED" -> Right EventType'EventTypeExternalWorkflowExecutionSignaled
-    JsonString "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES" -> Right EventType'EventTypeUpsertWorkflowSearchAttributes
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ADMITTED" -> Right EventType'EventTypeWorkflowExecutionUpdateAdmitted
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED" -> Right EventType'EventTypeWorkflowExecutionUpdateAccepted
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED" -> Right EventType'EventTypeWorkflowExecutionUpdateRejected
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED" -> Right EventType'EventTypeWorkflowExecutionUpdateCompleted
-    JsonString "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED_EXTERNALLY" -> Right EventType'EventTypeWorkflowPropertiesModifiedExternally
-    JsonString "EVENT_TYPE_ACTIVITY_PROPERTIES_MODIFIED_EXTERNALLY" -> Right EventType'EventTypeActivityPropertiesModifiedExternally
-    JsonString "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED" -> Right EventType'EventTypeWorkflowPropertiesModified
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_SCHEDULED" -> Right EventType'EventTypeNexusOperationScheduled
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_STARTED" -> Right EventType'EventTypeNexusOperationStarted
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_COMPLETED" -> Right EventType'EventTypeNexusOperationCompleted
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_FAILED" -> Right EventType'EventTypeNexusOperationFailed
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_CANCELED" -> Right EventType'EventTypeNexusOperationCanceled
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_TIMED_OUT" -> Right EventType'EventTypeNexusOperationTimedOut
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED" -> Right EventType'EventTypeNexusOperationCancelRequested
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_OPTIONS_UPDATED" -> Right EventType'EventTypeWorkflowExecutionOptionsUpdated
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED" -> Right EventType'EventTypeNexusOperationCancelRequestCompleted
-    JsonString "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED" -> Right EventType'EventTypeNexusOperationCancelRequestFailed
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_PAUSED" -> Right EventType'EventTypeWorkflowExecutionPaused
-    JsonString "EVENT_TYPE_WORKFLOW_EXECUTION_UNPAUSED" -> Right EventType'EventTypeWorkflowExecutionUnpaused
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for EventType"
+instance Aeson.FromJSON EventType where
+  parseJSON = \case
+    Aeson.String "EVENT_TYPE_UNSPECIFIED" -> pure EventType'EventTypeUnspecified
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED" -> pure EventType'EventTypeWorkflowExecutionStarted
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED" -> pure EventType'EventTypeWorkflowExecutionCompleted
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED" -> pure EventType'EventTypeWorkflowExecutionFailed
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT" -> pure EventType'EventTypeWorkflowExecutionTimedOut
+    Aeson.String "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED" -> pure EventType'EventTypeWorkflowTaskScheduled
+    Aeson.String "EVENT_TYPE_WORKFLOW_TASK_STARTED" -> pure EventType'EventTypeWorkflowTaskStarted
+    Aeson.String "EVENT_TYPE_WORKFLOW_TASK_COMPLETED" -> pure EventType'EventTypeWorkflowTaskCompleted
+    Aeson.String "EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT" -> pure EventType'EventTypeWorkflowTaskTimedOut
+    Aeson.String "EVENT_TYPE_WORKFLOW_TASK_FAILED" -> pure EventType'EventTypeWorkflowTaskFailed
+    Aeson.String "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED" -> pure EventType'EventTypeActivityTaskScheduled
+    Aeson.String "EVENT_TYPE_ACTIVITY_TASK_STARTED" -> pure EventType'EventTypeActivityTaskStarted
+    Aeson.String "EVENT_TYPE_ACTIVITY_TASK_COMPLETED" -> pure EventType'EventTypeActivityTaskCompleted
+    Aeson.String "EVENT_TYPE_ACTIVITY_TASK_FAILED" -> pure EventType'EventTypeActivityTaskFailed
+    Aeson.String "EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT" -> pure EventType'EventTypeActivityTaskTimedOut
+    Aeson.String "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED" -> pure EventType'EventTypeActivityTaskCancelRequested
+    Aeson.String "EVENT_TYPE_ACTIVITY_TASK_CANCELED" -> pure EventType'EventTypeActivityTaskCanceled
+    Aeson.String "EVENT_TYPE_TIMER_STARTED" -> pure EventType'EventTypeTimerStarted
+    Aeson.String "EVENT_TYPE_TIMER_FIRED" -> pure EventType'EventTypeTimerFired
+    Aeson.String "EVENT_TYPE_TIMER_CANCELED" -> pure EventType'EventTypeTimerCanceled
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_CANCEL_REQUESTED" -> pure EventType'EventTypeWorkflowExecutionCancelRequested
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED" -> pure EventType'EventTypeWorkflowExecutionCanceled
+    Aeson.String "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED" -> pure EventType'EventTypeRequestCancelExternalWorkflowExecutionInitiated
+    Aeson.String "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_FAILED" -> pure EventType'EventTypeRequestCancelExternalWorkflowExecutionFailed
+    Aeson.String "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_CANCEL_REQUESTED" -> pure EventType'EventTypeExternalWorkflowExecutionCancelRequested
+    Aeson.String "EVENT_TYPE_MARKER_RECORDED" -> pure EventType'EventTypeMarkerRecorded
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED" -> pure EventType'EventTypeWorkflowExecutionSignaled
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED" -> pure EventType'EventTypeWorkflowExecutionTerminated
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW" -> pure EventType'EventTypeWorkflowExecutionContinuedAsNew
+    Aeson.String "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED" -> pure EventType'EventTypeStartChildWorkflowExecutionInitiated
+    Aeson.String "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED" -> pure EventType'EventTypeStartChildWorkflowExecutionFailed
+    Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED" -> pure EventType'EventTypeChildWorkflowExecutionStarted
+    Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED" -> pure EventType'EventTypeChildWorkflowExecutionCompleted
+    Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED" -> pure EventType'EventTypeChildWorkflowExecutionFailed
+    Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED" -> pure EventType'EventTypeChildWorkflowExecutionCanceled
+    Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT" -> pure EventType'EventTypeChildWorkflowExecutionTimedOut
+    Aeson.String "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED" -> pure EventType'EventTypeChildWorkflowExecutionTerminated
+    Aeson.String "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED" -> pure EventType'EventTypeSignalExternalWorkflowExecutionInitiated
+    Aeson.String "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_FAILED" -> pure EventType'EventTypeSignalExternalWorkflowExecutionFailed
+    Aeson.String "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED" -> pure EventType'EventTypeExternalWorkflowExecutionSignaled
+    Aeson.String "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES" -> pure EventType'EventTypeUpsertWorkflowSearchAttributes
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ADMITTED" -> pure EventType'EventTypeWorkflowExecutionUpdateAdmitted
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED" -> pure EventType'EventTypeWorkflowExecutionUpdateAccepted
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED" -> pure EventType'EventTypeWorkflowExecutionUpdateRejected
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED" -> pure EventType'EventTypeWorkflowExecutionUpdateCompleted
+    Aeson.String "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED_EXTERNALLY" -> pure EventType'EventTypeWorkflowPropertiesModifiedExternally
+    Aeson.String "EVENT_TYPE_ACTIVITY_PROPERTIES_MODIFIED_EXTERNALLY" -> pure EventType'EventTypeActivityPropertiesModifiedExternally
+    Aeson.String "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED" -> pure EventType'EventTypeWorkflowPropertiesModified
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_SCHEDULED" -> pure EventType'EventTypeNexusOperationScheduled
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_STARTED" -> pure EventType'EventTypeNexusOperationStarted
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_COMPLETED" -> pure EventType'EventTypeNexusOperationCompleted
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_FAILED" -> pure EventType'EventTypeNexusOperationFailed
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_CANCELED" -> pure EventType'EventTypeNexusOperationCanceled
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_TIMED_OUT" -> pure EventType'EventTypeNexusOperationTimedOut
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED" -> pure EventType'EventTypeNexusOperationCancelRequested
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_OPTIONS_UPDATED" -> pure EventType'EventTypeWorkflowExecutionOptionsUpdated
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED" -> pure EventType'EventTypeNexusOperationCancelRequestCompleted
+    Aeson.String "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED" -> pure EventType'EventTypeNexusOperationCancelRequestFailed
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_PAUSED" -> pure EventType'EventTypeWorkflowExecutionPaused
+    Aeson.String "EVENT_TYPE_WORKFLOW_EXECUTION_UNPAUSED" -> pure EventType'EventTypeWorkflowExecutionUnpaused
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for EventType"
 

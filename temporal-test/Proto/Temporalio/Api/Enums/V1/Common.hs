@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -65,18 +69,18 @@ instance MessageSize EncodingType where
 instance MessageDecode EncodingType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON EncodingType where
-  protoToJSON EncodingType'EncodingTypeUnspecified = JsonString "ENCODING_TYPE_UNSPECIFIED"
-  protoToJSON EncodingType'EncodingTypeProto3 = JsonString "ENCODING_TYPE_PROTO3"
-  protoToJSON EncodingType'EncodingTypeJson = JsonString "ENCODING_TYPE_JSON"
+instance Aeson.ToJSON EncodingType where
+  toJSON EncodingType'EncodingTypeUnspecified = Aeson.String "ENCODING_TYPE_UNSPECIFIED"
+  toJSON EncodingType'EncodingTypeProto3 = Aeson.String "ENCODING_TYPE_PROTO3"
+  toJSON EncodingType'EncodingTypeJson = Aeson.String "ENCODING_TYPE_JSON"
 
-instance ProtoFromJSON EncodingType where
-  protoFromJSON = \case
-    JsonString "ENCODING_TYPE_UNSPECIFIED" -> Right EncodingType'EncodingTypeUnspecified
-    JsonString "ENCODING_TYPE_PROTO3" -> Right EncodingType'EncodingTypeProto3
-    JsonString "ENCODING_TYPE_JSON" -> Right EncodingType'EncodingTypeJson
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for EncodingType"
+instance Aeson.FromJSON EncodingType where
+  parseJSON = \case
+    Aeson.String "ENCODING_TYPE_UNSPECIFIED" -> pure EncodingType'EncodingTypeUnspecified
+    Aeson.String "ENCODING_TYPE_PROTO3" -> pure EncodingType'EncodingTypeProto3
+    Aeson.String "ENCODING_TYPE_JSON" -> pure EncodingType'EncodingTypeJson
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for EncodingType"
 
 data IndexedValueType
   = IndexedValueType'IndexedValueTypeUnspecified
@@ -118,28 +122,28 @@ instance MessageSize IndexedValueType where
 instance MessageDecode IndexedValueType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON IndexedValueType where
-  protoToJSON IndexedValueType'IndexedValueTypeUnspecified = JsonString "INDEXED_VALUE_TYPE_UNSPECIFIED"
-  protoToJSON IndexedValueType'IndexedValueTypeText = JsonString "INDEXED_VALUE_TYPE_TEXT"
-  protoToJSON IndexedValueType'IndexedValueTypeKeyword = JsonString "INDEXED_VALUE_TYPE_KEYWORD"
-  protoToJSON IndexedValueType'IndexedValueTypeInt = JsonString "INDEXED_VALUE_TYPE_INT"
-  protoToJSON IndexedValueType'IndexedValueTypeDouble = JsonString "INDEXED_VALUE_TYPE_DOUBLE"
-  protoToJSON IndexedValueType'IndexedValueTypeBool = JsonString "INDEXED_VALUE_TYPE_BOOL"
-  protoToJSON IndexedValueType'IndexedValueTypeDatetime = JsonString "INDEXED_VALUE_TYPE_DATETIME"
-  protoToJSON IndexedValueType'IndexedValueTypeKeywordList = JsonString "INDEXED_VALUE_TYPE_KEYWORD_LIST"
+instance Aeson.ToJSON IndexedValueType where
+  toJSON IndexedValueType'IndexedValueTypeUnspecified = Aeson.String "INDEXED_VALUE_TYPE_UNSPECIFIED"
+  toJSON IndexedValueType'IndexedValueTypeText = Aeson.String "INDEXED_VALUE_TYPE_TEXT"
+  toJSON IndexedValueType'IndexedValueTypeKeyword = Aeson.String "INDEXED_VALUE_TYPE_KEYWORD"
+  toJSON IndexedValueType'IndexedValueTypeInt = Aeson.String "INDEXED_VALUE_TYPE_INT"
+  toJSON IndexedValueType'IndexedValueTypeDouble = Aeson.String "INDEXED_VALUE_TYPE_DOUBLE"
+  toJSON IndexedValueType'IndexedValueTypeBool = Aeson.String "INDEXED_VALUE_TYPE_BOOL"
+  toJSON IndexedValueType'IndexedValueTypeDatetime = Aeson.String "INDEXED_VALUE_TYPE_DATETIME"
+  toJSON IndexedValueType'IndexedValueTypeKeywordList = Aeson.String "INDEXED_VALUE_TYPE_KEYWORD_LIST"
 
-instance ProtoFromJSON IndexedValueType where
-  protoFromJSON = \case
-    JsonString "INDEXED_VALUE_TYPE_UNSPECIFIED" -> Right IndexedValueType'IndexedValueTypeUnspecified
-    JsonString "INDEXED_VALUE_TYPE_TEXT" -> Right IndexedValueType'IndexedValueTypeText
-    JsonString "INDEXED_VALUE_TYPE_KEYWORD" -> Right IndexedValueType'IndexedValueTypeKeyword
-    JsonString "INDEXED_VALUE_TYPE_INT" -> Right IndexedValueType'IndexedValueTypeInt
-    JsonString "INDEXED_VALUE_TYPE_DOUBLE" -> Right IndexedValueType'IndexedValueTypeDouble
-    JsonString "INDEXED_VALUE_TYPE_BOOL" -> Right IndexedValueType'IndexedValueTypeBool
-    JsonString "INDEXED_VALUE_TYPE_DATETIME" -> Right IndexedValueType'IndexedValueTypeDatetime
-    JsonString "INDEXED_VALUE_TYPE_KEYWORD_LIST" -> Right IndexedValueType'IndexedValueTypeKeywordList
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for IndexedValueType"
+instance Aeson.FromJSON IndexedValueType where
+  parseJSON = \case
+    Aeson.String "INDEXED_VALUE_TYPE_UNSPECIFIED" -> pure IndexedValueType'IndexedValueTypeUnspecified
+    Aeson.String "INDEXED_VALUE_TYPE_TEXT" -> pure IndexedValueType'IndexedValueTypeText
+    Aeson.String "INDEXED_VALUE_TYPE_KEYWORD" -> pure IndexedValueType'IndexedValueTypeKeyword
+    Aeson.String "INDEXED_VALUE_TYPE_INT" -> pure IndexedValueType'IndexedValueTypeInt
+    Aeson.String "INDEXED_VALUE_TYPE_DOUBLE" -> pure IndexedValueType'IndexedValueTypeDouble
+    Aeson.String "INDEXED_VALUE_TYPE_BOOL" -> pure IndexedValueType'IndexedValueTypeBool
+    Aeson.String "INDEXED_VALUE_TYPE_DATETIME" -> pure IndexedValueType'IndexedValueTypeDatetime
+    Aeson.String "INDEXED_VALUE_TYPE_KEYWORD_LIST" -> pure IndexedValueType'IndexedValueTypeKeywordList
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for IndexedValueType"
 
 data Severity
   = Severity'SeverityUnspecified
@@ -169,20 +173,20 @@ instance MessageSize Severity where
 instance MessageDecode Severity where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON Severity where
-  protoToJSON Severity'SeverityUnspecified = JsonString "SEVERITY_UNSPECIFIED"
-  protoToJSON Severity'SeverityHigh = JsonString "SEVERITY_HIGH"
-  protoToJSON Severity'SeverityMedium = JsonString "SEVERITY_MEDIUM"
-  protoToJSON Severity'SeverityLow = JsonString "SEVERITY_LOW"
+instance Aeson.ToJSON Severity where
+  toJSON Severity'SeverityUnspecified = Aeson.String "SEVERITY_UNSPECIFIED"
+  toJSON Severity'SeverityHigh = Aeson.String "SEVERITY_HIGH"
+  toJSON Severity'SeverityMedium = Aeson.String "SEVERITY_MEDIUM"
+  toJSON Severity'SeverityLow = Aeson.String "SEVERITY_LOW"
 
-instance ProtoFromJSON Severity where
-  protoFromJSON = \case
-    JsonString "SEVERITY_UNSPECIFIED" -> Right Severity'SeverityUnspecified
-    JsonString "SEVERITY_HIGH" -> Right Severity'SeverityHigh
-    JsonString "SEVERITY_MEDIUM" -> Right Severity'SeverityMedium
-    JsonString "SEVERITY_LOW" -> Right Severity'SeverityLow
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for Severity"
+instance Aeson.FromJSON Severity where
+  parseJSON = \case
+    Aeson.String "SEVERITY_UNSPECIFIED" -> pure Severity'SeverityUnspecified
+    Aeson.String "SEVERITY_HIGH" -> pure Severity'SeverityHigh
+    Aeson.String "SEVERITY_MEDIUM" -> pure Severity'SeverityMedium
+    Aeson.String "SEVERITY_LOW" -> pure Severity'SeverityLow
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for Severity"
 
 data CallbackState
   = CallbackState'CallbackStateUnspecified
@@ -221,26 +225,26 @@ instance MessageSize CallbackState where
 instance MessageDecode CallbackState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON CallbackState where
-  protoToJSON CallbackState'CallbackStateUnspecified = JsonString "CALLBACK_STATE_UNSPECIFIED"
-  protoToJSON CallbackState'CallbackStateStandby = JsonString "CALLBACK_STATE_STANDBY"
-  protoToJSON CallbackState'CallbackStateScheduled = JsonString "CALLBACK_STATE_SCHEDULED"
-  protoToJSON CallbackState'CallbackStateBackingOff = JsonString "CALLBACK_STATE_BACKING_OFF"
-  protoToJSON CallbackState'CallbackStateFailed = JsonString "CALLBACK_STATE_FAILED"
-  protoToJSON CallbackState'CallbackStateSucceeded = JsonString "CALLBACK_STATE_SUCCEEDED"
-  protoToJSON CallbackState'CallbackStateBlocked = JsonString "CALLBACK_STATE_BLOCKED"
+instance Aeson.ToJSON CallbackState where
+  toJSON CallbackState'CallbackStateUnspecified = Aeson.String "CALLBACK_STATE_UNSPECIFIED"
+  toJSON CallbackState'CallbackStateStandby = Aeson.String "CALLBACK_STATE_STANDBY"
+  toJSON CallbackState'CallbackStateScheduled = Aeson.String "CALLBACK_STATE_SCHEDULED"
+  toJSON CallbackState'CallbackStateBackingOff = Aeson.String "CALLBACK_STATE_BACKING_OFF"
+  toJSON CallbackState'CallbackStateFailed = Aeson.String "CALLBACK_STATE_FAILED"
+  toJSON CallbackState'CallbackStateSucceeded = Aeson.String "CALLBACK_STATE_SUCCEEDED"
+  toJSON CallbackState'CallbackStateBlocked = Aeson.String "CALLBACK_STATE_BLOCKED"
 
-instance ProtoFromJSON CallbackState where
-  protoFromJSON = \case
-    JsonString "CALLBACK_STATE_UNSPECIFIED" -> Right CallbackState'CallbackStateUnspecified
-    JsonString "CALLBACK_STATE_STANDBY" -> Right CallbackState'CallbackStateStandby
-    JsonString "CALLBACK_STATE_SCHEDULED" -> Right CallbackState'CallbackStateScheduled
-    JsonString "CALLBACK_STATE_BACKING_OFF" -> Right CallbackState'CallbackStateBackingOff
-    JsonString "CALLBACK_STATE_FAILED" -> Right CallbackState'CallbackStateFailed
-    JsonString "CALLBACK_STATE_SUCCEEDED" -> Right CallbackState'CallbackStateSucceeded
-    JsonString "CALLBACK_STATE_BLOCKED" -> Right CallbackState'CallbackStateBlocked
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for CallbackState"
+instance Aeson.FromJSON CallbackState where
+  parseJSON = \case
+    Aeson.String "CALLBACK_STATE_UNSPECIFIED" -> pure CallbackState'CallbackStateUnspecified
+    Aeson.String "CALLBACK_STATE_STANDBY" -> pure CallbackState'CallbackStateStandby
+    Aeson.String "CALLBACK_STATE_SCHEDULED" -> pure CallbackState'CallbackStateScheduled
+    Aeson.String "CALLBACK_STATE_BACKING_OFF" -> pure CallbackState'CallbackStateBackingOff
+    Aeson.String "CALLBACK_STATE_FAILED" -> pure CallbackState'CallbackStateFailed
+    Aeson.String "CALLBACK_STATE_SUCCEEDED" -> pure CallbackState'CallbackStateSucceeded
+    Aeson.String "CALLBACK_STATE_BLOCKED" -> pure CallbackState'CallbackStateBlocked
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for CallbackState"
 
 data PendingNexusOperationState
   = PendingNexusOperationState'PendingNexusOperationStateUnspecified
@@ -273,22 +277,22 @@ instance MessageSize PendingNexusOperationState where
 instance MessageDecode PendingNexusOperationState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON PendingNexusOperationState where
-  protoToJSON PendingNexusOperationState'PendingNexusOperationStateUnspecified = JsonString "PENDING_NEXUS_OPERATION_STATE_UNSPECIFIED"
-  protoToJSON PendingNexusOperationState'PendingNexusOperationStateScheduled = JsonString "PENDING_NEXUS_OPERATION_STATE_SCHEDULED"
-  protoToJSON PendingNexusOperationState'PendingNexusOperationStateBackingOff = JsonString "PENDING_NEXUS_OPERATION_STATE_BACKING_OFF"
-  protoToJSON PendingNexusOperationState'PendingNexusOperationStateStarted = JsonString "PENDING_NEXUS_OPERATION_STATE_STARTED"
-  protoToJSON PendingNexusOperationState'PendingNexusOperationStateBlocked = JsonString "PENDING_NEXUS_OPERATION_STATE_BLOCKED"
+instance Aeson.ToJSON PendingNexusOperationState where
+  toJSON PendingNexusOperationState'PendingNexusOperationStateUnspecified = Aeson.String "PENDING_NEXUS_OPERATION_STATE_UNSPECIFIED"
+  toJSON PendingNexusOperationState'PendingNexusOperationStateScheduled = Aeson.String "PENDING_NEXUS_OPERATION_STATE_SCHEDULED"
+  toJSON PendingNexusOperationState'PendingNexusOperationStateBackingOff = Aeson.String "PENDING_NEXUS_OPERATION_STATE_BACKING_OFF"
+  toJSON PendingNexusOperationState'PendingNexusOperationStateStarted = Aeson.String "PENDING_NEXUS_OPERATION_STATE_STARTED"
+  toJSON PendingNexusOperationState'PendingNexusOperationStateBlocked = Aeson.String "PENDING_NEXUS_OPERATION_STATE_BLOCKED"
 
-instance ProtoFromJSON PendingNexusOperationState where
-  protoFromJSON = \case
-    JsonString "PENDING_NEXUS_OPERATION_STATE_UNSPECIFIED" -> Right PendingNexusOperationState'PendingNexusOperationStateUnspecified
-    JsonString "PENDING_NEXUS_OPERATION_STATE_SCHEDULED" -> Right PendingNexusOperationState'PendingNexusOperationStateScheduled
-    JsonString "PENDING_NEXUS_OPERATION_STATE_BACKING_OFF" -> Right PendingNexusOperationState'PendingNexusOperationStateBackingOff
-    JsonString "PENDING_NEXUS_OPERATION_STATE_STARTED" -> Right PendingNexusOperationState'PendingNexusOperationStateStarted
-    JsonString "PENDING_NEXUS_OPERATION_STATE_BLOCKED" -> Right PendingNexusOperationState'PendingNexusOperationStateBlocked
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for PendingNexusOperationState"
+instance Aeson.FromJSON PendingNexusOperationState where
+  parseJSON = \case
+    Aeson.String "PENDING_NEXUS_OPERATION_STATE_UNSPECIFIED" -> pure PendingNexusOperationState'PendingNexusOperationStateUnspecified
+    Aeson.String "PENDING_NEXUS_OPERATION_STATE_SCHEDULED" -> pure PendingNexusOperationState'PendingNexusOperationStateScheduled
+    Aeson.String "PENDING_NEXUS_OPERATION_STATE_BACKING_OFF" -> pure PendingNexusOperationState'PendingNexusOperationStateBackingOff
+    Aeson.String "PENDING_NEXUS_OPERATION_STATE_STARTED" -> pure PendingNexusOperationState'PendingNexusOperationStateStarted
+    Aeson.String "PENDING_NEXUS_OPERATION_STATE_BLOCKED" -> pure PendingNexusOperationState'PendingNexusOperationStateBlocked
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for PendingNexusOperationState"
 
 data NexusOperationCancellationState
   = NexusOperationCancellationState'NexusOperationCancellationStateUnspecified
@@ -327,26 +331,26 @@ instance MessageSize NexusOperationCancellationState where
 instance MessageDecode NexusOperationCancellationState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON NexusOperationCancellationState where
-  protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateUnspecified = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_UNSPECIFIED"
-  protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateScheduled = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_SCHEDULED"
-  protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateBackingOff = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_BACKING_OFF"
-  protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateSucceeded = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_SUCCEEDED"
-  protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateFailed = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_FAILED"
-  protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateTimedOut = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_TIMED_OUT"
-  protoToJSON NexusOperationCancellationState'NexusOperationCancellationStateBlocked = JsonString "NEXUS_OPERATION_CANCELLATION_STATE_BLOCKED"
+instance Aeson.ToJSON NexusOperationCancellationState where
+  toJSON NexusOperationCancellationState'NexusOperationCancellationStateUnspecified = Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_UNSPECIFIED"
+  toJSON NexusOperationCancellationState'NexusOperationCancellationStateScheduled = Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_SCHEDULED"
+  toJSON NexusOperationCancellationState'NexusOperationCancellationStateBackingOff = Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_BACKING_OFF"
+  toJSON NexusOperationCancellationState'NexusOperationCancellationStateSucceeded = Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_SUCCEEDED"
+  toJSON NexusOperationCancellationState'NexusOperationCancellationStateFailed = Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_FAILED"
+  toJSON NexusOperationCancellationState'NexusOperationCancellationStateTimedOut = Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_TIMED_OUT"
+  toJSON NexusOperationCancellationState'NexusOperationCancellationStateBlocked = Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_BLOCKED"
 
-instance ProtoFromJSON NexusOperationCancellationState where
-  protoFromJSON = \case
-    JsonString "NEXUS_OPERATION_CANCELLATION_STATE_UNSPECIFIED" -> Right NexusOperationCancellationState'NexusOperationCancellationStateUnspecified
-    JsonString "NEXUS_OPERATION_CANCELLATION_STATE_SCHEDULED" -> Right NexusOperationCancellationState'NexusOperationCancellationStateScheduled
-    JsonString "NEXUS_OPERATION_CANCELLATION_STATE_BACKING_OFF" -> Right NexusOperationCancellationState'NexusOperationCancellationStateBackingOff
-    JsonString "NEXUS_OPERATION_CANCELLATION_STATE_SUCCEEDED" -> Right NexusOperationCancellationState'NexusOperationCancellationStateSucceeded
-    JsonString "NEXUS_OPERATION_CANCELLATION_STATE_FAILED" -> Right NexusOperationCancellationState'NexusOperationCancellationStateFailed
-    JsonString "NEXUS_OPERATION_CANCELLATION_STATE_TIMED_OUT" -> Right NexusOperationCancellationState'NexusOperationCancellationStateTimedOut
-    JsonString "NEXUS_OPERATION_CANCELLATION_STATE_BLOCKED" -> Right NexusOperationCancellationState'NexusOperationCancellationStateBlocked
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for NexusOperationCancellationState"
+instance Aeson.FromJSON NexusOperationCancellationState where
+  parseJSON = \case
+    Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_UNSPECIFIED" -> pure NexusOperationCancellationState'NexusOperationCancellationStateUnspecified
+    Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_SCHEDULED" -> pure NexusOperationCancellationState'NexusOperationCancellationStateScheduled
+    Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_BACKING_OFF" -> pure NexusOperationCancellationState'NexusOperationCancellationStateBackingOff
+    Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_SUCCEEDED" -> pure NexusOperationCancellationState'NexusOperationCancellationStateSucceeded
+    Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_FAILED" -> pure NexusOperationCancellationState'NexusOperationCancellationStateFailed
+    Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_TIMED_OUT" -> pure NexusOperationCancellationState'NexusOperationCancellationStateTimedOut
+    Aeson.String "NEXUS_OPERATION_CANCELLATION_STATE_BLOCKED" -> pure NexusOperationCancellationState'NexusOperationCancellationStateBlocked
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for NexusOperationCancellationState"
 
 data WorkflowRuleActionScope
   = WorkflowRuleActionScope'WorkflowRuleActionScopeUnspecified
@@ -373,18 +377,18 @@ instance MessageSize WorkflowRuleActionScope where
 instance MessageDecode WorkflowRuleActionScope where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON WorkflowRuleActionScope where
-  protoToJSON WorkflowRuleActionScope'WorkflowRuleActionScopeUnspecified = JsonString "WORKFLOW_RULE_ACTION_SCOPE_UNSPECIFIED"
-  protoToJSON WorkflowRuleActionScope'WorkflowRuleActionScopeWorkflow = JsonString "WORKFLOW_RULE_ACTION_SCOPE_WORKFLOW"
-  protoToJSON WorkflowRuleActionScope'WorkflowRuleActionScopeActivity = JsonString "WORKFLOW_RULE_ACTION_SCOPE_ACTIVITY"
+instance Aeson.ToJSON WorkflowRuleActionScope where
+  toJSON WorkflowRuleActionScope'WorkflowRuleActionScopeUnspecified = Aeson.String "WORKFLOW_RULE_ACTION_SCOPE_UNSPECIFIED"
+  toJSON WorkflowRuleActionScope'WorkflowRuleActionScopeWorkflow = Aeson.String "WORKFLOW_RULE_ACTION_SCOPE_WORKFLOW"
+  toJSON WorkflowRuleActionScope'WorkflowRuleActionScopeActivity = Aeson.String "WORKFLOW_RULE_ACTION_SCOPE_ACTIVITY"
 
-instance ProtoFromJSON WorkflowRuleActionScope where
-  protoFromJSON = \case
-    JsonString "WORKFLOW_RULE_ACTION_SCOPE_UNSPECIFIED" -> Right WorkflowRuleActionScope'WorkflowRuleActionScopeUnspecified
-    JsonString "WORKFLOW_RULE_ACTION_SCOPE_WORKFLOW" -> Right WorkflowRuleActionScope'WorkflowRuleActionScopeWorkflow
-    JsonString "WORKFLOW_RULE_ACTION_SCOPE_ACTIVITY" -> Right WorkflowRuleActionScope'WorkflowRuleActionScopeActivity
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for WorkflowRuleActionScope"
+instance Aeson.FromJSON WorkflowRuleActionScope where
+  parseJSON = \case
+    Aeson.String "WORKFLOW_RULE_ACTION_SCOPE_UNSPECIFIED" -> pure WorkflowRuleActionScope'WorkflowRuleActionScopeUnspecified
+    Aeson.String "WORKFLOW_RULE_ACTION_SCOPE_WORKFLOW" -> pure WorkflowRuleActionScope'WorkflowRuleActionScopeWorkflow
+    Aeson.String "WORKFLOW_RULE_ACTION_SCOPE_ACTIVITY" -> pure WorkflowRuleActionScope'WorkflowRuleActionScopeActivity
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for WorkflowRuleActionScope"
 
 data ApplicationErrorCategory
   = ApplicationErrorCategory'ApplicationErrorCategoryUnspecified
@@ -408,16 +412,16 @@ instance MessageSize ApplicationErrorCategory where
 instance MessageDecode ApplicationErrorCategory where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ApplicationErrorCategory where
-  protoToJSON ApplicationErrorCategory'ApplicationErrorCategoryUnspecified = JsonString "APPLICATION_ERROR_CATEGORY_UNSPECIFIED"
-  protoToJSON ApplicationErrorCategory'ApplicationErrorCategoryBenign = JsonString "APPLICATION_ERROR_CATEGORY_BENIGN"
+instance Aeson.ToJSON ApplicationErrorCategory where
+  toJSON ApplicationErrorCategory'ApplicationErrorCategoryUnspecified = Aeson.String "APPLICATION_ERROR_CATEGORY_UNSPECIFIED"
+  toJSON ApplicationErrorCategory'ApplicationErrorCategoryBenign = Aeson.String "APPLICATION_ERROR_CATEGORY_BENIGN"
 
-instance ProtoFromJSON ApplicationErrorCategory where
-  protoFromJSON = \case
-    JsonString "APPLICATION_ERROR_CATEGORY_UNSPECIFIED" -> Right ApplicationErrorCategory'ApplicationErrorCategoryUnspecified
-    JsonString "APPLICATION_ERROR_CATEGORY_BENIGN" -> Right ApplicationErrorCategory'ApplicationErrorCategoryBenign
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ApplicationErrorCategory"
+instance Aeson.FromJSON ApplicationErrorCategory where
+  parseJSON = \case
+    Aeson.String "APPLICATION_ERROR_CATEGORY_UNSPECIFIED" -> pure ApplicationErrorCategory'ApplicationErrorCategoryUnspecified
+    Aeson.String "APPLICATION_ERROR_CATEGORY_BENIGN" -> pure ApplicationErrorCategory'ApplicationErrorCategoryBenign
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ApplicationErrorCategory"
 
 data WorkerStatus
   = WorkerStatus'WorkerStatusUnspecified
@@ -447,18 +451,18 @@ instance MessageSize WorkerStatus where
 instance MessageDecode WorkerStatus where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON WorkerStatus where
-  protoToJSON WorkerStatus'WorkerStatusUnspecified = JsonString "WORKER_STATUS_UNSPECIFIED"
-  protoToJSON WorkerStatus'WorkerStatusRunning = JsonString "WORKER_STATUS_RUNNING"
-  protoToJSON WorkerStatus'WorkerStatusShuttingDown = JsonString "WORKER_STATUS_SHUTTING_DOWN"
-  protoToJSON WorkerStatus'WorkerStatusShutdown = JsonString "WORKER_STATUS_SHUTDOWN"
+instance Aeson.ToJSON WorkerStatus where
+  toJSON WorkerStatus'WorkerStatusUnspecified = Aeson.String "WORKER_STATUS_UNSPECIFIED"
+  toJSON WorkerStatus'WorkerStatusRunning = Aeson.String "WORKER_STATUS_RUNNING"
+  toJSON WorkerStatus'WorkerStatusShuttingDown = Aeson.String "WORKER_STATUS_SHUTTING_DOWN"
+  toJSON WorkerStatus'WorkerStatusShutdown = Aeson.String "WORKER_STATUS_SHUTDOWN"
 
-instance ProtoFromJSON WorkerStatus where
-  protoFromJSON = \case
-    JsonString "WORKER_STATUS_UNSPECIFIED" -> Right WorkerStatus'WorkerStatusUnspecified
-    JsonString "WORKER_STATUS_RUNNING" -> Right WorkerStatus'WorkerStatusRunning
-    JsonString "WORKER_STATUS_SHUTTING_DOWN" -> Right WorkerStatus'WorkerStatusShuttingDown
-    JsonString "WORKER_STATUS_SHUTDOWN" -> Right WorkerStatus'WorkerStatusShutdown
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for WorkerStatus"
+instance Aeson.FromJSON WorkerStatus where
+  parseJSON = \case
+    Aeson.String "WORKER_STATUS_UNSPECIFIED" -> pure WorkerStatus'WorkerStatusUnspecified
+    Aeson.String "WORKER_STATUS_RUNNING" -> pure WorkerStatus'WorkerStatusRunning
+    Aeson.String "WORKER_STATUS_SHUTTING_DOWN" -> pure WorkerStatus'WorkerStatusShuttingDown
+    Aeson.String "WORKER_STATUS_SHUTDOWN" -> pure WorkerStatus'WorkerStatusShutdown
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for WorkerStatus"
 

@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -95,24 +99,23 @@ instance MessageDecode TaskQueue where
 instance IsMessage TaskQueue where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueue"
 
-instance ProtoToJSON TaskQueue where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.taskQueueName
-      , "kind" .= msg.taskQueueKind
-      , "normalName" .= msg.taskQueueNormalname
+instance Aeson.ToJSON TaskQueue where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.taskQueueName
+      , "kind" .=: msg.taskQueueKind
+      , "normalName" .=: msg.taskQueueNormalname
       ]
 
-instance ProtoFromJSON TaskQueue where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueName <- obj .:? "name"
-    fld_taskQueueKind <- obj .:? "kind"
-    fld_taskQueueNormalname <- obj .:? "normalName"
+instance Aeson.FromJSON TaskQueue where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueName <- parseFieldMaybe obj "name"
+    fld_taskQueueKind <- parseFieldMaybe obj "kind"
+    fld_taskQueueNormalname <- parseFieldMaybe obj "normalName"
     pure defaultTaskQueue
       { taskQueueName = maybe (taskQueueName defaultTaskQueue) id fld_taskQueueName
       , taskQueueKind = maybe (taskQueueKind defaultTaskQueue) id fld_taskQueueKind
       , taskQueueNormalname = maybe (taskQueueNormalname defaultTaskQueue) id fld_taskQueueNormalname
       }
-  protoFromJSON _ = Right defaultTaskQueue
 
 data TaskQueueMetadata = TaskQueueMetadata
   { taskQueueMetadataMaxtaskspersecond :: !(Maybe PB_Wrappers.DoubleValue)
@@ -149,19 +152,18 @@ instance MessageDecode TaskQueueMetadata where
 instance IsMessage TaskQueueMetadata where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueMetadata"
 
-instance ProtoToJSON TaskQueueMetadata where
-  protoToJSON msg = jsonObject
-      [ "maxTasksPerSecond" .= msg.taskQueueMetadataMaxtaskspersecond
+instance Aeson.ToJSON TaskQueueMetadata where
+  toJSON msg = jsonObject
+      [ "maxTasksPerSecond" .=: msg.taskQueueMetadataMaxtaskspersecond
 
       ]
 
-instance ProtoFromJSON TaskQueueMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueMetadataMaxtaskspersecond <- obj .:? "maxTasksPerSecond"
+instance Aeson.FromJSON TaskQueueMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueMetadataMaxtaskspersecond <- parseFieldMaybe obj "maxTasksPerSecond"
     pure defaultTaskQueueMetadata
       { taskQueueMetadataMaxtaskspersecond = maybe (taskQueueMetadataMaxtaskspersecond defaultTaskQueueMetadata) id fld_taskQueueMetadataMaxtaskspersecond
       }
-  protoFromJSON _ = Right defaultTaskQueueMetadata
 
 data TaskQueueVersioningInfo = TaskQueueVersioningInfo
   { taskQueueVersioningInfoCurrentdeploymentversion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
@@ -233,24 +235,24 @@ instance MessageDecode TaskQueueVersioningInfo where
 instance IsMessage TaskQueueVersioningInfo where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueVersioningInfo"
 
-instance ProtoToJSON TaskQueueVersioningInfo where
-  protoToJSON msg = jsonObject
-      [ "currentDeploymentVersion" .= msg.taskQueueVersioningInfoCurrentdeploymentversion
-      , "currentVersion" .= msg.taskQueueVersioningInfoCurrentversion
-      , "rampingDeploymentVersion" .= msg.taskQueueVersioningInfoRampingdeploymentversion
-      , "rampingVersion" .= msg.taskQueueVersioningInfoRampingversion
-      , "rampingVersionPercentage" .= msg.taskQueueVersioningInfoRampingversionpercentage
-      , "updateTime" .= msg.taskQueueVersioningInfoUpdatetime
+instance Aeson.ToJSON TaskQueueVersioningInfo where
+  toJSON msg = jsonObject
+      [ "currentDeploymentVersion" .=: msg.taskQueueVersioningInfoCurrentdeploymentversion
+      , "currentVersion" .=: msg.taskQueueVersioningInfoCurrentversion
+      , "rampingDeploymentVersion" .=: msg.taskQueueVersioningInfoRampingdeploymentversion
+      , "rampingVersion" .=: msg.taskQueueVersioningInfoRampingversion
+      , "rampingVersionPercentage" .=: msg.taskQueueVersioningInfoRampingversionpercentage
+      , "updateTime" .=: msg.taskQueueVersioningInfoUpdatetime
       ]
 
-instance ProtoFromJSON TaskQueueVersioningInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueVersioningInfoCurrentdeploymentversion <- obj .:? "currentDeploymentVersion"
-    fld_taskQueueVersioningInfoCurrentversion <- obj .:? "currentVersion"
-    fld_taskQueueVersioningInfoRampingdeploymentversion <- obj .:? "rampingDeploymentVersion"
-    fld_taskQueueVersioningInfoRampingversion <- obj .:? "rampingVersion"
-    fld_taskQueueVersioningInfoRampingversionpercentage <- obj .:? "rampingVersionPercentage"
-    fld_taskQueueVersioningInfoUpdatetime <- obj .:? "updateTime"
+instance Aeson.FromJSON TaskQueueVersioningInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueVersioningInfoCurrentdeploymentversion <- parseFieldMaybe obj "currentDeploymentVersion"
+    fld_taskQueueVersioningInfoCurrentversion <- parseFieldMaybe obj "currentVersion"
+    fld_taskQueueVersioningInfoRampingdeploymentversion <- parseFieldMaybe obj "rampingDeploymentVersion"
+    fld_taskQueueVersioningInfoRampingversion <- parseFieldMaybe obj "rampingVersion"
+    fld_taskQueueVersioningInfoRampingversionpercentage <- parseFieldMaybe obj "rampingVersionPercentage"
+    fld_taskQueueVersioningInfoUpdatetime <- parseFieldMaybe obj "updateTime"
     pure defaultTaskQueueVersioningInfo
       { taskQueueVersioningInfoCurrentdeploymentversion = maybe (taskQueueVersioningInfoCurrentdeploymentversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoCurrentdeploymentversion
       , taskQueueVersioningInfoCurrentversion = maybe (taskQueueVersioningInfoCurrentversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoCurrentversion
@@ -259,7 +261,7 @@ instance ProtoFromJSON TaskQueueVersioningInfo where
       , taskQueueVersioningInfoRampingversionpercentage = maybe (taskQueueVersioningInfoRampingversionpercentage defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingversionpercentage
       , taskQueueVersioningInfoUpdatetime = maybe (taskQueueVersioningInfoUpdatetime defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoUpdatetime
       }
-  protoFromJSON _ = Right defaultTaskQueueVersioningInfo
+  parseJSON _ = pure defaultTaskQueueVersioningInfo
 
 data TaskQueueVersionSelection = TaskQueueVersionSelection
   { taskQueueVersionSelectionBuildids :: !(V.Vector Text)
@@ -310,24 +312,23 @@ instance MessageDecode TaskQueueVersionSelection where
 instance IsMessage TaskQueueVersionSelection where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueVersionSelection"
 
-instance ProtoToJSON TaskQueueVersionSelection where
-  protoToJSON msg = jsonObject
-      [ "buildIds" .= msg.taskQueueVersionSelectionBuildids
-      , "unversioned" .= msg.taskQueueVersionSelectionUnversioned
-      , "allActive" .= msg.taskQueueVersionSelectionAllactive
+instance Aeson.ToJSON TaskQueueVersionSelection where
+  toJSON msg = jsonObject
+      [ "buildIds" .=: msg.taskQueueVersionSelectionBuildids
+      , "unversioned" .=: msg.taskQueueVersionSelectionUnversioned
+      , "allActive" .=: msg.taskQueueVersionSelectionAllactive
       ]
 
-instance ProtoFromJSON TaskQueueVersionSelection where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueVersionSelectionBuildids <- obj .:? "buildIds"
-    fld_taskQueueVersionSelectionUnversioned <- obj .:? "unversioned"
-    fld_taskQueueVersionSelectionAllactive <- obj .:? "allActive"
+instance Aeson.FromJSON TaskQueueVersionSelection where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueVersionSelectionBuildids <- parseFieldMaybe obj "buildIds"
+    fld_taskQueueVersionSelectionUnversioned <- parseFieldMaybe obj "unversioned"
+    fld_taskQueueVersionSelectionAllactive <- parseFieldMaybe obj "allActive"
     pure defaultTaskQueueVersionSelection
       { taskQueueVersionSelectionBuildids = maybe (taskQueueVersionSelectionBuildids defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionBuildids
       , taskQueueVersionSelectionUnversioned = maybe (taskQueueVersionSelectionUnversioned defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionUnversioned
       , taskQueueVersionSelectionAllactive = maybe (taskQueueVersionSelectionAllactive defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionAllactive
       }
-  protoFromJSON _ = Right defaultTaskQueueVersionSelection
 
 data TaskQueueVersionInfo = TaskQueueVersionInfo
   { taskQueueVersionInfoTypesinfo :: !(Map.Map Int32 TaskQueueTypeInfo)
@@ -374,21 +375,20 @@ instance MessageDecode TaskQueueVersionInfo where
 instance IsMessage TaskQueueVersionInfo where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueVersionInfo"
 
-instance ProtoToJSON TaskQueueVersionInfo where
-  protoToJSON msg = jsonObject
-      [ "typesInfo" .= msg.taskQueueVersionInfoTypesinfo
-      , "taskReachability" .= msg.taskQueueVersionInfoTaskreachability
+instance Aeson.ToJSON TaskQueueVersionInfo where
+  toJSON msg = jsonObject
+      [ "typesInfo" .=: msg.taskQueueVersionInfoTypesinfo
+      , "taskReachability" .=: msg.taskQueueVersionInfoTaskreachability
       ]
 
-instance ProtoFromJSON TaskQueueVersionInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueVersionInfoTypesinfo <- obj .:? "typesInfo"
-    fld_taskQueueVersionInfoTaskreachability <- obj .:? "taskReachability"
+instance Aeson.FromJSON TaskQueueVersionInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueVersionInfoTypesinfo <- parseFieldMaybe obj "typesInfo"
+    fld_taskQueueVersionInfoTaskreachability <- parseFieldMaybe obj "taskReachability"
     pure defaultTaskQueueVersionInfo
       { taskQueueVersionInfoTypesinfo = maybe (taskQueueVersionInfoTypesinfo defaultTaskQueueVersionInfo) id fld_taskQueueVersionInfoTypesinfo
       , taskQueueVersionInfoTaskreachability = maybe (taskQueueVersionInfoTaskreachability defaultTaskQueueVersionInfo) id fld_taskQueueVersionInfoTaskreachability
       }
-  protoFromJSON _ = Right defaultTaskQueueVersionInfo
 
 data TaskQueueTypeInfo = TaskQueueTypeInfo
   { taskQueueTypeInfoPollers :: !(V.Vector PollerInfo)
@@ -432,21 +432,20 @@ instance MessageDecode TaskQueueTypeInfo where
 instance IsMessage TaskQueueTypeInfo where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueTypeInfo"
 
-instance ProtoToJSON TaskQueueTypeInfo where
-  protoToJSON msg = jsonObject
-      [ "pollers" .= msg.taskQueueTypeInfoPollers
-      , "stats" .= msg.taskQueueTypeInfoStats
+instance Aeson.ToJSON TaskQueueTypeInfo where
+  toJSON msg = jsonObject
+      [ "pollers" .=: msg.taskQueueTypeInfoPollers
+      , "stats" .=: msg.taskQueueTypeInfoStats
       ]
 
-instance ProtoFromJSON TaskQueueTypeInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueTypeInfoPollers <- obj .:? "pollers"
-    fld_taskQueueTypeInfoStats <- obj .:? "stats"
+instance Aeson.FromJSON TaskQueueTypeInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueTypeInfoPollers <- parseFieldMaybe obj "pollers"
+    fld_taskQueueTypeInfoStats <- parseFieldMaybe obj "stats"
     pure defaultTaskQueueTypeInfo
       { taskQueueTypeInfoPollers = maybe (taskQueueTypeInfoPollers defaultTaskQueueTypeInfo) id fld_taskQueueTypeInfoPollers
       , taskQueueTypeInfoStats = maybe (taskQueueTypeInfoStats defaultTaskQueueTypeInfo) id fld_taskQueueTypeInfoStats
       }
-  protoFromJSON _ = Right defaultTaskQueueTypeInfo
 
 data TaskQueueStats = TaskQueueStats
   { taskQueueStatsApproximatebacklogcount :: {-# UNPACK #-} !Int64
@@ -504,27 +503,27 @@ instance MessageDecode TaskQueueStats where
 instance IsMessage TaskQueueStats where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueStats"
 
-instance ProtoToJSON TaskQueueStats where
-  protoToJSON msg = jsonObject
-      [ "approximateBacklogCount" .= msg.taskQueueStatsApproximatebacklogcount
-      , "approximateBacklogAge" .= msg.taskQueueStatsApproximatebacklogage
-      , "tasksAddRate" .= msg.taskQueueStatsTasksaddrate
-      , "tasksDispatchRate" .= msg.taskQueueStatsTasksdispatchrate
+instance Aeson.ToJSON TaskQueueStats where
+  toJSON msg = jsonObject
+      [ "approximateBacklogCount" .=: msg.taskQueueStatsApproximatebacklogcount
+      , "approximateBacklogAge" .=: msg.taskQueueStatsApproximatebacklogage
+      , "tasksAddRate" .=: msg.taskQueueStatsTasksaddrate
+      , "tasksDispatchRate" .=: msg.taskQueueStatsTasksdispatchrate
       ]
 
-instance ProtoFromJSON TaskQueueStats where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueStatsApproximatebacklogcount <- obj .:? "approximateBacklogCount"
-    fld_taskQueueStatsApproximatebacklogage <- obj .:? "approximateBacklogAge"
-    fld_taskQueueStatsTasksaddrate <- obj .:? "tasksAddRate"
-    fld_taskQueueStatsTasksdispatchrate <- obj .:? "tasksDispatchRate"
+instance Aeson.FromJSON TaskQueueStats where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueStatsApproximatebacklogcount <- parseFieldMaybe obj "approximateBacklogCount"
+    fld_taskQueueStatsApproximatebacklogage <- parseFieldMaybe obj "approximateBacklogAge"
+    fld_taskQueueStatsTasksaddrate <- parseFieldMaybe obj "tasksAddRate"
+    fld_taskQueueStatsTasksdispatchrate <- parseFieldMaybe obj "tasksDispatchRate"
     pure defaultTaskQueueStats
       { taskQueueStatsApproximatebacklogcount = maybe (taskQueueStatsApproximatebacklogcount defaultTaskQueueStats) id fld_taskQueueStatsApproximatebacklogcount
       , taskQueueStatsApproximatebacklogage = maybe (taskQueueStatsApproximatebacklogage defaultTaskQueueStats) id fld_taskQueueStatsApproximatebacklogage
       , taskQueueStatsTasksaddrate = maybe (taskQueueStatsTasksaddrate defaultTaskQueueStats) id fld_taskQueueStatsTasksaddrate
       , taskQueueStatsTasksdispatchrate = maybe (taskQueueStatsTasksdispatchrate defaultTaskQueueStats) id fld_taskQueueStatsTasksdispatchrate
       }
-  protoFromJSON _ = Right defaultTaskQueueStats
+  parseJSON _ = pure defaultTaskQueueStats
 
 data TaskQueueStatus = TaskQueueStatus
   { taskQueueStatusBacklogcounthint :: {-# UNPACK #-} !Int64
@@ -589,22 +588,22 @@ instance MessageDecode TaskQueueStatus where
 instance IsMessage TaskQueueStatus where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueStatus"
 
-instance ProtoToJSON TaskQueueStatus where
-  protoToJSON msg = jsonObject
-      [ "backlogCountHint" .= msg.taskQueueStatusBacklogcounthint
-      , "readLevel" .= msg.taskQueueStatusReadlevel
-      , "ackLevel" .= msg.taskQueueStatusAcklevel
-      , "ratePerSecond" .= msg.taskQueueStatusRatepersecond
-      , "taskIdBlock" .= msg.taskQueueStatusTaskidblock
+instance Aeson.ToJSON TaskQueueStatus where
+  toJSON msg = jsonObject
+      [ "backlogCountHint" .=: msg.taskQueueStatusBacklogcounthint
+      , "readLevel" .=: msg.taskQueueStatusReadlevel
+      , "ackLevel" .=: msg.taskQueueStatusAcklevel
+      , "ratePerSecond" .=: msg.taskQueueStatusRatepersecond
+      , "taskIdBlock" .=: msg.taskQueueStatusTaskidblock
       ]
 
-instance ProtoFromJSON TaskQueueStatus where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueStatusBacklogcounthint <- obj .:? "backlogCountHint"
-    fld_taskQueueStatusReadlevel <- obj .:? "readLevel"
-    fld_taskQueueStatusAcklevel <- obj .:? "ackLevel"
-    fld_taskQueueStatusRatepersecond <- obj .:? "ratePerSecond"
-    fld_taskQueueStatusTaskidblock <- obj .:? "taskIdBlock"
+instance Aeson.FromJSON TaskQueueStatus where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueStatusBacklogcounthint <- parseFieldMaybe obj "backlogCountHint"
+    fld_taskQueueStatusReadlevel <- parseFieldMaybe obj "readLevel"
+    fld_taskQueueStatusAcklevel <- parseFieldMaybe obj "ackLevel"
+    fld_taskQueueStatusRatepersecond <- parseFieldMaybe obj "ratePerSecond"
+    fld_taskQueueStatusTaskidblock <- parseFieldMaybe obj "taskIdBlock"
     pure defaultTaskQueueStatus
       { taskQueueStatusBacklogcounthint = maybe (taskQueueStatusBacklogcounthint defaultTaskQueueStatus) id fld_taskQueueStatusBacklogcounthint
       , taskQueueStatusReadlevel = maybe (taskQueueStatusReadlevel defaultTaskQueueStatus) id fld_taskQueueStatusReadlevel
@@ -612,7 +611,7 @@ instance ProtoFromJSON TaskQueueStatus where
       , taskQueueStatusRatepersecond = maybe (taskQueueStatusRatepersecond defaultTaskQueueStatus) id fld_taskQueueStatusRatepersecond
       , taskQueueStatusTaskidblock = maybe (taskQueueStatusTaskidblock defaultTaskQueueStatus) id fld_taskQueueStatusTaskidblock
       }
-  protoFromJSON _ = Right defaultTaskQueueStatus
+  parseJSON _ = pure defaultTaskQueueStatus
 
 data TaskIdBlock = TaskIdBlock
   { taskIdBlockStartid :: {-# UNPACK #-} !Int64
@@ -656,21 +655,20 @@ instance MessageDecode TaskIdBlock where
 instance IsMessage TaskIdBlock where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskIdBlock"
 
-instance ProtoToJSON TaskIdBlock where
-  protoToJSON msg = jsonObject
-      [ "startId" .= msg.taskIdBlockStartid
-      , "endId" .= msg.taskIdBlockEndid
+instance Aeson.ToJSON TaskIdBlock where
+  toJSON msg = jsonObject
+      [ "startId" .=: msg.taskIdBlockStartid
+      , "endId" .=: msg.taskIdBlockEndid
       ]
 
-instance ProtoFromJSON TaskIdBlock where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskIdBlockStartid <- obj .:? "startId"
-    fld_taskIdBlockEndid <- obj .:? "endId"
+instance Aeson.FromJSON TaskIdBlock where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskIdBlockStartid <- parseFieldMaybe obj "startId"
+    fld_taskIdBlockEndid <- parseFieldMaybe obj "endId"
     pure defaultTaskIdBlock
       { taskIdBlockStartid = maybe (taskIdBlockStartid defaultTaskIdBlock) id fld_taskIdBlockStartid
       , taskIdBlockEndid = maybe (taskIdBlockEndid defaultTaskIdBlock) id fld_taskIdBlockEndid
       }
-  protoFromJSON _ = Right defaultTaskIdBlock
 
 data TaskQueuePartitionMetadata = TaskQueuePartitionMetadata
   { taskQueuePartitionMetadataKey :: !Text
@@ -714,21 +712,20 @@ instance MessageDecode TaskQueuePartitionMetadata where
 instance IsMessage TaskQueuePartitionMetadata where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueuePartitionMetadata"
 
-instance ProtoToJSON TaskQueuePartitionMetadata where
-  protoToJSON msg = jsonObject
-      [ "key" .= msg.taskQueuePartitionMetadataKey
-      , "ownerHostName" .= msg.taskQueuePartitionMetadataOwnerhostname
+instance Aeson.ToJSON TaskQueuePartitionMetadata where
+  toJSON msg = jsonObject
+      [ "key" .=: msg.taskQueuePartitionMetadataKey
+      , "ownerHostName" .=: msg.taskQueuePartitionMetadataOwnerhostname
       ]
 
-instance ProtoFromJSON TaskQueuePartitionMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueuePartitionMetadataKey <- obj .:? "key"
-    fld_taskQueuePartitionMetadataOwnerhostname <- obj .:? "ownerHostName"
+instance Aeson.FromJSON TaskQueuePartitionMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueuePartitionMetadataKey <- parseFieldMaybe obj "key"
+    fld_taskQueuePartitionMetadataOwnerhostname <- parseFieldMaybe obj "ownerHostName"
     pure defaultTaskQueuePartitionMetadata
       { taskQueuePartitionMetadataKey = maybe (taskQueuePartitionMetadataKey defaultTaskQueuePartitionMetadata) id fld_taskQueuePartitionMetadataKey
       , taskQueuePartitionMetadataOwnerhostname = maybe (taskQueuePartitionMetadataOwnerhostname defaultTaskQueuePartitionMetadata) id fld_taskQueuePartitionMetadataOwnerhostname
       }
-  protoFromJSON _ = Right defaultTaskQueuePartitionMetadata
 
 data PollerInfo = PollerInfo
   { pollerInfoLastaccesstime :: !(Maybe PB_Timestamp.Timestamp)
@@ -793,22 +790,22 @@ instance MessageDecode PollerInfo where
 instance IsMessage PollerInfo where
   messageTypeName _ = "temporal.api.taskqueue.v1.PollerInfo"
 
-instance ProtoToJSON PollerInfo where
-  protoToJSON msg = jsonObject
-      [ "lastAccessTime" .= msg.pollerInfoLastaccesstime
-      , "identity" .= msg.pollerInfoIdentity
-      , "ratePerSecond" .= msg.pollerInfoRatepersecond
-      , "workerVersionCapabilities" .= msg.pollerInfoWorkerversioncapabilities
-      , "deploymentOptions" .= msg.pollerInfoDeploymentoptions
+instance Aeson.ToJSON PollerInfo where
+  toJSON msg = jsonObject
+      [ "lastAccessTime" .=: msg.pollerInfoLastaccesstime
+      , "identity" .=: msg.pollerInfoIdentity
+      , "ratePerSecond" .=: msg.pollerInfoRatepersecond
+      , "workerVersionCapabilities" .=: msg.pollerInfoWorkerversioncapabilities
+      , "deploymentOptions" .=: msg.pollerInfoDeploymentoptions
       ]
 
-instance ProtoFromJSON PollerInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_pollerInfoLastaccesstime <- obj .:? "lastAccessTime"
-    fld_pollerInfoIdentity <- obj .:? "identity"
-    fld_pollerInfoRatepersecond <- obj .:? "ratePerSecond"
-    fld_pollerInfoWorkerversioncapabilities <- obj .:? "workerVersionCapabilities"
-    fld_pollerInfoDeploymentoptions <- obj .:? "deploymentOptions"
+instance Aeson.FromJSON PollerInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pollerInfoLastaccesstime <- parseFieldMaybe obj "lastAccessTime"
+    fld_pollerInfoIdentity <- parseFieldMaybe obj "identity"
+    fld_pollerInfoRatepersecond <- parseFieldMaybe obj "ratePerSecond"
+    fld_pollerInfoWorkerversioncapabilities <- parseFieldMaybe obj "workerVersionCapabilities"
+    fld_pollerInfoDeploymentoptions <- parseFieldMaybe obj "deploymentOptions"
     pure defaultPollerInfo
       { pollerInfoLastaccesstime = maybe (pollerInfoLastaccesstime defaultPollerInfo) id fld_pollerInfoLastaccesstime
       , pollerInfoIdentity = maybe (pollerInfoIdentity defaultPollerInfo) id fld_pollerInfoIdentity
@@ -816,7 +813,7 @@ instance ProtoFromJSON PollerInfo where
       , pollerInfoWorkerversioncapabilities = maybe (pollerInfoWorkerversioncapabilities defaultPollerInfo) id fld_pollerInfoWorkerversioncapabilities
       , pollerInfoDeploymentoptions = maybe (pollerInfoDeploymentoptions defaultPollerInfo) id fld_pollerInfoDeploymentoptions
       }
-  protoFromJSON _ = Right defaultPollerInfo
+  parseJSON _ = pure defaultPollerInfo
 
 data StickyExecutionAttributes = StickyExecutionAttributes
   { stickyExecutionAttributesWorkertaskqueue :: !(Maybe TaskQueue)
@@ -860,21 +857,20 @@ instance MessageDecode StickyExecutionAttributes where
 instance IsMessage StickyExecutionAttributes where
   messageTypeName _ = "temporal.api.taskqueue.v1.StickyExecutionAttributes"
 
-instance ProtoToJSON StickyExecutionAttributes where
-  protoToJSON msg = jsonObject
-      [ "workerTaskQueue" .= msg.stickyExecutionAttributesWorkertaskqueue
-      , "scheduleToStartTimeout" .= msg.stickyExecutionAttributesScheduletostarttimeout
+instance Aeson.ToJSON StickyExecutionAttributes where
+  toJSON msg = jsonObject
+      [ "workerTaskQueue" .=: msg.stickyExecutionAttributesWorkertaskqueue
+      , "scheduleToStartTimeout" .=: msg.stickyExecutionAttributesScheduletostarttimeout
       ]
 
-instance ProtoFromJSON StickyExecutionAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_stickyExecutionAttributesWorkertaskqueue <- obj .:? "workerTaskQueue"
-    fld_stickyExecutionAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
+instance Aeson.FromJSON StickyExecutionAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_stickyExecutionAttributesWorkertaskqueue <- parseFieldMaybe obj "workerTaskQueue"
+    fld_stickyExecutionAttributesScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
     pure defaultStickyExecutionAttributes
       { stickyExecutionAttributesWorkertaskqueue = maybe (stickyExecutionAttributesWorkertaskqueue defaultStickyExecutionAttributes) id fld_stickyExecutionAttributesWorkertaskqueue
       , stickyExecutionAttributesScheduletostarttimeout = maybe (stickyExecutionAttributesScheduletostarttimeout defaultStickyExecutionAttributes) id fld_stickyExecutionAttributesScheduletostarttimeout
       }
-  protoFromJSON _ = Right defaultStickyExecutionAttributes
 
 data CompatibleVersionSet = CompatibleVersionSet
   { compatibleVersionSetBuildids :: !(V.Vector Text)
@@ -911,19 +907,18 @@ instance MessageDecode CompatibleVersionSet where
 instance IsMessage CompatibleVersionSet where
   messageTypeName _ = "temporal.api.taskqueue.v1.CompatibleVersionSet"
 
-instance ProtoToJSON CompatibleVersionSet where
-  protoToJSON msg = jsonObject
-      [ "buildIds" .= msg.compatibleVersionSetBuildids
+instance Aeson.ToJSON CompatibleVersionSet where
+  toJSON msg = jsonObject
+      [ "buildIds" .=: msg.compatibleVersionSetBuildids
 
       ]
 
-instance ProtoFromJSON CompatibleVersionSet where
-  protoFromJSON (JsonObject obj) = do
-    fld_compatibleVersionSetBuildids <- obj .:? "buildIds"
+instance Aeson.FromJSON CompatibleVersionSet where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_compatibleVersionSetBuildids <- parseFieldMaybe obj "buildIds"
     pure defaultCompatibleVersionSet
       { compatibleVersionSetBuildids = maybe (compatibleVersionSetBuildids defaultCompatibleVersionSet) id fld_compatibleVersionSetBuildids
       }
-  protoFromJSON _ = Right defaultCompatibleVersionSet
 
 data TaskQueueReachability = TaskQueueReachability
   { taskQueueReachabilityTaskqueue :: !Text
@@ -967,21 +962,20 @@ instance MessageDecode TaskQueueReachability where
 instance IsMessage TaskQueueReachability where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueReachability"
 
-instance ProtoToJSON TaskQueueReachability where
-  protoToJSON msg = jsonObject
-      [ "taskQueue" .= msg.taskQueueReachabilityTaskqueue
-      , "reachability" .= msg.taskQueueReachabilityReachability
+instance Aeson.ToJSON TaskQueueReachability where
+  toJSON msg = jsonObject
+      [ "taskQueue" .=: msg.taskQueueReachabilityTaskqueue
+      , "reachability" .=: msg.taskQueueReachabilityReachability
       ]
 
-instance ProtoFromJSON TaskQueueReachability where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueReachabilityTaskqueue <- obj .:? "taskQueue"
-    fld_taskQueueReachabilityReachability <- obj .:? "reachability"
+instance Aeson.FromJSON TaskQueueReachability where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueReachabilityTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_taskQueueReachabilityReachability <- parseFieldMaybe obj "reachability"
     pure defaultTaskQueueReachability
       { taskQueueReachabilityTaskqueue = maybe (taskQueueReachabilityTaskqueue defaultTaskQueueReachability) id fld_taskQueueReachabilityTaskqueue
       , taskQueueReachabilityReachability = maybe (taskQueueReachabilityReachability defaultTaskQueueReachability) id fld_taskQueueReachabilityReachability
       }
-  protoFromJSON _ = Right defaultTaskQueueReachability
 
 data BuildIdReachability = BuildIdReachability
   { buildIdReachabilityBuildid :: !Text
@@ -1025,21 +1019,20 @@ instance MessageDecode BuildIdReachability where
 instance IsMessage BuildIdReachability where
   messageTypeName _ = "temporal.api.taskqueue.v1.BuildIdReachability"
 
-instance ProtoToJSON BuildIdReachability where
-  protoToJSON msg = jsonObject
-      [ "buildId" .= msg.buildIdReachabilityBuildid
-      , "taskQueueReachability" .= msg.buildIdReachabilityTaskqueuereachability
+instance Aeson.ToJSON BuildIdReachability where
+  toJSON msg = jsonObject
+      [ "buildId" .=: msg.buildIdReachabilityBuildid
+      , "taskQueueReachability" .=: msg.buildIdReachabilityTaskqueuereachability
       ]
 
-instance ProtoFromJSON BuildIdReachability where
-  protoFromJSON (JsonObject obj) = do
-    fld_buildIdReachabilityBuildid <- obj .:? "buildId"
-    fld_buildIdReachabilityTaskqueuereachability <- obj .:? "taskQueueReachability"
+instance Aeson.FromJSON BuildIdReachability where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_buildIdReachabilityBuildid <- parseFieldMaybe obj "buildId"
+    fld_buildIdReachabilityTaskqueuereachability <- parseFieldMaybe obj "taskQueueReachability"
     pure defaultBuildIdReachability
       { buildIdReachabilityBuildid = maybe (buildIdReachabilityBuildid defaultBuildIdReachability) id fld_buildIdReachabilityBuildid
       , buildIdReachabilityTaskqueuereachability = maybe (buildIdReachabilityTaskqueuereachability defaultBuildIdReachability) id fld_buildIdReachabilityTaskqueuereachability
       }
-  protoFromJSON _ = Right defaultBuildIdReachability
 
 data RampByPercentage = RampByPercentage
   { rampByPercentageRamppercentage :: {-# UNPACK #-} !Float
@@ -1076,19 +1069,18 @@ instance MessageDecode RampByPercentage where
 instance IsMessage RampByPercentage where
   messageTypeName _ = "temporal.api.taskqueue.v1.RampByPercentage"
 
-instance ProtoToJSON RampByPercentage where
-  protoToJSON msg = jsonObject
-      [ "rampPercentage" .= msg.rampByPercentageRamppercentage
+instance Aeson.ToJSON RampByPercentage where
+  toJSON msg = jsonObject
+      [ "rampPercentage" .=: msg.rampByPercentageRamppercentage
 
       ]
 
-instance ProtoFromJSON RampByPercentage where
-  protoFromJSON (JsonObject obj) = do
-    fld_rampByPercentageRamppercentage <- obj .:? "rampPercentage"
+instance Aeson.FromJSON RampByPercentage where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_rampByPercentageRamppercentage <- parseFieldMaybe obj "rampPercentage"
     pure defaultRampByPercentage
       { rampByPercentageRamppercentage = maybe (rampByPercentageRamppercentage defaultRampByPercentage) id fld_rampByPercentageRamppercentage
       }
-  protoFromJSON _ = Right defaultRampByPercentage
 
 data BuildIdAssignmentRule = BuildIdAssignmentRule
   { buildIdAssignmentRuleTargetbuildid :: !Text
@@ -1100,10 +1092,10 @@ data BuildIdAssignmentRule'Ramp
   = BuildIdAssignmentRule'Ramp'PercentageRamp !RampByPercentage
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON BuildIdAssignmentRule'Ramp where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON BuildIdAssignmentRule'Ramp where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON BuildIdAssignmentRule'Ramp where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON BuildIdAssignmentRule'Ramp where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultBuildIdAssignmentRule :: BuildIdAssignmentRule
 defaultBuildIdAssignmentRule = BuildIdAssignmentRule
@@ -1142,21 +1134,20 @@ instance MessageDecode BuildIdAssignmentRule where
 instance IsMessage BuildIdAssignmentRule where
   messageTypeName _ = "temporal.api.taskqueue.v1.BuildIdAssignmentRule"
 
-instance ProtoToJSON BuildIdAssignmentRule where
-  protoToJSON msg = jsonObject
-      [ "targetBuildId" .= msg.buildIdAssignmentRuleTargetbuildid
-      , "ramp" .= msg.buildIdAssignmentRuleRamp
+instance Aeson.ToJSON BuildIdAssignmentRule where
+  toJSON msg = jsonObject
+      [ "targetBuildId" .=: msg.buildIdAssignmentRuleTargetbuildid
+      , "ramp" .=: msg.buildIdAssignmentRuleRamp
       ]
 
-instance ProtoFromJSON BuildIdAssignmentRule where
-  protoFromJSON (JsonObject obj) = do
-    fld_buildIdAssignmentRuleTargetbuildid <- obj .:? "targetBuildId"
-    fld_buildIdAssignmentRuleRamp <- obj .:? "ramp"
+instance Aeson.FromJSON BuildIdAssignmentRule where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_buildIdAssignmentRuleTargetbuildid <- parseFieldMaybe obj "targetBuildId"
+    fld_buildIdAssignmentRuleRamp <- parseFieldMaybe obj "ramp"
     pure defaultBuildIdAssignmentRule
       { buildIdAssignmentRuleTargetbuildid = maybe (buildIdAssignmentRuleTargetbuildid defaultBuildIdAssignmentRule) id fld_buildIdAssignmentRuleTargetbuildid
       , buildIdAssignmentRuleRamp = maybe (buildIdAssignmentRuleRamp defaultBuildIdAssignmentRule) id fld_buildIdAssignmentRuleRamp
       }
-  protoFromJSON _ = Right defaultBuildIdAssignmentRule
 
 data CompatibleBuildIdRedirectRule = CompatibleBuildIdRedirectRule
   { compatibleBuildIdRedirectRuleSourcebuildid :: !Text
@@ -1200,21 +1191,20 @@ instance MessageDecode CompatibleBuildIdRedirectRule where
 instance IsMessage CompatibleBuildIdRedirectRule where
   messageTypeName _ = "temporal.api.taskqueue.v1.CompatibleBuildIdRedirectRule"
 
-instance ProtoToJSON CompatibleBuildIdRedirectRule where
-  protoToJSON msg = jsonObject
-      [ "sourceBuildId" .= msg.compatibleBuildIdRedirectRuleSourcebuildid
-      , "targetBuildId" .= msg.compatibleBuildIdRedirectRuleTargetbuildid
+instance Aeson.ToJSON CompatibleBuildIdRedirectRule where
+  toJSON msg = jsonObject
+      [ "sourceBuildId" .=: msg.compatibleBuildIdRedirectRuleSourcebuildid
+      , "targetBuildId" .=: msg.compatibleBuildIdRedirectRuleTargetbuildid
       ]
 
-instance ProtoFromJSON CompatibleBuildIdRedirectRule where
-  protoFromJSON (JsonObject obj) = do
-    fld_compatibleBuildIdRedirectRuleSourcebuildid <- obj .:? "sourceBuildId"
-    fld_compatibleBuildIdRedirectRuleTargetbuildid <- obj .:? "targetBuildId"
+instance Aeson.FromJSON CompatibleBuildIdRedirectRule where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_compatibleBuildIdRedirectRuleSourcebuildid <- parseFieldMaybe obj "sourceBuildId"
+    fld_compatibleBuildIdRedirectRuleTargetbuildid <- parseFieldMaybe obj "targetBuildId"
     pure defaultCompatibleBuildIdRedirectRule
       { compatibleBuildIdRedirectRuleSourcebuildid = maybe (compatibleBuildIdRedirectRuleSourcebuildid defaultCompatibleBuildIdRedirectRule) id fld_compatibleBuildIdRedirectRuleSourcebuildid
       , compatibleBuildIdRedirectRuleTargetbuildid = maybe (compatibleBuildIdRedirectRuleTargetbuildid defaultCompatibleBuildIdRedirectRule) id fld_compatibleBuildIdRedirectRuleTargetbuildid
       }
-  protoFromJSON _ = Right defaultCompatibleBuildIdRedirectRule
 
 data TimestampedBuildIdAssignmentRule = TimestampedBuildIdAssignmentRule
   { timestampedBuildIdAssignmentRuleRule :: !(Maybe BuildIdAssignmentRule)
@@ -1258,21 +1248,20 @@ instance MessageDecode TimestampedBuildIdAssignmentRule where
 instance IsMessage TimestampedBuildIdAssignmentRule where
   messageTypeName _ = "temporal.api.taskqueue.v1.TimestampedBuildIdAssignmentRule"
 
-instance ProtoToJSON TimestampedBuildIdAssignmentRule where
-  protoToJSON msg = jsonObject
-      [ "rule" .= msg.timestampedBuildIdAssignmentRuleRule
-      , "createTime" .= msg.timestampedBuildIdAssignmentRuleCreatetime
+instance Aeson.ToJSON TimestampedBuildIdAssignmentRule where
+  toJSON msg = jsonObject
+      [ "rule" .=: msg.timestampedBuildIdAssignmentRuleRule
+      , "createTime" .=: msg.timestampedBuildIdAssignmentRuleCreatetime
       ]
 
-instance ProtoFromJSON TimestampedBuildIdAssignmentRule where
-  protoFromJSON (JsonObject obj) = do
-    fld_timestampedBuildIdAssignmentRuleRule <- obj .:? "rule"
-    fld_timestampedBuildIdAssignmentRuleCreatetime <- obj .:? "createTime"
+instance Aeson.FromJSON TimestampedBuildIdAssignmentRule where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_timestampedBuildIdAssignmentRuleRule <- parseFieldMaybe obj "rule"
+    fld_timestampedBuildIdAssignmentRuleCreatetime <- parseFieldMaybe obj "createTime"
     pure defaultTimestampedBuildIdAssignmentRule
       { timestampedBuildIdAssignmentRuleRule = maybe (timestampedBuildIdAssignmentRuleRule defaultTimestampedBuildIdAssignmentRule) id fld_timestampedBuildIdAssignmentRuleRule
       , timestampedBuildIdAssignmentRuleCreatetime = maybe (timestampedBuildIdAssignmentRuleCreatetime defaultTimestampedBuildIdAssignmentRule) id fld_timestampedBuildIdAssignmentRuleCreatetime
       }
-  protoFromJSON _ = Right defaultTimestampedBuildIdAssignmentRule
 
 data TimestampedCompatibleBuildIdRedirectRule = TimestampedCompatibleBuildIdRedirectRule
   { timestampedCompatibleBuildIdRedirectRuleRule :: !(Maybe CompatibleBuildIdRedirectRule)
@@ -1316,21 +1305,20 @@ instance MessageDecode TimestampedCompatibleBuildIdRedirectRule where
 instance IsMessage TimestampedCompatibleBuildIdRedirectRule where
   messageTypeName _ = "temporal.api.taskqueue.v1.TimestampedCompatibleBuildIdRedirectRule"
 
-instance ProtoToJSON TimestampedCompatibleBuildIdRedirectRule where
-  protoToJSON msg = jsonObject
-      [ "rule" .= msg.timestampedCompatibleBuildIdRedirectRuleRule
-      , "createTime" .= msg.timestampedCompatibleBuildIdRedirectRuleCreatetime
+instance Aeson.ToJSON TimestampedCompatibleBuildIdRedirectRule where
+  toJSON msg = jsonObject
+      [ "rule" .=: msg.timestampedCompatibleBuildIdRedirectRuleRule
+      , "createTime" .=: msg.timestampedCompatibleBuildIdRedirectRuleCreatetime
       ]
 
-instance ProtoFromJSON TimestampedCompatibleBuildIdRedirectRule where
-  protoFromJSON (JsonObject obj) = do
-    fld_timestampedCompatibleBuildIdRedirectRuleRule <- obj .:? "rule"
-    fld_timestampedCompatibleBuildIdRedirectRuleCreatetime <- obj .:? "createTime"
+instance Aeson.FromJSON TimestampedCompatibleBuildIdRedirectRule where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_timestampedCompatibleBuildIdRedirectRuleRule <- parseFieldMaybe obj "rule"
+    fld_timestampedCompatibleBuildIdRedirectRuleCreatetime <- parseFieldMaybe obj "createTime"
     pure defaultTimestampedCompatibleBuildIdRedirectRule
       { timestampedCompatibleBuildIdRedirectRuleRule = maybe (timestampedCompatibleBuildIdRedirectRuleRule defaultTimestampedCompatibleBuildIdRedirectRule) id fld_timestampedCompatibleBuildIdRedirectRuleRule
       , timestampedCompatibleBuildIdRedirectRuleCreatetime = maybe (timestampedCompatibleBuildIdRedirectRuleCreatetime defaultTimestampedCompatibleBuildIdRedirectRule) id fld_timestampedCompatibleBuildIdRedirectRuleCreatetime
       }
-  protoFromJSON _ = Right defaultTimestampedCompatibleBuildIdRedirectRule
 
 data PollerScalingDecision = PollerScalingDecision
   { pollerScalingDecisionPollrequestdeltasuggestion :: {-# UNPACK #-} !Int32
@@ -1367,19 +1355,18 @@ instance MessageDecode PollerScalingDecision where
 instance IsMessage PollerScalingDecision where
   messageTypeName _ = "temporal.api.taskqueue.v1.PollerScalingDecision"
 
-instance ProtoToJSON PollerScalingDecision where
-  protoToJSON msg = jsonObject
-      [ "pollRequestDeltaSuggestion" .= msg.pollerScalingDecisionPollrequestdeltasuggestion
+instance Aeson.ToJSON PollerScalingDecision where
+  toJSON msg = jsonObject
+      [ "pollRequestDeltaSuggestion" .=: msg.pollerScalingDecisionPollrequestdeltasuggestion
 
       ]
 
-instance ProtoFromJSON PollerScalingDecision where
-  protoFromJSON (JsonObject obj) = do
-    fld_pollerScalingDecisionPollrequestdeltasuggestion <- obj .:? "pollRequestDeltaSuggestion"
+instance Aeson.FromJSON PollerScalingDecision where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pollerScalingDecisionPollrequestdeltasuggestion <- parseFieldMaybe obj "pollRequestDeltaSuggestion"
     pure defaultPollerScalingDecision
       { pollerScalingDecisionPollrequestdeltasuggestion = maybe (pollerScalingDecisionPollrequestdeltasuggestion defaultPollerScalingDecision) id fld_pollerScalingDecisionPollrequestdeltasuggestion
       }
-  protoFromJSON _ = Right defaultPollerScalingDecision
 
 data RateLimit = RateLimit
   { rateLimitRequestspersecond :: {-# UNPACK #-} !Float
@@ -1416,19 +1403,18 @@ instance MessageDecode RateLimit where
 instance IsMessage RateLimit where
   messageTypeName _ = "temporal.api.taskqueue.v1.RateLimit"
 
-instance ProtoToJSON RateLimit where
-  protoToJSON msg = jsonObject
-      [ "requestsPerSecond" .= msg.rateLimitRequestspersecond
+instance Aeson.ToJSON RateLimit where
+  toJSON msg = jsonObject
+      [ "requestsPerSecond" .=: msg.rateLimitRequestspersecond
 
       ]
 
-instance ProtoFromJSON RateLimit where
-  protoFromJSON (JsonObject obj) = do
-    fld_rateLimitRequestspersecond <- obj .:? "requestsPerSecond"
+instance Aeson.FromJSON RateLimit where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_rateLimitRequestspersecond <- parseFieldMaybe obj "requestsPerSecond"
     pure defaultRateLimit
       { rateLimitRequestspersecond = maybe (rateLimitRequestspersecond defaultRateLimit) id fld_rateLimitRequestspersecond
       }
-  protoFromJSON _ = Right defaultRateLimit
 
 data ConfigMetadata = ConfigMetadata
   { configMetadataReason :: !Text
@@ -1479,24 +1465,23 @@ instance MessageDecode ConfigMetadata where
 instance IsMessage ConfigMetadata where
   messageTypeName _ = "temporal.api.taskqueue.v1.ConfigMetadata"
 
-instance ProtoToJSON ConfigMetadata where
-  protoToJSON msg = jsonObject
-      [ "reason" .= msg.configMetadataReason
-      , "updateIdentity" .= msg.configMetadataUpdateidentity
-      , "updateTime" .= msg.configMetadataUpdatetime
+instance Aeson.ToJSON ConfigMetadata where
+  toJSON msg = jsonObject
+      [ "reason" .=: msg.configMetadataReason
+      , "updateIdentity" .=: msg.configMetadataUpdateidentity
+      , "updateTime" .=: msg.configMetadataUpdatetime
       ]
 
-instance ProtoFromJSON ConfigMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_configMetadataReason <- obj .:? "reason"
-    fld_configMetadataUpdateidentity <- obj .:? "updateIdentity"
-    fld_configMetadataUpdatetime <- obj .:? "updateTime"
+instance Aeson.FromJSON ConfigMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_configMetadataReason <- parseFieldMaybe obj "reason"
+    fld_configMetadataUpdateidentity <- parseFieldMaybe obj "updateIdentity"
+    fld_configMetadataUpdatetime <- parseFieldMaybe obj "updateTime"
     pure defaultConfigMetadata
       { configMetadataReason = maybe (configMetadataReason defaultConfigMetadata) id fld_configMetadataReason
       , configMetadataUpdateidentity = maybe (configMetadataUpdateidentity defaultConfigMetadata) id fld_configMetadataUpdateidentity
       , configMetadataUpdatetime = maybe (configMetadataUpdatetime defaultConfigMetadata) id fld_configMetadataUpdatetime
       }
-  protoFromJSON _ = Right defaultConfigMetadata
 
 data RateLimitConfig = RateLimitConfig
   { rateLimitConfigRatelimit :: !(Maybe RateLimit)
@@ -1540,21 +1525,20 @@ instance MessageDecode RateLimitConfig where
 instance IsMessage RateLimitConfig where
   messageTypeName _ = "temporal.api.taskqueue.v1.RateLimitConfig"
 
-instance ProtoToJSON RateLimitConfig where
-  protoToJSON msg = jsonObject
-      [ "rateLimit" .= msg.rateLimitConfigRatelimit
-      , "metadata" .= msg.rateLimitConfigMetadata
+instance Aeson.ToJSON RateLimitConfig where
+  toJSON msg = jsonObject
+      [ "rateLimit" .=: msg.rateLimitConfigRatelimit
+      , "metadata" .=: msg.rateLimitConfigMetadata
       ]
 
-instance ProtoFromJSON RateLimitConfig where
-  protoFromJSON (JsonObject obj) = do
-    fld_rateLimitConfigRatelimit <- obj .:? "rateLimit"
-    fld_rateLimitConfigMetadata <- obj .:? "metadata"
+instance Aeson.FromJSON RateLimitConfig where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_rateLimitConfigRatelimit <- parseFieldMaybe obj "rateLimit"
+    fld_rateLimitConfigMetadata <- parseFieldMaybe obj "metadata"
     pure defaultRateLimitConfig
       { rateLimitConfigRatelimit = maybe (rateLimitConfigRatelimit defaultRateLimitConfig) id fld_rateLimitConfigRatelimit
       , rateLimitConfigMetadata = maybe (rateLimitConfigMetadata defaultRateLimitConfig) id fld_rateLimitConfigMetadata
       }
-  protoFromJSON _ = Right defaultRateLimitConfig
 
 data TaskQueueConfig = TaskQueueConfig
   { taskQueueConfigQueueratelimit :: !(Maybe RateLimitConfig)
@@ -1608,24 +1592,23 @@ instance MessageDecode TaskQueueConfig where
 instance IsMessage TaskQueueConfig where
   messageTypeName _ = "temporal.api.taskqueue.v1.TaskQueueConfig"
 
-instance ProtoToJSON TaskQueueConfig where
-  protoToJSON msg = jsonObject
-      [ "queueRateLimit" .= msg.taskQueueConfigQueueratelimit
-      , "fairnessKeysRateLimitDefault" .= msg.taskQueueConfigFairnesskeysratelimitdefault
-      , "fairnessWeightOverrides" .= msg.taskQueueConfigFairnessweightoverrides
+instance Aeson.ToJSON TaskQueueConfig where
+  toJSON msg = jsonObject
+      [ "queueRateLimit" .=: msg.taskQueueConfigQueueratelimit
+      , "fairnessKeysRateLimitDefault" .=: msg.taskQueueConfigFairnesskeysratelimitdefault
+      , "fairnessWeightOverrides" .=: msg.taskQueueConfigFairnessweightoverrides
       ]
 
-instance ProtoFromJSON TaskQueueConfig where
-  protoFromJSON (JsonObject obj) = do
-    fld_taskQueueConfigQueueratelimit <- obj .:? "queueRateLimit"
-    fld_taskQueueConfigFairnesskeysratelimitdefault <- obj .:? "fairnessKeysRateLimitDefault"
-    fld_taskQueueConfigFairnessweightoverrides <- obj .:? "fairnessWeightOverrides"
+instance Aeson.FromJSON TaskQueueConfig where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_taskQueueConfigQueueratelimit <- parseFieldMaybe obj "queueRateLimit"
+    fld_taskQueueConfigFairnesskeysratelimitdefault <- parseFieldMaybe obj "fairnessKeysRateLimitDefault"
+    fld_taskQueueConfigFairnessweightoverrides <- parseFieldMaybe obj "fairnessWeightOverrides"
     pure defaultTaskQueueConfig
       { taskQueueConfigQueueratelimit = maybe (taskQueueConfigQueueratelimit defaultTaskQueueConfig) id fld_taskQueueConfigQueueratelimit
       , taskQueueConfigFairnesskeysratelimitdefault = maybe (taskQueueConfigFairnesskeysratelimitdefault defaultTaskQueueConfig) id fld_taskQueueConfigFairnesskeysratelimitdefault
       , taskQueueConfigFairnessweightoverrides = maybe (taskQueueConfigFairnessweightoverrides defaultTaskQueueConfig) id fld_taskQueueConfigFairnessweightoverrides
       }
-  protoFromJSON _ = Right defaultTaskQueueConfig
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -5,7 +5,7 @@
 -- * Proper cross-module imports via a TypeRegistry
 -- * Record types for messages, sum types for enums and oneofs
 -- * MessageEncode / MessageDecode / MessageSize instances
--- * ProtoToJSON / ProtoFromJSON instances (using json_name annotations)
+-- * Aeson ToJSON / FromJSON instances (using json_name annotations)
 -- * Map field, oneof, and nested message support
 module Proto.CodeGen
   ( generateModule
@@ -99,7 +99,7 @@ defaultJsonOverrides :: Map Text JsonOverride
 defaultJsonOverrides = Map.fromList
   [ ("google.protobuf.Timestamp", JsonOverride
       { joToJSON   = T.unlines
-          [ "  protoToJSON msg ="
+          [ "  toJSON msg ="
           , "    let s = msg.timestampSeconds"
           , "        n = msg.timestampNanos"
           , "        (rawDays, remSec) = s `divMod` 86400"
@@ -120,29 +120,29 @@ defaultJsonOverrides = Map.fromList
           , "        pad9 x = let sx = T.pack (show (abs x)) in T.replicate (9 - T.length sx) (T.pack \"0\") <> sx"
           , "        nanoStr = if n == 0 then T.pack \"\" else T.pack \".\" <> dropTrailingZeros (pad9 (fromIntegral n))"
           , "        dropTrailingZeros t = case T.stripSuffix (T.pack \"0\") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }"
-          , "    in JsonString (pad4 y' <> T.pack \"-\" <> pad2 (fromIntegral m) <> T.pack \"-\" <> pad2 (fromIntegral d)"
+          , "    in Aeson.String (pad4 y' <> T.pack \"-\" <> pad2 (fromIntegral m) <> T.pack \"-\" <> pad2 (fromIntegral d)"
           , "         <> T.pack \"T\" <> pad2 hours <> T.pack \":\" <> pad2 mins <> T.pack \":\" <> pad2 secs"
           , "         <> nanoStr <> T.pack \"Z\")"
           ]
       , joFromJSON = T.unlines
-          [ "  protoFromJSON (JsonString _) = Right defaultTimestamp"
-          , "  protoFromJSON _ = Left \"Expected RFC 3339 timestamp string\""
+          [ "  parseJSON (Aeson.String _) = pure defaultTimestamp"
+          , "  parseJSON _ = fail \"Expected RFC 3339 timestamp string\""
           ]
       })
   , ("google.protobuf.Duration", JsonOverride
       { joToJSON   = T.unlines
-          [ "  protoToJSON msg ="
+          [ "  toJSON msg ="
           , "    let s = msg.durationSeconds"
           , "        n = msg.durationNanos"
           , "        nanoStr = if n == 0 then T.pack \"\" else T.pack \".\" <> dropTrailingZeros (pad9 (abs (fromIntegral n)))"
           , "        dropTrailingZeros t = case T.stripSuffix (T.pack \"0\") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }"
           , "        pad9 x = let sx = T.pack (show x) in T.replicate (9 - T.length sx) (T.pack \"0\") <> sx"
           , "        sign = if s < 0 || n < 0 then T.pack \"-\" else T.pack \"\""
-          , "    in JsonString (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack \"s\")"
+          , "    in Aeson.String (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack \"s\")"
           ]
       , joFromJSON = T.unlines
-          [ "  protoFromJSON (JsonString _) = Right defaultDuration"
-          , "  protoFromJSON _ = Left \"Expected duration string like \\\"3.5s\\\"\""
+          [ "  parseJSON (Aeson.String _) = pure defaultDuration"
+          , "  parseJSON _ = fail \"Expected duration string like \\\"3.5s\\\"\""
           ]
       })
   ]
@@ -455,7 +455,11 @@ genImports externalModules = vsep $
   , txt "import Control.DeepSeq (NFData(..))"
   , txt "import Proto.Encode"
   , txt "import Proto.Decode"
-  , txt "import Proto.JSON"
+  , txt "import qualified Data.Aeson as Aeson"
+  , txt "import qualified Data.Aeson.Types as Aeson"
+  , txt "import qualified Data.Aeson.Key as AesonKey"
+  , txt "import qualified Data.Aeson.KeyMap as AesonKM"
+  , txt "import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)"
   , txt "import Data.Proxy (Proxy(..))"
   , txt "import Proto.Message (IsMessage(..))"
   , txt "import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))"
@@ -622,19 +626,16 @@ genOneofToJSONInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
 genOneofToJSONInstance ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
   in vsep
-    [ instanceHead "ProtoToJSON" tyN
-    , indent 2 (txt "protoToJSON _ = JsonNull")
+    [ instanceHead "Aeson.ToJSON" tyN
+    , indent 2 (txt "toJSON _ = Aeson.Null")
     ]
 
 genOneofFromJSONInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
 genOneofFromJSONInstance ctx scope od =
   let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
-      firstCon = case oneofFields od of
-        (f:_) -> oneofConName scope (oneofName od) (oneofFieldName f)
-        [] -> tyN
   in vsep
-    [ instanceHead "ProtoFromJSON" tyN
-    , indent 2 (pretty ("protoFromJSON _ = Left \"Cannot parse oneof from JSON\"" :: Text))
+    [ instanceHead "Aeson.FromJSON" tyN
+    , indent 2 (pretty ("parseJSON _ = fail \"Cannot parse oneof from JSON\"" :: Text))
     ]
 
 -- ---------------------------------------------------------------------------
@@ -1299,15 +1300,15 @@ genToJSONInstance ctx scope msg =
       overrides = genJsonOverrides (gcOpts ctx)
   in case Map.lookup fqn overrides of
     Just jo -> vsep
-      [ instanceHead "ProtoToJSON" tyN
+      [ instanceHead "Aeson.ToJSON" tyN
       , pretty (joToJSON jo)
       ]
     Nothing ->
       let fields = extractAllFieldsJSON ctx scope (msgElements msg)
       in vsep
-        [ instanceHead "ProtoToJSON" tyN
+        [ instanceHead "Aeson.ToJSON" tyN
         , indent 2 $ vsep
-            [ txt "protoToJSON msg = jsonObject"
+            [ txt "toJSON msg = jsonObject"
             , indent 4 $ case fields of
                 [] -> txt "[]"
                 _ -> vsep
@@ -1320,7 +1321,7 @@ genToJSONInstance ctx scope msg =
 
 genToJSONField :: GenCtx -> JSONFieldInfo -> Doc ann
 genToJSONField ctx jfi =
-  pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\" .= msg." :: Text) <> pretty (jfiAccessor jfi)
+  pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\" .=: msg." :: Text) <> pretty (jfiAccessor jfi)
 
 genFromJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genFromJSONInstance ctx scope msg =
@@ -1329,20 +1330,20 @@ genFromJSONInstance ctx scope msg =
       overrides = genJsonOverrides (gcOpts ctx)
   in case Map.lookup fqn overrides of
     Just jo -> vsep
-      [ instanceHead "ProtoFromJSON" tyN
+      [ instanceHead "Aeson.FromJSON" tyN
       , pretty (joFromJSON jo)
       ]
     Nothing ->
       let fields = extractAllFieldsJSON ctx scope (msgElements msg)
       in case fields of
         [] -> vsep
-          [ instanceHead "ProtoFromJSON" tyN
-          , indent 2 $ txt "protoFromJSON _ = Right default" <> pretty tyN
+          [ instanceHead "Aeson.FromJSON" tyN
+          , indent 2 $ txt "parseJSON _ = pure default" <> pretty tyN
           ]
         _ -> vsep
-          [ instanceHead "ProtoFromJSON" tyN
+          [ instanceHead "Aeson.FromJSON" tyN
           , indent 2 $ vsep
-              [ txt "protoFromJSON (JsonObject obj) = do"
+              [ txt "parseJSON = Aeson.withObject " <> pretty ("\"" :: Text) <> pretty tyN <> pretty ("\"" :: Text) <> txt " $ \\obj -> do"
               , indent 2 $ vsep
                   (fmap genFromJSONFieldBind fields
                   <> [ txt "pure default" <> pretty tyN
@@ -1351,13 +1352,12 @@ genFromJSONInstance ctx scope msg =
                          : fmap (\jfi -> txt ", " <> genFromJSONFieldAssign tyN jfi) (tail fields)
                          <> [txt "}"])
                      ])
-              , txt "protoFromJSON _ = Right default" <> pretty tyN
               ]
           ]
 
 genFromJSONFieldBind :: JSONFieldInfo -> Doc ann
 genFromJSONFieldBind jfi =
-  txt "fld_" <> pretty (jfiAccessor jfi) <+> pretty ("<- obj .:? \"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
+  txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
 
 genFromJSONFieldAssign :: Text -> JSONFieldInfo -> Doc ann
 genFromJSONFieldAssign tyN jfi =
@@ -1602,10 +1602,10 @@ genEnumToJSONInstance scope ed =
   let tyN = scopedTypeName scope
       primaryVals = enumPrimaryValues ed
       genCase ev =
-        txt "protoToJSON " <> pretty (scopedEnumCon scope (evName ev)) <+>
-        pretty ("= JsonString \"" :: Text) <> pretty (evName ev) <> pretty ("\"" :: Text)
+        txt "toJSON " <> pretty (scopedEnumCon scope (evName ev)) <+>
+        pretty ("= Aeson.String \"" :: Text) <> pretty (evName ev) <> pretty ("\"" :: Text)
   in vsep
-    [ instanceHead "ProtoToJSON" tyN
+    [ instanceHead "Aeson.ToJSON" tyN
     , indent 2 (vsep (fmap genCase primaryVals))
     ]
 
@@ -1614,18 +1614,18 @@ genEnumFromJSONInstance scope ed =
   let tyN = scopedTypeName scope
       hasAlias = enumHasAliases ed
       genCase ev =
-        pretty ("  JsonString \"" :: Text) <> pretty (evName ev) <> pretty ("\" -> Right " :: Text) <> pretty (scopedEnumCon scope (evName ev))
+        pretty ("  Aeson.String \"" :: Text) <> pretty (evName ev) <> pretty ("\" -> pure " :: Text) <> pretty (scopedEnumCon scope (evName ev))
       fallbackNumCase = if hasAlias
-        then txt "  JsonNumber n -> fromProtoEnum" <> pretty tyN <>
-             pretty (" (round n) & maybe (Left \"Invalid enum\") Right" :: Text)
-        else txt "  JsonNumber n -> Right (toEnum (round n))"
+        then txt "  Aeson.Number n -> case fromProtoEnum" <> pretty tyN <>
+             pretty (" (round n) of { Just v -> pure v; Nothing -> fail \"Invalid enum\" }" :: Text)
+        else txt "  Aeson.Number n -> pure (toEnum (round n))"
   in vsep
-    [ instanceHead "ProtoFromJSON" tyN
+    [ instanceHead "Aeson.FromJSON" tyN
     , indent 2 $ vsep
-        [ txt "protoFromJSON = \\case"
+        [ txt "parseJSON = \\case"
         , vsep (fmap genCase (enumValues ed))
         , fallbackNumCase
-        , txt "  _ -> Left " <> pretty ("\"Invalid enum value for " :: Text) <> pretty tyN <> pretty ("\"" :: Text)
+        , txt "  _ -> fail " <> pretty ("\"Invalid enum value for " :: Text) <> pretty tyN <> pretty ("\"" :: Text)
         ]
     ]
 

@@ -27,7 +27,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -124,20 +128,20 @@ instance ProtoMessage Duration where
         })
     ]
 
-instance ProtoToJSON Duration where
-  protoToJSON msg =
+instance Aeson.ToJSON Duration where
+  toJSON msg =
     let s = msg.durationSeconds
         n = msg.durationNanos
         nanoStr = if n == 0 then T.pack "" else T.pack "." <> dropTrailingZeros (pad9 (abs (fromIntegral n)))
         dropTrailingZeros t = case T.stripSuffix (T.pack "0") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }
         pad9 x = let sx = T.pack (show x) in T.replicate (9 - T.length sx) (T.pack "0") <> sx
         sign = if s < 0 || n < 0 then T.pack "-" else T.pack ""
-    in JsonString (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack "s")
+    in Aeson.String (sign <> T.pack (show (abs s)) <> nanoStr <> T.pack "s")
 
 
-instance ProtoFromJSON Duration where
-  protoFromJSON (JsonString _) = Right defaultDuration
-  protoFromJSON _ = Left "Expected duration string like \"3.5s\""
+instance Aeson.FromJSON Duration where
+  parseJSON (Aeson.String _) = pure defaultDuration
+  parseJSON _ = fail "Expected duration string like \"3.5s\""
 
 
 -- | Register all message types defined in this module.

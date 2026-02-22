@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -84,21 +88,20 @@ instance MessageDecode WorkflowExecutionFilter where
 instance IsMessage WorkflowExecutionFilter where
   messageTypeName _ = "temporal.api.filter.v1.WorkflowExecutionFilter"
 
-instance ProtoToJSON WorkflowExecutionFilter where
-  protoToJSON msg = jsonObject
-      [ "workflowId" .= msg.workflowExecutionFilterWorkflowid
-      , "runId" .= msg.workflowExecutionFilterRunid
+instance Aeson.ToJSON WorkflowExecutionFilter where
+  toJSON msg = jsonObject
+      [ "workflowId" .=: msg.workflowExecutionFilterWorkflowid
+      , "runId" .=: msg.workflowExecutionFilterRunid
       ]
 
-instance ProtoFromJSON WorkflowExecutionFilter where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionFilterWorkflowid <- obj .:? "workflowId"
-    fld_workflowExecutionFilterRunid <- obj .:? "runId"
+instance Aeson.FromJSON WorkflowExecutionFilter where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionFilterWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_workflowExecutionFilterRunid <- parseFieldMaybe obj "runId"
     pure defaultWorkflowExecutionFilter
       { workflowExecutionFilterWorkflowid = maybe (workflowExecutionFilterWorkflowid defaultWorkflowExecutionFilter) id fld_workflowExecutionFilterWorkflowid
       , workflowExecutionFilterRunid = maybe (workflowExecutionFilterRunid defaultWorkflowExecutionFilter) id fld_workflowExecutionFilterRunid
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionFilter
 
 data WorkflowTypeFilter = WorkflowTypeFilter
   { workflowTypeFilterName :: !Text
@@ -135,19 +138,18 @@ instance MessageDecode WorkflowTypeFilter where
 instance IsMessage WorkflowTypeFilter where
   messageTypeName _ = "temporal.api.filter.v1.WorkflowTypeFilter"
 
-instance ProtoToJSON WorkflowTypeFilter where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.workflowTypeFilterName
+instance Aeson.ToJSON WorkflowTypeFilter where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.workflowTypeFilterName
 
       ]
 
-instance ProtoFromJSON WorkflowTypeFilter where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowTypeFilterName <- obj .:? "name"
+instance Aeson.FromJSON WorkflowTypeFilter where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowTypeFilterName <- parseFieldMaybe obj "name"
     pure defaultWorkflowTypeFilter
       { workflowTypeFilterName = maybe (workflowTypeFilterName defaultWorkflowTypeFilter) id fld_workflowTypeFilterName
       }
-  protoFromJSON _ = Right defaultWorkflowTypeFilter
 
 data StartTimeFilter = StartTimeFilter
   { startTimeFilterEarliesttime :: !(Maybe PB_Timestamp.Timestamp)
@@ -191,21 +193,20 @@ instance MessageDecode StartTimeFilter where
 instance IsMessage StartTimeFilter where
   messageTypeName _ = "temporal.api.filter.v1.StartTimeFilter"
 
-instance ProtoToJSON StartTimeFilter where
-  protoToJSON msg = jsonObject
-      [ "earliestTime" .= msg.startTimeFilterEarliesttime
-      , "latestTime" .= msg.startTimeFilterLatesttime
+instance Aeson.ToJSON StartTimeFilter where
+  toJSON msg = jsonObject
+      [ "earliestTime" .=: msg.startTimeFilterEarliesttime
+      , "latestTime" .=: msg.startTimeFilterLatesttime
       ]
 
-instance ProtoFromJSON StartTimeFilter where
-  protoFromJSON (JsonObject obj) = do
-    fld_startTimeFilterEarliesttime <- obj .:? "earliestTime"
-    fld_startTimeFilterLatesttime <- obj .:? "latestTime"
+instance Aeson.FromJSON StartTimeFilter where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startTimeFilterEarliesttime <- parseFieldMaybe obj "earliestTime"
+    fld_startTimeFilterLatesttime <- parseFieldMaybe obj "latestTime"
     pure defaultStartTimeFilter
       { startTimeFilterEarliesttime = maybe (startTimeFilterEarliesttime defaultStartTimeFilter) id fld_startTimeFilterEarliesttime
       , startTimeFilterLatesttime = maybe (startTimeFilterLatesttime defaultStartTimeFilter) id fld_startTimeFilterLatesttime
       }
-  protoFromJSON _ = Right defaultStartTimeFilter
 
 data StatusFilter = StatusFilter
   { statusFilterStatus :: !TE_Enums_V1_Workflow.WorkflowExecutionStatus
@@ -242,19 +243,18 @@ instance MessageDecode StatusFilter where
 instance IsMessage StatusFilter where
   messageTypeName _ = "temporal.api.filter.v1.StatusFilter"
 
-instance ProtoToJSON StatusFilter where
-  protoToJSON msg = jsonObject
-      [ "status" .= msg.statusFilterStatus
+instance Aeson.ToJSON StatusFilter where
+  toJSON msg = jsonObject
+      [ "status" .=: msg.statusFilterStatus
 
       ]
 
-instance ProtoFromJSON StatusFilter where
-  protoFromJSON (JsonObject obj) = do
-    fld_statusFilterStatus <- obj .:? "status"
+instance Aeson.FromJSON StatusFilter where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_statusFilterStatus <- parseFieldMaybe obj "status"
     pure defaultStatusFilter
       { statusFilterStatus = maybe (statusFilterStatus defaultStatusFilter) id fld_statusFilterStatus
       }
-  protoFromJSON _ = Right defaultStatusFilter
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

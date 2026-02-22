@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -130,28 +134,28 @@ instance MessageDecode CalendarSpec where
 instance IsMessage CalendarSpec where
   messageTypeName _ = "temporal.api.schedule.v1.CalendarSpec"
 
-instance ProtoToJSON CalendarSpec where
-  protoToJSON msg = jsonObject
-      [ "second" .= msg.calendarSpecSecond
-      , "minute" .= msg.calendarSpecMinute
-      , "hour" .= msg.calendarSpecHour
-      , "dayOfMonth" .= msg.calendarSpecDayofmonth
-      , "month" .= msg.calendarSpecMonth
-      , "year" .= msg.calendarSpecYear
-      , "dayOfWeek" .= msg.calendarSpecDayofweek
-      , "comment" .= msg.calendarSpecComment
+instance Aeson.ToJSON CalendarSpec where
+  toJSON msg = jsonObject
+      [ "second" .=: msg.calendarSpecSecond
+      , "minute" .=: msg.calendarSpecMinute
+      , "hour" .=: msg.calendarSpecHour
+      , "dayOfMonth" .=: msg.calendarSpecDayofmonth
+      , "month" .=: msg.calendarSpecMonth
+      , "year" .=: msg.calendarSpecYear
+      , "dayOfWeek" .=: msg.calendarSpecDayofweek
+      , "comment" .=: msg.calendarSpecComment
       ]
 
-instance ProtoFromJSON CalendarSpec where
-  protoFromJSON (JsonObject obj) = do
-    fld_calendarSpecSecond <- obj .:? "second"
-    fld_calendarSpecMinute <- obj .:? "minute"
-    fld_calendarSpecHour <- obj .:? "hour"
-    fld_calendarSpecDayofmonth <- obj .:? "dayOfMonth"
-    fld_calendarSpecMonth <- obj .:? "month"
-    fld_calendarSpecYear <- obj .:? "year"
-    fld_calendarSpecDayofweek <- obj .:? "dayOfWeek"
-    fld_calendarSpecComment <- obj .:? "comment"
+instance Aeson.FromJSON CalendarSpec where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_calendarSpecSecond <- parseFieldMaybe obj "second"
+    fld_calendarSpecMinute <- parseFieldMaybe obj "minute"
+    fld_calendarSpecHour <- parseFieldMaybe obj "hour"
+    fld_calendarSpecDayofmonth <- parseFieldMaybe obj "dayOfMonth"
+    fld_calendarSpecMonth <- parseFieldMaybe obj "month"
+    fld_calendarSpecYear <- parseFieldMaybe obj "year"
+    fld_calendarSpecDayofweek <- parseFieldMaybe obj "dayOfWeek"
+    fld_calendarSpecComment <- parseFieldMaybe obj "comment"
     pure defaultCalendarSpec
       { calendarSpecSecond = maybe (calendarSpecSecond defaultCalendarSpec) id fld_calendarSpecSecond
       , calendarSpecMinute = maybe (calendarSpecMinute defaultCalendarSpec) id fld_calendarSpecMinute
@@ -162,7 +166,7 @@ instance ProtoFromJSON CalendarSpec where
       , calendarSpecDayofweek = maybe (calendarSpecDayofweek defaultCalendarSpec) id fld_calendarSpecDayofweek
       , calendarSpecComment = maybe (calendarSpecComment defaultCalendarSpec) id fld_calendarSpecComment
       }
-  protoFromJSON _ = Right defaultCalendarSpec
+  parseJSON _ = pure defaultCalendarSpec
 
 data Range = Range
   { rangeStart :: {-# UNPACK #-} !Int32
@@ -213,24 +217,23 @@ instance MessageDecode Range where
 instance IsMessage Range where
   messageTypeName _ = "temporal.api.schedule.v1.Range"
 
-instance ProtoToJSON Range where
-  protoToJSON msg = jsonObject
-      [ "start" .= msg.rangeStart
-      , "end" .= msg.rangeEnd
-      , "step" .= msg.rangeStep
+instance Aeson.ToJSON Range where
+  toJSON msg = jsonObject
+      [ "start" .=: msg.rangeStart
+      , "end" .=: msg.rangeEnd
+      , "step" .=: msg.rangeStep
       ]
 
-instance ProtoFromJSON Range where
-  protoFromJSON (JsonObject obj) = do
-    fld_rangeStart <- obj .:? "start"
-    fld_rangeEnd <- obj .:? "end"
-    fld_rangeStep <- obj .:? "step"
+instance Aeson.FromJSON Range where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_rangeStart <- parseFieldMaybe obj "start"
+    fld_rangeEnd <- parseFieldMaybe obj "end"
+    fld_rangeStep <- parseFieldMaybe obj "step"
     pure defaultRange
       { rangeStart = maybe (rangeStart defaultRange) id fld_rangeStart
       , rangeEnd = maybe (rangeEnd defaultRange) id fld_rangeEnd
       , rangeStep = maybe (rangeStep defaultRange) id fld_rangeStep
       }
-  protoFromJSON _ = Right defaultRange
 
 data StructuredCalendarSpec = StructuredCalendarSpec
   { structuredCalendarSpecSecond :: !(V.Vector Range)
@@ -316,28 +319,28 @@ instance MessageDecode StructuredCalendarSpec where
 instance IsMessage StructuredCalendarSpec where
   messageTypeName _ = "temporal.api.schedule.v1.StructuredCalendarSpec"
 
-instance ProtoToJSON StructuredCalendarSpec where
-  protoToJSON msg = jsonObject
-      [ "second" .= msg.structuredCalendarSpecSecond
-      , "minute" .= msg.structuredCalendarSpecMinute
-      , "hour" .= msg.structuredCalendarSpecHour
-      , "dayOfMonth" .= msg.structuredCalendarSpecDayofmonth
-      , "month" .= msg.structuredCalendarSpecMonth
-      , "year" .= msg.structuredCalendarSpecYear
-      , "dayOfWeek" .= msg.structuredCalendarSpecDayofweek
-      , "comment" .= msg.structuredCalendarSpecComment
+instance Aeson.ToJSON StructuredCalendarSpec where
+  toJSON msg = jsonObject
+      [ "second" .=: msg.structuredCalendarSpecSecond
+      , "minute" .=: msg.structuredCalendarSpecMinute
+      , "hour" .=: msg.structuredCalendarSpecHour
+      , "dayOfMonth" .=: msg.structuredCalendarSpecDayofmonth
+      , "month" .=: msg.structuredCalendarSpecMonth
+      , "year" .=: msg.structuredCalendarSpecYear
+      , "dayOfWeek" .=: msg.structuredCalendarSpecDayofweek
+      , "comment" .=: msg.structuredCalendarSpecComment
       ]
 
-instance ProtoFromJSON StructuredCalendarSpec where
-  protoFromJSON (JsonObject obj) = do
-    fld_structuredCalendarSpecSecond <- obj .:? "second"
-    fld_structuredCalendarSpecMinute <- obj .:? "minute"
-    fld_structuredCalendarSpecHour <- obj .:? "hour"
-    fld_structuredCalendarSpecDayofmonth <- obj .:? "dayOfMonth"
-    fld_structuredCalendarSpecMonth <- obj .:? "month"
-    fld_structuredCalendarSpecYear <- obj .:? "year"
-    fld_structuredCalendarSpecDayofweek <- obj .:? "dayOfWeek"
-    fld_structuredCalendarSpecComment <- obj .:? "comment"
+instance Aeson.FromJSON StructuredCalendarSpec where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_structuredCalendarSpecSecond <- parseFieldMaybe obj "second"
+    fld_structuredCalendarSpecMinute <- parseFieldMaybe obj "minute"
+    fld_structuredCalendarSpecHour <- parseFieldMaybe obj "hour"
+    fld_structuredCalendarSpecDayofmonth <- parseFieldMaybe obj "dayOfMonth"
+    fld_structuredCalendarSpecMonth <- parseFieldMaybe obj "month"
+    fld_structuredCalendarSpecYear <- parseFieldMaybe obj "year"
+    fld_structuredCalendarSpecDayofweek <- parseFieldMaybe obj "dayOfWeek"
+    fld_structuredCalendarSpecComment <- parseFieldMaybe obj "comment"
     pure defaultStructuredCalendarSpec
       { structuredCalendarSpecSecond = maybe (structuredCalendarSpecSecond defaultStructuredCalendarSpec) id fld_structuredCalendarSpecSecond
       , structuredCalendarSpecMinute = maybe (structuredCalendarSpecMinute defaultStructuredCalendarSpec) id fld_structuredCalendarSpecMinute
@@ -348,7 +351,7 @@ instance ProtoFromJSON StructuredCalendarSpec where
       , structuredCalendarSpecDayofweek = maybe (structuredCalendarSpecDayofweek defaultStructuredCalendarSpec) id fld_structuredCalendarSpecDayofweek
       , structuredCalendarSpecComment = maybe (structuredCalendarSpecComment defaultStructuredCalendarSpec) id fld_structuredCalendarSpecComment
       }
-  protoFromJSON _ = Right defaultStructuredCalendarSpec
+  parseJSON _ = pure defaultStructuredCalendarSpec
 
 data IntervalSpec = IntervalSpec
   { intervalSpecInterval :: !(Maybe PB_Duration.Duration)
@@ -392,21 +395,20 @@ instance MessageDecode IntervalSpec where
 instance IsMessage IntervalSpec where
   messageTypeName _ = "temporal.api.schedule.v1.IntervalSpec"
 
-instance ProtoToJSON IntervalSpec where
-  protoToJSON msg = jsonObject
-      [ "interval" .= msg.intervalSpecInterval
-      , "phase" .= msg.intervalSpecPhase
+instance Aeson.ToJSON IntervalSpec where
+  toJSON msg = jsonObject
+      [ "interval" .=: msg.intervalSpecInterval
+      , "phase" .=: msg.intervalSpecPhase
       ]
 
-instance ProtoFromJSON IntervalSpec where
-  protoFromJSON (JsonObject obj) = do
-    fld_intervalSpecInterval <- obj .:? "interval"
-    fld_intervalSpecPhase <- obj .:? "phase"
+instance Aeson.FromJSON IntervalSpec where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_intervalSpecInterval <- parseFieldMaybe obj "interval"
+    fld_intervalSpecPhase <- parseFieldMaybe obj "phase"
     pure defaultIntervalSpec
       { intervalSpecInterval = maybe (intervalSpecInterval defaultIntervalSpec) id fld_intervalSpecInterval
       , intervalSpecPhase = maybe (intervalSpecPhase defaultIntervalSpec) id fld_intervalSpecPhase
       }
-  protoFromJSON _ = Right defaultIntervalSpec
 
 data ScheduleSpec = ScheduleSpec
   { scheduleSpecStructuredcalendar :: !(V.Vector StructuredCalendarSpec)
@@ -513,34 +515,34 @@ instance MessageDecode ScheduleSpec where
 instance IsMessage ScheduleSpec where
   messageTypeName _ = "temporal.api.schedule.v1.ScheduleSpec"
 
-instance ProtoToJSON ScheduleSpec where
-  protoToJSON msg = jsonObject
-      [ "structuredCalendar" .= msg.scheduleSpecStructuredcalendar
-      , "cronString" .= msg.scheduleSpecCronstring
-      , "calendar" .= msg.scheduleSpecCalendar
-      , "interval" .= msg.scheduleSpecInterval
-      , "excludeCalendar" .= msg.scheduleSpecExcludecalendar
-      , "excludeStructuredCalendar" .= msg.scheduleSpecExcludestructuredcalendar
-      , "startTime" .= msg.scheduleSpecStarttime
-      , "endTime" .= msg.scheduleSpecEndtime
-      , "jitter" .= msg.scheduleSpecJitter
-      , "timezoneName" .= msg.scheduleSpecTimezonename
-      , "timezoneData" .= msg.scheduleSpecTimezonedata
+instance Aeson.ToJSON ScheduleSpec where
+  toJSON msg = jsonObject
+      [ "structuredCalendar" .=: msg.scheduleSpecStructuredcalendar
+      , "cronString" .=: msg.scheduleSpecCronstring
+      , "calendar" .=: msg.scheduleSpecCalendar
+      , "interval" .=: msg.scheduleSpecInterval
+      , "excludeCalendar" .=: msg.scheduleSpecExcludecalendar
+      , "excludeStructuredCalendar" .=: msg.scheduleSpecExcludestructuredcalendar
+      , "startTime" .=: msg.scheduleSpecStarttime
+      , "endTime" .=: msg.scheduleSpecEndtime
+      , "jitter" .=: msg.scheduleSpecJitter
+      , "timezoneName" .=: msg.scheduleSpecTimezonename
+      , "timezoneData" .=: msg.scheduleSpecTimezonedata
       ]
 
-instance ProtoFromJSON ScheduleSpec where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleSpecStructuredcalendar <- obj .:? "structuredCalendar"
-    fld_scheduleSpecCronstring <- obj .:? "cronString"
-    fld_scheduleSpecCalendar <- obj .:? "calendar"
-    fld_scheduleSpecInterval <- obj .:? "interval"
-    fld_scheduleSpecExcludecalendar <- obj .:? "excludeCalendar"
-    fld_scheduleSpecExcludestructuredcalendar <- obj .:? "excludeStructuredCalendar"
-    fld_scheduleSpecStarttime <- obj .:? "startTime"
-    fld_scheduleSpecEndtime <- obj .:? "endTime"
-    fld_scheduleSpecJitter <- obj .:? "jitter"
-    fld_scheduleSpecTimezonename <- obj .:? "timezoneName"
-    fld_scheduleSpecTimezonedata <- obj .:? "timezoneData"
+instance Aeson.FromJSON ScheduleSpec where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleSpecStructuredcalendar <- parseFieldMaybe obj "structuredCalendar"
+    fld_scheduleSpecCronstring <- parseFieldMaybe obj "cronString"
+    fld_scheduleSpecCalendar <- parseFieldMaybe obj "calendar"
+    fld_scheduleSpecInterval <- parseFieldMaybe obj "interval"
+    fld_scheduleSpecExcludecalendar <- parseFieldMaybe obj "excludeCalendar"
+    fld_scheduleSpecExcludestructuredcalendar <- parseFieldMaybe obj "excludeStructuredCalendar"
+    fld_scheduleSpecStarttime <- parseFieldMaybe obj "startTime"
+    fld_scheduleSpecEndtime <- parseFieldMaybe obj "endTime"
+    fld_scheduleSpecJitter <- parseFieldMaybe obj "jitter"
+    fld_scheduleSpecTimezonename <- parseFieldMaybe obj "timezoneName"
+    fld_scheduleSpecTimezonedata <- parseFieldMaybe obj "timezoneData"
     pure defaultScheduleSpec
       { scheduleSpecStructuredcalendar = maybe (scheduleSpecStructuredcalendar defaultScheduleSpec) id fld_scheduleSpecStructuredcalendar
       , scheduleSpecCronstring = maybe (scheduleSpecCronstring defaultScheduleSpec) id fld_scheduleSpecCronstring
@@ -554,7 +556,7 @@ instance ProtoFromJSON ScheduleSpec where
       , scheduleSpecTimezonename = maybe (scheduleSpecTimezonename defaultScheduleSpec) id fld_scheduleSpecTimezonename
       , scheduleSpecTimezonedata = maybe (scheduleSpecTimezonedata defaultScheduleSpec) id fld_scheduleSpecTimezonedata
       }
-  protoFromJSON _ = Right defaultScheduleSpec
+  parseJSON _ = pure defaultScheduleSpec
 
 data SchedulePolicies = SchedulePolicies
   { schedulePoliciesOverlappolicy :: !TE_Enums_V1_Schedule.ScheduleOverlapPolicy
@@ -612,27 +614,27 @@ instance MessageDecode SchedulePolicies where
 instance IsMessage SchedulePolicies where
   messageTypeName _ = "temporal.api.schedule.v1.SchedulePolicies"
 
-instance ProtoToJSON SchedulePolicies where
-  protoToJSON msg = jsonObject
-      [ "overlapPolicy" .= msg.schedulePoliciesOverlappolicy
-      , "catchupWindow" .= msg.schedulePoliciesCatchupwindow
-      , "pauseOnFailure" .= msg.schedulePoliciesPauseonfailure
-      , "keepOriginalWorkflowId" .= msg.schedulePoliciesKeeporiginalworkflowid
+instance Aeson.ToJSON SchedulePolicies where
+  toJSON msg = jsonObject
+      [ "overlapPolicy" .=: msg.schedulePoliciesOverlappolicy
+      , "catchupWindow" .=: msg.schedulePoliciesCatchupwindow
+      , "pauseOnFailure" .=: msg.schedulePoliciesPauseonfailure
+      , "keepOriginalWorkflowId" .=: msg.schedulePoliciesKeeporiginalworkflowid
       ]
 
-instance ProtoFromJSON SchedulePolicies where
-  protoFromJSON (JsonObject obj) = do
-    fld_schedulePoliciesOverlappolicy <- obj .:? "overlapPolicy"
-    fld_schedulePoliciesCatchupwindow <- obj .:? "catchupWindow"
-    fld_schedulePoliciesPauseonfailure <- obj .:? "pauseOnFailure"
-    fld_schedulePoliciesKeeporiginalworkflowid <- obj .:? "keepOriginalWorkflowId"
+instance Aeson.FromJSON SchedulePolicies where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_schedulePoliciesOverlappolicy <- parseFieldMaybe obj "overlapPolicy"
+    fld_schedulePoliciesCatchupwindow <- parseFieldMaybe obj "catchupWindow"
+    fld_schedulePoliciesPauseonfailure <- parseFieldMaybe obj "pauseOnFailure"
+    fld_schedulePoliciesKeeporiginalworkflowid <- parseFieldMaybe obj "keepOriginalWorkflowId"
     pure defaultSchedulePolicies
       { schedulePoliciesOverlappolicy = maybe (schedulePoliciesOverlappolicy defaultSchedulePolicies) id fld_schedulePoliciesOverlappolicy
       , schedulePoliciesCatchupwindow = maybe (schedulePoliciesCatchupwindow defaultSchedulePolicies) id fld_schedulePoliciesCatchupwindow
       , schedulePoliciesPauseonfailure = maybe (schedulePoliciesPauseonfailure defaultSchedulePolicies) id fld_schedulePoliciesPauseonfailure
       , schedulePoliciesKeeporiginalworkflowid = maybe (schedulePoliciesKeeporiginalworkflowid defaultSchedulePolicies) id fld_schedulePoliciesKeeporiginalworkflowid
       }
-  protoFromJSON _ = Right defaultSchedulePolicies
+  parseJSON _ = pure defaultSchedulePolicies
 
 data ScheduleAction = ScheduleAction
   { scheduleActionAction :: !(Maybe ScheduleAction'Action)
@@ -643,10 +645,10 @@ data ScheduleAction'Action
   = ScheduleAction'Action'StartWorkflow !TE_Workflow_V1_Message.NewWorkflowExecutionInfo
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON ScheduleAction'Action where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON ScheduleAction'Action where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON ScheduleAction'Action where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON ScheduleAction'Action where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultScheduleAction :: ScheduleAction
 defaultScheduleAction = ScheduleAction
@@ -679,19 +681,18 @@ instance MessageDecode ScheduleAction where
 instance IsMessage ScheduleAction where
   messageTypeName _ = "temporal.api.schedule.v1.ScheduleAction"
 
-instance ProtoToJSON ScheduleAction where
-  protoToJSON msg = jsonObject
-      [ "action" .= msg.scheduleActionAction
+instance Aeson.ToJSON ScheduleAction where
+  toJSON msg = jsonObject
+      [ "action" .=: msg.scheduleActionAction
 
       ]
 
-instance ProtoFromJSON ScheduleAction where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleActionAction <- obj .:? "action"
+instance Aeson.FromJSON ScheduleAction where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleActionAction <- parseFieldMaybe obj "action"
     pure defaultScheduleAction
       { scheduleActionAction = maybe (scheduleActionAction defaultScheduleAction) id fld_scheduleActionAction
       }
-  protoFromJSON _ = Right defaultScheduleAction
 
 data ScheduleActionResult = ScheduleActionResult
   { scheduleActionResultScheduletime :: !(Maybe PB_Timestamp.Timestamp)
@@ -749,27 +750,27 @@ instance MessageDecode ScheduleActionResult where
 instance IsMessage ScheduleActionResult where
   messageTypeName _ = "temporal.api.schedule.v1.ScheduleActionResult"
 
-instance ProtoToJSON ScheduleActionResult where
-  protoToJSON msg = jsonObject
-      [ "scheduleTime" .= msg.scheduleActionResultScheduletime
-      , "actualTime" .= msg.scheduleActionResultActualtime
-      , "startWorkflowResult" .= msg.scheduleActionResultStartworkflowresult
-      , "startWorkflowStatus" .= msg.scheduleActionResultStartworkflowstatus
+instance Aeson.ToJSON ScheduleActionResult where
+  toJSON msg = jsonObject
+      [ "scheduleTime" .=: msg.scheduleActionResultScheduletime
+      , "actualTime" .=: msg.scheduleActionResultActualtime
+      , "startWorkflowResult" .=: msg.scheduleActionResultStartworkflowresult
+      , "startWorkflowStatus" .=: msg.scheduleActionResultStartworkflowstatus
       ]
 
-instance ProtoFromJSON ScheduleActionResult where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleActionResultScheduletime <- obj .:? "scheduleTime"
-    fld_scheduleActionResultActualtime <- obj .:? "actualTime"
-    fld_scheduleActionResultStartworkflowresult <- obj .:? "startWorkflowResult"
-    fld_scheduleActionResultStartworkflowstatus <- obj .:? "startWorkflowStatus"
+instance Aeson.FromJSON ScheduleActionResult where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleActionResultScheduletime <- parseFieldMaybe obj "scheduleTime"
+    fld_scheduleActionResultActualtime <- parseFieldMaybe obj "actualTime"
+    fld_scheduleActionResultStartworkflowresult <- parseFieldMaybe obj "startWorkflowResult"
+    fld_scheduleActionResultStartworkflowstatus <- parseFieldMaybe obj "startWorkflowStatus"
     pure defaultScheduleActionResult
       { scheduleActionResultScheduletime = maybe (scheduleActionResultScheduletime defaultScheduleActionResult) id fld_scheduleActionResultScheduletime
       , scheduleActionResultActualtime = maybe (scheduleActionResultActualtime defaultScheduleActionResult) id fld_scheduleActionResultActualtime
       , scheduleActionResultStartworkflowresult = maybe (scheduleActionResultStartworkflowresult defaultScheduleActionResult) id fld_scheduleActionResultStartworkflowresult
       , scheduleActionResultStartworkflowstatus = maybe (scheduleActionResultStartworkflowstatus defaultScheduleActionResult) id fld_scheduleActionResultStartworkflowstatus
       }
-  protoFromJSON _ = Right defaultScheduleActionResult
+  parseJSON _ = pure defaultScheduleActionResult
 
 data ScheduleState = ScheduleState
   { scheduleStateNotes :: !Text
@@ -827,27 +828,27 @@ instance MessageDecode ScheduleState where
 instance IsMessage ScheduleState where
   messageTypeName _ = "temporal.api.schedule.v1.ScheduleState"
 
-instance ProtoToJSON ScheduleState where
-  protoToJSON msg = jsonObject
-      [ "notes" .= msg.scheduleStateNotes
-      , "paused" .= msg.scheduleStatePaused
-      , "limitedActions" .= msg.scheduleStateLimitedactions
-      , "remainingActions" .= msg.scheduleStateRemainingactions
+instance Aeson.ToJSON ScheduleState where
+  toJSON msg = jsonObject
+      [ "notes" .=: msg.scheduleStateNotes
+      , "paused" .=: msg.scheduleStatePaused
+      , "limitedActions" .=: msg.scheduleStateLimitedactions
+      , "remainingActions" .=: msg.scheduleStateRemainingactions
       ]
 
-instance ProtoFromJSON ScheduleState where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleStateNotes <- obj .:? "notes"
-    fld_scheduleStatePaused <- obj .:? "paused"
-    fld_scheduleStateLimitedactions <- obj .:? "limitedActions"
-    fld_scheduleStateRemainingactions <- obj .:? "remainingActions"
+instance Aeson.FromJSON ScheduleState where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleStateNotes <- parseFieldMaybe obj "notes"
+    fld_scheduleStatePaused <- parseFieldMaybe obj "paused"
+    fld_scheduleStateLimitedactions <- parseFieldMaybe obj "limitedActions"
+    fld_scheduleStateRemainingactions <- parseFieldMaybe obj "remainingActions"
     pure defaultScheduleState
       { scheduleStateNotes = maybe (scheduleStateNotes defaultScheduleState) id fld_scheduleStateNotes
       , scheduleStatePaused = maybe (scheduleStatePaused defaultScheduleState) id fld_scheduleStatePaused
       , scheduleStateLimitedactions = maybe (scheduleStateLimitedactions defaultScheduleState) id fld_scheduleStateLimitedactions
       , scheduleStateRemainingactions = maybe (scheduleStateRemainingactions defaultScheduleState) id fld_scheduleStateRemainingactions
       }
-  protoFromJSON _ = Right defaultScheduleState
+  parseJSON _ = pure defaultScheduleState
 
 data TriggerImmediatelyRequest = TriggerImmediatelyRequest
   { triggerImmediatelyRequestOverlappolicy :: !TE_Enums_V1_Schedule.ScheduleOverlapPolicy
@@ -891,21 +892,20 @@ instance MessageDecode TriggerImmediatelyRequest where
 instance IsMessage TriggerImmediatelyRequest where
   messageTypeName _ = "temporal.api.schedule.v1.TriggerImmediatelyRequest"
 
-instance ProtoToJSON TriggerImmediatelyRequest where
-  protoToJSON msg = jsonObject
-      [ "overlapPolicy" .= msg.triggerImmediatelyRequestOverlappolicy
-      , "scheduledTime" .= msg.triggerImmediatelyRequestScheduledtime
+instance Aeson.ToJSON TriggerImmediatelyRequest where
+  toJSON msg = jsonObject
+      [ "overlapPolicy" .=: msg.triggerImmediatelyRequestOverlappolicy
+      , "scheduledTime" .=: msg.triggerImmediatelyRequestScheduledtime
       ]
 
-instance ProtoFromJSON TriggerImmediatelyRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_triggerImmediatelyRequestOverlappolicy <- obj .:? "overlapPolicy"
-    fld_triggerImmediatelyRequestScheduledtime <- obj .:? "scheduledTime"
+instance Aeson.FromJSON TriggerImmediatelyRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_triggerImmediatelyRequestOverlappolicy <- parseFieldMaybe obj "overlapPolicy"
+    fld_triggerImmediatelyRequestScheduledtime <- parseFieldMaybe obj "scheduledTime"
     pure defaultTriggerImmediatelyRequest
       { triggerImmediatelyRequestOverlappolicy = maybe (triggerImmediatelyRequestOverlappolicy defaultTriggerImmediatelyRequest) id fld_triggerImmediatelyRequestOverlappolicy
       , triggerImmediatelyRequestScheduledtime = maybe (triggerImmediatelyRequestScheduledtime defaultTriggerImmediatelyRequest) id fld_triggerImmediatelyRequestScheduledtime
       }
-  protoFromJSON _ = Right defaultTriggerImmediatelyRequest
 
 data BackfillRequest = BackfillRequest
   { backfillRequestStarttime :: !(Maybe PB_Timestamp.Timestamp)
@@ -956,24 +956,23 @@ instance MessageDecode BackfillRequest where
 instance IsMessage BackfillRequest where
   messageTypeName _ = "temporal.api.schedule.v1.BackfillRequest"
 
-instance ProtoToJSON BackfillRequest where
-  protoToJSON msg = jsonObject
-      [ "startTime" .= msg.backfillRequestStarttime
-      , "endTime" .= msg.backfillRequestEndtime
-      , "overlapPolicy" .= msg.backfillRequestOverlappolicy
+instance Aeson.ToJSON BackfillRequest where
+  toJSON msg = jsonObject
+      [ "startTime" .=: msg.backfillRequestStarttime
+      , "endTime" .=: msg.backfillRequestEndtime
+      , "overlapPolicy" .=: msg.backfillRequestOverlappolicy
       ]
 
-instance ProtoFromJSON BackfillRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_backfillRequestStarttime <- obj .:? "startTime"
-    fld_backfillRequestEndtime <- obj .:? "endTime"
-    fld_backfillRequestOverlappolicy <- obj .:? "overlapPolicy"
+instance Aeson.FromJSON BackfillRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_backfillRequestStarttime <- parseFieldMaybe obj "startTime"
+    fld_backfillRequestEndtime <- parseFieldMaybe obj "endTime"
+    fld_backfillRequestOverlappolicy <- parseFieldMaybe obj "overlapPolicy"
     pure defaultBackfillRequest
       { backfillRequestStarttime = maybe (backfillRequestStarttime defaultBackfillRequest) id fld_backfillRequestStarttime
       , backfillRequestEndtime = maybe (backfillRequestEndtime defaultBackfillRequest) id fld_backfillRequestEndtime
       , backfillRequestOverlappolicy = maybe (backfillRequestOverlappolicy defaultBackfillRequest) id fld_backfillRequestOverlappolicy
       }
-  protoFromJSON _ = Right defaultBackfillRequest
 
 data SchedulePatch = SchedulePatch
   { schedulePatchTriggerimmediately :: !(Maybe TriggerImmediatelyRequest)
@@ -1031,27 +1030,27 @@ instance MessageDecode SchedulePatch where
 instance IsMessage SchedulePatch where
   messageTypeName _ = "temporal.api.schedule.v1.SchedulePatch"
 
-instance ProtoToJSON SchedulePatch where
-  protoToJSON msg = jsonObject
-      [ "triggerImmediately" .= msg.schedulePatchTriggerimmediately
-      , "backfillRequest" .= msg.schedulePatchBackfillrequest
-      , "pause" .= msg.schedulePatchPause
-      , "unpause" .= msg.schedulePatchUnpause
+instance Aeson.ToJSON SchedulePatch where
+  toJSON msg = jsonObject
+      [ "triggerImmediately" .=: msg.schedulePatchTriggerimmediately
+      , "backfillRequest" .=: msg.schedulePatchBackfillrequest
+      , "pause" .=: msg.schedulePatchPause
+      , "unpause" .=: msg.schedulePatchUnpause
       ]
 
-instance ProtoFromJSON SchedulePatch where
-  protoFromJSON (JsonObject obj) = do
-    fld_schedulePatchTriggerimmediately <- obj .:? "triggerImmediately"
-    fld_schedulePatchBackfillrequest <- obj .:? "backfillRequest"
-    fld_schedulePatchPause <- obj .:? "pause"
-    fld_schedulePatchUnpause <- obj .:? "unpause"
+instance Aeson.FromJSON SchedulePatch where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_schedulePatchTriggerimmediately <- parseFieldMaybe obj "triggerImmediately"
+    fld_schedulePatchBackfillrequest <- parseFieldMaybe obj "backfillRequest"
+    fld_schedulePatchPause <- parseFieldMaybe obj "pause"
+    fld_schedulePatchUnpause <- parseFieldMaybe obj "unpause"
     pure defaultSchedulePatch
       { schedulePatchTriggerimmediately = maybe (schedulePatchTriggerimmediately defaultSchedulePatch) id fld_schedulePatchTriggerimmediately
       , schedulePatchBackfillrequest = maybe (schedulePatchBackfillrequest defaultSchedulePatch) id fld_schedulePatchBackfillrequest
       , schedulePatchPause = maybe (schedulePatchPause defaultSchedulePatch) id fld_schedulePatchPause
       , schedulePatchUnpause = maybe (schedulePatchUnpause defaultSchedulePatch) id fld_schedulePatchUnpause
       }
-  protoFromJSON _ = Right defaultSchedulePatch
+  parseJSON _ = pure defaultSchedulePatch
 
 data ScheduleInfo = ScheduleInfo
   { scheduleInfoActioncount :: {-# UNPACK #-} !Int64
@@ -1158,34 +1157,34 @@ instance MessageDecode ScheduleInfo where
 instance IsMessage ScheduleInfo where
   messageTypeName _ = "temporal.api.schedule.v1.ScheduleInfo"
 
-instance ProtoToJSON ScheduleInfo where
-  protoToJSON msg = jsonObject
-      [ "actionCount" .= msg.scheduleInfoActioncount
-      , "missedCatchupWindow" .= msg.scheduleInfoMissedcatchupwindow
-      , "overlapSkipped" .= msg.scheduleInfoOverlapskipped
-      , "bufferDropped" .= msg.scheduleInfoBufferdropped
-      , "bufferSize" .= msg.scheduleInfoBuffersize
-      , "runningWorkflows" .= msg.scheduleInfoRunningworkflows
-      , "recentActions" .= msg.scheduleInfoRecentactions
-      , "futureActionTimes" .= msg.scheduleInfoFutureactiontimes
-      , "createTime" .= msg.scheduleInfoCreatetime
-      , "updateTime" .= msg.scheduleInfoUpdatetime
-      , "invalidScheduleError" .= msg.scheduleInfoInvalidscheduleerror
+instance Aeson.ToJSON ScheduleInfo where
+  toJSON msg = jsonObject
+      [ "actionCount" .=: msg.scheduleInfoActioncount
+      , "missedCatchupWindow" .=: msg.scheduleInfoMissedcatchupwindow
+      , "overlapSkipped" .=: msg.scheduleInfoOverlapskipped
+      , "bufferDropped" .=: msg.scheduleInfoBufferdropped
+      , "bufferSize" .=: msg.scheduleInfoBuffersize
+      , "runningWorkflows" .=: msg.scheduleInfoRunningworkflows
+      , "recentActions" .=: msg.scheduleInfoRecentactions
+      , "futureActionTimes" .=: msg.scheduleInfoFutureactiontimes
+      , "createTime" .=: msg.scheduleInfoCreatetime
+      , "updateTime" .=: msg.scheduleInfoUpdatetime
+      , "invalidScheduleError" .=: msg.scheduleInfoInvalidscheduleerror
       ]
 
-instance ProtoFromJSON ScheduleInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleInfoActioncount <- obj .:? "actionCount"
-    fld_scheduleInfoMissedcatchupwindow <- obj .:? "missedCatchupWindow"
-    fld_scheduleInfoOverlapskipped <- obj .:? "overlapSkipped"
-    fld_scheduleInfoBufferdropped <- obj .:? "bufferDropped"
-    fld_scheduleInfoBuffersize <- obj .:? "bufferSize"
-    fld_scheduleInfoRunningworkflows <- obj .:? "runningWorkflows"
-    fld_scheduleInfoRecentactions <- obj .:? "recentActions"
-    fld_scheduleInfoFutureactiontimes <- obj .:? "futureActionTimes"
-    fld_scheduleInfoCreatetime <- obj .:? "createTime"
-    fld_scheduleInfoUpdatetime <- obj .:? "updateTime"
-    fld_scheduleInfoInvalidscheduleerror <- obj .:? "invalidScheduleError"
+instance Aeson.FromJSON ScheduleInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleInfoActioncount <- parseFieldMaybe obj "actionCount"
+    fld_scheduleInfoMissedcatchupwindow <- parseFieldMaybe obj "missedCatchupWindow"
+    fld_scheduleInfoOverlapskipped <- parseFieldMaybe obj "overlapSkipped"
+    fld_scheduleInfoBufferdropped <- parseFieldMaybe obj "bufferDropped"
+    fld_scheduleInfoBuffersize <- parseFieldMaybe obj "bufferSize"
+    fld_scheduleInfoRunningworkflows <- parseFieldMaybe obj "runningWorkflows"
+    fld_scheduleInfoRecentactions <- parseFieldMaybe obj "recentActions"
+    fld_scheduleInfoFutureactiontimes <- parseFieldMaybe obj "futureActionTimes"
+    fld_scheduleInfoCreatetime <- parseFieldMaybe obj "createTime"
+    fld_scheduleInfoUpdatetime <- parseFieldMaybe obj "updateTime"
+    fld_scheduleInfoInvalidscheduleerror <- parseFieldMaybe obj "invalidScheduleError"
     pure defaultScheduleInfo
       { scheduleInfoActioncount = maybe (scheduleInfoActioncount defaultScheduleInfo) id fld_scheduleInfoActioncount
       , scheduleInfoMissedcatchupwindow = maybe (scheduleInfoMissedcatchupwindow defaultScheduleInfo) id fld_scheduleInfoMissedcatchupwindow
@@ -1199,7 +1198,7 @@ instance ProtoFromJSON ScheduleInfo where
       , scheduleInfoUpdatetime = maybe (scheduleInfoUpdatetime defaultScheduleInfo) id fld_scheduleInfoUpdatetime
       , scheduleInfoInvalidscheduleerror = maybe (scheduleInfoInvalidscheduleerror defaultScheduleInfo) id fld_scheduleInfoInvalidscheduleerror
       }
-  protoFromJSON _ = Right defaultScheduleInfo
+  parseJSON _ = pure defaultScheduleInfo
 
 data Schedule = Schedule
   { scheduleSpec :: !(Maybe ScheduleSpec)
@@ -1257,27 +1256,27 @@ instance MessageDecode Schedule where
 instance IsMessage Schedule where
   messageTypeName _ = "temporal.api.schedule.v1.Schedule"
 
-instance ProtoToJSON Schedule where
-  protoToJSON msg = jsonObject
-      [ "spec" .= msg.scheduleSpec
-      , "action" .= msg.scheduleAction
-      , "policies" .= msg.schedulePolicies
-      , "state" .= msg.scheduleState
+instance Aeson.ToJSON Schedule where
+  toJSON msg = jsonObject
+      [ "spec" .=: msg.scheduleSpec
+      , "action" .=: msg.scheduleAction
+      , "policies" .=: msg.schedulePolicies
+      , "state" .=: msg.scheduleState
       ]
 
-instance ProtoFromJSON Schedule where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleSpec <- obj .:? "spec"
-    fld_scheduleAction <- obj .:? "action"
-    fld_schedulePolicies <- obj .:? "policies"
-    fld_scheduleState <- obj .:? "state"
+instance Aeson.FromJSON Schedule where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleSpec <- parseFieldMaybe obj "spec"
+    fld_scheduleAction <- parseFieldMaybe obj "action"
+    fld_schedulePolicies <- parseFieldMaybe obj "policies"
+    fld_scheduleState <- parseFieldMaybe obj "state"
     pure defaultSchedule
       { scheduleSpec = maybe (scheduleSpec defaultSchedule) id fld_scheduleSpec
       , scheduleAction = maybe (scheduleAction defaultSchedule) id fld_scheduleAction
       , schedulePolicies = maybe (schedulePolicies defaultSchedule) id fld_schedulePolicies
       , scheduleState = maybe (scheduleState defaultSchedule) id fld_scheduleState
       }
-  protoFromJSON _ = Right defaultSchedule
+  parseJSON _ = pure defaultSchedule
 
 data ScheduleListInfo = ScheduleListInfo
   { scheduleListInfoSpec :: !(Maybe ScheduleSpec)
@@ -1349,24 +1348,24 @@ instance MessageDecode ScheduleListInfo where
 instance IsMessage ScheduleListInfo where
   messageTypeName _ = "temporal.api.schedule.v1.ScheduleListInfo"
 
-instance ProtoToJSON ScheduleListInfo where
-  protoToJSON msg = jsonObject
-      [ "spec" .= msg.scheduleListInfoSpec
-      , "workflowType" .= msg.scheduleListInfoWorkflowtype
-      , "notes" .= msg.scheduleListInfoNotes
-      , "paused" .= msg.scheduleListInfoPaused
-      , "recentActions" .= msg.scheduleListInfoRecentactions
-      , "futureActionTimes" .= msg.scheduleListInfoFutureactiontimes
+instance Aeson.ToJSON ScheduleListInfo where
+  toJSON msg = jsonObject
+      [ "spec" .=: msg.scheduleListInfoSpec
+      , "workflowType" .=: msg.scheduleListInfoWorkflowtype
+      , "notes" .=: msg.scheduleListInfoNotes
+      , "paused" .=: msg.scheduleListInfoPaused
+      , "recentActions" .=: msg.scheduleListInfoRecentactions
+      , "futureActionTimes" .=: msg.scheduleListInfoFutureactiontimes
       ]
 
-instance ProtoFromJSON ScheduleListInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleListInfoSpec <- obj .:? "spec"
-    fld_scheduleListInfoWorkflowtype <- obj .:? "workflowType"
-    fld_scheduleListInfoNotes <- obj .:? "notes"
-    fld_scheduleListInfoPaused <- obj .:? "paused"
-    fld_scheduleListInfoRecentactions <- obj .:? "recentActions"
-    fld_scheduleListInfoFutureactiontimes <- obj .:? "futureActionTimes"
+instance Aeson.FromJSON ScheduleListInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleListInfoSpec <- parseFieldMaybe obj "spec"
+    fld_scheduleListInfoWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_scheduleListInfoNotes <- parseFieldMaybe obj "notes"
+    fld_scheduleListInfoPaused <- parseFieldMaybe obj "paused"
+    fld_scheduleListInfoRecentactions <- parseFieldMaybe obj "recentActions"
+    fld_scheduleListInfoFutureactiontimes <- parseFieldMaybe obj "futureActionTimes"
     pure defaultScheduleListInfo
       { scheduleListInfoSpec = maybe (scheduleListInfoSpec defaultScheduleListInfo) id fld_scheduleListInfoSpec
       , scheduleListInfoWorkflowtype = maybe (scheduleListInfoWorkflowtype defaultScheduleListInfo) id fld_scheduleListInfoWorkflowtype
@@ -1375,7 +1374,7 @@ instance ProtoFromJSON ScheduleListInfo where
       , scheduleListInfoRecentactions = maybe (scheduleListInfoRecentactions defaultScheduleListInfo) id fld_scheduleListInfoRecentactions
       , scheduleListInfoFutureactiontimes = maybe (scheduleListInfoFutureactiontimes defaultScheduleListInfo) id fld_scheduleListInfoFutureactiontimes
       }
-  protoFromJSON _ = Right defaultScheduleListInfo
+  parseJSON _ = pure defaultScheduleListInfo
 
 data ScheduleListEntry = ScheduleListEntry
   { scheduleListEntryScheduleid :: !Text
@@ -1433,27 +1432,27 @@ instance MessageDecode ScheduleListEntry where
 instance IsMessage ScheduleListEntry where
   messageTypeName _ = "temporal.api.schedule.v1.ScheduleListEntry"
 
-instance ProtoToJSON ScheduleListEntry where
-  protoToJSON msg = jsonObject
-      [ "scheduleId" .= msg.scheduleListEntryScheduleid
-      , "memo" .= msg.scheduleListEntryMemo
-      , "searchAttributes" .= msg.scheduleListEntrySearchattributes
-      , "info" .= msg.scheduleListEntryInfo
+instance Aeson.ToJSON ScheduleListEntry where
+  toJSON msg = jsonObject
+      [ "scheduleId" .=: msg.scheduleListEntryScheduleid
+      , "memo" .=: msg.scheduleListEntryMemo
+      , "searchAttributes" .=: msg.scheduleListEntrySearchattributes
+      , "info" .=: msg.scheduleListEntryInfo
       ]
 
-instance ProtoFromJSON ScheduleListEntry where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleListEntryScheduleid <- obj .:? "scheduleId"
-    fld_scheduleListEntryMemo <- obj .:? "memo"
-    fld_scheduleListEntrySearchattributes <- obj .:? "searchAttributes"
-    fld_scheduleListEntryInfo <- obj .:? "info"
+instance Aeson.FromJSON ScheduleListEntry where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleListEntryScheduleid <- parseFieldMaybe obj "scheduleId"
+    fld_scheduleListEntryMemo <- parseFieldMaybe obj "memo"
+    fld_scheduleListEntrySearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_scheduleListEntryInfo <- parseFieldMaybe obj "info"
     pure defaultScheduleListEntry
       { scheduleListEntryScheduleid = maybe (scheduleListEntryScheduleid defaultScheduleListEntry) id fld_scheduleListEntryScheduleid
       , scheduleListEntryMemo = maybe (scheduleListEntryMemo defaultScheduleListEntry) id fld_scheduleListEntryMemo
       , scheduleListEntrySearchattributes = maybe (scheduleListEntrySearchattributes defaultScheduleListEntry) id fld_scheduleListEntrySearchattributes
       , scheduleListEntryInfo = maybe (scheduleListEntryInfo defaultScheduleListEntry) id fld_scheduleListEntryInfo
       }
-  protoFromJSON _ = Right defaultScheduleListEntry
+  parseJSON _ = pure defaultScheduleListEntry
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

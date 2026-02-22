@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -86,32 +90,32 @@ instance MessageSize BatchOperationType where
 instance MessageDecode BatchOperationType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON BatchOperationType where
-  protoToJSON BatchOperationType'BatchOperationTypeUnspecified = JsonString "BATCH_OPERATION_TYPE_UNSPECIFIED"
-  protoToJSON BatchOperationType'BatchOperationTypeTerminate = JsonString "BATCH_OPERATION_TYPE_TERMINATE"
-  protoToJSON BatchOperationType'BatchOperationTypeCancel = JsonString "BATCH_OPERATION_TYPE_CANCEL"
-  protoToJSON BatchOperationType'BatchOperationTypeSignal = JsonString "BATCH_OPERATION_TYPE_SIGNAL"
-  protoToJSON BatchOperationType'BatchOperationTypeDelete = JsonString "BATCH_OPERATION_TYPE_DELETE"
-  protoToJSON BatchOperationType'BatchOperationTypeReset = JsonString "BATCH_OPERATION_TYPE_RESET"
-  protoToJSON BatchOperationType'BatchOperationTypeUpdateExecutionOptions = JsonString "BATCH_OPERATION_TYPE_UPDATE_EXECUTION_OPTIONS"
-  protoToJSON BatchOperationType'BatchOperationTypeUnpauseActivity = JsonString "BATCH_OPERATION_TYPE_UNPAUSE_ACTIVITY"
-  protoToJSON BatchOperationType'BatchOperationTypeUpdateActivityOptions = JsonString "BATCH_OPERATION_TYPE_UPDATE_ACTIVITY_OPTIONS"
-  protoToJSON BatchOperationType'BatchOperationTypeResetActivity = JsonString "BATCH_OPERATION_TYPE_RESET_ACTIVITY"
+instance Aeson.ToJSON BatchOperationType where
+  toJSON BatchOperationType'BatchOperationTypeUnspecified = Aeson.String "BATCH_OPERATION_TYPE_UNSPECIFIED"
+  toJSON BatchOperationType'BatchOperationTypeTerminate = Aeson.String "BATCH_OPERATION_TYPE_TERMINATE"
+  toJSON BatchOperationType'BatchOperationTypeCancel = Aeson.String "BATCH_OPERATION_TYPE_CANCEL"
+  toJSON BatchOperationType'BatchOperationTypeSignal = Aeson.String "BATCH_OPERATION_TYPE_SIGNAL"
+  toJSON BatchOperationType'BatchOperationTypeDelete = Aeson.String "BATCH_OPERATION_TYPE_DELETE"
+  toJSON BatchOperationType'BatchOperationTypeReset = Aeson.String "BATCH_OPERATION_TYPE_RESET"
+  toJSON BatchOperationType'BatchOperationTypeUpdateExecutionOptions = Aeson.String "BATCH_OPERATION_TYPE_UPDATE_EXECUTION_OPTIONS"
+  toJSON BatchOperationType'BatchOperationTypeUnpauseActivity = Aeson.String "BATCH_OPERATION_TYPE_UNPAUSE_ACTIVITY"
+  toJSON BatchOperationType'BatchOperationTypeUpdateActivityOptions = Aeson.String "BATCH_OPERATION_TYPE_UPDATE_ACTIVITY_OPTIONS"
+  toJSON BatchOperationType'BatchOperationTypeResetActivity = Aeson.String "BATCH_OPERATION_TYPE_RESET_ACTIVITY"
 
-instance ProtoFromJSON BatchOperationType where
-  protoFromJSON = \case
-    JsonString "BATCH_OPERATION_TYPE_UNSPECIFIED" -> Right BatchOperationType'BatchOperationTypeUnspecified
-    JsonString "BATCH_OPERATION_TYPE_TERMINATE" -> Right BatchOperationType'BatchOperationTypeTerminate
-    JsonString "BATCH_OPERATION_TYPE_CANCEL" -> Right BatchOperationType'BatchOperationTypeCancel
-    JsonString "BATCH_OPERATION_TYPE_SIGNAL" -> Right BatchOperationType'BatchOperationTypeSignal
-    JsonString "BATCH_OPERATION_TYPE_DELETE" -> Right BatchOperationType'BatchOperationTypeDelete
-    JsonString "BATCH_OPERATION_TYPE_RESET" -> Right BatchOperationType'BatchOperationTypeReset
-    JsonString "BATCH_OPERATION_TYPE_UPDATE_EXECUTION_OPTIONS" -> Right BatchOperationType'BatchOperationTypeUpdateExecutionOptions
-    JsonString "BATCH_OPERATION_TYPE_UNPAUSE_ACTIVITY" -> Right BatchOperationType'BatchOperationTypeUnpauseActivity
-    JsonString "BATCH_OPERATION_TYPE_UPDATE_ACTIVITY_OPTIONS" -> Right BatchOperationType'BatchOperationTypeUpdateActivityOptions
-    JsonString "BATCH_OPERATION_TYPE_RESET_ACTIVITY" -> Right BatchOperationType'BatchOperationTypeResetActivity
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for BatchOperationType"
+instance Aeson.FromJSON BatchOperationType where
+  parseJSON = \case
+    Aeson.String "BATCH_OPERATION_TYPE_UNSPECIFIED" -> pure BatchOperationType'BatchOperationTypeUnspecified
+    Aeson.String "BATCH_OPERATION_TYPE_TERMINATE" -> pure BatchOperationType'BatchOperationTypeTerminate
+    Aeson.String "BATCH_OPERATION_TYPE_CANCEL" -> pure BatchOperationType'BatchOperationTypeCancel
+    Aeson.String "BATCH_OPERATION_TYPE_SIGNAL" -> pure BatchOperationType'BatchOperationTypeSignal
+    Aeson.String "BATCH_OPERATION_TYPE_DELETE" -> pure BatchOperationType'BatchOperationTypeDelete
+    Aeson.String "BATCH_OPERATION_TYPE_RESET" -> pure BatchOperationType'BatchOperationTypeReset
+    Aeson.String "BATCH_OPERATION_TYPE_UPDATE_EXECUTION_OPTIONS" -> pure BatchOperationType'BatchOperationTypeUpdateExecutionOptions
+    Aeson.String "BATCH_OPERATION_TYPE_UNPAUSE_ACTIVITY" -> pure BatchOperationType'BatchOperationTypeUnpauseActivity
+    Aeson.String "BATCH_OPERATION_TYPE_UPDATE_ACTIVITY_OPTIONS" -> pure BatchOperationType'BatchOperationTypeUpdateActivityOptions
+    Aeson.String "BATCH_OPERATION_TYPE_RESET_ACTIVITY" -> pure BatchOperationType'BatchOperationTypeResetActivity
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for BatchOperationType"
 
 data BatchOperationState
   = BatchOperationState'BatchOperationStateUnspecified
@@ -141,18 +145,18 @@ instance MessageSize BatchOperationState where
 instance MessageDecode BatchOperationState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON BatchOperationState where
-  protoToJSON BatchOperationState'BatchOperationStateUnspecified = JsonString "BATCH_OPERATION_STATE_UNSPECIFIED"
-  protoToJSON BatchOperationState'BatchOperationStateRunning = JsonString "BATCH_OPERATION_STATE_RUNNING"
-  protoToJSON BatchOperationState'BatchOperationStateCompleted = JsonString "BATCH_OPERATION_STATE_COMPLETED"
-  protoToJSON BatchOperationState'BatchOperationStateFailed = JsonString "BATCH_OPERATION_STATE_FAILED"
+instance Aeson.ToJSON BatchOperationState where
+  toJSON BatchOperationState'BatchOperationStateUnspecified = Aeson.String "BATCH_OPERATION_STATE_UNSPECIFIED"
+  toJSON BatchOperationState'BatchOperationStateRunning = Aeson.String "BATCH_OPERATION_STATE_RUNNING"
+  toJSON BatchOperationState'BatchOperationStateCompleted = Aeson.String "BATCH_OPERATION_STATE_COMPLETED"
+  toJSON BatchOperationState'BatchOperationStateFailed = Aeson.String "BATCH_OPERATION_STATE_FAILED"
 
-instance ProtoFromJSON BatchOperationState where
-  protoFromJSON = \case
-    JsonString "BATCH_OPERATION_STATE_UNSPECIFIED" -> Right BatchOperationState'BatchOperationStateUnspecified
-    JsonString "BATCH_OPERATION_STATE_RUNNING" -> Right BatchOperationState'BatchOperationStateRunning
-    JsonString "BATCH_OPERATION_STATE_COMPLETED" -> Right BatchOperationState'BatchOperationStateCompleted
-    JsonString "BATCH_OPERATION_STATE_FAILED" -> Right BatchOperationState'BatchOperationStateFailed
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for BatchOperationState"
+instance Aeson.FromJSON BatchOperationState where
+  parseJSON = \case
+    Aeson.String "BATCH_OPERATION_STATE_UNSPECIFIED" -> pure BatchOperationState'BatchOperationStateUnspecified
+    Aeson.String "BATCH_OPERATION_STATE_RUNNING" -> pure BatchOperationState'BatchOperationStateRunning
+    Aeson.String "BATCH_OPERATION_STATE_COMPLETED" -> pure BatchOperationState'BatchOperationStateCompleted
+    Aeson.String "BATCH_OPERATION_STATE_FAILED" -> pure BatchOperationState'BatchOperationStateFailed
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for BatchOperationState"
 

@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -68,20 +72,20 @@ instance MessageSize NamespaceState where
 instance MessageDecode NamespaceState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON NamespaceState where
-  protoToJSON NamespaceState'NamespaceStateUnspecified = JsonString "NAMESPACE_STATE_UNSPECIFIED"
-  protoToJSON NamespaceState'NamespaceStateRegistered = JsonString "NAMESPACE_STATE_REGISTERED"
-  protoToJSON NamespaceState'NamespaceStateDeprecated = JsonString "NAMESPACE_STATE_DEPRECATED"
-  protoToJSON NamespaceState'NamespaceStateDeleted = JsonString "NAMESPACE_STATE_DELETED"
+instance Aeson.ToJSON NamespaceState where
+  toJSON NamespaceState'NamespaceStateUnspecified = Aeson.String "NAMESPACE_STATE_UNSPECIFIED"
+  toJSON NamespaceState'NamespaceStateRegistered = Aeson.String "NAMESPACE_STATE_REGISTERED"
+  toJSON NamespaceState'NamespaceStateDeprecated = Aeson.String "NAMESPACE_STATE_DEPRECATED"
+  toJSON NamespaceState'NamespaceStateDeleted = Aeson.String "NAMESPACE_STATE_DELETED"
 
-instance ProtoFromJSON NamespaceState where
-  protoFromJSON = \case
-    JsonString "NAMESPACE_STATE_UNSPECIFIED" -> Right NamespaceState'NamespaceStateUnspecified
-    JsonString "NAMESPACE_STATE_REGISTERED" -> Right NamespaceState'NamespaceStateRegistered
-    JsonString "NAMESPACE_STATE_DEPRECATED" -> Right NamespaceState'NamespaceStateDeprecated
-    JsonString "NAMESPACE_STATE_DELETED" -> Right NamespaceState'NamespaceStateDeleted
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for NamespaceState"
+instance Aeson.FromJSON NamespaceState where
+  parseJSON = \case
+    Aeson.String "NAMESPACE_STATE_UNSPECIFIED" -> pure NamespaceState'NamespaceStateUnspecified
+    Aeson.String "NAMESPACE_STATE_REGISTERED" -> pure NamespaceState'NamespaceStateRegistered
+    Aeson.String "NAMESPACE_STATE_DEPRECATED" -> pure NamespaceState'NamespaceStateDeprecated
+    Aeson.String "NAMESPACE_STATE_DELETED" -> pure NamespaceState'NamespaceStateDeleted
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for NamespaceState"
 
 data ArchivalState
   = ArchivalState'ArchivalStateUnspecified
@@ -108,18 +112,18 @@ instance MessageSize ArchivalState where
 instance MessageDecode ArchivalState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ArchivalState where
-  protoToJSON ArchivalState'ArchivalStateUnspecified = JsonString "ARCHIVAL_STATE_UNSPECIFIED"
-  protoToJSON ArchivalState'ArchivalStateDisabled = JsonString "ARCHIVAL_STATE_DISABLED"
-  protoToJSON ArchivalState'ArchivalStateEnabled = JsonString "ARCHIVAL_STATE_ENABLED"
+instance Aeson.ToJSON ArchivalState where
+  toJSON ArchivalState'ArchivalStateUnspecified = Aeson.String "ARCHIVAL_STATE_UNSPECIFIED"
+  toJSON ArchivalState'ArchivalStateDisabled = Aeson.String "ARCHIVAL_STATE_DISABLED"
+  toJSON ArchivalState'ArchivalStateEnabled = Aeson.String "ARCHIVAL_STATE_ENABLED"
 
-instance ProtoFromJSON ArchivalState where
-  protoFromJSON = \case
-    JsonString "ARCHIVAL_STATE_UNSPECIFIED" -> Right ArchivalState'ArchivalStateUnspecified
-    JsonString "ARCHIVAL_STATE_DISABLED" -> Right ArchivalState'ArchivalStateDisabled
-    JsonString "ARCHIVAL_STATE_ENABLED" -> Right ArchivalState'ArchivalStateEnabled
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ArchivalState"
+instance Aeson.FromJSON ArchivalState where
+  parseJSON = \case
+    Aeson.String "ARCHIVAL_STATE_UNSPECIFIED" -> pure ArchivalState'ArchivalStateUnspecified
+    Aeson.String "ARCHIVAL_STATE_DISABLED" -> pure ArchivalState'ArchivalStateDisabled
+    Aeson.String "ARCHIVAL_STATE_ENABLED" -> pure ArchivalState'ArchivalStateEnabled
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ArchivalState"
 
 data ReplicationState
   = ReplicationState'ReplicationStateUnspecified
@@ -146,16 +150,16 @@ instance MessageSize ReplicationState where
 instance MessageDecode ReplicationState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ReplicationState where
-  protoToJSON ReplicationState'ReplicationStateUnspecified = JsonString "REPLICATION_STATE_UNSPECIFIED"
-  protoToJSON ReplicationState'ReplicationStateNormal = JsonString "REPLICATION_STATE_NORMAL"
-  protoToJSON ReplicationState'ReplicationStateHandover = JsonString "REPLICATION_STATE_HANDOVER"
+instance Aeson.ToJSON ReplicationState where
+  toJSON ReplicationState'ReplicationStateUnspecified = Aeson.String "REPLICATION_STATE_UNSPECIFIED"
+  toJSON ReplicationState'ReplicationStateNormal = Aeson.String "REPLICATION_STATE_NORMAL"
+  toJSON ReplicationState'ReplicationStateHandover = Aeson.String "REPLICATION_STATE_HANDOVER"
 
-instance ProtoFromJSON ReplicationState where
-  protoFromJSON = \case
-    JsonString "REPLICATION_STATE_UNSPECIFIED" -> Right ReplicationState'ReplicationStateUnspecified
-    JsonString "REPLICATION_STATE_NORMAL" -> Right ReplicationState'ReplicationStateNormal
-    JsonString "REPLICATION_STATE_HANDOVER" -> Right ReplicationState'ReplicationStateHandover
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ReplicationState"
+instance Aeson.FromJSON ReplicationState where
+  parseJSON = \case
+    Aeson.String "REPLICATION_STATE_UNSPECIFIED" -> pure ReplicationState'ReplicationStateUnspecified
+    Aeson.String "REPLICATION_STATE_NORMAL" -> pure ReplicationState'ReplicationStateNormal
+    Aeson.String "REPLICATION_STATE_HANDOVER" -> pure ReplicationState'ReplicationStateHandover
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ReplicationState"
 

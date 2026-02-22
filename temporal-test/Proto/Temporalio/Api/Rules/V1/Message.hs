@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -77,20 +81,20 @@ instance MessageDecode WorkflowRuleAction'ActionActivityPause where
 instance IsMessage WorkflowRuleAction'ActionActivityPause where
   messageTypeName _ = "temporal.api.rules.v1.WorkflowRuleAction.ActionActivityPause"
 
-instance ProtoToJSON WorkflowRuleAction'ActionActivityPause where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON WorkflowRuleAction'ActionActivityPause where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON WorkflowRuleAction'ActionActivityPause where
-  protoFromJSON _ = Right defaultWorkflowRuleAction'ActionActivityPause
+instance Aeson.FromJSON WorkflowRuleAction'ActionActivityPause where
+  parseJSON _ = pure defaultWorkflowRuleAction'ActionActivityPause
 data WorkflowRuleAction'Variant
   = WorkflowRuleAction'Variant'ActivityPause !WorkflowRuleAction'ActionActivityPause
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON WorkflowRuleAction'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON WorkflowRuleAction'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON WorkflowRuleAction'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON WorkflowRuleAction'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultWorkflowRuleAction :: WorkflowRuleAction
 defaultWorkflowRuleAction = WorkflowRuleAction
@@ -123,19 +127,18 @@ instance MessageDecode WorkflowRuleAction where
 instance IsMessage WorkflowRuleAction where
   messageTypeName _ = "temporal.api.rules.v1.WorkflowRuleAction"
 
-instance ProtoToJSON WorkflowRuleAction where
-  protoToJSON msg = jsonObject
-      [ "variant" .= msg.workflowRuleActionVariant
+instance Aeson.ToJSON WorkflowRuleAction where
+  toJSON msg = jsonObject
+      [ "variant" .=: msg.workflowRuleActionVariant
 
       ]
 
-instance ProtoFromJSON WorkflowRuleAction where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowRuleActionVariant <- obj .:? "variant"
+instance Aeson.FromJSON WorkflowRuleAction where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowRuleActionVariant <- parseFieldMaybe obj "variant"
     pure defaultWorkflowRuleAction
       { workflowRuleActionVariant = maybe (workflowRuleActionVariant defaultWorkflowRuleAction) id fld_workflowRuleActionVariant
       }
-  protoFromJSON _ = Right defaultWorkflowRuleAction
 
 data WorkflowRuleSpec = WorkflowRuleSpec
   { workflowRuleSpecId :: !Text
@@ -182,27 +185,26 @@ instance MessageDecode WorkflowRuleSpec'ActivityStartingTrigger where
 instance IsMessage WorkflowRuleSpec'ActivityStartingTrigger where
   messageTypeName _ = "temporal.api.rules.v1.WorkflowRuleSpec.ActivityStartingTrigger"
 
-instance ProtoToJSON WorkflowRuleSpec'ActivityStartingTrigger where
-  protoToJSON msg = jsonObject
-      [ "predicate" .= msg.workflowRuleSpecActivityStartingTriggerPredicate
+instance Aeson.ToJSON WorkflowRuleSpec'ActivityStartingTrigger where
+  toJSON msg = jsonObject
+      [ "predicate" .=: msg.workflowRuleSpecActivityStartingTriggerPredicate
 
       ]
 
-instance ProtoFromJSON WorkflowRuleSpec'ActivityStartingTrigger where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowRuleSpecActivityStartingTriggerPredicate <- obj .:? "predicate"
+instance Aeson.FromJSON WorkflowRuleSpec'ActivityStartingTrigger where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowRuleSpecActivityStartingTriggerPredicate <- parseFieldMaybe obj "predicate"
     pure defaultWorkflowRuleSpec'ActivityStartingTrigger
       { workflowRuleSpecActivityStartingTriggerPredicate = maybe (workflowRuleSpecActivityStartingTriggerPredicate defaultWorkflowRuleSpec'ActivityStartingTrigger) id fld_workflowRuleSpecActivityStartingTriggerPredicate
       }
-  protoFromJSON _ = Right defaultWorkflowRuleSpec'ActivityStartingTrigger
 data WorkflowRuleSpec'Trigger
   = WorkflowRuleSpec'Trigger'ActivityStart !WorkflowRuleSpec'ActivityStartingTrigger
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON WorkflowRuleSpec'Trigger where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON WorkflowRuleSpec'Trigger where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON WorkflowRuleSpec'Trigger where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON WorkflowRuleSpec'Trigger where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultWorkflowRuleSpec :: WorkflowRuleSpec
 defaultWorkflowRuleSpec = WorkflowRuleSpec
@@ -259,22 +261,22 @@ instance MessageDecode WorkflowRuleSpec where
 instance IsMessage WorkflowRuleSpec where
   messageTypeName _ = "temporal.api.rules.v1.WorkflowRuleSpec"
 
-instance ProtoToJSON WorkflowRuleSpec where
-  protoToJSON msg = jsonObject
-      [ "id" .= msg.workflowRuleSpecId
-      , "trigger" .= msg.workflowRuleSpecTrigger
-      , "visibilityQuery" .= msg.workflowRuleSpecVisibilityquery
-      , "actions" .= msg.workflowRuleSpecActions
-      , "expirationTime" .= msg.workflowRuleSpecExpirationtime
+instance Aeson.ToJSON WorkflowRuleSpec where
+  toJSON msg = jsonObject
+      [ "id" .=: msg.workflowRuleSpecId
+      , "trigger" .=: msg.workflowRuleSpecTrigger
+      , "visibilityQuery" .=: msg.workflowRuleSpecVisibilityquery
+      , "actions" .=: msg.workflowRuleSpecActions
+      , "expirationTime" .=: msg.workflowRuleSpecExpirationtime
       ]
 
-instance ProtoFromJSON WorkflowRuleSpec where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowRuleSpecId <- obj .:? "id"
-    fld_workflowRuleSpecTrigger <- obj .:? "trigger"
-    fld_workflowRuleSpecVisibilityquery <- obj .:? "visibilityQuery"
-    fld_workflowRuleSpecActions <- obj .:? "actions"
-    fld_workflowRuleSpecExpirationtime <- obj .:? "expirationTime"
+instance Aeson.FromJSON WorkflowRuleSpec where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowRuleSpecId <- parseFieldMaybe obj "id"
+    fld_workflowRuleSpecTrigger <- parseFieldMaybe obj "trigger"
+    fld_workflowRuleSpecVisibilityquery <- parseFieldMaybe obj "visibilityQuery"
+    fld_workflowRuleSpecActions <- parseFieldMaybe obj "actions"
+    fld_workflowRuleSpecExpirationtime <- parseFieldMaybe obj "expirationTime"
     pure defaultWorkflowRuleSpec
       { workflowRuleSpecId = maybe (workflowRuleSpecId defaultWorkflowRuleSpec) id fld_workflowRuleSpecId
       , workflowRuleSpecTrigger = maybe (workflowRuleSpecTrigger defaultWorkflowRuleSpec) id fld_workflowRuleSpecTrigger
@@ -282,7 +284,7 @@ instance ProtoFromJSON WorkflowRuleSpec where
       , workflowRuleSpecActions = maybe (workflowRuleSpecActions defaultWorkflowRuleSpec) id fld_workflowRuleSpecActions
       , workflowRuleSpecExpirationtime = maybe (workflowRuleSpecExpirationtime defaultWorkflowRuleSpec) id fld_workflowRuleSpecExpirationtime
       }
-  protoFromJSON _ = Right defaultWorkflowRuleSpec
+  parseJSON _ = pure defaultWorkflowRuleSpec
 
 data WorkflowRule = WorkflowRule
   { workflowRuleCreatetime :: !(Maybe PB_Timestamp.Timestamp)
@@ -340,27 +342,27 @@ instance MessageDecode WorkflowRule where
 instance IsMessage WorkflowRule where
   messageTypeName _ = "temporal.api.rules.v1.WorkflowRule"
 
-instance ProtoToJSON WorkflowRule where
-  protoToJSON msg = jsonObject
-      [ "createTime" .= msg.workflowRuleCreatetime
-      , "spec" .= msg.workflowRuleSpec
-      , "createdByIdentity" .= msg.workflowRuleCreatedbyidentity
-      , "description" .= msg.workflowRuleDescription
+instance Aeson.ToJSON WorkflowRule where
+  toJSON msg = jsonObject
+      [ "createTime" .=: msg.workflowRuleCreatetime
+      , "spec" .=: msg.workflowRuleSpec
+      , "createdByIdentity" .=: msg.workflowRuleCreatedbyidentity
+      , "description" .=: msg.workflowRuleDescription
       ]
 
-instance ProtoFromJSON WorkflowRule where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowRuleCreatetime <- obj .:? "createTime"
-    fld_workflowRuleSpec <- obj .:? "spec"
-    fld_workflowRuleCreatedbyidentity <- obj .:? "createdByIdentity"
-    fld_workflowRuleDescription <- obj .:? "description"
+instance Aeson.FromJSON WorkflowRule where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowRuleCreatetime <- parseFieldMaybe obj "createTime"
+    fld_workflowRuleSpec <- parseFieldMaybe obj "spec"
+    fld_workflowRuleCreatedbyidentity <- parseFieldMaybe obj "createdByIdentity"
+    fld_workflowRuleDescription <- parseFieldMaybe obj "description"
     pure defaultWorkflowRule
       { workflowRuleCreatetime = maybe (workflowRuleCreatetime defaultWorkflowRule) id fld_workflowRuleCreatetime
       , workflowRuleSpec = maybe (workflowRuleSpec defaultWorkflowRule) id fld_workflowRuleSpec
       , workflowRuleCreatedbyidentity = maybe (workflowRuleCreatedbyidentity defaultWorkflowRule) id fld_workflowRuleCreatedbyidentity
       , workflowRuleDescription = maybe (workflowRuleDescription defaultWorkflowRule) id fld_workflowRuleDescription
       }
-  protoFromJSON _ = Right defaultWorkflowRule
+  parseJSON _ = pure defaultWorkflowRule
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

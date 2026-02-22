@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -65,16 +69,16 @@ instance MessageSize NexusHandlerErrorRetryBehavior where
 instance MessageDecode NexusHandlerErrorRetryBehavior where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON NexusHandlerErrorRetryBehavior where
-  protoToJSON NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorUnspecified = JsonString "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_UNSPECIFIED"
-  protoToJSON NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorRetryable = JsonString "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_RETRYABLE"
-  protoToJSON NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorNonRetryable = JsonString "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_NON_RETRYABLE"
+instance Aeson.ToJSON NexusHandlerErrorRetryBehavior where
+  toJSON NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorUnspecified = Aeson.String "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_UNSPECIFIED"
+  toJSON NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorRetryable = Aeson.String "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_RETRYABLE"
+  toJSON NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorNonRetryable = Aeson.String "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_NON_RETRYABLE"
 
-instance ProtoFromJSON NexusHandlerErrorRetryBehavior where
-  protoFromJSON = \case
-    JsonString "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_UNSPECIFIED" -> Right NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorUnspecified
-    JsonString "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_RETRYABLE" -> Right NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorRetryable
-    JsonString "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_NON_RETRYABLE" -> Right NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorNonRetryable
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for NexusHandlerErrorRetryBehavior"
+instance Aeson.FromJSON NexusHandlerErrorRetryBehavior where
+  parseJSON = \case
+    Aeson.String "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_UNSPECIFIED" -> pure NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorUnspecified
+    Aeson.String "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_RETRYABLE" -> pure NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorRetryable
+    Aeson.String "NEXUS_HANDLER_ERROR_RETRY_BEHAVIOR_NON_RETRYABLE" -> pure NexusHandlerErrorRetryBehavior'NexusHandlerErrorRetryBehaviorNonRetryable
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for NexusHandlerErrorRetryBehavior"
 

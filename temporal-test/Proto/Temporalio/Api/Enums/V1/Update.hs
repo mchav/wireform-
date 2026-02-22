@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -68,20 +72,20 @@ instance MessageSize UpdateWorkflowExecutionLifecycleStage where
 instance MessageDecode UpdateWorkflowExecutionLifecycleStage where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON UpdateWorkflowExecutionLifecycleStage where
-  protoToJSON UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageUnspecified = JsonString "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_UNSPECIFIED"
-  protoToJSON UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageAdmitted = JsonString "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_ADMITTED"
-  protoToJSON UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageAccepted = JsonString "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_ACCEPTED"
-  protoToJSON UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageCompleted = JsonString "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_COMPLETED"
+instance Aeson.ToJSON UpdateWorkflowExecutionLifecycleStage where
+  toJSON UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageUnspecified = Aeson.String "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_UNSPECIFIED"
+  toJSON UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageAdmitted = Aeson.String "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_ADMITTED"
+  toJSON UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageAccepted = Aeson.String "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_ACCEPTED"
+  toJSON UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageCompleted = Aeson.String "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_COMPLETED"
 
-instance ProtoFromJSON UpdateWorkflowExecutionLifecycleStage where
-  protoFromJSON = \case
-    JsonString "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_UNSPECIFIED" -> Right UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageUnspecified
-    JsonString "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_ADMITTED" -> Right UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageAdmitted
-    JsonString "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_ACCEPTED" -> Right UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageAccepted
-    JsonString "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_COMPLETED" -> Right UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageCompleted
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for UpdateWorkflowExecutionLifecycleStage"
+instance Aeson.FromJSON UpdateWorkflowExecutionLifecycleStage where
+  parseJSON = \case
+    Aeson.String "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_UNSPECIFIED" -> pure UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageUnspecified
+    Aeson.String "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_ADMITTED" -> pure UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageAdmitted
+    Aeson.String "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_ACCEPTED" -> pure UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageAccepted
+    Aeson.String "UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_COMPLETED" -> pure UpdateWorkflowExecutionLifecycleStage'UpdateWorkflowExecutionLifecycleStageCompleted
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for UpdateWorkflowExecutionLifecycleStage"
 
 data UpdateAdmittedEventOrigin
   = UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginUnspecified
@@ -105,14 +109,14 @@ instance MessageSize UpdateAdmittedEventOrigin where
 instance MessageDecode UpdateAdmittedEventOrigin where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON UpdateAdmittedEventOrigin where
-  protoToJSON UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginUnspecified = JsonString "UPDATE_ADMITTED_EVENT_ORIGIN_UNSPECIFIED"
-  protoToJSON UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginReapply = JsonString "UPDATE_ADMITTED_EVENT_ORIGIN_REAPPLY"
+instance Aeson.ToJSON UpdateAdmittedEventOrigin where
+  toJSON UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginUnspecified = Aeson.String "UPDATE_ADMITTED_EVENT_ORIGIN_UNSPECIFIED"
+  toJSON UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginReapply = Aeson.String "UPDATE_ADMITTED_EVENT_ORIGIN_REAPPLY"
 
-instance ProtoFromJSON UpdateAdmittedEventOrigin where
-  protoFromJSON = \case
-    JsonString "UPDATE_ADMITTED_EVENT_ORIGIN_UNSPECIFIED" -> Right UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginUnspecified
-    JsonString "UPDATE_ADMITTED_EVENT_ORIGIN_REAPPLY" -> Right UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginReapply
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for UpdateAdmittedEventOrigin"
+instance Aeson.FromJSON UpdateAdmittedEventOrigin where
+  parseJSON = \case
+    Aeson.String "UPDATE_ADMITTED_EVENT_ORIGIN_UNSPECIFIED" -> pure UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginUnspecified
+    Aeson.String "UPDATE_ADMITTED_EVENT_ORIGIN_REAPPLY" -> pure UpdateAdmittedEventOrigin'UpdateAdmittedEventOriginReapply
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for UpdateAdmittedEventOrigin"
 

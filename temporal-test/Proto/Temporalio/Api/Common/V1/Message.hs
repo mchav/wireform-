@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -87,21 +91,20 @@ instance MessageDecode DataBlob where
 instance IsMessage DataBlob where
   messageTypeName _ = "temporal.api.common.v1.DataBlob"
 
-instance ProtoToJSON DataBlob where
-  protoToJSON msg = jsonObject
-      [ "encodingType" .= msg.dataBlobEncodingtype
-      , "data" .= msg.dataBlobData
+instance Aeson.ToJSON DataBlob where
+  toJSON msg = jsonObject
+      [ "encodingType" .=: msg.dataBlobEncodingtype
+      , "data" .=: msg.dataBlobData
       ]
 
-instance ProtoFromJSON DataBlob where
-  protoFromJSON (JsonObject obj) = do
-    fld_dataBlobEncodingtype <- obj .:? "encodingType"
-    fld_dataBlobData <- obj .:? "data"
+instance Aeson.FromJSON DataBlob where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_dataBlobEncodingtype <- parseFieldMaybe obj "encodingType"
+    fld_dataBlobData <- parseFieldMaybe obj "data"
     pure defaultDataBlob
       { dataBlobEncodingtype = maybe (dataBlobEncodingtype defaultDataBlob) id fld_dataBlobEncodingtype
       , dataBlobData = maybe (dataBlobData defaultDataBlob) id fld_dataBlobData
       }
-  protoFromJSON _ = Right defaultDataBlob
 
 data Payloads = Payloads
   { payloadsPayloads :: !(V.Vector Payload)
@@ -138,19 +141,18 @@ instance MessageDecode Payloads where
 instance IsMessage Payloads where
   messageTypeName _ = "temporal.api.common.v1.Payloads"
 
-instance ProtoToJSON Payloads where
-  protoToJSON msg = jsonObject
-      [ "payloads" .= msg.payloadsPayloads
+instance Aeson.ToJSON Payloads where
+  toJSON msg = jsonObject
+      [ "payloads" .=: msg.payloadsPayloads
 
       ]
 
-instance ProtoFromJSON Payloads where
-  protoFromJSON (JsonObject obj) = do
-    fld_payloadsPayloads <- obj .:? "payloads"
+instance Aeson.FromJSON Payloads where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_payloadsPayloads <- parseFieldMaybe obj "payloads"
     pure defaultPayloads
       { payloadsPayloads = maybe (payloadsPayloads defaultPayloads) id fld_payloadsPayloads
       }
-  protoFromJSON _ = Right defaultPayloads
 
 data Payload = Payload
   { payloadMetadata :: !(Map.Map Text ByteString)
@@ -195,19 +197,18 @@ instance MessageDecode Payload'ExternalPayloadDetails where
 instance IsMessage Payload'ExternalPayloadDetails where
   messageTypeName _ = "temporal.api.common.v1.Payload.ExternalPayloadDetails"
 
-instance ProtoToJSON Payload'ExternalPayloadDetails where
-  protoToJSON msg = jsonObject
-      [ "sizeBytes" .= msg.payloadExternalPayloadDetailsSizebytes
+instance Aeson.ToJSON Payload'ExternalPayloadDetails where
+  toJSON msg = jsonObject
+      [ "sizeBytes" .=: msg.payloadExternalPayloadDetailsSizebytes
 
       ]
 
-instance ProtoFromJSON Payload'ExternalPayloadDetails where
-  protoFromJSON (JsonObject obj) = do
-    fld_payloadExternalPayloadDetailsSizebytes <- obj .:? "sizeBytes"
+instance Aeson.FromJSON Payload'ExternalPayloadDetails where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_payloadExternalPayloadDetailsSizebytes <- parseFieldMaybe obj "sizeBytes"
     pure defaultPayload'ExternalPayloadDetails
       { payloadExternalPayloadDetailsSizebytes = maybe (payloadExternalPayloadDetailsSizebytes defaultPayload'ExternalPayloadDetails) id fld_payloadExternalPayloadDetailsSizebytes
       }
-  protoFromJSON _ = Right defaultPayload'ExternalPayloadDetails
 
 defaultPayload :: Payload
 defaultPayload = Payload
@@ -253,24 +254,23 @@ instance MessageDecode Payload where
 instance IsMessage Payload where
   messageTypeName _ = "temporal.api.common.v1.Payload"
 
-instance ProtoToJSON Payload where
-  protoToJSON msg = jsonObject
-      [ "metadata" .= msg.payloadMetadata
-      , "data" .= msg.payloadData
-      , "externalPayloads" .= msg.payloadExternalpayloads
+instance Aeson.ToJSON Payload where
+  toJSON msg = jsonObject
+      [ "metadata" .=: msg.payloadMetadata
+      , "data" .=: msg.payloadData
+      , "externalPayloads" .=: msg.payloadExternalpayloads
       ]
 
-instance ProtoFromJSON Payload where
-  protoFromJSON (JsonObject obj) = do
-    fld_payloadMetadata <- obj .:? "metadata"
-    fld_payloadData <- obj .:? "data"
-    fld_payloadExternalpayloads <- obj .:? "externalPayloads"
+instance Aeson.FromJSON Payload where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_payloadMetadata <- parseFieldMaybe obj "metadata"
+    fld_payloadData <- parseFieldMaybe obj "data"
+    fld_payloadExternalpayloads <- parseFieldMaybe obj "externalPayloads"
     pure defaultPayload
       { payloadMetadata = maybe (payloadMetadata defaultPayload) id fld_payloadMetadata
       , payloadData = maybe (payloadData defaultPayload) id fld_payloadData
       , payloadExternalpayloads = maybe (payloadExternalpayloads defaultPayload) id fld_payloadExternalpayloads
       }
-  protoFromJSON _ = Right defaultPayload
 
 data SearchAttributes = SearchAttributes
   { searchAttributesIndexedfields :: !(Map.Map Text Payload)
@@ -310,19 +310,18 @@ instance MessageDecode SearchAttributes where
 instance IsMessage SearchAttributes where
   messageTypeName _ = "temporal.api.common.v1.SearchAttributes"
 
-instance ProtoToJSON SearchAttributes where
-  protoToJSON msg = jsonObject
-      [ "indexedFields" .= msg.searchAttributesIndexedfields
+instance Aeson.ToJSON SearchAttributes where
+  toJSON msg = jsonObject
+      [ "indexedFields" .=: msg.searchAttributesIndexedfields
 
       ]
 
-instance ProtoFromJSON SearchAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_searchAttributesIndexedfields <- obj .:? "indexedFields"
+instance Aeson.FromJSON SearchAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_searchAttributesIndexedfields <- parseFieldMaybe obj "indexedFields"
     pure defaultSearchAttributes
       { searchAttributesIndexedfields = maybe (searchAttributesIndexedfields defaultSearchAttributes) id fld_searchAttributesIndexedfields
       }
-  protoFromJSON _ = Right defaultSearchAttributes
 
 data Memo = Memo
   { memoFields :: !(Map.Map Text Payload)
@@ -362,19 +361,18 @@ instance MessageDecode Memo where
 instance IsMessage Memo where
   messageTypeName _ = "temporal.api.common.v1.Memo"
 
-instance ProtoToJSON Memo where
-  protoToJSON msg = jsonObject
-      [ "fields" .= msg.memoFields
+instance Aeson.ToJSON Memo where
+  toJSON msg = jsonObject
+      [ "fields" .=: msg.memoFields
 
       ]
 
-instance ProtoFromJSON Memo where
-  protoFromJSON (JsonObject obj) = do
-    fld_memoFields <- obj .:? "fields"
+instance Aeson.FromJSON Memo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_memoFields <- parseFieldMaybe obj "fields"
     pure defaultMemo
       { memoFields = maybe (memoFields defaultMemo) id fld_memoFields
       }
-  protoFromJSON _ = Right defaultMemo
 
 data Header = Header
   { headerFields :: !(Map.Map Text Payload)
@@ -414,19 +412,18 @@ instance MessageDecode Header where
 instance IsMessage Header where
   messageTypeName _ = "temporal.api.common.v1.Header"
 
-instance ProtoToJSON Header where
-  protoToJSON msg = jsonObject
-      [ "fields" .= msg.headerFields
+instance Aeson.ToJSON Header where
+  toJSON msg = jsonObject
+      [ "fields" .=: msg.headerFields
 
       ]
 
-instance ProtoFromJSON Header where
-  protoFromJSON (JsonObject obj) = do
-    fld_headerFields <- obj .:? "fields"
+instance Aeson.FromJSON Header where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_headerFields <- parseFieldMaybe obj "fields"
     pure defaultHeader
       { headerFields = maybe (headerFields defaultHeader) id fld_headerFields
       }
-  protoFromJSON _ = Right defaultHeader
 
 data WorkflowExecution = WorkflowExecution
   { workflowExecutionWorkflowid :: !Text
@@ -470,21 +467,20 @@ instance MessageDecode WorkflowExecution where
 instance IsMessage WorkflowExecution where
   messageTypeName _ = "temporal.api.common.v1.WorkflowExecution"
 
-instance ProtoToJSON WorkflowExecution where
-  protoToJSON msg = jsonObject
-      [ "workflowId" .= msg.workflowExecutionWorkflowid
-      , "runId" .= msg.workflowExecutionRunid
+instance Aeson.ToJSON WorkflowExecution where
+  toJSON msg = jsonObject
+      [ "workflowId" .=: msg.workflowExecutionWorkflowid
+      , "runId" .=: msg.workflowExecutionRunid
       ]
 
-instance ProtoFromJSON WorkflowExecution where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionWorkflowid <- obj .:? "workflowId"
-    fld_workflowExecutionRunid <- obj .:? "runId"
+instance Aeson.FromJSON WorkflowExecution where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_workflowExecutionRunid <- parseFieldMaybe obj "runId"
     pure defaultWorkflowExecution
       { workflowExecutionWorkflowid = maybe (workflowExecutionWorkflowid defaultWorkflowExecution) id fld_workflowExecutionWorkflowid
       , workflowExecutionRunid = maybe (workflowExecutionRunid defaultWorkflowExecution) id fld_workflowExecutionRunid
       }
-  protoFromJSON _ = Right defaultWorkflowExecution
 
 data WorkflowType = WorkflowType
   { workflowTypeName :: !Text
@@ -521,19 +517,18 @@ instance MessageDecode WorkflowType where
 instance IsMessage WorkflowType where
   messageTypeName _ = "temporal.api.common.v1.WorkflowType"
 
-instance ProtoToJSON WorkflowType where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.workflowTypeName
+instance Aeson.ToJSON WorkflowType where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.workflowTypeName
 
       ]
 
-instance ProtoFromJSON WorkflowType where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowTypeName <- obj .:? "name"
+instance Aeson.FromJSON WorkflowType where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowTypeName <- parseFieldMaybe obj "name"
     pure defaultWorkflowType
       { workflowTypeName = maybe (workflowTypeName defaultWorkflowType) id fld_workflowTypeName
       }
-  protoFromJSON _ = Right defaultWorkflowType
 
 data ActivityType = ActivityType
   { activityTypeName :: !Text
@@ -570,19 +565,18 @@ instance MessageDecode ActivityType where
 instance IsMessage ActivityType where
   messageTypeName _ = "temporal.api.common.v1.ActivityType"
 
-instance ProtoToJSON ActivityType where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.activityTypeName
+instance Aeson.ToJSON ActivityType where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.activityTypeName
 
       ]
 
-instance ProtoFromJSON ActivityType where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityTypeName <- obj .:? "name"
+instance Aeson.FromJSON ActivityType where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityTypeName <- parseFieldMaybe obj "name"
     pure defaultActivityType
       { activityTypeName = maybe (activityTypeName defaultActivityType) id fld_activityTypeName
       }
-  protoFromJSON _ = Right defaultActivityType
 
 data RetryPolicy = RetryPolicy
   { retryPolicyInitialinterval :: !(Maybe PB_Duration.Duration)
@@ -647,22 +641,22 @@ instance MessageDecode RetryPolicy where
 instance IsMessage RetryPolicy where
   messageTypeName _ = "temporal.api.common.v1.RetryPolicy"
 
-instance ProtoToJSON RetryPolicy where
-  protoToJSON msg = jsonObject
-      [ "initialInterval" .= msg.retryPolicyInitialinterval
-      , "backoffCoefficient" .= msg.retryPolicyBackoffcoefficient
-      , "maximumInterval" .= msg.retryPolicyMaximuminterval
-      , "maximumAttempts" .= msg.retryPolicyMaximumattempts
-      , "nonRetryableErrorTypes" .= msg.retryPolicyNonretryableerrortypes
+instance Aeson.ToJSON RetryPolicy where
+  toJSON msg = jsonObject
+      [ "initialInterval" .=: msg.retryPolicyInitialinterval
+      , "backoffCoefficient" .=: msg.retryPolicyBackoffcoefficient
+      , "maximumInterval" .=: msg.retryPolicyMaximuminterval
+      , "maximumAttempts" .=: msg.retryPolicyMaximumattempts
+      , "nonRetryableErrorTypes" .=: msg.retryPolicyNonretryableerrortypes
       ]
 
-instance ProtoFromJSON RetryPolicy where
-  protoFromJSON (JsonObject obj) = do
-    fld_retryPolicyInitialinterval <- obj .:? "initialInterval"
-    fld_retryPolicyBackoffcoefficient <- obj .:? "backoffCoefficient"
-    fld_retryPolicyMaximuminterval <- obj .:? "maximumInterval"
-    fld_retryPolicyMaximumattempts <- obj .:? "maximumAttempts"
-    fld_retryPolicyNonretryableerrortypes <- obj .:? "nonRetryableErrorTypes"
+instance Aeson.FromJSON RetryPolicy where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_retryPolicyInitialinterval <- parseFieldMaybe obj "initialInterval"
+    fld_retryPolicyBackoffcoefficient <- parseFieldMaybe obj "backoffCoefficient"
+    fld_retryPolicyMaximuminterval <- parseFieldMaybe obj "maximumInterval"
+    fld_retryPolicyMaximumattempts <- parseFieldMaybe obj "maximumAttempts"
+    fld_retryPolicyNonretryableerrortypes <- parseFieldMaybe obj "nonRetryableErrorTypes"
     pure defaultRetryPolicy
       { retryPolicyInitialinterval = maybe (retryPolicyInitialinterval defaultRetryPolicy) id fld_retryPolicyInitialinterval
       , retryPolicyBackoffcoefficient = maybe (retryPolicyBackoffcoefficient defaultRetryPolicy) id fld_retryPolicyBackoffcoefficient
@@ -670,7 +664,7 @@ instance ProtoFromJSON RetryPolicy where
       , retryPolicyMaximumattempts = maybe (retryPolicyMaximumattempts defaultRetryPolicy) id fld_retryPolicyMaximumattempts
       , retryPolicyNonretryableerrortypes = maybe (retryPolicyNonretryableerrortypes defaultRetryPolicy) id fld_retryPolicyNonretryableerrortypes
       }
-  protoFromJSON _ = Right defaultRetryPolicy
+  parseJSON _ = pure defaultRetryPolicy
 
 data MeteringMetadata = MeteringMetadata
   { meteringMetadataNonfirstlocalactivityexecutionattempts :: {-# UNPACK #-} !Word32
@@ -707,19 +701,18 @@ instance MessageDecode MeteringMetadata where
 instance IsMessage MeteringMetadata where
   messageTypeName _ = "temporal.api.common.v1.MeteringMetadata"
 
-instance ProtoToJSON MeteringMetadata where
-  protoToJSON msg = jsonObject
-      [ "nonfirstLocalActivityExecutionAttempts" .= msg.meteringMetadataNonfirstlocalactivityexecutionattempts
+instance Aeson.ToJSON MeteringMetadata where
+  toJSON msg = jsonObject
+      [ "nonfirstLocalActivityExecutionAttempts" .=: msg.meteringMetadataNonfirstlocalactivityexecutionattempts
 
       ]
 
-instance ProtoFromJSON MeteringMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_meteringMetadataNonfirstlocalactivityexecutionattempts <- obj .:? "nonfirstLocalActivityExecutionAttempts"
+instance Aeson.FromJSON MeteringMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_meteringMetadataNonfirstlocalactivityexecutionattempts <- parseFieldMaybe obj "nonfirstLocalActivityExecutionAttempts"
     pure defaultMeteringMetadata
       { meteringMetadataNonfirstlocalactivityexecutionattempts = maybe (meteringMetadataNonfirstlocalactivityexecutionattempts defaultMeteringMetadata) id fld_meteringMetadataNonfirstlocalactivityexecutionattempts
       }
-  protoFromJSON _ = Right defaultMeteringMetadata
 
 data WorkerVersionStamp = WorkerVersionStamp
   { workerVersionStampBuildid :: !Text
@@ -763,21 +756,20 @@ instance MessageDecode WorkerVersionStamp where
 instance IsMessage WorkerVersionStamp where
   messageTypeName _ = "temporal.api.common.v1.WorkerVersionStamp"
 
-instance ProtoToJSON WorkerVersionStamp where
-  protoToJSON msg = jsonObject
-      [ "buildId" .= msg.workerVersionStampBuildid
-      , "useVersioning" .= msg.workerVersionStampUseversioning
+instance Aeson.ToJSON WorkerVersionStamp where
+  toJSON msg = jsonObject
+      [ "buildId" .=: msg.workerVersionStampBuildid
+      , "useVersioning" .=: msg.workerVersionStampUseversioning
       ]
 
-instance ProtoFromJSON WorkerVersionStamp where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerVersionStampBuildid <- obj .:? "buildId"
-    fld_workerVersionStampUseversioning <- obj .:? "useVersioning"
+instance Aeson.FromJSON WorkerVersionStamp where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerVersionStampBuildid <- parseFieldMaybe obj "buildId"
+    fld_workerVersionStampUseversioning <- parseFieldMaybe obj "useVersioning"
     pure defaultWorkerVersionStamp
       { workerVersionStampBuildid = maybe (workerVersionStampBuildid defaultWorkerVersionStamp) id fld_workerVersionStampBuildid
       , workerVersionStampUseversioning = maybe (workerVersionStampUseversioning defaultWorkerVersionStamp) id fld_workerVersionStampUseversioning
       }
-  protoFromJSON _ = Right defaultWorkerVersionStamp
 
 data WorkerVersionCapabilities = WorkerVersionCapabilities
   { workerVersionCapabilitiesBuildid :: !Text
@@ -828,24 +820,23 @@ instance MessageDecode WorkerVersionCapabilities where
 instance IsMessage WorkerVersionCapabilities where
   messageTypeName _ = "temporal.api.common.v1.WorkerVersionCapabilities"
 
-instance ProtoToJSON WorkerVersionCapabilities where
-  protoToJSON msg = jsonObject
-      [ "buildId" .= msg.workerVersionCapabilitiesBuildid
-      , "useVersioning" .= msg.workerVersionCapabilitiesUseversioning
-      , "deploymentSeriesName" .= msg.workerVersionCapabilitiesDeploymentseriesname
+instance Aeson.ToJSON WorkerVersionCapabilities where
+  toJSON msg = jsonObject
+      [ "buildId" .=: msg.workerVersionCapabilitiesBuildid
+      , "useVersioning" .=: msg.workerVersionCapabilitiesUseversioning
+      , "deploymentSeriesName" .=: msg.workerVersionCapabilitiesDeploymentseriesname
       ]
 
-instance ProtoFromJSON WorkerVersionCapabilities where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerVersionCapabilitiesBuildid <- obj .:? "buildId"
-    fld_workerVersionCapabilitiesUseversioning <- obj .:? "useVersioning"
-    fld_workerVersionCapabilitiesDeploymentseriesname <- obj .:? "deploymentSeriesName"
+instance Aeson.FromJSON WorkerVersionCapabilities where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerVersionCapabilitiesBuildid <- parseFieldMaybe obj "buildId"
+    fld_workerVersionCapabilitiesUseversioning <- parseFieldMaybe obj "useVersioning"
+    fld_workerVersionCapabilitiesDeploymentseriesname <- parseFieldMaybe obj "deploymentSeriesName"
     pure defaultWorkerVersionCapabilities
       { workerVersionCapabilitiesBuildid = maybe (workerVersionCapabilitiesBuildid defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesBuildid
       , workerVersionCapabilitiesUseversioning = maybe (workerVersionCapabilitiesUseversioning defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesUseversioning
       , workerVersionCapabilitiesDeploymentseriesname = maybe (workerVersionCapabilitiesDeploymentseriesname defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesDeploymentseriesname
       }
-  protoFromJSON _ = Right defaultWorkerVersionCapabilities
 
 data ResetOptions = ResetOptions
   { resetOptionsTarget :: !(Maybe ResetOptions'Target)
@@ -862,10 +853,10 @@ data ResetOptions'Target
   | ResetOptions'Target'BuildId !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON ResetOptions'Target where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON ResetOptions'Target where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON ResetOptions'Target where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON ResetOptions'Target where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultResetOptions :: ResetOptions
 defaultResetOptions = ResetOptions
@@ -931,27 +922,27 @@ instance MessageDecode ResetOptions where
 instance IsMessage ResetOptions where
   messageTypeName _ = "temporal.api.common.v1.ResetOptions"
 
-instance ProtoToJSON ResetOptions where
-  protoToJSON msg = jsonObject
-      [ "target" .= msg.resetOptionsTarget
-      , "resetReapplyType" .= msg.resetOptionsResetreapplytype
-      , "currentRunOnly" .= msg.resetOptionsCurrentrunonly
-      , "resetReapplyExcludeTypes" .= msg.resetOptionsResetreapplyexcludetypes
+instance Aeson.ToJSON ResetOptions where
+  toJSON msg = jsonObject
+      [ "target" .=: msg.resetOptionsTarget
+      , "resetReapplyType" .=: msg.resetOptionsResetreapplytype
+      , "currentRunOnly" .=: msg.resetOptionsCurrentrunonly
+      , "resetReapplyExcludeTypes" .=: msg.resetOptionsResetreapplyexcludetypes
       ]
 
-instance ProtoFromJSON ResetOptions where
-  protoFromJSON (JsonObject obj) = do
-    fld_resetOptionsTarget <- obj .:? "target"
-    fld_resetOptionsResetreapplytype <- obj .:? "resetReapplyType"
-    fld_resetOptionsCurrentrunonly <- obj .:? "currentRunOnly"
-    fld_resetOptionsResetreapplyexcludetypes <- obj .:? "resetReapplyExcludeTypes"
+instance Aeson.FromJSON ResetOptions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_resetOptionsTarget <- parseFieldMaybe obj "target"
+    fld_resetOptionsResetreapplytype <- parseFieldMaybe obj "resetReapplyType"
+    fld_resetOptionsCurrentrunonly <- parseFieldMaybe obj "currentRunOnly"
+    fld_resetOptionsResetreapplyexcludetypes <- parseFieldMaybe obj "resetReapplyExcludeTypes"
     pure defaultResetOptions
       { resetOptionsTarget = maybe (resetOptionsTarget defaultResetOptions) id fld_resetOptionsTarget
       , resetOptionsResetreapplytype = maybe (resetOptionsResetreapplytype defaultResetOptions) id fld_resetOptionsResetreapplytype
       , resetOptionsCurrentrunonly = maybe (resetOptionsCurrentrunonly defaultResetOptions) id fld_resetOptionsCurrentrunonly
       , resetOptionsResetreapplyexcludetypes = maybe (resetOptionsResetreapplyexcludetypes defaultResetOptions) id fld_resetOptionsResetreapplyexcludetypes
       }
-  protoFromJSON _ = Right defaultResetOptions
+  parseJSON _ = pure defaultResetOptions
 
 data Callback = Callback
   { callbackVariant :: !(Maybe Callback'Variant)
@@ -1005,21 +996,20 @@ instance MessageDecode Callback'Nexus where
 instance IsMessage Callback'Nexus where
   messageTypeName _ = "temporal.api.common.v1.Callback.Nexus"
 
-instance ProtoToJSON Callback'Nexus where
-  protoToJSON msg = jsonObject
-      [ "url" .= msg.callbackNexusUrl
-      , "header" .= msg.callbackNexusHeader
+instance Aeson.ToJSON Callback'Nexus where
+  toJSON msg = jsonObject
+      [ "url" .=: msg.callbackNexusUrl
+      , "header" .=: msg.callbackNexusHeader
       ]
 
-instance ProtoFromJSON Callback'Nexus where
-  protoFromJSON (JsonObject obj) = do
-    fld_callbackNexusUrl <- obj .:? "url"
-    fld_callbackNexusHeader <- obj .:? "header"
+instance Aeson.FromJSON Callback'Nexus where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_callbackNexusUrl <- parseFieldMaybe obj "url"
+    fld_callbackNexusHeader <- parseFieldMaybe obj "header"
     pure defaultCallback'Nexus
       { callbackNexusUrl = maybe (callbackNexusUrl defaultCallback'Nexus) id fld_callbackNexusUrl
       , callbackNexusHeader = maybe (callbackNexusHeader defaultCallback'Nexus) id fld_callbackNexusHeader
       }
-  protoFromJSON _ = Right defaultCallback'Nexus
 
 data Callback'Internal = Callback'Internal
   { callbackInternalData :: !ByteString
@@ -1056,28 +1046,27 @@ instance MessageDecode Callback'Internal where
 instance IsMessage Callback'Internal where
   messageTypeName _ = "temporal.api.common.v1.Callback.Internal"
 
-instance ProtoToJSON Callback'Internal where
-  protoToJSON msg = jsonObject
-      [ "data" .= msg.callbackInternalData
+instance Aeson.ToJSON Callback'Internal where
+  toJSON msg = jsonObject
+      [ "data" .=: msg.callbackInternalData
 
       ]
 
-instance ProtoFromJSON Callback'Internal where
-  protoFromJSON (JsonObject obj) = do
-    fld_callbackInternalData <- obj .:? "data"
+instance Aeson.FromJSON Callback'Internal where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_callbackInternalData <- parseFieldMaybe obj "data"
     pure defaultCallback'Internal
       { callbackInternalData = maybe (callbackInternalData defaultCallback'Internal) id fld_callbackInternalData
       }
-  protoFromJSON _ = Right defaultCallback'Internal
 data Callback'Variant
   = Callback'Variant'Nexus !Callback'Nexus
   | Callback'Variant'Internal !Callback'Internal
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Callback'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Callback'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Callback'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Callback'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultCallback :: Callback
 defaultCallback = Callback
@@ -1121,21 +1110,20 @@ instance MessageDecode Callback where
 instance IsMessage Callback where
   messageTypeName _ = "temporal.api.common.v1.Callback"
 
-instance ProtoToJSON Callback where
-  protoToJSON msg = jsonObject
-      [ "variant" .= msg.callbackVariant
-      , "links" .= msg.callbackLinks
+instance Aeson.ToJSON Callback where
+  toJSON msg = jsonObject
+      [ "variant" .=: msg.callbackVariant
+      , "links" .=: msg.callbackLinks
       ]
 
-instance ProtoFromJSON Callback where
-  protoFromJSON (JsonObject obj) = do
-    fld_callbackVariant <- obj .:? "variant"
-    fld_callbackLinks <- obj .:? "links"
+instance Aeson.FromJSON Callback where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_callbackVariant <- parseFieldMaybe obj "variant"
+    fld_callbackLinks <- parseFieldMaybe obj "links"
     pure defaultCallback
       { callbackVariant = maybe (callbackVariant defaultCallback) id fld_callbackVariant
       , callbackLinks = maybe (callbackLinks defaultCallback) id fld_callbackLinks
       }
-  protoFromJSON _ = Right defaultCallback
 
 data Link = Link
   { linkVariant :: !(Maybe Link'Variant)
@@ -1194,21 +1182,20 @@ instance MessageDecode Link'WorkflowEvent'EventReference where
 instance IsMessage Link'WorkflowEvent'EventReference where
   messageTypeName _ = "temporal.api.common.v1.Link.WorkflowEvent.EventReference"
 
-instance ProtoToJSON Link'WorkflowEvent'EventReference where
-  protoToJSON msg = jsonObject
-      [ "eventId" .= msg.linkWorkflowEventEventReferenceEventid
-      , "eventType" .= msg.linkWorkflowEventEventReferenceEventtype
+instance Aeson.ToJSON Link'WorkflowEvent'EventReference where
+  toJSON msg = jsonObject
+      [ "eventId" .=: msg.linkWorkflowEventEventReferenceEventid
+      , "eventType" .=: msg.linkWorkflowEventEventReferenceEventtype
       ]
 
-instance ProtoFromJSON Link'WorkflowEvent'EventReference where
-  protoFromJSON (JsonObject obj) = do
-    fld_linkWorkflowEventEventReferenceEventid <- obj .:? "eventId"
-    fld_linkWorkflowEventEventReferenceEventtype <- obj .:? "eventType"
+instance Aeson.FromJSON Link'WorkflowEvent'EventReference where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_linkWorkflowEventEventReferenceEventid <- parseFieldMaybe obj "eventId"
+    fld_linkWorkflowEventEventReferenceEventtype <- parseFieldMaybe obj "eventType"
     pure defaultLink'WorkflowEvent'EventReference
       { linkWorkflowEventEventReferenceEventid = maybe (linkWorkflowEventEventReferenceEventid defaultLink'WorkflowEvent'EventReference) id fld_linkWorkflowEventEventReferenceEventid
       , linkWorkflowEventEventReferenceEventtype = maybe (linkWorkflowEventEventReferenceEventtype defaultLink'WorkflowEvent'EventReference) id fld_linkWorkflowEventEventReferenceEventtype
       }
-  protoFromJSON _ = Right defaultLink'WorkflowEvent'EventReference
 
 data Link'WorkflowEvent'RequestIdReference = Link'WorkflowEvent'RequestIdReference
   { linkWorkflowEventRequestIdReferenceRequestid :: !Text
@@ -1252,30 +1239,29 @@ instance MessageDecode Link'WorkflowEvent'RequestIdReference where
 instance IsMessage Link'WorkflowEvent'RequestIdReference where
   messageTypeName _ = "temporal.api.common.v1.Link.WorkflowEvent.RequestIdReference"
 
-instance ProtoToJSON Link'WorkflowEvent'RequestIdReference where
-  protoToJSON msg = jsonObject
-      [ "requestId" .= msg.linkWorkflowEventRequestIdReferenceRequestid
-      , "eventType" .= msg.linkWorkflowEventRequestIdReferenceEventtype
+instance Aeson.ToJSON Link'WorkflowEvent'RequestIdReference where
+  toJSON msg = jsonObject
+      [ "requestId" .=: msg.linkWorkflowEventRequestIdReferenceRequestid
+      , "eventType" .=: msg.linkWorkflowEventRequestIdReferenceEventtype
       ]
 
-instance ProtoFromJSON Link'WorkflowEvent'RequestIdReference where
-  protoFromJSON (JsonObject obj) = do
-    fld_linkWorkflowEventRequestIdReferenceRequestid <- obj .:? "requestId"
-    fld_linkWorkflowEventRequestIdReferenceEventtype <- obj .:? "eventType"
+instance Aeson.FromJSON Link'WorkflowEvent'RequestIdReference where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_linkWorkflowEventRequestIdReferenceRequestid <- parseFieldMaybe obj "requestId"
+    fld_linkWorkflowEventRequestIdReferenceEventtype <- parseFieldMaybe obj "eventType"
     pure defaultLink'WorkflowEvent'RequestIdReference
       { linkWorkflowEventRequestIdReferenceRequestid = maybe (linkWorkflowEventRequestIdReferenceRequestid defaultLink'WorkflowEvent'RequestIdReference) id fld_linkWorkflowEventRequestIdReferenceRequestid
       , linkWorkflowEventRequestIdReferenceEventtype = maybe (linkWorkflowEventRequestIdReferenceEventtype defaultLink'WorkflowEvent'RequestIdReference) id fld_linkWorkflowEventRequestIdReferenceEventtype
       }
-  protoFromJSON _ = Right defaultLink'WorkflowEvent'RequestIdReference
 data Link'WorkflowEvent'Reference
   = Link'WorkflowEvent'Reference'EventRef !Link'WorkflowEvent'EventReference
   | Link'WorkflowEvent'Reference'RequestIdRef !Link'WorkflowEvent'RequestIdReference
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Link'WorkflowEvent'Reference where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Link'WorkflowEvent'Reference where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Link'WorkflowEvent'Reference where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Link'WorkflowEvent'Reference where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultLink'WorkflowEvent :: Link'WorkflowEvent
 defaultLink'WorkflowEvent = Link'WorkflowEvent
@@ -1331,27 +1317,27 @@ instance MessageDecode Link'WorkflowEvent where
 instance IsMessage Link'WorkflowEvent where
   messageTypeName _ = "temporal.api.common.v1.Link.WorkflowEvent"
 
-instance ProtoToJSON Link'WorkflowEvent where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.linkWorkflowEventNamespace
-      , "workflowId" .= msg.linkWorkflowEventWorkflowid
-      , "runId" .= msg.linkWorkflowEventRunid
-      , "reference" .= msg.linkWorkflowEventReference
+instance Aeson.ToJSON Link'WorkflowEvent where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.linkWorkflowEventNamespace
+      , "workflowId" .=: msg.linkWorkflowEventWorkflowid
+      , "runId" .=: msg.linkWorkflowEventRunid
+      , "reference" .=: msg.linkWorkflowEventReference
       ]
 
-instance ProtoFromJSON Link'WorkflowEvent where
-  protoFromJSON (JsonObject obj) = do
-    fld_linkWorkflowEventNamespace <- obj .:? "namespace"
-    fld_linkWorkflowEventWorkflowid <- obj .:? "workflowId"
-    fld_linkWorkflowEventRunid <- obj .:? "runId"
-    fld_linkWorkflowEventReference <- obj .:? "reference"
+instance Aeson.FromJSON Link'WorkflowEvent where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_linkWorkflowEventNamespace <- parseFieldMaybe obj "namespace"
+    fld_linkWorkflowEventWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_linkWorkflowEventRunid <- parseFieldMaybe obj "runId"
+    fld_linkWorkflowEventReference <- parseFieldMaybe obj "reference"
     pure defaultLink'WorkflowEvent
       { linkWorkflowEventNamespace = maybe (linkWorkflowEventNamespace defaultLink'WorkflowEvent) id fld_linkWorkflowEventNamespace
       , linkWorkflowEventWorkflowid = maybe (linkWorkflowEventWorkflowid defaultLink'WorkflowEvent) id fld_linkWorkflowEventWorkflowid
       , linkWorkflowEventRunid = maybe (linkWorkflowEventRunid defaultLink'WorkflowEvent) id fld_linkWorkflowEventRunid
       , linkWorkflowEventReference = maybe (linkWorkflowEventReference defaultLink'WorkflowEvent) id fld_linkWorkflowEventReference
       }
-  protoFromJSON _ = Right defaultLink'WorkflowEvent
+  parseJSON _ = pure defaultLink'WorkflowEvent
 
 data Link'BatchJob = Link'BatchJob
   { linkBatchJobJobid :: !Text
@@ -1388,28 +1374,27 @@ instance MessageDecode Link'BatchJob where
 instance IsMessage Link'BatchJob where
   messageTypeName _ = "temporal.api.common.v1.Link.BatchJob"
 
-instance ProtoToJSON Link'BatchJob where
-  protoToJSON msg = jsonObject
-      [ "jobId" .= msg.linkBatchJobJobid
+instance Aeson.ToJSON Link'BatchJob where
+  toJSON msg = jsonObject
+      [ "jobId" .=: msg.linkBatchJobJobid
 
       ]
 
-instance ProtoFromJSON Link'BatchJob where
-  protoFromJSON (JsonObject obj) = do
-    fld_linkBatchJobJobid <- obj .:? "jobId"
+instance Aeson.FromJSON Link'BatchJob where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_linkBatchJobJobid <- parseFieldMaybe obj "jobId"
     pure defaultLink'BatchJob
       { linkBatchJobJobid = maybe (linkBatchJobJobid defaultLink'BatchJob) id fld_linkBatchJobJobid
       }
-  protoFromJSON _ = Right defaultLink'BatchJob
 data Link'Variant
   = Link'Variant'WorkflowEvent !Link'WorkflowEvent
   | Link'Variant'BatchJob !Link'BatchJob
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Link'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Link'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Link'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Link'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultLink :: Link
 defaultLink = Link
@@ -1447,19 +1432,18 @@ instance MessageDecode Link where
 instance IsMessage Link where
   messageTypeName _ = "temporal.api.common.v1.Link"
 
-instance ProtoToJSON Link where
-  protoToJSON msg = jsonObject
-      [ "variant" .= msg.linkVariant
+instance Aeson.ToJSON Link where
+  toJSON msg = jsonObject
+      [ "variant" .=: msg.linkVariant
 
       ]
 
-instance ProtoFromJSON Link where
-  protoFromJSON (JsonObject obj) = do
-    fld_linkVariant <- obj .:? "variant"
+instance Aeson.FromJSON Link where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_linkVariant <- parseFieldMaybe obj "variant"
     pure defaultLink
       { linkVariant = maybe (linkVariant defaultLink) id fld_linkVariant
       }
-  protoFromJSON _ = Right defaultLink
 
 data Priority = Priority
   { priorityPrioritykey :: {-# UNPACK #-} !Int32
@@ -1510,24 +1494,23 @@ instance MessageDecode Priority where
 instance IsMessage Priority where
   messageTypeName _ = "temporal.api.common.v1.Priority"
 
-instance ProtoToJSON Priority where
-  protoToJSON msg = jsonObject
-      [ "priorityKey" .= msg.priorityPrioritykey
-      , "fairnessKey" .= msg.priorityFairnesskey
-      , "fairnessWeight" .= msg.priorityFairnessweight
+instance Aeson.ToJSON Priority where
+  toJSON msg = jsonObject
+      [ "priorityKey" .=: msg.priorityPrioritykey
+      , "fairnessKey" .=: msg.priorityFairnesskey
+      , "fairnessWeight" .=: msg.priorityFairnessweight
       ]
 
-instance ProtoFromJSON Priority where
-  protoFromJSON (JsonObject obj) = do
-    fld_priorityPrioritykey <- obj .:? "priorityKey"
-    fld_priorityFairnesskey <- obj .:? "fairnessKey"
-    fld_priorityFairnessweight <- obj .:? "fairnessWeight"
+instance Aeson.FromJSON Priority where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_priorityPrioritykey <- parseFieldMaybe obj "priorityKey"
+    fld_priorityFairnesskey <- parseFieldMaybe obj "fairnessKey"
+    fld_priorityFairnessweight <- parseFieldMaybe obj "fairnessWeight"
     pure defaultPriority
       { priorityPrioritykey = maybe (priorityPrioritykey defaultPriority) id fld_priorityPrioritykey
       , priorityFairnesskey = maybe (priorityFairnesskey defaultPriority) id fld_priorityFairnesskey
       , priorityFairnessweight = maybe (priorityFairnessweight defaultPriority) id fld_priorityFairnessweight
       }
-  protoFromJSON _ = Right defaultPriority
 
 data WorkerSelector = WorkerSelector
   { workerSelectorSelector :: !(Maybe WorkerSelector'Selector)
@@ -1538,10 +1521,10 @@ data WorkerSelector'Selector
   = WorkerSelector'Selector'WorkerInstanceKey !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON WorkerSelector'Selector where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON WorkerSelector'Selector where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON WorkerSelector'Selector where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON WorkerSelector'Selector where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultWorkerSelector :: WorkerSelector
 defaultWorkerSelector = WorkerSelector
@@ -1574,19 +1557,18 @@ instance MessageDecode WorkerSelector where
 instance IsMessage WorkerSelector where
   messageTypeName _ = "temporal.api.common.v1.WorkerSelector"
 
-instance ProtoToJSON WorkerSelector where
-  protoToJSON msg = jsonObject
-      [ "selector" .= msg.workerSelectorSelector
+instance Aeson.ToJSON WorkerSelector where
+  toJSON msg = jsonObject
+      [ "selector" .=: msg.workerSelectorSelector
 
       ]
 
-instance ProtoFromJSON WorkerSelector where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerSelectorSelector <- obj .:? "selector"
+instance Aeson.FromJSON WorkerSelector where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerSelectorSelector <- parseFieldMaybe obj "selector"
     pure defaultWorkerSelector
       { workerSelectorSelector = maybe (workerSelectorSelector defaultWorkerSelector) id fld_workerSelectorSelector
       }
-  protoFromJSON _ = Right defaultWorkerSelector
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

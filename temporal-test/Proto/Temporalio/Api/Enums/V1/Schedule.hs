@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -77,24 +81,24 @@ instance MessageSize ScheduleOverlapPolicy where
 instance MessageDecode ScheduleOverlapPolicy where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ScheduleOverlapPolicy where
-  protoToJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyUnspecified = JsonString "SCHEDULE_OVERLAP_POLICY_UNSPECIFIED"
-  protoToJSON ScheduleOverlapPolicy'ScheduleOverlapPolicySkip = JsonString "SCHEDULE_OVERLAP_POLICY_SKIP"
-  protoToJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyBufferOne = JsonString "SCHEDULE_OVERLAP_POLICY_BUFFER_ONE"
-  protoToJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyBufferAll = JsonString "SCHEDULE_OVERLAP_POLICY_BUFFER_ALL"
-  protoToJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyCancelOther = JsonString "SCHEDULE_OVERLAP_POLICY_CANCEL_OTHER"
-  protoToJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyTerminateOther = JsonString "SCHEDULE_OVERLAP_POLICY_TERMINATE_OTHER"
-  protoToJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyAllowAll = JsonString "SCHEDULE_OVERLAP_POLICY_ALLOW_ALL"
+instance Aeson.ToJSON ScheduleOverlapPolicy where
+  toJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyUnspecified = Aeson.String "SCHEDULE_OVERLAP_POLICY_UNSPECIFIED"
+  toJSON ScheduleOverlapPolicy'ScheduleOverlapPolicySkip = Aeson.String "SCHEDULE_OVERLAP_POLICY_SKIP"
+  toJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyBufferOne = Aeson.String "SCHEDULE_OVERLAP_POLICY_BUFFER_ONE"
+  toJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyBufferAll = Aeson.String "SCHEDULE_OVERLAP_POLICY_BUFFER_ALL"
+  toJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyCancelOther = Aeson.String "SCHEDULE_OVERLAP_POLICY_CANCEL_OTHER"
+  toJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyTerminateOther = Aeson.String "SCHEDULE_OVERLAP_POLICY_TERMINATE_OTHER"
+  toJSON ScheduleOverlapPolicy'ScheduleOverlapPolicyAllowAll = Aeson.String "SCHEDULE_OVERLAP_POLICY_ALLOW_ALL"
 
-instance ProtoFromJSON ScheduleOverlapPolicy where
-  protoFromJSON = \case
-    JsonString "SCHEDULE_OVERLAP_POLICY_UNSPECIFIED" -> Right ScheduleOverlapPolicy'ScheduleOverlapPolicyUnspecified
-    JsonString "SCHEDULE_OVERLAP_POLICY_SKIP" -> Right ScheduleOverlapPolicy'ScheduleOverlapPolicySkip
-    JsonString "SCHEDULE_OVERLAP_POLICY_BUFFER_ONE" -> Right ScheduleOverlapPolicy'ScheduleOverlapPolicyBufferOne
-    JsonString "SCHEDULE_OVERLAP_POLICY_BUFFER_ALL" -> Right ScheduleOverlapPolicy'ScheduleOverlapPolicyBufferAll
-    JsonString "SCHEDULE_OVERLAP_POLICY_CANCEL_OTHER" -> Right ScheduleOverlapPolicy'ScheduleOverlapPolicyCancelOther
-    JsonString "SCHEDULE_OVERLAP_POLICY_TERMINATE_OTHER" -> Right ScheduleOverlapPolicy'ScheduleOverlapPolicyTerminateOther
-    JsonString "SCHEDULE_OVERLAP_POLICY_ALLOW_ALL" -> Right ScheduleOverlapPolicy'ScheduleOverlapPolicyAllowAll
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ScheduleOverlapPolicy"
+instance Aeson.FromJSON ScheduleOverlapPolicy where
+  parseJSON = \case
+    Aeson.String "SCHEDULE_OVERLAP_POLICY_UNSPECIFIED" -> pure ScheduleOverlapPolicy'ScheduleOverlapPolicyUnspecified
+    Aeson.String "SCHEDULE_OVERLAP_POLICY_SKIP" -> pure ScheduleOverlapPolicy'ScheduleOverlapPolicySkip
+    Aeson.String "SCHEDULE_OVERLAP_POLICY_BUFFER_ONE" -> pure ScheduleOverlapPolicy'ScheduleOverlapPolicyBufferOne
+    Aeson.String "SCHEDULE_OVERLAP_POLICY_BUFFER_ALL" -> pure ScheduleOverlapPolicy'ScheduleOverlapPolicyBufferAll
+    Aeson.String "SCHEDULE_OVERLAP_POLICY_CANCEL_OTHER" -> pure ScheduleOverlapPolicy'ScheduleOverlapPolicyCancelOther
+    Aeson.String "SCHEDULE_OVERLAP_POLICY_TERMINATE_OTHER" -> pure ScheduleOverlapPolicy'ScheduleOverlapPolicyTerminateOther
+    Aeson.String "SCHEDULE_OVERLAP_POLICY_ALLOW_ALL" -> pure ScheduleOverlapPolicy'ScheduleOverlapPolicyAllowAll
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ScheduleOverlapPolicy"
 

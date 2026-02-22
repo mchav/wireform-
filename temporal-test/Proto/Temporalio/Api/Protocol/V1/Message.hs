@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -54,10 +58,10 @@ data Message'SequencingId
   | Message'SequencingId'CommandIndex {-# UNPACK #-} !Int64
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Message'SequencingId where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Message'SequencingId where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Message'SequencingId where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Message'SequencingId where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultMessage :: Message
 defaultMessage = Message
@@ -113,27 +117,27 @@ instance MessageDecode Message where
 instance IsMessage Message where
   messageTypeName _ = "temporal.api.protocol.v1.Message"
 
-instance ProtoToJSON Message where
-  protoToJSON msg = jsonObject
-      [ "id" .= msg.messageId
-      , "protocolInstanceId" .= msg.messageProtocolinstanceid
-      , "sequencingId" .= msg.messageSequencingid
-      , "body" .= msg.messageBody
+instance Aeson.ToJSON Message where
+  toJSON msg = jsonObject
+      [ "id" .=: msg.messageId
+      , "protocolInstanceId" .=: msg.messageProtocolinstanceid
+      , "sequencingId" .=: msg.messageSequencingid
+      , "body" .=: msg.messageBody
       ]
 
-instance ProtoFromJSON Message where
-  protoFromJSON (JsonObject obj) = do
-    fld_messageId <- obj .:? "id"
-    fld_messageProtocolinstanceid <- obj .:? "protocolInstanceId"
-    fld_messageSequencingid <- obj .:? "sequencingId"
-    fld_messageBody <- obj .:? "body"
+instance Aeson.FromJSON Message where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_messageId <- parseFieldMaybe obj "id"
+    fld_messageProtocolinstanceid <- parseFieldMaybe obj "protocolInstanceId"
+    fld_messageSequencingid <- parseFieldMaybe obj "sequencingId"
+    fld_messageBody <- parseFieldMaybe obj "body"
     pure defaultMessage
       { messageId = maybe (messageId defaultMessage) id fld_messageId
       , messageProtocolinstanceid = maybe (messageProtocolinstanceid defaultMessage) id fld_messageProtocolinstanceid
       , messageSequencingid = maybe (messageSequencingid defaultMessage) id fld_messageSequencingid
       , messageBody = maybe (messageBody defaultMessage) id fld_messageBody
       }
-  protoFromJSON _ = Right defaultMessage
+  parseJSON _ = pure defaultMessage
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

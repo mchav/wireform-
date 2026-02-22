@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -71,22 +75,22 @@ instance MessageSize WorkflowIdReusePolicy where
 instance MessageDecode WorkflowIdReusePolicy where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON WorkflowIdReusePolicy where
-  protoToJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyUnspecified = JsonString "WORKFLOW_ID_REUSE_POLICY_UNSPECIFIED"
-  protoToJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyAllowDuplicate = JsonString "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE"
-  protoToJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyAllowDuplicateFailedOnly = JsonString "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY"
-  protoToJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyRejectDuplicate = JsonString "WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE"
-  protoToJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyTerminateIfRunning = JsonString "WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING"
+instance Aeson.ToJSON WorkflowIdReusePolicy where
+  toJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyUnspecified = Aeson.String "WORKFLOW_ID_REUSE_POLICY_UNSPECIFIED"
+  toJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyAllowDuplicate = Aeson.String "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE"
+  toJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyAllowDuplicateFailedOnly = Aeson.String "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY"
+  toJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyRejectDuplicate = Aeson.String "WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE"
+  toJSON WorkflowIdReusePolicy'WorkflowIdReusePolicyTerminateIfRunning = Aeson.String "WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING"
 
-instance ProtoFromJSON WorkflowIdReusePolicy where
-  protoFromJSON = \case
-    JsonString "WORKFLOW_ID_REUSE_POLICY_UNSPECIFIED" -> Right WorkflowIdReusePolicy'WorkflowIdReusePolicyUnspecified
-    JsonString "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE" -> Right WorkflowIdReusePolicy'WorkflowIdReusePolicyAllowDuplicate
-    JsonString "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY" -> Right WorkflowIdReusePolicy'WorkflowIdReusePolicyAllowDuplicateFailedOnly
-    JsonString "WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE" -> Right WorkflowIdReusePolicy'WorkflowIdReusePolicyRejectDuplicate
-    JsonString "WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING" -> Right WorkflowIdReusePolicy'WorkflowIdReusePolicyTerminateIfRunning
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for WorkflowIdReusePolicy"
+instance Aeson.FromJSON WorkflowIdReusePolicy where
+  parseJSON = \case
+    Aeson.String "WORKFLOW_ID_REUSE_POLICY_UNSPECIFIED" -> pure WorkflowIdReusePolicy'WorkflowIdReusePolicyUnspecified
+    Aeson.String "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE" -> pure WorkflowIdReusePolicy'WorkflowIdReusePolicyAllowDuplicate
+    Aeson.String "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY" -> pure WorkflowIdReusePolicy'WorkflowIdReusePolicyAllowDuplicateFailedOnly
+    Aeson.String "WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE" -> pure WorkflowIdReusePolicy'WorkflowIdReusePolicyRejectDuplicate
+    Aeson.String "WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING" -> pure WorkflowIdReusePolicy'WorkflowIdReusePolicyTerminateIfRunning
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for WorkflowIdReusePolicy"
 
 data WorkflowIdConflictPolicy
   = WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUnspecified
@@ -116,20 +120,20 @@ instance MessageSize WorkflowIdConflictPolicy where
 instance MessageDecode WorkflowIdConflictPolicy where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON WorkflowIdConflictPolicy where
-  protoToJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUnspecified = JsonString "WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED"
-  protoToJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyFail = JsonString "WORKFLOW_ID_CONFLICT_POLICY_FAIL"
-  protoToJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUseExisting = JsonString "WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING"
-  protoToJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyTerminateExisting = JsonString "WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING"
+instance Aeson.ToJSON WorkflowIdConflictPolicy where
+  toJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUnspecified = Aeson.String "WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED"
+  toJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyFail = Aeson.String "WORKFLOW_ID_CONFLICT_POLICY_FAIL"
+  toJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUseExisting = Aeson.String "WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING"
+  toJSON WorkflowIdConflictPolicy'WorkflowIdConflictPolicyTerminateExisting = Aeson.String "WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING"
 
-instance ProtoFromJSON WorkflowIdConflictPolicy where
-  protoFromJSON = \case
-    JsonString "WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED" -> Right WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUnspecified
-    JsonString "WORKFLOW_ID_CONFLICT_POLICY_FAIL" -> Right WorkflowIdConflictPolicy'WorkflowIdConflictPolicyFail
-    JsonString "WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING" -> Right WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUseExisting
-    JsonString "WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING" -> Right WorkflowIdConflictPolicy'WorkflowIdConflictPolicyTerminateExisting
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for WorkflowIdConflictPolicy"
+instance Aeson.FromJSON WorkflowIdConflictPolicy where
+  parseJSON = \case
+    Aeson.String "WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED" -> pure WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUnspecified
+    Aeson.String "WORKFLOW_ID_CONFLICT_POLICY_FAIL" -> pure WorkflowIdConflictPolicy'WorkflowIdConflictPolicyFail
+    Aeson.String "WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING" -> pure WorkflowIdConflictPolicy'WorkflowIdConflictPolicyUseExisting
+    Aeson.String "WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING" -> pure WorkflowIdConflictPolicy'WorkflowIdConflictPolicyTerminateExisting
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for WorkflowIdConflictPolicy"
 
 data ParentClosePolicy
   = ParentClosePolicy'ParentClosePolicyUnspecified
@@ -159,20 +163,20 @@ instance MessageSize ParentClosePolicy where
 instance MessageDecode ParentClosePolicy where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ParentClosePolicy where
-  protoToJSON ParentClosePolicy'ParentClosePolicyUnspecified = JsonString "PARENT_CLOSE_POLICY_UNSPECIFIED"
-  protoToJSON ParentClosePolicy'ParentClosePolicyTerminate = JsonString "PARENT_CLOSE_POLICY_TERMINATE"
-  protoToJSON ParentClosePolicy'ParentClosePolicyAbandon = JsonString "PARENT_CLOSE_POLICY_ABANDON"
-  protoToJSON ParentClosePolicy'ParentClosePolicyRequestCancel = JsonString "PARENT_CLOSE_POLICY_REQUEST_CANCEL"
+instance Aeson.ToJSON ParentClosePolicy where
+  toJSON ParentClosePolicy'ParentClosePolicyUnspecified = Aeson.String "PARENT_CLOSE_POLICY_UNSPECIFIED"
+  toJSON ParentClosePolicy'ParentClosePolicyTerminate = Aeson.String "PARENT_CLOSE_POLICY_TERMINATE"
+  toJSON ParentClosePolicy'ParentClosePolicyAbandon = Aeson.String "PARENT_CLOSE_POLICY_ABANDON"
+  toJSON ParentClosePolicy'ParentClosePolicyRequestCancel = Aeson.String "PARENT_CLOSE_POLICY_REQUEST_CANCEL"
 
-instance ProtoFromJSON ParentClosePolicy where
-  protoFromJSON = \case
-    JsonString "PARENT_CLOSE_POLICY_UNSPECIFIED" -> Right ParentClosePolicy'ParentClosePolicyUnspecified
-    JsonString "PARENT_CLOSE_POLICY_TERMINATE" -> Right ParentClosePolicy'ParentClosePolicyTerminate
-    JsonString "PARENT_CLOSE_POLICY_ABANDON" -> Right ParentClosePolicy'ParentClosePolicyAbandon
-    JsonString "PARENT_CLOSE_POLICY_REQUEST_CANCEL" -> Right ParentClosePolicy'ParentClosePolicyRequestCancel
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ParentClosePolicy"
+instance Aeson.FromJSON ParentClosePolicy where
+  parseJSON = \case
+    Aeson.String "PARENT_CLOSE_POLICY_UNSPECIFIED" -> pure ParentClosePolicy'ParentClosePolicyUnspecified
+    Aeson.String "PARENT_CLOSE_POLICY_TERMINATE" -> pure ParentClosePolicy'ParentClosePolicyTerminate
+    Aeson.String "PARENT_CLOSE_POLICY_ABANDON" -> pure ParentClosePolicy'ParentClosePolicyAbandon
+    Aeson.String "PARENT_CLOSE_POLICY_REQUEST_CANCEL" -> pure ParentClosePolicy'ParentClosePolicyRequestCancel
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ParentClosePolicy"
 
 data ContinueAsNewInitiator
   = ContinueAsNewInitiator'ContinueAsNewInitiatorUnspecified
@@ -202,20 +206,20 @@ instance MessageSize ContinueAsNewInitiator where
 instance MessageDecode ContinueAsNewInitiator where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ContinueAsNewInitiator where
-  protoToJSON ContinueAsNewInitiator'ContinueAsNewInitiatorUnspecified = JsonString "CONTINUE_AS_NEW_INITIATOR_UNSPECIFIED"
-  protoToJSON ContinueAsNewInitiator'ContinueAsNewInitiatorWorkflow = JsonString "CONTINUE_AS_NEW_INITIATOR_WORKFLOW"
-  protoToJSON ContinueAsNewInitiator'ContinueAsNewInitiatorRetry = JsonString "CONTINUE_AS_NEW_INITIATOR_RETRY"
-  protoToJSON ContinueAsNewInitiator'ContinueAsNewInitiatorCronSchedule = JsonString "CONTINUE_AS_NEW_INITIATOR_CRON_SCHEDULE"
+instance Aeson.ToJSON ContinueAsNewInitiator where
+  toJSON ContinueAsNewInitiator'ContinueAsNewInitiatorUnspecified = Aeson.String "CONTINUE_AS_NEW_INITIATOR_UNSPECIFIED"
+  toJSON ContinueAsNewInitiator'ContinueAsNewInitiatorWorkflow = Aeson.String "CONTINUE_AS_NEW_INITIATOR_WORKFLOW"
+  toJSON ContinueAsNewInitiator'ContinueAsNewInitiatorRetry = Aeson.String "CONTINUE_AS_NEW_INITIATOR_RETRY"
+  toJSON ContinueAsNewInitiator'ContinueAsNewInitiatorCronSchedule = Aeson.String "CONTINUE_AS_NEW_INITIATOR_CRON_SCHEDULE"
 
-instance ProtoFromJSON ContinueAsNewInitiator where
-  protoFromJSON = \case
-    JsonString "CONTINUE_AS_NEW_INITIATOR_UNSPECIFIED" -> Right ContinueAsNewInitiator'ContinueAsNewInitiatorUnspecified
-    JsonString "CONTINUE_AS_NEW_INITIATOR_WORKFLOW" -> Right ContinueAsNewInitiator'ContinueAsNewInitiatorWorkflow
-    JsonString "CONTINUE_AS_NEW_INITIATOR_RETRY" -> Right ContinueAsNewInitiator'ContinueAsNewInitiatorRetry
-    JsonString "CONTINUE_AS_NEW_INITIATOR_CRON_SCHEDULE" -> Right ContinueAsNewInitiator'ContinueAsNewInitiatorCronSchedule
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ContinueAsNewInitiator"
+instance Aeson.FromJSON ContinueAsNewInitiator where
+  parseJSON = \case
+    Aeson.String "CONTINUE_AS_NEW_INITIATOR_UNSPECIFIED" -> pure ContinueAsNewInitiator'ContinueAsNewInitiatorUnspecified
+    Aeson.String "CONTINUE_AS_NEW_INITIATOR_WORKFLOW" -> pure ContinueAsNewInitiator'ContinueAsNewInitiatorWorkflow
+    Aeson.String "CONTINUE_AS_NEW_INITIATOR_RETRY" -> pure ContinueAsNewInitiator'ContinueAsNewInitiatorRetry
+    Aeson.String "CONTINUE_AS_NEW_INITIATOR_CRON_SCHEDULE" -> pure ContinueAsNewInitiator'ContinueAsNewInitiatorCronSchedule
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ContinueAsNewInitiator"
 
 data WorkflowExecutionStatus
   = WorkflowExecutionStatus'WorkflowExecutionStatusUnspecified
@@ -260,30 +264,30 @@ instance MessageSize WorkflowExecutionStatus where
 instance MessageDecode WorkflowExecutionStatus where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON WorkflowExecutionStatus where
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusUnspecified = JsonString "WORKFLOW_EXECUTION_STATUS_UNSPECIFIED"
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusRunning = JsonString "WORKFLOW_EXECUTION_STATUS_RUNNING"
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusCompleted = JsonString "WORKFLOW_EXECUTION_STATUS_COMPLETED"
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusFailed = JsonString "WORKFLOW_EXECUTION_STATUS_FAILED"
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusCanceled = JsonString "WORKFLOW_EXECUTION_STATUS_CANCELED"
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusTerminated = JsonString "WORKFLOW_EXECUTION_STATUS_TERMINATED"
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusContinuedAsNew = JsonString "WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW"
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusTimedOut = JsonString "WORKFLOW_EXECUTION_STATUS_TIMED_OUT"
-  protoToJSON WorkflowExecutionStatus'WorkflowExecutionStatusPaused = JsonString "WORKFLOW_EXECUTION_STATUS_PAUSED"
+instance Aeson.ToJSON WorkflowExecutionStatus where
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusUnspecified = Aeson.String "WORKFLOW_EXECUTION_STATUS_UNSPECIFIED"
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusRunning = Aeson.String "WORKFLOW_EXECUTION_STATUS_RUNNING"
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusCompleted = Aeson.String "WORKFLOW_EXECUTION_STATUS_COMPLETED"
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusFailed = Aeson.String "WORKFLOW_EXECUTION_STATUS_FAILED"
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusCanceled = Aeson.String "WORKFLOW_EXECUTION_STATUS_CANCELED"
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusTerminated = Aeson.String "WORKFLOW_EXECUTION_STATUS_TERMINATED"
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusContinuedAsNew = Aeson.String "WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW"
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusTimedOut = Aeson.String "WORKFLOW_EXECUTION_STATUS_TIMED_OUT"
+  toJSON WorkflowExecutionStatus'WorkflowExecutionStatusPaused = Aeson.String "WORKFLOW_EXECUTION_STATUS_PAUSED"
 
-instance ProtoFromJSON WorkflowExecutionStatus where
-  protoFromJSON = \case
-    JsonString "WORKFLOW_EXECUTION_STATUS_UNSPECIFIED" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusUnspecified
-    JsonString "WORKFLOW_EXECUTION_STATUS_RUNNING" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusRunning
-    JsonString "WORKFLOW_EXECUTION_STATUS_COMPLETED" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusCompleted
-    JsonString "WORKFLOW_EXECUTION_STATUS_FAILED" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusFailed
-    JsonString "WORKFLOW_EXECUTION_STATUS_CANCELED" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusCanceled
-    JsonString "WORKFLOW_EXECUTION_STATUS_TERMINATED" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusTerminated
-    JsonString "WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusContinuedAsNew
-    JsonString "WORKFLOW_EXECUTION_STATUS_TIMED_OUT" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusTimedOut
-    JsonString "WORKFLOW_EXECUTION_STATUS_PAUSED" -> Right WorkflowExecutionStatus'WorkflowExecutionStatusPaused
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for WorkflowExecutionStatus"
+instance Aeson.FromJSON WorkflowExecutionStatus where
+  parseJSON = \case
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_UNSPECIFIED" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusUnspecified
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_RUNNING" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusRunning
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_COMPLETED" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusCompleted
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_FAILED" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusFailed
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_CANCELED" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusCanceled
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_TERMINATED" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusTerminated
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusContinuedAsNew
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_TIMED_OUT" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusTimedOut
+    Aeson.String "WORKFLOW_EXECUTION_STATUS_PAUSED" -> pure WorkflowExecutionStatus'WorkflowExecutionStatusPaused
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for WorkflowExecutionStatus"
 
 data PendingActivityState
   = PendingActivityState'PendingActivityStateUnspecified
@@ -319,24 +323,24 @@ instance MessageSize PendingActivityState where
 instance MessageDecode PendingActivityState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON PendingActivityState where
-  protoToJSON PendingActivityState'PendingActivityStateUnspecified = JsonString "PENDING_ACTIVITY_STATE_UNSPECIFIED"
-  protoToJSON PendingActivityState'PendingActivityStateScheduled = JsonString "PENDING_ACTIVITY_STATE_SCHEDULED"
-  protoToJSON PendingActivityState'PendingActivityStateStarted = JsonString "PENDING_ACTIVITY_STATE_STARTED"
-  protoToJSON PendingActivityState'PendingActivityStateCancelRequested = JsonString "PENDING_ACTIVITY_STATE_CANCEL_REQUESTED"
-  protoToJSON PendingActivityState'PendingActivityStatePaused = JsonString "PENDING_ACTIVITY_STATE_PAUSED"
-  protoToJSON PendingActivityState'PendingActivityStatePauseRequested = JsonString "PENDING_ACTIVITY_STATE_PAUSE_REQUESTED"
+instance Aeson.ToJSON PendingActivityState where
+  toJSON PendingActivityState'PendingActivityStateUnspecified = Aeson.String "PENDING_ACTIVITY_STATE_UNSPECIFIED"
+  toJSON PendingActivityState'PendingActivityStateScheduled = Aeson.String "PENDING_ACTIVITY_STATE_SCHEDULED"
+  toJSON PendingActivityState'PendingActivityStateStarted = Aeson.String "PENDING_ACTIVITY_STATE_STARTED"
+  toJSON PendingActivityState'PendingActivityStateCancelRequested = Aeson.String "PENDING_ACTIVITY_STATE_CANCEL_REQUESTED"
+  toJSON PendingActivityState'PendingActivityStatePaused = Aeson.String "PENDING_ACTIVITY_STATE_PAUSED"
+  toJSON PendingActivityState'PendingActivityStatePauseRequested = Aeson.String "PENDING_ACTIVITY_STATE_PAUSE_REQUESTED"
 
-instance ProtoFromJSON PendingActivityState where
-  protoFromJSON = \case
-    JsonString "PENDING_ACTIVITY_STATE_UNSPECIFIED" -> Right PendingActivityState'PendingActivityStateUnspecified
-    JsonString "PENDING_ACTIVITY_STATE_SCHEDULED" -> Right PendingActivityState'PendingActivityStateScheduled
-    JsonString "PENDING_ACTIVITY_STATE_STARTED" -> Right PendingActivityState'PendingActivityStateStarted
-    JsonString "PENDING_ACTIVITY_STATE_CANCEL_REQUESTED" -> Right PendingActivityState'PendingActivityStateCancelRequested
-    JsonString "PENDING_ACTIVITY_STATE_PAUSED" -> Right PendingActivityState'PendingActivityStatePaused
-    JsonString "PENDING_ACTIVITY_STATE_PAUSE_REQUESTED" -> Right PendingActivityState'PendingActivityStatePauseRequested
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for PendingActivityState"
+instance Aeson.FromJSON PendingActivityState where
+  parseJSON = \case
+    Aeson.String "PENDING_ACTIVITY_STATE_UNSPECIFIED" -> pure PendingActivityState'PendingActivityStateUnspecified
+    Aeson.String "PENDING_ACTIVITY_STATE_SCHEDULED" -> pure PendingActivityState'PendingActivityStateScheduled
+    Aeson.String "PENDING_ACTIVITY_STATE_STARTED" -> pure PendingActivityState'PendingActivityStateStarted
+    Aeson.String "PENDING_ACTIVITY_STATE_CANCEL_REQUESTED" -> pure PendingActivityState'PendingActivityStateCancelRequested
+    Aeson.String "PENDING_ACTIVITY_STATE_PAUSED" -> pure PendingActivityState'PendingActivityStatePaused
+    Aeson.String "PENDING_ACTIVITY_STATE_PAUSE_REQUESTED" -> pure PendingActivityState'PendingActivityStatePauseRequested
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for PendingActivityState"
 
 data PendingWorkflowTaskState
   = PendingWorkflowTaskState'PendingWorkflowTaskStateUnspecified
@@ -363,18 +367,18 @@ instance MessageSize PendingWorkflowTaskState where
 instance MessageDecode PendingWorkflowTaskState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON PendingWorkflowTaskState where
-  protoToJSON PendingWorkflowTaskState'PendingWorkflowTaskStateUnspecified = JsonString "PENDING_WORKFLOW_TASK_STATE_UNSPECIFIED"
-  protoToJSON PendingWorkflowTaskState'PendingWorkflowTaskStateScheduled = JsonString "PENDING_WORKFLOW_TASK_STATE_SCHEDULED"
-  protoToJSON PendingWorkflowTaskState'PendingWorkflowTaskStateStarted = JsonString "PENDING_WORKFLOW_TASK_STATE_STARTED"
+instance Aeson.ToJSON PendingWorkflowTaskState where
+  toJSON PendingWorkflowTaskState'PendingWorkflowTaskStateUnspecified = Aeson.String "PENDING_WORKFLOW_TASK_STATE_UNSPECIFIED"
+  toJSON PendingWorkflowTaskState'PendingWorkflowTaskStateScheduled = Aeson.String "PENDING_WORKFLOW_TASK_STATE_SCHEDULED"
+  toJSON PendingWorkflowTaskState'PendingWorkflowTaskStateStarted = Aeson.String "PENDING_WORKFLOW_TASK_STATE_STARTED"
 
-instance ProtoFromJSON PendingWorkflowTaskState where
-  protoFromJSON = \case
-    JsonString "PENDING_WORKFLOW_TASK_STATE_UNSPECIFIED" -> Right PendingWorkflowTaskState'PendingWorkflowTaskStateUnspecified
-    JsonString "PENDING_WORKFLOW_TASK_STATE_SCHEDULED" -> Right PendingWorkflowTaskState'PendingWorkflowTaskStateScheduled
-    JsonString "PENDING_WORKFLOW_TASK_STATE_STARTED" -> Right PendingWorkflowTaskState'PendingWorkflowTaskStateStarted
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for PendingWorkflowTaskState"
+instance Aeson.FromJSON PendingWorkflowTaskState where
+  parseJSON = \case
+    Aeson.String "PENDING_WORKFLOW_TASK_STATE_UNSPECIFIED" -> pure PendingWorkflowTaskState'PendingWorkflowTaskStateUnspecified
+    Aeson.String "PENDING_WORKFLOW_TASK_STATE_SCHEDULED" -> pure PendingWorkflowTaskState'PendingWorkflowTaskStateScheduled
+    Aeson.String "PENDING_WORKFLOW_TASK_STATE_STARTED" -> pure PendingWorkflowTaskState'PendingWorkflowTaskStateStarted
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for PendingWorkflowTaskState"
 
 data HistoryEventFilterType
   = HistoryEventFilterType'HistoryEventFilterTypeUnspecified
@@ -401,18 +405,18 @@ instance MessageSize HistoryEventFilterType where
 instance MessageDecode HistoryEventFilterType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON HistoryEventFilterType where
-  protoToJSON HistoryEventFilterType'HistoryEventFilterTypeUnspecified = JsonString "HISTORY_EVENT_FILTER_TYPE_UNSPECIFIED"
-  protoToJSON HistoryEventFilterType'HistoryEventFilterTypeAllEvent = JsonString "HISTORY_EVENT_FILTER_TYPE_ALL_EVENT"
-  protoToJSON HistoryEventFilterType'HistoryEventFilterTypeCloseEvent = JsonString "HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT"
+instance Aeson.ToJSON HistoryEventFilterType where
+  toJSON HistoryEventFilterType'HistoryEventFilterTypeUnspecified = Aeson.String "HISTORY_EVENT_FILTER_TYPE_UNSPECIFIED"
+  toJSON HistoryEventFilterType'HistoryEventFilterTypeAllEvent = Aeson.String "HISTORY_EVENT_FILTER_TYPE_ALL_EVENT"
+  toJSON HistoryEventFilterType'HistoryEventFilterTypeCloseEvent = Aeson.String "HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT"
 
-instance ProtoFromJSON HistoryEventFilterType where
-  protoFromJSON = \case
-    JsonString "HISTORY_EVENT_FILTER_TYPE_UNSPECIFIED" -> Right HistoryEventFilterType'HistoryEventFilterTypeUnspecified
-    JsonString "HISTORY_EVENT_FILTER_TYPE_ALL_EVENT" -> Right HistoryEventFilterType'HistoryEventFilterTypeAllEvent
-    JsonString "HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT" -> Right HistoryEventFilterType'HistoryEventFilterTypeCloseEvent
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for HistoryEventFilterType"
+instance Aeson.FromJSON HistoryEventFilterType where
+  parseJSON = \case
+    Aeson.String "HISTORY_EVENT_FILTER_TYPE_UNSPECIFIED" -> pure HistoryEventFilterType'HistoryEventFilterTypeUnspecified
+    Aeson.String "HISTORY_EVENT_FILTER_TYPE_ALL_EVENT" -> pure HistoryEventFilterType'HistoryEventFilterTypeAllEvent
+    Aeson.String "HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT" -> pure HistoryEventFilterType'HistoryEventFilterTypeCloseEvent
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for HistoryEventFilterType"
 
 data RetryState
   = RetryState'RetryStateUnspecified
@@ -454,28 +458,28 @@ instance MessageSize RetryState where
 instance MessageDecode RetryState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON RetryState where
-  protoToJSON RetryState'RetryStateUnspecified = JsonString "RETRY_STATE_UNSPECIFIED"
-  protoToJSON RetryState'RetryStateInProgress = JsonString "RETRY_STATE_IN_PROGRESS"
-  protoToJSON RetryState'RetryStateNonRetryableFailure = JsonString "RETRY_STATE_NON_RETRYABLE_FAILURE"
-  protoToJSON RetryState'RetryStateTimeout = JsonString "RETRY_STATE_TIMEOUT"
-  protoToJSON RetryState'RetryStateMaximumAttemptsReached = JsonString "RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED"
-  protoToJSON RetryState'RetryStateRetryPolicyNotSet = JsonString "RETRY_STATE_RETRY_POLICY_NOT_SET"
-  protoToJSON RetryState'RetryStateInternalServerError = JsonString "RETRY_STATE_INTERNAL_SERVER_ERROR"
-  protoToJSON RetryState'RetryStateCancelRequested = JsonString "RETRY_STATE_CANCEL_REQUESTED"
+instance Aeson.ToJSON RetryState where
+  toJSON RetryState'RetryStateUnspecified = Aeson.String "RETRY_STATE_UNSPECIFIED"
+  toJSON RetryState'RetryStateInProgress = Aeson.String "RETRY_STATE_IN_PROGRESS"
+  toJSON RetryState'RetryStateNonRetryableFailure = Aeson.String "RETRY_STATE_NON_RETRYABLE_FAILURE"
+  toJSON RetryState'RetryStateTimeout = Aeson.String "RETRY_STATE_TIMEOUT"
+  toJSON RetryState'RetryStateMaximumAttemptsReached = Aeson.String "RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED"
+  toJSON RetryState'RetryStateRetryPolicyNotSet = Aeson.String "RETRY_STATE_RETRY_POLICY_NOT_SET"
+  toJSON RetryState'RetryStateInternalServerError = Aeson.String "RETRY_STATE_INTERNAL_SERVER_ERROR"
+  toJSON RetryState'RetryStateCancelRequested = Aeson.String "RETRY_STATE_CANCEL_REQUESTED"
 
-instance ProtoFromJSON RetryState where
-  protoFromJSON = \case
-    JsonString "RETRY_STATE_UNSPECIFIED" -> Right RetryState'RetryStateUnspecified
-    JsonString "RETRY_STATE_IN_PROGRESS" -> Right RetryState'RetryStateInProgress
-    JsonString "RETRY_STATE_NON_RETRYABLE_FAILURE" -> Right RetryState'RetryStateNonRetryableFailure
-    JsonString "RETRY_STATE_TIMEOUT" -> Right RetryState'RetryStateTimeout
-    JsonString "RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED" -> Right RetryState'RetryStateMaximumAttemptsReached
-    JsonString "RETRY_STATE_RETRY_POLICY_NOT_SET" -> Right RetryState'RetryStateRetryPolicyNotSet
-    JsonString "RETRY_STATE_INTERNAL_SERVER_ERROR" -> Right RetryState'RetryStateInternalServerError
-    JsonString "RETRY_STATE_CANCEL_REQUESTED" -> Right RetryState'RetryStateCancelRequested
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for RetryState"
+instance Aeson.FromJSON RetryState where
+  parseJSON = \case
+    Aeson.String "RETRY_STATE_UNSPECIFIED" -> pure RetryState'RetryStateUnspecified
+    Aeson.String "RETRY_STATE_IN_PROGRESS" -> pure RetryState'RetryStateInProgress
+    Aeson.String "RETRY_STATE_NON_RETRYABLE_FAILURE" -> pure RetryState'RetryStateNonRetryableFailure
+    Aeson.String "RETRY_STATE_TIMEOUT" -> pure RetryState'RetryStateTimeout
+    Aeson.String "RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED" -> pure RetryState'RetryStateMaximumAttemptsReached
+    Aeson.String "RETRY_STATE_RETRY_POLICY_NOT_SET" -> pure RetryState'RetryStateRetryPolicyNotSet
+    Aeson.String "RETRY_STATE_INTERNAL_SERVER_ERROR" -> pure RetryState'RetryStateInternalServerError
+    Aeson.String "RETRY_STATE_CANCEL_REQUESTED" -> pure RetryState'RetryStateCancelRequested
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for RetryState"
 
 data TimeoutType
   = TimeoutType'TimeoutTypeUnspecified
@@ -508,22 +512,22 @@ instance MessageSize TimeoutType where
 instance MessageDecode TimeoutType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON TimeoutType where
-  protoToJSON TimeoutType'TimeoutTypeUnspecified = JsonString "TIMEOUT_TYPE_UNSPECIFIED"
-  protoToJSON TimeoutType'TimeoutTypeStartToClose = JsonString "TIMEOUT_TYPE_START_TO_CLOSE"
-  protoToJSON TimeoutType'TimeoutTypeScheduleToStart = JsonString "TIMEOUT_TYPE_SCHEDULE_TO_START"
-  protoToJSON TimeoutType'TimeoutTypeScheduleToClose = JsonString "TIMEOUT_TYPE_SCHEDULE_TO_CLOSE"
-  protoToJSON TimeoutType'TimeoutTypeHeartbeat = JsonString "TIMEOUT_TYPE_HEARTBEAT"
+instance Aeson.ToJSON TimeoutType where
+  toJSON TimeoutType'TimeoutTypeUnspecified = Aeson.String "TIMEOUT_TYPE_UNSPECIFIED"
+  toJSON TimeoutType'TimeoutTypeStartToClose = Aeson.String "TIMEOUT_TYPE_START_TO_CLOSE"
+  toJSON TimeoutType'TimeoutTypeScheduleToStart = Aeson.String "TIMEOUT_TYPE_SCHEDULE_TO_START"
+  toJSON TimeoutType'TimeoutTypeScheduleToClose = Aeson.String "TIMEOUT_TYPE_SCHEDULE_TO_CLOSE"
+  toJSON TimeoutType'TimeoutTypeHeartbeat = Aeson.String "TIMEOUT_TYPE_HEARTBEAT"
 
-instance ProtoFromJSON TimeoutType where
-  protoFromJSON = \case
-    JsonString "TIMEOUT_TYPE_UNSPECIFIED" -> Right TimeoutType'TimeoutTypeUnspecified
-    JsonString "TIMEOUT_TYPE_START_TO_CLOSE" -> Right TimeoutType'TimeoutTypeStartToClose
-    JsonString "TIMEOUT_TYPE_SCHEDULE_TO_START" -> Right TimeoutType'TimeoutTypeScheduleToStart
-    JsonString "TIMEOUT_TYPE_SCHEDULE_TO_CLOSE" -> Right TimeoutType'TimeoutTypeScheduleToClose
-    JsonString "TIMEOUT_TYPE_HEARTBEAT" -> Right TimeoutType'TimeoutTypeHeartbeat
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for TimeoutType"
+instance Aeson.FromJSON TimeoutType where
+  parseJSON = \case
+    Aeson.String "TIMEOUT_TYPE_UNSPECIFIED" -> pure TimeoutType'TimeoutTypeUnspecified
+    Aeson.String "TIMEOUT_TYPE_START_TO_CLOSE" -> pure TimeoutType'TimeoutTypeStartToClose
+    Aeson.String "TIMEOUT_TYPE_SCHEDULE_TO_START" -> pure TimeoutType'TimeoutTypeScheduleToStart
+    Aeson.String "TIMEOUT_TYPE_SCHEDULE_TO_CLOSE" -> pure TimeoutType'TimeoutTypeScheduleToClose
+    Aeson.String "TIMEOUT_TYPE_HEARTBEAT" -> pure TimeoutType'TimeoutTypeHeartbeat
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for TimeoutType"
 
 data VersioningBehavior
   = VersioningBehavior'VersioningBehaviorUnspecified
@@ -550,18 +554,18 @@ instance MessageSize VersioningBehavior where
 instance MessageDecode VersioningBehavior where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON VersioningBehavior where
-  protoToJSON VersioningBehavior'VersioningBehaviorUnspecified = JsonString "VERSIONING_BEHAVIOR_UNSPECIFIED"
-  protoToJSON VersioningBehavior'VersioningBehaviorPinned = JsonString "VERSIONING_BEHAVIOR_PINNED"
-  protoToJSON VersioningBehavior'VersioningBehaviorAutoUpgrade = JsonString "VERSIONING_BEHAVIOR_AUTO_UPGRADE"
+instance Aeson.ToJSON VersioningBehavior where
+  toJSON VersioningBehavior'VersioningBehaviorUnspecified = Aeson.String "VERSIONING_BEHAVIOR_UNSPECIFIED"
+  toJSON VersioningBehavior'VersioningBehaviorPinned = Aeson.String "VERSIONING_BEHAVIOR_PINNED"
+  toJSON VersioningBehavior'VersioningBehaviorAutoUpgrade = Aeson.String "VERSIONING_BEHAVIOR_AUTO_UPGRADE"
 
-instance ProtoFromJSON VersioningBehavior where
-  protoFromJSON = \case
-    JsonString "VERSIONING_BEHAVIOR_UNSPECIFIED" -> Right VersioningBehavior'VersioningBehaviorUnspecified
-    JsonString "VERSIONING_BEHAVIOR_PINNED" -> Right VersioningBehavior'VersioningBehaviorPinned
-    JsonString "VERSIONING_BEHAVIOR_AUTO_UPGRADE" -> Right VersioningBehavior'VersioningBehaviorAutoUpgrade
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for VersioningBehavior"
+instance Aeson.FromJSON VersioningBehavior where
+  parseJSON = \case
+    Aeson.String "VERSIONING_BEHAVIOR_UNSPECIFIED" -> pure VersioningBehavior'VersioningBehaviorUnspecified
+    Aeson.String "VERSIONING_BEHAVIOR_PINNED" -> pure VersioningBehavior'VersioningBehaviorPinned
+    Aeson.String "VERSIONING_BEHAVIOR_AUTO_UPGRADE" -> pure VersioningBehavior'VersioningBehaviorAutoUpgrade
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for VersioningBehavior"
 
 data ContinueAsNewVersioningBehavior
   = ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorUnspecified
@@ -585,16 +589,16 @@ instance MessageSize ContinueAsNewVersioningBehavior where
 instance MessageDecode ContinueAsNewVersioningBehavior where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ContinueAsNewVersioningBehavior where
-  protoToJSON ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorUnspecified = JsonString "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_UNSPECIFIED"
-  protoToJSON ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorAutoUpgrade = JsonString "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_AUTO_UPGRADE"
+instance Aeson.ToJSON ContinueAsNewVersioningBehavior where
+  toJSON ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorUnspecified = Aeson.String "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_UNSPECIFIED"
+  toJSON ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorAutoUpgrade = Aeson.String "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_AUTO_UPGRADE"
 
-instance ProtoFromJSON ContinueAsNewVersioningBehavior where
-  protoFromJSON = \case
-    JsonString "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_UNSPECIFIED" -> Right ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorUnspecified
-    JsonString "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_AUTO_UPGRADE" -> Right ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorAutoUpgrade
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ContinueAsNewVersioningBehavior"
+instance Aeson.FromJSON ContinueAsNewVersioningBehavior where
+  parseJSON = \case
+    Aeson.String "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_UNSPECIFIED" -> pure ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorUnspecified
+    Aeson.String "CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_AUTO_UPGRADE" -> pure ContinueAsNewVersioningBehavior'ContinueAsNewVersioningBehaviorAutoUpgrade
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ContinueAsNewVersioningBehavior"
 
 data SuggestContinueAsNewReason
   = SuggestContinueAsNewReason'SuggestContinueAsNewReasonUnspecified
@@ -624,18 +628,18 @@ instance MessageSize SuggestContinueAsNewReason where
 instance MessageDecode SuggestContinueAsNewReason where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON SuggestContinueAsNewReason where
-  protoToJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonUnspecified = JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_UNSPECIFIED"
-  protoToJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonHistorySizeTooLarge = JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_HISTORY_SIZE_TOO_LARGE"
-  protoToJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonTooManyHistoryEvents = JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_HISTORY_EVENTS"
-  protoToJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonTooManyUpdates = JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_UPDATES"
+instance Aeson.ToJSON SuggestContinueAsNewReason where
+  toJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonUnspecified = Aeson.String "SUGGEST_CONTINUE_AS_NEW_REASON_UNSPECIFIED"
+  toJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonHistorySizeTooLarge = Aeson.String "SUGGEST_CONTINUE_AS_NEW_REASON_HISTORY_SIZE_TOO_LARGE"
+  toJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonTooManyHistoryEvents = Aeson.String "SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_HISTORY_EVENTS"
+  toJSON SuggestContinueAsNewReason'SuggestContinueAsNewReasonTooManyUpdates = Aeson.String "SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_UPDATES"
 
-instance ProtoFromJSON SuggestContinueAsNewReason where
-  protoFromJSON = \case
-    JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_UNSPECIFIED" -> Right SuggestContinueAsNewReason'SuggestContinueAsNewReasonUnspecified
-    JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_HISTORY_SIZE_TOO_LARGE" -> Right SuggestContinueAsNewReason'SuggestContinueAsNewReasonHistorySizeTooLarge
-    JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_HISTORY_EVENTS" -> Right SuggestContinueAsNewReason'SuggestContinueAsNewReasonTooManyHistoryEvents
-    JsonString "SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_UPDATES" -> Right SuggestContinueAsNewReason'SuggestContinueAsNewReasonTooManyUpdates
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for SuggestContinueAsNewReason"
+instance Aeson.FromJSON SuggestContinueAsNewReason where
+  parseJSON = \case
+    Aeson.String "SUGGEST_CONTINUE_AS_NEW_REASON_UNSPECIFIED" -> pure SuggestContinueAsNewReason'SuggestContinueAsNewReasonUnspecified
+    Aeson.String "SUGGEST_CONTINUE_AS_NEW_REASON_HISTORY_SIZE_TOO_LARGE" -> pure SuggestContinueAsNewReason'SuggestContinueAsNewReasonHistorySizeTooLarge
+    Aeson.String "SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_HISTORY_EVENTS" -> pure SuggestContinueAsNewReason'SuggestContinueAsNewReasonTooManyHistoryEvents
+    Aeson.String "SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_UPDATES" -> pure SuggestContinueAsNewReason'SuggestContinueAsNewReasonTooManyUpdates
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for SuggestContinueAsNewReason"
 

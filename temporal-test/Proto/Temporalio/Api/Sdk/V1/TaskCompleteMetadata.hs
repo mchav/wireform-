@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -96,27 +100,27 @@ instance MessageDecode WorkflowTaskCompletedMetadata where
 instance IsMessage WorkflowTaskCompletedMetadata where
   messageTypeName _ = "temporal.api.sdk.v1.WorkflowTaskCompletedMetadata"
 
-instance ProtoToJSON WorkflowTaskCompletedMetadata where
-  protoToJSON msg = jsonObject
-      [ "coreUsedFlags" .= msg.workflowTaskCompletedMetadataCoreusedflags
-      , "langUsedFlags" .= msg.workflowTaskCompletedMetadataLangusedflags
-      , "sdkName" .= msg.workflowTaskCompletedMetadataSdkname
-      , "sdkVersion" .= msg.workflowTaskCompletedMetadataSdkversion
+instance Aeson.ToJSON WorkflowTaskCompletedMetadata where
+  toJSON msg = jsonObject
+      [ "coreUsedFlags" .=: msg.workflowTaskCompletedMetadataCoreusedflags
+      , "langUsedFlags" .=: msg.workflowTaskCompletedMetadataLangusedflags
+      , "sdkName" .=: msg.workflowTaskCompletedMetadataSdkname
+      , "sdkVersion" .=: msg.workflowTaskCompletedMetadataSdkversion
       ]
 
-instance ProtoFromJSON WorkflowTaskCompletedMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowTaskCompletedMetadataCoreusedflags <- obj .:? "coreUsedFlags"
-    fld_workflowTaskCompletedMetadataLangusedflags <- obj .:? "langUsedFlags"
-    fld_workflowTaskCompletedMetadataSdkname <- obj .:? "sdkName"
-    fld_workflowTaskCompletedMetadataSdkversion <- obj .:? "sdkVersion"
+instance Aeson.FromJSON WorkflowTaskCompletedMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowTaskCompletedMetadataCoreusedflags <- parseFieldMaybe obj "coreUsedFlags"
+    fld_workflowTaskCompletedMetadataLangusedflags <- parseFieldMaybe obj "langUsedFlags"
+    fld_workflowTaskCompletedMetadataSdkname <- parseFieldMaybe obj "sdkName"
+    fld_workflowTaskCompletedMetadataSdkversion <- parseFieldMaybe obj "sdkVersion"
     pure defaultWorkflowTaskCompletedMetadata
       { workflowTaskCompletedMetadataCoreusedflags = maybe (workflowTaskCompletedMetadataCoreusedflags defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataCoreusedflags
       , workflowTaskCompletedMetadataLangusedflags = maybe (workflowTaskCompletedMetadataLangusedflags defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataLangusedflags
       , workflowTaskCompletedMetadataSdkname = maybe (workflowTaskCompletedMetadataSdkname defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkname
       , workflowTaskCompletedMetadataSdkversion = maybe (workflowTaskCompletedMetadataSdkversion defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkversion
       }
-  protoFromJSON _ = Right defaultWorkflowTaskCompletedMetadata
+  parseJSON _ = pure defaultWorkflowTaskCompletedMetadata
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

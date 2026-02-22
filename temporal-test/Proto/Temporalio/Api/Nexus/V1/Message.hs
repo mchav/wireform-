@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -111,22 +115,22 @@ instance MessageDecode Failure where
 instance IsMessage Failure where
   messageTypeName _ = "temporal.api.nexus.v1.Failure"
 
-instance ProtoToJSON Failure where
-  protoToJSON msg = jsonObject
-      [ "message" .= msg.failureMessage
-      , "stackTrace" .= msg.failureStacktrace
-      , "metadata" .= msg.failureMetadata
-      , "details" .= msg.failureDetails
-      , "cause" .= msg.failureCause
+instance Aeson.ToJSON Failure where
+  toJSON msg = jsonObject
+      [ "message" .=: msg.failureMessage
+      , "stackTrace" .=: msg.failureStacktrace
+      , "metadata" .=: msg.failureMetadata
+      , "details" .=: msg.failureDetails
+      , "cause" .=: msg.failureCause
       ]
 
-instance ProtoFromJSON Failure where
-  protoFromJSON (JsonObject obj) = do
-    fld_failureMessage <- obj .:? "message"
-    fld_failureStacktrace <- obj .:? "stackTrace"
-    fld_failureMetadata <- obj .:? "metadata"
-    fld_failureDetails <- obj .:? "details"
-    fld_failureCause <- obj .:? "cause"
+instance Aeson.FromJSON Failure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_failureMessage <- parseFieldMaybe obj "message"
+    fld_failureStacktrace <- parseFieldMaybe obj "stackTrace"
+    fld_failureMetadata <- parseFieldMaybe obj "metadata"
+    fld_failureDetails <- parseFieldMaybe obj "details"
+    fld_failureCause <- parseFieldMaybe obj "cause"
     pure defaultFailure
       { failureMessage = maybe (failureMessage defaultFailure) id fld_failureMessage
       , failureStacktrace = maybe (failureStacktrace defaultFailure) id fld_failureStacktrace
@@ -134,7 +138,7 @@ instance ProtoFromJSON Failure where
       , failureDetails = maybe (failureDetails defaultFailure) id fld_failureDetails
       , failureCause = maybe (failureCause defaultFailure) id fld_failureCause
       }
-  protoFromJSON _ = Right defaultFailure
+  parseJSON _ = pure defaultFailure
 
 data HandlerError = HandlerError
   { handlerErrorErrortype :: !Text
@@ -185,24 +189,23 @@ instance MessageDecode HandlerError where
 instance IsMessage HandlerError where
   messageTypeName _ = "temporal.api.nexus.v1.HandlerError"
 
-instance ProtoToJSON HandlerError where
-  protoToJSON msg = jsonObject
-      [ "errorType" .= msg.handlerErrorErrortype
-      , "failure" .= msg.handlerErrorFailure
-      , "retryBehavior" .= msg.handlerErrorRetrybehavior
+instance Aeson.ToJSON HandlerError where
+  toJSON msg = jsonObject
+      [ "errorType" .=: msg.handlerErrorErrortype
+      , "failure" .=: msg.handlerErrorFailure
+      , "retryBehavior" .=: msg.handlerErrorRetrybehavior
       ]
 
-instance ProtoFromJSON HandlerError where
-  protoFromJSON (JsonObject obj) = do
-    fld_handlerErrorErrortype <- obj .:? "errorType"
-    fld_handlerErrorFailure <- obj .:? "failure"
-    fld_handlerErrorRetrybehavior <- obj .:? "retryBehavior"
+instance Aeson.FromJSON HandlerError where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_handlerErrorErrortype <- parseFieldMaybe obj "errorType"
+    fld_handlerErrorFailure <- parseFieldMaybe obj "failure"
+    fld_handlerErrorRetrybehavior <- parseFieldMaybe obj "retryBehavior"
     pure defaultHandlerError
       { handlerErrorErrortype = maybe (handlerErrorErrortype defaultHandlerError) id fld_handlerErrorErrortype
       , handlerErrorFailure = maybe (handlerErrorFailure defaultHandlerError) id fld_handlerErrorFailure
       , handlerErrorRetrybehavior = maybe (handlerErrorRetrybehavior defaultHandlerError) id fld_handlerErrorRetrybehavior
       }
-  protoFromJSON _ = Right defaultHandlerError
 
 data UnsuccessfulOperationError = UnsuccessfulOperationError
   { unsuccessfulOperationErrorOperationstate :: !Text
@@ -246,21 +249,20 @@ instance MessageDecode UnsuccessfulOperationError where
 instance IsMessage UnsuccessfulOperationError where
   messageTypeName _ = "temporal.api.nexus.v1.UnsuccessfulOperationError"
 
-instance ProtoToJSON UnsuccessfulOperationError where
-  protoToJSON msg = jsonObject
-      [ "operationState" .= msg.unsuccessfulOperationErrorOperationstate
-      , "failure" .= msg.unsuccessfulOperationErrorFailure
+instance Aeson.ToJSON UnsuccessfulOperationError where
+  toJSON msg = jsonObject
+      [ "operationState" .=: msg.unsuccessfulOperationErrorOperationstate
+      , "failure" .=: msg.unsuccessfulOperationErrorFailure
       ]
 
-instance ProtoFromJSON UnsuccessfulOperationError where
-  protoFromJSON (JsonObject obj) = do
-    fld_unsuccessfulOperationErrorOperationstate <- obj .:? "operationState"
-    fld_unsuccessfulOperationErrorFailure <- obj .:? "failure"
+instance Aeson.FromJSON UnsuccessfulOperationError where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_unsuccessfulOperationErrorOperationstate <- parseFieldMaybe obj "operationState"
+    fld_unsuccessfulOperationErrorFailure <- parseFieldMaybe obj "failure"
     pure defaultUnsuccessfulOperationError
       { unsuccessfulOperationErrorOperationstate = maybe (unsuccessfulOperationErrorOperationstate defaultUnsuccessfulOperationError) id fld_unsuccessfulOperationErrorOperationstate
       , unsuccessfulOperationErrorFailure = maybe (unsuccessfulOperationErrorFailure defaultUnsuccessfulOperationError) id fld_unsuccessfulOperationErrorFailure
       }
-  protoFromJSON _ = Right defaultUnsuccessfulOperationError
 
 data Link = Link
   { linkUrl :: !Text
@@ -304,21 +306,20 @@ instance MessageDecode Link where
 instance IsMessage Link where
   messageTypeName _ = "temporal.api.nexus.v1.Link"
 
-instance ProtoToJSON Link where
-  protoToJSON msg = jsonObject
-      [ "url" .= msg.linkUrl
-      , "type" .= msg.linkType
+instance Aeson.ToJSON Link where
+  toJSON msg = jsonObject
+      [ "url" .=: msg.linkUrl
+      , "type" .=: msg.linkType
       ]
 
-instance ProtoFromJSON Link where
-  protoFromJSON (JsonObject obj) = do
-    fld_linkUrl <- obj .:? "url"
-    fld_linkType <- obj .:? "type"
+instance Aeson.FromJSON Link where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_linkUrl <- parseFieldMaybe obj "url"
+    fld_linkType <- parseFieldMaybe obj "type"
     pure defaultLink
       { linkUrl = maybe (linkUrl defaultLink) id fld_linkUrl
       , linkType = maybe (linkType defaultLink) id fld_linkType
       }
-  protoFromJSON _ = Right defaultLink
 
 data StartOperationRequest = StartOperationRequest
   { startOperationRequestService :: !Text
@@ -400,26 +401,26 @@ instance MessageDecode StartOperationRequest where
 instance IsMessage StartOperationRequest where
   messageTypeName _ = "temporal.api.nexus.v1.StartOperationRequest"
 
-instance ProtoToJSON StartOperationRequest where
-  protoToJSON msg = jsonObject
-      [ "service" .= msg.startOperationRequestService
-      , "operation" .= msg.startOperationRequestOperation
-      , "requestId" .= msg.startOperationRequestRequestid
-      , "callback" .= msg.startOperationRequestCallback
-      , "payload" .= msg.startOperationRequestPayload
-      , "callbackHeader" .= msg.startOperationRequestCallbackheader
-      , "links" .= msg.startOperationRequestLinks
+instance Aeson.ToJSON StartOperationRequest where
+  toJSON msg = jsonObject
+      [ "service" .=: msg.startOperationRequestService
+      , "operation" .=: msg.startOperationRequestOperation
+      , "requestId" .=: msg.startOperationRequestRequestid
+      , "callback" .=: msg.startOperationRequestCallback
+      , "payload" .=: msg.startOperationRequestPayload
+      , "callbackHeader" .=: msg.startOperationRequestCallbackheader
+      , "links" .=: msg.startOperationRequestLinks
       ]
 
-instance ProtoFromJSON StartOperationRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_startOperationRequestService <- obj .:? "service"
-    fld_startOperationRequestOperation <- obj .:? "operation"
-    fld_startOperationRequestRequestid <- obj .:? "requestId"
-    fld_startOperationRequestCallback <- obj .:? "callback"
-    fld_startOperationRequestPayload <- obj .:? "payload"
-    fld_startOperationRequestCallbackheader <- obj .:? "callbackHeader"
-    fld_startOperationRequestLinks <- obj .:? "links"
+instance Aeson.FromJSON StartOperationRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startOperationRequestService <- parseFieldMaybe obj "service"
+    fld_startOperationRequestOperation <- parseFieldMaybe obj "operation"
+    fld_startOperationRequestRequestid <- parseFieldMaybe obj "requestId"
+    fld_startOperationRequestCallback <- parseFieldMaybe obj "callback"
+    fld_startOperationRequestPayload <- parseFieldMaybe obj "payload"
+    fld_startOperationRequestCallbackheader <- parseFieldMaybe obj "callbackHeader"
+    fld_startOperationRequestLinks <- parseFieldMaybe obj "links"
     pure defaultStartOperationRequest
       { startOperationRequestService = maybe (startOperationRequestService defaultStartOperationRequest) id fld_startOperationRequestService
       , startOperationRequestOperation = maybe (startOperationRequestOperation defaultStartOperationRequest) id fld_startOperationRequestOperation
@@ -429,7 +430,7 @@ instance ProtoFromJSON StartOperationRequest where
       , startOperationRequestCallbackheader = maybe (startOperationRequestCallbackheader defaultStartOperationRequest) id fld_startOperationRequestCallbackheader
       , startOperationRequestLinks = maybe (startOperationRequestLinks defaultStartOperationRequest) id fld_startOperationRequestLinks
       }
-  protoFromJSON _ = Right defaultStartOperationRequest
+  parseJSON _ = pure defaultStartOperationRequest
 
 data CancelOperationRequest = CancelOperationRequest
   { cancelOperationRequestService :: !Text
@@ -487,27 +488,27 @@ instance MessageDecode CancelOperationRequest where
 instance IsMessage CancelOperationRequest where
   messageTypeName _ = "temporal.api.nexus.v1.CancelOperationRequest"
 
-instance ProtoToJSON CancelOperationRequest where
-  protoToJSON msg = jsonObject
-      [ "service" .= msg.cancelOperationRequestService
-      , "operation" .= msg.cancelOperationRequestOperation
-      , "operationId" .= msg.cancelOperationRequestOperationid
-      , "operationToken" .= msg.cancelOperationRequestOperationtoken
+instance Aeson.ToJSON CancelOperationRequest where
+  toJSON msg = jsonObject
+      [ "service" .=: msg.cancelOperationRequestService
+      , "operation" .=: msg.cancelOperationRequestOperation
+      , "operationId" .=: msg.cancelOperationRequestOperationid
+      , "operationToken" .=: msg.cancelOperationRequestOperationtoken
       ]
 
-instance ProtoFromJSON CancelOperationRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_cancelOperationRequestService <- obj .:? "service"
-    fld_cancelOperationRequestOperation <- obj .:? "operation"
-    fld_cancelOperationRequestOperationid <- obj .:? "operationId"
-    fld_cancelOperationRequestOperationtoken <- obj .:? "operationToken"
+instance Aeson.FromJSON CancelOperationRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_cancelOperationRequestService <- parseFieldMaybe obj "service"
+    fld_cancelOperationRequestOperation <- parseFieldMaybe obj "operation"
+    fld_cancelOperationRequestOperationid <- parseFieldMaybe obj "operationId"
+    fld_cancelOperationRequestOperationtoken <- parseFieldMaybe obj "operationToken"
     pure defaultCancelOperationRequest
       { cancelOperationRequestService = maybe (cancelOperationRequestService defaultCancelOperationRequest) id fld_cancelOperationRequestService
       , cancelOperationRequestOperation = maybe (cancelOperationRequestOperation defaultCancelOperationRequest) id fld_cancelOperationRequestOperation
       , cancelOperationRequestOperationid = maybe (cancelOperationRequestOperationid defaultCancelOperationRequest) id fld_cancelOperationRequestOperationid
       , cancelOperationRequestOperationtoken = maybe (cancelOperationRequestOperationtoken defaultCancelOperationRequest) id fld_cancelOperationRequestOperationtoken
       }
-  protoFromJSON _ = Right defaultCancelOperationRequest
+  parseJSON _ = pure defaultCancelOperationRequest
 
 data Request = Request
   { requestHeader :: !(Map.Map Text Text)
@@ -554,28 +555,27 @@ instance MessageDecode Request'Capabilities where
 instance IsMessage Request'Capabilities where
   messageTypeName _ = "temporal.api.nexus.v1.Request.Capabilities"
 
-instance ProtoToJSON Request'Capabilities where
-  protoToJSON msg = jsonObject
-      [ "temporalFailureResponses" .= msg.requestCapabilitiesTemporalfailureresponses
+instance Aeson.ToJSON Request'Capabilities where
+  toJSON msg = jsonObject
+      [ "temporalFailureResponses" .=: msg.requestCapabilitiesTemporalfailureresponses
 
       ]
 
-instance ProtoFromJSON Request'Capabilities where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestCapabilitiesTemporalfailureresponses <- obj .:? "temporalFailureResponses"
+instance Aeson.FromJSON Request'Capabilities where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestCapabilitiesTemporalfailureresponses <- parseFieldMaybe obj "temporalFailureResponses"
     pure defaultRequest'Capabilities
       { requestCapabilitiesTemporalfailureresponses = maybe (requestCapabilitiesTemporalfailureresponses defaultRequest'Capabilities) id fld_requestCapabilitiesTemporalfailureresponses
       }
-  protoFromJSON _ = Right defaultRequest'Capabilities
 data Request'Variant
   = Request'Variant'StartOperation !StartOperationRequest
   | Request'Variant'CancelOperation !CancelOperationRequest
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Request'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Request'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Request'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Request'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultRequest :: Request
 defaultRequest = Request
@@ -640,22 +640,22 @@ instance MessageDecode Request where
 instance IsMessage Request where
   messageTypeName _ = "temporal.api.nexus.v1.Request"
 
-instance ProtoToJSON Request where
-  protoToJSON msg = jsonObject
-      [ "header" .= msg.requestHeader
-      , "scheduledTime" .= msg.requestScheduledtime
-      , "capabilities" .= msg.requestCapabilities
-      , "variant" .= msg.requestVariant
-      , "endpoint" .= msg.requestEndpoint
+instance Aeson.ToJSON Request where
+  toJSON msg = jsonObject
+      [ "header" .=: msg.requestHeader
+      , "scheduledTime" .=: msg.requestScheduledtime
+      , "capabilities" .=: msg.requestCapabilities
+      , "variant" .=: msg.requestVariant
+      , "endpoint" .=: msg.requestEndpoint
       ]
 
-instance ProtoFromJSON Request where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestHeader <- obj .:? "header"
-    fld_requestScheduledtime <- obj .:? "scheduledTime"
-    fld_requestCapabilities <- obj .:? "capabilities"
-    fld_requestVariant <- obj .:? "variant"
-    fld_requestEndpoint <- obj .:? "endpoint"
+instance Aeson.FromJSON Request where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestHeader <- parseFieldMaybe obj "header"
+    fld_requestScheduledtime <- parseFieldMaybe obj "scheduledTime"
+    fld_requestCapabilities <- parseFieldMaybe obj "capabilities"
+    fld_requestVariant <- parseFieldMaybe obj "variant"
+    fld_requestEndpoint <- parseFieldMaybe obj "endpoint"
     pure defaultRequest
       { requestHeader = maybe (requestHeader defaultRequest) id fld_requestHeader
       , requestScheduledtime = maybe (requestScheduledtime defaultRequest) id fld_requestScheduledtime
@@ -663,7 +663,7 @@ instance ProtoFromJSON Request where
       , requestVariant = maybe (requestVariant defaultRequest) id fld_requestVariant
       , requestEndpoint = maybe (requestEndpoint defaultRequest) id fld_requestEndpoint
       }
-  protoFromJSON _ = Right defaultRequest
+  parseJSON _ = pure defaultRequest
 
 data StartOperationResponse = StartOperationResponse
   { startOperationResponseVariant :: !(Maybe StartOperationResponse'Variant)
@@ -713,21 +713,20 @@ instance MessageDecode StartOperationResponse'Sync where
 instance IsMessage StartOperationResponse'Sync where
   messageTypeName _ = "temporal.api.nexus.v1.StartOperationResponse.Sync"
 
-instance ProtoToJSON StartOperationResponse'Sync where
-  protoToJSON msg = jsonObject
-      [ "payload" .= msg.startOperationResponseSyncPayload
-      , "links" .= msg.startOperationResponseSyncLinks
+instance Aeson.ToJSON StartOperationResponse'Sync where
+  toJSON msg = jsonObject
+      [ "payload" .=: msg.startOperationResponseSyncPayload
+      , "links" .=: msg.startOperationResponseSyncLinks
       ]
 
-instance ProtoFromJSON StartOperationResponse'Sync where
-  protoFromJSON (JsonObject obj) = do
-    fld_startOperationResponseSyncPayload <- obj .:? "payload"
-    fld_startOperationResponseSyncLinks <- obj .:? "links"
+instance Aeson.FromJSON StartOperationResponse'Sync where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startOperationResponseSyncPayload <- parseFieldMaybe obj "payload"
+    fld_startOperationResponseSyncLinks <- parseFieldMaybe obj "links"
     pure defaultStartOperationResponse'Sync
       { startOperationResponseSyncPayload = maybe (startOperationResponseSyncPayload defaultStartOperationResponse'Sync) id fld_startOperationResponseSyncPayload
       , startOperationResponseSyncLinks = maybe (startOperationResponseSyncLinks defaultStartOperationResponse'Sync) id fld_startOperationResponseSyncLinks
       }
-  protoFromJSON _ = Right defaultStartOperationResponse'Sync
 
 data StartOperationResponse'Async = StartOperationResponse'Async
   { startOperationResponseAsyncOperationid :: !Text
@@ -778,24 +777,23 @@ instance MessageDecode StartOperationResponse'Async where
 instance IsMessage StartOperationResponse'Async where
   messageTypeName _ = "temporal.api.nexus.v1.StartOperationResponse.Async"
 
-instance ProtoToJSON StartOperationResponse'Async where
-  protoToJSON msg = jsonObject
-      [ "operationId" .= msg.startOperationResponseAsyncOperationid
-      , "links" .= msg.startOperationResponseAsyncLinks
-      , "operationToken" .= msg.startOperationResponseAsyncOperationtoken
+instance Aeson.ToJSON StartOperationResponse'Async where
+  toJSON msg = jsonObject
+      [ "operationId" .=: msg.startOperationResponseAsyncOperationid
+      , "links" .=: msg.startOperationResponseAsyncLinks
+      , "operationToken" .=: msg.startOperationResponseAsyncOperationtoken
       ]
 
-instance ProtoFromJSON StartOperationResponse'Async where
-  protoFromJSON (JsonObject obj) = do
-    fld_startOperationResponseAsyncOperationid <- obj .:? "operationId"
-    fld_startOperationResponseAsyncLinks <- obj .:? "links"
-    fld_startOperationResponseAsyncOperationtoken <- obj .:? "operationToken"
+instance Aeson.FromJSON StartOperationResponse'Async where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startOperationResponseAsyncOperationid <- parseFieldMaybe obj "operationId"
+    fld_startOperationResponseAsyncLinks <- parseFieldMaybe obj "links"
+    fld_startOperationResponseAsyncOperationtoken <- parseFieldMaybe obj "operationToken"
     pure defaultStartOperationResponse'Async
       { startOperationResponseAsyncOperationid = maybe (startOperationResponseAsyncOperationid defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncOperationid
       , startOperationResponseAsyncLinks = maybe (startOperationResponseAsyncLinks defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncLinks
       , startOperationResponseAsyncOperationtoken = maybe (startOperationResponseAsyncOperationtoken defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncOperationtoken
       }
-  protoFromJSON _ = Right defaultStartOperationResponse'Async
 data StartOperationResponse'Variant
   = StartOperationResponse'Variant'SyncSuccess !StartOperationResponse'Sync
   | StartOperationResponse'Variant'AsyncSuccess !StartOperationResponse'Async
@@ -803,10 +801,10 @@ data StartOperationResponse'Variant
   | StartOperationResponse'Variant'Failure !TE_Failure_V1_Message.Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON StartOperationResponse'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON StartOperationResponse'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON StartOperationResponse'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON StartOperationResponse'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultStartOperationResponse :: StartOperationResponse
 defaultStartOperationResponse = StartOperationResponse
@@ -854,19 +852,18 @@ instance MessageDecode StartOperationResponse where
 instance IsMessage StartOperationResponse where
   messageTypeName _ = "temporal.api.nexus.v1.StartOperationResponse"
 
-instance ProtoToJSON StartOperationResponse where
-  protoToJSON msg = jsonObject
-      [ "variant" .= msg.startOperationResponseVariant
+instance Aeson.ToJSON StartOperationResponse where
+  toJSON msg = jsonObject
+      [ "variant" .=: msg.startOperationResponseVariant
 
       ]
 
-instance ProtoFromJSON StartOperationResponse where
-  protoFromJSON (JsonObject obj) = do
-    fld_startOperationResponseVariant <- obj .:? "variant"
+instance Aeson.FromJSON StartOperationResponse where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startOperationResponseVariant <- parseFieldMaybe obj "variant"
     pure defaultStartOperationResponse
       { startOperationResponseVariant = maybe (startOperationResponseVariant defaultStartOperationResponse) id fld_startOperationResponseVariant
       }
-  protoFromJSON _ = Right defaultStartOperationResponse
 
 data CancelOperationResponse = CancelOperationResponse
   { }
@@ -898,12 +895,12 @@ instance MessageDecode CancelOperationResponse where
 instance IsMessage CancelOperationResponse where
   messageTypeName _ = "temporal.api.nexus.v1.CancelOperationResponse"
 
-instance ProtoToJSON CancelOperationResponse where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON CancelOperationResponse where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON CancelOperationResponse where
-  protoFromJSON _ = Right defaultCancelOperationResponse
+instance Aeson.FromJSON CancelOperationResponse where
+  parseJSON _ = pure defaultCancelOperationResponse
 
 data Response = Response
   { responseVariant :: !(Maybe Response'Variant)
@@ -915,10 +912,10 @@ data Response'Variant
   | Response'Variant'CancelOperation !CancelOperationResponse
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Response'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Response'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Response'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Response'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultResponse :: Response
 defaultResponse = Response
@@ -956,19 +953,18 @@ instance MessageDecode Response where
 instance IsMessage Response where
   messageTypeName _ = "temporal.api.nexus.v1.Response"
 
-instance ProtoToJSON Response where
-  protoToJSON msg = jsonObject
-      [ "variant" .= msg.responseVariant
+instance Aeson.ToJSON Response where
+  toJSON msg = jsonObject
+      [ "variant" .=: msg.responseVariant
 
       ]
 
-instance ProtoFromJSON Response where
-  protoFromJSON (JsonObject obj) = do
-    fld_responseVariant <- obj .:? "variant"
+instance Aeson.FromJSON Response where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_responseVariant <- parseFieldMaybe obj "variant"
     pure defaultResponse
       { responseVariant = maybe (responseVariant defaultResponse) id fld_responseVariant
       }
-  protoFromJSON _ = Right defaultResponse
 
 data Endpoint = Endpoint
   { endpointVersion :: {-# UNPACK #-} !Int64
@@ -1040,24 +1036,24 @@ instance MessageDecode Endpoint where
 instance IsMessage Endpoint where
   messageTypeName _ = "temporal.api.nexus.v1.Endpoint"
 
-instance ProtoToJSON Endpoint where
-  protoToJSON msg = jsonObject
-      [ "version" .= msg.endpointVersion
-      , "id" .= msg.endpointId
-      , "spec" .= msg.endpointSpec
-      , "createdTime" .= msg.endpointCreatedtime
-      , "lastModifiedTime" .= msg.endpointLastmodifiedtime
-      , "urlPrefix" .= msg.endpointUrlprefix
+instance Aeson.ToJSON Endpoint where
+  toJSON msg = jsonObject
+      [ "version" .=: msg.endpointVersion
+      , "id" .=: msg.endpointId
+      , "spec" .=: msg.endpointSpec
+      , "createdTime" .=: msg.endpointCreatedtime
+      , "lastModifiedTime" .=: msg.endpointLastmodifiedtime
+      , "urlPrefix" .=: msg.endpointUrlprefix
       ]
 
-instance ProtoFromJSON Endpoint where
-  protoFromJSON (JsonObject obj) = do
-    fld_endpointVersion <- obj .:? "version"
-    fld_endpointId <- obj .:? "id"
-    fld_endpointSpec <- obj .:? "spec"
-    fld_endpointCreatedtime <- obj .:? "createdTime"
-    fld_endpointLastmodifiedtime <- obj .:? "lastModifiedTime"
-    fld_endpointUrlprefix <- obj .:? "urlPrefix"
+instance Aeson.FromJSON Endpoint where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_endpointVersion <- parseFieldMaybe obj "version"
+    fld_endpointId <- parseFieldMaybe obj "id"
+    fld_endpointSpec <- parseFieldMaybe obj "spec"
+    fld_endpointCreatedtime <- parseFieldMaybe obj "createdTime"
+    fld_endpointLastmodifiedtime <- parseFieldMaybe obj "lastModifiedTime"
+    fld_endpointUrlprefix <- parseFieldMaybe obj "urlPrefix"
     pure defaultEndpoint
       { endpointVersion = maybe (endpointVersion defaultEndpoint) id fld_endpointVersion
       , endpointId = maybe (endpointId defaultEndpoint) id fld_endpointId
@@ -1066,7 +1062,7 @@ instance ProtoFromJSON Endpoint where
       , endpointLastmodifiedtime = maybe (endpointLastmodifiedtime defaultEndpoint) id fld_endpointLastmodifiedtime
       , endpointUrlprefix = maybe (endpointUrlprefix defaultEndpoint) id fld_endpointUrlprefix
       }
-  protoFromJSON _ = Right defaultEndpoint
+  parseJSON _ = pure defaultEndpoint
 
 data EndpointSpec = EndpointSpec
   { endpointSpecName :: !Text
@@ -1117,24 +1113,23 @@ instance MessageDecode EndpointSpec where
 instance IsMessage EndpointSpec where
   messageTypeName _ = "temporal.api.nexus.v1.EndpointSpec"
 
-instance ProtoToJSON EndpointSpec where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.endpointSpecName
-      , "description" .= msg.endpointSpecDescription
-      , "target" .= msg.endpointSpecTarget
+instance Aeson.ToJSON EndpointSpec where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.endpointSpecName
+      , "description" .=: msg.endpointSpecDescription
+      , "target" .=: msg.endpointSpecTarget
       ]
 
-instance ProtoFromJSON EndpointSpec where
-  protoFromJSON (JsonObject obj) = do
-    fld_endpointSpecName <- obj .:? "name"
-    fld_endpointSpecDescription <- obj .:? "description"
-    fld_endpointSpecTarget <- obj .:? "target"
+instance Aeson.FromJSON EndpointSpec where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_endpointSpecName <- parseFieldMaybe obj "name"
+    fld_endpointSpecDescription <- parseFieldMaybe obj "description"
+    fld_endpointSpecTarget <- parseFieldMaybe obj "target"
     pure defaultEndpointSpec
       { endpointSpecName = maybe (endpointSpecName defaultEndpointSpec) id fld_endpointSpecName
       , endpointSpecDescription = maybe (endpointSpecDescription defaultEndpointSpec) id fld_endpointSpecDescription
       , endpointSpecTarget = maybe (endpointSpecTarget defaultEndpointSpec) id fld_endpointSpecTarget
       }
-  protoFromJSON _ = Right defaultEndpointSpec
 
 data EndpointTarget = EndpointTarget
   { endpointTargetVariant :: !(Maybe EndpointTarget'Variant)
@@ -1184,21 +1179,20 @@ instance MessageDecode EndpointTarget'Worker where
 instance IsMessage EndpointTarget'Worker where
   messageTypeName _ = "temporal.api.nexus.v1.EndpointTarget.Worker"
 
-instance ProtoToJSON EndpointTarget'Worker where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.endpointTargetWorkerNamespace
-      , "taskQueue" .= msg.endpointTargetWorkerTaskqueue
+instance Aeson.ToJSON EndpointTarget'Worker where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.endpointTargetWorkerNamespace
+      , "taskQueue" .=: msg.endpointTargetWorkerTaskqueue
       ]
 
-instance ProtoFromJSON EndpointTarget'Worker where
-  protoFromJSON (JsonObject obj) = do
-    fld_endpointTargetWorkerNamespace <- obj .:? "namespace"
-    fld_endpointTargetWorkerTaskqueue <- obj .:? "taskQueue"
+instance Aeson.FromJSON EndpointTarget'Worker where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_endpointTargetWorkerNamespace <- parseFieldMaybe obj "namespace"
+    fld_endpointTargetWorkerTaskqueue <- parseFieldMaybe obj "taskQueue"
     pure defaultEndpointTarget'Worker
       { endpointTargetWorkerNamespace = maybe (endpointTargetWorkerNamespace defaultEndpointTarget'Worker) id fld_endpointTargetWorkerNamespace
       , endpointTargetWorkerTaskqueue = maybe (endpointTargetWorkerTaskqueue defaultEndpointTarget'Worker) id fld_endpointTargetWorkerTaskqueue
       }
-  protoFromJSON _ = Right defaultEndpointTarget'Worker
 
 data EndpointTarget'External = EndpointTarget'External
   { endpointTargetExternalUrl :: !Text
@@ -1235,28 +1229,27 @@ instance MessageDecode EndpointTarget'External where
 instance IsMessage EndpointTarget'External where
   messageTypeName _ = "temporal.api.nexus.v1.EndpointTarget.External"
 
-instance ProtoToJSON EndpointTarget'External where
-  protoToJSON msg = jsonObject
-      [ "url" .= msg.endpointTargetExternalUrl
+instance Aeson.ToJSON EndpointTarget'External where
+  toJSON msg = jsonObject
+      [ "url" .=: msg.endpointTargetExternalUrl
 
       ]
 
-instance ProtoFromJSON EndpointTarget'External where
-  protoFromJSON (JsonObject obj) = do
-    fld_endpointTargetExternalUrl <- obj .:? "url"
+instance Aeson.FromJSON EndpointTarget'External where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_endpointTargetExternalUrl <- parseFieldMaybe obj "url"
     pure defaultEndpointTarget'External
       { endpointTargetExternalUrl = maybe (endpointTargetExternalUrl defaultEndpointTarget'External) id fld_endpointTargetExternalUrl
       }
-  protoFromJSON _ = Right defaultEndpointTarget'External
 data EndpointTarget'Variant
   = EndpointTarget'Variant'Worker !EndpointTarget'Worker
   | EndpointTarget'Variant'External !EndpointTarget'External
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON EndpointTarget'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON EndpointTarget'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON EndpointTarget'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON EndpointTarget'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultEndpointTarget :: EndpointTarget
 defaultEndpointTarget = EndpointTarget
@@ -1294,19 +1287,18 @@ instance MessageDecode EndpointTarget where
 instance IsMessage EndpointTarget where
   messageTypeName _ = "temporal.api.nexus.v1.EndpointTarget"
 
-instance ProtoToJSON EndpointTarget where
-  protoToJSON msg = jsonObject
-      [ "variant" .= msg.endpointTargetVariant
+instance Aeson.ToJSON EndpointTarget where
+  toJSON msg = jsonObject
+      [ "variant" .=: msg.endpointTargetVariant
 
       ]
 
-instance ProtoFromJSON EndpointTarget where
-  protoFromJSON (JsonObject obj) = do
-    fld_endpointTargetVariant <- obj .:? "variant"
+instance Aeson.FromJSON EndpointTarget where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_endpointTargetVariant <- parseFieldMaybe obj "variant"
     pure defaultEndpointTarget
       { endpointTargetVariant = maybe (endpointTargetVariant defaultEndpointTarget) id fld_endpointTargetVariant
       }
-  protoFromJSON _ = Right defaultEndpointTarget
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

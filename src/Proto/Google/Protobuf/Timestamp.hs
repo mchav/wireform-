@@ -27,7 +27,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -124,8 +128,8 @@ instance ProtoMessage Timestamp where
         })
     ]
 
-instance ProtoToJSON Timestamp where
-  protoToJSON msg =
+instance Aeson.ToJSON Timestamp where
+  toJSON msg =
     let s = msg.timestampSeconds
         n = msg.timestampNanos
         (rawDays, remSec) = s `divMod` 86400
@@ -146,14 +150,14 @@ instance ProtoToJSON Timestamp where
         pad9 x = let sx = T.pack (show (abs x)) in T.replicate (9 - T.length sx) (T.pack "0") <> sx
         nanoStr = if n == 0 then T.pack "" else T.pack "." <> dropTrailingZeros (pad9 (fromIntegral n))
         dropTrailingZeros t = case T.stripSuffix (T.pack "0") t of { Just t' -> dropTrailingZeros t'; Nothing -> t }
-    in JsonString (pad4 y' <> T.pack "-" <> pad2 (fromIntegral m) <> T.pack "-" <> pad2 (fromIntegral d)
+    in Aeson.String (pad4 y' <> T.pack "-" <> pad2 (fromIntegral m) <> T.pack "-" <> pad2 (fromIntegral d)
          <> T.pack "T" <> pad2 hours <> T.pack ":" <> pad2 mins <> T.pack ":" <> pad2 secs
          <> nanoStr <> T.pack "Z")
 
 
-instance ProtoFromJSON Timestamp where
-  protoFromJSON (JsonString _) = Right defaultTimestamp
-  protoFromJSON _ = Left "Expected RFC 3339 timestamp string"
+instance Aeson.FromJSON Timestamp where
+  parseJSON (Aeson.String _) = pure defaultTimestamp
+  parseJSON _ = fail "Expected RFC 3339 timestamp string"
 
 
 -- | Register all message types defined in this module.

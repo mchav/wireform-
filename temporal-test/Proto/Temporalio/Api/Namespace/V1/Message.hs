@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -141,28 +145,28 @@ instance MessageDecode NamespaceInfo'Capabilities where
 instance IsMessage NamespaceInfo'Capabilities where
   messageTypeName _ = "temporal.api.namespace.v1.NamespaceInfo.Capabilities"
 
-instance ProtoToJSON NamespaceInfo'Capabilities where
-  protoToJSON msg = jsonObject
-      [ "eagerWorkflowStart" .= msg.namespaceInfoCapabilitiesEagerworkflowstart
-      , "syncUpdate" .= msg.namespaceInfoCapabilitiesSyncupdate
-      , "asyncUpdate" .= msg.namespaceInfoCapabilitiesAsyncupdate
-      , "workerHeartbeats" .= msg.namespaceInfoCapabilitiesWorkerheartbeats
-      , "reportedProblemsSearchAttribute" .= msg.namespaceInfoCapabilitiesReportedproblemssearchattribute
-      , "workflowPause" .= msg.namespaceInfoCapabilitiesWorkflowpause
-      , "standaloneActivities" .= msg.namespaceInfoCapabilitiesStandaloneactivities
-      , "workerPollCompleteOnShutdown" .= msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
+instance Aeson.ToJSON NamespaceInfo'Capabilities where
+  toJSON msg = jsonObject
+      [ "eagerWorkflowStart" .=: msg.namespaceInfoCapabilitiesEagerworkflowstart
+      , "syncUpdate" .=: msg.namespaceInfoCapabilitiesSyncupdate
+      , "asyncUpdate" .=: msg.namespaceInfoCapabilitiesAsyncupdate
+      , "workerHeartbeats" .=: msg.namespaceInfoCapabilitiesWorkerheartbeats
+      , "reportedProblemsSearchAttribute" .=: msg.namespaceInfoCapabilitiesReportedproblemssearchattribute
+      , "workflowPause" .=: msg.namespaceInfoCapabilitiesWorkflowpause
+      , "standaloneActivities" .=: msg.namespaceInfoCapabilitiesStandaloneactivities
+      , "workerPollCompleteOnShutdown" .=: msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
       ]
 
-instance ProtoFromJSON NamespaceInfo'Capabilities where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceInfoCapabilitiesEagerworkflowstart <- obj .:? "eagerWorkflowStart"
-    fld_namespaceInfoCapabilitiesSyncupdate <- obj .:? "syncUpdate"
-    fld_namespaceInfoCapabilitiesAsyncupdate <- obj .:? "asyncUpdate"
-    fld_namespaceInfoCapabilitiesWorkerheartbeats <- obj .:? "workerHeartbeats"
-    fld_namespaceInfoCapabilitiesReportedproblemssearchattribute <- obj .:? "reportedProblemsSearchAttribute"
-    fld_namespaceInfoCapabilitiesWorkflowpause <- obj .:? "workflowPause"
-    fld_namespaceInfoCapabilitiesStandaloneactivities <- obj .:? "standaloneActivities"
-    fld_namespaceInfoCapabilitiesWorkerpollcompleteonshutdown <- obj .:? "workerPollCompleteOnShutdown"
+instance Aeson.FromJSON NamespaceInfo'Capabilities where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceInfoCapabilitiesEagerworkflowstart <- parseFieldMaybe obj "eagerWorkflowStart"
+    fld_namespaceInfoCapabilitiesSyncupdate <- parseFieldMaybe obj "syncUpdate"
+    fld_namespaceInfoCapabilitiesAsyncupdate <- parseFieldMaybe obj "asyncUpdate"
+    fld_namespaceInfoCapabilitiesWorkerheartbeats <- parseFieldMaybe obj "workerHeartbeats"
+    fld_namespaceInfoCapabilitiesReportedproblemssearchattribute <- parseFieldMaybe obj "reportedProblemsSearchAttribute"
+    fld_namespaceInfoCapabilitiesWorkflowpause <- parseFieldMaybe obj "workflowPause"
+    fld_namespaceInfoCapabilitiesStandaloneactivities <- parseFieldMaybe obj "standaloneActivities"
+    fld_namespaceInfoCapabilitiesWorkerpollcompleteonshutdown <- parseFieldMaybe obj "workerPollCompleteOnShutdown"
     pure defaultNamespaceInfo'Capabilities
       { namespaceInfoCapabilitiesEagerworkflowstart = maybe (namespaceInfoCapabilitiesEagerworkflowstart defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesEagerworkflowstart
       , namespaceInfoCapabilitiesSyncupdate = maybe (namespaceInfoCapabilitiesSyncupdate defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesSyncupdate
@@ -173,7 +177,7 @@ instance ProtoFromJSON NamespaceInfo'Capabilities where
       , namespaceInfoCapabilitiesStandaloneactivities = maybe (namespaceInfoCapabilitiesStandaloneactivities defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesStandaloneactivities
       , namespaceInfoCapabilitiesWorkerpollcompleteonshutdown = maybe (namespaceInfoCapabilitiesWorkerpollcompleteonshutdown defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
       }
-  protoFromJSON _ = Right defaultNamespaceInfo'Capabilities
+  parseJSON _ = pure defaultNamespaceInfo'Capabilities
 
 data NamespaceInfo'Limits = NamespaceInfo'Limits
   { namespaceInfoLimitsBlobsizelimiterror :: {-# UNPACK #-} !Int64
@@ -217,21 +221,20 @@ instance MessageDecode NamespaceInfo'Limits where
 instance IsMessage NamespaceInfo'Limits where
   messageTypeName _ = "temporal.api.namespace.v1.NamespaceInfo.Limits"
 
-instance ProtoToJSON NamespaceInfo'Limits where
-  protoToJSON msg = jsonObject
-      [ "blobSizeLimitError" .= msg.namespaceInfoLimitsBlobsizelimiterror
-      , "memoSizeLimitError" .= msg.namespaceInfoLimitsMemosizelimiterror
+instance Aeson.ToJSON NamespaceInfo'Limits where
+  toJSON msg = jsonObject
+      [ "blobSizeLimitError" .=: msg.namespaceInfoLimitsBlobsizelimiterror
+      , "memoSizeLimitError" .=: msg.namespaceInfoLimitsMemosizelimiterror
       ]
 
-instance ProtoFromJSON NamespaceInfo'Limits where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceInfoLimitsBlobsizelimiterror <- obj .:? "blobSizeLimitError"
-    fld_namespaceInfoLimitsMemosizelimiterror <- obj .:? "memoSizeLimitError"
+instance Aeson.FromJSON NamespaceInfo'Limits where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceInfoLimitsBlobsizelimiterror <- parseFieldMaybe obj "blobSizeLimitError"
+    fld_namespaceInfoLimitsMemosizelimiterror <- parseFieldMaybe obj "memoSizeLimitError"
     pure defaultNamespaceInfo'Limits
       { namespaceInfoLimitsBlobsizelimiterror = maybe (namespaceInfoLimitsBlobsizelimiterror defaultNamespaceInfo'Limits) id fld_namespaceInfoLimitsBlobsizelimiterror
       , namespaceInfoLimitsMemosizelimiterror = maybe (namespaceInfoLimitsMemosizelimiterror defaultNamespaceInfo'Limits) id fld_namespaceInfoLimitsMemosizelimiterror
       }
-  protoFromJSON _ = Right defaultNamespaceInfo'Limits
 
 defaultNamespaceInfo :: NamespaceInfo
 defaultNamespaceInfo = NamespaceInfo
@@ -313,30 +316,30 @@ instance MessageDecode NamespaceInfo where
 instance IsMessage NamespaceInfo where
   messageTypeName _ = "temporal.api.namespace.v1.NamespaceInfo"
 
-instance ProtoToJSON NamespaceInfo where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.namespaceInfoName
-      , "state" .= msg.namespaceInfoState
-      , "description" .= msg.namespaceInfoDescription
-      , "ownerEmail" .= msg.namespaceInfoOwneremail
-      , "data" .= msg.namespaceInfoData
-      , "id" .= msg.namespaceInfoId
-      , "capabilities" .= msg.namespaceInfoCapabilities
-      , "limits" .= msg.namespaceInfoLimits
-      , "supportsSchedules" .= msg.namespaceInfoSupportsschedules
+instance Aeson.ToJSON NamespaceInfo where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.namespaceInfoName
+      , "state" .=: msg.namespaceInfoState
+      , "description" .=: msg.namespaceInfoDescription
+      , "ownerEmail" .=: msg.namespaceInfoOwneremail
+      , "data" .=: msg.namespaceInfoData
+      , "id" .=: msg.namespaceInfoId
+      , "capabilities" .=: msg.namespaceInfoCapabilities
+      , "limits" .=: msg.namespaceInfoLimits
+      , "supportsSchedules" .=: msg.namespaceInfoSupportsschedules
       ]
 
-instance ProtoFromJSON NamespaceInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceInfoName <- obj .:? "name"
-    fld_namespaceInfoState <- obj .:? "state"
-    fld_namespaceInfoDescription <- obj .:? "description"
-    fld_namespaceInfoOwneremail <- obj .:? "ownerEmail"
-    fld_namespaceInfoData <- obj .:? "data"
-    fld_namespaceInfoId <- obj .:? "id"
-    fld_namespaceInfoCapabilities <- obj .:? "capabilities"
-    fld_namespaceInfoLimits <- obj .:? "limits"
-    fld_namespaceInfoSupportsschedules <- obj .:? "supportsSchedules"
+instance Aeson.FromJSON NamespaceInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceInfoName <- parseFieldMaybe obj "name"
+    fld_namespaceInfoState <- parseFieldMaybe obj "state"
+    fld_namespaceInfoDescription <- parseFieldMaybe obj "description"
+    fld_namespaceInfoOwneremail <- parseFieldMaybe obj "ownerEmail"
+    fld_namespaceInfoData <- parseFieldMaybe obj "data"
+    fld_namespaceInfoId <- parseFieldMaybe obj "id"
+    fld_namespaceInfoCapabilities <- parseFieldMaybe obj "capabilities"
+    fld_namespaceInfoLimits <- parseFieldMaybe obj "limits"
+    fld_namespaceInfoSupportsschedules <- parseFieldMaybe obj "supportsSchedules"
     pure defaultNamespaceInfo
       { namespaceInfoName = maybe (namespaceInfoName defaultNamespaceInfo) id fld_namespaceInfoName
       , namespaceInfoState = maybe (namespaceInfoState defaultNamespaceInfo) id fld_namespaceInfoState
@@ -348,7 +351,7 @@ instance ProtoFromJSON NamespaceInfo where
       , namespaceInfoLimits = maybe (namespaceInfoLimits defaultNamespaceInfo) id fld_namespaceInfoLimits
       , namespaceInfoSupportsschedules = maybe (namespaceInfoSupportsschedules defaultNamespaceInfo) id fld_namespaceInfoSupportsschedules
       }
-  protoFromJSON _ = Right defaultNamespaceInfo
+  parseJSON _ = pure defaultNamespaceInfo
 
 data NamespaceConfig = NamespaceConfig
   { namespaceConfigWorkflowexecutionretentionttl :: !(Maybe PB_Duration.Duration)
@@ -430,26 +433,26 @@ instance MessageDecode NamespaceConfig where
 instance IsMessage NamespaceConfig where
   messageTypeName _ = "temporal.api.namespace.v1.NamespaceConfig"
 
-instance ProtoToJSON NamespaceConfig where
-  protoToJSON msg = jsonObject
-      [ "workflowExecutionRetentionTtl" .= msg.namespaceConfigWorkflowexecutionretentionttl
-      , "badBinaries" .= msg.namespaceConfigBadbinaries
-      , "historyArchivalState" .= msg.namespaceConfigHistoryarchivalstate
-      , "historyArchivalUri" .= msg.namespaceConfigHistoryarchivaluri
-      , "visibilityArchivalState" .= msg.namespaceConfigVisibilityarchivalstate
-      , "visibilityArchivalUri" .= msg.namespaceConfigVisibilityarchivaluri
-      , "customSearchAttributeAliases" .= msg.namespaceConfigCustomsearchattributealiases
+instance Aeson.ToJSON NamespaceConfig where
+  toJSON msg = jsonObject
+      [ "workflowExecutionRetentionTtl" .=: msg.namespaceConfigWorkflowexecutionretentionttl
+      , "badBinaries" .=: msg.namespaceConfigBadbinaries
+      , "historyArchivalState" .=: msg.namespaceConfigHistoryarchivalstate
+      , "historyArchivalUri" .=: msg.namespaceConfigHistoryarchivaluri
+      , "visibilityArchivalState" .=: msg.namespaceConfigVisibilityarchivalstate
+      , "visibilityArchivalUri" .=: msg.namespaceConfigVisibilityarchivaluri
+      , "customSearchAttributeAliases" .=: msg.namespaceConfigCustomsearchattributealiases
       ]
 
-instance ProtoFromJSON NamespaceConfig where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceConfigWorkflowexecutionretentionttl <- obj .:? "workflowExecutionRetentionTtl"
-    fld_namespaceConfigBadbinaries <- obj .:? "badBinaries"
-    fld_namespaceConfigHistoryarchivalstate <- obj .:? "historyArchivalState"
-    fld_namespaceConfigHistoryarchivaluri <- obj .:? "historyArchivalUri"
-    fld_namespaceConfigVisibilityarchivalstate <- obj .:? "visibilityArchivalState"
-    fld_namespaceConfigVisibilityarchivaluri <- obj .:? "visibilityArchivalUri"
-    fld_namespaceConfigCustomsearchattributealiases <- obj .:? "customSearchAttributeAliases"
+instance Aeson.FromJSON NamespaceConfig where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceConfigWorkflowexecutionretentionttl <- parseFieldMaybe obj "workflowExecutionRetentionTtl"
+    fld_namespaceConfigBadbinaries <- parseFieldMaybe obj "badBinaries"
+    fld_namespaceConfigHistoryarchivalstate <- parseFieldMaybe obj "historyArchivalState"
+    fld_namespaceConfigHistoryarchivaluri <- parseFieldMaybe obj "historyArchivalUri"
+    fld_namespaceConfigVisibilityarchivalstate <- parseFieldMaybe obj "visibilityArchivalState"
+    fld_namespaceConfigVisibilityarchivaluri <- parseFieldMaybe obj "visibilityArchivalUri"
+    fld_namespaceConfigCustomsearchattributealiases <- parseFieldMaybe obj "customSearchAttributeAliases"
     pure defaultNamespaceConfig
       { namespaceConfigWorkflowexecutionretentionttl = maybe (namespaceConfigWorkflowexecutionretentionttl defaultNamespaceConfig) id fld_namespaceConfigWorkflowexecutionretentionttl
       , namespaceConfigBadbinaries = maybe (namespaceConfigBadbinaries defaultNamespaceConfig) id fld_namespaceConfigBadbinaries
@@ -459,7 +462,7 @@ instance ProtoFromJSON NamespaceConfig where
       , namespaceConfigVisibilityarchivaluri = maybe (namespaceConfigVisibilityarchivaluri defaultNamespaceConfig) id fld_namespaceConfigVisibilityarchivaluri
       , namespaceConfigCustomsearchattributealiases = maybe (namespaceConfigCustomsearchattributealiases defaultNamespaceConfig) id fld_namespaceConfigCustomsearchattributealiases
       }
-  protoFromJSON _ = Right defaultNamespaceConfig
+  parseJSON _ = pure defaultNamespaceConfig
 
 data BadBinaries = BadBinaries
   { badBinariesBinaries :: !(Map.Map Text BadBinaryInfo)
@@ -499,19 +502,18 @@ instance MessageDecode BadBinaries where
 instance IsMessage BadBinaries where
   messageTypeName _ = "temporal.api.namespace.v1.BadBinaries"
 
-instance ProtoToJSON BadBinaries where
-  protoToJSON msg = jsonObject
-      [ "binaries" .= msg.badBinariesBinaries
+instance Aeson.ToJSON BadBinaries where
+  toJSON msg = jsonObject
+      [ "binaries" .=: msg.badBinariesBinaries
 
       ]
 
-instance ProtoFromJSON BadBinaries where
-  protoFromJSON (JsonObject obj) = do
-    fld_badBinariesBinaries <- obj .:? "binaries"
+instance Aeson.FromJSON BadBinaries where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_badBinariesBinaries <- parseFieldMaybe obj "binaries"
     pure defaultBadBinaries
       { badBinariesBinaries = maybe (badBinariesBinaries defaultBadBinaries) id fld_badBinariesBinaries
       }
-  protoFromJSON _ = Right defaultBadBinaries
 
 data BadBinaryInfo = BadBinaryInfo
   { badBinaryInfoReason :: !Text
@@ -562,24 +564,23 @@ instance MessageDecode BadBinaryInfo where
 instance IsMessage BadBinaryInfo where
   messageTypeName _ = "temporal.api.namespace.v1.BadBinaryInfo"
 
-instance ProtoToJSON BadBinaryInfo where
-  protoToJSON msg = jsonObject
-      [ "reason" .= msg.badBinaryInfoReason
-      , "operator" .= msg.badBinaryInfoOperator
-      , "createTime" .= msg.badBinaryInfoCreatetime
+instance Aeson.ToJSON BadBinaryInfo where
+  toJSON msg = jsonObject
+      [ "reason" .=: msg.badBinaryInfoReason
+      , "operator" .=: msg.badBinaryInfoOperator
+      , "createTime" .=: msg.badBinaryInfoCreatetime
       ]
 
-instance ProtoFromJSON BadBinaryInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_badBinaryInfoReason <- obj .:? "reason"
-    fld_badBinaryInfoOperator <- obj .:? "operator"
-    fld_badBinaryInfoCreatetime <- obj .:? "createTime"
+instance Aeson.FromJSON BadBinaryInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_badBinaryInfoReason <- parseFieldMaybe obj "reason"
+    fld_badBinaryInfoOperator <- parseFieldMaybe obj "operator"
+    fld_badBinaryInfoCreatetime <- parseFieldMaybe obj "createTime"
     pure defaultBadBinaryInfo
       { badBinaryInfoReason = maybe (badBinaryInfoReason defaultBadBinaryInfo) id fld_badBinaryInfoReason
       , badBinaryInfoOperator = maybe (badBinaryInfoOperator defaultBadBinaryInfo) id fld_badBinaryInfoOperator
       , badBinaryInfoCreatetime = maybe (badBinaryInfoCreatetime defaultBadBinaryInfo) id fld_badBinaryInfoCreatetime
       }
-  protoFromJSON _ = Right defaultBadBinaryInfo
 
 data UpdateNamespaceInfo = UpdateNamespaceInfo
   { updateNamespaceInfoDescription :: !Text
@@ -640,27 +641,27 @@ instance MessageDecode UpdateNamespaceInfo where
 instance IsMessage UpdateNamespaceInfo where
   messageTypeName _ = "temporal.api.namespace.v1.UpdateNamespaceInfo"
 
-instance ProtoToJSON UpdateNamespaceInfo where
-  protoToJSON msg = jsonObject
-      [ "description" .= msg.updateNamespaceInfoDescription
-      , "ownerEmail" .= msg.updateNamespaceInfoOwneremail
-      , "data" .= msg.updateNamespaceInfoData
-      , "state" .= msg.updateNamespaceInfoState
+instance Aeson.ToJSON UpdateNamespaceInfo where
+  toJSON msg = jsonObject
+      [ "description" .=: msg.updateNamespaceInfoDescription
+      , "ownerEmail" .=: msg.updateNamespaceInfoOwneremail
+      , "data" .=: msg.updateNamespaceInfoData
+      , "state" .=: msg.updateNamespaceInfoState
       ]
 
-instance ProtoFromJSON UpdateNamespaceInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_updateNamespaceInfoDescription <- obj .:? "description"
-    fld_updateNamespaceInfoOwneremail <- obj .:? "ownerEmail"
-    fld_updateNamespaceInfoData <- obj .:? "data"
-    fld_updateNamespaceInfoState <- obj .:? "state"
+instance Aeson.FromJSON UpdateNamespaceInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_updateNamespaceInfoDescription <- parseFieldMaybe obj "description"
+    fld_updateNamespaceInfoOwneremail <- parseFieldMaybe obj "ownerEmail"
+    fld_updateNamespaceInfoData <- parseFieldMaybe obj "data"
+    fld_updateNamespaceInfoState <- parseFieldMaybe obj "state"
     pure defaultUpdateNamespaceInfo
       { updateNamespaceInfoDescription = maybe (updateNamespaceInfoDescription defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoDescription
       , updateNamespaceInfoOwneremail = maybe (updateNamespaceInfoOwneremail defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoOwneremail
       , updateNamespaceInfoData = maybe (updateNamespaceInfoData defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoData
       , updateNamespaceInfoState = maybe (updateNamespaceInfoState defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoState
       }
-  protoFromJSON _ = Right defaultUpdateNamespaceInfo
+  parseJSON _ = pure defaultUpdateNamespaceInfo
 
 data NamespaceFilter = NamespaceFilter
   { namespaceFilterIncludedeleted :: {-# UNPACK #-} !Bool
@@ -697,19 +698,18 @@ instance MessageDecode NamespaceFilter where
 instance IsMessage NamespaceFilter where
   messageTypeName _ = "temporal.api.namespace.v1.NamespaceFilter"
 
-instance ProtoToJSON NamespaceFilter where
-  protoToJSON msg = jsonObject
-      [ "includeDeleted" .= msg.namespaceFilterIncludedeleted
+instance Aeson.ToJSON NamespaceFilter where
+  toJSON msg = jsonObject
+      [ "includeDeleted" .=: msg.namespaceFilterIncludedeleted
 
       ]
 
-instance ProtoFromJSON NamespaceFilter where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceFilterIncludedeleted <- obj .:? "includeDeleted"
+instance Aeson.FromJSON NamespaceFilter where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceFilterIncludedeleted <- parseFieldMaybe obj "includeDeleted"
     pure defaultNamespaceFilter
       { namespaceFilterIncludedeleted = maybe (namespaceFilterIncludedeleted defaultNamespaceFilter) id fld_namespaceFilterIncludedeleted
       }
-  protoFromJSON _ = Right defaultNamespaceFilter
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -27,7 +27,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -113,19 +117,18 @@ instance ProtoMessage Struct where
         })
     ]
 
-instance ProtoToJSON Struct where
-  protoToJSON msg = jsonObject
-      [ "fields" .= msg.structFields
+instance Aeson.ToJSON Struct where
+  toJSON msg = jsonObject
+      [ "fields" .=: msg.structFields
 
       ]
 
-instance ProtoFromJSON Struct where
-  protoFromJSON (JsonObject obj) = do
-    fld_structFields <- obj .:? "fields"
+instance Aeson.FromJSON Struct where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_structFields <- parseFieldMaybe obj "fields"
     pure defaultStruct
       { structFields = maybe (structFields defaultStruct) id fld_structFields
       }
-  protoFromJSON _ = Right defaultStruct
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
@@ -142,10 +145,10 @@ data Value'Kind
   | Value'Kind'ListValue !ListValue
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Value'Kind where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Value'Kind where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Value'Kind where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Value'Kind where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultValue :: Value
 defaultValue = Value
@@ -225,19 +228,18 @@ instance ProtoMessage Value where
         })
     ]
 
-instance ProtoToJSON Value where
-  protoToJSON msg = jsonObject
-      [ "kind" .= msg.valueKind
+instance Aeson.ToJSON Value where
+  toJSON msg = jsonObject
+      [ "kind" .=: msg.valueKind
 
       ]
 
-instance ProtoFromJSON Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_valueKind <- obj .:? "kind"
+instance Aeson.FromJSON Value where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_valueKind <- parseFieldMaybe obj "kind"
     pure defaultValue
       { valueKind = maybe (valueKind defaultValue) id fld_valueKind
       }
-  protoFromJSON _ = Right defaultValue
 
 data NullValue
   = NullValue'NullValue
@@ -258,14 +260,14 @@ instance MessageSize NullValue where
 instance MessageDecode NullValue where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON NullValue where
-  protoToJSON NullValue'NullValue = JsonString "NULL_VALUE"
+instance Aeson.ToJSON NullValue where
+  toJSON NullValue'NullValue = Aeson.String "NULL_VALUE"
 
-instance ProtoFromJSON NullValue where
-  protoFromJSON = \case
-    JsonString "NULL_VALUE" -> Right NullValue'NullValue
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for NullValue"
+instance Aeson.FromJSON NullValue where
+  parseJSON = \case
+    Aeson.String "NULL_VALUE" -> pure NullValue'NullValue
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for NullValue"
 
 data ListValue = ListValue
   { listValueValues :: !(V.Vector Value)
@@ -325,19 +327,18 @@ instance ProtoMessage ListValue where
         })
     ]
 
-instance ProtoToJSON ListValue where
-  protoToJSON msg = jsonObject
-      [ "values" .= msg.listValueValues
+instance Aeson.ToJSON ListValue where
+  toJSON msg = jsonObject
+      [ "values" .=: msg.listValueValues
 
       ]
 
-instance ProtoFromJSON ListValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_listValueValues <- obj .:? "values"
+instance Aeson.FromJSON ListValue where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_listValueValues <- parseFieldMaybe obj "values"
     pure defaultListValue
       { listValueValues = maybe (listValueValues defaultListValue) id fld_listValueValues
       }
-  protoFromJSON _ = Right defaultListValue
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

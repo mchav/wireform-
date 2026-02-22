@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -87,21 +91,20 @@ instance MessageDecode NotFoundFailure where
 instance IsMessage NotFoundFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.NotFoundFailure"
 
-instance ProtoToJSON NotFoundFailure where
-  protoToJSON msg = jsonObject
-      [ "currentCluster" .= msg.notFoundFailureCurrentcluster
-      , "activeCluster" .= msg.notFoundFailureActivecluster
+instance Aeson.ToJSON NotFoundFailure where
+  toJSON msg = jsonObject
+      [ "currentCluster" .=: msg.notFoundFailureCurrentcluster
+      , "activeCluster" .=: msg.notFoundFailureActivecluster
       ]
 
-instance ProtoFromJSON NotFoundFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_notFoundFailureCurrentcluster <- obj .:? "currentCluster"
-    fld_notFoundFailureActivecluster <- obj .:? "activeCluster"
+instance Aeson.FromJSON NotFoundFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_notFoundFailureCurrentcluster <- parseFieldMaybe obj "currentCluster"
+    fld_notFoundFailureActivecluster <- parseFieldMaybe obj "activeCluster"
     pure defaultNotFoundFailure
       { notFoundFailureCurrentcluster = maybe (notFoundFailureCurrentcluster defaultNotFoundFailure) id fld_notFoundFailureCurrentcluster
       , notFoundFailureActivecluster = maybe (notFoundFailureActivecluster defaultNotFoundFailure) id fld_notFoundFailureActivecluster
       }
-  protoFromJSON _ = Right defaultNotFoundFailure
 
 data WorkflowExecutionAlreadyStartedFailure = WorkflowExecutionAlreadyStartedFailure
   { workflowExecutionAlreadyStartedFailureStartrequestid :: !Text
@@ -145,21 +148,20 @@ instance MessageDecode WorkflowExecutionAlreadyStartedFailure where
 instance IsMessage WorkflowExecutionAlreadyStartedFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.WorkflowExecutionAlreadyStartedFailure"
 
-instance ProtoToJSON WorkflowExecutionAlreadyStartedFailure where
-  protoToJSON msg = jsonObject
-      [ "startRequestId" .= msg.workflowExecutionAlreadyStartedFailureStartrequestid
-      , "runId" .= msg.workflowExecutionAlreadyStartedFailureRunid
+instance Aeson.ToJSON WorkflowExecutionAlreadyStartedFailure where
+  toJSON msg = jsonObject
+      [ "startRequestId" .=: msg.workflowExecutionAlreadyStartedFailureStartrequestid
+      , "runId" .=: msg.workflowExecutionAlreadyStartedFailureRunid
       ]
 
-instance ProtoFromJSON WorkflowExecutionAlreadyStartedFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionAlreadyStartedFailureStartrequestid <- obj .:? "startRequestId"
-    fld_workflowExecutionAlreadyStartedFailureRunid <- obj .:? "runId"
+instance Aeson.FromJSON WorkflowExecutionAlreadyStartedFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionAlreadyStartedFailureStartrequestid <- parseFieldMaybe obj "startRequestId"
+    fld_workflowExecutionAlreadyStartedFailureRunid <- parseFieldMaybe obj "runId"
     pure defaultWorkflowExecutionAlreadyStartedFailure
       { workflowExecutionAlreadyStartedFailureStartrequestid = maybe (workflowExecutionAlreadyStartedFailureStartrequestid defaultWorkflowExecutionAlreadyStartedFailure) id fld_workflowExecutionAlreadyStartedFailureStartrequestid
       , workflowExecutionAlreadyStartedFailureRunid = maybe (workflowExecutionAlreadyStartedFailureRunid defaultWorkflowExecutionAlreadyStartedFailure) id fld_workflowExecutionAlreadyStartedFailureRunid
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionAlreadyStartedFailure
 
 data NamespaceNotActiveFailure = NamespaceNotActiveFailure
   { namespaceNotActiveFailureNamespace :: !Text
@@ -210,24 +212,23 @@ instance MessageDecode NamespaceNotActiveFailure where
 instance IsMessage NamespaceNotActiveFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.NamespaceNotActiveFailure"
 
-instance ProtoToJSON NamespaceNotActiveFailure where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.namespaceNotActiveFailureNamespace
-      , "currentCluster" .= msg.namespaceNotActiveFailureCurrentcluster
-      , "activeCluster" .= msg.namespaceNotActiveFailureActivecluster
+instance Aeson.ToJSON NamespaceNotActiveFailure where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.namespaceNotActiveFailureNamespace
+      , "currentCluster" .=: msg.namespaceNotActiveFailureCurrentcluster
+      , "activeCluster" .=: msg.namespaceNotActiveFailureActivecluster
       ]
 
-instance ProtoFromJSON NamespaceNotActiveFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceNotActiveFailureNamespace <- obj .:? "namespace"
-    fld_namespaceNotActiveFailureCurrentcluster <- obj .:? "currentCluster"
-    fld_namespaceNotActiveFailureActivecluster <- obj .:? "activeCluster"
+instance Aeson.FromJSON NamespaceNotActiveFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceNotActiveFailureNamespace <- parseFieldMaybe obj "namespace"
+    fld_namespaceNotActiveFailureCurrentcluster <- parseFieldMaybe obj "currentCluster"
+    fld_namespaceNotActiveFailureActivecluster <- parseFieldMaybe obj "activeCluster"
     pure defaultNamespaceNotActiveFailure
       { namespaceNotActiveFailureNamespace = maybe (namespaceNotActiveFailureNamespace defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureNamespace
       , namespaceNotActiveFailureCurrentcluster = maybe (namespaceNotActiveFailureCurrentcluster defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureCurrentcluster
       , namespaceNotActiveFailureActivecluster = maybe (namespaceNotActiveFailureActivecluster defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureActivecluster
       }
-  protoFromJSON _ = Right defaultNamespaceNotActiveFailure
 
 data NamespaceUnavailableFailure = NamespaceUnavailableFailure
   { namespaceUnavailableFailureNamespace :: !Text
@@ -264,19 +265,18 @@ instance MessageDecode NamespaceUnavailableFailure where
 instance IsMessage NamespaceUnavailableFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.NamespaceUnavailableFailure"
 
-instance ProtoToJSON NamespaceUnavailableFailure where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.namespaceUnavailableFailureNamespace
+instance Aeson.ToJSON NamespaceUnavailableFailure where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.namespaceUnavailableFailureNamespace
 
       ]
 
-instance ProtoFromJSON NamespaceUnavailableFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceUnavailableFailureNamespace <- obj .:? "namespace"
+instance Aeson.FromJSON NamespaceUnavailableFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceUnavailableFailureNamespace <- parseFieldMaybe obj "namespace"
     pure defaultNamespaceUnavailableFailure
       { namespaceUnavailableFailureNamespace = maybe (namespaceUnavailableFailureNamespace defaultNamespaceUnavailableFailure) id fld_namespaceUnavailableFailureNamespace
       }
-  protoFromJSON _ = Right defaultNamespaceUnavailableFailure
 
 data NamespaceInvalidStateFailure = NamespaceInvalidStateFailure
   { namespaceInvalidStateFailureNamespace :: !Text
@@ -327,24 +327,23 @@ instance MessageDecode NamespaceInvalidStateFailure where
 instance IsMessage NamespaceInvalidStateFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.NamespaceInvalidStateFailure"
 
-instance ProtoToJSON NamespaceInvalidStateFailure where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.namespaceInvalidStateFailureNamespace
-      , "state" .= msg.namespaceInvalidStateFailureState
-      , "allowedStates" .= msg.namespaceInvalidStateFailureAllowedstates
+instance Aeson.ToJSON NamespaceInvalidStateFailure where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.namespaceInvalidStateFailureNamespace
+      , "state" .=: msg.namespaceInvalidStateFailureState
+      , "allowedStates" .=: msg.namespaceInvalidStateFailureAllowedstates
       ]
 
-instance ProtoFromJSON NamespaceInvalidStateFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceInvalidStateFailureNamespace <- obj .:? "namespace"
-    fld_namespaceInvalidStateFailureState <- obj .:? "state"
-    fld_namespaceInvalidStateFailureAllowedstates <- obj .:? "allowedStates"
+instance Aeson.FromJSON NamespaceInvalidStateFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceInvalidStateFailureNamespace <- parseFieldMaybe obj "namespace"
+    fld_namespaceInvalidStateFailureState <- parseFieldMaybe obj "state"
+    fld_namespaceInvalidStateFailureAllowedstates <- parseFieldMaybe obj "allowedStates"
     pure defaultNamespaceInvalidStateFailure
       { namespaceInvalidStateFailureNamespace = maybe (namespaceInvalidStateFailureNamespace defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureNamespace
       , namespaceInvalidStateFailureState = maybe (namespaceInvalidStateFailureState defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureState
       , namespaceInvalidStateFailureAllowedstates = maybe (namespaceInvalidStateFailureAllowedstates defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureAllowedstates
       }
-  protoFromJSON _ = Right defaultNamespaceInvalidStateFailure
 
 data NamespaceNotFoundFailure = NamespaceNotFoundFailure
   { namespaceNotFoundFailureNamespace :: !Text
@@ -381,19 +380,18 @@ instance MessageDecode NamespaceNotFoundFailure where
 instance IsMessage NamespaceNotFoundFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.NamespaceNotFoundFailure"
 
-instance ProtoToJSON NamespaceNotFoundFailure where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.namespaceNotFoundFailureNamespace
+instance Aeson.ToJSON NamespaceNotFoundFailure where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.namespaceNotFoundFailureNamespace
 
       ]
 
-instance ProtoFromJSON NamespaceNotFoundFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceNotFoundFailureNamespace <- obj .:? "namespace"
+instance Aeson.FromJSON NamespaceNotFoundFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceNotFoundFailureNamespace <- parseFieldMaybe obj "namespace"
     pure defaultNamespaceNotFoundFailure
       { namespaceNotFoundFailureNamespace = maybe (namespaceNotFoundFailureNamespace defaultNamespaceNotFoundFailure) id fld_namespaceNotFoundFailureNamespace
       }
-  protoFromJSON _ = Right defaultNamespaceNotFoundFailure
 
 data NamespaceAlreadyExistsFailure = NamespaceAlreadyExistsFailure
   { }
@@ -425,12 +423,12 @@ instance MessageDecode NamespaceAlreadyExistsFailure where
 instance IsMessage NamespaceAlreadyExistsFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.NamespaceAlreadyExistsFailure"
 
-instance ProtoToJSON NamespaceAlreadyExistsFailure where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON NamespaceAlreadyExistsFailure where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON NamespaceAlreadyExistsFailure where
-  protoFromJSON _ = Right defaultNamespaceAlreadyExistsFailure
+instance Aeson.FromJSON NamespaceAlreadyExistsFailure where
+  parseJSON _ = pure defaultNamespaceAlreadyExistsFailure
 
 data ClientVersionNotSupportedFailure = ClientVersionNotSupportedFailure
   { clientVersionNotSupportedFailureClientversion :: !Text
@@ -481,24 +479,23 @@ instance MessageDecode ClientVersionNotSupportedFailure where
 instance IsMessage ClientVersionNotSupportedFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.ClientVersionNotSupportedFailure"
 
-instance ProtoToJSON ClientVersionNotSupportedFailure where
-  protoToJSON msg = jsonObject
-      [ "clientVersion" .= msg.clientVersionNotSupportedFailureClientversion
-      , "clientName" .= msg.clientVersionNotSupportedFailureClientname
-      , "supportedVersions" .= msg.clientVersionNotSupportedFailureSupportedversions
+instance Aeson.ToJSON ClientVersionNotSupportedFailure where
+  toJSON msg = jsonObject
+      [ "clientVersion" .=: msg.clientVersionNotSupportedFailureClientversion
+      , "clientName" .=: msg.clientVersionNotSupportedFailureClientname
+      , "supportedVersions" .=: msg.clientVersionNotSupportedFailureSupportedversions
       ]
 
-instance ProtoFromJSON ClientVersionNotSupportedFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_clientVersionNotSupportedFailureClientversion <- obj .:? "clientVersion"
-    fld_clientVersionNotSupportedFailureClientname <- obj .:? "clientName"
-    fld_clientVersionNotSupportedFailureSupportedversions <- obj .:? "supportedVersions"
+instance Aeson.FromJSON ClientVersionNotSupportedFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_clientVersionNotSupportedFailureClientversion <- parseFieldMaybe obj "clientVersion"
+    fld_clientVersionNotSupportedFailureClientname <- parseFieldMaybe obj "clientName"
+    fld_clientVersionNotSupportedFailureSupportedversions <- parseFieldMaybe obj "supportedVersions"
     pure defaultClientVersionNotSupportedFailure
       { clientVersionNotSupportedFailureClientversion = maybe (clientVersionNotSupportedFailureClientversion defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureClientversion
       , clientVersionNotSupportedFailureClientname = maybe (clientVersionNotSupportedFailureClientname defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureClientname
       , clientVersionNotSupportedFailureSupportedversions = maybe (clientVersionNotSupportedFailureSupportedversions defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureSupportedversions
       }
-  protoFromJSON _ = Right defaultClientVersionNotSupportedFailure
 
 data ServerVersionNotSupportedFailure = ServerVersionNotSupportedFailure
   { serverVersionNotSupportedFailureServerversion :: !Text
@@ -542,21 +539,20 @@ instance MessageDecode ServerVersionNotSupportedFailure where
 instance IsMessage ServerVersionNotSupportedFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.ServerVersionNotSupportedFailure"
 
-instance ProtoToJSON ServerVersionNotSupportedFailure where
-  protoToJSON msg = jsonObject
-      [ "serverVersion" .= msg.serverVersionNotSupportedFailureServerversion
-      , "clientSupportedServerVersions" .= msg.serverVersionNotSupportedFailureClientsupportedserverversions
+instance Aeson.ToJSON ServerVersionNotSupportedFailure where
+  toJSON msg = jsonObject
+      [ "serverVersion" .=: msg.serverVersionNotSupportedFailureServerversion
+      , "clientSupportedServerVersions" .=: msg.serverVersionNotSupportedFailureClientsupportedserverversions
       ]
 
-instance ProtoFromJSON ServerVersionNotSupportedFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_serverVersionNotSupportedFailureServerversion <- obj .:? "serverVersion"
-    fld_serverVersionNotSupportedFailureClientsupportedserverversions <- obj .:? "clientSupportedServerVersions"
+instance Aeson.FromJSON ServerVersionNotSupportedFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_serverVersionNotSupportedFailureServerversion <- parseFieldMaybe obj "serverVersion"
+    fld_serverVersionNotSupportedFailureClientsupportedserverversions <- parseFieldMaybe obj "clientSupportedServerVersions"
     pure defaultServerVersionNotSupportedFailure
       { serverVersionNotSupportedFailureServerversion = maybe (serverVersionNotSupportedFailureServerversion defaultServerVersionNotSupportedFailure) id fld_serverVersionNotSupportedFailureServerversion
       , serverVersionNotSupportedFailureClientsupportedserverversions = maybe (serverVersionNotSupportedFailureClientsupportedserverversions defaultServerVersionNotSupportedFailure) id fld_serverVersionNotSupportedFailureClientsupportedserverversions
       }
-  protoFromJSON _ = Right defaultServerVersionNotSupportedFailure
 
 data CancellationAlreadyRequestedFailure = CancellationAlreadyRequestedFailure
   { }
@@ -588,12 +584,12 @@ instance MessageDecode CancellationAlreadyRequestedFailure where
 instance IsMessage CancellationAlreadyRequestedFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.CancellationAlreadyRequestedFailure"
 
-instance ProtoToJSON CancellationAlreadyRequestedFailure where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON CancellationAlreadyRequestedFailure where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON CancellationAlreadyRequestedFailure where
-  protoFromJSON _ = Right defaultCancellationAlreadyRequestedFailure
+instance Aeson.FromJSON CancellationAlreadyRequestedFailure where
+  parseJSON _ = pure defaultCancellationAlreadyRequestedFailure
 
 data QueryFailedFailure = QueryFailedFailure
   { queryFailedFailureFailure :: !(Maybe TE_Failure_V1_Message.Failure)
@@ -630,19 +626,18 @@ instance MessageDecode QueryFailedFailure where
 instance IsMessage QueryFailedFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.QueryFailedFailure"
 
-instance ProtoToJSON QueryFailedFailure where
-  protoToJSON msg = jsonObject
-      [ "failure" .= msg.queryFailedFailureFailure
+instance Aeson.ToJSON QueryFailedFailure where
+  toJSON msg = jsonObject
+      [ "failure" .=: msg.queryFailedFailureFailure
 
       ]
 
-instance ProtoFromJSON QueryFailedFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_queryFailedFailureFailure <- obj .:? "failure"
+instance Aeson.FromJSON QueryFailedFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_queryFailedFailureFailure <- parseFieldMaybe obj "failure"
     pure defaultQueryFailedFailure
       { queryFailedFailureFailure = maybe (queryFailedFailureFailure defaultQueryFailedFailure) id fld_queryFailedFailureFailure
       }
-  protoFromJSON _ = Right defaultQueryFailedFailure
 
 data PermissionDeniedFailure = PermissionDeniedFailure
   { permissionDeniedFailureReason :: !Text
@@ -679,19 +674,18 @@ instance MessageDecode PermissionDeniedFailure where
 instance IsMessage PermissionDeniedFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.PermissionDeniedFailure"
 
-instance ProtoToJSON PermissionDeniedFailure where
-  protoToJSON msg = jsonObject
-      [ "reason" .= msg.permissionDeniedFailureReason
+instance Aeson.ToJSON PermissionDeniedFailure where
+  toJSON msg = jsonObject
+      [ "reason" .=: msg.permissionDeniedFailureReason
 
       ]
 
-instance ProtoFromJSON PermissionDeniedFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_permissionDeniedFailureReason <- obj .:? "reason"
+instance Aeson.FromJSON PermissionDeniedFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_permissionDeniedFailureReason <- parseFieldMaybe obj "reason"
     pure defaultPermissionDeniedFailure
       { permissionDeniedFailureReason = maybe (permissionDeniedFailureReason defaultPermissionDeniedFailure) id fld_permissionDeniedFailureReason
       }
-  protoFromJSON _ = Right defaultPermissionDeniedFailure
 
 data ResourceExhaustedFailure = ResourceExhaustedFailure
   { resourceExhaustedFailureCause :: !TE_Enums_V1_FailedCause.ResourceExhaustedCause
@@ -735,21 +729,20 @@ instance MessageDecode ResourceExhaustedFailure where
 instance IsMessage ResourceExhaustedFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.ResourceExhaustedFailure"
 
-instance ProtoToJSON ResourceExhaustedFailure where
-  protoToJSON msg = jsonObject
-      [ "cause" .= msg.resourceExhaustedFailureCause
-      , "scope" .= msg.resourceExhaustedFailureScope
+instance Aeson.ToJSON ResourceExhaustedFailure where
+  toJSON msg = jsonObject
+      [ "cause" .=: msg.resourceExhaustedFailureCause
+      , "scope" .=: msg.resourceExhaustedFailureScope
       ]
 
-instance ProtoFromJSON ResourceExhaustedFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_resourceExhaustedFailureCause <- obj .:? "cause"
-    fld_resourceExhaustedFailureScope <- obj .:? "scope"
+instance Aeson.FromJSON ResourceExhaustedFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_resourceExhaustedFailureCause <- parseFieldMaybe obj "cause"
+    fld_resourceExhaustedFailureScope <- parseFieldMaybe obj "scope"
     pure defaultResourceExhaustedFailure
       { resourceExhaustedFailureCause = maybe (resourceExhaustedFailureCause defaultResourceExhaustedFailure) id fld_resourceExhaustedFailureCause
       , resourceExhaustedFailureScope = maybe (resourceExhaustedFailureScope defaultResourceExhaustedFailure) id fld_resourceExhaustedFailureScope
       }
-  protoFromJSON _ = Right defaultResourceExhaustedFailure
 
 data SystemWorkflowFailure = SystemWorkflowFailure
   { systemWorkflowFailureWorkflowexecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
@@ -793,21 +786,20 @@ instance MessageDecode SystemWorkflowFailure where
 instance IsMessage SystemWorkflowFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.SystemWorkflowFailure"
 
-instance ProtoToJSON SystemWorkflowFailure where
-  protoToJSON msg = jsonObject
-      [ "workflowExecution" .= msg.systemWorkflowFailureWorkflowexecution
-      , "workflowError" .= msg.systemWorkflowFailureWorkflowerror
+instance Aeson.ToJSON SystemWorkflowFailure where
+  toJSON msg = jsonObject
+      [ "workflowExecution" .=: msg.systemWorkflowFailureWorkflowexecution
+      , "workflowError" .=: msg.systemWorkflowFailureWorkflowerror
       ]
 
-instance ProtoFromJSON SystemWorkflowFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_systemWorkflowFailureWorkflowexecution <- obj .:? "workflowExecution"
-    fld_systemWorkflowFailureWorkflowerror <- obj .:? "workflowError"
+instance Aeson.FromJSON SystemWorkflowFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_systemWorkflowFailureWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_systemWorkflowFailureWorkflowerror <- parseFieldMaybe obj "workflowError"
     pure defaultSystemWorkflowFailure
       { systemWorkflowFailureWorkflowexecution = maybe (systemWorkflowFailureWorkflowexecution defaultSystemWorkflowFailure) id fld_systemWorkflowFailureWorkflowexecution
       , systemWorkflowFailureWorkflowerror = maybe (systemWorkflowFailureWorkflowerror defaultSystemWorkflowFailure) id fld_systemWorkflowFailureWorkflowerror
       }
-  protoFromJSON _ = Right defaultSystemWorkflowFailure
 
 data WorkflowNotReadyFailure = WorkflowNotReadyFailure
   { }
@@ -839,12 +831,12 @@ instance MessageDecode WorkflowNotReadyFailure where
 instance IsMessage WorkflowNotReadyFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.WorkflowNotReadyFailure"
 
-instance ProtoToJSON WorkflowNotReadyFailure where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON WorkflowNotReadyFailure where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON WorkflowNotReadyFailure where
-  protoFromJSON _ = Right defaultWorkflowNotReadyFailure
+instance Aeson.FromJSON WorkflowNotReadyFailure where
+  parseJSON _ = pure defaultWorkflowNotReadyFailure
 
 data NewerBuildExistsFailure = NewerBuildExistsFailure
   { newerBuildExistsFailureDefaultbuildid :: !Text
@@ -881,19 +873,18 @@ instance MessageDecode NewerBuildExistsFailure where
 instance IsMessage NewerBuildExistsFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.NewerBuildExistsFailure"
 
-instance ProtoToJSON NewerBuildExistsFailure where
-  protoToJSON msg = jsonObject
-      [ "defaultBuildId" .= msg.newerBuildExistsFailureDefaultbuildid
+instance Aeson.ToJSON NewerBuildExistsFailure where
+  toJSON msg = jsonObject
+      [ "defaultBuildId" .=: msg.newerBuildExistsFailureDefaultbuildid
 
       ]
 
-instance ProtoFromJSON NewerBuildExistsFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_newerBuildExistsFailureDefaultbuildid <- obj .:? "defaultBuildId"
+instance Aeson.FromJSON NewerBuildExistsFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_newerBuildExistsFailureDefaultbuildid <- parseFieldMaybe obj "defaultBuildId"
     pure defaultNewerBuildExistsFailure
       { newerBuildExistsFailureDefaultbuildid = maybe (newerBuildExistsFailureDefaultbuildid defaultNewerBuildExistsFailure) id fld_newerBuildExistsFailureDefaultbuildid
       }
-  protoFromJSON _ = Right defaultNewerBuildExistsFailure
 
 data MultiOperationExecutionFailure = MultiOperationExecutionFailure
   { multiOperationExecutionFailureStatuses :: !(V.Vector MultiOperationExecutionFailure'OperationStatus)
@@ -950,24 +941,23 @@ instance MessageDecode MultiOperationExecutionFailure'OperationStatus where
 instance IsMessage MultiOperationExecutionFailure'OperationStatus where
   messageTypeName _ = "temporal.api.errordetails.v1.MultiOperationExecutionFailure.OperationStatus"
 
-instance ProtoToJSON MultiOperationExecutionFailure'OperationStatus where
-  protoToJSON msg = jsonObject
-      [ "code" .= msg.multiOperationExecutionFailureOperationStatusCode
-      , "message" .= msg.multiOperationExecutionFailureOperationStatusMessage
-      , "details" .= msg.multiOperationExecutionFailureOperationStatusDetails
+instance Aeson.ToJSON MultiOperationExecutionFailure'OperationStatus where
+  toJSON msg = jsonObject
+      [ "code" .=: msg.multiOperationExecutionFailureOperationStatusCode
+      , "message" .=: msg.multiOperationExecutionFailureOperationStatusMessage
+      , "details" .=: msg.multiOperationExecutionFailureOperationStatusDetails
       ]
 
-instance ProtoFromJSON MultiOperationExecutionFailure'OperationStatus where
-  protoFromJSON (JsonObject obj) = do
-    fld_multiOperationExecutionFailureOperationStatusCode <- obj .:? "code"
-    fld_multiOperationExecutionFailureOperationStatusMessage <- obj .:? "message"
-    fld_multiOperationExecutionFailureOperationStatusDetails <- obj .:? "details"
+instance Aeson.FromJSON MultiOperationExecutionFailure'OperationStatus where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_multiOperationExecutionFailureOperationStatusCode <- parseFieldMaybe obj "code"
+    fld_multiOperationExecutionFailureOperationStatusMessage <- parseFieldMaybe obj "message"
+    fld_multiOperationExecutionFailureOperationStatusDetails <- parseFieldMaybe obj "details"
     pure defaultMultiOperationExecutionFailure'OperationStatus
       { multiOperationExecutionFailureOperationStatusCode = maybe (multiOperationExecutionFailureOperationStatusCode defaultMultiOperationExecutionFailure'OperationStatus) id fld_multiOperationExecutionFailureOperationStatusCode
       , multiOperationExecutionFailureOperationStatusMessage = maybe (multiOperationExecutionFailureOperationStatusMessage defaultMultiOperationExecutionFailure'OperationStatus) id fld_multiOperationExecutionFailureOperationStatusMessage
       , multiOperationExecutionFailureOperationStatusDetails = maybe (multiOperationExecutionFailureOperationStatusDetails defaultMultiOperationExecutionFailure'OperationStatus) id fld_multiOperationExecutionFailureOperationStatusDetails
       }
-  protoFromJSON _ = Right defaultMultiOperationExecutionFailure'OperationStatus
 
 defaultMultiOperationExecutionFailure :: MultiOperationExecutionFailure
 defaultMultiOperationExecutionFailure = MultiOperationExecutionFailure
@@ -998,19 +988,18 @@ instance MessageDecode MultiOperationExecutionFailure where
 instance IsMessage MultiOperationExecutionFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.MultiOperationExecutionFailure"
 
-instance ProtoToJSON MultiOperationExecutionFailure where
-  protoToJSON msg = jsonObject
-      [ "statuses" .= msg.multiOperationExecutionFailureStatuses
+instance Aeson.ToJSON MultiOperationExecutionFailure where
+  toJSON msg = jsonObject
+      [ "statuses" .=: msg.multiOperationExecutionFailureStatuses
 
       ]
 
-instance ProtoFromJSON MultiOperationExecutionFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_multiOperationExecutionFailureStatuses <- obj .:? "statuses"
+instance Aeson.FromJSON MultiOperationExecutionFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_multiOperationExecutionFailureStatuses <- parseFieldMaybe obj "statuses"
     pure defaultMultiOperationExecutionFailure
       { multiOperationExecutionFailureStatuses = maybe (multiOperationExecutionFailureStatuses defaultMultiOperationExecutionFailure) id fld_multiOperationExecutionFailureStatuses
       }
-  protoFromJSON _ = Right defaultMultiOperationExecutionFailure
 
 data ActivityExecutionAlreadyStartedFailure = ActivityExecutionAlreadyStartedFailure
   { activityExecutionAlreadyStartedFailureStartrequestid :: !Text
@@ -1054,21 +1043,20 @@ instance MessageDecode ActivityExecutionAlreadyStartedFailure where
 instance IsMessage ActivityExecutionAlreadyStartedFailure where
   messageTypeName _ = "temporal.api.errordetails.v1.ActivityExecutionAlreadyStartedFailure"
 
-instance ProtoToJSON ActivityExecutionAlreadyStartedFailure where
-  protoToJSON msg = jsonObject
-      [ "startRequestId" .= msg.activityExecutionAlreadyStartedFailureStartrequestid
-      , "runId" .= msg.activityExecutionAlreadyStartedFailureRunid
+instance Aeson.ToJSON ActivityExecutionAlreadyStartedFailure where
+  toJSON msg = jsonObject
+      [ "startRequestId" .=: msg.activityExecutionAlreadyStartedFailureStartrequestid
+      , "runId" .=: msg.activityExecutionAlreadyStartedFailureRunid
       ]
 
-instance ProtoFromJSON ActivityExecutionAlreadyStartedFailure where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityExecutionAlreadyStartedFailureStartrequestid <- obj .:? "startRequestId"
-    fld_activityExecutionAlreadyStartedFailureRunid <- obj .:? "runId"
+instance Aeson.FromJSON ActivityExecutionAlreadyStartedFailure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityExecutionAlreadyStartedFailureStartrequestid <- parseFieldMaybe obj "startRequestId"
+    fld_activityExecutionAlreadyStartedFailureRunid <- parseFieldMaybe obj "runId"
     pure defaultActivityExecutionAlreadyStartedFailure
       { activityExecutionAlreadyStartedFailureStartrequestid = maybe (activityExecutionAlreadyStartedFailureStartrequestid defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureStartrequestid
       , activityExecutionAlreadyStartedFailureRunid = maybe (activityExecutionAlreadyStartedFailureRunid defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureRunid
       }
-  protoFromJSON _ = Right defaultActivityExecutionAlreadyStartedFailure
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

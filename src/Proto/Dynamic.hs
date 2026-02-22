@@ -48,7 +48,10 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   putFloat, putDouble, putText, putByteString, putLengthDelimited)
 import Proto.Wire.Decode (Decoder, getTagOrU, UMaybe(UJust, UNothing), getVarint, getFixed32, getFixed64,
   getFloat, getDouble, getText, getLengthDelimited, skipField, runDecoder, DecodeError)
-import Proto.JSON (JsonValue(..))
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Data.Scientific (fromFloatDigits)
 
 -- | A dynamically-typed protobuf value.
 data DynamicValue
@@ -141,25 +144,26 @@ decodeWireValue = \case
   wt -> skipField wt >> pure (DynBytes BS.empty)
 
 -- | Convert a dynamic message to JSON (field numbers as keys).
-dynamicToJson :: DynamicMessage -> JsonValue
+dynamicToJson :: DynamicMessage -> Aeson.Value
 dynamicToJson (DynamicMessage fs _) =
-  JsonObject (Map.mapKeys intToText (fmap dynValueToJson fs))
+  Aeson.Object (AesonKM.fromList
+    (fmap (\(k, v) -> (AesonKey.fromText (intToText k), dynValueToJson v)) (Map.toList fs)))
 
-dynValueToJson :: DynamicValue -> JsonValue
+dynValueToJson :: DynamicValue -> Aeson.Value
 dynValueToJson = \case
-  DynVarint v  -> JsonNumber (fromIntegral v)
-  DynSVarint v -> JsonNumber (fromIntegral v)
-  DynFixed32 v -> JsonNumber (fromIntegral v)
-  DynFixed64 v -> JsonString (word64ToText v)
-  DynFloat v   -> JsonNumber (realToFrac v)
-  DynDouble v  -> JsonNumber v
-  DynBool v    -> JsonBool v
-  DynString v  -> JsonString v
-  DynBytes bs  -> JsonString (TE.decodeUtf8 (Base64.encode bs))
-  DynEnum v    -> JsonNumber (fromIntegral v)
+  DynVarint v  -> Aeson.Number (fromIntegral v)
+  DynSVarint v -> Aeson.Number (fromIntegral v)
+  DynFixed32 v -> Aeson.Number (fromIntegral v)
+  DynFixed64 v -> Aeson.String (word64ToText v)
+  DynFloat v   -> Aeson.Number (fromFloatDigits v)
+  DynDouble v  -> Aeson.Number (fromFloatDigits v)
+  DynBool v    -> Aeson.Bool v
+  DynString v  -> Aeson.String v
+  DynBytes bs  -> Aeson.String (TE.decodeUtf8 (Base64.encode bs))
+  DynEnum v    -> Aeson.Number (fromIntegral v)
   DynMessage m -> dynamicToJson m
-  DynRepeated vs -> JsonArray (fmap dynValueToJson vs)
-  DynMap _     -> JsonObject mempty
+  DynRepeated vs -> Aeson.toJSON (fmap dynValueToJson vs)
+  DynMap _     -> Aeson.object []
 
 intToText :: Int -> Text
 intToText n

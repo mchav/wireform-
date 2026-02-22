@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -348,88 +352,88 @@ instance MessageDecode WorkflowExecutionStartedEventAttributes where
 instance IsMessage WorkflowExecutionStartedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionStartedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionStartedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "workflowType" .= msg.workflowExecutionStartedEventAttributesWorkflowtype
-      , "parentWorkflowNamespace" .= msg.workflowExecutionStartedEventAttributesParentworkflownamespace
-      , "parentWorkflowNamespaceId" .= msg.workflowExecutionStartedEventAttributesParentworkflownamespaceid
-      , "parentWorkflowExecution" .= msg.workflowExecutionStartedEventAttributesParentworkflowexecution
-      , "parentInitiatedEventId" .= msg.workflowExecutionStartedEventAttributesParentinitiatedeventid
-      , "taskQueue" .= msg.workflowExecutionStartedEventAttributesTaskqueue
-      , "input" .= msg.workflowExecutionStartedEventAttributesInput
-      , "workflowExecutionTimeout" .= msg.workflowExecutionStartedEventAttributesWorkflowexecutiontimeout
-      , "workflowRunTimeout" .= msg.workflowExecutionStartedEventAttributesWorkflowruntimeout
-      , "workflowTaskTimeout" .= msg.workflowExecutionStartedEventAttributesWorkflowtasktimeout
-      , "continuedExecutionRunId" .= msg.workflowExecutionStartedEventAttributesContinuedexecutionrunid
-      , "initiator" .= msg.workflowExecutionStartedEventAttributesInitiator
-      , "continuedFailure" .= msg.workflowExecutionStartedEventAttributesContinuedfailure
-      , "lastCompletionResult" .= msg.workflowExecutionStartedEventAttributesLastcompletionresult
-      , "originalExecutionRunId" .= msg.workflowExecutionStartedEventAttributesOriginalexecutionrunid
-      , "identity" .= msg.workflowExecutionStartedEventAttributesIdentity
-      , "firstExecutionRunId" .= msg.workflowExecutionStartedEventAttributesFirstexecutionrunid
-      , "retryPolicy" .= msg.workflowExecutionStartedEventAttributesRetrypolicy
-      , "attempt" .= msg.workflowExecutionStartedEventAttributesAttempt
-      , "workflowExecutionExpirationTime" .= msg.workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime
-      , "cronSchedule" .= msg.workflowExecutionStartedEventAttributesCronschedule
-      , "firstWorkflowTaskBackoff" .= msg.workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff
-      , "memo" .= msg.workflowExecutionStartedEventAttributesMemo
-      , "searchAttributes" .= msg.workflowExecutionStartedEventAttributesSearchattributes
-      , "prevAutoResetPoints" .= msg.workflowExecutionStartedEventAttributesPrevautoresetpoints
-      , "header" .= msg.workflowExecutionStartedEventAttributesHeader
-      , "parentInitiatedEventVersion" .= msg.workflowExecutionStartedEventAttributesParentinitiatedeventversion
-      , "workflowId" .= msg.workflowExecutionStartedEventAttributesWorkflowid
-      , "sourceVersionStamp" .= msg.workflowExecutionStartedEventAttributesSourceversionstamp
-      , "completionCallbacks" .= msg.workflowExecutionStartedEventAttributesCompletioncallbacks
-      , "rootWorkflowExecution" .= msg.workflowExecutionStartedEventAttributesRootworkflowexecution
-      , "inheritedBuildId" .= msg.workflowExecutionStartedEventAttributesInheritedbuildid
-      , "versioningOverride" .= msg.workflowExecutionStartedEventAttributesVersioningoverride
-      , "parentPinnedWorkerDeploymentVersion" .= msg.workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion
-      , "priority" .= msg.workflowExecutionStartedEventAttributesPriority
-      , "inheritedPinnedVersion" .= msg.workflowExecutionStartedEventAttributesInheritedpinnedversion
-      , "inheritedAutoUpgradeInfo" .= msg.workflowExecutionStartedEventAttributesInheritedautoupgradeinfo
-      , "eagerExecutionAccepted" .= msg.workflowExecutionStartedEventAttributesEagerexecutionaccepted
+instance Aeson.ToJSON WorkflowExecutionStartedEventAttributes where
+  toJSON msg = jsonObject
+      [ "workflowType" .=: msg.workflowExecutionStartedEventAttributesWorkflowtype
+      , "parentWorkflowNamespace" .=: msg.workflowExecutionStartedEventAttributesParentworkflownamespace
+      , "parentWorkflowNamespaceId" .=: msg.workflowExecutionStartedEventAttributesParentworkflownamespaceid
+      , "parentWorkflowExecution" .=: msg.workflowExecutionStartedEventAttributesParentworkflowexecution
+      , "parentInitiatedEventId" .=: msg.workflowExecutionStartedEventAttributesParentinitiatedeventid
+      , "taskQueue" .=: msg.workflowExecutionStartedEventAttributesTaskqueue
+      , "input" .=: msg.workflowExecutionStartedEventAttributesInput
+      , "workflowExecutionTimeout" .=: msg.workflowExecutionStartedEventAttributesWorkflowexecutiontimeout
+      , "workflowRunTimeout" .=: msg.workflowExecutionStartedEventAttributesWorkflowruntimeout
+      , "workflowTaskTimeout" .=: msg.workflowExecutionStartedEventAttributesWorkflowtasktimeout
+      , "continuedExecutionRunId" .=: msg.workflowExecutionStartedEventAttributesContinuedexecutionrunid
+      , "initiator" .=: msg.workflowExecutionStartedEventAttributesInitiator
+      , "continuedFailure" .=: msg.workflowExecutionStartedEventAttributesContinuedfailure
+      , "lastCompletionResult" .=: msg.workflowExecutionStartedEventAttributesLastcompletionresult
+      , "originalExecutionRunId" .=: msg.workflowExecutionStartedEventAttributesOriginalexecutionrunid
+      , "identity" .=: msg.workflowExecutionStartedEventAttributesIdentity
+      , "firstExecutionRunId" .=: msg.workflowExecutionStartedEventAttributesFirstexecutionrunid
+      , "retryPolicy" .=: msg.workflowExecutionStartedEventAttributesRetrypolicy
+      , "attempt" .=: msg.workflowExecutionStartedEventAttributesAttempt
+      , "workflowExecutionExpirationTime" .=: msg.workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime
+      , "cronSchedule" .=: msg.workflowExecutionStartedEventAttributesCronschedule
+      , "firstWorkflowTaskBackoff" .=: msg.workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff
+      , "memo" .=: msg.workflowExecutionStartedEventAttributesMemo
+      , "searchAttributes" .=: msg.workflowExecutionStartedEventAttributesSearchattributes
+      , "prevAutoResetPoints" .=: msg.workflowExecutionStartedEventAttributesPrevautoresetpoints
+      , "header" .=: msg.workflowExecutionStartedEventAttributesHeader
+      , "parentInitiatedEventVersion" .=: msg.workflowExecutionStartedEventAttributesParentinitiatedeventversion
+      , "workflowId" .=: msg.workflowExecutionStartedEventAttributesWorkflowid
+      , "sourceVersionStamp" .=: msg.workflowExecutionStartedEventAttributesSourceversionstamp
+      , "completionCallbacks" .=: msg.workflowExecutionStartedEventAttributesCompletioncallbacks
+      , "rootWorkflowExecution" .=: msg.workflowExecutionStartedEventAttributesRootworkflowexecution
+      , "inheritedBuildId" .=: msg.workflowExecutionStartedEventAttributesInheritedbuildid
+      , "versioningOverride" .=: msg.workflowExecutionStartedEventAttributesVersioningoverride
+      , "parentPinnedWorkerDeploymentVersion" .=: msg.workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion
+      , "priority" .=: msg.workflowExecutionStartedEventAttributesPriority
+      , "inheritedPinnedVersion" .=: msg.workflowExecutionStartedEventAttributesInheritedpinnedversion
+      , "inheritedAutoUpgradeInfo" .=: msg.workflowExecutionStartedEventAttributesInheritedautoupgradeinfo
+      , "eagerExecutionAccepted" .=: msg.workflowExecutionStartedEventAttributesEagerexecutionaccepted
       ]
 
-instance ProtoFromJSON WorkflowExecutionStartedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionStartedEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_workflowExecutionStartedEventAttributesParentworkflownamespace <- obj .:? "parentWorkflowNamespace"
-    fld_workflowExecutionStartedEventAttributesParentworkflownamespaceid <- obj .:? "parentWorkflowNamespaceId"
-    fld_workflowExecutionStartedEventAttributesParentworkflowexecution <- obj .:? "parentWorkflowExecution"
-    fld_workflowExecutionStartedEventAttributesParentinitiatedeventid <- obj .:? "parentInitiatedEventId"
-    fld_workflowExecutionStartedEventAttributesTaskqueue <- obj .:? "taskQueue"
-    fld_workflowExecutionStartedEventAttributesInput <- obj .:? "input"
-    fld_workflowExecutionStartedEventAttributesWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
-    fld_workflowExecutionStartedEventAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    fld_workflowExecutionStartedEventAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    fld_workflowExecutionStartedEventAttributesContinuedexecutionrunid <- obj .:? "continuedExecutionRunId"
-    fld_workflowExecutionStartedEventAttributesInitiator <- obj .:? "initiator"
-    fld_workflowExecutionStartedEventAttributesContinuedfailure <- obj .:? "continuedFailure"
-    fld_workflowExecutionStartedEventAttributesLastcompletionresult <- obj .:? "lastCompletionResult"
-    fld_workflowExecutionStartedEventAttributesOriginalexecutionrunid <- obj .:? "originalExecutionRunId"
-    fld_workflowExecutionStartedEventAttributesIdentity <- obj .:? "identity"
-    fld_workflowExecutionStartedEventAttributesFirstexecutionrunid <- obj .:? "firstExecutionRunId"
-    fld_workflowExecutionStartedEventAttributesRetrypolicy <- obj .:? "retryPolicy"
-    fld_workflowExecutionStartedEventAttributesAttempt <- obj .:? "attempt"
-    fld_workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime <- obj .:? "workflowExecutionExpirationTime"
-    fld_workflowExecutionStartedEventAttributesCronschedule <- obj .:? "cronSchedule"
-    fld_workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff <- obj .:? "firstWorkflowTaskBackoff"
-    fld_workflowExecutionStartedEventAttributesMemo <- obj .:? "memo"
-    fld_workflowExecutionStartedEventAttributesSearchattributes <- obj .:? "searchAttributes"
-    fld_workflowExecutionStartedEventAttributesPrevautoresetpoints <- obj .:? "prevAutoResetPoints"
-    fld_workflowExecutionStartedEventAttributesHeader <- obj .:? "header"
-    fld_workflowExecutionStartedEventAttributesParentinitiatedeventversion <- obj .:? "parentInitiatedEventVersion"
-    fld_workflowExecutionStartedEventAttributesWorkflowid <- obj .:? "workflowId"
-    fld_workflowExecutionStartedEventAttributesSourceversionstamp <- obj .:? "sourceVersionStamp"
-    fld_workflowExecutionStartedEventAttributesCompletioncallbacks <- obj .:? "completionCallbacks"
-    fld_workflowExecutionStartedEventAttributesRootworkflowexecution <- obj .:? "rootWorkflowExecution"
-    fld_workflowExecutionStartedEventAttributesInheritedbuildid <- obj .:? "inheritedBuildId"
-    fld_workflowExecutionStartedEventAttributesVersioningoverride <- obj .:? "versioningOverride"
-    fld_workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion <- obj .:? "parentPinnedWorkerDeploymentVersion"
-    fld_workflowExecutionStartedEventAttributesPriority <- obj .:? "priority"
-    fld_workflowExecutionStartedEventAttributesInheritedpinnedversion <- obj .:? "inheritedPinnedVersion"
-    fld_workflowExecutionStartedEventAttributesInheritedautoupgradeinfo <- obj .:? "inheritedAutoUpgradeInfo"
-    fld_workflowExecutionStartedEventAttributesEagerexecutionaccepted <- obj .:? "eagerExecutionAccepted"
+instance Aeson.FromJSON WorkflowExecutionStartedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionStartedEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_workflowExecutionStartedEventAttributesParentworkflownamespace <- parseFieldMaybe obj "parentWorkflowNamespace"
+    fld_workflowExecutionStartedEventAttributesParentworkflownamespaceid <- parseFieldMaybe obj "parentWorkflowNamespaceId"
+    fld_workflowExecutionStartedEventAttributesParentworkflowexecution <- parseFieldMaybe obj "parentWorkflowExecution"
+    fld_workflowExecutionStartedEventAttributesParentinitiatedeventid <- parseFieldMaybe obj "parentInitiatedEventId"
+    fld_workflowExecutionStartedEventAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_workflowExecutionStartedEventAttributesInput <- parseFieldMaybe obj "input"
+    fld_workflowExecutionStartedEventAttributesWorkflowexecutiontimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
+    fld_workflowExecutionStartedEventAttributesWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_workflowExecutionStartedEventAttributesWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_workflowExecutionStartedEventAttributesContinuedexecutionrunid <- parseFieldMaybe obj "continuedExecutionRunId"
+    fld_workflowExecutionStartedEventAttributesInitiator <- parseFieldMaybe obj "initiator"
+    fld_workflowExecutionStartedEventAttributesContinuedfailure <- parseFieldMaybe obj "continuedFailure"
+    fld_workflowExecutionStartedEventAttributesLastcompletionresult <- parseFieldMaybe obj "lastCompletionResult"
+    fld_workflowExecutionStartedEventAttributesOriginalexecutionrunid <- parseFieldMaybe obj "originalExecutionRunId"
+    fld_workflowExecutionStartedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowExecutionStartedEventAttributesFirstexecutionrunid <- parseFieldMaybe obj "firstExecutionRunId"
+    fld_workflowExecutionStartedEventAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_workflowExecutionStartedEventAttributesAttempt <- parseFieldMaybe obj "attempt"
+    fld_workflowExecutionStartedEventAttributesWorkflowexecutionexpirationtime <- parseFieldMaybe obj "workflowExecutionExpirationTime"
+    fld_workflowExecutionStartedEventAttributesCronschedule <- parseFieldMaybe obj "cronSchedule"
+    fld_workflowExecutionStartedEventAttributesFirstworkflowtaskbackoff <- parseFieldMaybe obj "firstWorkflowTaskBackoff"
+    fld_workflowExecutionStartedEventAttributesMemo <- parseFieldMaybe obj "memo"
+    fld_workflowExecutionStartedEventAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_workflowExecutionStartedEventAttributesPrevautoresetpoints <- parseFieldMaybe obj "prevAutoResetPoints"
+    fld_workflowExecutionStartedEventAttributesHeader <- parseFieldMaybe obj "header"
+    fld_workflowExecutionStartedEventAttributesParentinitiatedeventversion <- parseFieldMaybe obj "parentInitiatedEventVersion"
+    fld_workflowExecutionStartedEventAttributesWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_workflowExecutionStartedEventAttributesSourceversionstamp <- parseFieldMaybe obj "sourceVersionStamp"
+    fld_workflowExecutionStartedEventAttributesCompletioncallbacks <- parseFieldMaybe obj "completionCallbacks"
+    fld_workflowExecutionStartedEventAttributesRootworkflowexecution <- parseFieldMaybe obj "rootWorkflowExecution"
+    fld_workflowExecutionStartedEventAttributesInheritedbuildid <- parseFieldMaybe obj "inheritedBuildId"
+    fld_workflowExecutionStartedEventAttributesVersioningoverride <- parseFieldMaybe obj "versioningOverride"
+    fld_workflowExecutionStartedEventAttributesParentpinnedworkerdeploymentversion <- parseFieldMaybe obj "parentPinnedWorkerDeploymentVersion"
+    fld_workflowExecutionStartedEventAttributesPriority <- parseFieldMaybe obj "priority"
+    fld_workflowExecutionStartedEventAttributesInheritedpinnedversion <- parseFieldMaybe obj "inheritedPinnedVersion"
+    fld_workflowExecutionStartedEventAttributesInheritedautoupgradeinfo <- parseFieldMaybe obj "inheritedAutoUpgradeInfo"
+    fld_workflowExecutionStartedEventAttributesEagerexecutionaccepted <- parseFieldMaybe obj "eagerExecutionAccepted"
     pure defaultWorkflowExecutionStartedEventAttributes
       { workflowExecutionStartedEventAttributesWorkflowtype = maybe (workflowExecutionStartedEventAttributesWorkflowtype defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesWorkflowtype
       , workflowExecutionStartedEventAttributesParentworkflownamespace = maybe (workflowExecutionStartedEventAttributesParentworkflownamespace defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesParentworkflownamespace
@@ -470,7 +474,7 @@ instance ProtoFromJSON WorkflowExecutionStartedEventAttributes where
       , workflowExecutionStartedEventAttributesInheritedautoupgradeinfo = maybe (workflowExecutionStartedEventAttributesInheritedautoupgradeinfo defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesInheritedautoupgradeinfo
       , workflowExecutionStartedEventAttributesEagerexecutionaccepted = maybe (workflowExecutionStartedEventAttributesEagerexecutionaccepted defaultWorkflowExecutionStartedEventAttributes) id fld_workflowExecutionStartedEventAttributesEagerexecutionaccepted
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionStartedEventAttributes
+  parseJSON _ = pure defaultWorkflowExecutionStartedEventAttributes
 
 data WorkflowExecutionCompletedEventAttributes = WorkflowExecutionCompletedEventAttributes
   { workflowExecutionCompletedEventAttributesResult :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -521,24 +525,23 @@ instance MessageDecode WorkflowExecutionCompletedEventAttributes where
 instance IsMessage WorkflowExecutionCompletedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionCompletedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionCompletedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "result" .= msg.workflowExecutionCompletedEventAttributesResult
-      , "workflowTaskCompletedEventId" .= msg.workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid
-      , "newExecutionRunId" .= msg.workflowExecutionCompletedEventAttributesNewexecutionrunid
+instance Aeson.ToJSON WorkflowExecutionCompletedEventAttributes where
+  toJSON msg = jsonObject
+      [ "result" .=: msg.workflowExecutionCompletedEventAttributesResult
+      , "workflowTaskCompletedEventId" .=: msg.workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid
+      , "newExecutionRunId" .=: msg.workflowExecutionCompletedEventAttributesNewexecutionrunid
       ]
 
-instance ProtoFromJSON WorkflowExecutionCompletedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionCompletedEventAttributesResult <- obj .:? "result"
-    fld_workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_workflowExecutionCompletedEventAttributesNewexecutionrunid <- obj .:? "newExecutionRunId"
+instance Aeson.FromJSON WorkflowExecutionCompletedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionCompletedEventAttributesResult <- parseFieldMaybe obj "result"
+    fld_workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_workflowExecutionCompletedEventAttributesNewexecutionrunid <- parseFieldMaybe obj "newExecutionRunId"
     pure defaultWorkflowExecutionCompletedEventAttributes
       { workflowExecutionCompletedEventAttributesResult = maybe (workflowExecutionCompletedEventAttributesResult defaultWorkflowExecutionCompletedEventAttributes) id fld_workflowExecutionCompletedEventAttributesResult
       , workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid = maybe (workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid defaultWorkflowExecutionCompletedEventAttributes) id fld_workflowExecutionCompletedEventAttributesWorkflowtaskcompletedeventid
       , workflowExecutionCompletedEventAttributesNewexecutionrunid = maybe (workflowExecutionCompletedEventAttributesNewexecutionrunid defaultWorkflowExecutionCompletedEventAttributes) id fld_workflowExecutionCompletedEventAttributesNewexecutionrunid
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionCompletedEventAttributes
 
 data WorkflowExecutionFailedEventAttributes = WorkflowExecutionFailedEventAttributes
   { workflowExecutionFailedEventAttributesFailure :: !(Maybe TE_Failure_V1_Message.Failure)
@@ -596,27 +599,27 @@ instance MessageDecode WorkflowExecutionFailedEventAttributes where
 instance IsMessage WorkflowExecutionFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionFailedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "failure" .= msg.workflowExecutionFailedEventAttributesFailure
-      , "retryState" .= msg.workflowExecutionFailedEventAttributesRetrystate
-      , "workflowTaskCompletedEventId" .= msg.workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
-      , "newExecutionRunId" .= msg.workflowExecutionFailedEventAttributesNewexecutionrunid
+instance Aeson.ToJSON WorkflowExecutionFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "failure" .=: msg.workflowExecutionFailedEventAttributesFailure
+      , "retryState" .=: msg.workflowExecutionFailedEventAttributesRetrystate
+      , "workflowTaskCompletedEventId" .=: msg.workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
+      , "newExecutionRunId" .=: msg.workflowExecutionFailedEventAttributesNewexecutionrunid
       ]
 
-instance ProtoFromJSON WorkflowExecutionFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionFailedEventAttributesFailure <- obj .:? "failure"
-    fld_workflowExecutionFailedEventAttributesRetrystate <- obj .:? "retryState"
-    fld_workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_workflowExecutionFailedEventAttributesNewexecutionrunid <- obj .:? "newExecutionRunId"
+instance Aeson.FromJSON WorkflowExecutionFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionFailedEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_workflowExecutionFailedEventAttributesRetrystate <- parseFieldMaybe obj "retryState"
+    fld_workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_workflowExecutionFailedEventAttributesNewexecutionrunid <- parseFieldMaybe obj "newExecutionRunId"
     pure defaultWorkflowExecutionFailedEventAttributes
       { workflowExecutionFailedEventAttributesFailure = maybe (workflowExecutionFailedEventAttributesFailure defaultWorkflowExecutionFailedEventAttributes) id fld_workflowExecutionFailedEventAttributesFailure
       , workflowExecutionFailedEventAttributesRetrystate = maybe (workflowExecutionFailedEventAttributesRetrystate defaultWorkflowExecutionFailedEventAttributes) id fld_workflowExecutionFailedEventAttributesRetrystate
       , workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid = maybe (workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid defaultWorkflowExecutionFailedEventAttributes) id fld_workflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
       , workflowExecutionFailedEventAttributesNewexecutionrunid = maybe (workflowExecutionFailedEventAttributesNewexecutionrunid defaultWorkflowExecutionFailedEventAttributes) id fld_workflowExecutionFailedEventAttributesNewexecutionrunid
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionFailedEventAttributes
+  parseJSON _ = pure defaultWorkflowExecutionFailedEventAttributes
 
 data WorkflowExecutionTimedOutEventAttributes = WorkflowExecutionTimedOutEventAttributes
   { workflowExecutionTimedOutEventAttributesRetrystate :: !TE_Enums_V1_Workflow.RetryState
@@ -660,21 +663,20 @@ instance MessageDecode WorkflowExecutionTimedOutEventAttributes where
 instance IsMessage WorkflowExecutionTimedOutEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionTimedOutEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionTimedOutEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "retryState" .= msg.workflowExecutionTimedOutEventAttributesRetrystate
-      , "newExecutionRunId" .= msg.workflowExecutionTimedOutEventAttributesNewexecutionrunid
+instance Aeson.ToJSON WorkflowExecutionTimedOutEventAttributes where
+  toJSON msg = jsonObject
+      [ "retryState" .=: msg.workflowExecutionTimedOutEventAttributesRetrystate
+      , "newExecutionRunId" .=: msg.workflowExecutionTimedOutEventAttributesNewexecutionrunid
       ]
 
-instance ProtoFromJSON WorkflowExecutionTimedOutEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionTimedOutEventAttributesRetrystate <- obj .:? "retryState"
-    fld_workflowExecutionTimedOutEventAttributesNewexecutionrunid <- obj .:? "newExecutionRunId"
+instance Aeson.FromJSON WorkflowExecutionTimedOutEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionTimedOutEventAttributesRetrystate <- parseFieldMaybe obj "retryState"
+    fld_workflowExecutionTimedOutEventAttributesNewexecutionrunid <- parseFieldMaybe obj "newExecutionRunId"
     pure defaultWorkflowExecutionTimedOutEventAttributes
       { workflowExecutionTimedOutEventAttributesRetrystate = maybe (workflowExecutionTimedOutEventAttributesRetrystate defaultWorkflowExecutionTimedOutEventAttributes) id fld_workflowExecutionTimedOutEventAttributesRetrystate
       , workflowExecutionTimedOutEventAttributesNewexecutionrunid = maybe (workflowExecutionTimedOutEventAttributesNewexecutionrunid defaultWorkflowExecutionTimedOutEventAttributes) id fld_workflowExecutionTimedOutEventAttributesNewexecutionrunid
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionTimedOutEventAttributes
 
 data WorkflowExecutionContinuedAsNewEventAttributes = WorkflowExecutionContinuedAsNewEventAttributes
   { workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid :: !Text
@@ -816,44 +818,44 @@ instance MessageDecode WorkflowExecutionContinuedAsNewEventAttributes where
 instance IsMessage WorkflowExecutionContinuedAsNewEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionContinuedAsNewEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionContinuedAsNewEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "newExecutionRunId" .= msg.workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid
-      , "workflowType" .= msg.workflowExecutionContinuedAsNewEventAttributesWorkflowtype
-      , "taskQueue" .= msg.workflowExecutionContinuedAsNewEventAttributesTaskqueue
-      , "input" .= msg.workflowExecutionContinuedAsNewEventAttributesInput
-      , "workflowRunTimeout" .= msg.workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout
-      , "workflowTaskTimeout" .= msg.workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout
-      , "workflowTaskCompletedEventId" .= msg.workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid
-      , "backoffStartInterval" .= msg.workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval
-      , "initiator" .= msg.workflowExecutionContinuedAsNewEventAttributesInitiator
-      , "failure" .= msg.workflowExecutionContinuedAsNewEventAttributesFailure
-      , "lastCompletionResult" .= msg.workflowExecutionContinuedAsNewEventAttributesLastcompletionresult
-      , "header" .= msg.workflowExecutionContinuedAsNewEventAttributesHeader
-      , "memo" .= msg.workflowExecutionContinuedAsNewEventAttributesMemo
-      , "searchAttributes" .= msg.workflowExecutionContinuedAsNewEventAttributesSearchattributes
-      , "inheritBuildId" .= msg.workflowExecutionContinuedAsNewEventAttributesInheritbuildid
-      , "initialVersioningBehavior" .= msg.workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior
+instance Aeson.ToJSON WorkflowExecutionContinuedAsNewEventAttributes where
+  toJSON msg = jsonObject
+      [ "newExecutionRunId" .=: msg.workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid
+      , "workflowType" .=: msg.workflowExecutionContinuedAsNewEventAttributesWorkflowtype
+      , "taskQueue" .=: msg.workflowExecutionContinuedAsNewEventAttributesTaskqueue
+      , "input" .=: msg.workflowExecutionContinuedAsNewEventAttributesInput
+      , "workflowRunTimeout" .=: msg.workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout
+      , "workflowTaskTimeout" .=: msg.workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout
+      , "workflowTaskCompletedEventId" .=: msg.workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid
+      , "backoffStartInterval" .=: msg.workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval
+      , "initiator" .=: msg.workflowExecutionContinuedAsNewEventAttributesInitiator
+      , "failure" .=: msg.workflowExecutionContinuedAsNewEventAttributesFailure
+      , "lastCompletionResult" .=: msg.workflowExecutionContinuedAsNewEventAttributesLastcompletionresult
+      , "header" .=: msg.workflowExecutionContinuedAsNewEventAttributesHeader
+      , "memo" .=: msg.workflowExecutionContinuedAsNewEventAttributesMemo
+      , "searchAttributes" .=: msg.workflowExecutionContinuedAsNewEventAttributesSearchattributes
+      , "inheritBuildId" .=: msg.workflowExecutionContinuedAsNewEventAttributesInheritbuildid
+      , "initialVersioningBehavior" .=: msg.workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior
       ]
 
-instance ProtoFromJSON WorkflowExecutionContinuedAsNewEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid <- obj .:? "newExecutionRunId"
-    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_workflowExecutionContinuedAsNewEventAttributesTaskqueue <- obj .:? "taskQueue"
-    fld_workflowExecutionContinuedAsNewEventAttributesInput <- obj .:? "input"
-    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval <- obj .:? "backoffStartInterval"
-    fld_workflowExecutionContinuedAsNewEventAttributesInitiator <- obj .:? "initiator"
-    fld_workflowExecutionContinuedAsNewEventAttributesFailure <- obj .:? "failure"
-    fld_workflowExecutionContinuedAsNewEventAttributesLastcompletionresult <- obj .:? "lastCompletionResult"
-    fld_workflowExecutionContinuedAsNewEventAttributesHeader <- obj .:? "header"
-    fld_workflowExecutionContinuedAsNewEventAttributesMemo <- obj .:? "memo"
-    fld_workflowExecutionContinuedAsNewEventAttributesSearchattributes <- obj .:? "searchAttributes"
-    fld_workflowExecutionContinuedAsNewEventAttributesInheritbuildid <- obj .:? "inheritBuildId"
-    fld_workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior <- obj .:? "initialVersioningBehavior"
+instance Aeson.FromJSON WorkflowExecutionContinuedAsNewEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid <- parseFieldMaybe obj "newExecutionRunId"
+    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_workflowExecutionContinuedAsNewEventAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_workflowExecutionContinuedAsNewEventAttributesInput <- parseFieldMaybe obj "input"
+    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_workflowExecutionContinuedAsNewEventAttributesBackoffstartinterval <- parseFieldMaybe obj "backoffStartInterval"
+    fld_workflowExecutionContinuedAsNewEventAttributesInitiator <- parseFieldMaybe obj "initiator"
+    fld_workflowExecutionContinuedAsNewEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_workflowExecutionContinuedAsNewEventAttributesLastcompletionresult <- parseFieldMaybe obj "lastCompletionResult"
+    fld_workflowExecutionContinuedAsNewEventAttributesHeader <- parseFieldMaybe obj "header"
+    fld_workflowExecutionContinuedAsNewEventAttributesMemo <- parseFieldMaybe obj "memo"
+    fld_workflowExecutionContinuedAsNewEventAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_workflowExecutionContinuedAsNewEventAttributesInheritbuildid <- parseFieldMaybe obj "inheritBuildId"
+    fld_workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior <- parseFieldMaybe obj "initialVersioningBehavior"
     pure defaultWorkflowExecutionContinuedAsNewEventAttributes
       { workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid = maybe (workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesNewexecutionrunid
       , workflowExecutionContinuedAsNewEventAttributesWorkflowtype = maybe (workflowExecutionContinuedAsNewEventAttributesWorkflowtype defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesWorkflowtype
@@ -872,7 +874,7 @@ instance ProtoFromJSON WorkflowExecutionContinuedAsNewEventAttributes where
       , workflowExecutionContinuedAsNewEventAttributesInheritbuildid = maybe (workflowExecutionContinuedAsNewEventAttributesInheritbuildid defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesInheritbuildid
       , workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior = maybe (workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior defaultWorkflowExecutionContinuedAsNewEventAttributes) id fld_workflowExecutionContinuedAsNewEventAttributesInitialversioningbehavior
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionContinuedAsNewEventAttributes
+  parseJSON _ = pure defaultWorkflowExecutionContinuedAsNewEventAttributes
 
 data WorkflowTaskScheduledEventAttributes = WorkflowTaskScheduledEventAttributes
   { workflowTaskScheduledEventAttributesTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
@@ -923,24 +925,23 @@ instance MessageDecode WorkflowTaskScheduledEventAttributes where
 instance IsMessage WorkflowTaskScheduledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowTaskScheduledEventAttributes"
 
-instance ProtoToJSON WorkflowTaskScheduledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "taskQueue" .= msg.workflowTaskScheduledEventAttributesTaskqueue
-      , "startToCloseTimeout" .= msg.workflowTaskScheduledEventAttributesStarttoclosetimeout
-      , "attempt" .= msg.workflowTaskScheduledEventAttributesAttempt
+instance Aeson.ToJSON WorkflowTaskScheduledEventAttributes where
+  toJSON msg = jsonObject
+      [ "taskQueue" .=: msg.workflowTaskScheduledEventAttributesTaskqueue
+      , "startToCloseTimeout" .=: msg.workflowTaskScheduledEventAttributesStarttoclosetimeout
+      , "attempt" .=: msg.workflowTaskScheduledEventAttributesAttempt
       ]
 
-instance ProtoFromJSON WorkflowTaskScheduledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowTaskScheduledEventAttributesTaskqueue <- obj .:? "taskQueue"
-    fld_workflowTaskScheduledEventAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    fld_workflowTaskScheduledEventAttributesAttempt <- obj .:? "attempt"
+instance Aeson.FromJSON WorkflowTaskScheduledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowTaskScheduledEventAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_workflowTaskScheduledEventAttributesStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_workflowTaskScheduledEventAttributesAttempt <- parseFieldMaybe obj "attempt"
     pure defaultWorkflowTaskScheduledEventAttributes
       { workflowTaskScheduledEventAttributesTaskqueue = maybe (workflowTaskScheduledEventAttributesTaskqueue defaultWorkflowTaskScheduledEventAttributes) id fld_workflowTaskScheduledEventAttributesTaskqueue
       , workflowTaskScheduledEventAttributesStarttoclosetimeout = maybe (workflowTaskScheduledEventAttributesStarttoclosetimeout defaultWorkflowTaskScheduledEventAttributes) id fld_workflowTaskScheduledEventAttributesStarttoclosetimeout
       , workflowTaskScheduledEventAttributesAttempt = maybe (workflowTaskScheduledEventAttributesAttempt defaultWorkflowTaskScheduledEventAttributes) id fld_workflowTaskScheduledEventAttributesAttempt
       }
-  protoFromJSON _ = Right defaultWorkflowTaskScheduledEventAttributes
 
 data WorkflowTaskStartedEventAttributes = WorkflowTaskStartedEventAttributes
   { workflowTaskStartedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -1033,30 +1034,30 @@ instance MessageDecode WorkflowTaskStartedEventAttributes where
 instance IsMessage WorkflowTaskStartedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowTaskStartedEventAttributes"
 
-instance ProtoToJSON WorkflowTaskStartedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.workflowTaskStartedEventAttributesScheduledeventid
-      , "identity" .= msg.workflowTaskStartedEventAttributesIdentity
-      , "requestId" .= msg.workflowTaskStartedEventAttributesRequestid
-      , "suggestContinueAsNew" .= msg.workflowTaskStartedEventAttributesSuggestcontinueasnew
-      , "suggestContinueAsNewReasons" .= msg.workflowTaskStartedEventAttributesSuggestcontinueasnewreasons
-      , "targetWorkerDeploymentVersionChanged" .= msg.workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged
-      , "historySizeBytes" .= msg.workflowTaskStartedEventAttributesHistorysizebytes
-      , "workerVersion" .= msg.workflowTaskStartedEventAttributesWorkerversion
-      , "buildIdRedirectCounter" .= msg.workflowTaskStartedEventAttributesBuildidredirectcounter
+instance Aeson.ToJSON WorkflowTaskStartedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.workflowTaskStartedEventAttributesScheduledeventid
+      , "identity" .=: msg.workflowTaskStartedEventAttributesIdentity
+      , "requestId" .=: msg.workflowTaskStartedEventAttributesRequestid
+      , "suggestContinueAsNew" .=: msg.workflowTaskStartedEventAttributesSuggestcontinueasnew
+      , "suggestContinueAsNewReasons" .=: msg.workflowTaskStartedEventAttributesSuggestcontinueasnewreasons
+      , "targetWorkerDeploymentVersionChanged" .=: msg.workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged
+      , "historySizeBytes" .=: msg.workflowTaskStartedEventAttributesHistorysizebytes
+      , "workerVersion" .=: msg.workflowTaskStartedEventAttributesWorkerversion
+      , "buildIdRedirectCounter" .=: msg.workflowTaskStartedEventAttributesBuildidredirectcounter
       ]
 
-instance ProtoFromJSON WorkflowTaskStartedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowTaskStartedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_workflowTaskStartedEventAttributesIdentity <- obj .:? "identity"
-    fld_workflowTaskStartedEventAttributesRequestid <- obj .:? "requestId"
-    fld_workflowTaskStartedEventAttributesSuggestcontinueasnew <- obj .:? "suggestContinueAsNew"
-    fld_workflowTaskStartedEventAttributesSuggestcontinueasnewreasons <- obj .:? "suggestContinueAsNewReasons"
-    fld_workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged <- obj .:? "targetWorkerDeploymentVersionChanged"
-    fld_workflowTaskStartedEventAttributesHistorysizebytes <- obj .:? "historySizeBytes"
-    fld_workflowTaskStartedEventAttributesWorkerversion <- obj .:? "workerVersion"
-    fld_workflowTaskStartedEventAttributesBuildidredirectcounter <- obj .:? "buildIdRedirectCounter"
+instance Aeson.FromJSON WorkflowTaskStartedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowTaskStartedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_workflowTaskStartedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowTaskStartedEventAttributesRequestid <- parseFieldMaybe obj "requestId"
+    fld_workflowTaskStartedEventAttributesSuggestcontinueasnew <- parseFieldMaybe obj "suggestContinueAsNew"
+    fld_workflowTaskStartedEventAttributesSuggestcontinueasnewreasons <- parseFieldMaybe obj "suggestContinueAsNewReasons"
+    fld_workflowTaskStartedEventAttributesTargetworkerdeploymentversionchanged <- parseFieldMaybe obj "targetWorkerDeploymentVersionChanged"
+    fld_workflowTaskStartedEventAttributesHistorysizebytes <- parseFieldMaybe obj "historySizeBytes"
+    fld_workflowTaskStartedEventAttributesWorkerversion <- parseFieldMaybe obj "workerVersion"
+    fld_workflowTaskStartedEventAttributesBuildidredirectcounter <- parseFieldMaybe obj "buildIdRedirectCounter"
     pure defaultWorkflowTaskStartedEventAttributes
       { workflowTaskStartedEventAttributesScheduledeventid = maybe (workflowTaskStartedEventAttributesScheduledeventid defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesScheduledeventid
       , workflowTaskStartedEventAttributesIdentity = maybe (workflowTaskStartedEventAttributesIdentity defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesIdentity
@@ -1068,7 +1069,7 @@ instance ProtoFromJSON WorkflowTaskStartedEventAttributes where
       , workflowTaskStartedEventAttributesWorkerversion = maybe (workflowTaskStartedEventAttributesWorkerversion defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesWorkerversion
       , workflowTaskStartedEventAttributesBuildidredirectcounter = maybe (workflowTaskStartedEventAttributesBuildidredirectcounter defaultWorkflowTaskStartedEventAttributes) id fld_workflowTaskStartedEventAttributesBuildidredirectcounter
       }
-  protoFromJSON _ = Right defaultWorkflowTaskStartedEventAttributes
+  parseJSON _ = pure defaultWorkflowTaskStartedEventAttributes
 
 data WorkflowTaskCompletedEventAttributes = WorkflowTaskCompletedEventAttributes
   { workflowTaskCompletedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -1182,36 +1183,36 @@ instance MessageDecode WorkflowTaskCompletedEventAttributes where
 instance IsMessage WorkflowTaskCompletedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowTaskCompletedEventAttributes"
 
-instance ProtoToJSON WorkflowTaskCompletedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.workflowTaskCompletedEventAttributesScheduledeventid
-      , "startedEventId" .= msg.workflowTaskCompletedEventAttributesStartedeventid
-      , "identity" .= msg.workflowTaskCompletedEventAttributesIdentity
-      , "binaryChecksum" .= msg.workflowTaskCompletedEventAttributesBinarychecksum
-      , "workerVersion" .= msg.workflowTaskCompletedEventAttributesWorkerversion
-      , "sdkMetadata" .= msg.workflowTaskCompletedEventAttributesSdkmetadata
-      , "meteringMetadata" .= msg.workflowTaskCompletedEventAttributesMeteringmetadata
-      , "deployment" .= msg.workflowTaskCompletedEventAttributesDeployment
-      , "versioningBehavior" .= msg.workflowTaskCompletedEventAttributesVersioningbehavior
-      , "workerDeploymentVersion" .= msg.workflowTaskCompletedEventAttributesWorkerdeploymentversion
-      , "workerDeploymentName" .= msg.workflowTaskCompletedEventAttributesWorkerdeploymentname
-      , "deploymentVersion" .= msg.workflowTaskCompletedEventAttributesDeploymentversion
+instance Aeson.ToJSON WorkflowTaskCompletedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.workflowTaskCompletedEventAttributesScheduledeventid
+      , "startedEventId" .=: msg.workflowTaskCompletedEventAttributesStartedeventid
+      , "identity" .=: msg.workflowTaskCompletedEventAttributesIdentity
+      , "binaryChecksum" .=: msg.workflowTaskCompletedEventAttributesBinarychecksum
+      , "workerVersion" .=: msg.workflowTaskCompletedEventAttributesWorkerversion
+      , "sdkMetadata" .=: msg.workflowTaskCompletedEventAttributesSdkmetadata
+      , "meteringMetadata" .=: msg.workflowTaskCompletedEventAttributesMeteringmetadata
+      , "deployment" .=: msg.workflowTaskCompletedEventAttributesDeployment
+      , "versioningBehavior" .=: msg.workflowTaskCompletedEventAttributesVersioningbehavior
+      , "workerDeploymentVersion" .=: msg.workflowTaskCompletedEventAttributesWorkerdeploymentversion
+      , "workerDeploymentName" .=: msg.workflowTaskCompletedEventAttributesWorkerdeploymentname
+      , "deploymentVersion" .=: msg.workflowTaskCompletedEventAttributesDeploymentversion
       ]
 
-instance ProtoFromJSON WorkflowTaskCompletedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowTaskCompletedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_workflowTaskCompletedEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_workflowTaskCompletedEventAttributesIdentity <- obj .:? "identity"
-    fld_workflowTaskCompletedEventAttributesBinarychecksum <- obj .:? "binaryChecksum"
-    fld_workflowTaskCompletedEventAttributesWorkerversion <- obj .:? "workerVersion"
-    fld_workflowTaskCompletedEventAttributesSdkmetadata <- obj .:? "sdkMetadata"
-    fld_workflowTaskCompletedEventAttributesMeteringmetadata <- obj .:? "meteringMetadata"
-    fld_workflowTaskCompletedEventAttributesDeployment <- obj .:? "deployment"
-    fld_workflowTaskCompletedEventAttributesVersioningbehavior <- obj .:? "versioningBehavior"
-    fld_workflowTaskCompletedEventAttributesWorkerdeploymentversion <- obj .:? "workerDeploymentVersion"
-    fld_workflowTaskCompletedEventAttributesWorkerdeploymentname <- obj .:? "workerDeploymentName"
-    fld_workflowTaskCompletedEventAttributesDeploymentversion <- obj .:? "deploymentVersion"
+instance Aeson.FromJSON WorkflowTaskCompletedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowTaskCompletedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_workflowTaskCompletedEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_workflowTaskCompletedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowTaskCompletedEventAttributesBinarychecksum <- parseFieldMaybe obj "binaryChecksum"
+    fld_workflowTaskCompletedEventAttributesWorkerversion <- parseFieldMaybe obj "workerVersion"
+    fld_workflowTaskCompletedEventAttributesSdkmetadata <- parseFieldMaybe obj "sdkMetadata"
+    fld_workflowTaskCompletedEventAttributesMeteringmetadata <- parseFieldMaybe obj "meteringMetadata"
+    fld_workflowTaskCompletedEventAttributesDeployment <- parseFieldMaybe obj "deployment"
+    fld_workflowTaskCompletedEventAttributesVersioningbehavior <- parseFieldMaybe obj "versioningBehavior"
+    fld_workflowTaskCompletedEventAttributesWorkerdeploymentversion <- parseFieldMaybe obj "workerDeploymentVersion"
+    fld_workflowTaskCompletedEventAttributesWorkerdeploymentname <- parseFieldMaybe obj "workerDeploymentName"
+    fld_workflowTaskCompletedEventAttributesDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
     pure defaultWorkflowTaskCompletedEventAttributes
       { workflowTaskCompletedEventAttributesScheduledeventid = maybe (workflowTaskCompletedEventAttributesScheduledeventid defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesScheduledeventid
       , workflowTaskCompletedEventAttributesStartedeventid = maybe (workflowTaskCompletedEventAttributesStartedeventid defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesStartedeventid
@@ -1226,7 +1227,7 @@ instance ProtoFromJSON WorkflowTaskCompletedEventAttributes where
       , workflowTaskCompletedEventAttributesWorkerdeploymentname = maybe (workflowTaskCompletedEventAttributesWorkerdeploymentname defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesWorkerdeploymentname
       , workflowTaskCompletedEventAttributesDeploymentversion = maybe (workflowTaskCompletedEventAttributesDeploymentversion defaultWorkflowTaskCompletedEventAttributes) id fld_workflowTaskCompletedEventAttributesDeploymentversion
       }
-  protoFromJSON _ = Right defaultWorkflowTaskCompletedEventAttributes
+  parseJSON _ = pure defaultWorkflowTaskCompletedEventAttributes
 
 data WorkflowTaskTimedOutEventAttributes = WorkflowTaskTimedOutEventAttributes
   { workflowTaskTimedOutEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -1277,24 +1278,23 @@ instance MessageDecode WorkflowTaskTimedOutEventAttributes where
 instance IsMessage WorkflowTaskTimedOutEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowTaskTimedOutEventAttributes"
 
-instance ProtoToJSON WorkflowTaskTimedOutEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.workflowTaskTimedOutEventAttributesScheduledeventid
-      , "startedEventId" .= msg.workflowTaskTimedOutEventAttributesStartedeventid
-      , "timeoutType" .= msg.workflowTaskTimedOutEventAttributesTimeouttype
+instance Aeson.ToJSON WorkflowTaskTimedOutEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.workflowTaskTimedOutEventAttributesScheduledeventid
+      , "startedEventId" .=: msg.workflowTaskTimedOutEventAttributesStartedeventid
+      , "timeoutType" .=: msg.workflowTaskTimedOutEventAttributesTimeouttype
       ]
 
-instance ProtoFromJSON WorkflowTaskTimedOutEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowTaskTimedOutEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_workflowTaskTimedOutEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_workflowTaskTimedOutEventAttributesTimeouttype <- obj .:? "timeoutType"
+instance Aeson.FromJSON WorkflowTaskTimedOutEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowTaskTimedOutEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_workflowTaskTimedOutEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_workflowTaskTimedOutEventAttributesTimeouttype <- parseFieldMaybe obj "timeoutType"
     pure defaultWorkflowTaskTimedOutEventAttributes
       { workflowTaskTimedOutEventAttributesScheduledeventid = maybe (workflowTaskTimedOutEventAttributesScheduledeventid defaultWorkflowTaskTimedOutEventAttributes) id fld_workflowTaskTimedOutEventAttributesScheduledeventid
       , workflowTaskTimedOutEventAttributesStartedeventid = maybe (workflowTaskTimedOutEventAttributesStartedeventid defaultWorkflowTaskTimedOutEventAttributes) id fld_workflowTaskTimedOutEventAttributesStartedeventid
       , workflowTaskTimedOutEventAttributesTimeouttype = maybe (workflowTaskTimedOutEventAttributesTimeouttype defaultWorkflowTaskTimedOutEventAttributes) id fld_workflowTaskTimedOutEventAttributesTimeouttype
       }
-  protoFromJSON _ = Right defaultWorkflowTaskTimedOutEventAttributes
 
 data WorkflowTaskFailedEventAttributes = WorkflowTaskFailedEventAttributes
   { workflowTaskFailedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -1394,32 +1394,32 @@ instance MessageDecode WorkflowTaskFailedEventAttributes where
 instance IsMessage WorkflowTaskFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowTaskFailedEventAttributes"
 
-instance ProtoToJSON WorkflowTaskFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.workflowTaskFailedEventAttributesScheduledeventid
-      , "startedEventId" .= msg.workflowTaskFailedEventAttributesStartedeventid
-      , "cause" .= msg.workflowTaskFailedEventAttributesCause
-      , "failure" .= msg.workflowTaskFailedEventAttributesFailure
-      , "identity" .= msg.workflowTaskFailedEventAttributesIdentity
-      , "baseRunId" .= msg.workflowTaskFailedEventAttributesBaserunid
-      , "newRunId" .= msg.workflowTaskFailedEventAttributesNewrunid
-      , "forkEventVersion" .= msg.workflowTaskFailedEventAttributesForkeventversion
-      , "binaryChecksum" .= msg.workflowTaskFailedEventAttributesBinarychecksum
-      , "workerVersion" .= msg.workflowTaskFailedEventAttributesWorkerversion
+instance Aeson.ToJSON WorkflowTaskFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.workflowTaskFailedEventAttributesScheduledeventid
+      , "startedEventId" .=: msg.workflowTaskFailedEventAttributesStartedeventid
+      , "cause" .=: msg.workflowTaskFailedEventAttributesCause
+      , "failure" .=: msg.workflowTaskFailedEventAttributesFailure
+      , "identity" .=: msg.workflowTaskFailedEventAttributesIdentity
+      , "baseRunId" .=: msg.workflowTaskFailedEventAttributesBaserunid
+      , "newRunId" .=: msg.workflowTaskFailedEventAttributesNewrunid
+      , "forkEventVersion" .=: msg.workflowTaskFailedEventAttributesForkeventversion
+      , "binaryChecksum" .=: msg.workflowTaskFailedEventAttributesBinarychecksum
+      , "workerVersion" .=: msg.workflowTaskFailedEventAttributesWorkerversion
       ]
 
-instance ProtoFromJSON WorkflowTaskFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowTaskFailedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_workflowTaskFailedEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_workflowTaskFailedEventAttributesCause <- obj .:? "cause"
-    fld_workflowTaskFailedEventAttributesFailure <- obj .:? "failure"
-    fld_workflowTaskFailedEventAttributesIdentity <- obj .:? "identity"
-    fld_workflowTaskFailedEventAttributesBaserunid <- obj .:? "baseRunId"
-    fld_workflowTaskFailedEventAttributesNewrunid <- obj .:? "newRunId"
-    fld_workflowTaskFailedEventAttributesForkeventversion <- obj .:? "forkEventVersion"
-    fld_workflowTaskFailedEventAttributesBinarychecksum <- obj .:? "binaryChecksum"
-    fld_workflowTaskFailedEventAttributesWorkerversion <- obj .:? "workerVersion"
+instance Aeson.FromJSON WorkflowTaskFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowTaskFailedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_workflowTaskFailedEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_workflowTaskFailedEventAttributesCause <- parseFieldMaybe obj "cause"
+    fld_workflowTaskFailedEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_workflowTaskFailedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowTaskFailedEventAttributesBaserunid <- parseFieldMaybe obj "baseRunId"
+    fld_workflowTaskFailedEventAttributesNewrunid <- parseFieldMaybe obj "newRunId"
+    fld_workflowTaskFailedEventAttributesForkeventversion <- parseFieldMaybe obj "forkEventVersion"
+    fld_workflowTaskFailedEventAttributesBinarychecksum <- parseFieldMaybe obj "binaryChecksum"
+    fld_workflowTaskFailedEventAttributesWorkerversion <- parseFieldMaybe obj "workerVersion"
     pure defaultWorkflowTaskFailedEventAttributes
       { workflowTaskFailedEventAttributesScheduledeventid = maybe (workflowTaskFailedEventAttributesScheduledeventid defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesScheduledeventid
       , workflowTaskFailedEventAttributesStartedeventid = maybe (workflowTaskFailedEventAttributesStartedeventid defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesStartedeventid
@@ -1432,7 +1432,7 @@ instance ProtoFromJSON WorkflowTaskFailedEventAttributes where
       , workflowTaskFailedEventAttributesBinarychecksum = maybe (workflowTaskFailedEventAttributesBinarychecksum defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesBinarychecksum
       , workflowTaskFailedEventAttributesWorkerversion = maybe (workflowTaskFailedEventAttributesWorkerversion defaultWorkflowTaskFailedEventAttributes) id fld_workflowTaskFailedEventAttributesWorkerversion
       }
-  protoFromJSON _ = Right defaultWorkflowTaskFailedEventAttributes
+  parseJSON _ = pure defaultWorkflowTaskFailedEventAttributes
 
 data ActivityTaskScheduledEventAttributes = ActivityTaskScheduledEventAttributes
   { activityTaskScheduledEventAttributesActivityid :: !Text
@@ -1553,38 +1553,38 @@ instance MessageDecode ActivityTaskScheduledEventAttributes where
 instance IsMessage ActivityTaskScheduledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ActivityTaskScheduledEventAttributes"
 
-instance ProtoToJSON ActivityTaskScheduledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "activityId" .= msg.activityTaskScheduledEventAttributesActivityid
-      , "activityType" .= msg.activityTaskScheduledEventAttributesActivitytype
-      , "taskQueue" .= msg.activityTaskScheduledEventAttributesTaskqueue
-      , "header" .= msg.activityTaskScheduledEventAttributesHeader
-      , "input" .= msg.activityTaskScheduledEventAttributesInput
-      , "scheduleToCloseTimeout" .= msg.activityTaskScheduledEventAttributesScheduletoclosetimeout
-      , "scheduleToStartTimeout" .= msg.activityTaskScheduledEventAttributesScheduletostarttimeout
-      , "startToCloseTimeout" .= msg.activityTaskScheduledEventAttributesStarttoclosetimeout
-      , "heartbeatTimeout" .= msg.activityTaskScheduledEventAttributesHeartbeattimeout
-      , "workflowTaskCompletedEventId" .= msg.activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid
-      , "retryPolicy" .= msg.activityTaskScheduledEventAttributesRetrypolicy
-      , "useWorkflowBuildId" .= msg.activityTaskScheduledEventAttributesUseworkflowbuildid
-      , "priority" .= msg.activityTaskScheduledEventAttributesPriority
+instance Aeson.ToJSON ActivityTaskScheduledEventAttributes where
+  toJSON msg = jsonObject
+      [ "activityId" .=: msg.activityTaskScheduledEventAttributesActivityid
+      , "activityType" .=: msg.activityTaskScheduledEventAttributesActivitytype
+      , "taskQueue" .=: msg.activityTaskScheduledEventAttributesTaskqueue
+      , "header" .=: msg.activityTaskScheduledEventAttributesHeader
+      , "input" .=: msg.activityTaskScheduledEventAttributesInput
+      , "scheduleToCloseTimeout" .=: msg.activityTaskScheduledEventAttributesScheduletoclosetimeout
+      , "scheduleToStartTimeout" .=: msg.activityTaskScheduledEventAttributesScheduletostarttimeout
+      , "startToCloseTimeout" .=: msg.activityTaskScheduledEventAttributesStarttoclosetimeout
+      , "heartbeatTimeout" .=: msg.activityTaskScheduledEventAttributesHeartbeattimeout
+      , "workflowTaskCompletedEventId" .=: msg.activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid
+      , "retryPolicy" .=: msg.activityTaskScheduledEventAttributesRetrypolicy
+      , "useWorkflowBuildId" .=: msg.activityTaskScheduledEventAttributesUseworkflowbuildid
+      , "priority" .=: msg.activityTaskScheduledEventAttributesPriority
       ]
 
-instance ProtoFromJSON ActivityTaskScheduledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityTaskScheduledEventAttributesActivityid <- obj .:? "activityId"
-    fld_activityTaskScheduledEventAttributesActivitytype <- obj .:? "activityType"
-    fld_activityTaskScheduledEventAttributesTaskqueue <- obj .:? "taskQueue"
-    fld_activityTaskScheduledEventAttributesHeader <- obj .:? "header"
-    fld_activityTaskScheduledEventAttributesInput <- obj .:? "input"
-    fld_activityTaskScheduledEventAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    fld_activityTaskScheduledEventAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    fld_activityTaskScheduledEventAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    fld_activityTaskScheduledEventAttributesHeartbeattimeout <- obj .:? "heartbeatTimeout"
-    fld_activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_activityTaskScheduledEventAttributesRetrypolicy <- obj .:? "retryPolicy"
-    fld_activityTaskScheduledEventAttributesUseworkflowbuildid <- obj .:? "useWorkflowBuildId"
-    fld_activityTaskScheduledEventAttributesPriority <- obj .:? "priority"
+instance Aeson.FromJSON ActivityTaskScheduledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityTaskScheduledEventAttributesActivityid <- parseFieldMaybe obj "activityId"
+    fld_activityTaskScheduledEventAttributesActivitytype <- parseFieldMaybe obj "activityType"
+    fld_activityTaskScheduledEventAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_activityTaskScheduledEventAttributesHeader <- parseFieldMaybe obj "header"
+    fld_activityTaskScheduledEventAttributesInput <- parseFieldMaybe obj "input"
+    fld_activityTaskScheduledEventAttributesScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_activityTaskScheduledEventAttributesScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_activityTaskScheduledEventAttributesStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_activityTaskScheduledEventAttributesHeartbeattimeout <- parseFieldMaybe obj "heartbeatTimeout"
+    fld_activityTaskScheduledEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_activityTaskScheduledEventAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_activityTaskScheduledEventAttributesUseworkflowbuildid <- parseFieldMaybe obj "useWorkflowBuildId"
+    fld_activityTaskScheduledEventAttributesPriority <- parseFieldMaybe obj "priority"
     pure defaultActivityTaskScheduledEventAttributes
       { activityTaskScheduledEventAttributesActivityid = maybe (activityTaskScheduledEventAttributesActivityid defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesActivityid
       , activityTaskScheduledEventAttributesActivitytype = maybe (activityTaskScheduledEventAttributesActivitytype defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesActivitytype
@@ -1600,7 +1600,7 @@ instance ProtoFromJSON ActivityTaskScheduledEventAttributes where
       , activityTaskScheduledEventAttributesUseworkflowbuildid = maybe (activityTaskScheduledEventAttributesUseworkflowbuildid defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesUseworkflowbuildid
       , activityTaskScheduledEventAttributesPriority = maybe (activityTaskScheduledEventAttributesPriority defaultActivityTaskScheduledEventAttributes) id fld_activityTaskScheduledEventAttributesPriority
       }
-  protoFromJSON _ = Right defaultActivityTaskScheduledEventAttributes
+  parseJSON _ = pure defaultActivityTaskScheduledEventAttributes
 
 data ActivityTaskStartedEventAttributes = ActivityTaskStartedEventAttributes
   { activityTaskStartedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -1679,26 +1679,26 @@ instance MessageDecode ActivityTaskStartedEventAttributes where
 instance IsMessage ActivityTaskStartedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ActivityTaskStartedEventAttributes"
 
-instance ProtoToJSON ActivityTaskStartedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.activityTaskStartedEventAttributesScheduledeventid
-      , "identity" .= msg.activityTaskStartedEventAttributesIdentity
-      , "requestId" .= msg.activityTaskStartedEventAttributesRequestid
-      , "attempt" .= msg.activityTaskStartedEventAttributesAttempt
-      , "lastFailure" .= msg.activityTaskStartedEventAttributesLastfailure
-      , "workerVersion" .= msg.activityTaskStartedEventAttributesWorkerversion
-      , "buildIdRedirectCounter" .= msg.activityTaskStartedEventAttributesBuildidredirectcounter
+instance Aeson.ToJSON ActivityTaskStartedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.activityTaskStartedEventAttributesScheduledeventid
+      , "identity" .=: msg.activityTaskStartedEventAttributesIdentity
+      , "requestId" .=: msg.activityTaskStartedEventAttributesRequestid
+      , "attempt" .=: msg.activityTaskStartedEventAttributesAttempt
+      , "lastFailure" .=: msg.activityTaskStartedEventAttributesLastfailure
+      , "workerVersion" .=: msg.activityTaskStartedEventAttributesWorkerversion
+      , "buildIdRedirectCounter" .=: msg.activityTaskStartedEventAttributesBuildidredirectcounter
       ]
 
-instance ProtoFromJSON ActivityTaskStartedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityTaskStartedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_activityTaskStartedEventAttributesIdentity <- obj .:? "identity"
-    fld_activityTaskStartedEventAttributesRequestid <- obj .:? "requestId"
-    fld_activityTaskStartedEventAttributesAttempt <- obj .:? "attempt"
-    fld_activityTaskStartedEventAttributesLastfailure <- obj .:? "lastFailure"
-    fld_activityTaskStartedEventAttributesWorkerversion <- obj .:? "workerVersion"
-    fld_activityTaskStartedEventAttributesBuildidredirectcounter <- obj .:? "buildIdRedirectCounter"
+instance Aeson.FromJSON ActivityTaskStartedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityTaskStartedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityTaskStartedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_activityTaskStartedEventAttributesRequestid <- parseFieldMaybe obj "requestId"
+    fld_activityTaskStartedEventAttributesAttempt <- parseFieldMaybe obj "attempt"
+    fld_activityTaskStartedEventAttributesLastfailure <- parseFieldMaybe obj "lastFailure"
+    fld_activityTaskStartedEventAttributesWorkerversion <- parseFieldMaybe obj "workerVersion"
+    fld_activityTaskStartedEventAttributesBuildidredirectcounter <- parseFieldMaybe obj "buildIdRedirectCounter"
     pure defaultActivityTaskStartedEventAttributes
       { activityTaskStartedEventAttributesScheduledeventid = maybe (activityTaskStartedEventAttributesScheduledeventid defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesScheduledeventid
       , activityTaskStartedEventAttributesIdentity = maybe (activityTaskStartedEventAttributesIdentity defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesIdentity
@@ -1708,7 +1708,7 @@ instance ProtoFromJSON ActivityTaskStartedEventAttributes where
       , activityTaskStartedEventAttributesWorkerversion = maybe (activityTaskStartedEventAttributesWorkerversion defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesWorkerversion
       , activityTaskStartedEventAttributesBuildidredirectcounter = maybe (activityTaskStartedEventAttributesBuildidredirectcounter defaultActivityTaskStartedEventAttributes) id fld_activityTaskStartedEventAttributesBuildidredirectcounter
       }
-  protoFromJSON _ = Right defaultActivityTaskStartedEventAttributes
+  parseJSON _ = pure defaultActivityTaskStartedEventAttributes
 
 data ActivityTaskCompletedEventAttributes = ActivityTaskCompletedEventAttributes
   { activityTaskCompletedEventAttributesResult :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -1773,22 +1773,22 @@ instance MessageDecode ActivityTaskCompletedEventAttributes where
 instance IsMessage ActivityTaskCompletedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ActivityTaskCompletedEventAttributes"
 
-instance ProtoToJSON ActivityTaskCompletedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "result" .= msg.activityTaskCompletedEventAttributesResult
-      , "scheduledEventId" .= msg.activityTaskCompletedEventAttributesScheduledeventid
-      , "startedEventId" .= msg.activityTaskCompletedEventAttributesStartedeventid
-      , "identity" .= msg.activityTaskCompletedEventAttributesIdentity
-      , "workerVersion" .= msg.activityTaskCompletedEventAttributesWorkerversion
+instance Aeson.ToJSON ActivityTaskCompletedEventAttributes where
+  toJSON msg = jsonObject
+      [ "result" .=: msg.activityTaskCompletedEventAttributesResult
+      , "scheduledEventId" .=: msg.activityTaskCompletedEventAttributesScheduledeventid
+      , "startedEventId" .=: msg.activityTaskCompletedEventAttributesStartedeventid
+      , "identity" .=: msg.activityTaskCompletedEventAttributesIdentity
+      , "workerVersion" .=: msg.activityTaskCompletedEventAttributesWorkerversion
       ]
 
-instance ProtoFromJSON ActivityTaskCompletedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityTaskCompletedEventAttributesResult <- obj .:? "result"
-    fld_activityTaskCompletedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_activityTaskCompletedEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_activityTaskCompletedEventAttributesIdentity <- obj .:? "identity"
-    fld_activityTaskCompletedEventAttributesWorkerversion <- obj .:? "workerVersion"
+instance Aeson.FromJSON ActivityTaskCompletedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityTaskCompletedEventAttributesResult <- parseFieldMaybe obj "result"
+    fld_activityTaskCompletedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityTaskCompletedEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_activityTaskCompletedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_activityTaskCompletedEventAttributesWorkerversion <- parseFieldMaybe obj "workerVersion"
     pure defaultActivityTaskCompletedEventAttributes
       { activityTaskCompletedEventAttributesResult = maybe (activityTaskCompletedEventAttributesResult defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesResult
       , activityTaskCompletedEventAttributesScheduledeventid = maybe (activityTaskCompletedEventAttributesScheduledeventid defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesScheduledeventid
@@ -1796,7 +1796,7 @@ instance ProtoFromJSON ActivityTaskCompletedEventAttributes where
       , activityTaskCompletedEventAttributesIdentity = maybe (activityTaskCompletedEventAttributesIdentity defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesIdentity
       , activityTaskCompletedEventAttributesWorkerversion = maybe (activityTaskCompletedEventAttributesWorkerversion defaultActivityTaskCompletedEventAttributes) id fld_activityTaskCompletedEventAttributesWorkerversion
       }
-  protoFromJSON _ = Right defaultActivityTaskCompletedEventAttributes
+  parseJSON _ = pure defaultActivityTaskCompletedEventAttributes
 
 data ActivityTaskFailedEventAttributes = ActivityTaskFailedEventAttributes
   { activityTaskFailedEventAttributesFailure :: !(Maybe TE_Failure_V1_Message.Failure)
@@ -1868,24 +1868,24 @@ instance MessageDecode ActivityTaskFailedEventAttributes where
 instance IsMessage ActivityTaskFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ActivityTaskFailedEventAttributes"
 
-instance ProtoToJSON ActivityTaskFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "failure" .= msg.activityTaskFailedEventAttributesFailure
-      , "scheduledEventId" .= msg.activityTaskFailedEventAttributesScheduledeventid
-      , "startedEventId" .= msg.activityTaskFailedEventAttributesStartedeventid
-      , "identity" .= msg.activityTaskFailedEventAttributesIdentity
-      , "retryState" .= msg.activityTaskFailedEventAttributesRetrystate
-      , "workerVersion" .= msg.activityTaskFailedEventAttributesWorkerversion
+instance Aeson.ToJSON ActivityTaskFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "failure" .=: msg.activityTaskFailedEventAttributesFailure
+      , "scheduledEventId" .=: msg.activityTaskFailedEventAttributesScheduledeventid
+      , "startedEventId" .=: msg.activityTaskFailedEventAttributesStartedeventid
+      , "identity" .=: msg.activityTaskFailedEventAttributesIdentity
+      , "retryState" .=: msg.activityTaskFailedEventAttributesRetrystate
+      , "workerVersion" .=: msg.activityTaskFailedEventAttributesWorkerversion
       ]
 
-instance ProtoFromJSON ActivityTaskFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityTaskFailedEventAttributesFailure <- obj .:? "failure"
-    fld_activityTaskFailedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_activityTaskFailedEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_activityTaskFailedEventAttributesIdentity <- obj .:? "identity"
-    fld_activityTaskFailedEventAttributesRetrystate <- obj .:? "retryState"
-    fld_activityTaskFailedEventAttributesWorkerversion <- obj .:? "workerVersion"
+instance Aeson.FromJSON ActivityTaskFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityTaskFailedEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_activityTaskFailedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityTaskFailedEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_activityTaskFailedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_activityTaskFailedEventAttributesRetrystate <- parseFieldMaybe obj "retryState"
+    fld_activityTaskFailedEventAttributesWorkerversion <- parseFieldMaybe obj "workerVersion"
     pure defaultActivityTaskFailedEventAttributes
       { activityTaskFailedEventAttributesFailure = maybe (activityTaskFailedEventAttributesFailure defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesFailure
       , activityTaskFailedEventAttributesScheduledeventid = maybe (activityTaskFailedEventAttributesScheduledeventid defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesScheduledeventid
@@ -1894,7 +1894,7 @@ instance ProtoFromJSON ActivityTaskFailedEventAttributes where
       , activityTaskFailedEventAttributesRetrystate = maybe (activityTaskFailedEventAttributesRetrystate defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesRetrystate
       , activityTaskFailedEventAttributesWorkerversion = maybe (activityTaskFailedEventAttributesWorkerversion defaultActivityTaskFailedEventAttributes) id fld_activityTaskFailedEventAttributesWorkerversion
       }
-  protoFromJSON _ = Right defaultActivityTaskFailedEventAttributes
+  parseJSON _ = pure defaultActivityTaskFailedEventAttributes
 
 data ActivityTaskTimedOutEventAttributes = ActivityTaskTimedOutEventAttributes
   { activityTaskTimedOutEventAttributesFailure :: !(Maybe TE_Failure_V1_Message.Failure)
@@ -1952,27 +1952,27 @@ instance MessageDecode ActivityTaskTimedOutEventAttributes where
 instance IsMessage ActivityTaskTimedOutEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ActivityTaskTimedOutEventAttributes"
 
-instance ProtoToJSON ActivityTaskTimedOutEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "failure" .= msg.activityTaskTimedOutEventAttributesFailure
-      , "scheduledEventId" .= msg.activityTaskTimedOutEventAttributesScheduledeventid
-      , "startedEventId" .= msg.activityTaskTimedOutEventAttributesStartedeventid
-      , "retryState" .= msg.activityTaskTimedOutEventAttributesRetrystate
+instance Aeson.ToJSON ActivityTaskTimedOutEventAttributes where
+  toJSON msg = jsonObject
+      [ "failure" .=: msg.activityTaskTimedOutEventAttributesFailure
+      , "scheduledEventId" .=: msg.activityTaskTimedOutEventAttributesScheduledeventid
+      , "startedEventId" .=: msg.activityTaskTimedOutEventAttributesStartedeventid
+      , "retryState" .=: msg.activityTaskTimedOutEventAttributesRetrystate
       ]
 
-instance ProtoFromJSON ActivityTaskTimedOutEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityTaskTimedOutEventAttributesFailure <- obj .:? "failure"
-    fld_activityTaskTimedOutEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_activityTaskTimedOutEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_activityTaskTimedOutEventAttributesRetrystate <- obj .:? "retryState"
+instance Aeson.FromJSON ActivityTaskTimedOutEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityTaskTimedOutEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_activityTaskTimedOutEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityTaskTimedOutEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_activityTaskTimedOutEventAttributesRetrystate <- parseFieldMaybe obj "retryState"
     pure defaultActivityTaskTimedOutEventAttributes
       { activityTaskTimedOutEventAttributesFailure = maybe (activityTaskTimedOutEventAttributesFailure defaultActivityTaskTimedOutEventAttributes) id fld_activityTaskTimedOutEventAttributesFailure
       , activityTaskTimedOutEventAttributesScheduledeventid = maybe (activityTaskTimedOutEventAttributesScheduledeventid defaultActivityTaskTimedOutEventAttributes) id fld_activityTaskTimedOutEventAttributesScheduledeventid
       , activityTaskTimedOutEventAttributesStartedeventid = maybe (activityTaskTimedOutEventAttributesStartedeventid defaultActivityTaskTimedOutEventAttributes) id fld_activityTaskTimedOutEventAttributesStartedeventid
       , activityTaskTimedOutEventAttributesRetrystate = maybe (activityTaskTimedOutEventAttributesRetrystate defaultActivityTaskTimedOutEventAttributes) id fld_activityTaskTimedOutEventAttributesRetrystate
       }
-  protoFromJSON _ = Right defaultActivityTaskTimedOutEventAttributes
+  parseJSON _ = pure defaultActivityTaskTimedOutEventAttributes
 
 data ActivityTaskCancelRequestedEventAttributes = ActivityTaskCancelRequestedEventAttributes
   { activityTaskCancelRequestedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -2016,21 +2016,20 @@ instance MessageDecode ActivityTaskCancelRequestedEventAttributes where
 instance IsMessage ActivityTaskCancelRequestedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ActivityTaskCancelRequestedEventAttributes"
 
-instance ProtoToJSON ActivityTaskCancelRequestedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.activityTaskCancelRequestedEventAttributesScheduledeventid
-      , "workflowTaskCompletedEventId" .= msg.activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid
+instance Aeson.ToJSON ActivityTaskCancelRequestedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.activityTaskCancelRequestedEventAttributesScheduledeventid
+      , "workflowTaskCompletedEventId" .=: msg.activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid
       ]
 
-instance ProtoFromJSON ActivityTaskCancelRequestedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityTaskCancelRequestedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+instance Aeson.FromJSON ActivityTaskCancelRequestedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityTaskCancelRequestedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
     pure defaultActivityTaskCancelRequestedEventAttributes
       { activityTaskCancelRequestedEventAttributesScheduledeventid = maybe (activityTaskCancelRequestedEventAttributesScheduledeventid defaultActivityTaskCancelRequestedEventAttributes) id fld_activityTaskCancelRequestedEventAttributesScheduledeventid
       , activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid = maybe (activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid defaultActivityTaskCancelRequestedEventAttributes) id fld_activityTaskCancelRequestedEventAttributesWorkflowtaskcompletedeventid
       }
-  protoFromJSON _ = Right defaultActivityTaskCancelRequestedEventAttributes
 
 data ActivityTaskCanceledEventAttributes = ActivityTaskCanceledEventAttributes
   { activityTaskCanceledEventAttributesDetails :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -2102,24 +2101,24 @@ instance MessageDecode ActivityTaskCanceledEventAttributes where
 instance IsMessage ActivityTaskCanceledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ActivityTaskCanceledEventAttributes"
 
-instance ProtoToJSON ActivityTaskCanceledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "details" .= msg.activityTaskCanceledEventAttributesDetails
-      , "latestCancelRequestedEventId" .= msg.activityTaskCanceledEventAttributesLatestcancelrequestedeventid
-      , "scheduledEventId" .= msg.activityTaskCanceledEventAttributesScheduledeventid
-      , "startedEventId" .= msg.activityTaskCanceledEventAttributesStartedeventid
-      , "identity" .= msg.activityTaskCanceledEventAttributesIdentity
-      , "workerVersion" .= msg.activityTaskCanceledEventAttributesWorkerversion
+instance Aeson.ToJSON ActivityTaskCanceledEventAttributes where
+  toJSON msg = jsonObject
+      [ "details" .=: msg.activityTaskCanceledEventAttributesDetails
+      , "latestCancelRequestedEventId" .=: msg.activityTaskCanceledEventAttributesLatestcancelrequestedeventid
+      , "scheduledEventId" .=: msg.activityTaskCanceledEventAttributesScheduledeventid
+      , "startedEventId" .=: msg.activityTaskCanceledEventAttributesStartedeventid
+      , "identity" .=: msg.activityTaskCanceledEventAttributesIdentity
+      , "workerVersion" .=: msg.activityTaskCanceledEventAttributesWorkerversion
       ]
 
-instance ProtoFromJSON ActivityTaskCanceledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityTaskCanceledEventAttributesDetails <- obj .:? "details"
-    fld_activityTaskCanceledEventAttributesLatestcancelrequestedeventid <- obj .:? "latestCancelRequestedEventId"
-    fld_activityTaskCanceledEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_activityTaskCanceledEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_activityTaskCanceledEventAttributesIdentity <- obj .:? "identity"
-    fld_activityTaskCanceledEventAttributesWorkerversion <- obj .:? "workerVersion"
+instance Aeson.FromJSON ActivityTaskCanceledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityTaskCanceledEventAttributesDetails <- parseFieldMaybe obj "details"
+    fld_activityTaskCanceledEventAttributesLatestcancelrequestedeventid <- parseFieldMaybe obj "latestCancelRequestedEventId"
+    fld_activityTaskCanceledEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityTaskCanceledEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_activityTaskCanceledEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_activityTaskCanceledEventAttributesWorkerversion <- parseFieldMaybe obj "workerVersion"
     pure defaultActivityTaskCanceledEventAttributes
       { activityTaskCanceledEventAttributesDetails = maybe (activityTaskCanceledEventAttributesDetails defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesDetails
       , activityTaskCanceledEventAttributesLatestcancelrequestedeventid = maybe (activityTaskCanceledEventAttributesLatestcancelrequestedeventid defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesLatestcancelrequestedeventid
@@ -2128,7 +2127,7 @@ instance ProtoFromJSON ActivityTaskCanceledEventAttributes where
       , activityTaskCanceledEventAttributesIdentity = maybe (activityTaskCanceledEventAttributesIdentity defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesIdentity
       , activityTaskCanceledEventAttributesWorkerversion = maybe (activityTaskCanceledEventAttributesWorkerversion defaultActivityTaskCanceledEventAttributes) id fld_activityTaskCanceledEventAttributesWorkerversion
       }
-  protoFromJSON _ = Right defaultActivityTaskCanceledEventAttributes
+  parseJSON _ = pure defaultActivityTaskCanceledEventAttributes
 
 data TimerStartedEventAttributes = TimerStartedEventAttributes
   { timerStartedEventAttributesTimerid :: !Text
@@ -2179,24 +2178,23 @@ instance MessageDecode TimerStartedEventAttributes where
 instance IsMessage TimerStartedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.TimerStartedEventAttributes"
 
-instance ProtoToJSON TimerStartedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "timerId" .= msg.timerStartedEventAttributesTimerid
-      , "startToFireTimeout" .= msg.timerStartedEventAttributesStarttofiretimeout
-      , "workflowTaskCompletedEventId" .= msg.timerStartedEventAttributesWorkflowtaskcompletedeventid
+instance Aeson.ToJSON TimerStartedEventAttributes where
+  toJSON msg = jsonObject
+      [ "timerId" .=: msg.timerStartedEventAttributesTimerid
+      , "startToFireTimeout" .=: msg.timerStartedEventAttributesStarttofiretimeout
+      , "workflowTaskCompletedEventId" .=: msg.timerStartedEventAttributesWorkflowtaskcompletedeventid
       ]
 
-instance ProtoFromJSON TimerStartedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_timerStartedEventAttributesTimerid <- obj .:? "timerId"
-    fld_timerStartedEventAttributesStarttofiretimeout <- obj .:? "startToFireTimeout"
-    fld_timerStartedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+instance Aeson.FromJSON TimerStartedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_timerStartedEventAttributesTimerid <- parseFieldMaybe obj "timerId"
+    fld_timerStartedEventAttributesStarttofiretimeout <- parseFieldMaybe obj "startToFireTimeout"
+    fld_timerStartedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
     pure defaultTimerStartedEventAttributes
       { timerStartedEventAttributesTimerid = maybe (timerStartedEventAttributesTimerid defaultTimerStartedEventAttributes) id fld_timerStartedEventAttributesTimerid
       , timerStartedEventAttributesStarttofiretimeout = maybe (timerStartedEventAttributesStarttofiretimeout defaultTimerStartedEventAttributes) id fld_timerStartedEventAttributesStarttofiretimeout
       , timerStartedEventAttributesWorkflowtaskcompletedeventid = maybe (timerStartedEventAttributesWorkflowtaskcompletedeventid defaultTimerStartedEventAttributes) id fld_timerStartedEventAttributesWorkflowtaskcompletedeventid
       }
-  protoFromJSON _ = Right defaultTimerStartedEventAttributes
 
 data TimerFiredEventAttributes = TimerFiredEventAttributes
   { timerFiredEventAttributesTimerid :: !Text
@@ -2240,21 +2238,20 @@ instance MessageDecode TimerFiredEventAttributes where
 instance IsMessage TimerFiredEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.TimerFiredEventAttributes"
 
-instance ProtoToJSON TimerFiredEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "timerId" .= msg.timerFiredEventAttributesTimerid
-      , "startedEventId" .= msg.timerFiredEventAttributesStartedeventid
+instance Aeson.ToJSON TimerFiredEventAttributes where
+  toJSON msg = jsonObject
+      [ "timerId" .=: msg.timerFiredEventAttributesTimerid
+      , "startedEventId" .=: msg.timerFiredEventAttributesStartedeventid
       ]
 
-instance ProtoFromJSON TimerFiredEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_timerFiredEventAttributesTimerid <- obj .:? "timerId"
-    fld_timerFiredEventAttributesStartedeventid <- obj .:? "startedEventId"
+instance Aeson.FromJSON TimerFiredEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_timerFiredEventAttributesTimerid <- parseFieldMaybe obj "timerId"
+    fld_timerFiredEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
     pure defaultTimerFiredEventAttributes
       { timerFiredEventAttributesTimerid = maybe (timerFiredEventAttributesTimerid defaultTimerFiredEventAttributes) id fld_timerFiredEventAttributesTimerid
       , timerFiredEventAttributesStartedeventid = maybe (timerFiredEventAttributesStartedeventid defaultTimerFiredEventAttributes) id fld_timerFiredEventAttributesStartedeventid
       }
-  protoFromJSON _ = Right defaultTimerFiredEventAttributes
 
 data TimerCanceledEventAttributes = TimerCanceledEventAttributes
   { timerCanceledEventAttributesTimerid :: !Text
@@ -2312,27 +2309,27 @@ instance MessageDecode TimerCanceledEventAttributes where
 instance IsMessage TimerCanceledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.TimerCanceledEventAttributes"
 
-instance ProtoToJSON TimerCanceledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "timerId" .= msg.timerCanceledEventAttributesTimerid
-      , "startedEventId" .= msg.timerCanceledEventAttributesStartedeventid
-      , "workflowTaskCompletedEventId" .= msg.timerCanceledEventAttributesWorkflowtaskcompletedeventid
-      , "identity" .= msg.timerCanceledEventAttributesIdentity
+instance Aeson.ToJSON TimerCanceledEventAttributes where
+  toJSON msg = jsonObject
+      [ "timerId" .=: msg.timerCanceledEventAttributesTimerid
+      , "startedEventId" .=: msg.timerCanceledEventAttributesStartedeventid
+      , "workflowTaskCompletedEventId" .=: msg.timerCanceledEventAttributesWorkflowtaskcompletedeventid
+      , "identity" .=: msg.timerCanceledEventAttributesIdentity
       ]
 
-instance ProtoFromJSON TimerCanceledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_timerCanceledEventAttributesTimerid <- obj .:? "timerId"
-    fld_timerCanceledEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_timerCanceledEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_timerCanceledEventAttributesIdentity <- obj .:? "identity"
+instance Aeson.FromJSON TimerCanceledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_timerCanceledEventAttributesTimerid <- parseFieldMaybe obj "timerId"
+    fld_timerCanceledEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_timerCanceledEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_timerCanceledEventAttributesIdentity <- parseFieldMaybe obj "identity"
     pure defaultTimerCanceledEventAttributes
       { timerCanceledEventAttributesTimerid = maybe (timerCanceledEventAttributesTimerid defaultTimerCanceledEventAttributes) id fld_timerCanceledEventAttributesTimerid
       , timerCanceledEventAttributesStartedeventid = maybe (timerCanceledEventAttributesStartedeventid defaultTimerCanceledEventAttributes) id fld_timerCanceledEventAttributesStartedeventid
       , timerCanceledEventAttributesWorkflowtaskcompletedeventid = maybe (timerCanceledEventAttributesWorkflowtaskcompletedeventid defaultTimerCanceledEventAttributes) id fld_timerCanceledEventAttributesWorkflowtaskcompletedeventid
       , timerCanceledEventAttributesIdentity = maybe (timerCanceledEventAttributesIdentity defaultTimerCanceledEventAttributes) id fld_timerCanceledEventAttributesIdentity
       }
-  protoFromJSON _ = Right defaultTimerCanceledEventAttributes
+  parseJSON _ = pure defaultTimerCanceledEventAttributes
 
 data WorkflowExecutionCancelRequestedEventAttributes = WorkflowExecutionCancelRequestedEventAttributes
   { workflowExecutionCancelRequestedEventAttributesCause :: !Text
@@ -2390,27 +2387,27 @@ instance MessageDecode WorkflowExecutionCancelRequestedEventAttributes where
 instance IsMessage WorkflowExecutionCancelRequestedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionCancelRequestedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionCancelRequestedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "cause" .= msg.workflowExecutionCancelRequestedEventAttributesCause
-      , "externalInitiatedEventId" .= msg.workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid
-      , "externalWorkflowExecution" .= msg.workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution
-      , "identity" .= msg.workflowExecutionCancelRequestedEventAttributesIdentity
+instance Aeson.ToJSON WorkflowExecutionCancelRequestedEventAttributes where
+  toJSON msg = jsonObject
+      [ "cause" .=: msg.workflowExecutionCancelRequestedEventAttributesCause
+      , "externalInitiatedEventId" .=: msg.workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid
+      , "externalWorkflowExecution" .=: msg.workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution
+      , "identity" .=: msg.workflowExecutionCancelRequestedEventAttributesIdentity
       ]
 
-instance ProtoFromJSON WorkflowExecutionCancelRequestedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionCancelRequestedEventAttributesCause <- obj .:? "cause"
-    fld_workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid <- obj .:? "externalInitiatedEventId"
-    fld_workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution <- obj .:? "externalWorkflowExecution"
-    fld_workflowExecutionCancelRequestedEventAttributesIdentity <- obj .:? "identity"
+instance Aeson.FromJSON WorkflowExecutionCancelRequestedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionCancelRequestedEventAttributesCause <- parseFieldMaybe obj "cause"
+    fld_workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid <- parseFieldMaybe obj "externalInitiatedEventId"
+    fld_workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution <- parseFieldMaybe obj "externalWorkflowExecution"
+    fld_workflowExecutionCancelRequestedEventAttributesIdentity <- parseFieldMaybe obj "identity"
     pure defaultWorkflowExecutionCancelRequestedEventAttributes
       { workflowExecutionCancelRequestedEventAttributesCause = maybe (workflowExecutionCancelRequestedEventAttributesCause defaultWorkflowExecutionCancelRequestedEventAttributes) id fld_workflowExecutionCancelRequestedEventAttributesCause
       , workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid = maybe (workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid defaultWorkflowExecutionCancelRequestedEventAttributes) id fld_workflowExecutionCancelRequestedEventAttributesExternalinitiatedeventid
       , workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution = maybe (workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution defaultWorkflowExecutionCancelRequestedEventAttributes) id fld_workflowExecutionCancelRequestedEventAttributesExternalworkflowexecution
       , workflowExecutionCancelRequestedEventAttributesIdentity = maybe (workflowExecutionCancelRequestedEventAttributesIdentity defaultWorkflowExecutionCancelRequestedEventAttributes) id fld_workflowExecutionCancelRequestedEventAttributesIdentity
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionCancelRequestedEventAttributes
+  parseJSON _ = pure defaultWorkflowExecutionCancelRequestedEventAttributes
 
 data WorkflowExecutionCanceledEventAttributes = WorkflowExecutionCanceledEventAttributes
   { workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
@@ -2454,21 +2451,20 @@ instance MessageDecode WorkflowExecutionCanceledEventAttributes where
 instance IsMessage WorkflowExecutionCanceledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionCanceledEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionCanceledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "workflowTaskCompletedEventId" .= msg.workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid
-      , "details" .= msg.workflowExecutionCanceledEventAttributesDetails
+instance Aeson.ToJSON WorkflowExecutionCanceledEventAttributes where
+  toJSON msg = jsonObject
+      [ "workflowTaskCompletedEventId" .=: msg.workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid
+      , "details" .=: msg.workflowExecutionCanceledEventAttributesDetails
       ]
 
-instance ProtoFromJSON WorkflowExecutionCanceledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_workflowExecutionCanceledEventAttributesDetails <- obj .:? "details"
+instance Aeson.FromJSON WorkflowExecutionCanceledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_workflowExecutionCanceledEventAttributesDetails <- parseFieldMaybe obj "details"
     pure defaultWorkflowExecutionCanceledEventAttributes
       { workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid = maybe (workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid defaultWorkflowExecutionCanceledEventAttributes) id fld_workflowExecutionCanceledEventAttributesWorkflowtaskcompletedeventid
       , workflowExecutionCanceledEventAttributesDetails = maybe (workflowExecutionCanceledEventAttributesDetails defaultWorkflowExecutionCanceledEventAttributes) id fld_workflowExecutionCanceledEventAttributesDetails
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionCanceledEventAttributes
 
 data MarkerRecordedEventAttributes = MarkerRecordedEventAttributes
   { markerRecordedEventAttributesMarkername :: !Text
@@ -2536,22 +2532,22 @@ instance MessageDecode MarkerRecordedEventAttributes where
 instance IsMessage MarkerRecordedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.MarkerRecordedEventAttributes"
 
-instance ProtoToJSON MarkerRecordedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "markerName" .= msg.markerRecordedEventAttributesMarkername
-      , "details" .= msg.markerRecordedEventAttributesDetails
-      , "workflowTaskCompletedEventId" .= msg.markerRecordedEventAttributesWorkflowtaskcompletedeventid
-      , "header" .= msg.markerRecordedEventAttributesHeader
-      , "failure" .= msg.markerRecordedEventAttributesFailure
+instance Aeson.ToJSON MarkerRecordedEventAttributes where
+  toJSON msg = jsonObject
+      [ "markerName" .=: msg.markerRecordedEventAttributesMarkername
+      , "details" .=: msg.markerRecordedEventAttributesDetails
+      , "workflowTaskCompletedEventId" .=: msg.markerRecordedEventAttributesWorkflowtaskcompletedeventid
+      , "header" .=: msg.markerRecordedEventAttributesHeader
+      , "failure" .=: msg.markerRecordedEventAttributesFailure
       ]
 
-instance ProtoFromJSON MarkerRecordedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_markerRecordedEventAttributesMarkername <- obj .:? "markerName"
-    fld_markerRecordedEventAttributesDetails <- obj .:? "details"
-    fld_markerRecordedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_markerRecordedEventAttributesHeader <- obj .:? "header"
-    fld_markerRecordedEventAttributesFailure <- obj .:? "failure"
+instance Aeson.FromJSON MarkerRecordedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_markerRecordedEventAttributesMarkername <- parseFieldMaybe obj "markerName"
+    fld_markerRecordedEventAttributesDetails <- parseFieldMaybe obj "details"
+    fld_markerRecordedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_markerRecordedEventAttributesHeader <- parseFieldMaybe obj "header"
+    fld_markerRecordedEventAttributesFailure <- parseFieldMaybe obj "failure"
     pure defaultMarkerRecordedEventAttributes
       { markerRecordedEventAttributesMarkername = maybe (markerRecordedEventAttributesMarkername defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesMarkername
       , markerRecordedEventAttributesDetails = maybe (markerRecordedEventAttributesDetails defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesDetails
@@ -2559,7 +2555,7 @@ instance ProtoFromJSON MarkerRecordedEventAttributes where
       , markerRecordedEventAttributesHeader = maybe (markerRecordedEventAttributesHeader defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesHeader
       , markerRecordedEventAttributesFailure = maybe (markerRecordedEventAttributesFailure defaultMarkerRecordedEventAttributes) id fld_markerRecordedEventAttributesFailure
       }
-  protoFromJSON _ = Right defaultMarkerRecordedEventAttributes
+  parseJSON _ = pure defaultMarkerRecordedEventAttributes
 
 data WorkflowExecutionSignaledEventAttributes = WorkflowExecutionSignaledEventAttributes
   { workflowExecutionSignaledEventAttributesSignalname :: !Text
@@ -2631,24 +2627,24 @@ instance MessageDecode WorkflowExecutionSignaledEventAttributes where
 instance IsMessage WorkflowExecutionSignaledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionSignaledEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionSignaledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "signalName" .= msg.workflowExecutionSignaledEventAttributesSignalname
-      , "input" .= msg.workflowExecutionSignaledEventAttributesInput
-      , "identity" .= msg.workflowExecutionSignaledEventAttributesIdentity
-      , "header" .= msg.workflowExecutionSignaledEventAttributesHeader
-      , "skipGenerateWorkflowTask" .= msg.workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask
-      , "externalWorkflowExecution" .= msg.workflowExecutionSignaledEventAttributesExternalworkflowexecution
+instance Aeson.ToJSON WorkflowExecutionSignaledEventAttributes where
+  toJSON msg = jsonObject
+      [ "signalName" .=: msg.workflowExecutionSignaledEventAttributesSignalname
+      , "input" .=: msg.workflowExecutionSignaledEventAttributesInput
+      , "identity" .=: msg.workflowExecutionSignaledEventAttributesIdentity
+      , "header" .=: msg.workflowExecutionSignaledEventAttributesHeader
+      , "skipGenerateWorkflowTask" .=: msg.workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask
+      , "externalWorkflowExecution" .=: msg.workflowExecutionSignaledEventAttributesExternalworkflowexecution
       ]
 
-instance ProtoFromJSON WorkflowExecutionSignaledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionSignaledEventAttributesSignalname <- obj .:? "signalName"
-    fld_workflowExecutionSignaledEventAttributesInput <- obj .:? "input"
-    fld_workflowExecutionSignaledEventAttributesIdentity <- obj .:? "identity"
-    fld_workflowExecutionSignaledEventAttributesHeader <- obj .:? "header"
-    fld_workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask <- obj .:? "skipGenerateWorkflowTask"
-    fld_workflowExecutionSignaledEventAttributesExternalworkflowexecution <- obj .:? "externalWorkflowExecution"
+instance Aeson.FromJSON WorkflowExecutionSignaledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionSignaledEventAttributesSignalname <- parseFieldMaybe obj "signalName"
+    fld_workflowExecutionSignaledEventAttributesInput <- parseFieldMaybe obj "input"
+    fld_workflowExecutionSignaledEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowExecutionSignaledEventAttributesHeader <- parseFieldMaybe obj "header"
+    fld_workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask <- parseFieldMaybe obj "skipGenerateWorkflowTask"
+    fld_workflowExecutionSignaledEventAttributesExternalworkflowexecution <- parseFieldMaybe obj "externalWorkflowExecution"
     pure defaultWorkflowExecutionSignaledEventAttributes
       { workflowExecutionSignaledEventAttributesSignalname = maybe (workflowExecutionSignaledEventAttributesSignalname defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesSignalname
       , workflowExecutionSignaledEventAttributesInput = maybe (workflowExecutionSignaledEventAttributesInput defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesInput
@@ -2657,7 +2653,7 @@ instance ProtoFromJSON WorkflowExecutionSignaledEventAttributes where
       , workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask = maybe (workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesSkipgenerateworkflowtask
       , workflowExecutionSignaledEventAttributesExternalworkflowexecution = maybe (workflowExecutionSignaledEventAttributesExternalworkflowexecution defaultWorkflowExecutionSignaledEventAttributes) id fld_workflowExecutionSignaledEventAttributesExternalworkflowexecution
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionSignaledEventAttributes
+  parseJSON _ = pure defaultWorkflowExecutionSignaledEventAttributes
 
 data WorkflowExecutionTerminatedEventAttributes = WorkflowExecutionTerminatedEventAttributes
   { workflowExecutionTerminatedEventAttributesReason :: !Text
@@ -2708,24 +2704,23 @@ instance MessageDecode WorkflowExecutionTerminatedEventAttributes where
 instance IsMessage WorkflowExecutionTerminatedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionTerminatedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionTerminatedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "reason" .= msg.workflowExecutionTerminatedEventAttributesReason
-      , "details" .= msg.workflowExecutionTerminatedEventAttributesDetails
-      , "identity" .= msg.workflowExecutionTerminatedEventAttributesIdentity
+instance Aeson.ToJSON WorkflowExecutionTerminatedEventAttributes where
+  toJSON msg = jsonObject
+      [ "reason" .=: msg.workflowExecutionTerminatedEventAttributesReason
+      , "details" .=: msg.workflowExecutionTerminatedEventAttributesDetails
+      , "identity" .=: msg.workflowExecutionTerminatedEventAttributesIdentity
       ]
 
-instance ProtoFromJSON WorkflowExecutionTerminatedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionTerminatedEventAttributesReason <- obj .:? "reason"
-    fld_workflowExecutionTerminatedEventAttributesDetails <- obj .:? "details"
-    fld_workflowExecutionTerminatedEventAttributesIdentity <- obj .:? "identity"
+instance Aeson.FromJSON WorkflowExecutionTerminatedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionTerminatedEventAttributesReason <- parseFieldMaybe obj "reason"
+    fld_workflowExecutionTerminatedEventAttributesDetails <- parseFieldMaybe obj "details"
+    fld_workflowExecutionTerminatedEventAttributesIdentity <- parseFieldMaybe obj "identity"
     pure defaultWorkflowExecutionTerminatedEventAttributes
       { workflowExecutionTerminatedEventAttributesReason = maybe (workflowExecutionTerminatedEventAttributesReason defaultWorkflowExecutionTerminatedEventAttributes) id fld_workflowExecutionTerminatedEventAttributesReason
       , workflowExecutionTerminatedEventAttributesDetails = maybe (workflowExecutionTerminatedEventAttributesDetails defaultWorkflowExecutionTerminatedEventAttributes) id fld_workflowExecutionTerminatedEventAttributesDetails
       , workflowExecutionTerminatedEventAttributesIdentity = maybe (workflowExecutionTerminatedEventAttributesIdentity defaultWorkflowExecutionTerminatedEventAttributes) id fld_workflowExecutionTerminatedEventAttributesIdentity
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionTerminatedEventAttributes
 
 data RequestCancelExternalWorkflowExecutionInitiatedEventAttributes = RequestCancelExternalWorkflowExecutionInitiatedEventAttributes
   { requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
@@ -2804,26 +2799,26 @@ instance MessageDecode RequestCancelExternalWorkflowExecutionInitiatedEventAttri
 instance IsMessage RequestCancelExternalWorkflowExecutionInitiatedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.RequestCancelExternalWorkflowExecutionInitiatedEventAttributes"
 
-instance ProtoToJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "workflowTaskCompletedEventId" .= msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
-      , "namespace" .= msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace
-      , "namespaceId" .= msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid
-      , "workflowExecution" .= msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution
-      , "control" .= msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl
-      , "childWorkflowOnly" .= msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly
-      , "reason" .= msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason
+instance Aeson.ToJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttributes where
+  toJSON msg = jsonObject
+      [ "workflowTaskCompletedEventId" .=: msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
+      , "namespace" .=: msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace
+      , "namespaceId" .=: msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution
+      , "control" .=: msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl
+      , "childWorkflowOnly" .=: msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly
+      , "reason" .=: msg.requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason
       ]
 
-instance ProtoFromJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace <- obj .:? "namespace"
-    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl <- obj .:? "control"
-    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
-    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason <- obj .:? "reason"
+instance Aeson.FromJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesControl <- parseFieldMaybe obj "control"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly <- parseFieldMaybe obj "childWorkflowOnly"
+    fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason <- parseFieldMaybe obj "reason"
     pure defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes
       { requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
       , requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesNamespace
@@ -2833,7 +2828,7 @@ instance ProtoFromJSON RequestCancelExternalWorkflowExecutionInitiatedEventAttri
       , requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly
       , requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason = maybe (requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes) id fld_requestCancelExternalWorkflowExecutionInitiatedEventAttributesReason
       }
-  protoFromJSON _ = Right defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes
+  parseJSON _ = pure defaultRequestCancelExternalWorkflowExecutionInitiatedEventAttributes
 
 data RequestCancelExternalWorkflowExecutionFailedEventAttributes = RequestCancelExternalWorkflowExecutionFailedEventAttributes
   { requestCancelExternalWorkflowExecutionFailedEventAttributesCause :: !TE_Enums_V1_FailedCause.CancelExternalWorkflowExecutionFailedCause
@@ -2912,26 +2907,26 @@ instance MessageDecode RequestCancelExternalWorkflowExecutionFailedEventAttribut
 instance IsMessage RequestCancelExternalWorkflowExecutionFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.RequestCancelExternalWorkflowExecutionFailedEventAttributes"
 
-instance ProtoToJSON RequestCancelExternalWorkflowExecutionFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "cause" .= msg.requestCancelExternalWorkflowExecutionFailedEventAttributesCause
-      , "workflowTaskCompletedEventId" .= msg.requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
-      , "namespace" .= msg.requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace
-      , "namespaceId" .= msg.requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid
-      , "workflowExecution" .= msg.requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution
-      , "initiatedEventId" .= msg.requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid
-      , "control" .= msg.requestCancelExternalWorkflowExecutionFailedEventAttributesControl
+instance Aeson.ToJSON RequestCancelExternalWorkflowExecutionFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "cause" .=: msg.requestCancelExternalWorkflowExecutionFailedEventAttributesCause
+      , "workflowTaskCompletedEventId" .=: msg.requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
+      , "namespace" .=: msg.requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace
+      , "namespaceId" .=: msg.requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution
+      , "initiatedEventId" .=: msg.requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid
+      , "control" .=: msg.requestCancelExternalWorkflowExecutionFailedEventAttributesControl
       ]
 
-instance ProtoFromJSON RequestCancelExternalWorkflowExecutionFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesCause <- obj .:? "cause"
-    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace <- obj .:? "namespace"
-    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesControl <- obj .:? "control"
+instance Aeson.FromJSON RequestCancelExternalWorkflowExecutionFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesCause <- parseFieldMaybe obj "cause"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_requestCancelExternalWorkflowExecutionFailedEventAttributesControl <- parseFieldMaybe obj "control"
     pure defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes
       { requestCancelExternalWorkflowExecutionFailedEventAttributesCause = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesCause defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesCause
       , requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
@@ -2941,7 +2936,7 @@ instance ProtoFromJSON RequestCancelExternalWorkflowExecutionFailedEventAttribut
       , requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesInitiatedeventid
       , requestCancelExternalWorkflowExecutionFailedEventAttributesControl = maybe (requestCancelExternalWorkflowExecutionFailedEventAttributesControl defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes) id fld_requestCancelExternalWorkflowExecutionFailedEventAttributesControl
       }
-  protoFromJSON _ = Right defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes
+  parseJSON _ = pure defaultRequestCancelExternalWorkflowExecutionFailedEventAttributes
 
 data ExternalWorkflowExecutionCancelRequestedEventAttributes = ExternalWorkflowExecutionCancelRequestedEventAttributes
   { externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
@@ -2999,27 +2994,27 @@ instance MessageDecode ExternalWorkflowExecutionCancelRequestedEventAttributes w
 instance IsMessage ExternalWorkflowExecutionCancelRequestedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ExternalWorkflowExecutionCancelRequestedEventAttributes"
 
-instance ProtoToJSON ExternalWorkflowExecutionCancelRequestedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "initiatedEventId" .= msg.externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid
-      , "namespace" .= msg.externalWorkflowExecutionCancelRequestedEventAttributesNamespace
-      , "namespaceId" .= msg.externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid
-      , "workflowExecution" .= msg.externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution
+instance Aeson.ToJSON ExternalWorkflowExecutionCancelRequestedEventAttributes where
+  toJSON msg = jsonObject
+      [ "initiatedEventId" .=: msg.externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid
+      , "namespace" .=: msg.externalWorkflowExecutionCancelRequestedEventAttributesNamespace
+      , "namespaceId" .=: msg.externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution
       ]
 
-instance ProtoFromJSON ExternalWorkflowExecutionCancelRequestedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespace <- obj .:? "namespace"
-    fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
+instance Aeson.FromJSON ExternalWorkflowExecutionCancelRequestedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
     pure defaultExternalWorkflowExecutionCancelRequestedEventAttributes
       { externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid = maybe (externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid defaultExternalWorkflowExecutionCancelRequestedEventAttributes) id fld_externalWorkflowExecutionCancelRequestedEventAttributesInitiatedeventid
       , externalWorkflowExecutionCancelRequestedEventAttributesNamespace = maybe (externalWorkflowExecutionCancelRequestedEventAttributesNamespace defaultExternalWorkflowExecutionCancelRequestedEventAttributes) id fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespace
       , externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid = maybe (externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid defaultExternalWorkflowExecutionCancelRequestedEventAttributes) id fld_externalWorkflowExecutionCancelRequestedEventAttributesNamespaceid
       , externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution = maybe (externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution defaultExternalWorkflowExecutionCancelRequestedEventAttributes) id fld_externalWorkflowExecutionCancelRequestedEventAttributesWorkflowexecution
       }
-  protoFromJSON _ = Right defaultExternalWorkflowExecutionCancelRequestedEventAttributes
+  parseJSON _ = pure defaultExternalWorkflowExecutionCancelRequestedEventAttributes
 
 data SignalExternalWorkflowExecutionInitiatedEventAttributes = SignalExternalWorkflowExecutionInitiatedEventAttributes
   { signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
@@ -3112,30 +3107,30 @@ instance MessageDecode SignalExternalWorkflowExecutionInitiatedEventAttributes w
 instance IsMessage SignalExternalWorkflowExecutionInitiatedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.SignalExternalWorkflowExecutionInitiatedEventAttributes"
 
-instance ProtoToJSON SignalExternalWorkflowExecutionInitiatedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "workflowTaskCompletedEventId" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
-      , "namespace" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesNamespace
-      , "namespaceId" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid
-      , "workflowExecution" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution
-      , "signalName" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesSignalname
-      , "input" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesInput
-      , "control" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesControl
-      , "childWorkflowOnly" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly
-      , "header" .= msg.signalExternalWorkflowExecutionInitiatedEventAttributesHeader
+instance Aeson.ToJSON SignalExternalWorkflowExecutionInitiatedEventAttributes where
+  toJSON msg = jsonObject
+      [ "workflowTaskCompletedEventId" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
+      , "namespace" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesNamespace
+      , "namespaceId" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution
+      , "signalName" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesSignalname
+      , "input" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesInput
+      , "control" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesControl
+      , "childWorkflowOnly" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly
+      , "header" .=: msg.signalExternalWorkflowExecutionInitiatedEventAttributesHeader
       ]
 
-instance ProtoFromJSON SignalExternalWorkflowExecutionInitiatedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespace <- obj .:? "namespace"
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesSignalname <- obj .:? "signalName"
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesInput <- obj .:? "input"
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesControl <- obj .:? "control"
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
-    fld_signalExternalWorkflowExecutionInitiatedEventAttributesHeader <- obj .:? "header"
+instance Aeson.FromJSON SignalExternalWorkflowExecutionInitiatedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesSignalname <- parseFieldMaybe obj "signalName"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesInput <- parseFieldMaybe obj "input"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesControl <- parseFieldMaybe obj "control"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly <- parseFieldMaybe obj "childWorkflowOnly"
+    fld_signalExternalWorkflowExecutionInitiatedEventAttributesHeader <- parseFieldMaybe obj "header"
     pure defaultSignalExternalWorkflowExecutionInitiatedEventAttributes
       { signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
       , signalExternalWorkflowExecutionInitiatedEventAttributesNamespace = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesNamespace defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesNamespace
@@ -3147,7 +3142,7 @@ instance ProtoFromJSON SignalExternalWorkflowExecutionInitiatedEventAttributes w
       , signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesChildworkflowonly
       , signalExternalWorkflowExecutionInitiatedEventAttributesHeader = maybe (signalExternalWorkflowExecutionInitiatedEventAttributesHeader defaultSignalExternalWorkflowExecutionInitiatedEventAttributes) id fld_signalExternalWorkflowExecutionInitiatedEventAttributesHeader
       }
-  protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionInitiatedEventAttributes
+  parseJSON _ = pure defaultSignalExternalWorkflowExecutionInitiatedEventAttributes
 
 data SignalExternalWorkflowExecutionFailedEventAttributes = SignalExternalWorkflowExecutionFailedEventAttributes
   { signalExternalWorkflowExecutionFailedEventAttributesCause :: !TE_Enums_V1_FailedCause.SignalExternalWorkflowExecutionFailedCause
@@ -3226,26 +3221,26 @@ instance MessageDecode SignalExternalWorkflowExecutionFailedEventAttributes wher
 instance IsMessage SignalExternalWorkflowExecutionFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.SignalExternalWorkflowExecutionFailedEventAttributes"
 
-instance ProtoToJSON SignalExternalWorkflowExecutionFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "cause" .= msg.signalExternalWorkflowExecutionFailedEventAttributesCause
-      , "workflowTaskCompletedEventId" .= msg.signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
-      , "namespace" .= msg.signalExternalWorkflowExecutionFailedEventAttributesNamespace
-      , "namespaceId" .= msg.signalExternalWorkflowExecutionFailedEventAttributesNamespaceid
-      , "workflowExecution" .= msg.signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution
-      , "initiatedEventId" .= msg.signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid
-      , "control" .= msg.signalExternalWorkflowExecutionFailedEventAttributesControl
+instance Aeson.ToJSON SignalExternalWorkflowExecutionFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "cause" .=: msg.signalExternalWorkflowExecutionFailedEventAttributesCause
+      , "workflowTaskCompletedEventId" .=: msg.signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
+      , "namespace" .=: msg.signalExternalWorkflowExecutionFailedEventAttributesNamespace
+      , "namespaceId" .=: msg.signalExternalWorkflowExecutionFailedEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution
+      , "initiatedEventId" .=: msg.signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid
+      , "control" .=: msg.signalExternalWorkflowExecutionFailedEventAttributesControl
       ]
 
-instance ProtoFromJSON SignalExternalWorkflowExecutionFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_signalExternalWorkflowExecutionFailedEventAttributesCause <- obj .:? "cause"
-    fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_signalExternalWorkflowExecutionFailedEventAttributesNamespace <- obj .:? "namespace"
-    fld_signalExternalWorkflowExecutionFailedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_signalExternalWorkflowExecutionFailedEventAttributesControl <- obj .:? "control"
+instance Aeson.FromJSON SignalExternalWorkflowExecutionFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_signalExternalWorkflowExecutionFailedEventAttributesCause <- parseFieldMaybe obj "cause"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_signalExternalWorkflowExecutionFailedEventAttributesControl <- parseFieldMaybe obj "control"
     pure defaultSignalExternalWorkflowExecutionFailedEventAttributes
       { signalExternalWorkflowExecutionFailedEventAttributesCause = maybe (signalExternalWorkflowExecutionFailedEventAttributesCause defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesCause
       , signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid = maybe (signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
@@ -3255,7 +3250,7 @@ instance ProtoFromJSON SignalExternalWorkflowExecutionFailedEventAttributes wher
       , signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid = maybe (signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesInitiatedeventid
       , signalExternalWorkflowExecutionFailedEventAttributesControl = maybe (signalExternalWorkflowExecutionFailedEventAttributesControl defaultSignalExternalWorkflowExecutionFailedEventAttributes) id fld_signalExternalWorkflowExecutionFailedEventAttributesControl
       }
-  protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionFailedEventAttributes
+  parseJSON _ = pure defaultSignalExternalWorkflowExecutionFailedEventAttributes
 
 data ExternalWorkflowExecutionSignaledEventAttributes = ExternalWorkflowExecutionSignaledEventAttributes
   { externalWorkflowExecutionSignaledEventAttributesInitiatedeventid :: {-# UNPACK #-} !Int64
@@ -3320,22 +3315,22 @@ instance MessageDecode ExternalWorkflowExecutionSignaledEventAttributes where
 instance IsMessage ExternalWorkflowExecutionSignaledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ExternalWorkflowExecutionSignaledEventAttributes"
 
-instance ProtoToJSON ExternalWorkflowExecutionSignaledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "initiatedEventId" .= msg.externalWorkflowExecutionSignaledEventAttributesInitiatedeventid
-      , "namespace" .= msg.externalWorkflowExecutionSignaledEventAttributesNamespace
-      , "namespaceId" .= msg.externalWorkflowExecutionSignaledEventAttributesNamespaceid
-      , "workflowExecution" .= msg.externalWorkflowExecutionSignaledEventAttributesWorkflowexecution
-      , "control" .= msg.externalWorkflowExecutionSignaledEventAttributesControl
+instance Aeson.ToJSON ExternalWorkflowExecutionSignaledEventAttributes where
+  toJSON msg = jsonObject
+      [ "initiatedEventId" .=: msg.externalWorkflowExecutionSignaledEventAttributesInitiatedeventid
+      , "namespace" .=: msg.externalWorkflowExecutionSignaledEventAttributesNamespace
+      , "namespaceId" .=: msg.externalWorkflowExecutionSignaledEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.externalWorkflowExecutionSignaledEventAttributesWorkflowexecution
+      , "control" .=: msg.externalWorkflowExecutionSignaledEventAttributesControl
       ]
 
-instance ProtoFromJSON ExternalWorkflowExecutionSignaledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_externalWorkflowExecutionSignaledEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_externalWorkflowExecutionSignaledEventAttributesNamespace <- obj .:? "namespace"
-    fld_externalWorkflowExecutionSignaledEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_externalWorkflowExecutionSignaledEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_externalWorkflowExecutionSignaledEventAttributesControl <- obj .:? "control"
+instance Aeson.FromJSON ExternalWorkflowExecutionSignaledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_externalWorkflowExecutionSignaledEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_externalWorkflowExecutionSignaledEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_externalWorkflowExecutionSignaledEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_externalWorkflowExecutionSignaledEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_externalWorkflowExecutionSignaledEventAttributesControl <- parseFieldMaybe obj "control"
     pure defaultExternalWorkflowExecutionSignaledEventAttributes
       { externalWorkflowExecutionSignaledEventAttributesInitiatedeventid = maybe (externalWorkflowExecutionSignaledEventAttributesInitiatedeventid defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesInitiatedeventid
       , externalWorkflowExecutionSignaledEventAttributesNamespace = maybe (externalWorkflowExecutionSignaledEventAttributesNamespace defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesNamespace
@@ -3343,7 +3338,7 @@ instance ProtoFromJSON ExternalWorkflowExecutionSignaledEventAttributes where
       , externalWorkflowExecutionSignaledEventAttributesWorkflowexecution = maybe (externalWorkflowExecutionSignaledEventAttributesWorkflowexecution defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesWorkflowexecution
       , externalWorkflowExecutionSignaledEventAttributesControl = maybe (externalWorkflowExecutionSignaledEventAttributesControl defaultExternalWorkflowExecutionSignaledEventAttributes) id fld_externalWorkflowExecutionSignaledEventAttributesControl
       }
-  protoFromJSON _ = Right defaultExternalWorkflowExecutionSignaledEventAttributes
+  parseJSON _ = pure defaultExternalWorkflowExecutionSignaledEventAttributes
 
 data UpsertWorkflowSearchAttributesEventAttributes = UpsertWorkflowSearchAttributesEventAttributes
   { upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
@@ -3387,21 +3382,20 @@ instance MessageDecode UpsertWorkflowSearchAttributesEventAttributes where
 instance IsMessage UpsertWorkflowSearchAttributesEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.UpsertWorkflowSearchAttributesEventAttributes"
 
-instance ProtoToJSON UpsertWorkflowSearchAttributesEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "workflowTaskCompletedEventId" .= msg.upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid
-      , "searchAttributes" .= msg.upsertWorkflowSearchAttributesEventAttributesSearchattributes
+instance Aeson.ToJSON UpsertWorkflowSearchAttributesEventAttributes where
+  toJSON msg = jsonObject
+      [ "workflowTaskCompletedEventId" .=: msg.upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid
+      , "searchAttributes" .=: msg.upsertWorkflowSearchAttributesEventAttributesSearchattributes
       ]
 
-instance ProtoFromJSON UpsertWorkflowSearchAttributesEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_upsertWorkflowSearchAttributesEventAttributesSearchattributes <- obj .:? "searchAttributes"
+instance Aeson.FromJSON UpsertWorkflowSearchAttributesEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_upsertWorkflowSearchAttributesEventAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
     pure defaultUpsertWorkflowSearchAttributesEventAttributes
       { upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid = maybe (upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid defaultUpsertWorkflowSearchAttributesEventAttributes) id fld_upsertWorkflowSearchAttributesEventAttributesWorkflowtaskcompletedeventid
       , upsertWorkflowSearchAttributesEventAttributesSearchattributes = maybe (upsertWorkflowSearchAttributesEventAttributesSearchattributes defaultUpsertWorkflowSearchAttributesEventAttributes) id fld_upsertWorkflowSearchAttributesEventAttributesSearchattributes
       }
-  protoFromJSON _ = Right defaultUpsertWorkflowSearchAttributesEventAttributes
 
 data WorkflowPropertiesModifiedEventAttributes = WorkflowPropertiesModifiedEventAttributes
   { workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid :: {-# UNPACK #-} !Int64
@@ -3445,21 +3439,20 @@ instance MessageDecode WorkflowPropertiesModifiedEventAttributes where
 instance IsMessage WorkflowPropertiesModifiedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowPropertiesModifiedEventAttributes"
 
-instance ProtoToJSON WorkflowPropertiesModifiedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "workflowTaskCompletedEventId" .= msg.workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid
-      , "upsertedMemo" .= msg.workflowPropertiesModifiedEventAttributesUpsertedmemo
+instance Aeson.ToJSON WorkflowPropertiesModifiedEventAttributes where
+  toJSON msg = jsonObject
+      [ "workflowTaskCompletedEventId" .=: msg.workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid
+      , "upsertedMemo" .=: msg.workflowPropertiesModifiedEventAttributesUpsertedmemo
       ]
 
-instance ProtoFromJSON WorkflowPropertiesModifiedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_workflowPropertiesModifiedEventAttributesUpsertedmemo <- obj .:? "upsertedMemo"
+instance Aeson.FromJSON WorkflowPropertiesModifiedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_workflowPropertiesModifiedEventAttributesUpsertedmemo <- parseFieldMaybe obj "upsertedMemo"
     pure defaultWorkflowPropertiesModifiedEventAttributes
       { workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid = maybe (workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid defaultWorkflowPropertiesModifiedEventAttributes) id fld_workflowPropertiesModifiedEventAttributesWorkflowtaskcompletedeventid
       , workflowPropertiesModifiedEventAttributesUpsertedmemo = maybe (workflowPropertiesModifiedEventAttributesUpsertedmemo defaultWorkflowPropertiesModifiedEventAttributes) id fld_workflowPropertiesModifiedEventAttributesUpsertedmemo
       }
-  protoFromJSON _ = Right defaultWorkflowPropertiesModifiedEventAttributes
 
 data StartChildWorkflowExecutionInitiatedEventAttributes = StartChildWorkflowExecutionInitiatedEventAttributes
   { startChildWorkflowExecutionInitiatedEventAttributesNamespace :: !Text
@@ -3629,52 +3622,52 @@ instance MessageDecode StartChildWorkflowExecutionInitiatedEventAttributes where
 instance IsMessage StartChildWorkflowExecutionInitiatedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.StartChildWorkflowExecutionInitiatedEventAttributes"
 
-instance ProtoToJSON StartChildWorkflowExecutionInitiatedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.startChildWorkflowExecutionInitiatedEventAttributesNamespace
-      , "namespaceId" .= msg.startChildWorkflowExecutionInitiatedEventAttributesNamespaceid
-      , "workflowId" .= msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowid
-      , "workflowType" .= msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype
-      , "taskQueue" .= msg.startChildWorkflowExecutionInitiatedEventAttributesTaskqueue
-      , "input" .= msg.startChildWorkflowExecutionInitiatedEventAttributesInput
-      , "workflowExecutionTimeout" .= msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout
-      , "workflowRunTimeout" .= msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout
-      , "workflowTaskTimeout" .= msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout
-      , "parentClosePolicy" .= msg.startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy
-      , "control" .= msg.startChildWorkflowExecutionInitiatedEventAttributesControl
-      , "workflowTaskCompletedEventId" .= msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
-      , "workflowIdReusePolicy" .= msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy
-      , "retryPolicy" .= msg.startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy
-      , "cronSchedule" .= msg.startChildWorkflowExecutionInitiatedEventAttributesCronschedule
-      , "header" .= msg.startChildWorkflowExecutionInitiatedEventAttributesHeader
-      , "memo" .= msg.startChildWorkflowExecutionInitiatedEventAttributesMemo
-      , "searchAttributes" .= msg.startChildWorkflowExecutionInitiatedEventAttributesSearchattributes
-      , "inheritBuildId" .= msg.startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid
-      , "priority" .= msg.startChildWorkflowExecutionInitiatedEventAttributesPriority
+instance Aeson.ToJSON StartChildWorkflowExecutionInitiatedEventAttributes where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesNamespace
+      , "namespaceId" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesNamespaceid
+      , "workflowId" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowid
+      , "workflowType" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype
+      , "taskQueue" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesTaskqueue
+      , "input" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesInput
+      , "workflowExecutionTimeout" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout
+      , "workflowRunTimeout" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout
+      , "workflowTaskTimeout" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout
+      , "parentClosePolicy" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy
+      , "control" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesControl
+      , "workflowTaskCompletedEventId" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid
+      , "workflowIdReusePolicy" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy
+      , "retryPolicy" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy
+      , "cronSchedule" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesCronschedule
+      , "header" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesHeader
+      , "memo" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesMemo
+      , "searchAttributes" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesSearchattributes
+      , "inheritBuildId" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid
+      , "priority" .=: msg.startChildWorkflowExecutionInitiatedEventAttributesPriority
       ]
 
-instance ProtoFromJSON StartChildWorkflowExecutionInitiatedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_startChildWorkflowExecutionInitiatedEventAttributesNamespace <- obj .:? "namespace"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowid <- obj .:? "workflowId"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesTaskqueue <- obj .:? "taskQueue"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesInput <- obj .:? "input"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy <- obj .:? "parentClosePolicy"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesControl <- obj .:? "control"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy <- obj .:? "retryPolicy"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesCronschedule <- obj .:? "cronSchedule"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesHeader <- obj .:? "header"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesMemo <- obj .:? "memo"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesSearchattributes <- obj .:? "searchAttributes"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid <- obj .:? "inheritBuildId"
-    fld_startChildWorkflowExecutionInitiatedEventAttributesPriority <- obj .:? "priority"
+instance Aeson.FromJSON StartChildWorkflowExecutionInitiatedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startChildWorkflowExecutionInitiatedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesInput <- parseFieldMaybe obj "input"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowexecutiontimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesParentclosepolicy <- parseFieldMaybe obj "parentClosePolicy"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesControl <- parseFieldMaybe obj "control"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesWorkflowidreusepolicy <- parseFieldMaybe obj "workflowIdReusePolicy"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesCronschedule <- parseFieldMaybe obj "cronSchedule"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesHeader <- parseFieldMaybe obj "header"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesMemo <- parseFieldMaybe obj "memo"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid <- parseFieldMaybe obj "inheritBuildId"
+    fld_startChildWorkflowExecutionInitiatedEventAttributesPriority <- parseFieldMaybe obj "priority"
     pure defaultStartChildWorkflowExecutionInitiatedEventAttributes
       { startChildWorkflowExecutionInitiatedEventAttributesNamespace = maybe (startChildWorkflowExecutionInitiatedEventAttributesNamespace defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesNamespace
       , startChildWorkflowExecutionInitiatedEventAttributesNamespaceid = maybe (startChildWorkflowExecutionInitiatedEventAttributesNamespaceid defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesNamespaceid
@@ -3697,7 +3690,7 @@ instance ProtoFromJSON StartChildWorkflowExecutionInitiatedEventAttributes where
       , startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid = maybe (startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesInheritbuildid
       , startChildWorkflowExecutionInitiatedEventAttributesPriority = maybe (startChildWorkflowExecutionInitiatedEventAttributesPriority defaultStartChildWorkflowExecutionInitiatedEventAttributes) id fld_startChildWorkflowExecutionInitiatedEventAttributesPriority
       }
-  protoFromJSON _ = Right defaultStartChildWorkflowExecutionInitiatedEventAttributes
+  parseJSON _ = pure defaultStartChildWorkflowExecutionInitiatedEventAttributes
 
 data StartChildWorkflowExecutionFailedEventAttributes = StartChildWorkflowExecutionFailedEventAttributes
   { startChildWorkflowExecutionFailedEventAttributesNamespace :: !Text
@@ -3783,28 +3776,28 @@ instance MessageDecode StartChildWorkflowExecutionFailedEventAttributes where
 instance IsMessage StartChildWorkflowExecutionFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.StartChildWorkflowExecutionFailedEventAttributes"
 
-instance ProtoToJSON StartChildWorkflowExecutionFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.startChildWorkflowExecutionFailedEventAttributesNamespace
-      , "namespaceId" .= msg.startChildWorkflowExecutionFailedEventAttributesNamespaceid
-      , "workflowId" .= msg.startChildWorkflowExecutionFailedEventAttributesWorkflowid
-      , "workflowType" .= msg.startChildWorkflowExecutionFailedEventAttributesWorkflowtype
-      , "cause" .= msg.startChildWorkflowExecutionFailedEventAttributesCause
-      , "control" .= msg.startChildWorkflowExecutionFailedEventAttributesControl
-      , "initiatedEventId" .= msg.startChildWorkflowExecutionFailedEventAttributesInitiatedeventid
-      , "workflowTaskCompletedEventId" .= msg.startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
+instance Aeson.ToJSON StartChildWorkflowExecutionFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.startChildWorkflowExecutionFailedEventAttributesNamespace
+      , "namespaceId" .=: msg.startChildWorkflowExecutionFailedEventAttributesNamespaceid
+      , "workflowId" .=: msg.startChildWorkflowExecutionFailedEventAttributesWorkflowid
+      , "workflowType" .=: msg.startChildWorkflowExecutionFailedEventAttributesWorkflowtype
+      , "cause" .=: msg.startChildWorkflowExecutionFailedEventAttributesCause
+      , "control" .=: msg.startChildWorkflowExecutionFailedEventAttributesControl
+      , "initiatedEventId" .=: msg.startChildWorkflowExecutionFailedEventAttributesInitiatedeventid
+      , "workflowTaskCompletedEventId" .=: msg.startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
       ]
 
-instance ProtoFromJSON StartChildWorkflowExecutionFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_startChildWorkflowExecutionFailedEventAttributesNamespace <- obj .:? "namespace"
-    fld_startChildWorkflowExecutionFailedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowid <- obj .:? "workflowId"
-    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_startChildWorkflowExecutionFailedEventAttributesCause <- obj .:? "cause"
-    fld_startChildWorkflowExecutionFailedEventAttributesControl <- obj .:? "control"
-    fld_startChildWorkflowExecutionFailedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+instance Aeson.FromJSON StartChildWorkflowExecutionFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startChildWorkflowExecutionFailedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_startChildWorkflowExecutionFailedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_startChildWorkflowExecutionFailedEventAttributesCause <- parseFieldMaybe obj "cause"
+    fld_startChildWorkflowExecutionFailedEventAttributesControl <- parseFieldMaybe obj "control"
+    fld_startChildWorkflowExecutionFailedEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
     pure defaultStartChildWorkflowExecutionFailedEventAttributes
       { startChildWorkflowExecutionFailedEventAttributesNamespace = maybe (startChildWorkflowExecutionFailedEventAttributesNamespace defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesNamespace
       , startChildWorkflowExecutionFailedEventAttributesNamespaceid = maybe (startChildWorkflowExecutionFailedEventAttributesNamespaceid defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesNamespaceid
@@ -3815,7 +3808,7 @@ instance ProtoFromJSON StartChildWorkflowExecutionFailedEventAttributes where
       , startChildWorkflowExecutionFailedEventAttributesInitiatedeventid = maybe (startChildWorkflowExecutionFailedEventAttributesInitiatedeventid defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesInitiatedeventid
       , startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid = maybe (startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid defaultStartChildWorkflowExecutionFailedEventAttributes) id fld_startChildWorkflowExecutionFailedEventAttributesWorkflowtaskcompletedeventid
       }
-  protoFromJSON _ = Right defaultStartChildWorkflowExecutionFailedEventAttributes
+  parseJSON _ = pure defaultStartChildWorkflowExecutionFailedEventAttributes
 
 data ChildWorkflowExecutionStartedEventAttributes = ChildWorkflowExecutionStartedEventAttributes
   { childWorkflowExecutionStartedEventAttributesNamespace :: !Text
@@ -3887,24 +3880,24 @@ instance MessageDecode ChildWorkflowExecutionStartedEventAttributes where
 instance IsMessage ChildWorkflowExecutionStartedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionStartedEventAttributes"
 
-instance ProtoToJSON ChildWorkflowExecutionStartedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.childWorkflowExecutionStartedEventAttributesNamespace
-      , "namespaceId" .= msg.childWorkflowExecutionStartedEventAttributesNamespaceid
-      , "initiatedEventId" .= msg.childWorkflowExecutionStartedEventAttributesInitiatedeventid
-      , "workflowExecution" .= msg.childWorkflowExecutionStartedEventAttributesWorkflowexecution
-      , "workflowType" .= msg.childWorkflowExecutionStartedEventAttributesWorkflowtype
-      , "header" .= msg.childWorkflowExecutionStartedEventAttributesHeader
+instance Aeson.ToJSON ChildWorkflowExecutionStartedEventAttributes where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.childWorkflowExecutionStartedEventAttributesNamespace
+      , "namespaceId" .=: msg.childWorkflowExecutionStartedEventAttributesNamespaceid
+      , "initiatedEventId" .=: msg.childWorkflowExecutionStartedEventAttributesInitiatedeventid
+      , "workflowExecution" .=: msg.childWorkflowExecutionStartedEventAttributesWorkflowexecution
+      , "workflowType" .=: msg.childWorkflowExecutionStartedEventAttributesWorkflowtype
+      , "header" .=: msg.childWorkflowExecutionStartedEventAttributesHeader
       ]
 
-instance ProtoFromJSON ChildWorkflowExecutionStartedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_childWorkflowExecutionStartedEventAttributesNamespace <- obj .:? "namespace"
-    fld_childWorkflowExecutionStartedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_childWorkflowExecutionStartedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_childWorkflowExecutionStartedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_childWorkflowExecutionStartedEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_childWorkflowExecutionStartedEventAttributesHeader <- obj .:? "header"
+instance Aeson.FromJSON ChildWorkflowExecutionStartedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_childWorkflowExecutionStartedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_childWorkflowExecutionStartedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_childWorkflowExecutionStartedEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_childWorkflowExecutionStartedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_childWorkflowExecutionStartedEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_childWorkflowExecutionStartedEventAttributesHeader <- parseFieldMaybe obj "header"
     pure defaultChildWorkflowExecutionStartedEventAttributes
       { childWorkflowExecutionStartedEventAttributesNamespace = maybe (childWorkflowExecutionStartedEventAttributesNamespace defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesNamespace
       , childWorkflowExecutionStartedEventAttributesNamespaceid = maybe (childWorkflowExecutionStartedEventAttributesNamespaceid defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesNamespaceid
@@ -3913,7 +3906,7 @@ instance ProtoFromJSON ChildWorkflowExecutionStartedEventAttributes where
       , childWorkflowExecutionStartedEventAttributesWorkflowtype = maybe (childWorkflowExecutionStartedEventAttributesWorkflowtype defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesWorkflowtype
       , childWorkflowExecutionStartedEventAttributesHeader = maybe (childWorkflowExecutionStartedEventAttributesHeader defaultChildWorkflowExecutionStartedEventAttributes) id fld_childWorkflowExecutionStartedEventAttributesHeader
       }
-  protoFromJSON _ = Right defaultChildWorkflowExecutionStartedEventAttributes
+  parseJSON _ = pure defaultChildWorkflowExecutionStartedEventAttributes
 
 data ChildWorkflowExecutionCompletedEventAttributes = ChildWorkflowExecutionCompletedEventAttributes
   { childWorkflowExecutionCompletedEventAttributesResult :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -3992,26 +3985,26 @@ instance MessageDecode ChildWorkflowExecutionCompletedEventAttributes where
 instance IsMessage ChildWorkflowExecutionCompletedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionCompletedEventAttributes"
 
-instance ProtoToJSON ChildWorkflowExecutionCompletedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "result" .= msg.childWorkflowExecutionCompletedEventAttributesResult
-      , "namespace" .= msg.childWorkflowExecutionCompletedEventAttributesNamespace
-      , "namespaceId" .= msg.childWorkflowExecutionCompletedEventAttributesNamespaceid
-      , "workflowExecution" .= msg.childWorkflowExecutionCompletedEventAttributesWorkflowexecution
-      , "workflowType" .= msg.childWorkflowExecutionCompletedEventAttributesWorkflowtype
-      , "initiatedEventId" .= msg.childWorkflowExecutionCompletedEventAttributesInitiatedeventid
-      , "startedEventId" .= msg.childWorkflowExecutionCompletedEventAttributesStartedeventid
+instance Aeson.ToJSON ChildWorkflowExecutionCompletedEventAttributes where
+  toJSON msg = jsonObject
+      [ "result" .=: msg.childWorkflowExecutionCompletedEventAttributesResult
+      , "namespace" .=: msg.childWorkflowExecutionCompletedEventAttributesNamespace
+      , "namespaceId" .=: msg.childWorkflowExecutionCompletedEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.childWorkflowExecutionCompletedEventAttributesWorkflowexecution
+      , "workflowType" .=: msg.childWorkflowExecutionCompletedEventAttributesWorkflowtype
+      , "initiatedEventId" .=: msg.childWorkflowExecutionCompletedEventAttributesInitiatedeventid
+      , "startedEventId" .=: msg.childWorkflowExecutionCompletedEventAttributesStartedeventid
       ]
 
-instance ProtoFromJSON ChildWorkflowExecutionCompletedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_childWorkflowExecutionCompletedEventAttributesResult <- obj .:? "result"
-    fld_childWorkflowExecutionCompletedEventAttributesNamespace <- obj .:? "namespace"
-    fld_childWorkflowExecutionCompletedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_childWorkflowExecutionCompletedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_childWorkflowExecutionCompletedEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_childWorkflowExecutionCompletedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_childWorkflowExecutionCompletedEventAttributesStartedeventid <- obj .:? "startedEventId"
+instance Aeson.FromJSON ChildWorkflowExecutionCompletedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_childWorkflowExecutionCompletedEventAttributesResult <- parseFieldMaybe obj "result"
+    fld_childWorkflowExecutionCompletedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_childWorkflowExecutionCompletedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_childWorkflowExecutionCompletedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_childWorkflowExecutionCompletedEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_childWorkflowExecutionCompletedEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_childWorkflowExecutionCompletedEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
     pure defaultChildWorkflowExecutionCompletedEventAttributes
       { childWorkflowExecutionCompletedEventAttributesResult = maybe (childWorkflowExecutionCompletedEventAttributesResult defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesResult
       , childWorkflowExecutionCompletedEventAttributesNamespace = maybe (childWorkflowExecutionCompletedEventAttributesNamespace defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesNamespace
@@ -4021,7 +4014,7 @@ instance ProtoFromJSON ChildWorkflowExecutionCompletedEventAttributes where
       , childWorkflowExecutionCompletedEventAttributesInitiatedeventid = maybe (childWorkflowExecutionCompletedEventAttributesInitiatedeventid defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesInitiatedeventid
       , childWorkflowExecutionCompletedEventAttributesStartedeventid = maybe (childWorkflowExecutionCompletedEventAttributesStartedeventid defaultChildWorkflowExecutionCompletedEventAttributes) id fld_childWorkflowExecutionCompletedEventAttributesStartedeventid
       }
-  protoFromJSON _ = Right defaultChildWorkflowExecutionCompletedEventAttributes
+  parseJSON _ = pure defaultChildWorkflowExecutionCompletedEventAttributes
 
 data ChildWorkflowExecutionFailedEventAttributes = ChildWorkflowExecutionFailedEventAttributes
   { childWorkflowExecutionFailedEventAttributesFailure :: !(Maybe TE_Failure_V1_Message.Failure)
@@ -4107,28 +4100,28 @@ instance MessageDecode ChildWorkflowExecutionFailedEventAttributes where
 instance IsMessage ChildWorkflowExecutionFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionFailedEventAttributes"
 
-instance ProtoToJSON ChildWorkflowExecutionFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "failure" .= msg.childWorkflowExecutionFailedEventAttributesFailure
-      , "namespace" .= msg.childWorkflowExecutionFailedEventAttributesNamespace
-      , "namespaceId" .= msg.childWorkflowExecutionFailedEventAttributesNamespaceid
-      , "workflowExecution" .= msg.childWorkflowExecutionFailedEventAttributesWorkflowexecution
-      , "workflowType" .= msg.childWorkflowExecutionFailedEventAttributesWorkflowtype
-      , "initiatedEventId" .= msg.childWorkflowExecutionFailedEventAttributesInitiatedeventid
-      , "startedEventId" .= msg.childWorkflowExecutionFailedEventAttributesStartedeventid
-      , "retryState" .= msg.childWorkflowExecutionFailedEventAttributesRetrystate
+instance Aeson.ToJSON ChildWorkflowExecutionFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "failure" .=: msg.childWorkflowExecutionFailedEventAttributesFailure
+      , "namespace" .=: msg.childWorkflowExecutionFailedEventAttributesNamespace
+      , "namespaceId" .=: msg.childWorkflowExecutionFailedEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.childWorkflowExecutionFailedEventAttributesWorkflowexecution
+      , "workflowType" .=: msg.childWorkflowExecutionFailedEventAttributesWorkflowtype
+      , "initiatedEventId" .=: msg.childWorkflowExecutionFailedEventAttributesInitiatedeventid
+      , "startedEventId" .=: msg.childWorkflowExecutionFailedEventAttributesStartedeventid
+      , "retryState" .=: msg.childWorkflowExecutionFailedEventAttributesRetrystate
       ]
 
-instance ProtoFromJSON ChildWorkflowExecutionFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_childWorkflowExecutionFailedEventAttributesFailure <- obj .:? "failure"
-    fld_childWorkflowExecutionFailedEventAttributesNamespace <- obj .:? "namespace"
-    fld_childWorkflowExecutionFailedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_childWorkflowExecutionFailedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_childWorkflowExecutionFailedEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_childWorkflowExecutionFailedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_childWorkflowExecutionFailedEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_childWorkflowExecutionFailedEventAttributesRetrystate <- obj .:? "retryState"
+instance Aeson.FromJSON ChildWorkflowExecutionFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_childWorkflowExecutionFailedEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_childWorkflowExecutionFailedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_childWorkflowExecutionFailedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_childWorkflowExecutionFailedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_childWorkflowExecutionFailedEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_childWorkflowExecutionFailedEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_childWorkflowExecutionFailedEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_childWorkflowExecutionFailedEventAttributesRetrystate <- parseFieldMaybe obj "retryState"
     pure defaultChildWorkflowExecutionFailedEventAttributes
       { childWorkflowExecutionFailedEventAttributesFailure = maybe (childWorkflowExecutionFailedEventAttributesFailure defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesFailure
       , childWorkflowExecutionFailedEventAttributesNamespace = maybe (childWorkflowExecutionFailedEventAttributesNamespace defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesNamespace
@@ -4139,7 +4132,7 @@ instance ProtoFromJSON ChildWorkflowExecutionFailedEventAttributes where
       , childWorkflowExecutionFailedEventAttributesStartedeventid = maybe (childWorkflowExecutionFailedEventAttributesStartedeventid defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesStartedeventid
       , childWorkflowExecutionFailedEventAttributesRetrystate = maybe (childWorkflowExecutionFailedEventAttributesRetrystate defaultChildWorkflowExecutionFailedEventAttributes) id fld_childWorkflowExecutionFailedEventAttributesRetrystate
       }
-  protoFromJSON _ = Right defaultChildWorkflowExecutionFailedEventAttributes
+  parseJSON _ = pure defaultChildWorkflowExecutionFailedEventAttributes
 
 data ChildWorkflowExecutionCanceledEventAttributes = ChildWorkflowExecutionCanceledEventAttributes
   { childWorkflowExecutionCanceledEventAttributesDetails :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -4218,26 +4211,26 @@ instance MessageDecode ChildWorkflowExecutionCanceledEventAttributes where
 instance IsMessage ChildWorkflowExecutionCanceledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionCanceledEventAttributes"
 
-instance ProtoToJSON ChildWorkflowExecutionCanceledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "details" .= msg.childWorkflowExecutionCanceledEventAttributesDetails
-      , "namespace" .= msg.childWorkflowExecutionCanceledEventAttributesNamespace
-      , "namespaceId" .= msg.childWorkflowExecutionCanceledEventAttributesNamespaceid
-      , "workflowExecution" .= msg.childWorkflowExecutionCanceledEventAttributesWorkflowexecution
-      , "workflowType" .= msg.childWorkflowExecutionCanceledEventAttributesWorkflowtype
-      , "initiatedEventId" .= msg.childWorkflowExecutionCanceledEventAttributesInitiatedeventid
-      , "startedEventId" .= msg.childWorkflowExecutionCanceledEventAttributesStartedeventid
+instance Aeson.ToJSON ChildWorkflowExecutionCanceledEventAttributes where
+  toJSON msg = jsonObject
+      [ "details" .=: msg.childWorkflowExecutionCanceledEventAttributesDetails
+      , "namespace" .=: msg.childWorkflowExecutionCanceledEventAttributesNamespace
+      , "namespaceId" .=: msg.childWorkflowExecutionCanceledEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.childWorkflowExecutionCanceledEventAttributesWorkflowexecution
+      , "workflowType" .=: msg.childWorkflowExecutionCanceledEventAttributesWorkflowtype
+      , "initiatedEventId" .=: msg.childWorkflowExecutionCanceledEventAttributesInitiatedeventid
+      , "startedEventId" .=: msg.childWorkflowExecutionCanceledEventAttributesStartedeventid
       ]
 
-instance ProtoFromJSON ChildWorkflowExecutionCanceledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_childWorkflowExecutionCanceledEventAttributesDetails <- obj .:? "details"
-    fld_childWorkflowExecutionCanceledEventAttributesNamespace <- obj .:? "namespace"
-    fld_childWorkflowExecutionCanceledEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_childWorkflowExecutionCanceledEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_childWorkflowExecutionCanceledEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_childWorkflowExecutionCanceledEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_childWorkflowExecutionCanceledEventAttributesStartedeventid <- obj .:? "startedEventId"
+instance Aeson.FromJSON ChildWorkflowExecutionCanceledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_childWorkflowExecutionCanceledEventAttributesDetails <- parseFieldMaybe obj "details"
+    fld_childWorkflowExecutionCanceledEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_childWorkflowExecutionCanceledEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_childWorkflowExecutionCanceledEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_childWorkflowExecutionCanceledEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_childWorkflowExecutionCanceledEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_childWorkflowExecutionCanceledEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
     pure defaultChildWorkflowExecutionCanceledEventAttributes
       { childWorkflowExecutionCanceledEventAttributesDetails = maybe (childWorkflowExecutionCanceledEventAttributesDetails defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesDetails
       , childWorkflowExecutionCanceledEventAttributesNamespace = maybe (childWorkflowExecutionCanceledEventAttributesNamespace defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesNamespace
@@ -4247,7 +4240,7 @@ instance ProtoFromJSON ChildWorkflowExecutionCanceledEventAttributes where
       , childWorkflowExecutionCanceledEventAttributesInitiatedeventid = maybe (childWorkflowExecutionCanceledEventAttributesInitiatedeventid defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesInitiatedeventid
       , childWorkflowExecutionCanceledEventAttributesStartedeventid = maybe (childWorkflowExecutionCanceledEventAttributesStartedeventid defaultChildWorkflowExecutionCanceledEventAttributes) id fld_childWorkflowExecutionCanceledEventAttributesStartedeventid
       }
-  protoFromJSON _ = Right defaultChildWorkflowExecutionCanceledEventAttributes
+  parseJSON _ = pure defaultChildWorkflowExecutionCanceledEventAttributes
 
 data ChildWorkflowExecutionTimedOutEventAttributes = ChildWorkflowExecutionTimedOutEventAttributes
   { childWorkflowExecutionTimedOutEventAttributesNamespace :: !Text
@@ -4326,26 +4319,26 @@ instance MessageDecode ChildWorkflowExecutionTimedOutEventAttributes where
 instance IsMessage ChildWorkflowExecutionTimedOutEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionTimedOutEventAttributes"
 
-instance ProtoToJSON ChildWorkflowExecutionTimedOutEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.childWorkflowExecutionTimedOutEventAttributesNamespace
-      , "namespaceId" .= msg.childWorkflowExecutionTimedOutEventAttributesNamespaceid
-      , "workflowExecution" .= msg.childWorkflowExecutionTimedOutEventAttributesWorkflowexecution
-      , "workflowType" .= msg.childWorkflowExecutionTimedOutEventAttributesWorkflowtype
-      , "initiatedEventId" .= msg.childWorkflowExecutionTimedOutEventAttributesInitiatedeventid
-      , "startedEventId" .= msg.childWorkflowExecutionTimedOutEventAttributesStartedeventid
-      , "retryState" .= msg.childWorkflowExecutionTimedOutEventAttributesRetrystate
+instance Aeson.ToJSON ChildWorkflowExecutionTimedOutEventAttributes where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.childWorkflowExecutionTimedOutEventAttributesNamespace
+      , "namespaceId" .=: msg.childWorkflowExecutionTimedOutEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.childWorkflowExecutionTimedOutEventAttributesWorkflowexecution
+      , "workflowType" .=: msg.childWorkflowExecutionTimedOutEventAttributesWorkflowtype
+      , "initiatedEventId" .=: msg.childWorkflowExecutionTimedOutEventAttributesInitiatedeventid
+      , "startedEventId" .=: msg.childWorkflowExecutionTimedOutEventAttributesStartedeventid
+      , "retryState" .=: msg.childWorkflowExecutionTimedOutEventAttributesRetrystate
       ]
 
-instance ProtoFromJSON ChildWorkflowExecutionTimedOutEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_childWorkflowExecutionTimedOutEventAttributesNamespace <- obj .:? "namespace"
-    fld_childWorkflowExecutionTimedOutEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_childWorkflowExecutionTimedOutEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_childWorkflowExecutionTimedOutEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_childWorkflowExecutionTimedOutEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_childWorkflowExecutionTimedOutEventAttributesStartedeventid <- obj .:? "startedEventId"
-    fld_childWorkflowExecutionTimedOutEventAttributesRetrystate <- obj .:? "retryState"
+instance Aeson.FromJSON ChildWorkflowExecutionTimedOutEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_childWorkflowExecutionTimedOutEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_childWorkflowExecutionTimedOutEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_childWorkflowExecutionTimedOutEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_childWorkflowExecutionTimedOutEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_childWorkflowExecutionTimedOutEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_childWorkflowExecutionTimedOutEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_childWorkflowExecutionTimedOutEventAttributesRetrystate <- parseFieldMaybe obj "retryState"
     pure defaultChildWorkflowExecutionTimedOutEventAttributes
       { childWorkflowExecutionTimedOutEventAttributesNamespace = maybe (childWorkflowExecutionTimedOutEventAttributesNamespace defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesNamespace
       , childWorkflowExecutionTimedOutEventAttributesNamespaceid = maybe (childWorkflowExecutionTimedOutEventAttributesNamespaceid defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesNamespaceid
@@ -4355,7 +4348,7 @@ instance ProtoFromJSON ChildWorkflowExecutionTimedOutEventAttributes where
       , childWorkflowExecutionTimedOutEventAttributesStartedeventid = maybe (childWorkflowExecutionTimedOutEventAttributesStartedeventid defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesStartedeventid
       , childWorkflowExecutionTimedOutEventAttributesRetrystate = maybe (childWorkflowExecutionTimedOutEventAttributesRetrystate defaultChildWorkflowExecutionTimedOutEventAttributes) id fld_childWorkflowExecutionTimedOutEventAttributesRetrystate
       }
-  protoFromJSON _ = Right defaultChildWorkflowExecutionTimedOutEventAttributes
+  parseJSON _ = pure defaultChildWorkflowExecutionTimedOutEventAttributes
 
 data ChildWorkflowExecutionTerminatedEventAttributes = ChildWorkflowExecutionTerminatedEventAttributes
   { childWorkflowExecutionTerminatedEventAttributesNamespace :: !Text
@@ -4427,24 +4420,24 @@ instance MessageDecode ChildWorkflowExecutionTerminatedEventAttributes where
 instance IsMessage ChildWorkflowExecutionTerminatedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ChildWorkflowExecutionTerminatedEventAttributes"
 
-instance ProtoToJSON ChildWorkflowExecutionTerminatedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.childWorkflowExecutionTerminatedEventAttributesNamespace
-      , "namespaceId" .= msg.childWorkflowExecutionTerminatedEventAttributesNamespaceid
-      , "workflowExecution" .= msg.childWorkflowExecutionTerminatedEventAttributesWorkflowexecution
-      , "workflowType" .= msg.childWorkflowExecutionTerminatedEventAttributesWorkflowtype
-      , "initiatedEventId" .= msg.childWorkflowExecutionTerminatedEventAttributesInitiatedeventid
-      , "startedEventId" .= msg.childWorkflowExecutionTerminatedEventAttributesStartedeventid
+instance Aeson.ToJSON ChildWorkflowExecutionTerminatedEventAttributes where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.childWorkflowExecutionTerminatedEventAttributesNamespace
+      , "namespaceId" .=: msg.childWorkflowExecutionTerminatedEventAttributesNamespaceid
+      , "workflowExecution" .=: msg.childWorkflowExecutionTerminatedEventAttributesWorkflowexecution
+      , "workflowType" .=: msg.childWorkflowExecutionTerminatedEventAttributesWorkflowtype
+      , "initiatedEventId" .=: msg.childWorkflowExecutionTerminatedEventAttributesInitiatedeventid
+      , "startedEventId" .=: msg.childWorkflowExecutionTerminatedEventAttributesStartedeventid
       ]
 
-instance ProtoFromJSON ChildWorkflowExecutionTerminatedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_childWorkflowExecutionTerminatedEventAttributesNamespace <- obj .:? "namespace"
-    fld_childWorkflowExecutionTerminatedEventAttributesNamespaceid <- obj .:? "namespaceId"
-    fld_childWorkflowExecutionTerminatedEventAttributesWorkflowexecution <- obj .:? "workflowExecution"
-    fld_childWorkflowExecutionTerminatedEventAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_childWorkflowExecutionTerminatedEventAttributesInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_childWorkflowExecutionTerminatedEventAttributesStartedeventid <- obj .:? "startedEventId"
+instance Aeson.FromJSON ChildWorkflowExecutionTerminatedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_childWorkflowExecutionTerminatedEventAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_childWorkflowExecutionTerminatedEventAttributesNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_childWorkflowExecutionTerminatedEventAttributesWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_childWorkflowExecutionTerminatedEventAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_childWorkflowExecutionTerminatedEventAttributesInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_childWorkflowExecutionTerminatedEventAttributesStartedeventid <- parseFieldMaybe obj "startedEventId"
     pure defaultChildWorkflowExecutionTerminatedEventAttributes
       { childWorkflowExecutionTerminatedEventAttributesNamespace = maybe (childWorkflowExecutionTerminatedEventAttributesNamespace defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesNamespace
       , childWorkflowExecutionTerminatedEventAttributesNamespaceid = maybe (childWorkflowExecutionTerminatedEventAttributesNamespaceid defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesNamespaceid
@@ -4453,7 +4446,7 @@ instance ProtoFromJSON ChildWorkflowExecutionTerminatedEventAttributes where
       , childWorkflowExecutionTerminatedEventAttributesInitiatedeventid = maybe (childWorkflowExecutionTerminatedEventAttributesInitiatedeventid defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesInitiatedeventid
       , childWorkflowExecutionTerminatedEventAttributesStartedeventid = maybe (childWorkflowExecutionTerminatedEventAttributesStartedeventid defaultChildWorkflowExecutionTerminatedEventAttributes) id fld_childWorkflowExecutionTerminatedEventAttributesStartedeventid
       }
-  protoFromJSON _ = Right defaultChildWorkflowExecutionTerminatedEventAttributes
+  parseJSON _ = pure defaultChildWorkflowExecutionTerminatedEventAttributes
 
 data WorkflowExecutionOptionsUpdatedEventAttributes = WorkflowExecutionOptionsUpdatedEventAttributes
   { workflowExecutionOptionsUpdatedEventAttributesVersioningoverride :: !(Maybe TE_Workflow_V1_Message.VersioningOverride)
@@ -4525,24 +4518,24 @@ instance MessageDecode WorkflowExecutionOptionsUpdatedEventAttributes where
 instance IsMessage WorkflowExecutionOptionsUpdatedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionOptionsUpdatedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionOptionsUpdatedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "versioningOverride" .= msg.workflowExecutionOptionsUpdatedEventAttributesVersioningoverride
-      , "unsetVersioningOverride" .= msg.workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride
-      , "attachedRequestId" .= msg.workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid
-      , "attachedCompletionCallbacks" .= msg.workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks
-      , "identity" .= msg.workflowExecutionOptionsUpdatedEventAttributesIdentity
-      , "priority" .= msg.workflowExecutionOptionsUpdatedEventAttributesPriority
+instance Aeson.ToJSON WorkflowExecutionOptionsUpdatedEventAttributes where
+  toJSON msg = jsonObject
+      [ "versioningOverride" .=: msg.workflowExecutionOptionsUpdatedEventAttributesVersioningoverride
+      , "unsetVersioningOverride" .=: msg.workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride
+      , "attachedRequestId" .=: msg.workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid
+      , "attachedCompletionCallbacks" .=: msg.workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks
+      , "identity" .=: msg.workflowExecutionOptionsUpdatedEventAttributesIdentity
+      , "priority" .=: msg.workflowExecutionOptionsUpdatedEventAttributesPriority
       ]
 
-instance ProtoFromJSON WorkflowExecutionOptionsUpdatedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionOptionsUpdatedEventAttributesVersioningoverride <- obj .:? "versioningOverride"
-    fld_workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride <- obj .:? "unsetVersioningOverride"
-    fld_workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid <- obj .:? "attachedRequestId"
-    fld_workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks <- obj .:? "attachedCompletionCallbacks"
-    fld_workflowExecutionOptionsUpdatedEventAttributesIdentity <- obj .:? "identity"
-    fld_workflowExecutionOptionsUpdatedEventAttributesPriority <- obj .:? "priority"
+instance Aeson.FromJSON WorkflowExecutionOptionsUpdatedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionOptionsUpdatedEventAttributesVersioningoverride <- parseFieldMaybe obj "versioningOverride"
+    fld_workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride <- parseFieldMaybe obj "unsetVersioningOverride"
+    fld_workflowExecutionOptionsUpdatedEventAttributesAttachedrequestid <- parseFieldMaybe obj "attachedRequestId"
+    fld_workflowExecutionOptionsUpdatedEventAttributesAttachedcompletioncallbacks <- parseFieldMaybe obj "attachedCompletionCallbacks"
+    fld_workflowExecutionOptionsUpdatedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowExecutionOptionsUpdatedEventAttributesPriority <- parseFieldMaybe obj "priority"
     pure defaultWorkflowExecutionOptionsUpdatedEventAttributes
       { workflowExecutionOptionsUpdatedEventAttributesVersioningoverride = maybe (workflowExecutionOptionsUpdatedEventAttributesVersioningoverride defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesVersioningoverride
       , workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride = maybe (workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesUnsetversioningoverride
@@ -4551,7 +4544,7 @@ instance ProtoFromJSON WorkflowExecutionOptionsUpdatedEventAttributes where
       , workflowExecutionOptionsUpdatedEventAttributesIdentity = maybe (workflowExecutionOptionsUpdatedEventAttributesIdentity defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesIdentity
       , workflowExecutionOptionsUpdatedEventAttributesPriority = maybe (workflowExecutionOptionsUpdatedEventAttributesPriority defaultWorkflowExecutionOptionsUpdatedEventAttributes) id fld_workflowExecutionOptionsUpdatedEventAttributesPriority
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionOptionsUpdatedEventAttributes
+  parseJSON _ = pure defaultWorkflowExecutionOptionsUpdatedEventAttributes
 
 data WorkflowPropertiesModifiedExternallyEventAttributes = WorkflowPropertiesModifiedExternallyEventAttributes
   { workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue :: !Text
@@ -4616,22 +4609,22 @@ instance MessageDecode WorkflowPropertiesModifiedExternallyEventAttributes where
 instance IsMessage WorkflowPropertiesModifiedExternallyEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowPropertiesModifiedExternallyEventAttributes"
 
-instance ProtoToJSON WorkflowPropertiesModifiedExternallyEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "newTaskQueue" .= msg.workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue
-      , "newWorkflowTaskTimeout" .= msg.workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout
-      , "newWorkflowRunTimeout" .= msg.workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout
-      , "newWorkflowExecutionTimeout" .= msg.workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout
-      , "upsertedMemo" .= msg.workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo
+instance Aeson.ToJSON WorkflowPropertiesModifiedExternallyEventAttributes where
+  toJSON msg = jsonObject
+      [ "newTaskQueue" .=: msg.workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue
+      , "newWorkflowTaskTimeout" .=: msg.workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout
+      , "newWorkflowRunTimeout" .=: msg.workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout
+      , "newWorkflowExecutionTimeout" .=: msg.workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout
+      , "upsertedMemo" .=: msg.workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo
       ]
 
-instance ProtoFromJSON WorkflowPropertiesModifiedExternallyEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue <- obj .:? "newTaskQueue"
-    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout <- obj .:? "newWorkflowTaskTimeout"
-    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout <- obj .:? "newWorkflowRunTimeout"
-    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout <- obj .:? "newWorkflowExecutionTimeout"
-    fld_workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo <- obj .:? "upsertedMemo"
+instance Aeson.FromJSON WorkflowPropertiesModifiedExternallyEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue <- parseFieldMaybe obj "newTaskQueue"
+    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout <- parseFieldMaybe obj "newWorkflowTaskTimeout"
+    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowruntimeout <- parseFieldMaybe obj "newWorkflowRunTimeout"
+    fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout <- parseFieldMaybe obj "newWorkflowExecutionTimeout"
+    fld_workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo <- parseFieldMaybe obj "upsertedMemo"
     pure defaultWorkflowPropertiesModifiedExternallyEventAttributes
       { workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue = maybe (workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesNewtaskqueue
       , workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout = maybe (workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowtasktimeout
@@ -4639,7 +4632,7 @@ instance ProtoFromJSON WorkflowPropertiesModifiedExternallyEventAttributes where
       , workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout = maybe (workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesNewworkflowexecutiontimeout
       , workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo = maybe (workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo defaultWorkflowPropertiesModifiedExternallyEventAttributes) id fld_workflowPropertiesModifiedExternallyEventAttributesUpsertedmemo
       }
-  protoFromJSON _ = Right defaultWorkflowPropertiesModifiedExternallyEventAttributes
+  parseJSON _ = pure defaultWorkflowPropertiesModifiedExternallyEventAttributes
 
 data ActivityPropertiesModifiedExternallyEventAttributes = ActivityPropertiesModifiedExternallyEventAttributes
   { activityPropertiesModifiedExternallyEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -4683,21 +4676,20 @@ instance MessageDecode ActivityPropertiesModifiedExternallyEventAttributes where
 instance IsMessage ActivityPropertiesModifiedExternallyEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.ActivityPropertiesModifiedExternallyEventAttributes"
 
-instance ProtoToJSON ActivityPropertiesModifiedExternallyEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.activityPropertiesModifiedExternallyEventAttributesScheduledeventid
-      , "newRetryPolicy" .= msg.activityPropertiesModifiedExternallyEventAttributesNewretrypolicy
+instance Aeson.ToJSON ActivityPropertiesModifiedExternallyEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.activityPropertiesModifiedExternallyEventAttributesScheduledeventid
+      , "newRetryPolicy" .=: msg.activityPropertiesModifiedExternallyEventAttributesNewretrypolicy
       ]
 
-instance ProtoFromJSON ActivityPropertiesModifiedExternallyEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityPropertiesModifiedExternallyEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_activityPropertiesModifiedExternallyEventAttributesNewretrypolicy <- obj .:? "newRetryPolicy"
+instance Aeson.FromJSON ActivityPropertiesModifiedExternallyEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityPropertiesModifiedExternallyEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityPropertiesModifiedExternallyEventAttributesNewretrypolicy <- parseFieldMaybe obj "newRetryPolicy"
     pure defaultActivityPropertiesModifiedExternallyEventAttributes
       { activityPropertiesModifiedExternallyEventAttributesScheduledeventid = maybe (activityPropertiesModifiedExternallyEventAttributesScheduledeventid defaultActivityPropertiesModifiedExternallyEventAttributes) id fld_activityPropertiesModifiedExternallyEventAttributesScheduledeventid
       , activityPropertiesModifiedExternallyEventAttributesNewretrypolicy = maybe (activityPropertiesModifiedExternallyEventAttributesNewretrypolicy defaultActivityPropertiesModifiedExternallyEventAttributes) id fld_activityPropertiesModifiedExternallyEventAttributesNewretrypolicy
       }
-  protoFromJSON _ = Right defaultActivityPropertiesModifiedExternallyEventAttributes
 
 data WorkflowExecutionUpdateAcceptedEventAttributes = WorkflowExecutionUpdateAcceptedEventAttributes
   { workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid :: !Text
@@ -4755,27 +4747,27 @@ instance MessageDecode WorkflowExecutionUpdateAcceptedEventAttributes where
 instance IsMessage WorkflowExecutionUpdateAcceptedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUpdateAcceptedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionUpdateAcceptedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "protocolInstanceId" .= msg.workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid
-      , "acceptedRequestMessageId" .= msg.workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid
-      , "acceptedRequestSequencingEventId" .= msg.workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid
-      , "acceptedRequest" .= msg.workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest
+instance Aeson.ToJSON WorkflowExecutionUpdateAcceptedEventAttributes where
+  toJSON msg = jsonObject
+      [ "protocolInstanceId" .=: msg.workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid
+      , "acceptedRequestMessageId" .=: msg.workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid
+      , "acceptedRequestSequencingEventId" .=: msg.workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid
+      , "acceptedRequest" .=: msg.workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest
       ]
 
-instance ProtoFromJSON WorkflowExecutionUpdateAcceptedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid <- obj .:? "protocolInstanceId"
-    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid <- obj .:? "acceptedRequestMessageId"
-    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid <- obj .:? "acceptedRequestSequencingEventId"
-    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest <- obj .:? "acceptedRequest"
+instance Aeson.FromJSON WorkflowExecutionUpdateAcceptedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid <- parseFieldMaybe obj "protocolInstanceId"
+    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid <- parseFieldMaybe obj "acceptedRequestMessageId"
+    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid <- parseFieldMaybe obj "acceptedRequestSequencingEventId"
+    fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest <- parseFieldMaybe obj "acceptedRequest"
     pure defaultWorkflowExecutionUpdateAcceptedEventAttributes
       { workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid = maybe (workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid defaultWorkflowExecutionUpdateAcceptedEventAttributes) id fld_workflowExecutionUpdateAcceptedEventAttributesProtocolinstanceid
       , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid = maybe (workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid defaultWorkflowExecutionUpdateAcceptedEventAttributes) id fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestmessageid
       , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid = maybe (workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid defaultWorkflowExecutionUpdateAcceptedEventAttributes) id fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequestsequencingeventid
       , workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest = maybe (workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest defaultWorkflowExecutionUpdateAcceptedEventAttributes) id fld_workflowExecutionUpdateAcceptedEventAttributesAcceptedrequest
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionUpdateAcceptedEventAttributes
+  parseJSON _ = pure defaultWorkflowExecutionUpdateAcceptedEventAttributes
 
 data WorkflowExecutionUpdateCompletedEventAttributes = WorkflowExecutionUpdateCompletedEventAttributes
   { workflowExecutionUpdateCompletedEventAttributesMeta :: !(Maybe TE_Update_V1_Message.Meta)
@@ -4826,24 +4818,23 @@ instance MessageDecode WorkflowExecutionUpdateCompletedEventAttributes where
 instance IsMessage WorkflowExecutionUpdateCompletedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUpdateCompletedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionUpdateCompletedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "meta" .= msg.workflowExecutionUpdateCompletedEventAttributesMeta
-      , "acceptedEventId" .= msg.workflowExecutionUpdateCompletedEventAttributesAcceptedeventid
-      , "outcome" .= msg.workflowExecutionUpdateCompletedEventAttributesOutcome
+instance Aeson.ToJSON WorkflowExecutionUpdateCompletedEventAttributes where
+  toJSON msg = jsonObject
+      [ "meta" .=: msg.workflowExecutionUpdateCompletedEventAttributesMeta
+      , "acceptedEventId" .=: msg.workflowExecutionUpdateCompletedEventAttributesAcceptedeventid
+      , "outcome" .=: msg.workflowExecutionUpdateCompletedEventAttributesOutcome
       ]
 
-instance ProtoFromJSON WorkflowExecutionUpdateCompletedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionUpdateCompletedEventAttributesMeta <- obj .:? "meta"
-    fld_workflowExecutionUpdateCompletedEventAttributesAcceptedeventid <- obj .:? "acceptedEventId"
-    fld_workflowExecutionUpdateCompletedEventAttributesOutcome <- obj .:? "outcome"
+instance Aeson.FromJSON WorkflowExecutionUpdateCompletedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionUpdateCompletedEventAttributesMeta <- parseFieldMaybe obj "meta"
+    fld_workflowExecutionUpdateCompletedEventAttributesAcceptedeventid <- parseFieldMaybe obj "acceptedEventId"
+    fld_workflowExecutionUpdateCompletedEventAttributesOutcome <- parseFieldMaybe obj "outcome"
     pure defaultWorkflowExecutionUpdateCompletedEventAttributes
       { workflowExecutionUpdateCompletedEventAttributesMeta = maybe (workflowExecutionUpdateCompletedEventAttributesMeta defaultWorkflowExecutionUpdateCompletedEventAttributes) id fld_workflowExecutionUpdateCompletedEventAttributesMeta
       , workflowExecutionUpdateCompletedEventAttributesAcceptedeventid = maybe (workflowExecutionUpdateCompletedEventAttributesAcceptedeventid defaultWorkflowExecutionUpdateCompletedEventAttributes) id fld_workflowExecutionUpdateCompletedEventAttributesAcceptedeventid
       , workflowExecutionUpdateCompletedEventAttributesOutcome = maybe (workflowExecutionUpdateCompletedEventAttributesOutcome defaultWorkflowExecutionUpdateCompletedEventAttributes) id fld_workflowExecutionUpdateCompletedEventAttributesOutcome
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionUpdateCompletedEventAttributes
 
 data WorkflowExecutionUpdateRejectedEventAttributes = WorkflowExecutionUpdateRejectedEventAttributes
   { workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid :: !Text
@@ -4908,22 +4899,22 @@ instance MessageDecode WorkflowExecutionUpdateRejectedEventAttributes where
 instance IsMessage WorkflowExecutionUpdateRejectedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUpdateRejectedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionUpdateRejectedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "protocolInstanceId" .= msg.workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid
-      , "rejectedRequestMessageId" .= msg.workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid
-      , "rejectedRequestSequencingEventId" .= msg.workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid
-      , "rejectedRequest" .= msg.workflowExecutionUpdateRejectedEventAttributesRejectedrequest
-      , "failure" .= msg.workflowExecutionUpdateRejectedEventAttributesFailure
+instance Aeson.ToJSON WorkflowExecutionUpdateRejectedEventAttributes where
+  toJSON msg = jsonObject
+      [ "protocolInstanceId" .=: msg.workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid
+      , "rejectedRequestMessageId" .=: msg.workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid
+      , "rejectedRequestSequencingEventId" .=: msg.workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid
+      , "rejectedRequest" .=: msg.workflowExecutionUpdateRejectedEventAttributesRejectedrequest
+      , "failure" .=: msg.workflowExecutionUpdateRejectedEventAttributesFailure
       ]
 
-instance ProtoFromJSON WorkflowExecutionUpdateRejectedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid <- obj .:? "protocolInstanceId"
-    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid <- obj .:? "rejectedRequestMessageId"
-    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid <- obj .:? "rejectedRequestSequencingEventId"
-    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequest <- obj .:? "rejectedRequest"
-    fld_workflowExecutionUpdateRejectedEventAttributesFailure <- obj .:? "failure"
+instance Aeson.FromJSON WorkflowExecutionUpdateRejectedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid <- parseFieldMaybe obj "protocolInstanceId"
+    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid <- parseFieldMaybe obj "rejectedRequestMessageId"
+    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestsequencingeventid <- parseFieldMaybe obj "rejectedRequestSequencingEventId"
+    fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequest <- parseFieldMaybe obj "rejectedRequest"
+    fld_workflowExecutionUpdateRejectedEventAttributesFailure <- parseFieldMaybe obj "failure"
     pure defaultWorkflowExecutionUpdateRejectedEventAttributes
       { workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid = maybe (workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesProtocolinstanceid
       , workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid = maybe (workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequestmessageid
@@ -4931,7 +4922,7 @@ instance ProtoFromJSON WorkflowExecutionUpdateRejectedEventAttributes where
       , workflowExecutionUpdateRejectedEventAttributesRejectedrequest = maybe (workflowExecutionUpdateRejectedEventAttributesRejectedrequest defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesRejectedrequest
       , workflowExecutionUpdateRejectedEventAttributesFailure = maybe (workflowExecutionUpdateRejectedEventAttributesFailure defaultWorkflowExecutionUpdateRejectedEventAttributes) id fld_workflowExecutionUpdateRejectedEventAttributesFailure
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionUpdateRejectedEventAttributes
+  parseJSON _ = pure defaultWorkflowExecutionUpdateRejectedEventAttributes
 
 data WorkflowExecutionUpdateAdmittedEventAttributes = WorkflowExecutionUpdateAdmittedEventAttributes
   { workflowExecutionUpdateAdmittedEventAttributesRequest :: !(Maybe TE_Update_V1_Message.Request)
@@ -4975,21 +4966,20 @@ instance MessageDecode WorkflowExecutionUpdateAdmittedEventAttributes where
 instance IsMessage WorkflowExecutionUpdateAdmittedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUpdateAdmittedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionUpdateAdmittedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "request" .= msg.workflowExecutionUpdateAdmittedEventAttributesRequest
-      , "origin" .= msg.workflowExecutionUpdateAdmittedEventAttributesOrigin
+instance Aeson.ToJSON WorkflowExecutionUpdateAdmittedEventAttributes where
+  toJSON msg = jsonObject
+      [ "request" .=: msg.workflowExecutionUpdateAdmittedEventAttributesRequest
+      , "origin" .=: msg.workflowExecutionUpdateAdmittedEventAttributesOrigin
       ]
 
-instance ProtoFromJSON WorkflowExecutionUpdateAdmittedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionUpdateAdmittedEventAttributesRequest <- obj .:? "request"
-    fld_workflowExecutionUpdateAdmittedEventAttributesOrigin <- obj .:? "origin"
+instance Aeson.FromJSON WorkflowExecutionUpdateAdmittedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionUpdateAdmittedEventAttributesRequest <- parseFieldMaybe obj "request"
+    fld_workflowExecutionUpdateAdmittedEventAttributesOrigin <- parseFieldMaybe obj "origin"
     pure defaultWorkflowExecutionUpdateAdmittedEventAttributes
       { workflowExecutionUpdateAdmittedEventAttributesRequest = maybe (workflowExecutionUpdateAdmittedEventAttributesRequest defaultWorkflowExecutionUpdateAdmittedEventAttributes) id fld_workflowExecutionUpdateAdmittedEventAttributesRequest
       , workflowExecutionUpdateAdmittedEventAttributesOrigin = maybe (workflowExecutionUpdateAdmittedEventAttributesOrigin defaultWorkflowExecutionUpdateAdmittedEventAttributes) id fld_workflowExecutionUpdateAdmittedEventAttributesOrigin
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionUpdateAdmittedEventAttributes
 
 data WorkflowExecutionPausedEventAttributes = WorkflowExecutionPausedEventAttributes
   { workflowExecutionPausedEventAttributesIdentity :: !Text
@@ -5040,24 +5030,23 @@ instance MessageDecode WorkflowExecutionPausedEventAttributes where
 instance IsMessage WorkflowExecutionPausedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionPausedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionPausedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.workflowExecutionPausedEventAttributesIdentity
-      , "reason" .= msg.workflowExecutionPausedEventAttributesReason
-      , "requestId" .= msg.workflowExecutionPausedEventAttributesRequestid
+instance Aeson.ToJSON WorkflowExecutionPausedEventAttributes where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.workflowExecutionPausedEventAttributesIdentity
+      , "reason" .=: msg.workflowExecutionPausedEventAttributesReason
+      , "requestId" .=: msg.workflowExecutionPausedEventAttributesRequestid
       ]
 
-instance ProtoFromJSON WorkflowExecutionPausedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionPausedEventAttributesIdentity <- obj .:? "identity"
-    fld_workflowExecutionPausedEventAttributesReason <- obj .:? "reason"
-    fld_workflowExecutionPausedEventAttributesRequestid <- obj .:? "requestId"
+instance Aeson.FromJSON WorkflowExecutionPausedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionPausedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowExecutionPausedEventAttributesReason <- parseFieldMaybe obj "reason"
+    fld_workflowExecutionPausedEventAttributesRequestid <- parseFieldMaybe obj "requestId"
     pure defaultWorkflowExecutionPausedEventAttributes
       { workflowExecutionPausedEventAttributesIdentity = maybe (workflowExecutionPausedEventAttributesIdentity defaultWorkflowExecutionPausedEventAttributes) id fld_workflowExecutionPausedEventAttributesIdentity
       , workflowExecutionPausedEventAttributesReason = maybe (workflowExecutionPausedEventAttributesReason defaultWorkflowExecutionPausedEventAttributes) id fld_workflowExecutionPausedEventAttributesReason
       , workflowExecutionPausedEventAttributesRequestid = maybe (workflowExecutionPausedEventAttributesRequestid defaultWorkflowExecutionPausedEventAttributes) id fld_workflowExecutionPausedEventAttributesRequestid
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionPausedEventAttributes
 
 data WorkflowExecutionUnpausedEventAttributes = WorkflowExecutionUnpausedEventAttributes
   { workflowExecutionUnpausedEventAttributesIdentity :: !Text
@@ -5108,24 +5097,23 @@ instance MessageDecode WorkflowExecutionUnpausedEventAttributes where
 instance IsMessage WorkflowExecutionUnpausedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.WorkflowExecutionUnpausedEventAttributes"
 
-instance ProtoToJSON WorkflowExecutionUnpausedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.workflowExecutionUnpausedEventAttributesIdentity
-      , "reason" .= msg.workflowExecutionUnpausedEventAttributesReason
-      , "requestId" .= msg.workflowExecutionUnpausedEventAttributesRequestid
+instance Aeson.ToJSON WorkflowExecutionUnpausedEventAttributes where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.workflowExecutionUnpausedEventAttributesIdentity
+      , "reason" .=: msg.workflowExecutionUnpausedEventAttributesReason
+      , "requestId" .=: msg.workflowExecutionUnpausedEventAttributesRequestid
       ]
 
-instance ProtoFromJSON WorkflowExecutionUnpausedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionUnpausedEventAttributesIdentity <- obj .:? "identity"
-    fld_workflowExecutionUnpausedEventAttributesReason <- obj .:? "reason"
-    fld_workflowExecutionUnpausedEventAttributesRequestid <- obj .:? "requestId"
+instance Aeson.FromJSON WorkflowExecutionUnpausedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionUnpausedEventAttributesIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowExecutionUnpausedEventAttributesReason <- parseFieldMaybe obj "reason"
+    fld_workflowExecutionUnpausedEventAttributesRequestid <- parseFieldMaybe obj "requestId"
     pure defaultWorkflowExecutionUnpausedEventAttributes
       { workflowExecutionUnpausedEventAttributesIdentity = maybe (workflowExecutionUnpausedEventAttributesIdentity defaultWorkflowExecutionUnpausedEventAttributes) id fld_workflowExecutionUnpausedEventAttributesIdentity
       , workflowExecutionUnpausedEventAttributesReason = maybe (workflowExecutionUnpausedEventAttributesReason defaultWorkflowExecutionUnpausedEventAttributes) id fld_workflowExecutionUnpausedEventAttributesReason
       , workflowExecutionUnpausedEventAttributesRequestid = maybe (workflowExecutionUnpausedEventAttributesRequestid defaultWorkflowExecutionUnpausedEventAttributes) id fld_workflowExecutionUnpausedEventAttributesRequestid
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionUnpausedEventAttributes
 
 data NexusOperationScheduledEventAttributes = NexusOperationScheduledEventAttributes
   { nexusOperationScheduledEventAttributesEndpoint :: !Text
@@ -5235,34 +5223,34 @@ instance MessageDecode NexusOperationScheduledEventAttributes where
 instance IsMessage NexusOperationScheduledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationScheduledEventAttributes"
 
-instance ProtoToJSON NexusOperationScheduledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "endpoint" .= msg.nexusOperationScheduledEventAttributesEndpoint
-      , "service" .= msg.nexusOperationScheduledEventAttributesService
-      , "operation" .= msg.nexusOperationScheduledEventAttributesOperation
-      , "input" .= msg.nexusOperationScheduledEventAttributesInput
-      , "scheduleToCloseTimeout" .= msg.nexusOperationScheduledEventAttributesScheduletoclosetimeout
-      , "nexusHeader" .= msg.nexusOperationScheduledEventAttributesNexusheader
-      , "workflowTaskCompletedEventId" .= msg.nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid
-      , "requestId" .= msg.nexusOperationScheduledEventAttributesRequestid
-      , "endpointId" .= msg.nexusOperationScheduledEventAttributesEndpointid
-      , "scheduleToStartTimeout" .= msg.nexusOperationScheduledEventAttributesScheduletostarttimeout
-      , "startToCloseTimeout" .= msg.nexusOperationScheduledEventAttributesStarttoclosetimeout
+instance Aeson.ToJSON NexusOperationScheduledEventAttributes where
+  toJSON msg = jsonObject
+      [ "endpoint" .=: msg.nexusOperationScheduledEventAttributesEndpoint
+      , "service" .=: msg.nexusOperationScheduledEventAttributesService
+      , "operation" .=: msg.nexusOperationScheduledEventAttributesOperation
+      , "input" .=: msg.nexusOperationScheduledEventAttributesInput
+      , "scheduleToCloseTimeout" .=: msg.nexusOperationScheduledEventAttributesScheduletoclosetimeout
+      , "nexusHeader" .=: msg.nexusOperationScheduledEventAttributesNexusheader
+      , "workflowTaskCompletedEventId" .=: msg.nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid
+      , "requestId" .=: msg.nexusOperationScheduledEventAttributesRequestid
+      , "endpointId" .=: msg.nexusOperationScheduledEventAttributesEndpointid
+      , "scheduleToStartTimeout" .=: msg.nexusOperationScheduledEventAttributesScheduletostarttimeout
+      , "startToCloseTimeout" .=: msg.nexusOperationScheduledEventAttributesStarttoclosetimeout
       ]
 
-instance ProtoFromJSON NexusOperationScheduledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationScheduledEventAttributesEndpoint <- obj .:? "endpoint"
-    fld_nexusOperationScheduledEventAttributesService <- obj .:? "service"
-    fld_nexusOperationScheduledEventAttributesOperation <- obj .:? "operation"
-    fld_nexusOperationScheduledEventAttributesInput <- obj .:? "input"
-    fld_nexusOperationScheduledEventAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    fld_nexusOperationScheduledEventAttributesNexusheader <- obj .:? "nexusHeader"
-    fld_nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_nexusOperationScheduledEventAttributesRequestid <- obj .:? "requestId"
-    fld_nexusOperationScheduledEventAttributesEndpointid <- obj .:? "endpointId"
-    fld_nexusOperationScheduledEventAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    fld_nexusOperationScheduledEventAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+instance Aeson.FromJSON NexusOperationScheduledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationScheduledEventAttributesEndpoint <- parseFieldMaybe obj "endpoint"
+    fld_nexusOperationScheduledEventAttributesService <- parseFieldMaybe obj "service"
+    fld_nexusOperationScheduledEventAttributesOperation <- parseFieldMaybe obj "operation"
+    fld_nexusOperationScheduledEventAttributesInput <- parseFieldMaybe obj "input"
+    fld_nexusOperationScheduledEventAttributesScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_nexusOperationScheduledEventAttributesNexusheader <- parseFieldMaybe obj "nexusHeader"
+    fld_nexusOperationScheduledEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_nexusOperationScheduledEventAttributesRequestid <- parseFieldMaybe obj "requestId"
+    fld_nexusOperationScheduledEventAttributesEndpointid <- parseFieldMaybe obj "endpointId"
+    fld_nexusOperationScheduledEventAttributesScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_nexusOperationScheduledEventAttributesStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
     pure defaultNexusOperationScheduledEventAttributes
       { nexusOperationScheduledEventAttributesEndpoint = maybe (nexusOperationScheduledEventAttributesEndpoint defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesEndpoint
       , nexusOperationScheduledEventAttributesService = maybe (nexusOperationScheduledEventAttributesService defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesService
@@ -5276,7 +5264,7 @@ instance ProtoFromJSON NexusOperationScheduledEventAttributes where
       , nexusOperationScheduledEventAttributesScheduletostarttimeout = maybe (nexusOperationScheduledEventAttributesScheduletostarttimeout defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesScheduletostarttimeout
       , nexusOperationScheduledEventAttributesStarttoclosetimeout = maybe (nexusOperationScheduledEventAttributesStarttoclosetimeout defaultNexusOperationScheduledEventAttributes) id fld_nexusOperationScheduledEventAttributesStarttoclosetimeout
       }
-  protoFromJSON _ = Right defaultNexusOperationScheduledEventAttributes
+  parseJSON _ = pure defaultNexusOperationScheduledEventAttributes
 
 data NexusOperationStartedEventAttributes = NexusOperationStartedEventAttributes
   { nexusOperationStartedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -5334,27 +5322,27 @@ instance MessageDecode NexusOperationStartedEventAttributes where
 instance IsMessage NexusOperationStartedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationStartedEventAttributes"
 
-instance ProtoToJSON NexusOperationStartedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.nexusOperationStartedEventAttributesScheduledeventid
-      , "operationId" .= msg.nexusOperationStartedEventAttributesOperationid
-      , "requestId" .= msg.nexusOperationStartedEventAttributesRequestid
-      , "operationToken" .= msg.nexusOperationStartedEventAttributesOperationtoken
+instance Aeson.ToJSON NexusOperationStartedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.nexusOperationStartedEventAttributesScheduledeventid
+      , "operationId" .=: msg.nexusOperationStartedEventAttributesOperationid
+      , "requestId" .=: msg.nexusOperationStartedEventAttributesRequestid
+      , "operationToken" .=: msg.nexusOperationStartedEventAttributesOperationtoken
       ]
 
-instance ProtoFromJSON NexusOperationStartedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationStartedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_nexusOperationStartedEventAttributesOperationid <- obj .:? "operationId"
-    fld_nexusOperationStartedEventAttributesRequestid <- obj .:? "requestId"
-    fld_nexusOperationStartedEventAttributesOperationtoken <- obj .:? "operationToken"
+instance Aeson.FromJSON NexusOperationStartedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationStartedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_nexusOperationStartedEventAttributesOperationid <- parseFieldMaybe obj "operationId"
+    fld_nexusOperationStartedEventAttributesRequestid <- parseFieldMaybe obj "requestId"
+    fld_nexusOperationStartedEventAttributesOperationtoken <- parseFieldMaybe obj "operationToken"
     pure defaultNexusOperationStartedEventAttributes
       { nexusOperationStartedEventAttributesScheduledeventid = maybe (nexusOperationStartedEventAttributesScheduledeventid defaultNexusOperationStartedEventAttributes) id fld_nexusOperationStartedEventAttributesScheduledeventid
       , nexusOperationStartedEventAttributesOperationid = maybe (nexusOperationStartedEventAttributesOperationid defaultNexusOperationStartedEventAttributes) id fld_nexusOperationStartedEventAttributesOperationid
       , nexusOperationStartedEventAttributesRequestid = maybe (nexusOperationStartedEventAttributesRequestid defaultNexusOperationStartedEventAttributes) id fld_nexusOperationStartedEventAttributesRequestid
       , nexusOperationStartedEventAttributesOperationtoken = maybe (nexusOperationStartedEventAttributesOperationtoken defaultNexusOperationStartedEventAttributes) id fld_nexusOperationStartedEventAttributesOperationtoken
       }
-  protoFromJSON _ = Right defaultNexusOperationStartedEventAttributes
+  parseJSON _ = pure defaultNexusOperationStartedEventAttributes
 
 data NexusOperationCompletedEventAttributes = NexusOperationCompletedEventAttributes
   { nexusOperationCompletedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -5405,24 +5393,23 @@ instance MessageDecode NexusOperationCompletedEventAttributes where
 instance IsMessage NexusOperationCompletedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationCompletedEventAttributes"
 
-instance ProtoToJSON NexusOperationCompletedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.nexusOperationCompletedEventAttributesScheduledeventid
-      , "result" .= msg.nexusOperationCompletedEventAttributesResult
-      , "requestId" .= msg.nexusOperationCompletedEventAttributesRequestid
+instance Aeson.ToJSON NexusOperationCompletedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.nexusOperationCompletedEventAttributesScheduledeventid
+      , "result" .=: msg.nexusOperationCompletedEventAttributesResult
+      , "requestId" .=: msg.nexusOperationCompletedEventAttributesRequestid
       ]
 
-instance ProtoFromJSON NexusOperationCompletedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationCompletedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_nexusOperationCompletedEventAttributesResult <- obj .:? "result"
-    fld_nexusOperationCompletedEventAttributesRequestid <- obj .:? "requestId"
+instance Aeson.FromJSON NexusOperationCompletedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationCompletedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_nexusOperationCompletedEventAttributesResult <- parseFieldMaybe obj "result"
+    fld_nexusOperationCompletedEventAttributesRequestid <- parseFieldMaybe obj "requestId"
     pure defaultNexusOperationCompletedEventAttributes
       { nexusOperationCompletedEventAttributesScheduledeventid = maybe (nexusOperationCompletedEventAttributesScheduledeventid defaultNexusOperationCompletedEventAttributes) id fld_nexusOperationCompletedEventAttributesScheduledeventid
       , nexusOperationCompletedEventAttributesResult = maybe (nexusOperationCompletedEventAttributesResult defaultNexusOperationCompletedEventAttributes) id fld_nexusOperationCompletedEventAttributesResult
       , nexusOperationCompletedEventAttributesRequestid = maybe (nexusOperationCompletedEventAttributesRequestid defaultNexusOperationCompletedEventAttributes) id fld_nexusOperationCompletedEventAttributesRequestid
       }
-  protoFromJSON _ = Right defaultNexusOperationCompletedEventAttributes
 
 data NexusOperationFailedEventAttributes = NexusOperationFailedEventAttributes
   { nexusOperationFailedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -5473,24 +5460,23 @@ instance MessageDecode NexusOperationFailedEventAttributes where
 instance IsMessage NexusOperationFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationFailedEventAttributes"
 
-instance ProtoToJSON NexusOperationFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.nexusOperationFailedEventAttributesScheduledeventid
-      , "failure" .= msg.nexusOperationFailedEventAttributesFailure
-      , "requestId" .= msg.nexusOperationFailedEventAttributesRequestid
+instance Aeson.ToJSON NexusOperationFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.nexusOperationFailedEventAttributesScheduledeventid
+      , "failure" .=: msg.nexusOperationFailedEventAttributesFailure
+      , "requestId" .=: msg.nexusOperationFailedEventAttributesRequestid
       ]
 
-instance ProtoFromJSON NexusOperationFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationFailedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_nexusOperationFailedEventAttributesFailure <- obj .:? "failure"
-    fld_nexusOperationFailedEventAttributesRequestid <- obj .:? "requestId"
+instance Aeson.FromJSON NexusOperationFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationFailedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_nexusOperationFailedEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_nexusOperationFailedEventAttributesRequestid <- parseFieldMaybe obj "requestId"
     pure defaultNexusOperationFailedEventAttributes
       { nexusOperationFailedEventAttributesScheduledeventid = maybe (nexusOperationFailedEventAttributesScheduledeventid defaultNexusOperationFailedEventAttributes) id fld_nexusOperationFailedEventAttributesScheduledeventid
       , nexusOperationFailedEventAttributesFailure = maybe (nexusOperationFailedEventAttributesFailure defaultNexusOperationFailedEventAttributes) id fld_nexusOperationFailedEventAttributesFailure
       , nexusOperationFailedEventAttributesRequestid = maybe (nexusOperationFailedEventAttributesRequestid defaultNexusOperationFailedEventAttributes) id fld_nexusOperationFailedEventAttributesRequestid
       }
-  protoFromJSON _ = Right defaultNexusOperationFailedEventAttributes
 
 data NexusOperationTimedOutEventAttributes = NexusOperationTimedOutEventAttributes
   { nexusOperationTimedOutEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -5541,24 +5527,23 @@ instance MessageDecode NexusOperationTimedOutEventAttributes where
 instance IsMessage NexusOperationTimedOutEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationTimedOutEventAttributes"
 
-instance ProtoToJSON NexusOperationTimedOutEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.nexusOperationTimedOutEventAttributesScheduledeventid
-      , "failure" .= msg.nexusOperationTimedOutEventAttributesFailure
-      , "requestId" .= msg.nexusOperationTimedOutEventAttributesRequestid
+instance Aeson.ToJSON NexusOperationTimedOutEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.nexusOperationTimedOutEventAttributesScheduledeventid
+      , "failure" .=: msg.nexusOperationTimedOutEventAttributesFailure
+      , "requestId" .=: msg.nexusOperationTimedOutEventAttributesRequestid
       ]
 
-instance ProtoFromJSON NexusOperationTimedOutEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationTimedOutEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_nexusOperationTimedOutEventAttributesFailure <- obj .:? "failure"
-    fld_nexusOperationTimedOutEventAttributesRequestid <- obj .:? "requestId"
+instance Aeson.FromJSON NexusOperationTimedOutEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationTimedOutEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_nexusOperationTimedOutEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_nexusOperationTimedOutEventAttributesRequestid <- parseFieldMaybe obj "requestId"
     pure defaultNexusOperationTimedOutEventAttributes
       { nexusOperationTimedOutEventAttributesScheduledeventid = maybe (nexusOperationTimedOutEventAttributesScheduledeventid defaultNexusOperationTimedOutEventAttributes) id fld_nexusOperationTimedOutEventAttributesScheduledeventid
       , nexusOperationTimedOutEventAttributesFailure = maybe (nexusOperationTimedOutEventAttributesFailure defaultNexusOperationTimedOutEventAttributes) id fld_nexusOperationTimedOutEventAttributesFailure
       , nexusOperationTimedOutEventAttributesRequestid = maybe (nexusOperationTimedOutEventAttributesRequestid defaultNexusOperationTimedOutEventAttributes) id fld_nexusOperationTimedOutEventAttributesRequestid
       }
-  protoFromJSON _ = Right defaultNexusOperationTimedOutEventAttributes
 
 data NexusOperationCanceledEventAttributes = NexusOperationCanceledEventAttributes
   { nexusOperationCanceledEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -5609,24 +5594,23 @@ instance MessageDecode NexusOperationCanceledEventAttributes where
 instance IsMessage NexusOperationCanceledEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationCanceledEventAttributes"
 
-instance ProtoToJSON NexusOperationCanceledEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.nexusOperationCanceledEventAttributesScheduledeventid
-      , "failure" .= msg.nexusOperationCanceledEventAttributesFailure
-      , "requestId" .= msg.nexusOperationCanceledEventAttributesRequestid
+instance Aeson.ToJSON NexusOperationCanceledEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.nexusOperationCanceledEventAttributesScheduledeventid
+      , "failure" .=: msg.nexusOperationCanceledEventAttributesFailure
+      , "requestId" .=: msg.nexusOperationCanceledEventAttributesRequestid
       ]
 
-instance ProtoFromJSON NexusOperationCanceledEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationCanceledEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_nexusOperationCanceledEventAttributesFailure <- obj .:? "failure"
-    fld_nexusOperationCanceledEventAttributesRequestid <- obj .:? "requestId"
+instance Aeson.FromJSON NexusOperationCanceledEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationCanceledEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_nexusOperationCanceledEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_nexusOperationCanceledEventAttributesRequestid <- parseFieldMaybe obj "requestId"
     pure defaultNexusOperationCanceledEventAttributes
       { nexusOperationCanceledEventAttributesScheduledeventid = maybe (nexusOperationCanceledEventAttributesScheduledeventid defaultNexusOperationCanceledEventAttributes) id fld_nexusOperationCanceledEventAttributesScheduledeventid
       , nexusOperationCanceledEventAttributesFailure = maybe (nexusOperationCanceledEventAttributesFailure defaultNexusOperationCanceledEventAttributes) id fld_nexusOperationCanceledEventAttributesFailure
       , nexusOperationCanceledEventAttributesRequestid = maybe (nexusOperationCanceledEventAttributesRequestid defaultNexusOperationCanceledEventAttributes) id fld_nexusOperationCanceledEventAttributesRequestid
       }
-  protoFromJSON _ = Right defaultNexusOperationCanceledEventAttributes
 
 data NexusOperationCancelRequestedEventAttributes = NexusOperationCancelRequestedEventAttributes
   { nexusOperationCancelRequestedEventAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -5670,21 +5654,20 @@ instance MessageDecode NexusOperationCancelRequestedEventAttributes where
 instance IsMessage NexusOperationCancelRequestedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationCancelRequestedEventAttributes"
 
-instance ProtoToJSON NexusOperationCancelRequestedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.nexusOperationCancelRequestedEventAttributesScheduledeventid
-      , "workflowTaskCompletedEventId" .= msg.nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid
+instance Aeson.ToJSON NexusOperationCancelRequestedEventAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.nexusOperationCancelRequestedEventAttributesScheduledeventid
+      , "workflowTaskCompletedEventId" .=: msg.nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid
       ]
 
-instance ProtoFromJSON NexusOperationCancelRequestedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationCancelRequestedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
-    fld_nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
+instance Aeson.FromJSON NexusOperationCancelRequestedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationCancelRequestedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
     pure defaultNexusOperationCancelRequestedEventAttributes
       { nexusOperationCancelRequestedEventAttributesScheduledeventid = maybe (nexusOperationCancelRequestedEventAttributesScheduledeventid defaultNexusOperationCancelRequestedEventAttributes) id fld_nexusOperationCancelRequestedEventAttributesScheduledeventid
       , nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid = maybe (nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid defaultNexusOperationCancelRequestedEventAttributes) id fld_nexusOperationCancelRequestedEventAttributesWorkflowtaskcompletedeventid
       }
-  protoFromJSON _ = Right defaultNexusOperationCancelRequestedEventAttributes
 
 data NexusOperationCancelRequestCompletedEventAttributes = NexusOperationCancelRequestCompletedEventAttributes
   { nexusOperationCancelRequestCompletedEventAttributesRequestedeventid :: {-# UNPACK #-} !Int64
@@ -5735,24 +5718,23 @@ instance MessageDecode NexusOperationCancelRequestCompletedEventAttributes where
 instance IsMessage NexusOperationCancelRequestCompletedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationCancelRequestCompletedEventAttributes"
 
-instance ProtoToJSON NexusOperationCancelRequestCompletedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "requestedEventId" .= msg.nexusOperationCancelRequestCompletedEventAttributesRequestedeventid
-      , "workflowTaskCompletedEventId" .= msg.nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid
-      , "scheduledEventId" .= msg.nexusOperationCancelRequestCompletedEventAttributesScheduledeventid
+instance Aeson.ToJSON NexusOperationCancelRequestCompletedEventAttributes where
+  toJSON msg = jsonObject
+      [ "requestedEventId" .=: msg.nexusOperationCancelRequestCompletedEventAttributesRequestedeventid
+      , "workflowTaskCompletedEventId" .=: msg.nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid
+      , "scheduledEventId" .=: msg.nexusOperationCancelRequestCompletedEventAttributesScheduledeventid
       ]
 
-instance ProtoFromJSON NexusOperationCancelRequestCompletedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationCancelRequestCompletedEventAttributesRequestedeventid <- obj .:? "requestedEventId"
-    fld_nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_nexusOperationCancelRequestCompletedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+instance Aeson.FromJSON NexusOperationCancelRequestCompletedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationCancelRequestCompletedEventAttributesRequestedeventid <- parseFieldMaybe obj "requestedEventId"
+    fld_nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_nexusOperationCancelRequestCompletedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
     pure defaultNexusOperationCancelRequestCompletedEventAttributes
       { nexusOperationCancelRequestCompletedEventAttributesRequestedeventid = maybe (nexusOperationCancelRequestCompletedEventAttributesRequestedeventid defaultNexusOperationCancelRequestCompletedEventAttributes) id fld_nexusOperationCancelRequestCompletedEventAttributesRequestedeventid
       , nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid = maybe (nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid defaultNexusOperationCancelRequestCompletedEventAttributes) id fld_nexusOperationCancelRequestCompletedEventAttributesWorkflowtaskcompletedeventid
       , nexusOperationCancelRequestCompletedEventAttributesScheduledeventid = maybe (nexusOperationCancelRequestCompletedEventAttributesScheduledeventid defaultNexusOperationCancelRequestCompletedEventAttributes) id fld_nexusOperationCancelRequestCompletedEventAttributesScheduledeventid
       }
-  protoFromJSON _ = Right defaultNexusOperationCancelRequestCompletedEventAttributes
 
 data NexusOperationCancelRequestFailedEventAttributes = NexusOperationCancelRequestFailedEventAttributes
   { nexusOperationCancelRequestFailedEventAttributesRequestedeventid :: {-# UNPACK #-} !Int64
@@ -5810,27 +5792,27 @@ instance MessageDecode NexusOperationCancelRequestFailedEventAttributes where
 instance IsMessage NexusOperationCancelRequestFailedEventAttributes where
   messageTypeName _ = "temporal.api.history.v1.NexusOperationCancelRequestFailedEventAttributes"
 
-instance ProtoToJSON NexusOperationCancelRequestFailedEventAttributes where
-  protoToJSON msg = jsonObject
-      [ "requestedEventId" .= msg.nexusOperationCancelRequestFailedEventAttributesRequestedeventid
-      , "workflowTaskCompletedEventId" .= msg.nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid
-      , "failure" .= msg.nexusOperationCancelRequestFailedEventAttributesFailure
-      , "scheduledEventId" .= msg.nexusOperationCancelRequestFailedEventAttributesScheduledeventid
+instance Aeson.ToJSON NexusOperationCancelRequestFailedEventAttributes where
+  toJSON msg = jsonObject
+      [ "requestedEventId" .=: msg.nexusOperationCancelRequestFailedEventAttributesRequestedeventid
+      , "workflowTaskCompletedEventId" .=: msg.nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid
+      , "failure" .=: msg.nexusOperationCancelRequestFailedEventAttributesFailure
+      , "scheduledEventId" .=: msg.nexusOperationCancelRequestFailedEventAttributesScheduledeventid
       ]
 
-instance ProtoFromJSON NexusOperationCancelRequestFailedEventAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationCancelRequestFailedEventAttributesRequestedeventid <- obj .:? "requestedEventId"
-    fld_nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid <- obj .:? "workflowTaskCompletedEventId"
-    fld_nexusOperationCancelRequestFailedEventAttributesFailure <- obj .:? "failure"
-    fld_nexusOperationCancelRequestFailedEventAttributesScheduledeventid <- obj .:? "scheduledEventId"
+instance Aeson.FromJSON NexusOperationCancelRequestFailedEventAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationCancelRequestFailedEventAttributesRequestedeventid <- parseFieldMaybe obj "requestedEventId"
+    fld_nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid <- parseFieldMaybe obj "workflowTaskCompletedEventId"
+    fld_nexusOperationCancelRequestFailedEventAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_nexusOperationCancelRequestFailedEventAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
     pure defaultNexusOperationCancelRequestFailedEventAttributes
       { nexusOperationCancelRequestFailedEventAttributesRequestedeventid = maybe (nexusOperationCancelRequestFailedEventAttributesRequestedeventid defaultNexusOperationCancelRequestFailedEventAttributes) id fld_nexusOperationCancelRequestFailedEventAttributesRequestedeventid
       , nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid = maybe (nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid defaultNexusOperationCancelRequestFailedEventAttributes) id fld_nexusOperationCancelRequestFailedEventAttributesWorkflowtaskcompletedeventid
       , nexusOperationCancelRequestFailedEventAttributesFailure = maybe (nexusOperationCancelRequestFailedEventAttributesFailure defaultNexusOperationCancelRequestFailedEventAttributes) id fld_nexusOperationCancelRequestFailedEventAttributesFailure
       , nexusOperationCancelRequestFailedEventAttributesScheduledeventid = maybe (nexusOperationCancelRequestFailedEventAttributesScheduledeventid defaultNexusOperationCancelRequestFailedEventAttributes) id fld_nexusOperationCancelRequestFailedEventAttributesScheduledeventid
       }
-  protoFromJSON _ = Right defaultNexusOperationCancelRequestFailedEventAttributes
+  parseJSON _ = pure defaultNexusOperationCancelRequestFailedEventAttributes
 
 data HistoryEvent = HistoryEvent
   { historyEventEventid :: {-# UNPACK #-} !Int64
@@ -5907,10 +5889,10 @@ data HistoryEvent'Attributes
   | HistoryEvent'Attributes'WorkflowExecutionUnpausedEventAttributes !WorkflowExecutionUnpausedEventAttributes
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON HistoryEvent'Attributes where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON HistoryEvent'Attributes where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON HistoryEvent'Attributes where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON HistoryEvent'Attributes where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultHistoryEvent :: HistoryEvent
 defaultHistoryEvent = HistoryEvent
@@ -6281,30 +6263,30 @@ instance MessageDecode HistoryEvent where
 instance IsMessage HistoryEvent where
   messageTypeName _ = "temporal.api.history.v1.HistoryEvent"
 
-instance ProtoToJSON HistoryEvent where
-  protoToJSON msg = jsonObject
-      [ "eventId" .= msg.historyEventEventid
-      , "eventTime" .= msg.historyEventEventtime
-      , "eventType" .= msg.historyEventEventtype
-      , "version" .= msg.historyEventVersion
-      , "taskId" .= msg.historyEventTaskid
-      , "workerMayIgnore" .= msg.historyEventWorkermayignore
-      , "userMetadata" .= msg.historyEventUsermetadata
-      , "links" .= msg.historyEventLinks
-      , "attributes" .= msg.historyEventAttributes
+instance Aeson.ToJSON HistoryEvent where
+  toJSON msg = jsonObject
+      [ "eventId" .=: msg.historyEventEventid
+      , "eventTime" .=: msg.historyEventEventtime
+      , "eventType" .=: msg.historyEventEventtype
+      , "version" .=: msg.historyEventVersion
+      , "taskId" .=: msg.historyEventTaskid
+      , "workerMayIgnore" .=: msg.historyEventWorkermayignore
+      , "userMetadata" .=: msg.historyEventUsermetadata
+      , "links" .=: msg.historyEventLinks
+      , "attributes" .=: msg.historyEventAttributes
       ]
 
-instance ProtoFromJSON HistoryEvent where
-  protoFromJSON (JsonObject obj) = do
-    fld_historyEventEventid <- obj .:? "eventId"
-    fld_historyEventEventtime <- obj .:? "eventTime"
-    fld_historyEventEventtype <- obj .:? "eventType"
-    fld_historyEventVersion <- obj .:? "version"
-    fld_historyEventTaskid <- obj .:? "taskId"
-    fld_historyEventWorkermayignore <- obj .:? "workerMayIgnore"
-    fld_historyEventUsermetadata <- obj .:? "userMetadata"
-    fld_historyEventLinks <- obj .:? "links"
-    fld_historyEventAttributes <- obj .:? "attributes"
+instance Aeson.FromJSON HistoryEvent where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_historyEventEventid <- parseFieldMaybe obj "eventId"
+    fld_historyEventEventtime <- parseFieldMaybe obj "eventTime"
+    fld_historyEventEventtype <- parseFieldMaybe obj "eventType"
+    fld_historyEventVersion <- parseFieldMaybe obj "version"
+    fld_historyEventTaskid <- parseFieldMaybe obj "taskId"
+    fld_historyEventWorkermayignore <- parseFieldMaybe obj "workerMayIgnore"
+    fld_historyEventUsermetadata <- parseFieldMaybe obj "userMetadata"
+    fld_historyEventLinks <- parseFieldMaybe obj "links"
+    fld_historyEventAttributes <- parseFieldMaybe obj "attributes"
     pure defaultHistoryEvent
       { historyEventEventid = maybe (historyEventEventid defaultHistoryEvent) id fld_historyEventEventid
       , historyEventEventtime = maybe (historyEventEventtime defaultHistoryEvent) id fld_historyEventEventtime
@@ -6316,7 +6298,7 @@ instance ProtoFromJSON HistoryEvent where
       , historyEventLinks = maybe (historyEventLinks defaultHistoryEvent) id fld_historyEventLinks
       , historyEventAttributes = maybe (historyEventAttributes defaultHistoryEvent) id fld_historyEventAttributes
       }
-  protoFromJSON _ = Right defaultHistoryEvent
+  parseJSON _ = pure defaultHistoryEvent
 
 data History = History
   { historyEvents :: !(V.Vector HistoryEvent)
@@ -6353,19 +6335,18 @@ instance MessageDecode History where
 instance IsMessage History where
   messageTypeName _ = "temporal.api.history.v1.History"
 
-instance ProtoToJSON History where
-  protoToJSON msg = jsonObject
-      [ "events" .= msg.historyEvents
+instance Aeson.ToJSON History where
+  toJSON msg = jsonObject
+      [ "events" .=: msg.historyEvents
 
       ]
 
-instance ProtoFromJSON History where
-  protoFromJSON (JsonObject obj) = do
-    fld_historyEvents <- obj .:? "events"
+instance Aeson.FromJSON History where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_historyEvents <- parseFieldMaybe obj "events"
     pure defaultHistory
       { historyEvents = maybe (historyEvents defaultHistory) id fld_historyEvents
       }
-  protoFromJSON _ = Right defaultHistory
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -93,24 +97,23 @@ instance MessageDecode WorkerPollerInfo where
 instance IsMessage WorkerPollerInfo where
   messageTypeName _ = "temporal.api.worker.v1.WorkerPollerInfo"
 
-instance ProtoToJSON WorkerPollerInfo where
-  protoToJSON msg = jsonObject
-      [ "currentPollers" .= msg.workerPollerInfoCurrentpollers
-      , "lastSuccessfulPollTime" .= msg.workerPollerInfoLastsuccessfulpolltime
-      , "isAutoscaling" .= msg.workerPollerInfoIsautoscaling
+instance Aeson.ToJSON WorkerPollerInfo where
+  toJSON msg = jsonObject
+      [ "currentPollers" .=: msg.workerPollerInfoCurrentpollers
+      , "lastSuccessfulPollTime" .=: msg.workerPollerInfoLastsuccessfulpolltime
+      , "isAutoscaling" .=: msg.workerPollerInfoIsautoscaling
       ]
 
-instance ProtoFromJSON WorkerPollerInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerPollerInfoCurrentpollers <- obj .:? "currentPollers"
-    fld_workerPollerInfoLastsuccessfulpolltime <- obj .:? "lastSuccessfulPollTime"
-    fld_workerPollerInfoIsautoscaling <- obj .:? "isAutoscaling"
+instance Aeson.FromJSON WorkerPollerInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerPollerInfoCurrentpollers <- parseFieldMaybe obj "currentPollers"
+    fld_workerPollerInfoLastsuccessfulpolltime <- parseFieldMaybe obj "lastSuccessfulPollTime"
+    fld_workerPollerInfoIsautoscaling <- parseFieldMaybe obj "isAutoscaling"
     pure defaultWorkerPollerInfo
       { workerPollerInfoCurrentpollers = maybe (workerPollerInfoCurrentpollers defaultWorkerPollerInfo) id fld_workerPollerInfoCurrentpollers
       , workerPollerInfoLastsuccessfulpolltime = maybe (workerPollerInfoLastsuccessfulpolltime defaultWorkerPollerInfo) id fld_workerPollerInfoLastsuccessfulpolltime
       , workerPollerInfoIsautoscaling = maybe (workerPollerInfoIsautoscaling defaultWorkerPollerInfo) id fld_workerPollerInfoIsautoscaling
       }
-  protoFromJSON _ = Right defaultWorkerPollerInfo
 
 data WorkerSlotsInfo = WorkerSlotsInfo
   { workerSlotsInfoCurrentavailableslots :: {-# UNPACK #-} !Int32
@@ -189,26 +192,26 @@ instance MessageDecode WorkerSlotsInfo where
 instance IsMessage WorkerSlotsInfo where
   messageTypeName _ = "temporal.api.worker.v1.WorkerSlotsInfo"
 
-instance ProtoToJSON WorkerSlotsInfo where
-  protoToJSON msg = jsonObject
-      [ "currentAvailableSlots" .= msg.workerSlotsInfoCurrentavailableslots
-      , "currentUsedSlots" .= msg.workerSlotsInfoCurrentusedslots
-      , "slotSupplierKind" .= msg.workerSlotsInfoSlotsupplierkind
-      , "totalProcessedTasks" .= msg.workerSlotsInfoTotalprocessedtasks
-      , "totalFailedTasks" .= msg.workerSlotsInfoTotalfailedtasks
-      , "lastIntervalProcessedTasks" .= msg.workerSlotsInfoLastintervalprocessedtasks
-      , "lastIntervalFailureTasks" .= msg.workerSlotsInfoLastintervalfailuretasks
+instance Aeson.ToJSON WorkerSlotsInfo where
+  toJSON msg = jsonObject
+      [ "currentAvailableSlots" .=: msg.workerSlotsInfoCurrentavailableslots
+      , "currentUsedSlots" .=: msg.workerSlotsInfoCurrentusedslots
+      , "slotSupplierKind" .=: msg.workerSlotsInfoSlotsupplierkind
+      , "totalProcessedTasks" .=: msg.workerSlotsInfoTotalprocessedtasks
+      , "totalFailedTasks" .=: msg.workerSlotsInfoTotalfailedtasks
+      , "lastIntervalProcessedTasks" .=: msg.workerSlotsInfoLastintervalprocessedtasks
+      , "lastIntervalFailureTasks" .=: msg.workerSlotsInfoLastintervalfailuretasks
       ]
 
-instance ProtoFromJSON WorkerSlotsInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerSlotsInfoCurrentavailableslots <- obj .:? "currentAvailableSlots"
-    fld_workerSlotsInfoCurrentusedslots <- obj .:? "currentUsedSlots"
-    fld_workerSlotsInfoSlotsupplierkind <- obj .:? "slotSupplierKind"
-    fld_workerSlotsInfoTotalprocessedtasks <- obj .:? "totalProcessedTasks"
-    fld_workerSlotsInfoTotalfailedtasks <- obj .:? "totalFailedTasks"
-    fld_workerSlotsInfoLastintervalprocessedtasks <- obj .:? "lastIntervalProcessedTasks"
-    fld_workerSlotsInfoLastintervalfailuretasks <- obj .:? "lastIntervalFailureTasks"
+instance Aeson.FromJSON WorkerSlotsInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerSlotsInfoCurrentavailableslots <- parseFieldMaybe obj "currentAvailableSlots"
+    fld_workerSlotsInfoCurrentusedslots <- parseFieldMaybe obj "currentUsedSlots"
+    fld_workerSlotsInfoSlotsupplierkind <- parseFieldMaybe obj "slotSupplierKind"
+    fld_workerSlotsInfoTotalprocessedtasks <- parseFieldMaybe obj "totalProcessedTasks"
+    fld_workerSlotsInfoTotalfailedtasks <- parseFieldMaybe obj "totalFailedTasks"
+    fld_workerSlotsInfoLastintervalprocessedtasks <- parseFieldMaybe obj "lastIntervalProcessedTasks"
+    fld_workerSlotsInfoLastintervalfailuretasks <- parseFieldMaybe obj "lastIntervalFailureTasks"
     pure defaultWorkerSlotsInfo
       { workerSlotsInfoCurrentavailableslots = maybe (workerSlotsInfoCurrentavailableslots defaultWorkerSlotsInfo) id fld_workerSlotsInfoCurrentavailableslots
       , workerSlotsInfoCurrentusedslots = maybe (workerSlotsInfoCurrentusedslots defaultWorkerSlotsInfo) id fld_workerSlotsInfoCurrentusedslots
@@ -218,7 +221,7 @@ instance ProtoFromJSON WorkerSlotsInfo where
       , workerSlotsInfoLastintervalprocessedtasks = maybe (workerSlotsInfoLastintervalprocessedtasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoLastintervalprocessedtasks
       , workerSlotsInfoLastintervalfailuretasks = maybe (workerSlotsInfoLastintervalfailuretasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoLastintervalfailuretasks
       }
-  protoFromJSON _ = Right defaultWorkerSlotsInfo
+  parseJSON _ = pure defaultWorkerSlotsInfo
 
 data WorkerHostInfo = WorkerHostInfo
   { workerHostInfoHostname :: !Text
@@ -283,22 +286,22 @@ instance MessageDecode WorkerHostInfo where
 instance IsMessage WorkerHostInfo where
   messageTypeName _ = "temporal.api.worker.v1.WorkerHostInfo"
 
-instance ProtoToJSON WorkerHostInfo where
-  protoToJSON msg = jsonObject
-      [ "hostName" .= msg.workerHostInfoHostname
-      , "workerGroupingKey" .= msg.workerHostInfoWorkergroupingkey
-      , "processId" .= msg.workerHostInfoProcessid
-      , "currentHostCpuUsage" .= msg.workerHostInfoCurrenthostcpuusage
-      , "currentHostMemUsage" .= msg.workerHostInfoCurrenthostmemusage
+instance Aeson.ToJSON WorkerHostInfo where
+  toJSON msg = jsonObject
+      [ "hostName" .=: msg.workerHostInfoHostname
+      , "workerGroupingKey" .=: msg.workerHostInfoWorkergroupingkey
+      , "processId" .=: msg.workerHostInfoProcessid
+      , "currentHostCpuUsage" .=: msg.workerHostInfoCurrenthostcpuusage
+      , "currentHostMemUsage" .=: msg.workerHostInfoCurrenthostmemusage
       ]
 
-instance ProtoFromJSON WorkerHostInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerHostInfoHostname <- obj .:? "hostName"
-    fld_workerHostInfoWorkergroupingkey <- obj .:? "workerGroupingKey"
-    fld_workerHostInfoProcessid <- obj .:? "processId"
-    fld_workerHostInfoCurrenthostcpuusage <- obj .:? "currentHostCpuUsage"
-    fld_workerHostInfoCurrenthostmemusage <- obj .:? "currentHostMemUsage"
+instance Aeson.FromJSON WorkerHostInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerHostInfoHostname <- parseFieldMaybe obj "hostName"
+    fld_workerHostInfoWorkergroupingkey <- parseFieldMaybe obj "workerGroupingKey"
+    fld_workerHostInfoProcessid <- parseFieldMaybe obj "processId"
+    fld_workerHostInfoCurrenthostcpuusage <- parseFieldMaybe obj "currentHostCpuUsage"
+    fld_workerHostInfoCurrenthostmemusage <- parseFieldMaybe obj "currentHostMemUsage"
     pure defaultWorkerHostInfo
       { workerHostInfoHostname = maybe (workerHostInfoHostname defaultWorkerHostInfo) id fld_workerHostInfoHostname
       , workerHostInfoWorkergroupingkey = maybe (workerHostInfoWorkergroupingkey defaultWorkerHostInfo) id fld_workerHostInfoWorkergroupingkey
@@ -306,7 +309,7 @@ instance ProtoFromJSON WorkerHostInfo where
       , workerHostInfoCurrenthostcpuusage = maybe (workerHostInfoCurrenthostcpuusage defaultWorkerHostInfo) id fld_workerHostInfoCurrenthostcpuusage
       , workerHostInfoCurrenthostmemusage = maybe (workerHostInfoCurrenthostmemusage defaultWorkerHostInfo) id fld_workerHostInfoCurrenthostmemusage
       }
-  protoFromJSON _ = Right defaultWorkerHostInfo
+  parseJSON _ = pure defaultWorkerHostInfo
 
 data WorkerHeartbeat = WorkerHeartbeat
   { workerHeartbeatWorkerinstancekey :: !Text
@@ -497,58 +500,58 @@ instance MessageDecode WorkerHeartbeat where
 instance IsMessage WorkerHeartbeat where
   messageTypeName _ = "temporal.api.worker.v1.WorkerHeartbeat"
 
-instance ProtoToJSON WorkerHeartbeat where
-  protoToJSON msg = jsonObject
-      [ "workerInstanceKey" .= msg.workerHeartbeatWorkerinstancekey
-      , "workerIdentity" .= msg.workerHeartbeatWorkeridentity
-      , "hostInfo" .= msg.workerHeartbeatHostinfo
-      , "taskQueue" .= msg.workerHeartbeatTaskqueue
-      , "deploymentVersion" .= msg.workerHeartbeatDeploymentversion
-      , "sdkName" .= msg.workerHeartbeatSdkname
-      , "sdkVersion" .= msg.workerHeartbeatSdkversion
-      , "status" .= msg.workerHeartbeatStatus
-      , "startTime" .= msg.workerHeartbeatStarttime
-      , "heartbeatTime" .= msg.workerHeartbeatHeartbeattime
-      , "elapsedSinceLastHeartbeat" .= msg.workerHeartbeatElapsedsincelastheartbeat
-      , "workflowTaskSlotsInfo" .= msg.workerHeartbeatWorkflowtaskslotsinfo
-      , "activityTaskSlotsInfo" .= msg.workerHeartbeatActivitytaskslotsinfo
-      , "nexusTaskSlotsInfo" .= msg.workerHeartbeatNexustaskslotsinfo
-      , "localActivitySlotsInfo" .= msg.workerHeartbeatLocalactivityslotsinfo
-      , "workflowPollerInfo" .= msg.workerHeartbeatWorkflowpollerinfo
-      , "workflowStickyPollerInfo" .= msg.workerHeartbeatWorkflowstickypollerinfo
-      , "activityPollerInfo" .= msg.workerHeartbeatActivitypollerinfo
-      , "nexusPollerInfo" .= msg.workerHeartbeatNexuspollerinfo
-      , "totalStickyCacheHit" .= msg.workerHeartbeatTotalstickycachehit
-      , "totalStickyCacheMiss" .= msg.workerHeartbeatTotalstickycachemiss
-      , "currentStickyCacheSize" .= msg.workerHeartbeatCurrentstickycachesize
-      , "plugins" .= msg.workerHeartbeatPlugins
+instance Aeson.ToJSON WorkerHeartbeat where
+  toJSON msg = jsonObject
+      [ "workerInstanceKey" .=: msg.workerHeartbeatWorkerinstancekey
+      , "workerIdentity" .=: msg.workerHeartbeatWorkeridentity
+      , "hostInfo" .=: msg.workerHeartbeatHostinfo
+      , "taskQueue" .=: msg.workerHeartbeatTaskqueue
+      , "deploymentVersion" .=: msg.workerHeartbeatDeploymentversion
+      , "sdkName" .=: msg.workerHeartbeatSdkname
+      , "sdkVersion" .=: msg.workerHeartbeatSdkversion
+      , "status" .=: msg.workerHeartbeatStatus
+      , "startTime" .=: msg.workerHeartbeatStarttime
+      , "heartbeatTime" .=: msg.workerHeartbeatHeartbeattime
+      , "elapsedSinceLastHeartbeat" .=: msg.workerHeartbeatElapsedsincelastheartbeat
+      , "workflowTaskSlotsInfo" .=: msg.workerHeartbeatWorkflowtaskslotsinfo
+      , "activityTaskSlotsInfo" .=: msg.workerHeartbeatActivitytaskslotsinfo
+      , "nexusTaskSlotsInfo" .=: msg.workerHeartbeatNexustaskslotsinfo
+      , "localActivitySlotsInfo" .=: msg.workerHeartbeatLocalactivityslotsinfo
+      , "workflowPollerInfo" .=: msg.workerHeartbeatWorkflowpollerinfo
+      , "workflowStickyPollerInfo" .=: msg.workerHeartbeatWorkflowstickypollerinfo
+      , "activityPollerInfo" .=: msg.workerHeartbeatActivitypollerinfo
+      , "nexusPollerInfo" .=: msg.workerHeartbeatNexuspollerinfo
+      , "totalStickyCacheHit" .=: msg.workerHeartbeatTotalstickycachehit
+      , "totalStickyCacheMiss" .=: msg.workerHeartbeatTotalstickycachemiss
+      , "currentStickyCacheSize" .=: msg.workerHeartbeatCurrentstickycachesize
+      , "plugins" .=: msg.workerHeartbeatPlugins
       ]
 
-instance ProtoFromJSON WorkerHeartbeat where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerHeartbeatWorkerinstancekey <- obj .:? "workerInstanceKey"
-    fld_workerHeartbeatWorkeridentity <- obj .:? "workerIdentity"
-    fld_workerHeartbeatHostinfo <- obj .:? "hostInfo"
-    fld_workerHeartbeatTaskqueue <- obj .:? "taskQueue"
-    fld_workerHeartbeatDeploymentversion <- obj .:? "deploymentVersion"
-    fld_workerHeartbeatSdkname <- obj .:? "sdkName"
-    fld_workerHeartbeatSdkversion <- obj .:? "sdkVersion"
-    fld_workerHeartbeatStatus <- obj .:? "status"
-    fld_workerHeartbeatStarttime <- obj .:? "startTime"
-    fld_workerHeartbeatHeartbeattime <- obj .:? "heartbeatTime"
-    fld_workerHeartbeatElapsedsincelastheartbeat <- obj .:? "elapsedSinceLastHeartbeat"
-    fld_workerHeartbeatWorkflowtaskslotsinfo <- obj .:? "workflowTaskSlotsInfo"
-    fld_workerHeartbeatActivitytaskslotsinfo <- obj .:? "activityTaskSlotsInfo"
-    fld_workerHeartbeatNexustaskslotsinfo <- obj .:? "nexusTaskSlotsInfo"
-    fld_workerHeartbeatLocalactivityslotsinfo <- obj .:? "localActivitySlotsInfo"
-    fld_workerHeartbeatWorkflowpollerinfo <- obj .:? "workflowPollerInfo"
-    fld_workerHeartbeatWorkflowstickypollerinfo <- obj .:? "workflowStickyPollerInfo"
-    fld_workerHeartbeatActivitypollerinfo <- obj .:? "activityPollerInfo"
-    fld_workerHeartbeatNexuspollerinfo <- obj .:? "nexusPollerInfo"
-    fld_workerHeartbeatTotalstickycachehit <- obj .:? "totalStickyCacheHit"
-    fld_workerHeartbeatTotalstickycachemiss <- obj .:? "totalStickyCacheMiss"
-    fld_workerHeartbeatCurrentstickycachesize <- obj .:? "currentStickyCacheSize"
-    fld_workerHeartbeatPlugins <- obj .:? "plugins"
+instance Aeson.FromJSON WorkerHeartbeat where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerHeartbeatWorkerinstancekey <- parseFieldMaybe obj "workerInstanceKey"
+    fld_workerHeartbeatWorkeridentity <- parseFieldMaybe obj "workerIdentity"
+    fld_workerHeartbeatHostinfo <- parseFieldMaybe obj "hostInfo"
+    fld_workerHeartbeatTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_workerHeartbeatDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
+    fld_workerHeartbeatSdkname <- parseFieldMaybe obj "sdkName"
+    fld_workerHeartbeatSdkversion <- parseFieldMaybe obj "sdkVersion"
+    fld_workerHeartbeatStatus <- parseFieldMaybe obj "status"
+    fld_workerHeartbeatStarttime <- parseFieldMaybe obj "startTime"
+    fld_workerHeartbeatHeartbeattime <- parseFieldMaybe obj "heartbeatTime"
+    fld_workerHeartbeatElapsedsincelastheartbeat <- parseFieldMaybe obj "elapsedSinceLastHeartbeat"
+    fld_workerHeartbeatWorkflowtaskslotsinfo <- parseFieldMaybe obj "workflowTaskSlotsInfo"
+    fld_workerHeartbeatActivitytaskslotsinfo <- parseFieldMaybe obj "activityTaskSlotsInfo"
+    fld_workerHeartbeatNexustaskslotsinfo <- parseFieldMaybe obj "nexusTaskSlotsInfo"
+    fld_workerHeartbeatLocalactivityslotsinfo <- parseFieldMaybe obj "localActivitySlotsInfo"
+    fld_workerHeartbeatWorkflowpollerinfo <- parseFieldMaybe obj "workflowPollerInfo"
+    fld_workerHeartbeatWorkflowstickypollerinfo <- parseFieldMaybe obj "workflowStickyPollerInfo"
+    fld_workerHeartbeatActivitypollerinfo <- parseFieldMaybe obj "activityPollerInfo"
+    fld_workerHeartbeatNexuspollerinfo <- parseFieldMaybe obj "nexusPollerInfo"
+    fld_workerHeartbeatTotalstickycachehit <- parseFieldMaybe obj "totalStickyCacheHit"
+    fld_workerHeartbeatTotalstickycachemiss <- parseFieldMaybe obj "totalStickyCacheMiss"
+    fld_workerHeartbeatCurrentstickycachesize <- parseFieldMaybe obj "currentStickyCacheSize"
+    fld_workerHeartbeatPlugins <- parseFieldMaybe obj "plugins"
     pure defaultWorkerHeartbeat
       { workerHeartbeatWorkerinstancekey = maybe (workerHeartbeatWorkerinstancekey defaultWorkerHeartbeat) id fld_workerHeartbeatWorkerinstancekey
       , workerHeartbeatWorkeridentity = maybe (workerHeartbeatWorkeridentity defaultWorkerHeartbeat) id fld_workerHeartbeatWorkeridentity
@@ -574,7 +577,7 @@ instance ProtoFromJSON WorkerHeartbeat where
       , workerHeartbeatCurrentstickycachesize = maybe (workerHeartbeatCurrentstickycachesize defaultWorkerHeartbeat) id fld_workerHeartbeatCurrentstickycachesize
       , workerHeartbeatPlugins = maybe (workerHeartbeatPlugins defaultWorkerHeartbeat) id fld_workerHeartbeatPlugins
       }
-  protoFromJSON _ = Right defaultWorkerHeartbeat
+  parseJSON _ = pure defaultWorkerHeartbeat
 
 data WorkerInfo = WorkerInfo
   { workerInfoWorkerheartbeat :: !(Maybe WorkerHeartbeat)
@@ -611,19 +614,18 @@ instance MessageDecode WorkerInfo where
 instance IsMessage WorkerInfo where
   messageTypeName _ = "temporal.api.worker.v1.WorkerInfo"
 
-instance ProtoToJSON WorkerInfo where
-  protoToJSON msg = jsonObject
-      [ "workerHeartbeat" .= msg.workerInfoWorkerheartbeat
+instance Aeson.ToJSON WorkerInfo where
+  toJSON msg = jsonObject
+      [ "workerHeartbeat" .=: msg.workerInfoWorkerheartbeat
 
       ]
 
-instance ProtoFromJSON WorkerInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerInfoWorkerheartbeat <- obj .:? "workerHeartbeat"
+instance Aeson.FromJSON WorkerInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerInfoWorkerheartbeat <- parseFieldMaybe obj "workerHeartbeat"
     pure defaultWorkerInfo
       { workerInfoWorkerheartbeat = maybe (workerInfoWorkerheartbeat defaultWorkerInfo) id fld_workerInfoWorkerheartbeat
       }
-  protoFromJSON _ = Right defaultWorkerInfo
 
 data PluginInfo = PluginInfo
   { pluginInfoName :: !Text
@@ -667,21 +669,20 @@ instance MessageDecode PluginInfo where
 instance IsMessage PluginInfo where
   messageTypeName _ = "temporal.api.worker.v1.PluginInfo"
 
-instance ProtoToJSON PluginInfo where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.pluginInfoName
-      , "version" .= msg.pluginInfoVersion
+instance Aeson.ToJSON PluginInfo where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.pluginInfoName
+      , "version" .=: msg.pluginInfoVersion
       ]
 
-instance ProtoFromJSON PluginInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_pluginInfoName <- obj .:? "name"
-    fld_pluginInfoVersion <- obj .:? "version"
+instance Aeson.FromJSON PluginInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pluginInfoName <- parseFieldMaybe obj "name"
+    fld_pluginInfoVersion <- parseFieldMaybe obj "version"
     pure defaultPluginInfo
       { pluginInfoName = maybe (pluginInfoName defaultPluginInfo) id fld_pluginInfoName
       , pluginInfoVersion = maybe (pluginInfoVersion defaultPluginInfo) id fld_pluginInfoVersion
       }
-  protoFromJSON _ = Right defaultPluginInfo
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

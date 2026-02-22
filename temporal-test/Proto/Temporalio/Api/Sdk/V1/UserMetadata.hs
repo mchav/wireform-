@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -83,21 +87,20 @@ instance MessageDecode UserMetadata where
 instance IsMessage UserMetadata where
   messageTypeName _ = "temporal.api.sdk.v1.UserMetadata"
 
-instance ProtoToJSON UserMetadata where
-  protoToJSON msg = jsonObject
-      [ "summary" .= msg.userMetadataSummary
-      , "details" .= msg.userMetadataDetails
+instance Aeson.ToJSON UserMetadata where
+  toJSON msg = jsonObject
+      [ "summary" .=: msg.userMetadataSummary
+      , "details" .=: msg.userMetadataDetails
       ]
 
-instance ProtoFromJSON UserMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_userMetadataSummary <- obj .:? "summary"
-    fld_userMetadataDetails <- obj .:? "details"
+instance Aeson.FromJSON UserMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_userMetadataSummary <- parseFieldMaybe obj "summary"
+    fld_userMetadataDetails <- parseFieldMaybe obj "details"
     pure defaultUserMetadata
       { userMetadataSummary = maybe (userMetadataSummary defaultUserMetadata) id fld_userMetadataSummary
       , userMetadataDetails = maybe (userMetadataDetails defaultUserMetadata) id fld_userMetadataDetails
       }
-  protoFromJSON _ = Right defaultUserMetadata
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

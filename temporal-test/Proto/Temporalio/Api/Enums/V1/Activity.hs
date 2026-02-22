@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -77,26 +81,26 @@ instance MessageSize ActivityExecutionStatus where
 instance MessageDecode ActivityExecutionStatus where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ActivityExecutionStatus where
-  protoToJSON ActivityExecutionStatus'ActivityExecutionStatusUnspecified = JsonString "ACTIVITY_EXECUTION_STATUS_UNSPECIFIED"
-  protoToJSON ActivityExecutionStatus'ActivityExecutionStatusRunning = JsonString "ACTIVITY_EXECUTION_STATUS_RUNNING"
-  protoToJSON ActivityExecutionStatus'ActivityExecutionStatusCompleted = JsonString "ACTIVITY_EXECUTION_STATUS_COMPLETED"
-  protoToJSON ActivityExecutionStatus'ActivityExecutionStatusFailed = JsonString "ACTIVITY_EXECUTION_STATUS_FAILED"
-  protoToJSON ActivityExecutionStatus'ActivityExecutionStatusCanceled = JsonString "ACTIVITY_EXECUTION_STATUS_CANCELED"
-  protoToJSON ActivityExecutionStatus'ActivityExecutionStatusTerminated = JsonString "ACTIVITY_EXECUTION_STATUS_TERMINATED"
-  protoToJSON ActivityExecutionStatus'ActivityExecutionStatusTimedOut = JsonString "ACTIVITY_EXECUTION_STATUS_TIMED_OUT"
+instance Aeson.ToJSON ActivityExecutionStatus where
+  toJSON ActivityExecutionStatus'ActivityExecutionStatusUnspecified = Aeson.String "ACTIVITY_EXECUTION_STATUS_UNSPECIFIED"
+  toJSON ActivityExecutionStatus'ActivityExecutionStatusRunning = Aeson.String "ACTIVITY_EXECUTION_STATUS_RUNNING"
+  toJSON ActivityExecutionStatus'ActivityExecutionStatusCompleted = Aeson.String "ACTIVITY_EXECUTION_STATUS_COMPLETED"
+  toJSON ActivityExecutionStatus'ActivityExecutionStatusFailed = Aeson.String "ACTIVITY_EXECUTION_STATUS_FAILED"
+  toJSON ActivityExecutionStatus'ActivityExecutionStatusCanceled = Aeson.String "ACTIVITY_EXECUTION_STATUS_CANCELED"
+  toJSON ActivityExecutionStatus'ActivityExecutionStatusTerminated = Aeson.String "ACTIVITY_EXECUTION_STATUS_TERMINATED"
+  toJSON ActivityExecutionStatus'ActivityExecutionStatusTimedOut = Aeson.String "ACTIVITY_EXECUTION_STATUS_TIMED_OUT"
 
-instance ProtoFromJSON ActivityExecutionStatus where
-  protoFromJSON = \case
-    JsonString "ACTIVITY_EXECUTION_STATUS_UNSPECIFIED" -> Right ActivityExecutionStatus'ActivityExecutionStatusUnspecified
-    JsonString "ACTIVITY_EXECUTION_STATUS_RUNNING" -> Right ActivityExecutionStatus'ActivityExecutionStatusRunning
-    JsonString "ACTIVITY_EXECUTION_STATUS_COMPLETED" -> Right ActivityExecutionStatus'ActivityExecutionStatusCompleted
-    JsonString "ACTIVITY_EXECUTION_STATUS_FAILED" -> Right ActivityExecutionStatus'ActivityExecutionStatusFailed
-    JsonString "ACTIVITY_EXECUTION_STATUS_CANCELED" -> Right ActivityExecutionStatus'ActivityExecutionStatusCanceled
-    JsonString "ACTIVITY_EXECUTION_STATUS_TERMINATED" -> Right ActivityExecutionStatus'ActivityExecutionStatusTerminated
-    JsonString "ACTIVITY_EXECUTION_STATUS_TIMED_OUT" -> Right ActivityExecutionStatus'ActivityExecutionStatusTimedOut
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ActivityExecutionStatus"
+instance Aeson.FromJSON ActivityExecutionStatus where
+  parseJSON = \case
+    Aeson.String "ACTIVITY_EXECUTION_STATUS_UNSPECIFIED" -> pure ActivityExecutionStatus'ActivityExecutionStatusUnspecified
+    Aeson.String "ACTIVITY_EXECUTION_STATUS_RUNNING" -> pure ActivityExecutionStatus'ActivityExecutionStatusRunning
+    Aeson.String "ACTIVITY_EXECUTION_STATUS_COMPLETED" -> pure ActivityExecutionStatus'ActivityExecutionStatusCompleted
+    Aeson.String "ACTIVITY_EXECUTION_STATUS_FAILED" -> pure ActivityExecutionStatus'ActivityExecutionStatusFailed
+    Aeson.String "ACTIVITY_EXECUTION_STATUS_CANCELED" -> pure ActivityExecutionStatus'ActivityExecutionStatusCanceled
+    Aeson.String "ACTIVITY_EXECUTION_STATUS_TERMINATED" -> pure ActivityExecutionStatus'ActivityExecutionStatusTerminated
+    Aeson.String "ACTIVITY_EXECUTION_STATUS_TIMED_OUT" -> pure ActivityExecutionStatus'ActivityExecutionStatusTimedOut
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ActivityExecutionStatus"
 
 data ActivityIdReusePolicy
   = ActivityIdReusePolicy'ActivityIdReusePolicyUnspecified
@@ -126,20 +130,20 @@ instance MessageSize ActivityIdReusePolicy where
 instance MessageDecode ActivityIdReusePolicy where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ActivityIdReusePolicy where
-  protoToJSON ActivityIdReusePolicy'ActivityIdReusePolicyUnspecified = JsonString "ACTIVITY_ID_REUSE_POLICY_UNSPECIFIED"
-  protoToJSON ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicate = JsonString "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE"
-  protoToJSON ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicateFailedOnly = JsonString "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY"
-  protoToJSON ActivityIdReusePolicy'ActivityIdReusePolicyRejectDuplicate = JsonString "ACTIVITY_ID_REUSE_POLICY_REJECT_DUPLICATE"
+instance Aeson.ToJSON ActivityIdReusePolicy where
+  toJSON ActivityIdReusePolicy'ActivityIdReusePolicyUnspecified = Aeson.String "ACTIVITY_ID_REUSE_POLICY_UNSPECIFIED"
+  toJSON ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicate = Aeson.String "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE"
+  toJSON ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicateFailedOnly = Aeson.String "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY"
+  toJSON ActivityIdReusePolicy'ActivityIdReusePolicyRejectDuplicate = Aeson.String "ACTIVITY_ID_REUSE_POLICY_REJECT_DUPLICATE"
 
-instance ProtoFromJSON ActivityIdReusePolicy where
-  protoFromJSON = \case
-    JsonString "ACTIVITY_ID_REUSE_POLICY_UNSPECIFIED" -> Right ActivityIdReusePolicy'ActivityIdReusePolicyUnspecified
-    JsonString "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE" -> Right ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicate
-    JsonString "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY" -> Right ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicateFailedOnly
-    JsonString "ACTIVITY_ID_REUSE_POLICY_REJECT_DUPLICATE" -> Right ActivityIdReusePolicy'ActivityIdReusePolicyRejectDuplicate
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ActivityIdReusePolicy"
+instance Aeson.FromJSON ActivityIdReusePolicy where
+  parseJSON = \case
+    Aeson.String "ACTIVITY_ID_REUSE_POLICY_UNSPECIFIED" -> pure ActivityIdReusePolicy'ActivityIdReusePolicyUnspecified
+    Aeson.String "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE" -> pure ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicate
+    Aeson.String "ACTIVITY_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY" -> pure ActivityIdReusePolicy'ActivityIdReusePolicyAllowDuplicateFailedOnly
+    Aeson.String "ACTIVITY_ID_REUSE_POLICY_REJECT_DUPLICATE" -> pure ActivityIdReusePolicy'ActivityIdReusePolicyRejectDuplicate
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ActivityIdReusePolicy"
 
 data ActivityIdConflictPolicy
   = ActivityIdConflictPolicy'ActivityIdConflictPolicyUnspecified
@@ -166,16 +170,16 @@ instance MessageSize ActivityIdConflictPolicy where
 instance MessageDecode ActivityIdConflictPolicy where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ActivityIdConflictPolicy where
-  protoToJSON ActivityIdConflictPolicy'ActivityIdConflictPolicyUnspecified = JsonString "ACTIVITY_ID_CONFLICT_POLICY_UNSPECIFIED"
-  protoToJSON ActivityIdConflictPolicy'ActivityIdConflictPolicyFail = JsonString "ACTIVITY_ID_CONFLICT_POLICY_FAIL"
-  protoToJSON ActivityIdConflictPolicy'ActivityIdConflictPolicyUseExisting = JsonString "ACTIVITY_ID_CONFLICT_POLICY_USE_EXISTING"
+instance Aeson.ToJSON ActivityIdConflictPolicy where
+  toJSON ActivityIdConflictPolicy'ActivityIdConflictPolicyUnspecified = Aeson.String "ACTIVITY_ID_CONFLICT_POLICY_UNSPECIFIED"
+  toJSON ActivityIdConflictPolicy'ActivityIdConflictPolicyFail = Aeson.String "ACTIVITY_ID_CONFLICT_POLICY_FAIL"
+  toJSON ActivityIdConflictPolicy'ActivityIdConflictPolicyUseExisting = Aeson.String "ACTIVITY_ID_CONFLICT_POLICY_USE_EXISTING"
 
-instance ProtoFromJSON ActivityIdConflictPolicy where
-  protoFromJSON = \case
-    JsonString "ACTIVITY_ID_CONFLICT_POLICY_UNSPECIFIED" -> Right ActivityIdConflictPolicy'ActivityIdConflictPolicyUnspecified
-    JsonString "ACTIVITY_ID_CONFLICT_POLICY_FAIL" -> Right ActivityIdConflictPolicy'ActivityIdConflictPolicyFail
-    JsonString "ACTIVITY_ID_CONFLICT_POLICY_USE_EXISTING" -> Right ActivityIdConflictPolicy'ActivityIdConflictPolicyUseExisting
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ActivityIdConflictPolicy"
+instance Aeson.FromJSON ActivityIdConflictPolicy where
+  parseJSON = \case
+    Aeson.String "ACTIVITY_ID_CONFLICT_POLICY_UNSPECIFIED" -> pure ActivityIdConflictPolicy'ActivityIdConflictPolicyUnspecified
+    Aeson.String "ACTIVITY_ID_CONFLICT_POLICY_FAIL" -> pure ActivityIdConflictPolicy'ActivityIdConflictPolicyFail
+    Aeson.String "ACTIVITY_ID_CONFLICT_POLICY_USE_EXISTING" -> pure ActivityIdConflictPolicy'ActivityIdConflictPolicyUseExisting
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ActivityIdConflictPolicy"
 

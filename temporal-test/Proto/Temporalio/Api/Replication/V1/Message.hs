@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -77,19 +81,18 @@ instance MessageDecode ClusterReplicationConfig where
 instance IsMessage ClusterReplicationConfig where
   messageTypeName _ = "temporal.api.replication.v1.ClusterReplicationConfig"
 
-instance ProtoToJSON ClusterReplicationConfig where
-  protoToJSON msg = jsonObject
-      [ "clusterName" .= msg.clusterReplicationConfigClustername
+instance Aeson.ToJSON ClusterReplicationConfig where
+  toJSON msg = jsonObject
+      [ "clusterName" .=: msg.clusterReplicationConfigClustername
 
       ]
 
-instance ProtoFromJSON ClusterReplicationConfig where
-  protoFromJSON (JsonObject obj) = do
-    fld_clusterReplicationConfigClustername <- obj .:? "clusterName"
+instance Aeson.FromJSON ClusterReplicationConfig where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_clusterReplicationConfigClustername <- parseFieldMaybe obj "clusterName"
     pure defaultClusterReplicationConfig
       { clusterReplicationConfigClustername = maybe (clusterReplicationConfigClustername defaultClusterReplicationConfig) id fld_clusterReplicationConfigClustername
       }
-  protoFromJSON _ = Right defaultClusterReplicationConfig
 
 data NamespaceReplicationConfig = NamespaceReplicationConfig
   { namespaceReplicationConfigActiveclustername :: !Text
@@ -140,24 +143,23 @@ instance MessageDecode NamespaceReplicationConfig where
 instance IsMessage NamespaceReplicationConfig where
   messageTypeName _ = "temporal.api.replication.v1.NamespaceReplicationConfig"
 
-instance ProtoToJSON NamespaceReplicationConfig where
-  protoToJSON msg = jsonObject
-      [ "activeClusterName" .= msg.namespaceReplicationConfigActiveclustername
-      , "clusters" .= msg.namespaceReplicationConfigClusters
-      , "state" .= msg.namespaceReplicationConfigState
+instance Aeson.ToJSON NamespaceReplicationConfig where
+  toJSON msg = jsonObject
+      [ "activeClusterName" .=: msg.namespaceReplicationConfigActiveclustername
+      , "clusters" .=: msg.namespaceReplicationConfigClusters
+      , "state" .=: msg.namespaceReplicationConfigState
       ]
 
-instance ProtoFromJSON NamespaceReplicationConfig where
-  protoFromJSON (JsonObject obj) = do
-    fld_namespaceReplicationConfigActiveclustername <- obj .:? "activeClusterName"
-    fld_namespaceReplicationConfigClusters <- obj .:? "clusters"
-    fld_namespaceReplicationConfigState <- obj .:? "state"
+instance Aeson.FromJSON NamespaceReplicationConfig where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_namespaceReplicationConfigActiveclustername <- parseFieldMaybe obj "activeClusterName"
+    fld_namespaceReplicationConfigClusters <- parseFieldMaybe obj "clusters"
+    fld_namespaceReplicationConfigState <- parseFieldMaybe obj "state"
     pure defaultNamespaceReplicationConfig
       { namespaceReplicationConfigActiveclustername = maybe (namespaceReplicationConfigActiveclustername defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigActiveclustername
       , namespaceReplicationConfigClusters = maybe (namespaceReplicationConfigClusters defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigClusters
       , namespaceReplicationConfigState = maybe (namespaceReplicationConfigState defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigState
       }
-  protoFromJSON _ = Right defaultNamespaceReplicationConfig
 
 data FailoverStatus = FailoverStatus
   { failoverStatusFailovertime :: !(Maybe PB_Timestamp.Timestamp)
@@ -201,21 +203,20 @@ instance MessageDecode FailoverStatus where
 instance IsMessage FailoverStatus where
   messageTypeName _ = "temporal.api.replication.v1.FailoverStatus"
 
-instance ProtoToJSON FailoverStatus where
-  protoToJSON msg = jsonObject
-      [ "failoverTime" .= msg.failoverStatusFailovertime
-      , "failoverVersion" .= msg.failoverStatusFailoverversion
+instance Aeson.ToJSON FailoverStatus where
+  toJSON msg = jsonObject
+      [ "failoverTime" .=: msg.failoverStatusFailovertime
+      , "failoverVersion" .=: msg.failoverStatusFailoverversion
       ]
 
-instance ProtoFromJSON FailoverStatus where
-  protoFromJSON (JsonObject obj) = do
-    fld_failoverStatusFailovertime <- obj .:? "failoverTime"
-    fld_failoverStatusFailoverversion <- obj .:? "failoverVersion"
+instance Aeson.FromJSON FailoverStatus where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_failoverStatusFailovertime <- parseFieldMaybe obj "failoverTime"
+    fld_failoverStatusFailoverversion <- parseFieldMaybe obj "failoverVersion"
     pure defaultFailoverStatus
       { failoverStatusFailovertime = maybe (failoverStatusFailovertime defaultFailoverStatus) id fld_failoverStatusFailovertime
       , failoverStatusFailoverversion = maybe (failoverStatusFailoverversion defaultFailoverStatus) id fld_failoverStatusFailoverversion
       }
-  protoFromJSON _ = Right defaultFailoverStatus
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -108,22 +112,22 @@ instance MessageDecode ApplicationFailureInfo where
 instance IsMessage ApplicationFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.ApplicationFailureInfo"
 
-instance ProtoToJSON ApplicationFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "type" .= msg.applicationFailureInfoType
-      , "nonRetryable" .= msg.applicationFailureInfoNonretryable
-      , "details" .= msg.applicationFailureInfoDetails
-      , "nextRetryDelay" .= msg.applicationFailureInfoNextretrydelay
-      , "category" .= msg.applicationFailureInfoCategory
+instance Aeson.ToJSON ApplicationFailureInfo where
+  toJSON msg = jsonObject
+      [ "type" .=: msg.applicationFailureInfoType
+      , "nonRetryable" .=: msg.applicationFailureInfoNonretryable
+      , "details" .=: msg.applicationFailureInfoDetails
+      , "nextRetryDelay" .=: msg.applicationFailureInfoNextretrydelay
+      , "category" .=: msg.applicationFailureInfoCategory
       ]
 
-instance ProtoFromJSON ApplicationFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_applicationFailureInfoType <- obj .:? "type"
-    fld_applicationFailureInfoNonretryable <- obj .:? "nonRetryable"
-    fld_applicationFailureInfoDetails <- obj .:? "details"
-    fld_applicationFailureInfoNextretrydelay <- obj .:? "nextRetryDelay"
-    fld_applicationFailureInfoCategory <- obj .:? "category"
+instance Aeson.FromJSON ApplicationFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_applicationFailureInfoType <- parseFieldMaybe obj "type"
+    fld_applicationFailureInfoNonretryable <- parseFieldMaybe obj "nonRetryable"
+    fld_applicationFailureInfoDetails <- parseFieldMaybe obj "details"
+    fld_applicationFailureInfoNextretrydelay <- parseFieldMaybe obj "nextRetryDelay"
+    fld_applicationFailureInfoCategory <- parseFieldMaybe obj "category"
     pure defaultApplicationFailureInfo
       { applicationFailureInfoType = maybe (applicationFailureInfoType defaultApplicationFailureInfo) id fld_applicationFailureInfoType
       , applicationFailureInfoNonretryable = maybe (applicationFailureInfoNonretryable defaultApplicationFailureInfo) id fld_applicationFailureInfoNonretryable
@@ -131,7 +135,7 @@ instance ProtoFromJSON ApplicationFailureInfo where
       , applicationFailureInfoNextretrydelay = maybe (applicationFailureInfoNextretrydelay defaultApplicationFailureInfo) id fld_applicationFailureInfoNextretrydelay
       , applicationFailureInfoCategory = maybe (applicationFailureInfoCategory defaultApplicationFailureInfo) id fld_applicationFailureInfoCategory
       }
-  protoFromJSON _ = Right defaultApplicationFailureInfo
+  parseJSON _ = pure defaultApplicationFailureInfo
 
 data TimeoutFailureInfo = TimeoutFailureInfo
   { timeoutFailureInfoTimeouttype :: !TE_Enums_V1_Workflow.TimeoutType
@@ -175,21 +179,20 @@ instance MessageDecode TimeoutFailureInfo where
 instance IsMessage TimeoutFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.TimeoutFailureInfo"
 
-instance ProtoToJSON TimeoutFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "timeoutType" .= msg.timeoutFailureInfoTimeouttype
-      , "lastHeartbeatDetails" .= msg.timeoutFailureInfoLastheartbeatdetails
+instance Aeson.ToJSON TimeoutFailureInfo where
+  toJSON msg = jsonObject
+      [ "timeoutType" .=: msg.timeoutFailureInfoTimeouttype
+      , "lastHeartbeatDetails" .=: msg.timeoutFailureInfoLastheartbeatdetails
       ]
 
-instance ProtoFromJSON TimeoutFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_timeoutFailureInfoTimeouttype <- obj .:? "timeoutType"
-    fld_timeoutFailureInfoLastheartbeatdetails <- obj .:? "lastHeartbeatDetails"
+instance Aeson.FromJSON TimeoutFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_timeoutFailureInfoTimeouttype <- parseFieldMaybe obj "timeoutType"
+    fld_timeoutFailureInfoLastheartbeatdetails <- parseFieldMaybe obj "lastHeartbeatDetails"
     pure defaultTimeoutFailureInfo
       { timeoutFailureInfoTimeouttype = maybe (timeoutFailureInfoTimeouttype defaultTimeoutFailureInfo) id fld_timeoutFailureInfoTimeouttype
       , timeoutFailureInfoLastheartbeatdetails = maybe (timeoutFailureInfoLastheartbeatdetails defaultTimeoutFailureInfo) id fld_timeoutFailureInfoLastheartbeatdetails
       }
-  protoFromJSON _ = Right defaultTimeoutFailureInfo
 
 data CanceledFailureInfo = CanceledFailureInfo
   { canceledFailureInfoDetails :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -226,19 +229,18 @@ instance MessageDecode CanceledFailureInfo where
 instance IsMessage CanceledFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.CanceledFailureInfo"
 
-instance ProtoToJSON CanceledFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "details" .= msg.canceledFailureInfoDetails
+instance Aeson.ToJSON CanceledFailureInfo where
+  toJSON msg = jsonObject
+      [ "details" .=: msg.canceledFailureInfoDetails
 
       ]
 
-instance ProtoFromJSON CanceledFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_canceledFailureInfoDetails <- obj .:? "details"
+instance Aeson.FromJSON CanceledFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_canceledFailureInfoDetails <- parseFieldMaybe obj "details"
     pure defaultCanceledFailureInfo
       { canceledFailureInfoDetails = maybe (canceledFailureInfoDetails defaultCanceledFailureInfo) id fld_canceledFailureInfoDetails
       }
-  protoFromJSON _ = Right defaultCanceledFailureInfo
 
 data TerminatedFailureInfo = TerminatedFailureInfo
   { }
@@ -270,12 +272,12 @@ instance MessageDecode TerminatedFailureInfo where
 instance IsMessage TerminatedFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.TerminatedFailureInfo"
 
-instance ProtoToJSON TerminatedFailureInfo where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON TerminatedFailureInfo where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON TerminatedFailureInfo where
-  protoFromJSON _ = Right defaultTerminatedFailureInfo
+instance Aeson.FromJSON TerminatedFailureInfo where
+  parseJSON _ = pure defaultTerminatedFailureInfo
 
 data ServerFailureInfo = ServerFailureInfo
   { serverFailureInfoNonretryable :: {-# UNPACK #-} !Bool
@@ -312,19 +314,18 @@ instance MessageDecode ServerFailureInfo where
 instance IsMessage ServerFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.ServerFailureInfo"
 
-instance ProtoToJSON ServerFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "nonRetryable" .= msg.serverFailureInfoNonretryable
+instance Aeson.ToJSON ServerFailureInfo where
+  toJSON msg = jsonObject
+      [ "nonRetryable" .=: msg.serverFailureInfoNonretryable
 
       ]
 
-instance ProtoFromJSON ServerFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_serverFailureInfoNonretryable <- obj .:? "nonRetryable"
+instance Aeson.FromJSON ServerFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_serverFailureInfoNonretryable <- parseFieldMaybe obj "nonRetryable"
     pure defaultServerFailureInfo
       { serverFailureInfoNonretryable = maybe (serverFailureInfoNonretryable defaultServerFailureInfo) id fld_serverFailureInfoNonretryable
       }
-  protoFromJSON _ = Right defaultServerFailureInfo
 
 data ResetWorkflowFailureInfo = ResetWorkflowFailureInfo
   { resetWorkflowFailureInfoLastheartbeatdetails :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -361,19 +362,18 @@ instance MessageDecode ResetWorkflowFailureInfo where
 instance IsMessage ResetWorkflowFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.ResetWorkflowFailureInfo"
 
-instance ProtoToJSON ResetWorkflowFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "lastHeartbeatDetails" .= msg.resetWorkflowFailureInfoLastheartbeatdetails
+instance Aeson.ToJSON ResetWorkflowFailureInfo where
+  toJSON msg = jsonObject
+      [ "lastHeartbeatDetails" .=: msg.resetWorkflowFailureInfoLastheartbeatdetails
 
       ]
 
-instance ProtoFromJSON ResetWorkflowFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_resetWorkflowFailureInfoLastheartbeatdetails <- obj .:? "lastHeartbeatDetails"
+instance Aeson.FromJSON ResetWorkflowFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_resetWorkflowFailureInfoLastheartbeatdetails <- parseFieldMaybe obj "lastHeartbeatDetails"
     pure defaultResetWorkflowFailureInfo
       { resetWorkflowFailureInfoLastheartbeatdetails = maybe (resetWorkflowFailureInfoLastheartbeatdetails defaultResetWorkflowFailureInfo) id fld_resetWorkflowFailureInfoLastheartbeatdetails
       }
-  protoFromJSON _ = Right defaultResetWorkflowFailureInfo
 
 data ActivityFailureInfo = ActivityFailureInfo
   { activityFailureInfoScheduledeventid :: {-# UNPACK #-} !Int64
@@ -445,24 +445,24 @@ instance MessageDecode ActivityFailureInfo where
 instance IsMessage ActivityFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.ActivityFailureInfo"
 
-instance ProtoToJSON ActivityFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.activityFailureInfoScheduledeventid
-      , "startedEventId" .= msg.activityFailureInfoStartedeventid
-      , "identity" .= msg.activityFailureInfoIdentity
-      , "activityType" .= msg.activityFailureInfoActivitytype
-      , "activityId" .= msg.activityFailureInfoActivityid
-      , "retryState" .= msg.activityFailureInfoRetrystate
+instance Aeson.ToJSON ActivityFailureInfo where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.activityFailureInfoScheduledeventid
+      , "startedEventId" .=: msg.activityFailureInfoStartedeventid
+      , "identity" .=: msg.activityFailureInfoIdentity
+      , "activityType" .=: msg.activityFailureInfoActivitytype
+      , "activityId" .=: msg.activityFailureInfoActivityid
+      , "retryState" .=: msg.activityFailureInfoRetrystate
       ]
 
-instance ProtoFromJSON ActivityFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityFailureInfoScheduledeventid <- obj .:? "scheduledEventId"
-    fld_activityFailureInfoStartedeventid <- obj .:? "startedEventId"
-    fld_activityFailureInfoIdentity <- obj .:? "identity"
-    fld_activityFailureInfoActivitytype <- obj .:? "activityType"
-    fld_activityFailureInfoActivityid <- obj .:? "activityId"
-    fld_activityFailureInfoRetrystate <- obj .:? "retryState"
+instance Aeson.FromJSON ActivityFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityFailureInfoScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityFailureInfoStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_activityFailureInfoIdentity <- parseFieldMaybe obj "identity"
+    fld_activityFailureInfoActivitytype <- parseFieldMaybe obj "activityType"
+    fld_activityFailureInfoActivityid <- parseFieldMaybe obj "activityId"
+    fld_activityFailureInfoRetrystate <- parseFieldMaybe obj "retryState"
     pure defaultActivityFailureInfo
       { activityFailureInfoScheduledeventid = maybe (activityFailureInfoScheduledeventid defaultActivityFailureInfo) id fld_activityFailureInfoScheduledeventid
       , activityFailureInfoStartedeventid = maybe (activityFailureInfoStartedeventid defaultActivityFailureInfo) id fld_activityFailureInfoStartedeventid
@@ -471,7 +471,7 @@ instance ProtoFromJSON ActivityFailureInfo where
       , activityFailureInfoActivityid = maybe (activityFailureInfoActivityid defaultActivityFailureInfo) id fld_activityFailureInfoActivityid
       , activityFailureInfoRetrystate = maybe (activityFailureInfoRetrystate defaultActivityFailureInfo) id fld_activityFailureInfoRetrystate
       }
-  protoFromJSON _ = Right defaultActivityFailureInfo
+  parseJSON _ = pure defaultActivityFailureInfo
 
 data ChildWorkflowExecutionFailureInfo = ChildWorkflowExecutionFailureInfo
   { childWorkflowExecutionFailureInfoNamespace :: !Text
@@ -543,24 +543,24 @@ instance MessageDecode ChildWorkflowExecutionFailureInfo where
 instance IsMessage ChildWorkflowExecutionFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.ChildWorkflowExecutionFailureInfo"
 
-instance ProtoToJSON ChildWorkflowExecutionFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.childWorkflowExecutionFailureInfoNamespace
-      , "workflowExecution" .= msg.childWorkflowExecutionFailureInfoWorkflowexecution
-      , "workflowType" .= msg.childWorkflowExecutionFailureInfoWorkflowtype
-      , "initiatedEventId" .= msg.childWorkflowExecutionFailureInfoInitiatedeventid
-      , "startedEventId" .= msg.childWorkflowExecutionFailureInfoStartedeventid
-      , "retryState" .= msg.childWorkflowExecutionFailureInfoRetrystate
+instance Aeson.ToJSON ChildWorkflowExecutionFailureInfo where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.childWorkflowExecutionFailureInfoNamespace
+      , "workflowExecution" .=: msg.childWorkflowExecutionFailureInfoWorkflowexecution
+      , "workflowType" .=: msg.childWorkflowExecutionFailureInfoWorkflowtype
+      , "initiatedEventId" .=: msg.childWorkflowExecutionFailureInfoInitiatedeventid
+      , "startedEventId" .=: msg.childWorkflowExecutionFailureInfoStartedeventid
+      , "retryState" .=: msg.childWorkflowExecutionFailureInfoRetrystate
       ]
 
-instance ProtoFromJSON ChildWorkflowExecutionFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_childWorkflowExecutionFailureInfoNamespace <- obj .:? "namespace"
-    fld_childWorkflowExecutionFailureInfoWorkflowexecution <- obj .:? "workflowExecution"
-    fld_childWorkflowExecutionFailureInfoWorkflowtype <- obj .:? "workflowType"
-    fld_childWorkflowExecutionFailureInfoInitiatedeventid <- obj .:? "initiatedEventId"
-    fld_childWorkflowExecutionFailureInfoStartedeventid <- obj .:? "startedEventId"
-    fld_childWorkflowExecutionFailureInfoRetrystate <- obj .:? "retryState"
+instance Aeson.FromJSON ChildWorkflowExecutionFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_childWorkflowExecutionFailureInfoNamespace <- parseFieldMaybe obj "namespace"
+    fld_childWorkflowExecutionFailureInfoWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_childWorkflowExecutionFailureInfoWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_childWorkflowExecutionFailureInfoInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
+    fld_childWorkflowExecutionFailureInfoStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_childWorkflowExecutionFailureInfoRetrystate <- parseFieldMaybe obj "retryState"
     pure defaultChildWorkflowExecutionFailureInfo
       { childWorkflowExecutionFailureInfoNamespace = maybe (childWorkflowExecutionFailureInfoNamespace defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoNamespace
       , childWorkflowExecutionFailureInfoWorkflowexecution = maybe (childWorkflowExecutionFailureInfoWorkflowexecution defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoWorkflowexecution
@@ -569,7 +569,7 @@ instance ProtoFromJSON ChildWorkflowExecutionFailureInfo where
       , childWorkflowExecutionFailureInfoStartedeventid = maybe (childWorkflowExecutionFailureInfoStartedeventid defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoStartedeventid
       , childWorkflowExecutionFailureInfoRetrystate = maybe (childWorkflowExecutionFailureInfoRetrystate defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoRetrystate
       }
-  protoFromJSON _ = Right defaultChildWorkflowExecutionFailureInfo
+  parseJSON _ = pure defaultChildWorkflowExecutionFailureInfo
 
 data NexusOperationFailureInfo = NexusOperationFailureInfo
   { nexusOperationFailureInfoScheduledeventid :: {-# UNPACK #-} !Int64
@@ -641,24 +641,24 @@ instance MessageDecode NexusOperationFailureInfo where
 instance IsMessage NexusOperationFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.NexusOperationFailureInfo"
 
-instance ProtoToJSON NexusOperationFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.nexusOperationFailureInfoScheduledeventid
-      , "endpoint" .= msg.nexusOperationFailureInfoEndpoint
-      , "service" .= msg.nexusOperationFailureInfoService
-      , "operation" .= msg.nexusOperationFailureInfoOperation
-      , "operationId" .= msg.nexusOperationFailureInfoOperationid
-      , "operationToken" .= msg.nexusOperationFailureInfoOperationtoken
+instance Aeson.ToJSON NexusOperationFailureInfo where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.nexusOperationFailureInfoScheduledeventid
+      , "endpoint" .=: msg.nexusOperationFailureInfoEndpoint
+      , "service" .=: msg.nexusOperationFailureInfoService
+      , "operation" .=: msg.nexusOperationFailureInfoOperation
+      , "operationId" .=: msg.nexusOperationFailureInfoOperationid
+      , "operationToken" .=: msg.nexusOperationFailureInfoOperationtoken
       ]
 
-instance ProtoFromJSON NexusOperationFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationFailureInfoScheduledeventid <- obj .:? "scheduledEventId"
-    fld_nexusOperationFailureInfoEndpoint <- obj .:? "endpoint"
-    fld_nexusOperationFailureInfoService <- obj .:? "service"
-    fld_nexusOperationFailureInfoOperation <- obj .:? "operation"
-    fld_nexusOperationFailureInfoOperationid <- obj .:? "operationId"
-    fld_nexusOperationFailureInfoOperationtoken <- obj .:? "operationToken"
+instance Aeson.FromJSON NexusOperationFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationFailureInfoScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_nexusOperationFailureInfoEndpoint <- parseFieldMaybe obj "endpoint"
+    fld_nexusOperationFailureInfoService <- parseFieldMaybe obj "service"
+    fld_nexusOperationFailureInfoOperation <- parseFieldMaybe obj "operation"
+    fld_nexusOperationFailureInfoOperationid <- parseFieldMaybe obj "operationId"
+    fld_nexusOperationFailureInfoOperationtoken <- parseFieldMaybe obj "operationToken"
     pure defaultNexusOperationFailureInfo
       { nexusOperationFailureInfoScheduledeventid = maybe (nexusOperationFailureInfoScheduledeventid defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoScheduledeventid
       , nexusOperationFailureInfoEndpoint = maybe (nexusOperationFailureInfoEndpoint defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoEndpoint
@@ -667,7 +667,7 @@ instance ProtoFromJSON NexusOperationFailureInfo where
       , nexusOperationFailureInfoOperationid = maybe (nexusOperationFailureInfoOperationid defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperationid
       , nexusOperationFailureInfoOperationtoken = maybe (nexusOperationFailureInfoOperationtoken defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperationtoken
       }
-  protoFromJSON _ = Right defaultNexusOperationFailureInfo
+  parseJSON _ = pure defaultNexusOperationFailureInfo
 
 data NexusHandlerFailureInfo = NexusHandlerFailureInfo
   { nexusHandlerFailureInfoType :: !Text
@@ -711,21 +711,20 @@ instance MessageDecode NexusHandlerFailureInfo where
 instance IsMessage NexusHandlerFailureInfo where
   messageTypeName _ = "temporal.api.failure.v1.NexusHandlerFailureInfo"
 
-instance ProtoToJSON NexusHandlerFailureInfo where
-  protoToJSON msg = jsonObject
-      [ "type" .= msg.nexusHandlerFailureInfoType
-      , "retryBehavior" .= msg.nexusHandlerFailureInfoRetrybehavior
+instance Aeson.ToJSON NexusHandlerFailureInfo where
+  toJSON msg = jsonObject
+      [ "type" .=: msg.nexusHandlerFailureInfoType
+      , "retryBehavior" .=: msg.nexusHandlerFailureInfoRetrybehavior
       ]
 
-instance ProtoFromJSON NexusHandlerFailureInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusHandlerFailureInfoType <- obj .:? "type"
-    fld_nexusHandlerFailureInfoRetrybehavior <- obj .:? "retryBehavior"
+instance Aeson.FromJSON NexusHandlerFailureInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusHandlerFailureInfoType <- parseFieldMaybe obj "type"
+    fld_nexusHandlerFailureInfoRetrybehavior <- parseFieldMaybe obj "retryBehavior"
     pure defaultNexusHandlerFailureInfo
       { nexusHandlerFailureInfoType = maybe (nexusHandlerFailureInfoType defaultNexusHandlerFailureInfo) id fld_nexusHandlerFailureInfoType
       , nexusHandlerFailureInfoRetrybehavior = maybe (nexusHandlerFailureInfoRetrybehavior defaultNexusHandlerFailureInfo) id fld_nexusHandlerFailureInfoRetrybehavior
       }
-  protoFromJSON _ = Right defaultNexusHandlerFailureInfo
 
 data Failure = Failure
   { failureMessage :: !Text
@@ -750,10 +749,10 @@ data Failure'FailureInfo
   | Failure'FailureInfo'NexusHandlerFailureInfo !NexusHandlerFailureInfo
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Failure'FailureInfo where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Failure'FailureInfo where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Failure'FailureInfo where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Failure'FailureInfo where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultFailure :: Failure
 defaultFailure = Failure
@@ -861,24 +860,24 @@ instance MessageDecode Failure where
 instance IsMessage Failure where
   messageTypeName _ = "temporal.api.failure.v1.Failure"
 
-instance ProtoToJSON Failure where
-  protoToJSON msg = jsonObject
-      [ "message" .= msg.failureMessage
-      , "source" .= msg.failureSource
-      , "stackTrace" .= msg.failureStacktrace
-      , "encodedAttributes" .= msg.failureEncodedattributes
-      , "cause" .= msg.failureCause
-      , "failureInfo" .= msg.failureFailureinfo
+instance Aeson.ToJSON Failure where
+  toJSON msg = jsonObject
+      [ "message" .=: msg.failureMessage
+      , "source" .=: msg.failureSource
+      , "stackTrace" .=: msg.failureStacktrace
+      , "encodedAttributes" .=: msg.failureEncodedattributes
+      , "cause" .=: msg.failureCause
+      , "failureInfo" .=: msg.failureFailureinfo
       ]
 
-instance ProtoFromJSON Failure where
-  protoFromJSON (JsonObject obj) = do
-    fld_failureMessage <- obj .:? "message"
-    fld_failureSource <- obj .:? "source"
-    fld_failureStacktrace <- obj .:? "stackTrace"
-    fld_failureEncodedattributes <- obj .:? "encodedAttributes"
-    fld_failureCause <- obj .:? "cause"
-    fld_failureFailureinfo <- obj .:? "failureInfo"
+instance Aeson.FromJSON Failure where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_failureMessage <- parseFieldMaybe obj "message"
+    fld_failureSource <- parseFieldMaybe obj "source"
+    fld_failureStacktrace <- parseFieldMaybe obj "stackTrace"
+    fld_failureEncodedattributes <- parseFieldMaybe obj "encodedAttributes"
+    fld_failureCause <- parseFieldMaybe obj "cause"
+    fld_failureFailureinfo <- parseFieldMaybe obj "failureInfo"
     pure defaultFailure
       { failureMessage = maybe (failureMessage defaultFailure) id fld_failureMessage
       , failureSource = maybe (failureSource defaultFailure) id fld_failureSource
@@ -887,7 +886,7 @@ instance ProtoFromJSON Failure where
       , failureCause = maybe (failureCause defaultFailure) id fld_failureCause
       , failureFailureinfo = maybe (failureFailureinfo defaultFailure) id fld_failureFailureinfo
       }
-  protoFromJSON _ = Right defaultFailure
+  parseJSON _ = pure defaultFailure
 
 data MultiOperationExecutionAborted = MultiOperationExecutionAborted
   { }
@@ -919,12 +918,12 @@ instance MessageDecode MultiOperationExecutionAborted where
 instance IsMessage MultiOperationExecutionAborted where
   messageTypeName _ = "temporal.api.failure.v1.MultiOperationExecutionAborted"
 
-instance ProtoToJSON MultiOperationExecutionAborted where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON MultiOperationExecutionAborted where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON MultiOperationExecutionAborted where
-  protoFromJSON _ = Right defaultMultiOperationExecutionAborted
+instance Aeson.FromJSON MultiOperationExecutionAborted where
+  parseJSON _ = pure defaultMultiOperationExecutionAborted
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

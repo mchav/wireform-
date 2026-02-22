@@ -27,7 +27,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -110,19 +114,18 @@ instance ProtoMessage DoubleValue where
         })
     ]
 
-instance ProtoToJSON DoubleValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.doubleValueValue
+instance Aeson.ToJSON DoubleValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.doubleValueValue
 
       ]
 
-instance ProtoFromJSON DoubleValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_doubleValueValue <- obj .:? "value"
+instance Aeson.FromJSON DoubleValue where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_doubleValueValue <- parseFieldMaybe obj "value"
     pure defaultDoubleValue
       { doubleValueValue = maybe (doubleValueValue defaultDoubleValue) id fld_doubleValueValue
       }
-  protoFromJSON _ = Right defaultDoubleValue
 
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
@@ -182,19 +185,18 @@ instance ProtoMessage FloatValue where
         })
     ]
 
-instance ProtoToJSON FloatValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.floatValueValue
+instance Aeson.ToJSON FloatValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.floatValueValue
 
       ]
 
-instance ProtoFromJSON FloatValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_floatValueValue <- obj .:? "value"
+instance Aeson.FromJSON FloatValue where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_floatValueValue <- parseFieldMaybe obj "value"
     pure defaultFloatValue
       { floatValueValue = maybe (floatValueValue defaultFloatValue) id fld_floatValueValue
       }
-  protoFromJSON _ = Right defaultFloatValue
 
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
@@ -254,19 +256,18 @@ instance ProtoMessage Int64Value where
         })
     ]
 
-instance ProtoToJSON Int64Value where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.int64ValueValue
+instance Aeson.ToJSON Int64Value where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.int64ValueValue
 
       ]
 
-instance ProtoFromJSON Int64Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_int64ValueValue <- obj .:? "value"
+instance Aeson.FromJSON Int64Value where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_int64ValueValue <- parseFieldMaybe obj "value"
     pure defaultInt64Value
       { int64ValueValue = maybe (int64ValueValue defaultInt64Value) id fld_int64ValueValue
       }
-  protoFromJSON _ = Right defaultInt64Value
 
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
@@ -326,19 +327,18 @@ instance ProtoMessage UInt64Value where
         })
     ]
 
-instance ProtoToJSON UInt64Value where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.uInt64ValueValue
+instance Aeson.ToJSON UInt64Value where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.uInt64ValueValue
 
       ]
 
-instance ProtoFromJSON UInt64Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_uInt64ValueValue <- obj .:? "value"
+instance Aeson.FromJSON UInt64Value where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_uInt64ValueValue <- parseFieldMaybe obj "value"
     pure defaultUInt64Value
       { uInt64ValueValue = maybe (uInt64ValueValue defaultUInt64Value) id fld_uInt64ValueValue
       }
-  protoFromJSON _ = Right defaultUInt64Value
 
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
@@ -398,19 +398,18 @@ instance ProtoMessage Int32Value where
         })
     ]
 
-instance ProtoToJSON Int32Value where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.int32ValueValue
+instance Aeson.ToJSON Int32Value where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.int32ValueValue
 
       ]
 
-instance ProtoFromJSON Int32Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_int32ValueValue <- obj .:? "value"
+instance Aeson.FromJSON Int32Value where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_int32ValueValue <- parseFieldMaybe obj "value"
     pure defaultInt32Value
       { int32ValueValue = maybe (int32ValueValue defaultInt32Value) id fld_int32ValueValue
       }
-  protoFromJSON _ = Right defaultInt32Value
 
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
@@ -470,19 +469,18 @@ instance ProtoMessage UInt32Value where
         })
     ]
 
-instance ProtoToJSON UInt32Value where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.uInt32ValueValue
+instance Aeson.ToJSON UInt32Value where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.uInt32ValueValue
 
       ]
 
-instance ProtoFromJSON UInt32Value where
-  protoFromJSON (JsonObject obj) = do
-    fld_uInt32ValueValue <- obj .:? "value"
+instance Aeson.FromJSON UInt32Value where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_uInt32ValueValue <- parseFieldMaybe obj "value"
     pure defaultUInt32Value
       { uInt32ValueValue = maybe (uInt32ValueValue defaultUInt32Value) id fld_uInt32ValueValue
       }
-  protoFromJSON _ = Right defaultUInt32Value
 
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
@@ -542,19 +540,18 @@ instance ProtoMessage BoolValue where
         })
     ]
 
-instance ProtoToJSON BoolValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.boolValueValue
+instance Aeson.ToJSON BoolValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.boolValueValue
 
       ]
 
-instance ProtoFromJSON BoolValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_boolValueValue <- obj .:? "value"
+instance Aeson.FromJSON BoolValue where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_boolValueValue <- parseFieldMaybe obj "value"
     pure defaultBoolValue
       { boolValueValue = maybe (boolValueValue defaultBoolValue) id fld_boolValueValue
       }
-  protoFromJSON _ = Right defaultBoolValue
 
 data StringValue = StringValue
   { stringValueValue :: !Text
@@ -614,19 +611,18 @@ instance ProtoMessage StringValue where
         })
     ]
 
-instance ProtoToJSON StringValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.stringValueValue
+instance Aeson.ToJSON StringValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.stringValueValue
 
       ]
 
-instance ProtoFromJSON StringValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_stringValueValue <- obj .:? "value"
+instance Aeson.FromJSON StringValue where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_stringValueValue <- parseFieldMaybe obj "value"
     pure defaultStringValue
       { stringValueValue = maybe (stringValueValue defaultStringValue) id fld_stringValueValue
       }
-  protoFromJSON _ = Right defaultStringValue
 
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
@@ -686,19 +682,18 @@ instance ProtoMessage BytesValue where
         })
     ]
 
-instance ProtoToJSON BytesValue where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.bytesValueValue
+instance Aeson.ToJSON BytesValue where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.bytesValueValue
 
       ]
 
-instance ProtoFromJSON BytesValue where
-  protoFromJSON (JsonObject obj) = do
-    fld_bytesValueValue <- obj .:? "value"
+instance Aeson.FromJSON BytesValue where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_bytesValueValue <- parseFieldMaybe obj "value"
     pure defaultBytesValue
       { bytesValueValue = maybe (bytesValueValue defaultBytesValue) id fld_bytesValueValue
       }
-  protoFromJSON _ = Right defaultBytesValue
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

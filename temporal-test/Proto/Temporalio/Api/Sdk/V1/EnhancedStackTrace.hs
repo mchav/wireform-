@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -92,24 +96,23 @@ instance MessageDecode EnhancedStackTrace where
 instance IsMessage EnhancedStackTrace where
   messageTypeName _ = "temporal.api.sdk.v1.EnhancedStackTrace"
 
-instance ProtoToJSON EnhancedStackTrace where
-  protoToJSON msg = jsonObject
-      [ "sdk" .= msg.enhancedStackTraceSdk
-      , "sources" .= msg.enhancedStackTraceSources
-      , "stacks" .= msg.enhancedStackTraceStacks
+instance Aeson.ToJSON EnhancedStackTrace where
+  toJSON msg = jsonObject
+      [ "sdk" .=: msg.enhancedStackTraceSdk
+      , "sources" .=: msg.enhancedStackTraceSources
+      , "stacks" .=: msg.enhancedStackTraceStacks
       ]
 
-instance ProtoFromJSON EnhancedStackTrace where
-  protoFromJSON (JsonObject obj) = do
-    fld_enhancedStackTraceSdk <- obj .:? "sdk"
-    fld_enhancedStackTraceSources <- obj .:? "sources"
-    fld_enhancedStackTraceStacks <- obj .:? "stacks"
+instance Aeson.FromJSON EnhancedStackTrace where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_enhancedStackTraceSdk <- parseFieldMaybe obj "sdk"
+    fld_enhancedStackTraceSources <- parseFieldMaybe obj "sources"
+    fld_enhancedStackTraceStacks <- parseFieldMaybe obj "stacks"
     pure defaultEnhancedStackTrace
       { enhancedStackTraceSdk = maybe (enhancedStackTraceSdk defaultEnhancedStackTrace) id fld_enhancedStackTraceSdk
       , enhancedStackTraceSources = maybe (enhancedStackTraceSources defaultEnhancedStackTrace) id fld_enhancedStackTraceSources
       , enhancedStackTraceStacks = maybe (enhancedStackTraceStacks defaultEnhancedStackTrace) id fld_enhancedStackTraceStacks
       }
-  protoFromJSON _ = Right defaultEnhancedStackTrace
 
 data StackTraceSDKInfo = StackTraceSDKInfo
   { stackTraceSDKInfoName :: !Text
@@ -153,21 +156,20 @@ instance MessageDecode StackTraceSDKInfo where
 instance IsMessage StackTraceSDKInfo where
   messageTypeName _ = "temporal.api.sdk.v1.StackTraceSDKInfo"
 
-instance ProtoToJSON StackTraceSDKInfo where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.stackTraceSDKInfoName
-      , "version" .= msg.stackTraceSDKInfoVersion
+instance Aeson.ToJSON StackTraceSDKInfo where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.stackTraceSDKInfoName
+      , "version" .=: msg.stackTraceSDKInfoVersion
       ]
 
-instance ProtoFromJSON StackTraceSDKInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_stackTraceSDKInfoName <- obj .:? "name"
-    fld_stackTraceSDKInfoVersion <- obj .:? "version"
+instance Aeson.FromJSON StackTraceSDKInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_stackTraceSDKInfoName <- parseFieldMaybe obj "name"
+    fld_stackTraceSDKInfoVersion <- parseFieldMaybe obj "version"
     pure defaultStackTraceSDKInfo
       { stackTraceSDKInfoName = maybe (stackTraceSDKInfoName defaultStackTraceSDKInfo) id fld_stackTraceSDKInfoName
       , stackTraceSDKInfoVersion = maybe (stackTraceSDKInfoVersion defaultStackTraceSDKInfo) id fld_stackTraceSDKInfoVersion
       }
-  protoFromJSON _ = Right defaultStackTraceSDKInfo
 
 data StackTraceFileSlice = StackTraceFileSlice
   { stackTraceFileSliceLineoffset :: {-# UNPACK #-} !Word32
@@ -211,21 +213,20 @@ instance MessageDecode StackTraceFileSlice where
 instance IsMessage StackTraceFileSlice where
   messageTypeName _ = "temporal.api.sdk.v1.StackTraceFileSlice"
 
-instance ProtoToJSON StackTraceFileSlice where
-  protoToJSON msg = jsonObject
-      [ "lineOffset" .= msg.stackTraceFileSliceLineoffset
-      , "content" .= msg.stackTraceFileSliceContent
+instance Aeson.ToJSON StackTraceFileSlice where
+  toJSON msg = jsonObject
+      [ "lineOffset" .=: msg.stackTraceFileSliceLineoffset
+      , "content" .=: msg.stackTraceFileSliceContent
       ]
 
-instance ProtoFromJSON StackTraceFileSlice where
-  protoFromJSON (JsonObject obj) = do
-    fld_stackTraceFileSliceLineoffset <- obj .:? "lineOffset"
-    fld_stackTraceFileSliceContent <- obj .:? "content"
+instance Aeson.FromJSON StackTraceFileSlice where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_stackTraceFileSliceLineoffset <- parseFieldMaybe obj "lineOffset"
+    fld_stackTraceFileSliceContent <- parseFieldMaybe obj "content"
     pure defaultStackTraceFileSlice
       { stackTraceFileSliceLineoffset = maybe (stackTraceFileSliceLineoffset defaultStackTraceFileSlice) id fld_stackTraceFileSliceLineoffset
       , stackTraceFileSliceContent = maybe (stackTraceFileSliceContent defaultStackTraceFileSlice) id fld_stackTraceFileSliceContent
       }
-  protoFromJSON _ = Right defaultStackTraceFileSlice
 
 data StackTraceFileLocation = StackTraceFileLocation
   { stackTraceFileLocationFilepath :: !Text
@@ -290,22 +291,22 @@ instance MessageDecode StackTraceFileLocation where
 instance IsMessage StackTraceFileLocation where
   messageTypeName _ = "temporal.api.sdk.v1.StackTraceFileLocation"
 
-instance ProtoToJSON StackTraceFileLocation where
-  protoToJSON msg = jsonObject
-      [ "filePath" .= msg.stackTraceFileLocationFilepath
-      , "line" .= msg.stackTraceFileLocationLine
-      , "column" .= msg.stackTraceFileLocationColumn
-      , "functionName" .= msg.stackTraceFileLocationFunctionname
-      , "internalCode" .= msg.stackTraceFileLocationInternalcode
+instance Aeson.ToJSON StackTraceFileLocation where
+  toJSON msg = jsonObject
+      [ "filePath" .=: msg.stackTraceFileLocationFilepath
+      , "line" .=: msg.stackTraceFileLocationLine
+      , "column" .=: msg.stackTraceFileLocationColumn
+      , "functionName" .=: msg.stackTraceFileLocationFunctionname
+      , "internalCode" .=: msg.stackTraceFileLocationInternalcode
       ]
 
-instance ProtoFromJSON StackTraceFileLocation where
-  protoFromJSON (JsonObject obj) = do
-    fld_stackTraceFileLocationFilepath <- obj .:? "filePath"
-    fld_stackTraceFileLocationLine <- obj .:? "line"
-    fld_stackTraceFileLocationColumn <- obj .:? "column"
-    fld_stackTraceFileLocationFunctionname <- obj .:? "functionName"
-    fld_stackTraceFileLocationInternalcode <- obj .:? "internalCode"
+instance Aeson.FromJSON StackTraceFileLocation where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_stackTraceFileLocationFilepath <- parseFieldMaybe obj "filePath"
+    fld_stackTraceFileLocationLine <- parseFieldMaybe obj "line"
+    fld_stackTraceFileLocationColumn <- parseFieldMaybe obj "column"
+    fld_stackTraceFileLocationFunctionname <- parseFieldMaybe obj "functionName"
+    fld_stackTraceFileLocationInternalcode <- parseFieldMaybe obj "internalCode"
     pure defaultStackTraceFileLocation
       { stackTraceFileLocationFilepath = maybe (stackTraceFileLocationFilepath defaultStackTraceFileLocation) id fld_stackTraceFileLocationFilepath
       , stackTraceFileLocationLine = maybe (stackTraceFileLocationLine defaultStackTraceFileLocation) id fld_stackTraceFileLocationLine
@@ -313,7 +314,7 @@ instance ProtoFromJSON StackTraceFileLocation where
       , stackTraceFileLocationFunctionname = maybe (stackTraceFileLocationFunctionname defaultStackTraceFileLocation) id fld_stackTraceFileLocationFunctionname
       , stackTraceFileLocationInternalcode = maybe (stackTraceFileLocationInternalcode defaultStackTraceFileLocation) id fld_stackTraceFileLocationInternalcode
       }
-  protoFromJSON _ = Right defaultStackTraceFileLocation
+  parseJSON _ = pure defaultStackTraceFileLocation
 
 data StackTrace = StackTrace
   { stackTraceLocations :: !(V.Vector StackTraceFileLocation)
@@ -350,19 +351,18 @@ instance MessageDecode StackTrace where
 instance IsMessage StackTrace where
   messageTypeName _ = "temporal.api.sdk.v1.StackTrace"
 
-instance ProtoToJSON StackTrace where
-  protoToJSON msg = jsonObject
-      [ "locations" .= msg.stackTraceLocations
+instance Aeson.ToJSON StackTrace where
+  toJSON msg = jsonObject
+      [ "locations" .=: msg.stackTraceLocations
 
       ]
 
-instance ProtoFromJSON StackTrace where
-  protoFromJSON (JsonObject obj) = do
-    fld_stackTraceLocations <- obj .:? "locations"
+instance Aeson.FromJSON StackTrace where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_stackTraceLocations <- parseFieldMaybe obj "locations"
     pure defaultStackTrace
       { stackTraceLocations = maybe (stackTraceLocations defaultStackTrace) id fld_stackTraceLocations
       }
-  protoFromJSON _ = Right defaultStackTrace
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

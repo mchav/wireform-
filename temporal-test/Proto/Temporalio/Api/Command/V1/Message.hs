@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -166,38 +170,38 @@ instance MessageDecode ScheduleActivityTaskCommandAttributes where
 instance IsMessage ScheduleActivityTaskCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.ScheduleActivityTaskCommandAttributes"
 
-instance ProtoToJSON ScheduleActivityTaskCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "activityId" .= msg.scheduleActivityTaskCommandAttributesActivityid
-      , "activityType" .= msg.scheduleActivityTaskCommandAttributesActivitytype
-      , "taskQueue" .= msg.scheduleActivityTaskCommandAttributesTaskqueue
-      , "header" .= msg.scheduleActivityTaskCommandAttributesHeader
-      , "input" .= msg.scheduleActivityTaskCommandAttributesInput
-      , "scheduleToCloseTimeout" .= msg.scheduleActivityTaskCommandAttributesScheduletoclosetimeout
-      , "scheduleToStartTimeout" .= msg.scheduleActivityTaskCommandAttributesScheduletostarttimeout
-      , "startToCloseTimeout" .= msg.scheduleActivityTaskCommandAttributesStarttoclosetimeout
-      , "heartbeatTimeout" .= msg.scheduleActivityTaskCommandAttributesHeartbeattimeout
-      , "retryPolicy" .= msg.scheduleActivityTaskCommandAttributesRetrypolicy
-      , "requestEagerExecution" .= msg.scheduleActivityTaskCommandAttributesRequesteagerexecution
-      , "useWorkflowBuildId" .= msg.scheduleActivityTaskCommandAttributesUseworkflowbuildid
-      , "priority" .= msg.scheduleActivityTaskCommandAttributesPriority
+instance Aeson.ToJSON ScheduleActivityTaskCommandAttributes where
+  toJSON msg = jsonObject
+      [ "activityId" .=: msg.scheduleActivityTaskCommandAttributesActivityid
+      , "activityType" .=: msg.scheduleActivityTaskCommandAttributesActivitytype
+      , "taskQueue" .=: msg.scheduleActivityTaskCommandAttributesTaskqueue
+      , "header" .=: msg.scheduleActivityTaskCommandAttributesHeader
+      , "input" .=: msg.scheduleActivityTaskCommandAttributesInput
+      , "scheduleToCloseTimeout" .=: msg.scheduleActivityTaskCommandAttributesScheduletoclosetimeout
+      , "scheduleToStartTimeout" .=: msg.scheduleActivityTaskCommandAttributesScheduletostarttimeout
+      , "startToCloseTimeout" .=: msg.scheduleActivityTaskCommandAttributesStarttoclosetimeout
+      , "heartbeatTimeout" .=: msg.scheduleActivityTaskCommandAttributesHeartbeattimeout
+      , "retryPolicy" .=: msg.scheduleActivityTaskCommandAttributesRetrypolicy
+      , "requestEagerExecution" .=: msg.scheduleActivityTaskCommandAttributesRequesteagerexecution
+      , "useWorkflowBuildId" .=: msg.scheduleActivityTaskCommandAttributesUseworkflowbuildid
+      , "priority" .=: msg.scheduleActivityTaskCommandAttributesPriority
       ]
 
-instance ProtoFromJSON ScheduleActivityTaskCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleActivityTaskCommandAttributesActivityid <- obj .:? "activityId"
-    fld_scheduleActivityTaskCommandAttributesActivitytype <- obj .:? "activityType"
-    fld_scheduleActivityTaskCommandAttributesTaskqueue <- obj .:? "taskQueue"
-    fld_scheduleActivityTaskCommandAttributesHeader <- obj .:? "header"
-    fld_scheduleActivityTaskCommandAttributesInput <- obj .:? "input"
-    fld_scheduleActivityTaskCommandAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    fld_scheduleActivityTaskCommandAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    fld_scheduleActivityTaskCommandAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    fld_scheduleActivityTaskCommandAttributesHeartbeattimeout <- obj .:? "heartbeatTimeout"
-    fld_scheduleActivityTaskCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
-    fld_scheduleActivityTaskCommandAttributesRequesteagerexecution <- obj .:? "requestEagerExecution"
-    fld_scheduleActivityTaskCommandAttributesUseworkflowbuildid <- obj .:? "useWorkflowBuildId"
-    fld_scheduleActivityTaskCommandAttributesPriority <- obj .:? "priority"
+instance Aeson.FromJSON ScheduleActivityTaskCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleActivityTaskCommandAttributesActivityid <- parseFieldMaybe obj "activityId"
+    fld_scheduleActivityTaskCommandAttributesActivitytype <- parseFieldMaybe obj "activityType"
+    fld_scheduleActivityTaskCommandAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_scheduleActivityTaskCommandAttributesHeader <- parseFieldMaybe obj "header"
+    fld_scheduleActivityTaskCommandAttributesInput <- parseFieldMaybe obj "input"
+    fld_scheduleActivityTaskCommandAttributesScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_scheduleActivityTaskCommandAttributesScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_scheduleActivityTaskCommandAttributesStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_scheduleActivityTaskCommandAttributesHeartbeattimeout <- parseFieldMaybe obj "heartbeatTimeout"
+    fld_scheduleActivityTaskCommandAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_scheduleActivityTaskCommandAttributesRequesteagerexecution <- parseFieldMaybe obj "requestEagerExecution"
+    fld_scheduleActivityTaskCommandAttributesUseworkflowbuildid <- parseFieldMaybe obj "useWorkflowBuildId"
+    fld_scheduleActivityTaskCommandAttributesPriority <- parseFieldMaybe obj "priority"
     pure defaultScheduleActivityTaskCommandAttributes
       { scheduleActivityTaskCommandAttributesActivityid = maybe (scheduleActivityTaskCommandAttributesActivityid defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesActivityid
       , scheduleActivityTaskCommandAttributesActivitytype = maybe (scheduleActivityTaskCommandAttributesActivitytype defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesActivitytype
@@ -213,7 +217,7 @@ instance ProtoFromJSON ScheduleActivityTaskCommandAttributes where
       , scheduleActivityTaskCommandAttributesUseworkflowbuildid = maybe (scheduleActivityTaskCommandAttributesUseworkflowbuildid defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesUseworkflowbuildid
       , scheduleActivityTaskCommandAttributesPriority = maybe (scheduleActivityTaskCommandAttributesPriority defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesPriority
       }
-  protoFromJSON _ = Right defaultScheduleActivityTaskCommandAttributes
+  parseJSON _ = pure defaultScheduleActivityTaskCommandAttributes
 
 data RequestCancelActivityTaskCommandAttributes = RequestCancelActivityTaskCommandAttributes
   { requestCancelActivityTaskCommandAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -250,19 +254,18 @@ instance MessageDecode RequestCancelActivityTaskCommandAttributes where
 instance IsMessage RequestCancelActivityTaskCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.RequestCancelActivityTaskCommandAttributes"
 
-instance ProtoToJSON RequestCancelActivityTaskCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.requestCancelActivityTaskCommandAttributesScheduledeventid
+instance Aeson.ToJSON RequestCancelActivityTaskCommandAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.requestCancelActivityTaskCommandAttributesScheduledeventid
 
       ]
 
-instance ProtoFromJSON RequestCancelActivityTaskCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestCancelActivityTaskCommandAttributesScheduledeventid <- obj .:? "scheduledEventId"
+instance Aeson.FromJSON RequestCancelActivityTaskCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestCancelActivityTaskCommandAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
     pure defaultRequestCancelActivityTaskCommandAttributes
       { requestCancelActivityTaskCommandAttributesScheduledeventid = maybe (requestCancelActivityTaskCommandAttributesScheduledeventid defaultRequestCancelActivityTaskCommandAttributes) id fld_requestCancelActivityTaskCommandAttributesScheduledeventid
       }
-  protoFromJSON _ = Right defaultRequestCancelActivityTaskCommandAttributes
 
 data StartTimerCommandAttributes = StartTimerCommandAttributes
   { startTimerCommandAttributesTimerid :: !Text
@@ -306,21 +309,20 @@ instance MessageDecode StartTimerCommandAttributes where
 instance IsMessage StartTimerCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.StartTimerCommandAttributes"
 
-instance ProtoToJSON StartTimerCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "timerId" .= msg.startTimerCommandAttributesTimerid
-      , "startToFireTimeout" .= msg.startTimerCommandAttributesStarttofiretimeout
+instance Aeson.ToJSON StartTimerCommandAttributes where
+  toJSON msg = jsonObject
+      [ "timerId" .=: msg.startTimerCommandAttributesTimerid
+      , "startToFireTimeout" .=: msg.startTimerCommandAttributesStarttofiretimeout
       ]
 
-instance ProtoFromJSON StartTimerCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_startTimerCommandAttributesTimerid <- obj .:? "timerId"
-    fld_startTimerCommandAttributesStarttofiretimeout <- obj .:? "startToFireTimeout"
+instance Aeson.FromJSON StartTimerCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startTimerCommandAttributesTimerid <- parseFieldMaybe obj "timerId"
+    fld_startTimerCommandAttributesStarttofiretimeout <- parseFieldMaybe obj "startToFireTimeout"
     pure defaultStartTimerCommandAttributes
       { startTimerCommandAttributesTimerid = maybe (startTimerCommandAttributesTimerid defaultStartTimerCommandAttributes) id fld_startTimerCommandAttributesTimerid
       , startTimerCommandAttributesStarttofiretimeout = maybe (startTimerCommandAttributesStarttofiretimeout defaultStartTimerCommandAttributes) id fld_startTimerCommandAttributesStarttofiretimeout
       }
-  protoFromJSON _ = Right defaultStartTimerCommandAttributes
 
 data CompleteWorkflowExecutionCommandAttributes = CompleteWorkflowExecutionCommandAttributes
   { completeWorkflowExecutionCommandAttributesResult :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -357,19 +359,18 @@ instance MessageDecode CompleteWorkflowExecutionCommandAttributes where
 instance IsMessage CompleteWorkflowExecutionCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.CompleteWorkflowExecutionCommandAttributes"
 
-instance ProtoToJSON CompleteWorkflowExecutionCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "result" .= msg.completeWorkflowExecutionCommandAttributesResult
+instance Aeson.ToJSON CompleteWorkflowExecutionCommandAttributes where
+  toJSON msg = jsonObject
+      [ "result" .=: msg.completeWorkflowExecutionCommandAttributesResult
 
       ]
 
-instance ProtoFromJSON CompleteWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_completeWorkflowExecutionCommandAttributesResult <- obj .:? "result"
+instance Aeson.FromJSON CompleteWorkflowExecutionCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_completeWorkflowExecutionCommandAttributesResult <- parseFieldMaybe obj "result"
     pure defaultCompleteWorkflowExecutionCommandAttributes
       { completeWorkflowExecutionCommandAttributesResult = maybe (completeWorkflowExecutionCommandAttributesResult defaultCompleteWorkflowExecutionCommandAttributes) id fld_completeWorkflowExecutionCommandAttributesResult
       }
-  protoFromJSON _ = Right defaultCompleteWorkflowExecutionCommandAttributes
 
 data FailWorkflowExecutionCommandAttributes = FailWorkflowExecutionCommandAttributes
   { failWorkflowExecutionCommandAttributesFailure :: !(Maybe TE_Failure_V1_Message.Failure)
@@ -406,19 +407,18 @@ instance MessageDecode FailWorkflowExecutionCommandAttributes where
 instance IsMessage FailWorkflowExecutionCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.FailWorkflowExecutionCommandAttributes"
 
-instance ProtoToJSON FailWorkflowExecutionCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "failure" .= msg.failWorkflowExecutionCommandAttributesFailure
+instance Aeson.ToJSON FailWorkflowExecutionCommandAttributes where
+  toJSON msg = jsonObject
+      [ "failure" .=: msg.failWorkflowExecutionCommandAttributesFailure
 
       ]
 
-instance ProtoFromJSON FailWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_failWorkflowExecutionCommandAttributesFailure <- obj .:? "failure"
+instance Aeson.FromJSON FailWorkflowExecutionCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_failWorkflowExecutionCommandAttributesFailure <- parseFieldMaybe obj "failure"
     pure defaultFailWorkflowExecutionCommandAttributes
       { failWorkflowExecutionCommandAttributesFailure = maybe (failWorkflowExecutionCommandAttributesFailure defaultFailWorkflowExecutionCommandAttributes) id fld_failWorkflowExecutionCommandAttributesFailure
       }
-  protoFromJSON _ = Right defaultFailWorkflowExecutionCommandAttributes
 
 data CancelTimerCommandAttributes = CancelTimerCommandAttributes
   { cancelTimerCommandAttributesTimerid :: !Text
@@ -455,19 +455,18 @@ instance MessageDecode CancelTimerCommandAttributes where
 instance IsMessage CancelTimerCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.CancelTimerCommandAttributes"
 
-instance ProtoToJSON CancelTimerCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "timerId" .= msg.cancelTimerCommandAttributesTimerid
+instance Aeson.ToJSON CancelTimerCommandAttributes where
+  toJSON msg = jsonObject
+      [ "timerId" .=: msg.cancelTimerCommandAttributesTimerid
 
       ]
 
-instance ProtoFromJSON CancelTimerCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_cancelTimerCommandAttributesTimerid <- obj .:? "timerId"
+instance Aeson.FromJSON CancelTimerCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_cancelTimerCommandAttributesTimerid <- parseFieldMaybe obj "timerId"
     pure defaultCancelTimerCommandAttributes
       { cancelTimerCommandAttributesTimerid = maybe (cancelTimerCommandAttributesTimerid defaultCancelTimerCommandAttributes) id fld_cancelTimerCommandAttributesTimerid
       }
-  protoFromJSON _ = Right defaultCancelTimerCommandAttributes
 
 data CancelWorkflowExecutionCommandAttributes = CancelWorkflowExecutionCommandAttributes
   { cancelWorkflowExecutionCommandAttributesDetails :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -504,19 +503,18 @@ instance MessageDecode CancelWorkflowExecutionCommandAttributes where
 instance IsMessage CancelWorkflowExecutionCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.CancelWorkflowExecutionCommandAttributes"
 
-instance ProtoToJSON CancelWorkflowExecutionCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "details" .= msg.cancelWorkflowExecutionCommandAttributesDetails
+instance Aeson.ToJSON CancelWorkflowExecutionCommandAttributes where
+  toJSON msg = jsonObject
+      [ "details" .=: msg.cancelWorkflowExecutionCommandAttributesDetails
 
       ]
 
-instance ProtoFromJSON CancelWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_cancelWorkflowExecutionCommandAttributesDetails <- obj .:? "details"
+instance Aeson.FromJSON CancelWorkflowExecutionCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_cancelWorkflowExecutionCommandAttributesDetails <- parseFieldMaybe obj "details"
     pure defaultCancelWorkflowExecutionCommandAttributes
       { cancelWorkflowExecutionCommandAttributesDetails = maybe (cancelWorkflowExecutionCommandAttributesDetails defaultCancelWorkflowExecutionCommandAttributes) id fld_cancelWorkflowExecutionCommandAttributesDetails
       }
-  protoFromJSON _ = Right defaultCancelWorkflowExecutionCommandAttributes
 
 data RequestCancelExternalWorkflowExecutionCommandAttributes = RequestCancelExternalWorkflowExecutionCommandAttributes
   { requestCancelExternalWorkflowExecutionCommandAttributesNamespace :: !Text
@@ -588,24 +586,24 @@ instance MessageDecode RequestCancelExternalWorkflowExecutionCommandAttributes w
 instance IsMessage RequestCancelExternalWorkflowExecutionCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.RequestCancelExternalWorkflowExecutionCommandAttributes"
 
-instance ProtoToJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace
-      , "workflowId" .= msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid
-      , "runId" .= msg.requestCancelExternalWorkflowExecutionCommandAttributesRunid
-      , "control" .= msg.requestCancelExternalWorkflowExecutionCommandAttributesControl
-      , "childWorkflowOnly" .= msg.requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly
-      , "reason" .= msg.requestCancelExternalWorkflowExecutionCommandAttributesReason
+instance Aeson.ToJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace
+      , "workflowId" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid
+      , "runId" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesRunid
+      , "control" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesControl
+      , "childWorkflowOnly" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly
+      , "reason" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesReason
       ]
 
-instance ProtoFromJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid <- obj .:? "workflowId"
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesRunid <- obj .:? "runId"
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesControl <- obj .:? "control"
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesReason <- obj .:? "reason"
+instance Aeson.FromJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesRunid <- parseFieldMaybe obj "runId"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesControl <- parseFieldMaybe obj "control"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly <- parseFieldMaybe obj "childWorkflowOnly"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesReason <- parseFieldMaybe obj "reason"
     pure defaultRequestCancelExternalWorkflowExecutionCommandAttributes
       { requestCancelExternalWorkflowExecutionCommandAttributesNamespace = maybe (requestCancelExternalWorkflowExecutionCommandAttributesNamespace defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesNamespace
       , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid = maybe (requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid
@@ -614,7 +612,7 @@ instance ProtoFromJSON RequestCancelExternalWorkflowExecutionCommandAttributes w
       , requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly = maybe (requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly
       , requestCancelExternalWorkflowExecutionCommandAttributesReason = maybe (requestCancelExternalWorkflowExecutionCommandAttributesReason defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesReason
       }
-  protoFromJSON _ = Right defaultRequestCancelExternalWorkflowExecutionCommandAttributes
+  parseJSON _ = pure defaultRequestCancelExternalWorkflowExecutionCommandAttributes
 
 data SignalExternalWorkflowExecutionCommandAttributes = SignalExternalWorkflowExecutionCommandAttributes
   { signalExternalWorkflowExecutionCommandAttributesNamespace :: !Text
@@ -693,26 +691,26 @@ instance MessageDecode SignalExternalWorkflowExecutionCommandAttributes where
 instance IsMessage SignalExternalWorkflowExecutionCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.SignalExternalWorkflowExecutionCommandAttributes"
 
-instance ProtoToJSON SignalExternalWorkflowExecutionCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.signalExternalWorkflowExecutionCommandAttributesNamespace
-      , "execution" .= msg.signalExternalWorkflowExecutionCommandAttributesExecution
-      , "signalName" .= msg.signalExternalWorkflowExecutionCommandAttributesSignalname
-      , "input" .= msg.signalExternalWorkflowExecutionCommandAttributesInput
-      , "control" .= msg.signalExternalWorkflowExecutionCommandAttributesControl
-      , "childWorkflowOnly" .= msg.signalExternalWorkflowExecutionCommandAttributesChildworkflowonly
-      , "header" .= msg.signalExternalWorkflowExecutionCommandAttributesHeader
+instance Aeson.ToJSON SignalExternalWorkflowExecutionCommandAttributes where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.signalExternalWorkflowExecutionCommandAttributesNamespace
+      , "execution" .=: msg.signalExternalWorkflowExecutionCommandAttributesExecution
+      , "signalName" .=: msg.signalExternalWorkflowExecutionCommandAttributesSignalname
+      , "input" .=: msg.signalExternalWorkflowExecutionCommandAttributesInput
+      , "control" .=: msg.signalExternalWorkflowExecutionCommandAttributesControl
+      , "childWorkflowOnly" .=: msg.signalExternalWorkflowExecutionCommandAttributesChildworkflowonly
+      , "header" .=: msg.signalExternalWorkflowExecutionCommandAttributesHeader
       ]
 
-instance ProtoFromJSON SignalExternalWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_signalExternalWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
-    fld_signalExternalWorkflowExecutionCommandAttributesExecution <- obj .:? "execution"
-    fld_signalExternalWorkflowExecutionCommandAttributesSignalname <- obj .:? "signalName"
-    fld_signalExternalWorkflowExecutionCommandAttributesInput <- obj .:? "input"
-    fld_signalExternalWorkflowExecutionCommandAttributesControl <- obj .:? "control"
-    fld_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly <- obj .:? "childWorkflowOnly"
-    fld_signalExternalWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
+instance Aeson.FromJSON SignalExternalWorkflowExecutionCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_signalExternalWorkflowExecutionCommandAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_signalExternalWorkflowExecutionCommandAttributesExecution <- parseFieldMaybe obj "execution"
+    fld_signalExternalWorkflowExecutionCommandAttributesSignalname <- parseFieldMaybe obj "signalName"
+    fld_signalExternalWorkflowExecutionCommandAttributesInput <- parseFieldMaybe obj "input"
+    fld_signalExternalWorkflowExecutionCommandAttributesControl <- parseFieldMaybe obj "control"
+    fld_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly <- parseFieldMaybe obj "childWorkflowOnly"
+    fld_signalExternalWorkflowExecutionCommandAttributesHeader <- parseFieldMaybe obj "header"
     pure defaultSignalExternalWorkflowExecutionCommandAttributes
       { signalExternalWorkflowExecutionCommandAttributesNamespace = maybe (signalExternalWorkflowExecutionCommandAttributesNamespace defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesNamespace
       , signalExternalWorkflowExecutionCommandAttributesExecution = maybe (signalExternalWorkflowExecutionCommandAttributesExecution defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesExecution
@@ -722,7 +720,7 @@ instance ProtoFromJSON SignalExternalWorkflowExecutionCommandAttributes where
       , signalExternalWorkflowExecutionCommandAttributesChildworkflowonly = maybe (signalExternalWorkflowExecutionCommandAttributesChildworkflowonly defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly
       , signalExternalWorkflowExecutionCommandAttributesHeader = maybe (signalExternalWorkflowExecutionCommandAttributesHeader defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesHeader
       }
-  protoFromJSON _ = Right defaultSignalExternalWorkflowExecutionCommandAttributes
+  parseJSON _ = pure defaultSignalExternalWorkflowExecutionCommandAttributes
 
 data UpsertWorkflowSearchAttributesCommandAttributes = UpsertWorkflowSearchAttributesCommandAttributes
   { upsertWorkflowSearchAttributesCommandAttributesSearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
@@ -759,19 +757,18 @@ instance MessageDecode UpsertWorkflowSearchAttributesCommandAttributes where
 instance IsMessage UpsertWorkflowSearchAttributesCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.UpsertWorkflowSearchAttributesCommandAttributes"
 
-instance ProtoToJSON UpsertWorkflowSearchAttributesCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "searchAttributes" .= msg.upsertWorkflowSearchAttributesCommandAttributesSearchattributes
+instance Aeson.ToJSON UpsertWorkflowSearchAttributesCommandAttributes where
+  toJSON msg = jsonObject
+      [ "searchAttributes" .=: msg.upsertWorkflowSearchAttributesCommandAttributesSearchattributes
 
       ]
 
-instance ProtoFromJSON UpsertWorkflowSearchAttributesCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_upsertWorkflowSearchAttributesCommandAttributesSearchattributes <- obj .:? "searchAttributes"
+instance Aeson.FromJSON UpsertWorkflowSearchAttributesCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_upsertWorkflowSearchAttributesCommandAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
     pure defaultUpsertWorkflowSearchAttributesCommandAttributes
       { upsertWorkflowSearchAttributesCommandAttributesSearchattributes = maybe (upsertWorkflowSearchAttributesCommandAttributesSearchattributes defaultUpsertWorkflowSearchAttributesCommandAttributes) id fld_upsertWorkflowSearchAttributesCommandAttributesSearchattributes
       }
-  protoFromJSON _ = Right defaultUpsertWorkflowSearchAttributesCommandAttributes
 
 data ModifyWorkflowPropertiesCommandAttributes = ModifyWorkflowPropertiesCommandAttributes
   { modifyWorkflowPropertiesCommandAttributesUpsertedmemo :: !(Maybe TE_Common_V1_Message.Memo)
@@ -808,19 +805,18 @@ instance MessageDecode ModifyWorkflowPropertiesCommandAttributes where
 instance IsMessage ModifyWorkflowPropertiesCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.ModifyWorkflowPropertiesCommandAttributes"
 
-instance ProtoToJSON ModifyWorkflowPropertiesCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "upsertedMemo" .= msg.modifyWorkflowPropertiesCommandAttributesUpsertedmemo
+instance Aeson.ToJSON ModifyWorkflowPropertiesCommandAttributes where
+  toJSON msg = jsonObject
+      [ "upsertedMemo" .=: msg.modifyWorkflowPropertiesCommandAttributesUpsertedmemo
 
       ]
 
-instance ProtoFromJSON ModifyWorkflowPropertiesCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_modifyWorkflowPropertiesCommandAttributesUpsertedmemo <- obj .:? "upsertedMemo"
+instance Aeson.FromJSON ModifyWorkflowPropertiesCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_modifyWorkflowPropertiesCommandAttributesUpsertedmemo <- parseFieldMaybe obj "upsertedMemo"
     pure defaultModifyWorkflowPropertiesCommandAttributes
       { modifyWorkflowPropertiesCommandAttributesUpsertedmemo = maybe (modifyWorkflowPropertiesCommandAttributesUpsertedmemo defaultModifyWorkflowPropertiesCommandAttributes) id fld_modifyWorkflowPropertiesCommandAttributesUpsertedmemo
       }
-  protoFromJSON _ = Right defaultModifyWorkflowPropertiesCommandAttributes
 
 data RecordMarkerCommandAttributes = RecordMarkerCommandAttributes
   { recordMarkerCommandAttributesMarkername :: !Text
@@ -881,27 +877,27 @@ instance MessageDecode RecordMarkerCommandAttributes where
 instance IsMessage RecordMarkerCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.RecordMarkerCommandAttributes"
 
-instance ProtoToJSON RecordMarkerCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "markerName" .= msg.recordMarkerCommandAttributesMarkername
-      , "details" .= msg.recordMarkerCommandAttributesDetails
-      , "header" .= msg.recordMarkerCommandAttributesHeader
-      , "failure" .= msg.recordMarkerCommandAttributesFailure
+instance Aeson.ToJSON RecordMarkerCommandAttributes where
+  toJSON msg = jsonObject
+      [ "markerName" .=: msg.recordMarkerCommandAttributesMarkername
+      , "details" .=: msg.recordMarkerCommandAttributesDetails
+      , "header" .=: msg.recordMarkerCommandAttributesHeader
+      , "failure" .=: msg.recordMarkerCommandAttributesFailure
       ]
 
-instance ProtoFromJSON RecordMarkerCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_recordMarkerCommandAttributesMarkername <- obj .:? "markerName"
-    fld_recordMarkerCommandAttributesDetails <- obj .:? "details"
-    fld_recordMarkerCommandAttributesHeader <- obj .:? "header"
-    fld_recordMarkerCommandAttributesFailure <- obj .:? "failure"
+instance Aeson.FromJSON RecordMarkerCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_recordMarkerCommandAttributesMarkername <- parseFieldMaybe obj "markerName"
+    fld_recordMarkerCommandAttributesDetails <- parseFieldMaybe obj "details"
+    fld_recordMarkerCommandAttributesHeader <- parseFieldMaybe obj "header"
+    fld_recordMarkerCommandAttributesFailure <- parseFieldMaybe obj "failure"
     pure defaultRecordMarkerCommandAttributes
       { recordMarkerCommandAttributesMarkername = maybe (recordMarkerCommandAttributesMarkername defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesMarkername
       , recordMarkerCommandAttributesDetails = maybe (recordMarkerCommandAttributesDetails defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesDetails
       , recordMarkerCommandAttributesHeader = maybe (recordMarkerCommandAttributesHeader defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesHeader
       , recordMarkerCommandAttributesFailure = maybe (recordMarkerCommandAttributesFailure defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesFailure
       }
-  protoFromJSON _ = Right defaultRecordMarkerCommandAttributes
+  parseJSON _ = pure defaultRecordMarkerCommandAttributes
 
 data ContinueAsNewWorkflowExecutionCommandAttributes = ContinueAsNewWorkflowExecutionCommandAttributes
   { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype :: !(Maybe TE_Common_V1_Message.WorkflowType)
@@ -1043,44 +1039,44 @@ instance MessageDecode ContinueAsNewWorkflowExecutionCommandAttributes where
 instance IsMessage ContinueAsNewWorkflowExecutionCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.ContinueAsNewWorkflowExecutionCommandAttributes"
 
-instance ProtoToJSON ContinueAsNewWorkflowExecutionCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "workflowType" .= msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtype
-      , "taskQueue" .= msg.continueAsNewWorkflowExecutionCommandAttributesTaskqueue
-      , "input" .= msg.continueAsNewWorkflowExecutionCommandAttributesInput
-      , "workflowRunTimeout" .= msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout
-      , "workflowTaskTimeout" .= msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout
-      , "backoffStartInterval" .= msg.continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval
-      , "retryPolicy" .= msg.continueAsNewWorkflowExecutionCommandAttributesRetrypolicy
-      , "initiator" .= msg.continueAsNewWorkflowExecutionCommandAttributesInitiator
-      , "failure" .= msg.continueAsNewWorkflowExecutionCommandAttributesFailure
-      , "lastCompletionResult" .= msg.continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult
-      , "cronSchedule" .= msg.continueAsNewWorkflowExecutionCommandAttributesCronschedule
-      , "header" .= msg.continueAsNewWorkflowExecutionCommandAttributesHeader
-      , "memo" .= msg.continueAsNewWorkflowExecutionCommandAttributesMemo
-      , "searchAttributes" .= msg.continueAsNewWorkflowExecutionCommandAttributesSearchattributes
-      , "inheritBuildId" .= msg.continueAsNewWorkflowExecutionCommandAttributesInheritbuildid
-      , "initialVersioningBehavior" .= msg.continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
+instance Aeson.ToJSON ContinueAsNewWorkflowExecutionCommandAttributes where
+  toJSON msg = jsonObject
+      [ "workflowType" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtype
+      , "taskQueue" .=: msg.continueAsNewWorkflowExecutionCommandAttributesTaskqueue
+      , "input" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInput
+      , "workflowRunTimeout" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout
+      , "workflowTaskTimeout" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout
+      , "backoffStartInterval" .=: msg.continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval
+      , "retryPolicy" .=: msg.continueAsNewWorkflowExecutionCommandAttributesRetrypolicy
+      , "initiator" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInitiator
+      , "failure" .=: msg.continueAsNewWorkflowExecutionCommandAttributesFailure
+      , "lastCompletionResult" .=: msg.continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult
+      , "cronSchedule" .=: msg.continueAsNewWorkflowExecutionCommandAttributesCronschedule
+      , "header" .=: msg.continueAsNewWorkflowExecutionCommandAttributesHeader
+      , "memo" .=: msg.continueAsNewWorkflowExecutionCommandAttributesMemo
+      , "searchAttributes" .=: msg.continueAsNewWorkflowExecutionCommandAttributesSearchattributes
+      , "inheritBuildId" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInheritbuildid
+      , "initialVersioningBehavior" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
       ]
 
-instance ProtoFromJSON ContinueAsNewWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_continueAsNewWorkflowExecutionCommandAttributesTaskqueue <- obj .:? "taskQueue"
-    fld_continueAsNewWorkflowExecutionCommandAttributesInput <- obj .:? "input"
-    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    fld_continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval <- obj .:? "backoffStartInterval"
-    fld_continueAsNewWorkflowExecutionCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
-    fld_continueAsNewWorkflowExecutionCommandAttributesInitiator <- obj .:? "initiator"
-    fld_continueAsNewWorkflowExecutionCommandAttributesFailure <- obj .:? "failure"
-    fld_continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult <- obj .:? "lastCompletionResult"
-    fld_continueAsNewWorkflowExecutionCommandAttributesCronschedule <- obj .:? "cronSchedule"
-    fld_continueAsNewWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
-    fld_continueAsNewWorkflowExecutionCommandAttributesMemo <- obj .:? "memo"
-    fld_continueAsNewWorkflowExecutionCommandAttributesSearchattributes <- obj .:? "searchAttributes"
-    fld_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid <- obj .:? "inheritBuildId"
-    fld_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior <- obj .:? "initialVersioningBehavior"
+instance Aeson.FromJSON ContinueAsNewWorkflowExecutionCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_continueAsNewWorkflowExecutionCommandAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInput <- parseFieldMaybe obj "input"
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval <- parseFieldMaybe obj "backoffStartInterval"
+    fld_continueAsNewWorkflowExecutionCommandAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInitiator <- parseFieldMaybe obj "initiator"
+    fld_continueAsNewWorkflowExecutionCommandAttributesFailure <- parseFieldMaybe obj "failure"
+    fld_continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult <- parseFieldMaybe obj "lastCompletionResult"
+    fld_continueAsNewWorkflowExecutionCommandAttributesCronschedule <- parseFieldMaybe obj "cronSchedule"
+    fld_continueAsNewWorkflowExecutionCommandAttributesHeader <- parseFieldMaybe obj "header"
+    fld_continueAsNewWorkflowExecutionCommandAttributesMemo <- parseFieldMaybe obj "memo"
+    fld_continueAsNewWorkflowExecutionCommandAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid <- parseFieldMaybe obj "inheritBuildId"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior <- parseFieldMaybe obj "initialVersioningBehavior"
     pure defaultContinueAsNewWorkflowExecutionCommandAttributes
       { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowtype defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype
       , continueAsNewWorkflowExecutionCommandAttributesTaskqueue = maybe (continueAsNewWorkflowExecutionCommandAttributesTaskqueue defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesTaskqueue
@@ -1099,7 +1095,7 @@ instance ProtoFromJSON ContinueAsNewWorkflowExecutionCommandAttributes where
       , continueAsNewWorkflowExecutionCommandAttributesInheritbuildid = maybe (continueAsNewWorkflowExecutionCommandAttributesInheritbuildid defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid
       , continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior = maybe (continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
       }
-  protoFromJSON _ = Right defaultContinueAsNewWorkflowExecutionCommandAttributes
+  parseJSON _ = pure defaultContinueAsNewWorkflowExecutionCommandAttributes
 
 data StartChildWorkflowExecutionCommandAttributes = StartChildWorkflowExecutionCommandAttributes
   { startChildWorkflowExecutionCommandAttributesNamespace :: !Text
@@ -1255,48 +1251,48 @@ instance MessageDecode StartChildWorkflowExecutionCommandAttributes where
 instance IsMessage StartChildWorkflowExecutionCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.StartChildWorkflowExecutionCommandAttributes"
 
-instance ProtoToJSON StartChildWorkflowExecutionCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.startChildWorkflowExecutionCommandAttributesNamespace
-      , "workflowId" .= msg.startChildWorkflowExecutionCommandAttributesWorkflowid
-      , "workflowType" .= msg.startChildWorkflowExecutionCommandAttributesWorkflowtype
-      , "taskQueue" .= msg.startChildWorkflowExecutionCommandAttributesTaskqueue
-      , "input" .= msg.startChildWorkflowExecutionCommandAttributesInput
-      , "workflowExecutionTimeout" .= msg.startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout
-      , "workflowRunTimeout" .= msg.startChildWorkflowExecutionCommandAttributesWorkflowruntimeout
-      , "workflowTaskTimeout" .= msg.startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout
-      , "parentClosePolicy" .= msg.startChildWorkflowExecutionCommandAttributesParentclosepolicy
-      , "control" .= msg.startChildWorkflowExecutionCommandAttributesControl
-      , "workflowIdReusePolicy" .= msg.startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy
-      , "retryPolicy" .= msg.startChildWorkflowExecutionCommandAttributesRetrypolicy
-      , "cronSchedule" .= msg.startChildWorkflowExecutionCommandAttributesCronschedule
-      , "header" .= msg.startChildWorkflowExecutionCommandAttributesHeader
-      , "memo" .= msg.startChildWorkflowExecutionCommandAttributesMemo
-      , "searchAttributes" .= msg.startChildWorkflowExecutionCommandAttributesSearchattributes
-      , "inheritBuildId" .= msg.startChildWorkflowExecutionCommandAttributesInheritbuildid
-      , "priority" .= msg.startChildWorkflowExecutionCommandAttributesPriority
+instance Aeson.ToJSON StartChildWorkflowExecutionCommandAttributes where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.startChildWorkflowExecutionCommandAttributesNamespace
+      , "workflowId" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowid
+      , "workflowType" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowtype
+      , "taskQueue" .=: msg.startChildWorkflowExecutionCommandAttributesTaskqueue
+      , "input" .=: msg.startChildWorkflowExecutionCommandAttributesInput
+      , "workflowExecutionTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout
+      , "workflowRunTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowruntimeout
+      , "workflowTaskTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout
+      , "parentClosePolicy" .=: msg.startChildWorkflowExecutionCommandAttributesParentclosepolicy
+      , "control" .=: msg.startChildWorkflowExecutionCommandAttributesControl
+      , "workflowIdReusePolicy" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy
+      , "retryPolicy" .=: msg.startChildWorkflowExecutionCommandAttributesRetrypolicy
+      , "cronSchedule" .=: msg.startChildWorkflowExecutionCommandAttributesCronschedule
+      , "header" .=: msg.startChildWorkflowExecutionCommandAttributesHeader
+      , "memo" .=: msg.startChildWorkflowExecutionCommandAttributesMemo
+      , "searchAttributes" .=: msg.startChildWorkflowExecutionCommandAttributesSearchattributes
+      , "inheritBuildId" .=: msg.startChildWorkflowExecutionCommandAttributesInheritbuildid
+      , "priority" .=: msg.startChildWorkflowExecutionCommandAttributesPriority
       ]
 
-instance ProtoFromJSON StartChildWorkflowExecutionCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_startChildWorkflowExecutionCommandAttributesNamespace <- obj .:? "namespace"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowid <- obj .:? "workflowId"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowtype <- obj .:? "workflowType"
-    fld_startChildWorkflowExecutionCommandAttributesTaskqueue <- obj .:? "taskQueue"
-    fld_startChildWorkflowExecutionCommandAttributesInput <- obj .:? "input"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    fld_startChildWorkflowExecutionCommandAttributesParentclosepolicy <- obj .:? "parentClosePolicy"
-    fld_startChildWorkflowExecutionCommandAttributesControl <- obj .:? "control"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
-    fld_startChildWorkflowExecutionCommandAttributesRetrypolicy <- obj .:? "retryPolicy"
-    fld_startChildWorkflowExecutionCommandAttributesCronschedule <- obj .:? "cronSchedule"
-    fld_startChildWorkflowExecutionCommandAttributesHeader <- obj .:? "header"
-    fld_startChildWorkflowExecutionCommandAttributesMemo <- obj .:? "memo"
-    fld_startChildWorkflowExecutionCommandAttributesSearchattributes <- obj .:? "searchAttributes"
-    fld_startChildWorkflowExecutionCommandAttributesInheritbuildid <- obj .:? "inheritBuildId"
-    fld_startChildWorkflowExecutionCommandAttributesPriority <- obj .:? "priority"
+instance Aeson.FromJSON StartChildWorkflowExecutionCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_startChildWorkflowExecutionCommandAttributesNamespace <- parseFieldMaybe obj "namespace"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_startChildWorkflowExecutionCommandAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_startChildWorkflowExecutionCommandAttributesInput <- parseFieldMaybe obj "input"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesParentclosepolicy <- parseFieldMaybe obj "parentClosePolicy"
+    fld_startChildWorkflowExecutionCommandAttributesControl <- parseFieldMaybe obj "control"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy <- parseFieldMaybe obj "workflowIdReusePolicy"
+    fld_startChildWorkflowExecutionCommandAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_startChildWorkflowExecutionCommandAttributesCronschedule <- parseFieldMaybe obj "cronSchedule"
+    fld_startChildWorkflowExecutionCommandAttributesHeader <- parseFieldMaybe obj "header"
+    fld_startChildWorkflowExecutionCommandAttributesMemo <- parseFieldMaybe obj "memo"
+    fld_startChildWorkflowExecutionCommandAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_startChildWorkflowExecutionCommandAttributesInheritbuildid <- parseFieldMaybe obj "inheritBuildId"
+    fld_startChildWorkflowExecutionCommandAttributesPriority <- parseFieldMaybe obj "priority"
     pure defaultStartChildWorkflowExecutionCommandAttributes
       { startChildWorkflowExecutionCommandAttributesNamespace = maybe (startChildWorkflowExecutionCommandAttributesNamespace defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesNamespace
       , startChildWorkflowExecutionCommandAttributesWorkflowid = maybe (startChildWorkflowExecutionCommandAttributesWorkflowid defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowid
@@ -1317,7 +1313,7 @@ instance ProtoFromJSON StartChildWorkflowExecutionCommandAttributes where
       , startChildWorkflowExecutionCommandAttributesInheritbuildid = maybe (startChildWorkflowExecutionCommandAttributesInheritbuildid defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesInheritbuildid
       , startChildWorkflowExecutionCommandAttributesPriority = maybe (startChildWorkflowExecutionCommandAttributesPriority defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesPriority
       }
-  protoFromJSON _ = Right defaultStartChildWorkflowExecutionCommandAttributes
+  parseJSON _ = pure defaultStartChildWorkflowExecutionCommandAttributes
 
 data ProtocolMessageCommandAttributes = ProtocolMessageCommandAttributes
   { protocolMessageCommandAttributesMessageid :: !Text
@@ -1354,19 +1350,18 @@ instance MessageDecode ProtocolMessageCommandAttributes where
 instance IsMessage ProtocolMessageCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.ProtocolMessageCommandAttributes"
 
-instance ProtoToJSON ProtocolMessageCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "messageId" .= msg.protocolMessageCommandAttributesMessageid
+instance Aeson.ToJSON ProtocolMessageCommandAttributes where
+  toJSON msg = jsonObject
+      [ "messageId" .=: msg.protocolMessageCommandAttributesMessageid
 
       ]
 
-instance ProtoFromJSON ProtocolMessageCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_protocolMessageCommandAttributesMessageid <- obj .:? "messageId"
+instance Aeson.FromJSON ProtocolMessageCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_protocolMessageCommandAttributesMessageid <- parseFieldMaybe obj "messageId"
     pure defaultProtocolMessageCommandAttributes
       { protocolMessageCommandAttributesMessageid = maybe (protocolMessageCommandAttributesMessageid defaultProtocolMessageCommandAttributes) id fld_protocolMessageCommandAttributesMessageid
       }
-  protoFromJSON _ = Right defaultProtocolMessageCommandAttributes
 
 data ScheduleNexusOperationCommandAttributes = ScheduleNexusOperationCommandAttributes
   { scheduleNexusOperationCommandAttributesEndpoint :: !Text
@@ -1455,28 +1450,28 @@ instance MessageDecode ScheduleNexusOperationCommandAttributes where
 instance IsMessage ScheduleNexusOperationCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.ScheduleNexusOperationCommandAttributes"
 
-instance ProtoToJSON ScheduleNexusOperationCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "endpoint" .= msg.scheduleNexusOperationCommandAttributesEndpoint
-      , "service" .= msg.scheduleNexusOperationCommandAttributesService
-      , "operation" .= msg.scheduleNexusOperationCommandAttributesOperation
-      , "input" .= msg.scheduleNexusOperationCommandAttributesInput
-      , "scheduleToCloseTimeout" .= msg.scheduleNexusOperationCommandAttributesScheduletoclosetimeout
-      , "nexusHeader" .= msg.scheduleNexusOperationCommandAttributesNexusheader
-      , "scheduleToStartTimeout" .= msg.scheduleNexusOperationCommandAttributesScheduletostarttimeout
-      , "startToCloseTimeout" .= msg.scheduleNexusOperationCommandAttributesStarttoclosetimeout
+instance Aeson.ToJSON ScheduleNexusOperationCommandAttributes where
+  toJSON msg = jsonObject
+      [ "endpoint" .=: msg.scheduleNexusOperationCommandAttributesEndpoint
+      , "service" .=: msg.scheduleNexusOperationCommandAttributesService
+      , "operation" .=: msg.scheduleNexusOperationCommandAttributesOperation
+      , "input" .=: msg.scheduleNexusOperationCommandAttributesInput
+      , "scheduleToCloseTimeout" .=: msg.scheduleNexusOperationCommandAttributesScheduletoclosetimeout
+      , "nexusHeader" .=: msg.scheduleNexusOperationCommandAttributesNexusheader
+      , "scheduleToStartTimeout" .=: msg.scheduleNexusOperationCommandAttributesScheduletostarttimeout
+      , "startToCloseTimeout" .=: msg.scheduleNexusOperationCommandAttributesStarttoclosetimeout
       ]
 
-instance ProtoFromJSON ScheduleNexusOperationCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_scheduleNexusOperationCommandAttributesEndpoint <- obj .:? "endpoint"
-    fld_scheduleNexusOperationCommandAttributesService <- obj .:? "service"
-    fld_scheduleNexusOperationCommandAttributesOperation <- obj .:? "operation"
-    fld_scheduleNexusOperationCommandAttributesInput <- obj .:? "input"
-    fld_scheduleNexusOperationCommandAttributesScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    fld_scheduleNexusOperationCommandAttributesNexusheader <- obj .:? "nexusHeader"
-    fld_scheduleNexusOperationCommandAttributesScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    fld_scheduleNexusOperationCommandAttributesStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+instance Aeson.FromJSON ScheduleNexusOperationCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_scheduleNexusOperationCommandAttributesEndpoint <- parseFieldMaybe obj "endpoint"
+    fld_scheduleNexusOperationCommandAttributesService <- parseFieldMaybe obj "service"
+    fld_scheduleNexusOperationCommandAttributesOperation <- parseFieldMaybe obj "operation"
+    fld_scheduleNexusOperationCommandAttributesInput <- parseFieldMaybe obj "input"
+    fld_scheduleNexusOperationCommandAttributesScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_scheduleNexusOperationCommandAttributesNexusheader <- parseFieldMaybe obj "nexusHeader"
+    fld_scheduleNexusOperationCommandAttributesScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_scheduleNexusOperationCommandAttributesStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
     pure defaultScheduleNexusOperationCommandAttributes
       { scheduleNexusOperationCommandAttributesEndpoint = maybe (scheduleNexusOperationCommandAttributesEndpoint defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesEndpoint
       , scheduleNexusOperationCommandAttributesService = maybe (scheduleNexusOperationCommandAttributesService defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesService
@@ -1487,7 +1482,7 @@ instance ProtoFromJSON ScheduleNexusOperationCommandAttributes where
       , scheduleNexusOperationCommandAttributesScheduletostarttimeout = maybe (scheduleNexusOperationCommandAttributesScheduletostarttimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesScheduletostarttimeout
       , scheduleNexusOperationCommandAttributesStarttoclosetimeout = maybe (scheduleNexusOperationCommandAttributesStarttoclosetimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesStarttoclosetimeout
       }
-  protoFromJSON _ = Right defaultScheduleNexusOperationCommandAttributes
+  parseJSON _ = pure defaultScheduleNexusOperationCommandAttributes
 
 data RequestCancelNexusOperationCommandAttributes = RequestCancelNexusOperationCommandAttributes
   { requestCancelNexusOperationCommandAttributesScheduledeventid :: {-# UNPACK #-} !Int64
@@ -1524,19 +1519,18 @@ instance MessageDecode RequestCancelNexusOperationCommandAttributes where
 instance IsMessage RequestCancelNexusOperationCommandAttributes where
   messageTypeName _ = "temporal.api.command.v1.RequestCancelNexusOperationCommandAttributes"
 
-instance ProtoToJSON RequestCancelNexusOperationCommandAttributes where
-  protoToJSON msg = jsonObject
-      [ "scheduledEventId" .= msg.requestCancelNexusOperationCommandAttributesScheduledeventid
+instance Aeson.ToJSON RequestCancelNexusOperationCommandAttributes where
+  toJSON msg = jsonObject
+      [ "scheduledEventId" .=: msg.requestCancelNexusOperationCommandAttributesScheduledeventid
 
       ]
 
-instance ProtoFromJSON RequestCancelNexusOperationCommandAttributes where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestCancelNexusOperationCommandAttributesScheduledeventid <- obj .:? "scheduledEventId"
+instance Aeson.FromJSON RequestCancelNexusOperationCommandAttributes where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestCancelNexusOperationCommandAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
     pure defaultRequestCancelNexusOperationCommandAttributes
       { requestCancelNexusOperationCommandAttributesScheduledeventid = maybe (requestCancelNexusOperationCommandAttributesScheduledeventid defaultRequestCancelNexusOperationCommandAttributes) id fld_requestCancelNexusOperationCommandAttributesScheduledeventid
       }
-  protoFromJSON _ = Right defaultRequestCancelNexusOperationCommandAttributes
 
 data Command = Command
   { commandCommandtype :: !TE_Enums_V1_CommandType.CommandType
@@ -1565,10 +1559,10 @@ data Command'Attributes
   | Command'Attributes'RequestCancelNexusOperationCommandAttributes !RequestCancelNexusOperationCommandAttributes
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Command'Attributes where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Command'Attributes where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Command'Attributes where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Command'Attributes where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultCommand :: Command
 defaultCommand = Command
@@ -1693,24 +1687,23 @@ instance MessageDecode Command where
 instance IsMessage Command where
   messageTypeName _ = "temporal.api.command.v1.Command"
 
-instance ProtoToJSON Command where
-  protoToJSON msg = jsonObject
-      [ "commandType" .= msg.commandCommandtype
-      , "userMetadata" .= msg.commandUsermetadata
-      , "attributes" .= msg.commandAttributes
+instance Aeson.ToJSON Command where
+  toJSON msg = jsonObject
+      [ "commandType" .=: msg.commandCommandtype
+      , "userMetadata" .=: msg.commandUsermetadata
+      , "attributes" .=: msg.commandAttributes
       ]
 
-instance ProtoFromJSON Command where
-  protoFromJSON (JsonObject obj) = do
-    fld_commandCommandtype <- obj .:? "commandType"
-    fld_commandUsermetadata <- obj .:? "userMetadata"
-    fld_commandAttributes <- obj .:? "attributes"
+instance Aeson.FromJSON Command where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_commandCommandtype <- parseFieldMaybe obj "commandType"
+    fld_commandUsermetadata <- parseFieldMaybe obj "userMetadata"
+    fld_commandAttributes <- parseFieldMaybe obj "attributes"
     pure defaultCommand
       { commandCommandtype = maybe (commandCommandtype defaultCommand) id fld_commandCommandtype
       , commandUsermetadata = maybe (commandUsermetadata defaultCommand) id fld_commandUsermetadata
       , commandAttributes = maybe (commandAttributes defaultCommand) id fld_commandAttributes
       }
-  protoFromJSON _ = Right defaultCommand
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -27,7 +27,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -110,19 +114,18 @@ instance ProtoMessage FieldMask where
         })
     ]
 
-instance ProtoToJSON FieldMask where
-  protoToJSON msg = jsonObject
-      [ "paths" .= msg.fieldMaskPaths
+instance Aeson.ToJSON FieldMask where
+  toJSON msg = jsonObject
+      [ "paths" .=: msg.fieldMaskPaths
 
       ]
 
-instance ProtoFromJSON FieldMask where
-  protoFromJSON (JsonObject obj) = do
-    fld_fieldMaskPaths <- obj .:? "paths"
+instance Aeson.FromJSON FieldMask where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_fieldMaskPaths <- parseFieldMaybe obj "paths"
     pure defaultFieldMask
       { fieldMaskPaths = maybe (fieldMaskPaths defaultFieldMask) id fld_fieldMaskPaths
       }
-  protoFromJSON _ = Right defaultFieldMask
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

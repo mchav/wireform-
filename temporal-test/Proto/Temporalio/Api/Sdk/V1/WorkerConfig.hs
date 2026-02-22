@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -82,19 +86,18 @@ instance MessageDecode WorkerConfig'SimplePollerBehavior where
 instance IsMessage WorkerConfig'SimplePollerBehavior where
   messageTypeName _ = "temporal.api.sdk.v1.WorkerConfig.SimplePollerBehavior"
 
-instance ProtoToJSON WorkerConfig'SimplePollerBehavior where
-  protoToJSON msg = jsonObject
-      [ "maxPollers" .= msg.workerConfigSimplePollerBehaviorMaxpollers
+instance Aeson.ToJSON WorkerConfig'SimplePollerBehavior where
+  toJSON msg = jsonObject
+      [ "maxPollers" .=: msg.workerConfigSimplePollerBehaviorMaxpollers
 
       ]
 
-instance ProtoFromJSON WorkerConfig'SimplePollerBehavior where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerConfigSimplePollerBehaviorMaxpollers <- obj .:? "maxPollers"
+instance Aeson.FromJSON WorkerConfig'SimplePollerBehavior where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerConfigSimplePollerBehaviorMaxpollers <- parseFieldMaybe obj "maxPollers"
     pure defaultWorkerConfig'SimplePollerBehavior
       { workerConfigSimplePollerBehaviorMaxpollers = maybe (workerConfigSimplePollerBehaviorMaxpollers defaultWorkerConfig'SimplePollerBehavior) id fld_workerConfigSimplePollerBehaviorMaxpollers
       }
-  protoFromJSON _ = Right defaultWorkerConfig'SimplePollerBehavior
 
 data WorkerConfig'AutoscalingPollerBehavior = WorkerConfig'AutoscalingPollerBehavior
   { workerConfigAutoscalingPollerBehaviorMinpollers :: {-# UNPACK #-} !Int32
@@ -145,33 +148,32 @@ instance MessageDecode WorkerConfig'AutoscalingPollerBehavior where
 instance IsMessage WorkerConfig'AutoscalingPollerBehavior where
   messageTypeName _ = "temporal.api.sdk.v1.WorkerConfig.AutoscalingPollerBehavior"
 
-instance ProtoToJSON WorkerConfig'AutoscalingPollerBehavior where
-  protoToJSON msg = jsonObject
-      [ "minPollers" .= msg.workerConfigAutoscalingPollerBehaviorMinpollers
-      , "maxPollers" .= msg.workerConfigAutoscalingPollerBehaviorMaxpollers
-      , "initialPollers" .= msg.workerConfigAutoscalingPollerBehaviorInitialpollers
+instance Aeson.ToJSON WorkerConfig'AutoscalingPollerBehavior where
+  toJSON msg = jsonObject
+      [ "minPollers" .=: msg.workerConfigAutoscalingPollerBehaviorMinpollers
+      , "maxPollers" .=: msg.workerConfigAutoscalingPollerBehaviorMaxpollers
+      , "initialPollers" .=: msg.workerConfigAutoscalingPollerBehaviorInitialpollers
       ]
 
-instance ProtoFromJSON WorkerConfig'AutoscalingPollerBehavior where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerConfigAutoscalingPollerBehaviorMinpollers <- obj .:? "minPollers"
-    fld_workerConfigAutoscalingPollerBehaviorMaxpollers <- obj .:? "maxPollers"
-    fld_workerConfigAutoscalingPollerBehaviorInitialpollers <- obj .:? "initialPollers"
+instance Aeson.FromJSON WorkerConfig'AutoscalingPollerBehavior where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerConfigAutoscalingPollerBehaviorMinpollers <- parseFieldMaybe obj "minPollers"
+    fld_workerConfigAutoscalingPollerBehaviorMaxpollers <- parseFieldMaybe obj "maxPollers"
+    fld_workerConfigAutoscalingPollerBehaviorInitialpollers <- parseFieldMaybe obj "initialPollers"
     pure defaultWorkerConfig'AutoscalingPollerBehavior
       { workerConfigAutoscalingPollerBehaviorMinpollers = maybe (workerConfigAutoscalingPollerBehaviorMinpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorMinpollers
       , workerConfigAutoscalingPollerBehaviorMaxpollers = maybe (workerConfigAutoscalingPollerBehaviorMaxpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorMaxpollers
       , workerConfigAutoscalingPollerBehaviorInitialpollers = maybe (workerConfigAutoscalingPollerBehaviorInitialpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorInitialpollers
       }
-  protoFromJSON _ = Right defaultWorkerConfig'AutoscalingPollerBehavior
 data WorkerConfig'PollerBehavior
   = WorkerConfig'PollerBehavior'SimplePollerBehavior !WorkerConfig'SimplePollerBehavior
   | WorkerConfig'PollerBehavior'AutoscalingPollerBehavior !WorkerConfig'AutoscalingPollerBehavior
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON WorkerConfig'PollerBehavior where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON WorkerConfig'PollerBehavior where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON WorkerConfig'PollerBehavior where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON WorkerConfig'PollerBehavior where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultWorkerConfig :: WorkerConfig
 defaultWorkerConfig = WorkerConfig
@@ -215,21 +217,20 @@ instance MessageDecode WorkerConfig where
 instance IsMessage WorkerConfig where
   messageTypeName _ = "temporal.api.sdk.v1.WorkerConfig"
 
-instance ProtoToJSON WorkerConfig where
-  protoToJSON msg = jsonObject
-      [ "workflowCacheSize" .= msg.workerConfigWorkflowcachesize
-      , "pollerBehavior" .= msg.workerConfigPollerbehavior
+instance Aeson.ToJSON WorkerConfig where
+  toJSON msg = jsonObject
+      [ "workflowCacheSize" .=: msg.workerConfigWorkflowcachesize
+      , "pollerBehavior" .=: msg.workerConfigPollerbehavior
       ]
 
-instance ProtoFromJSON WorkerConfig where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerConfigWorkflowcachesize <- obj .:? "workflowCacheSize"
-    fld_workerConfigPollerbehavior <- obj .:? "pollerBehavior"
+instance Aeson.FromJSON WorkerConfig where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerConfigWorkflowcachesize <- parseFieldMaybe obj "workflowCacheSize"
+    fld_workerConfigPollerbehavior <- parseFieldMaybe obj "pollerBehavior"
     pure defaultWorkerConfig
       { workerConfigWorkflowcachesize = maybe (workerConfigWorkflowcachesize defaultWorkerConfig) id fld_workerConfigWorkflowcachesize
       , workerConfigPollerbehavior = maybe (workerConfigPollerbehavior defaultWorkerConfig) id fld_workerConfigPollerbehavior
       }
-  protoFromJSON _ = Right defaultWorkerConfig
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

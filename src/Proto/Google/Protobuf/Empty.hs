@@ -27,7 +27,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -95,12 +99,12 @@ instance ProtoMessage Empty where
   protoFieldDescriptors _ = Map.fromList
     []
 
-instance ProtoToJSON Empty where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON Empty where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON Empty where
-  protoFromJSON _ = Right defaultEmpty
+instance Aeson.FromJSON Empty where
+  parseJSON _ = pure defaultEmpty
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -65,18 +69,18 @@ instance MessageSize TaskQueueKind where
 instance MessageDecode TaskQueueKind where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON TaskQueueKind where
-  protoToJSON TaskQueueKind'TaskQueueKindUnspecified = JsonString "TASK_QUEUE_KIND_UNSPECIFIED"
-  protoToJSON TaskQueueKind'TaskQueueKindNormal = JsonString "TASK_QUEUE_KIND_NORMAL"
-  protoToJSON TaskQueueKind'TaskQueueKindSticky = JsonString "TASK_QUEUE_KIND_STICKY"
+instance Aeson.ToJSON TaskQueueKind where
+  toJSON TaskQueueKind'TaskQueueKindUnspecified = Aeson.String "TASK_QUEUE_KIND_UNSPECIFIED"
+  toJSON TaskQueueKind'TaskQueueKindNormal = Aeson.String "TASK_QUEUE_KIND_NORMAL"
+  toJSON TaskQueueKind'TaskQueueKindSticky = Aeson.String "TASK_QUEUE_KIND_STICKY"
 
-instance ProtoFromJSON TaskQueueKind where
-  protoFromJSON = \case
-    JsonString "TASK_QUEUE_KIND_UNSPECIFIED" -> Right TaskQueueKind'TaskQueueKindUnspecified
-    JsonString "TASK_QUEUE_KIND_NORMAL" -> Right TaskQueueKind'TaskQueueKindNormal
-    JsonString "TASK_QUEUE_KIND_STICKY" -> Right TaskQueueKind'TaskQueueKindSticky
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for TaskQueueKind"
+instance Aeson.FromJSON TaskQueueKind where
+  parseJSON = \case
+    Aeson.String "TASK_QUEUE_KIND_UNSPECIFIED" -> pure TaskQueueKind'TaskQueueKindUnspecified
+    Aeson.String "TASK_QUEUE_KIND_NORMAL" -> pure TaskQueueKind'TaskQueueKindNormal
+    Aeson.String "TASK_QUEUE_KIND_STICKY" -> pure TaskQueueKind'TaskQueueKindSticky
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for TaskQueueKind"
 
 data TaskQueueType
   = TaskQueueType'TaskQueueTypeUnspecified
@@ -106,20 +110,20 @@ instance MessageSize TaskQueueType where
 instance MessageDecode TaskQueueType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON TaskQueueType where
-  protoToJSON TaskQueueType'TaskQueueTypeUnspecified = JsonString "TASK_QUEUE_TYPE_UNSPECIFIED"
-  protoToJSON TaskQueueType'TaskQueueTypeWorkflow = JsonString "TASK_QUEUE_TYPE_WORKFLOW"
-  protoToJSON TaskQueueType'TaskQueueTypeActivity = JsonString "TASK_QUEUE_TYPE_ACTIVITY"
-  protoToJSON TaskQueueType'TaskQueueTypeNexus = JsonString "TASK_QUEUE_TYPE_NEXUS"
+instance Aeson.ToJSON TaskQueueType where
+  toJSON TaskQueueType'TaskQueueTypeUnspecified = Aeson.String "TASK_QUEUE_TYPE_UNSPECIFIED"
+  toJSON TaskQueueType'TaskQueueTypeWorkflow = Aeson.String "TASK_QUEUE_TYPE_WORKFLOW"
+  toJSON TaskQueueType'TaskQueueTypeActivity = Aeson.String "TASK_QUEUE_TYPE_ACTIVITY"
+  toJSON TaskQueueType'TaskQueueTypeNexus = Aeson.String "TASK_QUEUE_TYPE_NEXUS"
 
-instance ProtoFromJSON TaskQueueType where
-  protoFromJSON = \case
-    JsonString "TASK_QUEUE_TYPE_UNSPECIFIED" -> Right TaskQueueType'TaskQueueTypeUnspecified
-    JsonString "TASK_QUEUE_TYPE_WORKFLOW" -> Right TaskQueueType'TaskQueueTypeWorkflow
-    JsonString "TASK_QUEUE_TYPE_ACTIVITY" -> Right TaskQueueType'TaskQueueTypeActivity
-    JsonString "TASK_QUEUE_TYPE_NEXUS" -> Right TaskQueueType'TaskQueueTypeNexus
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for TaskQueueType"
+instance Aeson.FromJSON TaskQueueType where
+  parseJSON = \case
+    Aeson.String "TASK_QUEUE_TYPE_UNSPECIFIED" -> pure TaskQueueType'TaskQueueTypeUnspecified
+    Aeson.String "TASK_QUEUE_TYPE_WORKFLOW" -> pure TaskQueueType'TaskQueueTypeWorkflow
+    Aeson.String "TASK_QUEUE_TYPE_ACTIVITY" -> pure TaskQueueType'TaskQueueTypeActivity
+    Aeson.String "TASK_QUEUE_TYPE_NEXUS" -> pure TaskQueueType'TaskQueueTypeNexus
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for TaskQueueType"
 
 data TaskReachability
   = TaskReachability'TaskReachabilityUnspecified
@@ -152,22 +156,22 @@ instance MessageSize TaskReachability where
 instance MessageDecode TaskReachability where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON TaskReachability where
-  protoToJSON TaskReachability'TaskReachabilityUnspecified = JsonString "TASK_REACHABILITY_UNSPECIFIED"
-  protoToJSON TaskReachability'TaskReachabilityNewWorkflows = JsonString "TASK_REACHABILITY_NEW_WORKFLOWS"
-  protoToJSON TaskReachability'TaskReachabilityExistingWorkflows = JsonString "TASK_REACHABILITY_EXISTING_WORKFLOWS"
-  protoToJSON TaskReachability'TaskReachabilityOpenWorkflows = JsonString "TASK_REACHABILITY_OPEN_WORKFLOWS"
-  protoToJSON TaskReachability'TaskReachabilityClosedWorkflows = JsonString "TASK_REACHABILITY_CLOSED_WORKFLOWS"
+instance Aeson.ToJSON TaskReachability where
+  toJSON TaskReachability'TaskReachabilityUnspecified = Aeson.String "TASK_REACHABILITY_UNSPECIFIED"
+  toJSON TaskReachability'TaskReachabilityNewWorkflows = Aeson.String "TASK_REACHABILITY_NEW_WORKFLOWS"
+  toJSON TaskReachability'TaskReachabilityExistingWorkflows = Aeson.String "TASK_REACHABILITY_EXISTING_WORKFLOWS"
+  toJSON TaskReachability'TaskReachabilityOpenWorkflows = Aeson.String "TASK_REACHABILITY_OPEN_WORKFLOWS"
+  toJSON TaskReachability'TaskReachabilityClosedWorkflows = Aeson.String "TASK_REACHABILITY_CLOSED_WORKFLOWS"
 
-instance ProtoFromJSON TaskReachability where
-  protoFromJSON = \case
-    JsonString "TASK_REACHABILITY_UNSPECIFIED" -> Right TaskReachability'TaskReachabilityUnspecified
-    JsonString "TASK_REACHABILITY_NEW_WORKFLOWS" -> Right TaskReachability'TaskReachabilityNewWorkflows
-    JsonString "TASK_REACHABILITY_EXISTING_WORKFLOWS" -> Right TaskReachability'TaskReachabilityExistingWorkflows
-    JsonString "TASK_REACHABILITY_OPEN_WORKFLOWS" -> Right TaskReachability'TaskReachabilityOpenWorkflows
-    JsonString "TASK_REACHABILITY_CLOSED_WORKFLOWS" -> Right TaskReachability'TaskReachabilityClosedWorkflows
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for TaskReachability"
+instance Aeson.FromJSON TaskReachability where
+  parseJSON = \case
+    Aeson.String "TASK_REACHABILITY_UNSPECIFIED" -> pure TaskReachability'TaskReachabilityUnspecified
+    Aeson.String "TASK_REACHABILITY_NEW_WORKFLOWS" -> pure TaskReachability'TaskReachabilityNewWorkflows
+    Aeson.String "TASK_REACHABILITY_EXISTING_WORKFLOWS" -> pure TaskReachability'TaskReachabilityExistingWorkflows
+    Aeson.String "TASK_REACHABILITY_OPEN_WORKFLOWS" -> pure TaskReachability'TaskReachabilityOpenWorkflows
+    Aeson.String "TASK_REACHABILITY_CLOSED_WORKFLOWS" -> pure TaskReachability'TaskReachabilityClosedWorkflows
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for TaskReachability"
 
 data BuildIdTaskReachability
   = BuildIdTaskReachability'BuildIdTaskReachabilityUnspecified
@@ -197,20 +201,20 @@ instance MessageSize BuildIdTaskReachability where
 instance MessageDecode BuildIdTaskReachability where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON BuildIdTaskReachability where
-  protoToJSON BuildIdTaskReachability'BuildIdTaskReachabilityUnspecified = JsonString "BUILD_ID_TASK_REACHABILITY_UNSPECIFIED"
-  protoToJSON BuildIdTaskReachability'BuildIdTaskReachabilityReachable = JsonString "BUILD_ID_TASK_REACHABILITY_REACHABLE"
-  protoToJSON BuildIdTaskReachability'BuildIdTaskReachabilityClosedWorkflowsOnly = JsonString "BUILD_ID_TASK_REACHABILITY_CLOSED_WORKFLOWS_ONLY"
-  protoToJSON BuildIdTaskReachability'BuildIdTaskReachabilityUnreachable = JsonString "BUILD_ID_TASK_REACHABILITY_UNREACHABLE"
+instance Aeson.ToJSON BuildIdTaskReachability where
+  toJSON BuildIdTaskReachability'BuildIdTaskReachabilityUnspecified = Aeson.String "BUILD_ID_TASK_REACHABILITY_UNSPECIFIED"
+  toJSON BuildIdTaskReachability'BuildIdTaskReachabilityReachable = Aeson.String "BUILD_ID_TASK_REACHABILITY_REACHABLE"
+  toJSON BuildIdTaskReachability'BuildIdTaskReachabilityClosedWorkflowsOnly = Aeson.String "BUILD_ID_TASK_REACHABILITY_CLOSED_WORKFLOWS_ONLY"
+  toJSON BuildIdTaskReachability'BuildIdTaskReachabilityUnreachable = Aeson.String "BUILD_ID_TASK_REACHABILITY_UNREACHABLE"
 
-instance ProtoFromJSON BuildIdTaskReachability where
-  protoFromJSON = \case
-    JsonString "BUILD_ID_TASK_REACHABILITY_UNSPECIFIED" -> Right BuildIdTaskReachability'BuildIdTaskReachabilityUnspecified
-    JsonString "BUILD_ID_TASK_REACHABILITY_REACHABLE" -> Right BuildIdTaskReachability'BuildIdTaskReachabilityReachable
-    JsonString "BUILD_ID_TASK_REACHABILITY_CLOSED_WORKFLOWS_ONLY" -> Right BuildIdTaskReachability'BuildIdTaskReachabilityClosedWorkflowsOnly
-    JsonString "BUILD_ID_TASK_REACHABILITY_UNREACHABLE" -> Right BuildIdTaskReachability'BuildIdTaskReachabilityUnreachable
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for BuildIdTaskReachability"
+instance Aeson.FromJSON BuildIdTaskReachability where
+  parseJSON = \case
+    Aeson.String "BUILD_ID_TASK_REACHABILITY_UNSPECIFIED" -> pure BuildIdTaskReachability'BuildIdTaskReachabilityUnspecified
+    Aeson.String "BUILD_ID_TASK_REACHABILITY_REACHABLE" -> pure BuildIdTaskReachability'BuildIdTaskReachabilityReachable
+    Aeson.String "BUILD_ID_TASK_REACHABILITY_CLOSED_WORKFLOWS_ONLY" -> pure BuildIdTaskReachability'BuildIdTaskReachabilityClosedWorkflowsOnly
+    Aeson.String "BUILD_ID_TASK_REACHABILITY_UNREACHABLE" -> pure BuildIdTaskReachability'BuildIdTaskReachabilityUnreachable
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for BuildIdTaskReachability"
 
 data DescribeTaskQueueMode
   = DescribeTaskQueueMode'DescribeTaskQueueModeUnspecified
@@ -234,16 +238,16 @@ instance MessageSize DescribeTaskQueueMode where
 instance MessageDecode DescribeTaskQueueMode where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON DescribeTaskQueueMode where
-  protoToJSON DescribeTaskQueueMode'DescribeTaskQueueModeUnspecified = JsonString "DESCRIBE_TASK_QUEUE_MODE_UNSPECIFIED"
-  protoToJSON DescribeTaskQueueMode'DescribeTaskQueueModeEnhanced = JsonString "DESCRIBE_TASK_QUEUE_MODE_ENHANCED"
+instance Aeson.ToJSON DescribeTaskQueueMode where
+  toJSON DescribeTaskQueueMode'DescribeTaskQueueModeUnspecified = Aeson.String "DESCRIBE_TASK_QUEUE_MODE_UNSPECIFIED"
+  toJSON DescribeTaskQueueMode'DescribeTaskQueueModeEnhanced = Aeson.String "DESCRIBE_TASK_QUEUE_MODE_ENHANCED"
 
-instance ProtoFromJSON DescribeTaskQueueMode where
-  protoFromJSON = \case
-    JsonString "DESCRIBE_TASK_QUEUE_MODE_UNSPECIFIED" -> Right DescribeTaskQueueMode'DescribeTaskQueueModeUnspecified
-    JsonString "DESCRIBE_TASK_QUEUE_MODE_ENHANCED" -> Right DescribeTaskQueueMode'DescribeTaskQueueModeEnhanced
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for DescribeTaskQueueMode"
+instance Aeson.FromJSON DescribeTaskQueueMode where
+  parseJSON = \case
+    Aeson.String "DESCRIBE_TASK_QUEUE_MODE_UNSPECIFIED" -> pure DescribeTaskQueueMode'DescribeTaskQueueModeUnspecified
+    Aeson.String "DESCRIBE_TASK_QUEUE_MODE_ENHANCED" -> pure DescribeTaskQueueMode'DescribeTaskQueueModeEnhanced
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for DescribeTaskQueueMode"
 
 data RateLimitSource
   = RateLimitSource'RateLimitSourceUnspecified
@@ -273,20 +277,20 @@ instance MessageSize RateLimitSource where
 instance MessageDecode RateLimitSource where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON RateLimitSource where
-  protoToJSON RateLimitSource'RateLimitSourceUnspecified = JsonString "RATE_LIMIT_SOURCE_UNSPECIFIED"
-  protoToJSON RateLimitSource'RateLimitSourceApi = JsonString "RATE_LIMIT_SOURCE_API"
-  protoToJSON RateLimitSource'RateLimitSourceWorker = JsonString "RATE_LIMIT_SOURCE_WORKER"
-  protoToJSON RateLimitSource'RateLimitSourceSystem = JsonString "RATE_LIMIT_SOURCE_SYSTEM"
+instance Aeson.ToJSON RateLimitSource where
+  toJSON RateLimitSource'RateLimitSourceUnspecified = Aeson.String "RATE_LIMIT_SOURCE_UNSPECIFIED"
+  toJSON RateLimitSource'RateLimitSourceApi = Aeson.String "RATE_LIMIT_SOURCE_API"
+  toJSON RateLimitSource'RateLimitSourceWorker = Aeson.String "RATE_LIMIT_SOURCE_WORKER"
+  toJSON RateLimitSource'RateLimitSourceSystem = Aeson.String "RATE_LIMIT_SOURCE_SYSTEM"
 
-instance ProtoFromJSON RateLimitSource where
-  protoFromJSON = \case
-    JsonString "RATE_LIMIT_SOURCE_UNSPECIFIED" -> Right RateLimitSource'RateLimitSourceUnspecified
-    JsonString "RATE_LIMIT_SOURCE_API" -> Right RateLimitSource'RateLimitSourceApi
-    JsonString "RATE_LIMIT_SOURCE_WORKER" -> Right RateLimitSource'RateLimitSourceWorker
-    JsonString "RATE_LIMIT_SOURCE_SYSTEM" -> Right RateLimitSource'RateLimitSourceSystem
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for RateLimitSource"
+instance Aeson.FromJSON RateLimitSource where
+  parseJSON = \case
+    Aeson.String "RATE_LIMIT_SOURCE_UNSPECIFIED" -> pure RateLimitSource'RateLimitSourceUnspecified
+    Aeson.String "RATE_LIMIT_SOURCE_API" -> pure RateLimitSource'RateLimitSourceApi
+    Aeson.String "RATE_LIMIT_SOURCE_WORKER" -> pure RateLimitSource'RateLimitSourceWorker
+    Aeson.String "RATE_LIMIT_SOURCE_SYSTEM" -> pure RateLimitSource'RateLimitSourceSystem
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for RateLimitSource"
 
 data RoutingConfigUpdateState
   = RoutingConfigUpdateState'RoutingConfigUpdateStateUnspecified
@@ -313,16 +317,16 @@ instance MessageSize RoutingConfigUpdateState where
 instance MessageDecode RoutingConfigUpdateState where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON RoutingConfigUpdateState where
-  protoToJSON RoutingConfigUpdateState'RoutingConfigUpdateStateUnspecified = JsonString "ROUTING_CONFIG_UPDATE_STATE_UNSPECIFIED"
-  protoToJSON RoutingConfigUpdateState'RoutingConfigUpdateStateInProgress = JsonString "ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS"
-  protoToJSON RoutingConfigUpdateState'RoutingConfigUpdateStateCompleted = JsonString "ROUTING_CONFIG_UPDATE_STATE_COMPLETED"
+instance Aeson.ToJSON RoutingConfigUpdateState where
+  toJSON RoutingConfigUpdateState'RoutingConfigUpdateStateUnspecified = Aeson.String "ROUTING_CONFIG_UPDATE_STATE_UNSPECIFIED"
+  toJSON RoutingConfigUpdateState'RoutingConfigUpdateStateInProgress = Aeson.String "ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS"
+  toJSON RoutingConfigUpdateState'RoutingConfigUpdateStateCompleted = Aeson.String "ROUTING_CONFIG_UPDATE_STATE_COMPLETED"
 
-instance ProtoFromJSON RoutingConfigUpdateState where
-  protoFromJSON = \case
-    JsonString "ROUTING_CONFIG_UPDATE_STATE_UNSPECIFIED" -> Right RoutingConfigUpdateState'RoutingConfigUpdateStateUnspecified
-    JsonString "ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS" -> Right RoutingConfigUpdateState'RoutingConfigUpdateStateInProgress
-    JsonString "ROUTING_CONFIG_UPDATE_STATE_COMPLETED" -> Right RoutingConfigUpdateState'RoutingConfigUpdateStateCompleted
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for RoutingConfigUpdateState"
+instance Aeson.FromJSON RoutingConfigUpdateState where
+  parseJSON = \case
+    Aeson.String "ROUTING_CONFIG_UPDATE_STATE_UNSPECIFIED" -> pure RoutingConfigUpdateState'RoutingConfigUpdateStateUnspecified
+    Aeson.String "ROUTING_CONFIG_UPDATE_STATE_IN_PROGRESS" -> pure RoutingConfigUpdateState'RoutingConfigUpdateStateInProgress
+    Aeson.String "ROUTING_CONFIG_UPDATE_STATE_COMPLETED" -> pure RoutingConfigUpdateState'RoutingConfigUpdateStateCompleted
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for RoutingConfigUpdateState"
 

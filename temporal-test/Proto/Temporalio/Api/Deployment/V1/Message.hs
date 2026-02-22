@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -93,24 +97,23 @@ instance MessageDecode WorkerDeploymentOptions where
 instance IsMessage WorkerDeploymentOptions where
   messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentOptions"
 
-instance ProtoToJSON WorkerDeploymentOptions where
-  protoToJSON msg = jsonObject
-      [ "deploymentName" .= msg.workerDeploymentOptionsDeploymentname
-      , "buildId" .= msg.workerDeploymentOptionsBuildid
-      , "workerVersioningMode" .= msg.workerDeploymentOptionsWorkerversioningmode
+instance Aeson.ToJSON WorkerDeploymentOptions where
+  toJSON msg = jsonObject
+      [ "deploymentName" .=: msg.workerDeploymentOptionsDeploymentname
+      , "buildId" .=: msg.workerDeploymentOptionsBuildid
+      , "workerVersioningMode" .=: msg.workerDeploymentOptionsWorkerversioningmode
       ]
 
-instance ProtoFromJSON WorkerDeploymentOptions where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerDeploymentOptionsDeploymentname <- obj .:? "deploymentName"
-    fld_workerDeploymentOptionsBuildid <- obj .:? "buildId"
-    fld_workerDeploymentOptionsWorkerversioningmode <- obj .:? "workerVersioningMode"
+instance Aeson.FromJSON WorkerDeploymentOptions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerDeploymentOptionsDeploymentname <- parseFieldMaybe obj "deploymentName"
+    fld_workerDeploymentOptionsBuildid <- parseFieldMaybe obj "buildId"
+    fld_workerDeploymentOptionsWorkerversioningmode <- parseFieldMaybe obj "workerVersioningMode"
     pure defaultWorkerDeploymentOptions
       { workerDeploymentOptionsDeploymentname = maybe (workerDeploymentOptionsDeploymentname defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsDeploymentname
       , workerDeploymentOptionsBuildid = maybe (workerDeploymentOptionsBuildid defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsBuildid
       , workerDeploymentOptionsWorkerversioningmode = maybe (workerDeploymentOptionsWorkerversioningmode defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsWorkerversioningmode
       }
-  protoFromJSON _ = Right defaultWorkerDeploymentOptions
 
 data Deployment = Deployment
   { deploymentSeriesname :: !Text
@@ -154,21 +157,20 @@ instance MessageDecode Deployment where
 instance IsMessage Deployment where
   messageTypeName _ = "temporal.api.deployment.v1.Deployment"
 
-instance ProtoToJSON Deployment where
-  protoToJSON msg = jsonObject
-      [ "seriesName" .= msg.deploymentSeriesname
-      , "buildId" .= msg.deploymentBuildid
+instance Aeson.ToJSON Deployment where
+  toJSON msg = jsonObject
+      [ "seriesName" .=: msg.deploymentSeriesname
+      , "buildId" .=: msg.deploymentBuildid
       ]
 
-instance ProtoFromJSON Deployment where
-  protoFromJSON (JsonObject obj) = do
-    fld_deploymentSeriesname <- obj .:? "seriesName"
-    fld_deploymentBuildid <- obj .:? "buildId"
+instance Aeson.FromJSON Deployment where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deploymentSeriesname <- parseFieldMaybe obj "seriesName"
+    fld_deploymentBuildid <- parseFieldMaybe obj "buildId"
     pure defaultDeployment
       { deploymentSeriesname = maybe (deploymentSeriesname defaultDeployment) id fld_deploymentSeriesname
       , deploymentBuildid = maybe (deploymentBuildid defaultDeployment) id fld_deploymentBuildid
       }
-  protoFromJSON _ = Right defaultDeployment
 
 data DeploymentInfo = DeploymentInfo
   { deploymentInfoDeployment :: !(Maybe Deployment)
@@ -229,24 +231,23 @@ instance MessageDecode DeploymentInfo'TaskQueueInfo where
 instance IsMessage DeploymentInfo'TaskQueueInfo where
   messageTypeName _ = "temporal.api.deployment.v1.DeploymentInfo.TaskQueueInfo"
 
-instance ProtoToJSON DeploymentInfo'TaskQueueInfo where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.deploymentInfoTaskQueueInfoName
-      , "type" .= msg.deploymentInfoTaskQueueInfoType
-      , "firstPollerTime" .= msg.deploymentInfoTaskQueueInfoFirstpollertime
+instance Aeson.ToJSON DeploymentInfo'TaskQueueInfo where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.deploymentInfoTaskQueueInfoName
+      , "type" .=: msg.deploymentInfoTaskQueueInfoType
+      , "firstPollerTime" .=: msg.deploymentInfoTaskQueueInfoFirstpollertime
       ]
 
-instance ProtoFromJSON DeploymentInfo'TaskQueueInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_deploymentInfoTaskQueueInfoName <- obj .:? "name"
-    fld_deploymentInfoTaskQueueInfoType <- obj .:? "type"
-    fld_deploymentInfoTaskQueueInfoFirstpollertime <- obj .:? "firstPollerTime"
+instance Aeson.FromJSON DeploymentInfo'TaskQueueInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deploymentInfoTaskQueueInfoName <- parseFieldMaybe obj "name"
+    fld_deploymentInfoTaskQueueInfoType <- parseFieldMaybe obj "type"
+    fld_deploymentInfoTaskQueueInfoFirstpollertime <- parseFieldMaybe obj "firstPollerTime"
     pure defaultDeploymentInfo'TaskQueueInfo
       { deploymentInfoTaskQueueInfoName = maybe (deploymentInfoTaskQueueInfoName defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoName
       , deploymentInfoTaskQueueInfoType = maybe (deploymentInfoTaskQueueInfoType defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoType
       , deploymentInfoTaskQueueInfoFirstpollertime = maybe (deploymentInfoTaskQueueInfoFirstpollertime defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoFirstpollertime
       }
-  protoFromJSON _ = Right defaultDeploymentInfo'TaskQueueInfo
 
 defaultDeploymentInfo :: DeploymentInfo
 defaultDeploymentInfo = DeploymentInfo
@@ -304,22 +305,22 @@ instance MessageDecode DeploymentInfo where
 instance IsMessage DeploymentInfo where
   messageTypeName _ = "temporal.api.deployment.v1.DeploymentInfo"
 
-instance ProtoToJSON DeploymentInfo where
-  protoToJSON msg = jsonObject
-      [ "deployment" .= msg.deploymentInfoDeployment
-      , "createTime" .= msg.deploymentInfoCreatetime
-      , "taskQueueInfos" .= msg.deploymentInfoTaskqueueinfos
-      , "metadata" .= msg.deploymentInfoMetadata
-      , "isCurrent" .= msg.deploymentInfoIscurrent
+instance Aeson.ToJSON DeploymentInfo where
+  toJSON msg = jsonObject
+      [ "deployment" .=: msg.deploymentInfoDeployment
+      , "createTime" .=: msg.deploymentInfoCreatetime
+      , "taskQueueInfos" .=: msg.deploymentInfoTaskqueueinfos
+      , "metadata" .=: msg.deploymentInfoMetadata
+      , "isCurrent" .=: msg.deploymentInfoIscurrent
       ]
 
-instance ProtoFromJSON DeploymentInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_deploymentInfoDeployment <- obj .:? "deployment"
-    fld_deploymentInfoCreatetime <- obj .:? "createTime"
-    fld_deploymentInfoTaskqueueinfos <- obj .:? "taskQueueInfos"
-    fld_deploymentInfoMetadata <- obj .:? "metadata"
-    fld_deploymentInfoIscurrent <- obj .:? "isCurrent"
+instance Aeson.FromJSON DeploymentInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deploymentInfoDeployment <- parseFieldMaybe obj "deployment"
+    fld_deploymentInfoCreatetime <- parseFieldMaybe obj "createTime"
+    fld_deploymentInfoTaskqueueinfos <- parseFieldMaybe obj "taskQueueInfos"
+    fld_deploymentInfoMetadata <- parseFieldMaybe obj "metadata"
+    fld_deploymentInfoIscurrent <- parseFieldMaybe obj "isCurrent"
     pure defaultDeploymentInfo
       { deploymentInfoDeployment = maybe (deploymentInfoDeployment defaultDeploymentInfo) id fld_deploymentInfoDeployment
       , deploymentInfoCreatetime = maybe (deploymentInfoCreatetime defaultDeploymentInfo) id fld_deploymentInfoCreatetime
@@ -327,7 +328,7 @@ instance ProtoFromJSON DeploymentInfo where
       , deploymentInfoMetadata = maybe (deploymentInfoMetadata defaultDeploymentInfo) id fld_deploymentInfoMetadata
       , deploymentInfoIscurrent = maybe (deploymentInfoIscurrent defaultDeploymentInfo) id fld_deploymentInfoIscurrent
       }
-  protoFromJSON _ = Right defaultDeploymentInfo
+  parseJSON _ = pure defaultDeploymentInfo
 
 data UpdateDeploymentMetadata = UpdateDeploymentMetadata
   { updateDeploymentMetadataUpsertentries :: !(Map.Map Text TE_Common_V1_Message.Payload)
@@ -374,21 +375,20 @@ instance MessageDecode UpdateDeploymentMetadata where
 instance IsMessage UpdateDeploymentMetadata where
   messageTypeName _ = "temporal.api.deployment.v1.UpdateDeploymentMetadata"
 
-instance ProtoToJSON UpdateDeploymentMetadata where
-  protoToJSON msg = jsonObject
-      [ "upsertEntries" .= msg.updateDeploymentMetadataUpsertentries
-      , "removeEntries" .= msg.updateDeploymentMetadataRemoveentries
+instance Aeson.ToJSON UpdateDeploymentMetadata where
+  toJSON msg = jsonObject
+      [ "upsertEntries" .=: msg.updateDeploymentMetadataUpsertentries
+      , "removeEntries" .=: msg.updateDeploymentMetadataRemoveentries
       ]
 
-instance ProtoFromJSON UpdateDeploymentMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_updateDeploymentMetadataUpsertentries <- obj .:? "upsertEntries"
-    fld_updateDeploymentMetadataRemoveentries <- obj .:? "removeEntries"
+instance Aeson.FromJSON UpdateDeploymentMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_updateDeploymentMetadataUpsertentries <- parseFieldMaybe obj "upsertEntries"
+    fld_updateDeploymentMetadataRemoveentries <- parseFieldMaybe obj "removeEntries"
     pure defaultUpdateDeploymentMetadata
       { updateDeploymentMetadataUpsertentries = maybe (updateDeploymentMetadataUpsertentries defaultUpdateDeploymentMetadata) id fld_updateDeploymentMetadataUpsertentries
       , updateDeploymentMetadataRemoveentries = maybe (updateDeploymentMetadataRemoveentries defaultUpdateDeploymentMetadata) id fld_updateDeploymentMetadataRemoveentries
       }
-  protoFromJSON _ = Right defaultUpdateDeploymentMetadata
 
 data DeploymentListInfo = DeploymentListInfo
   { deploymentListInfoDeployment :: !(Maybe Deployment)
@@ -439,24 +439,23 @@ instance MessageDecode DeploymentListInfo where
 instance IsMessage DeploymentListInfo where
   messageTypeName _ = "temporal.api.deployment.v1.DeploymentListInfo"
 
-instance ProtoToJSON DeploymentListInfo where
-  protoToJSON msg = jsonObject
-      [ "deployment" .= msg.deploymentListInfoDeployment
-      , "createTime" .= msg.deploymentListInfoCreatetime
-      , "isCurrent" .= msg.deploymentListInfoIscurrent
+instance Aeson.ToJSON DeploymentListInfo where
+  toJSON msg = jsonObject
+      [ "deployment" .=: msg.deploymentListInfoDeployment
+      , "createTime" .=: msg.deploymentListInfoCreatetime
+      , "isCurrent" .=: msg.deploymentListInfoIscurrent
       ]
 
-instance ProtoFromJSON DeploymentListInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_deploymentListInfoDeployment <- obj .:? "deployment"
-    fld_deploymentListInfoCreatetime <- obj .:? "createTime"
-    fld_deploymentListInfoIscurrent <- obj .:? "isCurrent"
+instance Aeson.FromJSON DeploymentListInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deploymentListInfoDeployment <- parseFieldMaybe obj "deployment"
+    fld_deploymentListInfoCreatetime <- parseFieldMaybe obj "createTime"
+    fld_deploymentListInfoIscurrent <- parseFieldMaybe obj "isCurrent"
     pure defaultDeploymentListInfo
       { deploymentListInfoDeployment = maybe (deploymentListInfoDeployment defaultDeploymentListInfo) id fld_deploymentListInfoDeployment
       , deploymentListInfoCreatetime = maybe (deploymentListInfoCreatetime defaultDeploymentListInfo) id fld_deploymentListInfoCreatetime
       , deploymentListInfoIscurrent = maybe (deploymentListInfoIscurrent defaultDeploymentListInfo) id fld_deploymentListInfoIscurrent
       }
-  protoFromJSON _ = Right defaultDeploymentListInfo
 
 data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
   { workerDeploymentVersionInfoVersion :: !Text
@@ -520,21 +519,20 @@ instance MessageDecode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
 instance IsMessage WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentVersionInfo.VersionTaskQueueInfo"
 
-instance ProtoToJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.workerDeploymentVersionInfoVersionTaskQueueInfoName
-      , "type" .= msg.workerDeploymentVersionInfoVersionTaskQueueInfoType
+instance Aeson.ToJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.workerDeploymentVersionInfoVersionTaskQueueInfoName
+      , "type" .=: msg.workerDeploymentVersionInfoVersionTaskQueueInfoType
       ]
 
-instance ProtoFromJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerDeploymentVersionInfoVersionTaskQueueInfoName <- obj .:? "name"
-    fld_workerDeploymentVersionInfoVersionTaskQueueInfoType <- obj .:? "type"
+instance Aeson.FromJSON WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerDeploymentVersionInfoVersionTaskQueueInfoName <- parseFieldMaybe obj "name"
+    fld_workerDeploymentVersionInfoVersionTaskQueueInfoType <- parseFieldMaybe obj "type"
     pure defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo
       { workerDeploymentVersionInfoVersionTaskQueueInfoName = maybe (workerDeploymentVersionInfoVersionTaskQueueInfoName defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo) id fld_workerDeploymentVersionInfoVersionTaskQueueInfoName
       , workerDeploymentVersionInfoVersionTaskQueueInfoType = maybe (workerDeploymentVersionInfoVersionTaskQueueInfoType defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo) id fld_workerDeploymentVersionInfoVersionTaskQueueInfoType
       }
-  protoFromJSON _ = Right defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo
 
 defaultWorkerDeploymentVersionInfo :: WorkerDeploymentVersionInfo
 defaultWorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
@@ -649,42 +647,42 @@ instance MessageDecode WorkerDeploymentVersionInfo where
 instance IsMessage WorkerDeploymentVersionInfo where
   messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentVersionInfo"
 
-instance ProtoToJSON WorkerDeploymentVersionInfo where
-  protoToJSON msg = jsonObject
-      [ "version" .= msg.workerDeploymentVersionInfoVersion
-      , "status" .= msg.workerDeploymentVersionInfoStatus
-      , "deploymentVersion" .= msg.workerDeploymentVersionInfoDeploymentversion
-      , "deploymentName" .= msg.workerDeploymentVersionInfoDeploymentname
-      , "createTime" .= msg.workerDeploymentVersionInfoCreatetime
-      , "routingChangedTime" .= msg.workerDeploymentVersionInfoRoutingchangedtime
-      , "currentSinceTime" .= msg.workerDeploymentVersionInfoCurrentsincetime
-      , "rampingSinceTime" .= msg.workerDeploymentVersionInfoRampingsincetime
-      , "firstActivationTime" .= msg.workerDeploymentVersionInfoFirstactivationtime
-      , "lastCurrentTime" .= msg.workerDeploymentVersionInfoLastcurrenttime
-      , "lastDeactivationTime" .= msg.workerDeploymentVersionInfoLastdeactivationtime
-      , "rampPercentage" .= msg.workerDeploymentVersionInfoRamppercentage
-      , "taskQueueInfos" .= msg.workerDeploymentVersionInfoTaskqueueinfos
-      , "drainageInfo" .= msg.workerDeploymentVersionInfoDrainageinfo
-      , "metadata" .= msg.workerDeploymentVersionInfoMetadata
+instance Aeson.ToJSON WorkerDeploymentVersionInfo where
+  toJSON msg = jsonObject
+      [ "version" .=: msg.workerDeploymentVersionInfoVersion
+      , "status" .=: msg.workerDeploymentVersionInfoStatus
+      , "deploymentVersion" .=: msg.workerDeploymentVersionInfoDeploymentversion
+      , "deploymentName" .=: msg.workerDeploymentVersionInfoDeploymentname
+      , "createTime" .=: msg.workerDeploymentVersionInfoCreatetime
+      , "routingChangedTime" .=: msg.workerDeploymentVersionInfoRoutingchangedtime
+      , "currentSinceTime" .=: msg.workerDeploymentVersionInfoCurrentsincetime
+      , "rampingSinceTime" .=: msg.workerDeploymentVersionInfoRampingsincetime
+      , "firstActivationTime" .=: msg.workerDeploymentVersionInfoFirstactivationtime
+      , "lastCurrentTime" .=: msg.workerDeploymentVersionInfoLastcurrenttime
+      , "lastDeactivationTime" .=: msg.workerDeploymentVersionInfoLastdeactivationtime
+      , "rampPercentage" .=: msg.workerDeploymentVersionInfoRamppercentage
+      , "taskQueueInfos" .=: msg.workerDeploymentVersionInfoTaskqueueinfos
+      , "drainageInfo" .=: msg.workerDeploymentVersionInfoDrainageinfo
+      , "metadata" .=: msg.workerDeploymentVersionInfoMetadata
       ]
 
-instance ProtoFromJSON WorkerDeploymentVersionInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerDeploymentVersionInfoVersion <- obj .:? "version"
-    fld_workerDeploymentVersionInfoStatus <- obj .:? "status"
-    fld_workerDeploymentVersionInfoDeploymentversion <- obj .:? "deploymentVersion"
-    fld_workerDeploymentVersionInfoDeploymentname <- obj .:? "deploymentName"
-    fld_workerDeploymentVersionInfoCreatetime <- obj .:? "createTime"
-    fld_workerDeploymentVersionInfoRoutingchangedtime <- obj .:? "routingChangedTime"
-    fld_workerDeploymentVersionInfoCurrentsincetime <- obj .:? "currentSinceTime"
-    fld_workerDeploymentVersionInfoRampingsincetime <- obj .:? "rampingSinceTime"
-    fld_workerDeploymentVersionInfoFirstactivationtime <- obj .:? "firstActivationTime"
-    fld_workerDeploymentVersionInfoLastcurrenttime <- obj .:? "lastCurrentTime"
-    fld_workerDeploymentVersionInfoLastdeactivationtime <- obj .:? "lastDeactivationTime"
-    fld_workerDeploymentVersionInfoRamppercentage <- obj .:? "rampPercentage"
-    fld_workerDeploymentVersionInfoTaskqueueinfos <- obj .:? "taskQueueInfos"
-    fld_workerDeploymentVersionInfoDrainageinfo <- obj .:? "drainageInfo"
-    fld_workerDeploymentVersionInfoMetadata <- obj .:? "metadata"
+instance Aeson.FromJSON WorkerDeploymentVersionInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerDeploymentVersionInfoVersion <- parseFieldMaybe obj "version"
+    fld_workerDeploymentVersionInfoStatus <- parseFieldMaybe obj "status"
+    fld_workerDeploymentVersionInfoDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
+    fld_workerDeploymentVersionInfoDeploymentname <- parseFieldMaybe obj "deploymentName"
+    fld_workerDeploymentVersionInfoCreatetime <- parseFieldMaybe obj "createTime"
+    fld_workerDeploymentVersionInfoRoutingchangedtime <- parseFieldMaybe obj "routingChangedTime"
+    fld_workerDeploymentVersionInfoCurrentsincetime <- parseFieldMaybe obj "currentSinceTime"
+    fld_workerDeploymentVersionInfoRampingsincetime <- parseFieldMaybe obj "rampingSinceTime"
+    fld_workerDeploymentVersionInfoFirstactivationtime <- parseFieldMaybe obj "firstActivationTime"
+    fld_workerDeploymentVersionInfoLastcurrenttime <- parseFieldMaybe obj "lastCurrentTime"
+    fld_workerDeploymentVersionInfoLastdeactivationtime <- parseFieldMaybe obj "lastDeactivationTime"
+    fld_workerDeploymentVersionInfoRamppercentage <- parseFieldMaybe obj "rampPercentage"
+    fld_workerDeploymentVersionInfoTaskqueueinfos <- parseFieldMaybe obj "taskQueueInfos"
+    fld_workerDeploymentVersionInfoDrainageinfo <- parseFieldMaybe obj "drainageInfo"
+    fld_workerDeploymentVersionInfoMetadata <- parseFieldMaybe obj "metadata"
     pure defaultWorkerDeploymentVersionInfo
       { workerDeploymentVersionInfoVersion = maybe (workerDeploymentVersionInfoVersion defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoVersion
       , workerDeploymentVersionInfoStatus = maybe (workerDeploymentVersionInfoStatus defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoStatus
@@ -702,7 +700,7 @@ instance ProtoFromJSON WorkerDeploymentVersionInfo where
       , workerDeploymentVersionInfoDrainageinfo = maybe (workerDeploymentVersionInfoDrainageinfo defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDrainageinfo
       , workerDeploymentVersionInfoMetadata = maybe (workerDeploymentVersionInfoMetadata defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoMetadata
       }
-  protoFromJSON _ = Right defaultWorkerDeploymentVersionInfo
+  parseJSON _ = pure defaultWorkerDeploymentVersionInfo
 
 data VersionDrainageInfo = VersionDrainageInfo
   { versionDrainageInfoStatus :: !TE_Enums_V1_Deployment.VersionDrainageStatus
@@ -753,24 +751,23 @@ instance MessageDecode VersionDrainageInfo where
 instance IsMessage VersionDrainageInfo where
   messageTypeName _ = "temporal.api.deployment.v1.VersionDrainageInfo"
 
-instance ProtoToJSON VersionDrainageInfo where
-  protoToJSON msg = jsonObject
-      [ "status" .= msg.versionDrainageInfoStatus
-      , "lastChangedTime" .= msg.versionDrainageInfoLastchangedtime
-      , "lastCheckedTime" .= msg.versionDrainageInfoLastcheckedtime
+instance Aeson.ToJSON VersionDrainageInfo where
+  toJSON msg = jsonObject
+      [ "status" .=: msg.versionDrainageInfoStatus
+      , "lastChangedTime" .=: msg.versionDrainageInfoLastchangedtime
+      , "lastCheckedTime" .=: msg.versionDrainageInfoLastcheckedtime
       ]
 
-instance ProtoFromJSON VersionDrainageInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_versionDrainageInfoStatus <- obj .:? "status"
-    fld_versionDrainageInfoLastchangedtime <- obj .:? "lastChangedTime"
-    fld_versionDrainageInfoLastcheckedtime <- obj .:? "lastCheckedTime"
+instance Aeson.FromJSON VersionDrainageInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_versionDrainageInfoStatus <- parseFieldMaybe obj "status"
+    fld_versionDrainageInfoLastchangedtime <- parseFieldMaybe obj "lastChangedTime"
+    fld_versionDrainageInfoLastcheckedtime <- parseFieldMaybe obj "lastCheckedTime"
     pure defaultVersionDrainageInfo
       { versionDrainageInfoStatus = maybe (versionDrainageInfoStatus defaultVersionDrainageInfo) id fld_versionDrainageInfoStatus
       , versionDrainageInfoLastchangedtime = maybe (versionDrainageInfoLastchangedtime defaultVersionDrainageInfo) id fld_versionDrainageInfoLastchangedtime
       , versionDrainageInfoLastcheckedtime = maybe (versionDrainageInfoLastcheckedtime defaultVersionDrainageInfo) id fld_versionDrainageInfoLastcheckedtime
       }
-  protoFromJSON _ = Right defaultVersionDrainageInfo
 
 data WorkerDeploymentInfo = WorkerDeploymentInfo
   { workerDeploymentInfoName :: !Text
@@ -896,36 +893,36 @@ instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
 instance IsMessage WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentInfo.WorkerDeploymentVersionSummary"
 
-instance ProtoToJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
-  protoToJSON msg = jsonObject
-      [ "version" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion
-      , "status" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus
-      , "deploymentVersion" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion
-      , "createTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime
-      , "drainageStatus" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus
-      , "drainageInfo" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo
-      , "currentSinceTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime
-      , "rampingSinceTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime
-      , "routingUpdateTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime
-      , "firstActivationTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime
-      , "lastCurrentTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime
-      , "lastDeactivationTime" .= msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
+instance Aeson.ToJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
+  toJSON msg = jsonObject
+      [ "version" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion
+      , "status" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus
+      , "deploymentVersion" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion
+      , "createTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime
+      , "drainageStatus" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus
+      , "drainageInfo" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo
+      , "currentSinceTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime
+      , "rampingSinceTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime
+      , "routingUpdateTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime
+      , "firstActivationTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime
+      , "lastCurrentTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime
+      , "lastDeactivationTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
       ]
 
-instance ProtoFromJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryVersion <- obj .:? "version"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryStatus <- obj .:? "status"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion <- obj .:? "deploymentVersion"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime <- obj .:? "createTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus <- obj .:? "drainageStatus"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo <- obj .:? "drainageInfo"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime <- obj .:? "currentSinceTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime <- obj .:? "rampingSinceTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime <- obj .:? "routingUpdateTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime <- obj .:? "firstActivationTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime <- obj .:? "lastCurrentTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime <- obj .:? "lastDeactivationTime"
+instance Aeson.FromJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryVersion <- parseFieldMaybe obj "version"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryStatus <- parseFieldMaybe obj "status"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime <- parseFieldMaybe obj "createTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus <- parseFieldMaybe obj "drainageStatus"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo <- parseFieldMaybe obj "drainageInfo"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime <- parseFieldMaybe obj "currentSinceTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime <- parseFieldMaybe obj "rampingSinceTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime <- parseFieldMaybe obj "routingUpdateTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime <- parseFieldMaybe obj "firstActivationTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime <- parseFieldMaybe obj "lastCurrentTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime <- parseFieldMaybe obj "lastDeactivationTime"
     pure defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary
       { workerDeploymentInfoWorkerDeploymentVersionSummaryVersion = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryVersion defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryVersion
       , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryStatus defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryStatus
@@ -940,7 +937,7 @@ instance ProtoFromJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
       , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime
       , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
       }
-  protoFromJSON _ = Right defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary
+  parseJSON _ = pure defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary
 
 defaultWorkerDeploymentInfo :: WorkerDeploymentInfo
 defaultWorkerDeploymentInfo = WorkerDeploymentInfo
@@ -1007,26 +1004,26 @@ instance MessageDecode WorkerDeploymentInfo where
 instance IsMessage WorkerDeploymentInfo where
   messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentInfo"
 
-instance ProtoToJSON WorkerDeploymentInfo where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.workerDeploymentInfoName
-      , "versionSummaries" .= msg.workerDeploymentInfoVersionsummaries
-      , "createTime" .= msg.workerDeploymentInfoCreatetime
-      , "routingConfig" .= msg.workerDeploymentInfoRoutingconfig
-      , "lastModifierIdentity" .= msg.workerDeploymentInfoLastmodifieridentity
-      , "managerIdentity" .= msg.workerDeploymentInfoManageridentity
-      , "routingConfigUpdateState" .= msg.workerDeploymentInfoRoutingconfigupdatestate
+instance Aeson.ToJSON WorkerDeploymentInfo where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.workerDeploymentInfoName
+      , "versionSummaries" .=: msg.workerDeploymentInfoVersionsummaries
+      , "createTime" .=: msg.workerDeploymentInfoCreatetime
+      , "routingConfig" .=: msg.workerDeploymentInfoRoutingconfig
+      , "lastModifierIdentity" .=: msg.workerDeploymentInfoLastmodifieridentity
+      , "managerIdentity" .=: msg.workerDeploymentInfoManageridentity
+      , "routingConfigUpdateState" .=: msg.workerDeploymentInfoRoutingconfigupdatestate
       ]
 
-instance ProtoFromJSON WorkerDeploymentInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerDeploymentInfoName <- obj .:? "name"
-    fld_workerDeploymentInfoVersionsummaries <- obj .:? "versionSummaries"
-    fld_workerDeploymentInfoCreatetime <- obj .:? "createTime"
-    fld_workerDeploymentInfoRoutingconfig <- obj .:? "routingConfig"
-    fld_workerDeploymentInfoLastmodifieridentity <- obj .:? "lastModifierIdentity"
-    fld_workerDeploymentInfoManageridentity <- obj .:? "managerIdentity"
-    fld_workerDeploymentInfoRoutingconfigupdatestate <- obj .:? "routingConfigUpdateState"
+instance Aeson.FromJSON WorkerDeploymentInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerDeploymentInfoName <- parseFieldMaybe obj "name"
+    fld_workerDeploymentInfoVersionsummaries <- parseFieldMaybe obj "versionSummaries"
+    fld_workerDeploymentInfoCreatetime <- parseFieldMaybe obj "createTime"
+    fld_workerDeploymentInfoRoutingconfig <- parseFieldMaybe obj "routingConfig"
+    fld_workerDeploymentInfoLastmodifieridentity <- parseFieldMaybe obj "lastModifierIdentity"
+    fld_workerDeploymentInfoManageridentity <- parseFieldMaybe obj "managerIdentity"
+    fld_workerDeploymentInfoRoutingconfigupdatestate <- parseFieldMaybe obj "routingConfigUpdateState"
     pure defaultWorkerDeploymentInfo
       { workerDeploymentInfoName = maybe (workerDeploymentInfoName defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoName
       , workerDeploymentInfoVersionsummaries = maybe (workerDeploymentInfoVersionsummaries defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoVersionsummaries
@@ -1036,7 +1033,7 @@ instance ProtoFromJSON WorkerDeploymentInfo where
       , workerDeploymentInfoManageridentity = maybe (workerDeploymentInfoManageridentity defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoManageridentity
       , workerDeploymentInfoRoutingconfigupdatestate = maybe (workerDeploymentInfoRoutingconfigupdatestate defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoRoutingconfigupdatestate
       }
-  protoFromJSON _ = Right defaultWorkerDeploymentInfo
+  parseJSON _ = pure defaultWorkerDeploymentInfo
 
 data WorkerDeploymentVersion = WorkerDeploymentVersion
   { workerDeploymentVersionBuildid :: !Text
@@ -1080,21 +1077,20 @@ instance MessageDecode WorkerDeploymentVersion where
 instance IsMessage WorkerDeploymentVersion where
   messageTypeName _ = "temporal.api.deployment.v1.WorkerDeploymentVersion"
 
-instance ProtoToJSON WorkerDeploymentVersion where
-  protoToJSON msg = jsonObject
-      [ "buildId" .= msg.workerDeploymentVersionBuildid
-      , "deploymentName" .= msg.workerDeploymentVersionDeploymentname
+instance Aeson.ToJSON WorkerDeploymentVersion where
+  toJSON msg = jsonObject
+      [ "buildId" .=: msg.workerDeploymentVersionBuildid
+      , "deploymentName" .=: msg.workerDeploymentVersionDeploymentname
       ]
 
-instance ProtoFromJSON WorkerDeploymentVersion where
-  protoFromJSON (JsonObject obj) = do
-    fld_workerDeploymentVersionBuildid <- obj .:? "buildId"
-    fld_workerDeploymentVersionDeploymentname <- obj .:? "deploymentName"
+instance Aeson.FromJSON WorkerDeploymentVersion where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workerDeploymentVersionBuildid <- parseFieldMaybe obj "buildId"
+    fld_workerDeploymentVersionDeploymentname <- parseFieldMaybe obj "deploymentName"
     pure defaultWorkerDeploymentVersion
       { workerDeploymentVersionBuildid = maybe (workerDeploymentVersionBuildid defaultWorkerDeploymentVersion) id fld_workerDeploymentVersionBuildid
       , workerDeploymentVersionDeploymentname = maybe (workerDeploymentVersionDeploymentname defaultWorkerDeploymentVersion) id fld_workerDeploymentVersionDeploymentname
       }
-  protoFromJSON _ = Right defaultWorkerDeploymentVersion
 
 data VersionMetadata = VersionMetadata
   { versionMetadataEntries :: !(Map.Map Text TE_Common_V1_Message.Payload)
@@ -1134,19 +1130,18 @@ instance MessageDecode VersionMetadata where
 instance IsMessage VersionMetadata where
   messageTypeName _ = "temporal.api.deployment.v1.VersionMetadata"
 
-instance ProtoToJSON VersionMetadata where
-  protoToJSON msg = jsonObject
-      [ "entries" .= msg.versionMetadataEntries
+instance Aeson.ToJSON VersionMetadata where
+  toJSON msg = jsonObject
+      [ "entries" .=: msg.versionMetadataEntries
 
       ]
 
-instance ProtoFromJSON VersionMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_versionMetadataEntries <- obj .:? "entries"
+instance Aeson.FromJSON VersionMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_versionMetadataEntries <- parseFieldMaybe obj "entries"
     pure defaultVersionMetadata
       { versionMetadataEntries = maybe (versionMetadataEntries defaultVersionMetadata) id fld_versionMetadataEntries
       }
-  protoFromJSON _ = Right defaultVersionMetadata
 
 data RoutingConfig = RoutingConfig
   { routingConfigCurrentdeploymentversion :: !(Maybe WorkerDeploymentVersion)
@@ -1239,30 +1234,30 @@ instance MessageDecode RoutingConfig where
 instance IsMessage RoutingConfig where
   messageTypeName _ = "temporal.api.deployment.v1.RoutingConfig"
 
-instance ProtoToJSON RoutingConfig where
-  protoToJSON msg = jsonObject
-      [ "currentDeploymentVersion" .= msg.routingConfigCurrentdeploymentversion
-      , "currentVersion" .= msg.routingConfigCurrentversion
-      , "rampingDeploymentVersion" .= msg.routingConfigRampingdeploymentversion
-      , "rampingVersion" .= msg.routingConfigRampingversion
-      , "rampingVersionPercentage" .= msg.routingConfigRampingversionpercentage
-      , "currentVersionChangedTime" .= msg.routingConfigCurrentversionchangedtime
-      , "rampingVersionChangedTime" .= msg.routingConfigRampingversionchangedtime
-      , "rampingVersionPercentageChangedTime" .= msg.routingConfigRampingversionpercentagechangedtime
-      , "revisionNumber" .= msg.routingConfigRevisionnumber
+instance Aeson.ToJSON RoutingConfig where
+  toJSON msg = jsonObject
+      [ "currentDeploymentVersion" .=: msg.routingConfigCurrentdeploymentversion
+      , "currentVersion" .=: msg.routingConfigCurrentversion
+      , "rampingDeploymentVersion" .=: msg.routingConfigRampingdeploymentversion
+      , "rampingVersion" .=: msg.routingConfigRampingversion
+      , "rampingVersionPercentage" .=: msg.routingConfigRampingversionpercentage
+      , "currentVersionChangedTime" .=: msg.routingConfigCurrentversionchangedtime
+      , "rampingVersionChangedTime" .=: msg.routingConfigRampingversionchangedtime
+      , "rampingVersionPercentageChangedTime" .=: msg.routingConfigRampingversionpercentagechangedtime
+      , "revisionNumber" .=: msg.routingConfigRevisionnumber
       ]
 
-instance ProtoFromJSON RoutingConfig where
-  protoFromJSON (JsonObject obj) = do
-    fld_routingConfigCurrentdeploymentversion <- obj .:? "currentDeploymentVersion"
-    fld_routingConfigCurrentversion <- obj .:? "currentVersion"
-    fld_routingConfigRampingdeploymentversion <- obj .:? "rampingDeploymentVersion"
-    fld_routingConfigRampingversion <- obj .:? "rampingVersion"
-    fld_routingConfigRampingversionpercentage <- obj .:? "rampingVersionPercentage"
-    fld_routingConfigCurrentversionchangedtime <- obj .:? "currentVersionChangedTime"
-    fld_routingConfigRampingversionchangedtime <- obj .:? "rampingVersionChangedTime"
-    fld_routingConfigRampingversionpercentagechangedtime <- obj .:? "rampingVersionPercentageChangedTime"
-    fld_routingConfigRevisionnumber <- obj .:? "revisionNumber"
+instance Aeson.FromJSON RoutingConfig where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_routingConfigCurrentdeploymentversion <- parseFieldMaybe obj "currentDeploymentVersion"
+    fld_routingConfigCurrentversion <- parseFieldMaybe obj "currentVersion"
+    fld_routingConfigRampingdeploymentversion <- parseFieldMaybe obj "rampingDeploymentVersion"
+    fld_routingConfigRampingversion <- parseFieldMaybe obj "rampingVersion"
+    fld_routingConfigRampingversionpercentage <- parseFieldMaybe obj "rampingVersionPercentage"
+    fld_routingConfigCurrentversionchangedtime <- parseFieldMaybe obj "currentVersionChangedTime"
+    fld_routingConfigRampingversionchangedtime <- parseFieldMaybe obj "rampingVersionChangedTime"
+    fld_routingConfigRampingversionpercentagechangedtime <- parseFieldMaybe obj "rampingVersionPercentageChangedTime"
+    fld_routingConfigRevisionnumber <- parseFieldMaybe obj "revisionNumber"
     pure defaultRoutingConfig
       { routingConfigCurrentdeploymentversion = maybe (routingConfigCurrentdeploymentversion defaultRoutingConfig) id fld_routingConfigCurrentdeploymentversion
       , routingConfigCurrentversion = maybe (routingConfigCurrentversion defaultRoutingConfig) id fld_routingConfigCurrentversion
@@ -1274,7 +1269,7 @@ instance ProtoFromJSON RoutingConfig where
       , routingConfigRampingversionpercentagechangedtime = maybe (routingConfigRampingversionpercentagechangedtime defaultRoutingConfig) id fld_routingConfigRampingversionpercentagechangedtime
       , routingConfigRevisionnumber = maybe (routingConfigRevisionnumber defaultRoutingConfig) id fld_routingConfigRevisionnumber
       }
-  protoFromJSON _ = Right defaultRoutingConfig
+  parseJSON _ = pure defaultRoutingConfig
 
 data InheritedAutoUpgradeInfo = InheritedAutoUpgradeInfo
   { inheritedAutoUpgradeInfoSourcedeploymentversion :: !(Maybe WorkerDeploymentVersion)
@@ -1318,21 +1313,20 @@ instance MessageDecode InheritedAutoUpgradeInfo where
 instance IsMessage InheritedAutoUpgradeInfo where
   messageTypeName _ = "temporal.api.deployment.v1.InheritedAutoUpgradeInfo"
 
-instance ProtoToJSON InheritedAutoUpgradeInfo where
-  protoToJSON msg = jsonObject
-      [ "sourceDeploymentVersion" .= msg.inheritedAutoUpgradeInfoSourcedeploymentversion
-      , "sourceDeploymentRevisionNumber" .= msg.inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
+instance Aeson.ToJSON InheritedAutoUpgradeInfo where
+  toJSON msg = jsonObject
+      [ "sourceDeploymentVersion" .=: msg.inheritedAutoUpgradeInfoSourcedeploymentversion
+      , "sourceDeploymentRevisionNumber" .=: msg.inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
       ]
 
-instance ProtoFromJSON InheritedAutoUpgradeInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_inheritedAutoUpgradeInfoSourcedeploymentversion <- obj .:? "sourceDeploymentVersion"
-    fld_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber <- obj .:? "sourceDeploymentRevisionNumber"
+instance Aeson.FromJSON InheritedAutoUpgradeInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_inheritedAutoUpgradeInfoSourcedeploymentversion <- parseFieldMaybe obj "sourceDeploymentVersion"
+    fld_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber <- parseFieldMaybe obj "sourceDeploymentRevisionNumber"
     pure defaultInheritedAutoUpgradeInfo
       { inheritedAutoUpgradeInfoSourcedeploymentversion = maybe (inheritedAutoUpgradeInfoSourcedeploymentversion defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourcedeploymentversion
       , inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber = maybe (inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
       }
-  protoFromJSON _ = Right defaultInheritedAutoUpgradeInfo
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

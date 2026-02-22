@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -93,24 +97,23 @@ instance MessageDecode WorkflowQuery where
 instance IsMessage WorkflowQuery where
   messageTypeName _ = "temporal.api.query.v1.WorkflowQuery"
 
-instance ProtoToJSON WorkflowQuery where
-  protoToJSON msg = jsonObject
-      [ "queryType" .= msg.workflowQueryQuerytype
-      , "queryArgs" .= msg.workflowQueryQueryargs
-      , "header" .= msg.workflowQueryHeader
+instance Aeson.ToJSON WorkflowQuery where
+  toJSON msg = jsonObject
+      [ "queryType" .=: msg.workflowQueryQuerytype
+      , "queryArgs" .=: msg.workflowQueryQueryargs
+      , "header" .=: msg.workflowQueryHeader
       ]
 
-instance ProtoFromJSON WorkflowQuery where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowQueryQuerytype <- obj .:? "queryType"
-    fld_workflowQueryQueryargs <- obj .:? "queryArgs"
-    fld_workflowQueryHeader <- obj .:? "header"
+instance Aeson.FromJSON WorkflowQuery where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowQueryQuerytype <- parseFieldMaybe obj "queryType"
+    fld_workflowQueryQueryargs <- parseFieldMaybe obj "queryArgs"
+    fld_workflowQueryHeader <- parseFieldMaybe obj "header"
     pure defaultWorkflowQuery
       { workflowQueryQuerytype = maybe (workflowQueryQuerytype defaultWorkflowQuery) id fld_workflowQueryQuerytype
       , workflowQueryQueryargs = maybe (workflowQueryQueryargs defaultWorkflowQuery) id fld_workflowQueryQueryargs
       , workflowQueryHeader = maybe (workflowQueryHeader defaultWorkflowQuery) id fld_workflowQueryHeader
       }
-  protoFromJSON _ = Right defaultWorkflowQuery
 
 data WorkflowQueryResult = WorkflowQueryResult
   { workflowQueryResultResulttype :: !TE_Enums_V1_Query.QueryResultType
@@ -168,27 +171,27 @@ instance MessageDecode WorkflowQueryResult where
 instance IsMessage WorkflowQueryResult where
   messageTypeName _ = "temporal.api.query.v1.WorkflowQueryResult"
 
-instance ProtoToJSON WorkflowQueryResult where
-  protoToJSON msg = jsonObject
-      [ "resultType" .= msg.workflowQueryResultResulttype
-      , "answer" .= msg.workflowQueryResultAnswer
-      , "errorMessage" .= msg.workflowQueryResultErrormessage
-      , "failure" .= msg.workflowQueryResultFailure
+instance Aeson.ToJSON WorkflowQueryResult where
+  toJSON msg = jsonObject
+      [ "resultType" .=: msg.workflowQueryResultResulttype
+      , "answer" .=: msg.workflowQueryResultAnswer
+      , "errorMessage" .=: msg.workflowQueryResultErrormessage
+      , "failure" .=: msg.workflowQueryResultFailure
       ]
 
-instance ProtoFromJSON WorkflowQueryResult where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowQueryResultResulttype <- obj .:? "resultType"
-    fld_workflowQueryResultAnswer <- obj .:? "answer"
-    fld_workflowQueryResultErrormessage <- obj .:? "errorMessage"
-    fld_workflowQueryResultFailure <- obj .:? "failure"
+instance Aeson.FromJSON WorkflowQueryResult where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowQueryResultResulttype <- parseFieldMaybe obj "resultType"
+    fld_workflowQueryResultAnswer <- parseFieldMaybe obj "answer"
+    fld_workflowQueryResultErrormessage <- parseFieldMaybe obj "errorMessage"
+    fld_workflowQueryResultFailure <- parseFieldMaybe obj "failure"
     pure defaultWorkflowQueryResult
       { workflowQueryResultResulttype = maybe (workflowQueryResultResulttype defaultWorkflowQueryResult) id fld_workflowQueryResultResulttype
       , workflowQueryResultAnswer = maybe (workflowQueryResultAnswer defaultWorkflowQueryResult) id fld_workflowQueryResultAnswer
       , workflowQueryResultErrormessage = maybe (workflowQueryResultErrormessage defaultWorkflowQueryResult) id fld_workflowQueryResultErrormessage
       , workflowQueryResultFailure = maybe (workflowQueryResultFailure defaultWorkflowQueryResult) id fld_workflowQueryResultFailure
       }
-  protoFromJSON _ = Right defaultWorkflowQueryResult
+  parseJSON _ = pure defaultWorkflowQueryResult
 
 data QueryRejected = QueryRejected
   { queryRejectedStatus :: !TE_Enums_V1_Workflow.WorkflowExecutionStatus
@@ -225,19 +228,18 @@ instance MessageDecode QueryRejected where
 instance IsMessage QueryRejected where
   messageTypeName _ = "temporal.api.query.v1.QueryRejected"
 
-instance ProtoToJSON QueryRejected where
-  protoToJSON msg = jsonObject
-      [ "status" .= msg.queryRejectedStatus
+instance Aeson.ToJSON QueryRejected where
+  toJSON msg = jsonObject
+      [ "status" .=: msg.queryRejectedStatus
 
       ]
 
-instance ProtoFromJSON QueryRejected where
-  protoFromJSON (JsonObject obj) = do
-    fld_queryRejectedStatus <- obj .:? "status"
+instance Aeson.FromJSON QueryRejected where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_queryRejectedStatus <- parseFieldMaybe obj "status"
     pure defaultQueryRejected
       { queryRejectedStatus = maybe (queryRejectedStatus defaultQueryRejected) id fld_queryRejectedStatus
       }
-  protoFromJSON _ = Right defaultQueryRejected
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

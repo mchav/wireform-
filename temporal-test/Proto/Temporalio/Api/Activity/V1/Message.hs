@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -59,10 +63,10 @@ data ActivityExecutionOutcome'Value
   | ActivityExecutionOutcome'Value'Failure !TE_Failure_V1_Message.Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON ActivityExecutionOutcome'Value where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON ActivityExecutionOutcome'Value where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON ActivityExecutionOutcome'Value where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON ActivityExecutionOutcome'Value where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultActivityExecutionOutcome :: ActivityExecutionOutcome
 defaultActivityExecutionOutcome = ActivityExecutionOutcome
@@ -100,19 +104,18 @@ instance MessageDecode ActivityExecutionOutcome where
 instance IsMessage ActivityExecutionOutcome where
   messageTypeName _ = "temporal.api.activity.v1.ActivityExecutionOutcome"
 
-instance ProtoToJSON ActivityExecutionOutcome where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.activityExecutionOutcomeValue
+instance Aeson.ToJSON ActivityExecutionOutcome where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.activityExecutionOutcomeValue
 
       ]
 
-instance ProtoFromJSON ActivityExecutionOutcome where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityExecutionOutcomeValue <- obj .:? "value"
+instance Aeson.FromJSON ActivityExecutionOutcome where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityExecutionOutcomeValue <- parseFieldMaybe obj "value"
     pure defaultActivityExecutionOutcome
       { activityExecutionOutcomeValue = maybe (activityExecutionOutcomeValue defaultActivityExecutionOutcome) id fld_activityExecutionOutcomeValue
       }
-  protoFromJSON _ = Right defaultActivityExecutionOutcome
 
 data ActivityOptions = ActivityOptions
   { activityOptionsTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
@@ -191,26 +194,26 @@ instance MessageDecode ActivityOptions where
 instance IsMessage ActivityOptions where
   messageTypeName _ = "temporal.api.activity.v1.ActivityOptions"
 
-instance ProtoToJSON ActivityOptions where
-  protoToJSON msg = jsonObject
-      [ "taskQueue" .= msg.activityOptionsTaskqueue
-      , "scheduleToCloseTimeout" .= msg.activityOptionsScheduletoclosetimeout
-      , "scheduleToStartTimeout" .= msg.activityOptionsScheduletostarttimeout
-      , "startToCloseTimeout" .= msg.activityOptionsStarttoclosetimeout
-      , "heartbeatTimeout" .= msg.activityOptionsHeartbeattimeout
-      , "retryPolicy" .= msg.activityOptionsRetrypolicy
-      , "priority" .= msg.activityOptionsPriority
+instance Aeson.ToJSON ActivityOptions where
+  toJSON msg = jsonObject
+      [ "taskQueue" .=: msg.activityOptionsTaskqueue
+      , "scheduleToCloseTimeout" .=: msg.activityOptionsScheduletoclosetimeout
+      , "scheduleToStartTimeout" .=: msg.activityOptionsScheduletostarttimeout
+      , "startToCloseTimeout" .=: msg.activityOptionsStarttoclosetimeout
+      , "heartbeatTimeout" .=: msg.activityOptionsHeartbeattimeout
+      , "retryPolicy" .=: msg.activityOptionsRetrypolicy
+      , "priority" .=: msg.activityOptionsPriority
       ]
 
-instance ProtoFromJSON ActivityOptions where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityOptionsTaskqueue <- obj .:? "taskQueue"
-    fld_activityOptionsScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    fld_activityOptionsScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    fld_activityOptionsStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    fld_activityOptionsHeartbeattimeout <- obj .:? "heartbeatTimeout"
-    fld_activityOptionsRetrypolicy <- obj .:? "retryPolicy"
-    fld_activityOptionsPriority <- obj .:? "priority"
+instance Aeson.FromJSON ActivityOptions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityOptionsTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_activityOptionsScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_activityOptionsScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_activityOptionsStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_activityOptionsHeartbeattimeout <- parseFieldMaybe obj "heartbeatTimeout"
+    fld_activityOptionsRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_activityOptionsPriority <- parseFieldMaybe obj "priority"
     pure defaultActivityOptions
       { activityOptionsTaskqueue = maybe (activityOptionsTaskqueue defaultActivityOptions) id fld_activityOptionsTaskqueue
       , activityOptionsScheduletoclosetimeout = maybe (activityOptionsScheduletoclosetimeout defaultActivityOptions) id fld_activityOptionsScheduletoclosetimeout
@@ -220,7 +223,7 @@ instance ProtoFromJSON ActivityOptions where
       , activityOptionsRetrypolicy = maybe (activityOptionsRetrypolicy defaultActivityOptions) id fld_activityOptionsRetrypolicy
       , activityOptionsPriority = maybe (activityOptionsPriority defaultActivityOptions) id fld_activityOptionsPriority
       }
-  protoFromJSON _ = Right defaultActivityOptions
+  parseJSON _ = pure defaultActivityOptions
 
 data ActivityExecutionInfo = ActivityExecutionInfo
   { activityExecutionInfoActivityid :: !Text
@@ -474,76 +477,76 @@ instance MessageDecode ActivityExecutionInfo where
 instance IsMessage ActivityExecutionInfo where
   messageTypeName _ = "temporal.api.activity.v1.ActivityExecutionInfo"
 
-instance ProtoToJSON ActivityExecutionInfo where
-  protoToJSON msg = jsonObject
-      [ "activityId" .= msg.activityExecutionInfoActivityid
-      , "runId" .= msg.activityExecutionInfoRunid
-      , "activityType" .= msg.activityExecutionInfoActivitytype
-      , "status" .= msg.activityExecutionInfoStatus
-      , "runState" .= msg.activityExecutionInfoRunstate
-      , "taskQueue" .= msg.activityExecutionInfoTaskqueue
-      , "scheduleToCloseTimeout" .= msg.activityExecutionInfoScheduletoclosetimeout
-      , "scheduleToStartTimeout" .= msg.activityExecutionInfoScheduletostarttimeout
-      , "startToCloseTimeout" .= msg.activityExecutionInfoStarttoclosetimeout
-      , "heartbeatTimeout" .= msg.activityExecutionInfoHeartbeattimeout
-      , "retryPolicy" .= msg.activityExecutionInfoRetrypolicy
-      , "heartbeatDetails" .= msg.activityExecutionInfoHeartbeatdetails
-      , "lastHeartbeatTime" .= msg.activityExecutionInfoLastheartbeattime
-      , "lastStartedTime" .= msg.activityExecutionInfoLaststartedtime
-      , "attempt" .= msg.activityExecutionInfoAttempt
-      , "executionDuration" .= msg.activityExecutionInfoExecutionduration
-      , "scheduleTime" .= msg.activityExecutionInfoScheduletime
-      , "expirationTime" .= msg.activityExecutionInfoExpirationtime
-      , "closeTime" .= msg.activityExecutionInfoClosetime
-      , "lastFailure" .= msg.activityExecutionInfoLastfailure
-      , "lastWorkerIdentity" .= msg.activityExecutionInfoLastworkeridentity
-      , "currentRetryInterval" .= msg.activityExecutionInfoCurrentretryinterval
-      , "lastAttemptCompleteTime" .= msg.activityExecutionInfoLastattemptcompletetime
-      , "nextAttemptScheduleTime" .= msg.activityExecutionInfoNextattemptscheduletime
-      , "lastDeploymentVersion" .= msg.activityExecutionInfoLastdeploymentversion
-      , "priority" .= msg.activityExecutionInfoPriority
-      , "stateTransitionCount" .= msg.activityExecutionInfoStatetransitioncount
-      , "stateSizeBytes" .= msg.activityExecutionInfoStatesizebytes
-      , "searchAttributes" .= msg.activityExecutionInfoSearchattributes
-      , "header" .= msg.activityExecutionInfoHeader
-      , "userMetadata" .= msg.activityExecutionInfoUsermetadata
-      , "canceledReason" .= msg.activityExecutionInfoCanceledreason
+instance Aeson.ToJSON ActivityExecutionInfo where
+  toJSON msg = jsonObject
+      [ "activityId" .=: msg.activityExecutionInfoActivityid
+      , "runId" .=: msg.activityExecutionInfoRunid
+      , "activityType" .=: msg.activityExecutionInfoActivitytype
+      , "status" .=: msg.activityExecutionInfoStatus
+      , "runState" .=: msg.activityExecutionInfoRunstate
+      , "taskQueue" .=: msg.activityExecutionInfoTaskqueue
+      , "scheduleToCloseTimeout" .=: msg.activityExecutionInfoScheduletoclosetimeout
+      , "scheduleToStartTimeout" .=: msg.activityExecutionInfoScheduletostarttimeout
+      , "startToCloseTimeout" .=: msg.activityExecutionInfoStarttoclosetimeout
+      , "heartbeatTimeout" .=: msg.activityExecutionInfoHeartbeattimeout
+      , "retryPolicy" .=: msg.activityExecutionInfoRetrypolicy
+      , "heartbeatDetails" .=: msg.activityExecutionInfoHeartbeatdetails
+      , "lastHeartbeatTime" .=: msg.activityExecutionInfoLastheartbeattime
+      , "lastStartedTime" .=: msg.activityExecutionInfoLaststartedtime
+      , "attempt" .=: msg.activityExecutionInfoAttempt
+      , "executionDuration" .=: msg.activityExecutionInfoExecutionduration
+      , "scheduleTime" .=: msg.activityExecutionInfoScheduletime
+      , "expirationTime" .=: msg.activityExecutionInfoExpirationtime
+      , "closeTime" .=: msg.activityExecutionInfoClosetime
+      , "lastFailure" .=: msg.activityExecutionInfoLastfailure
+      , "lastWorkerIdentity" .=: msg.activityExecutionInfoLastworkeridentity
+      , "currentRetryInterval" .=: msg.activityExecutionInfoCurrentretryinterval
+      , "lastAttemptCompleteTime" .=: msg.activityExecutionInfoLastattemptcompletetime
+      , "nextAttemptScheduleTime" .=: msg.activityExecutionInfoNextattemptscheduletime
+      , "lastDeploymentVersion" .=: msg.activityExecutionInfoLastdeploymentversion
+      , "priority" .=: msg.activityExecutionInfoPriority
+      , "stateTransitionCount" .=: msg.activityExecutionInfoStatetransitioncount
+      , "stateSizeBytes" .=: msg.activityExecutionInfoStatesizebytes
+      , "searchAttributes" .=: msg.activityExecutionInfoSearchattributes
+      , "header" .=: msg.activityExecutionInfoHeader
+      , "userMetadata" .=: msg.activityExecutionInfoUsermetadata
+      , "canceledReason" .=: msg.activityExecutionInfoCanceledreason
       ]
 
-instance ProtoFromJSON ActivityExecutionInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityExecutionInfoActivityid <- obj .:? "activityId"
-    fld_activityExecutionInfoRunid <- obj .:? "runId"
-    fld_activityExecutionInfoActivitytype <- obj .:? "activityType"
-    fld_activityExecutionInfoStatus <- obj .:? "status"
-    fld_activityExecutionInfoRunstate <- obj .:? "runState"
-    fld_activityExecutionInfoTaskqueue <- obj .:? "taskQueue"
-    fld_activityExecutionInfoScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    fld_activityExecutionInfoScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    fld_activityExecutionInfoStarttoclosetimeout <- obj .:? "startToCloseTimeout"
-    fld_activityExecutionInfoHeartbeattimeout <- obj .:? "heartbeatTimeout"
-    fld_activityExecutionInfoRetrypolicy <- obj .:? "retryPolicy"
-    fld_activityExecutionInfoHeartbeatdetails <- obj .:? "heartbeatDetails"
-    fld_activityExecutionInfoLastheartbeattime <- obj .:? "lastHeartbeatTime"
-    fld_activityExecutionInfoLaststartedtime <- obj .:? "lastStartedTime"
-    fld_activityExecutionInfoAttempt <- obj .:? "attempt"
-    fld_activityExecutionInfoExecutionduration <- obj .:? "executionDuration"
-    fld_activityExecutionInfoScheduletime <- obj .:? "scheduleTime"
-    fld_activityExecutionInfoExpirationtime <- obj .:? "expirationTime"
-    fld_activityExecutionInfoClosetime <- obj .:? "closeTime"
-    fld_activityExecutionInfoLastfailure <- obj .:? "lastFailure"
-    fld_activityExecutionInfoLastworkeridentity <- obj .:? "lastWorkerIdentity"
-    fld_activityExecutionInfoCurrentretryinterval <- obj .:? "currentRetryInterval"
-    fld_activityExecutionInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    fld_activityExecutionInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    fld_activityExecutionInfoLastdeploymentversion <- obj .:? "lastDeploymentVersion"
-    fld_activityExecutionInfoPriority <- obj .:? "priority"
-    fld_activityExecutionInfoStatetransitioncount <- obj .:? "stateTransitionCount"
-    fld_activityExecutionInfoStatesizebytes <- obj .:? "stateSizeBytes"
-    fld_activityExecutionInfoSearchattributes <- obj .:? "searchAttributes"
-    fld_activityExecutionInfoHeader <- obj .:? "header"
-    fld_activityExecutionInfoUsermetadata <- obj .:? "userMetadata"
-    fld_activityExecutionInfoCanceledreason <- obj .:? "canceledReason"
+instance Aeson.FromJSON ActivityExecutionInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityExecutionInfoActivityid <- parseFieldMaybe obj "activityId"
+    fld_activityExecutionInfoRunid <- parseFieldMaybe obj "runId"
+    fld_activityExecutionInfoActivitytype <- parseFieldMaybe obj "activityType"
+    fld_activityExecutionInfoStatus <- parseFieldMaybe obj "status"
+    fld_activityExecutionInfoRunstate <- parseFieldMaybe obj "runState"
+    fld_activityExecutionInfoTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_activityExecutionInfoScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_activityExecutionInfoScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_activityExecutionInfoStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_activityExecutionInfoHeartbeattimeout <- parseFieldMaybe obj "heartbeatTimeout"
+    fld_activityExecutionInfoRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_activityExecutionInfoHeartbeatdetails <- parseFieldMaybe obj "heartbeatDetails"
+    fld_activityExecutionInfoLastheartbeattime <- parseFieldMaybe obj "lastHeartbeatTime"
+    fld_activityExecutionInfoLaststartedtime <- parseFieldMaybe obj "lastStartedTime"
+    fld_activityExecutionInfoAttempt <- parseFieldMaybe obj "attempt"
+    fld_activityExecutionInfoExecutionduration <- parseFieldMaybe obj "executionDuration"
+    fld_activityExecutionInfoScheduletime <- parseFieldMaybe obj "scheduleTime"
+    fld_activityExecutionInfoExpirationtime <- parseFieldMaybe obj "expirationTime"
+    fld_activityExecutionInfoClosetime <- parseFieldMaybe obj "closeTime"
+    fld_activityExecutionInfoLastfailure <- parseFieldMaybe obj "lastFailure"
+    fld_activityExecutionInfoLastworkeridentity <- parseFieldMaybe obj "lastWorkerIdentity"
+    fld_activityExecutionInfoCurrentretryinterval <- parseFieldMaybe obj "currentRetryInterval"
+    fld_activityExecutionInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_activityExecutionInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_activityExecutionInfoLastdeploymentversion <- parseFieldMaybe obj "lastDeploymentVersion"
+    fld_activityExecutionInfoPriority <- parseFieldMaybe obj "priority"
+    fld_activityExecutionInfoStatetransitioncount <- parseFieldMaybe obj "stateTransitionCount"
+    fld_activityExecutionInfoStatesizebytes <- parseFieldMaybe obj "stateSizeBytes"
+    fld_activityExecutionInfoSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_activityExecutionInfoHeader <- parseFieldMaybe obj "header"
+    fld_activityExecutionInfoUsermetadata <- parseFieldMaybe obj "userMetadata"
+    fld_activityExecutionInfoCanceledreason <- parseFieldMaybe obj "canceledReason"
     pure defaultActivityExecutionInfo
       { activityExecutionInfoActivityid = maybe (activityExecutionInfoActivityid defaultActivityExecutionInfo) id fld_activityExecutionInfoActivityid
       , activityExecutionInfoRunid = maybe (activityExecutionInfoRunid defaultActivityExecutionInfo) id fld_activityExecutionInfoRunid
@@ -578,7 +581,7 @@ instance ProtoFromJSON ActivityExecutionInfo where
       , activityExecutionInfoUsermetadata = maybe (activityExecutionInfoUsermetadata defaultActivityExecutionInfo) id fld_activityExecutionInfoUsermetadata
       , activityExecutionInfoCanceledreason = maybe (activityExecutionInfoCanceledreason defaultActivityExecutionInfo) id fld_activityExecutionInfoCanceledreason
       }
-  protoFromJSON _ = Right defaultActivityExecutionInfo
+  parseJSON _ = pure defaultActivityExecutionInfo
 
 data ActivityExecutionListInfo = ActivityExecutionListInfo
   { activityExecutionListInfoActivityid :: !Text
@@ -685,34 +688,34 @@ instance MessageDecode ActivityExecutionListInfo where
 instance IsMessage ActivityExecutionListInfo where
   messageTypeName _ = "temporal.api.activity.v1.ActivityExecutionListInfo"
 
-instance ProtoToJSON ActivityExecutionListInfo where
-  protoToJSON msg = jsonObject
-      [ "activityId" .= msg.activityExecutionListInfoActivityid
-      , "runId" .= msg.activityExecutionListInfoRunid
-      , "activityType" .= msg.activityExecutionListInfoActivitytype
-      , "scheduleTime" .= msg.activityExecutionListInfoScheduletime
-      , "closeTime" .= msg.activityExecutionListInfoClosetime
-      , "status" .= msg.activityExecutionListInfoStatus
-      , "searchAttributes" .= msg.activityExecutionListInfoSearchattributes
-      , "taskQueue" .= msg.activityExecutionListInfoTaskqueue
-      , "stateTransitionCount" .= msg.activityExecutionListInfoStatetransitioncount
-      , "stateSizeBytes" .= msg.activityExecutionListInfoStatesizebytes
-      , "executionDuration" .= msg.activityExecutionListInfoExecutionduration
+instance Aeson.ToJSON ActivityExecutionListInfo where
+  toJSON msg = jsonObject
+      [ "activityId" .=: msg.activityExecutionListInfoActivityid
+      , "runId" .=: msg.activityExecutionListInfoRunid
+      , "activityType" .=: msg.activityExecutionListInfoActivitytype
+      , "scheduleTime" .=: msg.activityExecutionListInfoScheduletime
+      , "closeTime" .=: msg.activityExecutionListInfoClosetime
+      , "status" .=: msg.activityExecutionListInfoStatus
+      , "searchAttributes" .=: msg.activityExecutionListInfoSearchattributes
+      , "taskQueue" .=: msg.activityExecutionListInfoTaskqueue
+      , "stateTransitionCount" .=: msg.activityExecutionListInfoStatetransitioncount
+      , "stateSizeBytes" .=: msg.activityExecutionListInfoStatesizebytes
+      , "executionDuration" .=: msg.activityExecutionListInfoExecutionduration
       ]
 
-instance ProtoFromJSON ActivityExecutionListInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_activityExecutionListInfoActivityid <- obj .:? "activityId"
-    fld_activityExecutionListInfoRunid <- obj .:? "runId"
-    fld_activityExecutionListInfoActivitytype <- obj .:? "activityType"
-    fld_activityExecutionListInfoScheduletime <- obj .:? "scheduleTime"
-    fld_activityExecutionListInfoClosetime <- obj .:? "closeTime"
-    fld_activityExecutionListInfoStatus <- obj .:? "status"
-    fld_activityExecutionListInfoSearchattributes <- obj .:? "searchAttributes"
-    fld_activityExecutionListInfoTaskqueue <- obj .:? "taskQueue"
-    fld_activityExecutionListInfoStatetransitioncount <- obj .:? "stateTransitionCount"
-    fld_activityExecutionListInfoStatesizebytes <- obj .:? "stateSizeBytes"
-    fld_activityExecutionListInfoExecutionduration <- obj .:? "executionDuration"
+instance Aeson.FromJSON ActivityExecutionListInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_activityExecutionListInfoActivityid <- parseFieldMaybe obj "activityId"
+    fld_activityExecutionListInfoRunid <- parseFieldMaybe obj "runId"
+    fld_activityExecutionListInfoActivitytype <- parseFieldMaybe obj "activityType"
+    fld_activityExecutionListInfoScheduletime <- parseFieldMaybe obj "scheduleTime"
+    fld_activityExecutionListInfoClosetime <- parseFieldMaybe obj "closeTime"
+    fld_activityExecutionListInfoStatus <- parseFieldMaybe obj "status"
+    fld_activityExecutionListInfoSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_activityExecutionListInfoTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_activityExecutionListInfoStatetransitioncount <- parseFieldMaybe obj "stateTransitionCount"
+    fld_activityExecutionListInfoStatesizebytes <- parseFieldMaybe obj "stateSizeBytes"
+    fld_activityExecutionListInfoExecutionduration <- parseFieldMaybe obj "executionDuration"
     pure defaultActivityExecutionListInfo
       { activityExecutionListInfoActivityid = maybe (activityExecutionListInfoActivityid defaultActivityExecutionListInfo) id fld_activityExecutionListInfoActivityid
       , activityExecutionListInfoRunid = maybe (activityExecutionListInfoRunid defaultActivityExecutionListInfo) id fld_activityExecutionListInfoRunid
@@ -726,7 +729,7 @@ instance ProtoFromJSON ActivityExecutionListInfo where
       , activityExecutionListInfoStatesizebytes = maybe (activityExecutionListInfoStatesizebytes defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStatesizebytes
       , activityExecutionListInfoExecutionduration = maybe (activityExecutionListInfoExecutionduration defaultActivityExecutionListInfo) id fld_activityExecutionListInfoExecutionduration
       }
-  protoFromJSON _ = Right defaultActivityExecutionListInfo
+  parseJSON _ = pure defaultActivityExecutionListInfo
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

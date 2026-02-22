@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -78,19 +82,18 @@ instance MessageDecode WaitPolicy where
 instance IsMessage WaitPolicy where
   messageTypeName _ = "temporal.api.update.v1.WaitPolicy"
 
-instance ProtoToJSON WaitPolicy where
-  protoToJSON msg = jsonObject
-      [ "lifecycleStage" .= msg.waitPolicyLifecyclestage
+instance Aeson.ToJSON WaitPolicy where
+  toJSON msg = jsonObject
+      [ "lifecycleStage" .=: msg.waitPolicyLifecyclestage
 
       ]
 
-instance ProtoFromJSON WaitPolicy where
-  protoFromJSON (JsonObject obj) = do
-    fld_waitPolicyLifecyclestage <- obj .:? "lifecycleStage"
+instance Aeson.FromJSON WaitPolicy where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_waitPolicyLifecyclestage <- parseFieldMaybe obj "lifecycleStage"
     pure defaultWaitPolicy
       { waitPolicyLifecyclestage = maybe (waitPolicyLifecyclestage defaultWaitPolicy) id fld_waitPolicyLifecyclestage
       }
-  protoFromJSON _ = Right defaultWaitPolicy
 
 data UpdateRef = UpdateRef
   { updateRefWorkflowexecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
@@ -134,21 +137,20 @@ instance MessageDecode UpdateRef where
 instance IsMessage UpdateRef where
   messageTypeName _ = "temporal.api.update.v1.UpdateRef"
 
-instance ProtoToJSON UpdateRef where
-  protoToJSON msg = jsonObject
-      [ "workflowExecution" .= msg.updateRefWorkflowexecution
-      , "updateId" .= msg.updateRefUpdateid
+instance Aeson.ToJSON UpdateRef where
+  toJSON msg = jsonObject
+      [ "workflowExecution" .=: msg.updateRefWorkflowexecution
+      , "updateId" .=: msg.updateRefUpdateid
       ]
 
-instance ProtoFromJSON UpdateRef where
-  protoFromJSON (JsonObject obj) = do
-    fld_updateRefWorkflowexecution <- obj .:? "workflowExecution"
-    fld_updateRefUpdateid <- obj .:? "updateId"
+instance Aeson.FromJSON UpdateRef where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_updateRefWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
+    fld_updateRefUpdateid <- parseFieldMaybe obj "updateId"
     pure defaultUpdateRef
       { updateRefWorkflowexecution = maybe (updateRefWorkflowexecution defaultUpdateRef) id fld_updateRefWorkflowexecution
       , updateRefUpdateid = maybe (updateRefUpdateid defaultUpdateRef) id fld_updateRefUpdateid
       }
-  protoFromJSON _ = Right defaultUpdateRef
 
 data Outcome = Outcome
   { outcomeValue :: !(Maybe Outcome'Value)
@@ -160,10 +162,10 @@ data Outcome'Value
   | Outcome'Value'Failure !TE_Failure_V1_Message.Failure
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON Outcome'Value where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON Outcome'Value where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON Outcome'Value where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON Outcome'Value where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultOutcome :: Outcome
 defaultOutcome = Outcome
@@ -201,19 +203,18 @@ instance MessageDecode Outcome where
 instance IsMessage Outcome where
   messageTypeName _ = "temporal.api.update.v1.Outcome"
 
-instance ProtoToJSON Outcome where
-  protoToJSON msg = jsonObject
-      [ "value" .= msg.outcomeValue
+instance Aeson.ToJSON Outcome where
+  toJSON msg = jsonObject
+      [ "value" .=: msg.outcomeValue
 
       ]
 
-instance ProtoFromJSON Outcome where
-  protoFromJSON (JsonObject obj) = do
-    fld_outcomeValue <- obj .:? "value"
+instance Aeson.FromJSON Outcome where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_outcomeValue <- parseFieldMaybe obj "value"
     pure defaultOutcome
       { outcomeValue = maybe (outcomeValue defaultOutcome) id fld_outcomeValue
       }
-  protoFromJSON _ = Right defaultOutcome
 
 data Meta = Meta
   { metaUpdateid :: !Text
@@ -257,21 +258,20 @@ instance MessageDecode Meta where
 instance IsMessage Meta where
   messageTypeName _ = "temporal.api.update.v1.Meta"
 
-instance ProtoToJSON Meta where
-  protoToJSON msg = jsonObject
-      [ "updateId" .= msg.metaUpdateid
-      , "identity" .= msg.metaIdentity
+instance Aeson.ToJSON Meta where
+  toJSON msg = jsonObject
+      [ "updateId" .=: msg.metaUpdateid
+      , "identity" .=: msg.metaIdentity
       ]
 
-instance ProtoFromJSON Meta where
-  protoFromJSON (JsonObject obj) = do
-    fld_metaUpdateid <- obj .:? "updateId"
-    fld_metaIdentity <- obj .:? "identity"
+instance Aeson.FromJSON Meta where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_metaUpdateid <- parseFieldMaybe obj "updateId"
+    fld_metaIdentity <- parseFieldMaybe obj "identity"
     pure defaultMeta
       { metaUpdateid = maybe (metaUpdateid defaultMeta) id fld_metaUpdateid
       , metaIdentity = maybe (metaIdentity defaultMeta) id fld_metaIdentity
       }
-  protoFromJSON _ = Right defaultMeta
 
 data Input = Input
   { inputHeader :: !(Maybe TE_Common_V1_Message.Header)
@@ -322,24 +322,23 @@ instance MessageDecode Input where
 instance IsMessage Input where
   messageTypeName _ = "temporal.api.update.v1.Input"
 
-instance ProtoToJSON Input where
-  protoToJSON msg = jsonObject
-      [ "header" .= msg.inputHeader
-      , "name" .= msg.inputName
-      , "args" .= msg.inputArgs
+instance Aeson.ToJSON Input where
+  toJSON msg = jsonObject
+      [ "header" .=: msg.inputHeader
+      , "name" .=: msg.inputName
+      , "args" .=: msg.inputArgs
       ]
 
-instance ProtoFromJSON Input where
-  protoFromJSON (JsonObject obj) = do
-    fld_inputHeader <- obj .:? "header"
-    fld_inputName <- obj .:? "name"
-    fld_inputArgs <- obj .:? "args"
+instance Aeson.FromJSON Input where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_inputHeader <- parseFieldMaybe obj "header"
+    fld_inputName <- parseFieldMaybe obj "name"
+    fld_inputArgs <- parseFieldMaybe obj "args"
     pure defaultInput
       { inputHeader = maybe (inputHeader defaultInput) id fld_inputHeader
       , inputName = maybe (inputName defaultInput) id fld_inputName
       , inputArgs = maybe (inputArgs defaultInput) id fld_inputArgs
       }
-  protoFromJSON _ = Right defaultInput
 
 data Request = Request
   { requestMeta :: !(Maybe Meta)
@@ -383,21 +382,20 @@ instance MessageDecode Request where
 instance IsMessage Request where
   messageTypeName _ = "temporal.api.update.v1.Request"
 
-instance ProtoToJSON Request where
-  protoToJSON msg = jsonObject
-      [ "meta" .= msg.requestMeta
-      , "input" .= msg.requestInput
+instance Aeson.ToJSON Request where
+  toJSON msg = jsonObject
+      [ "meta" .=: msg.requestMeta
+      , "input" .=: msg.requestInput
       ]
 
-instance ProtoFromJSON Request where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestMeta <- obj .:? "meta"
-    fld_requestInput <- obj .:? "input"
+instance Aeson.FromJSON Request where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestMeta <- parseFieldMaybe obj "meta"
+    fld_requestInput <- parseFieldMaybe obj "input"
     pure defaultRequest
       { requestMeta = maybe (requestMeta defaultRequest) id fld_requestMeta
       , requestInput = maybe (requestInput defaultRequest) id fld_requestInput
       }
-  protoFromJSON _ = Right defaultRequest
 
 data Rejection = Rejection
   { rejectionRejectedrequestmessageid :: !Text
@@ -455,27 +453,27 @@ instance MessageDecode Rejection where
 instance IsMessage Rejection where
   messageTypeName _ = "temporal.api.update.v1.Rejection"
 
-instance ProtoToJSON Rejection where
-  protoToJSON msg = jsonObject
-      [ "rejectedRequestMessageId" .= msg.rejectionRejectedrequestmessageid
-      , "rejectedRequestSequencingEventId" .= msg.rejectionRejectedrequestsequencingeventid
-      , "rejectedRequest" .= msg.rejectionRejectedrequest
-      , "failure" .= msg.rejectionFailure
+instance Aeson.ToJSON Rejection where
+  toJSON msg = jsonObject
+      [ "rejectedRequestMessageId" .=: msg.rejectionRejectedrequestmessageid
+      , "rejectedRequestSequencingEventId" .=: msg.rejectionRejectedrequestsequencingeventid
+      , "rejectedRequest" .=: msg.rejectionRejectedrequest
+      , "failure" .=: msg.rejectionFailure
       ]
 
-instance ProtoFromJSON Rejection where
-  protoFromJSON (JsonObject obj) = do
-    fld_rejectionRejectedrequestmessageid <- obj .:? "rejectedRequestMessageId"
-    fld_rejectionRejectedrequestsequencingeventid <- obj .:? "rejectedRequestSequencingEventId"
-    fld_rejectionRejectedrequest <- obj .:? "rejectedRequest"
-    fld_rejectionFailure <- obj .:? "failure"
+instance Aeson.FromJSON Rejection where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_rejectionRejectedrequestmessageid <- parseFieldMaybe obj "rejectedRequestMessageId"
+    fld_rejectionRejectedrequestsequencingeventid <- parseFieldMaybe obj "rejectedRequestSequencingEventId"
+    fld_rejectionRejectedrequest <- parseFieldMaybe obj "rejectedRequest"
+    fld_rejectionFailure <- parseFieldMaybe obj "failure"
     pure defaultRejection
       { rejectionRejectedrequestmessageid = maybe (rejectionRejectedrequestmessageid defaultRejection) id fld_rejectionRejectedrequestmessageid
       , rejectionRejectedrequestsequencingeventid = maybe (rejectionRejectedrequestsequencingeventid defaultRejection) id fld_rejectionRejectedrequestsequencingeventid
       , rejectionRejectedrequest = maybe (rejectionRejectedrequest defaultRejection) id fld_rejectionRejectedrequest
       , rejectionFailure = maybe (rejectionFailure defaultRejection) id fld_rejectionFailure
       }
-  protoFromJSON _ = Right defaultRejection
+  parseJSON _ = pure defaultRejection
 
 data Acceptance = Acceptance
   { acceptanceAcceptedrequestmessageid :: !Text
@@ -526,24 +524,23 @@ instance MessageDecode Acceptance where
 instance IsMessage Acceptance where
   messageTypeName _ = "temporal.api.update.v1.Acceptance"
 
-instance ProtoToJSON Acceptance where
-  protoToJSON msg = jsonObject
-      [ "acceptedRequestMessageId" .= msg.acceptanceAcceptedrequestmessageid
-      , "acceptedRequestSequencingEventId" .= msg.acceptanceAcceptedrequestsequencingeventid
-      , "acceptedRequest" .= msg.acceptanceAcceptedrequest
+instance Aeson.ToJSON Acceptance where
+  toJSON msg = jsonObject
+      [ "acceptedRequestMessageId" .=: msg.acceptanceAcceptedrequestmessageid
+      , "acceptedRequestSequencingEventId" .=: msg.acceptanceAcceptedrequestsequencingeventid
+      , "acceptedRequest" .=: msg.acceptanceAcceptedrequest
       ]
 
-instance ProtoFromJSON Acceptance where
-  protoFromJSON (JsonObject obj) = do
-    fld_acceptanceAcceptedrequestmessageid <- obj .:? "acceptedRequestMessageId"
-    fld_acceptanceAcceptedrequestsequencingeventid <- obj .:? "acceptedRequestSequencingEventId"
-    fld_acceptanceAcceptedrequest <- obj .:? "acceptedRequest"
+instance Aeson.FromJSON Acceptance where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_acceptanceAcceptedrequestmessageid <- parseFieldMaybe obj "acceptedRequestMessageId"
+    fld_acceptanceAcceptedrequestsequencingeventid <- parseFieldMaybe obj "acceptedRequestSequencingEventId"
+    fld_acceptanceAcceptedrequest <- parseFieldMaybe obj "acceptedRequest"
     pure defaultAcceptance
       { acceptanceAcceptedrequestmessageid = maybe (acceptanceAcceptedrequestmessageid defaultAcceptance) id fld_acceptanceAcceptedrequestmessageid
       , acceptanceAcceptedrequestsequencingeventid = maybe (acceptanceAcceptedrequestsequencingeventid defaultAcceptance) id fld_acceptanceAcceptedrequestsequencingeventid
       , acceptanceAcceptedrequest = maybe (acceptanceAcceptedrequest defaultAcceptance) id fld_acceptanceAcceptedrequest
       }
-  protoFromJSON _ = Right defaultAcceptance
 
 data Response = Response
   { responseMeta :: !(Maybe Meta)
@@ -587,21 +584,20 @@ instance MessageDecode Response where
 instance IsMessage Response where
   messageTypeName _ = "temporal.api.update.v1.Response"
 
-instance ProtoToJSON Response where
-  protoToJSON msg = jsonObject
-      [ "meta" .= msg.responseMeta
-      , "outcome" .= msg.responseOutcome
+instance Aeson.ToJSON Response where
+  toJSON msg = jsonObject
+      [ "meta" .=: msg.responseMeta
+      , "outcome" .=: msg.responseOutcome
       ]
 
-instance ProtoFromJSON Response where
-  protoFromJSON (JsonObject obj) = do
-    fld_responseMeta <- obj .:? "meta"
-    fld_responseOutcome <- obj .:? "outcome"
+instance Aeson.FromJSON Response where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_responseMeta <- parseFieldMaybe obj "meta"
+    fld_responseOutcome <- parseFieldMaybe obj "outcome"
     pure defaultResponse
       { responseMeta = maybe (responseMeta defaultResponse) id fld_responseMeta
       , responseOutcome = maybe (responseOutcome defaultResponse) id fld_responseOutcome
       }
-  protoFromJSON _ = Right defaultResponse
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

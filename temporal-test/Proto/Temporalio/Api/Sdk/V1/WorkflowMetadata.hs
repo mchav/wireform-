@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -82,21 +86,20 @@ instance MessageDecode WorkflowMetadata where
 instance IsMessage WorkflowMetadata where
   messageTypeName _ = "temporal.api.sdk.v1.WorkflowMetadata"
 
-instance ProtoToJSON WorkflowMetadata where
-  protoToJSON msg = jsonObject
-      [ "definition" .= msg.workflowMetadataDefinition
-      , "currentDetails" .= msg.workflowMetadataCurrentdetails
+instance Aeson.ToJSON WorkflowMetadata where
+  toJSON msg = jsonObject
+      [ "definition" .=: msg.workflowMetadataDefinition
+      , "currentDetails" .=: msg.workflowMetadataCurrentdetails
       ]
 
-instance ProtoFromJSON WorkflowMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowMetadataDefinition <- obj .:? "definition"
-    fld_workflowMetadataCurrentdetails <- obj .:? "currentDetails"
+instance Aeson.FromJSON WorkflowMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowMetadataDefinition <- parseFieldMaybe obj "definition"
+    fld_workflowMetadataCurrentdetails <- parseFieldMaybe obj "currentDetails"
     pure defaultWorkflowMetadata
       { workflowMetadataDefinition = maybe (workflowMetadataDefinition defaultWorkflowMetadata) id fld_workflowMetadataDefinition
       , workflowMetadataCurrentdetails = maybe (workflowMetadataCurrentdetails defaultWorkflowMetadata) id fld_workflowMetadataCurrentdetails
       }
-  protoFromJSON _ = Right defaultWorkflowMetadata
 
 data WorkflowDefinition = WorkflowDefinition
   { workflowDefinitionType :: !Text
@@ -154,27 +157,27 @@ instance MessageDecode WorkflowDefinition where
 instance IsMessage WorkflowDefinition where
   messageTypeName _ = "temporal.api.sdk.v1.WorkflowDefinition"
 
-instance ProtoToJSON WorkflowDefinition where
-  protoToJSON msg = jsonObject
-      [ "type" .= msg.workflowDefinitionType
-      , "queryDefinitions" .= msg.workflowDefinitionQuerydefinitions
-      , "signalDefinitions" .= msg.workflowDefinitionSignaldefinitions
-      , "updateDefinitions" .= msg.workflowDefinitionUpdatedefinitions
+instance Aeson.ToJSON WorkflowDefinition where
+  toJSON msg = jsonObject
+      [ "type" .=: msg.workflowDefinitionType
+      , "queryDefinitions" .=: msg.workflowDefinitionQuerydefinitions
+      , "signalDefinitions" .=: msg.workflowDefinitionSignaldefinitions
+      , "updateDefinitions" .=: msg.workflowDefinitionUpdatedefinitions
       ]
 
-instance ProtoFromJSON WorkflowDefinition where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowDefinitionType <- obj .:? "type"
-    fld_workflowDefinitionQuerydefinitions <- obj .:? "queryDefinitions"
-    fld_workflowDefinitionSignaldefinitions <- obj .:? "signalDefinitions"
-    fld_workflowDefinitionUpdatedefinitions <- obj .:? "updateDefinitions"
+instance Aeson.FromJSON WorkflowDefinition where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowDefinitionType <- parseFieldMaybe obj "type"
+    fld_workflowDefinitionQuerydefinitions <- parseFieldMaybe obj "queryDefinitions"
+    fld_workflowDefinitionSignaldefinitions <- parseFieldMaybe obj "signalDefinitions"
+    fld_workflowDefinitionUpdatedefinitions <- parseFieldMaybe obj "updateDefinitions"
     pure defaultWorkflowDefinition
       { workflowDefinitionType = maybe (workflowDefinitionType defaultWorkflowDefinition) id fld_workflowDefinitionType
       , workflowDefinitionQuerydefinitions = maybe (workflowDefinitionQuerydefinitions defaultWorkflowDefinition) id fld_workflowDefinitionQuerydefinitions
       , workflowDefinitionSignaldefinitions = maybe (workflowDefinitionSignaldefinitions defaultWorkflowDefinition) id fld_workflowDefinitionSignaldefinitions
       , workflowDefinitionUpdatedefinitions = maybe (workflowDefinitionUpdatedefinitions defaultWorkflowDefinition) id fld_workflowDefinitionUpdatedefinitions
       }
-  protoFromJSON _ = Right defaultWorkflowDefinition
+  parseJSON _ = pure defaultWorkflowDefinition
 
 data WorkflowInteractionDefinition = WorkflowInteractionDefinition
   { workflowInteractionDefinitionName :: !Text
@@ -218,21 +221,20 @@ instance MessageDecode WorkflowInteractionDefinition where
 instance IsMessage WorkflowInteractionDefinition where
   messageTypeName _ = "temporal.api.sdk.v1.WorkflowInteractionDefinition"
 
-instance ProtoToJSON WorkflowInteractionDefinition where
-  protoToJSON msg = jsonObject
-      [ "name" .= msg.workflowInteractionDefinitionName
-      , "description" .= msg.workflowInteractionDefinitionDescription
+instance Aeson.ToJSON WorkflowInteractionDefinition where
+  toJSON msg = jsonObject
+      [ "name" .=: msg.workflowInteractionDefinitionName
+      , "description" .=: msg.workflowInteractionDefinitionDescription
       ]
 
-instance ProtoFromJSON WorkflowInteractionDefinition where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowInteractionDefinitionName <- obj .:? "name"
-    fld_workflowInteractionDefinitionDescription <- obj .:? "description"
+instance Aeson.FromJSON WorkflowInteractionDefinition where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowInteractionDefinitionName <- parseFieldMaybe obj "name"
+    fld_workflowInteractionDefinitionDescription <- parseFieldMaybe obj "description"
     pure defaultWorkflowInteractionDefinition
       { workflowInteractionDefinitionName = maybe (workflowInteractionDefinitionName defaultWorkflowInteractionDefinition) id fld_workflowInteractionDefinitionName
       , workflowInteractionDefinitionDescription = maybe (workflowInteractionDefinitionDescription defaultWorkflowInteractionDefinition) id fld_workflowInteractionDefinitionDescription
       }
-  protoFromJSON _ = Right defaultWorkflowInteractionDefinition
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -88,21 +92,20 @@ instance MessageDecode AddSearchAttributesRequest where
 instance IsMessage AddSearchAttributesRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.AddSearchAttributesRequest"
 
-instance ProtoToJSON AddSearchAttributesRequest where
-  protoToJSON msg = jsonObject
-      [ "searchAttributes" .= msg.addSearchAttributesRequestSearchattributes
-      , "namespace" .= msg.addSearchAttributesRequestNamespace
+instance Aeson.ToJSON AddSearchAttributesRequest where
+  toJSON msg = jsonObject
+      [ "searchAttributes" .=: msg.addSearchAttributesRequestSearchattributes
+      , "namespace" .=: msg.addSearchAttributesRequestNamespace
       ]
 
-instance ProtoFromJSON AddSearchAttributesRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_addSearchAttributesRequestSearchattributes <- obj .:? "searchAttributes"
-    fld_addSearchAttributesRequestNamespace <- obj .:? "namespace"
+instance Aeson.FromJSON AddSearchAttributesRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_addSearchAttributesRequestSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_addSearchAttributesRequestNamespace <- parseFieldMaybe obj "namespace"
     pure defaultAddSearchAttributesRequest
       { addSearchAttributesRequestSearchattributes = maybe (addSearchAttributesRequestSearchattributes defaultAddSearchAttributesRequest) id fld_addSearchAttributesRequestSearchattributes
       , addSearchAttributesRequestNamespace = maybe (addSearchAttributesRequestNamespace defaultAddSearchAttributesRequest) id fld_addSearchAttributesRequestNamespace
       }
-  protoFromJSON _ = Right defaultAddSearchAttributesRequest
 
 data AddSearchAttributesResponse = AddSearchAttributesResponse
   { }
@@ -134,12 +137,12 @@ instance MessageDecode AddSearchAttributesResponse where
 instance IsMessage AddSearchAttributesResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.AddSearchAttributesResponse"
 
-instance ProtoToJSON AddSearchAttributesResponse where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON AddSearchAttributesResponse where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON AddSearchAttributesResponse where
-  protoFromJSON _ = Right defaultAddSearchAttributesResponse
+instance Aeson.FromJSON AddSearchAttributesResponse where
+  parseJSON _ = pure defaultAddSearchAttributesResponse
 
 data RemoveSearchAttributesRequest = RemoveSearchAttributesRequest
   { removeSearchAttributesRequestSearchattributes :: !(V.Vector Text)
@@ -183,21 +186,20 @@ instance MessageDecode RemoveSearchAttributesRequest where
 instance IsMessage RemoveSearchAttributesRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.RemoveSearchAttributesRequest"
 
-instance ProtoToJSON RemoveSearchAttributesRequest where
-  protoToJSON msg = jsonObject
-      [ "searchAttributes" .= msg.removeSearchAttributesRequestSearchattributes
-      , "namespace" .= msg.removeSearchAttributesRequestNamespace
+instance Aeson.ToJSON RemoveSearchAttributesRequest where
+  toJSON msg = jsonObject
+      [ "searchAttributes" .=: msg.removeSearchAttributesRequestSearchattributes
+      , "namespace" .=: msg.removeSearchAttributesRequestNamespace
       ]
 
-instance ProtoFromJSON RemoveSearchAttributesRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_removeSearchAttributesRequestSearchattributes <- obj .:? "searchAttributes"
-    fld_removeSearchAttributesRequestNamespace <- obj .:? "namespace"
+instance Aeson.FromJSON RemoveSearchAttributesRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_removeSearchAttributesRequestSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_removeSearchAttributesRequestNamespace <- parseFieldMaybe obj "namespace"
     pure defaultRemoveSearchAttributesRequest
       { removeSearchAttributesRequestSearchattributes = maybe (removeSearchAttributesRequestSearchattributes defaultRemoveSearchAttributesRequest) id fld_removeSearchAttributesRequestSearchattributes
       , removeSearchAttributesRequestNamespace = maybe (removeSearchAttributesRequestNamespace defaultRemoveSearchAttributesRequest) id fld_removeSearchAttributesRequestNamespace
       }
-  protoFromJSON _ = Right defaultRemoveSearchAttributesRequest
 
 data RemoveSearchAttributesResponse = RemoveSearchAttributesResponse
   { }
@@ -229,12 +231,12 @@ instance MessageDecode RemoveSearchAttributesResponse where
 instance IsMessage RemoveSearchAttributesResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.RemoveSearchAttributesResponse"
 
-instance ProtoToJSON RemoveSearchAttributesResponse where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON RemoveSearchAttributesResponse where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON RemoveSearchAttributesResponse where
-  protoFromJSON _ = Right defaultRemoveSearchAttributesResponse
+instance Aeson.FromJSON RemoveSearchAttributesResponse where
+  parseJSON _ = pure defaultRemoveSearchAttributesResponse
 
 data ListSearchAttributesRequest = ListSearchAttributesRequest
   { listSearchAttributesRequestNamespace :: !Text
@@ -271,19 +273,18 @@ instance MessageDecode ListSearchAttributesRequest where
 instance IsMessage ListSearchAttributesRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.ListSearchAttributesRequest"
 
-instance ProtoToJSON ListSearchAttributesRequest where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.listSearchAttributesRequestNamespace
+instance Aeson.ToJSON ListSearchAttributesRequest where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.listSearchAttributesRequestNamespace
 
       ]
 
-instance ProtoFromJSON ListSearchAttributesRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_listSearchAttributesRequestNamespace <- obj .:? "namespace"
+instance Aeson.FromJSON ListSearchAttributesRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_listSearchAttributesRequestNamespace <- parseFieldMaybe obj "namespace"
     pure defaultListSearchAttributesRequest
       { listSearchAttributesRequestNamespace = maybe (listSearchAttributesRequestNamespace defaultListSearchAttributesRequest) id fld_listSearchAttributesRequestNamespace
       }
-  protoFromJSON _ = Right defaultListSearchAttributesRequest
 
 data ListSearchAttributesResponse = ListSearchAttributesResponse
   { listSearchAttributesResponseCustomattributes :: !(Map.Map Text TE_Enums_V1_Common.IndexedValueType)
@@ -343,24 +344,23 @@ instance MessageDecode ListSearchAttributesResponse where
 instance IsMessage ListSearchAttributesResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.ListSearchAttributesResponse"
 
-instance ProtoToJSON ListSearchAttributesResponse where
-  protoToJSON msg = jsonObject
-      [ "customAttributes" .= msg.listSearchAttributesResponseCustomattributes
-      , "systemAttributes" .= msg.listSearchAttributesResponseSystemattributes
-      , "storageSchema" .= msg.listSearchAttributesResponseStorageschema
+instance Aeson.ToJSON ListSearchAttributesResponse where
+  toJSON msg = jsonObject
+      [ "customAttributes" .=: msg.listSearchAttributesResponseCustomattributes
+      , "systemAttributes" .=: msg.listSearchAttributesResponseSystemattributes
+      , "storageSchema" .=: msg.listSearchAttributesResponseStorageschema
       ]
 
-instance ProtoFromJSON ListSearchAttributesResponse where
-  protoFromJSON (JsonObject obj) = do
-    fld_listSearchAttributesResponseCustomattributes <- obj .:? "customAttributes"
-    fld_listSearchAttributesResponseSystemattributes <- obj .:? "systemAttributes"
-    fld_listSearchAttributesResponseStorageschema <- obj .:? "storageSchema"
+instance Aeson.FromJSON ListSearchAttributesResponse where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_listSearchAttributesResponseCustomattributes <- parseFieldMaybe obj "customAttributes"
+    fld_listSearchAttributesResponseSystemattributes <- parseFieldMaybe obj "systemAttributes"
+    fld_listSearchAttributesResponseStorageschema <- parseFieldMaybe obj "storageSchema"
     pure defaultListSearchAttributesResponse
       { listSearchAttributesResponseCustomattributes = maybe (listSearchAttributesResponseCustomattributes defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseCustomattributes
       , listSearchAttributesResponseSystemattributes = maybe (listSearchAttributesResponseSystemattributes defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseSystemattributes
       , listSearchAttributesResponseStorageschema = maybe (listSearchAttributesResponseStorageschema defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseStorageschema
       }
-  protoFromJSON _ = Right defaultListSearchAttributesResponse
 
 data DeleteNamespaceRequest = DeleteNamespaceRequest
   { deleteNamespaceRequestNamespace :: !Text
@@ -411,24 +411,23 @@ instance MessageDecode DeleteNamespaceRequest where
 instance IsMessage DeleteNamespaceRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.DeleteNamespaceRequest"
 
-instance ProtoToJSON DeleteNamespaceRequest where
-  protoToJSON msg = jsonObject
-      [ "namespace" .= msg.deleteNamespaceRequestNamespace
-      , "namespaceId" .= msg.deleteNamespaceRequestNamespaceid
-      , "namespaceDeleteDelay" .= msg.deleteNamespaceRequestNamespacedeletedelay
+instance Aeson.ToJSON DeleteNamespaceRequest where
+  toJSON msg = jsonObject
+      [ "namespace" .=: msg.deleteNamespaceRequestNamespace
+      , "namespaceId" .=: msg.deleteNamespaceRequestNamespaceid
+      , "namespaceDeleteDelay" .=: msg.deleteNamespaceRequestNamespacedeletedelay
       ]
 
-instance ProtoFromJSON DeleteNamespaceRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_deleteNamespaceRequestNamespace <- obj .:? "namespace"
-    fld_deleteNamespaceRequestNamespaceid <- obj .:? "namespaceId"
-    fld_deleteNamespaceRequestNamespacedeletedelay <- obj .:? "namespaceDeleteDelay"
+instance Aeson.FromJSON DeleteNamespaceRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deleteNamespaceRequestNamespace <- parseFieldMaybe obj "namespace"
+    fld_deleteNamespaceRequestNamespaceid <- parseFieldMaybe obj "namespaceId"
+    fld_deleteNamespaceRequestNamespacedeletedelay <- parseFieldMaybe obj "namespaceDeleteDelay"
     pure defaultDeleteNamespaceRequest
       { deleteNamespaceRequestNamespace = maybe (deleteNamespaceRequestNamespace defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespace
       , deleteNamespaceRequestNamespaceid = maybe (deleteNamespaceRequestNamespaceid defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespaceid
       , deleteNamespaceRequestNamespacedeletedelay = maybe (deleteNamespaceRequestNamespacedeletedelay defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespacedeletedelay
       }
-  protoFromJSON _ = Right defaultDeleteNamespaceRequest
 
 data DeleteNamespaceResponse = DeleteNamespaceResponse
   { deleteNamespaceResponseDeletednamespace :: !Text
@@ -465,19 +464,18 @@ instance MessageDecode DeleteNamespaceResponse where
 instance IsMessage DeleteNamespaceResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.DeleteNamespaceResponse"
 
-instance ProtoToJSON DeleteNamespaceResponse where
-  protoToJSON msg = jsonObject
-      [ "deletedNamespace" .= msg.deleteNamespaceResponseDeletednamespace
+instance Aeson.ToJSON DeleteNamespaceResponse where
+  toJSON msg = jsonObject
+      [ "deletedNamespace" .=: msg.deleteNamespaceResponseDeletednamespace
 
       ]
 
-instance ProtoFromJSON DeleteNamespaceResponse where
-  protoFromJSON (JsonObject obj) = do
-    fld_deleteNamespaceResponseDeletednamespace <- obj .:? "deletedNamespace"
+instance Aeson.FromJSON DeleteNamespaceResponse where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deleteNamespaceResponseDeletednamespace <- parseFieldMaybe obj "deletedNamespace"
     pure defaultDeleteNamespaceResponse
       { deleteNamespaceResponseDeletednamespace = maybe (deleteNamespaceResponseDeletednamespace defaultDeleteNamespaceResponse) id fld_deleteNamespaceResponseDeletednamespace
       }
-  protoFromJSON _ = Right defaultDeleteNamespaceResponse
 
 data AddOrUpdateRemoteClusterRequest = AddOrUpdateRemoteClusterRequest
   { addOrUpdateRemoteClusterRequestFrontendaddress :: !Text
@@ -535,27 +533,27 @@ instance MessageDecode AddOrUpdateRemoteClusterRequest where
 instance IsMessage AddOrUpdateRemoteClusterRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.AddOrUpdateRemoteClusterRequest"
 
-instance ProtoToJSON AddOrUpdateRemoteClusterRequest where
-  protoToJSON msg = jsonObject
-      [ "frontendAddress" .= msg.addOrUpdateRemoteClusterRequestFrontendaddress
-      , "enableRemoteClusterConnection" .= msg.addOrUpdateRemoteClusterRequestEnableremoteclusterconnection
-      , "frontendHttpAddress" .= msg.addOrUpdateRemoteClusterRequestFrontendhttpaddress
-      , "enableReplication" .= msg.addOrUpdateRemoteClusterRequestEnablereplication
+instance Aeson.ToJSON AddOrUpdateRemoteClusterRequest where
+  toJSON msg = jsonObject
+      [ "frontendAddress" .=: msg.addOrUpdateRemoteClusterRequestFrontendaddress
+      , "enableRemoteClusterConnection" .=: msg.addOrUpdateRemoteClusterRequestEnableremoteclusterconnection
+      , "frontendHttpAddress" .=: msg.addOrUpdateRemoteClusterRequestFrontendhttpaddress
+      , "enableReplication" .=: msg.addOrUpdateRemoteClusterRequestEnablereplication
       ]
 
-instance ProtoFromJSON AddOrUpdateRemoteClusterRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_addOrUpdateRemoteClusterRequestFrontendaddress <- obj .:? "frontendAddress"
-    fld_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection <- obj .:? "enableRemoteClusterConnection"
-    fld_addOrUpdateRemoteClusterRequestFrontendhttpaddress <- obj .:? "frontendHttpAddress"
-    fld_addOrUpdateRemoteClusterRequestEnablereplication <- obj .:? "enableReplication"
+instance Aeson.FromJSON AddOrUpdateRemoteClusterRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_addOrUpdateRemoteClusterRequestFrontendaddress <- parseFieldMaybe obj "frontendAddress"
+    fld_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection <- parseFieldMaybe obj "enableRemoteClusterConnection"
+    fld_addOrUpdateRemoteClusterRequestFrontendhttpaddress <- parseFieldMaybe obj "frontendHttpAddress"
+    fld_addOrUpdateRemoteClusterRequestEnablereplication <- parseFieldMaybe obj "enableReplication"
     pure defaultAddOrUpdateRemoteClusterRequest
       { addOrUpdateRemoteClusterRequestFrontendaddress = maybe (addOrUpdateRemoteClusterRequestFrontendaddress defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestFrontendaddress
       , addOrUpdateRemoteClusterRequestEnableremoteclusterconnection = maybe (addOrUpdateRemoteClusterRequestEnableremoteclusterconnection defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection
       , addOrUpdateRemoteClusterRequestFrontendhttpaddress = maybe (addOrUpdateRemoteClusterRequestFrontendhttpaddress defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestFrontendhttpaddress
       , addOrUpdateRemoteClusterRequestEnablereplication = maybe (addOrUpdateRemoteClusterRequestEnablereplication defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestEnablereplication
       }
-  protoFromJSON _ = Right defaultAddOrUpdateRemoteClusterRequest
+  parseJSON _ = pure defaultAddOrUpdateRemoteClusterRequest
 
 data AddOrUpdateRemoteClusterResponse = AddOrUpdateRemoteClusterResponse
   { }
@@ -587,12 +585,12 @@ instance MessageDecode AddOrUpdateRemoteClusterResponse where
 instance IsMessage AddOrUpdateRemoteClusterResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.AddOrUpdateRemoteClusterResponse"
 
-instance ProtoToJSON AddOrUpdateRemoteClusterResponse where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON AddOrUpdateRemoteClusterResponse where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON AddOrUpdateRemoteClusterResponse where
-  protoFromJSON _ = Right defaultAddOrUpdateRemoteClusterResponse
+instance Aeson.FromJSON AddOrUpdateRemoteClusterResponse where
+  parseJSON _ = pure defaultAddOrUpdateRemoteClusterResponse
 
 data RemoveRemoteClusterRequest = RemoveRemoteClusterRequest
   { removeRemoteClusterRequestClustername :: !Text
@@ -629,19 +627,18 @@ instance MessageDecode RemoveRemoteClusterRequest where
 instance IsMessage RemoveRemoteClusterRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.RemoveRemoteClusterRequest"
 
-instance ProtoToJSON RemoveRemoteClusterRequest where
-  protoToJSON msg = jsonObject
-      [ "clusterName" .= msg.removeRemoteClusterRequestClustername
+instance Aeson.ToJSON RemoveRemoteClusterRequest where
+  toJSON msg = jsonObject
+      [ "clusterName" .=: msg.removeRemoteClusterRequestClustername
 
       ]
 
-instance ProtoFromJSON RemoveRemoteClusterRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_removeRemoteClusterRequestClustername <- obj .:? "clusterName"
+instance Aeson.FromJSON RemoveRemoteClusterRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_removeRemoteClusterRequestClustername <- parseFieldMaybe obj "clusterName"
     pure defaultRemoveRemoteClusterRequest
       { removeRemoteClusterRequestClustername = maybe (removeRemoteClusterRequestClustername defaultRemoveRemoteClusterRequest) id fld_removeRemoteClusterRequestClustername
       }
-  protoFromJSON _ = Right defaultRemoveRemoteClusterRequest
 
 data RemoveRemoteClusterResponse = RemoveRemoteClusterResponse
   { }
@@ -673,12 +670,12 @@ instance MessageDecode RemoveRemoteClusterResponse where
 instance IsMessage RemoveRemoteClusterResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.RemoveRemoteClusterResponse"
 
-instance ProtoToJSON RemoveRemoteClusterResponse where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON RemoveRemoteClusterResponse where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON RemoveRemoteClusterResponse where
-  protoFromJSON _ = Right defaultRemoveRemoteClusterResponse
+instance Aeson.FromJSON RemoveRemoteClusterResponse where
+  parseJSON _ = pure defaultRemoveRemoteClusterResponse
 
 data ListClustersRequest = ListClustersRequest
   { listClustersRequestPagesize :: {-# UNPACK #-} !Int32
@@ -722,21 +719,20 @@ instance MessageDecode ListClustersRequest where
 instance IsMessage ListClustersRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.ListClustersRequest"
 
-instance ProtoToJSON ListClustersRequest where
-  protoToJSON msg = jsonObject
-      [ "pageSize" .= msg.listClustersRequestPagesize
-      , "nextPageToken" .= msg.listClustersRequestNextpagetoken
+instance Aeson.ToJSON ListClustersRequest where
+  toJSON msg = jsonObject
+      [ "pageSize" .=: msg.listClustersRequestPagesize
+      , "nextPageToken" .=: msg.listClustersRequestNextpagetoken
       ]
 
-instance ProtoFromJSON ListClustersRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_listClustersRequestPagesize <- obj .:? "pageSize"
-    fld_listClustersRequestNextpagetoken <- obj .:? "nextPageToken"
+instance Aeson.FromJSON ListClustersRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_listClustersRequestPagesize <- parseFieldMaybe obj "pageSize"
+    fld_listClustersRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
     pure defaultListClustersRequest
       { listClustersRequestPagesize = maybe (listClustersRequestPagesize defaultListClustersRequest) id fld_listClustersRequestPagesize
       , listClustersRequestNextpagetoken = maybe (listClustersRequestNextpagetoken defaultListClustersRequest) id fld_listClustersRequestNextpagetoken
       }
-  protoFromJSON _ = Right defaultListClustersRequest
 
 data ListClustersResponse = ListClustersResponse
   { listClustersResponseClusters :: !(V.Vector ClusterMetadata)
@@ -780,21 +776,20 @@ instance MessageDecode ListClustersResponse where
 instance IsMessage ListClustersResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.ListClustersResponse"
 
-instance ProtoToJSON ListClustersResponse where
-  protoToJSON msg = jsonObject
-      [ "clusters" .= msg.listClustersResponseClusters
-      , "nextPageToken" .= msg.listClustersResponseNextpagetoken
+instance Aeson.ToJSON ListClustersResponse where
+  toJSON msg = jsonObject
+      [ "clusters" .=: msg.listClustersResponseClusters
+      , "nextPageToken" .=: msg.listClustersResponseNextpagetoken
       ]
 
-instance ProtoFromJSON ListClustersResponse where
-  protoFromJSON (JsonObject obj) = do
-    fld_listClustersResponseClusters <- obj .:? "clusters"
-    fld_listClustersResponseNextpagetoken <- obj .:? "nextPageToken"
+instance Aeson.FromJSON ListClustersResponse where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_listClustersResponseClusters <- parseFieldMaybe obj "clusters"
+    fld_listClustersResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
     pure defaultListClustersResponse
       { listClustersResponseClusters = maybe (listClustersResponseClusters defaultListClustersResponse) id fld_listClustersResponseClusters
       , listClustersResponseNextpagetoken = maybe (listClustersResponseNextpagetoken defaultListClustersResponse) id fld_listClustersResponseNextpagetoken
       }
-  protoFromJSON _ = Right defaultListClustersResponse
 
 data ClusterMetadata = ClusterMetadata
   { clusterMetadataClustername :: !Text
@@ -880,28 +875,28 @@ instance MessageDecode ClusterMetadata where
 instance IsMessage ClusterMetadata where
   messageTypeName _ = "temporal.api.operatorservice.v1.ClusterMetadata"
 
-instance ProtoToJSON ClusterMetadata where
-  protoToJSON msg = jsonObject
-      [ "clusterName" .= msg.clusterMetadataClustername
-      , "clusterId" .= msg.clusterMetadataClusterid
-      , "address" .= msg.clusterMetadataAddress
-      , "httpAddress" .= msg.clusterMetadataHttpaddress
-      , "initialFailoverVersion" .= msg.clusterMetadataInitialfailoverversion
-      , "historyShardCount" .= msg.clusterMetadataHistoryshardcount
-      , "isConnectionEnabled" .= msg.clusterMetadataIsconnectionenabled
-      , "isReplicationEnabled" .= msg.clusterMetadataIsreplicationenabled
+instance Aeson.ToJSON ClusterMetadata where
+  toJSON msg = jsonObject
+      [ "clusterName" .=: msg.clusterMetadataClustername
+      , "clusterId" .=: msg.clusterMetadataClusterid
+      , "address" .=: msg.clusterMetadataAddress
+      , "httpAddress" .=: msg.clusterMetadataHttpaddress
+      , "initialFailoverVersion" .=: msg.clusterMetadataInitialfailoverversion
+      , "historyShardCount" .=: msg.clusterMetadataHistoryshardcount
+      , "isConnectionEnabled" .=: msg.clusterMetadataIsconnectionenabled
+      , "isReplicationEnabled" .=: msg.clusterMetadataIsreplicationenabled
       ]
 
-instance ProtoFromJSON ClusterMetadata where
-  protoFromJSON (JsonObject obj) = do
-    fld_clusterMetadataClustername <- obj .:? "clusterName"
-    fld_clusterMetadataClusterid <- obj .:? "clusterId"
-    fld_clusterMetadataAddress <- obj .:? "address"
-    fld_clusterMetadataHttpaddress <- obj .:? "httpAddress"
-    fld_clusterMetadataInitialfailoverversion <- obj .:? "initialFailoverVersion"
-    fld_clusterMetadataHistoryshardcount <- obj .:? "historyShardCount"
-    fld_clusterMetadataIsconnectionenabled <- obj .:? "isConnectionEnabled"
-    fld_clusterMetadataIsreplicationenabled <- obj .:? "isReplicationEnabled"
+instance Aeson.FromJSON ClusterMetadata where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_clusterMetadataClustername <- parseFieldMaybe obj "clusterName"
+    fld_clusterMetadataClusterid <- parseFieldMaybe obj "clusterId"
+    fld_clusterMetadataAddress <- parseFieldMaybe obj "address"
+    fld_clusterMetadataHttpaddress <- parseFieldMaybe obj "httpAddress"
+    fld_clusterMetadataInitialfailoverversion <- parseFieldMaybe obj "initialFailoverVersion"
+    fld_clusterMetadataHistoryshardcount <- parseFieldMaybe obj "historyShardCount"
+    fld_clusterMetadataIsconnectionenabled <- parseFieldMaybe obj "isConnectionEnabled"
+    fld_clusterMetadataIsreplicationenabled <- parseFieldMaybe obj "isReplicationEnabled"
     pure defaultClusterMetadata
       { clusterMetadataClustername = maybe (clusterMetadataClustername defaultClusterMetadata) id fld_clusterMetadataClustername
       , clusterMetadataClusterid = maybe (clusterMetadataClusterid defaultClusterMetadata) id fld_clusterMetadataClusterid
@@ -912,7 +907,7 @@ instance ProtoFromJSON ClusterMetadata where
       , clusterMetadataIsconnectionenabled = maybe (clusterMetadataIsconnectionenabled defaultClusterMetadata) id fld_clusterMetadataIsconnectionenabled
       , clusterMetadataIsreplicationenabled = maybe (clusterMetadataIsreplicationenabled defaultClusterMetadata) id fld_clusterMetadataIsreplicationenabled
       }
-  protoFromJSON _ = Right defaultClusterMetadata
+  parseJSON _ = pure defaultClusterMetadata
 
 data GetNexusEndpointRequest = GetNexusEndpointRequest
   { getNexusEndpointRequestId :: !Text
@@ -949,19 +944,18 @@ instance MessageDecode GetNexusEndpointRequest where
 instance IsMessage GetNexusEndpointRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.GetNexusEndpointRequest"
 
-instance ProtoToJSON GetNexusEndpointRequest where
-  protoToJSON msg = jsonObject
-      [ "id" .= msg.getNexusEndpointRequestId
+instance Aeson.ToJSON GetNexusEndpointRequest where
+  toJSON msg = jsonObject
+      [ "id" .=: msg.getNexusEndpointRequestId
 
       ]
 
-instance ProtoFromJSON GetNexusEndpointRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_getNexusEndpointRequestId <- obj .:? "id"
+instance Aeson.FromJSON GetNexusEndpointRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_getNexusEndpointRequestId <- parseFieldMaybe obj "id"
     pure defaultGetNexusEndpointRequest
       { getNexusEndpointRequestId = maybe (getNexusEndpointRequestId defaultGetNexusEndpointRequest) id fld_getNexusEndpointRequestId
       }
-  protoFromJSON _ = Right defaultGetNexusEndpointRequest
 
 data GetNexusEndpointResponse = GetNexusEndpointResponse
   { getNexusEndpointResponseEndpoint :: !(Maybe TE_Nexus_V1_Message.Endpoint)
@@ -998,19 +992,18 @@ instance MessageDecode GetNexusEndpointResponse where
 instance IsMessage GetNexusEndpointResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.GetNexusEndpointResponse"
 
-instance ProtoToJSON GetNexusEndpointResponse where
-  protoToJSON msg = jsonObject
-      [ "endpoint" .= msg.getNexusEndpointResponseEndpoint
+instance Aeson.ToJSON GetNexusEndpointResponse where
+  toJSON msg = jsonObject
+      [ "endpoint" .=: msg.getNexusEndpointResponseEndpoint
 
       ]
 
-instance ProtoFromJSON GetNexusEndpointResponse where
-  protoFromJSON (JsonObject obj) = do
-    fld_getNexusEndpointResponseEndpoint <- obj .:? "endpoint"
+instance Aeson.FromJSON GetNexusEndpointResponse where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_getNexusEndpointResponseEndpoint <- parseFieldMaybe obj "endpoint"
     pure defaultGetNexusEndpointResponse
       { getNexusEndpointResponseEndpoint = maybe (getNexusEndpointResponseEndpoint defaultGetNexusEndpointResponse) id fld_getNexusEndpointResponseEndpoint
       }
-  protoFromJSON _ = Right defaultGetNexusEndpointResponse
 
 data CreateNexusEndpointRequest = CreateNexusEndpointRequest
   { createNexusEndpointRequestSpec :: !(Maybe TE_Nexus_V1_Message.EndpointSpec)
@@ -1047,19 +1040,18 @@ instance MessageDecode CreateNexusEndpointRequest where
 instance IsMessage CreateNexusEndpointRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.CreateNexusEndpointRequest"
 
-instance ProtoToJSON CreateNexusEndpointRequest where
-  protoToJSON msg = jsonObject
-      [ "spec" .= msg.createNexusEndpointRequestSpec
+instance Aeson.ToJSON CreateNexusEndpointRequest where
+  toJSON msg = jsonObject
+      [ "spec" .=: msg.createNexusEndpointRequestSpec
 
       ]
 
-instance ProtoFromJSON CreateNexusEndpointRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_createNexusEndpointRequestSpec <- obj .:? "spec"
+instance Aeson.FromJSON CreateNexusEndpointRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_createNexusEndpointRequestSpec <- parseFieldMaybe obj "spec"
     pure defaultCreateNexusEndpointRequest
       { createNexusEndpointRequestSpec = maybe (createNexusEndpointRequestSpec defaultCreateNexusEndpointRequest) id fld_createNexusEndpointRequestSpec
       }
-  protoFromJSON _ = Right defaultCreateNexusEndpointRequest
 
 data CreateNexusEndpointResponse = CreateNexusEndpointResponse
   { createNexusEndpointResponseEndpoint :: !(Maybe TE_Nexus_V1_Message.Endpoint)
@@ -1096,19 +1088,18 @@ instance MessageDecode CreateNexusEndpointResponse where
 instance IsMessage CreateNexusEndpointResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.CreateNexusEndpointResponse"
 
-instance ProtoToJSON CreateNexusEndpointResponse where
-  protoToJSON msg = jsonObject
-      [ "endpoint" .= msg.createNexusEndpointResponseEndpoint
+instance Aeson.ToJSON CreateNexusEndpointResponse where
+  toJSON msg = jsonObject
+      [ "endpoint" .=: msg.createNexusEndpointResponseEndpoint
 
       ]
 
-instance ProtoFromJSON CreateNexusEndpointResponse where
-  protoFromJSON (JsonObject obj) = do
-    fld_createNexusEndpointResponseEndpoint <- obj .:? "endpoint"
+instance Aeson.FromJSON CreateNexusEndpointResponse where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_createNexusEndpointResponseEndpoint <- parseFieldMaybe obj "endpoint"
     pure defaultCreateNexusEndpointResponse
       { createNexusEndpointResponseEndpoint = maybe (createNexusEndpointResponseEndpoint defaultCreateNexusEndpointResponse) id fld_createNexusEndpointResponseEndpoint
       }
-  protoFromJSON _ = Right defaultCreateNexusEndpointResponse
 
 data UpdateNexusEndpointRequest = UpdateNexusEndpointRequest
   { updateNexusEndpointRequestId :: !Text
@@ -1159,24 +1150,23 @@ instance MessageDecode UpdateNexusEndpointRequest where
 instance IsMessage UpdateNexusEndpointRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.UpdateNexusEndpointRequest"
 
-instance ProtoToJSON UpdateNexusEndpointRequest where
-  protoToJSON msg = jsonObject
-      [ "id" .= msg.updateNexusEndpointRequestId
-      , "version" .= msg.updateNexusEndpointRequestVersion
-      , "spec" .= msg.updateNexusEndpointRequestSpec
+instance Aeson.ToJSON UpdateNexusEndpointRequest where
+  toJSON msg = jsonObject
+      [ "id" .=: msg.updateNexusEndpointRequestId
+      , "version" .=: msg.updateNexusEndpointRequestVersion
+      , "spec" .=: msg.updateNexusEndpointRequestSpec
       ]
 
-instance ProtoFromJSON UpdateNexusEndpointRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_updateNexusEndpointRequestId <- obj .:? "id"
-    fld_updateNexusEndpointRequestVersion <- obj .:? "version"
-    fld_updateNexusEndpointRequestSpec <- obj .:? "spec"
+instance Aeson.FromJSON UpdateNexusEndpointRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_updateNexusEndpointRequestId <- parseFieldMaybe obj "id"
+    fld_updateNexusEndpointRequestVersion <- parseFieldMaybe obj "version"
+    fld_updateNexusEndpointRequestSpec <- parseFieldMaybe obj "spec"
     pure defaultUpdateNexusEndpointRequest
       { updateNexusEndpointRequestId = maybe (updateNexusEndpointRequestId defaultUpdateNexusEndpointRequest) id fld_updateNexusEndpointRequestId
       , updateNexusEndpointRequestVersion = maybe (updateNexusEndpointRequestVersion defaultUpdateNexusEndpointRequest) id fld_updateNexusEndpointRequestVersion
       , updateNexusEndpointRequestSpec = maybe (updateNexusEndpointRequestSpec defaultUpdateNexusEndpointRequest) id fld_updateNexusEndpointRequestSpec
       }
-  protoFromJSON _ = Right defaultUpdateNexusEndpointRequest
 
 data UpdateNexusEndpointResponse = UpdateNexusEndpointResponse
   { updateNexusEndpointResponseEndpoint :: !(Maybe TE_Nexus_V1_Message.Endpoint)
@@ -1213,19 +1203,18 @@ instance MessageDecode UpdateNexusEndpointResponse where
 instance IsMessage UpdateNexusEndpointResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.UpdateNexusEndpointResponse"
 
-instance ProtoToJSON UpdateNexusEndpointResponse where
-  protoToJSON msg = jsonObject
-      [ "endpoint" .= msg.updateNexusEndpointResponseEndpoint
+instance Aeson.ToJSON UpdateNexusEndpointResponse where
+  toJSON msg = jsonObject
+      [ "endpoint" .=: msg.updateNexusEndpointResponseEndpoint
 
       ]
 
-instance ProtoFromJSON UpdateNexusEndpointResponse where
-  protoFromJSON (JsonObject obj) = do
-    fld_updateNexusEndpointResponseEndpoint <- obj .:? "endpoint"
+instance Aeson.FromJSON UpdateNexusEndpointResponse where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_updateNexusEndpointResponseEndpoint <- parseFieldMaybe obj "endpoint"
     pure defaultUpdateNexusEndpointResponse
       { updateNexusEndpointResponseEndpoint = maybe (updateNexusEndpointResponseEndpoint defaultUpdateNexusEndpointResponse) id fld_updateNexusEndpointResponseEndpoint
       }
-  protoFromJSON _ = Right defaultUpdateNexusEndpointResponse
 
 data DeleteNexusEndpointRequest = DeleteNexusEndpointRequest
   { deleteNexusEndpointRequestId :: !Text
@@ -1269,21 +1258,20 @@ instance MessageDecode DeleteNexusEndpointRequest where
 instance IsMessage DeleteNexusEndpointRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.DeleteNexusEndpointRequest"
 
-instance ProtoToJSON DeleteNexusEndpointRequest where
-  protoToJSON msg = jsonObject
-      [ "id" .= msg.deleteNexusEndpointRequestId
-      , "version" .= msg.deleteNexusEndpointRequestVersion
+instance Aeson.ToJSON DeleteNexusEndpointRequest where
+  toJSON msg = jsonObject
+      [ "id" .=: msg.deleteNexusEndpointRequestId
+      , "version" .=: msg.deleteNexusEndpointRequestVersion
       ]
 
-instance ProtoFromJSON DeleteNexusEndpointRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_deleteNexusEndpointRequestId <- obj .:? "id"
-    fld_deleteNexusEndpointRequestVersion <- obj .:? "version"
+instance Aeson.FromJSON DeleteNexusEndpointRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deleteNexusEndpointRequestId <- parseFieldMaybe obj "id"
+    fld_deleteNexusEndpointRequestVersion <- parseFieldMaybe obj "version"
     pure defaultDeleteNexusEndpointRequest
       { deleteNexusEndpointRequestId = maybe (deleteNexusEndpointRequestId defaultDeleteNexusEndpointRequest) id fld_deleteNexusEndpointRequestId
       , deleteNexusEndpointRequestVersion = maybe (deleteNexusEndpointRequestVersion defaultDeleteNexusEndpointRequest) id fld_deleteNexusEndpointRequestVersion
       }
-  protoFromJSON _ = Right defaultDeleteNexusEndpointRequest
 
 data DeleteNexusEndpointResponse = DeleteNexusEndpointResponse
   { }
@@ -1315,12 +1303,12 @@ instance MessageDecode DeleteNexusEndpointResponse where
 instance IsMessage DeleteNexusEndpointResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.DeleteNexusEndpointResponse"
 
-instance ProtoToJSON DeleteNexusEndpointResponse where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON DeleteNexusEndpointResponse where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON DeleteNexusEndpointResponse where
-  protoFromJSON _ = Right defaultDeleteNexusEndpointResponse
+instance Aeson.FromJSON DeleteNexusEndpointResponse where
+  parseJSON _ = pure defaultDeleteNexusEndpointResponse
 
 data ListNexusEndpointsRequest = ListNexusEndpointsRequest
   { listNexusEndpointsRequestPagesize :: {-# UNPACK #-} !Int32
@@ -1371,24 +1359,23 @@ instance MessageDecode ListNexusEndpointsRequest where
 instance IsMessage ListNexusEndpointsRequest where
   messageTypeName _ = "temporal.api.operatorservice.v1.ListNexusEndpointsRequest"
 
-instance ProtoToJSON ListNexusEndpointsRequest where
-  protoToJSON msg = jsonObject
-      [ "pageSize" .= msg.listNexusEndpointsRequestPagesize
-      , "nextPageToken" .= msg.listNexusEndpointsRequestNextpagetoken
-      , "name" .= msg.listNexusEndpointsRequestName
+instance Aeson.ToJSON ListNexusEndpointsRequest where
+  toJSON msg = jsonObject
+      [ "pageSize" .=: msg.listNexusEndpointsRequestPagesize
+      , "nextPageToken" .=: msg.listNexusEndpointsRequestNextpagetoken
+      , "name" .=: msg.listNexusEndpointsRequestName
       ]
 
-instance ProtoFromJSON ListNexusEndpointsRequest where
-  protoFromJSON (JsonObject obj) = do
-    fld_listNexusEndpointsRequestPagesize <- obj .:? "pageSize"
-    fld_listNexusEndpointsRequestNextpagetoken <- obj .:? "nextPageToken"
-    fld_listNexusEndpointsRequestName <- obj .:? "name"
+instance Aeson.FromJSON ListNexusEndpointsRequest where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_listNexusEndpointsRequestPagesize <- parseFieldMaybe obj "pageSize"
+    fld_listNexusEndpointsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listNexusEndpointsRequestName <- parseFieldMaybe obj "name"
     pure defaultListNexusEndpointsRequest
       { listNexusEndpointsRequestPagesize = maybe (listNexusEndpointsRequestPagesize defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestPagesize
       , listNexusEndpointsRequestNextpagetoken = maybe (listNexusEndpointsRequestNextpagetoken defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestNextpagetoken
       , listNexusEndpointsRequestName = maybe (listNexusEndpointsRequestName defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestName
       }
-  protoFromJSON _ = Right defaultListNexusEndpointsRequest
 
 data ListNexusEndpointsResponse = ListNexusEndpointsResponse
   { listNexusEndpointsResponseNextpagetoken :: !ByteString
@@ -1432,21 +1419,20 @@ instance MessageDecode ListNexusEndpointsResponse where
 instance IsMessage ListNexusEndpointsResponse where
   messageTypeName _ = "temporal.api.operatorservice.v1.ListNexusEndpointsResponse"
 
-instance ProtoToJSON ListNexusEndpointsResponse where
-  protoToJSON msg = jsonObject
-      [ "nextPageToken" .= msg.listNexusEndpointsResponseNextpagetoken
-      , "endpoints" .= msg.listNexusEndpointsResponseEndpoints
+instance Aeson.ToJSON ListNexusEndpointsResponse where
+  toJSON msg = jsonObject
+      [ "nextPageToken" .=: msg.listNexusEndpointsResponseNextpagetoken
+      , "endpoints" .=: msg.listNexusEndpointsResponseEndpoints
       ]
 
-instance ProtoFromJSON ListNexusEndpointsResponse where
-  protoFromJSON (JsonObject obj) = do
-    fld_listNexusEndpointsResponseNextpagetoken <- obj .:? "nextPageToken"
-    fld_listNexusEndpointsResponseEndpoints <- obj .:? "endpoints"
+instance Aeson.FromJSON ListNexusEndpointsResponse where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_listNexusEndpointsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listNexusEndpointsResponseEndpoints <- parseFieldMaybe obj "endpoints"
     pure defaultListNexusEndpointsResponse
       { listNexusEndpointsResponseNextpagetoken = maybe (listNexusEndpointsResponseNextpagetoken defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseNextpagetoken
       , listNexusEndpointsResponseEndpoints = maybe (listNexusEndpointsResponseEndpoints defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseEndpoints
       }
-  protoFromJSON _ = Right defaultListNexusEndpointsResponse
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

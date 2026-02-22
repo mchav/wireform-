@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -68,20 +72,20 @@ instance MessageSize DeploymentReachability where
 instance MessageDecode DeploymentReachability where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON DeploymentReachability where
-  protoToJSON DeploymentReachability'DeploymentReachabilityUnspecified = JsonString "DEPLOYMENT_REACHABILITY_UNSPECIFIED"
-  protoToJSON DeploymentReachability'DeploymentReachabilityReachable = JsonString "DEPLOYMENT_REACHABILITY_REACHABLE"
-  protoToJSON DeploymentReachability'DeploymentReachabilityClosedWorkflowsOnly = JsonString "DEPLOYMENT_REACHABILITY_CLOSED_WORKFLOWS_ONLY"
-  protoToJSON DeploymentReachability'DeploymentReachabilityUnreachable = JsonString "DEPLOYMENT_REACHABILITY_UNREACHABLE"
+instance Aeson.ToJSON DeploymentReachability where
+  toJSON DeploymentReachability'DeploymentReachabilityUnspecified = Aeson.String "DEPLOYMENT_REACHABILITY_UNSPECIFIED"
+  toJSON DeploymentReachability'DeploymentReachabilityReachable = Aeson.String "DEPLOYMENT_REACHABILITY_REACHABLE"
+  toJSON DeploymentReachability'DeploymentReachabilityClosedWorkflowsOnly = Aeson.String "DEPLOYMENT_REACHABILITY_CLOSED_WORKFLOWS_ONLY"
+  toJSON DeploymentReachability'DeploymentReachabilityUnreachable = Aeson.String "DEPLOYMENT_REACHABILITY_UNREACHABLE"
 
-instance ProtoFromJSON DeploymentReachability where
-  protoFromJSON = \case
-    JsonString "DEPLOYMENT_REACHABILITY_UNSPECIFIED" -> Right DeploymentReachability'DeploymentReachabilityUnspecified
-    JsonString "DEPLOYMENT_REACHABILITY_REACHABLE" -> Right DeploymentReachability'DeploymentReachabilityReachable
-    JsonString "DEPLOYMENT_REACHABILITY_CLOSED_WORKFLOWS_ONLY" -> Right DeploymentReachability'DeploymentReachabilityClosedWorkflowsOnly
-    JsonString "DEPLOYMENT_REACHABILITY_UNREACHABLE" -> Right DeploymentReachability'DeploymentReachabilityUnreachable
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for DeploymentReachability"
+instance Aeson.FromJSON DeploymentReachability where
+  parseJSON = \case
+    Aeson.String "DEPLOYMENT_REACHABILITY_UNSPECIFIED" -> pure DeploymentReachability'DeploymentReachabilityUnspecified
+    Aeson.String "DEPLOYMENT_REACHABILITY_REACHABLE" -> pure DeploymentReachability'DeploymentReachabilityReachable
+    Aeson.String "DEPLOYMENT_REACHABILITY_CLOSED_WORKFLOWS_ONLY" -> pure DeploymentReachability'DeploymentReachabilityClosedWorkflowsOnly
+    Aeson.String "DEPLOYMENT_REACHABILITY_UNREACHABLE" -> pure DeploymentReachability'DeploymentReachabilityUnreachable
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for DeploymentReachability"
 
 data VersionDrainageStatus
   = VersionDrainageStatus'VersionDrainageStatusUnspecified
@@ -108,18 +112,18 @@ instance MessageSize VersionDrainageStatus where
 instance MessageDecode VersionDrainageStatus where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON VersionDrainageStatus where
-  protoToJSON VersionDrainageStatus'VersionDrainageStatusUnspecified = JsonString "VERSION_DRAINAGE_STATUS_UNSPECIFIED"
-  protoToJSON VersionDrainageStatus'VersionDrainageStatusDraining = JsonString "VERSION_DRAINAGE_STATUS_DRAINING"
-  protoToJSON VersionDrainageStatus'VersionDrainageStatusDrained = JsonString "VERSION_DRAINAGE_STATUS_DRAINED"
+instance Aeson.ToJSON VersionDrainageStatus where
+  toJSON VersionDrainageStatus'VersionDrainageStatusUnspecified = Aeson.String "VERSION_DRAINAGE_STATUS_UNSPECIFIED"
+  toJSON VersionDrainageStatus'VersionDrainageStatusDraining = Aeson.String "VERSION_DRAINAGE_STATUS_DRAINING"
+  toJSON VersionDrainageStatus'VersionDrainageStatusDrained = Aeson.String "VERSION_DRAINAGE_STATUS_DRAINED"
 
-instance ProtoFromJSON VersionDrainageStatus where
-  protoFromJSON = \case
-    JsonString "VERSION_DRAINAGE_STATUS_UNSPECIFIED" -> Right VersionDrainageStatus'VersionDrainageStatusUnspecified
-    JsonString "VERSION_DRAINAGE_STATUS_DRAINING" -> Right VersionDrainageStatus'VersionDrainageStatusDraining
-    JsonString "VERSION_DRAINAGE_STATUS_DRAINED" -> Right VersionDrainageStatus'VersionDrainageStatusDrained
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for VersionDrainageStatus"
+instance Aeson.FromJSON VersionDrainageStatus where
+  parseJSON = \case
+    Aeson.String "VERSION_DRAINAGE_STATUS_UNSPECIFIED" -> pure VersionDrainageStatus'VersionDrainageStatusUnspecified
+    Aeson.String "VERSION_DRAINAGE_STATUS_DRAINING" -> pure VersionDrainageStatus'VersionDrainageStatusDraining
+    Aeson.String "VERSION_DRAINAGE_STATUS_DRAINED" -> pure VersionDrainageStatus'VersionDrainageStatusDrained
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for VersionDrainageStatus"
 
 data WorkerVersioningMode
   = WorkerVersioningMode'WorkerVersioningModeUnspecified
@@ -146,18 +150,18 @@ instance MessageSize WorkerVersioningMode where
 instance MessageDecode WorkerVersioningMode where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON WorkerVersioningMode where
-  protoToJSON WorkerVersioningMode'WorkerVersioningModeUnspecified = JsonString "WORKER_VERSIONING_MODE_UNSPECIFIED"
-  protoToJSON WorkerVersioningMode'WorkerVersioningModeUnversioned = JsonString "WORKER_VERSIONING_MODE_UNVERSIONED"
-  protoToJSON WorkerVersioningMode'WorkerVersioningModeVersioned = JsonString "WORKER_VERSIONING_MODE_VERSIONED"
+instance Aeson.ToJSON WorkerVersioningMode where
+  toJSON WorkerVersioningMode'WorkerVersioningModeUnspecified = Aeson.String "WORKER_VERSIONING_MODE_UNSPECIFIED"
+  toJSON WorkerVersioningMode'WorkerVersioningModeUnversioned = Aeson.String "WORKER_VERSIONING_MODE_UNVERSIONED"
+  toJSON WorkerVersioningMode'WorkerVersioningModeVersioned = Aeson.String "WORKER_VERSIONING_MODE_VERSIONED"
 
-instance ProtoFromJSON WorkerVersioningMode where
-  protoFromJSON = \case
-    JsonString "WORKER_VERSIONING_MODE_UNSPECIFIED" -> Right WorkerVersioningMode'WorkerVersioningModeUnspecified
-    JsonString "WORKER_VERSIONING_MODE_UNVERSIONED" -> Right WorkerVersioningMode'WorkerVersioningModeUnversioned
-    JsonString "WORKER_VERSIONING_MODE_VERSIONED" -> Right WorkerVersioningMode'WorkerVersioningModeVersioned
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for WorkerVersioningMode"
+instance Aeson.FromJSON WorkerVersioningMode where
+  parseJSON = \case
+    Aeson.String "WORKER_VERSIONING_MODE_UNSPECIFIED" -> pure WorkerVersioningMode'WorkerVersioningModeUnspecified
+    Aeson.String "WORKER_VERSIONING_MODE_UNVERSIONED" -> pure WorkerVersioningMode'WorkerVersioningModeUnversioned
+    Aeson.String "WORKER_VERSIONING_MODE_VERSIONED" -> pure WorkerVersioningMode'WorkerVersioningModeVersioned
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for WorkerVersioningMode"
 
 data WorkerDeploymentVersionStatus
   = WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusUnspecified
@@ -193,22 +197,22 @@ instance MessageSize WorkerDeploymentVersionStatus where
 instance MessageDecode WorkerDeploymentVersionStatus where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON WorkerDeploymentVersionStatus where
-  protoToJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusUnspecified = JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_UNSPECIFIED"
-  protoToJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusInactive = JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_INACTIVE"
-  protoToJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusCurrent = JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_CURRENT"
-  protoToJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusRamping = JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_RAMPING"
-  protoToJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusDraining = JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_DRAINING"
-  protoToJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusDrained = JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_DRAINED"
+instance Aeson.ToJSON WorkerDeploymentVersionStatus where
+  toJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusUnspecified = Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_UNSPECIFIED"
+  toJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusInactive = Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_INACTIVE"
+  toJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusCurrent = Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_CURRENT"
+  toJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusRamping = Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_RAMPING"
+  toJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusDraining = Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_DRAINING"
+  toJSON WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusDrained = Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_DRAINED"
 
-instance ProtoFromJSON WorkerDeploymentVersionStatus where
-  protoFromJSON = \case
-    JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_UNSPECIFIED" -> Right WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusUnspecified
-    JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_INACTIVE" -> Right WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusInactive
-    JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_CURRENT" -> Right WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusCurrent
-    JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_RAMPING" -> Right WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusRamping
-    JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_DRAINING" -> Right WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusDraining
-    JsonString "WORKER_DEPLOYMENT_VERSION_STATUS_DRAINED" -> Right WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusDrained
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for WorkerDeploymentVersionStatus"
+instance Aeson.FromJSON WorkerDeploymentVersionStatus where
+  parseJSON = \case
+    Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_UNSPECIFIED" -> pure WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusUnspecified
+    Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_INACTIVE" -> pure WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusInactive
+    Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_CURRENT" -> pure WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusCurrent
+    Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_RAMPING" -> pure WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusRamping
+    Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_DRAINING" -> pure WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusDraining
+    Aeson.String "WORKER_DEPLOYMENT_VERSION_STATUS_DRAINED" -> pure WorkerDeploymentVersionStatus'WorkerDeploymentVersionStatusDrained
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for WorkerDeploymentVersionStatus"
 

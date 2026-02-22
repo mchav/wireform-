@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -105,27 +109,27 @@ instance MessageDecode BatchOperationInfo where
 instance IsMessage BatchOperationInfo where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationInfo"
 
-instance ProtoToJSON BatchOperationInfo where
-  protoToJSON msg = jsonObject
-      [ "jobId" .= msg.batchOperationInfoJobid
-      , "state" .= msg.batchOperationInfoState
-      , "startTime" .= msg.batchOperationInfoStarttime
-      , "closeTime" .= msg.batchOperationInfoClosetime
+instance Aeson.ToJSON BatchOperationInfo where
+  toJSON msg = jsonObject
+      [ "jobId" .=: msg.batchOperationInfoJobid
+      , "state" .=: msg.batchOperationInfoState
+      , "startTime" .=: msg.batchOperationInfoStarttime
+      , "closeTime" .=: msg.batchOperationInfoClosetime
       ]
 
-instance ProtoFromJSON BatchOperationInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationInfoJobid <- obj .:? "jobId"
-    fld_batchOperationInfoState <- obj .:? "state"
-    fld_batchOperationInfoStarttime <- obj .:? "startTime"
-    fld_batchOperationInfoClosetime <- obj .:? "closeTime"
+instance Aeson.FromJSON BatchOperationInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationInfoJobid <- parseFieldMaybe obj "jobId"
+    fld_batchOperationInfoState <- parseFieldMaybe obj "state"
+    fld_batchOperationInfoStarttime <- parseFieldMaybe obj "startTime"
+    fld_batchOperationInfoClosetime <- parseFieldMaybe obj "closeTime"
     pure defaultBatchOperationInfo
       { batchOperationInfoJobid = maybe (batchOperationInfoJobid defaultBatchOperationInfo) id fld_batchOperationInfoJobid
       , batchOperationInfoState = maybe (batchOperationInfoState defaultBatchOperationInfo) id fld_batchOperationInfoState
       , batchOperationInfoStarttime = maybe (batchOperationInfoStarttime defaultBatchOperationInfo) id fld_batchOperationInfoStarttime
       , batchOperationInfoClosetime = maybe (batchOperationInfoClosetime defaultBatchOperationInfo) id fld_batchOperationInfoClosetime
       }
-  protoFromJSON _ = Right defaultBatchOperationInfo
+  parseJSON _ = pure defaultBatchOperationInfo
 
 data BatchOperationTermination = BatchOperationTermination
   { batchOperationTerminationDetails :: !(Maybe TE_Common_V1_Message.Payloads)
@@ -169,21 +173,20 @@ instance MessageDecode BatchOperationTermination where
 instance IsMessage BatchOperationTermination where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationTermination"
 
-instance ProtoToJSON BatchOperationTermination where
-  protoToJSON msg = jsonObject
-      [ "details" .= msg.batchOperationTerminationDetails
-      , "identity" .= msg.batchOperationTerminationIdentity
+instance Aeson.ToJSON BatchOperationTermination where
+  toJSON msg = jsonObject
+      [ "details" .=: msg.batchOperationTerminationDetails
+      , "identity" .=: msg.batchOperationTerminationIdentity
       ]
 
-instance ProtoFromJSON BatchOperationTermination where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationTerminationDetails <- obj .:? "details"
-    fld_batchOperationTerminationIdentity <- obj .:? "identity"
+instance Aeson.FromJSON BatchOperationTermination where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationTerminationDetails <- parseFieldMaybe obj "details"
+    fld_batchOperationTerminationIdentity <- parseFieldMaybe obj "identity"
     pure defaultBatchOperationTermination
       { batchOperationTerminationDetails = maybe (batchOperationTerminationDetails defaultBatchOperationTermination) id fld_batchOperationTerminationDetails
       , batchOperationTerminationIdentity = maybe (batchOperationTerminationIdentity defaultBatchOperationTermination) id fld_batchOperationTerminationIdentity
       }
-  protoFromJSON _ = Right defaultBatchOperationTermination
 
 data BatchOperationSignal = BatchOperationSignal
   { batchOperationSignalSignal :: !Text
@@ -241,27 +244,27 @@ instance MessageDecode BatchOperationSignal where
 instance IsMessage BatchOperationSignal where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationSignal"
 
-instance ProtoToJSON BatchOperationSignal where
-  protoToJSON msg = jsonObject
-      [ "signal" .= msg.batchOperationSignalSignal
-      , "input" .= msg.batchOperationSignalInput
-      , "header" .= msg.batchOperationSignalHeader
-      , "identity" .= msg.batchOperationSignalIdentity
+instance Aeson.ToJSON BatchOperationSignal where
+  toJSON msg = jsonObject
+      [ "signal" .=: msg.batchOperationSignalSignal
+      , "input" .=: msg.batchOperationSignalInput
+      , "header" .=: msg.batchOperationSignalHeader
+      , "identity" .=: msg.batchOperationSignalIdentity
       ]
 
-instance ProtoFromJSON BatchOperationSignal where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationSignalSignal <- obj .:? "signal"
-    fld_batchOperationSignalInput <- obj .:? "input"
-    fld_batchOperationSignalHeader <- obj .:? "header"
-    fld_batchOperationSignalIdentity <- obj .:? "identity"
+instance Aeson.FromJSON BatchOperationSignal where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationSignalSignal <- parseFieldMaybe obj "signal"
+    fld_batchOperationSignalInput <- parseFieldMaybe obj "input"
+    fld_batchOperationSignalHeader <- parseFieldMaybe obj "header"
+    fld_batchOperationSignalIdentity <- parseFieldMaybe obj "identity"
     pure defaultBatchOperationSignal
       { batchOperationSignalSignal = maybe (batchOperationSignalSignal defaultBatchOperationSignal) id fld_batchOperationSignalSignal
       , batchOperationSignalInput = maybe (batchOperationSignalInput defaultBatchOperationSignal) id fld_batchOperationSignalInput
       , batchOperationSignalHeader = maybe (batchOperationSignalHeader defaultBatchOperationSignal) id fld_batchOperationSignalHeader
       , batchOperationSignalIdentity = maybe (batchOperationSignalIdentity defaultBatchOperationSignal) id fld_batchOperationSignalIdentity
       }
-  protoFromJSON _ = Right defaultBatchOperationSignal
+  parseJSON _ = pure defaultBatchOperationSignal
 
 data BatchOperationCancellation = BatchOperationCancellation
   { batchOperationCancellationIdentity :: !Text
@@ -298,19 +301,18 @@ instance MessageDecode BatchOperationCancellation where
 instance IsMessage BatchOperationCancellation where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationCancellation"
 
-instance ProtoToJSON BatchOperationCancellation where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.batchOperationCancellationIdentity
+instance Aeson.ToJSON BatchOperationCancellation where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.batchOperationCancellationIdentity
 
       ]
 
-instance ProtoFromJSON BatchOperationCancellation where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationCancellationIdentity <- obj .:? "identity"
+instance Aeson.FromJSON BatchOperationCancellation where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationCancellationIdentity <- parseFieldMaybe obj "identity"
     pure defaultBatchOperationCancellation
       { batchOperationCancellationIdentity = maybe (batchOperationCancellationIdentity defaultBatchOperationCancellation) id fld_batchOperationCancellationIdentity
       }
-  protoFromJSON _ = Right defaultBatchOperationCancellation
 
 data BatchOperationDeletion = BatchOperationDeletion
   { batchOperationDeletionIdentity :: !Text
@@ -347,19 +349,18 @@ instance MessageDecode BatchOperationDeletion where
 instance IsMessage BatchOperationDeletion where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationDeletion"
 
-instance ProtoToJSON BatchOperationDeletion where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.batchOperationDeletionIdentity
+instance Aeson.ToJSON BatchOperationDeletion where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.batchOperationDeletionIdentity
 
       ]
 
-instance ProtoFromJSON BatchOperationDeletion where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationDeletionIdentity <- obj .:? "identity"
+instance Aeson.FromJSON BatchOperationDeletion where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationDeletionIdentity <- parseFieldMaybe obj "identity"
     pure defaultBatchOperationDeletion
       { batchOperationDeletionIdentity = maybe (batchOperationDeletionIdentity defaultBatchOperationDeletion) id fld_batchOperationDeletionIdentity
       }
-  protoFromJSON _ = Right defaultBatchOperationDeletion
 
 data BatchOperationReset = BatchOperationReset
   { batchOperationResetIdentity :: !Text
@@ -424,22 +425,22 @@ instance MessageDecode BatchOperationReset where
 instance IsMessage BatchOperationReset where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationReset"
 
-instance ProtoToJSON BatchOperationReset where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.batchOperationResetIdentity
-      , "options" .= msg.batchOperationResetOptions
-      , "resetType" .= msg.batchOperationResetResettype
-      , "resetReapplyType" .= msg.batchOperationResetResetreapplytype
-      , "postResetOperations" .= msg.batchOperationResetPostresetoperations
+instance Aeson.ToJSON BatchOperationReset where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.batchOperationResetIdentity
+      , "options" .=: msg.batchOperationResetOptions
+      , "resetType" .=: msg.batchOperationResetResettype
+      , "resetReapplyType" .=: msg.batchOperationResetResetreapplytype
+      , "postResetOperations" .=: msg.batchOperationResetPostresetoperations
       ]
 
-instance ProtoFromJSON BatchOperationReset where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationResetIdentity <- obj .:? "identity"
-    fld_batchOperationResetOptions <- obj .:? "options"
-    fld_batchOperationResetResettype <- obj .:? "resetType"
-    fld_batchOperationResetResetreapplytype <- obj .:? "resetReapplyType"
-    fld_batchOperationResetPostresetoperations <- obj .:? "postResetOperations"
+instance Aeson.FromJSON BatchOperationReset where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationResetIdentity <- parseFieldMaybe obj "identity"
+    fld_batchOperationResetOptions <- parseFieldMaybe obj "options"
+    fld_batchOperationResetResettype <- parseFieldMaybe obj "resetType"
+    fld_batchOperationResetResetreapplytype <- parseFieldMaybe obj "resetReapplyType"
+    fld_batchOperationResetPostresetoperations <- parseFieldMaybe obj "postResetOperations"
     pure defaultBatchOperationReset
       { batchOperationResetIdentity = maybe (batchOperationResetIdentity defaultBatchOperationReset) id fld_batchOperationResetIdentity
       , batchOperationResetOptions = maybe (batchOperationResetOptions defaultBatchOperationReset) id fld_batchOperationResetOptions
@@ -447,7 +448,7 @@ instance ProtoFromJSON BatchOperationReset where
       , batchOperationResetResetreapplytype = maybe (batchOperationResetResetreapplytype defaultBatchOperationReset) id fld_batchOperationResetResetreapplytype
       , batchOperationResetPostresetoperations = maybe (batchOperationResetPostresetoperations defaultBatchOperationReset) id fld_batchOperationResetPostresetoperations
       }
-  protoFromJSON _ = Right defaultBatchOperationReset
+  parseJSON _ = pure defaultBatchOperationReset
 
 data BatchOperationUpdateWorkflowExecutionOptions = BatchOperationUpdateWorkflowExecutionOptions
   { batchOperationUpdateWorkflowExecutionOptionsIdentity :: !Text
@@ -498,24 +499,23 @@ instance MessageDecode BatchOperationUpdateWorkflowExecutionOptions where
 instance IsMessage BatchOperationUpdateWorkflowExecutionOptions where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationUpdateWorkflowExecutionOptions"
 
-instance ProtoToJSON BatchOperationUpdateWorkflowExecutionOptions where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.batchOperationUpdateWorkflowExecutionOptionsIdentity
-      , "workflowExecutionOptions" .= msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions
-      , "updateMask" .= msg.batchOperationUpdateWorkflowExecutionOptionsUpdatemask
+instance Aeson.ToJSON BatchOperationUpdateWorkflowExecutionOptions where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.batchOperationUpdateWorkflowExecutionOptionsIdentity
+      , "workflowExecutionOptions" .=: msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions
+      , "updateMask" .=: msg.batchOperationUpdateWorkflowExecutionOptionsUpdatemask
       ]
 
-instance ProtoFromJSON BatchOperationUpdateWorkflowExecutionOptions where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationUpdateWorkflowExecutionOptionsIdentity <- obj .:? "identity"
-    fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions <- obj .:? "workflowExecutionOptions"
-    fld_batchOperationUpdateWorkflowExecutionOptionsUpdatemask <- obj .:? "updateMask"
+instance Aeson.FromJSON BatchOperationUpdateWorkflowExecutionOptions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationUpdateWorkflowExecutionOptionsIdentity <- parseFieldMaybe obj "identity"
+    fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions <- parseFieldMaybe obj "workflowExecutionOptions"
+    fld_batchOperationUpdateWorkflowExecutionOptionsUpdatemask <- parseFieldMaybe obj "updateMask"
     pure defaultBatchOperationUpdateWorkflowExecutionOptions
       { batchOperationUpdateWorkflowExecutionOptionsIdentity = maybe (batchOperationUpdateWorkflowExecutionOptionsIdentity defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsIdentity
       , batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions = maybe (batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions
       , batchOperationUpdateWorkflowExecutionOptionsUpdatemask = maybe (batchOperationUpdateWorkflowExecutionOptionsUpdatemask defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsUpdatemask
       }
-  protoFromJSON _ = Right defaultBatchOperationUpdateWorkflowExecutionOptions
 
 data BatchOperationUnpauseActivities = BatchOperationUnpauseActivities
   { batchOperationUnpauseActivitiesIdentity :: !Text
@@ -531,10 +531,10 @@ data BatchOperationUnpauseActivities'Activity
   | BatchOperationUnpauseActivities'Activity'MatchAll {-# UNPACK #-} !Bool
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON BatchOperationUnpauseActivities'Activity where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON BatchOperationUnpauseActivities'Activity where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON BatchOperationUnpauseActivities'Activity where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON BatchOperationUnpauseActivities'Activity where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultBatchOperationUnpauseActivities :: BatchOperationUnpauseActivities
 defaultBatchOperationUnpauseActivities = BatchOperationUnpauseActivities
@@ -596,22 +596,22 @@ instance MessageDecode BatchOperationUnpauseActivities where
 instance IsMessage BatchOperationUnpauseActivities where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationUnpauseActivities"
 
-instance ProtoToJSON BatchOperationUnpauseActivities where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.batchOperationUnpauseActivitiesIdentity
-      , "activity" .= msg.batchOperationUnpauseActivitiesActivity
-      , "resetAttempts" .= msg.batchOperationUnpauseActivitiesResetattempts
-      , "resetHeartbeat" .= msg.batchOperationUnpauseActivitiesResetheartbeat
-      , "jitter" .= msg.batchOperationUnpauseActivitiesJitter
+instance Aeson.ToJSON BatchOperationUnpauseActivities where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.batchOperationUnpauseActivitiesIdentity
+      , "activity" .=: msg.batchOperationUnpauseActivitiesActivity
+      , "resetAttempts" .=: msg.batchOperationUnpauseActivitiesResetattempts
+      , "resetHeartbeat" .=: msg.batchOperationUnpauseActivitiesResetheartbeat
+      , "jitter" .=: msg.batchOperationUnpauseActivitiesJitter
       ]
 
-instance ProtoFromJSON BatchOperationUnpauseActivities where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationUnpauseActivitiesIdentity <- obj .:? "identity"
-    fld_batchOperationUnpauseActivitiesActivity <- obj .:? "activity"
-    fld_batchOperationUnpauseActivitiesResetattempts <- obj .:? "resetAttempts"
-    fld_batchOperationUnpauseActivitiesResetheartbeat <- obj .:? "resetHeartbeat"
-    fld_batchOperationUnpauseActivitiesJitter <- obj .:? "jitter"
+instance Aeson.FromJSON BatchOperationUnpauseActivities where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationUnpauseActivitiesIdentity <- parseFieldMaybe obj "identity"
+    fld_batchOperationUnpauseActivitiesActivity <- parseFieldMaybe obj "activity"
+    fld_batchOperationUnpauseActivitiesResetattempts <- parseFieldMaybe obj "resetAttempts"
+    fld_batchOperationUnpauseActivitiesResetheartbeat <- parseFieldMaybe obj "resetHeartbeat"
+    fld_batchOperationUnpauseActivitiesJitter <- parseFieldMaybe obj "jitter"
     pure defaultBatchOperationUnpauseActivities
       { batchOperationUnpauseActivitiesIdentity = maybe (batchOperationUnpauseActivitiesIdentity defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesIdentity
       , batchOperationUnpauseActivitiesActivity = maybe (batchOperationUnpauseActivitiesActivity defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesActivity
@@ -619,7 +619,7 @@ instance ProtoFromJSON BatchOperationUnpauseActivities where
       , batchOperationUnpauseActivitiesResetheartbeat = maybe (batchOperationUnpauseActivitiesResetheartbeat defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesResetheartbeat
       , batchOperationUnpauseActivitiesJitter = maybe (batchOperationUnpauseActivitiesJitter defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesJitter
       }
-  protoFromJSON _ = Right defaultBatchOperationUnpauseActivities
+  parseJSON _ = pure defaultBatchOperationUnpauseActivities
 
 data BatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
   { batchOperationTriggerWorkflowRuleIdentity :: !Text
@@ -632,10 +632,10 @@ data BatchOperationTriggerWorkflowRule'Rule
   | BatchOperationTriggerWorkflowRule'Rule'Spec !TE_Rules_V1_Message.WorkflowRuleSpec
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON BatchOperationTriggerWorkflowRule'Rule where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON BatchOperationTriggerWorkflowRule'Rule where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON BatchOperationTriggerWorkflowRule'Rule where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON BatchOperationTriggerWorkflowRule'Rule where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultBatchOperationTriggerWorkflowRule :: BatchOperationTriggerWorkflowRule
 defaultBatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
@@ -679,21 +679,20 @@ instance MessageDecode BatchOperationTriggerWorkflowRule where
 instance IsMessage BatchOperationTriggerWorkflowRule where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationTriggerWorkflowRule"
 
-instance ProtoToJSON BatchOperationTriggerWorkflowRule where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.batchOperationTriggerWorkflowRuleIdentity
-      , "rule" .= msg.batchOperationTriggerWorkflowRuleRule
+instance Aeson.ToJSON BatchOperationTriggerWorkflowRule where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.batchOperationTriggerWorkflowRuleIdentity
+      , "rule" .=: msg.batchOperationTriggerWorkflowRuleRule
       ]
 
-instance ProtoFromJSON BatchOperationTriggerWorkflowRule where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationTriggerWorkflowRuleIdentity <- obj .:? "identity"
-    fld_batchOperationTriggerWorkflowRuleRule <- obj .:? "rule"
+instance Aeson.FromJSON BatchOperationTriggerWorkflowRule where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationTriggerWorkflowRuleIdentity <- parseFieldMaybe obj "identity"
+    fld_batchOperationTriggerWorkflowRuleRule <- parseFieldMaybe obj "rule"
     pure defaultBatchOperationTriggerWorkflowRule
       { batchOperationTriggerWorkflowRuleIdentity = maybe (batchOperationTriggerWorkflowRuleIdentity defaultBatchOperationTriggerWorkflowRule) id fld_batchOperationTriggerWorkflowRuleIdentity
       , batchOperationTriggerWorkflowRuleRule = maybe (batchOperationTriggerWorkflowRuleRule defaultBatchOperationTriggerWorkflowRule) id fld_batchOperationTriggerWorkflowRuleRule
       }
-  protoFromJSON _ = Right defaultBatchOperationTriggerWorkflowRule
 
 data BatchOperationResetActivities = BatchOperationResetActivities
   { batchOperationResetActivitiesIdentity :: !Text
@@ -711,10 +710,10 @@ data BatchOperationResetActivities'Activity
   | BatchOperationResetActivities'Activity'MatchAll {-# UNPACK #-} !Bool
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON BatchOperationResetActivities'Activity where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON BatchOperationResetActivities'Activity where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON BatchOperationResetActivities'Activity where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON BatchOperationResetActivities'Activity where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultBatchOperationResetActivities :: BatchOperationResetActivities
 defaultBatchOperationResetActivities = BatchOperationResetActivities
@@ -788,26 +787,26 @@ instance MessageDecode BatchOperationResetActivities where
 instance IsMessage BatchOperationResetActivities where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationResetActivities"
 
-instance ProtoToJSON BatchOperationResetActivities where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.batchOperationResetActivitiesIdentity
-      , "activity" .= msg.batchOperationResetActivitiesActivity
-      , "resetAttempts" .= msg.batchOperationResetActivitiesResetattempts
-      , "resetHeartbeat" .= msg.batchOperationResetActivitiesResetheartbeat
-      , "keepPaused" .= msg.batchOperationResetActivitiesKeeppaused
-      , "jitter" .= msg.batchOperationResetActivitiesJitter
-      , "restoreOriginalOptions" .= msg.batchOperationResetActivitiesRestoreoriginaloptions
+instance Aeson.ToJSON BatchOperationResetActivities where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.batchOperationResetActivitiesIdentity
+      , "activity" .=: msg.batchOperationResetActivitiesActivity
+      , "resetAttempts" .=: msg.batchOperationResetActivitiesResetattempts
+      , "resetHeartbeat" .=: msg.batchOperationResetActivitiesResetheartbeat
+      , "keepPaused" .=: msg.batchOperationResetActivitiesKeeppaused
+      , "jitter" .=: msg.batchOperationResetActivitiesJitter
+      , "restoreOriginalOptions" .=: msg.batchOperationResetActivitiesRestoreoriginaloptions
       ]
 
-instance ProtoFromJSON BatchOperationResetActivities where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationResetActivitiesIdentity <- obj .:? "identity"
-    fld_batchOperationResetActivitiesActivity <- obj .:? "activity"
-    fld_batchOperationResetActivitiesResetattempts <- obj .:? "resetAttempts"
-    fld_batchOperationResetActivitiesResetheartbeat <- obj .:? "resetHeartbeat"
-    fld_batchOperationResetActivitiesKeeppaused <- obj .:? "keepPaused"
-    fld_batchOperationResetActivitiesJitter <- obj .:? "jitter"
-    fld_batchOperationResetActivitiesRestoreoriginaloptions <- obj .:? "restoreOriginalOptions"
+instance Aeson.FromJSON BatchOperationResetActivities where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationResetActivitiesIdentity <- parseFieldMaybe obj "identity"
+    fld_batchOperationResetActivitiesActivity <- parseFieldMaybe obj "activity"
+    fld_batchOperationResetActivitiesResetattempts <- parseFieldMaybe obj "resetAttempts"
+    fld_batchOperationResetActivitiesResetheartbeat <- parseFieldMaybe obj "resetHeartbeat"
+    fld_batchOperationResetActivitiesKeeppaused <- parseFieldMaybe obj "keepPaused"
+    fld_batchOperationResetActivitiesJitter <- parseFieldMaybe obj "jitter"
+    fld_batchOperationResetActivitiesRestoreoriginaloptions <- parseFieldMaybe obj "restoreOriginalOptions"
     pure defaultBatchOperationResetActivities
       { batchOperationResetActivitiesIdentity = maybe (batchOperationResetActivitiesIdentity defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesIdentity
       , batchOperationResetActivitiesActivity = maybe (batchOperationResetActivitiesActivity defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesActivity
@@ -817,7 +816,7 @@ instance ProtoFromJSON BatchOperationResetActivities where
       , batchOperationResetActivitiesJitter = maybe (batchOperationResetActivitiesJitter defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesJitter
       , batchOperationResetActivitiesRestoreoriginaloptions = maybe (batchOperationResetActivitiesRestoreoriginaloptions defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesRestoreoriginaloptions
       }
-  protoFromJSON _ = Right defaultBatchOperationResetActivities
+  parseJSON _ = pure defaultBatchOperationResetActivities
 
 data BatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
   { batchOperationUpdateActivityOptionsIdentity :: !Text
@@ -833,10 +832,10 @@ data BatchOperationUpdateActivityOptions'Activity
   | BatchOperationUpdateActivityOptions'Activity'MatchAll {-# UNPACK #-} !Bool
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON BatchOperationUpdateActivityOptions'Activity where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON BatchOperationUpdateActivityOptions'Activity where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON BatchOperationUpdateActivityOptions'Activity where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON BatchOperationUpdateActivityOptions'Activity where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultBatchOperationUpdateActivityOptions :: BatchOperationUpdateActivityOptions
 defaultBatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
@@ -898,22 +897,22 @@ instance MessageDecode BatchOperationUpdateActivityOptions where
 instance IsMessage BatchOperationUpdateActivityOptions where
   messageTypeName _ = "temporal.api.batch.v1.BatchOperationUpdateActivityOptions"
 
-instance ProtoToJSON BatchOperationUpdateActivityOptions where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.batchOperationUpdateActivityOptionsIdentity
-      , "activity" .= msg.batchOperationUpdateActivityOptionsActivity
-      , "activityOptions" .= msg.batchOperationUpdateActivityOptionsActivityoptions
-      , "updateMask" .= msg.batchOperationUpdateActivityOptionsUpdatemask
-      , "restoreOriginal" .= msg.batchOperationUpdateActivityOptionsRestoreoriginal
+instance Aeson.ToJSON BatchOperationUpdateActivityOptions where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.batchOperationUpdateActivityOptionsIdentity
+      , "activity" .=: msg.batchOperationUpdateActivityOptionsActivity
+      , "activityOptions" .=: msg.batchOperationUpdateActivityOptionsActivityoptions
+      , "updateMask" .=: msg.batchOperationUpdateActivityOptionsUpdatemask
+      , "restoreOriginal" .=: msg.batchOperationUpdateActivityOptionsRestoreoriginal
       ]
 
-instance ProtoFromJSON BatchOperationUpdateActivityOptions where
-  protoFromJSON (JsonObject obj) = do
-    fld_batchOperationUpdateActivityOptionsIdentity <- obj .:? "identity"
-    fld_batchOperationUpdateActivityOptionsActivity <- obj .:? "activity"
-    fld_batchOperationUpdateActivityOptionsActivityoptions <- obj .:? "activityOptions"
-    fld_batchOperationUpdateActivityOptionsUpdatemask <- obj .:? "updateMask"
-    fld_batchOperationUpdateActivityOptionsRestoreoriginal <- obj .:? "restoreOriginal"
+instance Aeson.FromJSON BatchOperationUpdateActivityOptions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_batchOperationUpdateActivityOptionsIdentity <- parseFieldMaybe obj "identity"
+    fld_batchOperationUpdateActivityOptionsActivity <- parseFieldMaybe obj "activity"
+    fld_batchOperationUpdateActivityOptionsActivityoptions <- parseFieldMaybe obj "activityOptions"
+    fld_batchOperationUpdateActivityOptionsUpdatemask <- parseFieldMaybe obj "updateMask"
+    fld_batchOperationUpdateActivityOptionsRestoreoriginal <- parseFieldMaybe obj "restoreOriginal"
     pure defaultBatchOperationUpdateActivityOptions
       { batchOperationUpdateActivityOptionsIdentity = maybe (batchOperationUpdateActivityOptionsIdentity defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsIdentity
       , batchOperationUpdateActivityOptionsActivity = maybe (batchOperationUpdateActivityOptionsActivity defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsActivity
@@ -921,7 +920,7 @@ instance ProtoFromJSON BatchOperationUpdateActivityOptions where
       , batchOperationUpdateActivityOptionsUpdatemask = maybe (batchOperationUpdateActivityOptionsUpdatemask defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsUpdatemask
       , batchOperationUpdateActivityOptionsRestoreoriginal = maybe (batchOperationUpdateActivityOptionsRestoreoriginal defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsRestoreoriginal
       }
-  protoFromJSON _ = Right defaultBatchOperationUpdateActivityOptions
+  parseJSON _ = pure defaultBatchOperationUpdateActivityOptions
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

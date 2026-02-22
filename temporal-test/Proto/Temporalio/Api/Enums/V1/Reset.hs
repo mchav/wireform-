@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -71,22 +75,22 @@ instance MessageSize ResetReapplyExcludeType where
 instance MessageDecode ResetReapplyExcludeType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ResetReapplyExcludeType where
-  protoToJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeUnspecified = JsonString "RESET_REAPPLY_EXCLUDE_TYPE_UNSPECIFIED"
-  protoToJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeSignal = JsonString "RESET_REAPPLY_EXCLUDE_TYPE_SIGNAL"
-  protoToJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeUpdate = JsonString "RESET_REAPPLY_EXCLUDE_TYPE_UPDATE"
-  protoToJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeNexus = JsonString "RESET_REAPPLY_EXCLUDE_TYPE_NEXUS"
-  protoToJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeCancelRequest = JsonString "RESET_REAPPLY_EXCLUDE_TYPE_CANCEL_REQUEST"
+instance Aeson.ToJSON ResetReapplyExcludeType where
+  toJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeUnspecified = Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_UNSPECIFIED"
+  toJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeSignal = Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_SIGNAL"
+  toJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeUpdate = Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_UPDATE"
+  toJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeNexus = Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_NEXUS"
+  toJSON ResetReapplyExcludeType'ResetReapplyExcludeTypeCancelRequest = Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_CANCEL_REQUEST"
 
-instance ProtoFromJSON ResetReapplyExcludeType where
-  protoFromJSON = \case
-    JsonString "RESET_REAPPLY_EXCLUDE_TYPE_UNSPECIFIED" -> Right ResetReapplyExcludeType'ResetReapplyExcludeTypeUnspecified
-    JsonString "RESET_REAPPLY_EXCLUDE_TYPE_SIGNAL" -> Right ResetReapplyExcludeType'ResetReapplyExcludeTypeSignal
-    JsonString "RESET_REAPPLY_EXCLUDE_TYPE_UPDATE" -> Right ResetReapplyExcludeType'ResetReapplyExcludeTypeUpdate
-    JsonString "RESET_REAPPLY_EXCLUDE_TYPE_NEXUS" -> Right ResetReapplyExcludeType'ResetReapplyExcludeTypeNexus
-    JsonString "RESET_REAPPLY_EXCLUDE_TYPE_CANCEL_REQUEST" -> Right ResetReapplyExcludeType'ResetReapplyExcludeTypeCancelRequest
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ResetReapplyExcludeType"
+instance Aeson.FromJSON ResetReapplyExcludeType where
+  parseJSON = \case
+    Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_UNSPECIFIED" -> pure ResetReapplyExcludeType'ResetReapplyExcludeTypeUnspecified
+    Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_SIGNAL" -> pure ResetReapplyExcludeType'ResetReapplyExcludeTypeSignal
+    Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_UPDATE" -> pure ResetReapplyExcludeType'ResetReapplyExcludeTypeUpdate
+    Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_NEXUS" -> pure ResetReapplyExcludeType'ResetReapplyExcludeTypeNexus
+    Aeson.String "RESET_REAPPLY_EXCLUDE_TYPE_CANCEL_REQUEST" -> pure ResetReapplyExcludeType'ResetReapplyExcludeTypeCancelRequest
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ResetReapplyExcludeType"
 
 data ResetReapplyType
   = ResetReapplyType'ResetReapplyTypeUnspecified
@@ -116,20 +120,20 @@ instance MessageSize ResetReapplyType where
 instance MessageDecode ResetReapplyType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ResetReapplyType where
-  protoToJSON ResetReapplyType'ResetReapplyTypeUnspecified = JsonString "RESET_REAPPLY_TYPE_UNSPECIFIED"
-  protoToJSON ResetReapplyType'ResetReapplyTypeSignal = JsonString "RESET_REAPPLY_TYPE_SIGNAL"
-  protoToJSON ResetReapplyType'ResetReapplyTypeNone = JsonString "RESET_REAPPLY_TYPE_NONE"
-  protoToJSON ResetReapplyType'ResetReapplyTypeAllEligible = JsonString "RESET_REAPPLY_TYPE_ALL_ELIGIBLE"
+instance Aeson.ToJSON ResetReapplyType where
+  toJSON ResetReapplyType'ResetReapplyTypeUnspecified = Aeson.String "RESET_REAPPLY_TYPE_UNSPECIFIED"
+  toJSON ResetReapplyType'ResetReapplyTypeSignal = Aeson.String "RESET_REAPPLY_TYPE_SIGNAL"
+  toJSON ResetReapplyType'ResetReapplyTypeNone = Aeson.String "RESET_REAPPLY_TYPE_NONE"
+  toJSON ResetReapplyType'ResetReapplyTypeAllEligible = Aeson.String "RESET_REAPPLY_TYPE_ALL_ELIGIBLE"
 
-instance ProtoFromJSON ResetReapplyType where
-  protoFromJSON = \case
-    JsonString "RESET_REAPPLY_TYPE_UNSPECIFIED" -> Right ResetReapplyType'ResetReapplyTypeUnspecified
-    JsonString "RESET_REAPPLY_TYPE_SIGNAL" -> Right ResetReapplyType'ResetReapplyTypeSignal
-    JsonString "RESET_REAPPLY_TYPE_NONE" -> Right ResetReapplyType'ResetReapplyTypeNone
-    JsonString "RESET_REAPPLY_TYPE_ALL_ELIGIBLE" -> Right ResetReapplyType'ResetReapplyTypeAllEligible
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ResetReapplyType"
+instance Aeson.FromJSON ResetReapplyType where
+  parseJSON = \case
+    Aeson.String "RESET_REAPPLY_TYPE_UNSPECIFIED" -> pure ResetReapplyType'ResetReapplyTypeUnspecified
+    Aeson.String "RESET_REAPPLY_TYPE_SIGNAL" -> pure ResetReapplyType'ResetReapplyTypeSignal
+    Aeson.String "RESET_REAPPLY_TYPE_NONE" -> pure ResetReapplyType'ResetReapplyTypeNone
+    Aeson.String "RESET_REAPPLY_TYPE_ALL_ELIGIBLE" -> pure ResetReapplyType'ResetReapplyTypeAllEligible
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ResetReapplyType"
 
 data ResetType
   = ResetType'ResetTypeUnspecified
@@ -156,16 +160,16 @@ instance MessageSize ResetType where
 instance MessageDecode ResetType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON ResetType where
-  protoToJSON ResetType'ResetTypeUnspecified = JsonString "RESET_TYPE_UNSPECIFIED"
-  protoToJSON ResetType'ResetTypeFirstWorkflowTask = JsonString "RESET_TYPE_FIRST_WORKFLOW_TASK"
-  protoToJSON ResetType'ResetTypeLastWorkflowTask = JsonString "RESET_TYPE_LAST_WORKFLOW_TASK"
+instance Aeson.ToJSON ResetType where
+  toJSON ResetType'ResetTypeUnspecified = Aeson.String "RESET_TYPE_UNSPECIFIED"
+  toJSON ResetType'ResetTypeFirstWorkflowTask = Aeson.String "RESET_TYPE_FIRST_WORKFLOW_TASK"
+  toJSON ResetType'ResetTypeLastWorkflowTask = Aeson.String "RESET_TYPE_LAST_WORKFLOW_TASK"
 
-instance ProtoFromJSON ResetType where
-  protoFromJSON = \case
-    JsonString "RESET_TYPE_UNSPECIFIED" -> Right ResetType'ResetTypeUnspecified
-    JsonString "RESET_TYPE_FIRST_WORKFLOW_TASK" -> Right ResetType'ResetTypeFirstWorkflowTask
-    JsonString "RESET_TYPE_LAST_WORKFLOW_TASK" -> Right ResetType'ResetTypeLastWorkflowTask
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for ResetType"
+instance Aeson.FromJSON ResetType where
+  parseJSON = \case
+    Aeson.String "RESET_TYPE_UNSPECIFIED" -> pure ResetType'ResetTypeUnspecified
+    Aeson.String "RESET_TYPE_FIRST_WORKFLOW_TASK" -> pure ResetType'ResetTypeFirstWorkflowTask
+    Aeson.String "RESET_TYPE_LAST_WORKFLOW_TASK" -> pure ResetType'ResetTypeLastWorkflowTask
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for ResetType"
 

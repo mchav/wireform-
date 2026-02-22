@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -65,18 +69,18 @@ instance MessageSize QueryResultType where
 instance MessageDecode QueryResultType where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON QueryResultType where
-  protoToJSON QueryResultType'QueryResultTypeUnspecified = JsonString "QUERY_RESULT_TYPE_UNSPECIFIED"
-  protoToJSON QueryResultType'QueryResultTypeAnswered = JsonString "QUERY_RESULT_TYPE_ANSWERED"
-  protoToJSON QueryResultType'QueryResultTypeFailed = JsonString "QUERY_RESULT_TYPE_FAILED"
+instance Aeson.ToJSON QueryResultType where
+  toJSON QueryResultType'QueryResultTypeUnspecified = Aeson.String "QUERY_RESULT_TYPE_UNSPECIFIED"
+  toJSON QueryResultType'QueryResultTypeAnswered = Aeson.String "QUERY_RESULT_TYPE_ANSWERED"
+  toJSON QueryResultType'QueryResultTypeFailed = Aeson.String "QUERY_RESULT_TYPE_FAILED"
 
-instance ProtoFromJSON QueryResultType where
-  protoFromJSON = \case
-    JsonString "QUERY_RESULT_TYPE_UNSPECIFIED" -> Right QueryResultType'QueryResultTypeUnspecified
-    JsonString "QUERY_RESULT_TYPE_ANSWERED" -> Right QueryResultType'QueryResultTypeAnswered
-    JsonString "QUERY_RESULT_TYPE_FAILED" -> Right QueryResultType'QueryResultTypeFailed
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for QueryResultType"
+instance Aeson.FromJSON QueryResultType where
+  parseJSON = \case
+    Aeson.String "QUERY_RESULT_TYPE_UNSPECIFIED" -> pure QueryResultType'QueryResultTypeUnspecified
+    Aeson.String "QUERY_RESULT_TYPE_ANSWERED" -> pure QueryResultType'QueryResultTypeAnswered
+    Aeson.String "QUERY_RESULT_TYPE_FAILED" -> pure QueryResultType'QueryResultTypeFailed
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for QueryResultType"
 
 data QueryRejectCondition
   = QueryRejectCondition'QueryRejectConditionUnspecified
@@ -106,18 +110,18 @@ instance MessageSize QueryRejectCondition where
 instance MessageDecode QueryRejectCondition where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON QueryRejectCondition where
-  protoToJSON QueryRejectCondition'QueryRejectConditionUnspecified = JsonString "QUERY_REJECT_CONDITION_UNSPECIFIED"
-  protoToJSON QueryRejectCondition'QueryRejectConditionNone = JsonString "QUERY_REJECT_CONDITION_NONE"
-  protoToJSON QueryRejectCondition'QueryRejectConditionNotOpen = JsonString "QUERY_REJECT_CONDITION_NOT_OPEN"
-  protoToJSON QueryRejectCondition'QueryRejectConditionNotCompletedCleanly = JsonString "QUERY_REJECT_CONDITION_NOT_COMPLETED_CLEANLY"
+instance Aeson.ToJSON QueryRejectCondition where
+  toJSON QueryRejectCondition'QueryRejectConditionUnspecified = Aeson.String "QUERY_REJECT_CONDITION_UNSPECIFIED"
+  toJSON QueryRejectCondition'QueryRejectConditionNone = Aeson.String "QUERY_REJECT_CONDITION_NONE"
+  toJSON QueryRejectCondition'QueryRejectConditionNotOpen = Aeson.String "QUERY_REJECT_CONDITION_NOT_OPEN"
+  toJSON QueryRejectCondition'QueryRejectConditionNotCompletedCleanly = Aeson.String "QUERY_REJECT_CONDITION_NOT_COMPLETED_CLEANLY"
 
-instance ProtoFromJSON QueryRejectCondition where
-  protoFromJSON = \case
-    JsonString "QUERY_REJECT_CONDITION_UNSPECIFIED" -> Right QueryRejectCondition'QueryRejectConditionUnspecified
-    JsonString "QUERY_REJECT_CONDITION_NONE" -> Right QueryRejectCondition'QueryRejectConditionNone
-    JsonString "QUERY_REJECT_CONDITION_NOT_OPEN" -> Right QueryRejectCondition'QueryRejectConditionNotOpen
-    JsonString "QUERY_REJECT_CONDITION_NOT_COMPLETED_CLEANLY" -> Right QueryRejectCondition'QueryRejectConditionNotCompletedCleanly
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for QueryRejectCondition"
+instance Aeson.FromJSON QueryRejectCondition where
+  parseJSON = \case
+    Aeson.String "QUERY_REJECT_CONDITION_UNSPECIFIED" -> pure QueryRejectCondition'QueryRejectConditionUnspecified
+    Aeson.String "QUERY_REJECT_CONDITION_NONE" -> pure QueryRejectCondition'QueryRejectConditionNone
+    Aeson.String "QUERY_REJECT_CONDITION_NOT_OPEN" -> pure QueryRejectCondition'QueryRejectConditionNotOpen
+    Aeson.String "QUERY_REJECT_CONDITION_NOT_COMPLETED_CLEANLY" -> pure QueryRejectCondition'QueryRejectConditionNotCompletedCleanly
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for QueryRejectCondition"
 

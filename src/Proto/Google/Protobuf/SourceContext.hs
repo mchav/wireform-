@@ -27,7 +27,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -110,19 +114,18 @@ instance ProtoMessage SourceContext where
         })
     ]
 
-instance ProtoToJSON SourceContext where
-  protoToJSON msg = jsonObject
-      [ "fileName" .= msg.sourceContextFilename
+instance Aeson.ToJSON SourceContext where
+  toJSON msg = jsonObject
+      [ "fileName" .=: msg.sourceContextFilename
 
       ]
 
-instance ProtoFromJSON SourceContext where
-  protoFromJSON (JsonObject obj) = do
-    fld_sourceContextFilename <- obj .:? "fileName"
+instance Aeson.FromJSON SourceContext where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_sourceContextFilename <- parseFieldMaybe obj "fileName"
     pure defaultSourceContext
       { sourceContextFilename = maybe (sourceContextFilename defaultSourceContext) id fld_sourceContextFilename
       }
-  protoFromJSON _ = Right defaultSourceContext
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

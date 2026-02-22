@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -76,19 +80,18 @@ instance MessageDecode WorkflowExecution where
 instance IsMessage WorkflowExecution where
   messageTypeName _ = "temporal.api.export.v1.WorkflowExecution"
 
-instance ProtoToJSON WorkflowExecution where
-  protoToJSON msg = jsonObject
-      [ "history" .= msg.workflowExecutionHistory
+instance Aeson.ToJSON WorkflowExecution where
+  toJSON msg = jsonObject
+      [ "history" .=: msg.workflowExecutionHistory
 
       ]
 
-instance ProtoFromJSON WorkflowExecution where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionHistory <- obj .:? "history"
+instance Aeson.FromJSON WorkflowExecution where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionHistory <- parseFieldMaybe obj "history"
     pure defaultWorkflowExecution
       { workflowExecutionHistory = maybe (workflowExecutionHistory defaultWorkflowExecution) id fld_workflowExecutionHistory
       }
-  protoFromJSON _ = Right defaultWorkflowExecution
 
 data WorkflowExecutions = WorkflowExecutions
   { workflowExecutionsItems :: !(V.Vector WorkflowExecution)
@@ -125,19 +128,18 @@ instance MessageDecode WorkflowExecutions where
 instance IsMessage WorkflowExecutions where
   messageTypeName _ = "temporal.api.export.v1.WorkflowExecutions"
 
-instance ProtoToJSON WorkflowExecutions where
-  protoToJSON msg = jsonObject
-      [ "items" .= msg.workflowExecutionsItems
+instance Aeson.ToJSON WorkflowExecutions where
+  toJSON msg = jsonObject
+      [ "items" .=: msg.workflowExecutionsItems
 
       ]
 
-instance ProtoFromJSON WorkflowExecutions where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionsItems <- obj .:? "items"
+instance Aeson.FromJSON WorkflowExecutions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionsItems <- parseFieldMaybe obj "items"
     pure defaultWorkflowExecutions
       { workflowExecutionsItems = maybe (workflowExecutionsItems defaultWorkflowExecutions) id fld_workflowExecutionsItems
       }
-  protoFromJSON _ = Right defaultWorkflowExecutions
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -24,7 +24,11 @@ import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
 import Proto.Encode
 import Proto.Decode
-import Proto.JSON
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as AesonKM
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -263,64 +267,64 @@ instance MessageDecode WorkflowExecutionInfo where
 instance IsMessage WorkflowExecutionInfo where
   messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionInfo"
 
-instance ProtoToJSON WorkflowExecutionInfo where
-  protoToJSON msg = jsonObject
-      [ "execution" .= msg.workflowExecutionInfoExecution
-      , "type" .= msg.workflowExecutionInfoType
-      , "startTime" .= msg.workflowExecutionInfoStarttime
-      , "closeTime" .= msg.workflowExecutionInfoClosetime
-      , "status" .= msg.workflowExecutionInfoStatus
-      , "historyLength" .= msg.workflowExecutionInfoHistorylength
-      , "parentNamespaceId" .= msg.workflowExecutionInfoParentnamespaceid
-      , "parentExecution" .= msg.workflowExecutionInfoParentexecution
-      , "executionTime" .= msg.workflowExecutionInfoExecutiontime
-      , "memo" .= msg.workflowExecutionInfoMemo
-      , "searchAttributes" .= msg.workflowExecutionInfoSearchattributes
-      , "autoResetPoints" .= msg.workflowExecutionInfoAutoresetpoints
-      , "taskQueue" .= msg.workflowExecutionInfoTaskqueue
-      , "stateTransitionCount" .= msg.workflowExecutionInfoStatetransitioncount
-      , "historySizeBytes" .= msg.workflowExecutionInfoHistorysizebytes
-      , "mostRecentWorkerVersionStamp" .= msg.workflowExecutionInfoMostrecentworkerversionstamp
-      , "executionDuration" .= msg.workflowExecutionInfoExecutionduration
-      , "rootExecution" .= msg.workflowExecutionInfoRootexecution
-      , "assignedBuildId" .= msg.workflowExecutionInfoAssignedbuildid
-      , "inheritedBuildId" .= msg.workflowExecutionInfoInheritedbuildid
-      , "firstRunId" .= msg.workflowExecutionInfoFirstrunid
-      , "versioningInfo" .= msg.workflowExecutionInfoVersioninginfo
-      , "workerDeploymentName" .= msg.workflowExecutionInfoWorkerdeploymentname
-      , "priority" .= msg.workflowExecutionInfoPriority
-      , "externalPayloadSizeBytes" .= msg.workflowExecutionInfoExternalpayloadsizebytes
-      , "externalPayloadCount" .= msg.workflowExecutionInfoExternalpayloadcount
+instance Aeson.ToJSON WorkflowExecutionInfo where
+  toJSON msg = jsonObject
+      [ "execution" .=: msg.workflowExecutionInfoExecution
+      , "type" .=: msg.workflowExecutionInfoType
+      , "startTime" .=: msg.workflowExecutionInfoStarttime
+      , "closeTime" .=: msg.workflowExecutionInfoClosetime
+      , "status" .=: msg.workflowExecutionInfoStatus
+      , "historyLength" .=: msg.workflowExecutionInfoHistorylength
+      , "parentNamespaceId" .=: msg.workflowExecutionInfoParentnamespaceid
+      , "parentExecution" .=: msg.workflowExecutionInfoParentexecution
+      , "executionTime" .=: msg.workflowExecutionInfoExecutiontime
+      , "memo" .=: msg.workflowExecutionInfoMemo
+      , "searchAttributes" .=: msg.workflowExecutionInfoSearchattributes
+      , "autoResetPoints" .=: msg.workflowExecutionInfoAutoresetpoints
+      , "taskQueue" .=: msg.workflowExecutionInfoTaskqueue
+      , "stateTransitionCount" .=: msg.workflowExecutionInfoStatetransitioncount
+      , "historySizeBytes" .=: msg.workflowExecutionInfoHistorysizebytes
+      , "mostRecentWorkerVersionStamp" .=: msg.workflowExecutionInfoMostrecentworkerversionstamp
+      , "executionDuration" .=: msg.workflowExecutionInfoExecutionduration
+      , "rootExecution" .=: msg.workflowExecutionInfoRootexecution
+      , "assignedBuildId" .=: msg.workflowExecutionInfoAssignedbuildid
+      , "inheritedBuildId" .=: msg.workflowExecutionInfoInheritedbuildid
+      , "firstRunId" .=: msg.workflowExecutionInfoFirstrunid
+      , "versioningInfo" .=: msg.workflowExecutionInfoVersioninginfo
+      , "workerDeploymentName" .=: msg.workflowExecutionInfoWorkerdeploymentname
+      , "priority" .=: msg.workflowExecutionInfoPriority
+      , "externalPayloadSizeBytes" .=: msg.workflowExecutionInfoExternalpayloadsizebytes
+      , "externalPayloadCount" .=: msg.workflowExecutionInfoExternalpayloadcount
       ]
 
-instance ProtoFromJSON WorkflowExecutionInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionInfoExecution <- obj .:? "execution"
-    fld_workflowExecutionInfoType <- obj .:? "type"
-    fld_workflowExecutionInfoStarttime <- obj .:? "startTime"
-    fld_workflowExecutionInfoClosetime <- obj .:? "closeTime"
-    fld_workflowExecutionInfoStatus <- obj .:? "status"
-    fld_workflowExecutionInfoHistorylength <- obj .:? "historyLength"
-    fld_workflowExecutionInfoParentnamespaceid <- obj .:? "parentNamespaceId"
-    fld_workflowExecutionInfoParentexecution <- obj .:? "parentExecution"
-    fld_workflowExecutionInfoExecutiontime <- obj .:? "executionTime"
-    fld_workflowExecutionInfoMemo <- obj .:? "memo"
-    fld_workflowExecutionInfoSearchattributes <- obj .:? "searchAttributes"
-    fld_workflowExecutionInfoAutoresetpoints <- obj .:? "autoResetPoints"
-    fld_workflowExecutionInfoTaskqueue <- obj .:? "taskQueue"
-    fld_workflowExecutionInfoStatetransitioncount <- obj .:? "stateTransitionCount"
-    fld_workflowExecutionInfoHistorysizebytes <- obj .:? "historySizeBytes"
-    fld_workflowExecutionInfoMostrecentworkerversionstamp <- obj .:? "mostRecentWorkerVersionStamp"
-    fld_workflowExecutionInfoExecutionduration <- obj .:? "executionDuration"
-    fld_workflowExecutionInfoRootexecution <- obj .:? "rootExecution"
-    fld_workflowExecutionInfoAssignedbuildid <- obj .:? "assignedBuildId"
-    fld_workflowExecutionInfoInheritedbuildid <- obj .:? "inheritedBuildId"
-    fld_workflowExecutionInfoFirstrunid <- obj .:? "firstRunId"
-    fld_workflowExecutionInfoVersioninginfo <- obj .:? "versioningInfo"
-    fld_workflowExecutionInfoWorkerdeploymentname <- obj .:? "workerDeploymentName"
-    fld_workflowExecutionInfoPriority <- obj .:? "priority"
-    fld_workflowExecutionInfoExternalpayloadsizebytes <- obj .:? "externalPayloadSizeBytes"
-    fld_workflowExecutionInfoExternalpayloadcount <- obj .:? "externalPayloadCount"
+instance Aeson.FromJSON WorkflowExecutionInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionInfoExecution <- parseFieldMaybe obj "execution"
+    fld_workflowExecutionInfoType <- parseFieldMaybe obj "type"
+    fld_workflowExecutionInfoStarttime <- parseFieldMaybe obj "startTime"
+    fld_workflowExecutionInfoClosetime <- parseFieldMaybe obj "closeTime"
+    fld_workflowExecutionInfoStatus <- parseFieldMaybe obj "status"
+    fld_workflowExecutionInfoHistorylength <- parseFieldMaybe obj "historyLength"
+    fld_workflowExecutionInfoParentnamespaceid <- parseFieldMaybe obj "parentNamespaceId"
+    fld_workflowExecutionInfoParentexecution <- parseFieldMaybe obj "parentExecution"
+    fld_workflowExecutionInfoExecutiontime <- parseFieldMaybe obj "executionTime"
+    fld_workflowExecutionInfoMemo <- parseFieldMaybe obj "memo"
+    fld_workflowExecutionInfoSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_workflowExecutionInfoAutoresetpoints <- parseFieldMaybe obj "autoResetPoints"
+    fld_workflowExecutionInfoTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_workflowExecutionInfoStatetransitioncount <- parseFieldMaybe obj "stateTransitionCount"
+    fld_workflowExecutionInfoHistorysizebytes <- parseFieldMaybe obj "historySizeBytes"
+    fld_workflowExecutionInfoMostrecentworkerversionstamp <- parseFieldMaybe obj "mostRecentWorkerVersionStamp"
+    fld_workflowExecutionInfoExecutionduration <- parseFieldMaybe obj "executionDuration"
+    fld_workflowExecutionInfoRootexecution <- parseFieldMaybe obj "rootExecution"
+    fld_workflowExecutionInfoAssignedbuildid <- parseFieldMaybe obj "assignedBuildId"
+    fld_workflowExecutionInfoInheritedbuildid <- parseFieldMaybe obj "inheritedBuildId"
+    fld_workflowExecutionInfoFirstrunid <- parseFieldMaybe obj "firstRunId"
+    fld_workflowExecutionInfoVersioninginfo <- parseFieldMaybe obj "versioningInfo"
+    fld_workflowExecutionInfoWorkerdeploymentname <- parseFieldMaybe obj "workerDeploymentName"
+    fld_workflowExecutionInfoPriority <- parseFieldMaybe obj "priority"
+    fld_workflowExecutionInfoExternalpayloadsizebytes <- parseFieldMaybe obj "externalPayloadSizeBytes"
+    fld_workflowExecutionInfoExternalpayloadcount <- parseFieldMaybe obj "externalPayloadCount"
     pure defaultWorkflowExecutionInfo
       { workflowExecutionInfoExecution = maybe (workflowExecutionInfoExecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecution
       , workflowExecutionInfoType = maybe (workflowExecutionInfoType defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoType
@@ -349,7 +353,7 @@ instance ProtoFromJSON WorkflowExecutionInfo where
       , workflowExecutionInfoExternalpayloadsizebytes = maybe (workflowExecutionInfoExternalpayloadsizebytes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExternalpayloadsizebytes
       , workflowExecutionInfoExternalpayloadcount = maybe (workflowExecutionInfoExternalpayloadcount defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExternalpayloadcount
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionInfo
+  parseJSON _ = pure defaultWorkflowExecutionInfo
 
 data WorkflowExecutionExtendedInfo = WorkflowExecutionExtendedInfo
   { workflowExecutionExtendedInfoExecutionexpirationtime :: !(Maybe PB_Timestamp.Timestamp)
@@ -438,28 +442,28 @@ instance MessageDecode WorkflowExecutionExtendedInfo where
 instance IsMessage WorkflowExecutionExtendedInfo where
   messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionExtendedInfo"
 
-instance ProtoToJSON WorkflowExecutionExtendedInfo where
-  protoToJSON msg = jsonObject
-      [ "executionExpirationTime" .= msg.workflowExecutionExtendedInfoExecutionexpirationtime
-      , "runExpirationTime" .= msg.workflowExecutionExtendedInfoRunexpirationtime
-      , "cancelRequested" .= msg.workflowExecutionExtendedInfoCancelrequested
-      , "lastResetTime" .= msg.workflowExecutionExtendedInfoLastresettime
-      , "originalStartTime" .= msg.workflowExecutionExtendedInfoOriginalstarttime
-      , "resetRunId" .= msg.workflowExecutionExtendedInfoResetrunid
-      , "requestIdInfos" .= msg.workflowExecutionExtendedInfoRequestidinfos
-      , "pauseInfo" .= msg.workflowExecutionExtendedInfoPauseinfo
+instance Aeson.ToJSON WorkflowExecutionExtendedInfo where
+  toJSON msg = jsonObject
+      [ "executionExpirationTime" .=: msg.workflowExecutionExtendedInfoExecutionexpirationtime
+      , "runExpirationTime" .=: msg.workflowExecutionExtendedInfoRunexpirationtime
+      , "cancelRequested" .=: msg.workflowExecutionExtendedInfoCancelrequested
+      , "lastResetTime" .=: msg.workflowExecutionExtendedInfoLastresettime
+      , "originalStartTime" .=: msg.workflowExecutionExtendedInfoOriginalstarttime
+      , "resetRunId" .=: msg.workflowExecutionExtendedInfoResetrunid
+      , "requestIdInfos" .=: msg.workflowExecutionExtendedInfoRequestidinfos
+      , "pauseInfo" .=: msg.workflowExecutionExtendedInfoPauseinfo
       ]
 
-instance ProtoFromJSON WorkflowExecutionExtendedInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionExtendedInfoExecutionexpirationtime <- obj .:? "executionExpirationTime"
-    fld_workflowExecutionExtendedInfoRunexpirationtime <- obj .:? "runExpirationTime"
-    fld_workflowExecutionExtendedInfoCancelrequested <- obj .:? "cancelRequested"
-    fld_workflowExecutionExtendedInfoLastresettime <- obj .:? "lastResetTime"
-    fld_workflowExecutionExtendedInfoOriginalstarttime <- obj .:? "originalStartTime"
-    fld_workflowExecutionExtendedInfoResetrunid <- obj .:? "resetRunId"
-    fld_workflowExecutionExtendedInfoRequestidinfos <- obj .:? "requestIdInfos"
-    fld_workflowExecutionExtendedInfoPauseinfo <- obj .:? "pauseInfo"
+instance Aeson.FromJSON WorkflowExecutionExtendedInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionExtendedInfoExecutionexpirationtime <- parseFieldMaybe obj "executionExpirationTime"
+    fld_workflowExecutionExtendedInfoRunexpirationtime <- parseFieldMaybe obj "runExpirationTime"
+    fld_workflowExecutionExtendedInfoCancelrequested <- parseFieldMaybe obj "cancelRequested"
+    fld_workflowExecutionExtendedInfoLastresettime <- parseFieldMaybe obj "lastResetTime"
+    fld_workflowExecutionExtendedInfoOriginalstarttime <- parseFieldMaybe obj "originalStartTime"
+    fld_workflowExecutionExtendedInfoResetrunid <- parseFieldMaybe obj "resetRunId"
+    fld_workflowExecutionExtendedInfoRequestidinfos <- parseFieldMaybe obj "requestIdInfos"
+    fld_workflowExecutionExtendedInfoPauseinfo <- parseFieldMaybe obj "pauseInfo"
     pure defaultWorkflowExecutionExtendedInfo
       { workflowExecutionExtendedInfoExecutionexpirationtime = maybe (workflowExecutionExtendedInfoExecutionexpirationtime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoExecutionexpirationtime
       , workflowExecutionExtendedInfoRunexpirationtime = maybe (workflowExecutionExtendedInfoRunexpirationtime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoRunexpirationtime
@@ -470,7 +474,7 @@ instance ProtoFromJSON WorkflowExecutionExtendedInfo where
       , workflowExecutionExtendedInfoRequestidinfos = maybe (workflowExecutionExtendedInfoRequestidinfos defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoRequestidinfos
       , workflowExecutionExtendedInfoPauseinfo = maybe (workflowExecutionExtendedInfoPauseinfo defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoPauseinfo
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionExtendedInfo
+  parseJSON _ = pure defaultWorkflowExecutionExtendedInfo
 
 data WorkflowExecutionVersioningInfo = WorkflowExecutionVersioningInfo
   { workflowExecutionVersioningInfoBehavior :: !TE_Enums_V1_Workflow.VersioningBehavior
@@ -556,28 +560,28 @@ instance MessageDecode WorkflowExecutionVersioningInfo where
 instance IsMessage WorkflowExecutionVersioningInfo where
   messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionVersioningInfo"
 
-instance ProtoToJSON WorkflowExecutionVersioningInfo where
-  protoToJSON msg = jsonObject
-      [ "behavior" .= msg.workflowExecutionVersioningInfoBehavior
-      , "deployment" .= msg.workflowExecutionVersioningInfoDeployment
-      , "version" .= msg.workflowExecutionVersioningInfoVersion
-      , "deploymentVersion" .= msg.workflowExecutionVersioningInfoDeploymentversion
-      , "versioningOverride" .= msg.workflowExecutionVersioningInfoVersioningoverride
-      , "deploymentTransition" .= msg.workflowExecutionVersioningInfoDeploymenttransition
-      , "versionTransition" .= msg.workflowExecutionVersioningInfoVersiontransition
-      , "revisionNumber" .= msg.workflowExecutionVersioningInfoRevisionnumber
+instance Aeson.ToJSON WorkflowExecutionVersioningInfo where
+  toJSON msg = jsonObject
+      [ "behavior" .=: msg.workflowExecutionVersioningInfoBehavior
+      , "deployment" .=: msg.workflowExecutionVersioningInfoDeployment
+      , "version" .=: msg.workflowExecutionVersioningInfoVersion
+      , "deploymentVersion" .=: msg.workflowExecutionVersioningInfoDeploymentversion
+      , "versioningOverride" .=: msg.workflowExecutionVersioningInfoVersioningoverride
+      , "deploymentTransition" .=: msg.workflowExecutionVersioningInfoDeploymenttransition
+      , "versionTransition" .=: msg.workflowExecutionVersioningInfoVersiontransition
+      , "revisionNumber" .=: msg.workflowExecutionVersioningInfoRevisionnumber
       ]
 
-instance ProtoFromJSON WorkflowExecutionVersioningInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionVersioningInfoBehavior <- obj .:? "behavior"
-    fld_workflowExecutionVersioningInfoDeployment <- obj .:? "deployment"
-    fld_workflowExecutionVersioningInfoVersion <- obj .:? "version"
-    fld_workflowExecutionVersioningInfoDeploymentversion <- obj .:? "deploymentVersion"
-    fld_workflowExecutionVersioningInfoVersioningoverride <- obj .:? "versioningOverride"
-    fld_workflowExecutionVersioningInfoDeploymenttransition <- obj .:? "deploymentTransition"
-    fld_workflowExecutionVersioningInfoVersiontransition <- obj .:? "versionTransition"
-    fld_workflowExecutionVersioningInfoRevisionnumber <- obj .:? "revisionNumber"
+instance Aeson.FromJSON WorkflowExecutionVersioningInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionVersioningInfoBehavior <- parseFieldMaybe obj "behavior"
+    fld_workflowExecutionVersioningInfoDeployment <- parseFieldMaybe obj "deployment"
+    fld_workflowExecutionVersioningInfoVersion <- parseFieldMaybe obj "version"
+    fld_workflowExecutionVersioningInfoDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
+    fld_workflowExecutionVersioningInfoVersioningoverride <- parseFieldMaybe obj "versioningOverride"
+    fld_workflowExecutionVersioningInfoDeploymenttransition <- parseFieldMaybe obj "deploymentTransition"
+    fld_workflowExecutionVersioningInfoVersiontransition <- parseFieldMaybe obj "versionTransition"
+    fld_workflowExecutionVersioningInfoRevisionnumber <- parseFieldMaybe obj "revisionNumber"
     pure defaultWorkflowExecutionVersioningInfo
       { workflowExecutionVersioningInfoBehavior = maybe (workflowExecutionVersioningInfoBehavior defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoBehavior
       , workflowExecutionVersioningInfoDeployment = maybe (workflowExecutionVersioningInfoDeployment defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeployment
@@ -588,7 +592,7 @@ instance ProtoFromJSON WorkflowExecutionVersioningInfo where
       , workflowExecutionVersioningInfoVersiontransition = maybe (workflowExecutionVersioningInfoVersiontransition defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersiontransition
       , workflowExecutionVersioningInfoRevisionnumber = maybe (workflowExecutionVersioningInfoRevisionnumber defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoRevisionnumber
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionVersioningInfo
+  parseJSON _ = pure defaultWorkflowExecutionVersioningInfo
 
 data DeploymentTransition = DeploymentTransition
   { deploymentTransitionDeployment :: !(Maybe TE_Deployment_V1_Message.Deployment)
@@ -625,19 +629,18 @@ instance MessageDecode DeploymentTransition where
 instance IsMessage DeploymentTransition where
   messageTypeName _ = "temporal.api.workflow.v1.DeploymentTransition"
 
-instance ProtoToJSON DeploymentTransition where
-  protoToJSON msg = jsonObject
-      [ "deployment" .= msg.deploymentTransitionDeployment
+instance Aeson.ToJSON DeploymentTransition where
+  toJSON msg = jsonObject
+      [ "deployment" .=: msg.deploymentTransitionDeployment
 
       ]
 
-instance ProtoFromJSON DeploymentTransition where
-  protoFromJSON (JsonObject obj) = do
-    fld_deploymentTransitionDeployment <- obj .:? "deployment"
+instance Aeson.FromJSON DeploymentTransition where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deploymentTransitionDeployment <- parseFieldMaybe obj "deployment"
     pure defaultDeploymentTransition
       { deploymentTransitionDeployment = maybe (deploymentTransitionDeployment defaultDeploymentTransition) id fld_deploymentTransitionDeployment
       }
-  protoFromJSON _ = Right defaultDeploymentTransition
 
 data DeploymentVersionTransition = DeploymentVersionTransition
   { deploymentVersionTransitionVersion :: !Text
@@ -681,21 +684,20 @@ instance MessageDecode DeploymentVersionTransition where
 instance IsMessage DeploymentVersionTransition where
   messageTypeName _ = "temporal.api.workflow.v1.DeploymentVersionTransition"
 
-instance ProtoToJSON DeploymentVersionTransition where
-  protoToJSON msg = jsonObject
-      [ "version" .= msg.deploymentVersionTransitionVersion
-      , "deploymentVersion" .= msg.deploymentVersionTransitionDeploymentversion
+instance Aeson.ToJSON DeploymentVersionTransition where
+  toJSON msg = jsonObject
+      [ "version" .=: msg.deploymentVersionTransitionVersion
+      , "deploymentVersion" .=: msg.deploymentVersionTransitionDeploymentversion
       ]
 
-instance ProtoFromJSON DeploymentVersionTransition where
-  protoFromJSON (JsonObject obj) = do
-    fld_deploymentVersionTransitionVersion <- obj .:? "version"
-    fld_deploymentVersionTransitionDeploymentversion <- obj .:? "deploymentVersion"
+instance Aeson.FromJSON DeploymentVersionTransition where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_deploymentVersionTransitionVersion <- parseFieldMaybe obj "version"
+    fld_deploymentVersionTransitionDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
     pure defaultDeploymentVersionTransition
       { deploymentVersionTransitionVersion = maybe (deploymentVersionTransitionVersion defaultDeploymentVersionTransition) id fld_deploymentVersionTransitionVersion
       , deploymentVersionTransitionDeploymentversion = maybe (deploymentVersionTransitionDeploymentversion defaultDeploymentVersionTransition) id fld_deploymentVersionTransitionDeploymentversion
       }
-  protoFromJSON _ = Right defaultDeploymentVersionTransition
 
 data WorkflowExecutionConfig = WorkflowExecutionConfig
   { workflowExecutionConfigTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
@@ -760,22 +762,22 @@ instance MessageDecode WorkflowExecutionConfig where
 instance IsMessage WorkflowExecutionConfig where
   messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionConfig"
 
-instance ProtoToJSON WorkflowExecutionConfig where
-  protoToJSON msg = jsonObject
-      [ "taskQueue" .= msg.workflowExecutionConfigTaskqueue
-      , "workflowExecutionTimeout" .= msg.workflowExecutionConfigWorkflowexecutiontimeout
-      , "workflowRunTimeout" .= msg.workflowExecutionConfigWorkflowruntimeout
-      , "defaultWorkflowTaskTimeout" .= msg.workflowExecutionConfigDefaultworkflowtasktimeout
-      , "userMetadata" .= msg.workflowExecutionConfigUsermetadata
+instance Aeson.ToJSON WorkflowExecutionConfig where
+  toJSON msg = jsonObject
+      [ "taskQueue" .=: msg.workflowExecutionConfigTaskqueue
+      , "workflowExecutionTimeout" .=: msg.workflowExecutionConfigWorkflowexecutiontimeout
+      , "workflowRunTimeout" .=: msg.workflowExecutionConfigWorkflowruntimeout
+      , "defaultWorkflowTaskTimeout" .=: msg.workflowExecutionConfigDefaultworkflowtasktimeout
+      , "userMetadata" .=: msg.workflowExecutionConfigUsermetadata
       ]
 
-instance ProtoFromJSON WorkflowExecutionConfig where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionConfigTaskqueue <- obj .:? "taskQueue"
-    fld_workflowExecutionConfigWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
-    fld_workflowExecutionConfigWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    fld_workflowExecutionConfigDefaultworkflowtasktimeout <- obj .:? "defaultWorkflowTaskTimeout"
-    fld_workflowExecutionConfigUsermetadata <- obj .:? "userMetadata"
+instance Aeson.FromJSON WorkflowExecutionConfig where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionConfigTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_workflowExecutionConfigWorkflowexecutiontimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
+    fld_workflowExecutionConfigWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_workflowExecutionConfigDefaultworkflowtasktimeout <- parseFieldMaybe obj "defaultWorkflowTaskTimeout"
+    fld_workflowExecutionConfigUsermetadata <- parseFieldMaybe obj "userMetadata"
     pure defaultWorkflowExecutionConfig
       { workflowExecutionConfigTaskqueue = maybe (workflowExecutionConfigTaskqueue defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigTaskqueue
       , workflowExecutionConfigWorkflowexecutiontimeout = maybe (workflowExecutionConfigWorkflowexecutiontimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigWorkflowexecutiontimeout
@@ -783,7 +785,7 @@ instance ProtoFromJSON WorkflowExecutionConfig where
       , workflowExecutionConfigDefaultworkflowtasktimeout = maybe (workflowExecutionConfigDefaultworkflowtasktimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigDefaultworkflowtasktimeout
       , workflowExecutionConfigUsermetadata = maybe (workflowExecutionConfigUsermetadata defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigUsermetadata
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionConfig
+  parseJSON _ = pure defaultWorkflowExecutionConfig
 
 data PendingActivityInfo = PendingActivityInfo
   { pendingActivityInfoActivityid :: !Text
@@ -818,10 +820,10 @@ data PendingActivityInfo'AssignedBuildId
   | PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId !Text
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON PendingActivityInfo'AssignedBuildId where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON PendingActivityInfo'AssignedBuildId where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON PendingActivityInfo'AssignedBuildId where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON PendingActivityInfo'AssignedBuildId where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 data PendingActivityInfo'PauseInfo = PendingActivityInfo'PauseInfo
   { pendingActivityInfoPauseInfoPausetime :: !(Maybe PB_Timestamp.Timestamp)
@@ -872,21 +874,20 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Manual where
 instance IsMessage PendingActivityInfo'PauseInfo'Manual where
   messageTypeName _ = "temporal.api.workflow.v1.PendingActivityInfo.PauseInfo.Manual"
 
-instance ProtoToJSON PendingActivityInfo'PauseInfo'Manual where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.pendingActivityInfoPauseInfoManualIdentity
-      , "reason" .= msg.pendingActivityInfoPauseInfoManualReason
+instance Aeson.ToJSON PendingActivityInfo'PauseInfo'Manual where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.pendingActivityInfoPauseInfoManualIdentity
+      , "reason" .=: msg.pendingActivityInfoPauseInfoManualReason
       ]
 
-instance ProtoFromJSON PendingActivityInfo'PauseInfo'Manual where
-  protoFromJSON (JsonObject obj) = do
-    fld_pendingActivityInfoPauseInfoManualIdentity <- obj .:? "identity"
-    fld_pendingActivityInfoPauseInfoManualReason <- obj .:? "reason"
+instance Aeson.FromJSON PendingActivityInfo'PauseInfo'Manual where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pendingActivityInfoPauseInfoManualIdentity <- parseFieldMaybe obj "identity"
+    fld_pendingActivityInfoPauseInfoManualReason <- parseFieldMaybe obj "reason"
     pure defaultPendingActivityInfo'PauseInfo'Manual
       { pendingActivityInfoPauseInfoManualIdentity = maybe (pendingActivityInfoPauseInfoManualIdentity defaultPendingActivityInfo'PauseInfo'Manual) id fld_pendingActivityInfoPauseInfoManualIdentity
       , pendingActivityInfoPauseInfoManualReason = maybe (pendingActivityInfoPauseInfoManualReason defaultPendingActivityInfo'PauseInfo'Manual) id fld_pendingActivityInfoPauseInfoManualReason
       }
-  protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo'Manual
 
 data PendingActivityInfo'PauseInfo'Rule = PendingActivityInfo'PauseInfo'Rule
   { pendingActivityInfoPauseInfoRuleRuleid :: !Text
@@ -937,33 +938,32 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Rule where
 instance IsMessage PendingActivityInfo'PauseInfo'Rule where
   messageTypeName _ = "temporal.api.workflow.v1.PendingActivityInfo.PauseInfo.Rule"
 
-instance ProtoToJSON PendingActivityInfo'PauseInfo'Rule where
-  protoToJSON msg = jsonObject
-      [ "ruleId" .= msg.pendingActivityInfoPauseInfoRuleRuleid
-      , "identity" .= msg.pendingActivityInfoPauseInfoRuleIdentity
-      , "reason" .= msg.pendingActivityInfoPauseInfoRuleReason
+instance Aeson.ToJSON PendingActivityInfo'PauseInfo'Rule where
+  toJSON msg = jsonObject
+      [ "ruleId" .=: msg.pendingActivityInfoPauseInfoRuleRuleid
+      , "identity" .=: msg.pendingActivityInfoPauseInfoRuleIdentity
+      , "reason" .=: msg.pendingActivityInfoPauseInfoRuleReason
       ]
 
-instance ProtoFromJSON PendingActivityInfo'PauseInfo'Rule where
-  protoFromJSON (JsonObject obj) = do
-    fld_pendingActivityInfoPauseInfoRuleRuleid <- obj .:? "ruleId"
-    fld_pendingActivityInfoPauseInfoRuleIdentity <- obj .:? "identity"
-    fld_pendingActivityInfoPauseInfoRuleReason <- obj .:? "reason"
+instance Aeson.FromJSON PendingActivityInfo'PauseInfo'Rule where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pendingActivityInfoPauseInfoRuleRuleid <- parseFieldMaybe obj "ruleId"
+    fld_pendingActivityInfoPauseInfoRuleIdentity <- parseFieldMaybe obj "identity"
+    fld_pendingActivityInfoPauseInfoRuleReason <- parseFieldMaybe obj "reason"
     pure defaultPendingActivityInfo'PauseInfo'Rule
       { pendingActivityInfoPauseInfoRuleRuleid = maybe (pendingActivityInfoPauseInfoRuleRuleid defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleRuleid
       , pendingActivityInfoPauseInfoRuleIdentity = maybe (pendingActivityInfoPauseInfoRuleIdentity defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleIdentity
       , pendingActivityInfoPauseInfoRuleReason = maybe (pendingActivityInfoPauseInfoRuleReason defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleReason
       }
-  protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo'Rule
 data PendingActivityInfo'PauseInfo'PausedBy
   = PendingActivityInfo'PauseInfo'PausedBy'Manual !PendingActivityInfo'PauseInfo'Manual
   | PendingActivityInfo'PauseInfo'PausedBy'Rule !PendingActivityInfo'PauseInfo'Rule
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON PendingActivityInfo'PauseInfo'PausedBy where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON PendingActivityInfo'PauseInfo'PausedBy where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON PendingActivityInfo'PauseInfo'PausedBy where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON PendingActivityInfo'PauseInfo'PausedBy where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultPendingActivityInfo'PauseInfo :: PendingActivityInfo'PauseInfo
 defaultPendingActivityInfo'PauseInfo = PendingActivityInfo'PauseInfo
@@ -1007,21 +1007,20 @@ instance MessageDecode PendingActivityInfo'PauseInfo where
 instance IsMessage PendingActivityInfo'PauseInfo where
   messageTypeName _ = "temporal.api.workflow.v1.PendingActivityInfo.PauseInfo"
 
-instance ProtoToJSON PendingActivityInfo'PauseInfo where
-  protoToJSON msg = jsonObject
-      [ "pauseTime" .= msg.pendingActivityInfoPauseInfoPausetime
-      , "pausedBy" .= msg.pendingActivityInfoPauseInfoPausedby
+instance Aeson.ToJSON PendingActivityInfo'PauseInfo where
+  toJSON msg = jsonObject
+      [ "pauseTime" .=: msg.pendingActivityInfoPauseInfoPausetime
+      , "pausedBy" .=: msg.pendingActivityInfoPauseInfoPausedby
       ]
 
-instance ProtoFromJSON PendingActivityInfo'PauseInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_pendingActivityInfoPauseInfoPausetime <- obj .:? "pauseTime"
-    fld_pendingActivityInfoPauseInfoPausedby <- obj .:? "pausedBy"
+instance Aeson.FromJSON PendingActivityInfo'PauseInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pendingActivityInfoPauseInfoPausetime <- parseFieldMaybe obj "pauseTime"
+    fld_pendingActivityInfoPauseInfoPausedby <- parseFieldMaybe obj "pausedBy"
     pure defaultPendingActivityInfo'PauseInfo
       { pendingActivityInfoPauseInfoPausetime = maybe (pendingActivityInfoPauseInfoPausetime defaultPendingActivityInfo'PauseInfo) id fld_pendingActivityInfoPauseInfoPausetime
       , pendingActivityInfoPauseInfoPausedby = maybe (pendingActivityInfoPauseInfoPausedby defaultPendingActivityInfo'PauseInfo) id fld_pendingActivityInfoPauseInfoPausedby
       }
-  protoFromJSON _ = Right defaultPendingActivityInfo'PauseInfo
 
 defaultPendingActivityInfo :: PendingActivityInfo
 defaultPendingActivityInfo = PendingActivityInfo
@@ -1197,60 +1196,60 @@ instance MessageDecode PendingActivityInfo where
 instance IsMessage PendingActivityInfo where
   messageTypeName _ = "temporal.api.workflow.v1.PendingActivityInfo"
 
-instance ProtoToJSON PendingActivityInfo where
-  protoToJSON msg = jsonObject
-      [ "activityId" .= msg.pendingActivityInfoActivityid
-      , "activityType" .= msg.pendingActivityInfoActivitytype
-      , "state" .= msg.pendingActivityInfoState
-      , "heartbeatDetails" .= msg.pendingActivityInfoHeartbeatdetails
-      , "lastHeartbeatTime" .= msg.pendingActivityInfoLastheartbeattime
-      , "lastStartedTime" .= msg.pendingActivityInfoLaststartedtime
-      , "attempt" .= msg.pendingActivityInfoAttempt
-      , "maximumAttempts" .= msg.pendingActivityInfoMaximumattempts
-      , "scheduledTime" .= msg.pendingActivityInfoScheduledtime
-      , "expirationTime" .= msg.pendingActivityInfoExpirationtime
-      , "lastFailure" .= msg.pendingActivityInfoLastfailure
-      , "lastWorkerIdentity" .= msg.pendingActivityInfoLastworkeridentity
-      , "assignedBuildId" .= msg.pendingActivityInfoAssignedbuildid
-      , "lastWorkerVersionStamp" .= msg.pendingActivityInfoLastworkerversionstamp
-      , "currentRetryInterval" .= msg.pendingActivityInfoCurrentretryinterval
-      , "lastAttemptCompleteTime" .= msg.pendingActivityInfoLastattemptcompletetime
-      , "nextAttemptScheduleTime" .= msg.pendingActivityInfoNextattemptscheduletime
-      , "paused" .= msg.pendingActivityInfoPaused
-      , "lastDeployment" .= msg.pendingActivityInfoLastdeployment
-      , "lastWorkerDeploymentVersion" .= msg.pendingActivityInfoLastworkerdeploymentversion
-      , "lastDeploymentVersion" .= msg.pendingActivityInfoLastdeploymentversion
-      , "priority" .= msg.pendingActivityInfoPriority
-      , "pauseInfo" .= msg.pendingActivityInfoPauseinfo
-      , "activityOptions" .= msg.pendingActivityInfoActivityoptions
+instance Aeson.ToJSON PendingActivityInfo where
+  toJSON msg = jsonObject
+      [ "activityId" .=: msg.pendingActivityInfoActivityid
+      , "activityType" .=: msg.pendingActivityInfoActivitytype
+      , "state" .=: msg.pendingActivityInfoState
+      , "heartbeatDetails" .=: msg.pendingActivityInfoHeartbeatdetails
+      , "lastHeartbeatTime" .=: msg.pendingActivityInfoLastheartbeattime
+      , "lastStartedTime" .=: msg.pendingActivityInfoLaststartedtime
+      , "attempt" .=: msg.pendingActivityInfoAttempt
+      , "maximumAttempts" .=: msg.pendingActivityInfoMaximumattempts
+      , "scheduledTime" .=: msg.pendingActivityInfoScheduledtime
+      , "expirationTime" .=: msg.pendingActivityInfoExpirationtime
+      , "lastFailure" .=: msg.pendingActivityInfoLastfailure
+      , "lastWorkerIdentity" .=: msg.pendingActivityInfoLastworkeridentity
+      , "assignedBuildId" .=: msg.pendingActivityInfoAssignedbuildid
+      , "lastWorkerVersionStamp" .=: msg.pendingActivityInfoLastworkerversionstamp
+      , "currentRetryInterval" .=: msg.pendingActivityInfoCurrentretryinterval
+      , "lastAttemptCompleteTime" .=: msg.pendingActivityInfoLastattemptcompletetime
+      , "nextAttemptScheduleTime" .=: msg.pendingActivityInfoNextattemptscheduletime
+      , "paused" .=: msg.pendingActivityInfoPaused
+      , "lastDeployment" .=: msg.pendingActivityInfoLastdeployment
+      , "lastWorkerDeploymentVersion" .=: msg.pendingActivityInfoLastworkerdeploymentversion
+      , "lastDeploymentVersion" .=: msg.pendingActivityInfoLastdeploymentversion
+      , "priority" .=: msg.pendingActivityInfoPriority
+      , "pauseInfo" .=: msg.pendingActivityInfoPauseinfo
+      , "activityOptions" .=: msg.pendingActivityInfoActivityoptions
       ]
 
-instance ProtoFromJSON PendingActivityInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_pendingActivityInfoActivityid <- obj .:? "activityId"
-    fld_pendingActivityInfoActivitytype <- obj .:? "activityType"
-    fld_pendingActivityInfoState <- obj .:? "state"
-    fld_pendingActivityInfoHeartbeatdetails <- obj .:? "heartbeatDetails"
-    fld_pendingActivityInfoLastheartbeattime <- obj .:? "lastHeartbeatTime"
-    fld_pendingActivityInfoLaststartedtime <- obj .:? "lastStartedTime"
-    fld_pendingActivityInfoAttempt <- obj .:? "attempt"
-    fld_pendingActivityInfoMaximumattempts <- obj .:? "maximumAttempts"
-    fld_pendingActivityInfoScheduledtime <- obj .:? "scheduledTime"
-    fld_pendingActivityInfoExpirationtime <- obj .:? "expirationTime"
-    fld_pendingActivityInfoLastfailure <- obj .:? "lastFailure"
-    fld_pendingActivityInfoLastworkeridentity <- obj .:? "lastWorkerIdentity"
-    fld_pendingActivityInfoAssignedbuildid <- obj .:? "assignedBuildId"
-    fld_pendingActivityInfoLastworkerversionstamp <- obj .:? "lastWorkerVersionStamp"
-    fld_pendingActivityInfoCurrentretryinterval <- obj .:? "currentRetryInterval"
-    fld_pendingActivityInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    fld_pendingActivityInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    fld_pendingActivityInfoPaused <- obj .:? "paused"
-    fld_pendingActivityInfoLastdeployment <- obj .:? "lastDeployment"
-    fld_pendingActivityInfoLastworkerdeploymentversion <- obj .:? "lastWorkerDeploymentVersion"
-    fld_pendingActivityInfoLastdeploymentversion <- obj .:? "lastDeploymentVersion"
-    fld_pendingActivityInfoPriority <- obj .:? "priority"
-    fld_pendingActivityInfoPauseinfo <- obj .:? "pauseInfo"
-    fld_pendingActivityInfoActivityoptions <- obj .:? "activityOptions"
+instance Aeson.FromJSON PendingActivityInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pendingActivityInfoActivityid <- parseFieldMaybe obj "activityId"
+    fld_pendingActivityInfoActivitytype <- parseFieldMaybe obj "activityType"
+    fld_pendingActivityInfoState <- parseFieldMaybe obj "state"
+    fld_pendingActivityInfoHeartbeatdetails <- parseFieldMaybe obj "heartbeatDetails"
+    fld_pendingActivityInfoLastheartbeattime <- parseFieldMaybe obj "lastHeartbeatTime"
+    fld_pendingActivityInfoLaststartedtime <- parseFieldMaybe obj "lastStartedTime"
+    fld_pendingActivityInfoAttempt <- parseFieldMaybe obj "attempt"
+    fld_pendingActivityInfoMaximumattempts <- parseFieldMaybe obj "maximumAttempts"
+    fld_pendingActivityInfoScheduledtime <- parseFieldMaybe obj "scheduledTime"
+    fld_pendingActivityInfoExpirationtime <- parseFieldMaybe obj "expirationTime"
+    fld_pendingActivityInfoLastfailure <- parseFieldMaybe obj "lastFailure"
+    fld_pendingActivityInfoLastworkeridentity <- parseFieldMaybe obj "lastWorkerIdentity"
+    fld_pendingActivityInfoAssignedbuildid <- parseFieldMaybe obj "assignedBuildId"
+    fld_pendingActivityInfoLastworkerversionstamp <- parseFieldMaybe obj "lastWorkerVersionStamp"
+    fld_pendingActivityInfoCurrentretryinterval <- parseFieldMaybe obj "currentRetryInterval"
+    fld_pendingActivityInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_pendingActivityInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_pendingActivityInfoPaused <- parseFieldMaybe obj "paused"
+    fld_pendingActivityInfoLastdeployment <- parseFieldMaybe obj "lastDeployment"
+    fld_pendingActivityInfoLastworkerdeploymentversion <- parseFieldMaybe obj "lastWorkerDeploymentVersion"
+    fld_pendingActivityInfoLastdeploymentversion <- parseFieldMaybe obj "lastDeploymentVersion"
+    fld_pendingActivityInfoPriority <- parseFieldMaybe obj "priority"
+    fld_pendingActivityInfoPauseinfo <- parseFieldMaybe obj "pauseInfo"
+    fld_pendingActivityInfoActivityoptions <- parseFieldMaybe obj "activityOptions"
     pure defaultPendingActivityInfo
       { pendingActivityInfoActivityid = maybe (pendingActivityInfoActivityid defaultPendingActivityInfo) id fld_pendingActivityInfoActivityid
       , pendingActivityInfoActivitytype = maybe (pendingActivityInfoActivitytype defaultPendingActivityInfo) id fld_pendingActivityInfoActivitytype
@@ -1277,7 +1276,7 @@ instance ProtoFromJSON PendingActivityInfo where
       , pendingActivityInfoPauseinfo = maybe (pendingActivityInfoPauseinfo defaultPendingActivityInfo) id fld_pendingActivityInfoPauseinfo
       , pendingActivityInfoActivityoptions = maybe (pendingActivityInfoActivityoptions defaultPendingActivityInfo) id fld_pendingActivityInfoActivityoptions
       }
-  protoFromJSON _ = Right defaultPendingActivityInfo
+  parseJSON _ = pure defaultPendingActivityInfo
 
 data PendingChildExecutionInfo = PendingChildExecutionInfo
   { pendingChildExecutionInfoWorkflowid :: !Text
@@ -1342,22 +1341,22 @@ instance MessageDecode PendingChildExecutionInfo where
 instance IsMessage PendingChildExecutionInfo where
   messageTypeName _ = "temporal.api.workflow.v1.PendingChildExecutionInfo"
 
-instance ProtoToJSON PendingChildExecutionInfo where
-  protoToJSON msg = jsonObject
-      [ "workflowId" .= msg.pendingChildExecutionInfoWorkflowid
-      , "runId" .= msg.pendingChildExecutionInfoRunid
-      , "workflowTypeName" .= msg.pendingChildExecutionInfoWorkflowtypename
-      , "initiatedId" .= msg.pendingChildExecutionInfoInitiatedid
-      , "parentClosePolicy" .= msg.pendingChildExecutionInfoParentclosepolicy
+instance Aeson.ToJSON PendingChildExecutionInfo where
+  toJSON msg = jsonObject
+      [ "workflowId" .=: msg.pendingChildExecutionInfoWorkflowid
+      , "runId" .=: msg.pendingChildExecutionInfoRunid
+      , "workflowTypeName" .=: msg.pendingChildExecutionInfoWorkflowtypename
+      , "initiatedId" .=: msg.pendingChildExecutionInfoInitiatedid
+      , "parentClosePolicy" .=: msg.pendingChildExecutionInfoParentclosepolicy
       ]
 
-instance ProtoFromJSON PendingChildExecutionInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_pendingChildExecutionInfoWorkflowid <- obj .:? "workflowId"
-    fld_pendingChildExecutionInfoRunid <- obj .:? "runId"
-    fld_pendingChildExecutionInfoWorkflowtypename <- obj .:? "workflowTypeName"
-    fld_pendingChildExecutionInfoInitiatedid <- obj .:? "initiatedId"
-    fld_pendingChildExecutionInfoParentclosepolicy <- obj .:? "parentClosePolicy"
+instance Aeson.FromJSON PendingChildExecutionInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pendingChildExecutionInfoWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_pendingChildExecutionInfoRunid <- parseFieldMaybe obj "runId"
+    fld_pendingChildExecutionInfoWorkflowtypename <- parseFieldMaybe obj "workflowTypeName"
+    fld_pendingChildExecutionInfoInitiatedid <- parseFieldMaybe obj "initiatedId"
+    fld_pendingChildExecutionInfoParentclosepolicy <- parseFieldMaybe obj "parentClosePolicy"
     pure defaultPendingChildExecutionInfo
       { pendingChildExecutionInfoWorkflowid = maybe (pendingChildExecutionInfoWorkflowid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoWorkflowid
       , pendingChildExecutionInfoRunid = maybe (pendingChildExecutionInfoRunid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoRunid
@@ -1365,7 +1364,7 @@ instance ProtoFromJSON PendingChildExecutionInfo where
       , pendingChildExecutionInfoInitiatedid = maybe (pendingChildExecutionInfoInitiatedid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoInitiatedid
       , pendingChildExecutionInfoParentclosepolicy = maybe (pendingChildExecutionInfoParentclosepolicy defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoParentclosepolicy
       }
-  protoFromJSON _ = Right defaultPendingChildExecutionInfo
+  parseJSON _ = pure defaultPendingChildExecutionInfo
 
 data PendingWorkflowTaskInfo = PendingWorkflowTaskInfo
   { pendingWorkflowTaskInfoState :: !TE_Enums_V1_Workflow.PendingWorkflowTaskState
@@ -1430,22 +1429,22 @@ instance MessageDecode PendingWorkflowTaskInfo where
 instance IsMessage PendingWorkflowTaskInfo where
   messageTypeName _ = "temporal.api.workflow.v1.PendingWorkflowTaskInfo"
 
-instance ProtoToJSON PendingWorkflowTaskInfo where
-  protoToJSON msg = jsonObject
-      [ "state" .= msg.pendingWorkflowTaskInfoState
-      , "scheduledTime" .= msg.pendingWorkflowTaskInfoScheduledtime
-      , "originalScheduledTime" .= msg.pendingWorkflowTaskInfoOriginalscheduledtime
-      , "startedTime" .= msg.pendingWorkflowTaskInfoStartedtime
-      , "attempt" .= msg.pendingWorkflowTaskInfoAttempt
+instance Aeson.ToJSON PendingWorkflowTaskInfo where
+  toJSON msg = jsonObject
+      [ "state" .=: msg.pendingWorkflowTaskInfoState
+      , "scheduledTime" .=: msg.pendingWorkflowTaskInfoScheduledtime
+      , "originalScheduledTime" .=: msg.pendingWorkflowTaskInfoOriginalscheduledtime
+      , "startedTime" .=: msg.pendingWorkflowTaskInfoStartedtime
+      , "attempt" .=: msg.pendingWorkflowTaskInfoAttempt
       ]
 
-instance ProtoFromJSON PendingWorkflowTaskInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_pendingWorkflowTaskInfoState <- obj .:? "state"
-    fld_pendingWorkflowTaskInfoScheduledtime <- obj .:? "scheduledTime"
-    fld_pendingWorkflowTaskInfoOriginalscheduledtime <- obj .:? "originalScheduledTime"
-    fld_pendingWorkflowTaskInfoStartedtime <- obj .:? "startedTime"
-    fld_pendingWorkflowTaskInfoAttempt <- obj .:? "attempt"
+instance Aeson.FromJSON PendingWorkflowTaskInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pendingWorkflowTaskInfoState <- parseFieldMaybe obj "state"
+    fld_pendingWorkflowTaskInfoScheduledtime <- parseFieldMaybe obj "scheduledTime"
+    fld_pendingWorkflowTaskInfoOriginalscheduledtime <- parseFieldMaybe obj "originalScheduledTime"
+    fld_pendingWorkflowTaskInfoStartedtime <- parseFieldMaybe obj "startedTime"
+    fld_pendingWorkflowTaskInfoAttempt <- parseFieldMaybe obj "attempt"
     pure defaultPendingWorkflowTaskInfo
       { pendingWorkflowTaskInfoState = maybe (pendingWorkflowTaskInfoState defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoState
       , pendingWorkflowTaskInfoScheduledtime = maybe (pendingWorkflowTaskInfoScheduledtime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoScheduledtime
@@ -1453,7 +1452,7 @@ instance ProtoFromJSON PendingWorkflowTaskInfo where
       , pendingWorkflowTaskInfoStartedtime = maybe (pendingWorkflowTaskInfoStartedtime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoStartedtime
       , pendingWorkflowTaskInfoAttempt = maybe (pendingWorkflowTaskInfoAttempt defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoAttempt
       }
-  protoFromJSON _ = Right defaultPendingWorkflowTaskInfo
+  parseJSON _ = pure defaultPendingWorkflowTaskInfo
 
 data ResetPoints = ResetPoints
   { resetPointsPoints :: !(V.Vector ResetPointInfo)
@@ -1490,19 +1489,18 @@ instance MessageDecode ResetPoints where
 instance IsMessage ResetPoints where
   messageTypeName _ = "temporal.api.workflow.v1.ResetPoints"
 
-instance ProtoToJSON ResetPoints where
-  protoToJSON msg = jsonObject
-      [ "points" .= msg.resetPointsPoints
+instance Aeson.ToJSON ResetPoints where
+  toJSON msg = jsonObject
+      [ "points" .=: msg.resetPointsPoints
 
       ]
 
-instance ProtoFromJSON ResetPoints where
-  protoFromJSON (JsonObject obj) = do
-    fld_resetPointsPoints <- obj .:? "points"
+instance Aeson.FromJSON ResetPoints where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_resetPointsPoints <- parseFieldMaybe obj "points"
     pure defaultResetPoints
       { resetPointsPoints = maybe (resetPointsPoints defaultResetPoints) id fld_resetPointsPoints
       }
-  protoFromJSON _ = Right defaultResetPoints
 
 data ResetPointInfo = ResetPointInfo
   { resetPointInfoBuildid :: !Text
@@ -1581,26 +1579,26 @@ instance MessageDecode ResetPointInfo where
 instance IsMessage ResetPointInfo where
   messageTypeName _ = "temporal.api.workflow.v1.ResetPointInfo"
 
-instance ProtoToJSON ResetPointInfo where
-  protoToJSON msg = jsonObject
-      [ "buildId" .= msg.resetPointInfoBuildid
-      , "binaryChecksum" .= msg.resetPointInfoBinarychecksum
-      , "runId" .= msg.resetPointInfoRunid
-      , "firstWorkflowTaskCompletedId" .= msg.resetPointInfoFirstworkflowtaskcompletedid
-      , "createTime" .= msg.resetPointInfoCreatetime
-      , "expireTime" .= msg.resetPointInfoExpiretime
-      , "resettable" .= msg.resetPointInfoResettable
+instance Aeson.ToJSON ResetPointInfo where
+  toJSON msg = jsonObject
+      [ "buildId" .=: msg.resetPointInfoBuildid
+      , "binaryChecksum" .=: msg.resetPointInfoBinarychecksum
+      , "runId" .=: msg.resetPointInfoRunid
+      , "firstWorkflowTaskCompletedId" .=: msg.resetPointInfoFirstworkflowtaskcompletedid
+      , "createTime" .=: msg.resetPointInfoCreatetime
+      , "expireTime" .=: msg.resetPointInfoExpiretime
+      , "resettable" .=: msg.resetPointInfoResettable
       ]
 
-instance ProtoFromJSON ResetPointInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_resetPointInfoBuildid <- obj .:? "buildId"
-    fld_resetPointInfoBinarychecksum <- obj .:? "binaryChecksum"
-    fld_resetPointInfoRunid <- obj .:? "runId"
-    fld_resetPointInfoFirstworkflowtaskcompletedid <- obj .:? "firstWorkflowTaskCompletedId"
-    fld_resetPointInfoCreatetime <- obj .:? "createTime"
-    fld_resetPointInfoExpiretime <- obj .:? "expireTime"
-    fld_resetPointInfoResettable <- obj .:? "resettable"
+instance Aeson.FromJSON ResetPointInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_resetPointInfoBuildid <- parseFieldMaybe obj "buildId"
+    fld_resetPointInfoBinarychecksum <- parseFieldMaybe obj "binaryChecksum"
+    fld_resetPointInfoRunid <- parseFieldMaybe obj "runId"
+    fld_resetPointInfoFirstworkflowtaskcompletedid <- parseFieldMaybe obj "firstWorkflowTaskCompletedId"
+    fld_resetPointInfoCreatetime <- parseFieldMaybe obj "createTime"
+    fld_resetPointInfoExpiretime <- parseFieldMaybe obj "expireTime"
+    fld_resetPointInfoResettable <- parseFieldMaybe obj "resettable"
     pure defaultResetPointInfo
       { resetPointInfoBuildid = maybe (resetPointInfoBuildid defaultResetPointInfo) id fld_resetPointInfoBuildid
       , resetPointInfoBinarychecksum = maybe (resetPointInfoBinarychecksum defaultResetPointInfo) id fld_resetPointInfoBinarychecksum
@@ -1610,7 +1608,7 @@ instance ProtoFromJSON ResetPointInfo where
       , resetPointInfoExpiretime = maybe (resetPointInfoExpiretime defaultResetPointInfo) id fld_resetPointInfoExpiretime
       , resetPointInfoResettable = maybe (resetPointInfoResettable defaultResetPointInfo) id fld_resetPointInfoResettable
       }
-  protoFromJSON _ = Right defaultResetPointInfo
+  parseJSON _ = pure defaultResetPointInfo
 
 data NewWorkflowExecutionInfo = NewWorkflowExecutionInfo
   { newWorkflowExecutionInfoWorkflowid :: !Text
@@ -1752,44 +1750,44 @@ instance MessageDecode NewWorkflowExecutionInfo where
 instance IsMessage NewWorkflowExecutionInfo where
   messageTypeName _ = "temporal.api.workflow.v1.NewWorkflowExecutionInfo"
 
-instance ProtoToJSON NewWorkflowExecutionInfo where
-  protoToJSON msg = jsonObject
-      [ "workflowId" .= msg.newWorkflowExecutionInfoWorkflowid
-      , "workflowType" .= msg.newWorkflowExecutionInfoWorkflowtype
-      , "taskQueue" .= msg.newWorkflowExecutionInfoTaskqueue
-      , "input" .= msg.newWorkflowExecutionInfoInput
-      , "workflowExecutionTimeout" .= msg.newWorkflowExecutionInfoWorkflowexecutiontimeout
-      , "workflowRunTimeout" .= msg.newWorkflowExecutionInfoWorkflowruntimeout
-      , "workflowTaskTimeout" .= msg.newWorkflowExecutionInfoWorkflowtasktimeout
-      , "workflowIdReusePolicy" .= msg.newWorkflowExecutionInfoWorkflowidreusepolicy
-      , "retryPolicy" .= msg.newWorkflowExecutionInfoRetrypolicy
-      , "cronSchedule" .= msg.newWorkflowExecutionInfoCronschedule
-      , "memo" .= msg.newWorkflowExecutionInfoMemo
-      , "searchAttributes" .= msg.newWorkflowExecutionInfoSearchattributes
-      , "header" .= msg.newWorkflowExecutionInfoHeader
-      , "userMetadata" .= msg.newWorkflowExecutionInfoUsermetadata
-      , "versioningOverride" .= msg.newWorkflowExecutionInfoVersioningoverride
-      , "priority" .= msg.newWorkflowExecutionInfoPriority
+instance Aeson.ToJSON NewWorkflowExecutionInfo where
+  toJSON msg = jsonObject
+      [ "workflowId" .=: msg.newWorkflowExecutionInfoWorkflowid
+      , "workflowType" .=: msg.newWorkflowExecutionInfoWorkflowtype
+      , "taskQueue" .=: msg.newWorkflowExecutionInfoTaskqueue
+      , "input" .=: msg.newWorkflowExecutionInfoInput
+      , "workflowExecutionTimeout" .=: msg.newWorkflowExecutionInfoWorkflowexecutiontimeout
+      , "workflowRunTimeout" .=: msg.newWorkflowExecutionInfoWorkflowruntimeout
+      , "workflowTaskTimeout" .=: msg.newWorkflowExecutionInfoWorkflowtasktimeout
+      , "workflowIdReusePolicy" .=: msg.newWorkflowExecutionInfoWorkflowidreusepolicy
+      , "retryPolicy" .=: msg.newWorkflowExecutionInfoRetrypolicy
+      , "cronSchedule" .=: msg.newWorkflowExecutionInfoCronschedule
+      , "memo" .=: msg.newWorkflowExecutionInfoMemo
+      , "searchAttributes" .=: msg.newWorkflowExecutionInfoSearchattributes
+      , "header" .=: msg.newWorkflowExecutionInfoHeader
+      , "userMetadata" .=: msg.newWorkflowExecutionInfoUsermetadata
+      , "versioningOverride" .=: msg.newWorkflowExecutionInfoVersioningoverride
+      , "priority" .=: msg.newWorkflowExecutionInfoPriority
       ]
 
-instance ProtoFromJSON NewWorkflowExecutionInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_newWorkflowExecutionInfoWorkflowid <- obj .:? "workflowId"
-    fld_newWorkflowExecutionInfoWorkflowtype <- obj .:? "workflowType"
-    fld_newWorkflowExecutionInfoTaskqueue <- obj .:? "taskQueue"
-    fld_newWorkflowExecutionInfoInput <- obj .:? "input"
-    fld_newWorkflowExecutionInfoWorkflowexecutiontimeout <- obj .:? "workflowExecutionTimeout"
-    fld_newWorkflowExecutionInfoWorkflowruntimeout <- obj .:? "workflowRunTimeout"
-    fld_newWorkflowExecutionInfoWorkflowtasktimeout <- obj .:? "workflowTaskTimeout"
-    fld_newWorkflowExecutionInfoWorkflowidreusepolicy <- obj .:? "workflowIdReusePolicy"
-    fld_newWorkflowExecutionInfoRetrypolicy <- obj .:? "retryPolicy"
-    fld_newWorkflowExecutionInfoCronschedule <- obj .:? "cronSchedule"
-    fld_newWorkflowExecutionInfoMemo <- obj .:? "memo"
-    fld_newWorkflowExecutionInfoSearchattributes <- obj .:? "searchAttributes"
-    fld_newWorkflowExecutionInfoHeader <- obj .:? "header"
-    fld_newWorkflowExecutionInfoUsermetadata <- obj .:? "userMetadata"
-    fld_newWorkflowExecutionInfoVersioningoverride <- obj .:? "versioningOverride"
-    fld_newWorkflowExecutionInfoPriority <- obj .:? "priority"
+instance Aeson.FromJSON NewWorkflowExecutionInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_newWorkflowExecutionInfoWorkflowid <- parseFieldMaybe obj "workflowId"
+    fld_newWorkflowExecutionInfoWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_newWorkflowExecutionInfoTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_newWorkflowExecutionInfoInput <- parseFieldMaybe obj "input"
+    fld_newWorkflowExecutionInfoWorkflowexecutiontimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
+    fld_newWorkflowExecutionInfoWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_newWorkflowExecutionInfoWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_newWorkflowExecutionInfoWorkflowidreusepolicy <- parseFieldMaybe obj "workflowIdReusePolicy"
+    fld_newWorkflowExecutionInfoRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_newWorkflowExecutionInfoCronschedule <- parseFieldMaybe obj "cronSchedule"
+    fld_newWorkflowExecutionInfoMemo <- parseFieldMaybe obj "memo"
+    fld_newWorkflowExecutionInfoSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_newWorkflowExecutionInfoHeader <- parseFieldMaybe obj "header"
+    fld_newWorkflowExecutionInfoUsermetadata <- parseFieldMaybe obj "userMetadata"
+    fld_newWorkflowExecutionInfoVersioningoverride <- parseFieldMaybe obj "versioningOverride"
+    fld_newWorkflowExecutionInfoPriority <- parseFieldMaybe obj "priority"
     pure defaultNewWorkflowExecutionInfo
       { newWorkflowExecutionInfoWorkflowid = maybe (newWorkflowExecutionInfoWorkflowid defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowid
       , newWorkflowExecutionInfoWorkflowtype = maybe (newWorkflowExecutionInfoWorkflowtype defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowtype
@@ -1808,7 +1806,7 @@ instance ProtoFromJSON NewWorkflowExecutionInfo where
       , newWorkflowExecutionInfoVersioningoverride = maybe (newWorkflowExecutionInfoVersioningoverride defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoVersioningoverride
       , newWorkflowExecutionInfoPriority = maybe (newWorkflowExecutionInfoPriority defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoPriority
       }
-  protoFromJSON _ = Right defaultNewWorkflowExecutionInfo
+  parseJSON _ = pure defaultNewWorkflowExecutionInfo
 
 data CallbackInfo = CallbackInfo
   { callbackInfoCallback :: !(Maybe TE_Common_V1_Message.Callback)
@@ -1854,12 +1852,12 @@ instance MessageDecode CallbackInfo'WorkflowClosed where
 instance IsMessage CallbackInfo'WorkflowClosed where
   messageTypeName _ = "temporal.api.workflow.v1.CallbackInfo.WorkflowClosed"
 
-instance ProtoToJSON CallbackInfo'WorkflowClosed where
-  protoToJSON msg = jsonObject
+instance Aeson.ToJSON CallbackInfo'WorkflowClosed where
+  toJSON msg = jsonObject
       []
 
-instance ProtoFromJSON CallbackInfo'WorkflowClosed where
-  protoFromJSON _ = Right defaultCallbackInfo'WorkflowClosed
+instance Aeson.FromJSON CallbackInfo'WorkflowClosed where
+  parseJSON _ = pure defaultCallbackInfo'WorkflowClosed
 
 data CallbackInfo'Trigger = CallbackInfo'Trigger
   { callbackInfoTriggerVariant :: !(Maybe CallbackInfo'Trigger'Variant)
@@ -1870,10 +1868,10 @@ data CallbackInfo'Trigger'Variant
   = CallbackInfo'Trigger'Variant'WorkflowClosed !CallbackInfo'WorkflowClosed
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON CallbackInfo'Trigger'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON CallbackInfo'Trigger'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON CallbackInfo'Trigger'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON CallbackInfo'Trigger'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultCallbackInfo'Trigger :: CallbackInfo'Trigger
 defaultCallbackInfo'Trigger = CallbackInfo'Trigger
@@ -1906,19 +1904,18 @@ instance MessageDecode CallbackInfo'Trigger where
 instance IsMessage CallbackInfo'Trigger where
   messageTypeName _ = "temporal.api.workflow.v1.CallbackInfo.Trigger"
 
-instance ProtoToJSON CallbackInfo'Trigger where
-  protoToJSON msg = jsonObject
-      [ "variant" .= msg.callbackInfoTriggerVariant
+instance Aeson.ToJSON CallbackInfo'Trigger where
+  toJSON msg = jsonObject
+      [ "variant" .=: msg.callbackInfoTriggerVariant
 
       ]
 
-instance ProtoFromJSON CallbackInfo'Trigger where
-  protoFromJSON (JsonObject obj) = do
-    fld_callbackInfoTriggerVariant <- obj .:? "variant"
+instance Aeson.FromJSON CallbackInfo'Trigger where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_callbackInfoTriggerVariant <- parseFieldMaybe obj "variant"
     pure defaultCallbackInfo'Trigger
       { callbackInfoTriggerVariant = maybe (callbackInfoTriggerVariant defaultCallbackInfo'Trigger) id fld_callbackInfoTriggerVariant
       }
-  protoFromJSON _ = Right defaultCallbackInfo'Trigger
 
 defaultCallbackInfo :: CallbackInfo
 defaultCallbackInfo = CallbackInfo
@@ -1997,30 +1994,30 @@ instance MessageDecode CallbackInfo where
 instance IsMessage CallbackInfo where
   messageTypeName _ = "temporal.api.workflow.v1.CallbackInfo"
 
-instance ProtoToJSON CallbackInfo where
-  protoToJSON msg = jsonObject
-      [ "callback" .= msg.callbackInfoCallback
-      , "trigger" .= msg.callbackInfoTrigger
-      , "registrationTime" .= msg.callbackInfoRegistrationtime
-      , "state" .= msg.callbackInfoState
-      , "attempt" .= msg.callbackInfoAttempt
-      , "lastAttemptCompleteTime" .= msg.callbackInfoLastattemptcompletetime
-      , "lastAttemptFailure" .= msg.callbackInfoLastattemptfailure
-      , "nextAttemptScheduleTime" .= msg.callbackInfoNextattemptscheduletime
-      , "blockedReason" .= msg.callbackInfoBlockedreason
+instance Aeson.ToJSON CallbackInfo where
+  toJSON msg = jsonObject
+      [ "callback" .=: msg.callbackInfoCallback
+      , "trigger" .=: msg.callbackInfoTrigger
+      , "registrationTime" .=: msg.callbackInfoRegistrationtime
+      , "state" .=: msg.callbackInfoState
+      , "attempt" .=: msg.callbackInfoAttempt
+      , "lastAttemptCompleteTime" .=: msg.callbackInfoLastattemptcompletetime
+      , "lastAttemptFailure" .=: msg.callbackInfoLastattemptfailure
+      , "nextAttemptScheduleTime" .=: msg.callbackInfoNextattemptscheduletime
+      , "blockedReason" .=: msg.callbackInfoBlockedreason
       ]
 
-instance ProtoFromJSON CallbackInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_callbackInfoCallback <- obj .:? "callback"
-    fld_callbackInfoTrigger <- obj .:? "trigger"
-    fld_callbackInfoRegistrationtime <- obj .:? "registrationTime"
-    fld_callbackInfoState <- obj .:? "state"
-    fld_callbackInfoAttempt <- obj .:? "attempt"
-    fld_callbackInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    fld_callbackInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
-    fld_callbackInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    fld_callbackInfoBlockedreason <- obj .:? "blockedReason"
+instance Aeson.FromJSON CallbackInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_callbackInfoCallback <- parseFieldMaybe obj "callback"
+    fld_callbackInfoTrigger <- parseFieldMaybe obj "trigger"
+    fld_callbackInfoRegistrationtime <- parseFieldMaybe obj "registrationTime"
+    fld_callbackInfoState <- parseFieldMaybe obj "state"
+    fld_callbackInfoAttempt <- parseFieldMaybe obj "attempt"
+    fld_callbackInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_callbackInfoLastattemptfailure <- parseFieldMaybe obj "lastAttemptFailure"
+    fld_callbackInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_callbackInfoBlockedreason <- parseFieldMaybe obj "blockedReason"
     pure defaultCallbackInfo
       { callbackInfoCallback = maybe (callbackInfoCallback defaultCallbackInfo) id fld_callbackInfoCallback
       , callbackInfoTrigger = maybe (callbackInfoTrigger defaultCallbackInfo) id fld_callbackInfoTrigger
@@ -2032,7 +2029,7 @@ instance ProtoFromJSON CallbackInfo where
       , callbackInfoNextattemptscheduletime = maybe (callbackInfoNextattemptscheduletime defaultCallbackInfo) id fld_callbackInfoNextattemptscheduletime
       , callbackInfoBlockedreason = maybe (callbackInfoBlockedreason defaultCallbackInfo) id fld_callbackInfoBlockedreason
       }
-  protoFromJSON _ = Right defaultCallbackInfo
+  parseJSON _ = pure defaultCallbackInfo
 
 data PendingNexusOperationInfo = PendingNexusOperationInfo
   { pendingNexusOperationInfoEndpoint :: !Text
@@ -2181,46 +2178,46 @@ instance MessageDecode PendingNexusOperationInfo where
 instance IsMessage PendingNexusOperationInfo where
   messageTypeName _ = "temporal.api.workflow.v1.PendingNexusOperationInfo"
 
-instance ProtoToJSON PendingNexusOperationInfo where
-  protoToJSON msg = jsonObject
-      [ "endpoint" .= msg.pendingNexusOperationInfoEndpoint
-      , "service" .= msg.pendingNexusOperationInfoService
-      , "operation" .= msg.pendingNexusOperationInfoOperation
-      , "operationId" .= msg.pendingNexusOperationInfoOperationid
-      , "scheduleToCloseTimeout" .= msg.pendingNexusOperationInfoScheduletoclosetimeout
-      , "scheduledTime" .= msg.pendingNexusOperationInfoScheduledtime
-      , "state" .= msg.pendingNexusOperationInfoState
-      , "attempt" .= msg.pendingNexusOperationInfoAttempt
-      , "lastAttemptCompleteTime" .= msg.pendingNexusOperationInfoLastattemptcompletetime
-      , "lastAttemptFailure" .= msg.pendingNexusOperationInfoLastattemptfailure
-      , "nextAttemptScheduleTime" .= msg.pendingNexusOperationInfoNextattemptscheduletime
-      , "cancellationInfo" .= msg.pendingNexusOperationInfoCancellationinfo
-      , "scheduledEventId" .= msg.pendingNexusOperationInfoScheduledeventid
-      , "blockedReason" .= msg.pendingNexusOperationInfoBlockedreason
-      , "operationToken" .= msg.pendingNexusOperationInfoOperationtoken
-      , "scheduleToStartTimeout" .= msg.pendingNexusOperationInfoScheduletostarttimeout
-      , "startToCloseTimeout" .= msg.pendingNexusOperationInfoStarttoclosetimeout
+instance Aeson.ToJSON PendingNexusOperationInfo where
+  toJSON msg = jsonObject
+      [ "endpoint" .=: msg.pendingNexusOperationInfoEndpoint
+      , "service" .=: msg.pendingNexusOperationInfoService
+      , "operation" .=: msg.pendingNexusOperationInfoOperation
+      , "operationId" .=: msg.pendingNexusOperationInfoOperationid
+      , "scheduleToCloseTimeout" .=: msg.pendingNexusOperationInfoScheduletoclosetimeout
+      , "scheduledTime" .=: msg.pendingNexusOperationInfoScheduledtime
+      , "state" .=: msg.pendingNexusOperationInfoState
+      , "attempt" .=: msg.pendingNexusOperationInfoAttempt
+      , "lastAttemptCompleteTime" .=: msg.pendingNexusOperationInfoLastattemptcompletetime
+      , "lastAttemptFailure" .=: msg.pendingNexusOperationInfoLastattemptfailure
+      , "nextAttemptScheduleTime" .=: msg.pendingNexusOperationInfoNextattemptscheduletime
+      , "cancellationInfo" .=: msg.pendingNexusOperationInfoCancellationinfo
+      , "scheduledEventId" .=: msg.pendingNexusOperationInfoScheduledeventid
+      , "blockedReason" .=: msg.pendingNexusOperationInfoBlockedreason
+      , "operationToken" .=: msg.pendingNexusOperationInfoOperationtoken
+      , "scheduleToStartTimeout" .=: msg.pendingNexusOperationInfoScheduletostarttimeout
+      , "startToCloseTimeout" .=: msg.pendingNexusOperationInfoStarttoclosetimeout
       ]
 
-instance ProtoFromJSON PendingNexusOperationInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_pendingNexusOperationInfoEndpoint <- obj .:? "endpoint"
-    fld_pendingNexusOperationInfoService <- obj .:? "service"
-    fld_pendingNexusOperationInfoOperation <- obj .:? "operation"
-    fld_pendingNexusOperationInfoOperationid <- obj .:? "operationId"
-    fld_pendingNexusOperationInfoScheduletoclosetimeout <- obj .:? "scheduleToCloseTimeout"
-    fld_pendingNexusOperationInfoScheduledtime <- obj .:? "scheduledTime"
-    fld_pendingNexusOperationInfoState <- obj .:? "state"
-    fld_pendingNexusOperationInfoAttempt <- obj .:? "attempt"
-    fld_pendingNexusOperationInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    fld_pendingNexusOperationInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
-    fld_pendingNexusOperationInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    fld_pendingNexusOperationInfoCancellationinfo <- obj .:? "cancellationInfo"
-    fld_pendingNexusOperationInfoScheduledeventid <- obj .:? "scheduledEventId"
-    fld_pendingNexusOperationInfoBlockedreason <- obj .:? "blockedReason"
-    fld_pendingNexusOperationInfoOperationtoken <- obj .:? "operationToken"
-    fld_pendingNexusOperationInfoScheduletostarttimeout <- obj .:? "scheduleToStartTimeout"
-    fld_pendingNexusOperationInfoStarttoclosetimeout <- obj .:? "startToCloseTimeout"
+instance Aeson.FromJSON PendingNexusOperationInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_pendingNexusOperationInfoEndpoint <- parseFieldMaybe obj "endpoint"
+    fld_pendingNexusOperationInfoService <- parseFieldMaybe obj "service"
+    fld_pendingNexusOperationInfoOperation <- parseFieldMaybe obj "operation"
+    fld_pendingNexusOperationInfoOperationid <- parseFieldMaybe obj "operationId"
+    fld_pendingNexusOperationInfoScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_pendingNexusOperationInfoScheduledtime <- parseFieldMaybe obj "scheduledTime"
+    fld_pendingNexusOperationInfoState <- parseFieldMaybe obj "state"
+    fld_pendingNexusOperationInfoAttempt <- parseFieldMaybe obj "attempt"
+    fld_pendingNexusOperationInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_pendingNexusOperationInfoLastattemptfailure <- parseFieldMaybe obj "lastAttemptFailure"
+    fld_pendingNexusOperationInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_pendingNexusOperationInfoCancellationinfo <- parseFieldMaybe obj "cancellationInfo"
+    fld_pendingNexusOperationInfoScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_pendingNexusOperationInfoBlockedreason <- parseFieldMaybe obj "blockedReason"
+    fld_pendingNexusOperationInfoOperationtoken <- parseFieldMaybe obj "operationToken"
+    fld_pendingNexusOperationInfoScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_pendingNexusOperationInfoStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
     pure defaultPendingNexusOperationInfo
       { pendingNexusOperationInfoEndpoint = maybe (pendingNexusOperationInfoEndpoint defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoEndpoint
       , pendingNexusOperationInfoService = maybe (pendingNexusOperationInfoService defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoService
@@ -2240,7 +2237,7 @@ instance ProtoFromJSON PendingNexusOperationInfo where
       , pendingNexusOperationInfoScheduletostarttimeout = maybe (pendingNexusOperationInfoScheduletostarttimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduletostarttimeout
       , pendingNexusOperationInfoStarttoclosetimeout = maybe (pendingNexusOperationInfoStarttoclosetimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoStarttoclosetimeout
       }
-  protoFromJSON _ = Right defaultPendingNexusOperationInfo
+  parseJSON _ = pure defaultPendingNexusOperationInfo
 
 data NexusOperationCancellationInfo = NexusOperationCancellationInfo
   { nexusOperationCancellationInfoRequestedtime :: !(Maybe PB_Timestamp.Timestamp)
@@ -2319,26 +2316,26 @@ instance MessageDecode NexusOperationCancellationInfo where
 instance IsMessage NexusOperationCancellationInfo where
   messageTypeName _ = "temporal.api.workflow.v1.NexusOperationCancellationInfo"
 
-instance ProtoToJSON NexusOperationCancellationInfo where
-  protoToJSON msg = jsonObject
-      [ "requestedTime" .= msg.nexusOperationCancellationInfoRequestedtime
-      , "state" .= msg.nexusOperationCancellationInfoState
-      , "attempt" .= msg.nexusOperationCancellationInfoAttempt
-      , "lastAttemptCompleteTime" .= msg.nexusOperationCancellationInfoLastattemptcompletetime
-      , "lastAttemptFailure" .= msg.nexusOperationCancellationInfoLastattemptfailure
-      , "nextAttemptScheduleTime" .= msg.nexusOperationCancellationInfoNextattemptscheduletime
-      , "blockedReason" .= msg.nexusOperationCancellationInfoBlockedreason
+instance Aeson.ToJSON NexusOperationCancellationInfo where
+  toJSON msg = jsonObject
+      [ "requestedTime" .=: msg.nexusOperationCancellationInfoRequestedtime
+      , "state" .=: msg.nexusOperationCancellationInfoState
+      , "attempt" .=: msg.nexusOperationCancellationInfoAttempt
+      , "lastAttemptCompleteTime" .=: msg.nexusOperationCancellationInfoLastattemptcompletetime
+      , "lastAttemptFailure" .=: msg.nexusOperationCancellationInfoLastattemptfailure
+      , "nextAttemptScheduleTime" .=: msg.nexusOperationCancellationInfoNextattemptscheduletime
+      , "blockedReason" .=: msg.nexusOperationCancellationInfoBlockedreason
       ]
 
-instance ProtoFromJSON NexusOperationCancellationInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_nexusOperationCancellationInfoRequestedtime <- obj .:? "requestedTime"
-    fld_nexusOperationCancellationInfoState <- obj .:? "state"
-    fld_nexusOperationCancellationInfoAttempt <- obj .:? "attempt"
-    fld_nexusOperationCancellationInfoLastattemptcompletetime <- obj .:? "lastAttemptCompleteTime"
-    fld_nexusOperationCancellationInfoLastattemptfailure <- obj .:? "lastAttemptFailure"
-    fld_nexusOperationCancellationInfoNextattemptscheduletime <- obj .:? "nextAttemptScheduleTime"
-    fld_nexusOperationCancellationInfoBlockedreason <- obj .:? "blockedReason"
+instance Aeson.FromJSON NexusOperationCancellationInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_nexusOperationCancellationInfoRequestedtime <- parseFieldMaybe obj "requestedTime"
+    fld_nexusOperationCancellationInfoState <- parseFieldMaybe obj "state"
+    fld_nexusOperationCancellationInfoAttempt <- parseFieldMaybe obj "attempt"
+    fld_nexusOperationCancellationInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_nexusOperationCancellationInfoLastattemptfailure <- parseFieldMaybe obj "lastAttemptFailure"
+    fld_nexusOperationCancellationInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_nexusOperationCancellationInfoBlockedreason <- parseFieldMaybe obj "blockedReason"
     pure defaultNexusOperationCancellationInfo
       { nexusOperationCancellationInfoRequestedtime = maybe (nexusOperationCancellationInfoRequestedtime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoRequestedtime
       , nexusOperationCancellationInfoState = maybe (nexusOperationCancellationInfoState defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoState
@@ -2348,7 +2345,7 @@ instance ProtoFromJSON NexusOperationCancellationInfo where
       , nexusOperationCancellationInfoNextattemptscheduletime = maybe (nexusOperationCancellationInfoNextattemptscheduletime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoNextattemptscheduletime
       , nexusOperationCancellationInfoBlockedreason = maybe (nexusOperationCancellationInfoBlockedreason defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoBlockedreason
       }
-  protoFromJSON _ = Right defaultNexusOperationCancellationInfo
+  parseJSON _ = pure defaultNexusOperationCancellationInfo
 
 data WorkflowExecutionOptions = WorkflowExecutionOptions
   { workflowExecutionOptionsVersioningoverride :: !(Maybe VersioningOverride)
@@ -2392,21 +2389,20 @@ instance MessageDecode WorkflowExecutionOptions where
 instance IsMessage WorkflowExecutionOptions where
   messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionOptions"
 
-instance ProtoToJSON WorkflowExecutionOptions where
-  protoToJSON msg = jsonObject
-      [ "versioningOverride" .= msg.workflowExecutionOptionsVersioningoverride
-      , "priority" .= msg.workflowExecutionOptionsPriority
+instance Aeson.ToJSON WorkflowExecutionOptions where
+  toJSON msg = jsonObject
+      [ "versioningOverride" .=: msg.workflowExecutionOptionsVersioningoverride
+      , "priority" .=: msg.workflowExecutionOptionsPriority
       ]
 
-instance ProtoFromJSON WorkflowExecutionOptions where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionOptionsVersioningoverride <- obj .:? "versioningOverride"
-    fld_workflowExecutionOptionsPriority <- obj .:? "priority"
+instance Aeson.FromJSON WorkflowExecutionOptions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionOptionsVersioningoverride <- parseFieldMaybe obj "versioningOverride"
+    fld_workflowExecutionOptionsPriority <- parseFieldMaybe obj "priority"
     pure defaultWorkflowExecutionOptions
       { workflowExecutionOptionsVersioningoverride = maybe (workflowExecutionOptionsVersioningoverride defaultWorkflowExecutionOptions) id fld_workflowExecutionOptionsVersioningoverride
       , workflowExecutionOptionsPriority = maybe (workflowExecutionOptionsPriority defaultWorkflowExecutionOptions) id fld_workflowExecutionOptionsPriority
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionOptions
 
 data VersioningOverride = VersioningOverride
   { versioningOverrideOverride :: !(Maybe VersioningOverride'Override)
@@ -2421,10 +2417,10 @@ data VersioningOverride'Override
   | VersioningOverride'Override'AutoUpgrade {-# UNPACK #-} !Bool
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON VersioningOverride'Override where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON VersioningOverride'Override where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON VersioningOverride'Override where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON VersioningOverride'Override where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 data VersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
   { versioningOverridePinnedOverrideBehavior :: !VersioningOverride'PinnedOverrideBehavior
@@ -2468,21 +2464,20 @@ instance MessageDecode VersioningOverride'PinnedOverride where
 instance IsMessage VersioningOverride'PinnedOverride where
   messageTypeName _ = "temporal.api.workflow.v1.VersioningOverride.PinnedOverride"
 
-instance ProtoToJSON VersioningOverride'PinnedOverride where
-  protoToJSON msg = jsonObject
-      [ "behavior" .= msg.versioningOverridePinnedOverrideBehavior
-      , "version" .= msg.versioningOverridePinnedOverrideVersion
+instance Aeson.ToJSON VersioningOverride'PinnedOverride where
+  toJSON msg = jsonObject
+      [ "behavior" .=: msg.versioningOverridePinnedOverrideBehavior
+      , "version" .=: msg.versioningOverridePinnedOverrideVersion
       ]
 
-instance ProtoFromJSON VersioningOverride'PinnedOverride where
-  protoFromJSON (JsonObject obj) = do
-    fld_versioningOverridePinnedOverrideBehavior <- obj .:? "behavior"
-    fld_versioningOverridePinnedOverrideVersion <- obj .:? "version"
+instance Aeson.FromJSON VersioningOverride'PinnedOverride where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_versioningOverridePinnedOverrideBehavior <- parseFieldMaybe obj "behavior"
+    fld_versioningOverridePinnedOverrideVersion <- parseFieldMaybe obj "version"
     pure defaultVersioningOverride'PinnedOverride
       { versioningOverridePinnedOverrideBehavior = maybe (versioningOverridePinnedOverrideBehavior defaultVersioningOverride'PinnedOverride) id fld_versioningOverridePinnedOverrideBehavior
       , versioningOverridePinnedOverrideVersion = maybe (versioningOverridePinnedOverrideVersion defaultVersioningOverride'PinnedOverride) id fld_versioningOverridePinnedOverrideVersion
       }
-  protoFromJSON _ = Right defaultVersioningOverride'PinnedOverride
 
 data VersioningOverride'PinnedOverrideBehavior
   = VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorUnspecified
@@ -2506,16 +2501,16 @@ instance MessageSize VersioningOverride'PinnedOverrideBehavior where
 instance MessageDecode VersioningOverride'PinnedOverrideBehavior where
   messageDecoder = pure (toEnum 0)
 
-instance ProtoToJSON VersioningOverride'PinnedOverrideBehavior where
-  protoToJSON VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorUnspecified = JsonString "PINNED_OVERRIDE_BEHAVIOR_UNSPECIFIED"
-  protoToJSON VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorPinned = JsonString "PINNED_OVERRIDE_BEHAVIOR_PINNED"
+instance Aeson.ToJSON VersioningOverride'PinnedOverrideBehavior where
+  toJSON VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorUnspecified = Aeson.String "PINNED_OVERRIDE_BEHAVIOR_UNSPECIFIED"
+  toJSON VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorPinned = Aeson.String "PINNED_OVERRIDE_BEHAVIOR_PINNED"
 
-instance ProtoFromJSON VersioningOverride'PinnedOverrideBehavior where
-  protoFromJSON = \case
-    JsonString "PINNED_OVERRIDE_BEHAVIOR_UNSPECIFIED" -> Right VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorUnspecified
-    JsonString "PINNED_OVERRIDE_BEHAVIOR_PINNED" -> Right VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorPinned
-    JsonNumber n -> Right (toEnum (round n))
-    _ -> Left "Invalid enum value for VersioningOverride'PinnedOverrideBehavior"
+instance Aeson.FromJSON VersioningOverride'PinnedOverrideBehavior where
+  parseJSON = \case
+    Aeson.String "PINNED_OVERRIDE_BEHAVIOR_UNSPECIFIED" -> pure VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorUnspecified
+    Aeson.String "PINNED_OVERRIDE_BEHAVIOR_PINNED" -> pure VersioningOverride'PinnedOverrideBehavior'PinnedOverrideBehaviorPinned
+    Aeson.Number n -> pure (toEnum (round n))
+    _ -> fail "Invalid enum value for VersioningOverride'PinnedOverrideBehavior"
 
 defaultVersioningOverride :: VersioningOverride
 defaultVersioningOverride = VersioningOverride
@@ -2571,27 +2566,27 @@ instance MessageDecode VersioningOverride where
 instance IsMessage VersioningOverride where
   messageTypeName _ = "temporal.api.workflow.v1.VersioningOverride"
 
-instance ProtoToJSON VersioningOverride where
-  protoToJSON msg = jsonObject
-      [ "override" .= msg.versioningOverrideOverride
-      , "behavior" .= msg.versioningOverrideBehavior
-      , "deployment" .= msg.versioningOverrideDeployment
-      , "pinnedVersion" .= msg.versioningOverridePinnedversion
+instance Aeson.ToJSON VersioningOverride where
+  toJSON msg = jsonObject
+      [ "override" .=: msg.versioningOverrideOverride
+      , "behavior" .=: msg.versioningOverrideBehavior
+      , "deployment" .=: msg.versioningOverrideDeployment
+      , "pinnedVersion" .=: msg.versioningOverridePinnedversion
       ]
 
-instance ProtoFromJSON VersioningOverride where
-  protoFromJSON (JsonObject obj) = do
-    fld_versioningOverrideOverride <- obj .:? "override"
-    fld_versioningOverrideBehavior <- obj .:? "behavior"
-    fld_versioningOverrideDeployment <- obj .:? "deployment"
-    fld_versioningOverridePinnedversion <- obj .:? "pinnedVersion"
+instance Aeson.FromJSON VersioningOverride where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_versioningOverrideOverride <- parseFieldMaybe obj "override"
+    fld_versioningOverrideBehavior <- parseFieldMaybe obj "behavior"
+    fld_versioningOverrideDeployment <- parseFieldMaybe obj "deployment"
+    fld_versioningOverridePinnedversion <- parseFieldMaybe obj "pinnedVersion"
     pure defaultVersioningOverride
       { versioningOverrideOverride = maybe (versioningOverrideOverride defaultVersioningOverride) id fld_versioningOverrideOverride
       , versioningOverrideBehavior = maybe (versioningOverrideBehavior defaultVersioningOverride) id fld_versioningOverrideBehavior
       , versioningOverrideDeployment = maybe (versioningOverrideDeployment defaultVersioningOverride) id fld_versioningOverrideDeployment
       , versioningOverridePinnedversion = maybe (versioningOverridePinnedversion defaultVersioningOverride) id fld_versioningOverridePinnedversion
       }
-  protoFromJSON _ = Right defaultVersioningOverride
+  parseJSON _ = pure defaultVersioningOverride
 
 data OnConflictOptions = OnConflictOptions
   { onConflictOptionsAttachrequestid :: {-# UNPACK #-} !Bool
@@ -2642,24 +2637,23 @@ instance MessageDecode OnConflictOptions where
 instance IsMessage OnConflictOptions where
   messageTypeName _ = "temporal.api.workflow.v1.OnConflictOptions"
 
-instance ProtoToJSON OnConflictOptions where
-  protoToJSON msg = jsonObject
-      [ "attachRequestId" .= msg.onConflictOptionsAttachrequestid
-      , "attachCompletionCallbacks" .= msg.onConflictOptionsAttachcompletioncallbacks
-      , "attachLinks" .= msg.onConflictOptionsAttachlinks
+instance Aeson.ToJSON OnConflictOptions where
+  toJSON msg = jsonObject
+      [ "attachRequestId" .=: msg.onConflictOptionsAttachrequestid
+      , "attachCompletionCallbacks" .=: msg.onConflictOptionsAttachcompletioncallbacks
+      , "attachLinks" .=: msg.onConflictOptionsAttachlinks
       ]
 
-instance ProtoFromJSON OnConflictOptions where
-  protoFromJSON (JsonObject obj) = do
-    fld_onConflictOptionsAttachrequestid <- obj .:? "attachRequestId"
-    fld_onConflictOptionsAttachcompletioncallbacks <- obj .:? "attachCompletionCallbacks"
-    fld_onConflictOptionsAttachlinks <- obj .:? "attachLinks"
+instance Aeson.FromJSON OnConflictOptions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_onConflictOptionsAttachrequestid <- parseFieldMaybe obj "attachRequestId"
+    fld_onConflictOptionsAttachcompletioncallbacks <- parseFieldMaybe obj "attachCompletionCallbacks"
+    fld_onConflictOptionsAttachlinks <- parseFieldMaybe obj "attachLinks"
     pure defaultOnConflictOptions
       { onConflictOptionsAttachrequestid = maybe (onConflictOptionsAttachrequestid defaultOnConflictOptions) id fld_onConflictOptionsAttachrequestid
       , onConflictOptionsAttachcompletioncallbacks = maybe (onConflictOptionsAttachcompletioncallbacks defaultOnConflictOptions) id fld_onConflictOptionsAttachcompletioncallbacks
       , onConflictOptionsAttachlinks = maybe (onConflictOptionsAttachlinks defaultOnConflictOptions) id fld_onConflictOptionsAttachlinks
       }
-  protoFromJSON _ = Right defaultOnConflictOptions
 
 data RequestIdInfo = RequestIdInfo
   { requestIdInfoEventtype :: !TE_Enums_V1_EventType.EventType
@@ -2710,24 +2704,23 @@ instance MessageDecode RequestIdInfo where
 instance IsMessage RequestIdInfo where
   messageTypeName _ = "temporal.api.workflow.v1.RequestIdInfo"
 
-instance ProtoToJSON RequestIdInfo where
-  protoToJSON msg = jsonObject
-      [ "eventType" .= msg.requestIdInfoEventtype
-      , "eventId" .= msg.requestIdInfoEventid
-      , "buffered" .= msg.requestIdInfoBuffered
+instance Aeson.ToJSON RequestIdInfo where
+  toJSON msg = jsonObject
+      [ "eventType" .=: msg.requestIdInfoEventtype
+      , "eventId" .=: msg.requestIdInfoEventid
+      , "buffered" .=: msg.requestIdInfoBuffered
       ]
 
-instance ProtoFromJSON RequestIdInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_requestIdInfoEventtype <- obj .:? "eventType"
-    fld_requestIdInfoEventid <- obj .:? "eventId"
-    fld_requestIdInfoBuffered <- obj .:? "buffered"
+instance Aeson.FromJSON RequestIdInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_requestIdInfoEventtype <- parseFieldMaybe obj "eventType"
+    fld_requestIdInfoEventid <- parseFieldMaybe obj "eventId"
+    fld_requestIdInfoBuffered <- parseFieldMaybe obj "buffered"
     pure defaultRequestIdInfo
       { requestIdInfoEventtype = maybe (requestIdInfoEventtype defaultRequestIdInfo) id fld_requestIdInfoEventtype
       , requestIdInfoEventid = maybe (requestIdInfoEventid defaultRequestIdInfo) id fld_requestIdInfoEventid
       , requestIdInfoBuffered = maybe (requestIdInfoBuffered defaultRequestIdInfo) id fld_requestIdInfoBuffered
       }
-  protoFromJSON _ = Right defaultRequestIdInfo
 
 data PostResetOperation = PostResetOperation
   { postResetOperationVariant :: !(Maybe PostResetOperation'Variant)
@@ -2791,27 +2784,27 @@ instance MessageDecode PostResetOperation'SignalWorkflow where
 instance IsMessage PostResetOperation'SignalWorkflow where
   messageTypeName _ = "temporal.api.workflow.v1.PostResetOperation.SignalWorkflow"
 
-instance ProtoToJSON PostResetOperation'SignalWorkflow where
-  protoToJSON msg = jsonObject
-      [ "signalName" .= msg.postResetOperationSignalWorkflowSignalname
-      , "input" .= msg.postResetOperationSignalWorkflowInput
-      , "header" .= msg.postResetOperationSignalWorkflowHeader
-      , "links" .= msg.postResetOperationSignalWorkflowLinks
+instance Aeson.ToJSON PostResetOperation'SignalWorkflow where
+  toJSON msg = jsonObject
+      [ "signalName" .=: msg.postResetOperationSignalWorkflowSignalname
+      , "input" .=: msg.postResetOperationSignalWorkflowInput
+      , "header" .=: msg.postResetOperationSignalWorkflowHeader
+      , "links" .=: msg.postResetOperationSignalWorkflowLinks
       ]
 
-instance ProtoFromJSON PostResetOperation'SignalWorkflow where
-  protoFromJSON (JsonObject obj) = do
-    fld_postResetOperationSignalWorkflowSignalname <- obj .:? "signalName"
-    fld_postResetOperationSignalWorkflowInput <- obj .:? "input"
-    fld_postResetOperationSignalWorkflowHeader <- obj .:? "header"
-    fld_postResetOperationSignalWorkflowLinks <- obj .:? "links"
+instance Aeson.FromJSON PostResetOperation'SignalWorkflow where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_postResetOperationSignalWorkflowSignalname <- parseFieldMaybe obj "signalName"
+    fld_postResetOperationSignalWorkflowInput <- parseFieldMaybe obj "input"
+    fld_postResetOperationSignalWorkflowHeader <- parseFieldMaybe obj "header"
+    fld_postResetOperationSignalWorkflowLinks <- parseFieldMaybe obj "links"
     pure defaultPostResetOperation'SignalWorkflow
       { postResetOperationSignalWorkflowSignalname = maybe (postResetOperationSignalWorkflowSignalname defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowSignalname
       , postResetOperationSignalWorkflowInput = maybe (postResetOperationSignalWorkflowInput defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowInput
       , postResetOperationSignalWorkflowHeader = maybe (postResetOperationSignalWorkflowHeader defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowHeader
       , postResetOperationSignalWorkflowLinks = maybe (postResetOperationSignalWorkflowLinks defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowLinks
       }
-  protoFromJSON _ = Right defaultPostResetOperation'SignalWorkflow
+  parseJSON _ = pure defaultPostResetOperation'SignalWorkflow
 
 data PostResetOperation'UpdateWorkflowOptions = PostResetOperation'UpdateWorkflowOptions
   { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions :: !(Maybe WorkflowExecutionOptions)
@@ -2855,30 +2848,29 @@ instance MessageDecode PostResetOperation'UpdateWorkflowOptions where
 instance IsMessage PostResetOperation'UpdateWorkflowOptions where
   messageTypeName _ = "temporal.api.workflow.v1.PostResetOperation.UpdateWorkflowOptions"
 
-instance ProtoToJSON PostResetOperation'UpdateWorkflowOptions where
-  protoToJSON msg = jsonObject
-      [ "workflowExecutionOptions" .= msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
-      , "updateMask" .= msg.postResetOperationUpdateWorkflowOptionsUpdatemask
+instance Aeson.ToJSON PostResetOperation'UpdateWorkflowOptions where
+  toJSON msg = jsonObject
+      [ "workflowExecutionOptions" .=: msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
+      , "updateMask" .=: msg.postResetOperationUpdateWorkflowOptionsUpdatemask
       ]
 
-instance ProtoFromJSON PostResetOperation'UpdateWorkflowOptions where
-  protoFromJSON (JsonObject obj) = do
-    fld_postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions <- obj .:? "workflowExecutionOptions"
-    fld_postResetOperationUpdateWorkflowOptionsUpdatemask <- obj .:? "updateMask"
+instance Aeson.FromJSON PostResetOperation'UpdateWorkflowOptions where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions <- parseFieldMaybe obj "workflowExecutionOptions"
+    fld_postResetOperationUpdateWorkflowOptionsUpdatemask <- parseFieldMaybe obj "updateMask"
     pure defaultPostResetOperation'UpdateWorkflowOptions
       { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions = maybe (postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions defaultPostResetOperation'UpdateWorkflowOptions) id fld_postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
       , postResetOperationUpdateWorkflowOptionsUpdatemask = maybe (postResetOperationUpdateWorkflowOptionsUpdatemask defaultPostResetOperation'UpdateWorkflowOptions) id fld_postResetOperationUpdateWorkflowOptionsUpdatemask
       }
-  protoFromJSON _ = Right defaultPostResetOperation'UpdateWorkflowOptions
 data PostResetOperation'Variant
   = PostResetOperation'Variant'SignalWorkflow !PostResetOperation'SignalWorkflow
   | PostResetOperation'Variant'UpdateWorkflowOptions !PostResetOperation'UpdateWorkflowOptions
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
-instance ProtoToJSON PostResetOperation'Variant where
-  protoToJSON _ = JsonNull
-instance ProtoFromJSON PostResetOperation'Variant where
-  protoFromJSON _ = Left "Cannot parse oneof from JSON"
+instance Aeson.ToJSON PostResetOperation'Variant where
+  toJSON _ = Aeson.Null
+instance Aeson.FromJSON PostResetOperation'Variant where
+  parseJSON _ = fail "Cannot parse oneof from JSON"
 
 defaultPostResetOperation :: PostResetOperation
 defaultPostResetOperation = PostResetOperation
@@ -2916,19 +2908,18 @@ instance MessageDecode PostResetOperation where
 instance IsMessage PostResetOperation where
   messageTypeName _ = "temporal.api.workflow.v1.PostResetOperation"
 
-instance ProtoToJSON PostResetOperation where
-  protoToJSON msg = jsonObject
-      [ "variant" .= msg.postResetOperationVariant
+instance Aeson.ToJSON PostResetOperation where
+  toJSON msg = jsonObject
+      [ "variant" .=: msg.postResetOperationVariant
 
       ]
 
-instance ProtoFromJSON PostResetOperation where
-  protoFromJSON (JsonObject obj) = do
-    fld_postResetOperationVariant <- obj .:? "variant"
+instance Aeson.FromJSON PostResetOperation where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_postResetOperationVariant <- parseFieldMaybe obj "variant"
     pure defaultPostResetOperation
       { postResetOperationVariant = maybe (postResetOperationVariant defaultPostResetOperation) id fld_postResetOperationVariant
       }
-  protoFromJSON _ = Right defaultPostResetOperation
 
 data WorkflowExecutionPauseInfo = WorkflowExecutionPauseInfo
   { workflowExecutionPauseInfoIdentity :: !Text
@@ -2979,24 +2970,23 @@ instance MessageDecode WorkflowExecutionPauseInfo where
 instance IsMessage WorkflowExecutionPauseInfo where
   messageTypeName _ = "temporal.api.workflow.v1.WorkflowExecutionPauseInfo"
 
-instance ProtoToJSON WorkflowExecutionPauseInfo where
-  protoToJSON msg = jsonObject
-      [ "identity" .= msg.workflowExecutionPauseInfoIdentity
-      , "pausedTime" .= msg.workflowExecutionPauseInfoPausedtime
-      , "reason" .= msg.workflowExecutionPauseInfoReason
+instance Aeson.ToJSON WorkflowExecutionPauseInfo where
+  toJSON msg = jsonObject
+      [ "identity" .=: msg.workflowExecutionPauseInfoIdentity
+      , "pausedTime" .=: msg.workflowExecutionPauseInfoPausedtime
+      , "reason" .=: msg.workflowExecutionPauseInfoReason
       ]
 
-instance ProtoFromJSON WorkflowExecutionPauseInfo where
-  protoFromJSON (JsonObject obj) = do
-    fld_workflowExecutionPauseInfoIdentity <- obj .:? "identity"
-    fld_workflowExecutionPauseInfoPausedtime <- obj .:? "pausedTime"
-    fld_workflowExecutionPauseInfoReason <- obj .:? "reason"
+instance Aeson.FromJSON WorkflowExecutionPauseInfo where
+  parseJSON = Aeson.withObject "" $ \obj -> do
+    fld_workflowExecutionPauseInfoIdentity <- parseFieldMaybe obj "identity"
+    fld_workflowExecutionPauseInfoPausedtime <- parseFieldMaybe obj "pausedTime"
+    fld_workflowExecutionPauseInfoReason <- parseFieldMaybe obj "reason"
     pure defaultWorkflowExecutionPauseInfo
       { workflowExecutionPauseInfoIdentity = maybe (workflowExecutionPauseInfoIdentity defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoIdentity
       , workflowExecutionPauseInfoPausedtime = maybe (workflowExecutionPauseInfoPausedtime defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoPausedtime
       , workflowExecutionPauseInfoReason = maybe (workflowExecutionPauseInfoReason defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoReason
       }
-  protoFromJSON _ = Right defaultWorkflowExecutionPauseInfo
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
