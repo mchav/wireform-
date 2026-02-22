@@ -25,13 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -124,11 +125,16 @@ instance Aeson.ToJSON Struct where
       ]
 
 instance Aeson.FromJSON Struct where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "Struct" $ \obj -> do
     fld_structFields <- parseFieldMaybe obj "fields"
     pure defaultStruct
       { structFields = maybe (structFields defaultStruct) id fld_structFields
       }
+
+instance Hashable Struct where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` Map.toList msg.structFields
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
@@ -149,6 +155,13 @@ instance Aeson.ToJSON Value'Kind where
   toJSON _ = Aeson.Null
 instance Aeson.FromJSON Value'Kind where
   parseJSON _ = fail "Cannot parse oneof from JSON"
+instance Hashable Value'Kind where
+  hashWithSalt salt (Value'Kind'NullValue v) = salt `hashWithSalt` (0 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'NumberValue v) = salt `hashWithSalt` (1 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'StringValue v) = salt `hashWithSalt` (2 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'BoolValue v) = salt `hashWithSalt` (3 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'StructValue v) = salt `hashWithSalt` (4 :: Int) `hashWithSalt` v
+  hashWithSalt salt (Value'Kind'ListValue v) = salt `hashWithSalt` (5 :: Int) `hashWithSalt` v
 
 defaultValue :: Value
 defaultValue = Value
@@ -235,11 +248,16 @@ instance Aeson.ToJSON Value where
       ]
 
 instance Aeson.FromJSON Value where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "Value" $ \obj -> do
     fld_valueKind <- parseFieldMaybe obj "kind"
     pure defaultValue
       { valueKind = maybe (valueKind defaultValue) id fld_valueKind
       }
+
+instance Hashable Value where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.valueKind
 
 data NullValue
   = NullValue'NullValue
@@ -268,6 +286,9 @@ instance Aeson.FromJSON NullValue where
     Aeson.String "NULL_VALUE" -> pure NullValue'NullValue
     Aeson.Number n -> pure (toEnum (round n))
     _ -> fail "Invalid enum value for NullValue"
+
+instance Hashable NullValue where
+  hashWithSalt salt x = hashWithSalt salt (toProtoEnumNullValue x)
 
 data ListValue = ListValue
   { listValueValues :: !(V.Vector Value)
@@ -334,11 +355,16 @@ instance Aeson.ToJSON ListValue where
       ]
 
 instance Aeson.FromJSON ListValue where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "ListValue" $ \obj -> do
     fld_listValueValues <- parseFieldMaybe obj "values"
     pure defaultListValue
       { listValueValues = maybe (listValueValues defaultListValue) id fld_listValueValues
       }
+
+instance Hashable ListValue where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` V.toList msg.listValueValues
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

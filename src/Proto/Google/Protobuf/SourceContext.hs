@@ -25,13 +25,14 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -121,11 +122,16 @@ instance Aeson.ToJSON SourceContext where
       ]
 
 instance Aeson.FromJSON SourceContext where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "SourceContext" $ \obj -> do
     fld_sourceContextFilename <- parseFieldMaybe obj "fileName"
     pure defaultSourceContext
       { sourceContextFilename = maybe (sourceContextFilename defaultSourceContext) id fld_sourceContextFilename
       }
+
+instance Hashable SourceContext where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.sourceContextFilename
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

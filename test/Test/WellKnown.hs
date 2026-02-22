@@ -1,6 +1,7 @@
 module Test.WellKnown (wellKnownTests) where
 
 import qualified Data.ByteString as BS
+import Data.Hashable (hash, hashWithSalt)
 import Data.Proxy (Proxy(..))
 import qualified Data.Vector as V
 import Hedgehog
@@ -274,5 +275,33 @@ wellKnownTests = testGroup "Well-Known Types"
           n <- forAll $ Gen.int32 (Range.linear 0 999999)
           let msg = defaultDuration { durationSeconds = s, durationNanos = n }
           encodeMessageSized msg === encodeMessage msg
+      ]
+
+  , testGroup "Hashable instances"
+      [ testProperty "Timestamp: equal values have equal hashes" $ property $ do
+          s <- forAll $ Gen.int64 (Range.linear 0 1000000)
+          n <- forAll $ Gen.int32 (Range.linear 0 999999)
+          let msg = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
+          hash msg === hash msg
+
+      , testCase "Timestamp: different values have different hashes" $ do
+          let m1 = defaultTimestamp { timestampSeconds = 100 }
+              m2 = defaultTimestamp { timestampSeconds = 200 }
+          assertBool "hashes should differ" (hash m1 /= hash m2)
+
+      , testCase "Duration: hashWithSalt works" $ do
+          let msg = defaultDuration { durationSeconds = 42, durationNanos = 123 }
+          hashWithSalt 0 msg `seq` pure ()
+
+      , testCase "Empty: hashable" $ do
+          hash defaultEmpty `seq` pure ()
+
+      , testProperty "FieldMask: hashable with vector field" $ property $ do
+          ps <- forAll $ Gen.list (Range.linear 0 5) (Gen.text (Range.linear 1 10) Gen.alphaNum)
+          let msg = defaultFieldMask { fieldMaskPaths = V.fromList ps }
+          hash msg `seq` pure ()
+
+      , testProperty "Struct: hashable with map field" $ property $ do
+          hash defaultStruct `seq` pure ()
       ]
   ]

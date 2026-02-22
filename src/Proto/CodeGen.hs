@@ -453,6 +453,7 @@ genImports externalModules = vsep $
   , txt "import qualified Data.Vector.Unboxed as VU"
   , txt "import GHC.Generics (Generic)"
   , txt "import Control.DeepSeq (NFData(..))"
+  , txt "import Data.Hashable (Hashable(..))"
   , txt "import Proto.Encode"
   , txt "import Proto.Decode"
   , txt "import qualified Data.Aeson as Aeson"
@@ -555,13 +556,15 @@ genMessage ctx scope msg =
         , genToJSONInstance ctx scope' msg
         , mempty
         , genFromJSONInstance ctx scope' msg
+        , mempty
+        , genHashableInstance ctx scope' msg
         ]
 
 genNestedElement :: GenCtx -> [Text] -> MessageElement -> [Doc ann]
 genNestedElement ctx scope = \case
   MEMessage inner -> genMessage ctx scope inner
   MEEnum ed       -> genEnum ctx scope ed
-  MEOneof od      -> [genOneofDecl ctx scope od, genOneofToJSONInstance ctx scope od, genOneofFromJSONInstance ctx scope od]
+  MEOneof od      -> [genOneofDecl ctx scope od, genOneofToJSONInstance ctx scope od, genOneofFromJSONInstance ctx scope od, genOneofHashableInstance ctx scope od]
   _               -> []
 
 -- ---------------------------------------------------------------------------
@@ -1369,6 +1372,64 @@ genFromJSONFieldAssign :: Text -> JSONFieldInfo -> Doc ann
 genFromJSONFieldAssign tyN jfi =
   pretty (jfiAccessor jfi) <+> txt "= maybe (" <> pretty (jfiAccessor jfi) <+> txt "default" <> pretty tyN <> txt ") id fld_" <> pretty (jfiAccessor jfi)
 
+-- ---------------------------------------------------------------------------
+-- Hashable instances
+-- ---------------------------------------------------------------------------
+
+genHashableInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
+genHashableInstance ctx scope msg =
+  let tyN = scopedTypeName scope
+      fields = extractAllFields ctx scope (msgElements msg)
+  in vsep
+    [ instanceHead "Hashable" tyN
+    , indent 2 $ case fields of
+        [] -> txt "hashWithSalt salt _ = salt"
+        _  -> txt "hashWithSalt salt msg =" <> line <>
+              indent 2 (genHashChain fields)
+    ]
+
+genHashChain :: [FieldInfoFull] -> Doc ann
+genHashChain [] = txt "salt"
+genHashChain fields =
+  let exprs = fmap genFieldHash fields
+  in vsep (txt "salt" : exprs)
+
+genFieldHash :: FieldInfoFull -> Doc ann
+genFieldHash fi = case fifKind fi of
+  FKScalar (Just Repeated) st | isUnboxableScalar st ->
+    txt "`hashWithSalt` VU.toList msg." <> pretty (fifAccessor fi)
+  FKScalar (Just Repeated) _ ->
+    txt "`hashWithSalt` V.toList msg." <> pretty (fifAccessor fi)
+  FKNamed (Just Repeated) _ _ ->
+    txt "`hashWithSalt` V.toList msg." <> pretty (fifAccessor fi)
+  FKMap _ _ ->
+    txt "`hashWithSalt` Map.toList msg." <> pretty (fifAccessor fi)
+  _ ->
+    txt "`hashWithSalt` msg." <> pretty (fifAccessor fi)
+
+genOneofHashableInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
+genOneofHashableInstance ctx scope od =
+  let tyN = scopedTypeName scope <> "'" <> snakeToPascal (oneofName od)
+      arms = zipWith (genOneofHashArm scope (oneofName od)) [0 :: Int ..] (oneofFields od)
+  in vsep
+    [ instanceHead "Hashable" tyN
+    , indent 2 $ vsep arms
+    ]
+
+genOneofHashArm :: [Text] -> Text -> Int -> OneofField -> Doc ann
+genOneofHashArm scope ooName tag f =
+  let conName = oneofConName scope ooName (oneofFieldName f)
+      tagLit = T.pack (show tag)
+  in txt "hashWithSalt salt (" <> pretty conName <+> txt "v) = salt `hashWithSalt` (" <> pretty tagLit <> txt " :: Int) `hashWithSalt` v"
+
+genEnumHashableInstance :: [Text] -> EnumDef -> Doc ann
+genEnumHashableInstance scope ed =
+  let tyN = scopedTypeName scope
+  in vsep
+    [ instanceHead "Hashable" tyN
+    , indent 2 (txt "hashWithSalt salt x = hashWithSalt salt (toProtoEnum" <> pretty tyN <+> txt "x)")
+    ]
+
 fqProtoName :: Maybe Text -> [Text] -> Text
 fqProtoName pkg scope =
   let msgName = T.intercalate "." scope
@@ -1513,6 +1574,8 @@ genEnum ctx scope ed =
      , genEnumToJSONInstance scope' ed
      , mempty
      , genEnumFromJSONInstance scope' ed
+     , mempty
+     , genEnumHashableInstance scope' ed
      ]
 
 genEnumDataDecl :: [Text] -> EnumDef -> Doc ann

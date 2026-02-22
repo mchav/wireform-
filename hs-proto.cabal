@@ -169,6 +169,7 @@ test-suite hs-proto-test
       , text
       , vector
       , aeson
+      , hashable
       , unordered-containers
       , hedgehog         >= 1.0  && < 1.5
       , tasty            >= 1.4  && < 1.6

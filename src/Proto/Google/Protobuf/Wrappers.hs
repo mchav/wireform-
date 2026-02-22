@@ -25,6 +25,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
 import qualified Data.Aeson as Aeson
@@ -121,11 +122,16 @@ instance Aeson.ToJSON DoubleValue where
       ]
 
 instance Aeson.FromJSON DoubleValue where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "DoubleValue" $ \obj -> do
     fld_doubleValueValue <- parseFieldMaybe obj "value"
     pure defaultDoubleValue
       { doubleValueValue = maybe (doubleValueValue defaultDoubleValue) id fld_doubleValueValue
       }
+
+instance Hashable DoubleValue where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.doubleValueValue
 
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
@@ -192,11 +198,16 @@ instance Aeson.ToJSON FloatValue where
       ]
 
 instance Aeson.FromJSON FloatValue where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "FloatValue" $ \obj -> do
     fld_floatValueValue <- parseFieldMaybe obj "value"
     pure defaultFloatValue
       { floatValueValue = maybe (floatValueValue defaultFloatValue) id fld_floatValueValue
       }
+
+instance Hashable FloatValue where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.floatValueValue
 
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
@@ -263,11 +274,16 @@ instance Aeson.ToJSON Int64Value where
       ]
 
 instance Aeson.FromJSON Int64Value where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "Int64Value" $ \obj -> do
     fld_int64ValueValue <- parseFieldMaybe obj "value"
     pure defaultInt64Value
       { int64ValueValue = maybe (int64ValueValue defaultInt64Value) id fld_int64ValueValue
       }
+
+instance Hashable Int64Value where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.int64ValueValue
 
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
@@ -334,11 +350,16 @@ instance Aeson.ToJSON UInt64Value where
       ]
 
 instance Aeson.FromJSON UInt64Value where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "UInt64Value" $ \obj -> do
     fld_uInt64ValueValue <- parseFieldMaybe obj "value"
     pure defaultUInt64Value
       { uInt64ValueValue = maybe (uInt64ValueValue defaultUInt64Value) id fld_uInt64ValueValue
       }
+
+instance Hashable UInt64Value where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.uInt64ValueValue
 
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
@@ -405,11 +426,16 @@ instance Aeson.ToJSON Int32Value where
       ]
 
 instance Aeson.FromJSON Int32Value where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "Int32Value" $ \obj -> do
     fld_int32ValueValue <- parseFieldMaybe obj "value"
     pure defaultInt32Value
       { int32ValueValue = maybe (int32ValueValue defaultInt32Value) id fld_int32ValueValue
       }
+
+instance Hashable Int32Value where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.int32ValueValue
 
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
@@ -476,11 +502,16 @@ instance Aeson.ToJSON UInt32Value where
       ]
 
 instance Aeson.FromJSON UInt32Value where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "UInt32Value" $ \obj -> do
     fld_uInt32ValueValue <- parseFieldMaybe obj "value"
     pure defaultUInt32Value
       { uInt32ValueValue = maybe (uInt32ValueValue defaultUInt32Value) id fld_uInt32ValueValue
       }
+
+instance Hashable UInt32Value where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.uInt32ValueValue
 
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
@@ -547,11 +578,16 @@ instance Aeson.ToJSON BoolValue where
       ]
 
 instance Aeson.FromJSON BoolValue where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "BoolValue" $ \obj -> do
     fld_boolValueValue <- parseFieldMaybe obj "value"
     pure defaultBoolValue
       { boolValueValue = maybe (boolValueValue defaultBoolValue) id fld_boolValueValue
       }
+
+instance Hashable BoolValue where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.boolValueValue
 
 data StringValue = StringValue
   { stringValueValue :: !Text
@@ -618,11 +654,16 @@ instance Aeson.ToJSON StringValue where
       ]
 
 instance Aeson.FromJSON StringValue where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "StringValue" $ \obj -> do
     fld_stringValueValue <- parseFieldMaybe obj "value"
     pure defaultStringValue
       { stringValueValue = maybe (stringValueValue defaultStringValue) id fld_stringValueValue
       }
+
+instance Hashable StringValue where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.stringValueValue
 
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
@@ -689,11 +730,16 @@ instance Aeson.ToJSON BytesValue where
       ]
 
 instance Aeson.FromJSON BytesValue where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "BytesValue" $ \obj -> do
     fld_bytesValueValue <- parseBytesFieldMaybe obj "value"
     pure defaultBytesValue
       { bytesValueValue = maybe (bytesValueValue defaultBytesValue) id fld_bytesValueValue
       }
+
+instance Hashable BytesValue where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.bytesValueValue
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

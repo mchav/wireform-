@@ -25,6 +25,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData(..))
+import Data.Hashable (Hashable(..))
 import Proto.Encode
 import Proto.Decode
 import qualified Data.Aeson as Aeson
@@ -135,13 +136,19 @@ instance Aeson.ToJSON Any where
       ]
 
 instance Aeson.FromJSON Any where
-  parseJSON = Aeson.withObject "" $ \obj -> do
+  parseJSON = Aeson.withObject "Any" $ \obj -> do
     fld_anyTypeurl <- parseFieldMaybe obj "typeUrl"
     fld_anyValue <- parseBytesFieldMaybe obj "value"
     pure defaultAny
       { anyTypeurl = maybe (anyTypeurl defaultAny) id fld_anyTypeurl
       , anyValue = maybe (anyValue defaultAny) id fld_anyValue
       }
+
+instance Hashable Any where
+  hashWithSalt salt msg =
+    salt
+    `hashWithSalt` msg.anyTypeurl
+    `hashWithSalt` msg.anyValue
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
