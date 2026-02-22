@@ -2,24 +2,51 @@
 {-# OPTIONS_GHC -Wno-unused-matches #-}
 -- | Template Haskell support for generating protobuf types at compile time.
 --
+-- == Basic usage
+--
 -- @
 -- {-\# LANGUAGE TemplateHaskell \#-}
 -- import Proto.TH
 --
--- -- Default (strict Text, strict ByteString, Vector):
 -- \$(loadProto "path/to/message.proto")
+-- @
 --
--- -- Custom representation:
+-- == Custom representations
+--
+-- @
 -- \$(loadProtoWith (defaultLoadOpts
 --       { loRepConfig = defaultRepConfig
 --           { rcFieldOverrides = Map.fromList
 --               [ (("Person","name"), defaultFieldRep { frString = ShortTextRep })
---               , (("Blob","data"), defaultFieldRep { frBytes = LazyBytesRep })
---               , (("Config","tags"), defaultFieldRep { frRepeated = ListRep })
 --               ]
 --           }
 --       })
 --     "path/to/file.proto")
+-- @
+--
+-- == Codegen hooks
+--
+-- Use 'loTHHooks' to register 'Proto.CodeGen.Hooks.THHooks' that produce
+-- extra declarations based on proto attributes:
+--
+-- @
+-- import Proto.TH
+-- import Proto.CodeGen.Hooks
+-- import Language.Haskell.TH
+--
+-- -- Generate a @describeX :: String@ function for every message
+-- descrHook :: THHooks
+-- descrHook = mempty
+--   { thOnMessage = \\ctx -> do
+--       let name = mkName ("describe" <> T.unpack (mhcHsTypeName ctx))
+--       sig  \<- sigD name [t| String |]
+--       body \<- valD (varP name)
+--                (normalB (litE (stringL (T.unpack (mhcFqProtoName ctx))))) []
+--       pure [sig, body]
+--   }
+--
+-- \$(loadProtoWith defaultLoadOpts { loTHHooks = descrHook } "my.proto")
+-- -- Now @describeMyMessage :: String@ is in scope.
 -- @
 module Proto.TH
   ( loadProto
@@ -55,6 +82,7 @@ import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 import Proto.AST
 import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal, lowerFirst, escapeReserved)
+import Proto.CodeGen.Hooks
 import qualified Proto.Encode as Encode
 import qualified Proto.Decode as Decode
 import Proto.Wire (Tag(..))
@@ -68,15 +96,26 @@ hsEnumCon :: Text -> Text -> Text
 hsEnumCon _enumName = snakeToPascal
 
 -- | Options for compile-time proto loading.
+--
+-- Use 'loTHHooks' to register hooks that produce extra TH declarations
+-- based on proto attributes:
+--
+-- @
+-- \$(loadProtoWith defaultLoadOpts
+--       { loTHHooks = myTHHooks }
+--     \"path/to/file.proto\")
+-- @
 data LoadOpts = LoadOpts
   { loIncludeDirs :: [FilePath]
   , loRepConfig   :: RepConfig
-  } deriving stock (Show, Eq)
+  , loTHHooks     :: THHooks
+  }
 
 defaultLoadOpts :: LoadOpts
 defaultLoadOpts = LoadOpts
   { loIncludeDirs = ["proto/", "."]
   , loRepConfig   = defaultRepConfig
+  , loTHHooks     = defaultTHHooks
   }
 
 loadProto :: FilePath -> Q [Dec]
@@ -88,31 +127,48 @@ loadProtoWith opts path = do
   contents <- runIO (TIO.readFile path)
   case parseProtoFile path contents of
     Left err -> fail (renderParseError err)
-    Right pf -> protoFileToDecls' (loRepConfig opts) pf
+    Right pf -> do
+      let hooks = loTHHooks opts
+          fileCtx = FileHookCtx
+            { fhcProtoFile   = pf
+            , fhcModuleName  = T.pack path
+            , fhcFileOptions = protoOptions pf
+            }
+      decls <- protoFileToDecls' (loRepConfig opts) hooks pf
+      hookDecls <- thOnFile hooks fileCtx
+      pure (decls <> hookDecls)
 
 protoFileToDecls :: ProtoFile -> Q [Dec]
-protoFileToDecls = protoFileToDecls' defaultRepConfig
+protoFileToDecls = protoFileToDecls' defaultRepConfig defaultTHHooks
 
-protoFileToDecls' :: RepConfig -> ProtoFile -> Q [Dec]
-protoFileToDecls' cfg pf = concat <$> mapM (topLevelToDecls cfg) (protoTopLevels pf)
+protoFileToDecls' :: RepConfig -> THHooks -> ProtoFile -> Q [Dec]
+protoFileToDecls' cfg hooks pf = concat <$> mapM (topLevelToDecls cfg hooks) (protoTopLevels pf)
 
-topLevelToDecls :: RepConfig -> TopLevel -> Q [Dec]
-topLevelToDecls cfg = \case
-  TLMessage msg -> messageToDecls' cfg msg
-  TLEnum ed     -> enumToDecls ed
+topLevelToDecls :: RepConfig -> THHooks -> TopLevel -> Q [Dec]
+topLevelToDecls cfg hooks = \case
+  TLMessage msg -> messageToDecls' cfg hooks msg
+  TLEnum ed     -> enumToDecls' hooks ed
   _             -> pure []
 
 messageToDecls :: MessageDef -> Q [Dec]
-messageToDecls = messageToDecls' defaultRepConfig
+messageToDecls = messageToDecls' defaultRepConfig defaultTHHooks
 
-messageToDecls' :: RepConfig -> MessageDef -> Q [Dec]
-messageToDecls' cfg msg = do
+messageToDecls' :: RepConfig -> THHooks -> MessageDef -> Q [Dec]
+messageToDecls' cfg hooks msg = do
   let tyName = mkName (T.unpack (hsTypeName (msgName msg)))
       fields = extractMessageFields cfg (msgName msg) (msgElements msg)
+      scope = [msgName msg]
+      hookCtx = MessageHookCtx
+        { mhcMessageDef  = msg
+        , mhcScope       = scope
+        , mhcHsTypeName  = hsTypeName (msgName msg)
+        , mhcFqProtoName = msgName msg
+        , mhcOptions     = messageOptions msg
+        }
 
   nestedDecls <- concat <$> mapM (\case
-    MEMessage inner -> messageToDecls' cfg inner
-    MEEnum ed       -> enumToDecls ed
+    MEMessage inner -> messageToDecls' cfg hooks inner
+    MEEnum ed       -> enumToDecls' hooks ed
     _               -> pure []) (msgElements msg)
 
   dataDec <- mkDataDec tyName fields
@@ -120,15 +176,15 @@ messageToDecls' cfg msg = do
   encodeDec <- mkEncodeInstance tyName fields
   decodeDec <- mkDecodeInstance tyName fields
   sizeDec <- mkSizeInstance tyName fields
+  hookDecls <- thOnMessage hooks hookCtx
 
-  -- Haddock documentation via TH putDoc (deferred via addModFinalizer)
   addModFinalizer (putDoc (DeclDoc tyName) (messageHaddock msg fields))
   let defName = mkName ("default" <> nameBase tyName)
   addModFinalizer (putDoc (DeclDoc defName)
     ("Default value for @" <> T.unpack (msgName msg)
     <> "@ with all fields at their proto default values."))
 
-  pure (nestedDecls <> [dataDec] <> defaultDec <> encodeDec <> decodeDec <> sizeDec)
+  pure (nestedDecls <> [dataDec] <> defaultDec <> encodeDec <> decodeDec <> sizeDec <> hookDecls)
 
 messageHaddock :: MessageDef -> [FieldSpec] -> String
 messageHaddock msg fields =
@@ -585,17 +641,27 @@ sizeBytesFnQ = \case
   ShortBytesRep  -> [| \fn sbs -> WE.fieldBytesSize fn (SBS.fromShort sbs) |]
 
 enumToDecls :: EnumDef -> Q [Dec]
-enumToDecls ed = do
+enumToDecls = enumToDecls' defaultTHHooks
+
+enumToDecls' :: THHooks -> EnumDef -> Q [Dec]
+enumToDecls' hooks ed = do
   let tyName = mkName (T.unpack (hsTypeName (enumName ed)))
       cons = fmap (\ev ->
         normalC (mkName (T.unpack (hsEnumCon (enumName ed) (evName ev)))) []
         ) (enumValues ed)
+      hookCtx = EnumHookCtx
+        { ehcEnumDef    = ed
+        , ehcScope      = [enumName ed]
+        , ehcHsTypeName = hsTypeName (enumName ed)
+        , ehcOptions    = enumOptions ed
+        }
   dataDec <- dataD (pure []) tyName [] Nothing cons
     [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Ord, conT ''Generic]]
+  hookDecls <- thOnEnum hooks hookCtx
 
   addModFinalizer $ putDoc (DeclDoc tyName) (enumHaddock ed)
 
-  pure [dataDec]
+  pure ([dataDec] <> hookDecls)
 
 enumHaddock :: EnumDef -> String
 enumHaddock ed =

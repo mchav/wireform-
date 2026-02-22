@@ -36,7 +36,6 @@ import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBy
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
-import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -52,9 +51,7 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
 fileDescriptorProtoBytes :: ByteString
-fileDescriptorProtoBytes = case Base16.decode "0a3074656d706f72616c2f6170692f73646b2f76312f7461736b5f636f6d706c6574655f6d657461646174612e70726f746f121374656d706f72616c2e6170692e73646b2e763122780a1d576f726b666c6f775461736b436f6d706c657465644d6574616461746112170a0f636f72655f757365645f666c61677318012003280d12170a0f6c616e675f757365645f666c61677318022003280d12100a0873646b5f6e616d6518032001280912130a0b73646b5f76657273696f6e180420012809620670726f746f33" of
-  Right bs -> bs
-  Left _ -> ""
+fileDescriptorProtoBytes = "\x0a\x30\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2f\x61\x70\x69\x2f\x73\x64\x6b\x2f\x76\x31\x2f\x74\x61\x73\x6b\x5f\x63\x6f\x6d\x70\x6c\x65\x74\x65\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\x2e\x70\x72\x6f\x74\x6f\x12\x13\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2e\x61\x70\x69\x2e\x73\x64\x6b\x2e\x76\x31\x22\x78\x0a\x1d\x57\x6f\x72\x6b\x66\x6c\x6f\x77\x54\x61\x73\x6b\x43\x6f\x6d\x70\x6c\x65\x74\x65\x64\x4d\x65\x74\x61\x64\x61\x74\x61\x12\x17\x0a\x0f\x63\x6f\x72\x65\x5f\x75\x73\x65\x64\x5f\x66\x6c\x61\x67\x73\x18\x01\x20\x03\x28\x0d\x12\x17\x0a\x0f\x6c\x61\x6e\x67\x5f\x75\x73\x65\x64\x5f\x66\x6c\x61\x67\x73\x18\x02\x20\x03\x28\x0d\x12\x10\x0a\x08\x73\x64\x6b\x5f\x6e\x61\x6d\x65\x18\x03\x20\x01\x28\x09\x12\x13\x0a\x0b\x73\x64\x6b\x5f\x76\x65\x72\x73\x69\x6f\x6e\x18\x04\x20\x01\x28\x09\x62\x06\x70\x72\x6f\x74\x6f\x33"
 
 
 data WorkflowTaskCompletedMetadata = WorkflowTaskCompletedMetadata

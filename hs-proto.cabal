@@ -99,6 +99,7 @@ library
       Proto.TextFormat
       Proto.Conformance
       Proto.CodeGen.Service
+      Proto.CodeGen.Hooks
       Proto.JSON.WellKnown
       Proto.Options.Custom
       Proto.Google.Protobuf.Descriptor
@@ -169,6 +170,7 @@ test-suite hs-proto-test
       Test.Lens
       Test.StreamCodec
       Test.JSON
+      Test.Hooks
 
     build-depends:
         base             >= 4.16 && < 5
@@ -259,6 +261,7 @@ executable example-codegen
         base             >= 4.16 && < 5
       , hs-proto
       , text
+      , containers
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:
@@ -532,7 +535,6 @@ test-suite temporal-codegen-test
         base             >= 4.16 && < 5
       , hs-proto
       , aeson
-      , base16-bytestring
       , bytestring
       , containers
       , deepseq

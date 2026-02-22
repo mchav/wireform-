@@ -36,7 +36,6 @@ import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBy
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
-import qualified Data.ByteString.Base16 as Base16
 import qualified Proto.Registry
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
@@ -53,9 +52,7 @@ import qualified Proto.Temporalio.Api.Common.V1.Message as TE_Common_V1_Message
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
 fileDescriptorProtoBytes :: ByteString
-fileDescriptorProtoBytes = case Base16.decode "0a2774656d706f72616c2f6170692f73646b2f76312f757365725f6d657461646174612e70726f746f121374656d706f72616c2e6170692e73646b2e76311a2474656d706f72616c2f6170692f636f6d6d6f6e2f76312f6d6573736167652e70726f746f22700a0c557365724d65746164617461122f0a0773756d6d61727918012001280b321e74656d706f72616c2e6170692e636f6d6d6f6e2e76312e5061796c6f6164122f0a0764657461696c7318022001280b321e74656d706f72616c2e6170692e636f6d6d6f6e2e76312e5061796c6f6164620670726f746f33" of
-  Right bs -> bs
-  Left _ -> ""
+fileDescriptorProtoBytes = "\x0a\x27\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2f\x61\x70\x69\x2f\x73\x64\x6b\x2f\x76\x31\x2f\x75\x73\x65\x72\x5f\x6d\x65\x74\x61\x64\x61\x74\x61\x2e\x70\x72\x6f\x74\x6f\x12\x13\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2e\x61\x70\x69\x2e\x73\x64\x6b\x2e\x76\x31\x1a\x24\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2f\x61\x70\x69\x2f\x63\x6f\x6d\x6d\x6f\x6e\x2f\x76\x31\x2f\x6d\x65\x73\x73\x61\x67\x65\x2e\x70\x72\x6f\x74\x6f\x22\x70\x0a\x0c\x55\x73\x65\x72\x4d\x65\x74\x61\x64\x61\x74\x61\x12\x2f\x0a\x07\x73\x75\x6d\x6d\x61\x72\x79\x18\x01\x20\x01\x28\x0b\x32\x1e\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2e\x61\x70\x69\x2e\x63\x6f\x6d\x6d\x6f\x6e\x2e\x76\x31\x2e\x50\x61\x79\x6c\x6f\x61\x64\x12\x2f\x0a\x07\x64\x65\x74\x61\x69\x6c\x73\x18\x02\x20\x01\x28\x0b\x32\x1e\x74\x65\x6d\x70\x6f\x72\x61\x6c\x2e\x61\x70\x69\x2e\x63\x6f\x6d\x6d\x6f\x6e\x2e\x76\x31\x2e\x50\x61\x79\x6c\x6f\x61\x64\x62\x06\x70\x72\x6f\x74\x6f\x33"
 
 
 data UserMetadata = UserMetadata

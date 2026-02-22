@@ -11,6 +11,8 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Text (Text)
 
+import qualified Data.Map.Strict as Map
+
 import Proto.AST
 import Proto.Parser
 import Proto.CodeGen
@@ -99,10 +101,21 @@ main = do
       putStrLn "\n--- Definitions ---"
       mapM_ showDef (protoTopLevels pf)
 
-      -- 4. Generate Haskell code
+      -- 4. Generate Haskell code (with a sample hook)
       putStrLn "\n--- Generated Haskell Code ---"
-      let opts = defaultGenerateOpts { genModulePrefix = "MyApp.Proto" }
-      let code = generateModuleText opts pf
+      let auditHook = onMessageAttribute "custom_validation" $ \val ctx ->
+            case val of
+              CBool True ->
+                [ "-- | NOTE: " <> mhcHsTypeName ctx
+                  <> " has custom validation enabled"
+                ]
+              _ -> []
+          opts = defaultGenerateOpts
+            { genModulePrefix = "MyApp.Proto"
+            , genHooks = auditHook
+            }
+          emptyReg = Map.empty :: TypeRegistry
+          code = generateModuleText opts emptyReg "<example>" pf
       TIO.putStrLn code
 
 showDef :: TopLevel -> IO ()

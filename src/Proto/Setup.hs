@@ -1,5 +1,7 @@
 -- | Cabal Setup.hs hook for automatic protobuf code generation.
 --
+-- == Basic usage
+--
 -- @
 -- -- Setup.hs
 -- import Distribution.Simple
@@ -24,6 +26,27 @@
 -- library
 --   hs-source-dirs: src, gen
 -- @
+--
+-- == With codegen hooks
+--
+-- Register hooks via 'pgcHooks' to produce extra code based on proto attributes:
+--
+-- @
+-- import Proto.Setup
+-- import Proto.CodeGen.Hooks
+--
+-- main :: IO ()
+-- main = defaultMainWithHooks simpleUserHooks
+--   { preBuild = \\args flags -> do
+--       protoGenPreBuildHook defaultProtoGenConfig
+--         { pgcHooks = onMessageAttribute "audited" $ \\val ctx ->
+--             case val of
+--               CBool True -> ["-- audited: " \<> mhcHsTypeName ctx]
+--               _          -> []
+--         }
+--       preBuild simpleUserHooks args flags
+--   }
+-- @
 module Proto.Setup
   ( ProtoGenConfig (..)
   , defaultProtoGenConfig
@@ -44,15 +67,30 @@ import Proto.AST (ProtoFile(..))
 import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..),
                       TypeRegistry, hsModuleName, moduleNameForProto)
+import Proto.CodeGen.Hooks (CodeGenHooks, defaultCodeGenHooks)
 import qualified Data.Map.Strict as Map
 
+-- | Configuration for automatic protobuf code generation.
+--
+-- Use 'pgcHooks' to register codegen hooks that fire based on proto attributes:
+--
+-- @
+-- import Proto.Setup
+-- import Proto.CodeGen.Hooks
+--
+-- myConfig :: 'ProtoGenConfig'
+-- myConfig = 'defaultProtoGenConfig'
+--   { 'pgcHooks' = myHooks
+--   }
+-- @
 data ProtoGenConfig = ProtoGenConfig
   { pgcProtoDir     :: FilePath
   , pgcIncludeDirs  :: [FilePath]
   , pgcOutputDir    :: FilePath
   , pgcModulePrefix :: T.Text
   , pgcLazySub      :: Bool
-  } deriving stock (Show, Eq)
+  , pgcHooks        :: CodeGenHooks
+  }
 
 defaultProtoGenConfig :: ProtoGenConfig
 defaultProtoGenConfig = ProtoGenConfig
@@ -61,6 +99,7 @@ defaultProtoGenConfig = ProtoGenConfig
   , pgcOutputDir   = "gen"
   , pgcModulePrefix = "Proto.Gen"
   , pgcLazySub     = False
+  , pgcHooks       = defaultCodeGenHooks
   }
 
 -- | Pre-build hook: generate Haskell from all .proto files in pgcProtoDir.
@@ -93,6 +132,7 @@ generateProtoFile cfg protoPath = do
       let opts = defaultGenerateOpts
             { genModulePrefix    = pgcModulePrefix cfg
             , genLazySubmessages = pgcLazySub cfg
+            , genHooks           = pgcHooks cfg
             }
           emptyReg = Map.empty :: TypeRegistry
           code = generateModuleText opts emptyReg protoPath pf
