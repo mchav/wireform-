@@ -61,8 +61,8 @@ length-prefixed stdin/stdout protocol for the official conformance runner.
 - FieldMask ↔ comma-separated paths
 - Struct/Value/ListValue ↔ native JSON
 
-**10. aeson Integration** — Bridge module providing patterns for converting
-between hs-proto's `JsonValue` and aeson's `Value` without a hard dependency.
+**10. aeson Integration** — Full aeson integration. Generated types get
+`ToJSON`/`FromJSON` instances directly. The library depends on aeson.
 
 **12. Custom Option Extensions** — `CustomOptionRegistry` for tracking and
 resolving custom option extensions, with extraction from parsed proto files.

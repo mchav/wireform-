@@ -95,7 +95,7 @@ Generated code includes:
 - Haskell record types with strict fields and `UNPACK` pragmas on
   primitive scalars
 - `MessageEncode` / `MessageDecode` / `MessageSize` instances
-- `ProtoToJSON` / `ProtoFromJSON` instances (using `json_name` annotations)
+- `ToJSON` / `FromJSON` instances (aeson) (using `json_name` annotations)
 - `IsMessage` / `ProtoMessage` instances with full schema metadata
 - `NFData` and `Generic` derivations
 - Oneof fields as `Maybe`-wrapped sum types
@@ -128,14 +128,14 @@ $(loadProtoWith (defaultLoadOpts { loRepConfig = defaultRepConfig
 
 ### JSON Mapping
 
-Canonical proto3 JSON encoding and decoding, dependency-free.
+Canonical proto3 JSON encoding and decoding via [aeson](https://hackage.haskell.org/package/aeson).
 
-- Built-in `JsonValue` AST (no aeson dependency)
-- `ProtoToJSON` / `ProtoFromJSON` typeclasses
-- Compact and pretty-printed rendering
-- Minimal recursive-descent parser
+- Generated types get `ToJSON` and `FromJSON` instances automatically
+- 64-bit integers encoded as JSON strings (JavaScript precision)
+- Bytes fields encoded as base64 strings
+- Float/double Infinity and NaN as string sentinels
 - Well-known type canonical representations (RFC 3339 timestamps,
-  duration strings, field mask paths, Struct/Value ↔ native JSON)
+  duration strings, field mask paths, Struct/Value as native JSON)
 
 ### Schema Metadata
 
@@ -336,9 +336,8 @@ Proto.TH                           Template Haskell code generation
 Proto.QQ                           QuasiQuoter for inline proto
 Proto.Setup                        Cabal pre-build hook
 
-Proto.JSON                         Canonical proto3 JSON (dependency-free)
-Proto.JSON.WellKnown               Well-known type JSON conversions
-Proto.JSON.Aeson                   Bridge to aeson (user-side conversion)
+Proto.JSON                         Proto3 JSON via aeson (ToJSON/FromJSON)
+Proto.JSON.WellKnown               Well-known type canonical JSON conversions
 
 Proto.Dynamic                      Dynamic (untyped) messages
 Proto.TextFormat                   Text format (pbtxt) serialisation
