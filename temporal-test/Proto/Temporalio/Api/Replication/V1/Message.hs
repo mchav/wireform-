@@ -60,27 +60,27 @@ fileDescriptorProtoBytes = case Base16.decode "0a2974656d706f72616c2f6170692f726
 
 
 data ClusterReplicationConfig = ClusterReplicationConfig
-  { clusterReplicationConfigClustername :: !Text
-  , clusterReplicationConfigUnknownfields :: ![UnknownField]
+  { clusterReplicationConfigClusterName :: !Text
+  , clusterReplicationConfigUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultClusterReplicationConfig :: ClusterReplicationConfig
 defaultClusterReplicationConfig = ClusterReplicationConfig
-  { clusterReplicationConfigClustername = ""
-  , clusterReplicationConfigUnknownfields = []
+  { clusterReplicationConfigClusterName = ""
+  , clusterReplicationConfigUnknownFields = []
   }
 
 instance MessageEncode ClusterReplicationConfig where
   buildMessage msg =
-    (if msg.clusterReplicationConfigClustername == T.empty then mempty else encodeFieldString 1 msg.clusterReplicationConfigClustername)
-    <> encodeUnknownFields msg.clusterReplicationConfigUnknownfields
+    (if msg.clusterReplicationConfigClusterName == T.empty then mempty else encodeFieldString 1 msg.clusterReplicationConfigClusterName)
+    <> encodeUnknownFields msg.clusterReplicationConfigUnknownFields
 
 instance MessageSize ClusterReplicationConfig where
   messageSize msg =
-    (if msg.clusterReplicationConfigClustername == T.empty then 0 else fieldTextSize 1 msg.clusterReplicationConfigClustername)
-    + unknownFieldsSize msg.clusterReplicationConfigUnknownfields
+    (if msg.clusterReplicationConfigClusterName == T.empty then 0 else fieldTextSize 1 msg.clusterReplicationConfigClusterName)
+    + unknownFieldsSize msg.clusterReplicationConfigUnknownFields
 
 instance MessageDecode ClusterReplicationConfig where
   {-# INLINE messageDecoder #-}
@@ -89,7 +89,7 @@ instance MessageDecode ClusterReplicationConfig where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ClusterReplicationConfig {clusterReplicationConfigClustername = acc_0, clusterReplicationConfigUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ClusterReplicationConfig {clusterReplicationConfigClusterName = acc_0, clusterReplicationConfigUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -112,57 +112,57 @@ instance ProtoMessage ClusterReplicationConfig where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = clusterReplicationConfigClustername
-        , fdSet = \v m -> m { clusterReplicationConfigClustername = v }
+        , fdGet = clusterReplicationConfigClusterName
+        , fdSet = \v m -> m { clusterReplicationConfigClusterName = v }
         })
     ]
 
 instance Aeson.ToJSON ClusterReplicationConfig where
   toJSON msg = jsonObject
-      [ "clusterName" .=: msg.clusterReplicationConfigClustername
+      [ "clusterName" .=: msg.clusterReplicationConfigClusterName
 
       ]
 
 instance Aeson.FromJSON ClusterReplicationConfig where
   parseJSON = Aeson.withObject "ClusterReplicationConfig" $ \obj -> do
-    fld_clusterReplicationConfigClustername <- parseFieldMaybe obj "clusterName"
+    fld_clusterReplicationConfigClusterName <- parseFieldMaybe obj "clusterName"
     pure defaultClusterReplicationConfig
-      { clusterReplicationConfigClustername = maybe (clusterReplicationConfigClustername defaultClusterReplicationConfig) id fld_clusterReplicationConfigClustername
+      { clusterReplicationConfigClusterName = maybe (clusterReplicationConfigClusterName defaultClusterReplicationConfig) id fld_clusterReplicationConfigClusterName
       }
 
 instance Hashable ClusterReplicationConfig where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.clusterReplicationConfigClustername
+  hashWithSalt salt msg = hashWithSalt (salt) msg.clusterReplicationConfigClusterName
 
 data NamespaceReplicationConfig = NamespaceReplicationConfig
-  { namespaceReplicationConfigActiveclustername :: !Text
+  { namespaceReplicationConfigActiveClusterName :: !Text
   , namespaceReplicationConfigClusters :: !(V.Vector ClusterReplicationConfig)
   , namespaceReplicationConfigState :: !TE_Enums_V1_Namespace.ReplicationState
-  , namespaceReplicationConfigUnknownfields :: ![UnknownField]
+  , namespaceReplicationConfigUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNamespaceReplicationConfig :: NamespaceReplicationConfig
 defaultNamespaceReplicationConfig = NamespaceReplicationConfig
-  { namespaceReplicationConfigActiveclustername = ""
+  { namespaceReplicationConfigActiveClusterName = ""
   , namespaceReplicationConfigClusters = V.empty
   , namespaceReplicationConfigState = (toEnum 0)
-  , namespaceReplicationConfigUnknownfields = []
+  , namespaceReplicationConfigUnknownFields = []
   }
 
 instance MessageEncode NamespaceReplicationConfig where
   buildMessage msg =
-    (if msg.namespaceReplicationConfigActiveclustername == T.empty then mempty else encodeFieldString 1 msg.namespaceReplicationConfigActiveclustername)
+    (if msg.namespaceReplicationConfigActiveClusterName == T.empty then mempty else encodeFieldString 1 msg.namespaceReplicationConfigActiveClusterName)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.namespaceReplicationConfigClusters
     <> (if fromEnum msg.namespaceReplicationConfigState == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.namespaceReplicationConfigState)))
-    <> encodeUnknownFields msg.namespaceReplicationConfigUnknownfields
+    <> encodeUnknownFields msg.namespaceReplicationConfigUnknownFields
 
 instance MessageSize NamespaceReplicationConfig where
   messageSize msg =
-    (if msg.namespaceReplicationConfigActiveclustername == T.empty then 0 else fieldTextSize 1 msg.namespaceReplicationConfigActiveclustername)
+    (if msg.namespaceReplicationConfigActiveClusterName == T.empty then 0 else fieldTextSize 1 msg.namespaceReplicationConfigActiveClusterName)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.namespaceReplicationConfigClusters)
     + (if fromEnum msg.namespaceReplicationConfigState == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.namespaceReplicationConfigState)))
-    + unknownFieldsSize msg.namespaceReplicationConfigUnknownfields
+    + unknownFieldsSize msg.namespaceReplicationConfigUnknownFields
 
 instance MessageDecode NamespaceReplicationConfig where
   {-# INLINE messageDecoder #-}
@@ -171,7 +171,7 @@ instance MessageDecode NamespaceReplicationConfig where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceReplicationConfig {namespaceReplicationConfigActiveclustername = acc_0, namespaceReplicationConfigClusters = acc_1, namespaceReplicationConfigState = acc_2, namespaceReplicationConfigUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceReplicationConfig {namespaceReplicationConfigActiveClusterName = acc_0, namespaceReplicationConfigClusters = acc_1, namespaceReplicationConfigState = acc_2, namespaceReplicationConfigUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -200,8 +200,8 @@ instance ProtoMessage NamespaceReplicationConfig where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = namespaceReplicationConfigActiveclustername
-        , fdSet = \v m -> m { namespaceReplicationConfigActiveclustername = v }
+        , fdGet = namespaceReplicationConfigActiveClusterName
+        , fdSet = \v m -> m { namespaceReplicationConfigActiveClusterName = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "clusters"
         , fdNumber = 2
@@ -222,51 +222,51 @@ instance ProtoMessage NamespaceReplicationConfig where
 
 instance Aeson.ToJSON NamespaceReplicationConfig where
   toJSON msg = jsonObject
-      [ "activeClusterName" .=: msg.namespaceReplicationConfigActiveclustername
+      [ "activeClusterName" .=: msg.namespaceReplicationConfigActiveClusterName
       , "clusters" .=: msg.namespaceReplicationConfigClusters
       , "state" .=: msg.namespaceReplicationConfigState
       ]
 
 instance Aeson.FromJSON NamespaceReplicationConfig where
   parseJSON = Aeson.withObject "NamespaceReplicationConfig" $ \obj -> do
-    fld_namespaceReplicationConfigActiveclustername <- parseFieldMaybe obj "activeClusterName"
+    fld_namespaceReplicationConfigActiveClusterName <- parseFieldMaybe obj "activeClusterName"
     fld_namespaceReplicationConfigClusters <- parseFieldMaybe obj "clusters"
     fld_namespaceReplicationConfigState <- parseFieldMaybe obj "state"
     pure defaultNamespaceReplicationConfig
-      { namespaceReplicationConfigActiveclustername = maybe (namespaceReplicationConfigActiveclustername defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigActiveclustername
+      { namespaceReplicationConfigActiveClusterName = maybe (namespaceReplicationConfigActiveClusterName defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigActiveClusterName
       , namespaceReplicationConfigClusters = maybe (namespaceReplicationConfigClusters defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigClusters
       , namespaceReplicationConfigState = maybe (namespaceReplicationConfigState defaultNamespaceReplicationConfig) id fld_namespaceReplicationConfigState
       }
 
 instance Hashable NamespaceReplicationConfig where
-  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.namespaceReplicationConfigActiveclustername) msg.namespaceReplicationConfigClusters) msg.namespaceReplicationConfigState
+  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.namespaceReplicationConfigActiveClusterName) msg.namespaceReplicationConfigClusters) msg.namespaceReplicationConfigState
 
 data FailoverStatus = FailoverStatus
-  { failoverStatusFailovertime :: !(Maybe PB_Timestamp.Timestamp)
-  , failoverStatusFailoverversion :: {-# UNPACK #-} !Int64
-  , failoverStatusUnknownfields :: ![UnknownField]
+  { failoverStatusFailoverTime :: !(Maybe PB_Timestamp.Timestamp)
+  , failoverStatusFailoverVersion :: {-# UNPACK #-} !Int64
+  , failoverStatusUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultFailoverStatus :: FailoverStatus
 defaultFailoverStatus = FailoverStatus
-  { failoverStatusFailovertime = Nothing
-  , failoverStatusFailoverversion = 0
-  , failoverStatusUnknownfields = []
+  { failoverStatusFailoverTime = Nothing
+  , failoverStatusFailoverVersion = 0
+  , failoverStatusUnknownFields = []
   }
 
 instance MessageEncode FailoverStatus where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.failoverStatusFailovertime)
-    <> (if msg.failoverStatusFailoverversion == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.failoverStatusFailoverversion))
-    <> encodeUnknownFields msg.failoverStatusUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.failoverStatusFailoverTime)
+    <> (if msg.failoverStatusFailoverVersion == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.failoverStatusFailoverVersion))
+    <> encodeUnknownFields msg.failoverStatusUnknownFields
 
 instance MessageSize FailoverStatus where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.failoverStatusFailovertime)
-    + (if msg.failoverStatusFailoverversion == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.failoverStatusFailoverversion))
-    + unknownFieldsSize msg.failoverStatusUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.failoverStatusFailoverTime)
+    + (if msg.failoverStatusFailoverVersion == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.failoverStatusFailoverVersion))
+    + unknownFieldsSize msg.failoverStatusUnknownFields
 
 instance MessageDecode FailoverStatus where
   {-# INLINE messageDecoder #-}
@@ -275,7 +275,7 @@ instance MessageDecode FailoverStatus where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (FailoverStatus {failoverStatusFailovertime = acc_0, failoverStatusFailoverversion = acc_1, failoverStatusUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (FailoverStatus {failoverStatusFailoverTime = acc_0, failoverStatusFailoverVersion = acc_1, failoverStatusUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -301,35 +301,35 @@ instance ProtoMessage FailoverStatus where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = failoverStatusFailovertime
-        , fdSet = \v m -> m { failoverStatusFailovertime = v }
+        , fdGet = failoverStatusFailoverTime
+        , fdSet = \v m -> m { failoverStatusFailoverTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "failover_version"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = failoverStatusFailoverversion
-        , fdSet = \v m -> m { failoverStatusFailoverversion = v }
+        , fdGet = failoverStatusFailoverVersion
+        , fdSet = \v m -> m { failoverStatusFailoverVersion = v }
         })
     ]
 
 instance Aeson.ToJSON FailoverStatus where
   toJSON msg = jsonObject
-      [ "failoverTime" .=: msg.failoverStatusFailovertime
-      , "failoverVersion" .=: msg.failoverStatusFailoverversion
+      [ "failoverTime" .=: msg.failoverStatusFailoverTime
+      , "failoverVersion" .=: msg.failoverStatusFailoverVersion
       ]
 
 instance Aeson.FromJSON FailoverStatus where
   parseJSON = Aeson.withObject "FailoverStatus" $ \obj -> do
-    fld_failoverStatusFailovertime <- parseFieldMaybe obj "failoverTime"
-    fld_failoverStatusFailoverversion <- parseFieldMaybe obj "failoverVersion"
+    fld_failoverStatusFailoverTime <- parseFieldMaybe obj "failoverTime"
+    fld_failoverStatusFailoverVersion <- parseFieldMaybe obj "failoverVersion"
     pure defaultFailoverStatus
-      { failoverStatusFailovertime = maybe (failoverStatusFailovertime defaultFailoverStatus) id fld_failoverStatusFailovertime
-      , failoverStatusFailoverversion = maybe (failoverStatusFailoverversion defaultFailoverStatus) id fld_failoverStatusFailoverversion
+      { failoverStatusFailoverTime = maybe (failoverStatusFailoverTime defaultFailoverStatus) id fld_failoverStatusFailoverTime
+      , failoverStatusFailoverVersion = maybe (failoverStatusFailoverVersion defaultFailoverStatus) id fld_failoverStatusFailoverVersion
       }
 
 instance Hashable FailoverStatus where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.failoverStatusFailovertime) msg.failoverStatusFailoverversion
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.failoverStatusFailoverTime) msg.failoverStatusFailoverVersion
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

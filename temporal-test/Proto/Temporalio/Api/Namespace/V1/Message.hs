@@ -64,67 +64,67 @@ data NamespaceInfo = NamespaceInfo
   { namespaceInfoName :: !Text
   , namespaceInfoState :: !TE_Enums_V1_Namespace.NamespaceState
   , namespaceInfoDescription :: !Text
-  , namespaceInfoOwneremail :: !Text
+  , namespaceInfoOwnerEmail :: !Text
   , namespaceInfoData :: !(Map.Map Text Text)
   , namespaceInfoId :: !Text
   , namespaceInfoCapabilities :: !(Maybe NamespaceInfo'Capabilities)
   , namespaceInfoLimits :: !(Maybe NamespaceInfo'Limits)
-  , namespaceInfoSupportsschedules :: {-# UNPACK #-} !Bool
-  , namespaceInfoUnknownfields :: ![UnknownField]
+  , namespaceInfoSupportsSchedules :: {-# UNPACK #-} !Bool
+  , namespaceInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data NamespaceInfo'Capabilities = NamespaceInfo'Capabilities
-  { namespaceInfoCapabilitiesEagerworkflowstart :: {-# UNPACK #-} !Bool
-  , namespaceInfoCapabilitiesSyncupdate :: {-# UNPACK #-} !Bool
-  , namespaceInfoCapabilitiesAsyncupdate :: {-# UNPACK #-} !Bool
-  , namespaceInfoCapabilitiesWorkerheartbeats :: {-# UNPACK #-} !Bool
-  , namespaceInfoCapabilitiesReportedproblemssearchattribute :: {-# UNPACK #-} !Bool
-  , namespaceInfoCapabilitiesWorkflowpause :: {-# UNPACK #-} !Bool
-  , namespaceInfoCapabilitiesStandaloneactivities :: {-# UNPACK #-} !Bool
-  , namespaceInfoCapabilitiesWorkerpollcompleteonshutdown :: {-# UNPACK #-} !Bool
-  , namespaceInfoCapabilitiesUnknownfields :: ![UnknownField]
+  { namespaceInfoCapabilitiesEagerWorkflowStart :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesSyncUpdate :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesAsyncUpdate :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesWorkerHeartbeats :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesReportedProblemsSearchAttribute :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesWorkflowPause :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesStandaloneActivities :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown :: {-# UNPACK #-} !Bool
+  , namespaceInfoCapabilitiesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNamespaceInfo'Capabilities :: NamespaceInfo'Capabilities
 defaultNamespaceInfo'Capabilities = NamespaceInfo'Capabilities
-  { namespaceInfoCapabilitiesEagerworkflowstart = False
-  , namespaceInfoCapabilitiesSyncupdate = False
-  , namespaceInfoCapabilitiesAsyncupdate = False
-  , namespaceInfoCapabilitiesWorkerheartbeats = False
-  , namespaceInfoCapabilitiesReportedproblemssearchattribute = False
-  , namespaceInfoCapabilitiesWorkflowpause = False
-  , namespaceInfoCapabilitiesStandaloneactivities = False
-  , namespaceInfoCapabilitiesWorkerpollcompleteonshutdown = False
-  , namespaceInfoCapabilitiesUnknownfields = []
+  { namespaceInfoCapabilitiesEagerWorkflowStart = False
+  , namespaceInfoCapabilitiesSyncUpdate = False
+  , namespaceInfoCapabilitiesAsyncUpdate = False
+  , namespaceInfoCapabilitiesWorkerHeartbeats = False
+  , namespaceInfoCapabilitiesReportedProblemsSearchAttribute = False
+  , namespaceInfoCapabilitiesWorkflowPause = False
+  , namespaceInfoCapabilitiesStandaloneActivities = False
+  , namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown = False
+  , namespaceInfoCapabilitiesUnknownFields = []
   }
 
 instance MessageEncode NamespaceInfo'Capabilities where
   buildMessage msg =
-    (if msg.namespaceInfoCapabilitiesEagerworkflowstart == False then mempty else encodeFieldBool 1 msg.namespaceInfoCapabilitiesEagerworkflowstart)
-    <> (if msg.namespaceInfoCapabilitiesSyncupdate == False then mempty else encodeFieldBool 2 msg.namespaceInfoCapabilitiesSyncupdate)
-    <> (if msg.namespaceInfoCapabilitiesAsyncupdate == False then mempty else encodeFieldBool 3 msg.namespaceInfoCapabilitiesAsyncupdate)
-    <> (if msg.namespaceInfoCapabilitiesWorkerheartbeats == False then mempty else encodeFieldBool 4 msg.namespaceInfoCapabilitiesWorkerheartbeats)
-    <> (if msg.namespaceInfoCapabilitiesReportedproblemssearchattribute == False then mempty else encodeFieldBool 5 msg.namespaceInfoCapabilitiesReportedproblemssearchattribute)
-    <> (if msg.namespaceInfoCapabilitiesWorkflowpause == False then mempty else encodeFieldBool 6 msg.namespaceInfoCapabilitiesWorkflowpause)
-    <> (if msg.namespaceInfoCapabilitiesStandaloneactivities == False then mempty else encodeFieldBool 7 msg.namespaceInfoCapabilitiesStandaloneactivities)
-    <> (if msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown == False then mempty else encodeFieldBool 8 msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown)
-    <> encodeUnknownFields msg.namespaceInfoCapabilitiesUnknownfields
+    (if msg.namespaceInfoCapabilitiesEagerWorkflowStart == False then mempty else encodeFieldBool 1 msg.namespaceInfoCapabilitiesEagerWorkflowStart)
+    <> (if msg.namespaceInfoCapabilitiesSyncUpdate == False then mempty else encodeFieldBool 2 msg.namespaceInfoCapabilitiesSyncUpdate)
+    <> (if msg.namespaceInfoCapabilitiesAsyncUpdate == False then mempty else encodeFieldBool 3 msg.namespaceInfoCapabilitiesAsyncUpdate)
+    <> (if msg.namespaceInfoCapabilitiesWorkerHeartbeats == False then mempty else encodeFieldBool 4 msg.namespaceInfoCapabilitiesWorkerHeartbeats)
+    <> (if msg.namespaceInfoCapabilitiesReportedProblemsSearchAttribute == False then mempty else encodeFieldBool 5 msg.namespaceInfoCapabilitiesReportedProblemsSearchAttribute)
+    <> (if msg.namespaceInfoCapabilitiesWorkflowPause == False then mempty else encodeFieldBool 6 msg.namespaceInfoCapabilitiesWorkflowPause)
+    <> (if msg.namespaceInfoCapabilitiesStandaloneActivities == False then mempty else encodeFieldBool 7 msg.namespaceInfoCapabilitiesStandaloneActivities)
+    <> (if msg.namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown == False then mempty else encodeFieldBool 8 msg.namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown)
+    <> encodeUnknownFields msg.namespaceInfoCapabilitiesUnknownFields
 
 instance MessageSize NamespaceInfo'Capabilities where
   messageSize msg =
-    (if msg.namespaceInfoCapabilitiesEagerworkflowstart == False then 0 else fieldBoolSize 1)
-    + (if msg.namespaceInfoCapabilitiesSyncupdate == False then 0 else fieldBoolSize 2)
-    + (if msg.namespaceInfoCapabilitiesAsyncupdate == False then 0 else fieldBoolSize 3)
-    + (if msg.namespaceInfoCapabilitiesWorkerheartbeats == False then 0 else fieldBoolSize 4)
-    + (if msg.namespaceInfoCapabilitiesReportedproblemssearchattribute == False then 0 else fieldBoolSize 5)
-    + (if msg.namespaceInfoCapabilitiesWorkflowpause == False then 0 else fieldBoolSize 6)
-    + (if msg.namespaceInfoCapabilitiesStandaloneactivities == False then 0 else fieldBoolSize 7)
-    + (if msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown == False then 0 else fieldBoolSize 8)
-    + unknownFieldsSize msg.namespaceInfoCapabilitiesUnknownfields
+    (if msg.namespaceInfoCapabilitiesEagerWorkflowStart == False then 0 else fieldBoolSize 1)
+    + (if msg.namespaceInfoCapabilitiesSyncUpdate == False then 0 else fieldBoolSize 2)
+    + (if msg.namespaceInfoCapabilitiesAsyncUpdate == False then 0 else fieldBoolSize 3)
+    + (if msg.namespaceInfoCapabilitiesWorkerHeartbeats == False then 0 else fieldBoolSize 4)
+    + (if msg.namespaceInfoCapabilitiesReportedProblemsSearchAttribute == False then 0 else fieldBoolSize 5)
+    + (if msg.namespaceInfoCapabilitiesWorkflowPause == False then 0 else fieldBoolSize 6)
+    + (if msg.namespaceInfoCapabilitiesStandaloneActivities == False then 0 else fieldBoolSize 7)
+    + (if msg.namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown == False then 0 else fieldBoolSize 8)
+    + unknownFieldsSize msg.namespaceInfoCapabilitiesUnknownFields
 
 instance MessageDecode NamespaceInfo'Capabilities where
   {-# INLINE messageDecoder #-}
@@ -133,7 +133,7 @@ instance MessageDecode NamespaceInfo'Capabilities where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceInfo'Capabilities {namespaceInfoCapabilitiesEagerworkflowstart = acc_0, namespaceInfoCapabilitiesSyncupdate = acc_1, namespaceInfoCapabilitiesAsyncupdate = acc_2, namespaceInfoCapabilitiesWorkerheartbeats = acc_3, namespaceInfoCapabilitiesReportedproblemssearchattribute = acc_4, namespaceInfoCapabilitiesWorkflowpause = acc_5, namespaceInfoCapabilitiesStandaloneactivities = acc_6, namespaceInfoCapabilitiesWorkerpollcompleteonshutdown = acc_7, namespaceInfoCapabilitiesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceInfo'Capabilities {namespaceInfoCapabilitiesEagerWorkflowStart = acc_0, namespaceInfoCapabilitiesSyncUpdate = acc_1, namespaceInfoCapabilitiesAsyncUpdate = acc_2, namespaceInfoCapabilitiesWorkerHeartbeats = acc_3, namespaceInfoCapabilitiesReportedProblemsSearchAttribute = acc_4, namespaceInfoCapabilitiesWorkflowPause = acc_5, namespaceInfoCapabilitiesStandaloneActivities = acc_6, namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown = acc_7, namespaceInfoCapabilitiesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -177,128 +177,128 @@ instance ProtoMessage NamespaceInfo'Capabilities where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoCapabilitiesEagerworkflowstart
-        , fdSet = \v m -> m { namespaceInfoCapabilitiesEagerworkflowstart = v }
+        , fdGet = namespaceInfoCapabilitiesEagerWorkflowStart
+        , fdSet = \v m -> m { namespaceInfoCapabilitiesEagerWorkflowStart = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "sync_update"
         , fdNumber = 2
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoCapabilitiesSyncupdate
-        , fdSet = \v m -> m { namespaceInfoCapabilitiesSyncupdate = v }
+        , fdGet = namespaceInfoCapabilitiesSyncUpdate
+        , fdSet = \v m -> m { namespaceInfoCapabilitiesSyncUpdate = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "async_update"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoCapabilitiesAsyncupdate
-        , fdSet = \v m -> m { namespaceInfoCapabilitiesAsyncupdate = v }
+        , fdGet = namespaceInfoCapabilitiesAsyncUpdate
+        , fdSet = \v m -> m { namespaceInfoCapabilitiesAsyncUpdate = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "worker_heartbeats"
         , fdNumber = 4
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoCapabilitiesWorkerheartbeats
-        , fdSet = \v m -> m { namespaceInfoCapabilitiesWorkerheartbeats = v }
+        , fdGet = namespaceInfoCapabilitiesWorkerHeartbeats
+        , fdSet = \v m -> m { namespaceInfoCapabilitiesWorkerHeartbeats = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "reported_problems_search_attribute"
         , fdNumber = 5
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoCapabilitiesReportedproblemssearchattribute
-        , fdSet = \v m -> m { namespaceInfoCapabilitiesReportedproblemssearchattribute = v }
+        , fdGet = namespaceInfoCapabilitiesReportedProblemsSearchAttribute
+        , fdSet = \v m -> m { namespaceInfoCapabilitiesReportedProblemsSearchAttribute = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "workflow_pause"
         , fdNumber = 6
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoCapabilitiesWorkflowpause
-        , fdSet = \v m -> m { namespaceInfoCapabilitiesWorkflowpause = v }
+        , fdGet = namespaceInfoCapabilitiesWorkflowPause
+        , fdSet = \v m -> m { namespaceInfoCapabilitiesWorkflowPause = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "standalone_activities"
         , fdNumber = 7
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoCapabilitiesStandaloneactivities
-        , fdSet = \v m -> m { namespaceInfoCapabilitiesStandaloneactivities = v }
+        , fdGet = namespaceInfoCapabilitiesStandaloneActivities
+        , fdSet = \v m -> m { namespaceInfoCapabilitiesStandaloneActivities = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "worker_poll_complete_on_shutdown"
         , fdNumber = 8
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
-        , fdSet = \v m -> m { namespaceInfoCapabilitiesWorkerpollcompleteonshutdown = v }
+        , fdGet = namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown
+        , fdSet = \v m -> m { namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown = v }
         })
     ]
 
 instance Aeson.ToJSON NamespaceInfo'Capabilities where
   toJSON msg = jsonObject
-      [ "eagerWorkflowStart" .=: msg.namespaceInfoCapabilitiesEagerworkflowstart
-      , "syncUpdate" .=: msg.namespaceInfoCapabilitiesSyncupdate
-      , "asyncUpdate" .=: msg.namespaceInfoCapabilitiesAsyncupdate
-      , "workerHeartbeats" .=: msg.namespaceInfoCapabilitiesWorkerheartbeats
-      , "reportedProblemsSearchAttribute" .=: msg.namespaceInfoCapabilitiesReportedproblemssearchattribute
-      , "workflowPause" .=: msg.namespaceInfoCapabilitiesWorkflowpause
-      , "standaloneActivities" .=: msg.namespaceInfoCapabilitiesStandaloneactivities
-      , "workerPollCompleteOnShutdown" .=: msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
+      [ "eagerWorkflowStart" .=: msg.namespaceInfoCapabilitiesEagerWorkflowStart
+      , "syncUpdate" .=: msg.namespaceInfoCapabilitiesSyncUpdate
+      , "asyncUpdate" .=: msg.namespaceInfoCapabilitiesAsyncUpdate
+      , "workerHeartbeats" .=: msg.namespaceInfoCapabilitiesWorkerHeartbeats
+      , "reportedProblemsSearchAttribute" .=: msg.namespaceInfoCapabilitiesReportedProblemsSearchAttribute
+      , "workflowPause" .=: msg.namespaceInfoCapabilitiesWorkflowPause
+      , "standaloneActivities" .=: msg.namespaceInfoCapabilitiesStandaloneActivities
+      , "workerPollCompleteOnShutdown" .=: msg.namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown
       ]
 
 instance Aeson.FromJSON NamespaceInfo'Capabilities where
   parseJSON = Aeson.withObject "NamespaceInfo'Capabilities" $ \obj -> do
-    fld_namespaceInfoCapabilitiesEagerworkflowstart <- parseFieldMaybe obj "eagerWorkflowStart"
-    fld_namespaceInfoCapabilitiesSyncupdate <- parseFieldMaybe obj "syncUpdate"
-    fld_namespaceInfoCapabilitiesAsyncupdate <- parseFieldMaybe obj "asyncUpdate"
-    fld_namespaceInfoCapabilitiesWorkerheartbeats <- parseFieldMaybe obj "workerHeartbeats"
-    fld_namespaceInfoCapabilitiesReportedproblemssearchattribute <- parseFieldMaybe obj "reportedProblemsSearchAttribute"
-    fld_namespaceInfoCapabilitiesWorkflowpause <- parseFieldMaybe obj "workflowPause"
-    fld_namespaceInfoCapabilitiesStandaloneactivities <- parseFieldMaybe obj "standaloneActivities"
-    fld_namespaceInfoCapabilitiesWorkerpollcompleteonshutdown <- parseFieldMaybe obj "workerPollCompleteOnShutdown"
+    fld_namespaceInfoCapabilitiesEagerWorkflowStart <- parseFieldMaybe obj "eagerWorkflowStart"
+    fld_namespaceInfoCapabilitiesSyncUpdate <- parseFieldMaybe obj "syncUpdate"
+    fld_namespaceInfoCapabilitiesAsyncUpdate <- parseFieldMaybe obj "asyncUpdate"
+    fld_namespaceInfoCapabilitiesWorkerHeartbeats <- parseFieldMaybe obj "workerHeartbeats"
+    fld_namespaceInfoCapabilitiesReportedProblemsSearchAttribute <- parseFieldMaybe obj "reportedProblemsSearchAttribute"
+    fld_namespaceInfoCapabilitiesWorkflowPause <- parseFieldMaybe obj "workflowPause"
+    fld_namespaceInfoCapabilitiesStandaloneActivities <- parseFieldMaybe obj "standaloneActivities"
+    fld_namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown <- parseFieldMaybe obj "workerPollCompleteOnShutdown"
     pure defaultNamespaceInfo'Capabilities
-      { namespaceInfoCapabilitiesEagerworkflowstart = maybe (namespaceInfoCapabilitiesEagerworkflowstart defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesEagerworkflowstart
-      , namespaceInfoCapabilitiesSyncupdate = maybe (namespaceInfoCapabilitiesSyncupdate defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesSyncupdate
-      , namespaceInfoCapabilitiesAsyncupdate = maybe (namespaceInfoCapabilitiesAsyncupdate defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesAsyncupdate
-      , namespaceInfoCapabilitiesWorkerheartbeats = maybe (namespaceInfoCapabilitiesWorkerheartbeats defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkerheartbeats
-      , namespaceInfoCapabilitiesReportedproblemssearchattribute = maybe (namespaceInfoCapabilitiesReportedproblemssearchattribute defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesReportedproblemssearchattribute
-      , namespaceInfoCapabilitiesWorkflowpause = maybe (namespaceInfoCapabilitiesWorkflowpause defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkflowpause
-      , namespaceInfoCapabilitiesStandaloneactivities = maybe (namespaceInfoCapabilitiesStandaloneactivities defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesStandaloneactivities
-      , namespaceInfoCapabilitiesWorkerpollcompleteonshutdown = maybe (namespaceInfoCapabilitiesWorkerpollcompleteonshutdown defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
+      { namespaceInfoCapabilitiesEagerWorkflowStart = maybe (namespaceInfoCapabilitiesEagerWorkflowStart defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesEagerWorkflowStart
+      , namespaceInfoCapabilitiesSyncUpdate = maybe (namespaceInfoCapabilitiesSyncUpdate defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesSyncUpdate
+      , namespaceInfoCapabilitiesAsyncUpdate = maybe (namespaceInfoCapabilitiesAsyncUpdate defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesAsyncUpdate
+      , namespaceInfoCapabilitiesWorkerHeartbeats = maybe (namespaceInfoCapabilitiesWorkerHeartbeats defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkerHeartbeats
+      , namespaceInfoCapabilitiesReportedProblemsSearchAttribute = maybe (namespaceInfoCapabilitiesReportedProblemsSearchAttribute defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesReportedProblemsSearchAttribute
+      , namespaceInfoCapabilitiesWorkflowPause = maybe (namespaceInfoCapabilitiesWorkflowPause defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkflowPause
+      , namespaceInfoCapabilitiesStandaloneActivities = maybe (namespaceInfoCapabilitiesStandaloneActivities defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesStandaloneActivities
+      , namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown = maybe (namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown defaultNamespaceInfo'Capabilities) id fld_namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown
       }
 
 instance Hashable NamespaceInfo'Capabilities where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceInfoCapabilitiesEagerworkflowstart) msg.namespaceInfoCapabilitiesSyncupdate) msg.namespaceInfoCapabilitiesAsyncupdate) msg.namespaceInfoCapabilitiesWorkerheartbeats) msg.namespaceInfoCapabilitiesReportedproblemssearchattribute) msg.namespaceInfoCapabilitiesWorkflowpause) msg.namespaceInfoCapabilitiesStandaloneactivities) msg.namespaceInfoCapabilitiesWorkerpollcompleteonshutdown
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceInfoCapabilitiesEagerWorkflowStart) msg.namespaceInfoCapabilitiesSyncUpdate) msg.namespaceInfoCapabilitiesAsyncUpdate) msg.namespaceInfoCapabilitiesWorkerHeartbeats) msg.namespaceInfoCapabilitiesReportedProblemsSearchAttribute) msg.namespaceInfoCapabilitiesWorkflowPause) msg.namespaceInfoCapabilitiesStandaloneActivities) msg.namespaceInfoCapabilitiesWorkerPollCompleteOnShutdown
 
 data NamespaceInfo'Limits = NamespaceInfo'Limits
-  { namespaceInfoLimitsBlobsizelimiterror :: {-# UNPACK #-} !Int64
-  , namespaceInfoLimitsMemosizelimiterror :: {-# UNPACK #-} !Int64
-  , namespaceInfoLimitsUnknownfields :: ![UnknownField]
+  { namespaceInfoLimitsBlobSizeLimitError :: {-# UNPACK #-} !Int64
+  , namespaceInfoLimitsMemoSizeLimitError :: {-# UNPACK #-} !Int64
+  , namespaceInfoLimitsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNamespaceInfo'Limits :: NamespaceInfo'Limits
 defaultNamespaceInfo'Limits = NamespaceInfo'Limits
-  { namespaceInfoLimitsBlobsizelimiterror = 0
-  , namespaceInfoLimitsMemosizelimiterror = 0
-  , namespaceInfoLimitsUnknownfields = []
+  { namespaceInfoLimitsBlobSizeLimitError = 0
+  , namespaceInfoLimitsMemoSizeLimitError = 0
+  , namespaceInfoLimitsUnknownFields = []
   }
 
 instance MessageEncode NamespaceInfo'Limits where
   buildMessage msg =
-    (if msg.namespaceInfoLimitsBlobsizelimiterror == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.namespaceInfoLimitsBlobsizelimiterror))
-    <> (if msg.namespaceInfoLimitsMemosizelimiterror == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.namespaceInfoLimitsMemosizelimiterror))
-    <> encodeUnknownFields msg.namespaceInfoLimitsUnknownfields
+    (if msg.namespaceInfoLimitsBlobSizeLimitError == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.namespaceInfoLimitsBlobSizeLimitError))
+    <> (if msg.namespaceInfoLimitsMemoSizeLimitError == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.namespaceInfoLimitsMemoSizeLimitError))
+    <> encodeUnknownFields msg.namespaceInfoLimitsUnknownFields
 
 instance MessageSize NamespaceInfo'Limits where
   messageSize msg =
-    (if msg.namespaceInfoLimitsBlobsizelimiterror == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.namespaceInfoLimitsBlobsizelimiterror))
-    + (if msg.namespaceInfoLimitsMemosizelimiterror == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.namespaceInfoLimitsMemosizelimiterror))
-    + unknownFieldsSize msg.namespaceInfoLimitsUnknownfields
+    (if msg.namespaceInfoLimitsBlobSizeLimitError == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.namespaceInfoLimitsBlobSizeLimitError))
+    + (if msg.namespaceInfoLimitsMemoSizeLimitError == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.namespaceInfoLimitsMemoSizeLimitError))
+    + unknownFieldsSize msg.namespaceInfoLimitsUnknownFields
 
 instance MessageDecode NamespaceInfo'Limits where
   {-# INLINE messageDecoder #-}
@@ -307,7 +307,7 @@ instance MessageDecode NamespaceInfo'Limits where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceInfo'Limits {namespaceInfoLimitsBlobsizelimiterror = acc_0, namespaceInfoLimitsMemosizelimiterror = acc_1, namespaceInfoLimitsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceInfo'Limits {namespaceInfoLimitsBlobSizeLimitError = acc_0, namespaceInfoLimitsMemoSizeLimitError = acc_1, namespaceInfoLimitsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -333,48 +333,48 @@ instance ProtoMessage NamespaceInfo'Limits where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoLimitsBlobsizelimiterror
-        , fdSet = \v m -> m { namespaceInfoLimitsBlobsizelimiterror = v }
+        , fdGet = namespaceInfoLimitsBlobSizeLimitError
+        , fdSet = \v m -> m { namespaceInfoLimitsBlobSizeLimitError = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "memo_size_limit_error"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoLimitsMemosizelimiterror
-        , fdSet = \v m -> m { namespaceInfoLimitsMemosizelimiterror = v }
+        , fdGet = namespaceInfoLimitsMemoSizeLimitError
+        , fdSet = \v m -> m { namespaceInfoLimitsMemoSizeLimitError = v }
         })
     ]
 
 instance Aeson.ToJSON NamespaceInfo'Limits where
   toJSON msg = jsonObject
-      [ "blobSizeLimitError" .=: msg.namespaceInfoLimitsBlobsizelimiterror
-      , "memoSizeLimitError" .=: msg.namespaceInfoLimitsMemosizelimiterror
+      [ "blobSizeLimitError" .=: msg.namespaceInfoLimitsBlobSizeLimitError
+      , "memoSizeLimitError" .=: msg.namespaceInfoLimitsMemoSizeLimitError
       ]
 
 instance Aeson.FromJSON NamespaceInfo'Limits where
   parseJSON = Aeson.withObject "NamespaceInfo'Limits" $ \obj -> do
-    fld_namespaceInfoLimitsBlobsizelimiterror <- parseFieldMaybe obj "blobSizeLimitError"
-    fld_namespaceInfoLimitsMemosizelimiterror <- parseFieldMaybe obj "memoSizeLimitError"
+    fld_namespaceInfoLimitsBlobSizeLimitError <- parseFieldMaybe obj "blobSizeLimitError"
+    fld_namespaceInfoLimitsMemoSizeLimitError <- parseFieldMaybe obj "memoSizeLimitError"
     pure defaultNamespaceInfo'Limits
-      { namespaceInfoLimitsBlobsizelimiterror = maybe (namespaceInfoLimitsBlobsizelimiterror defaultNamespaceInfo'Limits) id fld_namespaceInfoLimitsBlobsizelimiterror
-      , namespaceInfoLimitsMemosizelimiterror = maybe (namespaceInfoLimitsMemosizelimiterror defaultNamespaceInfo'Limits) id fld_namespaceInfoLimitsMemosizelimiterror
+      { namespaceInfoLimitsBlobSizeLimitError = maybe (namespaceInfoLimitsBlobSizeLimitError defaultNamespaceInfo'Limits) id fld_namespaceInfoLimitsBlobSizeLimitError
+      , namespaceInfoLimitsMemoSizeLimitError = maybe (namespaceInfoLimitsMemoSizeLimitError defaultNamespaceInfo'Limits) id fld_namespaceInfoLimitsMemoSizeLimitError
       }
 
 instance Hashable NamespaceInfo'Limits where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.namespaceInfoLimitsBlobsizelimiterror) msg.namespaceInfoLimitsMemosizelimiterror
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.namespaceInfoLimitsBlobSizeLimitError) msg.namespaceInfoLimitsMemoSizeLimitError
 
 defaultNamespaceInfo :: NamespaceInfo
 defaultNamespaceInfo = NamespaceInfo
   { namespaceInfoName = ""
   , namespaceInfoState = (toEnum 0)
   , namespaceInfoDescription = ""
-  , namespaceInfoOwneremail = ""
+  , namespaceInfoOwnerEmail = ""
   , namespaceInfoData = Map.empty
   , namespaceInfoId = ""
   , namespaceInfoCapabilities = Nothing
   , namespaceInfoLimits = Nothing
-  , namespaceInfoSupportsschedules = False
-  , namespaceInfoUnknownfields = []
+  , namespaceInfoSupportsSchedules = False
+  , namespaceInfoUnknownFields = []
   }
 
 instance MessageEncode NamespaceInfo where
@@ -382,26 +382,26 @@ instance MessageEncode NamespaceInfo where
     (if msg.namespaceInfoName == T.empty then mempty else encodeFieldString 1 msg.namespaceInfoName)
     <> (if fromEnum msg.namespaceInfoState == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.namespaceInfoState)))
     <> (if msg.namespaceInfoDescription == T.empty then mempty else encodeFieldString 3 msg.namespaceInfoDescription)
-    <> (if msg.namespaceInfoOwneremail == T.empty then mempty else encodeFieldString 4 msg.namespaceInfoOwneremail)
+    <> (if msg.namespaceInfoOwnerEmail == T.empty then mempty else encodeFieldString 4 msg.namespaceInfoOwnerEmail)
     <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 5 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.namespaceInfoData
     <> (if msg.namespaceInfoId == T.empty then mempty else encodeFieldString 6 msg.namespaceInfoId)
     <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.namespaceInfoCapabilities)
     <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.namespaceInfoLimits)
-    <> (if msg.namespaceInfoSupportsschedules == False then mempty else encodeFieldBool 100 msg.namespaceInfoSupportsschedules)
-    <> encodeUnknownFields msg.namespaceInfoUnknownfields
+    <> (if msg.namespaceInfoSupportsSchedules == False then mempty else encodeFieldBool 100 msg.namespaceInfoSupportsSchedules)
+    <> encodeUnknownFields msg.namespaceInfoUnknownFields
 
 instance MessageSize NamespaceInfo where
   messageSize msg =
     (if msg.namespaceInfoName == T.empty then 0 else fieldTextSize 1 msg.namespaceInfoName)
     + (if fromEnum msg.namespaceInfoState == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.namespaceInfoState)))
     + (if msg.namespaceInfoDescription == T.empty then 0 else fieldTextSize 3 msg.namespaceInfoDescription)
-    + (if msg.namespaceInfoOwneremail == T.empty then 0 else fieldTextSize 4 msg.namespaceInfoOwneremail)
+    + (if msg.namespaceInfoOwnerEmail == T.empty then 0 else fieldTextSize 4 msg.namespaceInfoOwnerEmail)
     + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 5 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.namespaceInfoData)
     + (if msg.namespaceInfoId == T.empty then 0 else fieldTextSize 6 msg.namespaceInfoId)
     + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.namespaceInfoCapabilities)
     + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.namespaceInfoLimits)
-    + (if msg.namespaceInfoSupportsschedules == False then 0 else fieldBoolSize 100)
-    + unknownFieldsSize msg.namespaceInfoUnknownfields
+    + (if msg.namespaceInfoSupportsSchedules == False then 0 else fieldBoolSize 100)
+    + unknownFieldsSize msg.namespaceInfoUnknownFields
 
 instance MessageDecode NamespaceInfo where
   {-# INLINE messageDecoder #-}
@@ -410,7 +410,7 @@ instance MessageDecode NamespaceInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceInfo {namespaceInfoName = acc_0, namespaceInfoState = acc_1, namespaceInfoDescription = acc_2, namespaceInfoOwneremail = acc_3, namespaceInfoData = acc_4, namespaceInfoId = acc_5, namespaceInfoCapabilities = acc_6, namespaceInfoLimits = acc_7, namespaceInfoSupportsschedules = acc_8, namespaceInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceInfo {namespaceInfoName = acc_0, namespaceInfoState = acc_1, namespaceInfoDescription = acc_2, namespaceInfoOwnerEmail = acc_3, namespaceInfoData = acc_4, namespaceInfoId = acc_5, namespaceInfoCapabilities = acc_6, namespaceInfoLimits = acc_7, namespaceInfoSupportsSchedules = acc_8, namespaceInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -483,8 +483,8 @@ instance ProtoMessage NamespaceInfo where
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoOwneremail
-        , fdSet = \v m -> m { namespaceInfoOwneremail = v }
+        , fdGet = namespaceInfoOwnerEmail
+        , fdSet = \v m -> m { namespaceInfoOwnerEmail = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "data"
@@ -523,8 +523,8 @@ instance ProtoMessage NamespaceInfo where
         , fdNumber = 100
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceInfoSupportsschedules
-        , fdSet = \v m -> m { namespaceInfoSupportsschedules = v }
+        , fdGet = namespaceInfoSupportsSchedules
+        , fdSet = \v m -> m { namespaceInfoSupportsSchedules = v }
         })
     ]
 
@@ -533,12 +533,12 @@ instance Aeson.ToJSON NamespaceInfo where
       [ "name" .=: msg.namespaceInfoName
       , "state" .=: msg.namespaceInfoState
       , "description" .=: msg.namespaceInfoDescription
-      , "ownerEmail" .=: msg.namespaceInfoOwneremail
+      , "ownerEmail" .=: msg.namespaceInfoOwnerEmail
       , "data" .=: msg.namespaceInfoData
       , "id" .=: msg.namespaceInfoId
       , "capabilities" .=: msg.namespaceInfoCapabilities
       , "limits" .=: msg.namespaceInfoLimits
-      , "supportsSchedules" .=: msg.namespaceInfoSupportsschedules
+      , "supportsSchedules" .=: msg.namespaceInfoSupportsSchedules
       ]
 
 instance Aeson.FromJSON NamespaceInfo where
@@ -546,73 +546,73 @@ instance Aeson.FromJSON NamespaceInfo where
     fld_namespaceInfoName <- parseFieldMaybe obj "name"
     fld_namespaceInfoState <- parseFieldMaybe obj "state"
     fld_namespaceInfoDescription <- parseFieldMaybe obj "description"
-    fld_namespaceInfoOwneremail <- parseFieldMaybe obj "ownerEmail"
+    fld_namespaceInfoOwnerEmail <- parseFieldMaybe obj "ownerEmail"
     fld_namespaceInfoData <- parseFieldMaybe obj "data"
     fld_namespaceInfoId <- parseFieldMaybe obj "id"
     fld_namespaceInfoCapabilities <- parseFieldMaybe obj "capabilities"
     fld_namespaceInfoLimits <- parseFieldMaybe obj "limits"
-    fld_namespaceInfoSupportsschedules <- parseFieldMaybe obj "supportsSchedules"
+    fld_namespaceInfoSupportsSchedules <- parseFieldMaybe obj "supportsSchedules"
     pure defaultNamespaceInfo
       { namespaceInfoName = maybe (namespaceInfoName defaultNamespaceInfo) id fld_namespaceInfoName
       , namespaceInfoState = maybe (namespaceInfoState defaultNamespaceInfo) id fld_namespaceInfoState
       , namespaceInfoDescription = maybe (namespaceInfoDescription defaultNamespaceInfo) id fld_namespaceInfoDescription
-      , namespaceInfoOwneremail = maybe (namespaceInfoOwneremail defaultNamespaceInfo) id fld_namespaceInfoOwneremail
+      , namespaceInfoOwnerEmail = maybe (namespaceInfoOwnerEmail defaultNamespaceInfo) id fld_namespaceInfoOwnerEmail
       , namespaceInfoData = maybe (namespaceInfoData defaultNamespaceInfo) id fld_namespaceInfoData
       , namespaceInfoId = maybe (namespaceInfoId defaultNamespaceInfo) id fld_namespaceInfoId
       , namespaceInfoCapabilities = maybe (namespaceInfoCapabilities defaultNamespaceInfo) id fld_namespaceInfoCapabilities
       , namespaceInfoLimits = maybe (namespaceInfoLimits defaultNamespaceInfo) id fld_namespaceInfoLimits
-      , namespaceInfoSupportsschedules = maybe (namespaceInfoSupportsschedules defaultNamespaceInfo) id fld_namespaceInfoSupportsschedules
+      , namespaceInfoSupportsSchedules = maybe (namespaceInfoSupportsSchedules defaultNamespaceInfo) id fld_namespaceInfoSupportsSchedules
       }
 
 instance Hashable NamespaceInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceInfoName) msg.namespaceInfoState) msg.namespaceInfoDescription) msg.namespaceInfoOwneremail) msg.namespaceInfoData) msg.namespaceInfoId) msg.namespaceInfoCapabilities) msg.namespaceInfoLimits) msg.namespaceInfoSupportsschedules
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceInfoName) msg.namespaceInfoState) msg.namespaceInfoDescription) msg.namespaceInfoOwnerEmail) msg.namespaceInfoData) msg.namespaceInfoId) msg.namespaceInfoCapabilities) msg.namespaceInfoLimits) msg.namespaceInfoSupportsSchedules
 
 data NamespaceConfig = NamespaceConfig
-  { namespaceConfigWorkflowexecutionretentionttl :: !(Maybe PB_Duration.Duration)
-  , namespaceConfigBadbinaries :: !(Maybe BadBinaries)
-  , namespaceConfigHistoryarchivalstate :: !TE_Enums_V1_Namespace.ArchivalState
-  , namespaceConfigHistoryarchivaluri :: !Text
-  , namespaceConfigVisibilityarchivalstate :: !TE_Enums_V1_Namespace.ArchivalState
-  , namespaceConfigVisibilityarchivaluri :: !Text
-  , namespaceConfigCustomsearchattributealiases :: !(Map.Map Text Text)
-  , namespaceConfigUnknownfields :: ![UnknownField]
+  { namespaceConfigWorkflowExecutionRetentionTtl :: !(Maybe PB_Duration.Duration)
+  , namespaceConfigBadBinaries :: !(Maybe BadBinaries)
+  , namespaceConfigHistoryArchivalState :: !TE_Enums_V1_Namespace.ArchivalState
+  , namespaceConfigHistoryArchivalUri :: !Text
+  , namespaceConfigVisibilityArchivalState :: !TE_Enums_V1_Namespace.ArchivalState
+  , namespaceConfigVisibilityArchivalUri :: !Text
+  , namespaceConfigCustomSearchAttributeAliases :: !(Map.Map Text Text)
+  , namespaceConfigUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNamespaceConfig :: NamespaceConfig
 defaultNamespaceConfig = NamespaceConfig
-  { namespaceConfigWorkflowexecutionretentionttl = Nothing
-  , namespaceConfigBadbinaries = Nothing
-  , namespaceConfigHistoryarchivalstate = (toEnum 0)
-  , namespaceConfigHistoryarchivaluri = ""
-  , namespaceConfigVisibilityarchivalstate = (toEnum 0)
-  , namespaceConfigVisibilityarchivaluri = ""
-  , namespaceConfigCustomsearchattributealiases = Map.empty
-  , namespaceConfigUnknownfields = []
+  { namespaceConfigWorkflowExecutionRetentionTtl = Nothing
+  , namespaceConfigBadBinaries = Nothing
+  , namespaceConfigHistoryArchivalState = (toEnum 0)
+  , namespaceConfigHistoryArchivalUri = ""
+  , namespaceConfigVisibilityArchivalState = (toEnum 0)
+  , namespaceConfigVisibilityArchivalUri = ""
+  , namespaceConfigCustomSearchAttributeAliases = Map.empty
+  , namespaceConfigUnknownFields = []
   }
 
 instance MessageEncode NamespaceConfig where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.namespaceConfigWorkflowexecutionretentionttl)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.namespaceConfigBadbinaries)
-    <> (if fromEnum msg.namespaceConfigHistoryarchivalstate == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.namespaceConfigHistoryarchivalstate)))
-    <> (if msg.namespaceConfigHistoryarchivaluri == T.empty then mempty else encodeFieldString 4 msg.namespaceConfigHistoryarchivaluri)
-    <> (if fromEnum msg.namespaceConfigVisibilityarchivalstate == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fromEnum msg.namespaceConfigVisibilityarchivalstate)))
-    <> (if msg.namespaceConfigVisibilityarchivaluri == T.empty then mempty else encodeFieldString 6 msg.namespaceConfigVisibilityarchivaluri)
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 7 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.namespaceConfigCustomsearchattributealiases
-    <> encodeUnknownFields msg.namespaceConfigUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.namespaceConfigWorkflowExecutionRetentionTtl)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.namespaceConfigBadBinaries)
+    <> (if fromEnum msg.namespaceConfigHistoryArchivalState == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.namespaceConfigHistoryArchivalState)))
+    <> (if msg.namespaceConfigHistoryArchivalUri == T.empty then mempty else encodeFieldString 4 msg.namespaceConfigHistoryArchivalUri)
+    <> (if fromEnum msg.namespaceConfigVisibilityArchivalState == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fromEnum msg.namespaceConfigVisibilityArchivalState)))
+    <> (if msg.namespaceConfigVisibilityArchivalUri == T.empty then mempty else encodeFieldString 6 msg.namespaceConfigVisibilityArchivalUri)
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 7 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.namespaceConfigCustomSearchAttributeAliases
+    <> encodeUnknownFields msg.namespaceConfigUnknownFields
 
 instance MessageSize NamespaceConfig where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.namespaceConfigWorkflowexecutionretentionttl)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.namespaceConfigBadbinaries)
-    + (if fromEnum msg.namespaceConfigHistoryarchivalstate == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.namespaceConfigHistoryarchivalstate)))
-    + (if msg.namespaceConfigHistoryarchivaluri == T.empty then 0 else fieldTextSize 4 msg.namespaceConfigHistoryarchivaluri)
-    + (if fromEnum msg.namespaceConfigVisibilityarchivalstate == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.namespaceConfigVisibilityarchivalstate)))
-    + (if msg.namespaceConfigVisibilityarchivaluri == T.empty then 0 else fieldTextSize 6 msg.namespaceConfigVisibilityarchivaluri)
-    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 7 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.namespaceConfigCustomsearchattributealiases)
-    + unknownFieldsSize msg.namespaceConfigUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.namespaceConfigWorkflowExecutionRetentionTtl)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.namespaceConfigBadBinaries)
+    + (if fromEnum msg.namespaceConfigHistoryArchivalState == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.namespaceConfigHistoryArchivalState)))
+    + (if msg.namespaceConfigHistoryArchivalUri == T.empty then 0 else fieldTextSize 4 msg.namespaceConfigHistoryArchivalUri)
+    + (if fromEnum msg.namespaceConfigVisibilityArchivalState == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.namespaceConfigVisibilityArchivalState)))
+    + (if msg.namespaceConfigVisibilityArchivalUri == T.empty then 0 else fieldTextSize 6 msg.namespaceConfigVisibilityArchivalUri)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 7 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.namespaceConfigCustomSearchAttributeAliases)
+    + unknownFieldsSize msg.namespaceConfigUnknownFields
 
 instance MessageDecode NamespaceConfig where
   {-# INLINE messageDecoder #-}
@@ -621,7 +621,7 @@ instance MessageDecode NamespaceConfig where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceConfig {namespaceConfigWorkflowexecutionretentionttl = acc_0, namespaceConfigBadbinaries = acc_1, namespaceConfigHistoryarchivalstate = acc_2, namespaceConfigHistoryarchivaluri = acc_3, namespaceConfigVisibilityarchivalstate = acc_4, namespaceConfigVisibilityarchivaluri = acc_5, namespaceConfigCustomsearchattributealiases = acc_6, namespaceConfigUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceConfig {namespaceConfigWorkflowExecutionRetentionTtl = acc_0, namespaceConfigBadBinaries = acc_1, namespaceConfigHistoryArchivalState = acc_2, namespaceConfigHistoryArchivalUri = acc_3, namespaceConfigVisibilityArchivalState = acc_4, namespaceConfigVisibilityArchivalUri = acc_5, namespaceConfigCustomSearchAttributeAliases = acc_6, namespaceConfigUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -665,94 +665,94 @@ instance ProtoMessage NamespaceConfig where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = namespaceConfigWorkflowexecutionretentionttl
-        , fdSet = \v m -> m { namespaceConfigWorkflowexecutionretentionttl = v }
+        , fdGet = namespaceConfigWorkflowExecutionRetentionTtl
+        , fdSet = \v m -> m { namespaceConfigWorkflowExecutionRetentionTtl = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "bad_binaries"
         , fdNumber = 2
         , fdTypeDesc = MessageType "BadBinaries"
         , fdLabel = LabelOptional
-        , fdGet = namespaceConfigBadbinaries
-        , fdSet = \v m -> m { namespaceConfigBadbinaries = v }
+        , fdGet = namespaceConfigBadBinaries
+        , fdSet = \v m -> m { namespaceConfigBadBinaries = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "history_archival_state"
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ArchivalState"
         , fdLabel = LabelOptional
-        , fdGet = namespaceConfigHistoryarchivalstate
-        , fdSet = \v m -> m { namespaceConfigHistoryarchivalstate = v }
+        , fdGet = namespaceConfigHistoryArchivalState
+        , fdSet = \v m -> m { namespaceConfigHistoryArchivalState = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "history_archival_uri"
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = namespaceConfigHistoryarchivaluri
-        , fdSet = \v m -> m { namespaceConfigHistoryarchivaluri = v }
+        , fdGet = namespaceConfigHistoryArchivalUri
+        , fdSet = \v m -> m { namespaceConfigHistoryArchivalUri = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "visibility_archival_state"
         , fdNumber = 5
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ArchivalState"
         , fdLabel = LabelOptional
-        , fdGet = namespaceConfigVisibilityarchivalstate
-        , fdSet = \v m -> m { namespaceConfigVisibilityarchivalstate = v }
+        , fdGet = namespaceConfigVisibilityArchivalState
+        , fdSet = \v m -> m { namespaceConfigVisibilityArchivalState = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "visibility_archival_uri"
         , fdNumber = 6
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = namespaceConfigVisibilityarchivaluri
-        , fdSet = \v m -> m { namespaceConfigVisibilityarchivaluri = v }
+        , fdGet = namespaceConfigVisibilityArchivalUri
+        , fdSet = \v m -> m { namespaceConfigVisibilityArchivalUri = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "custom_search_attribute_aliases"
         , fdNumber = 7
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = namespaceConfigCustomsearchattributealiases
-        , fdSet = \v m -> m { namespaceConfigCustomsearchattributealiases = v }
+        , fdGet = namespaceConfigCustomSearchAttributeAliases
+        , fdSet = \v m -> m { namespaceConfigCustomSearchAttributeAliases = v }
         })
     ]
 
 instance Aeson.ToJSON NamespaceConfig where
   toJSON msg = jsonObject
-      [ "workflowExecutionRetentionTtl" .=: msg.namespaceConfigWorkflowexecutionretentionttl
-      , "badBinaries" .=: msg.namespaceConfigBadbinaries
-      , "historyArchivalState" .=: msg.namespaceConfigHistoryarchivalstate
-      , "historyArchivalUri" .=: msg.namespaceConfigHistoryarchivaluri
-      , "visibilityArchivalState" .=: msg.namespaceConfigVisibilityarchivalstate
-      , "visibilityArchivalUri" .=: msg.namespaceConfigVisibilityarchivaluri
-      , "customSearchAttributeAliases" .=: msg.namespaceConfigCustomsearchattributealiases
+      [ "workflowExecutionRetentionTtl" .=: msg.namespaceConfigWorkflowExecutionRetentionTtl
+      , "badBinaries" .=: msg.namespaceConfigBadBinaries
+      , "historyArchivalState" .=: msg.namespaceConfigHistoryArchivalState
+      , "historyArchivalUri" .=: msg.namespaceConfigHistoryArchivalUri
+      , "visibilityArchivalState" .=: msg.namespaceConfigVisibilityArchivalState
+      , "visibilityArchivalUri" .=: msg.namespaceConfigVisibilityArchivalUri
+      , "customSearchAttributeAliases" .=: msg.namespaceConfigCustomSearchAttributeAliases
       ]
 
 instance Aeson.FromJSON NamespaceConfig where
   parseJSON = Aeson.withObject "NamespaceConfig" $ \obj -> do
-    fld_namespaceConfigWorkflowexecutionretentionttl <- parseFieldMaybe obj "workflowExecutionRetentionTtl"
-    fld_namespaceConfigBadbinaries <- parseFieldMaybe obj "badBinaries"
-    fld_namespaceConfigHistoryarchivalstate <- parseFieldMaybe obj "historyArchivalState"
-    fld_namespaceConfigHistoryarchivaluri <- parseFieldMaybe obj "historyArchivalUri"
-    fld_namespaceConfigVisibilityarchivalstate <- parseFieldMaybe obj "visibilityArchivalState"
-    fld_namespaceConfigVisibilityarchivaluri <- parseFieldMaybe obj "visibilityArchivalUri"
-    fld_namespaceConfigCustomsearchattributealiases <- parseFieldMaybe obj "customSearchAttributeAliases"
+    fld_namespaceConfigWorkflowExecutionRetentionTtl <- parseFieldMaybe obj "workflowExecutionRetentionTtl"
+    fld_namespaceConfigBadBinaries <- parseFieldMaybe obj "badBinaries"
+    fld_namespaceConfigHistoryArchivalState <- parseFieldMaybe obj "historyArchivalState"
+    fld_namespaceConfigHistoryArchivalUri <- parseFieldMaybe obj "historyArchivalUri"
+    fld_namespaceConfigVisibilityArchivalState <- parseFieldMaybe obj "visibilityArchivalState"
+    fld_namespaceConfigVisibilityArchivalUri <- parseFieldMaybe obj "visibilityArchivalUri"
+    fld_namespaceConfigCustomSearchAttributeAliases <- parseFieldMaybe obj "customSearchAttributeAliases"
     pure defaultNamespaceConfig
-      { namespaceConfigWorkflowexecutionretentionttl = maybe (namespaceConfigWorkflowexecutionretentionttl defaultNamespaceConfig) id fld_namespaceConfigWorkflowexecutionretentionttl
-      , namespaceConfigBadbinaries = maybe (namespaceConfigBadbinaries defaultNamespaceConfig) id fld_namespaceConfigBadbinaries
-      , namespaceConfigHistoryarchivalstate = maybe (namespaceConfigHistoryarchivalstate defaultNamespaceConfig) id fld_namespaceConfigHistoryarchivalstate
-      , namespaceConfigHistoryarchivaluri = maybe (namespaceConfigHistoryarchivaluri defaultNamespaceConfig) id fld_namespaceConfigHistoryarchivaluri
-      , namespaceConfigVisibilityarchivalstate = maybe (namespaceConfigVisibilityarchivalstate defaultNamespaceConfig) id fld_namespaceConfigVisibilityarchivalstate
-      , namespaceConfigVisibilityarchivaluri = maybe (namespaceConfigVisibilityarchivaluri defaultNamespaceConfig) id fld_namespaceConfigVisibilityarchivaluri
-      , namespaceConfigCustomsearchattributealiases = maybe (namespaceConfigCustomsearchattributealiases defaultNamespaceConfig) id fld_namespaceConfigCustomsearchattributealiases
+      { namespaceConfigWorkflowExecutionRetentionTtl = maybe (namespaceConfigWorkflowExecutionRetentionTtl defaultNamespaceConfig) id fld_namespaceConfigWorkflowExecutionRetentionTtl
+      , namespaceConfigBadBinaries = maybe (namespaceConfigBadBinaries defaultNamespaceConfig) id fld_namespaceConfigBadBinaries
+      , namespaceConfigHistoryArchivalState = maybe (namespaceConfigHistoryArchivalState defaultNamespaceConfig) id fld_namespaceConfigHistoryArchivalState
+      , namespaceConfigHistoryArchivalUri = maybe (namespaceConfigHistoryArchivalUri defaultNamespaceConfig) id fld_namespaceConfigHistoryArchivalUri
+      , namespaceConfigVisibilityArchivalState = maybe (namespaceConfigVisibilityArchivalState defaultNamespaceConfig) id fld_namespaceConfigVisibilityArchivalState
+      , namespaceConfigVisibilityArchivalUri = maybe (namespaceConfigVisibilityArchivalUri defaultNamespaceConfig) id fld_namespaceConfigVisibilityArchivalUri
+      , namespaceConfigCustomSearchAttributeAliases = maybe (namespaceConfigCustomSearchAttributeAliases defaultNamespaceConfig) id fld_namespaceConfigCustomSearchAttributeAliases
       }
 
 instance Hashable NamespaceConfig where
-  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceConfigWorkflowexecutionretentionttl) msg.namespaceConfigBadbinaries) msg.namespaceConfigHistoryarchivalstate) msg.namespaceConfigHistoryarchivaluri) msg.namespaceConfigVisibilityarchivalstate) msg.namespaceConfigVisibilityarchivaluri) msg.namespaceConfigCustomsearchattributealiases
+  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceConfigWorkflowExecutionRetentionTtl) msg.namespaceConfigBadBinaries) msg.namespaceConfigHistoryArchivalState) msg.namespaceConfigHistoryArchivalUri) msg.namespaceConfigVisibilityArchivalState) msg.namespaceConfigVisibilityArchivalUri) msg.namespaceConfigCustomSearchAttributeAliases
 
 data BadBinaries = BadBinaries
   { badBinariesBinaries :: !(Map.Map Text BadBinaryInfo)
-  , badBinariesUnknownfields :: ![UnknownField]
+  , badBinariesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -760,18 +760,18 @@ data BadBinaries = BadBinaries
 defaultBadBinaries :: BadBinaries
 defaultBadBinaries = BadBinaries
   { badBinariesBinaries = Map.empty
-  , badBinariesUnknownfields = []
+  , badBinariesUnknownFields = []
   }
 
 instance MessageEncode BadBinaries where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.badBinariesBinaries
-    <> encodeUnknownFields msg.badBinariesUnknownfields
+    <> encodeUnknownFields msg.badBinariesUnknownFields
 
 instance MessageSize BadBinaries where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.badBinariesBinaries)
-    + unknownFieldsSize msg.badBinariesUnknownfields
+    + unknownFieldsSize msg.badBinariesUnknownFields
 
 instance MessageDecode BadBinaries where
   {-# INLINE messageDecoder #-}
@@ -780,7 +780,7 @@ instance MessageDecode BadBinaries where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BadBinaries {badBinariesBinaries = acc_0, badBinariesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BadBinaries {badBinariesBinaries = acc_0, badBinariesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -830,8 +830,8 @@ instance Hashable BadBinaries where
 data BadBinaryInfo = BadBinaryInfo
   { badBinaryInfoReason :: !Text
   , badBinaryInfoOperator :: !Text
-  , badBinaryInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , badBinaryInfoUnknownfields :: ![UnknownField]
+  , badBinaryInfoCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , badBinaryInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -840,23 +840,23 @@ defaultBadBinaryInfo :: BadBinaryInfo
 defaultBadBinaryInfo = BadBinaryInfo
   { badBinaryInfoReason = ""
   , badBinaryInfoOperator = ""
-  , badBinaryInfoCreatetime = Nothing
-  , badBinaryInfoUnknownfields = []
+  , badBinaryInfoCreateTime = Nothing
+  , badBinaryInfoUnknownFields = []
   }
 
 instance MessageEncode BadBinaryInfo where
   buildMessage msg =
     (if msg.badBinaryInfoReason == T.empty then mempty else encodeFieldString 1 msg.badBinaryInfoReason)
     <> (if msg.badBinaryInfoOperator == T.empty then mempty else encodeFieldString 2 msg.badBinaryInfoOperator)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.badBinaryInfoCreatetime)
-    <> encodeUnknownFields msg.badBinaryInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.badBinaryInfoCreateTime)
+    <> encodeUnknownFields msg.badBinaryInfoUnknownFields
 
 instance MessageSize BadBinaryInfo where
   messageSize msg =
     (if msg.badBinaryInfoReason == T.empty then 0 else fieldTextSize 1 msg.badBinaryInfoReason)
     + (if msg.badBinaryInfoOperator == T.empty then 0 else fieldTextSize 2 msg.badBinaryInfoOperator)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.badBinaryInfoCreatetime)
-    + unknownFieldsSize msg.badBinaryInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.badBinaryInfoCreateTime)
+    + unknownFieldsSize msg.badBinaryInfoUnknownFields
 
 instance MessageDecode BadBinaryInfo where
   {-# INLINE messageDecoder #-}
@@ -865,7 +865,7 @@ instance MessageDecode BadBinaryInfo where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BadBinaryInfo {badBinaryInfoReason = acc_0, badBinaryInfoOperator = acc_1, badBinaryInfoCreatetime = acc_2, badBinaryInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BadBinaryInfo {badBinaryInfoReason = acc_0, badBinaryInfoOperator = acc_1, badBinaryInfoCreateTime = acc_2, badBinaryInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -909,8 +909,8 @@ instance ProtoMessage BadBinaryInfo where
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = badBinaryInfoCreatetime
-        , fdSet = \v m -> m { badBinaryInfoCreatetime = v }
+        , fdGet = badBinaryInfoCreateTime
+        , fdSet = \v m -> m { badBinaryInfoCreateTime = v }
         })
     ]
 
@@ -918,29 +918,29 @@ instance Aeson.ToJSON BadBinaryInfo where
   toJSON msg = jsonObject
       [ "reason" .=: msg.badBinaryInfoReason
       , "operator" .=: msg.badBinaryInfoOperator
-      , "createTime" .=: msg.badBinaryInfoCreatetime
+      , "createTime" .=: msg.badBinaryInfoCreateTime
       ]
 
 instance Aeson.FromJSON BadBinaryInfo where
   parseJSON = Aeson.withObject "BadBinaryInfo" $ \obj -> do
     fld_badBinaryInfoReason <- parseFieldMaybe obj "reason"
     fld_badBinaryInfoOperator <- parseFieldMaybe obj "operator"
-    fld_badBinaryInfoCreatetime <- parseFieldMaybe obj "createTime"
+    fld_badBinaryInfoCreateTime <- parseFieldMaybe obj "createTime"
     pure defaultBadBinaryInfo
       { badBinaryInfoReason = maybe (badBinaryInfoReason defaultBadBinaryInfo) id fld_badBinaryInfoReason
       , badBinaryInfoOperator = maybe (badBinaryInfoOperator defaultBadBinaryInfo) id fld_badBinaryInfoOperator
-      , badBinaryInfoCreatetime = maybe (badBinaryInfoCreatetime defaultBadBinaryInfo) id fld_badBinaryInfoCreatetime
+      , badBinaryInfoCreateTime = maybe (badBinaryInfoCreateTime defaultBadBinaryInfo) id fld_badBinaryInfoCreateTime
       }
 
 instance Hashable BadBinaryInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.badBinaryInfoReason) msg.badBinaryInfoOperator) msg.badBinaryInfoCreatetime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.badBinaryInfoReason) msg.badBinaryInfoOperator) msg.badBinaryInfoCreateTime
 
 data UpdateNamespaceInfo = UpdateNamespaceInfo
   { updateNamespaceInfoDescription :: !Text
-  , updateNamespaceInfoOwneremail :: !Text
+  , updateNamespaceInfoOwnerEmail :: !Text
   , updateNamespaceInfoData :: !(Map.Map Text Text)
   , updateNamespaceInfoState :: !TE_Enums_V1_Namespace.NamespaceState
-  , updateNamespaceInfoUnknownfields :: ![UnknownField]
+  , updateNamespaceInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -948,27 +948,27 @@ data UpdateNamespaceInfo = UpdateNamespaceInfo
 defaultUpdateNamespaceInfo :: UpdateNamespaceInfo
 defaultUpdateNamespaceInfo = UpdateNamespaceInfo
   { updateNamespaceInfoDescription = ""
-  , updateNamespaceInfoOwneremail = ""
+  , updateNamespaceInfoOwnerEmail = ""
   , updateNamespaceInfoData = Map.empty
   , updateNamespaceInfoState = (toEnum 0)
-  , updateNamespaceInfoUnknownfields = []
+  , updateNamespaceInfoUnknownFields = []
   }
 
 instance MessageEncode UpdateNamespaceInfo where
   buildMessage msg =
     (if msg.updateNamespaceInfoDescription == T.empty then mempty else encodeFieldString 1 msg.updateNamespaceInfoDescription)
-    <> (if msg.updateNamespaceInfoOwneremail == T.empty then mempty else encodeFieldString 2 msg.updateNamespaceInfoOwneremail)
+    <> (if msg.updateNamespaceInfoOwnerEmail == T.empty then mempty else encodeFieldString 2 msg.updateNamespaceInfoOwnerEmail)
     <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 3 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.updateNamespaceInfoData
     <> (if fromEnum msg.updateNamespaceInfoState == 0 then mempty else encodeFieldVarint 4 (fromIntegral (fromEnum msg.updateNamespaceInfoState)))
-    <> encodeUnknownFields msg.updateNamespaceInfoUnknownfields
+    <> encodeUnknownFields msg.updateNamespaceInfoUnknownFields
 
 instance MessageSize UpdateNamespaceInfo where
   messageSize msg =
     (if msg.updateNamespaceInfoDescription == T.empty then 0 else fieldTextSize 1 msg.updateNamespaceInfoDescription)
-    + (if msg.updateNamespaceInfoOwneremail == T.empty then 0 else fieldTextSize 2 msg.updateNamespaceInfoOwneremail)
+    + (if msg.updateNamespaceInfoOwnerEmail == T.empty then 0 else fieldTextSize 2 msg.updateNamespaceInfoOwnerEmail)
     + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.updateNamespaceInfoData)
     + (if fromEnum msg.updateNamespaceInfoState == 0 then 0 else fieldVarintSize 4 (fromIntegral (fromEnum msg.updateNamespaceInfoState)))
-    + unknownFieldsSize msg.updateNamespaceInfoUnknownfields
+    + unknownFieldsSize msg.updateNamespaceInfoUnknownFields
 
 instance MessageDecode UpdateNamespaceInfo where
   {-# INLINE messageDecoder #-}
@@ -977,7 +977,7 @@ instance MessageDecode UpdateNamespaceInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UpdateNamespaceInfo {updateNamespaceInfoDescription = acc_0, updateNamespaceInfoOwneremail = acc_1, updateNamespaceInfoData = acc_2, updateNamespaceInfoState = acc_3, updateNamespaceInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UpdateNamespaceInfo {updateNamespaceInfoDescription = acc_0, updateNamespaceInfoOwnerEmail = acc_1, updateNamespaceInfoData = acc_2, updateNamespaceInfoState = acc_3, updateNamespaceInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1019,8 +1019,8 @@ instance ProtoMessage UpdateNamespaceInfo where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = updateNamespaceInfoOwneremail
-        , fdSet = \v m -> m { updateNamespaceInfoOwneremail = v }
+        , fdGet = updateNamespaceInfoOwnerEmail
+        , fdSet = \v m -> m { updateNamespaceInfoOwnerEmail = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "data"
@@ -1043,7 +1043,7 @@ instance ProtoMessage UpdateNamespaceInfo where
 instance Aeson.ToJSON UpdateNamespaceInfo where
   toJSON msg = jsonObject
       [ "description" .=: msg.updateNamespaceInfoDescription
-      , "ownerEmail" .=: msg.updateNamespaceInfoOwneremail
+      , "ownerEmail" .=: msg.updateNamespaceInfoOwnerEmail
       , "data" .=: msg.updateNamespaceInfoData
       , "state" .=: msg.updateNamespaceInfoState
       ]
@@ -1051,41 +1051,41 @@ instance Aeson.ToJSON UpdateNamespaceInfo where
 instance Aeson.FromJSON UpdateNamespaceInfo where
   parseJSON = Aeson.withObject "UpdateNamespaceInfo" $ \obj -> do
     fld_updateNamespaceInfoDescription <- parseFieldMaybe obj "description"
-    fld_updateNamespaceInfoOwneremail <- parseFieldMaybe obj "ownerEmail"
+    fld_updateNamespaceInfoOwnerEmail <- parseFieldMaybe obj "ownerEmail"
     fld_updateNamespaceInfoData <- parseFieldMaybe obj "data"
     fld_updateNamespaceInfoState <- parseFieldMaybe obj "state"
     pure defaultUpdateNamespaceInfo
       { updateNamespaceInfoDescription = maybe (updateNamespaceInfoDescription defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoDescription
-      , updateNamespaceInfoOwneremail = maybe (updateNamespaceInfoOwneremail defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoOwneremail
+      , updateNamespaceInfoOwnerEmail = maybe (updateNamespaceInfoOwnerEmail defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoOwnerEmail
       , updateNamespaceInfoData = maybe (updateNamespaceInfoData defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoData
       , updateNamespaceInfoState = maybe (updateNamespaceInfoState defaultUpdateNamespaceInfo) id fld_updateNamespaceInfoState
       }
 
 instance Hashable UpdateNamespaceInfo where
-  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (salt) msg.updateNamespaceInfoDescription) msg.updateNamespaceInfoOwneremail) msg.updateNamespaceInfoData) msg.updateNamespaceInfoState
+  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (salt) msg.updateNamespaceInfoDescription) msg.updateNamespaceInfoOwnerEmail) msg.updateNamespaceInfoData) msg.updateNamespaceInfoState
 
 data NamespaceFilter = NamespaceFilter
-  { namespaceFilterIncludedeleted :: {-# UNPACK #-} !Bool
-  , namespaceFilterUnknownfields :: ![UnknownField]
+  { namespaceFilterIncludeDeleted :: {-# UNPACK #-} !Bool
+  , namespaceFilterUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNamespaceFilter :: NamespaceFilter
 defaultNamespaceFilter = NamespaceFilter
-  { namespaceFilterIncludedeleted = False
-  , namespaceFilterUnknownfields = []
+  { namespaceFilterIncludeDeleted = False
+  , namespaceFilterUnknownFields = []
   }
 
 instance MessageEncode NamespaceFilter where
   buildMessage msg =
-    (if msg.namespaceFilterIncludedeleted == False then mempty else encodeFieldBool 1 msg.namespaceFilterIncludedeleted)
-    <> encodeUnknownFields msg.namespaceFilterUnknownfields
+    (if msg.namespaceFilterIncludeDeleted == False then mempty else encodeFieldBool 1 msg.namespaceFilterIncludeDeleted)
+    <> encodeUnknownFields msg.namespaceFilterUnknownFields
 
 instance MessageSize NamespaceFilter where
   messageSize msg =
-    (if msg.namespaceFilterIncludedeleted == False then 0 else fieldBoolSize 1)
-    + unknownFieldsSize msg.namespaceFilterUnknownfields
+    (if msg.namespaceFilterIncludeDeleted == False then 0 else fieldBoolSize 1)
+    + unknownFieldsSize msg.namespaceFilterUnknownFields
 
 instance MessageDecode NamespaceFilter where
   {-# INLINE messageDecoder #-}
@@ -1094,7 +1094,7 @@ instance MessageDecode NamespaceFilter where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceFilter {namespaceFilterIncludedeleted = acc_0, namespaceFilterUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceFilter {namespaceFilterIncludeDeleted = acc_0, namespaceFilterUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -1117,26 +1117,26 @@ instance ProtoMessage NamespaceFilter where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = namespaceFilterIncludedeleted
-        , fdSet = \v m -> m { namespaceFilterIncludedeleted = v }
+        , fdGet = namespaceFilterIncludeDeleted
+        , fdSet = \v m -> m { namespaceFilterIncludeDeleted = v }
         })
     ]
 
 instance Aeson.ToJSON NamespaceFilter where
   toJSON msg = jsonObject
-      [ "includeDeleted" .=: msg.namespaceFilterIncludedeleted
+      [ "includeDeleted" .=: msg.namespaceFilterIncludeDeleted
 
       ]
 
 instance Aeson.FromJSON NamespaceFilter where
   parseJSON = Aeson.withObject "NamespaceFilter" $ \obj -> do
-    fld_namespaceFilterIncludedeleted <- parseFieldMaybe obj "includeDeleted"
+    fld_namespaceFilterIncludeDeleted <- parseFieldMaybe obj "includeDeleted"
     pure defaultNamespaceFilter
-      { namespaceFilterIncludedeleted = maybe (namespaceFilterIncludedeleted defaultNamespaceFilter) id fld_namespaceFilterIncludedeleted
+      { namespaceFilterIncludeDeleted = maybe (namespaceFilterIncludeDeleted defaultNamespaceFilter) id fld_namespaceFilterIncludeDeleted
       }
 
 instance Hashable NamespaceFilter where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.namespaceFilterIncludedeleted
+  hashWithSalt salt msg = hashWithSalt (salt) msg.namespaceFilterIncludeDeleted
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

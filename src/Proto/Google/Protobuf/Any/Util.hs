@@ -52,25 +52,25 @@ typeUrlOf p = typeUrlPrefix <> messageTypeName p
 
 packAny :: forall a. IsMessage a => a -> Any
 packAny msg = Any
-  { anyTypeurl = typeUrlOf (Proxy :: Proxy a)
+  { anyTypeUrl = typeUrlOf (Proxy :: Proxy a)
   , anyValue   = encodeMessage msg
-  , anyUnknownfields = []
+  , anyUnknownFields = []
   }
 
 packAnyWithPrefix :: forall a. IsMessage a => Text -> a -> Any
 packAnyWithPrefix prefix msg = Any
-  { anyTypeurl = prefix <> messageTypeName (Proxy :: Proxy a)
+  { anyTypeUrl = prefix <> messageTypeName (Proxy :: Proxy a)
   , anyValue   = encodeMessage msg
-  , anyUnknownfields = []
+  , anyUnknownFields = []
   }
 
 unpackAny :: forall a. IsMessage a => Any -> Maybe (Either DecodeError a)
 unpackAny any'
-  | isTypeMatch (anyTypeurl any') (Proxy :: Proxy a) = Just (decodeMessage (anyValue any'))
+  | isTypeMatch (anyTypeUrl any') (Proxy :: Proxy a) = Just (decodeMessage (anyValue any'))
   | otherwise = Nothing
 
 isMessageType :: forall a. IsMessage a => Proxy a -> Any -> Bool
-isMessageType p any' = isTypeMatch (anyTypeurl any') p
+isMessageType p any' = isTypeMatch (anyTypeUrl any') p
 
 isTypeMatch :: forall a. IsMessage a => Text -> Proxy a -> Bool
 isTypeMatch tu p =
@@ -84,7 +84,7 @@ typeNameFromUrl tu = case T.breakOnEnd "/" tu of
 
 unpackAnyDynamic :: MessageRegistry -> Any -> Maybe (Either DecodeError DynamicMessage)
 unpackAnyDynamic reg any' =
-  let name = typeNameFromUrl (anyTypeurl any')
+  let name = typeNameFromUrl (anyTypeUrl any')
   in case lookupDecoder name reg of
     Nothing      -> Nothing
     Just decoder -> Just (decoder (anyValue any'))

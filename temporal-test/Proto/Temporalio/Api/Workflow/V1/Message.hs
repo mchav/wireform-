@@ -73,31 +73,31 @@ fileDescriptorProtoBytes = case Base16.decode "0a2674656d706f72616c2f6170692f776
 data WorkflowExecutionInfo = WorkflowExecutionInfo
   { workflowExecutionInfoExecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
   , workflowExecutionInfoType :: !(Maybe TE_Common_V1_Message.WorkflowType)
-  , workflowExecutionInfoStarttime :: !(Maybe PB_Timestamp.Timestamp)
-  , workflowExecutionInfoClosetime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionInfoStartTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionInfoCloseTime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowExecutionInfoStatus :: !TE_Enums_V1_Workflow.WorkflowExecutionStatus
-  , workflowExecutionInfoHistorylength :: {-# UNPACK #-} !Int64
-  , workflowExecutionInfoParentnamespaceid :: !Text
-  , workflowExecutionInfoParentexecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
-  , workflowExecutionInfoExecutiontime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionInfoHistoryLength :: {-# UNPACK #-} !Int64
+  , workflowExecutionInfoParentNamespaceId :: !Text
+  , workflowExecutionInfoParentExecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
+  , workflowExecutionInfoExecutionTime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowExecutionInfoMemo :: !(Maybe TE_Common_V1_Message.Memo)
-  , workflowExecutionInfoSearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
-  , workflowExecutionInfoAutoresetpoints :: !(Maybe ResetPoints)
-  , workflowExecutionInfoTaskqueue :: !Text
-  , workflowExecutionInfoStatetransitioncount :: {-# UNPACK #-} !Int64
-  , workflowExecutionInfoHistorysizebytes :: {-# UNPACK #-} !Int64
-  , workflowExecutionInfoMostrecentworkerversionstamp :: !(Maybe TE_Common_V1_Message.WorkerVersionStamp)
-  , workflowExecutionInfoExecutionduration :: !(Maybe PB_Duration.Duration)
-  , workflowExecutionInfoRootexecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
-  , workflowExecutionInfoAssignedbuildid :: !Text
-  , workflowExecutionInfoInheritedbuildid :: !Text
-  , workflowExecutionInfoFirstrunid :: !Text
-  , workflowExecutionInfoVersioninginfo :: !(Maybe WorkflowExecutionVersioningInfo)
-  , workflowExecutionInfoWorkerdeploymentname :: !Text
+  , workflowExecutionInfoSearchAttributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
+  , workflowExecutionInfoAutoResetPoints :: !(Maybe ResetPoints)
+  , workflowExecutionInfoTaskQueue :: !Text
+  , workflowExecutionInfoStateTransitionCount :: {-# UNPACK #-} !Int64
+  , workflowExecutionInfoHistorySizeBytes :: {-# UNPACK #-} !Int64
+  , workflowExecutionInfoMostRecentWorkerVersionStamp :: !(Maybe TE_Common_V1_Message.WorkerVersionStamp)
+  , workflowExecutionInfoExecutionDuration :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionInfoRootExecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
+  , workflowExecutionInfoAssignedBuildId :: !Text
+  , workflowExecutionInfoInheritedBuildId :: !Text
+  , workflowExecutionInfoFirstRunId :: !Text
+  , workflowExecutionInfoVersioningInfo :: !(Maybe WorkflowExecutionVersioningInfo)
+  , workflowExecutionInfoWorkerDeploymentName :: !Text
   , workflowExecutionInfoPriority :: !(Maybe TE_Common_V1_Message.Priority)
-  , workflowExecutionInfoExternalpayloadsizebytes :: {-# UNPACK #-} !Int64
-  , workflowExecutionInfoExternalpayloadcount :: {-# UNPACK #-} !Int64
-  , workflowExecutionInfoUnknownfields :: ![UnknownField]
+  , workflowExecutionInfoExternalPayloadSizeBytes :: {-# UNPACK #-} !Int64
+  , workflowExecutionInfoExternalPayloadCount :: {-# UNPACK #-} !Int64
+  , workflowExecutionInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -106,92 +106,92 @@ defaultWorkflowExecutionInfo :: WorkflowExecutionInfo
 defaultWorkflowExecutionInfo = WorkflowExecutionInfo
   { workflowExecutionInfoExecution = Nothing
   , workflowExecutionInfoType = Nothing
-  , workflowExecutionInfoStarttime = Nothing
-  , workflowExecutionInfoClosetime = Nothing
+  , workflowExecutionInfoStartTime = Nothing
+  , workflowExecutionInfoCloseTime = Nothing
   , workflowExecutionInfoStatus = (toEnum 0)
-  , workflowExecutionInfoHistorylength = 0
-  , workflowExecutionInfoParentnamespaceid = ""
-  , workflowExecutionInfoParentexecution = Nothing
-  , workflowExecutionInfoExecutiontime = Nothing
+  , workflowExecutionInfoHistoryLength = 0
+  , workflowExecutionInfoParentNamespaceId = ""
+  , workflowExecutionInfoParentExecution = Nothing
+  , workflowExecutionInfoExecutionTime = Nothing
   , workflowExecutionInfoMemo = Nothing
-  , workflowExecutionInfoSearchattributes = Nothing
-  , workflowExecutionInfoAutoresetpoints = Nothing
-  , workflowExecutionInfoTaskqueue = ""
-  , workflowExecutionInfoStatetransitioncount = 0
-  , workflowExecutionInfoHistorysizebytes = 0
-  , workflowExecutionInfoMostrecentworkerversionstamp = Nothing
-  , workflowExecutionInfoExecutionduration = Nothing
-  , workflowExecutionInfoRootexecution = Nothing
-  , workflowExecutionInfoAssignedbuildid = ""
-  , workflowExecutionInfoInheritedbuildid = ""
-  , workflowExecutionInfoFirstrunid = ""
-  , workflowExecutionInfoVersioninginfo = Nothing
-  , workflowExecutionInfoWorkerdeploymentname = ""
+  , workflowExecutionInfoSearchAttributes = Nothing
+  , workflowExecutionInfoAutoResetPoints = Nothing
+  , workflowExecutionInfoTaskQueue = ""
+  , workflowExecutionInfoStateTransitionCount = 0
+  , workflowExecutionInfoHistorySizeBytes = 0
+  , workflowExecutionInfoMostRecentWorkerVersionStamp = Nothing
+  , workflowExecutionInfoExecutionDuration = Nothing
+  , workflowExecutionInfoRootExecution = Nothing
+  , workflowExecutionInfoAssignedBuildId = ""
+  , workflowExecutionInfoInheritedBuildId = ""
+  , workflowExecutionInfoFirstRunId = ""
+  , workflowExecutionInfoVersioningInfo = Nothing
+  , workflowExecutionInfoWorkerDeploymentName = ""
   , workflowExecutionInfoPriority = Nothing
-  , workflowExecutionInfoExternalpayloadsizebytes = 0
-  , workflowExecutionInfoExternalpayloadcount = 0
-  , workflowExecutionInfoUnknownfields = []
+  , workflowExecutionInfoExternalPayloadSizeBytes = 0
+  , workflowExecutionInfoExternalPayloadCount = 0
+  , workflowExecutionInfoUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutionInfo where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowExecutionInfoExecution)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionInfoType)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workflowExecutionInfoStarttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowExecutionInfoClosetime)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workflowExecutionInfoStartTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowExecutionInfoCloseTime)
     <> (if fromEnum msg.workflowExecutionInfoStatus == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fromEnum msg.workflowExecutionInfoStatus)))
-    <> (if msg.workflowExecutionInfoHistorylength == 0 then mempty else encodeFieldVarint 6 (fromIntegral msg.workflowExecutionInfoHistorylength))
-    <> (if msg.workflowExecutionInfoParentnamespaceid == T.empty then mempty else encodeFieldString 7 msg.workflowExecutionInfoParentnamespaceid)
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.workflowExecutionInfoParentexecution)
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workflowExecutionInfoExecutiontime)
+    <> (if msg.workflowExecutionInfoHistoryLength == 0 then mempty else encodeFieldVarint 6 (fromIntegral msg.workflowExecutionInfoHistoryLength))
+    <> (if msg.workflowExecutionInfoParentNamespaceId == T.empty then mempty else encodeFieldString 7 msg.workflowExecutionInfoParentNamespaceId)
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.workflowExecutionInfoParentExecution)
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workflowExecutionInfoExecutionTime)
     <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.workflowExecutionInfoMemo)
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.workflowExecutionInfoSearchattributes)
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workflowExecutionInfoAutoresetpoints)
-    <> (if msg.workflowExecutionInfoTaskqueue == T.empty then mempty else encodeFieldString 13 msg.workflowExecutionInfoTaskqueue)
-    <> (if msg.workflowExecutionInfoStatetransitioncount == 0 then mempty else encodeFieldVarint 14 (fromIntegral msg.workflowExecutionInfoStatetransitioncount))
-    <> (if msg.workflowExecutionInfoHistorysizebytes == 0 then mempty else encodeFieldVarint 15 (fromIntegral msg.workflowExecutionInfoHistorysizebytes))
-    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.workflowExecutionInfoMostrecentworkerversionstamp)
-    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.workflowExecutionInfoExecutionduration)
-    <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.workflowExecutionInfoRootexecution)
-    <> (if msg.workflowExecutionInfoAssignedbuildid == T.empty then mempty else encodeFieldString 19 msg.workflowExecutionInfoAssignedbuildid)
-    <> (if msg.workflowExecutionInfoInheritedbuildid == T.empty then mempty else encodeFieldString 20 msg.workflowExecutionInfoInheritedbuildid)
-    <> (if msg.workflowExecutionInfoFirstrunid == T.empty then mempty else encodeFieldString 21 msg.workflowExecutionInfoFirstrunid)
-    <> (maybe mempty (\v -> encodeFieldMessage 22 v) msg.workflowExecutionInfoVersioninginfo)
-    <> (if msg.workflowExecutionInfoWorkerdeploymentname == T.empty then mempty else encodeFieldString 23 msg.workflowExecutionInfoWorkerdeploymentname)
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.workflowExecutionInfoSearchAttributes)
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workflowExecutionInfoAutoResetPoints)
+    <> (if msg.workflowExecutionInfoTaskQueue == T.empty then mempty else encodeFieldString 13 msg.workflowExecutionInfoTaskQueue)
+    <> (if msg.workflowExecutionInfoStateTransitionCount == 0 then mempty else encodeFieldVarint 14 (fromIntegral msg.workflowExecutionInfoStateTransitionCount))
+    <> (if msg.workflowExecutionInfoHistorySizeBytes == 0 then mempty else encodeFieldVarint 15 (fromIntegral msg.workflowExecutionInfoHistorySizeBytes))
+    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.workflowExecutionInfoMostRecentWorkerVersionStamp)
+    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.workflowExecutionInfoExecutionDuration)
+    <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.workflowExecutionInfoRootExecution)
+    <> (if msg.workflowExecutionInfoAssignedBuildId == T.empty then mempty else encodeFieldString 19 msg.workflowExecutionInfoAssignedBuildId)
+    <> (if msg.workflowExecutionInfoInheritedBuildId == T.empty then mempty else encodeFieldString 20 msg.workflowExecutionInfoInheritedBuildId)
+    <> (if msg.workflowExecutionInfoFirstRunId == T.empty then mempty else encodeFieldString 21 msg.workflowExecutionInfoFirstRunId)
+    <> (maybe mempty (\v -> encodeFieldMessage 22 v) msg.workflowExecutionInfoVersioningInfo)
+    <> (if msg.workflowExecutionInfoWorkerDeploymentName == T.empty then mempty else encodeFieldString 23 msg.workflowExecutionInfoWorkerDeploymentName)
     <> (maybe mempty (\v -> encodeFieldMessage 24 v) msg.workflowExecutionInfoPriority)
-    <> (if msg.workflowExecutionInfoExternalpayloadsizebytes == 0 then mempty else encodeFieldVarint 25 (fromIntegral msg.workflowExecutionInfoExternalpayloadsizebytes))
-    <> (if msg.workflowExecutionInfoExternalpayloadcount == 0 then mempty else encodeFieldVarint 26 (fromIntegral msg.workflowExecutionInfoExternalpayloadcount))
-    <> encodeUnknownFields msg.workflowExecutionInfoUnknownfields
+    <> (if msg.workflowExecutionInfoExternalPayloadSizeBytes == 0 then mempty else encodeFieldVarint 25 (fromIntegral msg.workflowExecutionInfoExternalPayloadSizeBytes))
+    <> (if msg.workflowExecutionInfoExternalPayloadCount == 0 then mempty else encodeFieldVarint 26 (fromIntegral msg.workflowExecutionInfoExternalPayloadCount))
+    <> encodeUnknownFields msg.workflowExecutionInfoUnknownFields
 
 instance MessageSize WorkflowExecutionInfo where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowExecutionInfoExecution)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionInfoType)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workflowExecutionInfoStarttime)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionInfoClosetime)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workflowExecutionInfoStartTime)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionInfoCloseTime)
     + (if fromEnum msg.workflowExecutionInfoStatus == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.workflowExecutionInfoStatus)))
-    + (if msg.workflowExecutionInfoHistorylength == 0 then 0 else fieldVarintSize 6 (fromIntegral msg.workflowExecutionInfoHistorylength))
-    + (if msg.workflowExecutionInfoParentnamespaceid == T.empty then 0 else fieldTextSize 7 msg.workflowExecutionInfoParentnamespaceid)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workflowExecutionInfoParentexecution)
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workflowExecutionInfoExecutiontime)
+    + (if msg.workflowExecutionInfoHistoryLength == 0 then 0 else fieldVarintSize 6 (fromIntegral msg.workflowExecutionInfoHistoryLength))
+    + (if msg.workflowExecutionInfoParentNamespaceId == T.empty then 0 else fieldTextSize 7 msg.workflowExecutionInfoParentNamespaceId)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workflowExecutionInfoParentExecution)
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workflowExecutionInfoExecutionTime)
     + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workflowExecutionInfoMemo)
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.workflowExecutionInfoSearchattributes)
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workflowExecutionInfoAutoresetpoints)
-    + (if msg.workflowExecutionInfoTaskqueue == T.empty then 0 else fieldTextSize 13 msg.workflowExecutionInfoTaskqueue)
-    + (if msg.workflowExecutionInfoStatetransitioncount == 0 then 0 else fieldVarintSize 14 (fromIntegral msg.workflowExecutionInfoStatetransitioncount))
-    + (if msg.workflowExecutionInfoHistorysizebytes == 0 then 0 else fieldVarintSize 15 (fromIntegral msg.workflowExecutionInfoHistorysizebytes))
-    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.workflowExecutionInfoMostrecentworkerversionstamp)
-    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.workflowExecutionInfoExecutionduration)
-    + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.workflowExecutionInfoRootexecution)
-    + (if msg.workflowExecutionInfoAssignedbuildid == T.empty then 0 else fieldTextSize 19 msg.workflowExecutionInfoAssignedbuildid)
-    + (if msg.workflowExecutionInfoInheritedbuildid == T.empty then 0 else fieldTextSize 20 msg.workflowExecutionInfoInheritedbuildid)
-    + (if msg.workflowExecutionInfoFirstrunid == T.empty then 0 else fieldTextSize 21 msg.workflowExecutionInfoFirstrunid)
-    + (maybe 0 (\v -> fieldMessageSize 22 (messageSize v)) msg.workflowExecutionInfoVersioninginfo)
-    + (if msg.workflowExecutionInfoWorkerdeploymentname == T.empty then 0 else fieldTextSize 23 msg.workflowExecutionInfoWorkerdeploymentname)
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.workflowExecutionInfoSearchAttributes)
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workflowExecutionInfoAutoResetPoints)
+    + (if msg.workflowExecutionInfoTaskQueue == T.empty then 0 else fieldTextSize 13 msg.workflowExecutionInfoTaskQueue)
+    + (if msg.workflowExecutionInfoStateTransitionCount == 0 then 0 else fieldVarintSize 14 (fromIntegral msg.workflowExecutionInfoStateTransitionCount))
+    + (if msg.workflowExecutionInfoHistorySizeBytes == 0 then 0 else fieldVarintSize 15 (fromIntegral msg.workflowExecutionInfoHistorySizeBytes))
+    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.workflowExecutionInfoMostRecentWorkerVersionStamp)
+    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.workflowExecutionInfoExecutionDuration)
+    + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.workflowExecutionInfoRootExecution)
+    + (if msg.workflowExecutionInfoAssignedBuildId == T.empty then 0 else fieldTextSize 19 msg.workflowExecutionInfoAssignedBuildId)
+    + (if msg.workflowExecutionInfoInheritedBuildId == T.empty then 0 else fieldTextSize 20 msg.workflowExecutionInfoInheritedBuildId)
+    + (if msg.workflowExecutionInfoFirstRunId == T.empty then 0 else fieldTextSize 21 msg.workflowExecutionInfoFirstRunId)
+    + (maybe 0 (\v -> fieldMessageSize 22 (messageSize v)) msg.workflowExecutionInfoVersioningInfo)
+    + (if msg.workflowExecutionInfoWorkerDeploymentName == T.empty then 0 else fieldTextSize 23 msg.workflowExecutionInfoWorkerDeploymentName)
     + (maybe 0 (\v -> fieldMessageSize 24 (messageSize v)) msg.workflowExecutionInfoPriority)
-    + (if msg.workflowExecutionInfoExternalpayloadsizebytes == 0 then 0 else fieldVarintSize 25 (fromIntegral msg.workflowExecutionInfoExternalpayloadsizebytes))
-    + (if msg.workflowExecutionInfoExternalpayloadcount == 0 then 0 else fieldVarintSize 26 (fromIntegral msg.workflowExecutionInfoExternalpayloadcount))
-    + unknownFieldsSize msg.workflowExecutionInfoUnknownfields
+    + (if msg.workflowExecutionInfoExternalPayloadSizeBytes == 0 then 0 else fieldVarintSize 25 (fromIntegral msg.workflowExecutionInfoExternalPayloadSizeBytes))
+    + (if msg.workflowExecutionInfoExternalPayloadCount == 0 then 0 else fieldVarintSize 26 (fromIntegral msg.workflowExecutionInfoExternalPayloadCount))
+    + unknownFieldsSize msg.workflowExecutionInfoUnknownFields
 
 instance MessageDecode WorkflowExecutionInfo where
   {-# INLINE messageDecoder #-}
@@ -200,7 +200,7 @@ instance MessageDecode WorkflowExecutionInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutionInfo {workflowExecutionInfoExecution = acc_0, workflowExecutionInfoType = acc_1, workflowExecutionInfoStarttime = acc_2, workflowExecutionInfoClosetime = acc_3, workflowExecutionInfoStatus = acc_4, workflowExecutionInfoHistorylength = acc_5, workflowExecutionInfoParentnamespaceid = acc_6, workflowExecutionInfoParentexecution = acc_7, workflowExecutionInfoExecutiontime = acc_8, workflowExecutionInfoMemo = acc_9, workflowExecutionInfoSearchattributes = acc_10, workflowExecutionInfoAutoresetpoints = acc_11, workflowExecutionInfoTaskqueue = acc_12, workflowExecutionInfoStatetransitioncount = acc_13, workflowExecutionInfoHistorysizebytes = acc_14, workflowExecutionInfoMostrecentworkerversionstamp = acc_15, workflowExecutionInfoExecutionduration = acc_16, workflowExecutionInfoRootexecution = acc_17, workflowExecutionInfoAssignedbuildid = acc_18, workflowExecutionInfoInheritedbuildid = acc_19, workflowExecutionInfoFirstrunid = acc_20, workflowExecutionInfoVersioninginfo = acc_21, workflowExecutionInfoWorkerdeploymentname = acc_22, workflowExecutionInfoPriority = acc_23, workflowExecutionInfoExternalpayloadsizebytes = acc_24, workflowExecutionInfoExternalpayloadcount = acc_25, workflowExecutionInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutionInfo {workflowExecutionInfoExecution = acc_0, workflowExecutionInfoType = acc_1, workflowExecutionInfoStartTime = acc_2, workflowExecutionInfoCloseTime = acc_3, workflowExecutionInfoStatus = acc_4, workflowExecutionInfoHistoryLength = acc_5, workflowExecutionInfoParentNamespaceId = acc_6, workflowExecutionInfoParentExecution = acc_7, workflowExecutionInfoExecutionTime = acc_8, workflowExecutionInfoMemo = acc_9, workflowExecutionInfoSearchAttributes = acc_10, workflowExecutionInfoAutoResetPoints = acc_11, workflowExecutionInfoTaskQueue = acc_12, workflowExecutionInfoStateTransitionCount = acc_13, workflowExecutionInfoHistorySizeBytes = acc_14, workflowExecutionInfoMostRecentWorkerVersionStamp = acc_15, workflowExecutionInfoExecutionDuration = acc_16, workflowExecutionInfoRootExecution = acc_17, workflowExecutionInfoAssignedBuildId = acc_18, workflowExecutionInfoInheritedBuildId = acc_19, workflowExecutionInfoFirstRunId = acc_20, workflowExecutionInfoVersioningInfo = acc_21, workflowExecutionInfoWorkerDeploymentName = acc_22, workflowExecutionInfoPriority = acc_23, workflowExecutionInfoExternalPayloadSizeBytes = acc_24, workflowExecutionInfoExternalPayloadCount = acc_25, workflowExecutionInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -313,16 +313,16 @@ instance ProtoMessage WorkflowExecutionInfo where
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoStarttime
-        , fdSet = \v m -> m { workflowExecutionInfoStarttime = v }
+        , fdGet = workflowExecutionInfoStartTime
+        , fdSet = \v m -> m { workflowExecutionInfoStartTime = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "close_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoClosetime
-        , fdSet = \v m -> m { workflowExecutionInfoClosetime = v }
+        , fdGet = workflowExecutionInfoCloseTime
+        , fdSet = \v m -> m { workflowExecutionInfoCloseTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "status"
@@ -337,32 +337,32 @@ instance ProtoMessage WorkflowExecutionInfo where
         , fdNumber = 6
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoHistorylength
-        , fdSet = \v m -> m { workflowExecutionInfoHistorylength = v }
+        , fdGet = workflowExecutionInfoHistoryLength
+        , fdSet = \v m -> m { workflowExecutionInfoHistoryLength = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "parent_namespace_id"
         , fdNumber = 7
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoParentnamespaceid
-        , fdSet = \v m -> m { workflowExecutionInfoParentnamespaceid = v }
+        , fdGet = workflowExecutionInfoParentNamespaceId
+        , fdSet = \v m -> m { workflowExecutionInfoParentNamespaceId = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "parent_execution"
         , fdNumber = 8
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowExecution"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoParentexecution
-        , fdSet = \v m -> m { workflowExecutionInfoParentexecution = v }
+        , fdGet = workflowExecutionInfoParentExecution
+        , fdSet = \v m -> m { workflowExecutionInfoParentExecution = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "execution_time"
         , fdNumber = 9
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoExecutiontime
-        , fdSet = \v m -> m { workflowExecutionInfoExecutiontime = v }
+        , fdGet = workflowExecutionInfoExecutionTime
+        , fdSet = \v m -> m { workflowExecutionInfoExecutionTime = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "memo"
@@ -377,104 +377,104 @@ instance ProtoMessage WorkflowExecutionInfo where
         , fdNumber = 11
         , fdTypeDesc = MessageType "temporal.api.common.v1.SearchAttributes"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoSearchattributes
-        , fdSet = \v m -> m { workflowExecutionInfoSearchattributes = v }
+        , fdGet = workflowExecutionInfoSearchAttributes
+        , fdSet = \v m -> m { workflowExecutionInfoSearchAttributes = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "auto_reset_points"
         , fdNumber = 12
         , fdTypeDesc = MessageType "ResetPoints"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoAutoresetpoints
-        , fdSet = \v m -> m { workflowExecutionInfoAutoresetpoints = v }
+        , fdGet = workflowExecutionInfoAutoResetPoints
+        , fdSet = \v m -> m { workflowExecutionInfoAutoResetPoints = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "task_queue"
         , fdNumber = 13
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoTaskqueue
-        , fdSet = \v m -> m { workflowExecutionInfoTaskqueue = v }
+        , fdGet = workflowExecutionInfoTaskQueue
+        , fdSet = \v m -> m { workflowExecutionInfoTaskQueue = v }
         })
     , (14, SomeField FieldDescriptor
         { fdName = "state_transition_count"
         , fdNumber = 14
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoStatetransitioncount
-        , fdSet = \v m -> m { workflowExecutionInfoStatetransitioncount = v }
+        , fdGet = workflowExecutionInfoStateTransitionCount
+        , fdSet = \v m -> m { workflowExecutionInfoStateTransitionCount = v }
         })
     , (15, SomeField FieldDescriptor
         { fdName = "history_size_bytes"
         , fdNumber = 15
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoHistorysizebytes
-        , fdSet = \v m -> m { workflowExecutionInfoHistorysizebytes = v }
+        , fdGet = workflowExecutionInfoHistorySizeBytes
+        , fdSet = \v m -> m { workflowExecutionInfoHistorySizeBytes = v }
         })
     , (16, SomeField FieldDescriptor
         { fdName = "most_recent_worker_version_stamp"
         , fdNumber = 16
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkerVersionStamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoMostrecentworkerversionstamp
-        , fdSet = \v m -> m { workflowExecutionInfoMostrecentworkerversionstamp = v }
+        , fdGet = workflowExecutionInfoMostRecentWorkerVersionStamp
+        , fdSet = \v m -> m { workflowExecutionInfoMostRecentWorkerVersionStamp = v }
         })
     , (17, SomeField FieldDescriptor
         { fdName = "execution_duration"
         , fdNumber = 17
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoExecutionduration
-        , fdSet = \v m -> m { workflowExecutionInfoExecutionduration = v }
+        , fdGet = workflowExecutionInfoExecutionDuration
+        , fdSet = \v m -> m { workflowExecutionInfoExecutionDuration = v }
         })
     , (18, SomeField FieldDescriptor
         { fdName = "root_execution"
         , fdNumber = 18
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowExecution"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoRootexecution
-        , fdSet = \v m -> m { workflowExecutionInfoRootexecution = v }
+        , fdGet = workflowExecutionInfoRootExecution
+        , fdSet = \v m -> m { workflowExecutionInfoRootExecution = v }
         })
     , (19, SomeField FieldDescriptor
         { fdName = "assigned_build_id"
         , fdNumber = 19
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoAssignedbuildid
-        , fdSet = \v m -> m { workflowExecutionInfoAssignedbuildid = v }
+        , fdGet = workflowExecutionInfoAssignedBuildId
+        , fdSet = \v m -> m { workflowExecutionInfoAssignedBuildId = v }
         })
     , (20, SomeField FieldDescriptor
         { fdName = "inherited_build_id"
         , fdNumber = 20
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoInheritedbuildid
-        , fdSet = \v m -> m { workflowExecutionInfoInheritedbuildid = v }
+        , fdGet = workflowExecutionInfoInheritedBuildId
+        , fdSet = \v m -> m { workflowExecutionInfoInheritedBuildId = v }
         })
     , (21, SomeField FieldDescriptor
         { fdName = "first_run_id"
         , fdNumber = 21
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoFirstrunid
-        , fdSet = \v m -> m { workflowExecutionInfoFirstrunid = v }
+        , fdGet = workflowExecutionInfoFirstRunId
+        , fdSet = \v m -> m { workflowExecutionInfoFirstRunId = v }
         })
     , (22, SomeField FieldDescriptor
         { fdName = "versioning_info"
         , fdNumber = 22
         , fdTypeDesc = MessageType "WorkflowExecutionVersioningInfo"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoVersioninginfo
-        , fdSet = \v m -> m { workflowExecutionInfoVersioninginfo = v }
+        , fdGet = workflowExecutionInfoVersioningInfo
+        , fdSet = \v m -> m { workflowExecutionInfoVersioningInfo = v }
         })
     , (23, SomeField FieldDescriptor
         { fdName = "worker_deployment_name"
         , fdNumber = 23
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoWorkerdeploymentname
-        , fdSet = \v m -> m { workflowExecutionInfoWorkerdeploymentname = v }
+        , fdGet = workflowExecutionInfoWorkerDeploymentName
+        , fdSet = \v m -> m { workflowExecutionInfoWorkerDeploymentName = v }
         })
     , (24, SomeField FieldDescriptor
         { fdName = "priority"
@@ -489,16 +489,16 @@ instance ProtoMessage WorkflowExecutionInfo where
         , fdNumber = 25
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoExternalpayloadsizebytes
-        , fdSet = \v m -> m { workflowExecutionInfoExternalpayloadsizebytes = v }
+        , fdGet = workflowExecutionInfoExternalPayloadSizeBytes
+        , fdSet = \v m -> m { workflowExecutionInfoExternalPayloadSizeBytes = v }
         })
     , (26, SomeField FieldDescriptor
         { fdName = "external_payload_count"
         , fdNumber = 26
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionInfoExternalpayloadcount
-        , fdSet = \v m -> m { workflowExecutionInfoExternalpayloadcount = v }
+        , fdGet = workflowExecutionInfoExternalPayloadCount
+        , fdSet = \v m -> m { workflowExecutionInfoExternalPayloadCount = v }
         })
     ]
 
@@ -506,142 +506,142 @@ instance Aeson.ToJSON WorkflowExecutionInfo where
   toJSON msg = jsonObject
       [ "execution" .=: msg.workflowExecutionInfoExecution
       , "type" .=: msg.workflowExecutionInfoType
-      , "startTime" .=: msg.workflowExecutionInfoStarttime
-      , "closeTime" .=: msg.workflowExecutionInfoClosetime
+      , "startTime" .=: msg.workflowExecutionInfoStartTime
+      , "closeTime" .=: msg.workflowExecutionInfoCloseTime
       , "status" .=: msg.workflowExecutionInfoStatus
-      , "historyLength" .=: msg.workflowExecutionInfoHistorylength
-      , "parentNamespaceId" .=: msg.workflowExecutionInfoParentnamespaceid
-      , "parentExecution" .=: msg.workflowExecutionInfoParentexecution
-      , "executionTime" .=: msg.workflowExecutionInfoExecutiontime
+      , "historyLength" .=: msg.workflowExecutionInfoHistoryLength
+      , "parentNamespaceId" .=: msg.workflowExecutionInfoParentNamespaceId
+      , "parentExecution" .=: msg.workflowExecutionInfoParentExecution
+      , "executionTime" .=: msg.workflowExecutionInfoExecutionTime
       , "memo" .=: msg.workflowExecutionInfoMemo
-      , "searchAttributes" .=: msg.workflowExecutionInfoSearchattributes
-      , "autoResetPoints" .=: msg.workflowExecutionInfoAutoresetpoints
-      , "taskQueue" .=: msg.workflowExecutionInfoTaskqueue
-      , "stateTransitionCount" .=: msg.workflowExecutionInfoStatetransitioncount
-      , "historySizeBytes" .=: msg.workflowExecutionInfoHistorysizebytes
-      , "mostRecentWorkerVersionStamp" .=: msg.workflowExecutionInfoMostrecentworkerversionstamp
-      , "executionDuration" .=: msg.workflowExecutionInfoExecutionduration
-      , "rootExecution" .=: msg.workflowExecutionInfoRootexecution
-      , "assignedBuildId" .=: msg.workflowExecutionInfoAssignedbuildid
-      , "inheritedBuildId" .=: msg.workflowExecutionInfoInheritedbuildid
-      , "firstRunId" .=: msg.workflowExecutionInfoFirstrunid
-      , "versioningInfo" .=: msg.workflowExecutionInfoVersioninginfo
-      , "workerDeploymentName" .=: msg.workflowExecutionInfoWorkerdeploymentname
+      , "searchAttributes" .=: msg.workflowExecutionInfoSearchAttributes
+      , "autoResetPoints" .=: msg.workflowExecutionInfoAutoResetPoints
+      , "taskQueue" .=: msg.workflowExecutionInfoTaskQueue
+      , "stateTransitionCount" .=: msg.workflowExecutionInfoStateTransitionCount
+      , "historySizeBytes" .=: msg.workflowExecutionInfoHistorySizeBytes
+      , "mostRecentWorkerVersionStamp" .=: msg.workflowExecutionInfoMostRecentWorkerVersionStamp
+      , "executionDuration" .=: msg.workflowExecutionInfoExecutionDuration
+      , "rootExecution" .=: msg.workflowExecutionInfoRootExecution
+      , "assignedBuildId" .=: msg.workflowExecutionInfoAssignedBuildId
+      , "inheritedBuildId" .=: msg.workflowExecutionInfoInheritedBuildId
+      , "firstRunId" .=: msg.workflowExecutionInfoFirstRunId
+      , "versioningInfo" .=: msg.workflowExecutionInfoVersioningInfo
+      , "workerDeploymentName" .=: msg.workflowExecutionInfoWorkerDeploymentName
       , "priority" .=: msg.workflowExecutionInfoPriority
-      , "externalPayloadSizeBytes" .=: msg.workflowExecutionInfoExternalpayloadsizebytes
-      , "externalPayloadCount" .=: msg.workflowExecutionInfoExternalpayloadcount
+      , "externalPayloadSizeBytes" .=: msg.workflowExecutionInfoExternalPayloadSizeBytes
+      , "externalPayloadCount" .=: msg.workflowExecutionInfoExternalPayloadCount
       ]
 
 instance Aeson.FromJSON WorkflowExecutionInfo where
   parseJSON = Aeson.withObject "WorkflowExecutionInfo" $ \obj -> do
     fld_workflowExecutionInfoExecution <- parseFieldMaybe obj "execution"
     fld_workflowExecutionInfoType <- parseFieldMaybe obj "type"
-    fld_workflowExecutionInfoStarttime <- parseFieldMaybe obj "startTime"
-    fld_workflowExecutionInfoClosetime <- parseFieldMaybe obj "closeTime"
+    fld_workflowExecutionInfoStartTime <- parseFieldMaybe obj "startTime"
+    fld_workflowExecutionInfoCloseTime <- parseFieldMaybe obj "closeTime"
     fld_workflowExecutionInfoStatus <- parseFieldMaybe obj "status"
-    fld_workflowExecutionInfoHistorylength <- parseFieldMaybe obj "historyLength"
-    fld_workflowExecutionInfoParentnamespaceid <- parseFieldMaybe obj "parentNamespaceId"
-    fld_workflowExecutionInfoParentexecution <- parseFieldMaybe obj "parentExecution"
-    fld_workflowExecutionInfoExecutiontime <- parseFieldMaybe obj "executionTime"
+    fld_workflowExecutionInfoHistoryLength <- parseFieldMaybe obj "historyLength"
+    fld_workflowExecutionInfoParentNamespaceId <- parseFieldMaybe obj "parentNamespaceId"
+    fld_workflowExecutionInfoParentExecution <- parseFieldMaybe obj "parentExecution"
+    fld_workflowExecutionInfoExecutionTime <- parseFieldMaybe obj "executionTime"
     fld_workflowExecutionInfoMemo <- parseFieldMaybe obj "memo"
-    fld_workflowExecutionInfoSearchattributes <- parseFieldMaybe obj "searchAttributes"
-    fld_workflowExecutionInfoAutoresetpoints <- parseFieldMaybe obj "autoResetPoints"
-    fld_workflowExecutionInfoTaskqueue <- parseFieldMaybe obj "taskQueue"
-    fld_workflowExecutionInfoStatetransitioncount <- parseFieldMaybe obj "stateTransitionCount"
-    fld_workflowExecutionInfoHistorysizebytes <- parseFieldMaybe obj "historySizeBytes"
-    fld_workflowExecutionInfoMostrecentworkerversionstamp <- parseFieldMaybe obj "mostRecentWorkerVersionStamp"
-    fld_workflowExecutionInfoExecutionduration <- parseFieldMaybe obj "executionDuration"
-    fld_workflowExecutionInfoRootexecution <- parseFieldMaybe obj "rootExecution"
-    fld_workflowExecutionInfoAssignedbuildid <- parseFieldMaybe obj "assignedBuildId"
-    fld_workflowExecutionInfoInheritedbuildid <- parseFieldMaybe obj "inheritedBuildId"
-    fld_workflowExecutionInfoFirstrunid <- parseFieldMaybe obj "firstRunId"
-    fld_workflowExecutionInfoVersioninginfo <- parseFieldMaybe obj "versioningInfo"
-    fld_workflowExecutionInfoWorkerdeploymentname <- parseFieldMaybe obj "workerDeploymentName"
+    fld_workflowExecutionInfoSearchAttributes <- parseFieldMaybe obj "searchAttributes"
+    fld_workflowExecutionInfoAutoResetPoints <- parseFieldMaybe obj "autoResetPoints"
+    fld_workflowExecutionInfoTaskQueue <- parseFieldMaybe obj "taskQueue"
+    fld_workflowExecutionInfoStateTransitionCount <- parseFieldMaybe obj "stateTransitionCount"
+    fld_workflowExecutionInfoHistorySizeBytes <- parseFieldMaybe obj "historySizeBytes"
+    fld_workflowExecutionInfoMostRecentWorkerVersionStamp <- parseFieldMaybe obj "mostRecentWorkerVersionStamp"
+    fld_workflowExecutionInfoExecutionDuration <- parseFieldMaybe obj "executionDuration"
+    fld_workflowExecutionInfoRootExecution <- parseFieldMaybe obj "rootExecution"
+    fld_workflowExecutionInfoAssignedBuildId <- parseFieldMaybe obj "assignedBuildId"
+    fld_workflowExecutionInfoInheritedBuildId <- parseFieldMaybe obj "inheritedBuildId"
+    fld_workflowExecutionInfoFirstRunId <- parseFieldMaybe obj "firstRunId"
+    fld_workflowExecutionInfoVersioningInfo <- parseFieldMaybe obj "versioningInfo"
+    fld_workflowExecutionInfoWorkerDeploymentName <- parseFieldMaybe obj "workerDeploymentName"
     fld_workflowExecutionInfoPriority <- parseFieldMaybe obj "priority"
-    fld_workflowExecutionInfoExternalpayloadsizebytes <- parseFieldMaybe obj "externalPayloadSizeBytes"
-    fld_workflowExecutionInfoExternalpayloadcount <- parseFieldMaybe obj "externalPayloadCount"
+    fld_workflowExecutionInfoExternalPayloadSizeBytes <- parseFieldMaybe obj "externalPayloadSizeBytes"
+    fld_workflowExecutionInfoExternalPayloadCount <- parseFieldMaybe obj "externalPayloadCount"
     pure defaultWorkflowExecutionInfo
       { workflowExecutionInfoExecution = maybe (workflowExecutionInfoExecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecution
       , workflowExecutionInfoType = maybe (workflowExecutionInfoType defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoType
-      , workflowExecutionInfoStarttime = maybe (workflowExecutionInfoStarttime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoStarttime
-      , workflowExecutionInfoClosetime = maybe (workflowExecutionInfoClosetime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoClosetime
+      , workflowExecutionInfoStartTime = maybe (workflowExecutionInfoStartTime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoStartTime
+      , workflowExecutionInfoCloseTime = maybe (workflowExecutionInfoCloseTime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoCloseTime
       , workflowExecutionInfoStatus = maybe (workflowExecutionInfoStatus defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoStatus
-      , workflowExecutionInfoHistorylength = maybe (workflowExecutionInfoHistorylength defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoHistorylength
-      , workflowExecutionInfoParentnamespaceid = maybe (workflowExecutionInfoParentnamespaceid defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoParentnamespaceid
-      , workflowExecutionInfoParentexecution = maybe (workflowExecutionInfoParentexecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoParentexecution
-      , workflowExecutionInfoExecutiontime = maybe (workflowExecutionInfoExecutiontime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecutiontime
+      , workflowExecutionInfoHistoryLength = maybe (workflowExecutionInfoHistoryLength defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoHistoryLength
+      , workflowExecutionInfoParentNamespaceId = maybe (workflowExecutionInfoParentNamespaceId defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoParentNamespaceId
+      , workflowExecutionInfoParentExecution = maybe (workflowExecutionInfoParentExecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoParentExecution
+      , workflowExecutionInfoExecutionTime = maybe (workflowExecutionInfoExecutionTime defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecutionTime
       , workflowExecutionInfoMemo = maybe (workflowExecutionInfoMemo defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoMemo
-      , workflowExecutionInfoSearchattributes = maybe (workflowExecutionInfoSearchattributes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoSearchattributes
-      , workflowExecutionInfoAutoresetpoints = maybe (workflowExecutionInfoAutoresetpoints defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoAutoresetpoints
-      , workflowExecutionInfoTaskqueue = maybe (workflowExecutionInfoTaskqueue defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoTaskqueue
-      , workflowExecutionInfoStatetransitioncount = maybe (workflowExecutionInfoStatetransitioncount defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoStatetransitioncount
-      , workflowExecutionInfoHistorysizebytes = maybe (workflowExecutionInfoHistorysizebytes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoHistorysizebytes
-      , workflowExecutionInfoMostrecentworkerversionstamp = maybe (workflowExecutionInfoMostrecentworkerversionstamp defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoMostrecentworkerversionstamp
-      , workflowExecutionInfoExecutionduration = maybe (workflowExecutionInfoExecutionduration defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecutionduration
-      , workflowExecutionInfoRootexecution = maybe (workflowExecutionInfoRootexecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoRootexecution
-      , workflowExecutionInfoAssignedbuildid = maybe (workflowExecutionInfoAssignedbuildid defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoAssignedbuildid
-      , workflowExecutionInfoInheritedbuildid = maybe (workflowExecutionInfoInheritedbuildid defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoInheritedbuildid
-      , workflowExecutionInfoFirstrunid = maybe (workflowExecutionInfoFirstrunid defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoFirstrunid
-      , workflowExecutionInfoVersioninginfo = maybe (workflowExecutionInfoVersioninginfo defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoVersioninginfo
-      , workflowExecutionInfoWorkerdeploymentname = maybe (workflowExecutionInfoWorkerdeploymentname defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoWorkerdeploymentname
+      , workflowExecutionInfoSearchAttributes = maybe (workflowExecutionInfoSearchAttributes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoSearchAttributes
+      , workflowExecutionInfoAutoResetPoints = maybe (workflowExecutionInfoAutoResetPoints defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoAutoResetPoints
+      , workflowExecutionInfoTaskQueue = maybe (workflowExecutionInfoTaskQueue defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoTaskQueue
+      , workflowExecutionInfoStateTransitionCount = maybe (workflowExecutionInfoStateTransitionCount defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoStateTransitionCount
+      , workflowExecutionInfoHistorySizeBytes = maybe (workflowExecutionInfoHistorySizeBytes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoHistorySizeBytes
+      , workflowExecutionInfoMostRecentWorkerVersionStamp = maybe (workflowExecutionInfoMostRecentWorkerVersionStamp defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoMostRecentWorkerVersionStamp
+      , workflowExecutionInfoExecutionDuration = maybe (workflowExecutionInfoExecutionDuration defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExecutionDuration
+      , workflowExecutionInfoRootExecution = maybe (workflowExecutionInfoRootExecution defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoRootExecution
+      , workflowExecutionInfoAssignedBuildId = maybe (workflowExecutionInfoAssignedBuildId defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoAssignedBuildId
+      , workflowExecutionInfoInheritedBuildId = maybe (workflowExecutionInfoInheritedBuildId defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoInheritedBuildId
+      , workflowExecutionInfoFirstRunId = maybe (workflowExecutionInfoFirstRunId defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoFirstRunId
+      , workflowExecutionInfoVersioningInfo = maybe (workflowExecutionInfoVersioningInfo defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoVersioningInfo
+      , workflowExecutionInfoWorkerDeploymentName = maybe (workflowExecutionInfoWorkerDeploymentName defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoWorkerDeploymentName
       , workflowExecutionInfoPriority = maybe (workflowExecutionInfoPriority defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoPriority
-      , workflowExecutionInfoExternalpayloadsizebytes = maybe (workflowExecutionInfoExternalpayloadsizebytes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExternalpayloadsizebytes
-      , workflowExecutionInfoExternalpayloadcount = maybe (workflowExecutionInfoExternalpayloadcount defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExternalpayloadcount
+      , workflowExecutionInfoExternalPayloadSizeBytes = maybe (workflowExecutionInfoExternalPayloadSizeBytes defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExternalPayloadSizeBytes
+      , workflowExecutionInfoExternalPayloadCount = maybe (workflowExecutionInfoExternalPayloadCount defaultWorkflowExecutionInfo) id fld_workflowExecutionInfoExternalPayloadCount
       }
 
 instance Hashable WorkflowExecutionInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionInfoExecution) msg.workflowExecutionInfoType) msg.workflowExecutionInfoStarttime) msg.workflowExecutionInfoClosetime) msg.workflowExecutionInfoStatus) msg.workflowExecutionInfoHistorylength) msg.workflowExecutionInfoParentnamespaceid) msg.workflowExecutionInfoParentexecution) msg.workflowExecutionInfoExecutiontime) msg.workflowExecutionInfoMemo) msg.workflowExecutionInfoSearchattributes) msg.workflowExecutionInfoAutoresetpoints) msg.workflowExecutionInfoTaskqueue) msg.workflowExecutionInfoStatetransitioncount) msg.workflowExecutionInfoHistorysizebytes) msg.workflowExecutionInfoMostrecentworkerversionstamp) msg.workflowExecutionInfoExecutionduration) msg.workflowExecutionInfoRootexecution) msg.workflowExecutionInfoAssignedbuildid) msg.workflowExecutionInfoInheritedbuildid) msg.workflowExecutionInfoFirstrunid) msg.workflowExecutionInfoVersioninginfo) msg.workflowExecutionInfoWorkerdeploymentname) msg.workflowExecutionInfoPriority) msg.workflowExecutionInfoExternalpayloadsizebytes) msg.workflowExecutionInfoExternalpayloadcount
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionInfoExecution) msg.workflowExecutionInfoType) msg.workflowExecutionInfoStartTime) msg.workflowExecutionInfoCloseTime) msg.workflowExecutionInfoStatus) msg.workflowExecutionInfoHistoryLength) msg.workflowExecutionInfoParentNamespaceId) msg.workflowExecutionInfoParentExecution) msg.workflowExecutionInfoExecutionTime) msg.workflowExecutionInfoMemo) msg.workflowExecutionInfoSearchAttributes) msg.workflowExecutionInfoAutoResetPoints) msg.workflowExecutionInfoTaskQueue) msg.workflowExecutionInfoStateTransitionCount) msg.workflowExecutionInfoHistorySizeBytes) msg.workflowExecutionInfoMostRecentWorkerVersionStamp) msg.workflowExecutionInfoExecutionDuration) msg.workflowExecutionInfoRootExecution) msg.workflowExecutionInfoAssignedBuildId) msg.workflowExecutionInfoInheritedBuildId) msg.workflowExecutionInfoFirstRunId) msg.workflowExecutionInfoVersioningInfo) msg.workflowExecutionInfoWorkerDeploymentName) msg.workflowExecutionInfoPriority) msg.workflowExecutionInfoExternalPayloadSizeBytes) msg.workflowExecutionInfoExternalPayloadCount
 
 data WorkflowExecutionExtendedInfo = WorkflowExecutionExtendedInfo
-  { workflowExecutionExtendedInfoExecutionexpirationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , workflowExecutionExtendedInfoRunexpirationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , workflowExecutionExtendedInfoCancelrequested :: {-# UNPACK #-} !Bool
-  , workflowExecutionExtendedInfoLastresettime :: !(Maybe PB_Timestamp.Timestamp)
-  , workflowExecutionExtendedInfoOriginalstarttime :: !(Maybe PB_Timestamp.Timestamp)
-  , workflowExecutionExtendedInfoResetrunid :: !Text
-  , workflowExecutionExtendedInfoRequestidinfos :: !(Map.Map Text RequestIdInfo)
-  , workflowExecutionExtendedInfoPauseinfo :: !(Maybe WorkflowExecutionPauseInfo)
-  , workflowExecutionExtendedInfoUnknownfields :: ![UnknownField]
+  { workflowExecutionExtendedInfoExecutionExpirationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionExtendedInfoRunExpirationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionExtendedInfoCancelRequested :: {-# UNPACK #-} !Bool
+  , workflowExecutionExtendedInfoLastResetTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionExtendedInfoOriginalStartTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionExtendedInfoResetRunId :: !Text
+  , workflowExecutionExtendedInfoRequestIdInfos :: !(Map.Map Text RequestIdInfo)
+  , workflowExecutionExtendedInfoPauseInfo :: !(Maybe WorkflowExecutionPauseInfo)
+  , workflowExecutionExtendedInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowExecutionExtendedInfo :: WorkflowExecutionExtendedInfo
 defaultWorkflowExecutionExtendedInfo = WorkflowExecutionExtendedInfo
-  { workflowExecutionExtendedInfoExecutionexpirationtime = Nothing
-  , workflowExecutionExtendedInfoRunexpirationtime = Nothing
-  , workflowExecutionExtendedInfoCancelrequested = False
-  , workflowExecutionExtendedInfoLastresettime = Nothing
-  , workflowExecutionExtendedInfoOriginalstarttime = Nothing
-  , workflowExecutionExtendedInfoResetrunid = ""
-  , workflowExecutionExtendedInfoRequestidinfos = Map.empty
-  , workflowExecutionExtendedInfoPauseinfo = Nothing
-  , workflowExecutionExtendedInfoUnknownfields = []
+  { workflowExecutionExtendedInfoExecutionExpirationTime = Nothing
+  , workflowExecutionExtendedInfoRunExpirationTime = Nothing
+  , workflowExecutionExtendedInfoCancelRequested = False
+  , workflowExecutionExtendedInfoLastResetTime = Nothing
+  , workflowExecutionExtendedInfoOriginalStartTime = Nothing
+  , workflowExecutionExtendedInfoResetRunId = ""
+  , workflowExecutionExtendedInfoRequestIdInfos = Map.empty
+  , workflowExecutionExtendedInfoPauseInfo = Nothing
+  , workflowExecutionExtendedInfoUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutionExtendedInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowExecutionExtendedInfoExecutionexpirationtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionExtendedInfoRunexpirationtime)
-    <> (if msg.workflowExecutionExtendedInfoCancelrequested == False then mempty else encodeFieldBool 3 msg.workflowExecutionExtendedInfoCancelrequested)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowExecutionExtendedInfoLastresettime)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workflowExecutionExtendedInfoOriginalstarttime)
-    <> (if msg.workflowExecutionExtendedInfoResetrunid == T.empty then mempty else encodeFieldString 6 msg.workflowExecutionExtendedInfoResetrunid)
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 7 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.workflowExecutionExtendedInfoRequestidinfos
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.workflowExecutionExtendedInfoPauseinfo)
-    <> encodeUnknownFields msg.workflowExecutionExtendedInfoUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowExecutionExtendedInfoExecutionExpirationTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionExtendedInfoRunExpirationTime)
+    <> (if msg.workflowExecutionExtendedInfoCancelRequested == False then mempty else encodeFieldBool 3 msg.workflowExecutionExtendedInfoCancelRequested)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowExecutionExtendedInfoLastResetTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workflowExecutionExtendedInfoOriginalStartTime)
+    <> (if msg.workflowExecutionExtendedInfoResetRunId == T.empty then mempty else encodeFieldString 6 msg.workflowExecutionExtendedInfoResetRunId)
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 7 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.workflowExecutionExtendedInfoRequestIdInfos
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.workflowExecutionExtendedInfoPauseInfo)
+    <> encodeUnknownFields msg.workflowExecutionExtendedInfoUnknownFields
 
 instance MessageSize WorkflowExecutionExtendedInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowExecutionExtendedInfoExecutionexpirationtime)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionExtendedInfoRunexpirationtime)
-    + (if msg.workflowExecutionExtendedInfoCancelrequested == False then 0 else fieldBoolSize 3)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionExtendedInfoLastresettime)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workflowExecutionExtendedInfoOriginalstarttime)
-    + (if msg.workflowExecutionExtendedInfoResetrunid == T.empty then 0 else fieldTextSize 6 msg.workflowExecutionExtendedInfoResetrunid)
-    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 7 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.workflowExecutionExtendedInfoRequestidinfos)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workflowExecutionExtendedInfoPauseinfo)
-    + unknownFieldsSize msg.workflowExecutionExtendedInfoUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowExecutionExtendedInfoExecutionExpirationTime)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionExtendedInfoRunExpirationTime)
+    + (if msg.workflowExecutionExtendedInfoCancelRequested == False then 0 else fieldBoolSize 3)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionExtendedInfoLastResetTime)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workflowExecutionExtendedInfoOriginalStartTime)
+    + (if msg.workflowExecutionExtendedInfoResetRunId == T.empty then 0 else fieldTextSize 6 msg.workflowExecutionExtendedInfoResetRunId)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 7 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.workflowExecutionExtendedInfoRequestIdInfos)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workflowExecutionExtendedInfoPauseInfo)
+    + unknownFieldsSize msg.workflowExecutionExtendedInfoUnknownFields
 
 instance MessageDecode WorkflowExecutionExtendedInfo where
   {-# INLINE messageDecoder #-}
@@ -650,7 +650,7 @@ instance MessageDecode WorkflowExecutionExtendedInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutionExtendedInfo {workflowExecutionExtendedInfoExecutionexpirationtime = acc_0, workflowExecutionExtendedInfoRunexpirationtime = acc_1, workflowExecutionExtendedInfoCancelrequested = acc_2, workflowExecutionExtendedInfoLastresettime = acc_3, workflowExecutionExtendedInfoOriginalstarttime = acc_4, workflowExecutionExtendedInfoResetrunid = acc_5, workflowExecutionExtendedInfoRequestidinfos = acc_6, workflowExecutionExtendedInfoPauseinfo = acc_7, workflowExecutionExtendedInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutionExtendedInfo {workflowExecutionExtendedInfoExecutionExpirationTime = acc_0, workflowExecutionExtendedInfoRunExpirationTime = acc_1, workflowExecutionExtendedInfoCancelRequested = acc_2, workflowExecutionExtendedInfoLastResetTime = acc_3, workflowExecutionExtendedInfoOriginalStartTime = acc_4, workflowExecutionExtendedInfoResetRunId = acc_5, workflowExecutionExtendedInfoRequestIdInfos = acc_6, workflowExecutionExtendedInfoPauseInfo = acc_7, workflowExecutionExtendedInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -697,112 +697,112 @@ instance ProtoMessage WorkflowExecutionExtendedInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionExtendedInfoExecutionexpirationtime
-        , fdSet = \v m -> m { workflowExecutionExtendedInfoExecutionexpirationtime = v }
+        , fdGet = workflowExecutionExtendedInfoExecutionExpirationTime
+        , fdSet = \v m -> m { workflowExecutionExtendedInfoExecutionExpirationTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "run_expiration_time"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionExtendedInfoRunexpirationtime
-        , fdSet = \v m -> m { workflowExecutionExtendedInfoRunexpirationtime = v }
+        , fdGet = workflowExecutionExtendedInfoRunExpirationTime
+        , fdSet = \v m -> m { workflowExecutionExtendedInfoRunExpirationTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "cancel_requested"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionExtendedInfoCancelrequested
-        , fdSet = \v m -> m { workflowExecutionExtendedInfoCancelrequested = v }
+        , fdGet = workflowExecutionExtendedInfoCancelRequested
+        , fdSet = \v m -> m { workflowExecutionExtendedInfoCancelRequested = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "last_reset_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionExtendedInfoLastresettime
-        , fdSet = \v m -> m { workflowExecutionExtendedInfoLastresettime = v }
+        , fdGet = workflowExecutionExtendedInfoLastResetTime
+        , fdSet = \v m -> m { workflowExecutionExtendedInfoLastResetTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "original_start_time"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionExtendedInfoOriginalstarttime
-        , fdSet = \v m -> m { workflowExecutionExtendedInfoOriginalstarttime = v }
+        , fdGet = workflowExecutionExtendedInfoOriginalStartTime
+        , fdSet = \v m -> m { workflowExecutionExtendedInfoOriginalStartTime = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "reset_run_id"
         , fdNumber = 6
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionExtendedInfoResetrunid
-        , fdSet = \v m -> m { workflowExecutionExtendedInfoResetrunid = v }
+        , fdGet = workflowExecutionExtendedInfoResetRunId
+        , fdSet = \v m -> m { workflowExecutionExtendedInfoResetRunId = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "request_id_infos"
         , fdNumber = 7
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = workflowExecutionExtendedInfoRequestidinfos
-        , fdSet = \v m -> m { workflowExecutionExtendedInfoRequestidinfos = v }
+        , fdGet = workflowExecutionExtendedInfoRequestIdInfos
+        , fdSet = \v m -> m { workflowExecutionExtendedInfoRequestIdInfos = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "pause_info"
         , fdNumber = 8
         , fdTypeDesc = MessageType "WorkflowExecutionPauseInfo"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionExtendedInfoPauseinfo
-        , fdSet = \v m -> m { workflowExecutionExtendedInfoPauseinfo = v }
+        , fdGet = workflowExecutionExtendedInfoPauseInfo
+        , fdSet = \v m -> m { workflowExecutionExtendedInfoPauseInfo = v }
         })
     ]
 
 instance Aeson.ToJSON WorkflowExecutionExtendedInfo where
   toJSON msg = jsonObject
-      [ "executionExpirationTime" .=: msg.workflowExecutionExtendedInfoExecutionexpirationtime
-      , "runExpirationTime" .=: msg.workflowExecutionExtendedInfoRunexpirationtime
-      , "cancelRequested" .=: msg.workflowExecutionExtendedInfoCancelrequested
-      , "lastResetTime" .=: msg.workflowExecutionExtendedInfoLastresettime
-      , "originalStartTime" .=: msg.workflowExecutionExtendedInfoOriginalstarttime
-      , "resetRunId" .=: msg.workflowExecutionExtendedInfoResetrunid
-      , "requestIdInfos" .=: msg.workflowExecutionExtendedInfoRequestidinfos
-      , "pauseInfo" .=: msg.workflowExecutionExtendedInfoPauseinfo
+      [ "executionExpirationTime" .=: msg.workflowExecutionExtendedInfoExecutionExpirationTime
+      , "runExpirationTime" .=: msg.workflowExecutionExtendedInfoRunExpirationTime
+      , "cancelRequested" .=: msg.workflowExecutionExtendedInfoCancelRequested
+      , "lastResetTime" .=: msg.workflowExecutionExtendedInfoLastResetTime
+      , "originalStartTime" .=: msg.workflowExecutionExtendedInfoOriginalStartTime
+      , "resetRunId" .=: msg.workflowExecutionExtendedInfoResetRunId
+      , "requestIdInfos" .=: msg.workflowExecutionExtendedInfoRequestIdInfos
+      , "pauseInfo" .=: msg.workflowExecutionExtendedInfoPauseInfo
       ]
 
 instance Aeson.FromJSON WorkflowExecutionExtendedInfo where
   parseJSON = Aeson.withObject "WorkflowExecutionExtendedInfo" $ \obj -> do
-    fld_workflowExecutionExtendedInfoExecutionexpirationtime <- parseFieldMaybe obj "executionExpirationTime"
-    fld_workflowExecutionExtendedInfoRunexpirationtime <- parseFieldMaybe obj "runExpirationTime"
-    fld_workflowExecutionExtendedInfoCancelrequested <- parseFieldMaybe obj "cancelRequested"
-    fld_workflowExecutionExtendedInfoLastresettime <- parseFieldMaybe obj "lastResetTime"
-    fld_workflowExecutionExtendedInfoOriginalstarttime <- parseFieldMaybe obj "originalStartTime"
-    fld_workflowExecutionExtendedInfoResetrunid <- parseFieldMaybe obj "resetRunId"
-    fld_workflowExecutionExtendedInfoRequestidinfos <- parseFieldMaybe obj "requestIdInfos"
-    fld_workflowExecutionExtendedInfoPauseinfo <- parseFieldMaybe obj "pauseInfo"
+    fld_workflowExecutionExtendedInfoExecutionExpirationTime <- parseFieldMaybe obj "executionExpirationTime"
+    fld_workflowExecutionExtendedInfoRunExpirationTime <- parseFieldMaybe obj "runExpirationTime"
+    fld_workflowExecutionExtendedInfoCancelRequested <- parseFieldMaybe obj "cancelRequested"
+    fld_workflowExecutionExtendedInfoLastResetTime <- parseFieldMaybe obj "lastResetTime"
+    fld_workflowExecutionExtendedInfoOriginalStartTime <- parseFieldMaybe obj "originalStartTime"
+    fld_workflowExecutionExtendedInfoResetRunId <- parseFieldMaybe obj "resetRunId"
+    fld_workflowExecutionExtendedInfoRequestIdInfos <- parseFieldMaybe obj "requestIdInfos"
+    fld_workflowExecutionExtendedInfoPauseInfo <- parseFieldMaybe obj "pauseInfo"
     pure defaultWorkflowExecutionExtendedInfo
-      { workflowExecutionExtendedInfoExecutionexpirationtime = maybe (workflowExecutionExtendedInfoExecutionexpirationtime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoExecutionexpirationtime
-      , workflowExecutionExtendedInfoRunexpirationtime = maybe (workflowExecutionExtendedInfoRunexpirationtime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoRunexpirationtime
-      , workflowExecutionExtendedInfoCancelrequested = maybe (workflowExecutionExtendedInfoCancelrequested defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoCancelrequested
-      , workflowExecutionExtendedInfoLastresettime = maybe (workflowExecutionExtendedInfoLastresettime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoLastresettime
-      , workflowExecutionExtendedInfoOriginalstarttime = maybe (workflowExecutionExtendedInfoOriginalstarttime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoOriginalstarttime
-      , workflowExecutionExtendedInfoResetrunid = maybe (workflowExecutionExtendedInfoResetrunid defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoResetrunid
-      , workflowExecutionExtendedInfoRequestidinfos = maybe (workflowExecutionExtendedInfoRequestidinfos defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoRequestidinfos
-      , workflowExecutionExtendedInfoPauseinfo = maybe (workflowExecutionExtendedInfoPauseinfo defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoPauseinfo
+      { workflowExecutionExtendedInfoExecutionExpirationTime = maybe (workflowExecutionExtendedInfoExecutionExpirationTime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoExecutionExpirationTime
+      , workflowExecutionExtendedInfoRunExpirationTime = maybe (workflowExecutionExtendedInfoRunExpirationTime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoRunExpirationTime
+      , workflowExecutionExtendedInfoCancelRequested = maybe (workflowExecutionExtendedInfoCancelRequested defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoCancelRequested
+      , workflowExecutionExtendedInfoLastResetTime = maybe (workflowExecutionExtendedInfoLastResetTime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoLastResetTime
+      , workflowExecutionExtendedInfoOriginalStartTime = maybe (workflowExecutionExtendedInfoOriginalStartTime defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoOriginalStartTime
+      , workflowExecutionExtendedInfoResetRunId = maybe (workflowExecutionExtendedInfoResetRunId defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoResetRunId
+      , workflowExecutionExtendedInfoRequestIdInfos = maybe (workflowExecutionExtendedInfoRequestIdInfos defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoRequestIdInfos
+      , workflowExecutionExtendedInfoPauseInfo = maybe (workflowExecutionExtendedInfoPauseInfo defaultWorkflowExecutionExtendedInfo) id fld_workflowExecutionExtendedInfoPauseInfo
       }
 
 instance Hashable WorkflowExecutionExtendedInfo where
-  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionExtendedInfoExecutionexpirationtime) msg.workflowExecutionExtendedInfoRunexpirationtime) msg.workflowExecutionExtendedInfoCancelrequested) msg.workflowExecutionExtendedInfoLastresettime) msg.workflowExecutionExtendedInfoOriginalstarttime) msg.workflowExecutionExtendedInfoResetrunid) msg.workflowExecutionExtendedInfoRequestidinfos) msg.workflowExecutionExtendedInfoPauseinfo
+  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionExtendedInfoExecutionExpirationTime) msg.workflowExecutionExtendedInfoRunExpirationTime) msg.workflowExecutionExtendedInfoCancelRequested) msg.workflowExecutionExtendedInfoLastResetTime) msg.workflowExecutionExtendedInfoOriginalStartTime) msg.workflowExecutionExtendedInfoResetRunId) msg.workflowExecutionExtendedInfoRequestIdInfos) msg.workflowExecutionExtendedInfoPauseInfo
 
 data WorkflowExecutionVersioningInfo = WorkflowExecutionVersioningInfo
   { workflowExecutionVersioningInfoBehavior :: !TE_Enums_V1_Workflow.VersioningBehavior
   , workflowExecutionVersioningInfoDeployment :: !(Maybe TE_Deployment_V1_Message.Deployment)
   , workflowExecutionVersioningInfoVersion :: !Text
-  , workflowExecutionVersioningInfoDeploymentversion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
-  , workflowExecutionVersioningInfoVersioningoverride :: !(Maybe VersioningOverride)
-  , workflowExecutionVersioningInfoDeploymenttransition :: !(Maybe DeploymentTransition)
-  , workflowExecutionVersioningInfoVersiontransition :: !(Maybe DeploymentVersionTransition)
-  , workflowExecutionVersioningInfoRevisionnumber :: {-# UNPACK #-} !Int64
-  , workflowExecutionVersioningInfoUnknownfields :: ![UnknownField]
+  , workflowExecutionVersioningInfoDeploymentVersion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
+  , workflowExecutionVersioningInfoVersioningOverride :: !(Maybe VersioningOverride)
+  , workflowExecutionVersioningInfoDeploymentTransition :: !(Maybe DeploymentTransition)
+  , workflowExecutionVersioningInfoVersionTransition :: !(Maybe DeploymentVersionTransition)
+  , workflowExecutionVersioningInfoRevisionNumber :: {-# UNPACK #-} !Int64
+  , workflowExecutionVersioningInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -812,12 +812,12 @@ defaultWorkflowExecutionVersioningInfo = WorkflowExecutionVersioningInfo
   { workflowExecutionVersioningInfoBehavior = (toEnum 0)
   , workflowExecutionVersioningInfoDeployment = Nothing
   , workflowExecutionVersioningInfoVersion = ""
-  , workflowExecutionVersioningInfoDeploymentversion = Nothing
-  , workflowExecutionVersioningInfoVersioningoverride = Nothing
-  , workflowExecutionVersioningInfoDeploymenttransition = Nothing
-  , workflowExecutionVersioningInfoVersiontransition = Nothing
-  , workflowExecutionVersioningInfoRevisionnumber = 0
-  , workflowExecutionVersioningInfoUnknownfields = []
+  , workflowExecutionVersioningInfoDeploymentVersion = Nothing
+  , workflowExecutionVersioningInfoVersioningOverride = Nothing
+  , workflowExecutionVersioningInfoDeploymentTransition = Nothing
+  , workflowExecutionVersioningInfoVersionTransition = Nothing
+  , workflowExecutionVersioningInfoRevisionNumber = 0
+  , workflowExecutionVersioningInfoUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutionVersioningInfo where
@@ -825,24 +825,24 @@ instance MessageEncode WorkflowExecutionVersioningInfo where
     (if fromEnum msg.workflowExecutionVersioningInfoBehavior == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.workflowExecutionVersioningInfoBehavior)))
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionVersioningInfoDeployment)
     <> (if msg.workflowExecutionVersioningInfoVersion == T.empty then mempty else encodeFieldString 5 msg.workflowExecutionVersioningInfoVersion)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.workflowExecutionVersioningInfoDeploymentversion)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workflowExecutionVersioningInfoVersioningoverride)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowExecutionVersioningInfoDeploymenttransition)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workflowExecutionVersioningInfoVersiontransition)
-    <> (if msg.workflowExecutionVersioningInfoRevisionnumber == 0 then mempty else encodeFieldVarint 8 (fromIntegral msg.workflowExecutionVersioningInfoRevisionnumber))
-    <> encodeUnknownFields msg.workflowExecutionVersioningInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.workflowExecutionVersioningInfoDeploymentVersion)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workflowExecutionVersioningInfoVersioningOverride)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowExecutionVersioningInfoDeploymentTransition)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workflowExecutionVersioningInfoVersionTransition)
+    <> (if msg.workflowExecutionVersioningInfoRevisionNumber == 0 then mempty else encodeFieldVarint 8 (fromIntegral msg.workflowExecutionVersioningInfoRevisionNumber))
+    <> encodeUnknownFields msg.workflowExecutionVersioningInfoUnknownFields
 
 instance MessageSize WorkflowExecutionVersioningInfo where
   messageSize msg =
     (if fromEnum msg.workflowExecutionVersioningInfoBehavior == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.workflowExecutionVersioningInfoBehavior)))
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionVersioningInfoDeployment)
     + (if msg.workflowExecutionVersioningInfoVersion == T.empty then 0 else fieldTextSize 5 msg.workflowExecutionVersioningInfoVersion)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.workflowExecutionVersioningInfoDeploymentversion)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workflowExecutionVersioningInfoVersioningoverride)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionVersioningInfoDeploymenttransition)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workflowExecutionVersioningInfoVersiontransition)
-    + (if msg.workflowExecutionVersioningInfoRevisionnumber == 0 then 0 else fieldVarintSize 8 (fromIntegral msg.workflowExecutionVersioningInfoRevisionnumber))
-    + unknownFieldsSize msg.workflowExecutionVersioningInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.workflowExecutionVersioningInfoDeploymentVersion)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workflowExecutionVersioningInfoVersioningOverride)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionVersioningInfoDeploymentTransition)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workflowExecutionVersioningInfoVersionTransition)
+    + (if msg.workflowExecutionVersioningInfoRevisionNumber == 0 then 0 else fieldVarintSize 8 (fromIntegral msg.workflowExecutionVersioningInfoRevisionNumber))
+    + unknownFieldsSize msg.workflowExecutionVersioningInfoUnknownFields
 
 instance MessageDecode WorkflowExecutionVersioningInfo where
   {-# INLINE messageDecoder #-}
@@ -851,7 +851,7 @@ instance MessageDecode WorkflowExecutionVersioningInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutionVersioningInfo {workflowExecutionVersioningInfoBehavior = acc_0, workflowExecutionVersioningInfoDeployment = acc_1, workflowExecutionVersioningInfoVersion = acc_2, workflowExecutionVersioningInfoDeploymentversion = acc_3, workflowExecutionVersioningInfoVersioningoverride = acc_4, workflowExecutionVersioningInfoDeploymenttransition = acc_5, workflowExecutionVersioningInfoVersiontransition = acc_6, workflowExecutionVersioningInfoRevisionnumber = acc_7, workflowExecutionVersioningInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutionVersioningInfo {workflowExecutionVersioningInfoBehavior = acc_0, workflowExecutionVersioningInfoDeployment = acc_1, workflowExecutionVersioningInfoVersion = acc_2, workflowExecutionVersioningInfoDeploymentVersion = acc_3, workflowExecutionVersioningInfoVersioningOverride = acc_4, workflowExecutionVersioningInfoDeploymentTransition = acc_5, workflowExecutionVersioningInfoVersionTransition = acc_6, workflowExecutionVersioningInfoRevisionNumber = acc_7, workflowExecutionVersioningInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -918,40 +918,40 @@ instance ProtoMessage WorkflowExecutionVersioningInfo where
         , fdNumber = 7
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionVersioningInfoDeploymentversion
-        , fdSet = \v m -> m { workflowExecutionVersioningInfoDeploymentversion = v }
+        , fdGet = workflowExecutionVersioningInfoDeploymentVersion
+        , fdSet = \v m -> m { workflowExecutionVersioningInfoDeploymentVersion = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "versioning_override"
         , fdNumber = 3
         , fdTypeDesc = MessageType "VersioningOverride"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionVersioningInfoVersioningoverride
-        , fdSet = \v m -> m { workflowExecutionVersioningInfoVersioningoverride = v }
+        , fdGet = workflowExecutionVersioningInfoVersioningOverride
+        , fdSet = \v m -> m { workflowExecutionVersioningInfoVersioningOverride = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "deployment_transition"
         , fdNumber = 4
         , fdTypeDesc = MessageType "DeploymentTransition"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionVersioningInfoDeploymenttransition
-        , fdSet = \v m -> m { workflowExecutionVersioningInfoDeploymenttransition = v }
+        , fdGet = workflowExecutionVersioningInfoDeploymentTransition
+        , fdSet = \v m -> m { workflowExecutionVersioningInfoDeploymentTransition = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "version_transition"
         , fdNumber = 6
         , fdTypeDesc = MessageType "DeploymentVersionTransition"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionVersioningInfoVersiontransition
-        , fdSet = \v m -> m { workflowExecutionVersioningInfoVersiontransition = v }
+        , fdGet = workflowExecutionVersioningInfoVersionTransition
+        , fdSet = \v m -> m { workflowExecutionVersioningInfoVersionTransition = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "revision_number"
         , fdNumber = 8
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionVersioningInfoRevisionnumber
-        , fdSet = \v m -> m { workflowExecutionVersioningInfoRevisionnumber = v }
+        , fdGet = workflowExecutionVersioningInfoRevisionNumber
+        , fdSet = \v m -> m { workflowExecutionVersioningInfoRevisionNumber = v }
         })
     ]
 
@@ -960,11 +960,11 @@ instance Aeson.ToJSON WorkflowExecutionVersioningInfo where
       [ "behavior" .=: msg.workflowExecutionVersioningInfoBehavior
       , "deployment" .=: msg.workflowExecutionVersioningInfoDeployment
       , "version" .=: msg.workflowExecutionVersioningInfoVersion
-      , "deploymentVersion" .=: msg.workflowExecutionVersioningInfoDeploymentversion
-      , "versioningOverride" .=: msg.workflowExecutionVersioningInfoVersioningoverride
-      , "deploymentTransition" .=: msg.workflowExecutionVersioningInfoDeploymenttransition
-      , "versionTransition" .=: msg.workflowExecutionVersioningInfoVersiontransition
-      , "revisionNumber" .=: msg.workflowExecutionVersioningInfoRevisionnumber
+      , "deploymentVersion" .=: msg.workflowExecutionVersioningInfoDeploymentVersion
+      , "versioningOverride" .=: msg.workflowExecutionVersioningInfoVersioningOverride
+      , "deploymentTransition" .=: msg.workflowExecutionVersioningInfoDeploymentTransition
+      , "versionTransition" .=: msg.workflowExecutionVersioningInfoVersionTransition
+      , "revisionNumber" .=: msg.workflowExecutionVersioningInfoRevisionNumber
       ]
 
 instance Aeson.FromJSON WorkflowExecutionVersioningInfo where
@@ -972,28 +972,28 @@ instance Aeson.FromJSON WorkflowExecutionVersioningInfo where
     fld_workflowExecutionVersioningInfoBehavior <- parseFieldMaybe obj "behavior"
     fld_workflowExecutionVersioningInfoDeployment <- parseFieldMaybe obj "deployment"
     fld_workflowExecutionVersioningInfoVersion <- parseFieldMaybe obj "version"
-    fld_workflowExecutionVersioningInfoDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
-    fld_workflowExecutionVersioningInfoVersioningoverride <- parseFieldMaybe obj "versioningOverride"
-    fld_workflowExecutionVersioningInfoDeploymenttransition <- parseFieldMaybe obj "deploymentTransition"
-    fld_workflowExecutionVersioningInfoVersiontransition <- parseFieldMaybe obj "versionTransition"
-    fld_workflowExecutionVersioningInfoRevisionnumber <- parseFieldMaybe obj "revisionNumber"
+    fld_workflowExecutionVersioningInfoDeploymentVersion <- parseFieldMaybe obj "deploymentVersion"
+    fld_workflowExecutionVersioningInfoVersioningOverride <- parseFieldMaybe obj "versioningOverride"
+    fld_workflowExecutionVersioningInfoDeploymentTransition <- parseFieldMaybe obj "deploymentTransition"
+    fld_workflowExecutionVersioningInfoVersionTransition <- parseFieldMaybe obj "versionTransition"
+    fld_workflowExecutionVersioningInfoRevisionNumber <- parseFieldMaybe obj "revisionNumber"
     pure defaultWorkflowExecutionVersioningInfo
       { workflowExecutionVersioningInfoBehavior = maybe (workflowExecutionVersioningInfoBehavior defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoBehavior
       , workflowExecutionVersioningInfoDeployment = maybe (workflowExecutionVersioningInfoDeployment defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeployment
       , workflowExecutionVersioningInfoVersion = maybe (workflowExecutionVersioningInfoVersion defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersion
-      , workflowExecutionVersioningInfoDeploymentversion = maybe (workflowExecutionVersioningInfoDeploymentversion defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeploymentversion
-      , workflowExecutionVersioningInfoVersioningoverride = maybe (workflowExecutionVersioningInfoVersioningoverride defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersioningoverride
-      , workflowExecutionVersioningInfoDeploymenttransition = maybe (workflowExecutionVersioningInfoDeploymenttransition defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeploymenttransition
-      , workflowExecutionVersioningInfoVersiontransition = maybe (workflowExecutionVersioningInfoVersiontransition defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersiontransition
-      , workflowExecutionVersioningInfoRevisionnumber = maybe (workflowExecutionVersioningInfoRevisionnumber defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoRevisionnumber
+      , workflowExecutionVersioningInfoDeploymentVersion = maybe (workflowExecutionVersioningInfoDeploymentVersion defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeploymentVersion
+      , workflowExecutionVersioningInfoVersioningOverride = maybe (workflowExecutionVersioningInfoVersioningOverride defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersioningOverride
+      , workflowExecutionVersioningInfoDeploymentTransition = maybe (workflowExecutionVersioningInfoDeploymentTransition defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoDeploymentTransition
+      , workflowExecutionVersioningInfoVersionTransition = maybe (workflowExecutionVersioningInfoVersionTransition defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoVersionTransition
+      , workflowExecutionVersioningInfoRevisionNumber = maybe (workflowExecutionVersioningInfoRevisionNumber defaultWorkflowExecutionVersioningInfo) id fld_workflowExecutionVersioningInfoRevisionNumber
       }
 
 instance Hashable WorkflowExecutionVersioningInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionVersioningInfoBehavior) msg.workflowExecutionVersioningInfoDeployment) msg.workflowExecutionVersioningInfoVersion) msg.workflowExecutionVersioningInfoDeploymentversion) msg.workflowExecutionVersioningInfoVersioningoverride) msg.workflowExecutionVersioningInfoDeploymenttransition) msg.workflowExecutionVersioningInfoVersiontransition) msg.workflowExecutionVersioningInfoRevisionnumber
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionVersioningInfoBehavior) msg.workflowExecutionVersioningInfoDeployment) msg.workflowExecutionVersioningInfoVersion) msg.workflowExecutionVersioningInfoDeploymentVersion) msg.workflowExecutionVersioningInfoVersioningOverride) msg.workflowExecutionVersioningInfoDeploymentTransition) msg.workflowExecutionVersioningInfoVersionTransition) msg.workflowExecutionVersioningInfoRevisionNumber
 
 data DeploymentTransition = DeploymentTransition
   { deploymentTransitionDeployment :: !(Maybe TE_Deployment_V1_Message.Deployment)
-  , deploymentTransitionUnknownfields :: ![UnknownField]
+  , deploymentTransitionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1001,18 +1001,18 @@ data DeploymentTransition = DeploymentTransition
 defaultDeploymentTransition :: DeploymentTransition
 defaultDeploymentTransition = DeploymentTransition
   { deploymentTransitionDeployment = Nothing
-  , deploymentTransitionUnknownfields = []
+  , deploymentTransitionUnknownFields = []
   }
 
 instance MessageEncode DeploymentTransition where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.deploymentTransitionDeployment)
-    <> encodeUnknownFields msg.deploymentTransitionUnknownfields
+    <> encodeUnknownFields msg.deploymentTransitionUnknownFields
 
 instance MessageSize DeploymentTransition where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.deploymentTransitionDeployment)
-    + unknownFieldsSize msg.deploymentTransitionUnknownfields
+    + unknownFieldsSize msg.deploymentTransitionUnknownFields
 
 instance MessageDecode DeploymentTransition where
   {-# INLINE messageDecoder #-}
@@ -1021,7 +1021,7 @@ instance MessageDecode DeploymentTransition where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeploymentTransition {deploymentTransitionDeployment = acc_0, deploymentTransitionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeploymentTransition {deploymentTransitionDeployment = acc_0, deploymentTransitionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1067,8 +1067,8 @@ instance Hashable DeploymentTransition where
 
 data DeploymentVersionTransition = DeploymentVersionTransition
   { deploymentVersionTransitionVersion :: !Text
-  , deploymentVersionTransitionDeploymentversion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
-  , deploymentVersionTransitionUnknownfields :: ![UnknownField]
+  , deploymentVersionTransitionDeploymentVersion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
+  , deploymentVersionTransitionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1076,21 +1076,21 @@ data DeploymentVersionTransition = DeploymentVersionTransition
 defaultDeploymentVersionTransition :: DeploymentVersionTransition
 defaultDeploymentVersionTransition = DeploymentVersionTransition
   { deploymentVersionTransitionVersion = ""
-  , deploymentVersionTransitionDeploymentversion = Nothing
-  , deploymentVersionTransitionUnknownfields = []
+  , deploymentVersionTransitionDeploymentVersion = Nothing
+  , deploymentVersionTransitionUnknownFields = []
   }
 
 instance MessageEncode DeploymentVersionTransition where
   buildMessage msg =
     (if msg.deploymentVersionTransitionVersion == T.empty then mempty else encodeFieldString 1 msg.deploymentVersionTransitionVersion)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.deploymentVersionTransitionDeploymentversion)
-    <> encodeUnknownFields msg.deploymentVersionTransitionUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.deploymentVersionTransitionDeploymentVersion)
+    <> encodeUnknownFields msg.deploymentVersionTransitionUnknownFields
 
 instance MessageSize DeploymentVersionTransition where
   messageSize msg =
     (if msg.deploymentVersionTransitionVersion == T.empty then 0 else fieldTextSize 1 msg.deploymentVersionTransitionVersion)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.deploymentVersionTransitionDeploymentversion)
-    + unknownFieldsSize msg.deploymentVersionTransitionUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.deploymentVersionTransitionDeploymentVersion)
+    + unknownFieldsSize msg.deploymentVersionTransitionUnknownFields
 
 instance MessageDecode DeploymentVersionTransition where
   {-# INLINE messageDecoder #-}
@@ -1099,7 +1099,7 @@ instance MessageDecode DeploymentVersionTransition where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeploymentVersionTransition {deploymentVersionTransitionVersion = acc_0, deploymentVersionTransitionDeploymentversion = acc_1, deploymentVersionTransitionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeploymentVersionTransition {deploymentVersionTransitionVersion = acc_0, deploymentVersionTransitionDeploymentVersion = acc_1, deploymentVersionTransitionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1132,67 +1132,67 @@ instance ProtoMessage DeploymentVersionTransition where
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = deploymentVersionTransitionDeploymentversion
-        , fdSet = \v m -> m { deploymentVersionTransitionDeploymentversion = v }
+        , fdGet = deploymentVersionTransitionDeploymentVersion
+        , fdSet = \v m -> m { deploymentVersionTransitionDeploymentVersion = v }
         })
     ]
 
 instance Aeson.ToJSON DeploymentVersionTransition where
   toJSON msg = jsonObject
       [ "version" .=: msg.deploymentVersionTransitionVersion
-      , "deploymentVersion" .=: msg.deploymentVersionTransitionDeploymentversion
+      , "deploymentVersion" .=: msg.deploymentVersionTransitionDeploymentVersion
       ]
 
 instance Aeson.FromJSON DeploymentVersionTransition where
   parseJSON = Aeson.withObject "DeploymentVersionTransition" $ \obj -> do
     fld_deploymentVersionTransitionVersion <- parseFieldMaybe obj "version"
-    fld_deploymentVersionTransitionDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
+    fld_deploymentVersionTransitionDeploymentVersion <- parseFieldMaybe obj "deploymentVersion"
     pure defaultDeploymentVersionTransition
       { deploymentVersionTransitionVersion = maybe (deploymentVersionTransitionVersion defaultDeploymentVersionTransition) id fld_deploymentVersionTransitionVersion
-      , deploymentVersionTransitionDeploymentversion = maybe (deploymentVersionTransitionDeploymentversion defaultDeploymentVersionTransition) id fld_deploymentVersionTransitionDeploymentversion
+      , deploymentVersionTransitionDeploymentVersion = maybe (deploymentVersionTransitionDeploymentVersion defaultDeploymentVersionTransition) id fld_deploymentVersionTransitionDeploymentVersion
       }
 
 instance Hashable DeploymentVersionTransition where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.deploymentVersionTransitionVersion) msg.deploymentVersionTransitionDeploymentversion
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.deploymentVersionTransitionVersion) msg.deploymentVersionTransitionDeploymentVersion
 
 data WorkflowExecutionConfig = WorkflowExecutionConfig
-  { workflowExecutionConfigTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
-  , workflowExecutionConfigWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
-  , workflowExecutionConfigWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
-  , workflowExecutionConfigDefaultworkflowtasktimeout :: !(Maybe PB_Duration.Duration)
-  , workflowExecutionConfigUsermetadata :: !(Maybe TE_Sdk_V1_UserMetadata.UserMetadata)
-  , workflowExecutionConfigUnknownfields :: ![UnknownField]
+  { workflowExecutionConfigTaskQueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
+  , workflowExecutionConfigWorkflowExecutionTimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionConfigWorkflowRunTimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionConfigDefaultWorkflowTaskTimeout :: !(Maybe PB_Duration.Duration)
+  , workflowExecutionConfigUserMetadata :: !(Maybe TE_Sdk_V1_UserMetadata.UserMetadata)
+  , workflowExecutionConfigUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowExecutionConfig :: WorkflowExecutionConfig
 defaultWorkflowExecutionConfig = WorkflowExecutionConfig
-  { workflowExecutionConfigTaskqueue = Nothing
-  , workflowExecutionConfigWorkflowexecutiontimeout = Nothing
-  , workflowExecutionConfigWorkflowruntimeout = Nothing
-  , workflowExecutionConfigDefaultworkflowtasktimeout = Nothing
-  , workflowExecutionConfigUsermetadata = Nothing
-  , workflowExecutionConfigUnknownfields = []
+  { workflowExecutionConfigTaskQueue = Nothing
+  , workflowExecutionConfigWorkflowExecutionTimeout = Nothing
+  , workflowExecutionConfigWorkflowRunTimeout = Nothing
+  , workflowExecutionConfigDefaultWorkflowTaskTimeout = Nothing
+  , workflowExecutionConfigUserMetadata = Nothing
+  , workflowExecutionConfigUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutionConfig where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowExecutionConfigTaskqueue)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionConfigWorkflowexecutiontimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workflowExecutionConfigWorkflowruntimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowExecutionConfigDefaultworkflowtasktimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workflowExecutionConfigUsermetadata)
-    <> encodeUnknownFields msg.workflowExecutionConfigUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowExecutionConfigTaskQueue)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionConfigWorkflowExecutionTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workflowExecutionConfigWorkflowRunTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowExecutionConfigDefaultWorkflowTaskTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workflowExecutionConfigUserMetadata)
+    <> encodeUnknownFields msg.workflowExecutionConfigUnknownFields
 
 instance MessageSize WorkflowExecutionConfig where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowExecutionConfigTaskqueue)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionConfigWorkflowexecutiontimeout)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workflowExecutionConfigWorkflowruntimeout)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionConfigDefaultworkflowtasktimeout)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workflowExecutionConfigUsermetadata)
-    + unknownFieldsSize msg.workflowExecutionConfigUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowExecutionConfigTaskQueue)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionConfigWorkflowExecutionTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workflowExecutionConfigWorkflowRunTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowExecutionConfigDefaultWorkflowTaskTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workflowExecutionConfigUserMetadata)
+    + unknownFieldsSize msg.workflowExecutionConfigUnknownFields
 
 instance MessageDecode WorkflowExecutionConfig where
   {-# INLINE messageDecoder #-}
@@ -1201,7 +1201,7 @@ instance MessageDecode WorkflowExecutionConfig where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutionConfig {workflowExecutionConfigTaskqueue = acc_0, workflowExecutionConfigWorkflowexecutiontimeout = acc_1, workflowExecutionConfigWorkflowruntimeout = acc_2, workflowExecutionConfigDefaultworkflowtasktimeout = acc_3, workflowExecutionConfigUsermetadata = acc_4, workflowExecutionConfigUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutionConfig {workflowExecutionConfigTaskQueue = acc_0, workflowExecutionConfigWorkflowExecutionTimeout = acc_1, workflowExecutionConfigWorkflowRunTimeout = acc_2, workflowExecutionConfigDefaultWorkflowTaskTimeout = acc_3, workflowExecutionConfigUserMetadata = acc_4, workflowExecutionConfigUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1236,95 +1236,95 @@ instance ProtoMessage WorkflowExecutionConfig where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.taskqueue.v1.TaskQueue"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionConfigTaskqueue
-        , fdSet = \v m -> m { workflowExecutionConfigTaskqueue = v }
+        , fdGet = workflowExecutionConfigTaskQueue
+        , fdSet = \v m -> m { workflowExecutionConfigTaskQueue = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "workflow_execution_timeout"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionConfigWorkflowexecutiontimeout
-        , fdSet = \v m -> m { workflowExecutionConfigWorkflowexecutiontimeout = v }
+        , fdGet = workflowExecutionConfigWorkflowExecutionTimeout
+        , fdSet = \v m -> m { workflowExecutionConfigWorkflowExecutionTimeout = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "workflow_run_timeout"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionConfigWorkflowruntimeout
-        , fdSet = \v m -> m { workflowExecutionConfigWorkflowruntimeout = v }
+        , fdGet = workflowExecutionConfigWorkflowRunTimeout
+        , fdSet = \v m -> m { workflowExecutionConfigWorkflowRunTimeout = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "default_workflow_task_timeout"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionConfigDefaultworkflowtasktimeout
-        , fdSet = \v m -> m { workflowExecutionConfigDefaultworkflowtasktimeout = v }
+        , fdGet = workflowExecutionConfigDefaultWorkflowTaskTimeout
+        , fdSet = \v m -> m { workflowExecutionConfigDefaultWorkflowTaskTimeout = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "user_metadata"
         , fdNumber = 5
         , fdTypeDesc = MessageType "temporal.api.sdk.v1.UserMetadata"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionConfigUsermetadata
-        , fdSet = \v m -> m { workflowExecutionConfigUsermetadata = v }
+        , fdGet = workflowExecutionConfigUserMetadata
+        , fdSet = \v m -> m { workflowExecutionConfigUserMetadata = v }
         })
     ]
 
 instance Aeson.ToJSON WorkflowExecutionConfig where
   toJSON msg = jsonObject
-      [ "taskQueue" .=: msg.workflowExecutionConfigTaskqueue
-      , "workflowExecutionTimeout" .=: msg.workflowExecutionConfigWorkflowexecutiontimeout
-      , "workflowRunTimeout" .=: msg.workflowExecutionConfigWorkflowruntimeout
-      , "defaultWorkflowTaskTimeout" .=: msg.workflowExecutionConfigDefaultworkflowtasktimeout
-      , "userMetadata" .=: msg.workflowExecutionConfigUsermetadata
+      [ "taskQueue" .=: msg.workflowExecutionConfigTaskQueue
+      , "workflowExecutionTimeout" .=: msg.workflowExecutionConfigWorkflowExecutionTimeout
+      , "workflowRunTimeout" .=: msg.workflowExecutionConfigWorkflowRunTimeout
+      , "defaultWorkflowTaskTimeout" .=: msg.workflowExecutionConfigDefaultWorkflowTaskTimeout
+      , "userMetadata" .=: msg.workflowExecutionConfigUserMetadata
       ]
 
 instance Aeson.FromJSON WorkflowExecutionConfig where
   parseJSON = Aeson.withObject "WorkflowExecutionConfig" $ \obj -> do
-    fld_workflowExecutionConfigTaskqueue <- parseFieldMaybe obj "taskQueue"
-    fld_workflowExecutionConfigWorkflowexecutiontimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
-    fld_workflowExecutionConfigWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
-    fld_workflowExecutionConfigDefaultworkflowtasktimeout <- parseFieldMaybe obj "defaultWorkflowTaskTimeout"
-    fld_workflowExecutionConfigUsermetadata <- parseFieldMaybe obj "userMetadata"
+    fld_workflowExecutionConfigTaskQueue <- parseFieldMaybe obj "taskQueue"
+    fld_workflowExecutionConfigWorkflowExecutionTimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
+    fld_workflowExecutionConfigWorkflowRunTimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_workflowExecutionConfigDefaultWorkflowTaskTimeout <- parseFieldMaybe obj "defaultWorkflowTaskTimeout"
+    fld_workflowExecutionConfigUserMetadata <- parseFieldMaybe obj "userMetadata"
     pure defaultWorkflowExecutionConfig
-      { workflowExecutionConfigTaskqueue = maybe (workflowExecutionConfigTaskqueue defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigTaskqueue
-      , workflowExecutionConfigWorkflowexecutiontimeout = maybe (workflowExecutionConfigWorkflowexecutiontimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigWorkflowexecutiontimeout
-      , workflowExecutionConfigWorkflowruntimeout = maybe (workflowExecutionConfigWorkflowruntimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigWorkflowruntimeout
-      , workflowExecutionConfigDefaultworkflowtasktimeout = maybe (workflowExecutionConfigDefaultworkflowtasktimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigDefaultworkflowtasktimeout
-      , workflowExecutionConfigUsermetadata = maybe (workflowExecutionConfigUsermetadata defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigUsermetadata
+      { workflowExecutionConfigTaskQueue = maybe (workflowExecutionConfigTaskQueue defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigTaskQueue
+      , workflowExecutionConfigWorkflowExecutionTimeout = maybe (workflowExecutionConfigWorkflowExecutionTimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigWorkflowExecutionTimeout
+      , workflowExecutionConfigWorkflowRunTimeout = maybe (workflowExecutionConfigWorkflowRunTimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigWorkflowRunTimeout
+      , workflowExecutionConfigDefaultWorkflowTaskTimeout = maybe (workflowExecutionConfigDefaultWorkflowTaskTimeout defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigDefaultWorkflowTaskTimeout
+      , workflowExecutionConfigUserMetadata = maybe (workflowExecutionConfigUserMetadata defaultWorkflowExecutionConfig) id fld_workflowExecutionConfigUserMetadata
       }
 
 instance Hashable WorkflowExecutionConfig where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionConfigTaskqueue) msg.workflowExecutionConfigWorkflowexecutiontimeout) msg.workflowExecutionConfigWorkflowruntimeout) msg.workflowExecutionConfigDefaultworkflowtasktimeout) msg.workflowExecutionConfigUsermetadata
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionConfigTaskQueue) msg.workflowExecutionConfigWorkflowExecutionTimeout) msg.workflowExecutionConfigWorkflowRunTimeout) msg.workflowExecutionConfigDefaultWorkflowTaskTimeout) msg.workflowExecutionConfigUserMetadata
 
 data PendingActivityInfo = PendingActivityInfo
-  { pendingActivityInfoActivityid :: !Text
-  , pendingActivityInfoActivitytype :: !(Maybe TE_Common_V1_Message.ActivityType)
+  { pendingActivityInfoActivityId :: !Text
+  , pendingActivityInfoActivityType :: !(Maybe TE_Common_V1_Message.ActivityType)
   , pendingActivityInfoState :: !TE_Enums_V1_Workflow.PendingActivityState
-  , pendingActivityInfoHeartbeatdetails :: !(Maybe TE_Common_V1_Message.Payloads)
-  , pendingActivityInfoLastheartbeattime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingActivityInfoLaststartedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoHeartbeatDetails :: !(Maybe TE_Common_V1_Message.Payloads)
+  , pendingActivityInfoLastHeartbeatTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoLastStartedTime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingActivityInfoAttempt :: {-# UNPACK #-} !Int32
-  , pendingActivityInfoMaximumattempts :: {-# UNPACK #-} !Int32
-  , pendingActivityInfoScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingActivityInfoExpirationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingActivityInfoLastfailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , pendingActivityInfoLastworkeridentity :: !Text
-  , pendingActivityInfoAssignedbuildid :: !(Maybe PendingActivityInfo'AssignedBuildId)
-  , pendingActivityInfoLastworkerversionstamp :: !(Maybe TE_Common_V1_Message.WorkerVersionStamp)
-  , pendingActivityInfoCurrentretryinterval :: !(Maybe PB_Duration.Duration)
-  , pendingActivityInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingActivityInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoMaximumAttempts :: {-# UNPACK #-} !Int32
+  , pendingActivityInfoScheduledTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoExpirationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoLastFailure :: !(Maybe TE_Failure_V1_Message.Failure)
+  , pendingActivityInfoLastWorkerIdentity :: !Text
+  , pendingActivityInfoAssignedBuildId :: !(Maybe PendingActivityInfo'AssignedBuildId)
+  , pendingActivityInfoLastWorkerVersionStamp :: !(Maybe TE_Common_V1_Message.WorkerVersionStamp)
+  , pendingActivityInfoCurrentRetryInterval :: !(Maybe PB_Duration.Duration)
+  , pendingActivityInfoLastAttemptCompleteTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoNextAttemptScheduleTime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingActivityInfoPaused :: {-# UNPACK #-} !Bool
-  , pendingActivityInfoLastdeployment :: !(Maybe TE_Deployment_V1_Message.Deployment)
-  , pendingActivityInfoLastworkerdeploymentversion :: !Text
-  , pendingActivityInfoLastdeploymentversion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
+  , pendingActivityInfoLastDeployment :: !(Maybe TE_Deployment_V1_Message.Deployment)
+  , pendingActivityInfoLastWorkerDeploymentVersion :: !Text
+  , pendingActivityInfoLastDeploymentVersion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
   , pendingActivityInfoPriority :: !(Maybe TE_Common_V1_Message.Priority)
-  , pendingActivityInfoPauseinfo :: !(Maybe PendingActivityInfo'PauseInfo)
-  , pendingActivityInfoActivityoptions :: !(Maybe TE_Activity_V1_Message.ActivityOptions)
-  , pendingActivityInfoUnknownfields :: ![UnknownField]
+  , pendingActivityInfoPauseInfo :: !(Maybe PendingActivityInfo'PauseInfo)
+  , pendingActivityInfoActivityOptions :: !(Maybe TE_Activity_V1_Message.ActivityOptions)
+  , pendingActivityInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1342,9 +1342,9 @@ instance Hashable PendingActivityInfo'AssignedBuildId where
   hashWithSalt salt (PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId v) = salt `hashWithSalt` (1 :: Int) `hashWithSalt` v
 
 data PendingActivityInfo'PauseInfo = PendingActivityInfo'PauseInfo
-  { pendingActivityInfoPauseInfoPausetime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingActivityInfoPauseInfoPausedby :: !(Maybe PendingActivityInfo'PauseInfo'PausedBy)
-  , pendingActivityInfoPauseInfoUnknownfields :: ![UnknownField]
+  { pendingActivityInfoPauseInfoPauseTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingActivityInfoPauseInfoPausedBy :: !(Maybe PendingActivityInfo'PauseInfo'PausedBy)
+  , pendingActivityInfoPauseInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1352,7 +1352,7 @@ data PendingActivityInfo'PauseInfo = PendingActivityInfo'PauseInfo
 data PendingActivityInfo'PauseInfo'Manual = PendingActivityInfo'PauseInfo'Manual
   { pendingActivityInfoPauseInfoManualIdentity :: !Text
   , pendingActivityInfoPauseInfoManualReason :: !Text
-  , pendingActivityInfoPauseInfoManualUnknownfields :: ![UnknownField]
+  , pendingActivityInfoPauseInfoManualUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1361,20 +1361,20 @@ defaultPendingActivityInfo'PauseInfo'Manual :: PendingActivityInfo'PauseInfo'Man
 defaultPendingActivityInfo'PauseInfo'Manual = PendingActivityInfo'PauseInfo'Manual
   { pendingActivityInfoPauseInfoManualIdentity = ""
   , pendingActivityInfoPauseInfoManualReason = ""
-  , pendingActivityInfoPauseInfoManualUnknownfields = []
+  , pendingActivityInfoPauseInfoManualUnknownFields = []
   }
 
 instance MessageEncode PendingActivityInfo'PauseInfo'Manual where
   buildMessage msg =
     (if msg.pendingActivityInfoPauseInfoManualIdentity == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoPauseInfoManualIdentity)
     <> (if msg.pendingActivityInfoPauseInfoManualReason == T.empty then mempty else encodeFieldString 2 msg.pendingActivityInfoPauseInfoManualReason)
-    <> encodeUnknownFields msg.pendingActivityInfoPauseInfoManualUnknownfields
+    <> encodeUnknownFields msg.pendingActivityInfoPauseInfoManualUnknownFields
 
 instance MessageSize PendingActivityInfo'PauseInfo'Manual where
   messageSize msg =
     (if msg.pendingActivityInfoPauseInfoManualIdentity == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoPauseInfoManualIdentity)
     + (if msg.pendingActivityInfoPauseInfoManualReason == T.empty then 0 else fieldTextSize 2 msg.pendingActivityInfoPauseInfoManualReason)
-    + unknownFieldsSize msg.pendingActivityInfoPauseInfoManualUnknownfields
+    + unknownFieldsSize msg.pendingActivityInfoPauseInfoManualUnknownFields
 
 instance MessageDecode PendingActivityInfo'PauseInfo'Manual where
   {-# INLINE messageDecoder #-}
@@ -1383,7 +1383,7 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Manual where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PendingActivityInfo'PauseInfo'Manual {pendingActivityInfoPauseInfoManualIdentity = acc_0, pendingActivityInfoPauseInfoManualReason = acc_1, pendingActivityInfoPauseInfoManualUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PendingActivityInfo'PauseInfo'Manual {pendingActivityInfoPauseInfoManualIdentity = acc_0, pendingActivityInfoPauseInfoManualReason = acc_1, pendingActivityInfoPauseInfoManualUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1440,35 +1440,35 @@ instance Hashable PendingActivityInfo'PauseInfo'Manual where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.pendingActivityInfoPauseInfoManualIdentity) msg.pendingActivityInfoPauseInfoManualReason
 
 data PendingActivityInfo'PauseInfo'Rule = PendingActivityInfo'PauseInfo'Rule
-  { pendingActivityInfoPauseInfoRuleRuleid :: !Text
+  { pendingActivityInfoPauseInfoRuleRuleId :: !Text
   , pendingActivityInfoPauseInfoRuleIdentity :: !Text
   , pendingActivityInfoPauseInfoRuleReason :: !Text
-  , pendingActivityInfoPauseInfoRuleUnknownfields :: ![UnknownField]
+  , pendingActivityInfoPauseInfoRuleUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPendingActivityInfo'PauseInfo'Rule :: PendingActivityInfo'PauseInfo'Rule
 defaultPendingActivityInfo'PauseInfo'Rule = PendingActivityInfo'PauseInfo'Rule
-  { pendingActivityInfoPauseInfoRuleRuleid = ""
+  { pendingActivityInfoPauseInfoRuleRuleId = ""
   , pendingActivityInfoPauseInfoRuleIdentity = ""
   , pendingActivityInfoPauseInfoRuleReason = ""
-  , pendingActivityInfoPauseInfoRuleUnknownfields = []
+  , pendingActivityInfoPauseInfoRuleUnknownFields = []
   }
 
 instance MessageEncode PendingActivityInfo'PauseInfo'Rule where
   buildMessage msg =
-    (if msg.pendingActivityInfoPauseInfoRuleRuleid == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoPauseInfoRuleRuleid)
+    (if msg.pendingActivityInfoPauseInfoRuleRuleId == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoPauseInfoRuleRuleId)
     <> (if msg.pendingActivityInfoPauseInfoRuleIdentity == T.empty then mempty else encodeFieldString 2 msg.pendingActivityInfoPauseInfoRuleIdentity)
     <> (if msg.pendingActivityInfoPauseInfoRuleReason == T.empty then mempty else encodeFieldString 3 msg.pendingActivityInfoPauseInfoRuleReason)
-    <> encodeUnknownFields msg.pendingActivityInfoPauseInfoRuleUnknownfields
+    <> encodeUnknownFields msg.pendingActivityInfoPauseInfoRuleUnknownFields
 
 instance MessageSize PendingActivityInfo'PauseInfo'Rule where
   messageSize msg =
-    (if msg.pendingActivityInfoPauseInfoRuleRuleid == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoPauseInfoRuleRuleid)
+    (if msg.pendingActivityInfoPauseInfoRuleRuleId == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoPauseInfoRuleRuleId)
     + (if msg.pendingActivityInfoPauseInfoRuleIdentity == T.empty then 0 else fieldTextSize 2 msg.pendingActivityInfoPauseInfoRuleIdentity)
     + (if msg.pendingActivityInfoPauseInfoRuleReason == T.empty then 0 else fieldTextSize 3 msg.pendingActivityInfoPauseInfoRuleReason)
-    + unknownFieldsSize msg.pendingActivityInfoPauseInfoRuleUnknownfields
+    + unknownFieldsSize msg.pendingActivityInfoPauseInfoRuleUnknownFields
 
 instance MessageDecode PendingActivityInfo'PauseInfo'Rule where
   {-# INLINE messageDecoder #-}
@@ -1477,7 +1477,7 @@ instance MessageDecode PendingActivityInfo'PauseInfo'Rule where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PendingActivityInfo'PauseInfo'Rule {pendingActivityInfoPauseInfoRuleRuleid = acc_0, pendingActivityInfoPauseInfoRuleIdentity = acc_1, pendingActivityInfoPauseInfoRuleReason = acc_2, pendingActivityInfoPauseInfoRuleUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PendingActivityInfo'PauseInfo'Rule {pendingActivityInfoPauseInfoRuleRuleId = acc_0, pendingActivityInfoPauseInfoRuleIdentity = acc_1, pendingActivityInfoPauseInfoRuleReason = acc_2, pendingActivityInfoPauseInfoRuleUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1506,8 +1506,8 @@ instance ProtoMessage PendingActivityInfo'PauseInfo'Rule where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoPauseInfoRuleRuleid
-        , fdSet = \v m -> m { pendingActivityInfoPauseInfoRuleRuleid = v }
+        , fdGet = pendingActivityInfoPauseInfoRuleRuleId
+        , fdSet = \v m -> m { pendingActivityInfoPauseInfoRuleRuleId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "identity"
         , fdNumber = 2
@@ -1528,24 +1528,24 @@ instance ProtoMessage PendingActivityInfo'PauseInfo'Rule where
 
 instance Aeson.ToJSON PendingActivityInfo'PauseInfo'Rule where
   toJSON msg = jsonObject
-      [ "ruleId" .=: msg.pendingActivityInfoPauseInfoRuleRuleid
+      [ "ruleId" .=: msg.pendingActivityInfoPauseInfoRuleRuleId
       , "identity" .=: msg.pendingActivityInfoPauseInfoRuleIdentity
       , "reason" .=: msg.pendingActivityInfoPauseInfoRuleReason
       ]
 
 instance Aeson.FromJSON PendingActivityInfo'PauseInfo'Rule where
   parseJSON = Aeson.withObject "PendingActivityInfo'PauseInfo'Rule" $ \obj -> do
-    fld_pendingActivityInfoPauseInfoRuleRuleid <- parseFieldMaybe obj "ruleId"
+    fld_pendingActivityInfoPauseInfoRuleRuleId <- parseFieldMaybe obj "ruleId"
     fld_pendingActivityInfoPauseInfoRuleIdentity <- parseFieldMaybe obj "identity"
     fld_pendingActivityInfoPauseInfoRuleReason <- parseFieldMaybe obj "reason"
     pure defaultPendingActivityInfo'PauseInfo'Rule
-      { pendingActivityInfoPauseInfoRuleRuleid = maybe (pendingActivityInfoPauseInfoRuleRuleid defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleRuleid
+      { pendingActivityInfoPauseInfoRuleRuleId = maybe (pendingActivityInfoPauseInfoRuleRuleId defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleRuleId
       , pendingActivityInfoPauseInfoRuleIdentity = maybe (pendingActivityInfoPauseInfoRuleIdentity defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleIdentity
       , pendingActivityInfoPauseInfoRuleReason = maybe (pendingActivityInfoPauseInfoRuleReason defaultPendingActivityInfo'PauseInfo'Rule) id fld_pendingActivityInfoPauseInfoRuleReason
       }
 
 instance Hashable PendingActivityInfo'PauseInfo'Rule where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingActivityInfoPauseInfoRuleRuleid) msg.pendingActivityInfoPauseInfoRuleIdentity) msg.pendingActivityInfoPauseInfoRuleReason
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingActivityInfoPauseInfoRuleRuleId) msg.pendingActivityInfoPauseInfoRuleIdentity) msg.pendingActivityInfoPauseInfoRuleReason
 data PendingActivityInfo'PauseInfo'PausedBy
   = PendingActivityInfo'PauseInfo'PausedBy'Manual !PendingActivityInfo'PauseInfo'Manual
   | PendingActivityInfo'PauseInfo'PausedBy'Rule !PendingActivityInfo'PauseInfo'Rule
@@ -1561,26 +1561,26 @@ instance Hashable PendingActivityInfo'PauseInfo'PausedBy where
 
 defaultPendingActivityInfo'PauseInfo :: PendingActivityInfo'PauseInfo
 defaultPendingActivityInfo'PauseInfo = PendingActivityInfo'PauseInfo
-  { pendingActivityInfoPauseInfoPausetime = Nothing
-  , pendingActivityInfoPauseInfoPausedby = Nothing
-  , pendingActivityInfoPauseInfoUnknownfields = []
+  { pendingActivityInfoPauseInfoPauseTime = Nothing
+  , pendingActivityInfoPauseInfoPausedBy = Nothing
+  , pendingActivityInfoPauseInfoUnknownFields = []
   }
 
 instance MessageEncode PendingActivityInfo'PauseInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.pendingActivityInfoPauseInfoPausetime)
-    <> (case msg.pendingActivityInfoPauseInfoPausedby of
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.pendingActivityInfoPauseInfoPauseTime)
+    <> (case msg.pendingActivityInfoPauseInfoPausedBy of
       Nothing -> mempty
       Just (PendingActivityInfo'PauseInfo'PausedBy'Manual v) -> encodeFieldMessage 2 v
       Just (PendingActivityInfo'PauseInfo'PausedBy'Rule v) -> encodeFieldMessage 4 v)
-    <> encodeUnknownFields msg.pendingActivityInfoPauseInfoUnknownfields
+    <> encodeUnknownFields msg.pendingActivityInfoPauseInfoUnknownFields
 
 instance MessageSize PendingActivityInfo'PauseInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.pendingActivityInfoPauseInfoPausetime)
-    + (case msg.pendingActivityInfoPauseInfoPausedby of { Nothing -> 0; Just (PendingActivityInfo'PauseInfo'PausedBy'Manual v) -> fieldMessageSize 2 (messageSize v)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.pendingActivityInfoPauseInfoPauseTime)
+    + (case msg.pendingActivityInfoPauseInfoPausedBy of { Nothing -> 0; Just (PendingActivityInfo'PauseInfo'PausedBy'Manual v) -> fieldMessageSize 2 (messageSize v)
     ; Just (PendingActivityInfo'PauseInfo'PausedBy'Rule v) -> fieldMessageSize 4 (messageSize v) })
-    + unknownFieldsSize msg.pendingActivityInfoPauseInfoUnknownfields
+    + unknownFieldsSize msg.pendingActivityInfoPauseInfoUnknownFields
 
 instance MessageDecode PendingActivityInfo'PauseInfo where
   {-# INLINE messageDecoder #-}
@@ -1589,7 +1589,7 @@ instance MessageDecode PendingActivityInfo'PauseInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PendingActivityInfo'PauseInfo {pendingActivityInfoPauseInfoPausetime = acc_0, pendingActivityInfoPauseInfoPausedby = acc_1, pendingActivityInfoPauseInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PendingActivityInfo'PauseInfo {pendingActivityInfoPauseInfoPauseTime = acc_0, pendingActivityInfoPauseInfoPausedBy = acc_1, pendingActivityInfoPauseInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1618,124 +1618,124 @@ instance ProtoMessage PendingActivityInfo'PauseInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoPauseInfoPausetime
-        , fdSet = \v m -> m { pendingActivityInfoPauseInfoPausetime = v }
+        , fdGet = pendingActivityInfoPauseInfoPauseTime
+        , fdSet = \v m -> m { pendingActivityInfoPauseInfoPauseTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "paused_by"
         , fdNumber = 2
         , fdTypeDesc = MessageType "paused_by"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoPauseInfoPausedby
-        , fdSet = \v m -> m { pendingActivityInfoPauseInfoPausedby = v }
+        , fdGet = pendingActivityInfoPauseInfoPausedBy
+        , fdSet = \v m -> m { pendingActivityInfoPauseInfoPausedBy = v }
         })
     ]
 
 instance Aeson.ToJSON PendingActivityInfo'PauseInfo where
   toJSON msg = jsonObject
-      [ "pauseTime" .=: msg.pendingActivityInfoPauseInfoPausetime
-      , "pausedBy" .=: msg.pendingActivityInfoPauseInfoPausedby
+      [ "pauseTime" .=: msg.pendingActivityInfoPauseInfoPauseTime
+      , "pausedBy" .=: msg.pendingActivityInfoPauseInfoPausedBy
       ]
 
 instance Aeson.FromJSON PendingActivityInfo'PauseInfo where
   parseJSON = Aeson.withObject "PendingActivityInfo'PauseInfo" $ \obj -> do
-    fld_pendingActivityInfoPauseInfoPausetime <- parseFieldMaybe obj "pauseTime"
-    fld_pendingActivityInfoPauseInfoPausedby <- parseFieldMaybe obj "pausedBy"
+    fld_pendingActivityInfoPauseInfoPauseTime <- parseFieldMaybe obj "pauseTime"
+    fld_pendingActivityInfoPauseInfoPausedBy <- parseFieldMaybe obj "pausedBy"
     pure defaultPendingActivityInfo'PauseInfo
-      { pendingActivityInfoPauseInfoPausetime = maybe (pendingActivityInfoPauseInfoPausetime defaultPendingActivityInfo'PauseInfo) id fld_pendingActivityInfoPauseInfoPausetime
-      , pendingActivityInfoPauseInfoPausedby = maybe (pendingActivityInfoPauseInfoPausedby defaultPendingActivityInfo'PauseInfo) id fld_pendingActivityInfoPauseInfoPausedby
+      { pendingActivityInfoPauseInfoPauseTime = maybe (pendingActivityInfoPauseInfoPauseTime defaultPendingActivityInfo'PauseInfo) id fld_pendingActivityInfoPauseInfoPauseTime
+      , pendingActivityInfoPauseInfoPausedBy = maybe (pendingActivityInfoPauseInfoPausedBy defaultPendingActivityInfo'PauseInfo) id fld_pendingActivityInfoPauseInfoPausedBy
       }
 
 instance Hashable PendingActivityInfo'PauseInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.pendingActivityInfoPauseInfoPausetime) msg.pendingActivityInfoPauseInfoPausedby
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.pendingActivityInfoPauseInfoPauseTime) msg.pendingActivityInfoPauseInfoPausedBy
 
 defaultPendingActivityInfo :: PendingActivityInfo
 defaultPendingActivityInfo = PendingActivityInfo
-  { pendingActivityInfoActivityid = ""
-  , pendingActivityInfoActivitytype = Nothing
+  { pendingActivityInfoActivityId = ""
+  , pendingActivityInfoActivityType = Nothing
   , pendingActivityInfoState = (toEnum 0)
-  , pendingActivityInfoHeartbeatdetails = Nothing
-  , pendingActivityInfoLastheartbeattime = Nothing
-  , pendingActivityInfoLaststartedtime = Nothing
+  , pendingActivityInfoHeartbeatDetails = Nothing
+  , pendingActivityInfoLastHeartbeatTime = Nothing
+  , pendingActivityInfoLastStartedTime = Nothing
   , pendingActivityInfoAttempt = 0
-  , pendingActivityInfoMaximumattempts = 0
-  , pendingActivityInfoScheduledtime = Nothing
-  , pendingActivityInfoExpirationtime = Nothing
-  , pendingActivityInfoLastfailure = Nothing
-  , pendingActivityInfoLastworkeridentity = ""
-  , pendingActivityInfoAssignedbuildid = Nothing
-  , pendingActivityInfoLastworkerversionstamp = Nothing
-  , pendingActivityInfoCurrentretryinterval = Nothing
-  , pendingActivityInfoLastattemptcompletetime = Nothing
-  , pendingActivityInfoNextattemptscheduletime = Nothing
+  , pendingActivityInfoMaximumAttempts = 0
+  , pendingActivityInfoScheduledTime = Nothing
+  , pendingActivityInfoExpirationTime = Nothing
+  , pendingActivityInfoLastFailure = Nothing
+  , pendingActivityInfoLastWorkerIdentity = ""
+  , pendingActivityInfoAssignedBuildId = Nothing
+  , pendingActivityInfoLastWorkerVersionStamp = Nothing
+  , pendingActivityInfoCurrentRetryInterval = Nothing
+  , pendingActivityInfoLastAttemptCompleteTime = Nothing
+  , pendingActivityInfoNextAttemptScheduleTime = Nothing
   , pendingActivityInfoPaused = False
-  , pendingActivityInfoLastdeployment = Nothing
-  , pendingActivityInfoLastworkerdeploymentversion = ""
-  , pendingActivityInfoLastdeploymentversion = Nothing
+  , pendingActivityInfoLastDeployment = Nothing
+  , pendingActivityInfoLastWorkerDeploymentVersion = ""
+  , pendingActivityInfoLastDeploymentVersion = Nothing
   , pendingActivityInfoPriority = Nothing
-  , pendingActivityInfoPauseinfo = Nothing
-  , pendingActivityInfoActivityoptions = Nothing
-  , pendingActivityInfoUnknownfields = []
+  , pendingActivityInfoPauseInfo = Nothing
+  , pendingActivityInfoActivityOptions = Nothing
+  , pendingActivityInfoUnknownFields = []
   }
 
 instance MessageEncode PendingActivityInfo where
   buildMessage msg =
-    (if msg.pendingActivityInfoActivityid == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoActivityid)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.pendingActivityInfoActivitytype)
+    (if msg.pendingActivityInfoActivityId == T.empty then mempty else encodeFieldString 1 msg.pendingActivityInfoActivityId)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.pendingActivityInfoActivityType)
     <> (if fromEnum msg.pendingActivityInfoState == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.pendingActivityInfoState)))
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.pendingActivityInfoHeartbeatdetails)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.pendingActivityInfoLastheartbeattime)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.pendingActivityInfoLaststartedtime)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.pendingActivityInfoHeartbeatDetails)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.pendingActivityInfoLastHeartbeatTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.pendingActivityInfoLastStartedTime)
     <> (if msg.pendingActivityInfoAttempt == 0 then mempty else encodeFieldVarint 7 (fromIntegral msg.pendingActivityInfoAttempt))
-    <> (if msg.pendingActivityInfoMaximumattempts == 0 then mempty else encodeFieldVarint 8 (fromIntegral msg.pendingActivityInfoMaximumattempts))
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.pendingActivityInfoScheduledtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.pendingActivityInfoExpirationtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.pendingActivityInfoLastfailure)
-    <> (if msg.pendingActivityInfoLastworkeridentity == T.empty then mempty else encodeFieldString 12 msg.pendingActivityInfoLastworkeridentity)
-    <> (case msg.pendingActivityInfoAssignedbuildid of
+    <> (if msg.pendingActivityInfoMaximumAttempts == 0 then mempty else encodeFieldVarint 8 (fromIntegral msg.pendingActivityInfoMaximumAttempts))
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.pendingActivityInfoScheduledTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.pendingActivityInfoExpirationTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.pendingActivityInfoLastFailure)
+    <> (if msg.pendingActivityInfoLastWorkerIdentity == T.empty then mempty else encodeFieldString 12 msg.pendingActivityInfoLastWorkerIdentity)
+    <> (case msg.pendingActivityInfoAssignedBuildId of
       Nothing -> mempty
       Just (PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId v) -> encodeFieldMessage 13 v
       Just (PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId v) -> encodeFieldString 14 v)
-    <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.pendingActivityInfoLastworkerversionstamp)
-    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.pendingActivityInfoCurrentretryinterval)
-    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.pendingActivityInfoLastattemptcompletetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.pendingActivityInfoNextattemptscheduletime)
+    <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.pendingActivityInfoLastWorkerVersionStamp)
+    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.pendingActivityInfoCurrentRetryInterval)
+    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.pendingActivityInfoLastAttemptCompleteTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.pendingActivityInfoNextAttemptScheduleTime)
     <> (if msg.pendingActivityInfoPaused == False then mempty else encodeFieldBool 19 msg.pendingActivityInfoPaused)
-    <> (maybe mempty (\v -> encodeFieldMessage 20 v) msg.pendingActivityInfoLastdeployment)
-    <> (if msg.pendingActivityInfoLastworkerdeploymentversion == T.empty then mempty else encodeFieldString 21 msg.pendingActivityInfoLastworkerdeploymentversion)
-    <> (maybe mempty (\v -> encodeFieldMessage 25 v) msg.pendingActivityInfoLastdeploymentversion)
+    <> (maybe mempty (\v -> encodeFieldMessage 20 v) msg.pendingActivityInfoLastDeployment)
+    <> (if msg.pendingActivityInfoLastWorkerDeploymentVersion == T.empty then mempty else encodeFieldString 21 msg.pendingActivityInfoLastWorkerDeploymentVersion)
+    <> (maybe mempty (\v -> encodeFieldMessage 25 v) msg.pendingActivityInfoLastDeploymentVersion)
     <> (maybe mempty (\v -> encodeFieldMessage 22 v) msg.pendingActivityInfoPriority)
-    <> (maybe mempty (\v -> encodeFieldMessage 23 v) msg.pendingActivityInfoPauseinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 24 v) msg.pendingActivityInfoActivityoptions)
-    <> encodeUnknownFields msg.pendingActivityInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 23 v) msg.pendingActivityInfoPauseInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 24 v) msg.pendingActivityInfoActivityOptions)
+    <> encodeUnknownFields msg.pendingActivityInfoUnknownFields
 
 instance MessageSize PendingActivityInfo where
   messageSize msg =
-    (if msg.pendingActivityInfoActivityid == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoActivityid)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.pendingActivityInfoActivitytype)
+    (if msg.pendingActivityInfoActivityId == T.empty then 0 else fieldTextSize 1 msg.pendingActivityInfoActivityId)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.pendingActivityInfoActivityType)
     + (if fromEnum msg.pendingActivityInfoState == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.pendingActivityInfoState)))
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.pendingActivityInfoHeartbeatdetails)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.pendingActivityInfoLastheartbeattime)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.pendingActivityInfoLaststartedtime)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.pendingActivityInfoHeartbeatDetails)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.pendingActivityInfoLastHeartbeatTime)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.pendingActivityInfoLastStartedTime)
     + (if msg.pendingActivityInfoAttempt == 0 then 0 else fieldVarintSize 7 (fromIntegral msg.pendingActivityInfoAttempt))
-    + (if msg.pendingActivityInfoMaximumattempts == 0 then 0 else fieldVarintSize 8 (fromIntegral msg.pendingActivityInfoMaximumattempts))
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.pendingActivityInfoScheduledtime)
-    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.pendingActivityInfoExpirationtime)
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.pendingActivityInfoLastfailure)
-    + (if msg.pendingActivityInfoLastworkeridentity == T.empty then 0 else fieldTextSize 12 msg.pendingActivityInfoLastworkeridentity)
-    + (case msg.pendingActivityInfoAssignedbuildid of { Nothing -> 0; Just (PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId v) -> fieldMessageSize 13 (messageSize v)
+    + (if msg.pendingActivityInfoMaximumAttempts == 0 then 0 else fieldVarintSize 8 (fromIntegral msg.pendingActivityInfoMaximumAttempts))
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.pendingActivityInfoScheduledTime)
+    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.pendingActivityInfoExpirationTime)
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.pendingActivityInfoLastFailure)
+    + (if msg.pendingActivityInfoLastWorkerIdentity == T.empty then 0 else fieldTextSize 12 msg.pendingActivityInfoLastWorkerIdentity)
+    + (case msg.pendingActivityInfoAssignedBuildId of { Nothing -> 0; Just (PendingActivityInfo'AssignedBuildId'UseWorkflowBuildId v) -> fieldMessageSize 13 (messageSize v)
     ; Just (PendingActivityInfo'AssignedBuildId'LastIndependentlyAssignedBuildId v) -> fieldTextSize 14 v })
-    + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.pendingActivityInfoLastworkerversionstamp)
-    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.pendingActivityInfoCurrentretryinterval)
-    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.pendingActivityInfoLastattemptcompletetime)
-    + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.pendingActivityInfoNextattemptscheduletime)
+    + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.pendingActivityInfoLastWorkerVersionStamp)
+    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.pendingActivityInfoCurrentRetryInterval)
+    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.pendingActivityInfoLastAttemptCompleteTime)
+    + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.pendingActivityInfoNextAttemptScheduleTime)
     + (if msg.pendingActivityInfoPaused == False then 0 else fieldBoolSize 19)
-    + (maybe 0 (\v -> fieldMessageSize 20 (messageSize v)) msg.pendingActivityInfoLastdeployment)
-    + (if msg.pendingActivityInfoLastworkerdeploymentversion == T.empty then 0 else fieldTextSize 21 msg.pendingActivityInfoLastworkerdeploymentversion)
-    + (maybe 0 (\v -> fieldMessageSize 25 (messageSize v)) msg.pendingActivityInfoLastdeploymentversion)
+    + (maybe 0 (\v -> fieldMessageSize 20 (messageSize v)) msg.pendingActivityInfoLastDeployment)
+    + (if msg.pendingActivityInfoLastWorkerDeploymentVersion == T.empty then 0 else fieldTextSize 21 msg.pendingActivityInfoLastWorkerDeploymentVersion)
+    + (maybe 0 (\v -> fieldMessageSize 25 (messageSize v)) msg.pendingActivityInfoLastDeploymentVersion)
     + (maybe 0 (\v -> fieldMessageSize 22 (messageSize v)) msg.pendingActivityInfoPriority)
-    + (maybe 0 (\v -> fieldMessageSize 23 (messageSize v)) msg.pendingActivityInfoPauseinfo)
-    + (maybe 0 (\v -> fieldMessageSize 24 (messageSize v)) msg.pendingActivityInfoActivityoptions)
-    + unknownFieldsSize msg.pendingActivityInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 23 (messageSize v)) msg.pendingActivityInfoPauseInfo)
+    + (maybe 0 (\v -> fieldMessageSize 24 (messageSize v)) msg.pendingActivityInfoActivityOptions)
+    + unknownFieldsSize msg.pendingActivityInfoUnknownFields
 
 instance MessageDecode PendingActivityInfo where
   {-# INLINE messageDecoder #-}
@@ -1744,7 +1744,7 @@ instance MessageDecode PendingActivityInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PendingActivityInfo {pendingActivityInfoActivityid = acc_0, pendingActivityInfoActivitytype = acc_1, pendingActivityInfoState = acc_2, pendingActivityInfoHeartbeatdetails = acc_3, pendingActivityInfoLastheartbeattime = acc_4, pendingActivityInfoLaststartedtime = acc_5, pendingActivityInfoAttempt = acc_6, pendingActivityInfoMaximumattempts = acc_7, pendingActivityInfoScheduledtime = acc_8, pendingActivityInfoExpirationtime = acc_9, pendingActivityInfoLastfailure = acc_10, pendingActivityInfoLastworkeridentity = acc_11, pendingActivityInfoAssignedbuildid = acc_12, pendingActivityInfoLastworkerversionstamp = acc_13, pendingActivityInfoCurrentretryinterval = acc_14, pendingActivityInfoLastattemptcompletetime = acc_15, pendingActivityInfoNextattemptscheduletime = acc_16, pendingActivityInfoPaused = acc_17, pendingActivityInfoLastdeployment = acc_18, pendingActivityInfoLastworkerdeploymentversion = acc_19, pendingActivityInfoLastdeploymentversion = acc_20, pendingActivityInfoPriority = acc_21, pendingActivityInfoPauseinfo = acc_22, pendingActivityInfoActivityoptions = acc_23, pendingActivityInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PendingActivityInfo {pendingActivityInfoActivityId = acc_0, pendingActivityInfoActivityType = acc_1, pendingActivityInfoState = acc_2, pendingActivityInfoHeartbeatDetails = acc_3, pendingActivityInfoLastHeartbeatTime = acc_4, pendingActivityInfoLastStartedTime = acc_5, pendingActivityInfoAttempt = acc_6, pendingActivityInfoMaximumAttempts = acc_7, pendingActivityInfoScheduledTime = acc_8, pendingActivityInfoExpirationTime = acc_9, pendingActivityInfoLastFailure = acc_10, pendingActivityInfoLastWorkerIdentity = acc_11, pendingActivityInfoAssignedBuildId = acc_12, pendingActivityInfoLastWorkerVersionStamp = acc_13, pendingActivityInfoCurrentRetryInterval = acc_14, pendingActivityInfoLastAttemptCompleteTime = acc_15, pendingActivityInfoNextAttemptScheduleTime = acc_16, pendingActivityInfoPaused = acc_17, pendingActivityInfoLastDeployment = acc_18, pendingActivityInfoLastWorkerDeploymentVersion = acc_19, pendingActivityInfoLastDeploymentVersion = acc_20, pendingActivityInfoPriority = acc_21, pendingActivityInfoPauseInfo = acc_22, pendingActivityInfoActivityOptions = acc_23, pendingActivityInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1839,15 +1839,15 @@ instance ProtoMessage PendingActivityInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoActivityid
-        , fdSet = \v m -> m { pendingActivityInfoActivityid = v }
+        , fdGet = pendingActivityInfoActivityId
+        , fdSet = \v m -> m { pendingActivityInfoActivityId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "activity_type"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.common.v1.ActivityType"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoActivitytype
-        , fdSet = \v m -> m { pendingActivityInfoActivitytype = v }
+        , fdGet = pendingActivityInfoActivityType
+        , fdSet = \v m -> m { pendingActivityInfoActivityType = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "state"
@@ -1862,24 +1862,24 @@ instance ProtoMessage PendingActivityInfo where
         , fdNumber = 4
         , fdTypeDesc = MessageType "temporal.api.common.v1.Payloads"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoHeartbeatdetails
-        , fdSet = \v m -> m { pendingActivityInfoHeartbeatdetails = v }
+        , fdGet = pendingActivityInfoHeartbeatDetails
+        , fdSet = \v m -> m { pendingActivityInfoHeartbeatDetails = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "last_heartbeat_time"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLastheartbeattime
-        , fdSet = \v m -> m { pendingActivityInfoLastheartbeattime = v }
+        , fdGet = pendingActivityInfoLastHeartbeatTime
+        , fdSet = \v m -> m { pendingActivityInfoLastHeartbeatTime = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "last_started_time"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLaststartedtime
-        , fdSet = \v m -> m { pendingActivityInfoLaststartedtime = v }
+        , fdGet = pendingActivityInfoLastStartedTime
+        , fdSet = \v m -> m { pendingActivityInfoLastStartedTime = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "attempt"
@@ -1894,80 +1894,80 @@ instance ProtoMessage PendingActivityInfo where
         , fdNumber = 8
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoMaximumattempts
-        , fdSet = \v m -> m { pendingActivityInfoMaximumattempts = v }
+        , fdGet = pendingActivityInfoMaximumAttempts
+        , fdSet = \v m -> m { pendingActivityInfoMaximumAttempts = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "scheduled_time"
         , fdNumber = 9
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoScheduledtime
-        , fdSet = \v m -> m { pendingActivityInfoScheduledtime = v }
+        , fdGet = pendingActivityInfoScheduledTime
+        , fdSet = \v m -> m { pendingActivityInfoScheduledTime = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "expiration_time"
         , fdNumber = 10
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoExpirationtime
-        , fdSet = \v m -> m { pendingActivityInfoExpirationtime = v }
+        , fdGet = pendingActivityInfoExpirationTime
+        , fdSet = \v m -> m { pendingActivityInfoExpirationTime = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "last_failure"
         , fdNumber = 11
         , fdTypeDesc = MessageType "temporal.api.failure.v1.Failure"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLastfailure
-        , fdSet = \v m -> m { pendingActivityInfoLastfailure = v }
+        , fdGet = pendingActivityInfoLastFailure
+        , fdSet = \v m -> m { pendingActivityInfoLastFailure = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "last_worker_identity"
         , fdNumber = 12
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLastworkeridentity
-        , fdSet = \v m -> m { pendingActivityInfoLastworkeridentity = v }
+        , fdGet = pendingActivityInfoLastWorkerIdentity
+        , fdSet = \v m -> m { pendingActivityInfoLastWorkerIdentity = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "assigned_build_id"
         , fdNumber = 13
         , fdTypeDesc = MessageType "assigned_build_id"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoAssignedbuildid
-        , fdSet = \v m -> m { pendingActivityInfoAssignedbuildid = v }
+        , fdGet = pendingActivityInfoAssignedBuildId
+        , fdSet = \v m -> m { pendingActivityInfoAssignedBuildId = v }
         })
     , (15, SomeField FieldDescriptor
         { fdName = "last_worker_version_stamp"
         , fdNumber = 15
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkerVersionStamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLastworkerversionstamp
-        , fdSet = \v m -> m { pendingActivityInfoLastworkerversionstamp = v }
+        , fdGet = pendingActivityInfoLastWorkerVersionStamp
+        , fdSet = \v m -> m { pendingActivityInfoLastWorkerVersionStamp = v }
         })
     , (16, SomeField FieldDescriptor
         { fdName = "current_retry_interval"
         , fdNumber = 16
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoCurrentretryinterval
-        , fdSet = \v m -> m { pendingActivityInfoCurrentretryinterval = v }
+        , fdGet = pendingActivityInfoCurrentRetryInterval
+        , fdSet = \v m -> m { pendingActivityInfoCurrentRetryInterval = v }
         })
     , (17, SomeField FieldDescriptor
         { fdName = "last_attempt_complete_time"
         , fdNumber = 17
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLastattemptcompletetime
-        , fdSet = \v m -> m { pendingActivityInfoLastattemptcompletetime = v }
+        , fdGet = pendingActivityInfoLastAttemptCompleteTime
+        , fdSet = \v m -> m { pendingActivityInfoLastAttemptCompleteTime = v }
         })
     , (18, SomeField FieldDescriptor
         { fdName = "next_attempt_schedule_time"
         , fdNumber = 18
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoNextattemptscheduletime
-        , fdSet = \v m -> m { pendingActivityInfoNextattemptscheduletime = v }
+        , fdGet = pendingActivityInfoNextAttemptScheduleTime
+        , fdSet = \v m -> m { pendingActivityInfoNextAttemptScheduleTime = v }
         })
     , (19, SomeField FieldDescriptor
         { fdName = "paused"
@@ -1982,24 +1982,24 @@ instance ProtoMessage PendingActivityInfo where
         , fdNumber = 20
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.Deployment"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLastdeployment
-        , fdSet = \v m -> m { pendingActivityInfoLastdeployment = v }
+        , fdGet = pendingActivityInfoLastDeployment
+        , fdSet = \v m -> m { pendingActivityInfoLastDeployment = v }
         })
     , (21, SomeField FieldDescriptor
         { fdName = "last_worker_deployment_version"
         , fdNumber = 21
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLastworkerdeploymentversion
-        , fdSet = \v m -> m { pendingActivityInfoLastworkerdeploymentversion = v }
+        , fdGet = pendingActivityInfoLastWorkerDeploymentVersion
+        , fdSet = \v m -> m { pendingActivityInfoLastWorkerDeploymentVersion = v }
         })
     , (25, SomeField FieldDescriptor
         { fdName = "last_deployment_version"
         , fdNumber = 25
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoLastdeploymentversion
-        , fdSet = \v m -> m { pendingActivityInfoLastdeploymentversion = v }
+        , fdGet = pendingActivityInfoLastDeploymentVersion
+        , fdSet = \v m -> m { pendingActivityInfoLastDeploymentVersion = v }
         })
     , (22, SomeField FieldDescriptor
         { fdName = "priority"
@@ -2014,141 +2014,141 @@ instance ProtoMessage PendingActivityInfo where
         , fdNumber = 23
         , fdTypeDesc = MessageType "PauseInfo"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoPauseinfo
-        , fdSet = \v m -> m { pendingActivityInfoPauseinfo = v }
+        , fdGet = pendingActivityInfoPauseInfo
+        , fdSet = \v m -> m { pendingActivityInfoPauseInfo = v }
         })
     , (24, SomeField FieldDescriptor
         { fdName = "activity_options"
         , fdNumber = 24
         , fdTypeDesc = MessageType "temporal.api.activity.v1.ActivityOptions"
         , fdLabel = LabelOptional
-        , fdGet = pendingActivityInfoActivityoptions
-        , fdSet = \v m -> m { pendingActivityInfoActivityoptions = v }
+        , fdGet = pendingActivityInfoActivityOptions
+        , fdSet = \v m -> m { pendingActivityInfoActivityOptions = v }
         })
     ]
 
 instance Aeson.ToJSON PendingActivityInfo where
   toJSON msg = jsonObject
-      [ "activityId" .=: msg.pendingActivityInfoActivityid
-      , "activityType" .=: msg.pendingActivityInfoActivitytype
+      [ "activityId" .=: msg.pendingActivityInfoActivityId
+      , "activityType" .=: msg.pendingActivityInfoActivityType
       , "state" .=: msg.pendingActivityInfoState
-      , "heartbeatDetails" .=: msg.pendingActivityInfoHeartbeatdetails
-      , "lastHeartbeatTime" .=: msg.pendingActivityInfoLastheartbeattime
-      , "lastStartedTime" .=: msg.pendingActivityInfoLaststartedtime
+      , "heartbeatDetails" .=: msg.pendingActivityInfoHeartbeatDetails
+      , "lastHeartbeatTime" .=: msg.pendingActivityInfoLastHeartbeatTime
+      , "lastStartedTime" .=: msg.pendingActivityInfoLastStartedTime
       , "attempt" .=: msg.pendingActivityInfoAttempt
-      , "maximumAttempts" .=: msg.pendingActivityInfoMaximumattempts
-      , "scheduledTime" .=: msg.pendingActivityInfoScheduledtime
-      , "expirationTime" .=: msg.pendingActivityInfoExpirationtime
-      , "lastFailure" .=: msg.pendingActivityInfoLastfailure
-      , "lastWorkerIdentity" .=: msg.pendingActivityInfoLastworkeridentity
-      , "assignedBuildId" .=: msg.pendingActivityInfoAssignedbuildid
-      , "lastWorkerVersionStamp" .=: msg.pendingActivityInfoLastworkerversionstamp
-      , "currentRetryInterval" .=: msg.pendingActivityInfoCurrentretryinterval
-      , "lastAttemptCompleteTime" .=: msg.pendingActivityInfoLastattemptcompletetime
-      , "nextAttemptScheduleTime" .=: msg.pendingActivityInfoNextattemptscheduletime
+      , "maximumAttempts" .=: msg.pendingActivityInfoMaximumAttempts
+      , "scheduledTime" .=: msg.pendingActivityInfoScheduledTime
+      , "expirationTime" .=: msg.pendingActivityInfoExpirationTime
+      , "lastFailure" .=: msg.pendingActivityInfoLastFailure
+      , "lastWorkerIdentity" .=: msg.pendingActivityInfoLastWorkerIdentity
+      , "assignedBuildId" .=: msg.pendingActivityInfoAssignedBuildId
+      , "lastWorkerVersionStamp" .=: msg.pendingActivityInfoLastWorkerVersionStamp
+      , "currentRetryInterval" .=: msg.pendingActivityInfoCurrentRetryInterval
+      , "lastAttemptCompleteTime" .=: msg.pendingActivityInfoLastAttemptCompleteTime
+      , "nextAttemptScheduleTime" .=: msg.pendingActivityInfoNextAttemptScheduleTime
       , "paused" .=: msg.pendingActivityInfoPaused
-      , "lastDeployment" .=: msg.pendingActivityInfoLastdeployment
-      , "lastWorkerDeploymentVersion" .=: msg.pendingActivityInfoLastworkerdeploymentversion
-      , "lastDeploymentVersion" .=: msg.pendingActivityInfoLastdeploymentversion
+      , "lastDeployment" .=: msg.pendingActivityInfoLastDeployment
+      , "lastWorkerDeploymentVersion" .=: msg.pendingActivityInfoLastWorkerDeploymentVersion
+      , "lastDeploymentVersion" .=: msg.pendingActivityInfoLastDeploymentVersion
       , "priority" .=: msg.pendingActivityInfoPriority
-      , "pauseInfo" .=: msg.pendingActivityInfoPauseinfo
-      , "activityOptions" .=: msg.pendingActivityInfoActivityoptions
+      , "pauseInfo" .=: msg.pendingActivityInfoPauseInfo
+      , "activityOptions" .=: msg.pendingActivityInfoActivityOptions
       ]
 
 instance Aeson.FromJSON PendingActivityInfo where
   parseJSON = Aeson.withObject "PendingActivityInfo" $ \obj -> do
-    fld_pendingActivityInfoActivityid <- parseFieldMaybe obj "activityId"
-    fld_pendingActivityInfoActivitytype <- parseFieldMaybe obj "activityType"
+    fld_pendingActivityInfoActivityId <- parseFieldMaybe obj "activityId"
+    fld_pendingActivityInfoActivityType <- parseFieldMaybe obj "activityType"
     fld_pendingActivityInfoState <- parseFieldMaybe obj "state"
-    fld_pendingActivityInfoHeartbeatdetails <- parseFieldMaybe obj "heartbeatDetails"
-    fld_pendingActivityInfoLastheartbeattime <- parseFieldMaybe obj "lastHeartbeatTime"
-    fld_pendingActivityInfoLaststartedtime <- parseFieldMaybe obj "lastStartedTime"
+    fld_pendingActivityInfoHeartbeatDetails <- parseFieldMaybe obj "heartbeatDetails"
+    fld_pendingActivityInfoLastHeartbeatTime <- parseFieldMaybe obj "lastHeartbeatTime"
+    fld_pendingActivityInfoLastStartedTime <- parseFieldMaybe obj "lastStartedTime"
     fld_pendingActivityInfoAttempt <- parseFieldMaybe obj "attempt"
-    fld_pendingActivityInfoMaximumattempts <- parseFieldMaybe obj "maximumAttempts"
-    fld_pendingActivityInfoScheduledtime <- parseFieldMaybe obj "scheduledTime"
-    fld_pendingActivityInfoExpirationtime <- parseFieldMaybe obj "expirationTime"
-    fld_pendingActivityInfoLastfailure <- parseFieldMaybe obj "lastFailure"
-    fld_pendingActivityInfoLastworkeridentity <- parseFieldMaybe obj "lastWorkerIdentity"
-    fld_pendingActivityInfoAssignedbuildid <- parseFieldMaybe obj "assignedBuildId"
-    fld_pendingActivityInfoLastworkerversionstamp <- parseFieldMaybe obj "lastWorkerVersionStamp"
-    fld_pendingActivityInfoCurrentretryinterval <- parseFieldMaybe obj "currentRetryInterval"
-    fld_pendingActivityInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
-    fld_pendingActivityInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_pendingActivityInfoMaximumAttempts <- parseFieldMaybe obj "maximumAttempts"
+    fld_pendingActivityInfoScheduledTime <- parseFieldMaybe obj "scheduledTime"
+    fld_pendingActivityInfoExpirationTime <- parseFieldMaybe obj "expirationTime"
+    fld_pendingActivityInfoLastFailure <- parseFieldMaybe obj "lastFailure"
+    fld_pendingActivityInfoLastWorkerIdentity <- parseFieldMaybe obj "lastWorkerIdentity"
+    fld_pendingActivityInfoAssignedBuildId <- parseFieldMaybe obj "assignedBuildId"
+    fld_pendingActivityInfoLastWorkerVersionStamp <- parseFieldMaybe obj "lastWorkerVersionStamp"
+    fld_pendingActivityInfoCurrentRetryInterval <- parseFieldMaybe obj "currentRetryInterval"
+    fld_pendingActivityInfoLastAttemptCompleteTime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_pendingActivityInfoNextAttemptScheduleTime <- parseFieldMaybe obj "nextAttemptScheduleTime"
     fld_pendingActivityInfoPaused <- parseFieldMaybe obj "paused"
-    fld_pendingActivityInfoLastdeployment <- parseFieldMaybe obj "lastDeployment"
-    fld_pendingActivityInfoLastworkerdeploymentversion <- parseFieldMaybe obj "lastWorkerDeploymentVersion"
-    fld_pendingActivityInfoLastdeploymentversion <- parseFieldMaybe obj "lastDeploymentVersion"
+    fld_pendingActivityInfoLastDeployment <- parseFieldMaybe obj "lastDeployment"
+    fld_pendingActivityInfoLastWorkerDeploymentVersion <- parseFieldMaybe obj "lastWorkerDeploymentVersion"
+    fld_pendingActivityInfoLastDeploymentVersion <- parseFieldMaybe obj "lastDeploymentVersion"
     fld_pendingActivityInfoPriority <- parseFieldMaybe obj "priority"
-    fld_pendingActivityInfoPauseinfo <- parseFieldMaybe obj "pauseInfo"
-    fld_pendingActivityInfoActivityoptions <- parseFieldMaybe obj "activityOptions"
+    fld_pendingActivityInfoPauseInfo <- parseFieldMaybe obj "pauseInfo"
+    fld_pendingActivityInfoActivityOptions <- parseFieldMaybe obj "activityOptions"
     pure defaultPendingActivityInfo
-      { pendingActivityInfoActivityid = maybe (pendingActivityInfoActivityid defaultPendingActivityInfo) id fld_pendingActivityInfoActivityid
-      , pendingActivityInfoActivitytype = maybe (pendingActivityInfoActivitytype defaultPendingActivityInfo) id fld_pendingActivityInfoActivitytype
+      { pendingActivityInfoActivityId = maybe (pendingActivityInfoActivityId defaultPendingActivityInfo) id fld_pendingActivityInfoActivityId
+      , pendingActivityInfoActivityType = maybe (pendingActivityInfoActivityType defaultPendingActivityInfo) id fld_pendingActivityInfoActivityType
       , pendingActivityInfoState = maybe (pendingActivityInfoState defaultPendingActivityInfo) id fld_pendingActivityInfoState
-      , pendingActivityInfoHeartbeatdetails = maybe (pendingActivityInfoHeartbeatdetails defaultPendingActivityInfo) id fld_pendingActivityInfoHeartbeatdetails
-      , pendingActivityInfoLastheartbeattime = maybe (pendingActivityInfoLastheartbeattime defaultPendingActivityInfo) id fld_pendingActivityInfoLastheartbeattime
-      , pendingActivityInfoLaststartedtime = maybe (pendingActivityInfoLaststartedtime defaultPendingActivityInfo) id fld_pendingActivityInfoLaststartedtime
+      , pendingActivityInfoHeartbeatDetails = maybe (pendingActivityInfoHeartbeatDetails defaultPendingActivityInfo) id fld_pendingActivityInfoHeartbeatDetails
+      , pendingActivityInfoLastHeartbeatTime = maybe (pendingActivityInfoLastHeartbeatTime defaultPendingActivityInfo) id fld_pendingActivityInfoLastHeartbeatTime
+      , pendingActivityInfoLastStartedTime = maybe (pendingActivityInfoLastStartedTime defaultPendingActivityInfo) id fld_pendingActivityInfoLastStartedTime
       , pendingActivityInfoAttempt = maybe (pendingActivityInfoAttempt defaultPendingActivityInfo) id fld_pendingActivityInfoAttempt
-      , pendingActivityInfoMaximumattempts = maybe (pendingActivityInfoMaximumattempts defaultPendingActivityInfo) id fld_pendingActivityInfoMaximumattempts
-      , pendingActivityInfoScheduledtime = maybe (pendingActivityInfoScheduledtime defaultPendingActivityInfo) id fld_pendingActivityInfoScheduledtime
-      , pendingActivityInfoExpirationtime = maybe (pendingActivityInfoExpirationtime defaultPendingActivityInfo) id fld_pendingActivityInfoExpirationtime
-      , pendingActivityInfoLastfailure = maybe (pendingActivityInfoLastfailure defaultPendingActivityInfo) id fld_pendingActivityInfoLastfailure
-      , pendingActivityInfoLastworkeridentity = maybe (pendingActivityInfoLastworkeridentity defaultPendingActivityInfo) id fld_pendingActivityInfoLastworkeridentity
-      , pendingActivityInfoAssignedbuildid = maybe (pendingActivityInfoAssignedbuildid defaultPendingActivityInfo) id fld_pendingActivityInfoAssignedbuildid
-      , pendingActivityInfoLastworkerversionstamp = maybe (pendingActivityInfoLastworkerversionstamp defaultPendingActivityInfo) id fld_pendingActivityInfoLastworkerversionstamp
-      , pendingActivityInfoCurrentretryinterval = maybe (pendingActivityInfoCurrentretryinterval defaultPendingActivityInfo) id fld_pendingActivityInfoCurrentretryinterval
-      , pendingActivityInfoLastattemptcompletetime = maybe (pendingActivityInfoLastattemptcompletetime defaultPendingActivityInfo) id fld_pendingActivityInfoLastattemptcompletetime
-      , pendingActivityInfoNextattemptscheduletime = maybe (pendingActivityInfoNextattemptscheduletime defaultPendingActivityInfo) id fld_pendingActivityInfoNextattemptscheduletime
+      , pendingActivityInfoMaximumAttempts = maybe (pendingActivityInfoMaximumAttempts defaultPendingActivityInfo) id fld_pendingActivityInfoMaximumAttempts
+      , pendingActivityInfoScheduledTime = maybe (pendingActivityInfoScheduledTime defaultPendingActivityInfo) id fld_pendingActivityInfoScheduledTime
+      , pendingActivityInfoExpirationTime = maybe (pendingActivityInfoExpirationTime defaultPendingActivityInfo) id fld_pendingActivityInfoExpirationTime
+      , pendingActivityInfoLastFailure = maybe (pendingActivityInfoLastFailure defaultPendingActivityInfo) id fld_pendingActivityInfoLastFailure
+      , pendingActivityInfoLastWorkerIdentity = maybe (pendingActivityInfoLastWorkerIdentity defaultPendingActivityInfo) id fld_pendingActivityInfoLastWorkerIdentity
+      , pendingActivityInfoAssignedBuildId = maybe (pendingActivityInfoAssignedBuildId defaultPendingActivityInfo) id fld_pendingActivityInfoAssignedBuildId
+      , pendingActivityInfoLastWorkerVersionStamp = maybe (pendingActivityInfoLastWorkerVersionStamp defaultPendingActivityInfo) id fld_pendingActivityInfoLastWorkerVersionStamp
+      , pendingActivityInfoCurrentRetryInterval = maybe (pendingActivityInfoCurrentRetryInterval defaultPendingActivityInfo) id fld_pendingActivityInfoCurrentRetryInterval
+      , pendingActivityInfoLastAttemptCompleteTime = maybe (pendingActivityInfoLastAttemptCompleteTime defaultPendingActivityInfo) id fld_pendingActivityInfoLastAttemptCompleteTime
+      , pendingActivityInfoNextAttemptScheduleTime = maybe (pendingActivityInfoNextAttemptScheduleTime defaultPendingActivityInfo) id fld_pendingActivityInfoNextAttemptScheduleTime
       , pendingActivityInfoPaused = maybe (pendingActivityInfoPaused defaultPendingActivityInfo) id fld_pendingActivityInfoPaused
-      , pendingActivityInfoLastdeployment = maybe (pendingActivityInfoLastdeployment defaultPendingActivityInfo) id fld_pendingActivityInfoLastdeployment
-      , pendingActivityInfoLastworkerdeploymentversion = maybe (pendingActivityInfoLastworkerdeploymentversion defaultPendingActivityInfo) id fld_pendingActivityInfoLastworkerdeploymentversion
-      , pendingActivityInfoLastdeploymentversion = maybe (pendingActivityInfoLastdeploymentversion defaultPendingActivityInfo) id fld_pendingActivityInfoLastdeploymentversion
+      , pendingActivityInfoLastDeployment = maybe (pendingActivityInfoLastDeployment defaultPendingActivityInfo) id fld_pendingActivityInfoLastDeployment
+      , pendingActivityInfoLastWorkerDeploymentVersion = maybe (pendingActivityInfoLastWorkerDeploymentVersion defaultPendingActivityInfo) id fld_pendingActivityInfoLastWorkerDeploymentVersion
+      , pendingActivityInfoLastDeploymentVersion = maybe (pendingActivityInfoLastDeploymentVersion defaultPendingActivityInfo) id fld_pendingActivityInfoLastDeploymentVersion
       , pendingActivityInfoPriority = maybe (pendingActivityInfoPriority defaultPendingActivityInfo) id fld_pendingActivityInfoPriority
-      , pendingActivityInfoPauseinfo = maybe (pendingActivityInfoPauseinfo defaultPendingActivityInfo) id fld_pendingActivityInfoPauseinfo
-      , pendingActivityInfoActivityoptions = maybe (pendingActivityInfoActivityoptions defaultPendingActivityInfo) id fld_pendingActivityInfoActivityoptions
+      , pendingActivityInfoPauseInfo = maybe (pendingActivityInfoPauseInfo defaultPendingActivityInfo) id fld_pendingActivityInfoPauseInfo
+      , pendingActivityInfoActivityOptions = maybe (pendingActivityInfoActivityOptions defaultPendingActivityInfo) id fld_pendingActivityInfoActivityOptions
       }
 
 instance Hashable PendingActivityInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingActivityInfoActivityid) msg.pendingActivityInfoActivitytype) msg.pendingActivityInfoState) msg.pendingActivityInfoHeartbeatdetails) msg.pendingActivityInfoLastheartbeattime) msg.pendingActivityInfoLaststartedtime) msg.pendingActivityInfoAttempt) msg.pendingActivityInfoMaximumattempts) msg.pendingActivityInfoScheduledtime) msg.pendingActivityInfoExpirationtime) msg.pendingActivityInfoLastfailure) msg.pendingActivityInfoLastworkeridentity) msg.pendingActivityInfoAssignedbuildid) msg.pendingActivityInfoLastworkerversionstamp) msg.pendingActivityInfoCurrentretryinterval) msg.pendingActivityInfoLastattemptcompletetime) msg.pendingActivityInfoNextattemptscheduletime) msg.pendingActivityInfoPaused) msg.pendingActivityInfoLastdeployment) msg.pendingActivityInfoLastworkerdeploymentversion) msg.pendingActivityInfoLastdeploymentversion) msg.pendingActivityInfoPriority) msg.pendingActivityInfoPauseinfo) msg.pendingActivityInfoActivityoptions
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingActivityInfoActivityId) msg.pendingActivityInfoActivityType) msg.pendingActivityInfoState) msg.pendingActivityInfoHeartbeatDetails) msg.pendingActivityInfoLastHeartbeatTime) msg.pendingActivityInfoLastStartedTime) msg.pendingActivityInfoAttempt) msg.pendingActivityInfoMaximumAttempts) msg.pendingActivityInfoScheduledTime) msg.pendingActivityInfoExpirationTime) msg.pendingActivityInfoLastFailure) msg.pendingActivityInfoLastWorkerIdentity) msg.pendingActivityInfoAssignedBuildId) msg.pendingActivityInfoLastWorkerVersionStamp) msg.pendingActivityInfoCurrentRetryInterval) msg.pendingActivityInfoLastAttemptCompleteTime) msg.pendingActivityInfoNextAttemptScheduleTime) msg.pendingActivityInfoPaused) msg.pendingActivityInfoLastDeployment) msg.pendingActivityInfoLastWorkerDeploymentVersion) msg.pendingActivityInfoLastDeploymentVersion) msg.pendingActivityInfoPriority) msg.pendingActivityInfoPauseInfo) msg.pendingActivityInfoActivityOptions
 
 data PendingChildExecutionInfo = PendingChildExecutionInfo
-  { pendingChildExecutionInfoWorkflowid :: !Text
-  , pendingChildExecutionInfoRunid :: !Text
-  , pendingChildExecutionInfoWorkflowtypename :: !Text
-  , pendingChildExecutionInfoInitiatedid :: {-# UNPACK #-} !Int64
-  , pendingChildExecutionInfoParentclosepolicy :: !TE_Enums_V1_Workflow.ParentClosePolicy
-  , pendingChildExecutionInfoUnknownfields :: ![UnknownField]
+  { pendingChildExecutionInfoWorkflowId :: !Text
+  , pendingChildExecutionInfoRunId :: !Text
+  , pendingChildExecutionInfoWorkflowTypeName :: !Text
+  , pendingChildExecutionInfoInitiatedId :: {-# UNPACK #-} !Int64
+  , pendingChildExecutionInfoParentClosePolicy :: !TE_Enums_V1_Workflow.ParentClosePolicy
+  , pendingChildExecutionInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPendingChildExecutionInfo :: PendingChildExecutionInfo
 defaultPendingChildExecutionInfo = PendingChildExecutionInfo
-  { pendingChildExecutionInfoWorkflowid = ""
-  , pendingChildExecutionInfoRunid = ""
-  , pendingChildExecutionInfoWorkflowtypename = ""
-  , pendingChildExecutionInfoInitiatedid = 0
-  , pendingChildExecutionInfoParentclosepolicy = (toEnum 0)
-  , pendingChildExecutionInfoUnknownfields = []
+  { pendingChildExecutionInfoWorkflowId = ""
+  , pendingChildExecutionInfoRunId = ""
+  , pendingChildExecutionInfoWorkflowTypeName = ""
+  , pendingChildExecutionInfoInitiatedId = 0
+  , pendingChildExecutionInfoParentClosePolicy = (toEnum 0)
+  , pendingChildExecutionInfoUnknownFields = []
   }
 
 instance MessageEncode PendingChildExecutionInfo where
   buildMessage msg =
-    (if msg.pendingChildExecutionInfoWorkflowid == T.empty then mempty else encodeFieldString 1 msg.pendingChildExecutionInfoWorkflowid)
-    <> (if msg.pendingChildExecutionInfoRunid == T.empty then mempty else encodeFieldString 2 msg.pendingChildExecutionInfoRunid)
-    <> (if msg.pendingChildExecutionInfoWorkflowtypename == T.empty then mempty else encodeFieldString 3 msg.pendingChildExecutionInfoWorkflowtypename)
-    <> (if msg.pendingChildExecutionInfoInitiatedid == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.pendingChildExecutionInfoInitiatedid))
-    <> (if fromEnum msg.pendingChildExecutionInfoParentclosepolicy == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fromEnum msg.pendingChildExecutionInfoParentclosepolicy)))
-    <> encodeUnknownFields msg.pendingChildExecutionInfoUnknownfields
+    (if msg.pendingChildExecutionInfoWorkflowId == T.empty then mempty else encodeFieldString 1 msg.pendingChildExecutionInfoWorkflowId)
+    <> (if msg.pendingChildExecutionInfoRunId == T.empty then mempty else encodeFieldString 2 msg.pendingChildExecutionInfoRunId)
+    <> (if msg.pendingChildExecutionInfoWorkflowTypeName == T.empty then mempty else encodeFieldString 3 msg.pendingChildExecutionInfoWorkflowTypeName)
+    <> (if msg.pendingChildExecutionInfoInitiatedId == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.pendingChildExecutionInfoInitiatedId))
+    <> (if fromEnum msg.pendingChildExecutionInfoParentClosePolicy == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fromEnum msg.pendingChildExecutionInfoParentClosePolicy)))
+    <> encodeUnknownFields msg.pendingChildExecutionInfoUnknownFields
 
 instance MessageSize PendingChildExecutionInfo where
   messageSize msg =
-    (if msg.pendingChildExecutionInfoWorkflowid == T.empty then 0 else fieldTextSize 1 msg.pendingChildExecutionInfoWorkflowid)
-    + (if msg.pendingChildExecutionInfoRunid == T.empty then 0 else fieldTextSize 2 msg.pendingChildExecutionInfoRunid)
-    + (if msg.pendingChildExecutionInfoWorkflowtypename == T.empty then 0 else fieldTextSize 3 msg.pendingChildExecutionInfoWorkflowtypename)
-    + (if msg.pendingChildExecutionInfoInitiatedid == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.pendingChildExecutionInfoInitiatedid))
-    + (if fromEnum msg.pendingChildExecutionInfoParentclosepolicy == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.pendingChildExecutionInfoParentclosepolicy)))
-    + unknownFieldsSize msg.pendingChildExecutionInfoUnknownfields
+    (if msg.pendingChildExecutionInfoWorkflowId == T.empty then 0 else fieldTextSize 1 msg.pendingChildExecutionInfoWorkflowId)
+    + (if msg.pendingChildExecutionInfoRunId == T.empty then 0 else fieldTextSize 2 msg.pendingChildExecutionInfoRunId)
+    + (if msg.pendingChildExecutionInfoWorkflowTypeName == T.empty then 0 else fieldTextSize 3 msg.pendingChildExecutionInfoWorkflowTypeName)
+    + (if msg.pendingChildExecutionInfoInitiatedId == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.pendingChildExecutionInfoInitiatedId))
+    + (if fromEnum msg.pendingChildExecutionInfoParentClosePolicy == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.pendingChildExecutionInfoParentClosePolicy)))
+    + unknownFieldsSize msg.pendingChildExecutionInfoUnknownFields
 
 instance MessageDecode PendingChildExecutionInfo where
   {-# INLINE messageDecoder #-}
@@ -2157,7 +2157,7 @@ instance MessageDecode PendingChildExecutionInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PendingChildExecutionInfo {pendingChildExecutionInfoWorkflowid = acc_0, pendingChildExecutionInfoRunid = acc_1, pendingChildExecutionInfoWorkflowtypename = acc_2, pendingChildExecutionInfoInitiatedid = acc_3, pendingChildExecutionInfoParentclosepolicy = acc_4, pendingChildExecutionInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PendingChildExecutionInfo {pendingChildExecutionInfoWorkflowId = acc_0, pendingChildExecutionInfoRunId = acc_1, pendingChildExecutionInfoWorkflowTypeName = acc_2, pendingChildExecutionInfoInitiatedId = acc_3, pendingChildExecutionInfoParentClosePolicy = acc_4, pendingChildExecutionInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2192,76 +2192,76 @@ instance ProtoMessage PendingChildExecutionInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingChildExecutionInfoWorkflowid
-        , fdSet = \v m -> m { pendingChildExecutionInfoWorkflowid = v }
+        , fdGet = pendingChildExecutionInfoWorkflowId
+        , fdSet = \v m -> m { pendingChildExecutionInfoWorkflowId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingChildExecutionInfoRunid
-        , fdSet = \v m -> m { pendingChildExecutionInfoRunid = v }
+        , fdGet = pendingChildExecutionInfoRunId
+        , fdSet = \v m -> m { pendingChildExecutionInfoRunId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "workflow_type_name"
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingChildExecutionInfoWorkflowtypename
-        , fdSet = \v m -> m { pendingChildExecutionInfoWorkflowtypename = v }
+        , fdGet = pendingChildExecutionInfoWorkflowTypeName
+        , fdSet = \v m -> m { pendingChildExecutionInfoWorkflowTypeName = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "initiated_id"
         , fdNumber = 4
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = pendingChildExecutionInfoInitiatedid
-        , fdSet = \v m -> m { pendingChildExecutionInfoInitiatedid = v }
+        , fdGet = pendingChildExecutionInfoInitiatedId
+        , fdSet = \v m -> m { pendingChildExecutionInfoInitiatedId = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "parent_close_policy"
         , fdNumber = 5
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ParentClosePolicy"
         , fdLabel = LabelOptional
-        , fdGet = pendingChildExecutionInfoParentclosepolicy
-        , fdSet = \v m -> m { pendingChildExecutionInfoParentclosepolicy = v }
+        , fdGet = pendingChildExecutionInfoParentClosePolicy
+        , fdSet = \v m -> m { pendingChildExecutionInfoParentClosePolicy = v }
         })
     ]
 
 instance Aeson.ToJSON PendingChildExecutionInfo where
   toJSON msg = jsonObject
-      [ "workflowId" .=: msg.pendingChildExecutionInfoWorkflowid
-      , "runId" .=: msg.pendingChildExecutionInfoRunid
-      , "workflowTypeName" .=: msg.pendingChildExecutionInfoWorkflowtypename
-      , "initiatedId" .=: msg.pendingChildExecutionInfoInitiatedid
-      , "parentClosePolicy" .=: msg.pendingChildExecutionInfoParentclosepolicy
+      [ "workflowId" .=: msg.pendingChildExecutionInfoWorkflowId
+      , "runId" .=: msg.pendingChildExecutionInfoRunId
+      , "workflowTypeName" .=: msg.pendingChildExecutionInfoWorkflowTypeName
+      , "initiatedId" .=: msg.pendingChildExecutionInfoInitiatedId
+      , "parentClosePolicy" .=: msg.pendingChildExecutionInfoParentClosePolicy
       ]
 
 instance Aeson.FromJSON PendingChildExecutionInfo where
   parseJSON = Aeson.withObject "PendingChildExecutionInfo" $ \obj -> do
-    fld_pendingChildExecutionInfoWorkflowid <- parseFieldMaybe obj "workflowId"
-    fld_pendingChildExecutionInfoRunid <- parseFieldMaybe obj "runId"
-    fld_pendingChildExecutionInfoWorkflowtypename <- parseFieldMaybe obj "workflowTypeName"
-    fld_pendingChildExecutionInfoInitiatedid <- parseFieldMaybe obj "initiatedId"
-    fld_pendingChildExecutionInfoParentclosepolicy <- parseFieldMaybe obj "parentClosePolicy"
+    fld_pendingChildExecutionInfoWorkflowId <- parseFieldMaybe obj "workflowId"
+    fld_pendingChildExecutionInfoRunId <- parseFieldMaybe obj "runId"
+    fld_pendingChildExecutionInfoWorkflowTypeName <- parseFieldMaybe obj "workflowTypeName"
+    fld_pendingChildExecutionInfoInitiatedId <- parseFieldMaybe obj "initiatedId"
+    fld_pendingChildExecutionInfoParentClosePolicy <- parseFieldMaybe obj "parentClosePolicy"
     pure defaultPendingChildExecutionInfo
-      { pendingChildExecutionInfoWorkflowid = maybe (pendingChildExecutionInfoWorkflowid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoWorkflowid
-      , pendingChildExecutionInfoRunid = maybe (pendingChildExecutionInfoRunid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoRunid
-      , pendingChildExecutionInfoWorkflowtypename = maybe (pendingChildExecutionInfoWorkflowtypename defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoWorkflowtypename
-      , pendingChildExecutionInfoInitiatedid = maybe (pendingChildExecutionInfoInitiatedid defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoInitiatedid
-      , pendingChildExecutionInfoParentclosepolicy = maybe (pendingChildExecutionInfoParentclosepolicy defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoParentclosepolicy
+      { pendingChildExecutionInfoWorkflowId = maybe (pendingChildExecutionInfoWorkflowId defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoWorkflowId
+      , pendingChildExecutionInfoRunId = maybe (pendingChildExecutionInfoRunId defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoRunId
+      , pendingChildExecutionInfoWorkflowTypeName = maybe (pendingChildExecutionInfoWorkflowTypeName defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoWorkflowTypeName
+      , pendingChildExecutionInfoInitiatedId = maybe (pendingChildExecutionInfoInitiatedId defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoInitiatedId
+      , pendingChildExecutionInfoParentClosePolicy = maybe (pendingChildExecutionInfoParentClosePolicy defaultPendingChildExecutionInfo) id fld_pendingChildExecutionInfoParentClosePolicy
       }
 
 instance Hashable PendingChildExecutionInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingChildExecutionInfoWorkflowid) msg.pendingChildExecutionInfoRunid) msg.pendingChildExecutionInfoWorkflowtypename) msg.pendingChildExecutionInfoInitiatedid) msg.pendingChildExecutionInfoParentclosepolicy
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingChildExecutionInfoWorkflowId) msg.pendingChildExecutionInfoRunId) msg.pendingChildExecutionInfoWorkflowTypeName) msg.pendingChildExecutionInfoInitiatedId) msg.pendingChildExecutionInfoParentClosePolicy
 
 data PendingWorkflowTaskInfo = PendingWorkflowTaskInfo
   { pendingWorkflowTaskInfoState :: !TE_Enums_V1_Workflow.PendingWorkflowTaskState
-  , pendingWorkflowTaskInfoScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingWorkflowTaskInfoOriginalscheduledtime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingWorkflowTaskInfoStartedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingWorkflowTaskInfoScheduledTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingWorkflowTaskInfoOriginalScheduledTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingWorkflowTaskInfoStartedTime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingWorkflowTaskInfoAttempt :: {-# UNPACK #-} !Int32
-  , pendingWorkflowTaskInfoUnknownfields :: ![UnknownField]
+  , pendingWorkflowTaskInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2269,30 +2269,30 @@ data PendingWorkflowTaskInfo = PendingWorkflowTaskInfo
 defaultPendingWorkflowTaskInfo :: PendingWorkflowTaskInfo
 defaultPendingWorkflowTaskInfo = PendingWorkflowTaskInfo
   { pendingWorkflowTaskInfoState = (toEnum 0)
-  , pendingWorkflowTaskInfoScheduledtime = Nothing
-  , pendingWorkflowTaskInfoOriginalscheduledtime = Nothing
-  , pendingWorkflowTaskInfoStartedtime = Nothing
+  , pendingWorkflowTaskInfoScheduledTime = Nothing
+  , pendingWorkflowTaskInfoOriginalScheduledTime = Nothing
+  , pendingWorkflowTaskInfoStartedTime = Nothing
   , pendingWorkflowTaskInfoAttempt = 0
-  , pendingWorkflowTaskInfoUnknownfields = []
+  , pendingWorkflowTaskInfoUnknownFields = []
   }
 
 instance MessageEncode PendingWorkflowTaskInfo where
   buildMessage msg =
     (if fromEnum msg.pendingWorkflowTaskInfoState == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.pendingWorkflowTaskInfoState)))
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.pendingWorkflowTaskInfoScheduledtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.pendingWorkflowTaskInfoOriginalscheduledtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.pendingWorkflowTaskInfoStartedtime)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.pendingWorkflowTaskInfoScheduledTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.pendingWorkflowTaskInfoOriginalScheduledTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.pendingWorkflowTaskInfoStartedTime)
     <> (if msg.pendingWorkflowTaskInfoAttempt == 0 then mempty else encodeFieldVarint 5 (fromIntegral msg.pendingWorkflowTaskInfoAttempt))
-    <> encodeUnknownFields msg.pendingWorkflowTaskInfoUnknownfields
+    <> encodeUnknownFields msg.pendingWorkflowTaskInfoUnknownFields
 
 instance MessageSize PendingWorkflowTaskInfo where
   messageSize msg =
     (if fromEnum msg.pendingWorkflowTaskInfoState == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.pendingWorkflowTaskInfoState)))
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.pendingWorkflowTaskInfoScheduledtime)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.pendingWorkflowTaskInfoOriginalscheduledtime)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.pendingWorkflowTaskInfoStartedtime)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.pendingWorkflowTaskInfoScheduledTime)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.pendingWorkflowTaskInfoOriginalScheduledTime)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.pendingWorkflowTaskInfoStartedTime)
     + (if msg.pendingWorkflowTaskInfoAttempt == 0 then 0 else fieldVarintSize 5 (fromIntegral msg.pendingWorkflowTaskInfoAttempt))
-    + unknownFieldsSize msg.pendingWorkflowTaskInfoUnknownfields
+    + unknownFieldsSize msg.pendingWorkflowTaskInfoUnknownFields
 
 instance MessageDecode PendingWorkflowTaskInfo where
   {-# INLINE messageDecoder #-}
@@ -2301,7 +2301,7 @@ instance MessageDecode PendingWorkflowTaskInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PendingWorkflowTaskInfo {pendingWorkflowTaskInfoState = acc_0, pendingWorkflowTaskInfoScheduledtime = acc_1, pendingWorkflowTaskInfoOriginalscheduledtime = acc_2, pendingWorkflowTaskInfoStartedtime = acc_3, pendingWorkflowTaskInfoAttempt = acc_4, pendingWorkflowTaskInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PendingWorkflowTaskInfo {pendingWorkflowTaskInfoState = acc_0, pendingWorkflowTaskInfoScheduledTime = acc_1, pendingWorkflowTaskInfoOriginalScheduledTime = acc_2, pendingWorkflowTaskInfoStartedTime = acc_3, pendingWorkflowTaskInfoAttempt = acc_4, pendingWorkflowTaskInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -2343,24 +2343,24 @@ instance ProtoMessage PendingWorkflowTaskInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingWorkflowTaskInfoScheduledtime
-        , fdSet = \v m -> m { pendingWorkflowTaskInfoScheduledtime = v }
+        , fdGet = pendingWorkflowTaskInfoScheduledTime
+        , fdSet = \v m -> m { pendingWorkflowTaskInfoScheduledTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "original_scheduled_time"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingWorkflowTaskInfoOriginalscheduledtime
-        , fdSet = \v m -> m { pendingWorkflowTaskInfoOriginalscheduledtime = v }
+        , fdGet = pendingWorkflowTaskInfoOriginalScheduledTime
+        , fdSet = \v m -> m { pendingWorkflowTaskInfoOriginalScheduledTime = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "started_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingWorkflowTaskInfoStartedtime
-        , fdSet = \v m -> m { pendingWorkflowTaskInfoStartedtime = v }
+        , fdGet = pendingWorkflowTaskInfoStartedTime
+        , fdSet = \v m -> m { pendingWorkflowTaskInfoStartedTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "attempt"
@@ -2375,33 +2375,33 @@ instance ProtoMessage PendingWorkflowTaskInfo where
 instance Aeson.ToJSON PendingWorkflowTaskInfo where
   toJSON msg = jsonObject
       [ "state" .=: msg.pendingWorkflowTaskInfoState
-      , "scheduledTime" .=: msg.pendingWorkflowTaskInfoScheduledtime
-      , "originalScheduledTime" .=: msg.pendingWorkflowTaskInfoOriginalscheduledtime
-      , "startedTime" .=: msg.pendingWorkflowTaskInfoStartedtime
+      , "scheduledTime" .=: msg.pendingWorkflowTaskInfoScheduledTime
+      , "originalScheduledTime" .=: msg.pendingWorkflowTaskInfoOriginalScheduledTime
+      , "startedTime" .=: msg.pendingWorkflowTaskInfoStartedTime
       , "attempt" .=: msg.pendingWorkflowTaskInfoAttempt
       ]
 
 instance Aeson.FromJSON PendingWorkflowTaskInfo where
   parseJSON = Aeson.withObject "PendingWorkflowTaskInfo" $ \obj -> do
     fld_pendingWorkflowTaskInfoState <- parseFieldMaybe obj "state"
-    fld_pendingWorkflowTaskInfoScheduledtime <- parseFieldMaybe obj "scheduledTime"
-    fld_pendingWorkflowTaskInfoOriginalscheduledtime <- parseFieldMaybe obj "originalScheduledTime"
-    fld_pendingWorkflowTaskInfoStartedtime <- parseFieldMaybe obj "startedTime"
+    fld_pendingWorkflowTaskInfoScheduledTime <- parseFieldMaybe obj "scheduledTime"
+    fld_pendingWorkflowTaskInfoOriginalScheduledTime <- parseFieldMaybe obj "originalScheduledTime"
+    fld_pendingWorkflowTaskInfoStartedTime <- parseFieldMaybe obj "startedTime"
     fld_pendingWorkflowTaskInfoAttempt <- parseFieldMaybe obj "attempt"
     pure defaultPendingWorkflowTaskInfo
       { pendingWorkflowTaskInfoState = maybe (pendingWorkflowTaskInfoState defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoState
-      , pendingWorkflowTaskInfoScheduledtime = maybe (pendingWorkflowTaskInfoScheduledtime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoScheduledtime
-      , pendingWorkflowTaskInfoOriginalscheduledtime = maybe (pendingWorkflowTaskInfoOriginalscheduledtime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoOriginalscheduledtime
-      , pendingWorkflowTaskInfoStartedtime = maybe (pendingWorkflowTaskInfoStartedtime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoStartedtime
+      , pendingWorkflowTaskInfoScheduledTime = maybe (pendingWorkflowTaskInfoScheduledTime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoScheduledTime
+      , pendingWorkflowTaskInfoOriginalScheduledTime = maybe (pendingWorkflowTaskInfoOriginalScheduledTime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoOriginalScheduledTime
+      , pendingWorkflowTaskInfoStartedTime = maybe (pendingWorkflowTaskInfoStartedTime defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoStartedTime
       , pendingWorkflowTaskInfoAttempt = maybe (pendingWorkflowTaskInfoAttempt defaultPendingWorkflowTaskInfo) id fld_pendingWorkflowTaskInfoAttempt
       }
 
 instance Hashable PendingWorkflowTaskInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingWorkflowTaskInfoState) msg.pendingWorkflowTaskInfoScheduledtime) msg.pendingWorkflowTaskInfoOriginalscheduledtime) msg.pendingWorkflowTaskInfoStartedtime) msg.pendingWorkflowTaskInfoAttempt
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingWorkflowTaskInfoState) msg.pendingWorkflowTaskInfoScheduledTime) msg.pendingWorkflowTaskInfoOriginalScheduledTime) msg.pendingWorkflowTaskInfoStartedTime) msg.pendingWorkflowTaskInfoAttempt
 
 data ResetPoints = ResetPoints
   { resetPointsPoints :: !(V.Vector ResetPointInfo)
-  , resetPointsUnknownfields :: ![UnknownField]
+  , resetPointsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2409,18 +2409,18 @@ data ResetPoints = ResetPoints
 defaultResetPoints :: ResetPoints
 defaultResetPoints = ResetPoints
   { resetPointsPoints = V.empty
-  , resetPointsUnknownfields = []
+  , resetPointsUnknownFields = []
   }
 
 instance MessageEncode ResetPoints where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.resetPointsPoints
-    <> encodeUnknownFields msg.resetPointsUnknownfields
+    <> encodeUnknownFields msg.resetPointsUnknownFields
 
 instance MessageSize ResetPoints where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.resetPointsPoints)
-    + unknownFieldsSize msg.resetPointsUnknownfields
+    + unknownFieldsSize msg.resetPointsUnknownFields
 
 instance MessageDecode ResetPoints where
   {-# INLINE messageDecoder #-}
@@ -2429,7 +2429,7 @@ instance MessageDecode ResetPoints where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ResetPoints {resetPointsPoints = acc_0, resetPointsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ResetPoints {resetPointsPoints = acc_0, resetPointsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2474,51 +2474,51 @@ instance Hashable ResetPoints where
   hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.resetPointsPoints
 
 data ResetPointInfo = ResetPointInfo
-  { resetPointInfoBuildid :: !Text
-  , resetPointInfoBinarychecksum :: !Text
-  , resetPointInfoRunid :: !Text
-  , resetPointInfoFirstworkflowtaskcompletedid :: {-# UNPACK #-} !Int64
-  , resetPointInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , resetPointInfoExpiretime :: !(Maybe PB_Timestamp.Timestamp)
+  { resetPointInfoBuildId :: !Text
+  , resetPointInfoBinaryChecksum :: !Text
+  , resetPointInfoRunId :: !Text
+  , resetPointInfoFirstWorkflowTaskCompletedId :: {-# UNPACK #-} !Int64
+  , resetPointInfoCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , resetPointInfoExpireTime :: !(Maybe PB_Timestamp.Timestamp)
   , resetPointInfoResettable :: {-# UNPACK #-} !Bool
-  , resetPointInfoUnknownfields :: ![UnknownField]
+  , resetPointInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultResetPointInfo :: ResetPointInfo
 defaultResetPointInfo = ResetPointInfo
-  { resetPointInfoBuildid = ""
-  , resetPointInfoBinarychecksum = ""
-  , resetPointInfoRunid = ""
-  , resetPointInfoFirstworkflowtaskcompletedid = 0
-  , resetPointInfoCreatetime = Nothing
-  , resetPointInfoExpiretime = Nothing
+  { resetPointInfoBuildId = ""
+  , resetPointInfoBinaryChecksum = ""
+  , resetPointInfoRunId = ""
+  , resetPointInfoFirstWorkflowTaskCompletedId = 0
+  , resetPointInfoCreateTime = Nothing
+  , resetPointInfoExpireTime = Nothing
   , resetPointInfoResettable = False
-  , resetPointInfoUnknownfields = []
+  , resetPointInfoUnknownFields = []
   }
 
 instance MessageEncode ResetPointInfo where
   buildMessage msg =
-    (if msg.resetPointInfoBuildid == T.empty then mempty else encodeFieldString 7 msg.resetPointInfoBuildid)
-    <> (if msg.resetPointInfoBinarychecksum == T.empty then mempty else encodeFieldString 1 msg.resetPointInfoBinarychecksum)
-    <> (if msg.resetPointInfoRunid == T.empty then mempty else encodeFieldString 2 msg.resetPointInfoRunid)
-    <> (if msg.resetPointInfoFirstworkflowtaskcompletedid == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.resetPointInfoFirstworkflowtaskcompletedid))
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.resetPointInfoCreatetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.resetPointInfoExpiretime)
+    (if msg.resetPointInfoBuildId == T.empty then mempty else encodeFieldString 7 msg.resetPointInfoBuildId)
+    <> (if msg.resetPointInfoBinaryChecksum == T.empty then mempty else encodeFieldString 1 msg.resetPointInfoBinaryChecksum)
+    <> (if msg.resetPointInfoRunId == T.empty then mempty else encodeFieldString 2 msg.resetPointInfoRunId)
+    <> (if msg.resetPointInfoFirstWorkflowTaskCompletedId == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.resetPointInfoFirstWorkflowTaskCompletedId))
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.resetPointInfoCreateTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.resetPointInfoExpireTime)
     <> (if msg.resetPointInfoResettable == False then mempty else encodeFieldBool 6 msg.resetPointInfoResettable)
-    <> encodeUnknownFields msg.resetPointInfoUnknownfields
+    <> encodeUnknownFields msg.resetPointInfoUnknownFields
 
 instance MessageSize ResetPointInfo where
   messageSize msg =
-    (if msg.resetPointInfoBuildid == T.empty then 0 else fieldTextSize 7 msg.resetPointInfoBuildid)
-    + (if msg.resetPointInfoBinarychecksum == T.empty then 0 else fieldTextSize 1 msg.resetPointInfoBinarychecksum)
-    + (if msg.resetPointInfoRunid == T.empty then 0 else fieldTextSize 2 msg.resetPointInfoRunid)
-    + (if msg.resetPointInfoFirstworkflowtaskcompletedid == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.resetPointInfoFirstworkflowtaskcompletedid))
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.resetPointInfoCreatetime)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.resetPointInfoExpiretime)
+    (if msg.resetPointInfoBuildId == T.empty then 0 else fieldTextSize 7 msg.resetPointInfoBuildId)
+    + (if msg.resetPointInfoBinaryChecksum == T.empty then 0 else fieldTextSize 1 msg.resetPointInfoBinaryChecksum)
+    + (if msg.resetPointInfoRunId == T.empty then 0 else fieldTextSize 2 msg.resetPointInfoRunId)
+    + (if msg.resetPointInfoFirstWorkflowTaskCompletedId == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.resetPointInfoFirstWorkflowTaskCompletedId))
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.resetPointInfoCreateTime)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.resetPointInfoExpireTime)
     + (if msg.resetPointInfoResettable == False then 0 else fieldBoolSize 6)
-    + unknownFieldsSize msg.resetPointInfoUnknownfields
+    + unknownFieldsSize msg.resetPointInfoUnknownFields
 
 instance MessageDecode ResetPointInfo where
   {-# INLINE messageDecoder #-}
@@ -2527,7 +2527,7 @@ instance MessageDecode ResetPointInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ResetPointInfo {resetPointInfoBuildid = acc_0, resetPointInfoBinarychecksum = acc_1, resetPointInfoRunid = acc_2, resetPointInfoFirstworkflowtaskcompletedid = acc_3, resetPointInfoCreatetime = acc_4, resetPointInfoExpiretime = acc_5, resetPointInfoResettable = acc_6, resetPointInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ResetPointInfo {resetPointInfoBuildId = acc_0, resetPointInfoBinaryChecksum = acc_1, resetPointInfoRunId = acc_2, resetPointInfoFirstWorkflowTaskCompletedId = acc_3, resetPointInfoCreateTime = acc_4, resetPointInfoExpireTime = acc_5, resetPointInfoResettable = acc_6, resetPointInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             7 -> do
               v <- decodeFieldString
@@ -2568,47 +2568,47 @@ instance ProtoMessage ResetPointInfo where
         , fdNumber = 7
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = resetPointInfoBuildid
-        , fdSet = \v m -> m { resetPointInfoBuildid = v }
+        , fdGet = resetPointInfoBuildId
+        , fdSet = \v m -> m { resetPointInfoBuildId = v }
         }), (1, SomeField FieldDescriptor
         { fdName = "binary_checksum"
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = resetPointInfoBinarychecksum
-        , fdSet = \v m -> m { resetPointInfoBinarychecksum = v }
+        , fdGet = resetPointInfoBinaryChecksum
+        , fdSet = \v m -> m { resetPointInfoBinaryChecksum = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = resetPointInfoRunid
-        , fdSet = \v m -> m { resetPointInfoRunid = v }
+        , fdGet = resetPointInfoRunId
+        , fdSet = \v m -> m { resetPointInfoRunId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "first_workflow_task_completed_id"
         , fdNumber = 3
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = resetPointInfoFirstworkflowtaskcompletedid
-        , fdSet = \v m -> m { resetPointInfoFirstworkflowtaskcompletedid = v }
+        , fdGet = resetPointInfoFirstWorkflowTaskCompletedId
+        , fdSet = \v m -> m { resetPointInfoFirstWorkflowTaskCompletedId = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "create_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = resetPointInfoCreatetime
-        , fdSet = \v m -> m { resetPointInfoCreatetime = v }
+        , fdGet = resetPointInfoCreateTime
+        , fdSet = \v m -> m { resetPointInfoCreateTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "expire_time"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = resetPointInfoExpiretime
-        , fdSet = \v m -> m { resetPointInfoExpiretime = v }
+        , fdGet = resetPointInfoExpireTime
+        , fdSet = \v m -> m { resetPointInfoExpireTime = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "resettable"
@@ -2622,119 +2622,119 @@ instance ProtoMessage ResetPointInfo where
 
 instance Aeson.ToJSON ResetPointInfo where
   toJSON msg = jsonObject
-      [ "buildId" .=: msg.resetPointInfoBuildid
-      , "binaryChecksum" .=: msg.resetPointInfoBinarychecksum
-      , "runId" .=: msg.resetPointInfoRunid
-      , "firstWorkflowTaskCompletedId" .=: msg.resetPointInfoFirstworkflowtaskcompletedid
-      , "createTime" .=: msg.resetPointInfoCreatetime
-      , "expireTime" .=: msg.resetPointInfoExpiretime
+      [ "buildId" .=: msg.resetPointInfoBuildId
+      , "binaryChecksum" .=: msg.resetPointInfoBinaryChecksum
+      , "runId" .=: msg.resetPointInfoRunId
+      , "firstWorkflowTaskCompletedId" .=: msg.resetPointInfoFirstWorkflowTaskCompletedId
+      , "createTime" .=: msg.resetPointInfoCreateTime
+      , "expireTime" .=: msg.resetPointInfoExpireTime
       , "resettable" .=: msg.resetPointInfoResettable
       ]
 
 instance Aeson.FromJSON ResetPointInfo where
   parseJSON = Aeson.withObject "ResetPointInfo" $ \obj -> do
-    fld_resetPointInfoBuildid <- parseFieldMaybe obj "buildId"
-    fld_resetPointInfoBinarychecksum <- parseFieldMaybe obj "binaryChecksum"
-    fld_resetPointInfoRunid <- parseFieldMaybe obj "runId"
-    fld_resetPointInfoFirstworkflowtaskcompletedid <- parseFieldMaybe obj "firstWorkflowTaskCompletedId"
-    fld_resetPointInfoCreatetime <- parseFieldMaybe obj "createTime"
-    fld_resetPointInfoExpiretime <- parseFieldMaybe obj "expireTime"
+    fld_resetPointInfoBuildId <- parseFieldMaybe obj "buildId"
+    fld_resetPointInfoBinaryChecksum <- parseFieldMaybe obj "binaryChecksum"
+    fld_resetPointInfoRunId <- parseFieldMaybe obj "runId"
+    fld_resetPointInfoFirstWorkflowTaskCompletedId <- parseFieldMaybe obj "firstWorkflowTaskCompletedId"
+    fld_resetPointInfoCreateTime <- parseFieldMaybe obj "createTime"
+    fld_resetPointInfoExpireTime <- parseFieldMaybe obj "expireTime"
     fld_resetPointInfoResettable <- parseFieldMaybe obj "resettable"
     pure defaultResetPointInfo
-      { resetPointInfoBuildid = maybe (resetPointInfoBuildid defaultResetPointInfo) id fld_resetPointInfoBuildid
-      , resetPointInfoBinarychecksum = maybe (resetPointInfoBinarychecksum defaultResetPointInfo) id fld_resetPointInfoBinarychecksum
-      , resetPointInfoRunid = maybe (resetPointInfoRunid defaultResetPointInfo) id fld_resetPointInfoRunid
-      , resetPointInfoFirstworkflowtaskcompletedid = maybe (resetPointInfoFirstworkflowtaskcompletedid defaultResetPointInfo) id fld_resetPointInfoFirstworkflowtaskcompletedid
-      , resetPointInfoCreatetime = maybe (resetPointInfoCreatetime defaultResetPointInfo) id fld_resetPointInfoCreatetime
-      , resetPointInfoExpiretime = maybe (resetPointInfoExpiretime defaultResetPointInfo) id fld_resetPointInfoExpiretime
+      { resetPointInfoBuildId = maybe (resetPointInfoBuildId defaultResetPointInfo) id fld_resetPointInfoBuildId
+      , resetPointInfoBinaryChecksum = maybe (resetPointInfoBinaryChecksum defaultResetPointInfo) id fld_resetPointInfoBinaryChecksum
+      , resetPointInfoRunId = maybe (resetPointInfoRunId defaultResetPointInfo) id fld_resetPointInfoRunId
+      , resetPointInfoFirstWorkflowTaskCompletedId = maybe (resetPointInfoFirstWorkflowTaskCompletedId defaultResetPointInfo) id fld_resetPointInfoFirstWorkflowTaskCompletedId
+      , resetPointInfoCreateTime = maybe (resetPointInfoCreateTime defaultResetPointInfo) id fld_resetPointInfoCreateTime
+      , resetPointInfoExpireTime = maybe (resetPointInfoExpireTime defaultResetPointInfo) id fld_resetPointInfoExpireTime
       , resetPointInfoResettable = maybe (resetPointInfoResettable defaultResetPointInfo) id fld_resetPointInfoResettable
       }
 
 instance Hashable ResetPointInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.resetPointInfoBuildid) msg.resetPointInfoBinarychecksum) msg.resetPointInfoRunid) msg.resetPointInfoFirstworkflowtaskcompletedid) msg.resetPointInfoCreatetime) msg.resetPointInfoExpiretime) msg.resetPointInfoResettable
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.resetPointInfoBuildId) msg.resetPointInfoBinaryChecksum) msg.resetPointInfoRunId) msg.resetPointInfoFirstWorkflowTaskCompletedId) msg.resetPointInfoCreateTime) msg.resetPointInfoExpireTime) msg.resetPointInfoResettable
 
 data NewWorkflowExecutionInfo = NewWorkflowExecutionInfo
-  { newWorkflowExecutionInfoWorkflowid :: !Text
-  , newWorkflowExecutionInfoWorkflowtype :: !(Maybe TE_Common_V1_Message.WorkflowType)
-  , newWorkflowExecutionInfoTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
+  { newWorkflowExecutionInfoWorkflowId :: !Text
+  , newWorkflowExecutionInfoWorkflowType :: !(Maybe TE_Common_V1_Message.WorkflowType)
+  , newWorkflowExecutionInfoTaskQueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
   , newWorkflowExecutionInfoInput :: !(Maybe TE_Common_V1_Message.Payloads)
-  , newWorkflowExecutionInfoWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
-  , newWorkflowExecutionInfoWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
-  , newWorkflowExecutionInfoWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
-  , newWorkflowExecutionInfoWorkflowidreusepolicy :: !TE_Enums_V1_Workflow.WorkflowIdReusePolicy
-  , newWorkflowExecutionInfoRetrypolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
-  , newWorkflowExecutionInfoCronschedule :: !Text
+  , newWorkflowExecutionInfoWorkflowExecutionTimeout :: !(Maybe PB_Duration.Duration)
+  , newWorkflowExecutionInfoWorkflowRunTimeout :: !(Maybe PB_Duration.Duration)
+  , newWorkflowExecutionInfoWorkflowTaskTimeout :: !(Maybe PB_Duration.Duration)
+  , newWorkflowExecutionInfoWorkflowIdReusePolicy :: !TE_Enums_V1_Workflow.WorkflowIdReusePolicy
+  , newWorkflowExecutionInfoRetryPolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
+  , newWorkflowExecutionInfoCronSchedule :: !Text
   , newWorkflowExecutionInfoMemo :: !(Maybe TE_Common_V1_Message.Memo)
-  , newWorkflowExecutionInfoSearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
+  , newWorkflowExecutionInfoSearchAttributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
   , newWorkflowExecutionInfoHeader :: !(Maybe TE_Common_V1_Message.Header)
-  , newWorkflowExecutionInfoUsermetadata :: !(Maybe TE_Sdk_V1_UserMetadata.UserMetadata)
-  , newWorkflowExecutionInfoVersioningoverride :: !(Maybe VersioningOverride)
+  , newWorkflowExecutionInfoUserMetadata :: !(Maybe TE_Sdk_V1_UserMetadata.UserMetadata)
+  , newWorkflowExecutionInfoVersioningOverride :: !(Maybe VersioningOverride)
   , newWorkflowExecutionInfoPriority :: !(Maybe TE_Common_V1_Message.Priority)
-  , newWorkflowExecutionInfoUnknownfields :: ![UnknownField]
+  , newWorkflowExecutionInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNewWorkflowExecutionInfo :: NewWorkflowExecutionInfo
 defaultNewWorkflowExecutionInfo = NewWorkflowExecutionInfo
-  { newWorkflowExecutionInfoWorkflowid = ""
-  , newWorkflowExecutionInfoWorkflowtype = Nothing
-  , newWorkflowExecutionInfoTaskqueue = Nothing
+  { newWorkflowExecutionInfoWorkflowId = ""
+  , newWorkflowExecutionInfoWorkflowType = Nothing
+  , newWorkflowExecutionInfoTaskQueue = Nothing
   , newWorkflowExecutionInfoInput = Nothing
-  , newWorkflowExecutionInfoWorkflowexecutiontimeout = Nothing
-  , newWorkflowExecutionInfoWorkflowruntimeout = Nothing
-  , newWorkflowExecutionInfoWorkflowtasktimeout = Nothing
-  , newWorkflowExecutionInfoWorkflowidreusepolicy = (toEnum 0)
-  , newWorkflowExecutionInfoRetrypolicy = Nothing
-  , newWorkflowExecutionInfoCronschedule = ""
+  , newWorkflowExecutionInfoWorkflowExecutionTimeout = Nothing
+  , newWorkflowExecutionInfoWorkflowRunTimeout = Nothing
+  , newWorkflowExecutionInfoWorkflowTaskTimeout = Nothing
+  , newWorkflowExecutionInfoWorkflowIdReusePolicy = (toEnum 0)
+  , newWorkflowExecutionInfoRetryPolicy = Nothing
+  , newWorkflowExecutionInfoCronSchedule = ""
   , newWorkflowExecutionInfoMemo = Nothing
-  , newWorkflowExecutionInfoSearchattributes = Nothing
+  , newWorkflowExecutionInfoSearchAttributes = Nothing
   , newWorkflowExecutionInfoHeader = Nothing
-  , newWorkflowExecutionInfoUsermetadata = Nothing
-  , newWorkflowExecutionInfoVersioningoverride = Nothing
+  , newWorkflowExecutionInfoUserMetadata = Nothing
+  , newWorkflowExecutionInfoVersioningOverride = Nothing
   , newWorkflowExecutionInfoPriority = Nothing
-  , newWorkflowExecutionInfoUnknownfields = []
+  , newWorkflowExecutionInfoUnknownFields = []
   }
 
 instance MessageEncode NewWorkflowExecutionInfo where
   buildMessage msg =
-    (if msg.newWorkflowExecutionInfoWorkflowid == T.empty then mempty else encodeFieldString 1 msg.newWorkflowExecutionInfoWorkflowid)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.newWorkflowExecutionInfoWorkflowtype)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.newWorkflowExecutionInfoTaskqueue)
+    (if msg.newWorkflowExecutionInfoWorkflowId == T.empty then mempty else encodeFieldString 1 msg.newWorkflowExecutionInfoWorkflowId)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.newWorkflowExecutionInfoWorkflowType)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.newWorkflowExecutionInfoTaskQueue)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.newWorkflowExecutionInfoInput)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.newWorkflowExecutionInfoWorkflowexecutiontimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.newWorkflowExecutionInfoWorkflowruntimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.newWorkflowExecutionInfoWorkflowtasktimeout)
-    <> (if fromEnum msg.newWorkflowExecutionInfoWorkflowidreusepolicy == 0 then mempty else encodeFieldVarint 8 (fromIntegral (fromEnum msg.newWorkflowExecutionInfoWorkflowidreusepolicy)))
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.newWorkflowExecutionInfoRetrypolicy)
-    <> (if msg.newWorkflowExecutionInfoCronschedule == T.empty then mempty else encodeFieldString 10 msg.newWorkflowExecutionInfoCronschedule)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.newWorkflowExecutionInfoWorkflowExecutionTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.newWorkflowExecutionInfoWorkflowRunTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.newWorkflowExecutionInfoWorkflowTaskTimeout)
+    <> (if fromEnum msg.newWorkflowExecutionInfoWorkflowIdReusePolicy == 0 then mempty else encodeFieldVarint 8 (fromIntegral (fromEnum msg.newWorkflowExecutionInfoWorkflowIdReusePolicy)))
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.newWorkflowExecutionInfoRetryPolicy)
+    <> (if msg.newWorkflowExecutionInfoCronSchedule == T.empty then mempty else encodeFieldString 10 msg.newWorkflowExecutionInfoCronSchedule)
     <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.newWorkflowExecutionInfoMemo)
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.newWorkflowExecutionInfoSearchattributes)
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.newWorkflowExecutionInfoSearchAttributes)
     <> (maybe mempty (\v -> encodeFieldMessage 13 v) msg.newWorkflowExecutionInfoHeader)
-    <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.newWorkflowExecutionInfoUsermetadata)
-    <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.newWorkflowExecutionInfoVersioningoverride)
+    <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.newWorkflowExecutionInfoUserMetadata)
+    <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.newWorkflowExecutionInfoVersioningOverride)
     <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.newWorkflowExecutionInfoPriority)
-    <> encodeUnknownFields msg.newWorkflowExecutionInfoUnknownfields
+    <> encodeUnknownFields msg.newWorkflowExecutionInfoUnknownFields
 
 instance MessageSize NewWorkflowExecutionInfo where
   messageSize msg =
-    (if msg.newWorkflowExecutionInfoWorkflowid == T.empty then 0 else fieldTextSize 1 msg.newWorkflowExecutionInfoWorkflowid)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.newWorkflowExecutionInfoWorkflowtype)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.newWorkflowExecutionInfoTaskqueue)
+    (if msg.newWorkflowExecutionInfoWorkflowId == T.empty then 0 else fieldTextSize 1 msg.newWorkflowExecutionInfoWorkflowId)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.newWorkflowExecutionInfoWorkflowType)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.newWorkflowExecutionInfoTaskQueue)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.newWorkflowExecutionInfoInput)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.newWorkflowExecutionInfoWorkflowexecutiontimeout)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.newWorkflowExecutionInfoWorkflowruntimeout)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.newWorkflowExecutionInfoWorkflowtasktimeout)
-    + (if fromEnum msg.newWorkflowExecutionInfoWorkflowidreusepolicy == 0 then 0 else fieldVarintSize 8 (fromIntegral (fromEnum msg.newWorkflowExecutionInfoWorkflowidreusepolicy)))
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.newWorkflowExecutionInfoRetrypolicy)
-    + (if msg.newWorkflowExecutionInfoCronschedule == T.empty then 0 else fieldTextSize 10 msg.newWorkflowExecutionInfoCronschedule)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.newWorkflowExecutionInfoWorkflowExecutionTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.newWorkflowExecutionInfoWorkflowRunTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.newWorkflowExecutionInfoWorkflowTaskTimeout)
+    + (if fromEnum msg.newWorkflowExecutionInfoWorkflowIdReusePolicy == 0 then 0 else fieldVarintSize 8 (fromIntegral (fromEnum msg.newWorkflowExecutionInfoWorkflowIdReusePolicy)))
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.newWorkflowExecutionInfoRetryPolicy)
+    + (if msg.newWorkflowExecutionInfoCronSchedule == T.empty then 0 else fieldTextSize 10 msg.newWorkflowExecutionInfoCronSchedule)
     + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.newWorkflowExecutionInfoMemo)
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.newWorkflowExecutionInfoSearchattributes)
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.newWorkflowExecutionInfoSearchAttributes)
     + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.newWorkflowExecutionInfoHeader)
-    + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.newWorkflowExecutionInfoUsermetadata)
-    + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.newWorkflowExecutionInfoVersioningoverride)
+    + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.newWorkflowExecutionInfoUserMetadata)
+    + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.newWorkflowExecutionInfoVersioningOverride)
     + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.newWorkflowExecutionInfoPriority)
-    + unknownFieldsSize msg.newWorkflowExecutionInfoUnknownfields
+    + unknownFieldsSize msg.newWorkflowExecutionInfoUnknownFields
 
 instance MessageDecode NewWorkflowExecutionInfo where
   {-# INLINE messageDecoder #-}
@@ -2743,7 +2743,7 @@ instance MessageDecode NewWorkflowExecutionInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NewWorkflowExecutionInfo {newWorkflowExecutionInfoWorkflowid = acc_0, newWorkflowExecutionInfoWorkflowtype = acc_1, newWorkflowExecutionInfoTaskqueue = acc_2, newWorkflowExecutionInfoInput = acc_3, newWorkflowExecutionInfoWorkflowexecutiontimeout = acc_4, newWorkflowExecutionInfoWorkflowruntimeout = acc_5, newWorkflowExecutionInfoWorkflowtasktimeout = acc_6, newWorkflowExecutionInfoWorkflowidreusepolicy = acc_7, newWorkflowExecutionInfoRetrypolicy = acc_8, newWorkflowExecutionInfoCronschedule = acc_9, newWorkflowExecutionInfoMemo = acc_10, newWorkflowExecutionInfoSearchattributes = acc_11, newWorkflowExecutionInfoHeader = acc_12, newWorkflowExecutionInfoUsermetadata = acc_13, newWorkflowExecutionInfoVersioningoverride = acc_14, newWorkflowExecutionInfoPriority = acc_15, newWorkflowExecutionInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NewWorkflowExecutionInfo {newWorkflowExecutionInfoWorkflowId = acc_0, newWorkflowExecutionInfoWorkflowType = acc_1, newWorkflowExecutionInfoTaskQueue = acc_2, newWorkflowExecutionInfoInput = acc_3, newWorkflowExecutionInfoWorkflowExecutionTimeout = acc_4, newWorkflowExecutionInfoWorkflowRunTimeout = acc_5, newWorkflowExecutionInfoWorkflowTaskTimeout = acc_6, newWorkflowExecutionInfoWorkflowIdReusePolicy = acc_7, newWorkflowExecutionInfoRetryPolicy = acc_8, newWorkflowExecutionInfoCronSchedule = acc_9, newWorkflowExecutionInfoMemo = acc_10, newWorkflowExecutionInfoSearchAttributes = acc_11, newWorkflowExecutionInfoHeader = acc_12, newWorkflowExecutionInfoUserMetadata = acc_13, newWorkflowExecutionInfoVersioningOverride = acc_14, newWorkflowExecutionInfoPriority = acc_15, newWorkflowExecutionInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2811,23 +2811,23 @@ instance ProtoMessage NewWorkflowExecutionInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoWorkflowid
-        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowid = v }
+        , fdGet = newWorkflowExecutionInfoWorkflowId
+        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "workflow_type"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowType"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoWorkflowtype
-        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowtype = v }
+        , fdGet = newWorkflowExecutionInfoWorkflowType
+        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowType = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "task_queue"
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.taskqueue.v1.TaskQueue"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoTaskqueue
-        , fdSet = \v m -> m { newWorkflowExecutionInfoTaskqueue = v }
+        , fdGet = newWorkflowExecutionInfoTaskQueue
+        , fdSet = \v m -> m { newWorkflowExecutionInfoTaskQueue = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "input"
@@ -2842,48 +2842,48 @@ instance ProtoMessage NewWorkflowExecutionInfo where
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoWorkflowexecutiontimeout
-        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowexecutiontimeout = v }
+        , fdGet = newWorkflowExecutionInfoWorkflowExecutionTimeout
+        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowExecutionTimeout = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "workflow_run_timeout"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoWorkflowruntimeout
-        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowruntimeout = v }
+        , fdGet = newWorkflowExecutionInfoWorkflowRunTimeout
+        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowRunTimeout = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "workflow_task_timeout"
         , fdNumber = 7
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoWorkflowtasktimeout
-        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowtasktimeout = v }
+        , fdGet = newWorkflowExecutionInfoWorkflowTaskTimeout
+        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowTaskTimeout = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "workflow_id_reuse_policy"
         , fdNumber = 8
         , fdTypeDesc = MessageType "temporal.api.enums.v1.WorkflowIdReusePolicy"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoWorkflowidreusepolicy
-        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowidreusepolicy = v }
+        , fdGet = newWorkflowExecutionInfoWorkflowIdReusePolicy
+        , fdSet = \v m -> m { newWorkflowExecutionInfoWorkflowIdReusePolicy = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "retry_policy"
         , fdNumber = 9
         , fdTypeDesc = MessageType "temporal.api.common.v1.RetryPolicy"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoRetrypolicy
-        , fdSet = \v m -> m { newWorkflowExecutionInfoRetrypolicy = v }
+        , fdGet = newWorkflowExecutionInfoRetryPolicy
+        , fdSet = \v m -> m { newWorkflowExecutionInfoRetryPolicy = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "cron_schedule"
         , fdNumber = 10
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoCronschedule
-        , fdSet = \v m -> m { newWorkflowExecutionInfoCronschedule = v }
+        , fdGet = newWorkflowExecutionInfoCronSchedule
+        , fdSet = \v m -> m { newWorkflowExecutionInfoCronSchedule = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "memo"
@@ -2898,8 +2898,8 @@ instance ProtoMessage NewWorkflowExecutionInfo where
         , fdNumber = 12
         , fdTypeDesc = MessageType "temporal.api.common.v1.SearchAttributes"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoSearchattributes
-        , fdSet = \v m -> m { newWorkflowExecutionInfoSearchattributes = v }
+        , fdGet = newWorkflowExecutionInfoSearchAttributes
+        , fdSet = \v m -> m { newWorkflowExecutionInfoSearchAttributes = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "header"
@@ -2914,16 +2914,16 @@ instance ProtoMessage NewWorkflowExecutionInfo where
         , fdNumber = 14
         , fdTypeDesc = MessageType "temporal.api.sdk.v1.UserMetadata"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoUsermetadata
-        , fdSet = \v m -> m { newWorkflowExecutionInfoUsermetadata = v }
+        , fdGet = newWorkflowExecutionInfoUserMetadata
+        , fdSet = \v m -> m { newWorkflowExecutionInfoUserMetadata = v }
         })
     , (15, SomeField FieldDescriptor
         { fdName = "versioning_override"
         , fdNumber = 15
         , fdTypeDesc = MessageType "VersioningOverride"
         , fdLabel = LabelOptional
-        , fdGet = newWorkflowExecutionInfoVersioningoverride
-        , fdSet = \v m -> m { newWorkflowExecutionInfoVersioningoverride = v }
+        , fdGet = newWorkflowExecutionInfoVersioningOverride
+        , fdSet = \v m -> m { newWorkflowExecutionInfoVersioningOverride = v }
         })
     , (16, SomeField FieldDescriptor
         { fdName = "priority"
@@ -2937,97 +2937,97 @@ instance ProtoMessage NewWorkflowExecutionInfo where
 
 instance Aeson.ToJSON NewWorkflowExecutionInfo where
   toJSON msg = jsonObject
-      [ "workflowId" .=: msg.newWorkflowExecutionInfoWorkflowid
-      , "workflowType" .=: msg.newWorkflowExecutionInfoWorkflowtype
-      , "taskQueue" .=: msg.newWorkflowExecutionInfoTaskqueue
+      [ "workflowId" .=: msg.newWorkflowExecutionInfoWorkflowId
+      , "workflowType" .=: msg.newWorkflowExecutionInfoWorkflowType
+      , "taskQueue" .=: msg.newWorkflowExecutionInfoTaskQueue
       , "input" .=: msg.newWorkflowExecutionInfoInput
-      , "workflowExecutionTimeout" .=: msg.newWorkflowExecutionInfoWorkflowexecutiontimeout
-      , "workflowRunTimeout" .=: msg.newWorkflowExecutionInfoWorkflowruntimeout
-      , "workflowTaskTimeout" .=: msg.newWorkflowExecutionInfoWorkflowtasktimeout
-      , "workflowIdReusePolicy" .=: msg.newWorkflowExecutionInfoWorkflowidreusepolicy
-      , "retryPolicy" .=: msg.newWorkflowExecutionInfoRetrypolicy
-      , "cronSchedule" .=: msg.newWorkflowExecutionInfoCronschedule
+      , "workflowExecutionTimeout" .=: msg.newWorkflowExecutionInfoWorkflowExecutionTimeout
+      , "workflowRunTimeout" .=: msg.newWorkflowExecutionInfoWorkflowRunTimeout
+      , "workflowTaskTimeout" .=: msg.newWorkflowExecutionInfoWorkflowTaskTimeout
+      , "workflowIdReusePolicy" .=: msg.newWorkflowExecutionInfoWorkflowIdReusePolicy
+      , "retryPolicy" .=: msg.newWorkflowExecutionInfoRetryPolicy
+      , "cronSchedule" .=: msg.newWorkflowExecutionInfoCronSchedule
       , "memo" .=: msg.newWorkflowExecutionInfoMemo
-      , "searchAttributes" .=: msg.newWorkflowExecutionInfoSearchattributes
+      , "searchAttributes" .=: msg.newWorkflowExecutionInfoSearchAttributes
       , "header" .=: msg.newWorkflowExecutionInfoHeader
-      , "userMetadata" .=: msg.newWorkflowExecutionInfoUsermetadata
-      , "versioningOverride" .=: msg.newWorkflowExecutionInfoVersioningoverride
+      , "userMetadata" .=: msg.newWorkflowExecutionInfoUserMetadata
+      , "versioningOverride" .=: msg.newWorkflowExecutionInfoVersioningOverride
       , "priority" .=: msg.newWorkflowExecutionInfoPriority
       ]
 
 instance Aeson.FromJSON NewWorkflowExecutionInfo where
   parseJSON = Aeson.withObject "NewWorkflowExecutionInfo" $ \obj -> do
-    fld_newWorkflowExecutionInfoWorkflowid <- parseFieldMaybe obj "workflowId"
-    fld_newWorkflowExecutionInfoWorkflowtype <- parseFieldMaybe obj "workflowType"
-    fld_newWorkflowExecutionInfoTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_newWorkflowExecutionInfoWorkflowId <- parseFieldMaybe obj "workflowId"
+    fld_newWorkflowExecutionInfoWorkflowType <- parseFieldMaybe obj "workflowType"
+    fld_newWorkflowExecutionInfoTaskQueue <- parseFieldMaybe obj "taskQueue"
     fld_newWorkflowExecutionInfoInput <- parseFieldMaybe obj "input"
-    fld_newWorkflowExecutionInfoWorkflowexecutiontimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
-    fld_newWorkflowExecutionInfoWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
-    fld_newWorkflowExecutionInfoWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
-    fld_newWorkflowExecutionInfoWorkflowidreusepolicy <- parseFieldMaybe obj "workflowIdReusePolicy"
-    fld_newWorkflowExecutionInfoRetrypolicy <- parseFieldMaybe obj "retryPolicy"
-    fld_newWorkflowExecutionInfoCronschedule <- parseFieldMaybe obj "cronSchedule"
+    fld_newWorkflowExecutionInfoWorkflowExecutionTimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
+    fld_newWorkflowExecutionInfoWorkflowRunTimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_newWorkflowExecutionInfoWorkflowTaskTimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_newWorkflowExecutionInfoWorkflowIdReusePolicy <- parseFieldMaybe obj "workflowIdReusePolicy"
+    fld_newWorkflowExecutionInfoRetryPolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_newWorkflowExecutionInfoCronSchedule <- parseFieldMaybe obj "cronSchedule"
     fld_newWorkflowExecutionInfoMemo <- parseFieldMaybe obj "memo"
-    fld_newWorkflowExecutionInfoSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_newWorkflowExecutionInfoSearchAttributes <- parseFieldMaybe obj "searchAttributes"
     fld_newWorkflowExecutionInfoHeader <- parseFieldMaybe obj "header"
-    fld_newWorkflowExecutionInfoUsermetadata <- parseFieldMaybe obj "userMetadata"
-    fld_newWorkflowExecutionInfoVersioningoverride <- parseFieldMaybe obj "versioningOverride"
+    fld_newWorkflowExecutionInfoUserMetadata <- parseFieldMaybe obj "userMetadata"
+    fld_newWorkflowExecutionInfoVersioningOverride <- parseFieldMaybe obj "versioningOverride"
     fld_newWorkflowExecutionInfoPriority <- parseFieldMaybe obj "priority"
     pure defaultNewWorkflowExecutionInfo
-      { newWorkflowExecutionInfoWorkflowid = maybe (newWorkflowExecutionInfoWorkflowid defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowid
-      , newWorkflowExecutionInfoWorkflowtype = maybe (newWorkflowExecutionInfoWorkflowtype defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowtype
-      , newWorkflowExecutionInfoTaskqueue = maybe (newWorkflowExecutionInfoTaskqueue defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoTaskqueue
+      { newWorkflowExecutionInfoWorkflowId = maybe (newWorkflowExecutionInfoWorkflowId defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowId
+      , newWorkflowExecutionInfoWorkflowType = maybe (newWorkflowExecutionInfoWorkflowType defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowType
+      , newWorkflowExecutionInfoTaskQueue = maybe (newWorkflowExecutionInfoTaskQueue defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoTaskQueue
       , newWorkflowExecutionInfoInput = maybe (newWorkflowExecutionInfoInput defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoInput
-      , newWorkflowExecutionInfoWorkflowexecutiontimeout = maybe (newWorkflowExecutionInfoWorkflowexecutiontimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowexecutiontimeout
-      , newWorkflowExecutionInfoWorkflowruntimeout = maybe (newWorkflowExecutionInfoWorkflowruntimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowruntimeout
-      , newWorkflowExecutionInfoWorkflowtasktimeout = maybe (newWorkflowExecutionInfoWorkflowtasktimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowtasktimeout
-      , newWorkflowExecutionInfoWorkflowidreusepolicy = maybe (newWorkflowExecutionInfoWorkflowidreusepolicy defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowidreusepolicy
-      , newWorkflowExecutionInfoRetrypolicy = maybe (newWorkflowExecutionInfoRetrypolicy defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoRetrypolicy
-      , newWorkflowExecutionInfoCronschedule = maybe (newWorkflowExecutionInfoCronschedule defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoCronschedule
+      , newWorkflowExecutionInfoWorkflowExecutionTimeout = maybe (newWorkflowExecutionInfoWorkflowExecutionTimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowExecutionTimeout
+      , newWorkflowExecutionInfoWorkflowRunTimeout = maybe (newWorkflowExecutionInfoWorkflowRunTimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowRunTimeout
+      , newWorkflowExecutionInfoWorkflowTaskTimeout = maybe (newWorkflowExecutionInfoWorkflowTaskTimeout defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowTaskTimeout
+      , newWorkflowExecutionInfoWorkflowIdReusePolicy = maybe (newWorkflowExecutionInfoWorkflowIdReusePolicy defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoWorkflowIdReusePolicy
+      , newWorkflowExecutionInfoRetryPolicy = maybe (newWorkflowExecutionInfoRetryPolicy defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoRetryPolicy
+      , newWorkflowExecutionInfoCronSchedule = maybe (newWorkflowExecutionInfoCronSchedule defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoCronSchedule
       , newWorkflowExecutionInfoMemo = maybe (newWorkflowExecutionInfoMemo defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoMemo
-      , newWorkflowExecutionInfoSearchattributes = maybe (newWorkflowExecutionInfoSearchattributes defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoSearchattributes
+      , newWorkflowExecutionInfoSearchAttributes = maybe (newWorkflowExecutionInfoSearchAttributes defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoSearchAttributes
       , newWorkflowExecutionInfoHeader = maybe (newWorkflowExecutionInfoHeader defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoHeader
-      , newWorkflowExecutionInfoUsermetadata = maybe (newWorkflowExecutionInfoUsermetadata defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoUsermetadata
-      , newWorkflowExecutionInfoVersioningoverride = maybe (newWorkflowExecutionInfoVersioningoverride defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoVersioningoverride
+      , newWorkflowExecutionInfoUserMetadata = maybe (newWorkflowExecutionInfoUserMetadata defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoUserMetadata
+      , newWorkflowExecutionInfoVersioningOverride = maybe (newWorkflowExecutionInfoVersioningOverride defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoVersioningOverride
       , newWorkflowExecutionInfoPriority = maybe (newWorkflowExecutionInfoPriority defaultNewWorkflowExecutionInfo) id fld_newWorkflowExecutionInfoPriority
       }
 
 instance Hashable NewWorkflowExecutionInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.newWorkflowExecutionInfoWorkflowid) msg.newWorkflowExecutionInfoWorkflowtype) msg.newWorkflowExecutionInfoTaskqueue) msg.newWorkflowExecutionInfoInput) msg.newWorkflowExecutionInfoWorkflowexecutiontimeout) msg.newWorkflowExecutionInfoWorkflowruntimeout) msg.newWorkflowExecutionInfoWorkflowtasktimeout) msg.newWorkflowExecutionInfoWorkflowidreusepolicy) msg.newWorkflowExecutionInfoRetrypolicy) msg.newWorkflowExecutionInfoCronschedule) msg.newWorkflowExecutionInfoMemo) msg.newWorkflowExecutionInfoSearchattributes) msg.newWorkflowExecutionInfoHeader) msg.newWorkflowExecutionInfoUsermetadata) msg.newWorkflowExecutionInfoVersioningoverride) msg.newWorkflowExecutionInfoPriority
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.newWorkflowExecutionInfoWorkflowId) msg.newWorkflowExecutionInfoWorkflowType) msg.newWorkflowExecutionInfoTaskQueue) msg.newWorkflowExecutionInfoInput) msg.newWorkflowExecutionInfoWorkflowExecutionTimeout) msg.newWorkflowExecutionInfoWorkflowRunTimeout) msg.newWorkflowExecutionInfoWorkflowTaskTimeout) msg.newWorkflowExecutionInfoWorkflowIdReusePolicy) msg.newWorkflowExecutionInfoRetryPolicy) msg.newWorkflowExecutionInfoCronSchedule) msg.newWorkflowExecutionInfoMemo) msg.newWorkflowExecutionInfoSearchAttributes) msg.newWorkflowExecutionInfoHeader) msg.newWorkflowExecutionInfoUserMetadata) msg.newWorkflowExecutionInfoVersioningOverride) msg.newWorkflowExecutionInfoPriority
 
 data CallbackInfo = CallbackInfo
   { callbackInfoCallback :: !(Maybe TE_Common_V1_Message.Callback)
   , callbackInfoTrigger :: !(Maybe CallbackInfo'Trigger)
-  , callbackInfoRegistrationtime :: !(Maybe PB_Timestamp.Timestamp)
+  , callbackInfoRegistrationTime :: !(Maybe PB_Timestamp.Timestamp)
   , callbackInfoState :: !TE_Enums_V1_Common.CallbackState
   , callbackInfoAttempt :: {-# UNPACK #-} !Int32
-  , callbackInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
-  , callbackInfoLastattemptfailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , callbackInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
-  , callbackInfoBlockedreason :: !Text
-  , callbackInfoUnknownfields :: ![UnknownField]
+  , callbackInfoLastAttemptCompleteTime :: !(Maybe PB_Timestamp.Timestamp)
+  , callbackInfoLastAttemptFailure :: !(Maybe TE_Failure_V1_Message.Failure)
+  , callbackInfoNextAttemptScheduleTime :: !(Maybe PB_Timestamp.Timestamp)
+  , callbackInfoBlockedReason :: !Text
+  , callbackInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data CallbackInfo'WorkflowClosed = CallbackInfo'WorkflowClosed
-  { callbackInfoWorkflowClosedUnknownfields :: ![UnknownField]
+  { callbackInfoWorkflowClosedUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultCallbackInfo'WorkflowClosed :: CallbackInfo'WorkflowClosed
 defaultCallbackInfo'WorkflowClosed = CallbackInfo'WorkflowClosed
-  { callbackInfoWorkflowClosedUnknownfields = []
+  { callbackInfoWorkflowClosedUnknownFields = []
   }
 
 instance MessageEncode CallbackInfo'WorkflowClosed where
   buildMessage msg =
-    encodeUnknownFields msg.callbackInfoWorkflowClosedUnknownfields
+    encodeUnknownFields msg.callbackInfoWorkflowClosedUnknownFields
 
 instance MessageSize CallbackInfo'WorkflowClosed where
   messageSize msg =
-    unknownFieldsSize msg.callbackInfoWorkflowClosedUnknownfields
+    unknownFieldsSize msg.callbackInfoWorkflowClosedUnknownFields
 
 instance MessageDecode CallbackInfo'WorkflowClosed where
   {-# INLINE messageDecoder #-}
@@ -3036,7 +3036,7 @@ instance MessageDecode CallbackInfo'WorkflowClosed where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CallbackInfo'WorkflowClosed {callbackInfoWorkflowClosedUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CallbackInfo'WorkflowClosed {callbackInfoWorkflowClosedUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -3065,7 +3065,7 @@ instance Hashable CallbackInfo'WorkflowClosed where
 
 data CallbackInfo'Trigger = CallbackInfo'Trigger
   { callbackInfoTriggerVariant :: !(Maybe CallbackInfo'Trigger'Variant)
-  , callbackInfoTriggerUnknownfields :: ![UnknownField]
+  , callbackInfoTriggerUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3083,7 +3083,7 @@ instance Hashable CallbackInfo'Trigger'Variant where
 defaultCallbackInfo'Trigger :: CallbackInfo'Trigger
 defaultCallbackInfo'Trigger = CallbackInfo'Trigger
   { callbackInfoTriggerVariant = Nothing
-  , callbackInfoTriggerUnknownfields = []
+  , callbackInfoTriggerUnknownFields = []
   }
 
 instance MessageEncode CallbackInfo'Trigger where
@@ -3091,12 +3091,12 @@ instance MessageEncode CallbackInfo'Trigger where
     (case msg.callbackInfoTriggerVariant of
       Nothing -> mempty
       Just (CallbackInfo'Trigger'Variant'WorkflowClosed v) -> encodeFieldMessage 1 v)
-    <> encodeUnknownFields msg.callbackInfoTriggerUnknownfields
+    <> encodeUnknownFields msg.callbackInfoTriggerUnknownFields
 
 instance MessageSize CallbackInfo'Trigger where
   messageSize msg =
     (case msg.callbackInfoTriggerVariant of { Nothing -> 0; Just (CallbackInfo'Trigger'Variant'WorkflowClosed v) -> fieldMessageSize 1 (messageSize v) })
-    + unknownFieldsSize msg.callbackInfoTriggerUnknownfields
+    + unknownFieldsSize msg.callbackInfoTriggerUnknownFields
 
 instance MessageDecode CallbackInfo'Trigger where
   {-# INLINE messageDecoder #-}
@@ -3105,7 +3105,7 @@ instance MessageDecode CallbackInfo'Trigger where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CallbackInfo'Trigger {callbackInfoTriggerVariant = acc_0, callbackInfoTriggerUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CallbackInfo'Trigger {callbackInfoTriggerVariant = acc_0, callbackInfoTriggerUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -3153,41 +3153,41 @@ defaultCallbackInfo :: CallbackInfo
 defaultCallbackInfo = CallbackInfo
   { callbackInfoCallback = Nothing
   , callbackInfoTrigger = Nothing
-  , callbackInfoRegistrationtime = Nothing
+  , callbackInfoRegistrationTime = Nothing
   , callbackInfoState = (toEnum 0)
   , callbackInfoAttempt = 0
-  , callbackInfoLastattemptcompletetime = Nothing
-  , callbackInfoLastattemptfailure = Nothing
-  , callbackInfoNextattemptscheduletime = Nothing
-  , callbackInfoBlockedreason = ""
-  , callbackInfoUnknownfields = []
+  , callbackInfoLastAttemptCompleteTime = Nothing
+  , callbackInfoLastAttemptFailure = Nothing
+  , callbackInfoNextAttemptScheduleTime = Nothing
+  , callbackInfoBlockedReason = ""
+  , callbackInfoUnknownFields = []
   }
 
 instance MessageEncode CallbackInfo where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.callbackInfoCallback)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.callbackInfoTrigger)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.callbackInfoRegistrationtime)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.callbackInfoRegistrationTime)
     <> (if fromEnum msg.callbackInfoState == 0 then mempty else encodeFieldVarint 4 (fromIntegral (fromEnum msg.callbackInfoState)))
     <> (if msg.callbackInfoAttempt == 0 then mempty else encodeFieldVarint 5 (fromIntegral msg.callbackInfoAttempt))
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.callbackInfoLastattemptcompletetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.callbackInfoLastattemptfailure)
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.callbackInfoNextattemptscheduletime)
-    <> (if msg.callbackInfoBlockedreason == T.empty then mempty else encodeFieldString 9 msg.callbackInfoBlockedreason)
-    <> encodeUnknownFields msg.callbackInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.callbackInfoLastAttemptCompleteTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.callbackInfoLastAttemptFailure)
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.callbackInfoNextAttemptScheduleTime)
+    <> (if msg.callbackInfoBlockedReason == T.empty then mempty else encodeFieldString 9 msg.callbackInfoBlockedReason)
+    <> encodeUnknownFields msg.callbackInfoUnknownFields
 
 instance MessageSize CallbackInfo where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.callbackInfoCallback)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.callbackInfoTrigger)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.callbackInfoRegistrationtime)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.callbackInfoRegistrationTime)
     + (if fromEnum msg.callbackInfoState == 0 then 0 else fieldVarintSize 4 (fromIntegral (fromEnum msg.callbackInfoState)))
     + (if msg.callbackInfoAttempt == 0 then 0 else fieldVarintSize 5 (fromIntegral msg.callbackInfoAttempt))
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.callbackInfoLastattemptcompletetime)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.callbackInfoLastattemptfailure)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.callbackInfoNextattemptscheduletime)
-    + (if msg.callbackInfoBlockedreason == T.empty then 0 else fieldTextSize 9 msg.callbackInfoBlockedreason)
-    + unknownFieldsSize msg.callbackInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.callbackInfoLastAttemptCompleteTime)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.callbackInfoLastAttemptFailure)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.callbackInfoNextAttemptScheduleTime)
+    + (if msg.callbackInfoBlockedReason == T.empty then 0 else fieldTextSize 9 msg.callbackInfoBlockedReason)
+    + unknownFieldsSize msg.callbackInfoUnknownFields
 
 instance MessageDecode CallbackInfo where
   {-# INLINE messageDecoder #-}
@@ -3196,7 +3196,7 @@ instance MessageDecode CallbackInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CallbackInfo {callbackInfoCallback = acc_0, callbackInfoTrigger = acc_1, callbackInfoRegistrationtime = acc_2, callbackInfoState = acc_3, callbackInfoAttempt = acc_4, callbackInfoLastattemptcompletetime = acc_5, callbackInfoLastattemptfailure = acc_6, callbackInfoNextattemptscheduletime = acc_7, callbackInfoBlockedreason = acc_8, callbackInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CallbackInfo {callbackInfoCallback = acc_0, callbackInfoTrigger = acc_1, callbackInfoRegistrationTime = acc_2, callbackInfoState = acc_3, callbackInfoAttempt = acc_4, callbackInfoLastAttemptCompleteTime = acc_5, callbackInfoLastAttemptFailure = acc_6, callbackInfoNextAttemptScheduleTime = acc_7, callbackInfoBlockedReason = acc_8, callbackInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -3258,8 +3258,8 @@ instance ProtoMessage CallbackInfo where
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = callbackInfoRegistrationtime
-        , fdSet = \v m -> m { callbackInfoRegistrationtime = v }
+        , fdGet = callbackInfoRegistrationTime
+        , fdSet = \v m -> m { callbackInfoRegistrationTime = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "state"
@@ -3282,32 +3282,32 @@ instance ProtoMessage CallbackInfo where
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = callbackInfoLastattemptcompletetime
-        , fdSet = \v m -> m { callbackInfoLastattemptcompletetime = v }
+        , fdGet = callbackInfoLastAttemptCompleteTime
+        , fdSet = \v m -> m { callbackInfoLastAttemptCompleteTime = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "last_attempt_failure"
         , fdNumber = 7
         , fdTypeDesc = MessageType "temporal.api.failure.v1.Failure"
         , fdLabel = LabelOptional
-        , fdGet = callbackInfoLastattemptfailure
-        , fdSet = \v m -> m { callbackInfoLastattemptfailure = v }
+        , fdGet = callbackInfoLastAttemptFailure
+        , fdSet = \v m -> m { callbackInfoLastAttemptFailure = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "next_attempt_schedule_time"
         , fdNumber = 8
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = callbackInfoNextattemptscheduletime
-        , fdSet = \v m -> m { callbackInfoNextattemptscheduletime = v }
+        , fdGet = callbackInfoNextAttemptScheduleTime
+        , fdSet = \v m -> m { callbackInfoNextAttemptScheduleTime = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "blocked_reason"
         , fdNumber = 9
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = callbackInfoBlockedreason
-        , fdSet = \v m -> m { callbackInfoBlockedreason = v }
+        , fdGet = callbackInfoBlockedReason
+        , fdSet = \v m -> m { callbackInfoBlockedReason = v }
         })
     ]
 
@@ -3315,60 +3315,60 @@ instance Aeson.ToJSON CallbackInfo where
   toJSON msg = jsonObject
       [ "callback" .=: msg.callbackInfoCallback
       , "trigger" .=: msg.callbackInfoTrigger
-      , "registrationTime" .=: msg.callbackInfoRegistrationtime
+      , "registrationTime" .=: msg.callbackInfoRegistrationTime
       , "state" .=: msg.callbackInfoState
       , "attempt" .=: msg.callbackInfoAttempt
-      , "lastAttemptCompleteTime" .=: msg.callbackInfoLastattemptcompletetime
-      , "lastAttemptFailure" .=: msg.callbackInfoLastattemptfailure
-      , "nextAttemptScheduleTime" .=: msg.callbackInfoNextattemptscheduletime
-      , "blockedReason" .=: msg.callbackInfoBlockedreason
+      , "lastAttemptCompleteTime" .=: msg.callbackInfoLastAttemptCompleteTime
+      , "lastAttemptFailure" .=: msg.callbackInfoLastAttemptFailure
+      , "nextAttemptScheduleTime" .=: msg.callbackInfoNextAttemptScheduleTime
+      , "blockedReason" .=: msg.callbackInfoBlockedReason
       ]
 
 instance Aeson.FromJSON CallbackInfo where
   parseJSON = Aeson.withObject "CallbackInfo" $ \obj -> do
     fld_callbackInfoCallback <- parseFieldMaybe obj "callback"
     fld_callbackInfoTrigger <- parseFieldMaybe obj "trigger"
-    fld_callbackInfoRegistrationtime <- parseFieldMaybe obj "registrationTime"
+    fld_callbackInfoRegistrationTime <- parseFieldMaybe obj "registrationTime"
     fld_callbackInfoState <- parseFieldMaybe obj "state"
     fld_callbackInfoAttempt <- parseFieldMaybe obj "attempt"
-    fld_callbackInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
-    fld_callbackInfoLastattemptfailure <- parseFieldMaybe obj "lastAttemptFailure"
-    fld_callbackInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
-    fld_callbackInfoBlockedreason <- parseFieldMaybe obj "blockedReason"
+    fld_callbackInfoLastAttemptCompleteTime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_callbackInfoLastAttemptFailure <- parseFieldMaybe obj "lastAttemptFailure"
+    fld_callbackInfoNextAttemptScheduleTime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_callbackInfoBlockedReason <- parseFieldMaybe obj "blockedReason"
     pure defaultCallbackInfo
       { callbackInfoCallback = maybe (callbackInfoCallback defaultCallbackInfo) id fld_callbackInfoCallback
       , callbackInfoTrigger = maybe (callbackInfoTrigger defaultCallbackInfo) id fld_callbackInfoTrigger
-      , callbackInfoRegistrationtime = maybe (callbackInfoRegistrationtime defaultCallbackInfo) id fld_callbackInfoRegistrationtime
+      , callbackInfoRegistrationTime = maybe (callbackInfoRegistrationTime defaultCallbackInfo) id fld_callbackInfoRegistrationTime
       , callbackInfoState = maybe (callbackInfoState defaultCallbackInfo) id fld_callbackInfoState
       , callbackInfoAttempt = maybe (callbackInfoAttempt defaultCallbackInfo) id fld_callbackInfoAttempt
-      , callbackInfoLastattemptcompletetime = maybe (callbackInfoLastattemptcompletetime defaultCallbackInfo) id fld_callbackInfoLastattemptcompletetime
-      , callbackInfoLastattemptfailure = maybe (callbackInfoLastattemptfailure defaultCallbackInfo) id fld_callbackInfoLastattemptfailure
-      , callbackInfoNextattemptscheduletime = maybe (callbackInfoNextattemptscheduletime defaultCallbackInfo) id fld_callbackInfoNextattemptscheduletime
-      , callbackInfoBlockedreason = maybe (callbackInfoBlockedreason defaultCallbackInfo) id fld_callbackInfoBlockedreason
+      , callbackInfoLastAttemptCompleteTime = maybe (callbackInfoLastAttemptCompleteTime defaultCallbackInfo) id fld_callbackInfoLastAttemptCompleteTime
+      , callbackInfoLastAttemptFailure = maybe (callbackInfoLastAttemptFailure defaultCallbackInfo) id fld_callbackInfoLastAttemptFailure
+      , callbackInfoNextAttemptScheduleTime = maybe (callbackInfoNextAttemptScheduleTime defaultCallbackInfo) id fld_callbackInfoNextAttemptScheduleTime
+      , callbackInfoBlockedReason = maybe (callbackInfoBlockedReason defaultCallbackInfo) id fld_callbackInfoBlockedReason
       }
 
 instance Hashable CallbackInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.callbackInfoCallback) msg.callbackInfoTrigger) msg.callbackInfoRegistrationtime) msg.callbackInfoState) msg.callbackInfoAttempt) msg.callbackInfoLastattemptcompletetime) msg.callbackInfoLastattemptfailure) msg.callbackInfoNextattemptscheduletime) msg.callbackInfoBlockedreason
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.callbackInfoCallback) msg.callbackInfoTrigger) msg.callbackInfoRegistrationTime) msg.callbackInfoState) msg.callbackInfoAttempt) msg.callbackInfoLastAttemptCompleteTime) msg.callbackInfoLastAttemptFailure) msg.callbackInfoNextAttemptScheduleTime) msg.callbackInfoBlockedReason
 
 data PendingNexusOperationInfo = PendingNexusOperationInfo
   { pendingNexusOperationInfoEndpoint :: !Text
   , pendingNexusOperationInfoService :: !Text
   , pendingNexusOperationInfoOperation :: !Text
-  , pendingNexusOperationInfoOperationid :: !Text
-  , pendingNexusOperationInfoScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , pendingNexusOperationInfoScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingNexusOperationInfoOperationId :: !Text
+  , pendingNexusOperationInfoScheduleToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , pendingNexusOperationInfoScheduledTime :: !(Maybe PB_Timestamp.Timestamp)
   , pendingNexusOperationInfoState :: !TE_Enums_V1_Common.PendingNexusOperationState
   , pendingNexusOperationInfoAttempt :: {-# UNPACK #-} !Int32
-  , pendingNexusOperationInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingNexusOperationInfoLastattemptfailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , pendingNexusOperationInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
-  , pendingNexusOperationInfoCancellationinfo :: !(Maybe NexusOperationCancellationInfo)
-  , pendingNexusOperationInfoScheduledeventid :: {-# UNPACK #-} !Int64
-  , pendingNexusOperationInfoBlockedreason :: !Text
-  , pendingNexusOperationInfoOperationtoken :: !Text
-  , pendingNexusOperationInfoScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
-  , pendingNexusOperationInfoStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , pendingNexusOperationInfoUnknownfields :: ![UnknownField]
+  , pendingNexusOperationInfoLastAttemptCompleteTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingNexusOperationInfoLastAttemptFailure :: !(Maybe TE_Failure_V1_Message.Failure)
+  , pendingNexusOperationInfoNextAttemptScheduleTime :: !(Maybe PB_Timestamp.Timestamp)
+  , pendingNexusOperationInfoCancellationInfo :: !(Maybe NexusOperationCancellationInfo)
+  , pendingNexusOperationInfoScheduledEventId :: {-# UNPACK #-} !Int64
+  , pendingNexusOperationInfoBlockedReason :: !Text
+  , pendingNexusOperationInfoOperationToken :: !Text
+  , pendingNexusOperationInfoScheduleToStartTimeout :: !(Maybe PB_Duration.Duration)
+  , pendingNexusOperationInfoStartToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , pendingNexusOperationInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -3378,21 +3378,21 @@ defaultPendingNexusOperationInfo = PendingNexusOperationInfo
   { pendingNexusOperationInfoEndpoint = ""
   , pendingNexusOperationInfoService = ""
   , pendingNexusOperationInfoOperation = ""
-  , pendingNexusOperationInfoOperationid = ""
-  , pendingNexusOperationInfoScheduletoclosetimeout = Nothing
-  , pendingNexusOperationInfoScheduledtime = Nothing
+  , pendingNexusOperationInfoOperationId = ""
+  , pendingNexusOperationInfoScheduleToCloseTimeout = Nothing
+  , pendingNexusOperationInfoScheduledTime = Nothing
   , pendingNexusOperationInfoState = (toEnum 0)
   , pendingNexusOperationInfoAttempt = 0
-  , pendingNexusOperationInfoLastattemptcompletetime = Nothing
-  , pendingNexusOperationInfoLastattemptfailure = Nothing
-  , pendingNexusOperationInfoNextattemptscheduletime = Nothing
-  , pendingNexusOperationInfoCancellationinfo = Nothing
-  , pendingNexusOperationInfoScheduledeventid = 0
-  , pendingNexusOperationInfoBlockedreason = ""
-  , pendingNexusOperationInfoOperationtoken = ""
-  , pendingNexusOperationInfoScheduletostarttimeout = Nothing
-  , pendingNexusOperationInfoStarttoclosetimeout = Nothing
-  , pendingNexusOperationInfoUnknownfields = []
+  , pendingNexusOperationInfoLastAttemptCompleteTime = Nothing
+  , pendingNexusOperationInfoLastAttemptFailure = Nothing
+  , pendingNexusOperationInfoNextAttemptScheduleTime = Nothing
+  , pendingNexusOperationInfoCancellationInfo = Nothing
+  , pendingNexusOperationInfoScheduledEventId = 0
+  , pendingNexusOperationInfoBlockedReason = ""
+  , pendingNexusOperationInfoOperationToken = ""
+  , pendingNexusOperationInfoScheduleToStartTimeout = Nothing
+  , pendingNexusOperationInfoStartToCloseTimeout = Nothing
+  , pendingNexusOperationInfoUnknownFields = []
   }
 
 instance MessageEncode PendingNexusOperationInfo where
@@ -3400,42 +3400,42 @@ instance MessageEncode PendingNexusOperationInfo where
     (if msg.pendingNexusOperationInfoEndpoint == T.empty then mempty else encodeFieldString 1 msg.pendingNexusOperationInfoEndpoint)
     <> (if msg.pendingNexusOperationInfoService == T.empty then mempty else encodeFieldString 2 msg.pendingNexusOperationInfoService)
     <> (if msg.pendingNexusOperationInfoOperation == T.empty then mempty else encodeFieldString 3 msg.pendingNexusOperationInfoOperation)
-    <> (if msg.pendingNexusOperationInfoOperationid == T.empty then mempty else encodeFieldString 4 msg.pendingNexusOperationInfoOperationid)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.pendingNexusOperationInfoScheduletoclosetimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.pendingNexusOperationInfoScheduledtime)
+    <> (if msg.pendingNexusOperationInfoOperationId == T.empty then mempty else encodeFieldString 4 msg.pendingNexusOperationInfoOperationId)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.pendingNexusOperationInfoScheduleToCloseTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.pendingNexusOperationInfoScheduledTime)
     <> (if fromEnum msg.pendingNexusOperationInfoState == 0 then mempty else encodeFieldVarint 7 (fromIntegral (fromEnum msg.pendingNexusOperationInfoState)))
     <> (if msg.pendingNexusOperationInfoAttempt == 0 then mempty else encodeFieldVarint 8 (fromIntegral msg.pendingNexusOperationInfoAttempt))
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.pendingNexusOperationInfoLastattemptcompletetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.pendingNexusOperationInfoLastattemptfailure)
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.pendingNexusOperationInfoNextattemptscheduletime)
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.pendingNexusOperationInfoCancellationinfo)
-    <> (if msg.pendingNexusOperationInfoScheduledeventid == 0 then mempty else encodeFieldVarint 13 (fromIntegral msg.pendingNexusOperationInfoScheduledeventid))
-    <> (if msg.pendingNexusOperationInfoBlockedreason == T.empty then mempty else encodeFieldString 14 msg.pendingNexusOperationInfoBlockedreason)
-    <> (if msg.pendingNexusOperationInfoOperationtoken == T.empty then mempty else encodeFieldString 15 msg.pendingNexusOperationInfoOperationtoken)
-    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.pendingNexusOperationInfoScheduletostarttimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.pendingNexusOperationInfoStarttoclosetimeout)
-    <> encodeUnknownFields msg.pendingNexusOperationInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.pendingNexusOperationInfoLastAttemptCompleteTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.pendingNexusOperationInfoLastAttemptFailure)
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.pendingNexusOperationInfoNextAttemptScheduleTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.pendingNexusOperationInfoCancellationInfo)
+    <> (if msg.pendingNexusOperationInfoScheduledEventId == 0 then mempty else encodeFieldVarint 13 (fromIntegral msg.pendingNexusOperationInfoScheduledEventId))
+    <> (if msg.pendingNexusOperationInfoBlockedReason == T.empty then mempty else encodeFieldString 14 msg.pendingNexusOperationInfoBlockedReason)
+    <> (if msg.pendingNexusOperationInfoOperationToken == T.empty then mempty else encodeFieldString 15 msg.pendingNexusOperationInfoOperationToken)
+    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.pendingNexusOperationInfoScheduleToStartTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.pendingNexusOperationInfoStartToCloseTimeout)
+    <> encodeUnknownFields msg.pendingNexusOperationInfoUnknownFields
 
 instance MessageSize PendingNexusOperationInfo where
   messageSize msg =
     (if msg.pendingNexusOperationInfoEndpoint == T.empty then 0 else fieldTextSize 1 msg.pendingNexusOperationInfoEndpoint)
     + (if msg.pendingNexusOperationInfoService == T.empty then 0 else fieldTextSize 2 msg.pendingNexusOperationInfoService)
     + (if msg.pendingNexusOperationInfoOperation == T.empty then 0 else fieldTextSize 3 msg.pendingNexusOperationInfoOperation)
-    + (if msg.pendingNexusOperationInfoOperationid == T.empty then 0 else fieldTextSize 4 msg.pendingNexusOperationInfoOperationid)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.pendingNexusOperationInfoScheduletoclosetimeout)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.pendingNexusOperationInfoScheduledtime)
+    + (if msg.pendingNexusOperationInfoOperationId == T.empty then 0 else fieldTextSize 4 msg.pendingNexusOperationInfoOperationId)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.pendingNexusOperationInfoScheduleToCloseTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.pendingNexusOperationInfoScheduledTime)
     + (if fromEnum msg.pendingNexusOperationInfoState == 0 then 0 else fieldVarintSize 7 (fromIntegral (fromEnum msg.pendingNexusOperationInfoState)))
     + (if msg.pendingNexusOperationInfoAttempt == 0 then 0 else fieldVarintSize 8 (fromIntegral msg.pendingNexusOperationInfoAttempt))
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.pendingNexusOperationInfoLastattemptcompletetime)
-    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.pendingNexusOperationInfoLastattemptfailure)
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.pendingNexusOperationInfoNextattemptscheduletime)
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.pendingNexusOperationInfoCancellationinfo)
-    + (if msg.pendingNexusOperationInfoScheduledeventid == 0 then 0 else fieldVarintSize 13 (fromIntegral msg.pendingNexusOperationInfoScheduledeventid))
-    + (if msg.pendingNexusOperationInfoBlockedreason == T.empty then 0 else fieldTextSize 14 msg.pendingNexusOperationInfoBlockedreason)
-    + (if msg.pendingNexusOperationInfoOperationtoken == T.empty then 0 else fieldTextSize 15 msg.pendingNexusOperationInfoOperationtoken)
-    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.pendingNexusOperationInfoScheduletostarttimeout)
-    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.pendingNexusOperationInfoStarttoclosetimeout)
-    + unknownFieldsSize msg.pendingNexusOperationInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.pendingNexusOperationInfoLastAttemptCompleteTime)
+    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.pendingNexusOperationInfoLastAttemptFailure)
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.pendingNexusOperationInfoNextAttemptScheduleTime)
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.pendingNexusOperationInfoCancellationInfo)
+    + (if msg.pendingNexusOperationInfoScheduledEventId == 0 then 0 else fieldVarintSize 13 (fromIntegral msg.pendingNexusOperationInfoScheduledEventId))
+    + (if msg.pendingNexusOperationInfoBlockedReason == T.empty then 0 else fieldTextSize 14 msg.pendingNexusOperationInfoBlockedReason)
+    + (if msg.pendingNexusOperationInfoOperationToken == T.empty then 0 else fieldTextSize 15 msg.pendingNexusOperationInfoOperationToken)
+    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.pendingNexusOperationInfoScheduleToStartTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.pendingNexusOperationInfoStartToCloseTimeout)
+    + unknownFieldsSize msg.pendingNexusOperationInfoUnknownFields
 
 instance MessageDecode PendingNexusOperationInfo where
   {-# INLINE messageDecoder #-}
@@ -3444,7 +3444,7 @@ instance MessageDecode PendingNexusOperationInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PendingNexusOperationInfo {pendingNexusOperationInfoEndpoint = acc_0, pendingNexusOperationInfoService = acc_1, pendingNexusOperationInfoOperation = acc_2, pendingNexusOperationInfoOperationid = acc_3, pendingNexusOperationInfoScheduletoclosetimeout = acc_4, pendingNexusOperationInfoScheduledtime = acc_5, pendingNexusOperationInfoState = acc_6, pendingNexusOperationInfoAttempt = acc_7, pendingNexusOperationInfoLastattemptcompletetime = acc_8, pendingNexusOperationInfoLastattemptfailure = acc_9, pendingNexusOperationInfoNextattemptscheduletime = acc_10, pendingNexusOperationInfoCancellationinfo = acc_11, pendingNexusOperationInfoScheduledeventid = acc_12, pendingNexusOperationInfoBlockedreason = acc_13, pendingNexusOperationInfoOperationtoken = acc_14, pendingNexusOperationInfoScheduletostarttimeout = acc_15, pendingNexusOperationInfoStarttoclosetimeout = acc_16, pendingNexusOperationInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PendingNexusOperationInfo {pendingNexusOperationInfoEndpoint = acc_0, pendingNexusOperationInfoService = acc_1, pendingNexusOperationInfoOperation = acc_2, pendingNexusOperationInfoOperationId = acc_3, pendingNexusOperationInfoScheduleToCloseTimeout = acc_4, pendingNexusOperationInfoScheduledTime = acc_5, pendingNexusOperationInfoState = acc_6, pendingNexusOperationInfoAttempt = acc_7, pendingNexusOperationInfoLastAttemptCompleteTime = acc_8, pendingNexusOperationInfoLastAttemptFailure = acc_9, pendingNexusOperationInfoNextAttemptScheduleTime = acc_10, pendingNexusOperationInfoCancellationInfo = acc_11, pendingNexusOperationInfoScheduledEventId = acc_12, pendingNexusOperationInfoBlockedReason = acc_13, pendingNexusOperationInfoOperationToken = acc_14, pendingNexusOperationInfoScheduleToStartTimeout = acc_15, pendingNexusOperationInfoStartToCloseTimeout = acc_16, pendingNexusOperationInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -3538,24 +3538,24 @@ instance ProtoMessage PendingNexusOperationInfo where
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoOperationid
-        , fdSet = \v m -> m { pendingNexusOperationInfoOperationid = v }
+        , fdGet = pendingNexusOperationInfoOperationId
+        , fdSet = \v m -> m { pendingNexusOperationInfoOperationId = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "schedule_to_close_timeout"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoScheduletoclosetimeout
-        , fdSet = \v m -> m { pendingNexusOperationInfoScheduletoclosetimeout = v }
+        , fdGet = pendingNexusOperationInfoScheduleToCloseTimeout
+        , fdSet = \v m -> m { pendingNexusOperationInfoScheduleToCloseTimeout = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "scheduled_time"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoScheduledtime
-        , fdSet = \v m -> m { pendingNexusOperationInfoScheduledtime = v }
+        , fdGet = pendingNexusOperationInfoScheduledTime
+        , fdSet = \v m -> m { pendingNexusOperationInfoScheduledTime = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "state"
@@ -3578,72 +3578,72 @@ instance ProtoMessage PendingNexusOperationInfo where
         , fdNumber = 9
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoLastattemptcompletetime
-        , fdSet = \v m -> m { pendingNexusOperationInfoLastattemptcompletetime = v }
+        , fdGet = pendingNexusOperationInfoLastAttemptCompleteTime
+        , fdSet = \v m -> m { pendingNexusOperationInfoLastAttemptCompleteTime = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "last_attempt_failure"
         , fdNumber = 10
         , fdTypeDesc = MessageType "temporal.api.failure.v1.Failure"
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoLastattemptfailure
-        , fdSet = \v m -> m { pendingNexusOperationInfoLastattemptfailure = v }
+        , fdGet = pendingNexusOperationInfoLastAttemptFailure
+        , fdSet = \v m -> m { pendingNexusOperationInfoLastAttemptFailure = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "next_attempt_schedule_time"
         , fdNumber = 11
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoNextattemptscheduletime
-        , fdSet = \v m -> m { pendingNexusOperationInfoNextattemptscheduletime = v }
+        , fdGet = pendingNexusOperationInfoNextAttemptScheduleTime
+        , fdSet = \v m -> m { pendingNexusOperationInfoNextAttemptScheduleTime = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "cancellation_info"
         , fdNumber = 12
         , fdTypeDesc = MessageType "NexusOperationCancellationInfo"
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoCancellationinfo
-        , fdSet = \v m -> m { pendingNexusOperationInfoCancellationinfo = v }
+        , fdGet = pendingNexusOperationInfoCancellationInfo
+        , fdSet = \v m -> m { pendingNexusOperationInfoCancellationInfo = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "scheduled_event_id"
         , fdNumber = 13
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoScheduledeventid
-        , fdSet = \v m -> m { pendingNexusOperationInfoScheduledeventid = v }
+        , fdGet = pendingNexusOperationInfoScheduledEventId
+        , fdSet = \v m -> m { pendingNexusOperationInfoScheduledEventId = v }
         })
     , (14, SomeField FieldDescriptor
         { fdName = "blocked_reason"
         , fdNumber = 14
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoBlockedreason
-        , fdSet = \v m -> m { pendingNexusOperationInfoBlockedreason = v }
+        , fdGet = pendingNexusOperationInfoBlockedReason
+        , fdSet = \v m -> m { pendingNexusOperationInfoBlockedReason = v }
         })
     , (15, SomeField FieldDescriptor
         { fdName = "operation_token"
         , fdNumber = 15
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoOperationtoken
-        , fdSet = \v m -> m { pendingNexusOperationInfoOperationtoken = v }
+        , fdGet = pendingNexusOperationInfoOperationToken
+        , fdSet = \v m -> m { pendingNexusOperationInfoOperationToken = v }
         })
     , (16, SomeField FieldDescriptor
         { fdName = "schedule_to_start_timeout"
         , fdNumber = 16
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoScheduletostarttimeout
-        , fdSet = \v m -> m { pendingNexusOperationInfoScheduletostarttimeout = v }
+        , fdGet = pendingNexusOperationInfoScheduleToStartTimeout
+        , fdSet = \v m -> m { pendingNexusOperationInfoScheduleToStartTimeout = v }
         })
     , (17, SomeField FieldDescriptor
         { fdName = "start_to_close_timeout"
         , fdNumber = 17
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = pendingNexusOperationInfoStarttoclosetimeout
-        , fdSet = \v m -> m { pendingNexusOperationInfoStarttoclosetimeout = v }
+        , fdGet = pendingNexusOperationInfoStartToCloseTimeout
+        , fdSet = \v m -> m { pendingNexusOperationInfoStartToCloseTimeout = v }
         })
     ]
 
@@ -3652,20 +3652,20 @@ instance Aeson.ToJSON PendingNexusOperationInfo where
       [ "endpoint" .=: msg.pendingNexusOperationInfoEndpoint
       , "service" .=: msg.pendingNexusOperationInfoService
       , "operation" .=: msg.pendingNexusOperationInfoOperation
-      , "operationId" .=: msg.pendingNexusOperationInfoOperationid
-      , "scheduleToCloseTimeout" .=: msg.pendingNexusOperationInfoScheduletoclosetimeout
-      , "scheduledTime" .=: msg.pendingNexusOperationInfoScheduledtime
+      , "operationId" .=: msg.pendingNexusOperationInfoOperationId
+      , "scheduleToCloseTimeout" .=: msg.pendingNexusOperationInfoScheduleToCloseTimeout
+      , "scheduledTime" .=: msg.pendingNexusOperationInfoScheduledTime
       , "state" .=: msg.pendingNexusOperationInfoState
       , "attempt" .=: msg.pendingNexusOperationInfoAttempt
-      , "lastAttemptCompleteTime" .=: msg.pendingNexusOperationInfoLastattemptcompletetime
-      , "lastAttemptFailure" .=: msg.pendingNexusOperationInfoLastattemptfailure
-      , "nextAttemptScheduleTime" .=: msg.pendingNexusOperationInfoNextattemptscheduletime
-      , "cancellationInfo" .=: msg.pendingNexusOperationInfoCancellationinfo
-      , "scheduledEventId" .=: msg.pendingNexusOperationInfoScheduledeventid
-      , "blockedReason" .=: msg.pendingNexusOperationInfoBlockedreason
-      , "operationToken" .=: msg.pendingNexusOperationInfoOperationtoken
-      , "scheduleToStartTimeout" .=: msg.pendingNexusOperationInfoScheduletostarttimeout
-      , "startToCloseTimeout" .=: msg.pendingNexusOperationInfoStarttoclosetimeout
+      , "lastAttemptCompleteTime" .=: msg.pendingNexusOperationInfoLastAttemptCompleteTime
+      , "lastAttemptFailure" .=: msg.pendingNexusOperationInfoLastAttemptFailure
+      , "nextAttemptScheduleTime" .=: msg.pendingNexusOperationInfoNextAttemptScheduleTime
+      , "cancellationInfo" .=: msg.pendingNexusOperationInfoCancellationInfo
+      , "scheduledEventId" .=: msg.pendingNexusOperationInfoScheduledEventId
+      , "blockedReason" .=: msg.pendingNexusOperationInfoBlockedReason
+      , "operationToken" .=: msg.pendingNexusOperationInfoOperationToken
+      , "scheduleToStartTimeout" .=: msg.pendingNexusOperationInfoScheduleToStartTimeout
+      , "startToCloseTimeout" .=: msg.pendingNexusOperationInfoStartToCloseTimeout
       ]
 
 instance Aeson.FromJSON PendingNexusOperationInfo where
@@ -3673,89 +3673,89 @@ instance Aeson.FromJSON PendingNexusOperationInfo where
     fld_pendingNexusOperationInfoEndpoint <- parseFieldMaybe obj "endpoint"
     fld_pendingNexusOperationInfoService <- parseFieldMaybe obj "service"
     fld_pendingNexusOperationInfoOperation <- parseFieldMaybe obj "operation"
-    fld_pendingNexusOperationInfoOperationid <- parseFieldMaybe obj "operationId"
-    fld_pendingNexusOperationInfoScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
-    fld_pendingNexusOperationInfoScheduledtime <- parseFieldMaybe obj "scheduledTime"
+    fld_pendingNexusOperationInfoOperationId <- parseFieldMaybe obj "operationId"
+    fld_pendingNexusOperationInfoScheduleToCloseTimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_pendingNexusOperationInfoScheduledTime <- parseFieldMaybe obj "scheduledTime"
     fld_pendingNexusOperationInfoState <- parseFieldMaybe obj "state"
     fld_pendingNexusOperationInfoAttempt <- parseFieldMaybe obj "attempt"
-    fld_pendingNexusOperationInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
-    fld_pendingNexusOperationInfoLastattemptfailure <- parseFieldMaybe obj "lastAttemptFailure"
-    fld_pendingNexusOperationInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
-    fld_pendingNexusOperationInfoCancellationinfo <- parseFieldMaybe obj "cancellationInfo"
-    fld_pendingNexusOperationInfoScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
-    fld_pendingNexusOperationInfoBlockedreason <- parseFieldMaybe obj "blockedReason"
-    fld_pendingNexusOperationInfoOperationtoken <- parseFieldMaybe obj "operationToken"
-    fld_pendingNexusOperationInfoScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
-    fld_pendingNexusOperationInfoStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_pendingNexusOperationInfoLastAttemptCompleteTime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_pendingNexusOperationInfoLastAttemptFailure <- parseFieldMaybe obj "lastAttemptFailure"
+    fld_pendingNexusOperationInfoNextAttemptScheduleTime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_pendingNexusOperationInfoCancellationInfo <- parseFieldMaybe obj "cancellationInfo"
+    fld_pendingNexusOperationInfoScheduledEventId <- parseFieldMaybe obj "scheduledEventId"
+    fld_pendingNexusOperationInfoBlockedReason <- parseFieldMaybe obj "blockedReason"
+    fld_pendingNexusOperationInfoOperationToken <- parseFieldMaybe obj "operationToken"
+    fld_pendingNexusOperationInfoScheduleToStartTimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_pendingNexusOperationInfoStartToCloseTimeout <- parseFieldMaybe obj "startToCloseTimeout"
     pure defaultPendingNexusOperationInfo
       { pendingNexusOperationInfoEndpoint = maybe (pendingNexusOperationInfoEndpoint defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoEndpoint
       , pendingNexusOperationInfoService = maybe (pendingNexusOperationInfoService defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoService
       , pendingNexusOperationInfoOperation = maybe (pendingNexusOperationInfoOperation defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoOperation
-      , pendingNexusOperationInfoOperationid = maybe (pendingNexusOperationInfoOperationid defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoOperationid
-      , pendingNexusOperationInfoScheduletoclosetimeout = maybe (pendingNexusOperationInfoScheduletoclosetimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduletoclosetimeout
-      , pendingNexusOperationInfoScheduledtime = maybe (pendingNexusOperationInfoScheduledtime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduledtime
+      , pendingNexusOperationInfoOperationId = maybe (pendingNexusOperationInfoOperationId defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoOperationId
+      , pendingNexusOperationInfoScheduleToCloseTimeout = maybe (pendingNexusOperationInfoScheduleToCloseTimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduleToCloseTimeout
+      , pendingNexusOperationInfoScheduledTime = maybe (pendingNexusOperationInfoScheduledTime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduledTime
       , pendingNexusOperationInfoState = maybe (pendingNexusOperationInfoState defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoState
       , pendingNexusOperationInfoAttempt = maybe (pendingNexusOperationInfoAttempt defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoAttempt
-      , pendingNexusOperationInfoLastattemptcompletetime = maybe (pendingNexusOperationInfoLastattemptcompletetime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoLastattemptcompletetime
-      , pendingNexusOperationInfoLastattemptfailure = maybe (pendingNexusOperationInfoLastattemptfailure defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoLastattemptfailure
-      , pendingNexusOperationInfoNextattemptscheduletime = maybe (pendingNexusOperationInfoNextattemptscheduletime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoNextattemptscheduletime
-      , pendingNexusOperationInfoCancellationinfo = maybe (pendingNexusOperationInfoCancellationinfo defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoCancellationinfo
-      , pendingNexusOperationInfoScheduledeventid = maybe (pendingNexusOperationInfoScheduledeventid defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduledeventid
-      , pendingNexusOperationInfoBlockedreason = maybe (pendingNexusOperationInfoBlockedreason defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoBlockedreason
-      , pendingNexusOperationInfoOperationtoken = maybe (pendingNexusOperationInfoOperationtoken defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoOperationtoken
-      , pendingNexusOperationInfoScheduletostarttimeout = maybe (pendingNexusOperationInfoScheduletostarttimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduletostarttimeout
-      , pendingNexusOperationInfoStarttoclosetimeout = maybe (pendingNexusOperationInfoStarttoclosetimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoStarttoclosetimeout
+      , pendingNexusOperationInfoLastAttemptCompleteTime = maybe (pendingNexusOperationInfoLastAttemptCompleteTime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoLastAttemptCompleteTime
+      , pendingNexusOperationInfoLastAttemptFailure = maybe (pendingNexusOperationInfoLastAttemptFailure defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoLastAttemptFailure
+      , pendingNexusOperationInfoNextAttemptScheduleTime = maybe (pendingNexusOperationInfoNextAttemptScheduleTime defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoNextAttemptScheduleTime
+      , pendingNexusOperationInfoCancellationInfo = maybe (pendingNexusOperationInfoCancellationInfo defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoCancellationInfo
+      , pendingNexusOperationInfoScheduledEventId = maybe (pendingNexusOperationInfoScheduledEventId defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduledEventId
+      , pendingNexusOperationInfoBlockedReason = maybe (pendingNexusOperationInfoBlockedReason defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoBlockedReason
+      , pendingNexusOperationInfoOperationToken = maybe (pendingNexusOperationInfoOperationToken defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoOperationToken
+      , pendingNexusOperationInfoScheduleToStartTimeout = maybe (pendingNexusOperationInfoScheduleToStartTimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoScheduleToStartTimeout
+      , pendingNexusOperationInfoStartToCloseTimeout = maybe (pendingNexusOperationInfoStartToCloseTimeout defaultPendingNexusOperationInfo) id fld_pendingNexusOperationInfoStartToCloseTimeout
       }
 
 instance Hashable PendingNexusOperationInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingNexusOperationInfoEndpoint) msg.pendingNexusOperationInfoService) msg.pendingNexusOperationInfoOperation) msg.pendingNexusOperationInfoOperationid) msg.pendingNexusOperationInfoScheduletoclosetimeout) msg.pendingNexusOperationInfoScheduledtime) msg.pendingNexusOperationInfoState) msg.pendingNexusOperationInfoAttempt) msg.pendingNexusOperationInfoLastattemptcompletetime) msg.pendingNexusOperationInfoLastattemptfailure) msg.pendingNexusOperationInfoNextattemptscheduletime) msg.pendingNexusOperationInfoCancellationinfo) msg.pendingNexusOperationInfoScheduledeventid) msg.pendingNexusOperationInfoBlockedreason) msg.pendingNexusOperationInfoOperationtoken) msg.pendingNexusOperationInfoScheduletostarttimeout) msg.pendingNexusOperationInfoStarttoclosetimeout
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pendingNexusOperationInfoEndpoint) msg.pendingNexusOperationInfoService) msg.pendingNexusOperationInfoOperation) msg.pendingNexusOperationInfoOperationId) msg.pendingNexusOperationInfoScheduleToCloseTimeout) msg.pendingNexusOperationInfoScheduledTime) msg.pendingNexusOperationInfoState) msg.pendingNexusOperationInfoAttempt) msg.pendingNexusOperationInfoLastAttemptCompleteTime) msg.pendingNexusOperationInfoLastAttemptFailure) msg.pendingNexusOperationInfoNextAttemptScheduleTime) msg.pendingNexusOperationInfoCancellationInfo) msg.pendingNexusOperationInfoScheduledEventId) msg.pendingNexusOperationInfoBlockedReason) msg.pendingNexusOperationInfoOperationToken) msg.pendingNexusOperationInfoScheduleToStartTimeout) msg.pendingNexusOperationInfoStartToCloseTimeout
 
 data NexusOperationCancellationInfo = NexusOperationCancellationInfo
-  { nexusOperationCancellationInfoRequestedtime :: !(Maybe PB_Timestamp.Timestamp)
+  { nexusOperationCancellationInfoRequestedTime :: !(Maybe PB_Timestamp.Timestamp)
   , nexusOperationCancellationInfoState :: !TE_Enums_V1_Common.NexusOperationCancellationState
   , nexusOperationCancellationInfoAttempt :: {-# UNPACK #-} !Int32
-  , nexusOperationCancellationInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
-  , nexusOperationCancellationInfoLastattemptfailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , nexusOperationCancellationInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
-  , nexusOperationCancellationInfoBlockedreason :: !Text
-  , nexusOperationCancellationInfoUnknownfields :: ![UnknownField]
+  , nexusOperationCancellationInfoLastAttemptCompleteTime :: !(Maybe PB_Timestamp.Timestamp)
+  , nexusOperationCancellationInfoLastAttemptFailure :: !(Maybe TE_Failure_V1_Message.Failure)
+  , nexusOperationCancellationInfoNextAttemptScheduleTime :: !(Maybe PB_Timestamp.Timestamp)
+  , nexusOperationCancellationInfoBlockedReason :: !Text
+  , nexusOperationCancellationInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNexusOperationCancellationInfo :: NexusOperationCancellationInfo
 defaultNexusOperationCancellationInfo = NexusOperationCancellationInfo
-  { nexusOperationCancellationInfoRequestedtime = Nothing
+  { nexusOperationCancellationInfoRequestedTime = Nothing
   , nexusOperationCancellationInfoState = (toEnum 0)
   , nexusOperationCancellationInfoAttempt = 0
-  , nexusOperationCancellationInfoLastattemptcompletetime = Nothing
-  , nexusOperationCancellationInfoLastattemptfailure = Nothing
-  , nexusOperationCancellationInfoNextattemptscheduletime = Nothing
-  , nexusOperationCancellationInfoBlockedreason = ""
-  , nexusOperationCancellationInfoUnknownfields = []
+  , nexusOperationCancellationInfoLastAttemptCompleteTime = Nothing
+  , nexusOperationCancellationInfoLastAttemptFailure = Nothing
+  , nexusOperationCancellationInfoNextAttemptScheduleTime = Nothing
+  , nexusOperationCancellationInfoBlockedReason = ""
+  , nexusOperationCancellationInfoUnknownFields = []
   }
 
 instance MessageEncode NexusOperationCancellationInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.nexusOperationCancellationInfoRequestedtime)
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.nexusOperationCancellationInfoRequestedTime)
     <> (if fromEnum msg.nexusOperationCancellationInfoState == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.nexusOperationCancellationInfoState)))
     <> (if msg.nexusOperationCancellationInfoAttempt == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.nexusOperationCancellationInfoAttempt))
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.nexusOperationCancellationInfoLastattemptcompletetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.nexusOperationCancellationInfoLastattemptfailure)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.nexusOperationCancellationInfoNextattemptscheduletime)
-    <> (if msg.nexusOperationCancellationInfoBlockedreason == T.empty then mempty else encodeFieldString 7 msg.nexusOperationCancellationInfoBlockedreason)
-    <> encodeUnknownFields msg.nexusOperationCancellationInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.nexusOperationCancellationInfoLastAttemptCompleteTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.nexusOperationCancellationInfoLastAttemptFailure)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.nexusOperationCancellationInfoNextAttemptScheduleTime)
+    <> (if msg.nexusOperationCancellationInfoBlockedReason == T.empty then mempty else encodeFieldString 7 msg.nexusOperationCancellationInfoBlockedReason)
+    <> encodeUnknownFields msg.nexusOperationCancellationInfoUnknownFields
 
 instance MessageSize NexusOperationCancellationInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.nexusOperationCancellationInfoRequestedtime)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.nexusOperationCancellationInfoRequestedTime)
     + (if fromEnum msg.nexusOperationCancellationInfoState == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.nexusOperationCancellationInfoState)))
     + (if msg.nexusOperationCancellationInfoAttempt == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.nexusOperationCancellationInfoAttempt))
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.nexusOperationCancellationInfoLastattemptcompletetime)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.nexusOperationCancellationInfoLastattemptfailure)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.nexusOperationCancellationInfoNextattemptscheduletime)
-    + (if msg.nexusOperationCancellationInfoBlockedreason == T.empty then 0 else fieldTextSize 7 msg.nexusOperationCancellationInfoBlockedreason)
-    + unknownFieldsSize msg.nexusOperationCancellationInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.nexusOperationCancellationInfoLastAttemptCompleteTime)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.nexusOperationCancellationInfoLastAttemptFailure)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.nexusOperationCancellationInfoNextAttemptScheduleTime)
+    + (if msg.nexusOperationCancellationInfoBlockedReason == T.empty then 0 else fieldTextSize 7 msg.nexusOperationCancellationInfoBlockedReason)
+    + unknownFieldsSize msg.nexusOperationCancellationInfoUnknownFields
 
 instance MessageDecode NexusOperationCancellationInfo where
   {-# INLINE messageDecoder #-}
@@ -3764,7 +3764,7 @@ instance MessageDecode NexusOperationCancellationInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NexusOperationCancellationInfo {nexusOperationCancellationInfoRequestedtime = acc_0, nexusOperationCancellationInfoState = acc_1, nexusOperationCancellationInfoAttempt = acc_2, nexusOperationCancellationInfoLastattemptcompletetime = acc_3, nexusOperationCancellationInfoLastattemptfailure = acc_4, nexusOperationCancellationInfoNextattemptscheduletime = acc_5, nexusOperationCancellationInfoBlockedreason = acc_6, nexusOperationCancellationInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NexusOperationCancellationInfo {nexusOperationCancellationInfoRequestedTime = acc_0, nexusOperationCancellationInfoState = acc_1, nexusOperationCancellationInfoAttempt = acc_2, nexusOperationCancellationInfoLastAttemptCompleteTime = acc_3, nexusOperationCancellationInfoLastAttemptFailure = acc_4, nexusOperationCancellationInfoNextAttemptScheduleTime = acc_5, nexusOperationCancellationInfoBlockedReason = acc_6, nexusOperationCancellationInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -3805,8 +3805,8 @@ instance ProtoMessage NexusOperationCancellationInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = nexusOperationCancellationInfoRequestedtime
-        , fdSet = \v m -> m { nexusOperationCancellationInfoRequestedtime = v }
+        , fdGet = nexusOperationCancellationInfoRequestedTime
+        , fdSet = \v m -> m { nexusOperationCancellationInfoRequestedTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "state"
         , fdNumber = 2
@@ -3828,94 +3828,94 @@ instance ProtoMessage NexusOperationCancellationInfo where
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = nexusOperationCancellationInfoLastattemptcompletetime
-        , fdSet = \v m -> m { nexusOperationCancellationInfoLastattemptcompletetime = v }
+        , fdGet = nexusOperationCancellationInfoLastAttemptCompleteTime
+        , fdSet = \v m -> m { nexusOperationCancellationInfoLastAttemptCompleteTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "last_attempt_failure"
         , fdNumber = 5
         , fdTypeDesc = MessageType "temporal.api.failure.v1.Failure"
         , fdLabel = LabelOptional
-        , fdGet = nexusOperationCancellationInfoLastattemptfailure
-        , fdSet = \v m -> m { nexusOperationCancellationInfoLastattemptfailure = v }
+        , fdGet = nexusOperationCancellationInfoLastAttemptFailure
+        , fdSet = \v m -> m { nexusOperationCancellationInfoLastAttemptFailure = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "next_attempt_schedule_time"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = nexusOperationCancellationInfoNextattemptscheduletime
-        , fdSet = \v m -> m { nexusOperationCancellationInfoNextattemptscheduletime = v }
+        , fdGet = nexusOperationCancellationInfoNextAttemptScheduleTime
+        , fdSet = \v m -> m { nexusOperationCancellationInfoNextAttemptScheduleTime = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "blocked_reason"
         , fdNumber = 7
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = nexusOperationCancellationInfoBlockedreason
-        , fdSet = \v m -> m { nexusOperationCancellationInfoBlockedreason = v }
+        , fdGet = nexusOperationCancellationInfoBlockedReason
+        , fdSet = \v m -> m { nexusOperationCancellationInfoBlockedReason = v }
         })
     ]
 
 instance Aeson.ToJSON NexusOperationCancellationInfo where
   toJSON msg = jsonObject
-      [ "requestedTime" .=: msg.nexusOperationCancellationInfoRequestedtime
+      [ "requestedTime" .=: msg.nexusOperationCancellationInfoRequestedTime
       , "state" .=: msg.nexusOperationCancellationInfoState
       , "attempt" .=: msg.nexusOperationCancellationInfoAttempt
-      , "lastAttemptCompleteTime" .=: msg.nexusOperationCancellationInfoLastattemptcompletetime
-      , "lastAttemptFailure" .=: msg.nexusOperationCancellationInfoLastattemptfailure
-      , "nextAttemptScheduleTime" .=: msg.nexusOperationCancellationInfoNextattemptscheduletime
-      , "blockedReason" .=: msg.nexusOperationCancellationInfoBlockedreason
+      , "lastAttemptCompleteTime" .=: msg.nexusOperationCancellationInfoLastAttemptCompleteTime
+      , "lastAttemptFailure" .=: msg.nexusOperationCancellationInfoLastAttemptFailure
+      , "nextAttemptScheduleTime" .=: msg.nexusOperationCancellationInfoNextAttemptScheduleTime
+      , "blockedReason" .=: msg.nexusOperationCancellationInfoBlockedReason
       ]
 
 instance Aeson.FromJSON NexusOperationCancellationInfo where
   parseJSON = Aeson.withObject "NexusOperationCancellationInfo" $ \obj -> do
-    fld_nexusOperationCancellationInfoRequestedtime <- parseFieldMaybe obj "requestedTime"
+    fld_nexusOperationCancellationInfoRequestedTime <- parseFieldMaybe obj "requestedTime"
     fld_nexusOperationCancellationInfoState <- parseFieldMaybe obj "state"
     fld_nexusOperationCancellationInfoAttempt <- parseFieldMaybe obj "attempt"
-    fld_nexusOperationCancellationInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
-    fld_nexusOperationCancellationInfoLastattemptfailure <- parseFieldMaybe obj "lastAttemptFailure"
-    fld_nexusOperationCancellationInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
-    fld_nexusOperationCancellationInfoBlockedreason <- parseFieldMaybe obj "blockedReason"
+    fld_nexusOperationCancellationInfoLastAttemptCompleteTime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_nexusOperationCancellationInfoLastAttemptFailure <- parseFieldMaybe obj "lastAttemptFailure"
+    fld_nexusOperationCancellationInfoNextAttemptScheduleTime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_nexusOperationCancellationInfoBlockedReason <- parseFieldMaybe obj "blockedReason"
     pure defaultNexusOperationCancellationInfo
-      { nexusOperationCancellationInfoRequestedtime = maybe (nexusOperationCancellationInfoRequestedtime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoRequestedtime
+      { nexusOperationCancellationInfoRequestedTime = maybe (nexusOperationCancellationInfoRequestedTime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoRequestedTime
       , nexusOperationCancellationInfoState = maybe (nexusOperationCancellationInfoState defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoState
       , nexusOperationCancellationInfoAttempt = maybe (nexusOperationCancellationInfoAttempt defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoAttempt
-      , nexusOperationCancellationInfoLastattemptcompletetime = maybe (nexusOperationCancellationInfoLastattemptcompletetime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoLastattemptcompletetime
-      , nexusOperationCancellationInfoLastattemptfailure = maybe (nexusOperationCancellationInfoLastattemptfailure defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoLastattemptfailure
-      , nexusOperationCancellationInfoNextattemptscheduletime = maybe (nexusOperationCancellationInfoNextattemptscheduletime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoNextattemptscheduletime
-      , nexusOperationCancellationInfoBlockedreason = maybe (nexusOperationCancellationInfoBlockedreason defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoBlockedreason
+      , nexusOperationCancellationInfoLastAttemptCompleteTime = maybe (nexusOperationCancellationInfoLastAttemptCompleteTime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoLastAttemptCompleteTime
+      , nexusOperationCancellationInfoLastAttemptFailure = maybe (nexusOperationCancellationInfoLastAttemptFailure defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoLastAttemptFailure
+      , nexusOperationCancellationInfoNextAttemptScheduleTime = maybe (nexusOperationCancellationInfoNextAttemptScheduleTime defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoNextAttemptScheduleTime
+      , nexusOperationCancellationInfoBlockedReason = maybe (nexusOperationCancellationInfoBlockedReason defaultNexusOperationCancellationInfo) id fld_nexusOperationCancellationInfoBlockedReason
       }
 
 instance Hashable NexusOperationCancellationInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.nexusOperationCancellationInfoRequestedtime) msg.nexusOperationCancellationInfoState) msg.nexusOperationCancellationInfoAttempt) msg.nexusOperationCancellationInfoLastattemptcompletetime) msg.nexusOperationCancellationInfoLastattemptfailure) msg.nexusOperationCancellationInfoNextattemptscheduletime) msg.nexusOperationCancellationInfoBlockedreason
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.nexusOperationCancellationInfoRequestedTime) msg.nexusOperationCancellationInfoState) msg.nexusOperationCancellationInfoAttempt) msg.nexusOperationCancellationInfoLastAttemptCompleteTime) msg.nexusOperationCancellationInfoLastAttemptFailure) msg.nexusOperationCancellationInfoNextAttemptScheduleTime) msg.nexusOperationCancellationInfoBlockedReason
 
 data WorkflowExecutionOptions = WorkflowExecutionOptions
-  { workflowExecutionOptionsVersioningoverride :: !(Maybe VersioningOverride)
+  { workflowExecutionOptionsVersioningOverride :: !(Maybe VersioningOverride)
   , workflowExecutionOptionsPriority :: !(Maybe TE_Common_V1_Message.Priority)
-  , workflowExecutionOptionsUnknownfields :: ![UnknownField]
+  , workflowExecutionOptionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowExecutionOptions :: WorkflowExecutionOptions
 defaultWorkflowExecutionOptions = WorkflowExecutionOptions
-  { workflowExecutionOptionsVersioningoverride = Nothing
+  { workflowExecutionOptionsVersioningOverride = Nothing
   , workflowExecutionOptionsPriority = Nothing
-  , workflowExecutionOptionsUnknownfields = []
+  , workflowExecutionOptionsUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutionOptions where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowExecutionOptionsVersioningoverride)
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowExecutionOptionsVersioningOverride)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionOptionsPriority)
-    <> encodeUnknownFields msg.workflowExecutionOptionsUnknownfields
+    <> encodeUnknownFields msg.workflowExecutionOptionsUnknownFields
 
 instance MessageSize WorkflowExecutionOptions where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowExecutionOptionsVersioningoverride)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowExecutionOptionsVersioningOverride)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionOptionsPriority)
-    + unknownFieldsSize msg.workflowExecutionOptionsUnknownfields
+    + unknownFieldsSize msg.workflowExecutionOptionsUnknownFields
 
 instance MessageDecode WorkflowExecutionOptions where
   {-# INLINE messageDecoder #-}
@@ -3924,7 +3924,7 @@ instance MessageDecode WorkflowExecutionOptions where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutionOptions {workflowExecutionOptionsVersioningoverride = acc_0, workflowExecutionOptionsPriority = acc_1, workflowExecutionOptionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutionOptions {workflowExecutionOptionsVersioningOverride = acc_0, workflowExecutionOptionsPriority = acc_1, workflowExecutionOptionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -3950,8 +3950,8 @@ instance ProtoMessage WorkflowExecutionOptions where
         , fdNumber = 1
         , fdTypeDesc = MessageType "VersioningOverride"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionOptionsVersioningoverride
-        , fdSet = \v m -> m { workflowExecutionOptionsVersioningoverride = v }
+        , fdGet = workflowExecutionOptionsVersioningOverride
+        , fdSet = \v m -> m { workflowExecutionOptionsVersioningOverride = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "priority"
         , fdNumber = 2
@@ -3964,28 +3964,28 @@ instance ProtoMessage WorkflowExecutionOptions where
 
 instance Aeson.ToJSON WorkflowExecutionOptions where
   toJSON msg = jsonObject
-      [ "versioningOverride" .=: msg.workflowExecutionOptionsVersioningoverride
+      [ "versioningOverride" .=: msg.workflowExecutionOptionsVersioningOverride
       , "priority" .=: msg.workflowExecutionOptionsPriority
       ]
 
 instance Aeson.FromJSON WorkflowExecutionOptions where
   parseJSON = Aeson.withObject "WorkflowExecutionOptions" $ \obj -> do
-    fld_workflowExecutionOptionsVersioningoverride <- parseFieldMaybe obj "versioningOverride"
+    fld_workflowExecutionOptionsVersioningOverride <- parseFieldMaybe obj "versioningOverride"
     fld_workflowExecutionOptionsPriority <- parseFieldMaybe obj "priority"
     pure defaultWorkflowExecutionOptions
-      { workflowExecutionOptionsVersioningoverride = maybe (workflowExecutionOptionsVersioningoverride defaultWorkflowExecutionOptions) id fld_workflowExecutionOptionsVersioningoverride
+      { workflowExecutionOptionsVersioningOverride = maybe (workflowExecutionOptionsVersioningOverride defaultWorkflowExecutionOptions) id fld_workflowExecutionOptionsVersioningOverride
       , workflowExecutionOptionsPriority = maybe (workflowExecutionOptionsPriority defaultWorkflowExecutionOptions) id fld_workflowExecutionOptionsPriority
       }
 
 instance Hashable WorkflowExecutionOptions where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowExecutionOptionsVersioningoverride) msg.workflowExecutionOptionsPriority
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowExecutionOptionsVersioningOverride) msg.workflowExecutionOptionsPriority
 
 data VersioningOverride = VersioningOverride
   { versioningOverrideOverride :: !(Maybe VersioningOverride'Override)
   , versioningOverrideBehavior :: !TE_Enums_V1_Workflow.VersioningBehavior
   , versioningOverrideDeployment :: !(Maybe TE_Deployment_V1_Message.Deployment)
-  , versioningOverridePinnedversion :: !Text
-  , versioningOverrideUnknownfields :: ![UnknownField]
+  , versioningOverridePinnedVersion :: !Text
+  , versioningOverrideUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4005,7 +4005,7 @@ instance Hashable VersioningOverride'Override where
 data VersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
   { versioningOverridePinnedOverrideBehavior :: !VersioningOverride'PinnedOverrideBehavior
   , versioningOverridePinnedOverrideVersion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
-  , versioningOverridePinnedOverrideUnknownfields :: ![UnknownField]
+  , versioningOverridePinnedOverrideUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4014,20 +4014,20 @@ defaultVersioningOverride'PinnedOverride :: VersioningOverride'PinnedOverride
 defaultVersioningOverride'PinnedOverride = VersioningOverride'PinnedOverride
   { versioningOverridePinnedOverrideBehavior = (toEnum 0)
   , versioningOverridePinnedOverrideVersion = Nothing
-  , versioningOverridePinnedOverrideUnknownfields = []
+  , versioningOverridePinnedOverrideUnknownFields = []
   }
 
 instance MessageEncode VersioningOverride'PinnedOverride where
   buildMessage msg =
     (if fromEnum msg.versioningOverridePinnedOverrideBehavior == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.versioningOverridePinnedOverrideBehavior)))
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versioningOverridePinnedOverrideVersion)
-    <> encodeUnknownFields msg.versioningOverridePinnedOverrideUnknownfields
+    <> encodeUnknownFields msg.versioningOverridePinnedOverrideUnknownFields
 
 instance MessageSize VersioningOverride'PinnedOverride where
   messageSize msg =
     (if fromEnum msg.versioningOverridePinnedOverrideBehavior == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.versioningOverridePinnedOverrideBehavior)))
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versioningOverridePinnedOverrideVersion)
-    + unknownFieldsSize msg.versioningOverridePinnedOverrideUnknownfields
+    + unknownFieldsSize msg.versioningOverridePinnedOverrideUnknownFields
 
 instance MessageDecode VersioningOverride'PinnedOverride where
   {-# INLINE messageDecoder #-}
@@ -4036,7 +4036,7 @@ instance MessageDecode VersioningOverride'PinnedOverride where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (VersioningOverride'PinnedOverride {versioningOverridePinnedOverrideBehavior = acc_0, versioningOverridePinnedOverrideVersion = acc_1, versioningOverridePinnedOverrideUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (VersioningOverride'PinnedOverride {versioningOverridePinnedOverrideBehavior = acc_0, versioningOverridePinnedOverrideVersion = acc_1, versioningOverridePinnedOverrideUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -4133,8 +4133,8 @@ defaultVersioningOverride = VersioningOverride
   { versioningOverrideOverride = Nothing
   , versioningOverrideBehavior = (toEnum 0)
   , versioningOverrideDeployment = Nothing
-  , versioningOverridePinnedversion = ""
-  , versioningOverrideUnknownfields = []
+  , versioningOverridePinnedVersion = ""
+  , versioningOverrideUnknownFields = []
   }
 
 instance MessageEncode VersioningOverride where
@@ -4145,8 +4145,8 @@ instance MessageEncode VersioningOverride where
       Just (VersioningOverride'Override'AutoUpgrade v) -> encodeFieldBool 4 v)
     <> (if fromEnum msg.versioningOverrideBehavior == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.versioningOverrideBehavior)))
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versioningOverrideDeployment)
-    <> (if msg.versioningOverridePinnedversion == T.empty then mempty else encodeFieldString 9 msg.versioningOverridePinnedversion)
-    <> encodeUnknownFields msg.versioningOverrideUnknownfields
+    <> (if msg.versioningOverridePinnedVersion == T.empty then mempty else encodeFieldString 9 msg.versioningOverridePinnedVersion)
+    <> encodeUnknownFields msg.versioningOverrideUnknownFields
 
 instance MessageSize VersioningOverride where
   messageSize msg =
@@ -4154,8 +4154,8 @@ instance MessageSize VersioningOverride where
     ; Just (VersioningOverride'Override'AutoUpgrade v) -> fieldBoolSize 4 })
     + (if fromEnum msg.versioningOverrideBehavior == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.versioningOverrideBehavior)))
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versioningOverrideDeployment)
-    + (if msg.versioningOverridePinnedversion == T.empty then 0 else fieldTextSize 9 msg.versioningOverridePinnedversion)
-    + unknownFieldsSize msg.versioningOverrideUnknownfields
+    + (if msg.versioningOverridePinnedVersion == T.empty then 0 else fieldTextSize 9 msg.versioningOverridePinnedVersion)
+    + unknownFieldsSize msg.versioningOverrideUnknownFields
 
 instance MessageDecode VersioningOverride where
   {-# INLINE messageDecoder #-}
@@ -4164,7 +4164,7 @@ instance MessageDecode VersioningOverride where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (VersioningOverride {versioningOverrideOverride = acc_0, versioningOverrideBehavior = acc_1, versioningOverrideDeployment = acc_2, versioningOverridePinnedversion = acc_3, versioningOverrideUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (VersioningOverride {versioningOverrideOverride = acc_0, versioningOverrideBehavior = acc_1, versioningOverrideDeployment = acc_2, versioningOverridePinnedVersion = acc_3, versioningOverrideUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             3 -> do
               v <- decodeFieldMessage
@@ -4222,8 +4222,8 @@ instance ProtoMessage VersioningOverride where
         , fdNumber = 9
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = versioningOverridePinnedversion
-        , fdSet = \v m -> m { versioningOverridePinnedversion = v }
+        , fdGet = versioningOverridePinnedVersion
+        , fdSet = \v m -> m { versioningOverridePinnedVersion = v }
         })
     ]
 
@@ -4232,7 +4232,7 @@ instance Aeson.ToJSON VersioningOverride where
       [ "override" .=: msg.versioningOverrideOverride
       , "behavior" .=: msg.versioningOverrideBehavior
       , "deployment" .=: msg.versioningOverrideDeployment
-      , "pinnedVersion" .=: msg.versioningOverridePinnedversion
+      , "pinnedVersion" .=: msg.versioningOverridePinnedVersion
       ]
 
 instance Aeson.FromJSON VersioningOverride where
@@ -4240,47 +4240,47 @@ instance Aeson.FromJSON VersioningOverride where
     fld_versioningOverrideOverride <- parseFieldMaybe obj "override"
     fld_versioningOverrideBehavior <- parseFieldMaybe obj "behavior"
     fld_versioningOverrideDeployment <- parseFieldMaybe obj "deployment"
-    fld_versioningOverridePinnedversion <- parseFieldMaybe obj "pinnedVersion"
+    fld_versioningOverridePinnedVersion <- parseFieldMaybe obj "pinnedVersion"
     pure defaultVersioningOverride
       { versioningOverrideOverride = maybe (versioningOverrideOverride defaultVersioningOverride) id fld_versioningOverrideOverride
       , versioningOverrideBehavior = maybe (versioningOverrideBehavior defaultVersioningOverride) id fld_versioningOverrideBehavior
       , versioningOverrideDeployment = maybe (versioningOverrideDeployment defaultVersioningOverride) id fld_versioningOverrideDeployment
-      , versioningOverridePinnedversion = maybe (versioningOverridePinnedversion defaultVersioningOverride) id fld_versioningOverridePinnedversion
+      , versioningOverridePinnedVersion = maybe (versioningOverridePinnedVersion defaultVersioningOverride) id fld_versioningOverridePinnedVersion
       }
 
 instance Hashable VersioningOverride where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.versioningOverrideOverride) msg.versioningOverrideBehavior) msg.versioningOverrideDeployment) msg.versioningOverridePinnedversion
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.versioningOverrideOverride) msg.versioningOverrideBehavior) msg.versioningOverrideDeployment) msg.versioningOverridePinnedVersion
 
 data OnConflictOptions = OnConflictOptions
-  { onConflictOptionsAttachrequestid :: {-# UNPACK #-} !Bool
-  , onConflictOptionsAttachcompletioncallbacks :: {-# UNPACK #-} !Bool
-  , onConflictOptionsAttachlinks :: {-# UNPACK #-} !Bool
-  , onConflictOptionsUnknownfields :: ![UnknownField]
+  { onConflictOptionsAttachRequestId :: {-# UNPACK #-} !Bool
+  , onConflictOptionsAttachCompletionCallbacks :: {-# UNPACK #-} !Bool
+  , onConflictOptionsAttachLinks :: {-# UNPACK #-} !Bool
+  , onConflictOptionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultOnConflictOptions :: OnConflictOptions
 defaultOnConflictOptions = OnConflictOptions
-  { onConflictOptionsAttachrequestid = False
-  , onConflictOptionsAttachcompletioncallbacks = False
-  , onConflictOptionsAttachlinks = False
-  , onConflictOptionsUnknownfields = []
+  { onConflictOptionsAttachRequestId = False
+  , onConflictOptionsAttachCompletionCallbacks = False
+  , onConflictOptionsAttachLinks = False
+  , onConflictOptionsUnknownFields = []
   }
 
 instance MessageEncode OnConflictOptions where
   buildMessage msg =
-    (if msg.onConflictOptionsAttachrequestid == False then mempty else encodeFieldBool 1 msg.onConflictOptionsAttachrequestid)
-    <> (if msg.onConflictOptionsAttachcompletioncallbacks == False then mempty else encodeFieldBool 2 msg.onConflictOptionsAttachcompletioncallbacks)
-    <> (if msg.onConflictOptionsAttachlinks == False then mempty else encodeFieldBool 3 msg.onConflictOptionsAttachlinks)
-    <> encodeUnknownFields msg.onConflictOptionsUnknownfields
+    (if msg.onConflictOptionsAttachRequestId == False then mempty else encodeFieldBool 1 msg.onConflictOptionsAttachRequestId)
+    <> (if msg.onConflictOptionsAttachCompletionCallbacks == False then mempty else encodeFieldBool 2 msg.onConflictOptionsAttachCompletionCallbacks)
+    <> (if msg.onConflictOptionsAttachLinks == False then mempty else encodeFieldBool 3 msg.onConflictOptionsAttachLinks)
+    <> encodeUnknownFields msg.onConflictOptionsUnknownFields
 
 instance MessageSize OnConflictOptions where
   messageSize msg =
-    (if msg.onConflictOptionsAttachrequestid == False then 0 else fieldBoolSize 1)
-    + (if msg.onConflictOptionsAttachcompletioncallbacks == False then 0 else fieldBoolSize 2)
-    + (if msg.onConflictOptionsAttachlinks == False then 0 else fieldBoolSize 3)
-    + unknownFieldsSize msg.onConflictOptionsUnknownfields
+    (if msg.onConflictOptionsAttachRequestId == False then 0 else fieldBoolSize 1)
+    + (if msg.onConflictOptionsAttachCompletionCallbacks == False then 0 else fieldBoolSize 2)
+    + (if msg.onConflictOptionsAttachLinks == False then 0 else fieldBoolSize 3)
+    + unknownFieldsSize msg.onConflictOptionsUnknownFields
 
 instance MessageDecode OnConflictOptions where
   {-# INLINE messageDecoder #-}
@@ -4289,7 +4289,7 @@ instance MessageDecode OnConflictOptions where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (OnConflictOptions {onConflictOptionsAttachrequestid = acc_0, onConflictOptionsAttachcompletioncallbacks = acc_1, onConflictOptionsAttachlinks = acc_2, onConflictOptionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (OnConflictOptions {onConflictOptionsAttachRequestId = acc_0, onConflictOptionsAttachCompletionCallbacks = acc_1, onConflictOptionsAttachLinks = acc_2, onConflictOptionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -4318,77 +4318,77 @@ instance ProtoMessage OnConflictOptions where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = onConflictOptionsAttachrequestid
-        , fdSet = \v m -> m { onConflictOptionsAttachrequestid = v }
+        , fdGet = onConflictOptionsAttachRequestId
+        , fdSet = \v m -> m { onConflictOptionsAttachRequestId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "attach_completion_callbacks"
         , fdNumber = 2
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = onConflictOptionsAttachcompletioncallbacks
-        , fdSet = \v m -> m { onConflictOptionsAttachcompletioncallbacks = v }
+        , fdGet = onConflictOptionsAttachCompletionCallbacks
+        , fdSet = \v m -> m { onConflictOptionsAttachCompletionCallbacks = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "attach_links"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = onConflictOptionsAttachlinks
-        , fdSet = \v m -> m { onConflictOptionsAttachlinks = v }
+        , fdGet = onConflictOptionsAttachLinks
+        , fdSet = \v m -> m { onConflictOptionsAttachLinks = v }
         })
     ]
 
 instance Aeson.ToJSON OnConflictOptions where
   toJSON msg = jsonObject
-      [ "attachRequestId" .=: msg.onConflictOptionsAttachrequestid
-      , "attachCompletionCallbacks" .=: msg.onConflictOptionsAttachcompletioncallbacks
-      , "attachLinks" .=: msg.onConflictOptionsAttachlinks
+      [ "attachRequestId" .=: msg.onConflictOptionsAttachRequestId
+      , "attachCompletionCallbacks" .=: msg.onConflictOptionsAttachCompletionCallbacks
+      , "attachLinks" .=: msg.onConflictOptionsAttachLinks
       ]
 
 instance Aeson.FromJSON OnConflictOptions where
   parseJSON = Aeson.withObject "OnConflictOptions" $ \obj -> do
-    fld_onConflictOptionsAttachrequestid <- parseFieldMaybe obj "attachRequestId"
-    fld_onConflictOptionsAttachcompletioncallbacks <- parseFieldMaybe obj "attachCompletionCallbacks"
-    fld_onConflictOptionsAttachlinks <- parseFieldMaybe obj "attachLinks"
+    fld_onConflictOptionsAttachRequestId <- parseFieldMaybe obj "attachRequestId"
+    fld_onConflictOptionsAttachCompletionCallbacks <- parseFieldMaybe obj "attachCompletionCallbacks"
+    fld_onConflictOptionsAttachLinks <- parseFieldMaybe obj "attachLinks"
     pure defaultOnConflictOptions
-      { onConflictOptionsAttachrequestid = maybe (onConflictOptionsAttachrequestid defaultOnConflictOptions) id fld_onConflictOptionsAttachrequestid
-      , onConflictOptionsAttachcompletioncallbacks = maybe (onConflictOptionsAttachcompletioncallbacks defaultOnConflictOptions) id fld_onConflictOptionsAttachcompletioncallbacks
-      , onConflictOptionsAttachlinks = maybe (onConflictOptionsAttachlinks defaultOnConflictOptions) id fld_onConflictOptionsAttachlinks
+      { onConflictOptionsAttachRequestId = maybe (onConflictOptionsAttachRequestId defaultOnConflictOptions) id fld_onConflictOptionsAttachRequestId
+      , onConflictOptionsAttachCompletionCallbacks = maybe (onConflictOptionsAttachCompletionCallbacks defaultOnConflictOptions) id fld_onConflictOptionsAttachCompletionCallbacks
+      , onConflictOptionsAttachLinks = maybe (onConflictOptionsAttachLinks defaultOnConflictOptions) id fld_onConflictOptionsAttachLinks
       }
 
 instance Hashable OnConflictOptions where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.onConflictOptionsAttachrequestid) msg.onConflictOptionsAttachcompletioncallbacks) msg.onConflictOptionsAttachlinks
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.onConflictOptionsAttachRequestId) msg.onConflictOptionsAttachCompletionCallbacks) msg.onConflictOptionsAttachLinks
 
 data RequestIdInfo = RequestIdInfo
-  { requestIdInfoEventtype :: !TE_Enums_V1_EventType.EventType
-  , requestIdInfoEventid :: {-# UNPACK #-} !Int64
+  { requestIdInfoEventType :: !TE_Enums_V1_EventType.EventType
+  , requestIdInfoEventId :: {-# UNPACK #-} !Int64
   , requestIdInfoBuffered :: {-# UNPACK #-} !Bool
-  , requestIdInfoUnknownfields :: ![UnknownField]
+  , requestIdInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRequestIdInfo :: RequestIdInfo
 defaultRequestIdInfo = RequestIdInfo
-  { requestIdInfoEventtype = (toEnum 0)
-  , requestIdInfoEventid = 0
+  { requestIdInfoEventType = (toEnum 0)
+  , requestIdInfoEventId = 0
   , requestIdInfoBuffered = False
-  , requestIdInfoUnknownfields = []
+  , requestIdInfoUnknownFields = []
   }
 
 instance MessageEncode RequestIdInfo where
   buildMessage msg =
-    (if fromEnum msg.requestIdInfoEventtype == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.requestIdInfoEventtype)))
-    <> (if msg.requestIdInfoEventid == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.requestIdInfoEventid))
+    (if fromEnum msg.requestIdInfoEventType == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.requestIdInfoEventType)))
+    <> (if msg.requestIdInfoEventId == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.requestIdInfoEventId))
     <> (if msg.requestIdInfoBuffered == False then mempty else encodeFieldBool 3 msg.requestIdInfoBuffered)
-    <> encodeUnknownFields msg.requestIdInfoUnknownfields
+    <> encodeUnknownFields msg.requestIdInfoUnknownFields
 
 instance MessageSize RequestIdInfo where
   messageSize msg =
-    (if fromEnum msg.requestIdInfoEventtype == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.requestIdInfoEventtype)))
-    + (if msg.requestIdInfoEventid == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.requestIdInfoEventid))
+    (if fromEnum msg.requestIdInfoEventType == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.requestIdInfoEventType)))
+    + (if msg.requestIdInfoEventId == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.requestIdInfoEventId))
     + (if msg.requestIdInfoBuffered == False then 0 else fieldBoolSize 3)
-    + unknownFieldsSize msg.requestIdInfoUnknownfields
+    + unknownFieldsSize msg.requestIdInfoUnknownFields
 
 instance MessageDecode RequestIdInfo where
   {-# INLINE messageDecoder #-}
@@ -4397,7 +4397,7 @@ instance MessageDecode RequestIdInfo where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RequestIdInfo {requestIdInfoEventtype = acc_0, requestIdInfoEventid = acc_1, requestIdInfoBuffered = acc_2, requestIdInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RequestIdInfo {requestIdInfoEventType = acc_0, requestIdInfoEventId = acc_1, requestIdInfoBuffered = acc_2, requestIdInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -4426,15 +4426,15 @@ instance ProtoMessage RequestIdInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.EventType"
         , fdLabel = LabelOptional
-        , fdGet = requestIdInfoEventtype
-        , fdSet = \v m -> m { requestIdInfoEventtype = v }
+        , fdGet = requestIdInfoEventType
+        , fdSet = \v m -> m { requestIdInfoEventType = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "event_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = requestIdInfoEventid
-        , fdSet = \v m -> m { requestIdInfoEventid = v }
+        , fdGet = requestIdInfoEventId
+        , fdSet = \v m -> m { requestIdInfoEventId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "buffered"
@@ -4448,66 +4448,66 @@ instance ProtoMessage RequestIdInfo where
 
 instance Aeson.ToJSON RequestIdInfo where
   toJSON msg = jsonObject
-      [ "eventType" .=: msg.requestIdInfoEventtype
-      , "eventId" .=: msg.requestIdInfoEventid
+      [ "eventType" .=: msg.requestIdInfoEventType
+      , "eventId" .=: msg.requestIdInfoEventId
       , "buffered" .=: msg.requestIdInfoBuffered
       ]
 
 instance Aeson.FromJSON RequestIdInfo where
   parseJSON = Aeson.withObject "RequestIdInfo" $ \obj -> do
-    fld_requestIdInfoEventtype <- parseFieldMaybe obj "eventType"
-    fld_requestIdInfoEventid <- parseFieldMaybe obj "eventId"
+    fld_requestIdInfoEventType <- parseFieldMaybe obj "eventType"
+    fld_requestIdInfoEventId <- parseFieldMaybe obj "eventId"
     fld_requestIdInfoBuffered <- parseFieldMaybe obj "buffered"
     pure defaultRequestIdInfo
-      { requestIdInfoEventtype = maybe (requestIdInfoEventtype defaultRequestIdInfo) id fld_requestIdInfoEventtype
-      , requestIdInfoEventid = maybe (requestIdInfoEventid defaultRequestIdInfo) id fld_requestIdInfoEventid
+      { requestIdInfoEventType = maybe (requestIdInfoEventType defaultRequestIdInfo) id fld_requestIdInfoEventType
+      , requestIdInfoEventId = maybe (requestIdInfoEventId defaultRequestIdInfo) id fld_requestIdInfoEventId
       , requestIdInfoBuffered = maybe (requestIdInfoBuffered defaultRequestIdInfo) id fld_requestIdInfoBuffered
       }
 
 instance Hashable RequestIdInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.requestIdInfoEventtype) msg.requestIdInfoEventid) msg.requestIdInfoBuffered
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.requestIdInfoEventType) msg.requestIdInfoEventId) msg.requestIdInfoBuffered
 
 data PostResetOperation = PostResetOperation
   { postResetOperationVariant :: !(Maybe PostResetOperation'Variant)
-  , postResetOperationUnknownfields :: ![UnknownField]
+  , postResetOperationUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data PostResetOperation'SignalWorkflow = PostResetOperation'SignalWorkflow
-  { postResetOperationSignalWorkflowSignalname :: !Text
+  { postResetOperationSignalWorkflowSignalName :: !Text
   , postResetOperationSignalWorkflowInput :: !(Maybe TE_Common_V1_Message.Payloads)
   , postResetOperationSignalWorkflowHeader :: !(Maybe TE_Common_V1_Message.Header)
   , postResetOperationSignalWorkflowLinks :: !(V.Vector TE_Common_V1_Message.Link)
-  , postResetOperationSignalWorkflowUnknownfields :: ![UnknownField]
+  , postResetOperationSignalWorkflowUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPostResetOperation'SignalWorkflow :: PostResetOperation'SignalWorkflow
 defaultPostResetOperation'SignalWorkflow = PostResetOperation'SignalWorkflow
-  { postResetOperationSignalWorkflowSignalname = ""
+  { postResetOperationSignalWorkflowSignalName = ""
   , postResetOperationSignalWorkflowInput = Nothing
   , postResetOperationSignalWorkflowHeader = Nothing
   , postResetOperationSignalWorkflowLinks = V.empty
-  , postResetOperationSignalWorkflowUnknownfields = []
+  , postResetOperationSignalWorkflowUnknownFields = []
   }
 
 instance MessageEncode PostResetOperation'SignalWorkflow where
   buildMessage msg =
-    (if msg.postResetOperationSignalWorkflowSignalname == T.empty then mempty else encodeFieldString 1 msg.postResetOperationSignalWorkflowSignalname)
+    (if msg.postResetOperationSignalWorkflowSignalName == T.empty then mempty else encodeFieldString 1 msg.postResetOperationSignalWorkflowSignalName)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.postResetOperationSignalWorkflowInput)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.postResetOperationSignalWorkflowHeader)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.postResetOperationSignalWorkflowLinks
-    <> encodeUnknownFields msg.postResetOperationSignalWorkflowUnknownfields
+    <> encodeUnknownFields msg.postResetOperationSignalWorkflowUnknownFields
 
 instance MessageSize PostResetOperation'SignalWorkflow where
   messageSize msg =
-    (if msg.postResetOperationSignalWorkflowSignalname == T.empty then 0 else fieldTextSize 1 msg.postResetOperationSignalWorkflowSignalname)
+    (if msg.postResetOperationSignalWorkflowSignalName == T.empty then 0 else fieldTextSize 1 msg.postResetOperationSignalWorkflowSignalName)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.postResetOperationSignalWorkflowInput)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.postResetOperationSignalWorkflowHeader)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.postResetOperationSignalWorkflowLinks)
-    + unknownFieldsSize msg.postResetOperationSignalWorkflowUnknownfields
+    + unknownFieldsSize msg.postResetOperationSignalWorkflowUnknownFields
 
 instance MessageDecode PostResetOperation'SignalWorkflow where
   {-# INLINE messageDecoder #-}
@@ -4516,7 +4516,7 @@ instance MessageDecode PostResetOperation'SignalWorkflow where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PostResetOperation'SignalWorkflow {postResetOperationSignalWorkflowSignalname = acc_0, postResetOperationSignalWorkflowInput = acc_1, postResetOperationSignalWorkflowHeader = acc_2, postResetOperationSignalWorkflowLinks = acc_3, postResetOperationSignalWorkflowUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PostResetOperation'SignalWorkflow {postResetOperationSignalWorkflowSignalName = acc_0, postResetOperationSignalWorkflowInput = acc_1, postResetOperationSignalWorkflowHeader = acc_2, postResetOperationSignalWorkflowLinks = acc_3, postResetOperationSignalWorkflowUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -4548,8 +4548,8 @@ instance ProtoMessage PostResetOperation'SignalWorkflow where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = postResetOperationSignalWorkflowSignalname
-        , fdSet = \v m -> m { postResetOperationSignalWorkflowSignalname = v }
+        , fdGet = postResetOperationSignalWorkflowSignalName
+        , fdSet = \v m -> m { postResetOperationSignalWorkflowSignalName = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "input"
         , fdNumber = 2
@@ -4578,7 +4578,7 @@ instance ProtoMessage PostResetOperation'SignalWorkflow where
 
 instance Aeson.ToJSON PostResetOperation'SignalWorkflow where
   toJSON msg = jsonObject
-      [ "signalName" .=: msg.postResetOperationSignalWorkflowSignalname
+      [ "signalName" .=: msg.postResetOperationSignalWorkflowSignalName
       , "input" .=: msg.postResetOperationSignalWorkflowInput
       , "header" .=: msg.postResetOperationSignalWorkflowHeader
       , "links" .=: msg.postResetOperationSignalWorkflowLinks
@@ -4586,46 +4586,46 @@ instance Aeson.ToJSON PostResetOperation'SignalWorkflow where
 
 instance Aeson.FromJSON PostResetOperation'SignalWorkflow where
   parseJSON = Aeson.withObject "PostResetOperation'SignalWorkflow" $ \obj -> do
-    fld_postResetOperationSignalWorkflowSignalname <- parseFieldMaybe obj "signalName"
+    fld_postResetOperationSignalWorkflowSignalName <- parseFieldMaybe obj "signalName"
     fld_postResetOperationSignalWorkflowInput <- parseFieldMaybe obj "input"
     fld_postResetOperationSignalWorkflowHeader <- parseFieldMaybe obj "header"
     fld_postResetOperationSignalWorkflowLinks <- parseFieldMaybe obj "links"
     pure defaultPostResetOperation'SignalWorkflow
-      { postResetOperationSignalWorkflowSignalname = maybe (postResetOperationSignalWorkflowSignalname defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowSignalname
+      { postResetOperationSignalWorkflowSignalName = maybe (postResetOperationSignalWorkflowSignalName defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowSignalName
       , postResetOperationSignalWorkflowInput = maybe (postResetOperationSignalWorkflowInput defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowInput
       , postResetOperationSignalWorkflowHeader = maybe (postResetOperationSignalWorkflowHeader defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowHeader
       , postResetOperationSignalWorkflowLinks = maybe (postResetOperationSignalWorkflowLinks defaultPostResetOperation'SignalWorkflow) id fld_postResetOperationSignalWorkflowLinks
       }
 
 instance Hashable PostResetOperation'SignalWorkflow where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.postResetOperationSignalWorkflowSignalname) msg.postResetOperationSignalWorkflowInput) msg.postResetOperationSignalWorkflowHeader) msg.postResetOperationSignalWorkflowLinks
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.postResetOperationSignalWorkflowSignalName) msg.postResetOperationSignalWorkflowInput) msg.postResetOperationSignalWorkflowHeader) msg.postResetOperationSignalWorkflowLinks
 
 data PostResetOperation'UpdateWorkflowOptions = PostResetOperation'UpdateWorkflowOptions
-  { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions :: !(Maybe WorkflowExecutionOptions)
-  , postResetOperationUpdateWorkflowOptionsUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
-  , postResetOperationUpdateWorkflowOptionsUnknownfields :: ![UnknownField]
+  { postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions :: !(Maybe WorkflowExecutionOptions)
+  , postResetOperationUpdateWorkflowOptionsUpdateMask :: !(Maybe PB_FieldMask.FieldMask)
+  , postResetOperationUpdateWorkflowOptionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPostResetOperation'UpdateWorkflowOptions :: PostResetOperation'UpdateWorkflowOptions
 defaultPostResetOperation'UpdateWorkflowOptions = PostResetOperation'UpdateWorkflowOptions
-  { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions = Nothing
-  , postResetOperationUpdateWorkflowOptionsUpdatemask = Nothing
-  , postResetOperationUpdateWorkflowOptionsUnknownfields = []
+  { postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions = Nothing
+  , postResetOperationUpdateWorkflowOptionsUpdateMask = Nothing
+  , postResetOperationUpdateWorkflowOptionsUnknownFields = []
   }
 
 instance MessageEncode PostResetOperation'UpdateWorkflowOptions where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.postResetOperationUpdateWorkflowOptionsUpdatemask)
-    <> encodeUnknownFields msg.postResetOperationUpdateWorkflowOptionsUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.postResetOperationUpdateWorkflowOptionsUpdateMask)
+    <> encodeUnknownFields msg.postResetOperationUpdateWorkflowOptionsUnknownFields
 
 instance MessageSize PostResetOperation'UpdateWorkflowOptions where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.postResetOperationUpdateWorkflowOptionsUpdatemask)
-    + unknownFieldsSize msg.postResetOperationUpdateWorkflowOptionsUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.postResetOperationUpdateWorkflowOptionsUpdateMask)
+    + unknownFieldsSize msg.postResetOperationUpdateWorkflowOptionsUnknownFields
 
 instance MessageDecode PostResetOperation'UpdateWorkflowOptions where
   {-# INLINE messageDecoder #-}
@@ -4634,7 +4634,7 @@ instance MessageDecode PostResetOperation'UpdateWorkflowOptions where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PostResetOperation'UpdateWorkflowOptions {postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions = acc_0, postResetOperationUpdateWorkflowOptionsUpdatemask = acc_1, postResetOperationUpdateWorkflowOptionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PostResetOperation'UpdateWorkflowOptions {postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions = acc_0, postResetOperationUpdateWorkflowOptionsUpdateMask = acc_1, postResetOperationUpdateWorkflowOptionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -4660,35 +4660,35 @@ instance ProtoMessage PostResetOperation'UpdateWorkflowOptions where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.workflow.v1.WorkflowExecutionOptions"
         , fdLabel = LabelOptional
-        , fdGet = postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
-        , fdSet = \v m -> m { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions = v }
+        , fdGet = postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions
+        , fdSet = \v m -> m { postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "update_mask"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.FieldMask"
         , fdLabel = LabelOptional
-        , fdGet = postResetOperationUpdateWorkflowOptionsUpdatemask
-        , fdSet = \v m -> m { postResetOperationUpdateWorkflowOptionsUpdatemask = v }
+        , fdGet = postResetOperationUpdateWorkflowOptionsUpdateMask
+        , fdSet = \v m -> m { postResetOperationUpdateWorkflowOptionsUpdateMask = v }
         })
     ]
 
 instance Aeson.ToJSON PostResetOperation'UpdateWorkflowOptions where
   toJSON msg = jsonObject
-      [ "workflowExecutionOptions" .=: msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
-      , "updateMask" .=: msg.postResetOperationUpdateWorkflowOptionsUpdatemask
+      [ "workflowExecutionOptions" .=: msg.postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions
+      , "updateMask" .=: msg.postResetOperationUpdateWorkflowOptionsUpdateMask
       ]
 
 instance Aeson.FromJSON PostResetOperation'UpdateWorkflowOptions where
   parseJSON = Aeson.withObject "PostResetOperation'UpdateWorkflowOptions" $ \obj -> do
-    fld_postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions <- parseFieldMaybe obj "workflowExecutionOptions"
-    fld_postResetOperationUpdateWorkflowOptionsUpdatemask <- parseFieldMaybe obj "updateMask"
+    fld_postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions <- parseFieldMaybe obj "workflowExecutionOptions"
+    fld_postResetOperationUpdateWorkflowOptionsUpdateMask <- parseFieldMaybe obj "updateMask"
     pure defaultPostResetOperation'UpdateWorkflowOptions
-      { postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions = maybe (postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions defaultPostResetOperation'UpdateWorkflowOptions) id fld_postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions
-      , postResetOperationUpdateWorkflowOptionsUpdatemask = maybe (postResetOperationUpdateWorkflowOptionsUpdatemask defaultPostResetOperation'UpdateWorkflowOptions) id fld_postResetOperationUpdateWorkflowOptionsUpdatemask
+      { postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions = maybe (postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions defaultPostResetOperation'UpdateWorkflowOptions) id fld_postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions
+      , postResetOperationUpdateWorkflowOptionsUpdateMask = maybe (postResetOperationUpdateWorkflowOptionsUpdateMask defaultPostResetOperation'UpdateWorkflowOptions) id fld_postResetOperationUpdateWorkflowOptionsUpdateMask
       }
 
 instance Hashable PostResetOperation'UpdateWorkflowOptions where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.postResetOperationUpdateWorkflowOptionsWorkflowexecutionoptions) msg.postResetOperationUpdateWorkflowOptionsUpdatemask
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.postResetOperationUpdateWorkflowOptionsWorkflowExecutionOptions) msg.postResetOperationUpdateWorkflowOptionsUpdateMask
 data PostResetOperation'Variant
   = PostResetOperation'Variant'SignalWorkflow !PostResetOperation'SignalWorkflow
   | PostResetOperation'Variant'UpdateWorkflowOptions !PostResetOperation'UpdateWorkflowOptions
@@ -4705,7 +4705,7 @@ instance Hashable PostResetOperation'Variant where
 defaultPostResetOperation :: PostResetOperation
 defaultPostResetOperation = PostResetOperation
   { postResetOperationVariant = Nothing
-  , postResetOperationUnknownfields = []
+  , postResetOperationUnknownFields = []
   }
 
 instance MessageEncode PostResetOperation where
@@ -4714,13 +4714,13 @@ instance MessageEncode PostResetOperation where
       Nothing -> mempty
       Just (PostResetOperation'Variant'SignalWorkflow v) -> encodeFieldMessage 1 v
       Just (PostResetOperation'Variant'UpdateWorkflowOptions v) -> encodeFieldMessage 2 v)
-    <> encodeUnknownFields msg.postResetOperationUnknownfields
+    <> encodeUnknownFields msg.postResetOperationUnknownFields
 
 instance MessageSize PostResetOperation where
   messageSize msg =
     (case msg.postResetOperationVariant of { Nothing -> 0; Just (PostResetOperation'Variant'SignalWorkflow v) -> fieldMessageSize 1 (messageSize v)
     ; Just (PostResetOperation'Variant'UpdateWorkflowOptions v) -> fieldMessageSize 2 (messageSize v) })
-    + unknownFieldsSize msg.postResetOperationUnknownfields
+    + unknownFieldsSize msg.postResetOperationUnknownFields
 
 instance MessageDecode PostResetOperation where
   {-# INLINE messageDecoder #-}
@@ -4729,7 +4729,7 @@ instance MessageDecode PostResetOperation where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PostResetOperation {postResetOperationVariant = acc_0, postResetOperationUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PostResetOperation {postResetOperationVariant = acc_0, postResetOperationUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -4778,9 +4778,9 @@ instance Hashable PostResetOperation where
 
 data WorkflowExecutionPauseInfo = WorkflowExecutionPauseInfo
   { workflowExecutionPauseInfoIdentity :: !Text
-  , workflowExecutionPauseInfoPausedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowExecutionPauseInfoPausedTime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowExecutionPauseInfoReason :: !Text
-  , workflowExecutionPauseInfoUnknownfields :: ![UnknownField]
+  , workflowExecutionPauseInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -4788,24 +4788,24 @@ data WorkflowExecutionPauseInfo = WorkflowExecutionPauseInfo
 defaultWorkflowExecutionPauseInfo :: WorkflowExecutionPauseInfo
 defaultWorkflowExecutionPauseInfo = WorkflowExecutionPauseInfo
   { workflowExecutionPauseInfoIdentity = ""
-  , workflowExecutionPauseInfoPausedtime = Nothing
+  , workflowExecutionPauseInfoPausedTime = Nothing
   , workflowExecutionPauseInfoReason = ""
-  , workflowExecutionPauseInfoUnknownfields = []
+  , workflowExecutionPauseInfoUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutionPauseInfo where
   buildMessage msg =
     (if msg.workflowExecutionPauseInfoIdentity == T.empty then mempty else encodeFieldString 1 msg.workflowExecutionPauseInfoIdentity)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionPauseInfoPausedtime)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowExecutionPauseInfoPausedTime)
     <> (if msg.workflowExecutionPauseInfoReason == T.empty then mempty else encodeFieldString 3 msg.workflowExecutionPauseInfoReason)
-    <> encodeUnknownFields msg.workflowExecutionPauseInfoUnknownfields
+    <> encodeUnknownFields msg.workflowExecutionPauseInfoUnknownFields
 
 instance MessageSize WorkflowExecutionPauseInfo where
   messageSize msg =
     (if msg.workflowExecutionPauseInfoIdentity == T.empty then 0 else fieldTextSize 1 msg.workflowExecutionPauseInfoIdentity)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionPauseInfoPausedtime)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowExecutionPauseInfoPausedTime)
     + (if msg.workflowExecutionPauseInfoReason == T.empty then 0 else fieldTextSize 3 msg.workflowExecutionPauseInfoReason)
-    + unknownFieldsSize msg.workflowExecutionPauseInfoUnknownfields
+    + unknownFieldsSize msg.workflowExecutionPauseInfoUnknownFields
 
 instance MessageDecode WorkflowExecutionPauseInfo where
   {-# INLINE messageDecoder #-}
@@ -4814,7 +4814,7 @@ instance MessageDecode WorkflowExecutionPauseInfo where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutionPauseInfo {workflowExecutionPauseInfoIdentity = acc_0, workflowExecutionPauseInfoPausedtime = acc_1, workflowExecutionPauseInfoReason = acc_2, workflowExecutionPauseInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutionPauseInfo {workflowExecutionPauseInfoIdentity = acc_0, workflowExecutionPauseInfoPausedTime = acc_1, workflowExecutionPauseInfoReason = acc_2, workflowExecutionPauseInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -4850,8 +4850,8 @@ instance ProtoMessage WorkflowExecutionPauseInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionPauseInfoPausedtime
-        , fdSet = \v m -> m { workflowExecutionPauseInfoPausedtime = v }
+        , fdGet = workflowExecutionPauseInfoPausedTime
+        , fdSet = \v m -> m { workflowExecutionPauseInfoPausedTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "reason"
@@ -4866,23 +4866,23 @@ instance ProtoMessage WorkflowExecutionPauseInfo where
 instance Aeson.ToJSON WorkflowExecutionPauseInfo where
   toJSON msg = jsonObject
       [ "identity" .=: msg.workflowExecutionPauseInfoIdentity
-      , "pausedTime" .=: msg.workflowExecutionPauseInfoPausedtime
+      , "pausedTime" .=: msg.workflowExecutionPauseInfoPausedTime
       , "reason" .=: msg.workflowExecutionPauseInfoReason
       ]
 
 instance Aeson.FromJSON WorkflowExecutionPauseInfo where
   parseJSON = Aeson.withObject "WorkflowExecutionPauseInfo" $ \obj -> do
     fld_workflowExecutionPauseInfoIdentity <- parseFieldMaybe obj "identity"
-    fld_workflowExecutionPauseInfoPausedtime <- parseFieldMaybe obj "pausedTime"
+    fld_workflowExecutionPauseInfoPausedTime <- parseFieldMaybe obj "pausedTime"
     fld_workflowExecutionPauseInfoReason <- parseFieldMaybe obj "reason"
     pure defaultWorkflowExecutionPauseInfo
       { workflowExecutionPauseInfoIdentity = maybe (workflowExecutionPauseInfoIdentity defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoIdentity
-      , workflowExecutionPauseInfoPausedtime = maybe (workflowExecutionPauseInfoPausedtime defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoPausedtime
+      , workflowExecutionPauseInfoPausedTime = maybe (workflowExecutionPauseInfoPausedTime defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoPausedTime
       , workflowExecutionPauseInfoReason = maybe (workflowExecutionPauseInfoReason defaultWorkflowExecutionPauseInfo) id fld_workflowExecutionPauseInfoReason
       }
 
 instance Hashable WorkflowExecutionPauseInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionPauseInfoIdentity) msg.workflowExecutionPauseInfoPausedtime) msg.workflowExecutionPauseInfoReason
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowExecutionPauseInfoIdentity) msg.workflowExecutionPauseInfoPausedTime) msg.workflowExecutionPauseInfoReason
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

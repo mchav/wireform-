@@ -67,12 +67,12 @@ data CalendarSpec = CalendarSpec
   { calendarSpecSecond :: !Text
   , calendarSpecMinute :: !Text
   , calendarSpecHour :: !Text
-  , calendarSpecDayofmonth :: !Text
+  , calendarSpecDayOfMonth :: !Text
   , calendarSpecMonth :: !Text
   , calendarSpecYear :: !Text
-  , calendarSpecDayofweek :: !Text
+  , calendarSpecDayOfWeek :: !Text
   , calendarSpecComment :: !Text
-  , calendarSpecUnknownfields :: ![UnknownField]
+  , calendarSpecUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -82,12 +82,12 @@ defaultCalendarSpec = CalendarSpec
   { calendarSpecSecond = ""
   , calendarSpecMinute = ""
   , calendarSpecHour = ""
-  , calendarSpecDayofmonth = ""
+  , calendarSpecDayOfMonth = ""
   , calendarSpecMonth = ""
   , calendarSpecYear = ""
-  , calendarSpecDayofweek = ""
+  , calendarSpecDayOfWeek = ""
   , calendarSpecComment = ""
-  , calendarSpecUnknownfields = []
+  , calendarSpecUnknownFields = []
   }
 
 instance MessageEncode CalendarSpec where
@@ -95,24 +95,24 @@ instance MessageEncode CalendarSpec where
     (if msg.calendarSpecSecond == T.empty then mempty else encodeFieldString 1 msg.calendarSpecSecond)
     <> (if msg.calendarSpecMinute == T.empty then mempty else encodeFieldString 2 msg.calendarSpecMinute)
     <> (if msg.calendarSpecHour == T.empty then mempty else encodeFieldString 3 msg.calendarSpecHour)
-    <> (if msg.calendarSpecDayofmonth == T.empty then mempty else encodeFieldString 4 msg.calendarSpecDayofmonth)
+    <> (if msg.calendarSpecDayOfMonth == T.empty then mempty else encodeFieldString 4 msg.calendarSpecDayOfMonth)
     <> (if msg.calendarSpecMonth == T.empty then mempty else encodeFieldString 5 msg.calendarSpecMonth)
     <> (if msg.calendarSpecYear == T.empty then mempty else encodeFieldString 6 msg.calendarSpecYear)
-    <> (if msg.calendarSpecDayofweek == T.empty then mempty else encodeFieldString 7 msg.calendarSpecDayofweek)
+    <> (if msg.calendarSpecDayOfWeek == T.empty then mempty else encodeFieldString 7 msg.calendarSpecDayOfWeek)
     <> (if msg.calendarSpecComment == T.empty then mempty else encodeFieldString 8 msg.calendarSpecComment)
-    <> encodeUnknownFields msg.calendarSpecUnknownfields
+    <> encodeUnknownFields msg.calendarSpecUnknownFields
 
 instance MessageSize CalendarSpec where
   messageSize msg =
     (if msg.calendarSpecSecond == T.empty then 0 else fieldTextSize 1 msg.calendarSpecSecond)
     + (if msg.calendarSpecMinute == T.empty then 0 else fieldTextSize 2 msg.calendarSpecMinute)
     + (if msg.calendarSpecHour == T.empty then 0 else fieldTextSize 3 msg.calendarSpecHour)
-    + (if msg.calendarSpecDayofmonth == T.empty then 0 else fieldTextSize 4 msg.calendarSpecDayofmonth)
+    + (if msg.calendarSpecDayOfMonth == T.empty then 0 else fieldTextSize 4 msg.calendarSpecDayOfMonth)
     + (if msg.calendarSpecMonth == T.empty then 0 else fieldTextSize 5 msg.calendarSpecMonth)
     + (if msg.calendarSpecYear == T.empty then 0 else fieldTextSize 6 msg.calendarSpecYear)
-    + (if msg.calendarSpecDayofweek == T.empty then 0 else fieldTextSize 7 msg.calendarSpecDayofweek)
+    + (if msg.calendarSpecDayOfWeek == T.empty then 0 else fieldTextSize 7 msg.calendarSpecDayOfWeek)
     + (if msg.calendarSpecComment == T.empty then 0 else fieldTextSize 8 msg.calendarSpecComment)
-    + unknownFieldsSize msg.calendarSpecUnknownfields
+    + unknownFieldsSize msg.calendarSpecUnknownFields
 
 instance MessageDecode CalendarSpec where
   {-# INLINE messageDecoder #-}
@@ -121,7 +121,7 @@ instance MessageDecode CalendarSpec where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CalendarSpec {calendarSpecSecond = acc_0, calendarSpecMinute = acc_1, calendarSpecHour = acc_2, calendarSpecDayofmonth = acc_3, calendarSpecMonth = acc_4, calendarSpecYear = acc_5, calendarSpecDayofweek = acc_6, calendarSpecComment = acc_7, calendarSpecUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CalendarSpec {calendarSpecSecond = acc_0, calendarSpecMinute = acc_1, calendarSpecHour = acc_2, calendarSpecDayOfMonth = acc_3, calendarSpecMonth = acc_4, calendarSpecYear = acc_5, calendarSpecDayOfWeek = acc_6, calendarSpecComment = acc_7, calendarSpecUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -188,8 +188,8 @@ instance ProtoMessage CalendarSpec where
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = calendarSpecDayofmonth
-        , fdSet = \v m -> m { calendarSpecDayofmonth = v }
+        , fdGet = calendarSpecDayOfMonth
+        , fdSet = \v m -> m { calendarSpecDayOfMonth = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "month"
@@ -212,8 +212,8 @@ instance ProtoMessage CalendarSpec where
         , fdNumber = 7
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = calendarSpecDayofweek
-        , fdSet = \v m -> m { calendarSpecDayofweek = v }
+        , fdGet = calendarSpecDayOfWeek
+        , fdSet = \v m -> m { calendarSpecDayOfWeek = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "comment"
@@ -230,10 +230,10 @@ instance Aeson.ToJSON CalendarSpec where
       [ "second" .=: msg.calendarSpecSecond
       , "minute" .=: msg.calendarSpecMinute
       , "hour" .=: msg.calendarSpecHour
-      , "dayOfMonth" .=: msg.calendarSpecDayofmonth
+      , "dayOfMonth" .=: msg.calendarSpecDayOfMonth
       , "month" .=: msg.calendarSpecMonth
       , "year" .=: msg.calendarSpecYear
-      , "dayOfWeek" .=: msg.calendarSpecDayofweek
+      , "dayOfWeek" .=: msg.calendarSpecDayOfWeek
       , "comment" .=: msg.calendarSpecComment
       ]
 
@@ -242,30 +242,30 @@ instance Aeson.FromJSON CalendarSpec where
     fld_calendarSpecSecond <- parseFieldMaybe obj "second"
     fld_calendarSpecMinute <- parseFieldMaybe obj "minute"
     fld_calendarSpecHour <- parseFieldMaybe obj "hour"
-    fld_calendarSpecDayofmonth <- parseFieldMaybe obj "dayOfMonth"
+    fld_calendarSpecDayOfMonth <- parseFieldMaybe obj "dayOfMonth"
     fld_calendarSpecMonth <- parseFieldMaybe obj "month"
     fld_calendarSpecYear <- parseFieldMaybe obj "year"
-    fld_calendarSpecDayofweek <- parseFieldMaybe obj "dayOfWeek"
+    fld_calendarSpecDayOfWeek <- parseFieldMaybe obj "dayOfWeek"
     fld_calendarSpecComment <- parseFieldMaybe obj "comment"
     pure defaultCalendarSpec
       { calendarSpecSecond = maybe (calendarSpecSecond defaultCalendarSpec) id fld_calendarSpecSecond
       , calendarSpecMinute = maybe (calendarSpecMinute defaultCalendarSpec) id fld_calendarSpecMinute
       , calendarSpecHour = maybe (calendarSpecHour defaultCalendarSpec) id fld_calendarSpecHour
-      , calendarSpecDayofmonth = maybe (calendarSpecDayofmonth defaultCalendarSpec) id fld_calendarSpecDayofmonth
+      , calendarSpecDayOfMonth = maybe (calendarSpecDayOfMonth defaultCalendarSpec) id fld_calendarSpecDayOfMonth
       , calendarSpecMonth = maybe (calendarSpecMonth defaultCalendarSpec) id fld_calendarSpecMonth
       , calendarSpecYear = maybe (calendarSpecYear defaultCalendarSpec) id fld_calendarSpecYear
-      , calendarSpecDayofweek = maybe (calendarSpecDayofweek defaultCalendarSpec) id fld_calendarSpecDayofweek
+      , calendarSpecDayOfWeek = maybe (calendarSpecDayOfWeek defaultCalendarSpec) id fld_calendarSpecDayOfWeek
       , calendarSpecComment = maybe (calendarSpecComment defaultCalendarSpec) id fld_calendarSpecComment
       }
 
 instance Hashable CalendarSpec where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.calendarSpecSecond) msg.calendarSpecMinute) msg.calendarSpecHour) msg.calendarSpecDayofmonth) msg.calendarSpecMonth) msg.calendarSpecYear) msg.calendarSpecDayofweek) msg.calendarSpecComment
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.calendarSpecSecond) msg.calendarSpecMinute) msg.calendarSpecHour) msg.calendarSpecDayOfMonth) msg.calendarSpecMonth) msg.calendarSpecYear) msg.calendarSpecDayOfWeek) msg.calendarSpecComment
 
 data Range = Range
   { rangeStart :: {-# UNPACK #-} !Int32
   , rangeEnd :: {-# UNPACK #-} !Int32
   , rangeStep :: {-# UNPACK #-} !Int32
-  , rangeUnknownfields :: ![UnknownField]
+  , rangeUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -275,7 +275,7 @@ defaultRange = Range
   { rangeStart = 0
   , rangeEnd = 0
   , rangeStep = 0
-  , rangeUnknownfields = []
+  , rangeUnknownFields = []
   }
 
 instance MessageEncode Range where
@@ -283,14 +283,14 @@ instance MessageEncode Range where
     (if msg.rangeStart == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.rangeStart))
     <> (if msg.rangeEnd == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.rangeEnd))
     <> (if msg.rangeStep == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.rangeStep))
-    <> encodeUnknownFields msg.rangeUnknownfields
+    <> encodeUnknownFields msg.rangeUnknownFields
 
 instance MessageSize Range where
   messageSize msg =
     (if msg.rangeStart == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.rangeStart))
     + (if msg.rangeEnd == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.rangeEnd))
     + (if msg.rangeStep == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.rangeStep))
-    + unknownFieldsSize msg.rangeUnknownfields
+    + unknownFieldsSize msg.rangeUnknownFields
 
 instance MessageDecode Range where
   {-# INLINE messageDecoder #-}
@@ -299,7 +299,7 @@ instance MessageDecode Range where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Range {rangeStart = acc_0, rangeEnd = acc_1, rangeStep = acc_2, rangeUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Range {rangeStart = acc_0, rangeEnd = acc_1, rangeStep = acc_2, rangeUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -373,12 +373,12 @@ data StructuredCalendarSpec = StructuredCalendarSpec
   { structuredCalendarSpecSecond :: !(V.Vector Range)
   , structuredCalendarSpecMinute :: !(V.Vector Range)
   , structuredCalendarSpecHour :: !(V.Vector Range)
-  , structuredCalendarSpecDayofmonth :: !(V.Vector Range)
+  , structuredCalendarSpecDayOfMonth :: !(V.Vector Range)
   , structuredCalendarSpecMonth :: !(V.Vector Range)
   , structuredCalendarSpecYear :: !(V.Vector Range)
-  , structuredCalendarSpecDayofweek :: !(V.Vector Range)
+  , structuredCalendarSpecDayOfWeek :: !(V.Vector Range)
   , structuredCalendarSpecComment :: !Text
-  , structuredCalendarSpecUnknownfields :: ![UnknownField]
+  , structuredCalendarSpecUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -388,12 +388,12 @@ defaultStructuredCalendarSpec = StructuredCalendarSpec
   { structuredCalendarSpecSecond = V.empty
   , structuredCalendarSpecMinute = V.empty
   , structuredCalendarSpecHour = V.empty
-  , structuredCalendarSpecDayofmonth = V.empty
+  , structuredCalendarSpecDayOfMonth = V.empty
   , structuredCalendarSpecMonth = V.empty
   , structuredCalendarSpecYear = V.empty
-  , structuredCalendarSpecDayofweek = V.empty
+  , structuredCalendarSpecDayOfWeek = V.empty
   , structuredCalendarSpecComment = ""
-  , structuredCalendarSpecUnknownfields = []
+  , structuredCalendarSpecUnknownFields = []
   }
 
 instance MessageEncode StructuredCalendarSpec where
@@ -401,24 +401,24 @@ instance MessageEncode StructuredCalendarSpec where
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.structuredCalendarSpecSecond
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.structuredCalendarSpecMinute
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.structuredCalendarSpecHour
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.structuredCalendarSpecDayofmonth
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.structuredCalendarSpecDayOfMonth
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 5 v) mempty msg.structuredCalendarSpecMonth
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 6 v) mempty msg.structuredCalendarSpecYear
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 7 v) mempty msg.structuredCalendarSpecDayofweek
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 7 v) mempty msg.structuredCalendarSpecDayOfWeek
     <> (if msg.structuredCalendarSpecComment == T.empty then mempty else encodeFieldString 8 msg.structuredCalendarSpecComment)
-    <> encodeUnknownFields msg.structuredCalendarSpecUnknownfields
+    <> encodeUnknownFields msg.structuredCalendarSpecUnknownFields
 
 instance MessageSize StructuredCalendarSpec where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.structuredCalendarSpecSecond)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.structuredCalendarSpecMinute)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.structuredCalendarSpecHour)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.structuredCalendarSpecDayofmonth)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.structuredCalendarSpecDayOfMonth)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 5 (messageSize v)) 0 msg.structuredCalendarSpecMonth)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 6 (messageSize v)) 0 msg.structuredCalendarSpecYear)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 7 (messageSize v)) 0 msg.structuredCalendarSpecDayofweek)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 7 (messageSize v)) 0 msg.structuredCalendarSpecDayOfWeek)
     + (if msg.structuredCalendarSpecComment == T.empty then 0 else fieldTextSize 8 msg.structuredCalendarSpecComment)
-    + unknownFieldsSize msg.structuredCalendarSpecUnknownfields
+    + unknownFieldsSize msg.structuredCalendarSpecUnknownFields
 
 instance MessageDecode StructuredCalendarSpec where
   {-# INLINE messageDecoder #-}
@@ -427,7 +427,7 @@ instance MessageDecode StructuredCalendarSpec where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StructuredCalendarSpec {structuredCalendarSpecSecond = acc_0, structuredCalendarSpecMinute = acc_1, structuredCalendarSpecHour = acc_2, structuredCalendarSpecDayofmonth = acc_3, structuredCalendarSpecMonth = acc_4, structuredCalendarSpecYear = acc_5, structuredCalendarSpecDayofweek = acc_6, structuredCalendarSpecComment = acc_7, structuredCalendarSpecUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StructuredCalendarSpec {structuredCalendarSpecSecond = acc_0, structuredCalendarSpecMinute = acc_1, structuredCalendarSpecHour = acc_2, structuredCalendarSpecDayOfMonth = acc_3, structuredCalendarSpecMonth = acc_4, structuredCalendarSpecYear = acc_5, structuredCalendarSpecDayOfWeek = acc_6, structuredCalendarSpecComment = acc_7, structuredCalendarSpecUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -494,8 +494,8 @@ instance ProtoMessage StructuredCalendarSpec where
         , fdNumber = 4
         , fdTypeDesc = MessageType "Range"
         , fdLabel = LabelRepeated
-        , fdGet = structuredCalendarSpecDayofmonth
-        , fdSet = \v m -> m { structuredCalendarSpecDayofmonth = v }
+        , fdGet = structuredCalendarSpecDayOfMonth
+        , fdSet = \v m -> m { structuredCalendarSpecDayOfMonth = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "month"
@@ -518,8 +518,8 @@ instance ProtoMessage StructuredCalendarSpec where
         , fdNumber = 7
         , fdTypeDesc = MessageType "Range"
         , fdLabel = LabelRepeated
-        , fdGet = structuredCalendarSpecDayofweek
-        , fdSet = \v m -> m { structuredCalendarSpecDayofweek = v }
+        , fdGet = structuredCalendarSpecDayOfWeek
+        , fdSet = \v m -> m { structuredCalendarSpecDayOfWeek = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "comment"
@@ -536,10 +536,10 @@ instance Aeson.ToJSON StructuredCalendarSpec where
       [ "second" .=: msg.structuredCalendarSpecSecond
       , "minute" .=: msg.structuredCalendarSpecMinute
       , "hour" .=: msg.structuredCalendarSpecHour
-      , "dayOfMonth" .=: msg.structuredCalendarSpecDayofmonth
+      , "dayOfMonth" .=: msg.structuredCalendarSpecDayOfMonth
       , "month" .=: msg.structuredCalendarSpecMonth
       , "year" .=: msg.structuredCalendarSpecYear
-      , "dayOfWeek" .=: msg.structuredCalendarSpecDayofweek
+      , "dayOfWeek" .=: msg.structuredCalendarSpecDayOfWeek
       , "comment" .=: msg.structuredCalendarSpecComment
       ]
 
@@ -548,29 +548,29 @@ instance Aeson.FromJSON StructuredCalendarSpec where
     fld_structuredCalendarSpecSecond <- parseFieldMaybe obj "second"
     fld_structuredCalendarSpecMinute <- parseFieldMaybe obj "minute"
     fld_structuredCalendarSpecHour <- parseFieldMaybe obj "hour"
-    fld_structuredCalendarSpecDayofmonth <- parseFieldMaybe obj "dayOfMonth"
+    fld_structuredCalendarSpecDayOfMonth <- parseFieldMaybe obj "dayOfMonth"
     fld_structuredCalendarSpecMonth <- parseFieldMaybe obj "month"
     fld_structuredCalendarSpecYear <- parseFieldMaybe obj "year"
-    fld_structuredCalendarSpecDayofweek <- parseFieldMaybe obj "dayOfWeek"
+    fld_structuredCalendarSpecDayOfWeek <- parseFieldMaybe obj "dayOfWeek"
     fld_structuredCalendarSpecComment <- parseFieldMaybe obj "comment"
     pure defaultStructuredCalendarSpec
       { structuredCalendarSpecSecond = maybe (structuredCalendarSpecSecond defaultStructuredCalendarSpec) id fld_structuredCalendarSpecSecond
       , structuredCalendarSpecMinute = maybe (structuredCalendarSpecMinute defaultStructuredCalendarSpec) id fld_structuredCalendarSpecMinute
       , structuredCalendarSpecHour = maybe (structuredCalendarSpecHour defaultStructuredCalendarSpec) id fld_structuredCalendarSpecHour
-      , structuredCalendarSpecDayofmonth = maybe (structuredCalendarSpecDayofmonth defaultStructuredCalendarSpec) id fld_structuredCalendarSpecDayofmonth
+      , structuredCalendarSpecDayOfMonth = maybe (structuredCalendarSpecDayOfMonth defaultStructuredCalendarSpec) id fld_structuredCalendarSpecDayOfMonth
       , structuredCalendarSpecMonth = maybe (structuredCalendarSpecMonth defaultStructuredCalendarSpec) id fld_structuredCalendarSpecMonth
       , structuredCalendarSpecYear = maybe (structuredCalendarSpecYear defaultStructuredCalendarSpec) id fld_structuredCalendarSpecYear
-      , structuredCalendarSpecDayofweek = maybe (structuredCalendarSpecDayofweek defaultStructuredCalendarSpec) id fld_structuredCalendarSpecDayofweek
+      , structuredCalendarSpecDayOfWeek = maybe (structuredCalendarSpecDayOfWeek defaultStructuredCalendarSpec) id fld_structuredCalendarSpecDayOfWeek
       , structuredCalendarSpecComment = maybe (structuredCalendarSpecComment defaultStructuredCalendarSpec) id fld_structuredCalendarSpecComment
       }
 
 instance Hashable StructuredCalendarSpec where
-  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (salt) msg.structuredCalendarSpecSecond) msg.structuredCalendarSpecMinute) msg.structuredCalendarSpecHour) msg.structuredCalendarSpecDayofmonth) msg.structuredCalendarSpecMonth) msg.structuredCalendarSpecYear) msg.structuredCalendarSpecDayofweek) msg.structuredCalendarSpecComment
+  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (salt) msg.structuredCalendarSpecSecond) msg.structuredCalendarSpecMinute) msg.structuredCalendarSpecHour) msg.structuredCalendarSpecDayOfMonth) msg.structuredCalendarSpecMonth) msg.structuredCalendarSpecYear) msg.structuredCalendarSpecDayOfWeek) msg.structuredCalendarSpecComment
 
 data IntervalSpec = IntervalSpec
   { intervalSpecInterval :: !(Maybe PB_Duration.Duration)
   , intervalSpecPhase :: !(Maybe PB_Duration.Duration)
-  , intervalSpecUnknownfields :: ![UnknownField]
+  , intervalSpecUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -579,20 +579,20 @@ defaultIntervalSpec :: IntervalSpec
 defaultIntervalSpec = IntervalSpec
   { intervalSpecInterval = Nothing
   , intervalSpecPhase = Nothing
-  , intervalSpecUnknownfields = []
+  , intervalSpecUnknownFields = []
   }
 
 instance MessageEncode IntervalSpec where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.intervalSpecInterval)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.intervalSpecPhase)
-    <> encodeUnknownFields msg.intervalSpecUnknownfields
+    <> encodeUnknownFields msg.intervalSpecUnknownFields
 
 instance MessageSize IntervalSpec where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.intervalSpecInterval)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.intervalSpecPhase)
-    + unknownFieldsSize msg.intervalSpecUnknownfields
+    + unknownFieldsSize msg.intervalSpecUnknownFields
 
 instance MessageDecode IntervalSpec where
   {-# INLINE messageDecoder #-}
@@ -601,7 +601,7 @@ instance MessageDecode IntervalSpec where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (IntervalSpec {intervalSpecInterval = acc_0, intervalSpecPhase = acc_1, intervalSpecUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (IntervalSpec {intervalSpecInterval = acc_0, intervalSpecPhase = acc_1, intervalSpecUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -658,67 +658,67 @@ instance Hashable IntervalSpec where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.intervalSpecInterval) msg.intervalSpecPhase
 
 data ScheduleSpec = ScheduleSpec
-  { scheduleSpecStructuredcalendar :: !(V.Vector StructuredCalendarSpec)
-  , scheduleSpecCronstring :: !(V.Vector Text)
+  { scheduleSpecStructuredCalendar :: !(V.Vector StructuredCalendarSpec)
+  , scheduleSpecCronString :: !(V.Vector Text)
   , scheduleSpecCalendar :: !(V.Vector CalendarSpec)
   , scheduleSpecInterval :: !(V.Vector IntervalSpec)
-  , scheduleSpecExcludecalendar :: !(V.Vector CalendarSpec)
-  , scheduleSpecExcludestructuredcalendar :: !(V.Vector StructuredCalendarSpec)
-  , scheduleSpecStarttime :: !(Maybe PB_Timestamp.Timestamp)
-  , scheduleSpecEndtime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleSpecExcludeCalendar :: !(V.Vector CalendarSpec)
+  , scheduleSpecExcludeStructuredCalendar :: !(V.Vector StructuredCalendarSpec)
+  , scheduleSpecStartTime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleSpecEndTime :: !(Maybe PB_Timestamp.Timestamp)
   , scheduleSpecJitter :: !(Maybe PB_Duration.Duration)
-  , scheduleSpecTimezonename :: !Text
-  , scheduleSpecTimezonedata :: !ByteString
-  , scheduleSpecUnknownfields :: ![UnknownField]
+  , scheduleSpecTimezoneName :: !Text
+  , scheduleSpecTimezoneData :: !ByteString
+  , scheduleSpecUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultScheduleSpec :: ScheduleSpec
 defaultScheduleSpec = ScheduleSpec
-  { scheduleSpecStructuredcalendar = V.empty
-  , scheduleSpecCronstring = V.empty
+  { scheduleSpecStructuredCalendar = V.empty
+  , scheduleSpecCronString = V.empty
   , scheduleSpecCalendar = V.empty
   , scheduleSpecInterval = V.empty
-  , scheduleSpecExcludecalendar = V.empty
-  , scheduleSpecExcludestructuredcalendar = V.empty
-  , scheduleSpecStarttime = Nothing
-  , scheduleSpecEndtime = Nothing
+  , scheduleSpecExcludeCalendar = V.empty
+  , scheduleSpecExcludeStructuredCalendar = V.empty
+  , scheduleSpecStartTime = Nothing
+  , scheduleSpecEndTime = Nothing
   , scheduleSpecJitter = Nothing
-  , scheduleSpecTimezonename = ""
-  , scheduleSpecTimezonedata = ""
-  , scheduleSpecUnknownfields = []
+  , scheduleSpecTimezoneName = ""
+  , scheduleSpecTimezoneData = ""
+  , scheduleSpecUnknownFields = []
   }
 
 instance MessageEncode ScheduleSpec where
   buildMessage msg =
-    V.foldl' (\acc v -> acc <> encodeFieldMessage 7 v) mempty msg.scheduleSpecStructuredcalendar
-    <> V.foldl' (\acc v -> acc <> encodeFieldString 8 v) mempty msg.scheduleSpecCronstring
+    V.foldl' (\acc v -> acc <> encodeFieldMessage 7 v) mempty msg.scheduleSpecStructuredCalendar
+    <> V.foldl' (\acc v -> acc <> encodeFieldString 8 v) mempty msg.scheduleSpecCronString
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.scheduleSpecCalendar
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.scheduleSpecInterval
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.scheduleSpecExcludecalendar
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 9 v) mempty msg.scheduleSpecExcludestructuredcalendar
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.scheduleSpecStarttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.scheduleSpecEndtime)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.scheduleSpecExcludeCalendar
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 9 v) mempty msg.scheduleSpecExcludeStructuredCalendar
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.scheduleSpecStartTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.scheduleSpecEndTime)
     <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.scheduleSpecJitter)
-    <> (if msg.scheduleSpecTimezonename == T.empty then mempty else encodeFieldString 10 msg.scheduleSpecTimezonename)
-    <> (if BS.null msg.scheduleSpecTimezonedata then mempty else encodeFieldBytes 11 msg.scheduleSpecTimezonedata)
-    <> encodeUnknownFields msg.scheduleSpecUnknownfields
+    <> (if msg.scheduleSpecTimezoneName == T.empty then mempty else encodeFieldString 10 msg.scheduleSpecTimezoneName)
+    <> (if BS.null msg.scheduleSpecTimezoneData then mempty else encodeFieldBytes 11 msg.scheduleSpecTimezoneData)
+    <> encodeUnknownFields msg.scheduleSpecUnknownFields
 
 instance MessageSize ScheduleSpec where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + fieldMessageSize 7 (messageSize v)) 0 msg.scheduleSpecStructuredcalendar)
-    + (V.foldl' (\acc v -> acc + fieldTextSize 8 v) 0 msg.scheduleSpecCronstring)
+    (V.foldl' (\acc v -> acc + fieldMessageSize 7 (messageSize v)) 0 msg.scheduleSpecStructuredCalendar)
+    + (V.foldl' (\acc v -> acc + fieldTextSize 8 v) 0 msg.scheduleSpecCronString)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.scheduleSpecCalendar)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.scheduleSpecInterval)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.scheduleSpecExcludecalendar)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 9 (messageSize v)) 0 msg.scheduleSpecExcludestructuredcalendar)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.scheduleSpecStarttime)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.scheduleSpecEndtime)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.scheduleSpecExcludeCalendar)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 9 (messageSize v)) 0 msg.scheduleSpecExcludeStructuredCalendar)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.scheduleSpecStartTime)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.scheduleSpecEndTime)
     + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.scheduleSpecJitter)
-    + (if msg.scheduleSpecTimezonename == T.empty then 0 else fieldTextSize 10 msg.scheduleSpecTimezonename)
-    + (if BS.null msg.scheduleSpecTimezonedata then 0 else fieldBytesSize 11 msg.scheduleSpecTimezonedata)
-    + unknownFieldsSize msg.scheduleSpecUnknownfields
+    + (if msg.scheduleSpecTimezoneName == T.empty then 0 else fieldTextSize 10 msg.scheduleSpecTimezoneName)
+    + (if BS.null msg.scheduleSpecTimezoneData then 0 else fieldBytesSize 11 msg.scheduleSpecTimezoneData)
+    + unknownFieldsSize msg.scheduleSpecUnknownFields
 
 instance MessageDecode ScheduleSpec where
   {-# INLINE messageDecoder #-}
@@ -727,7 +727,7 @@ instance MessageDecode ScheduleSpec where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleSpec {scheduleSpecStructuredcalendar = acc_0, scheduleSpecCronstring = acc_1, scheduleSpecCalendar = acc_2, scheduleSpecInterval = acc_3, scheduleSpecExcludecalendar = acc_4, scheduleSpecExcludestructuredcalendar = acc_5, scheduleSpecStarttime = acc_6, scheduleSpecEndtime = acc_7, scheduleSpecJitter = acc_8, scheduleSpecTimezonename = acc_9, scheduleSpecTimezonedata = acc_10, scheduleSpecUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleSpec {scheduleSpecStructuredCalendar = acc_0, scheduleSpecCronString = acc_1, scheduleSpecCalendar = acc_2, scheduleSpecInterval = acc_3, scheduleSpecExcludeCalendar = acc_4, scheduleSpecExcludeStructuredCalendar = acc_5, scheduleSpecStartTime = acc_6, scheduleSpecEndTime = acc_7, scheduleSpecJitter = acc_8, scheduleSpecTimezoneName = acc_9, scheduleSpecTimezoneData = acc_10, scheduleSpecUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             7 -> do
               v <- decodeFieldMessage
@@ -780,15 +780,15 @@ instance ProtoMessage ScheduleSpec where
         , fdNumber = 7
         , fdTypeDesc = MessageType "StructuredCalendarSpec"
         , fdLabel = LabelRepeated
-        , fdGet = scheduleSpecStructuredcalendar
-        , fdSet = \v m -> m { scheduleSpecStructuredcalendar = v }
+        , fdGet = scheduleSpecStructuredCalendar
+        , fdSet = \v m -> m { scheduleSpecStructuredCalendar = v }
         }), (8, SomeField FieldDescriptor
         { fdName = "cron_string"
         , fdNumber = 8
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelRepeated
-        , fdGet = scheduleSpecCronstring
-        , fdSet = \v m -> m { scheduleSpecCronstring = v }
+        , fdGet = scheduleSpecCronString
+        , fdSet = \v m -> m { scheduleSpecCronString = v }
         })
     , (1, SomeField FieldDescriptor
         { fdName = "calendar"
@@ -811,32 +811,32 @@ instance ProtoMessage ScheduleSpec where
         , fdNumber = 3
         , fdTypeDesc = MessageType "CalendarSpec"
         , fdLabel = LabelRepeated
-        , fdGet = scheduleSpecExcludecalendar
-        , fdSet = \v m -> m { scheduleSpecExcludecalendar = v }
+        , fdGet = scheduleSpecExcludeCalendar
+        , fdSet = \v m -> m { scheduleSpecExcludeCalendar = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "exclude_structured_calendar"
         , fdNumber = 9
         , fdTypeDesc = MessageType "StructuredCalendarSpec"
         , fdLabel = LabelRepeated
-        , fdGet = scheduleSpecExcludestructuredcalendar
-        , fdSet = \v m -> m { scheduleSpecExcludestructuredcalendar = v }
+        , fdGet = scheduleSpecExcludeStructuredCalendar
+        , fdSet = \v m -> m { scheduleSpecExcludeStructuredCalendar = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "start_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = scheduleSpecStarttime
-        , fdSet = \v m -> m { scheduleSpecStarttime = v }
+        , fdGet = scheduleSpecStartTime
+        , fdSet = \v m -> m { scheduleSpecStartTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "end_time"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = scheduleSpecEndtime
-        , fdSet = \v m -> m { scheduleSpecEndtime = v }
+        , fdGet = scheduleSpecEndTime
+        , fdSet = \v m -> m { scheduleSpecEndTime = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "jitter"
@@ -851,98 +851,98 @@ instance ProtoMessage ScheduleSpec where
         , fdNumber = 10
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = scheduleSpecTimezonename
-        , fdSet = \v m -> m { scheduleSpecTimezonename = v }
+        , fdGet = scheduleSpecTimezoneName
+        , fdSet = \v m -> m { scheduleSpecTimezoneName = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "timezone_data"
         , fdNumber = 11
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelOptional
-        , fdGet = scheduleSpecTimezonedata
-        , fdSet = \v m -> m { scheduleSpecTimezonedata = v }
+        , fdGet = scheduleSpecTimezoneData
+        , fdSet = \v m -> m { scheduleSpecTimezoneData = v }
         })
     ]
 
 instance Aeson.ToJSON ScheduleSpec where
   toJSON msg = jsonObject
-      [ "structuredCalendar" .=: msg.scheduleSpecStructuredcalendar
-      , "cronString" .=: msg.scheduleSpecCronstring
+      [ "structuredCalendar" .=: msg.scheduleSpecStructuredCalendar
+      , "cronString" .=: msg.scheduleSpecCronString
       , "calendar" .=: msg.scheduleSpecCalendar
       , "interval" .=: msg.scheduleSpecInterval
-      , "excludeCalendar" .=: msg.scheduleSpecExcludecalendar
-      , "excludeStructuredCalendar" .=: msg.scheduleSpecExcludestructuredcalendar
-      , "startTime" .=: msg.scheduleSpecStarttime
-      , "endTime" .=: msg.scheduleSpecEndtime
+      , "excludeCalendar" .=: msg.scheduleSpecExcludeCalendar
+      , "excludeStructuredCalendar" .=: msg.scheduleSpecExcludeStructuredCalendar
+      , "startTime" .=: msg.scheduleSpecStartTime
+      , "endTime" .=: msg.scheduleSpecEndTime
       , "jitter" .=: msg.scheduleSpecJitter
-      , "timezoneName" .=: msg.scheduleSpecTimezonename
-      , bytesFieldToJSON "timezoneData" msg.scheduleSpecTimezonedata
+      , "timezoneName" .=: msg.scheduleSpecTimezoneName
+      , bytesFieldToJSON "timezoneData" msg.scheduleSpecTimezoneData
       ]
 
 instance Aeson.FromJSON ScheduleSpec where
   parseJSON = Aeson.withObject "ScheduleSpec" $ \obj -> do
-    fld_scheduleSpecStructuredcalendar <- parseFieldMaybe obj "structuredCalendar"
-    fld_scheduleSpecCronstring <- parseFieldMaybe obj "cronString"
+    fld_scheduleSpecStructuredCalendar <- parseFieldMaybe obj "structuredCalendar"
+    fld_scheduleSpecCronString <- parseFieldMaybe obj "cronString"
     fld_scheduleSpecCalendar <- parseFieldMaybe obj "calendar"
     fld_scheduleSpecInterval <- parseFieldMaybe obj "interval"
-    fld_scheduleSpecExcludecalendar <- parseFieldMaybe obj "excludeCalendar"
-    fld_scheduleSpecExcludestructuredcalendar <- parseFieldMaybe obj "excludeStructuredCalendar"
-    fld_scheduleSpecStarttime <- parseFieldMaybe obj "startTime"
-    fld_scheduleSpecEndtime <- parseFieldMaybe obj "endTime"
+    fld_scheduleSpecExcludeCalendar <- parseFieldMaybe obj "excludeCalendar"
+    fld_scheduleSpecExcludeStructuredCalendar <- parseFieldMaybe obj "excludeStructuredCalendar"
+    fld_scheduleSpecStartTime <- parseFieldMaybe obj "startTime"
+    fld_scheduleSpecEndTime <- parseFieldMaybe obj "endTime"
     fld_scheduleSpecJitter <- parseFieldMaybe obj "jitter"
-    fld_scheduleSpecTimezonename <- parseFieldMaybe obj "timezoneName"
-    fld_scheduleSpecTimezonedata <- parseBytesFieldMaybe obj "timezoneData"
+    fld_scheduleSpecTimezoneName <- parseFieldMaybe obj "timezoneName"
+    fld_scheduleSpecTimezoneData <- parseBytesFieldMaybe obj "timezoneData"
     pure defaultScheduleSpec
-      { scheduleSpecStructuredcalendar = maybe (scheduleSpecStructuredcalendar defaultScheduleSpec) id fld_scheduleSpecStructuredcalendar
-      , scheduleSpecCronstring = maybe (scheduleSpecCronstring defaultScheduleSpec) id fld_scheduleSpecCronstring
+      { scheduleSpecStructuredCalendar = maybe (scheduleSpecStructuredCalendar defaultScheduleSpec) id fld_scheduleSpecStructuredCalendar
+      , scheduleSpecCronString = maybe (scheduleSpecCronString defaultScheduleSpec) id fld_scheduleSpecCronString
       , scheduleSpecCalendar = maybe (scheduleSpecCalendar defaultScheduleSpec) id fld_scheduleSpecCalendar
       , scheduleSpecInterval = maybe (scheduleSpecInterval defaultScheduleSpec) id fld_scheduleSpecInterval
-      , scheduleSpecExcludecalendar = maybe (scheduleSpecExcludecalendar defaultScheduleSpec) id fld_scheduleSpecExcludecalendar
-      , scheduleSpecExcludestructuredcalendar = maybe (scheduleSpecExcludestructuredcalendar defaultScheduleSpec) id fld_scheduleSpecExcludestructuredcalendar
-      , scheduleSpecStarttime = maybe (scheduleSpecStarttime defaultScheduleSpec) id fld_scheduleSpecStarttime
-      , scheduleSpecEndtime = maybe (scheduleSpecEndtime defaultScheduleSpec) id fld_scheduleSpecEndtime
+      , scheduleSpecExcludeCalendar = maybe (scheduleSpecExcludeCalendar defaultScheduleSpec) id fld_scheduleSpecExcludeCalendar
+      , scheduleSpecExcludeStructuredCalendar = maybe (scheduleSpecExcludeStructuredCalendar defaultScheduleSpec) id fld_scheduleSpecExcludeStructuredCalendar
+      , scheduleSpecStartTime = maybe (scheduleSpecStartTime defaultScheduleSpec) id fld_scheduleSpecStartTime
+      , scheduleSpecEndTime = maybe (scheduleSpecEndTime defaultScheduleSpec) id fld_scheduleSpecEndTime
       , scheduleSpecJitter = maybe (scheduleSpecJitter defaultScheduleSpec) id fld_scheduleSpecJitter
-      , scheduleSpecTimezonename = maybe (scheduleSpecTimezonename defaultScheduleSpec) id fld_scheduleSpecTimezonename
-      , scheduleSpecTimezonedata = maybe (scheduleSpecTimezonedata defaultScheduleSpec) id fld_scheduleSpecTimezonedata
+      , scheduleSpecTimezoneName = maybe (scheduleSpecTimezoneName defaultScheduleSpec) id fld_scheduleSpecTimezoneName
+      , scheduleSpecTimezoneData = maybe (scheduleSpecTimezoneData defaultScheduleSpec) id fld_scheduleSpecTimezoneData
       }
 
 instance Hashable ScheduleSpec where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (salt) msg.scheduleSpecStructuredcalendar) msg.scheduleSpecCronstring) msg.scheduleSpecCalendar) msg.scheduleSpecInterval) msg.scheduleSpecExcludecalendar) msg.scheduleSpecExcludestructuredcalendar) msg.scheduleSpecStarttime) msg.scheduleSpecEndtime) msg.scheduleSpecJitter) msg.scheduleSpecTimezonename) msg.scheduleSpecTimezonedata
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (salt) msg.scheduleSpecStructuredCalendar) msg.scheduleSpecCronString) msg.scheduleSpecCalendar) msg.scheduleSpecInterval) msg.scheduleSpecExcludeCalendar) msg.scheduleSpecExcludeStructuredCalendar) msg.scheduleSpecStartTime) msg.scheduleSpecEndTime) msg.scheduleSpecJitter) msg.scheduleSpecTimezoneName) msg.scheduleSpecTimezoneData
 
 data SchedulePolicies = SchedulePolicies
-  { schedulePoliciesOverlappolicy :: !TE_Enums_V1_Schedule.ScheduleOverlapPolicy
-  , schedulePoliciesCatchupwindow :: !(Maybe PB_Duration.Duration)
-  , schedulePoliciesPauseonfailure :: {-# UNPACK #-} !Bool
-  , schedulePoliciesKeeporiginalworkflowid :: {-# UNPACK #-} !Bool
-  , schedulePoliciesUnknownfields :: ![UnknownField]
+  { schedulePoliciesOverlapPolicy :: !TE_Enums_V1_Schedule.ScheduleOverlapPolicy
+  , schedulePoliciesCatchupWindow :: !(Maybe PB_Duration.Duration)
+  , schedulePoliciesPauseOnFailure :: {-# UNPACK #-} !Bool
+  , schedulePoliciesKeepOriginalWorkflowId :: {-# UNPACK #-} !Bool
+  , schedulePoliciesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultSchedulePolicies :: SchedulePolicies
 defaultSchedulePolicies = SchedulePolicies
-  { schedulePoliciesOverlappolicy = (toEnum 0)
-  , schedulePoliciesCatchupwindow = Nothing
-  , schedulePoliciesPauseonfailure = False
-  , schedulePoliciesKeeporiginalworkflowid = False
-  , schedulePoliciesUnknownfields = []
+  { schedulePoliciesOverlapPolicy = (toEnum 0)
+  , schedulePoliciesCatchupWindow = Nothing
+  , schedulePoliciesPauseOnFailure = False
+  , schedulePoliciesKeepOriginalWorkflowId = False
+  , schedulePoliciesUnknownFields = []
   }
 
 instance MessageEncode SchedulePolicies where
   buildMessage msg =
-    (if fromEnum msg.schedulePoliciesOverlappolicy == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.schedulePoliciesOverlappolicy)))
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.schedulePoliciesCatchupwindow)
-    <> (if msg.schedulePoliciesPauseonfailure == False then mempty else encodeFieldBool 3 msg.schedulePoliciesPauseonfailure)
-    <> (if msg.schedulePoliciesKeeporiginalworkflowid == False then mempty else encodeFieldBool 4 msg.schedulePoliciesKeeporiginalworkflowid)
-    <> encodeUnknownFields msg.schedulePoliciesUnknownfields
+    (if fromEnum msg.schedulePoliciesOverlapPolicy == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.schedulePoliciesOverlapPolicy)))
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.schedulePoliciesCatchupWindow)
+    <> (if msg.schedulePoliciesPauseOnFailure == False then mempty else encodeFieldBool 3 msg.schedulePoliciesPauseOnFailure)
+    <> (if msg.schedulePoliciesKeepOriginalWorkflowId == False then mempty else encodeFieldBool 4 msg.schedulePoliciesKeepOriginalWorkflowId)
+    <> encodeUnknownFields msg.schedulePoliciesUnknownFields
 
 instance MessageSize SchedulePolicies where
   messageSize msg =
-    (if fromEnum msg.schedulePoliciesOverlappolicy == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.schedulePoliciesOverlappolicy)))
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.schedulePoliciesCatchupwindow)
-    + (if msg.schedulePoliciesPauseonfailure == False then 0 else fieldBoolSize 3)
-    + (if msg.schedulePoliciesKeeporiginalworkflowid == False then 0 else fieldBoolSize 4)
-    + unknownFieldsSize msg.schedulePoliciesUnknownfields
+    (if fromEnum msg.schedulePoliciesOverlapPolicy == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.schedulePoliciesOverlapPolicy)))
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.schedulePoliciesCatchupWindow)
+    + (if msg.schedulePoliciesPauseOnFailure == False then 0 else fieldBoolSize 3)
+    + (if msg.schedulePoliciesKeepOriginalWorkflowId == False then 0 else fieldBoolSize 4)
+    + unknownFieldsSize msg.schedulePoliciesUnknownFields
 
 instance MessageDecode SchedulePolicies where
   {-# INLINE messageDecoder #-}
@@ -951,7 +951,7 @@ instance MessageDecode SchedulePolicies where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (SchedulePolicies {schedulePoliciesOverlappolicy = acc_0, schedulePoliciesCatchupwindow = acc_1, schedulePoliciesPauseonfailure = acc_2, schedulePoliciesKeeporiginalworkflowid = acc_3, schedulePoliciesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (SchedulePolicies {schedulePoliciesOverlapPolicy = acc_0, schedulePoliciesCatchupWindow = acc_1, schedulePoliciesPauseOnFailure = acc_2, schedulePoliciesKeepOriginalWorkflowId = acc_3, schedulePoliciesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -983,61 +983,61 @@ instance ProtoMessage SchedulePolicies where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ScheduleOverlapPolicy"
         , fdLabel = LabelOptional
-        , fdGet = schedulePoliciesOverlappolicy
-        , fdSet = \v m -> m { schedulePoliciesOverlappolicy = v }
+        , fdGet = schedulePoliciesOverlapPolicy
+        , fdSet = \v m -> m { schedulePoliciesOverlapPolicy = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "catchup_window"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = schedulePoliciesCatchupwindow
-        , fdSet = \v m -> m { schedulePoliciesCatchupwindow = v }
+        , fdGet = schedulePoliciesCatchupWindow
+        , fdSet = \v m -> m { schedulePoliciesCatchupWindow = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "pause_on_failure"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = schedulePoliciesPauseonfailure
-        , fdSet = \v m -> m { schedulePoliciesPauseonfailure = v }
+        , fdGet = schedulePoliciesPauseOnFailure
+        , fdSet = \v m -> m { schedulePoliciesPauseOnFailure = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "keep_original_workflow_id"
         , fdNumber = 4
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = schedulePoliciesKeeporiginalworkflowid
-        , fdSet = \v m -> m { schedulePoliciesKeeporiginalworkflowid = v }
+        , fdGet = schedulePoliciesKeepOriginalWorkflowId
+        , fdSet = \v m -> m { schedulePoliciesKeepOriginalWorkflowId = v }
         })
     ]
 
 instance Aeson.ToJSON SchedulePolicies where
   toJSON msg = jsonObject
-      [ "overlapPolicy" .=: msg.schedulePoliciesOverlappolicy
-      , "catchupWindow" .=: msg.schedulePoliciesCatchupwindow
-      , "pauseOnFailure" .=: msg.schedulePoliciesPauseonfailure
-      , "keepOriginalWorkflowId" .=: msg.schedulePoliciesKeeporiginalworkflowid
+      [ "overlapPolicy" .=: msg.schedulePoliciesOverlapPolicy
+      , "catchupWindow" .=: msg.schedulePoliciesCatchupWindow
+      , "pauseOnFailure" .=: msg.schedulePoliciesPauseOnFailure
+      , "keepOriginalWorkflowId" .=: msg.schedulePoliciesKeepOriginalWorkflowId
       ]
 
 instance Aeson.FromJSON SchedulePolicies where
   parseJSON = Aeson.withObject "SchedulePolicies" $ \obj -> do
-    fld_schedulePoliciesOverlappolicy <- parseFieldMaybe obj "overlapPolicy"
-    fld_schedulePoliciesCatchupwindow <- parseFieldMaybe obj "catchupWindow"
-    fld_schedulePoliciesPauseonfailure <- parseFieldMaybe obj "pauseOnFailure"
-    fld_schedulePoliciesKeeporiginalworkflowid <- parseFieldMaybe obj "keepOriginalWorkflowId"
+    fld_schedulePoliciesOverlapPolicy <- parseFieldMaybe obj "overlapPolicy"
+    fld_schedulePoliciesCatchupWindow <- parseFieldMaybe obj "catchupWindow"
+    fld_schedulePoliciesPauseOnFailure <- parseFieldMaybe obj "pauseOnFailure"
+    fld_schedulePoliciesKeepOriginalWorkflowId <- parseFieldMaybe obj "keepOriginalWorkflowId"
     pure defaultSchedulePolicies
-      { schedulePoliciesOverlappolicy = maybe (schedulePoliciesOverlappolicy defaultSchedulePolicies) id fld_schedulePoliciesOverlappolicy
-      , schedulePoliciesCatchupwindow = maybe (schedulePoliciesCatchupwindow defaultSchedulePolicies) id fld_schedulePoliciesCatchupwindow
-      , schedulePoliciesPauseonfailure = maybe (schedulePoliciesPauseonfailure defaultSchedulePolicies) id fld_schedulePoliciesPauseonfailure
-      , schedulePoliciesKeeporiginalworkflowid = maybe (schedulePoliciesKeeporiginalworkflowid defaultSchedulePolicies) id fld_schedulePoliciesKeeporiginalworkflowid
+      { schedulePoliciesOverlapPolicy = maybe (schedulePoliciesOverlapPolicy defaultSchedulePolicies) id fld_schedulePoliciesOverlapPolicy
+      , schedulePoliciesCatchupWindow = maybe (schedulePoliciesCatchupWindow defaultSchedulePolicies) id fld_schedulePoliciesCatchupWindow
+      , schedulePoliciesPauseOnFailure = maybe (schedulePoliciesPauseOnFailure defaultSchedulePolicies) id fld_schedulePoliciesPauseOnFailure
+      , schedulePoliciesKeepOriginalWorkflowId = maybe (schedulePoliciesKeepOriginalWorkflowId defaultSchedulePolicies) id fld_schedulePoliciesKeepOriginalWorkflowId
       }
 
 instance Hashable SchedulePolicies where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.schedulePoliciesOverlappolicy) msg.schedulePoliciesCatchupwindow) msg.schedulePoliciesPauseonfailure) msg.schedulePoliciesKeeporiginalworkflowid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.schedulePoliciesOverlapPolicy) msg.schedulePoliciesCatchupWindow) msg.schedulePoliciesPauseOnFailure) msg.schedulePoliciesKeepOriginalWorkflowId
 
 data ScheduleAction = ScheduleAction
   { scheduleActionAction :: !(Maybe ScheduleAction'Action)
-  , scheduleActionUnknownfields :: ![UnknownField]
+  , scheduleActionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1055,7 +1055,7 @@ instance Hashable ScheduleAction'Action where
 defaultScheduleAction :: ScheduleAction
 defaultScheduleAction = ScheduleAction
   { scheduleActionAction = Nothing
-  , scheduleActionUnknownfields = []
+  , scheduleActionUnknownFields = []
   }
 
 instance MessageEncode ScheduleAction where
@@ -1063,12 +1063,12 @@ instance MessageEncode ScheduleAction where
     (case msg.scheduleActionAction of
       Nothing -> mempty
       Just (ScheduleAction'Action'StartWorkflow v) -> encodeFieldMessage 1 v)
-    <> encodeUnknownFields msg.scheduleActionUnknownfields
+    <> encodeUnknownFields msg.scheduleActionUnknownFields
 
 instance MessageSize ScheduleAction where
   messageSize msg =
     (case msg.scheduleActionAction of { Nothing -> 0; Just (ScheduleAction'Action'StartWorkflow v) -> fieldMessageSize 1 (messageSize v) })
-    + unknownFieldsSize msg.scheduleActionUnknownfields
+    + unknownFieldsSize msg.scheduleActionUnknownFields
 
 instance MessageDecode ScheduleAction where
   {-# INLINE messageDecoder #-}
@@ -1077,7 +1077,7 @@ instance MessageDecode ScheduleAction where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleAction {scheduleActionAction = acc_0, scheduleActionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleAction {scheduleActionAction = acc_0, scheduleActionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1122,39 +1122,39 @@ instance Hashable ScheduleAction where
   hashWithSalt salt msg = hashWithSalt (salt) msg.scheduleActionAction
 
 data ScheduleActionResult = ScheduleActionResult
-  { scheduleActionResultScheduletime :: !(Maybe PB_Timestamp.Timestamp)
-  , scheduleActionResultActualtime :: !(Maybe PB_Timestamp.Timestamp)
-  , scheduleActionResultStartworkflowresult :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
-  , scheduleActionResultStartworkflowstatus :: !TE_Enums_V1_Workflow.WorkflowExecutionStatus
-  , scheduleActionResultUnknownfields :: ![UnknownField]
+  { scheduleActionResultScheduleTime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleActionResultActualTime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleActionResultStartWorkflowResult :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
+  , scheduleActionResultStartWorkflowStatus :: !TE_Enums_V1_Workflow.WorkflowExecutionStatus
+  , scheduleActionResultUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultScheduleActionResult :: ScheduleActionResult
 defaultScheduleActionResult = ScheduleActionResult
-  { scheduleActionResultScheduletime = Nothing
-  , scheduleActionResultActualtime = Nothing
-  , scheduleActionResultStartworkflowresult = Nothing
-  , scheduleActionResultStartworkflowstatus = (toEnum 0)
-  , scheduleActionResultUnknownfields = []
+  { scheduleActionResultScheduleTime = Nothing
+  , scheduleActionResultActualTime = Nothing
+  , scheduleActionResultStartWorkflowResult = Nothing
+  , scheduleActionResultStartWorkflowStatus = (toEnum 0)
+  , scheduleActionResultUnknownFields = []
   }
 
 instance MessageEncode ScheduleActionResult where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.scheduleActionResultScheduletime)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.scheduleActionResultActualtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.scheduleActionResultStartworkflowresult)
-    <> (if fromEnum msg.scheduleActionResultStartworkflowstatus == 0 then mempty else encodeFieldVarint 12 (fromIntegral (fromEnum msg.scheduleActionResultStartworkflowstatus)))
-    <> encodeUnknownFields msg.scheduleActionResultUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.scheduleActionResultScheduleTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.scheduleActionResultActualTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.scheduleActionResultStartWorkflowResult)
+    <> (if fromEnum msg.scheduleActionResultStartWorkflowStatus == 0 then mempty else encodeFieldVarint 12 (fromIntegral (fromEnum msg.scheduleActionResultStartWorkflowStatus)))
+    <> encodeUnknownFields msg.scheduleActionResultUnknownFields
 
 instance MessageSize ScheduleActionResult where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.scheduleActionResultScheduletime)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.scheduleActionResultActualtime)
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.scheduleActionResultStartworkflowresult)
-    + (if fromEnum msg.scheduleActionResultStartworkflowstatus == 0 then 0 else fieldVarintSize 12 (fromIntegral (fromEnum msg.scheduleActionResultStartworkflowstatus)))
-    + unknownFieldsSize msg.scheduleActionResultUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.scheduleActionResultScheduleTime)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.scheduleActionResultActualTime)
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.scheduleActionResultStartWorkflowResult)
+    + (if fromEnum msg.scheduleActionResultStartWorkflowStatus == 0 then 0 else fieldVarintSize 12 (fromIntegral (fromEnum msg.scheduleActionResultStartWorkflowStatus)))
+    + unknownFieldsSize msg.scheduleActionResultUnknownFields
 
 instance MessageDecode ScheduleActionResult where
   {-# INLINE messageDecoder #-}
@@ -1163,7 +1163,7 @@ instance MessageDecode ScheduleActionResult where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleActionResult {scheduleActionResultScheduletime = acc_0, scheduleActionResultActualtime = acc_1, scheduleActionResultStartworkflowresult = acc_2, scheduleActionResultStartworkflowstatus = acc_3, scheduleActionResultUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleActionResult {scheduleActionResultScheduleTime = acc_0, scheduleActionResultActualTime = acc_1, scheduleActionResultStartWorkflowResult = acc_2, scheduleActionResultStartWorkflowStatus = acc_3, scheduleActionResultUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1195,64 +1195,64 @@ instance ProtoMessage ScheduleActionResult where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActionResultScheduletime
-        , fdSet = \v m -> m { scheduleActionResultScheduletime = v }
+        , fdGet = scheduleActionResultScheduleTime
+        , fdSet = \v m -> m { scheduleActionResultScheduleTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "actual_time"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActionResultActualtime
-        , fdSet = \v m -> m { scheduleActionResultActualtime = v }
+        , fdGet = scheduleActionResultActualTime
+        , fdSet = \v m -> m { scheduleActionResultActualTime = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "start_workflow_result"
         , fdNumber = 11
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowExecution"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActionResultStartworkflowresult
-        , fdSet = \v m -> m { scheduleActionResultStartworkflowresult = v }
+        , fdGet = scheduleActionResultStartWorkflowResult
+        , fdSet = \v m -> m { scheduleActionResultStartWorkflowResult = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "start_workflow_status"
         , fdNumber = 12
         , fdTypeDesc = MessageType "temporal.api.enums.v1.WorkflowExecutionStatus"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActionResultStartworkflowstatus
-        , fdSet = \v m -> m { scheduleActionResultStartworkflowstatus = v }
+        , fdGet = scheduleActionResultStartWorkflowStatus
+        , fdSet = \v m -> m { scheduleActionResultStartWorkflowStatus = v }
         })
     ]
 
 instance Aeson.ToJSON ScheduleActionResult where
   toJSON msg = jsonObject
-      [ "scheduleTime" .=: msg.scheduleActionResultScheduletime
-      , "actualTime" .=: msg.scheduleActionResultActualtime
-      , "startWorkflowResult" .=: msg.scheduleActionResultStartworkflowresult
-      , "startWorkflowStatus" .=: msg.scheduleActionResultStartworkflowstatus
+      [ "scheduleTime" .=: msg.scheduleActionResultScheduleTime
+      , "actualTime" .=: msg.scheduleActionResultActualTime
+      , "startWorkflowResult" .=: msg.scheduleActionResultStartWorkflowResult
+      , "startWorkflowStatus" .=: msg.scheduleActionResultStartWorkflowStatus
       ]
 
 instance Aeson.FromJSON ScheduleActionResult where
   parseJSON = Aeson.withObject "ScheduleActionResult" $ \obj -> do
-    fld_scheduleActionResultScheduletime <- parseFieldMaybe obj "scheduleTime"
-    fld_scheduleActionResultActualtime <- parseFieldMaybe obj "actualTime"
-    fld_scheduleActionResultStartworkflowresult <- parseFieldMaybe obj "startWorkflowResult"
-    fld_scheduleActionResultStartworkflowstatus <- parseFieldMaybe obj "startWorkflowStatus"
+    fld_scheduleActionResultScheduleTime <- parseFieldMaybe obj "scheduleTime"
+    fld_scheduleActionResultActualTime <- parseFieldMaybe obj "actualTime"
+    fld_scheduleActionResultStartWorkflowResult <- parseFieldMaybe obj "startWorkflowResult"
+    fld_scheduleActionResultStartWorkflowStatus <- parseFieldMaybe obj "startWorkflowStatus"
     pure defaultScheduleActionResult
-      { scheduleActionResultScheduletime = maybe (scheduleActionResultScheduletime defaultScheduleActionResult) id fld_scheduleActionResultScheduletime
-      , scheduleActionResultActualtime = maybe (scheduleActionResultActualtime defaultScheduleActionResult) id fld_scheduleActionResultActualtime
-      , scheduleActionResultStartworkflowresult = maybe (scheduleActionResultStartworkflowresult defaultScheduleActionResult) id fld_scheduleActionResultStartworkflowresult
-      , scheduleActionResultStartworkflowstatus = maybe (scheduleActionResultStartworkflowstatus defaultScheduleActionResult) id fld_scheduleActionResultStartworkflowstatus
+      { scheduleActionResultScheduleTime = maybe (scheduleActionResultScheduleTime defaultScheduleActionResult) id fld_scheduleActionResultScheduleTime
+      , scheduleActionResultActualTime = maybe (scheduleActionResultActualTime defaultScheduleActionResult) id fld_scheduleActionResultActualTime
+      , scheduleActionResultStartWorkflowResult = maybe (scheduleActionResultStartWorkflowResult defaultScheduleActionResult) id fld_scheduleActionResultStartWorkflowResult
+      , scheduleActionResultStartWorkflowStatus = maybe (scheduleActionResultStartWorkflowStatus defaultScheduleActionResult) id fld_scheduleActionResultStartWorkflowStatus
       }
 
 instance Hashable ScheduleActionResult where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleActionResultScheduletime) msg.scheduleActionResultActualtime) msg.scheduleActionResultStartworkflowresult) msg.scheduleActionResultStartworkflowstatus
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleActionResultScheduleTime) msg.scheduleActionResultActualTime) msg.scheduleActionResultStartWorkflowResult) msg.scheduleActionResultStartWorkflowStatus
 
 data ScheduleState = ScheduleState
   { scheduleStateNotes :: !Text
   , scheduleStatePaused :: {-# UNPACK #-} !Bool
-  , scheduleStateLimitedactions :: {-# UNPACK #-} !Bool
-  , scheduleStateRemainingactions :: {-# UNPACK #-} !Int64
-  , scheduleStateUnknownfields :: ![UnknownField]
+  , scheduleStateLimitedActions :: {-# UNPACK #-} !Bool
+  , scheduleStateRemainingActions :: {-# UNPACK #-} !Int64
+  , scheduleStateUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1261,26 +1261,26 @@ defaultScheduleState :: ScheduleState
 defaultScheduleState = ScheduleState
   { scheduleStateNotes = ""
   , scheduleStatePaused = False
-  , scheduleStateLimitedactions = False
-  , scheduleStateRemainingactions = 0
-  , scheduleStateUnknownfields = []
+  , scheduleStateLimitedActions = False
+  , scheduleStateRemainingActions = 0
+  , scheduleStateUnknownFields = []
   }
 
 instance MessageEncode ScheduleState where
   buildMessage msg =
     (if msg.scheduleStateNotes == T.empty then mempty else encodeFieldString 1 msg.scheduleStateNotes)
     <> (if msg.scheduleStatePaused == False then mempty else encodeFieldBool 2 msg.scheduleStatePaused)
-    <> (if msg.scheduleStateLimitedactions == False then mempty else encodeFieldBool 3 msg.scheduleStateLimitedactions)
-    <> (if msg.scheduleStateRemainingactions == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.scheduleStateRemainingactions))
-    <> encodeUnknownFields msg.scheduleStateUnknownfields
+    <> (if msg.scheduleStateLimitedActions == False then mempty else encodeFieldBool 3 msg.scheduleStateLimitedActions)
+    <> (if msg.scheduleStateRemainingActions == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.scheduleStateRemainingActions))
+    <> encodeUnknownFields msg.scheduleStateUnknownFields
 
 instance MessageSize ScheduleState where
   messageSize msg =
     (if msg.scheduleStateNotes == T.empty then 0 else fieldTextSize 1 msg.scheduleStateNotes)
     + (if msg.scheduleStatePaused == False then 0 else fieldBoolSize 2)
-    + (if msg.scheduleStateLimitedactions == False then 0 else fieldBoolSize 3)
-    + (if msg.scheduleStateRemainingactions == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.scheduleStateRemainingactions))
-    + unknownFieldsSize msg.scheduleStateUnknownfields
+    + (if msg.scheduleStateLimitedActions == False then 0 else fieldBoolSize 3)
+    + (if msg.scheduleStateRemainingActions == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.scheduleStateRemainingActions))
+    + unknownFieldsSize msg.scheduleStateUnknownFields
 
 instance MessageDecode ScheduleState where
   {-# INLINE messageDecoder #-}
@@ -1289,7 +1289,7 @@ instance MessageDecode ScheduleState where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleState {scheduleStateNotes = acc_0, scheduleStatePaused = acc_1, scheduleStateLimitedactions = acc_2, scheduleStateRemainingactions = acc_3, scheduleStateUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleState {scheduleStateNotes = acc_0, scheduleStatePaused = acc_1, scheduleStateLimitedActions = acc_2, scheduleStateRemainingActions = acc_3, scheduleStateUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1336,16 +1336,16 @@ instance ProtoMessage ScheduleState where
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = scheduleStateLimitedactions
-        , fdSet = \v m -> m { scheduleStateLimitedactions = v }
+        , fdGet = scheduleStateLimitedActions
+        , fdSet = \v m -> m { scheduleStateLimitedActions = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "remaining_actions"
         , fdNumber = 4
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = scheduleStateRemainingactions
-        , fdSet = \v m -> m { scheduleStateRemainingactions = v }
+        , fdGet = scheduleStateRemainingActions
+        , fdSet = \v m -> m { scheduleStateRemainingActions = v }
         })
     ]
 
@@ -1353,52 +1353,52 @@ instance Aeson.ToJSON ScheduleState where
   toJSON msg = jsonObject
       [ "notes" .=: msg.scheduleStateNotes
       , "paused" .=: msg.scheduleStatePaused
-      , "limitedActions" .=: msg.scheduleStateLimitedactions
-      , "remainingActions" .=: msg.scheduleStateRemainingactions
+      , "limitedActions" .=: msg.scheduleStateLimitedActions
+      , "remainingActions" .=: msg.scheduleStateRemainingActions
       ]
 
 instance Aeson.FromJSON ScheduleState where
   parseJSON = Aeson.withObject "ScheduleState" $ \obj -> do
     fld_scheduleStateNotes <- parseFieldMaybe obj "notes"
     fld_scheduleStatePaused <- parseFieldMaybe obj "paused"
-    fld_scheduleStateLimitedactions <- parseFieldMaybe obj "limitedActions"
-    fld_scheduleStateRemainingactions <- parseFieldMaybe obj "remainingActions"
+    fld_scheduleStateLimitedActions <- parseFieldMaybe obj "limitedActions"
+    fld_scheduleStateRemainingActions <- parseFieldMaybe obj "remainingActions"
     pure defaultScheduleState
       { scheduleStateNotes = maybe (scheduleStateNotes defaultScheduleState) id fld_scheduleStateNotes
       , scheduleStatePaused = maybe (scheduleStatePaused defaultScheduleState) id fld_scheduleStatePaused
-      , scheduleStateLimitedactions = maybe (scheduleStateLimitedactions defaultScheduleState) id fld_scheduleStateLimitedactions
-      , scheduleStateRemainingactions = maybe (scheduleStateRemainingactions defaultScheduleState) id fld_scheduleStateRemainingactions
+      , scheduleStateLimitedActions = maybe (scheduleStateLimitedActions defaultScheduleState) id fld_scheduleStateLimitedActions
+      , scheduleStateRemainingActions = maybe (scheduleStateRemainingActions defaultScheduleState) id fld_scheduleStateRemainingActions
       }
 
 instance Hashable ScheduleState where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleStateNotes) msg.scheduleStatePaused) msg.scheduleStateLimitedactions) msg.scheduleStateRemainingactions
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleStateNotes) msg.scheduleStatePaused) msg.scheduleStateLimitedActions) msg.scheduleStateRemainingActions
 
 data TriggerImmediatelyRequest = TriggerImmediatelyRequest
-  { triggerImmediatelyRequestOverlappolicy :: !TE_Enums_V1_Schedule.ScheduleOverlapPolicy
-  , triggerImmediatelyRequestScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
-  , triggerImmediatelyRequestUnknownfields :: ![UnknownField]
+  { triggerImmediatelyRequestOverlapPolicy :: !TE_Enums_V1_Schedule.ScheduleOverlapPolicy
+  , triggerImmediatelyRequestScheduledTime :: !(Maybe PB_Timestamp.Timestamp)
+  , triggerImmediatelyRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTriggerImmediatelyRequest :: TriggerImmediatelyRequest
 defaultTriggerImmediatelyRequest = TriggerImmediatelyRequest
-  { triggerImmediatelyRequestOverlappolicy = (toEnum 0)
-  , triggerImmediatelyRequestScheduledtime = Nothing
-  , triggerImmediatelyRequestUnknownfields = []
+  { triggerImmediatelyRequestOverlapPolicy = (toEnum 0)
+  , triggerImmediatelyRequestScheduledTime = Nothing
+  , triggerImmediatelyRequestUnknownFields = []
   }
 
 instance MessageEncode TriggerImmediatelyRequest where
   buildMessage msg =
-    (if fromEnum msg.triggerImmediatelyRequestOverlappolicy == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.triggerImmediatelyRequestOverlappolicy)))
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.triggerImmediatelyRequestScheduledtime)
-    <> encodeUnknownFields msg.triggerImmediatelyRequestUnknownfields
+    (if fromEnum msg.triggerImmediatelyRequestOverlapPolicy == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.triggerImmediatelyRequestOverlapPolicy)))
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.triggerImmediatelyRequestScheduledTime)
+    <> encodeUnknownFields msg.triggerImmediatelyRequestUnknownFields
 
 instance MessageSize TriggerImmediatelyRequest where
   messageSize msg =
-    (if fromEnum msg.triggerImmediatelyRequestOverlappolicy == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.triggerImmediatelyRequestOverlappolicy)))
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.triggerImmediatelyRequestScheduledtime)
-    + unknownFieldsSize msg.triggerImmediatelyRequestUnknownfields
+    (if fromEnum msg.triggerImmediatelyRequestOverlapPolicy == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.triggerImmediatelyRequestOverlapPolicy)))
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.triggerImmediatelyRequestScheduledTime)
+    + unknownFieldsSize msg.triggerImmediatelyRequestUnknownFields
 
 instance MessageDecode TriggerImmediatelyRequest where
   {-# INLINE messageDecoder #-}
@@ -1407,7 +1407,7 @@ instance MessageDecode TriggerImmediatelyRequest where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TriggerImmediatelyRequest {triggerImmediatelyRequestOverlappolicy = acc_0, triggerImmediatelyRequestScheduledtime = acc_1, triggerImmediatelyRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TriggerImmediatelyRequest {triggerImmediatelyRequestOverlapPolicy = acc_0, triggerImmediatelyRequestScheduledTime = acc_1, triggerImmediatelyRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -1433,66 +1433,66 @@ instance ProtoMessage TriggerImmediatelyRequest where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ScheduleOverlapPolicy"
         , fdLabel = LabelOptional
-        , fdGet = triggerImmediatelyRequestOverlappolicy
-        , fdSet = \v m -> m { triggerImmediatelyRequestOverlappolicy = v }
+        , fdGet = triggerImmediatelyRequestOverlapPolicy
+        , fdSet = \v m -> m { triggerImmediatelyRequestOverlapPolicy = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "scheduled_time"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = triggerImmediatelyRequestScheduledtime
-        , fdSet = \v m -> m { triggerImmediatelyRequestScheduledtime = v }
+        , fdGet = triggerImmediatelyRequestScheduledTime
+        , fdSet = \v m -> m { triggerImmediatelyRequestScheduledTime = v }
         })
     ]
 
 instance Aeson.ToJSON TriggerImmediatelyRequest where
   toJSON msg = jsonObject
-      [ "overlapPolicy" .=: msg.triggerImmediatelyRequestOverlappolicy
-      , "scheduledTime" .=: msg.triggerImmediatelyRequestScheduledtime
+      [ "overlapPolicy" .=: msg.triggerImmediatelyRequestOverlapPolicy
+      , "scheduledTime" .=: msg.triggerImmediatelyRequestScheduledTime
       ]
 
 instance Aeson.FromJSON TriggerImmediatelyRequest where
   parseJSON = Aeson.withObject "TriggerImmediatelyRequest" $ \obj -> do
-    fld_triggerImmediatelyRequestOverlappolicy <- parseFieldMaybe obj "overlapPolicy"
-    fld_triggerImmediatelyRequestScheduledtime <- parseFieldMaybe obj "scheduledTime"
+    fld_triggerImmediatelyRequestOverlapPolicy <- parseFieldMaybe obj "overlapPolicy"
+    fld_triggerImmediatelyRequestScheduledTime <- parseFieldMaybe obj "scheduledTime"
     pure defaultTriggerImmediatelyRequest
-      { triggerImmediatelyRequestOverlappolicy = maybe (triggerImmediatelyRequestOverlappolicy defaultTriggerImmediatelyRequest) id fld_triggerImmediatelyRequestOverlappolicy
-      , triggerImmediatelyRequestScheduledtime = maybe (triggerImmediatelyRequestScheduledtime defaultTriggerImmediatelyRequest) id fld_triggerImmediatelyRequestScheduledtime
+      { triggerImmediatelyRequestOverlapPolicy = maybe (triggerImmediatelyRequestOverlapPolicy defaultTriggerImmediatelyRequest) id fld_triggerImmediatelyRequestOverlapPolicy
+      , triggerImmediatelyRequestScheduledTime = maybe (triggerImmediatelyRequestScheduledTime defaultTriggerImmediatelyRequest) id fld_triggerImmediatelyRequestScheduledTime
       }
 
 instance Hashable TriggerImmediatelyRequest where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.triggerImmediatelyRequestOverlappolicy) msg.triggerImmediatelyRequestScheduledtime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.triggerImmediatelyRequestOverlapPolicy) msg.triggerImmediatelyRequestScheduledTime
 
 data BackfillRequest = BackfillRequest
-  { backfillRequestStarttime :: !(Maybe PB_Timestamp.Timestamp)
-  , backfillRequestEndtime :: !(Maybe PB_Timestamp.Timestamp)
-  , backfillRequestOverlappolicy :: !TE_Enums_V1_Schedule.ScheduleOverlapPolicy
-  , backfillRequestUnknownfields :: ![UnknownField]
+  { backfillRequestStartTime :: !(Maybe PB_Timestamp.Timestamp)
+  , backfillRequestEndTime :: !(Maybe PB_Timestamp.Timestamp)
+  , backfillRequestOverlapPolicy :: !TE_Enums_V1_Schedule.ScheduleOverlapPolicy
+  , backfillRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultBackfillRequest :: BackfillRequest
 defaultBackfillRequest = BackfillRequest
-  { backfillRequestStarttime = Nothing
-  , backfillRequestEndtime = Nothing
-  , backfillRequestOverlappolicy = (toEnum 0)
-  , backfillRequestUnknownfields = []
+  { backfillRequestStartTime = Nothing
+  , backfillRequestEndTime = Nothing
+  , backfillRequestOverlapPolicy = (toEnum 0)
+  , backfillRequestUnknownFields = []
   }
 
 instance MessageEncode BackfillRequest where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.backfillRequestStarttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.backfillRequestEndtime)
-    <> (if fromEnum msg.backfillRequestOverlappolicy == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.backfillRequestOverlappolicy)))
-    <> encodeUnknownFields msg.backfillRequestUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.backfillRequestStartTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.backfillRequestEndTime)
+    <> (if fromEnum msg.backfillRequestOverlapPolicy == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.backfillRequestOverlapPolicy)))
+    <> encodeUnknownFields msg.backfillRequestUnknownFields
 
 instance MessageSize BackfillRequest where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.backfillRequestStarttime)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.backfillRequestEndtime)
-    + (if fromEnum msg.backfillRequestOverlappolicy == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.backfillRequestOverlappolicy)))
-    + unknownFieldsSize msg.backfillRequestUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.backfillRequestStartTime)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.backfillRequestEndTime)
+    + (if fromEnum msg.backfillRequestOverlapPolicy == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.backfillRequestOverlapPolicy)))
+    + unknownFieldsSize msg.backfillRequestUnknownFields
 
 instance MessageDecode BackfillRequest where
   {-# INLINE messageDecoder #-}
@@ -1501,7 +1501,7 @@ instance MessageDecode BackfillRequest where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BackfillRequest {backfillRequestStarttime = acc_0, backfillRequestEndtime = acc_1, backfillRequestOverlappolicy = acc_2, backfillRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BackfillRequest {backfillRequestStartTime = acc_0, backfillRequestEndTime = acc_1, backfillRequestOverlapPolicy = acc_2, backfillRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1530,81 +1530,81 @@ instance ProtoMessage BackfillRequest where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = backfillRequestStarttime
-        , fdSet = \v m -> m { backfillRequestStarttime = v }
+        , fdGet = backfillRequestStartTime
+        , fdSet = \v m -> m { backfillRequestStartTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "end_time"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = backfillRequestEndtime
-        , fdSet = \v m -> m { backfillRequestEndtime = v }
+        , fdGet = backfillRequestEndTime
+        , fdSet = \v m -> m { backfillRequestEndTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "overlap_policy"
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ScheduleOverlapPolicy"
         , fdLabel = LabelOptional
-        , fdGet = backfillRequestOverlappolicy
-        , fdSet = \v m -> m { backfillRequestOverlappolicy = v }
+        , fdGet = backfillRequestOverlapPolicy
+        , fdSet = \v m -> m { backfillRequestOverlapPolicy = v }
         })
     ]
 
 instance Aeson.ToJSON BackfillRequest where
   toJSON msg = jsonObject
-      [ "startTime" .=: msg.backfillRequestStarttime
-      , "endTime" .=: msg.backfillRequestEndtime
-      , "overlapPolicy" .=: msg.backfillRequestOverlappolicy
+      [ "startTime" .=: msg.backfillRequestStartTime
+      , "endTime" .=: msg.backfillRequestEndTime
+      , "overlapPolicy" .=: msg.backfillRequestOverlapPolicy
       ]
 
 instance Aeson.FromJSON BackfillRequest where
   parseJSON = Aeson.withObject "BackfillRequest" $ \obj -> do
-    fld_backfillRequestStarttime <- parseFieldMaybe obj "startTime"
-    fld_backfillRequestEndtime <- parseFieldMaybe obj "endTime"
-    fld_backfillRequestOverlappolicy <- parseFieldMaybe obj "overlapPolicy"
+    fld_backfillRequestStartTime <- parseFieldMaybe obj "startTime"
+    fld_backfillRequestEndTime <- parseFieldMaybe obj "endTime"
+    fld_backfillRequestOverlapPolicy <- parseFieldMaybe obj "overlapPolicy"
     pure defaultBackfillRequest
-      { backfillRequestStarttime = maybe (backfillRequestStarttime defaultBackfillRequest) id fld_backfillRequestStarttime
-      , backfillRequestEndtime = maybe (backfillRequestEndtime defaultBackfillRequest) id fld_backfillRequestEndtime
-      , backfillRequestOverlappolicy = maybe (backfillRequestOverlappolicy defaultBackfillRequest) id fld_backfillRequestOverlappolicy
+      { backfillRequestStartTime = maybe (backfillRequestStartTime defaultBackfillRequest) id fld_backfillRequestStartTime
+      , backfillRequestEndTime = maybe (backfillRequestEndTime defaultBackfillRequest) id fld_backfillRequestEndTime
+      , backfillRequestOverlapPolicy = maybe (backfillRequestOverlapPolicy defaultBackfillRequest) id fld_backfillRequestOverlapPolicy
       }
 
 instance Hashable BackfillRequest where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.backfillRequestStarttime) msg.backfillRequestEndtime) msg.backfillRequestOverlappolicy
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.backfillRequestStartTime) msg.backfillRequestEndTime) msg.backfillRequestOverlapPolicy
 
 data SchedulePatch = SchedulePatch
-  { schedulePatchTriggerimmediately :: !(Maybe TriggerImmediatelyRequest)
-  , schedulePatchBackfillrequest :: !(V.Vector BackfillRequest)
+  { schedulePatchTriggerImmediately :: !(Maybe TriggerImmediatelyRequest)
+  , schedulePatchBackfillRequest :: !(V.Vector BackfillRequest)
   , schedulePatchPause :: !Text
   , schedulePatchUnpause :: !Text
-  , schedulePatchUnknownfields :: ![UnknownField]
+  , schedulePatchUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultSchedulePatch :: SchedulePatch
 defaultSchedulePatch = SchedulePatch
-  { schedulePatchTriggerimmediately = Nothing
-  , schedulePatchBackfillrequest = V.empty
+  { schedulePatchTriggerImmediately = Nothing
+  , schedulePatchBackfillRequest = V.empty
   , schedulePatchPause = ""
   , schedulePatchUnpause = ""
-  , schedulePatchUnknownfields = []
+  , schedulePatchUnknownFields = []
   }
 
 instance MessageEncode SchedulePatch where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.schedulePatchTriggerimmediately)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.schedulePatchBackfillrequest
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.schedulePatchTriggerImmediately)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.schedulePatchBackfillRequest
     <> (if msg.schedulePatchPause == T.empty then mempty else encodeFieldString 3 msg.schedulePatchPause)
     <> (if msg.schedulePatchUnpause == T.empty then mempty else encodeFieldString 4 msg.schedulePatchUnpause)
-    <> encodeUnknownFields msg.schedulePatchUnknownfields
+    <> encodeUnknownFields msg.schedulePatchUnknownFields
 
 instance MessageSize SchedulePatch where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.schedulePatchTriggerimmediately)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.schedulePatchBackfillrequest)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.schedulePatchTriggerImmediately)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.schedulePatchBackfillRequest)
     + (if msg.schedulePatchPause == T.empty then 0 else fieldTextSize 3 msg.schedulePatchPause)
     + (if msg.schedulePatchUnpause == T.empty then 0 else fieldTextSize 4 msg.schedulePatchUnpause)
-    + unknownFieldsSize msg.schedulePatchUnknownfields
+    + unknownFieldsSize msg.schedulePatchUnknownFields
 
 instance MessageDecode SchedulePatch where
   {-# INLINE messageDecoder #-}
@@ -1613,7 +1613,7 @@ instance MessageDecode SchedulePatch where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (SchedulePatch {schedulePatchTriggerimmediately = acc_0, schedulePatchBackfillrequest = acc_1, schedulePatchPause = acc_2, schedulePatchUnpause = acc_3, schedulePatchUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (SchedulePatch {schedulePatchTriggerImmediately = acc_0, schedulePatchBackfillRequest = acc_1, schedulePatchPause = acc_2, schedulePatchUnpause = acc_3, schedulePatchUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1645,15 +1645,15 @@ instance ProtoMessage SchedulePatch where
         , fdNumber = 1
         , fdTypeDesc = MessageType "TriggerImmediatelyRequest"
         , fdLabel = LabelOptional
-        , fdGet = schedulePatchTriggerimmediately
-        , fdSet = \v m -> m { schedulePatchTriggerimmediately = v }
+        , fdGet = schedulePatchTriggerImmediately
+        , fdSet = \v m -> m { schedulePatchTriggerImmediately = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "backfill_request"
         , fdNumber = 2
         , fdTypeDesc = MessageType "BackfillRequest"
         , fdLabel = LabelRepeated
-        , fdGet = schedulePatchBackfillrequest
-        , fdSet = \v m -> m { schedulePatchBackfillrequest = v }
+        , fdGet = schedulePatchBackfillRequest
+        , fdSet = \v m -> m { schedulePatchBackfillRequest = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "pause"
@@ -1675,90 +1675,90 @@ instance ProtoMessage SchedulePatch where
 
 instance Aeson.ToJSON SchedulePatch where
   toJSON msg = jsonObject
-      [ "triggerImmediately" .=: msg.schedulePatchTriggerimmediately
-      , "backfillRequest" .=: msg.schedulePatchBackfillrequest
+      [ "triggerImmediately" .=: msg.schedulePatchTriggerImmediately
+      , "backfillRequest" .=: msg.schedulePatchBackfillRequest
       , "pause" .=: msg.schedulePatchPause
       , "unpause" .=: msg.schedulePatchUnpause
       ]
 
 instance Aeson.FromJSON SchedulePatch where
   parseJSON = Aeson.withObject "SchedulePatch" $ \obj -> do
-    fld_schedulePatchTriggerimmediately <- parseFieldMaybe obj "triggerImmediately"
-    fld_schedulePatchBackfillrequest <- parseFieldMaybe obj "backfillRequest"
+    fld_schedulePatchTriggerImmediately <- parseFieldMaybe obj "triggerImmediately"
+    fld_schedulePatchBackfillRequest <- parseFieldMaybe obj "backfillRequest"
     fld_schedulePatchPause <- parseFieldMaybe obj "pause"
     fld_schedulePatchUnpause <- parseFieldMaybe obj "unpause"
     pure defaultSchedulePatch
-      { schedulePatchTriggerimmediately = maybe (schedulePatchTriggerimmediately defaultSchedulePatch) id fld_schedulePatchTriggerimmediately
-      , schedulePatchBackfillrequest = maybe (schedulePatchBackfillrequest defaultSchedulePatch) id fld_schedulePatchBackfillrequest
+      { schedulePatchTriggerImmediately = maybe (schedulePatchTriggerImmediately defaultSchedulePatch) id fld_schedulePatchTriggerImmediately
+      , schedulePatchBackfillRequest = maybe (schedulePatchBackfillRequest defaultSchedulePatch) id fld_schedulePatchBackfillRequest
       , schedulePatchPause = maybe (schedulePatchPause defaultSchedulePatch) id fld_schedulePatchPause
       , schedulePatchUnpause = maybe (schedulePatchUnpause defaultSchedulePatch) id fld_schedulePatchUnpause
       }
 
 instance Hashable SchedulePatch where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.schedulePatchTriggerimmediately) msg.schedulePatchBackfillrequest) msg.schedulePatchPause) msg.schedulePatchUnpause
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.schedulePatchTriggerImmediately) msg.schedulePatchBackfillRequest) msg.schedulePatchPause) msg.schedulePatchUnpause
 
 data ScheduleInfo = ScheduleInfo
-  { scheduleInfoActioncount :: {-# UNPACK #-} !Int64
-  , scheduleInfoMissedcatchupwindow :: {-# UNPACK #-} !Int64
-  , scheduleInfoOverlapskipped :: {-# UNPACK #-} !Int64
-  , scheduleInfoBufferdropped :: {-# UNPACK #-} !Int64
-  , scheduleInfoBuffersize :: {-# UNPACK #-} !Int64
-  , scheduleInfoRunningworkflows :: !(V.Vector TE_Common_V1_Message.WorkflowExecution)
-  , scheduleInfoRecentactions :: !(V.Vector ScheduleActionResult)
-  , scheduleInfoFutureactiontimes :: !(V.Vector PB_Timestamp.Timestamp)
-  , scheduleInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , scheduleInfoUpdatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , scheduleInfoInvalidscheduleerror :: !Text
-  , scheduleInfoUnknownfields :: ![UnknownField]
+  { scheduleInfoActionCount :: {-# UNPACK #-} !Int64
+  , scheduleInfoMissedCatchupWindow :: {-# UNPACK #-} !Int64
+  , scheduleInfoOverlapSkipped :: {-# UNPACK #-} !Int64
+  , scheduleInfoBufferDropped :: {-# UNPACK #-} !Int64
+  , scheduleInfoBufferSize :: {-# UNPACK #-} !Int64
+  , scheduleInfoRunningWorkflows :: !(V.Vector TE_Common_V1_Message.WorkflowExecution)
+  , scheduleInfoRecentActions :: !(V.Vector ScheduleActionResult)
+  , scheduleInfoFutureActionTimes :: !(V.Vector PB_Timestamp.Timestamp)
+  , scheduleInfoCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleInfoUpdateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , scheduleInfoInvalidScheduleError :: !Text
+  , scheduleInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultScheduleInfo :: ScheduleInfo
 defaultScheduleInfo = ScheduleInfo
-  { scheduleInfoActioncount = 0
-  , scheduleInfoMissedcatchupwindow = 0
-  , scheduleInfoOverlapskipped = 0
-  , scheduleInfoBufferdropped = 0
-  , scheduleInfoBuffersize = 0
-  , scheduleInfoRunningworkflows = V.empty
-  , scheduleInfoRecentactions = V.empty
-  , scheduleInfoFutureactiontimes = V.empty
-  , scheduleInfoCreatetime = Nothing
-  , scheduleInfoUpdatetime = Nothing
-  , scheduleInfoInvalidscheduleerror = ""
-  , scheduleInfoUnknownfields = []
+  { scheduleInfoActionCount = 0
+  , scheduleInfoMissedCatchupWindow = 0
+  , scheduleInfoOverlapSkipped = 0
+  , scheduleInfoBufferDropped = 0
+  , scheduleInfoBufferSize = 0
+  , scheduleInfoRunningWorkflows = V.empty
+  , scheduleInfoRecentActions = V.empty
+  , scheduleInfoFutureActionTimes = V.empty
+  , scheduleInfoCreateTime = Nothing
+  , scheduleInfoUpdateTime = Nothing
+  , scheduleInfoInvalidScheduleError = ""
+  , scheduleInfoUnknownFields = []
   }
 
 instance MessageEncode ScheduleInfo where
   buildMessage msg =
-    (if msg.scheduleInfoActioncount == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.scheduleInfoActioncount))
-    <> (if msg.scheduleInfoMissedcatchupwindow == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.scheduleInfoMissedcatchupwindow))
-    <> (if msg.scheduleInfoOverlapskipped == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.scheduleInfoOverlapskipped))
-    <> (if msg.scheduleInfoBufferdropped == 0 then mempty else encodeFieldVarint 10 (fromIntegral msg.scheduleInfoBufferdropped))
-    <> (if msg.scheduleInfoBuffersize == 0 then mempty else encodeFieldVarint 11 (fromIntegral msg.scheduleInfoBuffersize))
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 9 v) mempty msg.scheduleInfoRunningworkflows
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.scheduleInfoRecentactions
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 5 v) mempty msg.scheduleInfoFutureactiontimes
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.scheduleInfoCreatetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.scheduleInfoUpdatetime)
-    <> (if msg.scheduleInfoInvalidscheduleerror == T.empty then mempty else encodeFieldString 8 msg.scheduleInfoInvalidscheduleerror)
-    <> encodeUnknownFields msg.scheduleInfoUnknownfields
+    (if msg.scheduleInfoActionCount == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.scheduleInfoActionCount))
+    <> (if msg.scheduleInfoMissedCatchupWindow == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.scheduleInfoMissedCatchupWindow))
+    <> (if msg.scheduleInfoOverlapSkipped == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.scheduleInfoOverlapSkipped))
+    <> (if msg.scheduleInfoBufferDropped == 0 then mempty else encodeFieldVarint 10 (fromIntegral msg.scheduleInfoBufferDropped))
+    <> (if msg.scheduleInfoBufferSize == 0 then mempty else encodeFieldVarint 11 (fromIntegral msg.scheduleInfoBufferSize))
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 9 v) mempty msg.scheduleInfoRunningWorkflows
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.scheduleInfoRecentActions
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 5 v) mempty msg.scheduleInfoFutureActionTimes
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.scheduleInfoCreateTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.scheduleInfoUpdateTime)
+    <> (if msg.scheduleInfoInvalidScheduleError == T.empty then mempty else encodeFieldString 8 msg.scheduleInfoInvalidScheduleError)
+    <> encodeUnknownFields msg.scheduleInfoUnknownFields
 
 instance MessageSize ScheduleInfo where
   messageSize msg =
-    (if msg.scheduleInfoActioncount == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.scheduleInfoActioncount))
-    + (if msg.scheduleInfoMissedcatchupwindow == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.scheduleInfoMissedcatchupwindow))
-    + (if msg.scheduleInfoOverlapskipped == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.scheduleInfoOverlapskipped))
-    + (if msg.scheduleInfoBufferdropped == 0 then 0 else fieldVarintSize 10 (fromIntegral msg.scheduleInfoBufferdropped))
-    + (if msg.scheduleInfoBuffersize == 0 then 0 else fieldVarintSize 11 (fromIntegral msg.scheduleInfoBuffersize))
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 9 (messageSize v)) 0 msg.scheduleInfoRunningworkflows)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.scheduleInfoRecentactions)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 5 (messageSize v)) 0 msg.scheduleInfoFutureactiontimes)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.scheduleInfoCreatetime)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.scheduleInfoUpdatetime)
-    + (if msg.scheduleInfoInvalidscheduleerror == T.empty then 0 else fieldTextSize 8 msg.scheduleInfoInvalidscheduleerror)
-    + unknownFieldsSize msg.scheduleInfoUnknownfields
+    (if msg.scheduleInfoActionCount == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.scheduleInfoActionCount))
+    + (if msg.scheduleInfoMissedCatchupWindow == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.scheduleInfoMissedCatchupWindow))
+    + (if msg.scheduleInfoOverlapSkipped == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.scheduleInfoOverlapSkipped))
+    + (if msg.scheduleInfoBufferDropped == 0 then 0 else fieldVarintSize 10 (fromIntegral msg.scheduleInfoBufferDropped))
+    + (if msg.scheduleInfoBufferSize == 0 then 0 else fieldVarintSize 11 (fromIntegral msg.scheduleInfoBufferSize))
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 9 (messageSize v)) 0 msg.scheduleInfoRunningWorkflows)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.scheduleInfoRecentActions)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 5 (messageSize v)) 0 msg.scheduleInfoFutureActionTimes)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.scheduleInfoCreateTime)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.scheduleInfoUpdateTime)
+    + (if msg.scheduleInfoInvalidScheduleError == T.empty then 0 else fieldTextSize 8 msg.scheduleInfoInvalidScheduleError)
+    + unknownFieldsSize msg.scheduleInfoUnknownFields
 
 instance MessageDecode ScheduleInfo where
   {-# INLINE messageDecoder #-}
@@ -1767,7 +1767,7 @@ instance MessageDecode ScheduleInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleInfo {scheduleInfoActioncount = acc_0, scheduleInfoMissedcatchupwindow = acc_1, scheduleInfoOverlapskipped = acc_2, scheduleInfoBufferdropped = acc_3, scheduleInfoBuffersize = acc_4, scheduleInfoRunningworkflows = acc_5, scheduleInfoRecentactions = acc_6, scheduleInfoFutureactiontimes = acc_7, scheduleInfoCreatetime = acc_8, scheduleInfoUpdatetime = acc_9, scheduleInfoInvalidscheduleerror = acc_10, scheduleInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleInfo {scheduleInfoActionCount = acc_0, scheduleInfoMissedCatchupWindow = acc_1, scheduleInfoOverlapSkipped = acc_2, scheduleInfoBufferDropped = acc_3, scheduleInfoBufferSize = acc_4, scheduleInfoRunningWorkflows = acc_5, scheduleInfoRecentActions = acc_6, scheduleInfoFutureActionTimes = acc_7, scheduleInfoCreateTime = acc_8, scheduleInfoUpdateTime = acc_9, scheduleInfoInvalidScheduleError = acc_10, scheduleInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -1820,141 +1820,141 @@ instance ProtoMessage ScheduleInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = scheduleInfoActioncount
-        , fdSet = \v m -> m { scheduleInfoActioncount = v }
+        , fdGet = scheduleInfoActionCount
+        , fdSet = \v m -> m { scheduleInfoActionCount = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "missed_catchup_window"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = scheduleInfoMissedcatchupwindow
-        , fdSet = \v m -> m { scheduleInfoMissedcatchupwindow = v }
+        , fdGet = scheduleInfoMissedCatchupWindow
+        , fdSet = \v m -> m { scheduleInfoMissedCatchupWindow = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "overlap_skipped"
         , fdNumber = 3
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = scheduleInfoOverlapskipped
-        , fdSet = \v m -> m { scheduleInfoOverlapskipped = v }
+        , fdGet = scheduleInfoOverlapSkipped
+        , fdSet = \v m -> m { scheduleInfoOverlapSkipped = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "buffer_dropped"
         , fdNumber = 10
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = scheduleInfoBufferdropped
-        , fdSet = \v m -> m { scheduleInfoBufferdropped = v }
+        , fdGet = scheduleInfoBufferDropped
+        , fdSet = \v m -> m { scheduleInfoBufferDropped = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "buffer_size"
         , fdNumber = 11
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = scheduleInfoBuffersize
-        , fdSet = \v m -> m { scheduleInfoBuffersize = v }
+        , fdGet = scheduleInfoBufferSize
+        , fdSet = \v m -> m { scheduleInfoBufferSize = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "running_workflows"
         , fdNumber = 9
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowExecution"
         , fdLabel = LabelRepeated
-        , fdGet = scheduleInfoRunningworkflows
-        , fdSet = \v m -> m { scheduleInfoRunningworkflows = v }
+        , fdGet = scheduleInfoRunningWorkflows
+        , fdSet = \v m -> m { scheduleInfoRunningWorkflows = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "recent_actions"
         , fdNumber = 4
         , fdTypeDesc = MessageType "ScheduleActionResult"
         , fdLabel = LabelRepeated
-        , fdGet = scheduleInfoRecentactions
-        , fdSet = \v m -> m { scheduleInfoRecentactions = v }
+        , fdGet = scheduleInfoRecentActions
+        , fdSet = \v m -> m { scheduleInfoRecentActions = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "future_action_times"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelRepeated
-        , fdGet = scheduleInfoFutureactiontimes
-        , fdSet = \v m -> m { scheduleInfoFutureactiontimes = v }
+        , fdGet = scheduleInfoFutureActionTimes
+        , fdSet = \v m -> m { scheduleInfoFutureActionTimes = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "create_time"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = scheduleInfoCreatetime
-        , fdSet = \v m -> m { scheduleInfoCreatetime = v }
+        , fdGet = scheduleInfoCreateTime
+        , fdSet = \v m -> m { scheduleInfoCreateTime = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "update_time"
         , fdNumber = 7
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = scheduleInfoUpdatetime
-        , fdSet = \v m -> m { scheduleInfoUpdatetime = v }
+        , fdGet = scheduleInfoUpdateTime
+        , fdSet = \v m -> m { scheduleInfoUpdateTime = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "invalid_schedule_error"
         , fdNumber = 8
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = scheduleInfoInvalidscheduleerror
-        , fdSet = \v m -> m { scheduleInfoInvalidscheduleerror = v }
+        , fdGet = scheduleInfoInvalidScheduleError
+        , fdSet = \v m -> m { scheduleInfoInvalidScheduleError = v }
         })
     ]
 
 instance Aeson.ToJSON ScheduleInfo where
   toJSON msg = jsonObject
-      [ "actionCount" .=: msg.scheduleInfoActioncount
-      , "missedCatchupWindow" .=: msg.scheduleInfoMissedcatchupwindow
-      , "overlapSkipped" .=: msg.scheduleInfoOverlapskipped
-      , "bufferDropped" .=: msg.scheduleInfoBufferdropped
-      , "bufferSize" .=: msg.scheduleInfoBuffersize
-      , "runningWorkflows" .=: msg.scheduleInfoRunningworkflows
-      , "recentActions" .=: msg.scheduleInfoRecentactions
-      , "futureActionTimes" .=: msg.scheduleInfoFutureactiontimes
-      , "createTime" .=: msg.scheduleInfoCreatetime
-      , "updateTime" .=: msg.scheduleInfoUpdatetime
-      , "invalidScheduleError" .=: msg.scheduleInfoInvalidscheduleerror
+      [ "actionCount" .=: msg.scheduleInfoActionCount
+      , "missedCatchupWindow" .=: msg.scheduleInfoMissedCatchupWindow
+      , "overlapSkipped" .=: msg.scheduleInfoOverlapSkipped
+      , "bufferDropped" .=: msg.scheduleInfoBufferDropped
+      , "bufferSize" .=: msg.scheduleInfoBufferSize
+      , "runningWorkflows" .=: msg.scheduleInfoRunningWorkflows
+      , "recentActions" .=: msg.scheduleInfoRecentActions
+      , "futureActionTimes" .=: msg.scheduleInfoFutureActionTimes
+      , "createTime" .=: msg.scheduleInfoCreateTime
+      , "updateTime" .=: msg.scheduleInfoUpdateTime
+      , "invalidScheduleError" .=: msg.scheduleInfoInvalidScheduleError
       ]
 
 instance Aeson.FromJSON ScheduleInfo where
   parseJSON = Aeson.withObject "ScheduleInfo" $ \obj -> do
-    fld_scheduleInfoActioncount <- parseFieldMaybe obj "actionCount"
-    fld_scheduleInfoMissedcatchupwindow <- parseFieldMaybe obj "missedCatchupWindow"
-    fld_scheduleInfoOverlapskipped <- parseFieldMaybe obj "overlapSkipped"
-    fld_scheduleInfoBufferdropped <- parseFieldMaybe obj "bufferDropped"
-    fld_scheduleInfoBuffersize <- parseFieldMaybe obj "bufferSize"
-    fld_scheduleInfoRunningworkflows <- parseFieldMaybe obj "runningWorkflows"
-    fld_scheduleInfoRecentactions <- parseFieldMaybe obj "recentActions"
-    fld_scheduleInfoFutureactiontimes <- parseFieldMaybe obj "futureActionTimes"
-    fld_scheduleInfoCreatetime <- parseFieldMaybe obj "createTime"
-    fld_scheduleInfoUpdatetime <- parseFieldMaybe obj "updateTime"
-    fld_scheduleInfoInvalidscheduleerror <- parseFieldMaybe obj "invalidScheduleError"
+    fld_scheduleInfoActionCount <- parseFieldMaybe obj "actionCount"
+    fld_scheduleInfoMissedCatchupWindow <- parseFieldMaybe obj "missedCatchupWindow"
+    fld_scheduleInfoOverlapSkipped <- parseFieldMaybe obj "overlapSkipped"
+    fld_scheduleInfoBufferDropped <- parseFieldMaybe obj "bufferDropped"
+    fld_scheduleInfoBufferSize <- parseFieldMaybe obj "bufferSize"
+    fld_scheduleInfoRunningWorkflows <- parseFieldMaybe obj "runningWorkflows"
+    fld_scheduleInfoRecentActions <- parseFieldMaybe obj "recentActions"
+    fld_scheduleInfoFutureActionTimes <- parseFieldMaybe obj "futureActionTimes"
+    fld_scheduleInfoCreateTime <- parseFieldMaybe obj "createTime"
+    fld_scheduleInfoUpdateTime <- parseFieldMaybe obj "updateTime"
+    fld_scheduleInfoInvalidScheduleError <- parseFieldMaybe obj "invalidScheduleError"
     pure defaultScheduleInfo
-      { scheduleInfoActioncount = maybe (scheduleInfoActioncount defaultScheduleInfo) id fld_scheduleInfoActioncount
-      , scheduleInfoMissedcatchupwindow = maybe (scheduleInfoMissedcatchupwindow defaultScheduleInfo) id fld_scheduleInfoMissedcatchupwindow
-      , scheduleInfoOverlapskipped = maybe (scheduleInfoOverlapskipped defaultScheduleInfo) id fld_scheduleInfoOverlapskipped
-      , scheduleInfoBufferdropped = maybe (scheduleInfoBufferdropped defaultScheduleInfo) id fld_scheduleInfoBufferdropped
-      , scheduleInfoBuffersize = maybe (scheduleInfoBuffersize defaultScheduleInfo) id fld_scheduleInfoBuffersize
-      , scheduleInfoRunningworkflows = maybe (scheduleInfoRunningworkflows defaultScheduleInfo) id fld_scheduleInfoRunningworkflows
-      , scheduleInfoRecentactions = maybe (scheduleInfoRecentactions defaultScheduleInfo) id fld_scheduleInfoRecentactions
-      , scheduleInfoFutureactiontimes = maybe (scheduleInfoFutureactiontimes defaultScheduleInfo) id fld_scheduleInfoFutureactiontimes
-      , scheduleInfoCreatetime = maybe (scheduleInfoCreatetime defaultScheduleInfo) id fld_scheduleInfoCreatetime
-      , scheduleInfoUpdatetime = maybe (scheduleInfoUpdatetime defaultScheduleInfo) id fld_scheduleInfoUpdatetime
-      , scheduleInfoInvalidscheduleerror = maybe (scheduleInfoInvalidscheduleerror defaultScheduleInfo) id fld_scheduleInfoInvalidscheduleerror
+      { scheduleInfoActionCount = maybe (scheduleInfoActionCount defaultScheduleInfo) id fld_scheduleInfoActionCount
+      , scheduleInfoMissedCatchupWindow = maybe (scheduleInfoMissedCatchupWindow defaultScheduleInfo) id fld_scheduleInfoMissedCatchupWindow
+      , scheduleInfoOverlapSkipped = maybe (scheduleInfoOverlapSkipped defaultScheduleInfo) id fld_scheduleInfoOverlapSkipped
+      , scheduleInfoBufferDropped = maybe (scheduleInfoBufferDropped defaultScheduleInfo) id fld_scheduleInfoBufferDropped
+      , scheduleInfoBufferSize = maybe (scheduleInfoBufferSize defaultScheduleInfo) id fld_scheduleInfoBufferSize
+      , scheduleInfoRunningWorkflows = maybe (scheduleInfoRunningWorkflows defaultScheduleInfo) id fld_scheduleInfoRunningWorkflows
+      , scheduleInfoRecentActions = maybe (scheduleInfoRecentActions defaultScheduleInfo) id fld_scheduleInfoRecentActions
+      , scheduleInfoFutureActionTimes = maybe (scheduleInfoFutureActionTimes defaultScheduleInfo) id fld_scheduleInfoFutureActionTimes
+      , scheduleInfoCreateTime = maybe (scheduleInfoCreateTime defaultScheduleInfo) id fld_scheduleInfoCreateTime
+      , scheduleInfoUpdateTime = maybe (scheduleInfoUpdateTime defaultScheduleInfo) id fld_scheduleInfoUpdateTime
+      , scheduleInfoInvalidScheduleError = maybe (scheduleInfoInvalidScheduleError defaultScheduleInfo) id fld_scheduleInfoInvalidScheduleError
       }
 
 instance Hashable ScheduleInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleInfoActioncount) msg.scheduleInfoMissedcatchupwindow) msg.scheduleInfoOverlapskipped) msg.scheduleInfoBufferdropped) msg.scheduleInfoBuffersize) msg.scheduleInfoRunningworkflows) msg.scheduleInfoRecentactions) msg.scheduleInfoFutureactiontimes) msg.scheduleInfoCreatetime) msg.scheduleInfoUpdatetime) msg.scheduleInfoInvalidscheduleerror
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleInfoActionCount) msg.scheduleInfoMissedCatchupWindow) msg.scheduleInfoOverlapSkipped) msg.scheduleInfoBufferDropped) msg.scheduleInfoBufferSize) msg.scheduleInfoRunningWorkflows) msg.scheduleInfoRecentActions) msg.scheduleInfoFutureActionTimes) msg.scheduleInfoCreateTime) msg.scheduleInfoUpdateTime) msg.scheduleInfoInvalidScheduleError
 
 data Schedule = Schedule
   { scheduleSpec :: !(Maybe ScheduleSpec)
   , scheduleAction :: !(Maybe ScheduleAction)
   , schedulePolicies :: !(Maybe SchedulePolicies)
   , scheduleState :: !(Maybe ScheduleState)
-  , scheduleUnknownfields :: ![UnknownField]
+  , scheduleUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1965,7 +1965,7 @@ defaultSchedule = Schedule
   , scheduleAction = Nothing
   , schedulePolicies = Nothing
   , scheduleState = Nothing
-  , scheduleUnknownfields = []
+  , scheduleUnknownFields = []
   }
 
 instance MessageEncode Schedule where
@@ -1974,7 +1974,7 @@ instance MessageEncode Schedule where
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.scheduleAction)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.schedulePolicies)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.scheduleState)
-    <> encodeUnknownFields msg.scheduleUnknownfields
+    <> encodeUnknownFields msg.scheduleUnknownFields
 
 instance MessageSize Schedule where
   messageSize msg =
@@ -1982,7 +1982,7 @@ instance MessageSize Schedule where
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.scheduleAction)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.schedulePolicies)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.scheduleState)
-    + unknownFieldsSize msg.scheduleUnknownfields
+    + unknownFieldsSize msg.scheduleUnknownFields
 
 instance MessageDecode Schedule where
   {-# INLINE messageDecoder #-}
@@ -1991,7 +1991,7 @@ instance MessageDecode Schedule where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Schedule {scheduleSpec = acc_0, scheduleAction = acc_1, schedulePolicies = acc_2, scheduleState = acc_3, scheduleUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Schedule {scheduleSpec = acc_0, scheduleAction = acc_1, schedulePolicies = acc_2, scheduleState = acc_3, scheduleUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2077,12 +2077,12 @@ instance Hashable Schedule where
 
 data ScheduleListInfo = ScheduleListInfo
   { scheduleListInfoSpec :: !(Maybe ScheduleSpec)
-  , scheduleListInfoWorkflowtype :: !(Maybe TE_Common_V1_Message.WorkflowType)
+  , scheduleListInfoWorkflowType :: !(Maybe TE_Common_V1_Message.WorkflowType)
   , scheduleListInfoNotes :: !Text
   , scheduleListInfoPaused :: {-# UNPACK #-} !Bool
-  , scheduleListInfoRecentactions :: !(V.Vector ScheduleActionResult)
-  , scheduleListInfoFutureactiontimes :: !(V.Vector PB_Timestamp.Timestamp)
-  , scheduleListInfoUnknownfields :: ![UnknownField]
+  , scheduleListInfoRecentActions :: !(V.Vector ScheduleActionResult)
+  , scheduleListInfoFutureActionTimes :: !(V.Vector PB_Timestamp.Timestamp)
+  , scheduleListInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2090,33 +2090,33 @@ data ScheduleListInfo = ScheduleListInfo
 defaultScheduleListInfo :: ScheduleListInfo
 defaultScheduleListInfo = ScheduleListInfo
   { scheduleListInfoSpec = Nothing
-  , scheduleListInfoWorkflowtype = Nothing
+  , scheduleListInfoWorkflowType = Nothing
   , scheduleListInfoNotes = ""
   , scheduleListInfoPaused = False
-  , scheduleListInfoRecentactions = V.empty
-  , scheduleListInfoFutureactiontimes = V.empty
-  , scheduleListInfoUnknownfields = []
+  , scheduleListInfoRecentActions = V.empty
+  , scheduleListInfoFutureActionTimes = V.empty
+  , scheduleListInfoUnknownFields = []
   }
 
 instance MessageEncode ScheduleListInfo where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.scheduleListInfoSpec)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.scheduleListInfoWorkflowtype)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.scheduleListInfoWorkflowType)
     <> (if msg.scheduleListInfoNotes == T.empty then mempty else encodeFieldString 3 msg.scheduleListInfoNotes)
     <> (if msg.scheduleListInfoPaused == False then mempty else encodeFieldBool 4 msg.scheduleListInfoPaused)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 5 v) mempty msg.scheduleListInfoRecentactions
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 6 v) mempty msg.scheduleListInfoFutureactiontimes
-    <> encodeUnknownFields msg.scheduleListInfoUnknownfields
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 5 v) mempty msg.scheduleListInfoRecentActions
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 6 v) mempty msg.scheduleListInfoFutureActionTimes
+    <> encodeUnknownFields msg.scheduleListInfoUnknownFields
 
 instance MessageSize ScheduleListInfo where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.scheduleListInfoSpec)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.scheduleListInfoWorkflowtype)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.scheduleListInfoWorkflowType)
     + (if msg.scheduleListInfoNotes == T.empty then 0 else fieldTextSize 3 msg.scheduleListInfoNotes)
     + (if msg.scheduleListInfoPaused == False then 0 else fieldBoolSize 4)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 5 (messageSize v)) 0 msg.scheduleListInfoRecentactions)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 6 (messageSize v)) 0 msg.scheduleListInfoFutureactiontimes)
-    + unknownFieldsSize msg.scheduleListInfoUnknownfields
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 5 (messageSize v)) 0 msg.scheduleListInfoRecentActions)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 6 (messageSize v)) 0 msg.scheduleListInfoFutureActionTimes)
+    + unknownFieldsSize msg.scheduleListInfoUnknownFields
 
 instance MessageDecode ScheduleListInfo where
   {-# INLINE messageDecoder #-}
@@ -2125,7 +2125,7 @@ instance MessageDecode ScheduleListInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleListInfo {scheduleListInfoSpec = acc_0, scheduleListInfoWorkflowtype = acc_1, scheduleListInfoNotes = acc_2, scheduleListInfoPaused = acc_3, scheduleListInfoRecentactions = acc_4, scheduleListInfoFutureactiontimes = acc_5, scheduleListInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleListInfo {scheduleListInfoSpec = acc_0, scheduleListInfoWorkflowType = acc_1, scheduleListInfoNotes = acc_2, scheduleListInfoPaused = acc_3, scheduleListInfoRecentActions = acc_4, scheduleListInfoFutureActionTimes = acc_5, scheduleListInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2170,8 +2170,8 @@ instance ProtoMessage ScheduleListInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowType"
         , fdLabel = LabelOptional
-        , fdGet = scheduleListInfoWorkflowtype
-        , fdSet = \v m -> m { scheduleListInfoWorkflowtype = v }
+        , fdGet = scheduleListInfoWorkflowType
+        , fdSet = \v m -> m { scheduleListInfoWorkflowType = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "notes"
@@ -2194,83 +2194,83 @@ instance ProtoMessage ScheduleListInfo where
         , fdNumber = 5
         , fdTypeDesc = MessageType "ScheduleActionResult"
         , fdLabel = LabelRepeated
-        , fdGet = scheduleListInfoRecentactions
-        , fdSet = \v m -> m { scheduleListInfoRecentactions = v }
+        , fdGet = scheduleListInfoRecentActions
+        , fdSet = \v m -> m { scheduleListInfoRecentActions = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "future_action_times"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelRepeated
-        , fdGet = scheduleListInfoFutureactiontimes
-        , fdSet = \v m -> m { scheduleListInfoFutureactiontimes = v }
+        , fdGet = scheduleListInfoFutureActionTimes
+        , fdSet = \v m -> m { scheduleListInfoFutureActionTimes = v }
         })
     ]
 
 instance Aeson.ToJSON ScheduleListInfo where
   toJSON msg = jsonObject
       [ "spec" .=: msg.scheduleListInfoSpec
-      , "workflowType" .=: msg.scheduleListInfoWorkflowtype
+      , "workflowType" .=: msg.scheduleListInfoWorkflowType
       , "notes" .=: msg.scheduleListInfoNotes
       , "paused" .=: msg.scheduleListInfoPaused
-      , "recentActions" .=: msg.scheduleListInfoRecentactions
-      , "futureActionTimes" .=: msg.scheduleListInfoFutureactiontimes
+      , "recentActions" .=: msg.scheduleListInfoRecentActions
+      , "futureActionTimes" .=: msg.scheduleListInfoFutureActionTimes
       ]
 
 instance Aeson.FromJSON ScheduleListInfo where
   parseJSON = Aeson.withObject "ScheduleListInfo" $ \obj -> do
     fld_scheduleListInfoSpec <- parseFieldMaybe obj "spec"
-    fld_scheduleListInfoWorkflowtype <- parseFieldMaybe obj "workflowType"
+    fld_scheduleListInfoWorkflowType <- parseFieldMaybe obj "workflowType"
     fld_scheduleListInfoNotes <- parseFieldMaybe obj "notes"
     fld_scheduleListInfoPaused <- parseFieldMaybe obj "paused"
-    fld_scheduleListInfoRecentactions <- parseFieldMaybe obj "recentActions"
-    fld_scheduleListInfoFutureactiontimes <- parseFieldMaybe obj "futureActionTimes"
+    fld_scheduleListInfoRecentActions <- parseFieldMaybe obj "recentActions"
+    fld_scheduleListInfoFutureActionTimes <- parseFieldMaybe obj "futureActionTimes"
     pure defaultScheduleListInfo
       { scheduleListInfoSpec = maybe (scheduleListInfoSpec defaultScheduleListInfo) id fld_scheduleListInfoSpec
-      , scheduleListInfoWorkflowtype = maybe (scheduleListInfoWorkflowtype defaultScheduleListInfo) id fld_scheduleListInfoWorkflowtype
+      , scheduleListInfoWorkflowType = maybe (scheduleListInfoWorkflowType defaultScheduleListInfo) id fld_scheduleListInfoWorkflowType
       , scheduleListInfoNotes = maybe (scheduleListInfoNotes defaultScheduleListInfo) id fld_scheduleListInfoNotes
       , scheduleListInfoPaused = maybe (scheduleListInfoPaused defaultScheduleListInfo) id fld_scheduleListInfoPaused
-      , scheduleListInfoRecentactions = maybe (scheduleListInfoRecentactions defaultScheduleListInfo) id fld_scheduleListInfoRecentactions
-      , scheduleListInfoFutureactiontimes = maybe (scheduleListInfoFutureactiontimes defaultScheduleListInfo) id fld_scheduleListInfoFutureactiontimes
+      , scheduleListInfoRecentActions = maybe (scheduleListInfoRecentActions defaultScheduleListInfo) id fld_scheduleListInfoRecentActions
+      , scheduleListInfoFutureActionTimes = maybe (scheduleListInfoFutureActionTimes defaultScheduleListInfo) id fld_scheduleListInfoFutureActionTimes
       }
 
 instance Hashable ScheduleListInfo where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleListInfoSpec) msg.scheduleListInfoWorkflowtype) msg.scheduleListInfoNotes) msg.scheduleListInfoPaused) msg.scheduleListInfoRecentactions) msg.scheduleListInfoFutureactiontimes
+  hashWithSalt salt msg = V.foldl' hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleListInfoSpec) msg.scheduleListInfoWorkflowType) msg.scheduleListInfoNotes) msg.scheduleListInfoPaused) msg.scheduleListInfoRecentActions) msg.scheduleListInfoFutureActionTimes
 
 data ScheduleListEntry = ScheduleListEntry
-  { scheduleListEntryScheduleid :: !Text
+  { scheduleListEntryScheduleId :: !Text
   , scheduleListEntryMemo :: !(Maybe TE_Common_V1_Message.Memo)
-  , scheduleListEntrySearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
+  , scheduleListEntrySearchAttributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
   , scheduleListEntryInfo :: !(Maybe ScheduleListInfo)
-  , scheduleListEntryUnknownfields :: ![UnknownField]
+  , scheduleListEntryUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultScheduleListEntry :: ScheduleListEntry
 defaultScheduleListEntry = ScheduleListEntry
-  { scheduleListEntryScheduleid = ""
+  { scheduleListEntryScheduleId = ""
   , scheduleListEntryMemo = Nothing
-  , scheduleListEntrySearchattributes = Nothing
+  , scheduleListEntrySearchAttributes = Nothing
   , scheduleListEntryInfo = Nothing
-  , scheduleListEntryUnknownfields = []
+  , scheduleListEntryUnknownFields = []
   }
 
 instance MessageEncode ScheduleListEntry where
   buildMessage msg =
-    (if msg.scheduleListEntryScheduleid == T.empty then mempty else encodeFieldString 1 msg.scheduleListEntryScheduleid)
+    (if msg.scheduleListEntryScheduleId == T.empty then mempty else encodeFieldString 1 msg.scheduleListEntryScheduleId)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.scheduleListEntryMemo)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.scheduleListEntrySearchattributes)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.scheduleListEntrySearchAttributes)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.scheduleListEntryInfo)
-    <> encodeUnknownFields msg.scheduleListEntryUnknownfields
+    <> encodeUnknownFields msg.scheduleListEntryUnknownFields
 
 instance MessageSize ScheduleListEntry where
   messageSize msg =
-    (if msg.scheduleListEntryScheduleid == T.empty then 0 else fieldTextSize 1 msg.scheduleListEntryScheduleid)
+    (if msg.scheduleListEntryScheduleId == T.empty then 0 else fieldTextSize 1 msg.scheduleListEntryScheduleId)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.scheduleListEntryMemo)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.scheduleListEntrySearchattributes)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.scheduleListEntrySearchAttributes)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.scheduleListEntryInfo)
-    + unknownFieldsSize msg.scheduleListEntryUnknownfields
+    + unknownFieldsSize msg.scheduleListEntryUnknownFields
 
 instance MessageDecode ScheduleListEntry where
   {-# INLINE messageDecoder #-}
@@ -2279,7 +2279,7 @@ instance MessageDecode ScheduleListEntry where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleListEntry {scheduleListEntryScheduleid = acc_0, scheduleListEntryMemo = acc_1, scheduleListEntrySearchattributes = acc_2, scheduleListEntryInfo = acc_3, scheduleListEntryUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleListEntry {scheduleListEntryScheduleId = acc_0, scheduleListEntryMemo = acc_1, scheduleListEntrySearchAttributes = acc_2, scheduleListEntryInfo = acc_3, scheduleListEntryUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2311,8 +2311,8 @@ instance ProtoMessage ScheduleListEntry where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = scheduleListEntryScheduleid
-        , fdSet = \v m -> m { scheduleListEntryScheduleid = v }
+        , fdGet = scheduleListEntryScheduleId
+        , fdSet = \v m -> m { scheduleListEntryScheduleId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "memo"
         , fdNumber = 2
@@ -2326,8 +2326,8 @@ instance ProtoMessage ScheduleListEntry where
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.common.v1.SearchAttributes"
         , fdLabel = LabelOptional
-        , fdGet = scheduleListEntrySearchattributes
-        , fdSet = \v m -> m { scheduleListEntrySearchattributes = v }
+        , fdGet = scheduleListEntrySearchAttributes
+        , fdSet = \v m -> m { scheduleListEntrySearchAttributes = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "info"
@@ -2341,27 +2341,27 @@ instance ProtoMessage ScheduleListEntry where
 
 instance Aeson.ToJSON ScheduleListEntry where
   toJSON msg = jsonObject
-      [ "scheduleId" .=: msg.scheduleListEntryScheduleid
+      [ "scheduleId" .=: msg.scheduleListEntryScheduleId
       , "memo" .=: msg.scheduleListEntryMemo
-      , "searchAttributes" .=: msg.scheduleListEntrySearchattributes
+      , "searchAttributes" .=: msg.scheduleListEntrySearchAttributes
       , "info" .=: msg.scheduleListEntryInfo
       ]
 
 instance Aeson.FromJSON ScheduleListEntry where
   parseJSON = Aeson.withObject "ScheduleListEntry" $ \obj -> do
-    fld_scheduleListEntryScheduleid <- parseFieldMaybe obj "scheduleId"
+    fld_scheduleListEntryScheduleId <- parseFieldMaybe obj "scheduleId"
     fld_scheduleListEntryMemo <- parseFieldMaybe obj "memo"
-    fld_scheduleListEntrySearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_scheduleListEntrySearchAttributes <- parseFieldMaybe obj "searchAttributes"
     fld_scheduleListEntryInfo <- parseFieldMaybe obj "info"
     pure defaultScheduleListEntry
-      { scheduleListEntryScheduleid = maybe (scheduleListEntryScheduleid defaultScheduleListEntry) id fld_scheduleListEntryScheduleid
+      { scheduleListEntryScheduleId = maybe (scheduleListEntryScheduleId defaultScheduleListEntry) id fld_scheduleListEntryScheduleId
       , scheduleListEntryMemo = maybe (scheduleListEntryMemo defaultScheduleListEntry) id fld_scheduleListEntryMemo
-      , scheduleListEntrySearchattributes = maybe (scheduleListEntrySearchattributes defaultScheduleListEntry) id fld_scheduleListEntrySearchattributes
+      , scheduleListEntrySearchAttributes = maybe (scheduleListEntrySearchAttributes defaultScheduleListEntry) id fld_scheduleListEntrySearchAttributes
       , scheduleListEntryInfo = maybe (scheduleListEntryInfo defaultScheduleListEntry) id fld_scheduleListEntryInfo
       }
 
 instance Hashable ScheduleListEntry where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleListEntryScheduleid) msg.scheduleListEntryMemo) msg.scheduleListEntrySearchattributes) msg.scheduleListEntryInfo
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleListEntryScheduleId) msg.scheduleListEntryMemo) msg.scheduleListEntrySearchAttributes) msg.scheduleListEntryInfo
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

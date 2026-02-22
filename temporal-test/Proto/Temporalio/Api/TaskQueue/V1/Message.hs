@@ -66,8 +66,8 @@ fileDescriptorProtoBytes = case Base16.decode "0a2774656d706f72616c2f6170692f746
 data TaskQueue = TaskQueue
   { taskQueueName :: !Text
   , taskQueueKind :: !TE_Enums_V1_TaskQueue.TaskQueueKind
-  , taskQueueNormalname :: !Text
-  , taskQueueUnknownfields :: ![UnknownField]
+  , taskQueueNormalName :: !Text
+  , taskQueueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -76,23 +76,23 @@ defaultTaskQueue :: TaskQueue
 defaultTaskQueue = TaskQueue
   { taskQueueName = ""
   , taskQueueKind = (toEnum 0)
-  , taskQueueNormalname = ""
-  , taskQueueUnknownfields = []
+  , taskQueueNormalName = ""
+  , taskQueueUnknownFields = []
   }
 
 instance MessageEncode TaskQueue where
   buildMessage msg =
     (if msg.taskQueueName == T.empty then mempty else encodeFieldString 1 msg.taskQueueName)
     <> (if fromEnum msg.taskQueueKind == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.taskQueueKind)))
-    <> (if msg.taskQueueNormalname == T.empty then mempty else encodeFieldString 3 msg.taskQueueNormalname)
-    <> encodeUnknownFields msg.taskQueueUnknownfields
+    <> (if msg.taskQueueNormalName == T.empty then mempty else encodeFieldString 3 msg.taskQueueNormalName)
+    <> encodeUnknownFields msg.taskQueueUnknownFields
 
 instance MessageSize TaskQueue where
   messageSize msg =
     (if msg.taskQueueName == T.empty then 0 else fieldTextSize 1 msg.taskQueueName)
     + (if fromEnum msg.taskQueueKind == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.taskQueueKind)))
-    + (if msg.taskQueueNormalname == T.empty then 0 else fieldTextSize 3 msg.taskQueueNormalname)
-    + unknownFieldsSize msg.taskQueueUnknownfields
+    + (if msg.taskQueueNormalName == T.empty then 0 else fieldTextSize 3 msg.taskQueueNormalName)
+    + unknownFieldsSize msg.taskQueueUnknownFields
 
 instance MessageDecode TaskQueue where
   {-# INLINE messageDecoder #-}
@@ -101,7 +101,7 @@ instance MessageDecode TaskQueue where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueue {taskQueueName = acc_0, taskQueueKind = acc_1, taskQueueNormalname = acc_2, taskQueueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueue {taskQueueName = acc_0, taskQueueKind = acc_1, taskQueueNormalName = acc_2, taskQueueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -145,8 +145,8 @@ instance ProtoMessage TaskQueue where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueNormalname
-        , fdSet = \v m -> m { taskQueueNormalname = v }
+        , fdGet = taskQueueNormalName
+        , fdSet = \v m -> m { taskQueueNormalName = v }
         })
     ]
 
@@ -154,45 +154,45 @@ instance Aeson.ToJSON TaskQueue where
   toJSON msg = jsonObject
       [ "name" .=: msg.taskQueueName
       , "kind" .=: msg.taskQueueKind
-      , "normalName" .=: msg.taskQueueNormalname
+      , "normalName" .=: msg.taskQueueNormalName
       ]
 
 instance Aeson.FromJSON TaskQueue where
   parseJSON = Aeson.withObject "TaskQueue" $ \obj -> do
     fld_taskQueueName <- parseFieldMaybe obj "name"
     fld_taskQueueKind <- parseFieldMaybe obj "kind"
-    fld_taskQueueNormalname <- parseFieldMaybe obj "normalName"
+    fld_taskQueueNormalName <- parseFieldMaybe obj "normalName"
     pure defaultTaskQueue
       { taskQueueName = maybe (taskQueueName defaultTaskQueue) id fld_taskQueueName
       , taskQueueKind = maybe (taskQueueKind defaultTaskQueue) id fld_taskQueueKind
-      , taskQueueNormalname = maybe (taskQueueNormalname defaultTaskQueue) id fld_taskQueueNormalname
+      , taskQueueNormalName = maybe (taskQueueNormalName defaultTaskQueue) id fld_taskQueueNormalName
       }
 
 instance Hashable TaskQueue where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.taskQueueName) msg.taskQueueKind) msg.taskQueueNormalname
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.taskQueueName) msg.taskQueueKind) msg.taskQueueNormalName
 
 data TaskQueueMetadata = TaskQueueMetadata
-  { taskQueueMetadataMaxtaskspersecond :: !(Maybe PB_Wrappers.DoubleValue)
-  , taskQueueMetadataUnknownfields :: ![UnknownField]
+  { taskQueueMetadataMaxTasksPerSecond :: !(Maybe PB_Wrappers.DoubleValue)
+  , taskQueueMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskQueueMetadata :: TaskQueueMetadata
 defaultTaskQueueMetadata = TaskQueueMetadata
-  { taskQueueMetadataMaxtaskspersecond = Nothing
-  , taskQueueMetadataUnknownfields = []
+  { taskQueueMetadataMaxTasksPerSecond = Nothing
+  , taskQueueMetadataUnknownFields = []
   }
 
 instance MessageEncode TaskQueueMetadata where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.taskQueueMetadataMaxtaskspersecond)
-    <> encodeUnknownFields msg.taskQueueMetadataUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.taskQueueMetadataMaxTasksPerSecond)
+    <> encodeUnknownFields msg.taskQueueMetadataUnknownFields
 
 instance MessageSize TaskQueueMetadata where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.taskQueueMetadataMaxtaskspersecond)
-    + unknownFieldsSize msg.taskQueueMetadataUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.taskQueueMetadataMaxTasksPerSecond)
+    + unknownFieldsSize msg.taskQueueMetadataUnknownFields
 
 instance MessageDecode TaskQueueMetadata where
   {-# INLINE messageDecoder #-}
@@ -201,7 +201,7 @@ instance MessageDecode TaskQueueMetadata where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueMetadata {taskQueueMetadataMaxtaskspersecond = acc_0, taskQueueMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueMetadata {taskQueueMetadataMaxTasksPerSecond = acc_0, taskQueueMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -224,69 +224,69 @@ instance ProtoMessage TaskQueueMetadata where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.DoubleValue"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueMetadataMaxtaskspersecond
-        , fdSet = \v m -> m { taskQueueMetadataMaxtaskspersecond = v }
+        , fdGet = taskQueueMetadataMaxTasksPerSecond
+        , fdSet = \v m -> m { taskQueueMetadataMaxTasksPerSecond = v }
         })
     ]
 
 instance Aeson.ToJSON TaskQueueMetadata where
   toJSON msg = jsonObject
-      [ "maxTasksPerSecond" .=: msg.taskQueueMetadataMaxtaskspersecond
+      [ "maxTasksPerSecond" .=: msg.taskQueueMetadataMaxTasksPerSecond
 
       ]
 
 instance Aeson.FromJSON TaskQueueMetadata where
   parseJSON = Aeson.withObject "TaskQueueMetadata" $ \obj -> do
-    fld_taskQueueMetadataMaxtaskspersecond <- parseFieldMaybe obj "maxTasksPerSecond"
+    fld_taskQueueMetadataMaxTasksPerSecond <- parseFieldMaybe obj "maxTasksPerSecond"
     pure defaultTaskQueueMetadata
-      { taskQueueMetadataMaxtaskspersecond = maybe (taskQueueMetadataMaxtaskspersecond defaultTaskQueueMetadata) id fld_taskQueueMetadataMaxtaskspersecond
+      { taskQueueMetadataMaxTasksPerSecond = maybe (taskQueueMetadataMaxTasksPerSecond defaultTaskQueueMetadata) id fld_taskQueueMetadataMaxTasksPerSecond
       }
 
 instance Hashable TaskQueueMetadata where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.taskQueueMetadataMaxtaskspersecond
+  hashWithSalt salt msg = hashWithSalt (salt) msg.taskQueueMetadataMaxTasksPerSecond
 
 data TaskQueueVersioningInfo = TaskQueueVersioningInfo
-  { taskQueueVersioningInfoCurrentdeploymentversion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
-  , taskQueueVersioningInfoCurrentversion :: !Text
-  , taskQueueVersioningInfoRampingdeploymentversion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
-  , taskQueueVersioningInfoRampingversion :: !Text
-  , taskQueueVersioningInfoRampingversionpercentage :: {-# UNPACK #-} !Float
-  , taskQueueVersioningInfoUpdatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , taskQueueVersioningInfoUnknownfields :: ![UnknownField]
+  { taskQueueVersioningInfoCurrentDeploymentVersion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
+  , taskQueueVersioningInfoCurrentVersion :: !Text
+  , taskQueueVersioningInfoRampingDeploymentVersion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
+  , taskQueueVersioningInfoRampingVersion :: !Text
+  , taskQueueVersioningInfoRampingVersionPercentage :: {-# UNPACK #-} !Float
+  , taskQueueVersioningInfoUpdateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , taskQueueVersioningInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskQueueVersioningInfo :: TaskQueueVersioningInfo
 defaultTaskQueueVersioningInfo = TaskQueueVersioningInfo
-  { taskQueueVersioningInfoCurrentdeploymentversion = Nothing
-  , taskQueueVersioningInfoCurrentversion = ""
-  , taskQueueVersioningInfoRampingdeploymentversion = Nothing
-  , taskQueueVersioningInfoRampingversion = ""
-  , taskQueueVersioningInfoRampingversionpercentage = 0
-  , taskQueueVersioningInfoUpdatetime = Nothing
-  , taskQueueVersioningInfoUnknownfields = []
+  { taskQueueVersioningInfoCurrentDeploymentVersion = Nothing
+  , taskQueueVersioningInfoCurrentVersion = ""
+  , taskQueueVersioningInfoRampingDeploymentVersion = Nothing
+  , taskQueueVersioningInfoRampingVersion = ""
+  , taskQueueVersioningInfoRampingVersionPercentage = 0
+  , taskQueueVersioningInfoUpdateTime = Nothing
+  , taskQueueVersioningInfoUnknownFields = []
   }
 
 instance MessageEncode TaskQueueVersioningInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 7 v) msg.taskQueueVersioningInfoCurrentdeploymentversion)
-    <> (if msg.taskQueueVersioningInfoCurrentversion == T.empty then mempty else encodeFieldString 1 msg.taskQueueVersioningInfoCurrentversion)
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.taskQueueVersioningInfoRampingdeploymentversion)
-    <> (if msg.taskQueueVersioningInfoRampingversion == T.empty then mempty else encodeFieldString 2 msg.taskQueueVersioningInfoRampingversion)
-    <> (if msg.taskQueueVersioningInfoRampingversionpercentage == 0 then mempty else encodeFieldFloat 3 msg.taskQueueVersioningInfoRampingversionpercentage)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.taskQueueVersioningInfoUpdatetime)
-    <> encodeUnknownFields msg.taskQueueVersioningInfoUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 7 v) msg.taskQueueVersioningInfoCurrentDeploymentVersion)
+    <> (if msg.taskQueueVersioningInfoCurrentVersion == T.empty then mempty else encodeFieldString 1 msg.taskQueueVersioningInfoCurrentVersion)
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.taskQueueVersioningInfoRampingDeploymentVersion)
+    <> (if msg.taskQueueVersioningInfoRampingVersion == T.empty then mempty else encodeFieldString 2 msg.taskQueueVersioningInfoRampingVersion)
+    <> (if msg.taskQueueVersioningInfoRampingVersionPercentage == 0 then mempty else encodeFieldFloat 3 msg.taskQueueVersioningInfoRampingVersionPercentage)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.taskQueueVersioningInfoUpdateTime)
+    <> encodeUnknownFields msg.taskQueueVersioningInfoUnknownFields
 
 instance MessageSize TaskQueueVersioningInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.taskQueueVersioningInfoCurrentdeploymentversion)
-    + (if msg.taskQueueVersioningInfoCurrentversion == T.empty then 0 else fieldTextSize 1 msg.taskQueueVersioningInfoCurrentversion)
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.taskQueueVersioningInfoRampingdeploymentversion)
-    + (if msg.taskQueueVersioningInfoRampingversion == T.empty then 0 else fieldTextSize 2 msg.taskQueueVersioningInfoRampingversion)
-    + (if msg.taskQueueVersioningInfoRampingversionpercentage == 0 then 0 else fieldFloatSize 3)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.taskQueueVersioningInfoUpdatetime)
-    + unknownFieldsSize msg.taskQueueVersioningInfoUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.taskQueueVersioningInfoCurrentDeploymentVersion)
+    + (if msg.taskQueueVersioningInfoCurrentVersion == T.empty then 0 else fieldTextSize 1 msg.taskQueueVersioningInfoCurrentVersion)
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.taskQueueVersioningInfoRampingDeploymentVersion)
+    + (if msg.taskQueueVersioningInfoRampingVersion == T.empty then 0 else fieldTextSize 2 msg.taskQueueVersioningInfoRampingVersion)
+    + (if msg.taskQueueVersioningInfoRampingVersionPercentage == 0 then 0 else fieldFloatSize 3)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.taskQueueVersioningInfoUpdateTime)
+    + unknownFieldsSize msg.taskQueueVersioningInfoUnknownFields
 
 instance MessageDecode TaskQueueVersioningInfo where
   {-# INLINE messageDecoder #-}
@@ -295,7 +295,7 @@ instance MessageDecode TaskQueueVersioningInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueVersioningInfo {taskQueueVersioningInfoCurrentdeploymentversion = acc_0, taskQueueVersioningInfoCurrentversion = acc_1, taskQueueVersioningInfoRampingdeploymentversion = acc_2, taskQueueVersioningInfoRampingversion = acc_3, taskQueueVersioningInfoRampingversionpercentage = acc_4, taskQueueVersioningInfoUpdatetime = acc_5, taskQueueVersioningInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueVersioningInfo {taskQueueVersioningInfoCurrentDeploymentVersion = acc_0, taskQueueVersioningInfoCurrentVersion = acc_1, taskQueueVersioningInfoRampingDeploymentVersion = acc_2, taskQueueVersioningInfoRampingVersion = acc_3, taskQueueVersioningInfoRampingVersionPercentage = acc_4, taskQueueVersioningInfoUpdateTime = acc_5, taskQueueVersioningInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             7 -> do
               v <- decodeFieldMessage
@@ -333,110 +333,110 @@ instance ProtoMessage TaskQueueVersioningInfo where
         , fdNumber = 7
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueVersioningInfoCurrentdeploymentversion
-        , fdSet = \v m -> m { taskQueueVersioningInfoCurrentdeploymentversion = v }
+        , fdGet = taskQueueVersioningInfoCurrentDeploymentVersion
+        , fdSet = \v m -> m { taskQueueVersioningInfoCurrentDeploymentVersion = v }
         }), (1, SomeField FieldDescriptor
         { fdName = "current_version"
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueVersioningInfoCurrentversion
-        , fdSet = \v m -> m { taskQueueVersioningInfoCurrentversion = v }
+        , fdGet = taskQueueVersioningInfoCurrentVersion
+        , fdSet = \v m -> m { taskQueueVersioningInfoCurrentVersion = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "ramping_deployment_version"
         , fdNumber = 9
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueVersioningInfoRampingdeploymentversion
-        , fdSet = \v m -> m { taskQueueVersioningInfoRampingdeploymentversion = v }
+        , fdGet = taskQueueVersioningInfoRampingDeploymentVersion
+        , fdSet = \v m -> m { taskQueueVersioningInfoRampingDeploymentVersion = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "ramping_version"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueVersioningInfoRampingversion
-        , fdSet = \v m -> m { taskQueueVersioningInfoRampingversion = v }
+        , fdGet = taskQueueVersioningInfoRampingVersion
+        , fdSet = \v m -> m { taskQueueVersioningInfoRampingVersion = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "ramping_version_percentage"
         , fdNumber = 3
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueVersioningInfoRampingversionpercentage
-        , fdSet = \v m -> m { taskQueueVersioningInfoRampingversionpercentage = v }
+        , fdGet = taskQueueVersioningInfoRampingVersionPercentage
+        , fdSet = \v m -> m { taskQueueVersioningInfoRampingVersionPercentage = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "update_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueVersioningInfoUpdatetime
-        , fdSet = \v m -> m { taskQueueVersioningInfoUpdatetime = v }
+        , fdGet = taskQueueVersioningInfoUpdateTime
+        , fdSet = \v m -> m { taskQueueVersioningInfoUpdateTime = v }
         })
     ]
 
 instance Aeson.ToJSON TaskQueueVersioningInfo where
   toJSON msg = jsonObject
-      [ "currentDeploymentVersion" .=: msg.taskQueueVersioningInfoCurrentdeploymentversion
-      , "currentVersion" .=: msg.taskQueueVersioningInfoCurrentversion
-      , "rampingDeploymentVersion" .=: msg.taskQueueVersioningInfoRampingdeploymentversion
-      , "rampingVersion" .=: msg.taskQueueVersioningInfoRampingversion
-      , "rampingVersionPercentage" .=: msg.taskQueueVersioningInfoRampingversionpercentage
-      , "updateTime" .=: msg.taskQueueVersioningInfoUpdatetime
+      [ "currentDeploymentVersion" .=: msg.taskQueueVersioningInfoCurrentDeploymentVersion
+      , "currentVersion" .=: msg.taskQueueVersioningInfoCurrentVersion
+      , "rampingDeploymentVersion" .=: msg.taskQueueVersioningInfoRampingDeploymentVersion
+      , "rampingVersion" .=: msg.taskQueueVersioningInfoRampingVersion
+      , "rampingVersionPercentage" .=: msg.taskQueueVersioningInfoRampingVersionPercentage
+      , "updateTime" .=: msg.taskQueueVersioningInfoUpdateTime
       ]
 
 instance Aeson.FromJSON TaskQueueVersioningInfo where
   parseJSON = Aeson.withObject "TaskQueueVersioningInfo" $ \obj -> do
-    fld_taskQueueVersioningInfoCurrentdeploymentversion <- parseFieldMaybe obj "currentDeploymentVersion"
-    fld_taskQueueVersioningInfoCurrentversion <- parseFieldMaybe obj "currentVersion"
-    fld_taskQueueVersioningInfoRampingdeploymentversion <- parseFieldMaybe obj "rampingDeploymentVersion"
-    fld_taskQueueVersioningInfoRampingversion <- parseFieldMaybe obj "rampingVersion"
-    fld_taskQueueVersioningInfoRampingversionpercentage <- parseFieldMaybe obj "rampingVersionPercentage"
-    fld_taskQueueVersioningInfoUpdatetime <- parseFieldMaybe obj "updateTime"
+    fld_taskQueueVersioningInfoCurrentDeploymentVersion <- parseFieldMaybe obj "currentDeploymentVersion"
+    fld_taskQueueVersioningInfoCurrentVersion <- parseFieldMaybe obj "currentVersion"
+    fld_taskQueueVersioningInfoRampingDeploymentVersion <- parseFieldMaybe obj "rampingDeploymentVersion"
+    fld_taskQueueVersioningInfoRampingVersion <- parseFieldMaybe obj "rampingVersion"
+    fld_taskQueueVersioningInfoRampingVersionPercentage <- parseFieldMaybe obj "rampingVersionPercentage"
+    fld_taskQueueVersioningInfoUpdateTime <- parseFieldMaybe obj "updateTime"
     pure defaultTaskQueueVersioningInfo
-      { taskQueueVersioningInfoCurrentdeploymentversion = maybe (taskQueueVersioningInfoCurrentdeploymentversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoCurrentdeploymentversion
-      , taskQueueVersioningInfoCurrentversion = maybe (taskQueueVersioningInfoCurrentversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoCurrentversion
-      , taskQueueVersioningInfoRampingdeploymentversion = maybe (taskQueueVersioningInfoRampingdeploymentversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingdeploymentversion
-      , taskQueueVersioningInfoRampingversion = maybe (taskQueueVersioningInfoRampingversion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingversion
-      , taskQueueVersioningInfoRampingversionpercentage = maybe (taskQueueVersioningInfoRampingversionpercentage defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingversionpercentage
-      , taskQueueVersioningInfoUpdatetime = maybe (taskQueueVersioningInfoUpdatetime defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoUpdatetime
+      { taskQueueVersioningInfoCurrentDeploymentVersion = maybe (taskQueueVersioningInfoCurrentDeploymentVersion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoCurrentDeploymentVersion
+      , taskQueueVersioningInfoCurrentVersion = maybe (taskQueueVersioningInfoCurrentVersion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoCurrentVersion
+      , taskQueueVersioningInfoRampingDeploymentVersion = maybe (taskQueueVersioningInfoRampingDeploymentVersion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingDeploymentVersion
+      , taskQueueVersioningInfoRampingVersion = maybe (taskQueueVersioningInfoRampingVersion defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingVersion
+      , taskQueueVersioningInfoRampingVersionPercentage = maybe (taskQueueVersioningInfoRampingVersionPercentage defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoRampingVersionPercentage
+      , taskQueueVersioningInfoUpdateTime = maybe (taskQueueVersioningInfoUpdateTime defaultTaskQueueVersioningInfo) id fld_taskQueueVersioningInfoUpdateTime
       }
 
 instance Hashable TaskQueueVersioningInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.taskQueueVersioningInfoCurrentdeploymentversion) msg.taskQueueVersioningInfoCurrentversion) msg.taskQueueVersioningInfoRampingdeploymentversion) msg.taskQueueVersioningInfoRampingversion) msg.taskQueueVersioningInfoRampingversionpercentage) msg.taskQueueVersioningInfoUpdatetime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.taskQueueVersioningInfoCurrentDeploymentVersion) msg.taskQueueVersioningInfoCurrentVersion) msg.taskQueueVersioningInfoRampingDeploymentVersion) msg.taskQueueVersioningInfoRampingVersion) msg.taskQueueVersioningInfoRampingVersionPercentage) msg.taskQueueVersioningInfoUpdateTime
 
 data TaskQueueVersionSelection = TaskQueueVersionSelection
-  { taskQueueVersionSelectionBuildids :: !(V.Vector Text)
+  { taskQueueVersionSelectionBuildIds :: !(V.Vector Text)
   , taskQueueVersionSelectionUnversioned :: {-# UNPACK #-} !Bool
-  , taskQueueVersionSelectionAllactive :: {-# UNPACK #-} !Bool
-  , taskQueueVersionSelectionUnknownfields :: ![UnknownField]
+  , taskQueueVersionSelectionAllActive :: {-# UNPACK #-} !Bool
+  , taskQueueVersionSelectionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskQueueVersionSelection :: TaskQueueVersionSelection
 defaultTaskQueueVersionSelection = TaskQueueVersionSelection
-  { taskQueueVersionSelectionBuildids = V.empty
+  { taskQueueVersionSelectionBuildIds = V.empty
   , taskQueueVersionSelectionUnversioned = False
-  , taskQueueVersionSelectionAllactive = False
-  , taskQueueVersionSelectionUnknownfields = []
+  , taskQueueVersionSelectionAllActive = False
+  , taskQueueVersionSelectionUnknownFields = []
   }
 
 instance MessageEncode TaskQueueVersionSelection where
   buildMessage msg =
-    V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.taskQueueVersionSelectionBuildids
+    V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.taskQueueVersionSelectionBuildIds
     <> (if msg.taskQueueVersionSelectionUnversioned == False then mempty else encodeFieldBool 2 msg.taskQueueVersionSelectionUnversioned)
-    <> (if msg.taskQueueVersionSelectionAllactive == False then mempty else encodeFieldBool 3 msg.taskQueueVersionSelectionAllactive)
-    <> encodeUnknownFields msg.taskQueueVersionSelectionUnknownfields
+    <> (if msg.taskQueueVersionSelectionAllActive == False then mempty else encodeFieldBool 3 msg.taskQueueVersionSelectionAllActive)
+    <> encodeUnknownFields msg.taskQueueVersionSelectionUnknownFields
 
 instance MessageSize TaskQueueVersionSelection where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.taskQueueVersionSelectionBuildids)
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.taskQueueVersionSelectionBuildIds)
     + (if msg.taskQueueVersionSelectionUnversioned == False then 0 else fieldBoolSize 2)
-    + (if msg.taskQueueVersionSelectionAllactive == False then 0 else fieldBoolSize 3)
-    + unknownFieldsSize msg.taskQueueVersionSelectionUnknownfields
+    + (if msg.taskQueueVersionSelectionAllActive == False then 0 else fieldBoolSize 3)
+    + unknownFieldsSize msg.taskQueueVersionSelectionUnknownFields
 
 instance MessageDecode TaskQueueVersionSelection where
   {-# INLINE messageDecoder #-}
@@ -445,7 +445,7 @@ instance MessageDecode TaskQueueVersionSelection where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueVersionSelection {taskQueueVersionSelectionBuildids = acc_0, taskQueueVersionSelectionUnversioned = acc_1, taskQueueVersionSelectionAllactive = acc_2, taskQueueVersionSelectionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueVersionSelection {taskQueueVersionSelectionBuildIds = acc_0, taskQueueVersionSelectionUnversioned = acc_1, taskQueueVersionSelectionAllActive = acc_2, taskQueueVersionSelectionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -474,8 +474,8 @@ instance ProtoMessage TaskQueueVersionSelection where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelRepeated
-        , fdGet = taskQueueVersionSelectionBuildids
-        , fdSet = \v m -> m { taskQueueVersionSelectionBuildids = v }
+        , fdGet = taskQueueVersionSelectionBuildIds
+        , fdSet = \v m -> m { taskQueueVersionSelectionBuildIds = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "unversioned"
         , fdNumber = 2
@@ -489,58 +489,58 @@ instance ProtoMessage TaskQueueVersionSelection where
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueVersionSelectionAllactive
-        , fdSet = \v m -> m { taskQueueVersionSelectionAllactive = v }
+        , fdGet = taskQueueVersionSelectionAllActive
+        , fdSet = \v m -> m { taskQueueVersionSelectionAllActive = v }
         })
     ]
 
 instance Aeson.ToJSON TaskQueueVersionSelection where
   toJSON msg = jsonObject
-      [ "buildIds" .=: msg.taskQueueVersionSelectionBuildids
+      [ "buildIds" .=: msg.taskQueueVersionSelectionBuildIds
       , "unversioned" .=: msg.taskQueueVersionSelectionUnversioned
-      , "allActive" .=: msg.taskQueueVersionSelectionAllactive
+      , "allActive" .=: msg.taskQueueVersionSelectionAllActive
       ]
 
 instance Aeson.FromJSON TaskQueueVersionSelection where
   parseJSON = Aeson.withObject "TaskQueueVersionSelection" $ \obj -> do
-    fld_taskQueueVersionSelectionBuildids <- parseFieldMaybe obj "buildIds"
+    fld_taskQueueVersionSelectionBuildIds <- parseFieldMaybe obj "buildIds"
     fld_taskQueueVersionSelectionUnversioned <- parseFieldMaybe obj "unversioned"
-    fld_taskQueueVersionSelectionAllactive <- parseFieldMaybe obj "allActive"
+    fld_taskQueueVersionSelectionAllActive <- parseFieldMaybe obj "allActive"
     pure defaultTaskQueueVersionSelection
-      { taskQueueVersionSelectionBuildids = maybe (taskQueueVersionSelectionBuildids defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionBuildids
+      { taskQueueVersionSelectionBuildIds = maybe (taskQueueVersionSelectionBuildIds defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionBuildIds
       , taskQueueVersionSelectionUnversioned = maybe (taskQueueVersionSelectionUnversioned defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionUnversioned
-      , taskQueueVersionSelectionAllactive = maybe (taskQueueVersionSelectionAllactive defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionAllactive
+      , taskQueueVersionSelectionAllActive = maybe (taskQueueVersionSelectionAllActive defaultTaskQueueVersionSelection) id fld_taskQueueVersionSelectionAllActive
       }
 
 instance Hashable TaskQueueVersionSelection where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (salt) msg.taskQueueVersionSelectionBuildids) msg.taskQueueVersionSelectionUnversioned) msg.taskQueueVersionSelectionAllactive
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (salt) msg.taskQueueVersionSelectionBuildIds) msg.taskQueueVersionSelectionUnversioned) msg.taskQueueVersionSelectionAllActive
 
 data TaskQueueVersionInfo = TaskQueueVersionInfo
-  { taskQueueVersionInfoTypesinfo :: !(Map.Map Int32 TaskQueueTypeInfo)
-  , taskQueueVersionInfoTaskreachability :: !TE_Enums_V1_TaskQueue.BuildIdTaskReachability
-  , taskQueueVersionInfoUnknownfields :: ![UnknownField]
+  { taskQueueVersionInfoTypesInfo :: !(Map.Map Int32 TaskQueueTypeInfo)
+  , taskQueueVersionInfoTaskReachability :: !TE_Enums_V1_TaskQueue.BuildIdTaskReachability
+  , taskQueueVersionInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskQueueVersionInfo :: TaskQueueVersionInfo
 defaultTaskQueueVersionInfo = TaskQueueVersionInfo
-  { taskQueueVersionInfoTypesinfo = Map.empty
-  , taskQueueVersionInfoTaskreachability = (toEnum 0)
-  , taskQueueVersionInfoUnknownfields = []
+  { taskQueueVersionInfoTypesInfo = Map.empty
+  , taskQueueVersionInfoTaskReachability = (toEnum 0)
+  , taskQueueVersionInfoUnknownFields = []
   }
 
 instance MessageEncode TaskQueueVersionInfo where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 ((\x -> encodeFieldVarint 1 (fromIntegral x)) k) (encodeFieldMessage 2 v)) mempty msg.taskQueueVersionInfoTypesinfo
-    <> (if fromEnum msg.taskQueueVersionInfoTaskreachability == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.taskQueueVersionInfoTaskreachability)))
-    <> encodeUnknownFields msg.taskQueueVersionInfoUnknownfields
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 ((\x -> encodeFieldVarint 1 (fromIntegral x)) k) (encodeFieldMessage 2 v)) mempty msg.taskQueueVersionInfoTypesInfo
+    <> (if fromEnum msg.taskQueueVersionInfoTaskReachability == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.taskQueueVersionInfoTaskReachability)))
+    <> encodeUnknownFields msg.taskQueueVersionInfoUnknownFields
 
 instance MessageSize TaskQueueVersionInfo where
   messageSize msg =
-    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldVarintSize 1 (fromIntegral k) + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.taskQueueVersionInfoTypesinfo)
-    + (if fromEnum msg.taskQueueVersionInfoTaskreachability == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.taskQueueVersionInfoTaskreachability)))
-    + unknownFieldsSize msg.taskQueueVersionInfoUnknownfields
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldVarintSize 1 (fromIntegral k) + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.taskQueueVersionInfoTypesInfo)
+    + (if fromEnum msg.taskQueueVersionInfoTaskReachability == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.taskQueueVersionInfoTaskReachability)))
+    + unknownFieldsSize msg.taskQueueVersionInfoUnknownFields
 
 instance MessageDecode TaskQueueVersionInfo where
   {-# INLINE messageDecoder #-}
@@ -549,7 +549,7 @@ instance MessageDecode TaskQueueVersionInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueVersionInfo {taskQueueVersionInfoTypesinfo = acc_0, taskQueueVersionInfoTaskreachability = acc_1, taskQueueVersionInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueVersionInfo {taskQueueVersionInfoTypesInfo = acc_0, taskQueueVersionInfoTaskReachability = acc_1, taskQueueVersionInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -578,40 +578,40 @@ instance ProtoMessage TaskQueueVersionInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = taskQueueVersionInfoTypesinfo
-        , fdSet = \v m -> m { taskQueueVersionInfoTypesinfo = v }
+        , fdGet = taskQueueVersionInfoTypesInfo
+        , fdSet = \v m -> m { taskQueueVersionInfoTypesInfo = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "task_reachability"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.enums.v1.BuildIdTaskReachability"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueVersionInfoTaskreachability
-        , fdSet = \v m -> m { taskQueueVersionInfoTaskreachability = v }
+        , fdGet = taskQueueVersionInfoTaskReachability
+        , fdSet = \v m -> m { taskQueueVersionInfoTaskReachability = v }
         })
     ]
 
 instance Aeson.ToJSON TaskQueueVersionInfo where
   toJSON msg = jsonObject
-      [ "typesInfo" .=: msg.taskQueueVersionInfoTypesinfo
-      , "taskReachability" .=: msg.taskQueueVersionInfoTaskreachability
+      [ "typesInfo" .=: msg.taskQueueVersionInfoTypesInfo
+      , "taskReachability" .=: msg.taskQueueVersionInfoTaskReachability
       ]
 
 instance Aeson.FromJSON TaskQueueVersionInfo where
   parseJSON = Aeson.withObject "TaskQueueVersionInfo" $ \obj -> do
-    fld_taskQueueVersionInfoTypesinfo <- parseFieldMaybe obj "typesInfo"
-    fld_taskQueueVersionInfoTaskreachability <- parseFieldMaybe obj "taskReachability"
+    fld_taskQueueVersionInfoTypesInfo <- parseFieldMaybe obj "typesInfo"
+    fld_taskQueueVersionInfoTaskReachability <- parseFieldMaybe obj "taskReachability"
     pure defaultTaskQueueVersionInfo
-      { taskQueueVersionInfoTypesinfo = maybe (taskQueueVersionInfoTypesinfo defaultTaskQueueVersionInfo) id fld_taskQueueVersionInfoTypesinfo
-      , taskQueueVersionInfoTaskreachability = maybe (taskQueueVersionInfoTaskreachability defaultTaskQueueVersionInfo) id fld_taskQueueVersionInfoTaskreachability
+      { taskQueueVersionInfoTypesInfo = maybe (taskQueueVersionInfoTypesInfo defaultTaskQueueVersionInfo) id fld_taskQueueVersionInfoTypesInfo
+      , taskQueueVersionInfoTaskReachability = maybe (taskQueueVersionInfoTaskReachability defaultTaskQueueVersionInfo) id fld_taskQueueVersionInfoTaskReachability
       }
 
 instance Hashable TaskQueueVersionInfo where
-  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.taskQueueVersionInfoTypesinfo) msg.taskQueueVersionInfoTaskreachability
+  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.taskQueueVersionInfoTypesInfo) msg.taskQueueVersionInfoTaskReachability
 
 data TaskQueueTypeInfo = TaskQueueTypeInfo
   { taskQueueTypeInfoPollers :: !(V.Vector PollerInfo)
   , taskQueueTypeInfoStats :: !(Maybe TaskQueueStats)
-  , taskQueueTypeInfoUnknownfields :: ![UnknownField]
+  , taskQueueTypeInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -620,20 +620,20 @@ defaultTaskQueueTypeInfo :: TaskQueueTypeInfo
 defaultTaskQueueTypeInfo = TaskQueueTypeInfo
   { taskQueueTypeInfoPollers = V.empty
   , taskQueueTypeInfoStats = Nothing
-  , taskQueueTypeInfoUnknownfields = []
+  , taskQueueTypeInfoUnknownFields = []
   }
 
 instance MessageEncode TaskQueueTypeInfo where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.taskQueueTypeInfoPollers
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.taskQueueTypeInfoStats)
-    <> encodeUnknownFields msg.taskQueueTypeInfoUnknownfields
+    <> encodeUnknownFields msg.taskQueueTypeInfoUnknownFields
 
 instance MessageSize TaskQueueTypeInfo where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.taskQueueTypeInfoPollers)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.taskQueueTypeInfoStats)
-    + unknownFieldsSize msg.taskQueueTypeInfoUnknownfields
+    + unknownFieldsSize msg.taskQueueTypeInfoUnknownFields
 
 instance MessageDecode TaskQueueTypeInfo where
   {-# INLINE messageDecoder #-}
@@ -642,7 +642,7 @@ instance MessageDecode TaskQueueTypeInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueTypeInfo {taskQueueTypeInfoPollers = acc_0, taskQueueTypeInfoStats = acc_1, taskQueueTypeInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueTypeInfo {taskQueueTypeInfoPollers = acc_0, taskQueueTypeInfoStats = acc_1, taskQueueTypeInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -699,39 +699,39 @@ instance Hashable TaskQueueTypeInfo where
   hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (salt) msg.taskQueueTypeInfoPollers) msg.taskQueueTypeInfoStats
 
 data TaskQueueStats = TaskQueueStats
-  { taskQueueStatsApproximatebacklogcount :: {-# UNPACK #-} !Int64
-  , taskQueueStatsApproximatebacklogage :: !(Maybe PB_Duration.Duration)
-  , taskQueueStatsTasksaddrate :: {-# UNPACK #-} !Float
-  , taskQueueStatsTasksdispatchrate :: {-# UNPACK #-} !Float
-  , taskQueueStatsUnknownfields :: ![UnknownField]
+  { taskQueueStatsApproximateBacklogCount :: {-# UNPACK #-} !Int64
+  , taskQueueStatsApproximateBacklogAge :: !(Maybe PB_Duration.Duration)
+  , taskQueueStatsTasksAddRate :: {-# UNPACK #-} !Float
+  , taskQueueStatsTasksDispatchRate :: {-# UNPACK #-} !Float
+  , taskQueueStatsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskQueueStats :: TaskQueueStats
 defaultTaskQueueStats = TaskQueueStats
-  { taskQueueStatsApproximatebacklogcount = 0
-  , taskQueueStatsApproximatebacklogage = Nothing
-  , taskQueueStatsTasksaddrate = 0
-  , taskQueueStatsTasksdispatchrate = 0
-  , taskQueueStatsUnknownfields = []
+  { taskQueueStatsApproximateBacklogCount = 0
+  , taskQueueStatsApproximateBacklogAge = Nothing
+  , taskQueueStatsTasksAddRate = 0
+  , taskQueueStatsTasksDispatchRate = 0
+  , taskQueueStatsUnknownFields = []
   }
 
 instance MessageEncode TaskQueueStats where
   buildMessage msg =
-    (if msg.taskQueueStatsApproximatebacklogcount == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.taskQueueStatsApproximatebacklogcount))
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.taskQueueStatsApproximatebacklogage)
-    <> (if msg.taskQueueStatsTasksaddrate == 0 then mempty else encodeFieldFloat 3 msg.taskQueueStatsTasksaddrate)
-    <> (if msg.taskQueueStatsTasksdispatchrate == 0 then mempty else encodeFieldFloat 4 msg.taskQueueStatsTasksdispatchrate)
-    <> encodeUnknownFields msg.taskQueueStatsUnknownfields
+    (if msg.taskQueueStatsApproximateBacklogCount == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.taskQueueStatsApproximateBacklogCount))
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.taskQueueStatsApproximateBacklogAge)
+    <> (if msg.taskQueueStatsTasksAddRate == 0 then mempty else encodeFieldFloat 3 msg.taskQueueStatsTasksAddRate)
+    <> (if msg.taskQueueStatsTasksDispatchRate == 0 then mempty else encodeFieldFloat 4 msg.taskQueueStatsTasksDispatchRate)
+    <> encodeUnknownFields msg.taskQueueStatsUnknownFields
 
 instance MessageSize TaskQueueStats where
   messageSize msg =
-    (if msg.taskQueueStatsApproximatebacklogcount == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.taskQueueStatsApproximatebacklogcount))
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.taskQueueStatsApproximatebacklogage)
-    + (if msg.taskQueueStatsTasksaddrate == 0 then 0 else fieldFloatSize 3)
-    + (if msg.taskQueueStatsTasksdispatchrate == 0 then 0 else fieldFloatSize 4)
-    + unknownFieldsSize msg.taskQueueStatsUnknownfields
+    (if msg.taskQueueStatsApproximateBacklogCount == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.taskQueueStatsApproximateBacklogCount))
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.taskQueueStatsApproximateBacklogAge)
+    + (if msg.taskQueueStatsTasksAddRate == 0 then 0 else fieldFloatSize 3)
+    + (if msg.taskQueueStatsTasksDispatchRate == 0 then 0 else fieldFloatSize 4)
+    + unknownFieldsSize msg.taskQueueStatsUnknownFields
 
 instance MessageDecode TaskQueueStats where
   {-# INLINE messageDecoder #-}
@@ -740,7 +740,7 @@ instance MessageDecode TaskQueueStats where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueStats {taskQueueStatsApproximatebacklogcount = acc_0, taskQueueStatsApproximatebacklogage = acc_1, taskQueueStatsTasksaddrate = acc_2, taskQueueStatsTasksdispatchrate = acc_3, taskQueueStatsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueStats {taskQueueStatsApproximateBacklogCount = acc_0, taskQueueStatsApproximateBacklogAge = acc_1, taskQueueStatsTasksAddRate = acc_2, taskQueueStatsTasksDispatchRate = acc_3, taskQueueStatsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -772,96 +772,96 @@ instance ProtoMessage TaskQueueStats where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatsApproximatebacklogcount
-        , fdSet = \v m -> m { taskQueueStatsApproximatebacklogcount = v }
+        , fdGet = taskQueueStatsApproximateBacklogCount
+        , fdSet = \v m -> m { taskQueueStatsApproximateBacklogCount = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "approximate_backlog_age"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatsApproximatebacklogage
-        , fdSet = \v m -> m { taskQueueStatsApproximatebacklogage = v }
+        , fdGet = taskQueueStatsApproximateBacklogAge
+        , fdSet = \v m -> m { taskQueueStatsApproximateBacklogAge = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "tasks_add_rate"
         , fdNumber = 3
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatsTasksaddrate
-        , fdSet = \v m -> m { taskQueueStatsTasksaddrate = v }
+        , fdGet = taskQueueStatsTasksAddRate
+        , fdSet = \v m -> m { taskQueueStatsTasksAddRate = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "tasks_dispatch_rate"
         , fdNumber = 4
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatsTasksdispatchrate
-        , fdSet = \v m -> m { taskQueueStatsTasksdispatchrate = v }
+        , fdGet = taskQueueStatsTasksDispatchRate
+        , fdSet = \v m -> m { taskQueueStatsTasksDispatchRate = v }
         })
     ]
 
 instance Aeson.ToJSON TaskQueueStats where
   toJSON msg = jsonObject
-      [ "approximateBacklogCount" .=: msg.taskQueueStatsApproximatebacklogcount
-      , "approximateBacklogAge" .=: msg.taskQueueStatsApproximatebacklogage
-      , "tasksAddRate" .=: msg.taskQueueStatsTasksaddrate
-      , "tasksDispatchRate" .=: msg.taskQueueStatsTasksdispatchrate
+      [ "approximateBacklogCount" .=: msg.taskQueueStatsApproximateBacklogCount
+      , "approximateBacklogAge" .=: msg.taskQueueStatsApproximateBacklogAge
+      , "tasksAddRate" .=: msg.taskQueueStatsTasksAddRate
+      , "tasksDispatchRate" .=: msg.taskQueueStatsTasksDispatchRate
       ]
 
 instance Aeson.FromJSON TaskQueueStats where
   parseJSON = Aeson.withObject "TaskQueueStats" $ \obj -> do
-    fld_taskQueueStatsApproximatebacklogcount <- parseFieldMaybe obj "approximateBacklogCount"
-    fld_taskQueueStatsApproximatebacklogage <- parseFieldMaybe obj "approximateBacklogAge"
-    fld_taskQueueStatsTasksaddrate <- parseFieldMaybe obj "tasksAddRate"
-    fld_taskQueueStatsTasksdispatchrate <- parseFieldMaybe obj "tasksDispatchRate"
+    fld_taskQueueStatsApproximateBacklogCount <- parseFieldMaybe obj "approximateBacklogCount"
+    fld_taskQueueStatsApproximateBacklogAge <- parseFieldMaybe obj "approximateBacklogAge"
+    fld_taskQueueStatsTasksAddRate <- parseFieldMaybe obj "tasksAddRate"
+    fld_taskQueueStatsTasksDispatchRate <- parseFieldMaybe obj "tasksDispatchRate"
     pure defaultTaskQueueStats
-      { taskQueueStatsApproximatebacklogcount = maybe (taskQueueStatsApproximatebacklogcount defaultTaskQueueStats) id fld_taskQueueStatsApproximatebacklogcount
-      , taskQueueStatsApproximatebacklogage = maybe (taskQueueStatsApproximatebacklogage defaultTaskQueueStats) id fld_taskQueueStatsApproximatebacklogage
-      , taskQueueStatsTasksaddrate = maybe (taskQueueStatsTasksaddrate defaultTaskQueueStats) id fld_taskQueueStatsTasksaddrate
-      , taskQueueStatsTasksdispatchrate = maybe (taskQueueStatsTasksdispatchrate defaultTaskQueueStats) id fld_taskQueueStatsTasksdispatchrate
+      { taskQueueStatsApproximateBacklogCount = maybe (taskQueueStatsApproximateBacklogCount defaultTaskQueueStats) id fld_taskQueueStatsApproximateBacklogCount
+      , taskQueueStatsApproximateBacklogAge = maybe (taskQueueStatsApproximateBacklogAge defaultTaskQueueStats) id fld_taskQueueStatsApproximateBacklogAge
+      , taskQueueStatsTasksAddRate = maybe (taskQueueStatsTasksAddRate defaultTaskQueueStats) id fld_taskQueueStatsTasksAddRate
+      , taskQueueStatsTasksDispatchRate = maybe (taskQueueStatsTasksDispatchRate defaultTaskQueueStats) id fld_taskQueueStatsTasksDispatchRate
       }
 
 instance Hashable TaskQueueStats where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.taskQueueStatsApproximatebacklogcount) msg.taskQueueStatsApproximatebacklogage) msg.taskQueueStatsTasksaddrate) msg.taskQueueStatsTasksdispatchrate
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.taskQueueStatsApproximateBacklogCount) msg.taskQueueStatsApproximateBacklogAge) msg.taskQueueStatsTasksAddRate) msg.taskQueueStatsTasksDispatchRate
 
 data TaskQueueStatus = TaskQueueStatus
-  { taskQueueStatusBacklogcounthint :: {-# UNPACK #-} !Int64
-  , taskQueueStatusReadlevel :: {-# UNPACK #-} !Int64
-  , taskQueueStatusAcklevel :: {-# UNPACK #-} !Int64
-  , taskQueueStatusRatepersecond :: {-# UNPACK #-} !Double
-  , taskQueueStatusTaskidblock :: !(Maybe TaskIdBlock)
-  , taskQueueStatusUnknownfields :: ![UnknownField]
+  { taskQueueStatusBacklogCountHint :: {-# UNPACK #-} !Int64
+  , taskQueueStatusReadLevel :: {-# UNPACK #-} !Int64
+  , taskQueueStatusAckLevel :: {-# UNPACK #-} !Int64
+  , taskQueueStatusRatePerSecond :: {-# UNPACK #-} !Double
+  , taskQueueStatusTaskIdBlock :: !(Maybe TaskIdBlock)
+  , taskQueueStatusUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskQueueStatus :: TaskQueueStatus
 defaultTaskQueueStatus = TaskQueueStatus
-  { taskQueueStatusBacklogcounthint = 0
-  , taskQueueStatusReadlevel = 0
-  , taskQueueStatusAcklevel = 0
-  , taskQueueStatusRatepersecond = 0
-  , taskQueueStatusTaskidblock = Nothing
-  , taskQueueStatusUnknownfields = []
+  { taskQueueStatusBacklogCountHint = 0
+  , taskQueueStatusReadLevel = 0
+  , taskQueueStatusAckLevel = 0
+  , taskQueueStatusRatePerSecond = 0
+  , taskQueueStatusTaskIdBlock = Nothing
+  , taskQueueStatusUnknownFields = []
   }
 
 instance MessageEncode TaskQueueStatus where
   buildMessage msg =
-    (if msg.taskQueueStatusBacklogcounthint == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.taskQueueStatusBacklogcounthint))
-    <> (if msg.taskQueueStatusReadlevel == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.taskQueueStatusReadlevel))
-    <> (if msg.taskQueueStatusAcklevel == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.taskQueueStatusAcklevel))
-    <> (if msg.taskQueueStatusRatepersecond == 0 then mempty else encodeFieldDouble 4 msg.taskQueueStatusRatepersecond)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.taskQueueStatusTaskidblock)
-    <> encodeUnknownFields msg.taskQueueStatusUnknownfields
+    (if msg.taskQueueStatusBacklogCountHint == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.taskQueueStatusBacklogCountHint))
+    <> (if msg.taskQueueStatusReadLevel == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.taskQueueStatusReadLevel))
+    <> (if msg.taskQueueStatusAckLevel == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.taskQueueStatusAckLevel))
+    <> (if msg.taskQueueStatusRatePerSecond == 0 then mempty else encodeFieldDouble 4 msg.taskQueueStatusRatePerSecond)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.taskQueueStatusTaskIdBlock)
+    <> encodeUnknownFields msg.taskQueueStatusUnknownFields
 
 instance MessageSize TaskQueueStatus where
   messageSize msg =
-    (if msg.taskQueueStatusBacklogcounthint == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.taskQueueStatusBacklogcounthint))
-    + (if msg.taskQueueStatusReadlevel == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.taskQueueStatusReadlevel))
-    + (if msg.taskQueueStatusAcklevel == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.taskQueueStatusAcklevel))
-    + (if msg.taskQueueStatusRatepersecond == 0 then 0 else fieldDoubleSize 4)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.taskQueueStatusTaskidblock)
-    + unknownFieldsSize msg.taskQueueStatusUnknownfields
+    (if msg.taskQueueStatusBacklogCountHint == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.taskQueueStatusBacklogCountHint))
+    + (if msg.taskQueueStatusReadLevel == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.taskQueueStatusReadLevel))
+    + (if msg.taskQueueStatusAckLevel == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.taskQueueStatusAckLevel))
+    + (if msg.taskQueueStatusRatePerSecond == 0 then 0 else fieldDoubleSize 4)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.taskQueueStatusTaskIdBlock)
+    + unknownFieldsSize msg.taskQueueStatusUnknownFields
 
 instance MessageDecode TaskQueueStatus where
   {-# INLINE messageDecoder #-}
@@ -870,7 +870,7 @@ instance MessageDecode TaskQueueStatus where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueStatus {taskQueueStatusBacklogcounthint = acc_0, taskQueueStatusReadlevel = acc_1, taskQueueStatusAcklevel = acc_2, taskQueueStatusRatepersecond = acc_3, taskQueueStatusTaskidblock = acc_4, taskQueueStatusUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueStatus {taskQueueStatusBacklogCountHint = acc_0, taskQueueStatusReadLevel = acc_1, taskQueueStatusAckLevel = acc_2, taskQueueStatusRatePerSecond = acc_3, taskQueueStatusTaskIdBlock = acc_4, taskQueueStatusUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -905,95 +905,95 @@ instance ProtoMessage TaskQueueStatus where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatusBacklogcounthint
-        , fdSet = \v m -> m { taskQueueStatusBacklogcounthint = v }
+        , fdGet = taskQueueStatusBacklogCountHint
+        , fdSet = \v m -> m { taskQueueStatusBacklogCountHint = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "read_level"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatusReadlevel
-        , fdSet = \v m -> m { taskQueueStatusReadlevel = v }
+        , fdGet = taskQueueStatusReadLevel
+        , fdSet = \v m -> m { taskQueueStatusReadLevel = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "ack_level"
         , fdNumber = 3
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatusAcklevel
-        , fdSet = \v m -> m { taskQueueStatusAcklevel = v }
+        , fdGet = taskQueueStatusAckLevel
+        , fdSet = \v m -> m { taskQueueStatusAckLevel = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "rate_per_second"
         , fdNumber = 4
         , fdTypeDesc = ScalarType DoubleField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatusRatepersecond
-        , fdSet = \v m -> m { taskQueueStatusRatepersecond = v }
+        , fdGet = taskQueueStatusRatePerSecond
+        , fdSet = \v m -> m { taskQueueStatusRatePerSecond = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "task_id_block"
         , fdNumber = 5
         , fdTypeDesc = MessageType "TaskIdBlock"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueStatusTaskidblock
-        , fdSet = \v m -> m { taskQueueStatusTaskidblock = v }
+        , fdGet = taskQueueStatusTaskIdBlock
+        , fdSet = \v m -> m { taskQueueStatusTaskIdBlock = v }
         })
     ]
 
 instance Aeson.ToJSON TaskQueueStatus where
   toJSON msg = jsonObject
-      [ "backlogCountHint" .=: msg.taskQueueStatusBacklogcounthint
-      , "readLevel" .=: msg.taskQueueStatusReadlevel
-      , "ackLevel" .=: msg.taskQueueStatusAcklevel
-      , "ratePerSecond" .=: msg.taskQueueStatusRatepersecond
-      , "taskIdBlock" .=: msg.taskQueueStatusTaskidblock
+      [ "backlogCountHint" .=: msg.taskQueueStatusBacklogCountHint
+      , "readLevel" .=: msg.taskQueueStatusReadLevel
+      , "ackLevel" .=: msg.taskQueueStatusAckLevel
+      , "ratePerSecond" .=: msg.taskQueueStatusRatePerSecond
+      , "taskIdBlock" .=: msg.taskQueueStatusTaskIdBlock
       ]
 
 instance Aeson.FromJSON TaskQueueStatus where
   parseJSON = Aeson.withObject "TaskQueueStatus" $ \obj -> do
-    fld_taskQueueStatusBacklogcounthint <- parseFieldMaybe obj "backlogCountHint"
-    fld_taskQueueStatusReadlevel <- parseFieldMaybe obj "readLevel"
-    fld_taskQueueStatusAcklevel <- parseFieldMaybe obj "ackLevel"
-    fld_taskQueueStatusRatepersecond <- parseFieldMaybe obj "ratePerSecond"
-    fld_taskQueueStatusTaskidblock <- parseFieldMaybe obj "taskIdBlock"
+    fld_taskQueueStatusBacklogCountHint <- parseFieldMaybe obj "backlogCountHint"
+    fld_taskQueueStatusReadLevel <- parseFieldMaybe obj "readLevel"
+    fld_taskQueueStatusAckLevel <- parseFieldMaybe obj "ackLevel"
+    fld_taskQueueStatusRatePerSecond <- parseFieldMaybe obj "ratePerSecond"
+    fld_taskQueueStatusTaskIdBlock <- parseFieldMaybe obj "taskIdBlock"
     pure defaultTaskQueueStatus
-      { taskQueueStatusBacklogcounthint = maybe (taskQueueStatusBacklogcounthint defaultTaskQueueStatus) id fld_taskQueueStatusBacklogcounthint
-      , taskQueueStatusReadlevel = maybe (taskQueueStatusReadlevel defaultTaskQueueStatus) id fld_taskQueueStatusReadlevel
-      , taskQueueStatusAcklevel = maybe (taskQueueStatusAcklevel defaultTaskQueueStatus) id fld_taskQueueStatusAcklevel
-      , taskQueueStatusRatepersecond = maybe (taskQueueStatusRatepersecond defaultTaskQueueStatus) id fld_taskQueueStatusRatepersecond
-      , taskQueueStatusTaskidblock = maybe (taskQueueStatusTaskidblock defaultTaskQueueStatus) id fld_taskQueueStatusTaskidblock
+      { taskQueueStatusBacklogCountHint = maybe (taskQueueStatusBacklogCountHint defaultTaskQueueStatus) id fld_taskQueueStatusBacklogCountHint
+      , taskQueueStatusReadLevel = maybe (taskQueueStatusReadLevel defaultTaskQueueStatus) id fld_taskQueueStatusReadLevel
+      , taskQueueStatusAckLevel = maybe (taskQueueStatusAckLevel defaultTaskQueueStatus) id fld_taskQueueStatusAckLevel
+      , taskQueueStatusRatePerSecond = maybe (taskQueueStatusRatePerSecond defaultTaskQueueStatus) id fld_taskQueueStatusRatePerSecond
+      , taskQueueStatusTaskIdBlock = maybe (taskQueueStatusTaskIdBlock defaultTaskQueueStatus) id fld_taskQueueStatusTaskIdBlock
       }
 
 instance Hashable TaskQueueStatus where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.taskQueueStatusBacklogcounthint) msg.taskQueueStatusReadlevel) msg.taskQueueStatusAcklevel) msg.taskQueueStatusRatepersecond) msg.taskQueueStatusTaskidblock
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.taskQueueStatusBacklogCountHint) msg.taskQueueStatusReadLevel) msg.taskQueueStatusAckLevel) msg.taskQueueStatusRatePerSecond) msg.taskQueueStatusTaskIdBlock
 
 data TaskIdBlock = TaskIdBlock
-  { taskIdBlockStartid :: {-# UNPACK #-} !Int64
-  , taskIdBlockEndid :: {-# UNPACK #-} !Int64
-  , taskIdBlockUnknownfields :: ![UnknownField]
+  { taskIdBlockStartId :: {-# UNPACK #-} !Int64
+  , taskIdBlockEndId :: {-# UNPACK #-} !Int64
+  , taskIdBlockUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskIdBlock :: TaskIdBlock
 defaultTaskIdBlock = TaskIdBlock
-  { taskIdBlockStartid = 0
-  , taskIdBlockEndid = 0
-  , taskIdBlockUnknownfields = []
+  { taskIdBlockStartId = 0
+  , taskIdBlockEndId = 0
+  , taskIdBlockUnknownFields = []
   }
 
 instance MessageEncode TaskIdBlock where
   buildMessage msg =
-    (if msg.taskIdBlockStartid == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.taskIdBlockStartid))
-    <> (if msg.taskIdBlockEndid == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.taskIdBlockEndid))
-    <> encodeUnknownFields msg.taskIdBlockUnknownfields
+    (if msg.taskIdBlockStartId == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.taskIdBlockStartId))
+    <> (if msg.taskIdBlockEndId == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.taskIdBlockEndId))
+    <> encodeUnknownFields msg.taskIdBlockUnknownFields
 
 instance MessageSize TaskIdBlock where
   messageSize msg =
-    (if msg.taskIdBlockStartid == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.taskIdBlockStartid))
-    + (if msg.taskIdBlockEndid == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.taskIdBlockEndid))
-    + unknownFieldsSize msg.taskIdBlockUnknownfields
+    (if msg.taskIdBlockStartId == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.taskIdBlockStartId))
+    + (if msg.taskIdBlockEndId == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.taskIdBlockEndId))
+    + unknownFieldsSize msg.taskIdBlockUnknownFields
 
 instance MessageDecode TaskIdBlock where
   {-# INLINE messageDecoder #-}
@@ -1002,7 +1002,7 @@ instance MessageDecode TaskIdBlock where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskIdBlock {taskIdBlockStartid = acc_0, taskIdBlockEndid = acc_1, taskIdBlockUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskIdBlock {taskIdBlockStartId = acc_0, taskIdBlockEndId = acc_1, taskIdBlockUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -1028,40 +1028,40 @@ instance ProtoMessage TaskIdBlock where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = taskIdBlockStartid
-        , fdSet = \v m -> m { taskIdBlockStartid = v }
+        , fdGet = taskIdBlockStartId
+        , fdSet = \v m -> m { taskIdBlockStartId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "end_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = taskIdBlockEndid
-        , fdSet = \v m -> m { taskIdBlockEndid = v }
+        , fdGet = taskIdBlockEndId
+        , fdSet = \v m -> m { taskIdBlockEndId = v }
         })
     ]
 
 instance Aeson.ToJSON TaskIdBlock where
   toJSON msg = jsonObject
-      [ "startId" .=: msg.taskIdBlockStartid
-      , "endId" .=: msg.taskIdBlockEndid
+      [ "startId" .=: msg.taskIdBlockStartId
+      , "endId" .=: msg.taskIdBlockEndId
       ]
 
 instance Aeson.FromJSON TaskIdBlock where
   parseJSON = Aeson.withObject "TaskIdBlock" $ \obj -> do
-    fld_taskIdBlockStartid <- parseFieldMaybe obj "startId"
-    fld_taskIdBlockEndid <- parseFieldMaybe obj "endId"
+    fld_taskIdBlockStartId <- parseFieldMaybe obj "startId"
+    fld_taskIdBlockEndId <- parseFieldMaybe obj "endId"
     pure defaultTaskIdBlock
-      { taskIdBlockStartid = maybe (taskIdBlockStartid defaultTaskIdBlock) id fld_taskIdBlockStartid
-      , taskIdBlockEndid = maybe (taskIdBlockEndid defaultTaskIdBlock) id fld_taskIdBlockEndid
+      { taskIdBlockStartId = maybe (taskIdBlockStartId defaultTaskIdBlock) id fld_taskIdBlockStartId
+      , taskIdBlockEndId = maybe (taskIdBlockEndId defaultTaskIdBlock) id fld_taskIdBlockEndId
       }
 
 instance Hashable TaskIdBlock where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.taskIdBlockStartid) msg.taskIdBlockEndid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.taskIdBlockStartId) msg.taskIdBlockEndId
 
 data TaskQueuePartitionMetadata = TaskQueuePartitionMetadata
   { taskQueuePartitionMetadataKey :: !Text
-  , taskQueuePartitionMetadataOwnerhostname :: !Text
-  , taskQueuePartitionMetadataUnknownfields :: ![UnknownField]
+  , taskQueuePartitionMetadataOwnerHostName :: !Text
+  , taskQueuePartitionMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1069,21 +1069,21 @@ data TaskQueuePartitionMetadata = TaskQueuePartitionMetadata
 defaultTaskQueuePartitionMetadata :: TaskQueuePartitionMetadata
 defaultTaskQueuePartitionMetadata = TaskQueuePartitionMetadata
   { taskQueuePartitionMetadataKey = ""
-  , taskQueuePartitionMetadataOwnerhostname = ""
-  , taskQueuePartitionMetadataUnknownfields = []
+  , taskQueuePartitionMetadataOwnerHostName = ""
+  , taskQueuePartitionMetadataUnknownFields = []
   }
 
 instance MessageEncode TaskQueuePartitionMetadata where
   buildMessage msg =
     (if msg.taskQueuePartitionMetadataKey == T.empty then mempty else encodeFieldString 1 msg.taskQueuePartitionMetadataKey)
-    <> (if msg.taskQueuePartitionMetadataOwnerhostname == T.empty then mempty else encodeFieldString 2 msg.taskQueuePartitionMetadataOwnerhostname)
-    <> encodeUnknownFields msg.taskQueuePartitionMetadataUnknownfields
+    <> (if msg.taskQueuePartitionMetadataOwnerHostName == T.empty then mempty else encodeFieldString 2 msg.taskQueuePartitionMetadataOwnerHostName)
+    <> encodeUnknownFields msg.taskQueuePartitionMetadataUnknownFields
 
 instance MessageSize TaskQueuePartitionMetadata where
   messageSize msg =
     (if msg.taskQueuePartitionMetadataKey == T.empty then 0 else fieldTextSize 1 msg.taskQueuePartitionMetadataKey)
-    + (if msg.taskQueuePartitionMetadataOwnerhostname == T.empty then 0 else fieldTextSize 2 msg.taskQueuePartitionMetadataOwnerhostname)
-    + unknownFieldsSize msg.taskQueuePartitionMetadataUnknownfields
+    + (if msg.taskQueuePartitionMetadataOwnerHostName == T.empty then 0 else fieldTextSize 2 msg.taskQueuePartitionMetadataOwnerHostName)
+    + unknownFieldsSize msg.taskQueuePartitionMetadataUnknownFields
 
 instance MessageDecode TaskQueuePartitionMetadata where
   {-# INLINE messageDecoder #-}
@@ -1092,7 +1092,7 @@ instance MessageDecode TaskQueuePartitionMetadata where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueuePartitionMetadata {taskQueuePartitionMetadataKey = acc_0, taskQueuePartitionMetadataOwnerhostname = acc_1, taskQueuePartitionMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueuePartitionMetadata {taskQueuePartitionMetadataKey = acc_0, taskQueuePartitionMetadataOwnerHostName = acc_1, taskQueuePartitionMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1125,67 +1125,67 @@ instance ProtoMessage TaskQueuePartitionMetadata where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = taskQueuePartitionMetadataOwnerhostname
-        , fdSet = \v m -> m { taskQueuePartitionMetadataOwnerhostname = v }
+        , fdGet = taskQueuePartitionMetadataOwnerHostName
+        , fdSet = \v m -> m { taskQueuePartitionMetadataOwnerHostName = v }
         })
     ]
 
 instance Aeson.ToJSON TaskQueuePartitionMetadata where
   toJSON msg = jsonObject
       [ "key" .=: msg.taskQueuePartitionMetadataKey
-      , "ownerHostName" .=: msg.taskQueuePartitionMetadataOwnerhostname
+      , "ownerHostName" .=: msg.taskQueuePartitionMetadataOwnerHostName
       ]
 
 instance Aeson.FromJSON TaskQueuePartitionMetadata where
   parseJSON = Aeson.withObject "TaskQueuePartitionMetadata" $ \obj -> do
     fld_taskQueuePartitionMetadataKey <- parseFieldMaybe obj "key"
-    fld_taskQueuePartitionMetadataOwnerhostname <- parseFieldMaybe obj "ownerHostName"
+    fld_taskQueuePartitionMetadataOwnerHostName <- parseFieldMaybe obj "ownerHostName"
     pure defaultTaskQueuePartitionMetadata
       { taskQueuePartitionMetadataKey = maybe (taskQueuePartitionMetadataKey defaultTaskQueuePartitionMetadata) id fld_taskQueuePartitionMetadataKey
-      , taskQueuePartitionMetadataOwnerhostname = maybe (taskQueuePartitionMetadataOwnerhostname defaultTaskQueuePartitionMetadata) id fld_taskQueuePartitionMetadataOwnerhostname
+      , taskQueuePartitionMetadataOwnerHostName = maybe (taskQueuePartitionMetadataOwnerHostName defaultTaskQueuePartitionMetadata) id fld_taskQueuePartitionMetadataOwnerHostName
       }
 
 instance Hashable TaskQueuePartitionMetadata where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.taskQueuePartitionMetadataKey) msg.taskQueuePartitionMetadataOwnerhostname
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.taskQueuePartitionMetadataKey) msg.taskQueuePartitionMetadataOwnerHostName
 
 data PollerInfo = PollerInfo
-  { pollerInfoLastaccesstime :: !(Maybe PB_Timestamp.Timestamp)
+  { pollerInfoLastAccessTime :: !(Maybe PB_Timestamp.Timestamp)
   , pollerInfoIdentity :: !Text
-  , pollerInfoRatepersecond :: {-# UNPACK #-} !Double
-  , pollerInfoWorkerversioncapabilities :: !(Maybe TE_Common_V1_Message.WorkerVersionCapabilities)
-  , pollerInfoDeploymentoptions :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentOptions)
-  , pollerInfoUnknownfields :: ![UnknownField]
+  , pollerInfoRatePerSecond :: {-# UNPACK #-} !Double
+  , pollerInfoWorkerVersionCapabilities :: !(Maybe TE_Common_V1_Message.WorkerVersionCapabilities)
+  , pollerInfoDeploymentOptions :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentOptions)
+  , pollerInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPollerInfo :: PollerInfo
 defaultPollerInfo = PollerInfo
-  { pollerInfoLastaccesstime = Nothing
+  { pollerInfoLastAccessTime = Nothing
   , pollerInfoIdentity = ""
-  , pollerInfoRatepersecond = 0
-  , pollerInfoWorkerversioncapabilities = Nothing
-  , pollerInfoDeploymentoptions = Nothing
-  , pollerInfoUnknownfields = []
+  , pollerInfoRatePerSecond = 0
+  , pollerInfoWorkerVersionCapabilities = Nothing
+  , pollerInfoDeploymentOptions = Nothing
+  , pollerInfoUnknownFields = []
   }
 
 instance MessageEncode PollerInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.pollerInfoLastaccesstime)
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.pollerInfoLastAccessTime)
     <> (if msg.pollerInfoIdentity == T.empty then mempty else encodeFieldString 2 msg.pollerInfoIdentity)
-    <> (if msg.pollerInfoRatepersecond == 0 then mempty else encodeFieldDouble 3 msg.pollerInfoRatepersecond)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.pollerInfoWorkerversioncapabilities)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.pollerInfoDeploymentoptions)
-    <> encodeUnknownFields msg.pollerInfoUnknownfields
+    <> (if msg.pollerInfoRatePerSecond == 0 then mempty else encodeFieldDouble 3 msg.pollerInfoRatePerSecond)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.pollerInfoWorkerVersionCapabilities)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.pollerInfoDeploymentOptions)
+    <> encodeUnknownFields msg.pollerInfoUnknownFields
 
 instance MessageSize PollerInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.pollerInfoLastaccesstime)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.pollerInfoLastAccessTime)
     + (if msg.pollerInfoIdentity == T.empty then 0 else fieldTextSize 2 msg.pollerInfoIdentity)
-    + (if msg.pollerInfoRatepersecond == 0 then 0 else fieldDoubleSize 3)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.pollerInfoWorkerversioncapabilities)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.pollerInfoDeploymentoptions)
-    + unknownFieldsSize msg.pollerInfoUnknownfields
+    + (if msg.pollerInfoRatePerSecond == 0 then 0 else fieldDoubleSize 3)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.pollerInfoWorkerVersionCapabilities)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.pollerInfoDeploymentOptions)
+    + unknownFieldsSize msg.pollerInfoUnknownFields
 
 instance MessageDecode PollerInfo where
   {-# INLINE messageDecoder #-}
@@ -1194,7 +1194,7 @@ instance MessageDecode PollerInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PollerInfo {pollerInfoLastaccesstime = acc_0, pollerInfoIdentity = acc_1, pollerInfoRatepersecond = acc_2, pollerInfoWorkerversioncapabilities = acc_3, pollerInfoDeploymentoptions = acc_4, pollerInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PollerInfo {pollerInfoLastAccessTime = acc_0, pollerInfoIdentity = acc_1, pollerInfoRatePerSecond = acc_2, pollerInfoWorkerVersionCapabilities = acc_3, pollerInfoDeploymentOptions = acc_4, pollerInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1229,8 +1229,8 @@ instance ProtoMessage PollerInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = pollerInfoLastaccesstime
-        , fdSet = \v m -> m { pollerInfoLastaccesstime = v }
+        , fdGet = pollerInfoLastAccessTime
+        , fdSet = \v m -> m { pollerInfoLastAccessTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "identity"
         , fdNumber = 2
@@ -1244,80 +1244,80 @@ instance ProtoMessage PollerInfo where
         , fdNumber = 3
         , fdTypeDesc = ScalarType DoubleField
         , fdLabel = LabelOptional
-        , fdGet = pollerInfoRatepersecond
-        , fdSet = \v m -> m { pollerInfoRatepersecond = v }
+        , fdGet = pollerInfoRatePerSecond
+        , fdSet = \v m -> m { pollerInfoRatePerSecond = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "worker_version_capabilities"
         , fdNumber = 4
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkerVersionCapabilities"
         , fdLabel = LabelOptional
-        , fdGet = pollerInfoWorkerversioncapabilities
-        , fdSet = \v m -> m { pollerInfoWorkerversioncapabilities = v }
+        , fdGet = pollerInfoWorkerVersionCapabilities
+        , fdSet = \v m -> m { pollerInfoWorkerVersionCapabilities = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "deployment_options"
         , fdNumber = 5
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentOptions"
         , fdLabel = LabelOptional
-        , fdGet = pollerInfoDeploymentoptions
-        , fdSet = \v m -> m { pollerInfoDeploymentoptions = v }
+        , fdGet = pollerInfoDeploymentOptions
+        , fdSet = \v m -> m { pollerInfoDeploymentOptions = v }
         })
     ]
 
 instance Aeson.ToJSON PollerInfo where
   toJSON msg = jsonObject
-      [ "lastAccessTime" .=: msg.pollerInfoLastaccesstime
+      [ "lastAccessTime" .=: msg.pollerInfoLastAccessTime
       , "identity" .=: msg.pollerInfoIdentity
-      , "ratePerSecond" .=: msg.pollerInfoRatepersecond
-      , "workerVersionCapabilities" .=: msg.pollerInfoWorkerversioncapabilities
-      , "deploymentOptions" .=: msg.pollerInfoDeploymentoptions
+      , "ratePerSecond" .=: msg.pollerInfoRatePerSecond
+      , "workerVersionCapabilities" .=: msg.pollerInfoWorkerVersionCapabilities
+      , "deploymentOptions" .=: msg.pollerInfoDeploymentOptions
       ]
 
 instance Aeson.FromJSON PollerInfo where
   parseJSON = Aeson.withObject "PollerInfo" $ \obj -> do
-    fld_pollerInfoLastaccesstime <- parseFieldMaybe obj "lastAccessTime"
+    fld_pollerInfoLastAccessTime <- parseFieldMaybe obj "lastAccessTime"
     fld_pollerInfoIdentity <- parseFieldMaybe obj "identity"
-    fld_pollerInfoRatepersecond <- parseFieldMaybe obj "ratePerSecond"
-    fld_pollerInfoWorkerversioncapabilities <- parseFieldMaybe obj "workerVersionCapabilities"
-    fld_pollerInfoDeploymentoptions <- parseFieldMaybe obj "deploymentOptions"
+    fld_pollerInfoRatePerSecond <- parseFieldMaybe obj "ratePerSecond"
+    fld_pollerInfoWorkerVersionCapabilities <- parseFieldMaybe obj "workerVersionCapabilities"
+    fld_pollerInfoDeploymentOptions <- parseFieldMaybe obj "deploymentOptions"
     pure defaultPollerInfo
-      { pollerInfoLastaccesstime = maybe (pollerInfoLastaccesstime defaultPollerInfo) id fld_pollerInfoLastaccesstime
+      { pollerInfoLastAccessTime = maybe (pollerInfoLastAccessTime defaultPollerInfo) id fld_pollerInfoLastAccessTime
       , pollerInfoIdentity = maybe (pollerInfoIdentity defaultPollerInfo) id fld_pollerInfoIdentity
-      , pollerInfoRatepersecond = maybe (pollerInfoRatepersecond defaultPollerInfo) id fld_pollerInfoRatepersecond
-      , pollerInfoWorkerversioncapabilities = maybe (pollerInfoWorkerversioncapabilities defaultPollerInfo) id fld_pollerInfoWorkerversioncapabilities
-      , pollerInfoDeploymentoptions = maybe (pollerInfoDeploymentoptions defaultPollerInfo) id fld_pollerInfoDeploymentoptions
+      , pollerInfoRatePerSecond = maybe (pollerInfoRatePerSecond defaultPollerInfo) id fld_pollerInfoRatePerSecond
+      , pollerInfoWorkerVersionCapabilities = maybe (pollerInfoWorkerVersionCapabilities defaultPollerInfo) id fld_pollerInfoWorkerVersionCapabilities
+      , pollerInfoDeploymentOptions = maybe (pollerInfoDeploymentOptions defaultPollerInfo) id fld_pollerInfoDeploymentOptions
       }
 
 instance Hashable PollerInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pollerInfoLastaccesstime) msg.pollerInfoIdentity) msg.pollerInfoRatepersecond) msg.pollerInfoWorkerversioncapabilities) msg.pollerInfoDeploymentoptions
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.pollerInfoLastAccessTime) msg.pollerInfoIdentity) msg.pollerInfoRatePerSecond) msg.pollerInfoWorkerVersionCapabilities) msg.pollerInfoDeploymentOptions
 
 data StickyExecutionAttributes = StickyExecutionAttributes
-  { stickyExecutionAttributesWorkertaskqueue :: !(Maybe TaskQueue)
-  , stickyExecutionAttributesScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
-  , stickyExecutionAttributesUnknownfields :: ![UnknownField]
+  { stickyExecutionAttributesWorkerTaskQueue :: !(Maybe TaskQueue)
+  , stickyExecutionAttributesScheduleToStartTimeout :: !(Maybe PB_Duration.Duration)
+  , stickyExecutionAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultStickyExecutionAttributes :: StickyExecutionAttributes
 defaultStickyExecutionAttributes = StickyExecutionAttributes
-  { stickyExecutionAttributesWorkertaskqueue = Nothing
-  , stickyExecutionAttributesScheduletostarttimeout = Nothing
-  , stickyExecutionAttributesUnknownfields = []
+  { stickyExecutionAttributesWorkerTaskQueue = Nothing
+  , stickyExecutionAttributesScheduleToStartTimeout = Nothing
+  , stickyExecutionAttributesUnknownFields = []
   }
 
 instance MessageEncode StickyExecutionAttributes where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.stickyExecutionAttributesWorkertaskqueue)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.stickyExecutionAttributesScheduletostarttimeout)
-    <> encodeUnknownFields msg.stickyExecutionAttributesUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.stickyExecutionAttributesWorkerTaskQueue)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.stickyExecutionAttributesScheduleToStartTimeout)
+    <> encodeUnknownFields msg.stickyExecutionAttributesUnknownFields
 
 instance MessageSize StickyExecutionAttributes where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.stickyExecutionAttributesWorkertaskqueue)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.stickyExecutionAttributesScheduletostarttimeout)
-    + unknownFieldsSize msg.stickyExecutionAttributesUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.stickyExecutionAttributesWorkerTaskQueue)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.stickyExecutionAttributesScheduleToStartTimeout)
+    + unknownFieldsSize msg.stickyExecutionAttributesUnknownFields
 
 instance MessageDecode StickyExecutionAttributes where
   {-# INLINE messageDecoder #-}
@@ -1326,7 +1326,7 @@ instance MessageDecode StickyExecutionAttributes where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StickyExecutionAttributes {stickyExecutionAttributesWorkertaskqueue = acc_0, stickyExecutionAttributesScheduletostarttimeout = acc_1, stickyExecutionAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StickyExecutionAttributes {stickyExecutionAttributesWorkerTaskQueue = acc_0, stickyExecutionAttributesScheduleToStartTimeout = acc_1, stickyExecutionAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1352,58 +1352,58 @@ instance ProtoMessage StickyExecutionAttributes where
         , fdNumber = 1
         , fdTypeDesc = MessageType "TaskQueue"
         , fdLabel = LabelOptional
-        , fdGet = stickyExecutionAttributesWorkertaskqueue
-        , fdSet = \v m -> m { stickyExecutionAttributesWorkertaskqueue = v }
+        , fdGet = stickyExecutionAttributesWorkerTaskQueue
+        , fdSet = \v m -> m { stickyExecutionAttributesWorkerTaskQueue = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "schedule_to_start_timeout"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = stickyExecutionAttributesScheduletostarttimeout
-        , fdSet = \v m -> m { stickyExecutionAttributesScheduletostarttimeout = v }
+        , fdGet = stickyExecutionAttributesScheduleToStartTimeout
+        , fdSet = \v m -> m { stickyExecutionAttributesScheduleToStartTimeout = v }
         })
     ]
 
 instance Aeson.ToJSON StickyExecutionAttributes where
   toJSON msg = jsonObject
-      [ "workerTaskQueue" .=: msg.stickyExecutionAttributesWorkertaskqueue
-      , "scheduleToStartTimeout" .=: msg.stickyExecutionAttributesScheduletostarttimeout
+      [ "workerTaskQueue" .=: msg.stickyExecutionAttributesWorkerTaskQueue
+      , "scheduleToStartTimeout" .=: msg.stickyExecutionAttributesScheduleToStartTimeout
       ]
 
 instance Aeson.FromJSON StickyExecutionAttributes where
   parseJSON = Aeson.withObject "StickyExecutionAttributes" $ \obj -> do
-    fld_stickyExecutionAttributesWorkertaskqueue <- parseFieldMaybe obj "workerTaskQueue"
-    fld_stickyExecutionAttributesScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_stickyExecutionAttributesWorkerTaskQueue <- parseFieldMaybe obj "workerTaskQueue"
+    fld_stickyExecutionAttributesScheduleToStartTimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
     pure defaultStickyExecutionAttributes
-      { stickyExecutionAttributesWorkertaskqueue = maybe (stickyExecutionAttributesWorkertaskqueue defaultStickyExecutionAttributes) id fld_stickyExecutionAttributesWorkertaskqueue
-      , stickyExecutionAttributesScheduletostarttimeout = maybe (stickyExecutionAttributesScheduletostarttimeout defaultStickyExecutionAttributes) id fld_stickyExecutionAttributesScheduletostarttimeout
+      { stickyExecutionAttributesWorkerTaskQueue = maybe (stickyExecutionAttributesWorkerTaskQueue defaultStickyExecutionAttributes) id fld_stickyExecutionAttributesWorkerTaskQueue
+      , stickyExecutionAttributesScheduleToStartTimeout = maybe (stickyExecutionAttributesScheduleToStartTimeout defaultStickyExecutionAttributes) id fld_stickyExecutionAttributesScheduleToStartTimeout
       }
 
 instance Hashable StickyExecutionAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.stickyExecutionAttributesWorkertaskqueue) msg.stickyExecutionAttributesScheduletostarttimeout
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.stickyExecutionAttributesWorkerTaskQueue) msg.stickyExecutionAttributesScheduleToStartTimeout
 
 data CompatibleVersionSet = CompatibleVersionSet
-  { compatibleVersionSetBuildids :: !(V.Vector Text)
-  , compatibleVersionSetUnknownfields :: ![UnknownField]
+  { compatibleVersionSetBuildIds :: !(V.Vector Text)
+  , compatibleVersionSetUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultCompatibleVersionSet :: CompatibleVersionSet
 defaultCompatibleVersionSet = CompatibleVersionSet
-  { compatibleVersionSetBuildids = V.empty
-  , compatibleVersionSetUnknownfields = []
+  { compatibleVersionSetBuildIds = V.empty
+  , compatibleVersionSetUnknownFields = []
   }
 
 instance MessageEncode CompatibleVersionSet where
   buildMessage msg =
-    V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.compatibleVersionSetBuildids
-    <> encodeUnknownFields msg.compatibleVersionSetUnknownfields
+    V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.compatibleVersionSetBuildIds
+    <> encodeUnknownFields msg.compatibleVersionSetUnknownFields
 
 instance MessageSize CompatibleVersionSet where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.compatibleVersionSetBuildids)
-    + unknownFieldsSize msg.compatibleVersionSetUnknownfields
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.compatibleVersionSetBuildIds)
+    + unknownFieldsSize msg.compatibleVersionSetUnknownFields
 
 instance MessageDecode CompatibleVersionSet where
   {-# INLINE messageDecoder #-}
@@ -1412,7 +1412,7 @@ instance MessageDecode CompatibleVersionSet where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CompatibleVersionSet {compatibleVersionSetBuildids = acc_0, compatibleVersionSetUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CompatibleVersionSet {compatibleVersionSetBuildIds = acc_0, compatibleVersionSetUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1435,53 +1435,53 @@ instance ProtoMessage CompatibleVersionSet where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelRepeated
-        , fdGet = compatibleVersionSetBuildids
-        , fdSet = \v m -> m { compatibleVersionSetBuildids = v }
+        , fdGet = compatibleVersionSetBuildIds
+        , fdSet = \v m -> m { compatibleVersionSetBuildIds = v }
         })
     ]
 
 instance Aeson.ToJSON CompatibleVersionSet where
   toJSON msg = jsonObject
-      [ "buildIds" .=: msg.compatibleVersionSetBuildids
+      [ "buildIds" .=: msg.compatibleVersionSetBuildIds
 
       ]
 
 instance Aeson.FromJSON CompatibleVersionSet where
   parseJSON = Aeson.withObject "CompatibleVersionSet" $ \obj -> do
-    fld_compatibleVersionSetBuildids <- parseFieldMaybe obj "buildIds"
+    fld_compatibleVersionSetBuildIds <- parseFieldMaybe obj "buildIds"
     pure defaultCompatibleVersionSet
-      { compatibleVersionSetBuildids = maybe (compatibleVersionSetBuildids defaultCompatibleVersionSet) id fld_compatibleVersionSetBuildids
+      { compatibleVersionSetBuildIds = maybe (compatibleVersionSetBuildIds defaultCompatibleVersionSet) id fld_compatibleVersionSetBuildIds
       }
 
 instance Hashable CompatibleVersionSet where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.compatibleVersionSetBuildids
+  hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.compatibleVersionSetBuildIds
 
 data TaskQueueReachability = TaskQueueReachability
-  { taskQueueReachabilityTaskqueue :: !Text
+  { taskQueueReachabilityTaskQueue :: !Text
   , taskQueueReachabilityReachability :: !(V.Vector TE_Enums_V1_TaskQueue.TaskReachability)
-  , taskQueueReachabilityUnknownfields :: ![UnknownField]
+  , taskQueueReachabilityUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskQueueReachability :: TaskQueueReachability
 defaultTaskQueueReachability = TaskQueueReachability
-  { taskQueueReachabilityTaskqueue = ""
+  { taskQueueReachabilityTaskQueue = ""
   , taskQueueReachabilityReachability = V.empty
-  , taskQueueReachabilityUnknownfields = []
+  , taskQueueReachabilityUnknownFields = []
   }
 
 instance MessageEncode TaskQueueReachability where
   buildMessage msg =
-    (if msg.taskQueueReachabilityTaskqueue == T.empty then mempty else encodeFieldString 1 msg.taskQueueReachabilityTaskqueue)
+    (if msg.taskQueueReachabilityTaskQueue == T.empty then mempty else encodeFieldString 1 msg.taskQueueReachabilityTaskQueue)
     <> V.foldl' (\acc v -> acc <> encodeFieldVarint 2 (fromIntegral (fromEnum v))) mempty msg.taskQueueReachabilityReachability
-    <> encodeUnknownFields msg.taskQueueReachabilityUnknownfields
+    <> encodeUnknownFields msg.taskQueueReachabilityUnknownFields
 
 instance MessageSize TaskQueueReachability where
   messageSize msg =
-    (if msg.taskQueueReachabilityTaskqueue == T.empty then 0 else fieldTextSize 1 msg.taskQueueReachabilityTaskqueue)
+    (if msg.taskQueueReachabilityTaskQueue == T.empty then 0 else fieldTextSize 1 msg.taskQueueReachabilityTaskQueue)
     + (V.foldl' (\acc v -> acc + fieldVarintSize 2 (fromIntegral (fromEnum v))) 0 msg.taskQueueReachabilityReachability)
-    + unknownFieldsSize msg.taskQueueReachabilityUnknownfields
+    + unknownFieldsSize msg.taskQueueReachabilityUnknownFields
 
 instance MessageDecode TaskQueueReachability where
   {-# INLINE messageDecoder #-}
@@ -1490,7 +1490,7 @@ instance MessageDecode TaskQueueReachability where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueReachability {taskQueueReachabilityTaskqueue = acc_0, taskQueueReachabilityReachability = acc_1, taskQueueReachabilityUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueReachability {taskQueueReachabilityTaskQueue = acc_0, taskQueueReachabilityReachability = acc_1, taskQueueReachabilityUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1516,8 +1516,8 @@ instance ProtoMessage TaskQueueReachability where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = taskQueueReachabilityTaskqueue
-        , fdSet = \v m -> m { taskQueueReachabilityTaskqueue = v }
+        , fdGet = taskQueueReachabilityTaskQueue
+        , fdSet = \v m -> m { taskQueueReachabilityTaskQueue = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "reachability"
         , fdNumber = 2
@@ -1530,48 +1530,48 @@ instance ProtoMessage TaskQueueReachability where
 
 instance Aeson.ToJSON TaskQueueReachability where
   toJSON msg = jsonObject
-      [ "taskQueue" .=: msg.taskQueueReachabilityTaskqueue
+      [ "taskQueue" .=: msg.taskQueueReachabilityTaskQueue
       , "reachability" .=: msg.taskQueueReachabilityReachability
       ]
 
 instance Aeson.FromJSON TaskQueueReachability where
   parseJSON = Aeson.withObject "TaskQueueReachability" $ \obj -> do
-    fld_taskQueueReachabilityTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_taskQueueReachabilityTaskQueue <- parseFieldMaybe obj "taskQueue"
     fld_taskQueueReachabilityReachability <- parseFieldMaybe obj "reachability"
     pure defaultTaskQueueReachability
-      { taskQueueReachabilityTaskqueue = maybe (taskQueueReachabilityTaskqueue defaultTaskQueueReachability) id fld_taskQueueReachabilityTaskqueue
+      { taskQueueReachabilityTaskQueue = maybe (taskQueueReachabilityTaskQueue defaultTaskQueueReachability) id fld_taskQueueReachabilityTaskQueue
       , taskQueueReachabilityReachability = maybe (taskQueueReachabilityReachability defaultTaskQueueReachability) id fld_taskQueueReachabilityReachability
       }
 
 instance Hashable TaskQueueReachability where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (salt) msg.taskQueueReachabilityTaskqueue) msg.taskQueueReachabilityReachability
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (salt) msg.taskQueueReachabilityTaskQueue) msg.taskQueueReachabilityReachability
 
 data BuildIdReachability = BuildIdReachability
-  { buildIdReachabilityBuildid :: !Text
-  , buildIdReachabilityTaskqueuereachability :: !(V.Vector TaskQueueReachability)
-  , buildIdReachabilityUnknownfields :: ![UnknownField]
+  { buildIdReachabilityBuildId :: !Text
+  , buildIdReachabilityTaskQueueReachability :: !(V.Vector TaskQueueReachability)
+  , buildIdReachabilityUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultBuildIdReachability :: BuildIdReachability
 defaultBuildIdReachability = BuildIdReachability
-  { buildIdReachabilityBuildid = ""
-  , buildIdReachabilityTaskqueuereachability = V.empty
-  , buildIdReachabilityUnknownfields = []
+  { buildIdReachabilityBuildId = ""
+  , buildIdReachabilityTaskQueueReachability = V.empty
+  , buildIdReachabilityUnknownFields = []
   }
 
 instance MessageEncode BuildIdReachability where
   buildMessage msg =
-    (if msg.buildIdReachabilityBuildid == T.empty then mempty else encodeFieldString 1 msg.buildIdReachabilityBuildid)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.buildIdReachabilityTaskqueuereachability
-    <> encodeUnknownFields msg.buildIdReachabilityUnknownfields
+    (if msg.buildIdReachabilityBuildId == T.empty then mempty else encodeFieldString 1 msg.buildIdReachabilityBuildId)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.buildIdReachabilityTaskQueueReachability
+    <> encodeUnknownFields msg.buildIdReachabilityUnknownFields
 
 instance MessageSize BuildIdReachability where
   messageSize msg =
-    (if msg.buildIdReachabilityBuildid == T.empty then 0 else fieldTextSize 1 msg.buildIdReachabilityBuildid)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.buildIdReachabilityTaskqueuereachability)
-    + unknownFieldsSize msg.buildIdReachabilityUnknownfields
+    (if msg.buildIdReachabilityBuildId == T.empty then 0 else fieldTextSize 1 msg.buildIdReachabilityBuildId)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.buildIdReachabilityTaskQueueReachability)
+    + unknownFieldsSize msg.buildIdReachabilityUnknownFields
 
 instance MessageDecode BuildIdReachability where
   {-# INLINE messageDecoder #-}
@@ -1580,7 +1580,7 @@ instance MessageDecode BuildIdReachability where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BuildIdReachability {buildIdReachabilityBuildid = acc_0, buildIdReachabilityTaskqueuereachability = acc_1, buildIdReachabilityUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BuildIdReachability {buildIdReachabilityBuildId = acc_0, buildIdReachabilityTaskQueueReachability = acc_1, buildIdReachabilityUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1606,58 +1606,58 @@ instance ProtoMessage BuildIdReachability where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = buildIdReachabilityBuildid
-        , fdSet = \v m -> m { buildIdReachabilityBuildid = v }
+        , fdGet = buildIdReachabilityBuildId
+        , fdSet = \v m -> m { buildIdReachabilityBuildId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "task_queue_reachability"
         , fdNumber = 2
         , fdTypeDesc = MessageType "TaskQueueReachability"
         , fdLabel = LabelRepeated
-        , fdGet = buildIdReachabilityTaskqueuereachability
-        , fdSet = \v m -> m { buildIdReachabilityTaskqueuereachability = v }
+        , fdGet = buildIdReachabilityTaskQueueReachability
+        , fdSet = \v m -> m { buildIdReachabilityTaskQueueReachability = v }
         })
     ]
 
 instance Aeson.ToJSON BuildIdReachability where
   toJSON msg = jsonObject
-      [ "buildId" .=: msg.buildIdReachabilityBuildid
-      , "taskQueueReachability" .=: msg.buildIdReachabilityTaskqueuereachability
+      [ "buildId" .=: msg.buildIdReachabilityBuildId
+      , "taskQueueReachability" .=: msg.buildIdReachabilityTaskQueueReachability
       ]
 
 instance Aeson.FromJSON BuildIdReachability where
   parseJSON = Aeson.withObject "BuildIdReachability" $ \obj -> do
-    fld_buildIdReachabilityBuildid <- parseFieldMaybe obj "buildId"
-    fld_buildIdReachabilityTaskqueuereachability <- parseFieldMaybe obj "taskQueueReachability"
+    fld_buildIdReachabilityBuildId <- parseFieldMaybe obj "buildId"
+    fld_buildIdReachabilityTaskQueueReachability <- parseFieldMaybe obj "taskQueueReachability"
     pure defaultBuildIdReachability
-      { buildIdReachabilityBuildid = maybe (buildIdReachabilityBuildid defaultBuildIdReachability) id fld_buildIdReachabilityBuildid
-      , buildIdReachabilityTaskqueuereachability = maybe (buildIdReachabilityTaskqueuereachability defaultBuildIdReachability) id fld_buildIdReachabilityTaskqueuereachability
+      { buildIdReachabilityBuildId = maybe (buildIdReachabilityBuildId defaultBuildIdReachability) id fld_buildIdReachabilityBuildId
+      , buildIdReachabilityTaskQueueReachability = maybe (buildIdReachabilityTaskQueueReachability defaultBuildIdReachability) id fld_buildIdReachabilityTaskQueueReachability
       }
 
 instance Hashable BuildIdReachability where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (salt) msg.buildIdReachabilityBuildid) msg.buildIdReachabilityTaskqueuereachability
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (salt) msg.buildIdReachabilityBuildId) msg.buildIdReachabilityTaskQueueReachability
 
 data RampByPercentage = RampByPercentage
-  { rampByPercentageRamppercentage :: {-# UNPACK #-} !Float
-  , rampByPercentageUnknownfields :: ![UnknownField]
+  { rampByPercentageRampPercentage :: {-# UNPACK #-} !Float
+  , rampByPercentageUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRampByPercentage :: RampByPercentage
 defaultRampByPercentage = RampByPercentage
-  { rampByPercentageRamppercentage = 0
-  , rampByPercentageUnknownfields = []
+  { rampByPercentageRampPercentage = 0
+  , rampByPercentageUnknownFields = []
   }
 
 instance MessageEncode RampByPercentage where
   buildMessage msg =
-    (if msg.rampByPercentageRamppercentage == 0 then mempty else encodeFieldFloat 1 msg.rampByPercentageRamppercentage)
-    <> encodeUnknownFields msg.rampByPercentageUnknownfields
+    (if msg.rampByPercentageRampPercentage == 0 then mempty else encodeFieldFloat 1 msg.rampByPercentageRampPercentage)
+    <> encodeUnknownFields msg.rampByPercentageUnknownFields
 
 instance MessageSize RampByPercentage where
   messageSize msg =
-    (if msg.rampByPercentageRamppercentage == 0 then 0 else fieldFloatSize 1)
-    + unknownFieldsSize msg.rampByPercentageUnknownfields
+    (if msg.rampByPercentageRampPercentage == 0 then 0 else fieldFloatSize 1)
+    + unknownFieldsSize msg.rampByPercentageUnknownFields
 
 instance MessageDecode RampByPercentage where
   {-# INLINE messageDecoder #-}
@@ -1666,7 +1666,7 @@ instance MessageDecode RampByPercentage where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RampByPercentage {rampByPercentageRamppercentage = acc_0, rampByPercentageUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RampByPercentage {rampByPercentageRampPercentage = acc_0, rampByPercentageUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldFloat
@@ -1689,31 +1689,31 @@ instance ProtoMessage RampByPercentage where
         , fdNumber = 1
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = rampByPercentageRamppercentage
-        , fdSet = \v m -> m { rampByPercentageRamppercentage = v }
+        , fdGet = rampByPercentageRampPercentage
+        , fdSet = \v m -> m { rampByPercentageRampPercentage = v }
         })
     ]
 
 instance Aeson.ToJSON RampByPercentage where
   toJSON msg = jsonObject
-      [ "rampPercentage" .=: msg.rampByPercentageRamppercentage
+      [ "rampPercentage" .=: msg.rampByPercentageRampPercentage
 
       ]
 
 instance Aeson.FromJSON RampByPercentage where
   parseJSON = Aeson.withObject "RampByPercentage" $ \obj -> do
-    fld_rampByPercentageRamppercentage <- parseFieldMaybe obj "rampPercentage"
+    fld_rampByPercentageRampPercentage <- parseFieldMaybe obj "rampPercentage"
     pure defaultRampByPercentage
-      { rampByPercentageRamppercentage = maybe (rampByPercentageRamppercentage defaultRampByPercentage) id fld_rampByPercentageRamppercentage
+      { rampByPercentageRampPercentage = maybe (rampByPercentageRampPercentage defaultRampByPercentage) id fld_rampByPercentageRampPercentage
       }
 
 instance Hashable RampByPercentage where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.rampByPercentageRamppercentage
+  hashWithSalt salt msg = hashWithSalt (salt) msg.rampByPercentageRampPercentage
 
 data BuildIdAssignmentRule = BuildIdAssignmentRule
-  { buildIdAssignmentRuleTargetbuildid :: !Text
+  { buildIdAssignmentRuleTargetBuildId :: !Text
   , buildIdAssignmentRuleRamp :: !(Maybe BuildIdAssignmentRule'Ramp)
-  , buildIdAssignmentRuleUnknownfields :: ![UnknownField]
+  , buildIdAssignmentRuleUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1730,24 +1730,24 @@ instance Hashable BuildIdAssignmentRule'Ramp where
 
 defaultBuildIdAssignmentRule :: BuildIdAssignmentRule
 defaultBuildIdAssignmentRule = BuildIdAssignmentRule
-  { buildIdAssignmentRuleTargetbuildid = ""
+  { buildIdAssignmentRuleTargetBuildId = ""
   , buildIdAssignmentRuleRamp = Nothing
-  , buildIdAssignmentRuleUnknownfields = []
+  , buildIdAssignmentRuleUnknownFields = []
   }
 
 instance MessageEncode BuildIdAssignmentRule where
   buildMessage msg =
-    (if msg.buildIdAssignmentRuleTargetbuildid == T.empty then mempty else encodeFieldString 1 msg.buildIdAssignmentRuleTargetbuildid)
+    (if msg.buildIdAssignmentRuleTargetBuildId == T.empty then mempty else encodeFieldString 1 msg.buildIdAssignmentRuleTargetBuildId)
     <> (case msg.buildIdAssignmentRuleRamp of
       Nothing -> mempty
       Just (BuildIdAssignmentRule'Ramp'PercentageRamp v) -> encodeFieldMessage 3 v)
-    <> encodeUnknownFields msg.buildIdAssignmentRuleUnknownfields
+    <> encodeUnknownFields msg.buildIdAssignmentRuleUnknownFields
 
 instance MessageSize BuildIdAssignmentRule where
   messageSize msg =
-    (if msg.buildIdAssignmentRuleTargetbuildid == T.empty then 0 else fieldTextSize 1 msg.buildIdAssignmentRuleTargetbuildid)
+    (if msg.buildIdAssignmentRuleTargetBuildId == T.empty then 0 else fieldTextSize 1 msg.buildIdAssignmentRuleTargetBuildId)
     + (case msg.buildIdAssignmentRuleRamp of { Nothing -> 0; Just (BuildIdAssignmentRule'Ramp'PercentageRamp v) -> fieldMessageSize 3 (messageSize v) })
-    + unknownFieldsSize msg.buildIdAssignmentRuleUnknownfields
+    + unknownFieldsSize msg.buildIdAssignmentRuleUnknownFields
 
 instance MessageDecode BuildIdAssignmentRule where
   {-# INLINE messageDecoder #-}
@@ -1756,7 +1756,7 @@ instance MessageDecode BuildIdAssignmentRule where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BuildIdAssignmentRule {buildIdAssignmentRuleTargetbuildid = acc_0, buildIdAssignmentRuleRamp = acc_1, buildIdAssignmentRuleUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BuildIdAssignmentRule {buildIdAssignmentRuleTargetBuildId = acc_0, buildIdAssignmentRuleRamp = acc_1, buildIdAssignmentRuleUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1782,8 +1782,8 @@ instance ProtoMessage BuildIdAssignmentRule where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = buildIdAssignmentRuleTargetbuildid
-        , fdSet = \v m -> m { buildIdAssignmentRuleTargetbuildid = v }
+        , fdGet = buildIdAssignmentRuleTargetBuildId
+        , fdSet = \v m -> m { buildIdAssignmentRuleTargetBuildId = v }
         }), (3, SomeField FieldDescriptor
         { fdName = "ramp"
         , fdNumber = 3
@@ -1796,48 +1796,48 @@ instance ProtoMessage BuildIdAssignmentRule where
 
 instance Aeson.ToJSON BuildIdAssignmentRule where
   toJSON msg = jsonObject
-      [ "targetBuildId" .=: msg.buildIdAssignmentRuleTargetbuildid
+      [ "targetBuildId" .=: msg.buildIdAssignmentRuleTargetBuildId
       , "ramp" .=: msg.buildIdAssignmentRuleRamp
       ]
 
 instance Aeson.FromJSON BuildIdAssignmentRule where
   parseJSON = Aeson.withObject "BuildIdAssignmentRule" $ \obj -> do
-    fld_buildIdAssignmentRuleTargetbuildid <- parseFieldMaybe obj "targetBuildId"
+    fld_buildIdAssignmentRuleTargetBuildId <- parseFieldMaybe obj "targetBuildId"
     fld_buildIdAssignmentRuleRamp <- parseFieldMaybe obj "ramp"
     pure defaultBuildIdAssignmentRule
-      { buildIdAssignmentRuleTargetbuildid = maybe (buildIdAssignmentRuleTargetbuildid defaultBuildIdAssignmentRule) id fld_buildIdAssignmentRuleTargetbuildid
+      { buildIdAssignmentRuleTargetBuildId = maybe (buildIdAssignmentRuleTargetBuildId defaultBuildIdAssignmentRule) id fld_buildIdAssignmentRuleTargetBuildId
       , buildIdAssignmentRuleRamp = maybe (buildIdAssignmentRuleRamp defaultBuildIdAssignmentRule) id fld_buildIdAssignmentRuleRamp
       }
 
 instance Hashable BuildIdAssignmentRule where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.buildIdAssignmentRuleTargetbuildid) msg.buildIdAssignmentRuleRamp
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.buildIdAssignmentRuleTargetBuildId) msg.buildIdAssignmentRuleRamp
 
 data CompatibleBuildIdRedirectRule = CompatibleBuildIdRedirectRule
-  { compatibleBuildIdRedirectRuleSourcebuildid :: !Text
-  , compatibleBuildIdRedirectRuleTargetbuildid :: !Text
-  , compatibleBuildIdRedirectRuleUnknownfields :: ![UnknownField]
+  { compatibleBuildIdRedirectRuleSourceBuildId :: !Text
+  , compatibleBuildIdRedirectRuleTargetBuildId :: !Text
+  , compatibleBuildIdRedirectRuleUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultCompatibleBuildIdRedirectRule :: CompatibleBuildIdRedirectRule
 defaultCompatibleBuildIdRedirectRule = CompatibleBuildIdRedirectRule
-  { compatibleBuildIdRedirectRuleSourcebuildid = ""
-  , compatibleBuildIdRedirectRuleTargetbuildid = ""
-  , compatibleBuildIdRedirectRuleUnknownfields = []
+  { compatibleBuildIdRedirectRuleSourceBuildId = ""
+  , compatibleBuildIdRedirectRuleTargetBuildId = ""
+  , compatibleBuildIdRedirectRuleUnknownFields = []
   }
 
 instance MessageEncode CompatibleBuildIdRedirectRule where
   buildMessage msg =
-    (if msg.compatibleBuildIdRedirectRuleSourcebuildid == T.empty then mempty else encodeFieldString 1 msg.compatibleBuildIdRedirectRuleSourcebuildid)
-    <> (if msg.compatibleBuildIdRedirectRuleTargetbuildid == T.empty then mempty else encodeFieldString 2 msg.compatibleBuildIdRedirectRuleTargetbuildid)
-    <> encodeUnknownFields msg.compatibleBuildIdRedirectRuleUnknownfields
+    (if msg.compatibleBuildIdRedirectRuleSourceBuildId == T.empty then mempty else encodeFieldString 1 msg.compatibleBuildIdRedirectRuleSourceBuildId)
+    <> (if msg.compatibleBuildIdRedirectRuleTargetBuildId == T.empty then mempty else encodeFieldString 2 msg.compatibleBuildIdRedirectRuleTargetBuildId)
+    <> encodeUnknownFields msg.compatibleBuildIdRedirectRuleUnknownFields
 
 instance MessageSize CompatibleBuildIdRedirectRule where
   messageSize msg =
-    (if msg.compatibleBuildIdRedirectRuleSourcebuildid == T.empty then 0 else fieldTextSize 1 msg.compatibleBuildIdRedirectRuleSourcebuildid)
-    + (if msg.compatibleBuildIdRedirectRuleTargetbuildid == T.empty then 0 else fieldTextSize 2 msg.compatibleBuildIdRedirectRuleTargetbuildid)
-    + unknownFieldsSize msg.compatibleBuildIdRedirectRuleUnknownfields
+    (if msg.compatibleBuildIdRedirectRuleSourceBuildId == T.empty then 0 else fieldTextSize 1 msg.compatibleBuildIdRedirectRuleSourceBuildId)
+    + (if msg.compatibleBuildIdRedirectRuleTargetBuildId == T.empty then 0 else fieldTextSize 2 msg.compatibleBuildIdRedirectRuleTargetBuildId)
+    + unknownFieldsSize msg.compatibleBuildIdRedirectRuleUnknownFields
 
 instance MessageDecode CompatibleBuildIdRedirectRule where
   {-# INLINE messageDecoder #-}
@@ -1846,7 +1846,7 @@ instance MessageDecode CompatibleBuildIdRedirectRule where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CompatibleBuildIdRedirectRule {compatibleBuildIdRedirectRuleSourcebuildid = acc_0, compatibleBuildIdRedirectRuleTargetbuildid = acc_1, compatibleBuildIdRedirectRuleUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CompatibleBuildIdRedirectRule {compatibleBuildIdRedirectRuleSourceBuildId = acc_0, compatibleBuildIdRedirectRuleTargetBuildId = acc_1, compatibleBuildIdRedirectRuleUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1872,40 +1872,40 @@ instance ProtoMessage CompatibleBuildIdRedirectRule where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = compatibleBuildIdRedirectRuleSourcebuildid
-        , fdSet = \v m -> m { compatibleBuildIdRedirectRuleSourcebuildid = v }
+        , fdGet = compatibleBuildIdRedirectRuleSourceBuildId
+        , fdSet = \v m -> m { compatibleBuildIdRedirectRuleSourceBuildId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "target_build_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = compatibleBuildIdRedirectRuleTargetbuildid
-        , fdSet = \v m -> m { compatibleBuildIdRedirectRuleTargetbuildid = v }
+        , fdGet = compatibleBuildIdRedirectRuleTargetBuildId
+        , fdSet = \v m -> m { compatibleBuildIdRedirectRuleTargetBuildId = v }
         })
     ]
 
 instance Aeson.ToJSON CompatibleBuildIdRedirectRule where
   toJSON msg = jsonObject
-      [ "sourceBuildId" .=: msg.compatibleBuildIdRedirectRuleSourcebuildid
-      , "targetBuildId" .=: msg.compatibleBuildIdRedirectRuleTargetbuildid
+      [ "sourceBuildId" .=: msg.compatibleBuildIdRedirectRuleSourceBuildId
+      , "targetBuildId" .=: msg.compatibleBuildIdRedirectRuleTargetBuildId
       ]
 
 instance Aeson.FromJSON CompatibleBuildIdRedirectRule where
   parseJSON = Aeson.withObject "CompatibleBuildIdRedirectRule" $ \obj -> do
-    fld_compatibleBuildIdRedirectRuleSourcebuildid <- parseFieldMaybe obj "sourceBuildId"
-    fld_compatibleBuildIdRedirectRuleTargetbuildid <- parseFieldMaybe obj "targetBuildId"
+    fld_compatibleBuildIdRedirectRuleSourceBuildId <- parseFieldMaybe obj "sourceBuildId"
+    fld_compatibleBuildIdRedirectRuleTargetBuildId <- parseFieldMaybe obj "targetBuildId"
     pure defaultCompatibleBuildIdRedirectRule
-      { compatibleBuildIdRedirectRuleSourcebuildid = maybe (compatibleBuildIdRedirectRuleSourcebuildid defaultCompatibleBuildIdRedirectRule) id fld_compatibleBuildIdRedirectRuleSourcebuildid
-      , compatibleBuildIdRedirectRuleTargetbuildid = maybe (compatibleBuildIdRedirectRuleTargetbuildid defaultCompatibleBuildIdRedirectRule) id fld_compatibleBuildIdRedirectRuleTargetbuildid
+      { compatibleBuildIdRedirectRuleSourceBuildId = maybe (compatibleBuildIdRedirectRuleSourceBuildId defaultCompatibleBuildIdRedirectRule) id fld_compatibleBuildIdRedirectRuleSourceBuildId
+      , compatibleBuildIdRedirectRuleTargetBuildId = maybe (compatibleBuildIdRedirectRuleTargetBuildId defaultCompatibleBuildIdRedirectRule) id fld_compatibleBuildIdRedirectRuleTargetBuildId
       }
 
 instance Hashable CompatibleBuildIdRedirectRule where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.compatibleBuildIdRedirectRuleSourcebuildid) msg.compatibleBuildIdRedirectRuleTargetbuildid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.compatibleBuildIdRedirectRuleSourceBuildId) msg.compatibleBuildIdRedirectRuleTargetBuildId
 
 data TimestampedBuildIdAssignmentRule = TimestampedBuildIdAssignmentRule
   { timestampedBuildIdAssignmentRuleRule :: !(Maybe BuildIdAssignmentRule)
-  , timestampedBuildIdAssignmentRuleCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , timestampedBuildIdAssignmentRuleUnknownfields :: ![UnknownField]
+  , timestampedBuildIdAssignmentRuleCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , timestampedBuildIdAssignmentRuleUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1913,21 +1913,21 @@ data TimestampedBuildIdAssignmentRule = TimestampedBuildIdAssignmentRule
 defaultTimestampedBuildIdAssignmentRule :: TimestampedBuildIdAssignmentRule
 defaultTimestampedBuildIdAssignmentRule = TimestampedBuildIdAssignmentRule
   { timestampedBuildIdAssignmentRuleRule = Nothing
-  , timestampedBuildIdAssignmentRuleCreatetime = Nothing
-  , timestampedBuildIdAssignmentRuleUnknownfields = []
+  , timestampedBuildIdAssignmentRuleCreateTime = Nothing
+  , timestampedBuildIdAssignmentRuleUnknownFields = []
   }
 
 instance MessageEncode TimestampedBuildIdAssignmentRule where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.timestampedBuildIdAssignmentRuleRule)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.timestampedBuildIdAssignmentRuleCreatetime)
-    <> encodeUnknownFields msg.timestampedBuildIdAssignmentRuleUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.timestampedBuildIdAssignmentRuleCreateTime)
+    <> encodeUnknownFields msg.timestampedBuildIdAssignmentRuleUnknownFields
 
 instance MessageSize TimestampedBuildIdAssignmentRule where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.timestampedBuildIdAssignmentRuleRule)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.timestampedBuildIdAssignmentRuleCreatetime)
-    + unknownFieldsSize msg.timestampedBuildIdAssignmentRuleUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.timestampedBuildIdAssignmentRuleCreateTime)
+    + unknownFieldsSize msg.timestampedBuildIdAssignmentRuleUnknownFields
 
 instance MessageDecode TimestampedBuildIdAssignmentRule where
   {-# INLINE messageDecoder #-}
@@ -1936,7 +1936,7 @@ instance MessageDecode TimestampedBuildIdAssignmentRule where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TimestampedBuildIdAssignmentRule {timestampedBuildIdAssignmentRuleRule = acc_0, timestampedBuildIdAssignmentRuleCreatetime = acc_1, timestampedBuildIdAssignmentRuleUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TimestampedBuildIdAssignmentRule {timestampedBuildIdAssignmentRuleRule = acc_0, timestampedBuildIdAssignmentRuleCreateTime = acc_1, timestampedBuildIdAssignmentRuleUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1969,33 +1969,33 @@ instance ProtoMessage TimestampedBuildIdAssignmentRule where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = timestampedBuildIdAssignmentRuleCreatetime
-        , fdSet = \v m -> m { timestampedBuildIdAssignmentRuleCreatetime = v }
+        , fdGet = timestampedBuildIdAssignmentRuleCreateTime
+        , fdSet = \v m -> m { timestampedBuildIdAssignmentRuleCreateTime = v }
         })
     ]
 
 instance Aeson.ToJSON TimestampedBuildIdAssignmentRule where
   toJSON msg = jsonObject
       [ "rule" .=: msg.timestampedBuildIdAssignmentRuleRule
-      , "createTime" .=: msg.timestampedBuildIdAssignmentRuleCreatetime
+      , "createTime" .=: msg.timestampedBuildIdAssignmentRuleCreateTime
       ]
 
 instance Aeson.FromJSON TimestampedBuildIdAssignmentRule where
   parseJSON = Aeson.withObject "TimestampedBuildIdAssignmentRule" $ \obj -> do
     fld_timestampedBuildIdAssignmentRuleRule <- parseFieldMaybe obj "rule"
-    fld_timestampedBuildIdAssignmentRuleCreatetime <- parseFieldMaybe obj "createTime"
+    fld_timestampedBuildIdAssignmentRuleCreateTime <- parseFieldMaybe obj "createTime"
     pure defaultTimestampedBuildIdAssignmentRule
       { timestampedBuildIdAssignmentRuleRule = maybe (timestampedBuildIdAssignmentRuleRule defaultTimestampedBuildIdAssignmentRule) id fld_timestampedBuildIdAssignmentRuleRule
-      , timestampedBuildIdAssignmentRuleCreatetime = maybe (timestampedBuildIdAssignmentRuleCreatetime defaultTimestampedBuildIdAssignmentRule) id fld_timestampedBuildIdAssignmentRuleCreatetime
+      , timestampedBuildIdAssignmentRuleCreateTime = maybe (timestampedBuildIdAssignmentRuleCreateTime defaultTimestampedBuildIdAssignmentRule) id fld_timestampedBuildIdAssignmentRuleCreateTime
       }
 
 instance Hashable TimestampedBuildIdAssignmentRule where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timestampedBuildIdAssignmentRuleRule) msg.timestampedBuildIdAssignmentRuleCreatetime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timestampedBuildIdAssignmentRuleRule) msg.timestampedBuildIdAssignmentRuleCreateTime
 
 data TimestampedCompatibleBuildIdRedirectRule = TimestampedCompatibleBuildIdRedirectRule
   { timestampedCompatibleBuildIdRedirectRuleRule :: !(Maybe CompatibleBuildIdRedirectRule)
-  , timestampedCompatibleBuildIdRedirectRuleCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , timestampedCompatibleBuildIdRedirectRuleUnknownfields :: ![UnknownField]
+  , timestampedCompatibleBuildIdRedirectRuleCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , timestampedCompatibleBuildIdRedirectRuleUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2003,21 +2003,21 @@ data TimestampedCompatibleBuildIdRedirectRule = TimestampedCompatibleBuildIdRedi
 defaultTimestampedCompatibleBuildIdRedirectRule :: TimestampedCompatibleBuildIdRedirectRule
 defaultTimestampedCompatibleBuildIdRedirectRule = TimestampedCompatibleBuildIdRedirectRule
   { timestampedCompatibleBuildIdRedirectRuleRule = Nothing
-  , timestampedCompatibleBuildIdRedirectRuleCreatetime = Nothing
-  , timestampedCompatibleBuildIdRedirectRuleUnknownfields = []
+  , timestampedCompatibleBuildIdRedirectRuleCreateTime = Nothing
+  , timestampedCompatibleBuildIdRedirectRuleUnknownFields = []
   }
 
 instance MessageEncode TimestampedCompatibleBuildIdRedirectRule where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.timestampedCompatibleBuildIdRedirectRuleRule)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.timestampedCompatibleBuildIdRedirectRuleCreatetime)
-    <> encodeUnknownFields msg.timestampedCompatibleBuildIdRedirectRuleUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.timestampedCompatibleBuildIdRedirectRuleCreateTime)
+    <> encodeUnknownFields msg.timestampedCompatibleBuildIdRedirectRuleUnknownFields
 
 instance MessageSize TimestampedCompatibleBuildIdRedirectRule where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.timestampedCompatibleBuildIdRedirectRuleRule)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.timestampedCompatibleBuildIdRedirectRuleCreatetime)
-    + unknownFieldsSize msg.timestampedCompatibleBuildIdRedirectRuleUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.timestampedCompatibleBuildIdRedirectRuleCreateTime)
+    + unknownFieldsSize msg.timestampedCompatibleBuildIdRedirectRuleUnknownFields
 
 instance MessageDecode TimestampedCompatibleBuildIdRedirectRule where
   {-# INLINE messageDecoder #-}
@@ -2026,7 +2026,7 @@ instance MessageDecode TimestampedCompatibleBuildIdRedirectRule where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TimestampedCompatibleBuildIdRedirectRule {timestampedCompatibleBuildIdRedirectRuleRule = acc_0, timestampedCompatibleBuildIdRedirectRuleCreatetime = acc_1, timestampedCompatibleBuildIdRedirectRuleUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TimestampedCompatibleBuildIdRedirectRule {timestampedCompatibleBuildIdRedirectRuleRule = acc_0, timestampedCompatibleBuildIdRedirectRuleCreateTime = acc_1, timestampedCompatibleBuildIdRedirectRuleUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2059,51 +2059,51 @@ instance ProtoMessage TimestampedCompatibleBuildIdRedirectRule where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = timestampedCompatibleBuildIdRedirectRuleCreatetime
-        , fdSet = \v m -> m { timestampedCompatibleBuildIdRedirectRuleCreatetime = v }
+        , fdGet = timestampedCompatibleBuildIdRedirectRuleCreateTime
+        , fdSet = \v m -> m { timestampedCompatibleBuildIdRedirectRuleCreateTime = v }
         })
     ]
 
 instance Aeson.ToJSON TimestampedCompatibleBuildIdRedirectRule where
   toJSON msg = jsonObject
       [ "rule" .=: msg.timestampedCompatibleBuildIdRedirectRuleRule
-      , "createTime" .=: msg.timestampedCompatibleBuildIdRedirectRuleCreatetime
+      , "createTime" .=: msg.timestampedCompatibleBuildIdRedirectRuleCreateTime
       ]
 
 instance Aeson.FromJSON TimestampedCompatibleBuildIdRedirectRule where
   parseJSON = Aeson.withObject "TimestampedCompatibleBuildIdRedirectRule" $ \obj -> do
     fld_timestampedCompatibleBuildIdRedirectRuleRule <- parseFieldMaybe obj "rule"
-    fld_timestampedCompatibleBuildIdRedirectRuleCreatetime <- parseFieldMaybe obj "createTime"
+    fld_timestampedCompatibleBuildIdRedirectRuleCreateTime <- parseFieldMaybe obj "createTime"
     pure defaultTimestampedCompatibleBuildIdRedirectRule
       { timestampedCompatibleBuildIdRedirectRuleRule = maybe (timestampedCompatibleBuildIdRedirectRuleRule defaultTimestampedCompatibleBuildIdRedirectRule) id fld_timestampedCompatibleBuildIdRedirectRuleRule
-      , timestampedCompatibleBuildIdRedirectRuleCreatetime = maybe (timestampedCompatibleBuildIdRedirectRuleCreatetime defaultTimestampedCompatibleBuildIdRedirectRule) id fld_timestampedCompatibleBuildIdRedirectRuleCreatetime
+      , timestampedCompatibleBuildIdRedirectRuleCreateTime = maybe (timestampedCompatibleBuildIdRedirectRuleCreateTime defaultTimestampedCompatibleBuildIdRedirectRule) id fld_timestampedCompatibleBuildIdRedirectRuleCreateTime
       }
 
 instance Hashable TimestampedCompatibleBuildIdRedirectRule where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timestampedCompatibleBuildIdRedirectRuleRule) msg.timestampedCompatibleBuildIdRedirectRuleCreatetime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timestampedCompatibleBuildIdRedirectRuleRule) msg.timestampedCompatibleBuildIdRedirectRuleCreateTime
 
 data PollerScalingDecision = PollerScalingDecision
-  { pollerScalingDecisionPollrequestdeltasuggestion :: {-# UNPACK #-} !Int32
-  , pollerScalingDecisionUnknownfields :: ![UnknownField]
+  { pollerScalingDecisionPollRequestDeltaSuggestion :: {-# UNPACK #-} !Int32
+  , pollerScalingDecisionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPollerScalingDecision :: PollerScalingDecision
 defaultPollerScalingDecision = PollerScalingDecision
-  { pollerScalingDecisionPollrequestdeltasuggestion = 0
-  , pollerScalingDecisionUnknownfields = []
+  { pollerScalingDecisionPollRequestDeltaSuggestion = 0
+  , pollerScalingDecisionUnknownFields = []
   }
 
 instance MessageEncode PollerScalingDecision where
   buildMessage msg =
-    (if msg.pollerScalingDecisionPollrequestdeltasuggestion == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.pollerScalingDecisionPollrequestdeltasuggestion))
-    <> encodeUnknownFields msg.pollerScalingDecisionUnknownfields
+    (if msg.pollerScalingDecisionPollRequestDeltaSuggestion == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.pollerScalingDecisionPollRequestDeltaSuggestion))
+    <> encodeUnknownFields msg.pollerScalingDecisionUnknownFields
 
 instance MessageSize PollerScalingDecision where
   messageSize msg =
-    (if msg.pollerScalingDecisionPollrequestdeltasuggestion == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.pollerScalingDecisionPollrequestdeltasuggestion))
-    + unknownFieldsSize msg.pollerScalingDecisionUnknownfields
+    (if msg.pollerScalingDecisionPollRequestDeltaSuggestion == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.pollerScalingDecisionPollRequestDeltaSuggestion))
+    + unknownFieldsSize msg.pollerScalingDecisionUnknownFields
 
 instance MessageDecode PollerScalingDecision where
   {-# INLINE messageDecoder #-}
@@ -2112,7 +2112,7 @@ instance MessageDecode PollerScalingDecision where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PollerScalingDecision {pollerScalingDecisionPollrequestdeltasuggestion = acc_0, pollerScalingDecisionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PollerScalingDecision {pollerScalingDecisionPollRequestDeltaSuggestion = acc_0, pollerScalingDecisionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -2135,49 +2135,49 @@ instance ProtoMessage PollerScalingDecision where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = pollerScalingDecisionPollrequestdeltasuggestion
-        , fdSet = \v m -> m { pollerScalingDecisionPollrequestdeltasuggestion = v }
+        , fdGet = pollerScalingDecisionPollRequestDeltaSuggestion
+        , fdSet = \v m -> m { pollerScalingDecisionPollRequestDeltaSuggestion = v }
         })
     ]
 
 instance Aeson.ToJSON PollerScalingDecision where
   toJSON msg = jsonObject
-      [ "pollRequestDeltaSuggestion" .=: msg.pollerScalingDecisionPollrequestdeltasuggestion
+      [ "pollRequestDeltaSuggestion" .=: msg.pollerScalingDecisionPollRequestDeltaSuggestion
 
       ]
 
 instance Aeson.FromJSON PollerScalingDecision where
   parseJSON = Aeson.withObject "PollerScalingDecision" $ \obj -> do
-    fld_pollerScalingDecisionPollrequestdeltasuggestion <- parseFieldMaybe obj "pollRequestDeltaSuggestion"
+    fld_pollerScalingDecisionPollRequestDeltaSuggestion <- parseFieldMaybe obj "pollRequestDeltaSuggestion"
     pure defaultPollerScalingDecision
-      { pollerScalingDecisionPollrequestdeltasuggestion = maybe (pollerScalingDecisionPollrequestdeltasuggestion defaultPollerScalingDecision) id fld_pollerScalingDecisionPollrequestdeltasuggestion
+      { pollerScalingDecisionPollRequestDeltaSuggestion = maybe (pollerScalingDecisionPollRequestDeltaSuggestion defaultPollerScalingDecision) id fld_pollerScalingDecisionPollRequestDeltaSuggestion
       }
 
 instance Hashable PollerScalingDecision where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.pollerScalingDecisionPollrequestdeltasuggestion
+  hashWithSalt salt msg = hashWithSalt (salt) msg.pollerScalingDecisionPollRequestDeltaSuggestion
 
 data RateLimit = RateLimit
-  { rateLimitRequestspersecond :: {-# UNPACK #-} !Float
-  , rateLimitUnknownfields :: ![UnknownField]
+  { rateLimitRequestsPerSecond :: {-# UNPACK #-} !Float
+  , rateLimitUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRateLimit :: RateLimit
 defaultRateLimit = RateLimit
-  { rateLimitRequestspersecond = 0
-  , rateLimitUnknownfields = []
+  { rateLimitRequestsPerSecond = 0
+  , rateLimitUnknownFields = []
   }
 
 instance MessageEncode RateLimit where
   buildMessage msg =
-    (if msg.rateLimitRequestspersecond == 0 then mempty else encodeFieldFloat 1 msg.rateLimitRequestspersecond)
-    <> encodeUnknownFields msg.rateLimitUnknownfields
+    (if msg.rateLimitRequestsPerSecond == 0 then mempty else encodeFieldFloat 1 msg.rateLimitRequestsPerSecond)
+    <> encodeUnknownFields msg.rateLimitUnknownFields
 
 instance MessageSize RateLimit where
   messageSize msg =
-    (if msg.rateLimitRequestspersecond == 0 then 0 else fieldFloatSize 1)
-    + unknownFieldsSize msg.rateLimitUnknownfields
+    (if msg.rateLimitRequestsPerSecond == 0 then 0 else fieldFloatSize 1)
+    + unknownFieldsSize msg.rateLimitUnknownFields
 
 instance MessageDecode RateLimit where
   {-# INLINE messageDecoder #-}
@@ -2186,7 +2186,7 @@ instance MessageDecode RateLimit where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RateLimit {rateLimitRequestspersecond = acc_0, rateLimitUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RateLimit {rateLimitRequestsPerSecond = acc_0, rateLimitUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldFloat
@@ -2209,32 +2209,32 @@ instance ProtoMessage RateLimit where
         , fdNumber = 1
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = rateLimitRequestspersecond
-        , fdSet = \v m -> m { rateLimitRequestspersecond = v }
+        , fdGet = rateLimitRequestsPerSecond
+        , fdSet = \v m -> m { rateLimitRequestsPerSecond = v }
         })
     ]
 
 instance Aeson.ToJSON RateLimit where
   toJSON msg = jsonObject
-      [ "requestsPerSecond" .=: msg.rateLimitRequestspersecond
+      [ "requestsPerSecond" .=: msg.rateLimitRequestsPerSecond
 
       ]
 
 instance Aeson.FromJSON RateLimit where
   parseJSON = Aeson.withObject "RateLimit" $ \obj -> do
-    fld_rateLimitRequestspersecond <- parseFieldMaybe obj "requestsPerSecond"
+    fld_rateLimitRequestsPerSecond <- parseFieldMaybe obj "requestsPerSecond"
     pure defaultRateLimit
-      { rateLimitRequestspersecond = maybe (rateLimitRequestspersecond defaultRateLimit) id fld_rateLimitRequestspersecond
+      { rateLimitRequestsPerSecond = maybe (rateLimitRequestsPerSecond defaultRateLimit) id fld_rateLimitRequestsPerSecond
       }
 
 instance Hashable RateLimit where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.rateLimitRequestspersecond
+  hashWithSalt salt msg = hashWithSalt (salt) msg.rateLimitRequestsPerSecond
 
 data ConfigMetadata = ConfigMetadata
   { configMetadataReason :: !Text
-  , configMetadataUpdateidentity :: !Text
-  , configMetadataUpdatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , configMetadataUnknownfields :: ![UnknownField]
+  , configMetadataUpdateIdentity :: !Text
+  , configMetadataUpdateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , configMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2242,24 +2242,24 @@ data ConfigMetadata = ConfigMetadata
 defaultConfigMetadata :: ConfigMetadata
 defaultConfigMetadata = ConfigMetadata
   { configMetadataReason = ""
-  , configMetadataUpdateidentity = ""
-  , configMetadataUpdatetime = Nothing
-  , configMetadataUnknownfields = []
+  , configMetadataUpdateIdentity = ""
+  , configMetadataUpdateTime = Nothing
+  , configMetadataUnknownFields = []
   }
 
 instance MessageEncode ConfigMetadata where
   buildMessage msg =
     (if msg.configMetadataReason == T.empty then mempty else encodeFieldString 1 msg.configMetadataReason)
-    <> (if msg.configMetadataUpdateidentity == T.empty then mempty else encodeFieldString 2 msg.configMetadataUpdateidentity)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.configMetadataUpdatetime)
-    <> encodeUnknownFields msg.configMetadataUnknownfields
+    <> (if msg.configMetadataUpdateIdentity == T.empty then mempty else encodeFieldString 2 msg.configMetadataUpdateIdentity)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.configMetadataUpdateTime)
+    <> encodeUnknownFields msg.configMetadataUnknownFields
 
 instance MessageSize ConfigMetadata where
   messageSize msg =
     (if msg.configMetadataReason == T.empty then 0 else fieldTextSize 1 msg.configMetadataReason)
-    + (if msg.configMetadataUpdateidentity == T.empty then 0 else fieldTextSize 2 msg.configMetadataUpdateidentity)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.configMetadataUpdatetime)
-    + unknownFieldsSize msg.configMetadataUnknownfields
+    + (if msg.configMetadataUpdateIdentity == T.empty then 0 else fieldTextSize 2 msg.configMetadataUpdateIdentity)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.configMetadataUpdateTime)
+    + unknownFieldsSize msg.configMetadataUnknownFields
 
 instance MessageDecode ConfigMetadata where
   {-# INLINE messageDecoder #-}
@@ -2268,7 +2268,7 @@ instance MessageDecode ConfigMetadata where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ConfigMetadata {configMetadataReason = acc_0, configMetadataUpdateidentity = acc_1, configMetadataUpdatetime = acc_2, configMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ConfigMetadata {configMetadataReason = acc_0, configMetadataUpdateIdentity = acc_1, configMetadataUpdateTime = acc_2, configMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2304,66 +2304,66 @@ instance ProtoMessage ConfigMetadata where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = configMetadataUpdateidentity
-        , fdSet = \v m -> m { configMetadataUpdateidentity = v }
+        , fdGet = configMetadataUpdateIdentity
+        , fdSet = \v m -> m { configMetadataUpdateIdentity = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "update_time"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = configMetadataUpdatetime
-        , fdSet = \v m -> m { configMetadataUpdatetime = v }
+        , fdGet = configMetadataUpdateTime
+        , fdSet = \v m -> m { configMetadataUpdateTime = v }
         })
     ]
 
 instance Aeson.ToJSON ConfigMetadata where
   toJSON msg = jsonObject
       [ "reason" .=: msg.configMetadataReason
-      , "updateIdentity" .=: msg.configMetadataUpdateidentity
-      , "updateTime" .=: msg.configMetadataUpdatetime
+      , "updateIdentity" .=: msg.configMetadataUpdateIdentity
+      , "updateTime" .=: msg.configMetadataUpdateTime
       ]
 
 instance Aeson.FromJSON ConfigMetadata where
   parseJSON = Aeson.withObject "ConfigMetadata" $ \obj -> do
     fld_configMetadataReason <- parseFieldMaybe obj "reason"
-    fld_configMetadataUpdateidentity <- parseFieldMaybe obj "updateIdentity"
-    fld_configMetadataUpdatetime <- parseFieldMaybe obj "updateTime"
+    fld_configMetadataUpdateIdentity <- parseFieldMaybe obj "updateIdentity"
+    fld_configMetadataUpdateTime <- parseFieldMaybe obj "updateTime"
     pure defaultConfigMetadata
       { configMetadataReason = maybe (configMetadataReason defaultConfigMetadata) id fld_configMetadataReason
-      , configMetadataUpdateidentity = maybe (configMetadataUpdateidentity defaultConfigMetadata) id fld_configMetadataUpdateidentity
-      , configMetadataUpdatetime = maybe (configMetadataUpdatetime defaultConfigMetadata) id fld_configMetadataUpdatetime
+      , configMetadataUpdateIdentity = maybe (configMetadataUpdateIdentity defaultConfigMetadata) id fld_configMetadataUpdateIdentity
+      , configMetadataUpdateTime = maybe (configMetadataUpdateTime defaultConfigMetadata) id fld_configMetadataUpdateTime
       }
 
 instance Hashable ConfigMetadata where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.configMetadataReason) msg.configMetadataUpdateidentity) msg.configMetadataUpdatetime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.configMetadataReason) msg.configMetadataUpdateIdentity) msg.configMetadataUpdateTime
 
 data RateLimitConfig = RateLimitConfig
-  { rateLimitConfigRatelimit :: !(Maybe RateLimit)
+  { rateLimitConfigRateLimit :: !(Maybe RateLimit)
   , rateLimitConfigMetadata :: !(Maybe ConfigMetadata)
-  , rateLimitConfigUnknownfields :: ![UnknownField]
+  , rateLimitConfigUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRateLimitConfig :: RateLimitConfig
 defaultRateLimitConfig = RateLimitConfig
-  { rateLimitConfigRatelimit = Nothing
+  { rateLimitConfigRateLimit = Nothing
   , rateLimitConfigMetadata = Nothing
-  , rateLimitConfigUnknownfields = []
+  , rateLimitConfigUnknownFields = []
   }
 
 instance MessageEncode RateLimitConfig where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.rateLimitConfigRatelimit)
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.rateLimitConfigRateLimit)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.rateLimitConfigMetadata)
-    <> encodeUnknownFields msg.rateLimitConfigUnknownfields
+    <> encodeUnknownFields msg.rateLimitConfigUnknownFields
 
 instance MessageSize RateLimitConfig where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.rateLimitConfigRatelimit)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.rateLimitConfigRateLimit)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.rateLimitConfigMetadata)
-    + unknownFieldsSize msg.rateLimitConfigUnknownfields
+    + unknownFieldsSize msg.rateLimitConfigUnknownFields
 
 instance MessageDecode RateLimitConfig where
   {-# INLINE messageDecoder #-}
@@ -2372,7 +2372,7 @@ instance MessageDecode RateLimitConfig where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RateLimitConfig {rateLimitConfigRatelimit = acc_0, rateLimitConfigMetadata = acc_1, rateLimitConfigUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RateLimitConfig {rateLimitConfigRateLimit = acc_0, rateLimitConfigMetadata = acc_1, rateLimitConfigUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2398,8 +2398,8 @@ instance ProtoMessage RateLimitConfig where
         , fdNumber = 1
         , fdTypeDesc = MessageType "RateLimit"
         , fdLabel = LabelOptional
-        , fdGet = rateLimitConfigRatelimit
-        , fdSet = \v m -> m { rateLimitConfigRatelimit = v }
+        , fdGet = rateLimitConfigRateLimit
+        , fdSet = \v m -> m { rateLimitConfigRateLimit = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "metadata"
         , fdNumber = 2
@@ -2412,52 +2412,52 @@ instance ProtoMessage RateLimitConfig where
 
 instance Aeson.ToJSON RateLimitConfig where
   toJSON msg = jsonObject
-      [ "rateLimit" .=: msg.rateLimitConfigRatelimit
+      [ "rateLimit" .=: msg.rateLimitConfigRateLimit
       , "metadata" .=: msg.rateLimitConfigMetadata
       ]
 
 instance Aeson.FromJSON RateLimitConfig where
   parseJSON = Aeson.withObject "RateLimitConfig" $ \obj -> do
-    fld_rateLimitConfigRatelimit <- parseFieldMaybe obj "rateLimit"
+    fld_rateLimitConfigRateLimit <- parseFieldMaybe obj "rateLimit"
     fld_rateLimitConfigMetadata <- parseFieldMaybe obj "metadata"
     pure defaultRateLimitConfig
-      { rateLimitConfigRatelimit = maybe (rateLimitConfigRatelimit defaultRateLimitConfig) id fld_rateLimitConfigRatelimit
+      { rateLimitConfigRateLimit = maybe (rateLimitConfigRateLimit defaultRateLimitConfig) id fld_rateLimitConfigRateLimit
       , rateLimitConfigMetadata = maybe (rateLimitConfigMetadata defaultRateLimitConfig) id fld_rateLimitConfigMetadata
       }
 
 instance Hashable RateLimitConfig where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.rateLimitConfigRatelimit) msg.rateLimitConfigMetadata
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.rateLimitConfigRateLimit) msg.rateLimitConfigMetadata
 
 data TaskQueueConfig = TaskQueueConfig
-  { taskQueueConfigQueueratelimit :: !(Maybe RateLimitConfig)
-  , taskQueueConfigFairnesskeysratelimitdefault :: !(Maybe RateLimitConfig)
-  , taskQueueConfigFairnessweightoverrides :: !(Map.Map Text Float)
-  , taskQueueConfigUnknownfields :: ![UnknownField]
+  { taskQueueConfigQueueRateLimit :: !(Maybe RateLimitConfig)
+  , taskQueueConfigFairnessKeysRateLimitDefault :: !(Maybe RateLimitConfig)
+  , taskQueueConfigFairnessWeightOverrides :: !(Map.Map Text Float)
+  , taskQueueConfigUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTaskQueueConfig :: TaskQueueConfig
 defaultTaskQueueConfig = TaskQueueConfig
-  { taskQueueConfigQueueratelimit = Nothing
-  , taskQueueConfigFairnesskeysratelimitdefault = Nothing
-  , taskQueueConfigFairnessweightoverrides = Map.empty
-  , taskQueueConfigUnknownfields = []
+  { taskQueueConfigQueueRateLimit = Nothing
+  , taskQueueConfigFairnessKeysRateLimitDefault = Nothing
+  , taskQueueConfigFairnessWeightOverrides = Map.empty
+  , taskQueueConfigUnknownFields = []
   }
 
 instance MessageEncode TaskQueueConfig where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.taskQueueConfigQueueratelimit)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.taskQueueConfigFairnesskeysratelimitdefault)
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 3 (encodeFieldString 1 k) (encodeFieldFloat 2 v)) mempty msg.taskQueueConfigFairnessweightoverrides
-    <> encodeUnknownFields msg.taskQueueConfigUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.taskQueueConfigQueueRateLimit)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.taskQueueConfigFairnessKeysRateLimitDefault)
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 3 (encodeFieldString 1 k) (encodeFieldFloat 2 v)) mempty msg.taskQueueConfigFairnessWeightOverrides
+    <> encodeUnknownFields msg.taskQueueConfigUnknownFields
 
 instance MessageSize TaskQueueConfig where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.taskQueueConfigQueueratelimit)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.taskQueueConfigFairnesskeysratelimitdefault)
-    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldFloatSize 2 in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.taskQueueConfigFairnessweightoverrides)
-    + unknownFieldsSize msg.taskQueueConfigUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.taskQueueConfigQueueRateLimit)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.taskQueueConfigFairnessKeysRateLimitDefault)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldFloatSize 2 in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.taskQueueConfigFairnessWeightOverrides)
+    + unknownFieldsSize msg.taskQueueConfigUnknownFields
 
 instance MessageDecode TaskQueueConfig where
   {-# INLINE messageDecoder #-}
@@ -2466,7 +2466,7 @@ instance MessageDecode TaskQueueConfig where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TaskQueueConfig {taskQueueConfigQueueratelimit = acc_0, taskQueueConfigFairnesskeysratelimitdefault = acc_1, taskQueueConfigFairnessweightoverrides = acc_2, taskQueueConfigUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TaskQueueConfig {taskQueueConfigQueueRateLimit = acc_0, taskQueueConfigFairnessKeysRateLimitDefault = acc_1, taskQueueConfigFairnessWeightOverrides = acc_2, taskQueueConfigUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2498,46 +2498,46 @@ instance ProtoMessage TaskQueueConfig where
         , fdNumber = 1
         , fdTypeDesc = MessageType "RateLimitConfig"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueConfigQueueratelimit
-        , fdSet = \v m -> m { taskQueueConfigQueueratelimit = v }
+        , fdGet = taskQueueConfigQueueRateLimit
+        , fdSet = \v m -> m { taskQueueConfigQueueRateLimit = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "fairness_keys_rate_limit_default"
         , fdNumber = 2
         , fdTypeDesc = MessageType "RateLimitConfig"
         , fdLabel = LabelOptional
-        , fdGet = taskQueueConfigFairnesskeysratelimitdefault
-        , fdSet = \v m -> m { taskQueueConfigFairnesskeysratelimitdefault = v }
+        , fdGet = taskQueueConfigFairnessKeysRateLimitDefault
+        , fdSet = \v m -> m { taskQueueConfigFairnessKeysRateLimitDefault = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "fairness_weight_overrides"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = taskQueueConfigFairnessweightoverrides
-        , fdSet = \v m -> m { taskQueueConfigFairnessweightoverrides = v }
+        , fdGet = taskQueueConfigFairnessWeightOverrides
+        , fdSet = \v m -> m { taskQueueConfigFairnessWeightOverrides = v }
         })
     ]
 
 instance Aeson.ToJSON TaskQueueConfig where
   toJSON msg = jsonObject
-      [ "queueRateLimit" .=: msg.taskQueueConfigQueueratelimit
-      , "fairnessKeysRateLimitDefault" .=: msg.taskQueueConfigFairnesskeysratelimitdefault
-      , "fairnessWeightOverrides" .=: msg.taskQueueConfigFairnessweightoverrides
+      [ "queueRateLimit" .=: msg.taskQueueConfigQueueRateLimit
+      , "fairnessKeysRateLimitDefault" .=: msg.taskQueueConfigFairnessKeysRateLimitDefault
+      , "fairnessWeightOverrides" .=: msg.taskQueueConfigFairnessWeightOverrides
       ]
 
 instance Aeson.FromJSON TaskQueueConfig where
   parseJSON = Aeson.withObject "TaskQueueConfig" $ \obj -> do
-    fld_taskQueueConfigQueueratelimit <- parseFieldMaybe obj "queueRateLimit"
-    fld_taskQueueConfigFairnesskeysratelimitdefault <- parseFieldMaybe obj "fairnessKeysRateLimitDefault"
-    fld_taskQueueConfigFairnessweightoverrides <- parseFieldMaybe obj "fairnessWeightOverrides"
+    fld_taskQueueConfigQueueRateLimit <- parseFieldMaybe obj "queueRateLimit"
+    fld_taskQueueConfigFairnessKeysRateLimitDefault <- parseFieldMaybe obj "fairnessKeysRateLimitDefault"
+    fld_taskQueueConfigFairnessWeightOverrides <- parseFieldMaybe obj "fairnessWeightOverrides"
     pure defaultTaskQueueConfig
-      { taskQueueConfigQueueratelimit = maybe (taskQueueConfigQueueratelimit defaultTaskQueueConfig) id fld_taskQueueConfigQueueratelimit
-      , taskQueueConfigFairnesskeysratelimitdefault = maybe (taskQueueConfigFairnesskeysratelimitdefault defaultTaskQueueConfig) id fld_taskQueueConfigFairnesskeysratelimitdefault
-      , taskQueueConfigFairnessweightoverrides = maybe (taskQueueConfigFairnessweightoverrides defaultTaskQueueConfig) id fld_taskQueueConfigFairnessweightoverrides
+      { taskQueueConfigQueueRateLimit = maybe (taskQueueConfigQueueRateLimit defaultTaskQueueConfig) id fld_taskQueueConfigQueueRateLimit
+      , taskQueueConfigFairnessKeysRateLimitDefault = maybe (taskQueueConfigFairnessKeysRateLimitDefault defaultTaskQueueConfig) id fld_taskQueueConfigFairnessKeysRateLimitDefault
+      , taskQueueConfigFairnessWeightOverrides = maybe (taskQueueConfigFairnessWeightOverrides defaultTaskQueueConfig) id fld_taskQueueConfigFairnessWeightOverrides
       }
 
 instance Hashable TaskQueueConfig where
-  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (salt) msg.taskQueueConfigQueueratelimit) msg.taskQueueConfigFairnesskeysratelimitdefault) msg.taskQueueConfigFairnessweightoverrides
+  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (salt) msg.taskQueueConfigQueueRateLimit) msg.taskQueueConfigFairnessKeysRateLimitDefault) msg.taskQueueConfigFairnessWeightOverrides
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

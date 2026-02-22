@@ -60,29 +60,29 @@ fileDescriptorProtoBytes = case Base16.decode "0a2374656d706f72616c2f6170692f727
 
 data WorkflowRuleAction = WorkflowRuleAction
   { workflowRuleActionVariant :: !(Maybe WorkflowRuleAction'Variant)
-  , workflowRuleActionUnknownfields :: ![UnknownField]
+  , workflowRuleActionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data WorkflowRuleAction'ActionActivityPause = WorkflowRuleAction'ActionActivityPause
-  { workflowRuleActionActionActivityPauseUnknownfields :: ![UnknownField]
+  { workflowRuleActionActionActivityPauseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowRuleAction'ActionActivityPause :: WorkflowRuleAction'ActionActivityPause
 defaultWorkflowRuleAction'ActionActivityPause = WorkflowRuleAction'ActionActivityPause
-  { workflowRuleActionActionActivityPauseUnknownfields = []
+  { workflowRuleActionActionActivityPauseUnknownFields = []
   }
 
 instance MessageEncode WorkflowRuleAction'ActionActivityPause where
   buildMessage msg =
-    encodeUnknownFields msg.workflowRuleActionActionActivityPauseUnknownfields
+    encodeUnknownFields msg.workflowRuleActionActionActivityPauseUnknownFields
 
 instance MessageSize WorkflowRuleAction'ActionActivityPause where
   messageSize msg =
-    unknownFieldsSize msg.workflowRuleActionActionActivityPauseUnknownfields
+    unknownFieldsSize msg.workflowRuleActionActionActivityPauseUnknownFields
 
 instance MessageDecode WorkflowRuleAction'ActionActivityPause where
   {-# INLINE messageDecoder #-}
@@ -91,7 +91,7 @@ instance MessageDecode WorkflowRuleAction'ActionActivityPause where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowRuleAction'ActionActivityPause {workflowRuleActionActionActivityPauseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowRuleAction'ActionActivityPause {workflowRuleActionActionActivityPauseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -131,7 +131,7 @@ instance Hashable WorkflowRuleAction'Variant where
 defaultWorkflowRuleAction :: WorkflowRuleAction
 defaultWorkflowRuleAction = WorkflowRuleAction
   { workflowRuleActionVariant = Nothing
-  , workflowRuleActionUnknownfields = []
+  , workflowRuleActionUnknownFields = []
   }
 
 instance MessageEncode WorkflowRuleAction where
@@ -139,12 +139,12 @@ instance MessageEncode WorkflowRuleAction where
     (case msg.workflowRuleActionVariant of
       Nothing -> mempty
       Just (WorkflowRuleAction'Variant'ActivityPause v) -> encodeFieldMessage 1 v)
-    <> encodeUnknownFields msg.workflowRuleActionUnknownfields
+    <> encodeUnknownFields msg.workflowRuleActionUnknownFields
 
 instance MessageSize WorkflowRuleAction where
   messageSize msg =
     (case msg.workflowRuleActionVariant of { Nothing -> 0; Just (WorkflowRuleAction'Variant'ActivityPause v) -> fieldMessageSize 1 (messageSize v) })
-    + unknownFieldsSize msg.workflowRuleActionUnknownfields
+    + unknownFieldsSize msg.workflowRuleActionUnknownFields
 
 instance MessageDecode WorkflowRuleAction where
   {-# INLINE messageDecoder #-}
@@ -153,7 +153,7 @@ instance MessageDecode WorkflowRuleAction where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowRuleAction {workflowRuleActionVariant = acc_0, workflowRuleActionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowRuleAction {workflowRuleActionVariant = acc_0, workflowRuleActionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -200,17 +200,17 @@ instance Hashable WorkflowRuleAction where
 data WorkflowRuleSpec = WorkflowRuleSpec
   { workflowRuleSpecId :: !Text
   , workflowRuleSpecTrigger :: !(Maybe WorkflowRuleSpec'Trigger)
-  , workflowRuleSpecVisibilityquery :: !Text
+  , workflowRuleSpecVisibilityQuery :: !Text
   , workflowRuleSpecActions :: !(V.Vector WorkflowRuleAction)
-  , workflowRuleSpecExpirationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , workflowRuleSpecUnknownfields :: ![UnknownField]
+  , workflowRuleSpecExpirationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workflowRuleSpecUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data WorkflowRuleSpec'ActivityStartingTrigger = WorkflowRuleSpec'ActivityStartingTrigger
   { workflowRuleSpecActivityStartingTriggerPredicate :: !Text
-  , workflowRuleSpecActivityStartingTriggerUnknownfields :: ![UnknownField]
+  , workflowRuleSpecActivityStartingTriggerUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -218,18 +218,18 @@ data WorkflowRuleSpec'ActivityStartingTrigger = WorkflowRuleSpec'ActivityStartin
 defaultWorkflowRuleSpec'ActivityStartingTrigger :: WorkflowRuleSpec'ActivityStartingTrigger
 defaultWorkflowRuleSpec'ActivityStartingTrigger = WorkflowRuleSpec'ActivityStartingTrigger
   { workflowRuleSpecActivityStartingTriggerPredicate = ""
-  , workflowRuleSpecActivityStartingTriggerUnknownfields = []
+  , workflowRuleSpecActivityStartingTriggerUnknownFields = []
   }
 
 instance MessageEncode WorkflowRuleSpec'ActivityStartingTrigger where
   buildMessage msg =
     (if msg.workflowRuleSpecActivityStartingTriggerPredicate == T.empty then mempty else encodeFieldString 1 msg.workflowRuleSpecActivityStartingTriggerPredicate)
-    <> encodeUnknownFields msg.workflowRuleSpecActivityStartingTriggerUnknownfields
+    <> encodeUnknownFields msg.workflowRuleSpecActivityStartingTriggerUnknownFields
 
 instance MessageSize WorkflowRuleSpec'ActivityStartingTrigger where
   messageSize msg =
     (if msg.workflowRuleSpecActivityStartingTriggerPredicate == T.empty then 0 else fieldTextSize 1 msg.workflowRuleSpecActivityStartingTriggerPredicate)
-    + unknownFieldsSize msg.workflowRuleSpecActivityStartingTriggerUnknownfields
+    + unknownFieldsSize msg.workflowRuleSpecActivityStartingTriggerUnknownFields
 
 instance MessageDecode WorkflowRuleSpec'ActivityStartingTrigger where
   {-# INLINE messageDecoder #-}
@@ -238,7 +238,7 @@ instance MessageDecode WorkflowRuleSpec'ActivityStartingTrigger where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowRuleSpec'ActivityStartingTrigger {workflowRuleSpecActivityStartingTriggerPredicate = acc_0, workflowRuleSpecActivityStartingTriggerUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowRuleSpec'ActivityStartingTrigger {workflowRuleSpecActivityStartingTriggerPredicate = acc_0, workflowRuleSpecActivityStartingTriggerUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -296,10 +296,10 @@ defaultWorkflowRuleSpec :: WorkflowRuleSpec
 defaultWorkflowRuleSpec = WorkflowRuleSpec
   { workflowRuleSpecId = ""
   , workflowRuleSpecTrigger = Nothing
-  , workflowRuleSpecVisibilityquery = ""
+  , workflowRuleSpecVisibilityQuery = ""
   , workflowRuleSpecActions = V.empty
-  , workflowRuleSpecExpirationtime = Nothing
-  , workflowRuleSpecUnknownfields = []
+  , workflowRuleSpecExpirationTime = Nothing
+  , workflowRuleSpecUnknownFields = []
   }
 
 instance MessageEncode WorkflowRuleSpec where
@@ -308,19 +308,19 @@ instance MessageEncode WorkflowRuleSpec where
     <> (case msg.workflowRuleSpecTrigger of
       Nothing -> mempty
       Just (WorkflowRuleSpec'Trigger'ActivityStart v) -> encodeFieldMessage 2 v)
-    <> (if msg.workflowRuleSpecVisibilityquery == T.empty then mempty else encodeFieldString 3 msg.workflowRuleSpecVisibilityquery)
+    <> (if msg.workflowRuleSpecVisibilityQuery == T.empty then mempty else encodeFieldString 3 msg.workflowRuleSpecVisibilityQuery)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.workflowRuleSpecActions
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workflowRuleSpecExpirationtime)
-    <> encodeUnknownFields msg.workflowRuleSpecUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workflowRuleSpecExpirationTime)
+    <> encodeUnknownFields msg.workflowRuleSpecUnknownFields
 
 instance MessageSize WorkflowRuleSpec where
   messageSize msg =
     (if msg.workflowRuleSpecId == T.empty then 0 else fieldTextSize 1 msg.workflowRuleSpecId)
     + (case msg.workflowRuleSpecTrigger of { Nothing -> 0; Just (WorkflowRuleSpec'Trigger'ActivityStart v) -> fieldMessageSize 2 (messageSize v) })
-    + (if msg.workflowRuleSpecVisibilityquery == T.empty then 0 else fieldTextSize 3 msg.workflowRuleSpecVisibilityquery)
+    + (if msg.workflowRuleSpecVisibilityQuery == T.empty then 0 else fieldTextSize 3 msg.workflowRuleSpecVisibilityQuery)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.workflowRuleSpecActions)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workflowRuleSpecExpirationtime)
-    + unknownFieldsSize msg.workflowRuleSpecUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workflowRuleSpecExpirationTime)
+    + unknownFieldsSize msg.workflowRuleSpecUnknownFields
 
 instance MessageDecode WorkflowRuleSpec where
   {-# INLINE messageDecoder #-}
@@ -329,7 +329,7 @@ instance MessageDecode WorkflowRuleSpec where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowRuleSpec {workflowRuleSpecId = acc_0, workflowRuleSpecTrigger = acc_1, workflowRuleSpecVisibilityquery = acc_2, workflowRuleSpecActions = acc_3, workflowRuleSpecExpirationtime = acc_4, workflowRuleSpecUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowRuleSpec {workflowRuleSpecId = acc_0, workflowRuleSpecTrigger = acc_1, workflowRuleSpecVisibilityQuery = acc_2, workflowRuleSpecActions = acc_3, workflowRuleSpecExpirationTime = acc_4, workflowRuleSpecUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -379,8 +379,8 @@ instance ProtoMessage WorkflowRuleSpec where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowRuleSpecVisibilityquery
-        , fdSet = \v m -> m { workflowRuleSpecVisibilityquery = v }
+        , fdGet = workflowRuleSpecVisibilityQuery
+        , fdSet = \v m -> m { workflowRuleSpecVisibilityQuery = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "actions"
@@ -395,8 +395,8 @@ instance ProtoMessage WorkflowRuleSpec where
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowRuleSpecExpirationtime
-        , fdSet = \v m -> m { workflowRuleSpecExpirationtime = v }
+        , fdGet = workflowRuleSpecExpirationTime
+        , fdSet = \v m -> m { workflowRuleSpecExpirationTime = v }
         })
     ]
 
@@ -404,63 +404,63 @@ instance Aeson.ToJSON WorkflowRuleSpec where
   toJSON msg = jsonObject
       [ "id" .=: msg.workflowRuleSpecId
       , "trigger" .=: msg.workflowRuleSpecTrigger
-      , "visibilityQuery" .=: msg.workflowRuleSpecVisibilityquery
+      , "visibilityQuery" .=: msg.workflowRuleSpecVisibilityQuery
       , "actions" .=: msg.workflowRuleSpecActions
-      , "expirationTime" .=: msg.workflowRuleSpecExpirationtime
+      , "expirationTime" .=: msg.workflowRuleSpecExpirationTime
       ]
 
 instance Aeson.FromJSON WorkflowRuleSpec where
   parseJSON = Aeson.withObject "WorkflowRuleSpec" $ \obj -> do
     fld_workflowRuleSpecId <- parseFieldMaybe obj "id"
     fld_workflowRuleSpecTrigger <- parseFieldMaybe obj "trigger"
-    fld_workflowRuleSpecVisibilityquery <- parseFieldMaybe obj "visibilityQuery"
+    fld_workflowRuleSpecVisibilityQuery <- parseFieldMaybe obj "visibilityQuery"
     fld_workflowRuleSpecActions <- parseFieldMaybe obj "actions"
-    fld_workflowRuleSpecExpirationtime <- parseFieldMaybe obj "expirationTime"
+    fld_workflowRuleSpecExpirationTime <- parseFieldMaybe obj "expirationTime"
     pure defaultWorkflowRuleSpec
       { workflowRuleSpecId = maybe (workflowRuleSpecId defaultWorkflowRuleSpec) id fld_workflowRuleSpecId
       , workflowRuleSpecTrigger = maybe (workflowRuleSpecTrigger defaultWorkflowRuleSpec) id fld_workflowRuleSpecTrigger
-      , workflowRuleSpecVisibilityquery = maybe (workflowRuleSpecVisibilityquery defaultWorkflowRuleSpec) id fld_workflowRuleSpecVisibilityquery
+      , workflowRuleSpecVisibilityQuery = maybe (workflowRuleSpecVisibilityQuery defaultWorkflowRuleSpec) id fld_workflowRuleSpecVisibilityQuery
       , workflowRuleSpecActions = maybe (workflowRuleSpecActions defaultWorkflowRuleSpec) id fld_workflowRuleSpecActions
-      , workflowRuleSpecExpirationtime = maybe (workflowRuleSpecExpirationtime defaultWorkflowRuleSpec) id fld_workflowRuleSpecExpirationtime
+      , workflowRuleSpecExpirationTime = maybe (workflowRuleSpecExpirationTime defaultWorkflowRuleSpec) id fld_workflowRuleSpecExpirationTime
       }
 
 instance Hashable WorkflowRuleSpec where
-  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowRuleSpecId) msg.workflowRuleSpecTrigger) msg.workflowRuleSpecVisibilityquery) msg.workflowRuleSpecActions) msg.workflowRuleSpecExpirationtime
+  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowRuleSpecId) msg.workflowRuleSpecTrigger) msg.workflowRuleSpecVisibilityQuery) msg.workflowRuleSpecActions) msg.workflowRuleSpecExpirationTime
 
 data WorkflowRule = WorkflowRule
-  { workflowRuleCreatetime :: !(Maybe PB_Timestamp.Timestamp)
+  { workflowRuleCreateTime :: !(Maybe PB_Timestamp.Timestamp)
   , workflowRuleSpec :: !(Maybe WorkflowRuleSpec)
-  , workflowRuleCreatedbyidentity :: !Text
+  , workflowRuleCreatedByIdentity :: !Text
   , workflowRuleDescription :: !Text
-  , workflowRuleUnknownfields :: ![UnknownField]
+  , workflowRuleUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowRule :: WorkflowRule
 defaultWorkflowRule = WorkflowRule
-  { workflowRuleCreatetime = Nothing
+  { workflowRuleCreateTime = Nothing
   , workflowRuleSpec = Nothing
-  , workflowRuleCreatedbyidentity = ""
+  , workflowRuleCreatedByIdentity = ""
   , workflowRuleDescription = ""
-  , workflowRuleUnknownfields = []
+  , workflowRuleUnknownFields = []
   }
 
 instance MessageEncode WorkflowRule where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowRuleCreatetime)
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowRuleCreateTime)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowRuleSpec)
-    <> (if msg.workflowRuleCreatedbyidentity == T.empty then mempty else encodeFieldString 3 msg.workflowRuleCreatedbyidentity)
+    <> (if msg.workflowRuleCreatedByIdentity == T.empty then mempty else encodeFieldString 3 msg.workflowRuleCreatedByIdentity)
     <> (if msg.workflowRuleDescription == T.empty then mempty else encodeFieldString 4 msg.workflowRuleDescription)
-    <> encodeUnknownFields msg.workflowRuleUnknownfields
+    <> encodeUnknownFields msg.workflowRuleUnknownFields
 
 instance MessageSize WorkflowRule where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowRuleCreatetime)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowRuleCreateTime)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowRuleSpec)
-    + (if msg.workflowRuleCreatedbyidentity == T.empty then 0 else fieldTextSize 3 msg.workflowRuleCreatedbyidentity)
+    + (if msg.workflowRuleCreatedByIdentity == T.empty then 0 else fieldTextSize 3 msg.workflowRuleCreatedByIdentity)
     + (if msg.workflowRuleDescription == T.empty then 0 else fieldTextSize 4 msg.workflowRuleDescription)
-    + unknownFieldsSize msg.workflowRuleUnknownfields
+    + unknownFieldsSize msg.workflowRuleUnknownFields
 
 instance MessageDecode WorkflowRule where
   {-# INLINE messageDecoder #-}
@@ -469,7 +469,7 @@ instance MessageDecode WorkflowRule where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowRule {workflowRuleCreatetime = acc_0, workflowRuleSpec = acc_1, workflowRuleCreatedbyidentity = acc_2, workflowRuleDescription = acc_3, workflowRuleUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowRule {workflowRuleCreateTime = acc_0, workflowRuleSpec = acc_1, workflowRuleCreatedByIdentity = acc_2, workflowRuleDescription = acc_3, workflowRuleUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -501,8 +501,8 @@ instance ProtoMessage WorkflowRule where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workflowRuleCreatetime
-        , fdSet = \v m -> m { workflowRuleCreatetime = v }
+        , fdGet = workflowRuleCreateTime
+        , fdSet = \v m -> m { workflowRuleCreateTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "spec"
         , fdNumber = 2
@@ -516,8 +516,8 @@ instance ProtoMessage WorkflowRule where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowRuleCreatedbyidentity
-        , fdSet = \v m -> m { workflowRuleCreatedbyidentity = v }
+        , fdGet = workflowRuleCreatedByIdentity
+        , fdSet = \v m -> m { workflowRuleCreatedByIdentity = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "description"
@@ -531,27 +531,27 @@ instance ProtoMessage WorkflowRule where
 
 instance Aeson.ToJSON WorkflowRule where
   toJSON msg = jsonObject
-      [ "createTime" .=: msg.workflowRuleCreatetime
+      [ "createTime" .=: msg.workflowRuleCreateTime
       , "spec" .=: msg.workflowRuleSpec
-      , "createdByIdentity" .=: msg.workflowRuleCreatedbyidentity
+      , "createdByIdentity" .=: msg.workflowRuleCreatedByIdentity
       , "description" .=: msg.workflowRuleDescription
       ]
 
 instance Aeson.FromJSON WorkflowRule where
   parseJSON = Aeson.withObject "WorkflowRule" $ \obj -> do
-    fld_workflowRuleCreatetime <- parseFieldMaybe obj "createTime"
+    fld_workflowRuleCreateTime <- parseFieldMaybe obj "createTime"
     fld_workflowRuleSpec <- parseFieldMaybe obj "spec"
-    fld_workflowRuleCreatedbyidentity <- parseFieldMaybe obj "createdByIdentity"
+    fld_workflowRuleCreatedByIdentity <- parseFieldMaybe obj "createdByIdentity"
     fld_workflowRuleDescription <- parseFieldMaybe obj "description"
     pure defaultWorkflowRule
-      { workflowRuleCreatetime = maybe (workflowRuleCreatetime defaultWorkflowRule) id fld_workflowRuleCreatetime
+      { workflowRuleCreateTime = maybe (workflowRuleCreateTime defaultWorkflowRule) id fld_workflowRuleCreateTime
       , workflowRuleSpec = maybe (workflowRuleSpec defaultWorkflowRule) id fld_workflowRuleSpec
-      , workflowRuleCreatedbyidentity = maybe (workflowRuleCreatedbyidentity defaultWorkflowRule) id fld_workflowRuleCreatedbyidentity
+      , workflowRuleCreatedByIdentity = maybe (workflowRuleCreatedByIdentity defaultWorkflowRule) id fld_workflowRuleCreatedByIdentity
       , workflowRuleDescription = maybe (workflowRuleDescription defaultWorkflowRule) id fld_workflowRuleDescription
       }
 
 instance Hashable WorkflowRule where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowRuleCreatetime) msg.workflowRuleSpec) msg.workflowRuleCreatedbyidentity) msg.workflowRuleDescription
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowRuleCreateTime) msg.workflowRuleSpec) msg.workflowRuleCreatedByIdentity) msg.workflowRuleDescription
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

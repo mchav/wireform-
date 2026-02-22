@@ -61,7 +61,7 @@ data EnhancedStackTrace = EnhancedStackTrace
   { enhancedStackTraceSdk :: !(Maybe StackTraceSDKInfo)
   , enhancedStackTraceSources :: !(Map.Map Text StackTraceFileSlice)
   , enhancedStackTraceStacks :: !(V.Vector StackTrace)
-  , enhancedStackTraceUnknownfields :: ![UnknownField]
+  , enhancedStackTraceUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -71,7 +71,7 @@ defaultEnhancedStackTrace = EnhancedStackTrace
   { enhancedStackTraceSdk = Nothing
   , enhancedStackTraceSources = Map.empty
   , enhancedStackTraceStacks = V.empty
-  , enhancedStackTraceUnknownfields = []
+  , enhancedStackTraceUnknownFields = []
   }
 
 instance MessageEncode EnhancedStackTrace where
@@ -79,14 +79,14 @@ instance MessageEncode EnhancedStackTrace where
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.enhancedStackTraceSdk)
     <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.enhancedStackTraceSources
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.enhancedStackTraceStacks
-    <> encodeUnknownFields msg.enhancedStackTraceUnknownfields
+    <> encodeUnknownFields msg.enhancedStackTraceUnknownFields
 
 instance MessageSize EnhancedStackTrace where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.enhancedStackTraceSdk)
     + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.enhancedStackTraceSources)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.enhancedStackTraceStacks)
-    + unknownFieldsSize msg.enhancedStackTraceUnknownfields
+    + unknownFieldsSize msg.enhancedStackTraceUnknownFields
 
 instance MessageDecode EnhancedStackTrace where
   {-# INLINE messageDecoder #-}
@@ -95,7 +95,7 @@ instance MessageDecode EnhancedStackTrace where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (EnhancedStackTrace {enhancedStackTraceSdk = acc_0, enhancedStackTraceSources = acc_1, enhancedStackTraceStacks = acc_2, enhancedStackTraceUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (EnhancedStackTrace {enhancedStackTraceSdk = acc_0, enhancedStackTraceSources = acc_1, enhancedStackTraceStacks = acc_2, enhancedStackTraceUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -171,7 +171,7 @@ instance Hashable EnhancedStackTrace where
 data StackTraceSDKInfo = StackTraceSDKInfo
   { stackTraceSDKInfoName :: !Text
   , stackTraceSDKInfoVersion :: !Text
-  , stackTraceSDKInfoUnknownfields :: ![UnknownField]
+  , stackTraceSDKInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -180,20 +180,20 @@ defaultStackTraceSDKInfo :: StackTraceSDKInfo
 defaultStackTraceSDKInfo = StackTraceSDKInfo
   { stackTraceSDKInfoName = ""
   , stackTraceSDKInfoVersion = ""
-  , stackTraceSDKInfoUnknownfields = []
+  , stackTraceSDKInfoUnknownFields = []
   }
 
 instance MessageEncode StackTraceSDKInfo where
   buildMessage msg =
     (if msg.stackTraceSDKInfoName == T.empty then mempty else encodeFieldString 1 msg.stackTraceSDKInfoName)
     <> (if msg.stackTraceSDKInfoVersion == T.empty then mempty else encodeFieldString 2 msg.stackTraceSDKInfoVersion)
-    <> encodeUnknownFields msg.stackTraceSDKInfoUnknownfields
+    <> encodeUnknownFields msg.stackTraceSDKInfoUnknownFields
 
 instance MessageSize StackTraceSDKInfo where
   messageSize msg =
     (if msg.stackTraceSDKInfoName == T.empty then 0 else fieldTextSize 1 msg.stackTraceSDKInfoName)
     + (if msg.stackTraceSDKInfoVersion == T.empty then 0 else fieldTextSize 2 msg.stackTraceSDKInfoVersion)
-    + unknownFieldsSize msg.stackTraceSDKInfoUnknownfields
+    + unknownFieldsSize msg.stackTraceSDKInfoUnknownFields
 
 instance MessageDecode StackTraceSDKInfo where
   {-# INLINE messageDecoder #-}
@@ -202,7 +202,7 @@ instance MessageDecode StackTraceSDKInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StackTraceSDKInfo {stackTraceSDKInfoName = acc_0, stackTraceSDKInfoVersion = acc_1, stackTraceSDKInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StackTraceSDKInfo {stackTraceSDKInfoName = acc_0, stackTraceSDKInfoVersion = acc_1, stackTraceSDKInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -259,31 +259,31 @@ instance Hashable StackTraceSDKInfo where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.stackTraceSDKInfoName) msg.stackTraceSDKInfoVersion
 
 data StackTraceFileSlice = StackTraceFileSlice
-  { stackTraceFileSliceLineoffset :: {-# UNPACK #-} !Word32
+  { stackTraceFileSliceLineOffset :: {-# UNPACK #-} !Word32
   , stackTraceFileSliceContent :: !Text
-  , stackTraceFileSliceUnknownfields :: ![UnknownField]
+  , stackTraceFileSliceUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultStackTraceFileSlice :: StackTraceFileSlice
 defaultStackTraceFileSlice = StackTraceFileSlice
-  { stackTraceFileSliceLineoffset = 0
+  { stackTraceFileSliceLineOffset = 0
   , stackTraceFileSliceContent = ""
-  , stackTraceFileSliceUnknownfields = []
+  , stackTraceFileSliceUnknownFields = []
   }
 
 instance MessageEncode StackTraceFileSlice where
   buildMessage msg =
-    (if msg.stackTraceFileSliceLineoffset == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.stackTraceFileSliceLineoffset))
+    (if msg.stackTraceFileSliceLineOffset == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.stackTraceFileSliceLineOffset))
     <> (if msg.stackTraceFileSliceContent == T.empty then mempty else encodeFieldString 2 msg.stackTraceFileSliceContent)
-    <> encodeUnknownFields msg.stackTraceFileSliceUnknownfields
+    <> encodeUnknownFields msg.stackTraceFileSliceUnknownFields
 
 instance MessageSize StackTraceFileSlice where
   messageSize msg =
-    (if msg.stackTraceFileSliceLineoffset == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.stackTraceFileSliceLineoffset))
+    (if msg.stackTraceFileSliceLineOffset == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.stackTraceFileSliceLineOffset))
     + (if msg.stackTraceFileSliceContent == T.empty then 0 else fieldTextSize 2 msg.stackTraceFileSliceContent)
-    + unknownFieldsSize msg.stackTraceFileSliceUnknownfields
+    + unknownFieldsSize msg.stackTraceFileSliceUnknownFields
 
 instance MessageDecode StackTraceFileSlice where
   {-# INLINE messageDecoder #-}
@@ -292,7 +292,7 @@ instance MessageDecode StackTraceFileSlice where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StackTraceFileSlice {stackTraceFileSliceLineoffset = acc_0, stackTraceFileSliceContent = acc_1, stackTraceFileSliceUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StackTraceFileSlice {stackTraceFileSliceLineOffset = acc_0, stackTraceFileSliceContent = acc_1, stackTraceFileSliceUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -318,8 +318,8 @@ instance ProtoMessage StackTraceFileSlice where
         , fdNumber = 1
         , fdTypeDesc = ScalarType UInt32Field
         , fdLabel = LabelOptional
-        , fdGet = stackTraceFileSliceLineoffset
-        , fdSet = \v m -> m { stackTraceFileSliceLineoffset = v }
+        , fdGet = stackTraceFileSliceLineOffset
+        , fdSet = \v m -> m { stackTraceFileSliceLineOffset = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "content"
         , fdNumber = 2
@@ -332,60 +332,60 @@ instance ProtoMessage StackTraceFileSlice where
 
 instance Aeson.ToJSON StackTraceFileSlice where
   toJSON msg = jsonObject
-      [ "lineOffset" .=: msg.stackTraceFileSliceLineoffset
+      [ "lineOffset" .=: msg.stackTraceFileSliceLineOffset
       , "content" .=: msg.stackTraceFileSliceContent
       ]
 
 instance Aeson.FromJSON StackTraceFileSlice where
   parseJSON = Aeson.withObject "StackTraceFileSlice" $ \obj -> do
-    fld_stackTraceFileSliceLineoffset <- parseFieldMaybe obj "lineOffset"
+    fld_stackTraceFileSliceLineOffset <- parseFieldMaybe obj "lineOffset"
     fld_stackTraceFileSliceContent <- parseFieldMaybe obj "content"
     pure defaultStackTraceFileSlice
-      { stackTraceFileSliceLineoffset = maybe (stackTraceFileSliceLineoffset defaultStackTraceFileSlice) id fld_stackTraceFileSliceLineoffset
+      { stackTraceFileSliceLineOffset = maybe (stackTraceFileSliceLineOffset defaultStackTraceFileSlice) id fld_stackTraceFileSliceLineOffset
       , stackTraceFileSliceContent = maybe (stackTraceFileSliceContent defaultStackTraceFileSlice) id fld_stackTraceFileSliceContent
       }
 
 instance Hashable StackTraceFileSlice where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.stackTraceFileSliceLineoffset) msg.stackTraceFileSliceContent
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.stackTraceFileSliceLineOffset) msg.stackTraceFileSliceContent
 
 data StackTraceFileLocation = StackTraceFileLocation
-  { stackTraceFileLocationFilepath :: !Text
+  { stackTraceFileLocationFilePath :: !Text
   , stackTraceFileLocationLine :: {-# UNPACK #-} !Int32
   , stackTraceFileLocationColumn :: {-# UNPACK #-} !Int32
-  , stackTraceFileLocationFunctionname :: !Text
-  , stackTraceFileLocationInternalcode :: {-# UNPACK #-} !Bool
-  , stackTraceFileLocationUnknownfields :: ![UnknownField]
+  , stackTraceFileLocationFunctionName :: !Text
+  , stackTraceFileLocationInternalCode :: {-# UNPACK #-} !Bool
+  , stackTraceFileLocationUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultStackTraceFileLocation :: StackTraceFileLocation
 defaultStackTraceFileLocation = StackTraceFileLocation
-  { stackTraceFileLocationFilepath = ""
+  { stackTraceFileLocationFilePath = ""
   , stackTraceFileLocationLine = 0
   , stackTraceFileLocationColumn = 0
-  , stackTraceFileLocationFunctionname = ""
-  , stackTraceFileLocationInternalcode = False
-  , stackTraceFileLocationUnknownfields = []
+  , stackTraceFileLocationFunctionName = ""
+  , stackTraceFileLocationInternalCode = False
+  , stackTraceFileLocationUnknownFields = []
   }
 
 instance MessageEncode StackTraceFileLocation where
   buildMessage msg =
-    (if msg.stackTraceFileLocationFilepath == T.empty then mempty else encodeFieldString 1 msg.stackTraceFileLocationFilepath)
+    (if msg.stackTraceFileLocationFilePath == T.empty then mempty else encodeFieldString 1 msg.stackTraceFileLocationFilePath)
     <> (if msg.stackTraceFileLocationLine == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.stackTraceFileLocationLine))
     <> (if msg.stackTraceFileLocationColumn == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.stackTraceFileLocationColumn))
-    <> (if msg.stackTraceFileLocationFunctionname == T.empty then mempty else encodeFieldString 4 msg.stackTraceFileLocationFunctionname)
-    <> (if msg.stackTraceFileLocationInternalcode == False then mempty else encodeFieldBool 5 msg.stackTraceFileLocationInternalcode)
-    <> encodeUnknownFields msg.stackTraceFileLocationUnknownfields
+    <> (if msg.stackTraceFileLocationFunctionName == T.empty then mempty else encodeFieldString 4 msg.stackTraceFileLocationFunctionName)
+    <> (if msg.stackTraceFileLocationInternalCode == False then mempty else encodeFieldBool 5 msg.stackTraceFileLocationInternalCode)
+    <> encodeUnknownFields msg.stackTraceFileLocationUnknownFields
 
 instance MessageSize StackTraceFileLocation where
   messageSize msg =
-    (if msg.stackTraceFileLocationFilepath == T.empty then 0 else fieldTextSize 1 msg.stackTraceFileLocationFilepath)
+    (if msg.stackTraceFileLocationFilePath == T.empty then 0 else fieldTextSize 1 msg.stackTraceFileLocationFilePath)
     + (if msg.stackTraceFileLocationLine == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.stackTraceFileLocationLine))
     + (if msg.stackTraceFileLocationColumn == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.stackTraceFileLocationColumn))
-    + (if msg.stackTraceFileLocationFunctionname == T.empty then 0 else fieldTextSize 4 msg.stackTraceFileLocationFunctionname)
-    + (if msg.stackTraceFileLocationInternalcode == False then 0 else fieldBoolSize 5)
-    + unknownFieldsSize msg.stackTraceFileLocationUnknownfields
+    + (if msg.stackTraceFileLocationFunctionName == T.empty then 0 else fieldTextSize 4 msg.stackTraceFileLocationFunctionName)
+    + (if msg.stackTraceFileLocationInternalCode == False then 0 else fieldBoolSize 5)
+    + unknownFieldsSize msg.stackTraceFileLocationUnknownFields
 
 instance MessageDecode StackTraceFileLocation where
   {-# INLINE messageDecoder #-}
@@ -394,7 +394,7 @@ instance MessageDecode StackTraceFileLocation where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StackTraceFileLocation {stackTraceFileLocationFilepath = acc_0, stackTraceFileLocationLine = acc_1, stackTraceFileLocationColumn = acc_2, stackTraceFileLocationFunctionname = acc_3, stackTraceFileLocationInternalcode = acc_4, stackTraceFileLocationUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StackTraceFileLocation {stackTraceFileLocationFilePath = acc_0, stackTraceFileLocationLine = acc_1, stackTraceFileLocationColumn = acc_2, stackTraceFileLocationFunctionName = acc_3, stackTraceFileLocationInternalCode = acc_4, stackTraceFileLocationUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -429,8 +429,8 @@ instance ProtoMessage StackTraceFileLocation where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = stackTraceFileLocationFilepath
-        , fdSet = \v m -> m { stackTraceFileLocationFilepath = v }
+        , fdGet = stackTraceFileLocationFilePath
+        , fdSet = \v m -> m { stackTraceFileLocationFilePath = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "line"
         , fdNumber = 2
@@ -452,49 +452,49 @@ instance ProtoMessage StackTraceFileLocation where
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = stackTraceFileLocationFunctionname
-        , fdSet = \v m -> m { stackTraceFileLocationFunctionname = v }
+        , fdGet = stackTraceFileLocationFunctionName
+        , fdSet = \v m -> m { stackTraceFileLocationFunctionName = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "internal_code"
         , fdNumber = 5
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = stackTraceFileLocationInternalcode
-        , fdSet = \v m -> m { stackTraceFileLocationInternalcode = v }
+        , fdGet = stackTraceFileLocationInternalCode
+        , fdSet = \v m -> m { stackTraceFileLocationInternalCode = v }
         })
     ]
 
 instance Aeson.ToJSON StackTraceFileLocation where
   toJSON msg = jsonObject
-      [ "filePath" .=: msg.stackTraceFileLocationFilepath
+      [ "filePath" .=: msg.stackTraceFileLocationFilePath
       , "line" .=: msg.stackTraceFileLocationLine
       , "column" .=: msg.stackTraceFileLocationColumn
-      , "functionName" .=: msg.stackTraceFileLocationFunctionname
-      , "internalCode" .=: msg.stackTraceFileLocationInternalcode
+      , "functionName" .=: msg.stackTraceFileLocationFunctionName
+      , "internalCode" .=: msg.stackTraceFileLocationInternalCode
       ]
 
 instance Aeson.FromJSON StackTraceFileLocation where
   parseJSON = Aeson.withObject "StackTraceFileLocation" $ \obj -> do
-    fld_stackTraceFileLocationFilepath <- parseFieldMaybe obj "filePath"
+    fld_stackTraceFileLocationFilePath <- parseFieldMaybe obj "filePath"
     fld_stackTraceFileLocationLine <- parseFieldMaybe obj "line"
     fld_stackTraceFileLocationColumn <- parseFieldMaybe obj "column"
-    fld_stackTraceFileLocationFunctionname <- parseFieldMaybe obj "functionName"
-    fld_stackTraceFileLocationInternalcode <- parseFieldMaybe obj "internalCode"
+    fld_stackTraceFileLocationFunctionName <- parseFieldMaybe obj "functionName"
+    fld_stackTraceFileLocationInternalCode <- parseFieldMaybe obj "internalCode"
     pure defaultStackTraceFileLocation
-      { stackTraceFileLocationFilepath = maybe (stackTraceFileLocationFilepath defaultStackTraceFileLocation) id fld_stackTraceFileLocationFilepath
+      { stackTraceFileLocationFilePath = maybe (stackTraceFileLocationFilePath defaultStackTraceFileLocation) id fld_stackTraceFileLocationFilePath
       , stackTraceFileLocationLine = maybe (stackTraceFileLocationLine defaultStackTraceFileLocation) id fld_stackTraceFileLocationLine
       , stackTraceFileLocationColumn = maybe (stackTraceFileLocationColumn defaultStackTraceFileLocation) id fld_stackTraceFileLocationColumn
-      , stackTraceFileLocationFunctionname = maybe (stackTraceFileLocationFunctionname defaultStackTraceFileLocation) id fld_stackTraceFileLocationFunctionname
-      , stackTraceFileLocationInternalcode = maybe (stackTraceFileLocationInternalcode defaultStackTraceFileLocation) id fld_stackTraceFileLocationInternalcode
+      , stackTraceFileLocationFunctionName = maybe (stackTraceFileLocationFunctionName defaultStackTraceFileLocation) id fld_stackTraceFileLocationFunctionName
+      , stackTraceFileLocationInternalCode = maybe (stackTraceFileLocationInternalCode defaultStackTraceFileLocation) id fld_stackTraceFileLocationInternalCode
       }
 
 instance Hashable StackTraceFileLocation where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.stackTraceFileLocationFilepath) msg.stackTraceFileLocationLine) msg.stackTraceFileLocationColumn) msg.stackTraceFileLocationFunctionname) msg.stackTraceFileLocationInternalcode
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.stackTraceFileLocationFilePath) msg.stackTraceFileLocationLine) msg.stackTraceFileLocationColumn) msg.stackTraceFileLocationFunctionName) msg.stackTraceFileLocationInternalCode
 
 data StackTrace = StackTrace
   { stackTraceLocations :: !(V.Vector StackTraceFileLocation)
-  , stackTraceUnknownfields :: ![UnknownField]
+  , stackTraceUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -502,18 +502,18 @@ data StackTrace = StackTrace
 defaultStackTrace :: StackTrace
 defaultStackTrace = StackTrace
   { stackTraceLocations = V.empty
-  , stackTraceUnknownfields = []
+  , stackTraceUnknownFields = []
   }
 
 instance MessageEncode StackTrace where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.stackTraceLocations
-    <> encodeUnknownFields msg.stackTraceUnknownfields
+    <> encodeUnknownFields msg.stackTraceUnknownFields
 
 instance MessageSize StackTrace where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.stackTraceLocations)
-    + unknownFieldsSize msg.stackTraceUnknownfields
+    + unknownFieldsSize msg.stackTraceUnknownFields
 
 instance MessageDecode StackTrace where
   {-# INLINE messageDecoder #-}
@@ -522,7 +522,7 @@ instance MessageDecode StackTrace where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StackTrace {stackTraceLocations = acc_0, stackTraceUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StackTrace {stackTraceLocations = acc_0, stackTraceUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage

@@ -68,7 +68,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a2674656d706f72616c2f6170692f616
 
 data ActivityExecutionOutcome = ActivityExecutionOutcome
   { activityExecutionOutcomeValue :: !(Maybe ActivityExecutionOutcome'Value)
-  , activityExecutionOutcomeUnknownfields :: ![UnknownField]
+  , activityExecutionOutcomeUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -88,7 +88,7 @@ instance Hashable ActivityExecutionOutcome'Value where
 defaultActivityExecutionOutcome :: ActivityExecutionOutcome
 defaultActivityExecutionOutcome = ActivityExecutionOutcome
   { activityExecutionOutcomeValue = Nothing
-  , activityExecutionOutcomeUnknownfields = []
+  , activityExecutionOutcomeUnknownFields = []
   }
 
 instance MessageEncode ActivityExecutionOutcome where
@@ -97,13 +97,13 @@ instance MessageEncode ActivityExecutionOutcome where
       Nothing -> mempty
       Just (ActivityExecutionOutcome'Value'Result v) -> encodeFieldMessage 1 v
       Just (ActivityExecutionOutcome'Value'Failure v) -> encodeFieldMessage 2 v)
-    <> encodeUnknownFields msg.activityExecutionOutcomeUnknownfields
+    <> encodeUnknownFields msg.activityExecutionOutcomeUnknownFields
 
 instance MessageSize ActivityExecutionOutcome where
   messageSize msg =
     (case msg.activityExecutionOutcomeValue of { Nothing -> 0; Just (ActivityExecutionOutcome'Value'Result v) -> fieldMessageSize 1 (messageSize v)
     ; Just (ActivityExecutionOutcome'Value'Failure v) -> fieldMessageSize 2 (messageSize v) })
-    + unknownFieldsSize msg.activityExecutionOutcomeUnknownfields
+    + unknownFieldsSize msg.activityExecutionOutcomeUnknownFields
 
 instance MessageDecode ActivityExecutionOutcome where
   {-# INLINE messageDecoder #-}
@@ -112,7 +112,7 @@ instance MessageDecode ActivityExecutionOutcome where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ActivityExecutionOutcome {activityExecutionOutcomeValue = acc_0, activityExecutionOutcomeUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ActivityExecutionOutcome {activityExecutionOutcomeValue = acc_0, activityExecutionOutcomeUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -160,51 +160,51 @@ instance Hashable ActivityExecutionOutcome where
   hashWithSalt salt msg = hashWithSalt (salt) msg.activityExecutionOutcomeValue
 
 data ActivityOptions = ActivityOptions
-  { activityOptionsTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
-  , activityOptionsScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , activityOptionsScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
-  , activityOptionsStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , activityOptionsHeartbeattimeout :: !(Maybe PB_Duration.Duration)
-  , activityOptionsRetrypolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
+  { activityOptionsTaskQueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
+  , activityOptionsScheduleToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , activityOptionsScheduleToStartTimeout :: !(Maybe PB_Duration.Duration)
+  , activityOptionsStartToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , activityOptionsHeartbeatTimeout :: !(Maybe PB_Duration.Duration)
+  , activityOptionsRetryPolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
   , activityOptionsPriority :: !(Maybe TE_Common_V1_Message.Priority)
-  , activityOptionsUnknownfields :: ![UnknownField]
+  , activityOptionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultActivityOptions :: ActivityOptions
 defaultActivityOptions = ActivityOptions
-  { activityOptionsTaskqueue = Nothing
-  , activityOptionsScheduletoclosetimeout = Nothing
-  , activityOptionsScheduletostarttimeout = Nothing
-  , activityOptionsStarttoclosetimeout = Nothing
-  , activityOptionsHeartbeattimeout = Nothing
-  , activityOptionsRetrypolicy = Nothing
+  { activityOptionsTaskQueue = Nothing
+  , activityOptionsScheduleToCloseTimeout = Nothing
+  , activityOptionsScheduleToStartTimeout = Nothing
+  , activityOptionsStartToCloseTimeout = Nothing
+  , activityOptionsHeartbeatTimeout = Nothing
+  , activityOptionsRetryPolicy = Nothing
   , activityOptionsPriority = Nothing
-  , activityOptionsUnknownfields = []
+  , activityOptionsUnknownFields = []
   }
 
 instance MessageEncode ActivityOptions where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.activityOptionsTaskqueue)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.activityOptionsScheduletoclosetimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.activityOptionsScheduletostarttimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.activityOptionsStarttoclosetimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.activityOptionsHeartbeattimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.activityOptionsRetrypolicy)
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.activityOptionsTaskQueue)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.activityOptionsScheduleToCloseTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.activityOptionsScheduleToStartTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.activityOptionsStartToCloseTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.activityOptionsHeartbeatTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.activityOptionsRetryPolicy)
     <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.activityOptionsPriority)
-    <> encodeUnknownFields msg.activityOptionsUnknownfields
+    <> encodeUnknownFields msg.activityOptionsUnknownFields
 
 instance MessageSize ActivityOptions where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.activityOptionsTaskqueue)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.activityOptionsScheduletoclosetimeout)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.activityOptionsScheduletostarttimeout)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.activityOptionsStarttoclosetimeout)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.activityOptionsHeartbeattimeout)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.activityOptionsRetrypolicy)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.activityOptionsTaskQueue)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.activityOptionsScheduleToCloseTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.activityOptionsScheduleToStartTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.activityOptionsStartToCloseTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.activityOptionsHeartbeatTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.activityOptionsRetryPolicy)
     + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.activityOptionsPriority)
-    + unknownFieldsSize msg.activityOptionsUnknownfields
+    + unknownFieldsSize msg.activityOptionsUnknownFields
 
 instance MessageDecode ActivityOptions where
   {-# INLINE messageDecoder #-}
@@ -213,7 +213,7 @@ instance MessageDecode ActivityOptions where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ActivityOptions {activityOptionsTaskqueue = acc_0, activityOptionsScheduletoclosetimeout = acc_1, activityOptionsScheduletostarttimeout = acc_2, activityOptionsStarttoclosetimeout = acc_3, activityOptionsHeartbeattimeout = acc_4, activityOptionsRetrypolicy = acc_5, activityOptionsPriority = acc_6, activityOptionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ActivityOptions {activityOptionsTaskQueue = acc_0, activityOptionsScheduleToCloseTimeout = acc_1, activityOptionsScheduleToStartTimeout = acc_2, activityOptionsStartToCloseTimeout = acc_3, activityOptionsHeartbeatTimeout = acc_4, activityOptionsRetryPolicy = acc_5, activityOptionsPriority = acc_6, activityOptionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -254,47 +254,47 @@ instance ProtoMessage ActivityOptions where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.taskqueue.v1.TaskQueue"
         , fdLabel = LabelOptional
-        , fdGet = activityOptionsTaskqueue
-        , fdSet = \v m -> m { activityOptionsTaskqueue = v }
+        , fdGet = activityOptionsTaskQueue
+        , fdSet = \v m -> m { activityOptionsTaskQueue = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "schedule_to_close_timeout"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityOptionsScheduletoclosetimeout
-        , fdSet = \v m -> m { activityOptionsScheduletoclosetimeout = v }
+        , fdGet = activityOptionsScheduleToCloseTimeout
+        , fdSet = \v m -> m { activityOptionsScheduleToCloseTimeout = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "schedule_to_start_timeout"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityOptionsScheduletostarttimeout
-        , fdSet = \v m -> m { activityOptionsScheduletostarttimeout = v }
+        , fdGet = activityOptionsScheduleToStartTimeout
+        , fdSet = \v m -> m { activityOptionsScheduleToStartTimeout = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "start_to_close_timeout"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityOptionsStarttoclosetimeout
-        , fdSet = \v m -> m { activityOptionsStarttoclosetimeout = v }
+        , fdGet = activityOptionsStartToCloseTimeout
+        , fdSet = \v m -> m { activityOptionsStartToCloseTimeout = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "heartbeat_timeout"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityOptionsHeartbeattimeout
-        , fdSet = \v m -> m { activityOptionsHeartbeattimeout = v }
+        , fdGet = activityOptionsHeartbeatTimeout
+        , fdSet = \v m -> m { activityOptionsHeartbeatTimeout = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "retry_policy"
         , fdNumber = 6
         , fdTypeDesc = MessageType "temporal.api.common.v1.RetryPolicy"
         , fdLabel = LabelOptional
-        , fdGet = activityOptionsRetrypolicy
-        , fdSet = \v m -> m { activityOptionsRetrypolicy = v }
+        , fdGet = activityOptionsRetryPolicy
+        , fdSet = \v m -> m { activityOptionsRetryPolicy = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "priority"
@@ -308,183 +308,183 @@ instance ProtoMessage ActivityOptions where
 
 instance Aeson.ToJSON ActivityOptions where
   toJSON msg = jsonObject
-      [ "taskQueue" .=: msg.activityOptionsTaskqueue
-      , "scheduleToCloseTimeout" .=: msg.activityOptionsScheduletoclosetimeout
-      , "scheduleToStartTimeout" .=: msg.activityOptionsScheduletostarttimeout
-      , "startToCloseTimeout" .=: msg.activityOptionsStarttoclosetimeout
-      , "heartbeatTimeout" .=: msg.activityOptionsHeartbeattimeout
-      , "retryPolicy" .=: msg.activityOptionsRetrypolicy
+      [ "taskQueue" .=: msg.activityOptionsTaskQueue
+      , "scheduleToCloseTimeout" .=: msg.activityOptionsScheduleToCloseTimeout
+      , "scheduleToStartTimeout" .=: msg.activityOptionsScheduleToStartTimeout
+      , "startToCloseTimeout" .=: msg.activityOptionsStartToCloseTimeout
+      , "heartbeatTimeout" .=: msg.activityOptionsHeartbeatTimeout
+      , "retryPolicy" .=: msg.activityOptionsRetryPolicy
       , "priority" .=: msg.activityOptionsPriority
       ]
 
 instance Aeson.FromJSON ActivityOptions where
   parseJSON = Aeson.withObject "ActivityOptions" $ \obj -> do
-    fld_activityOptionsTaskqueue <- parseFieldMaybe obj "taskQueue"
-    fld_activityOptionsScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
-    fld_activityOptionsScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
-    fld_activityOptionsStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
-    fld_activityOptionsHeartbeattimeout <- parseFieldMaybe obj "heartbeatTimeout"
-    fld_activityOptionsRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_activityOptionsTaskQueue <- parseFieldMaybe obj "taskQueue"
+    fld_activityOptionsScheduleToCloseTimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_activityOptionsScheduleToStartTimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_activityOptionsStartToCloseTimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_activityOptionsHeartbeatTimeout <- parseFieldMaybe obj "heartbeatTimeout"
+    fld_activityOptionsRetryPolicy <- parseFieldMaybe obj "retryPolicy"
     fld_activityOptionsPriority <- parseFieldMaybe obj "priority"
     pure defaultActivityOptions
-      { activityOptionsTaskqueue = maybe (activityOptionsTaskqueue defaultActivityOptions) id fld_activityOptionsTaskqueue
-      , activityOptionsScheduletoclosetimeout = maybe (activityOptionsScheduletoclosetimeout defaultActivityOptions) id fld_activityOptionsScheduletoclosetimeout
-      , activityOptionsScheduletostarttimeout = maybe (activityOptionsScheduletostarttimeout defaultActivityOptions) id fld_activityOptionsScheduletostarttimeout
-      , activityOptionsStarttoclosetimeout = maybe (activityOptionsStarttoclosetimeout defaultActivityOptions) id fld_activityOptionsStarttoclosetimeout
-      , activityOptionsHeartbeattimeout = maybe (activityOptionsHeartbeattimeout defaultActivityOptions) id fld_activityOptionsHeartbeattimeout
-      , activityOptionsRetrypolicy = maybe (activityOptionsRetrypolicy defaultActivityOptions) id fld_activityOptionsRetrypolicy
+      { activityOptionsTaskQueue = maybe (activityOptionsTaskQueue defaultActivityOptions) id fld_activityOptionsTaskQueue
+      , activityOptionsScheduleToCloseTimeout = maybe (activityOptionsScheduleToCloseTimeout defaultActivityOptions) id fld_activityOptionsScheduleToCloseTimeout
+      , activityOptionsScheduleToStartTimeout = maybe (activityOptionsScheduleToStartTimeout defaultActivityOptions) id fld_activityOptionsScheduleToStartTimeout
+      , activityOptionsStartToCloseTimeout = maybe (activityOptionsStartToCloseTimeout defaultActivityOptions) id fld_activityOptionsStartToCloseTimeout
+      , activityOptionsHeartbeatTimeout = maybe (activityOptionsHeartbeatTimeout defaultActivityOptions) id fld_activityOptionsHeartbeatTimeout
+      , activityOptionsRetryPolicy = maybe (activityOptionsRetryPolicy defaultActivityOptions) id fld_activityOptionsRetryPolicy
       , activityOptionsPriority = maybe (activityOptionsPriority defaultActivityOptions) id fld_activityOptionsPriority
       }
 
 instance Hashable ActivityOptions where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.activityOptionsTaskqueue) msg.activityOptionsScheduletoclosetimeout) msg.activityOptionsScheduletostarttimeout) msg.activityOptionsStarttoclosetimeout) msg.activityOptionsHeartbeattimeout) msg.activityOptionsRetrypolicy) msg.activityOptionsPriority
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.activityOptionsTaskQueue) msg.activityOptionsScheduleToCloseTimeout) msg.activityOptionsScheduleToStartTimeout) msg.activityOptionsStartToCloseTimeout) msg.activityOptionsHeartbeatTimeout) msg.activityOptionsRetryPolicy) msg.activityOptionsPriority
 
 data ActivityExecutionInfo = ActivityExecutionInfo
-  { activityExecutionInfoActivityid :: !Text
-  , activityExecutionInfoRunid :: !Text
-  , activityExecutionInfoActivitytype :: !(Maybe TE_Common_V1_Message.ActivityType)
+  { activityExecutionInfoActivityId :: !Text
+  , activityExecutionInfoRunId :: !Text
+  , activityExecutionInfoActivityType :: !(Maybe TE_Common_V1_Message.ActivityType)
   , activityExecutionInfoStatus :: !TE_Enums_V1_Activity.ActivityExecutionStatus
-  , activityExecutionInfoRunstate :: !TE_Enums_V1_Workflow.PendingActivityState
-  , activityExecutionInfoTaskqueue :: !Text
-  , activityExecutionInfoScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , activityExecutionInfoScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
-  , activityExecutionInfoStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , activityExecutionInfoHeartbeattimeout :: !(Maybe PB_Duration.Duration)
-  , activityExecutionInfoRetrypolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
-  , activityExecutionInfoHeartbeatdetails :: !(Maybe TE_Common_V1_Message.Payloads)
-  , activityExecutionInfoLastheartbeattime :: !(Maybe PB_Timestamp.Timestamp)
-  , activityExecutionInfoLaststartedtime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoRunState :: !TE_Enums_V1_Workflow.PendingActivityState
+  , activityExecutionInfoTaskQueue :: !Text
+  , activityExecutionInfoScheduleToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoScheduleToStartTimeout :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoStartToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoHeartbeatTimeout :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoRetryPolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
+  , activityExecutionInfoHeartbeatDetails :: !(Maybe TE_Common_V1_Message.Payloads)
+  , activityExecutionInfoLastHeartbeatTime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoLastStartedTime :: !(Maybe PB_Timestamp.Timestamp)
   , activityExecutionInfoAttempt :: {-# UNPACK #-} !Int32
-  , activityExecutionInfoExecutionduration :: !(Maybe PB_Duration.Duration)
-  , activityExecutionInfoScheduletime :: !(Maybe PB_Timestamp.Timestamp)
-  , activityExecutionInfoExpirationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , activityExecutionInfoClosetime :: !(Maybe PB_Timestamp.Timestamp)
-  , activityExecutionInfoLastfailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , activityExecutionInfoLastworkeridentity :: !Text
-  , activityExecutionInfoCurrentretryinterval :: !(Maybe PB_Duration.Duration)
-  , activityExecutionInfoLastattemptcompletetime :: !(Maybe PB_Timestamp.Timestamp)
-  , activityExecutionInfoNextattemptscheduletime :: !(Maybe PB_Timestamp.Timestamp)
-  , activityExecutionInfoLastdeploymentversion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
+  , activityExecutionInfoExecutionDuration :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoScheduleTime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoExpirationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoCloseTime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoLastFailure :: !(Maybe TE_Failure_V1_Message.Failure)
+  , activityExecutionInfoLastWorkerIdentity :: !Text
+  , activityExecutionInfoCurrentRetryInterval :: !(Maybe PB_Duration.Duration)
+  , activityExecutionInfoLastAttemptCompleteTime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoNextAttemptScheduleTime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionInfoLastDeploymentVersion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
   , activityExecutionInfoPriority :: !(Maybe TE_Common_V1_Message.Priority)
-  , activityExecutionInfoStatetransitioncount :: {-# UNPACK #-} !Int64
-  , activityExecutionInfoStatesizebytes :: {-# UNPACK #-} !Int64
-  , activityExecutionInfoSearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
+  , activityExecutionInfoStateTransitionCount :: {-# UNPACK #-} !Int64
+  , activityExecutionInfoStateSizeBytes :: {-# UNPACK #-} !Int64
+  , activityExecutionInfoSearchAttributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
   , activityExecutionInfoHeader :: !(Maybe TE_Common_V1_Message.Header)
-  , activityExecutionInfoUsermetadata :: !(Maybe TE_Sdk_V1_UserMetadata.UserMetadata)
-  , activityExecutionInfoCanceledreason :: !Text
-  , activityExecutionInfoUnknownfields :: ![UnknownField]
+  , activityExecutionInfoUserMetadata :: !(Maybe TE_Sdk_V1_UserMetadata.UserMetadata)
+  , activityExecutionInfoCanceledReason :: !Text
+  , activityExecutionInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultActivityExecutionInfo :: ActivityExecutionInfo
 defaultActivityExecutionInfo = ActivityExecutionInfo
-  { activityExecutionInfoActivityid = ""
-  , activityExecutionInfoRunid = ""
-  , activityExecutionInfoActivitytype = Nothing
+  { activityExecutionInfoActivityId = ""
+  , activityExecutionInfoRunId = ""
+  , activityExecutionInfoActivityType = Nothing
   , activityExecutionInfoStatus = (toEnum 0)
-  , activityExecutionInfoRunstate = (toEnum 0)
-  , activityExecutionInfoTaskqueue = ""
-  , activityExecutionInfoScheduletoclosetimeout = Nothing
-  , activityExecutionInfoScheduletostarttimeout = Nothing
-  , activityExecutionInfoStarttoclosetimeout = Nothing
-  , activityExecutionInfoHeartbeattimeout = Nothing
-  , activityExecutionInfoRetrypolicy = Nothing
-  , activityExecutionInfoHeartbeatdetails = Nothing
-  , activityExecutionInfoLastheartbeattime = Nothing
-  , activityExecutionInfoLaststartedtime = Nothing
+  , activityExecutionInfoRunState = (toEnum 0)
+  , activityExecutionInfoTaskQueue = ""
+  , activityExecutionInfoScheduleToCloseTimeout = Nothing
+  , activityExecutionInfoScheduleToStartTimeout = Nothing
+  , activityExecutionInfoStartToCloseTimeout = Nothing
+  , activityExecutionInfoHeartbeatTimeout = Nothing
+  , activityExecutionInfoRetryPolicy = Nothing
+  , activityExecutionInfoHeartbeatDetails = Nothing
+  , activityExecutionInfoLastHeartbeatTime = Nothing
+  , activityExecutionInfoLastStartedTime = Nothing
   , activityExecutionInfoAttempt = 0
-  , activityExecutionInfoExecutionduration = Nothing
-  , activityExecutionInfoScheduletime = Nothing
-  , activityExecutionInfoExpirationtime = Nothing
-  , activityExecutionInfoClosetime = Nothing
-  , activityExecutionInfoLastfailure = Nothing
-  , activityExecutionInfoLastworkeridentity = ""
-  , activityExecutionInfoCurrentretryinterval = Nothing
-  , activityExecutionInfoLastattemptcompletetime = Nothing
-  , activityExecutionInfoNextattemptscheduletime = Nothing
-  , activityExecutionInfoLastdeploymentversion = Nothing
+  , activityExecutionInfoExecutionDuration = Nothing
+  , activityExecutionInfoScheduleTime = Nothing
+  , activityExecutionInfoExpirationTime = Nothing
+  , activityExecutionInfoCloseTime = Nothing
+  , activityExecutionInfoLastFailure = Nothing
+  , activityExecutionInfoLastWorkerIdentity = ""
+  , activityExecutionInfoCurrentRetryInterval = Nothing
+  , activityExecutionInfoLastAttemptCompleteTime = Nothing
+  , activityExecutionInfoNextAttemptScheduleTime = Nothing
+  , activityExecutionInfoLastDeploymentVersion = Nothing
   , activityExecutionInfoPriority = Nothing
-  , activityExecutionInfoStatetransitioncount = 0
-  , activityExecutionInfoStatesizebytes = 0
-  , activityExecutionInfoSearchattributes = Nothing
+  , activityExecutionInfoStateTransitionCount = 0
+  , activityExecutionInfoStateSizeBytes = 0
+  , activityExecutionInfoSearchAttributes = Nothing
   , activityExecutionInfoHeader = Nothing
-  , activityExecutionInfoUsermetadata = Nothing
-  , activityExecutionInfoCanceledreason = ""
-  , activityExecutionInfoUnknownfields = []
+  , activityExecutionInfoUserMetadata = Nothing
+  , activityExecutionInfoCanceledReason = ""
+  , activityExecutionInfoUnknownFields = []
   }
 
 instance MessageEncode ActivityExecutionInfo where
   buildMessage msg =
-    (if msg.activityExecutionInfoActivityid == T.empty then mempty else encodeFieldString 1 msg.activityExecutionInfoActivityid)
-    <> (if msg.activityExecutionInfoRunid == T.empty then mempty else encodeFieldString 2 msg.activityExecutionInfoRunid)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.activityExecutionInfoActivitytype)
+    (if msg.activityExecutionInfoActivityId == T.empty then mempty else encodeFieldString 1 msg.activityExecutionInfoActivityId)
+    <> (if msg.activityExecutionInfoRunId == T.empty then mempty else encodeFieldString 2 msg.activityExecutionInfoRunId)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.activityExecutionInfoActivityType)
     <> (if fromEnum msg.activityExecutionInfoStatus == 0 then mempty else encodeFieldVarint 4 (fromIntegral (fromEnum msg.activityExecutionInfoStatus)))
-    <> (if fromEnum msg.activityExecutionInfoRunstate == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fromEnum msg.activityExecutionInfoRunstate)))
-    <> (if msg.activityExecutionInfoTaskqueue == T.empty then mempty else encodeFieldString 6 msg.activityExecutionInfoTaskqueue)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.activityExecutionInfoScheduletoclosetimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.activityExecutionInfoScheduletostarttimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.activityExecutionInfoStarttoclosetimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.activityExecutionInfoHeartbeattimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.activityExecutionInfoRetrypolicy)
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.activityExecutionInfoHeartbeatdetails)
-    <> (maybe mempty (\v -> encodeFieldMessage 13 v) msg.activityExecutionInfoLastheartbeattime)
-    <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.activityExecutionInfoLaststartedtime)
+    <> (if fromEnum msg.activityExecutionInfoRunState == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fromEnum msg.activityExecutionInfoRunState)))
+    <> (if msg.activityExecutionInfoTaskQueue == T.empty then mempty else encodeFieldString 6 msg.activityExecutionInfoTaskQueue)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.activityExecutionInfoScheduleToCloseTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.activityExecutionInfoScheduleToStartTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.activityExecutionInfoStartToCloseTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.activityExecutionInfoHeartbeatTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.activityExecutionInfoRetryPolicy)
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.activityExecutionInfoHeartbeatDetails)
+    <> (maybe mempty (\v -> encodeFieldMessage 13 v) msg.activityExecutionInfoLastHeartbeatTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.activityExecutionInfoLastStartedTime)
     <> (if msg.activityExecutionInfoAttempt == 0 then mempty else encodeFieldVarint 15 (fromIntegral msg.activityExecutionInfoAttempt))
-    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.activityExecutionInfoExecutionduration)
-    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.activityExecutionInfoScheduletime)
-    <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.activityExecutionInfoExpirationtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 19 v) msg.activityExecutionInfoClosetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 20 v) msg.activityExecutionInfoLastfailure)
-    <> (if msg.activityExecutionInfoLastworkeridentity == T.empty then mempty else encodeFieldString 21 msg.activityExecutionInfoLastworkeridentity)
-    <> (maybe mempty (\v -> encodeFieldMessage 22 v) msg.activityExecutionInfoCurrentretryinterval)
-    <> (maybe mempty (\v -> encodeFieldMessage 23 v) msg.activityExecutionInfoLastattemptcompletetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 24 v) msg.activityExecutionInfoNextattemptscheduletime)
-    <> (maybe mempty (\v -> encodeFieldMessage 25 v) msg.activityExecutionInfoLastdeploymentversion)
+    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.activityExecutionInfoExecutionDuration)
+    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.activityExecutionInfoScheduleTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.activityExecutionInfoExpirationTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 19 v) msg.activityExecutionInfoCloseTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 20 v) msg.activityExecutionInfoLastFailure)
+    <> (if msg.activityExecutionInfoLastWorkerIdentity == T.empty then mempty else encodeFieldString 21 msg.activityExecutionInfoLastWorkerIdentity)
+    <> (maybe mempty (\v -> encodeFieldMessage 22 v) msg.activityExecutionInfoCurrentRetryInterval)
+    <> (maybe mempty (\v -> encodeFieldMessage 23 v) msg.activityExecutionInfoLastAttemptCompleteTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 24 v) msg.activityExecutionInfoNextAttemptScheduleTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 25 v) msg.activityExecutionInfoLastDeploymentVersion)
     <> (maybe mempty (\v -> encodeFieldMessage 26 v) msg.activityExecutionInfoPriority)
-    <> (if msg.activityExecutionInfoStatetransitioncount == 0 then mempty else encodeFieldVarint 27 (fromIntegral msg.activityExecutionInfoStatetransitioncount))
-    <> (if msg.activityExecutionInfoStatesizebytes == 0 then mempty else encodeFieldVarint 28 (fromIntegral msg.activityExecutionInfoStatesizebytes))
-    <> (maybe mempty (\v -> encodeFieldMessage 29 v) msg.activityExecutionInfoSearchattributes)
+    <> (if msg.activityExecutionInfoStateTransitionCount == 0 then mempty else encodeFieldVarint 27 (fromIntegral msg.activityExecutionInfoStateTransitionCount))
+    <> (if msg.activityExecutionInfoStateSizeBytes == 0 then mempty else encodeFieldVarint 28 (fromIntegral msg.activityExecutionInfoStateSizeBytes))
+    <> (maybe mempty (\v -> encodeFieldMessage 29 v) msg.activityExecutionInfoSearchAttributes)
     <> (maybe mempty (\v -> encodeFieldMessage 30 v) msg.activityExecutionInfoHeader)
-    <> (maybe mempty (\v -> encodeFieldMessage 31 v) msg.activityExecutionInfoUsermetadata)
-    <> (if msg.activityExecutionInfoCanceledreason == T.empty then mempty else encodeFieldString 32 msg.activityExecutionInfoCanceledreason)
-    <> encodeUnknownFields msg.activityExecutionInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 31 v) msg.activityExecutionInfoUserMetadata)
+    <> (if msg.activityExecutionInfoCanceledReason == T.empty then mempty else encodeFieldString 32 msg.activityExecutionInfoCanceledReason)
+    <> encodeUnknownFields msg.activityExecutionInfoUnknownFields
 
 instance MessageSize ActivityExecutionInfo where
   messageSize msg =
-    (if msg.activityExecutionInfoActivityid == T.empty then 0 else fieldTextSize 1 msg.activityExecutionInfoActivityid)
-    + (if msg.activityExecutionInfoRunid == T.empty then 0 else fieldTextSize 2 msg.activityExecutionInfoRunid)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.activityExecutionInfoActivitytype)
+    (if msg.activityExecutionInfoActivityId == T.empty then 0 else fieldTextSize 1 msg.activityExecutionInfoActivityId)
+    + (if msg.activityExecutionInfoRunId == T.empty then 0 else fieldTextSize 2 msg.activityExecutionInfoRunId)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.activityExecutionInfoActivityType)
     + (if fromEnum msg.activityExecutionInfoStatus == 0 then 0 else fieldVarintSize 4 (fromIntegral (fromEnum msg.activityExecutionInfoStatus)))
-    + (if fromEnum msg.activityExecutionInfoRunstate == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.activityExecutionInfoRunstate)))
-    + (if msg.activityExecutionInfoTaskqueue == T.empty then 0 else fieldTextSize 6 msg.activityExecutionInfoTaskqueue)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.activityExecutionInfoScheduletoclosetimeout)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.activityExecutionInfoScheduletostarttimeout)
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.activityExecutionInfoStarttoclosetimeout)
-    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.activityExecutionInfoHeartbeattimeout)
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.activityExecutionInfoRetrypolicy)
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.activityExecutionInfoHeartbeatdetails)
-    + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.activityExecutionInfoLastheartbeattime)
-    + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.activityExecutionInfoLaststartedtime)
+    + (if fromEnum msg.activityExecutionInfoRunState == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.activityExecutionInfoRunState)))
+    + (if msg.activityExecutionInfoTaskQueue == T.empty then 0 else fieldTextSize 6 msg.activityExecutionInfoTaskQueue)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.activityExecutionInfoScheduleToCloseTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.activityExecutionInfoScheduleToStartTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.activityExecutionInfoStartToCloseTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.activityExecutionInfoHeartbeatTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.activityExecutionInfoRetryPolicy)
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.activityExecutionInfoHeartbeatDetails)
+    + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.activityExecutionInfoLastHeartbeatTime)
+    + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.activityExecutionInfoLastStartedTime)
     + (if msg.activityExecutionInfoAttempt == 0 then 0 else fieldVarintSize 15 (fromIntegral msg.activityExecutionInfoAttempt))
-    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.activityExecutionInfoExecutionduration)
-    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.activityExecutionInfoScheduletime)
-    + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.activityExecutionInfoExpirationtime)
-    + (maybe 0 (\v -> fieldMessageSize 19 (messageSize v)) msg.activityExecutionInfoClosetime)
-    + (maybe 0 (\v -> fieldMessageSize 20 (messageSize v)) msg.activityExecutionInfoLastfailure)
-    + (if msg.activityExecutionInfoLastworkeridentity == T.empty then 0 else fieldTextSize 21 msg.activityExecutionInfoLastworkeridentity)
-    + (maybe 0 (\v -> fieldMessageSize 22 (messageSize v)) msg.activityExecutionInfoCurrentretryinterval)
-    + (maybe 0 (\v -> fieldMessageSize 23 (messageSize v)) msg.activityExecutionInfoLastattemptcompletetime)
-    + (maybe 0 (\v -> fieldMessageSize 24 (messageSize v)) msg.activityExecutionInfoNextattemptscheduletime)
-    + (maybe 0 (\v -> fieldMessageSize 25 (messageSize v)) msg.activityExecutionInfoLastdeploymentversion)
+    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.activityExecutionInfoExecutionDuration)
+    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.activityExecutionInfoScheduleTime)
+    + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.activityExecutionInfoExpirationTime)
+    + (maybe 0 (\v -> fieldMessageSize 19 (messageSize v)) msg.activityExecutionInfoCloseTime)
+    + (maybe 0 (\v -> fieldMessageSize 20 (messageSize v)) msg.activityExecutionInfoLastFailure)
+    + (if msg.activityExecutionInfoLastWorkerIdentity == T.empty then 0 else fieldTextSize 21 msg.activityExecutionInfoLastWorkerIdentity)
+    + (maybe 0 (\v -> fieldMessageSize 22 (messageSize v)) msg.activityExecutionInfoCurrentRetryInterval)
+    + (maybe 0 (\v -> fieldMessageSize 23 (messageSize v)) msg.activityExecutionInfoLastAttemptCompleteTime)
+    + (maybe 0 (\v -> fieldMessageSize 24 (messageSize v)) msg.activityExecutionInfoNextAttemptScheduleTime)
+    + (maybe 0 (\v -> fieldMessageSize 25 (messageSize v)) msg.activityExecutionInfoLastDeploymentVersion)
     + (maybe 0 (\v -> fieldMessageSize 26 (messageSize v)) msg.activityExecutionInfoPriority)
-    + (if msg.activityExecutionInfoStatetransitioncount == 0 then 0 else fieldVarintSize 27 (fromIntegral msg.activityExecutionInfoStatetransitioncount))
-    + (if msg.activityExecutionInfoStatesizebytes == 0 then 0 else fieldVarintSize 28 (fromIntegral msg.activityExecutionInfoStatesizebytes))
-    + (maybe 0 (\v -> fieldMessageSize 29 (messageSize v)) msg.activityExecutionInfoSearchattributes)
+    + (if msg.activityExecutionInfoStateTransitionCount == 0 then 0 else fieldVarintSize 27 (fromIntegral msg.activityExecutionInfoStateTransitionCount))
+    + (if msg.activityExecutionInfoStateSizeBytes == 0 then 0 else fieldVarintSize 28 (fromIntegral msg.activityExecutionInfoStateSizeBytes))
+    + (maybe 0 (\v -> fieldMessageSize 29 (messageSize v)) msg.activityExecutionInfoSearchAttributes)
     + (maybe 0 (\v -> fieldMessageSize 30 (messageSize v)) msg.activityExecutionInfoHeader)
-    + (maybe 0 (\v -> fieldMessageSize 31 (messageSize v)) msg.activityExecutionInfoUsermetadata)
-    + (if msg.activityExecutionInfoCanceledreason == T.empty then 0 else fieldTextSize 32 msg.activityExecutionInfoCanceledreason)
-    + unknownFieldsSize msg.activityExecutionInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 31 (messageSize v)) msg.activityExecutionInfoUserMetadata)
+    + (if msg.activityExecutionInfoCanceledReason == T.empty then 0 else fieldTextSize 32 msg.activityExecutionInfoCanceledReason)
+    + unknownFieldsSize msg.activityExecutionInfoUnknownFields
 
 instance MessageDecode ActivityExecutionInfo where
   {-# INLINE messageDecoder #-}
@@ -493,7 +493,7 @@ instance MessageDecode ActivityExecutionInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_23 acc_24 acc_25 acc_26 acc_27 acc_28 acc_29 acc_30 acc_31 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ActivityExecutionInfo {activityExecutionInfoActivityid = acc_0, activityExecutionInfoRunid = acc_1, activityExecutionInfoActivitytype = acc_2, activityExecutionInfoStatus = acc_3, activityExecutionInfoRunstate = acc_4, activityExecutionInfoTaskqueue = acc_5, activityExecutionInfoScheduletoclosetimeout = acc_6, activityExecutionInfoScheduletostarttimeout = acc_7, activityExecutionInfoStarttoclosetimeout = acc_8, activityExecutionInfoHeartbeattimeout = acc_9, activityExecutionInfoRetrypolicy = acc_10, activityExecutionInfoHeartbeatdetails = acc_11, activityExecutionInfoLastheartbeattime = acc_12, activityExecutionInfoLaststartedtime = acc_13, activityExecutionInfoAttempt = acc_14, activityExecutionInfoExecutionduration = acc_15, activityExecutionInfoScheduletime = acc_16, activityExecutionInfoExpirationtime = acc_17, activityExecutionInfoClosetime = acc_18, activityExecutionInfoLastfailure = acc_19, activityExecutionInfoLastworkeridentity = acc_20, activityExecutionInfoCurrentretryinterval = acc_21, activityExecutionInfoLastattemptcompletetime = acc_22, activityExecutionInfoNextattemptscheduletime = acc_23, activityExecutionInfoLastdeploymentversion = acc_24, activityExecutionInfoPriority = acc_25, activityExecutionInfoStatetransitioncount = acc_26, activityExecutionInfoStatesizebytes = acc_27, activityExecutionInfoSearchattributes = acc_28, activityExecutionInfoHeader = acc_29, activityExecutionInfoUsermetadata = acc_30, activityExecutionInfoCanceledreason = acc_31, activityExecutionInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ActivityExecutionInfo {activityExecutionInfoActivityId = acc_0, activityExecutionInfoRunId = acc_1, activityExecutionInfoActivityType = acc_2, activityExecutionInfoStatus = acc_3, activityExecutionInfoRunState = acc_4, activityExecutionInfoTaskQueue = acc_5, activityExecutionInfoScheduleToCloseTimeout = acc_6, activityExecutionInfoScheduleToStartTimeout = acc_7, activityExecutionInfoStartToCloseTimeout = acc_8, activityExecutionInfoHeartbeatTimeout = acc_9, activityExecutionInfoRetryPolicy = acc_10, activityExecutionInfoHeartbeatDetails = acc_11, activityExecutionInfoLastHeartbeatTime = acc_12, activityExecutionInfoLastStartedTime = acc_13, activityExecutionInfoAttempt = acc_14, activityExecutionInfoExecutionDuration = acc_15, activityExecutionInfoScheduleTime = acc_16, activityExecutionInfoExpirationTime = acc_17, activityExecutionInfoCloseTime = acc_18, activityExecutionInfoLastFailure = acc_19, activityExecutionInfoLastWorkerIdentity = acc_20, activityExecutionInfoCurrentRetryInterval = acc_21, activityExecutionInfoLastAttemptCompleteTime = acc_22, activityExecutionInfoNextAttemptScheduleTime = acc_23, activityExecutionInfoLastDeploymentVersion = acc_24, activityExecutionInfoPriority = acc_25, activityExecutionInfoStateTransitionCount = acc_26, activityExecutionInfoStateSizeBytes = acc_27, activityExecutionInfoSearchAttributes = acc_28, activityExecutionInfoHeader = acc_29, activityExecutionInfoUserMetadata = acc_30, activityExecutionInfoCanceledReason = acc_31, activityExecutionInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -609,23 +609,23 @@ instance ProtoMessage ActivityExecutionInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoActivityid
-        , fdSet = \v m -> m { activityExecutionInfoActivityid = v }
+        , fdGet = activityExecutionInfoActivityId
+        , fdSet = \v m -> m { activityExecutionInfoActivityId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoRunid
-        , fdSet = \v m -> m { activityExecutionInfoRunid = v }
+        , fdGet = activityExecutionInfoRunId
+        , fdSet = \v m -> m { activityExecutionInfoRunId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "activity_type"
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.common.v1.ActivityType"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoActivitytype
-        , fdSet = \v m -> m { activityExecutionInfoActivitytype = v }
+        , fdGet = activityExecutionInfoActivityType
+        , fdSet = \v m -> m { activityExecutionInfoActivityType = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "status"
@@ -640,80 +640,80 @@ instance ProtoMessage ActivityExecutionInfo where
         , fdNumber = 5
         , fdTypeDesc = MessageType "temporal.api.enums.v1.PendingActivityState"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoRunstate
-        , fdSet = \v m -> m { activityExecutionInfoRunstate = v }
+        , fdGet = activityExecutionInfoRunState
+        , fdSet = \v m -> m { activityExecutionInfoRunState = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "task_queue"
         , fdNumber = 6
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoTaskqueue
-        , fdSet = \v m -> m { activityExecutionInfoTaskqueue = v }
+        , fdGet = activityExecutionInfoTaskQueue
+        , fdSet = \v m -> m { activityExecutionInfoTaskQueue = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "schedule_to_close_timeout"
         , fdNumber = 7
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoScheduletoclosetimeout
-        , fdSet = \v m -> m { activityExecutionInfoScheduletoclosetimeout = v }
+        , fdGet = activityExecutionInfoScheduleToCloseTimeout
+        , fdSet = \v m -> m { activityExecutionInfoScheduleToCloseTimeout = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "schedule_to_start_timeout"
         , fdNumber = 8
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoScheduletostarttimeout
-        , fdSet = \v m -> m { activityExecutionInfoScheduletostarttimeout = v }
+        , fdGet = activityExecutionInfoScheduleToStartTimeout
+        , fdSet = \v m -> m { activityExecutionInfoScheduleToStartTimeout = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "start_to_close_timeout"
         , fdNumber = 9
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoStarttoclosetimeout
-        , fdSet = \v m -> m { activityExecutionInfoStarttoclosetimeout = v }
+        , fdGet = activityExecutionInfoStartToCloseTimeout
+        , fdSet = \v m -> m { activityExecutionInfoStartToCloseTimeout = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "heartbeat_timeout"
         , fdNumber = 10
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoHeartbeattimeout
-        , fdSet = \v m -> m { activityExecutionInfoHeartbeattimeout = v }
+        , fdGet = activityExecutionInfoHeartbeatTimeout
+        , fdSet = \v m -> m { activityExecutionInfoHeartbeatTimeout = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "retry_policy"
         , fdNumber = 11
         , fdTypeDesc = MessageType "temporal.api.common.v1.RetryPolicy"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoRetrypolicy
-        , fdSet = \v m -> m { activityExecutionInfoRetrypolicy = v }
+        , fdGet = activityExecutionInfoRetryPolicy
+        , fdSet = \v m -> m { activityExecutionInfoRetryPolicy = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "heartbeat_details"
         , fdNumber = 12
         , fdTypeDesc = MessageType "temporal.api.common.v1.Payloads"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoHeartbeatdetails
-        , fdSet = \v m -> m { activityExecutionInfoHeartbeatdetails = v }
+        , fdGet = activityExecutionInfoHeartbeatDetails
+        , fdSet = \v m -> m { activityExecutionInfoHeartbeatDetails = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "last_heartbeat_time"
         , fdNumber = 13
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoLastheartbeattime
-        , fdSet = \v m -> m { activityExecutionInfoLastheartbeattime = v }
+        , fdGet = activityExecutionInfoLastHeartbeatTime
+        , fdSet = \v m -> m { activityExecutionInfoLastHeartbeatTime = v }
         })
     , (14, SomeField FieldDescriptor
         { fdName = "last_started_time"
         , fdNumber = 14
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoLaststartedtime
-        , fdSet = \v m -> m { activityExecutionInfoLaststartedtime = v }
+        , fdGet = activityExecutionInfoLastStartedTime
+        , fdSet = \v m -> m { activityExecutionInfoLastStartedTime = v }
         })
     , (15, SomeField FieldDescriptor
         { fdName = "attempt"
@@ -728,80 +728,80 @@ instance ProtoMessage ActivityExecutionInfo where
         , fdNumber = 16
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoExecutionduration
-        , fdSet = \v m -> m { activityExecutionInfoExecutionduration = v }
+        , fdGet = activityExecutionInfoExecutionDuration
+        , fdSet = \v m -> m { activityExecutionInfoExecutionDuration = v }
         })
     , (17, SomeField FieldDescriptor
         { fdName = "schedule_time"
         , fdNumber = 17
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoScheduletime
-        , fdSet = \v m -> m { activityExecutionInfoScheduletime = v }
+        , fdGet = activityExecutionInfoScheduleTime
+        , fdSet = \v m -> m { activityExecutionInfoScheduleTime = v }
         })
     , (18, SomeField FieldDescriptor
         { fdName = "expiration_time"
         , fdNumber = 18
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoExpirationtime
-        , fdSet = \v m -> m { activityExecutionInfoExpirationtime = v }
+        , fdGet = activityExecutionInfoExpirationTime
+        , fdSet = \v m -> m { activityExecutionInfoExpirationTime = v }
         })
     , (19, SomeField FieldDescriptor
         { fdName = "close_time"
         , fdNumber = 19
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoClosetime
-        , fdSet = \v m -> m { activityExecutionInfoClosetime = v }
+        , fdGet = activityExecutionInfoCloseTime
+        , fdSet = \v m -> m { activityExecutionInfoCloseTime = v }
         })
     , (20, SomeField FieldDescriptor
         { fdName = "last_failure"
         , fdNumber = 20
         , fdTypeDesc = MessageType "temporal.api.failure.v1.Failure"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoLastfailure
-        , fdSet = \v m -> m { activityExecutionInfoLastfailure = v }
+        , fdGet = activityExecutionInfoLastFailure
+        , fdSet = \v m -> m { activityExecutionInfoLastFailure = v }
         })
     , (21, SomeField FieldDescriptor
         { fdName = "last_worker_identity"
         , fdNumber = 21
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoLastworkeridentity
-        , fdSet = \v m -> m { activityExecutionInfoLastworkeridentity = v }
+        , fdGet = activityExecutionInfoLastWorkerIdentity
+        , fdSet = \v m -> m { activityExecutionInfoLastWorkerIdentity = v }
         })
     , (22, SomeField FieldDescriptor
         { fdName = "current_retry_interval"
         , fdNumber = 22
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoCurrentretryinterval
-        , fdSet = \v m -> m { activityExecutionInfoCurrentretryinterval = v }
+        , fdGet = activityExecutionInfoCurrentRetryInterval
+        , fdSet = \v m -> m { activityExecutionInfoCurrentRetryInterval = v }
         })
     , (23, SomeField FieldDescriptor
         { fdName = "last_attempt_complete_time"
         , fdNumber = 23
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoLastattemptcompletetime
-        , fdSet = \v m -> m { activityExecutionInfoLastattemptcompletetime = v }
+        , fdGet = activityExecutionInfoLastAttemptCompleteTime
+        , fdSet = \v m -> m { activityExecutionInfoLastAttemptCompleteTime = v }
         })
     , (24, SomeField FieldDescriptor
         { fdName = "next_attempt_schedule_time"
         , fdNumber = 24
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoNextattemptscheduletime
-        , fdSet = \v m -> m { activityExecutionInfoNextattemptscheduletime = v }
+        , fdGet = activityExecutionInfoNextAttemptScheduleTime
+        , fdSet = \v m -> m { activityExecutionInfoNextAttemptScheduleTime = v }
         })
     , (25, SomeField FieldDescriptor
         { fdName = "last_deployment_version"
         , fdNumber = 25
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoLastdeploymentversion
-        , fdSet = \v m -> m { activityExecutionInfoLastdeploymentversion = v }
+        , fdGet = activityExecutionInfoLastDeploymentVersion
+        , fdSet = \v m -> m { activityExecutionInfoLastDeploymentVersion = v }
         })
     , (26, SomeField FieldDescriptor
         { fdName = "priority"
@@ -816,24 +816,24 @@ instance ProtoMessage ActivityExecutionInfo where
         , fdNumber = 27
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoStatetransitioncount
-        , fdSet = \v m -> m { activityExecutionInfoStatetransitioncount = v }
+        , fdGet = activityExecutionInfoStateTransitionCount
+        , fdSet = \v m -> m { activityExecutionInfoStateTransitionCount = v }
         })
     , (28, SomeField FieldDescriptor
         { fdName = "state_size_bytes"
         , fdNumber = 28
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoStatesizebytes
-        , fdSet = \v m -> m { activityExecutionInfoStatesizebytes = v }
+        , fdGet = activityExecutionInfoStateSizeBytes
+        , fdSet = \v m -> m { activityExecutionInfoStateSizeBytes = v }
         })
     , (29, SomeField FieldDescriptor
         { fdName = "search_attributes"
         , fdNumber = 29
         , fdTypeDesc = MessageType "temporal.api.common.v1.SearchAttributes"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoSearchattributes
-        , fdSet = \v m -> m { activityExecutionInfoSearchattributes = v }
+        , fdGet = activityExecutionInfoSearchAttributes
+        , fdSet = \v m -> m { activityExecutionInfoSearchAttributes = v }
         })
     , (30, SomeField FieldDescriptor
         { fdName = "header"
@@ -848,189 +848,189 @@ instance ProtoMessage ActivityExecutionInfo where
         , fdNumber = 31
         , fdTypeDesc = MessageType "temporal.api.sdk.v1.UserMetadata"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoUsermetadata
-        , fdSet = \v m -> m { activityExecutionInfoUsermetadata = v }
+        , fdGet = activityExecutionInfoUserMetadata
+        , fdSet = \v m -> m { activityExecutionInfoUserMetadata = v }
         })
     , (32, SomeField FieldDescriptor
         { fdName = "canceled_reason"
         , fdNumber = 32
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionInfoCanceledreason
-        , fdSet = \v m -> m { activityExecutionInfoCanceledreason = v }
+        , fdGet = activityExecutionInfoCanceledReason
+        , fdSet = \v m -> m { activityExecutionInfoCanceledReason = v }
         })
     ]
 
 instance Aeson.ToJSON ActivityExecutionInfo where
   toJSON msg = jsonObject
-      [ "activityId" .=: msg.activityExecutionInfoActivityid
-      , "runId" .=: msg.activityExecutionInfoRunid
-      , "activityType" .=: msg.activityExecutionInfoActivitytype
+      [ "activityId" .=: msg.activityExecutionInfoActivityId
+      , "runId" .=: msg.activityExecutionInfoRunId
+      , "activityType" .=: msg.activityExecutionInfoActivityType
       , "status" .=: msg.activityExecutionInfoStatus
-      , "runState" .=: msg.activityExecutionInfoRunstate
-      , "taskQueue" .=: msg.activityExecutionInfoTaskqueue
-      , "scheduleToCloseTimeout" .=: msg.activityExecutionInfoScheduletoclosetimeout
-      , "scheduleToStartTimeout" .=: msg.activityExecutionInfoScheduletostarttimeout
-      , "startToCloseTimeout" .=: msg.activityExecutionInfoStarttoclosetimeout
-      , "heartbeatTimeout" .=: msg.activityExecutionInfoHeartbeattimeout
-      , "retryPolicy" .=: msg.activityExecutionInfoRetrypolicy
-      , "heartbeatDetails" .=: msg.activityExecutionInfoHeartbeatdetails
-      , "lastHeartbeatTime" .=: msg.activityExecutionInfoLastheartbeattime
-      , "lastStartedTime" .=: msg.activityExecutionInfoLaststartedtime
+      , "runState" .=: msg.activityExecutionInfoRunState
+      , "taskQueue" .=: msg.activityExecutionInfoTaskQueue
+      , "scheduleToCloseTimeout" .=: msg.activityExecutionInfoScheduleToCloseTimeout
+      , "scheduleToStartTimeout" .=: msg.activityExecutionInfoScheduleToStartTimeout
+      , "startToCloseTimeout" .=: msg.activityExecutionInfoStartToCloseTimeout
+      , "heartbeatTimeout" .=: msg.activityExecutionInfoHeartbeatTimeout
+      , "retryPolicy" .=: msg.activityExecutionInfoRetryPolicy
+      , "heartbeatDetails" .=: msg.activityExecutionInfoHeartbeatDetails
+      , "lastHeartbeatTime" .=: msg.activityExecutionInfoLastHeartbeatTime
+      , "lastStartedTime" .=: msg.activityExecutionInfoLastStartedTime
       , "attempt" .=: msg.activityExecutionInfoAttempt
-      , "executionDuration" .=: msg.activityExecutionInfoExecutionduration
-      , "scheduleTime" .=: msg.activityExecutionInfoScheduletime
-      , "expirationTime" .=: msg.activityExecutionInfoExpirationtime
-      , "closeTime" .=: msg.activityExecutionInfoClosetime
-      , "lastFailure" .=: msg.activityExecutionInfoLastfailure
-      , "lastWorkerIdentity" .=: msg.activityExecutionInfoLastworkeridentity
-      , "currentRetryInterval" .=: msg.activityExecutionInfoCurrentretryinterval
-      , "lastAttemptCompleteTime" .=: msg.activityExecutionInfoLastattemptcompletetime
-      , "nextAttemptScheduleTime" .=: msg.activityExecutionInfoNextattemptscheduletime
-      , "lastDeploymentVersion" .=: msg.activityExecutionInfoLastdeploymentversion
+      , "executionDuration" .=: msg.activityExecutionInfoExecutionDuration
+      , "scheduleTime" .=: msg.activityExecutionInfoScheduleTime
+      , "expirationTime" .=: msg.activityExecutionInfoExpirationTime
+      , "closeTime" .=: msg.activityExecutionInfoCloseTime
+      , "lastFailure" .=: msg.activityExecutionInfoLastFailure
+      , "lastWorkerIdentity" .=: msg.activityExecutionInfoLastWorkerIdentity
+      , "currentRetryInterval" .=: msg.activityExecutionInfoCurrentRetryInterval
+      , "lastAttemptCompleteTime" .=: msg.activityExecutionInfoLastAttemptCompleteTime
+      , "nextAttemptScheduleTime" .=: msg.activityExecutionInfoNextAttemptScheduleTime
+      , "lastDeploymentVersion" .=: msg.activityExecutionInfoLastDeploymentVersion
       , "priority" .=: msg.activityExecutionInfoPriority
-      , "stateTransitionCount" .=: msg.activityExecutionInfoStatetransitioncount
-      , "stateSizeBytes" .=: msg.activityExecutionInfoStatesizebytes
-      , "searchAttributes" .=: msg.activityExecutionInfoSearchattributes
+      , "stateTransitionCount" .=: msg.activityExecutionInfoStateTransitionCount
+      , "stateSizeBytes" .=: msg.activityExecutionInfoStateSizeBytes
+      , "searchAttributes" .=: msg.activityExecutionInfoSearchAttributes
       , "header" .=: msg.activityExecutionInfoHeader
-      , "userMetadata" .=: msg.activityExecutionInfoUsermetadata
-      , "canceledReason" .=: msg.activityExecutionInfoCanceledreason
+      , "userMetadata" .=: msg.activityExecutionInfoUserMetadata
+      , "canceledReason" .=: msg.activityExecutionInfoCanceledReason
       ]
 
 instance Aeson.FromJSON ActivityExecutionInfo where
   parseJSON = Aeson.withObject "ActivityExecutionInfo" $ \obj -> do
-    fld_activityExecutionInfoActivityid <- parseFieldMaybe obj "activityId"
-    fld_activityExecutionInfoRunid <- parseFieldMaybe obj "runId"
-    fld_activityExecutionInfoActivitytype <- parseFieldMaybe obj "activityType"
+    fld_activityExecutionInfoActivityId <- parseFieldMaybe obj "activityId"
+    fld_activityExecutionInfoRunId <- parseFieldMaybe obj "runId"
+    fld_activityExecutionInfoActivityType <- parseFieldMaybe obj "activityType"
     fld_activityExecutionInfoStatus <- parseFieldMaybe obj "status"
-    fld_activityExecutionInfoRunstate <- parseFieldMaybe obj "runState"
-    fld_activityExecutionInfoTaskqueue <- parseFieldMaybe obj "taskQueue"
-    fld_activityExecutionInfoScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
-    fld_activityExecutionInfoScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
-    fld_activityExecutionInfoStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
-    fld_activityExecutionInfoHeartbeattimeout <- parseFieldMaybe obj "heartbeatTimeout"
-    fld_activityExecutionInfoRetrypolicy <- parseFieldMaybe obj "retryPolicy"
-    fld_activityExecutionInfoHeartbeatdetails <- parseFieldMaybe obj "heartbeatDetails"
-    fld_activityExecutionInfoLastheartbeattime <- parseFieldMaybe obj "lastHeartbeatTime"
-    fld_activityExecutionInfoLaststartedtime <- parseFieldMaybe obj "lastStartedTime"
+    fld_activityExecutionInfoRunState <- parseFieldMaybe obj "runState"
+    fld_activityExecutionInfoTaskQueue <- parseFieldMaybe obj "taskQueue"
+    fld_activityExecutionInfoScheduleToCloseTimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_activityExecutionInfoScheduleToStartTimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_activityExecutionInfoStartToCloseTimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_activityExecutionInfoHeartbeatTimeout <- parseFieldMaybe obj "heartbeatTimeout"
+    fld_activityExecutionInfoRetryPolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_activityExecutionInfoHeartbeatDetails <- parseFieldMaybe obj "heartbeatDetails"
+    fld_activityExecutionInfoLastHeartbeatTime <- parseFieldMaybe obj "lastHeartbeatTime"
+    fld_activityExecutionInfoLastStartedTime <- parseFieldMaybe obj "lastStartedTime"
     fld_activityExecutionInfoAttempt <- parseFieldMaybe obj "attempt"
-    fld_activityExecutionInfoExecutionduration <- parseFieldMaybe obj "executionDuration"
-    fld_activityExecutionInfoScheduletime <- parseFieldMaybe obj "scheduleTime"
-    fld_activityExecutionInfoExpirationtime <- parseFieldMaybe obj "expirationTime"
-    fld_activityExecutionInfoClosetime <- parseFieldMaybe obj "closeTime"
-    fld_activityExecutionInfoLastfailure <- parseFieldMaybe obj "lastFailure"
-    fld_activityExecutionInfoLastworkeridentity <- parseFieldMaybe obj "lastWorkerIdentity"
-    fld_activityExecutionInfoCurrentretryinterval <- parseFieldMaybe obj "currentRetryInterval"
-    fld_activityExecutionInfoLastattemptcompletetime <- parseFieldMaybe obj "lastAttemptCompleteTime"
-    fld_activityExecutionInfoNextattemptscheduletime <- parseFieldMaybe obj "nextAttemptScheduleTime"
-    fld_activityExecutionInfoLastdeploymentversion <- parseFieldMaybe obj "lastDeploymentVersion"
+    fld_activityExecutionInfoExecutionDuration <- parseFieldMaybe obj "executionDuration"
+    fld_activityExecutionInfoScheduleTime <- parseFieldMaybe obj "scheduleTime"
+    fld_activityExecutionInfoExpirationTime <- parseFieldMaybe obj "expirationTime"
+    fld_activityExecutionInfoCloseTime <- parseFieldMaybe obj "closeTime"
+    fld_activityExecutionInfoLastFailure <- parseFieldMaybe obj "lastFailure"
+    fld_activityExecutionInfoLastWorkerIdentity <- parseFieldMaybe obj "lastWorkerIdentity"
+    fld_activityExecutionInfoCurrentRetryInterval <- parseFieldMaybe obj "currentRetryInterval"
+    fld_activityExecutionInfoLastAttemptCompleteTime <- parseFieldMaybe obj "lastAttemptCompleteTime"
+    fld_activityExecutionInfoNextAttemptScheduleTime <- parseFieldMaybe obj "nextAttemptScheduleTime"
+    fld_activityExecutionInfoLastDeploymentVersion <- parseFieldMaybe obj "lastDeploymentVersion"
     fld_activityExecutionInfoPriority <- parseFieldMaybe obj "priority"
-    fld_activityExecutionInfoStatetransitioncount <- parseFieldMaybe obj "stateTransitionCount"
-    fld_activityExecutionInfoStatesizebytes <- parseFieldMaybe obj "stateSizeBytes"
-    fld_activityExecutionInfoSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_activityExecutionInfoStateTransitionCount <- parseFieldMaybe obj "stateTransitionCount"
+    fld_activityExecutionInfoStateSizeBytes <- parseFieldMaybe obj "stateSizeBytes"
+    fld_activityExecutionInfoSearchAttributes <- parseFieldMaybe obj "searchAttributes"
     fld_activityExecutionInfoHeader <- parseFieldMaybe obj "header"
-    fld_activityExecutionInfoUsermetadata <- parseFieldMaybe obj "userMetadata"
-    fld_activityExecutionInfoCanceledreason <- parseFieldMaybe obj "canceledReason"
+    fld_activityExecutionInfoUserMetadata <- parseFieldMaybe obj "userMetadata"
+    fld_activityExecutionInfoCanceledReason <- parseFieldMaybe obj "canceledReason"
     pure defaultActivityExecutionInfo
-      { activityExecutionInfoActivityid = maybe (activityExecutionInfoActivityid defaultActivityExecutionInfo) id fld_activityExecutionInfoActivityid
-      , activityExecutionInfoRunid = maybe (activityExecutionInfoRunid defaultActivityExecutionInfo) id fld_activityExecutionInfoRunid
-      , activityExecutionInfoActivitytype = maybe (activityExecutionInfoActivitytype defaultActivityExecutionInfo) id fld_activityExecutionInfoActivitytype
+      { activityExecutionInfoActivityId = maybe (activityExecutionInfoActivityId defaultActivityExecutionInfo) id fld_activityExecutionInfoActivityId
+      , activityExecutionInfoRunId = maybe (activityExecutionInfoRunId defaultActivityExecutionInfo) id fld_activityExecutionInfoRunId
+      , activityExecutionInfoActivityType = maybe (activityExecutionInfoActivityType defaultActivityExecutionInfo) id fld_activityExecutionInfoActivityType
       , activityExecutionInfoStatus = maybe (activityExecutionInfoStatus defaultActivityExecutionInfo) id fld_activityExecutionInfoStatus
-      , activityExecutionInfoRunstate = maybe (activityExecutionInfoRunstate defaultActivityExecutionInfo) id fld_activityExecutionInfoRunstate
-      , activityExecutionInfoTaskqueue = maybe (activityExecutionInfoTaskqueue defaultActivityExecutionInfo) id fld_activityExecutionInfoTaskqueue
-      , activityExecutionInfoScheduletoclosetimeout = maybe (activityExecutionInfoScheduletoclosetimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduletoclosetimeout
-      , activityExecutionInfoScheduletostarttimeout = maybe (activityExecutionInfoScheduletostarttimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduletostarttimeout
-      , activityExecutionInfoStarttoclosetimeout = maybe (activityExecutionInfoStarttoclosetimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoStarttoclosetimeout
-      , activityExecutionInfoHeartbeattimeout = maybe (activityExecutionInfoHeartbeattimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoHeartbeattimeout
-      , activityExecutionInfoRetrypolicy = maybe (activityExecutionInfoRetrypolicy defaultActivityExecutionInfo) id fld_activityExecutionInfoRetrypolicy
-      , activityExecutionInfoHeartbeatdetails = maybe (activityExecutionInfoHeartbeatdetails defaultActivityExecutionInfo) id fld_activityExecutionInfoHeartbeatdetails
-      , activityExecutionInfoLastheartbeattime = maybe (activityExecutionInfoLastheartbeattime defaultActivityExecutionInfo) id fld_activityExecutionInfoLastheartbeattime
-      , activityExecutionInfoLaststartedtime = maybe (activityExecutionInfoLaststartedtime defaultActivityExecutionInfo) id fld_activityExecutionInfoLaststartedtime
+      , activityExecutionInfoRunState = maybe (activityExecutionInfoRunState defaultActivityExecutionInfo) id fld_activityExecutionInfoRunState
+      , activityExecutionInfoTaskQueue = maybe (activityExecutionInfoTaskQueue defaultActivityExecutionInfo) id fld_activityExecutionInfoTaskQueue
+      , activityExecutionInfoScheduleToCloseTimeout = maybe (activityExecutionInfoScheduleToCloseTimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduleToCloseTimeout
+      , activityExecutionInfoScheduleToStartTimeout = maybe (activityExecutionInfoScheduleToStartTimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduleToStartTimeout
+      , activityExecutionInfoStartToCloseTimeout = maybe (activityExecutionInfoStartToCloseTimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoStartToCloseTimeout
+      , activityExecutionInfoHeartbeatTimeout = maybe (activityExecutionInfoHeartbeatTimeout defaultActivityExecutionInfo) id fld_activityExecutionInfoHeartbeatTimeout
+      , activityExecutionInfoRetryPolicy = maybe (activityExecutionInfoRetryPolicy defaultActivityExecutionInfo) id fld_activityExecutionInfoRetryPolicy
+      , activityExecutionInfoHeartbeatDetails = maybe (activityExecutionInfoHeartbeatDetails defaultActivityExecutionInfo) id fld_activityExecutionInfoHeartbeatDetails
+      , activityExecutionInfoLastHeartbeatTime = maybe (activityExecutionInfoLastHeartbeatTime defaultActivityExecutionInfo) id fld_activityExecutionInfoLastHeartbeatTime
+      , activityExecutionInfoLastStartedTime = maybe (activityExecutionInfoLastStartedTime defaultActivityExecutionInfo) id fld_activityExecutionInfoLastStartedTime
       , activityExecutionInfoAttempt = maybe (activityExecutionInfoAttempt defaultActivityExecutionInfo) id fld_activityExecutionInfoAttempt
-      , activityExecutionInfoExecutionduration = maybe (activityExecutionInfoExecutionduration defaultActivityExecutionInfo) id fld_activityExecutionInfoExecutionduration
-      , activityExecutionInfoScheduletime = maybe (activityExecutionInfoScheduletime defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduletime
-      , activityExecutionInfoExpirationtime = maybe (activityExecutionInfoExpirationtime defaultActivityExecutionInfo) id fld_activityExecutionInfoExpirationtime
-      , activityExecutionInfoClosetime = maybe (activityExecutionInfoClosetime defaultActivityExecutionInfo) id fld_activityExecutionInfoClosetime
-      , activityExecutionInfoLastfailure = maybe (activityExecutionInfoLastfailure defaultActivityExecutionInfo) id fld_activityExecutionInfoLastfailure
-      , activityExecutionInfoLastworkeridentity = maybe (activityExecutionInfoLastworkeridentity defaultActivityExecutionInfo) id fld_activityExecutionInfoLastworkeridentity
-      , activityExecutionInfoCurrentretryinterval = maybe (activityExecutionInfoCurrentretryinterval defaultActivityExecutionInfo) id fld_activityExecutionInfoCurrentretryinterval
-      , activityExecutionInfoLastattemptcompletetime = maybe (activityExecutionInfoLastattemptcompletetime defaultActivityExecutionInfo) id fld_activityExecutionInfoLastattemptcompletetime
-      , activityExecutionInfoNextattemptscheduletime = maybe (activityExecutionInfoNextattemptscheduletime defaultActivityExecutionInfo) id fld_activityExecutionInfoNextattemptscheduletime
-      , activityExecutionInfoLastdeploymentversion = maybe (activityExecutionInfoLastdeploymentversion defaultActivityExecutionInfo) id fld_activityExecutionInfoLastdeploymentversion
+      , activityExecutionInfoExecutionDuration = maybe (activityExecutionInfoExecutionDuration defaultActivityExecutionInfo) id fld_activityExecutionInfoExecutionDuration
+      , activityExecutionInfoScheduleTime = maybe (activityExecutionInfoScheduleTime defaultActivityExecutionInfo) id fld_activityExecutionInfoScheduleTime
+      , activityExecutionInfoExpirationTime = maybe (activityExecutionInfoExpirationTime defaultActivityExecutionInfo) id fld_activityExecutionInfoExpirationTime
+      , activityExecutionInfoCloseTime = maybe (activityExecutionInfoCloseTime defaultActivityExecutionInfo) id fld_activityExecutionInfoCloseTime
+      , activityExecutionInfoLastFailure = maybe (activityExecutionInfoLastFailure defaultActivityExecutionInfo) id fld_activityExecutionInfoLastFailure
+      , activityExecutionInfoLastWorkerIdentity = maybe (activityExecutionInfoLastWorkerIdentity defaultActivityExecutionInfo) id fld_activityExecutionInfoLastWorkerIdentity
+      , activityExecutionInfoCurrentRetryInterval = maybe (activityExecutionInfoCurrentRetryInterval defaultActivityExecutionInfo) id fld_activityExecutionInfoCurrentRetryInterval
+      , activityExecutionInfoLastAttemptCompleteTime = maybe (activityExecutionInfoLastAttemptCompleteTime defaultActivityExecutionInfo) id fld_activityExecutionInfoLastAttemptCompleteTime
+      , activityExecutionInfoNextAttemptScheduleTime = maybe (activityExecutionInfoNextAttemptScheduleTime defaultActivityExecutionInfo) id fld_activityExecutionInfoNextAttemptScheduleTime
+      , activityExecutionInfoLastDeploymentVersion = maybe (activityExecutionInfoLastDeploymentVersion defaultActivityExecutionInfo) id fld_activityExecutionInfoLastDeploymentVersion
       , activityExecutionInfoPriority = maybe (activityExecutionInfoPriority defaultActivityExecutionInfo) id fld_activityExecutionInfoPriority
-      , activityExecutionInfoStatetransitioncount = maybe (activityExecutionInfoStatetransitioncount defaultActivityExecutionInfo) id fld_activityExecutionInfoStatetransitioncount
-      , activityExecutionInfoStatesizebytes = maybe (activityExecutionInfoStatesizebytes defaultActivityExecutionInfo) id fld_activityExecutionInfoStatesizebytes
-      , activityExecutionInfoSearchattributes = maybe (activityExecutionInfoSearchattributes defaultActivityExecutionInfo) id fld_activityExecutionInfoSearchattributes
+      , activityExecutionInfoStateTransitionCount = maybe (activityExecutionInfoStateTransitionCount defaultActivityExecutionInfo) id fld_activityExecutionInfoStateTransitionCount
+      , activityExecutionInfoStateSizeBytes = maybe (activityExecutionInfoStateSizeBytes defaultActivityExecutionInfo) id fld_activityExecutionInfoStateSizeBytes
+      , activityExecutionInfoSearchAttributes = maybe (activityExecutionInfoSearchAttributes defaultActivityExecutionInfo) id fld_activityExecutionInfoSearchAttributes
       , activityExecutionInfoHeader = maybe (activityExecutionInfoHeader defaultActivityExecutionInfo) id fld_activityExecutionInfoHeader
-      , activityExecutionInfoUsermetadata = maybe (activityExecutionInfoUsermetadata defaultActivityExecutionInfo) id fld_activityExecutionInfoUsermetadata
-      , activityExecutionInfoCanceledreason = maybe (activityExecutionInfoCanceledreason defaultActivityExecutionInfo) id fld_activityExecutionInfoCanceledreason
+      , activityExecutionInfoUserMetadata = maybe (activityExecutionInfoUserMetadata defaultActivityExecutionInfo) id fld_activityExecutionInfoUserMetadata
+      , activityExecutionInfoCanceledReason = maybe (activityExecutionInfoCanceledReason defaultActivityExecutionInfo) id fld_activityExecutionInfoCanceledReason
       }
 
 instance Hashable ActivityExecutionInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.activityExecutionInfoActivityid) msg.activityExecutionInfoRunid) msg.activityExecutionInfoActivitytype) msg.activityExecutionInfoStatus) msg.activityExecutionInfoRunstate) msg.activityExecutionInfoTaskqueue) msg.activityExecutionInfoScheduletoclosetimeout) msg.activityExecutionInfoScheduletostarttimeout) msg.activityExecutionInfoStarttoclosetimeout) msg.activityExecutionInfoHeartbeattimeout) msg.activityExecutionInfoRetrypolicy) msg.activityExecutionInfoHeartbeatdetails) msg.activityExecutionInfoLastheartbeattime) msg.activityExecutionInfoLaststartedtime) msg.activityExecutionInfoAttempt) msg.activityExecutionInfoExecutionduration) msg.activityExecutionInfoScheduletime) msg.activityExecutionInfoExpirationtime) msg.activityExecutionInfoClosetime) msg.activityExecutionInfoLastfailure) msg.activityExecutionInfoLastworkeridentity) msg.activityExecutionInfoCurrentretryinterval) msg.activityExecutionInfoLastattemptcompletetime) msg.activityExecutionInfoNextattemptscheduletime) msg.activityExecutionInfoLastdeploymentversion) msg.activityExecutionInfoPriority) msg.activityExecutionInfoStatetransitioncount) msg.activityExecutionInfoStatesizebytes) msg.activityExecutionInfoSearchattributes) msg.activityExecutionInfoHeader) msg.activityExecutionInfoUsermetadata) msg.activityExecutionInfoCanceledreason
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.activityExecutionInfoActivityId) msg.activityExecutionInfoRunId) msg.activityExecutionInfoActivityType) msg.activityExecutionInfoStatus) msg.activityExecutionInfoRunState) msg.activityExecutionInfoTaskQueue) msg.activityExecutionInfoScheduleToCloseTimeout) msg.activityExecutionInfoScheduleToStartTimeout) msg.activityExecutionInfoStartToCloseTimeout) msg.activityExecutionInfoHeartbeatTimeout) msg.activityExecutionInfoRetryPolicy) msg.activityExecutionInfoHeartbeatDetails) msg.activityExecutionInfoLastHeartbeatTime) msg.activityExecutionInfoLastStartedTime) msg.activityExecutionInfoAttempt) msg.activityExecutionInfoExecutionDuration) msg.activityExecutionInfoScheduleTime) msg.activityExecutionInfoExpirationTime) msg.activityExecutionInfoCloseTime) msg.activityExecutionInfoLastFailure) msg.activityExecutionInfoLastWorkerIdentity) msg.activityExecutionInfoCurrentRetryInterval) msg.activityExecutionInfoLastAttemptCompleteTime) msg.activityExecutionInfoNextAttemptScheduleTime) msg.activityExecutionInfoLastDeploymentVersion) msg.activityExecutionInfoPriority) msg.activityExecutionInfoStateTransitionCount) msg.activityExecutionInfoStateSizeBytes) msg.activityExecutionInfoSearchAttributes) msg.activityExecutionInfoHeader) msg.activityExecutionInfoUserMetadata) msg.activityExecutionInfoCanceledReason
 
 data ActivityExecutionListInfo = ActivityExecutionListInfo
-  { activityExecutionListInfoActivityid :: !Text
-  , activityExecutionListInfoRunid :: !Text
-  , activityExecutionListInfoActivitytype :: !(Maybe TE_Common_V1_Message.ActivityType)
-  , activityExecutionListInfoScheduletime :: !(Maybe PB_Timestamp.Timestamp)
-  , activityExecutionListInfoClosetime :: !(Maybe PB_Timestamp.Timestamp)
+  { activityExecutionListInfoActivityId :: !Text
+  , activityExecutionListInfoRunId :: !Text
+  , activityExecutionListInfoActivityType :: !(Maybe TE_Common_V1_Message.ActivityType)
+  , activityExecutionListInfoScheduleTime :: !(Maybe PB_Timestamp.Timestamp)
+  , activityExecutionListInfoCloseTime :: !(Maybe PB_Timestamp.Timestamp)
   , activityExecutionListInfoStatus :: !TE_Enums_V1_Activity.ActivityExecutionStatus
-  , activityExecutionListInfoSearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
-  , activityExecutionListInfoTaskqueue :: !Text
-  , activityExecutionListInfoStatetransitioncount :: {-# UNPACK #-} !Int64
-  , activityExecutionListInfoStatesizebytes :: {-# UNPACK #-} !Int64
-  , activityExecutionListInfoExecutionduration :: !(Maybe PB_Duration.Duration)
-  , activityExecutionListInfoUnknownfields :: ![UnknownField]
+  , activityExecutionListInfoSearchAttributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
+  , activityExecutionListInfoTaskQueue :: !Text
+  , activityExecutionListInfoStateTransitionCount :: {-# UNPACK #-} !Int64
+  , activityExecutionListInfoStateSizeBytes :: {-# UNPACK #-} !Int64
+  , activityExecutionListInfoExecutionDuration :: !(Maybe PB_Duration.Duration)
+  , activityExecutionListInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultActivityExecutionListInfo :: ActivityExecutionListInfo
 defaultActivityExecutionListInfo = ActivityExecutionListInfo
-  { activityExecutionListInfoActivityid = ""
-  , activityExecutionListInfoRunid = ""
-  , activityExecutionListInfoActivitytype = Nothing
-  , activityExecutionListInfoScheduletime = Nothing
-  , activityExecutionListInfoClosetime = Nothing
+  { activityExecutionListInfoActivityId = ""
+  , activityExecutionListInfoRunId = ""
+  , activityExecutionListInfoActivityType = Nothing
+  , activityExecutionListInfoScheduleTime = Nothing
+  , activityExecutionListInfoCloseTime = Nothing
   , activityExecutionListInfoStatus = (toEnum 0)
-  , activityExecutionListInfoSearchattributes = Nothing
-  , activityExecutionListInfoTaskqueue = ""
-  , activityExecutionListInfoStatetransitioncount = 0
-  , activityExecutionListInfoStatesizebytes = 0
-  , activityExecutionListInfoExecutionduration = Nothing
-  , activityExecutionListInfoUnknownfields = []
+  , activityExecutionListInfoSearchAttributes = Nothing
+  , activityExecutionListInfoTaskQueue = ""
+  , activityExecutionListInfoStateTransitionCount = 0
+  , activityExecutionListInfoStateSizeBytes = 0
+  , activityExecutionListInfoExecutionDuration = Nothing
+  , activityExecutionListInfoUnknownFields = []
   }
 
 instance MessageEncode ActivityExecutionListInfo where
   buildMessage msg =
-    (if msg.activityExecutionListInfoActivityid == T.empty then mempty else encodeFieldString 1 msg.activityExecutionListInfoActivityid)
-    <> (if msg.activityExecutionListInfoRunid == T.empty then mempty else encodeFieldString 2 msg.activityExecutionListInfoRunid)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.activityExecutionListInfoActivitytype)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.activityExecutionListInfoScheduletime)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.activityExecutionListInfoClosetime)
+    (if msg.activityExecutionListInfoActivityId == T.empty then mempty else encodeFieldString 1 msg.activityExecutionListInfoActivityId)
+    <> (if msg.activityExecutionListInfoRunId == T.empty then mempty else encodeFieldString 2 msg.activityExecutionListInfoRunId)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.activityExecutionListInfoActivityType)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.activityExecutionListInfoScheduleTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.activityExecutionListInfoCloseTime)
     <> (if fromEnum msg.activityExecutionListInfoStatus == 0 then mempty else encodeFieldVarint 6 (fromIntegral (fromEnum msg.activityExecutionListInfoStatus)))
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.activityExecutionListInfoSearchattributes)
-    <> (if msg.activityExecutionListInfoTaskqueue == T.empty then mempty else encodeFieldString 8 msg.activityExecutionListInfoTaskqueue)
-    <> (if msg.activityExecutionListInfoStatetransitioncount == 0 then mempty else encodeFieldVarint 9 (fromIntegral msg.activityExecutionListInfoStatetransitioncount))
-    <> (if msg.activityExecutionListInfoStatesizebytes == 0 then mempty else encodeFieldVarint 10 (fromIntegral msg.activityExecutionListInfoStatesizebytes))
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.activityExecutionListInfoExecutionduration)
-    <> encodeUnknownFields msg.activityExecutionListInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.activityExecutionListInfoSearchAttributes)
+    <> (if msg.activityExecutionListInfoTaskQueue == T.empty then mempty else encodeFieldString 8 msg.activityExecutionListInfoTaskQueue)
+    <> (if msg.activityExecutionListInfoStateTransitionCount == 0 then mempty else encodeFieldVarint 9 (fromIntegral msg.activityExecutionListInfoStateTransitionCount))
+    <> (if msg.activityExecutionListInfoStateSizeBytes == 0 then mempty else encodeFieldVarint 10 (fromIntegral msg.activityExecutionListInfoStateSizeBytes))
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.activityExecutionListInfoExecutionDuration)
+    <> encodeUnknownFields msg.activityExecutionListInfoUnknownFields
 
 instance MessageSize ActivityExecutionListInfo where
   messageSize msg =
-    (if msg.activityExecutionListInfoActivityid == T.empty then 0 else fieldTextSize 1 msg.activityExecutionListInfoActivityid)
-    + (if msg.activityExecutionListInfoRunid == T.empty then 0 else fieldTextSize 2 msg.activityExecutionListInfoRunid)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.activityExecutionListInfoActivitytype)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.activityExecutionListInfoScheduletime)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.activityExecutionListInfoClosetime)
+    (if msg.activityExecutionListInfoActivityId == T.empty then 0 else fieldTextSize 1 msg.activityExecutionListInfoActivityId)
+    + (if msg.activityExecutionListInfoRunId == T.empty then 0 else fieldTextSize 2 msg.activityExecutionListInfoRunId)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.activityExecutionListInfoActivityType)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.activityExecutionListInfoScheduleTime)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.activityExecutionListInfoCloseTime)
     + (if fromEnum msg.activityExecutionListInfoStatus == 0 then 0 else fieldVarintSize 6 (fromIntegral (fromEnum msg.activityExecutionListInfoStatus)))
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.activityExecutionListInfoSearchattributes)
-    + (if msg.activityExecutionListInfoTaskqueue == T.empty then 0 else fieldTextSize 8 msg.activityExecutionListInfoTaskqueue)
-    + (if msg.activityExecutionListInfoStatetransitioncount == 0 then 0 else fieldVarintSize 9 (fromIntegral msg.activityExecutionListInfoStatetransitioncount))
-    + (if msg.activityExecutionListInfoStatesizebytes == 0 then 0 else fieldVarintSize 10 (fromIntegral msg.activityExecutionListInfoStatesizebytes))
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.activityExecutionListInfoExecutionduration)
-    + unknownFieldsSize msg.activityExecutionListInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.activityExecutionListInfoSearchAttributes)
+    + (if msg.activityExecutionListInfoTaskQueue == T.empty then 0 else fieldTextSize 8 msg.activityExecutionListInfoTaskQueue)
+    + (if msg.activityExecutionListInfoStateTransitionCount == 0 then 0 else fieldVarintSize 9 (fromIntegral msg.activityExecutionListInfoStateTransitionCount))
+    + (if msg.activityExecutionListInfoStateSizeBytes == 0 then 0 else fieldVarintSize 10 (fromIntegral msg.activityExecutionListInfoStateSizeBytes))
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.activityExecutionListInfoExecutionDuration)
+    + unknownFieldsSize msg.activityExecutionListInfoUnknownFields
 
 instance MessageDecode ActivityExecutionListInfo where
   {-# INLINE messageDecoder #-}
@@ -1039,7 +1039,7 @@ instance MessageDecode ActivityExecutionListInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ActivityExecutionListInfo {activityExecutionListInfoActivityid = acc_0, activityExecutionListInfoRunid = acc_1, activityExecutionListInfoActivitytype = acc_2, activityExecutionListInfoScheduletime = acc_3, activityExecutionListInfoClosetime = acc_4, activityExecutionListInfoStatus = acc_5, activityExecutionListInfoSearchattributes = acc_6, activityExecutionListInfoTaskqueue = acc_7, activityExecutionListInfoStatetransitioncount = acc_8, activityExecutionListInfoStatesizebytes = acc_9, activityExecutionListInfoExecutionduration = acc_10, activityExecutionListInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ActivityExecutionListInfo {activityExecutionListInfoActivityId = acc_0, activityExecutionListInfoRunId = acc_1, activityExecutionListInfoActivityType = acc_2, activityExecutionListInfoScheduleTime = acc_3, activityExecutionListInfoCloseTime = acc_4, activityExecutionListInfoStatus = acc_5, activityExecutionListInfoSearchAttributes = acc_6, activityExecutionListInfoTaskQueue = acc_7, activityExecutionListInfoStateTransitionCount = acc_8, activityExecutionListInfoStateSizeBytes = acc_9, activityExecutionListInfoExecutionDuration = acc_10, activityExecutionListInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1092,39 +1092,39 @@ instance ProtoMessage ActivityExecutionListInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoActivityid
-        , fdSet = \v m -> m { activityExecutionListInfoActivityid = v }
+        , fdGet = activityExecutionListInfoActivityId
+        , fdSet = \v m -> m { activityExecutionListInfoActivityId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoRunid
-        , fdSet = \v m -> m { activityExecutionListInfoRunid = v }
+        , fdGet = activityExecutionListInfoRunId
+        , fdSet = \v m -> m { activityExecutionListInfoRunId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "activity_type"
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.common.v1.ActivityType"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoActivitytype
-        , fdSet = \v m -> m { activityExecutionListInfoActivitytype = v }
+        , fdGet = activityExecutionListInfoActivityType
+        , fdSet = \v m -> m { activityExecutionListInfoActivityType = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "schedule_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoScheduletime
-        , fdSet = \v m -> m { activityExecutionListInfoScheduletime = v }
+        , fdGet = activityExecutionListInfoScheduleTime
+        , fdSet = \v m -> m { activityExecutionListInfoScheduleTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "close_time"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoClosetime
-        , fdSet = \v m -> m { activityExecutionListInfoClosetime = v }
+        , fdGet = activityExecutionListInfoCloseTime
+        , fdSet = \v m -> m { activityExecutionListInfoCloseTime = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "status"
@@ -1139,87 +1139,87 @@ instance ProtoMessage ActivityExecutionListInfo where
         , fdNumber = 7
         , fdTypeDesc = MessageType "temporal.api.common.v1.SearchAttributes"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoSearchattributes
-        , fdSet = \v m -> m { activityExecutionListInfoSearchattributes = v }
+        , fdGet = activityExecutionListInfoSearchAttributes
+        , fdSet = \v m -> m { activityExecutionListInfoSearchAttributes = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "task_queue"
         , fdNumber = 8
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoTaskqueue
-        , fdSet = \v m -> m { activityExecutionListInfoTaskqueue = v }
+        , fdGet = activityExecutionListInfoTaskQueue
+        , fdSet = \v m -> m { activityExecutionListInfoTaskQueue = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "state_transition_count"
         , fdNumber = 9
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoStatetransitioncount
-        , fdSet = \v m -> m { activityExecutionListInfoStatetransitioncount = v }
+        , fdGet = activityExecutionListInfoStateTransitionCount
+        , fdSet = \v m -> m { activityExecutionListInfoStateTransitionCount = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "state_size_bytes"
         , fdNumber = 10
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoStatesizebytes
-        , fdSet = \v m -> m { activityExecutionListInfoStatesizebytes = v }
+        , fdGet = activityExecutionListInfoStateSizeBytes
+        , fdSet = \v m -> m { activityExecutionListInfoStateSizeBytes = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "execution_duration"
         , fdNumber = 11
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionListInfoExecutionduration
-        , fdSet = \v m -> m { activityExecutionListInfoExecutionduration = v }
+        , fdGet = activityExecutionListInfoExecutionDuration
+        , fdSet = \v m -> m { activityExecutionListInfoExecutionDuration = v }
         })
     ]
 
 instance Aeson.ToJSON ActivityExecutionListInfo where
   toJSON msg = jsonObject
-      [ "activityId" .=: msg.activityExecutionListInfoActivityid
-      , "runId" .=: msg.activityExecutionListInfoRunid
-      , "activityType" .=: msg.activityExecutionListInfoActivitytype
-      , "scheduleTime" .=: msg.activityExecutionListInfoScheduletime
-      , "closeTime" .=: msg.activityExecutionListInfoClosetime
+      [ "activityId" .=: msg.activityExecutionListInfoActivityId
+      , "runId" .=: msg.activityExecutionListInfoRunId
+      , "activityType" .=: msg.activityExecutionListInfoActivityType
+      , "scheduleTime" .=: msg.activityExecutionListInfoScheduleTime
+      , "closeTime" .=: msg.activityExecutionListInfoCloseTime
       , "status" .=: msg.activityExecutionListInfoStatus
-      , "searchAttributes" .=: msg.activityExecutionListInfoSearchattributes
-      , "taskQueue" .=: msg.activityExecutionListInfoTaskqueue
-      , "stateTransitionCount" .=: msg.activityExecutionListInfoStatetransitioncount
-      , "stateSizeBytes" .=: msg.activityExecutionListInfoStatesizebytes
-      , "executionDuration" .=: msg.activityExecutionListInfoExecutionduration
+      , "searchAttributes" .=: msg.activityExecutionListInfoSearchAttributes
+      , "taskQueue" .=: msg.activityExecutionListInfoTaskQueue
+      , "stateTransitionCount" .=: msg.activityExecutionListInfoStateTransitionCount
+      , "stateSizeBytes" .=: msg.activityExecutionListInfoStateSizeBytes
+      , "executionDuration" .=: msg.activityExecutionListInfoExecutionDuration
       ]
 
 instance Aeson.FromJSON ActivityExecutionListInfo where
   parseJSON = Aeson.withObject "ActivityExecutionListInfo" $ \obj -> do
-    fld_activityExecutionListInfoActivityid <- parseFieldMaybe obj "activityId"
-    fld_activityExecutionListInfoRunid <- parseFieldMaybe obj "runId"
-    fld_activityExecutionListInfoActivitytype <- parseFieldMaybe obj "activityType"
-    fld_activityExecutionListInfoScheduletime <- parseFieldMaybe obj "scheduleTime"
-    fld_activityExecutionListInfoClosetime <- parseFieldMaybe obj "closeTime"
+    fld_activityExecutionListInfoActivityId <- parseFieldMaybe obj "activityId"
+    fld_activityExecutionListInfoRunId <- parseFieldMaybe obj "runId"
+    fld_activityExecutionListInfoActivityType <- parseFieldMaybe obj "activityType"
+    fld_activityExecutionListInfoScheduleTime <- parseFieldMaybe obj "scheduleTime"
+    fld_activityExecutionListInfoCloseTime <- parseFieldMaybe obj "closeTime"
     fld_activityExecutionListInfoStatus <- parseFieldMaybe obj "status"
-    fld_activityExecutionListInfoSearchattributes <- parseFieldMaybe obj "searchAttributes"
-    fld_activityExecutionListInfoTaskqueue <- parseFieldMaybe obj "taskQueue"
-    fld_activityExecutionListInfoStatetransitioncount <- parseFieldMaybe obj "stateTransitionCount"
-    fld_activityExecutionListInfoStatesizebytes <- parseFieldMaybe obj "stateSizeBytes"
-    fld_activityExecutionListInfoExecutionduration <- parseFieldMaybe obj "executionDuration"
+    fld_activityExecutionListInfoSearchAttributes <- parseFieldMaybe obj "searchAttributes"
+    fld_activityExecutionListInfoTaskQueue <- parseFieldMaybe obj "taskQueue"
+    fld_activityExecutionListInfoStateTransitionCount <- parseFieldMaybe obj "stateTransitionCount"
+    fld_activityExecutionListInfoStateSizeBytes <- parseFieldMaybe obj "stateSizeBytes"
+    fld_activityExecutionListInfoExecutionDuration <- parseFieldMaybe obj "executionDuration"
     pure defaultActivityExecutionListInfo
-      { activityExecutionListInfoActivityid = maybe (activityExecutionListInfoActivityid defaultActivityExecutionListInfo) id fld_activityExecutionListInfoActivityid
-      , activityExecutionListInfoRunid = maybe (activityExecutionListInfoRunid defaultActivityExecutionListInfo) id fld_activityExecutionListInfoRunid
-      , activityExecutionListInfoActivitytype = maybe (activityExecutionListInfoActivitytype defaultActivityExecutionListInfo) id fld_activityExecutionListInfoActivitytype
-      , activityExecutionListInfoScheduletime = maybe (activityExecutionListInfoScheduletime defaultActivityExecutionListInfo) id fld_activityExecutionListInfoScheduletime
-      , activityExecutionListInfoClosetime = maybe (activityExecutionListInfoClosetime defaultActivityExecutionListInfo) id fld_activityExecutionListInfoClosetime
+      { activityExecutionListInfoActivityId = maybe (activityExecutionListInfoActivityId defaultActivityExecutionListInfo) id fld_activityExecutionListInfoActivityId
+      , activityExecutionListInfoRunId = maybe (activityExecutionListInfoRunId defaultActivityExecutionListInfo) id fld_activityExecutionListInfoRunId
+      , activityExecutionListInfoActivityType = maybe (activityExecutionListInfoActivityType defaultActivityExecutionListInfo) id fld_activityExecutionListInfoActivityType
+      , activityExecutionListInfoScheduleTime = maybe (activityExecutionListInfoScheduleTime defaultActivityExecutionListInfo) id fld_activityExecutionListInfoScheduleTime
+      , activityExecutionListInfoCloseTime = maybe (activityExecutionListInfoCloseTime defaultActivityExecutionListInfo) id fld_activityExecutionListInfoCloseTime
       , activityExecutionListInfoStatus = maybe (activityExecutionListInfoStatus defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStatus
-      , activityExecutionListInfoSearchattributes = maybe (activityExecutionListInfoSearchattributes defaultActivityExecutionListInfo) id fld_activityExecutionListInfoSearchattributes
-      , activityExecutionListInfoTaskqueue = maybe (activityExecutionListInfoTaskqueue defaultActivityExecutionListInfo) id fld_activityExecutionListInfoTaskqueue
-      , activityExecutionListInfoStatetransitioncount = maybe (activityExecutionListInfoStatetransitioncount defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStatetransitioncount
-      , activityExecutionListInfoStatesizebytes = maybe (activityExecutionListInfoStatesizebytes defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStatesizebytes
-      , activityExecutionListInfoExecutionduration = maybe (activityExecutionListInfoExecutionduration defaultActivityExecutionListInfo) id fld_activityExecutionListInfoExecutionduration
+      , activityExecutionListInfoSearchAttributes = maybe (activityExecutionListInfoSearchAttributes defaultActivityExecutionListInfo) id fld_activityExecutionListInfoSearchAttributes
+      , activityExecutionListInfoTaskQueue = maybe (activityExecutionListInfoTaskQueue defaultActivityExecutionListInfo) id fld_activityExecutionListInfoTaskQueue
+      , activityExecutionListInfoStateTransitionCount = maybe (activityExecutionListInfoStateTransitionCount defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStateTransitionCount
+      , activityExecutionListInfoStateSizeBytes = maybe (activityExecutionListInfoStateSizeBytes defaultActivityExecutionListInfo) id fld_activityExecutionListInfoStateSizeBytes
+      , activityExecutionListInfoExecutionDuration = maybe (activityExecutionListInfoExecutionDuration defaultActivityExecutionListInfo) id fld_activityExecutionListInfoExecutionDuration
       }
 
 instance Hashable ActivityExecutionListInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.activityExecutionListInfoActivityid) msg.activityExecutionListInfoRunid) msg.activityExecutionListInfoActivitytype) msg.activityExecutionListInfoScheduletime) msg.activityExecutionListInfoClosetime) msg.activityExecutionListInfoStatus) msg.activityExecutionListInfoSearchattributes) msg.activityExecutionListInfoTaskqueue) msg.activityExecutionListInfoStatetransitioncount) msg.activityExecutionListInfoStatesizebytes) msg.activityExecutionListInfoExecutionduration
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.activityExecutionListInfoActivityId) msg.activityExecutionListInfoRunId) msg.activityExecutionListInfoActivityType) msg.activityExecutionListInfoScheduleTime) msg.activityExecutionListInfoCloseTime) msg.activityExecutionListInfoStatus) msg.activityExecutionListInfoSearchAttributes) msg.activityExecutionListInfoTaskQueue) msg.activityExecutionListInfoStateTransitionCount) msg.activityExecutionListInfoStateSizeBytes) msg.activityExecutionListInfoExecutionDuration
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

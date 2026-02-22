@@ -61,7 +61,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a2774656d706f72616c2f6170692f736
 data UserMetadata = UserMetadata
   { userMetadataSummary :: !(Maybe TE_Common_V1_Message.Payload)
   , userMetadataDetails :: !(Maybe TE_Common_V1_Message.Payload)
-  , userMetadataUnknownfields :: ![UnknownField]
+  , userMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -70,20 +70,20 @@ defaultUserMetadata :: UserMetadata
 defaultUserMetadata = UserMetadata
   { userMetadataSummary = Nothing
   , userMetadataDetails = Nothing
-  , userMetadataUnknownfields = []
+  , userMetadataUnknownFields = []
   }
 
 instance MessageEncode UserMetadata where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.userMetadataSummary)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.userMetadataDetails)
-    <> encodeUnknownFields msg.userMetadataUnknownfields
+    <> encodeUnknownFields msg.userMetadataUnknownFields
 
 instance MessageSize UserMetadata where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.userMetadataSummary)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.userMetadataDetails)
-    + unknownFieldsSize msg.userMetadataUnknownfields
+    + unknownFieldsSize msg.userMetadataUnknownFields
 
 instance MessageDecode UserMetadata where
   {-# INLINE messageDecoder #-}
@@ -92,7 +92,7 @@ instance MessageDecode UserMetadata where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UserMetadata {userMetadataSummary = acc_0, userMetadataDetails = acc_1, userMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UserMetadata {userMetadataSummary = acc_0, userMetadataDetails = acc_1, userMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage

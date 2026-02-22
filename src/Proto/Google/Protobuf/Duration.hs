@@ -60,7 +60,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a1e676f6f676c652f70726f746f62756
 data Duration = Duration
   { durationSeconds :: {-# UNPACK #-} !Int64
   , durationNanos :: {-# UNPACK #-} !Int32
-  , durationUnknownfields :: ![UnknownField]
+  , durationUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -69,20 +69,20 @@ defaultDuration :: Duration
 defaultDuration = Duration
   { durationSeconds = 0
   , durationNanos = 0
-  , durationUnknownfields = []
+  , durationUnknownFields = []
   }
 
 instance MessageEncode Duration where
   buildMessage msg =
     (if msg.durationSeconds == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.durationSeconds))
     <> (if msg.durationNanos == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.durationNanos))
-    <> encodeUnknownFields msg.durationUnknownfields
+    <> encodeUnknownFields msg.durationUnknownFields
 
 instance MessageSize Duration where
   messageSize msg =
     (if msg.durationSeconds == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.durationSeconds))
     + (if msg.durationNanos == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.durationNanos))
-    + unknownFieldsSize msg.durationUnknownfields
+    + unknownFieldsSize msg.durationUnknownFields
 
 instance MessageDecode Duration where
   {-# INLINE messageDecoder #-}
@@ -91,7 +91,7 @@ instance MessageDecode Duration where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Duration {durationSeconds = acc_0, durationNanos = acc_1, durationUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Duration {durationSeconds = acc_0, durationNanos = acc_1, durationUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)

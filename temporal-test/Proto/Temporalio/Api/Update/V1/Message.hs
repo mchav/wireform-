@@ -61,27 +61,27 @@ fileDescriptorProtoBytes = case Base16.decode "0a2474656d706f72616c2f6170692f757
 
 
 data WaitPolicy = WaitPolicy
-  { waitPolicyLifecyclestage :: !TE_Enums_V1_Update.UpdateWorkflowExecutionLifecycleStage
-  , waitPolicyUnknownfields :: ![UnknownField]
+  { waitPolicyLifecycleStage :: !TE_Enums_V1_Update.UpdateWorkflowExecutionLifecycleStage
+  , waitPolicyUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWaitPolicy :: WaitPolicy
 defaultWaitPolicy = WaitPolicy
-  { waitPolicyLifecyclestage = (toEnum 0)
-  , waitPolicyUnknownfields = []
+  { waitPolicyLifecycleStage = (toEnum 0)
+  , waitPolicyUnknownFields = []
   }
 
 instance MessageEncode WaitPolicy where
   buildMessage msg =
-    (if fromEnum msg.waitPolicyLifecyclestage == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.waitPolicyLifecyclestage)))
-    <> encodeUnknownFields msg.waitPolicyUnknownfields
+    (if fromEnum msg.waitPolicyLifecycleStage == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.waitPolicyLifecycleStage)))
+    <> encodeUnknownFields msg.waitPolicyUnknownFields
 
 instance MessageSize WaitPolicy where
   messageSize msg =
-    (if fromEnum msg.waitPolicyLifecyclestage == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.waitPolicyLifecyclestage)))
-    + unknownFieldsSize msg.waitPolicyUnknownfields
+    (if fromEnum msg.waitPolicyLifecycleStage == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.waitPolicyLifecycleStage)))
+    + unknownFieldsSize msg.waitPolicyUnknownFields
 
 instance MessageDecode WaitPolicy where
   {-# INLINE messageDecoder #-}
@@ -90,7 +90,7 @@ instance MessageDecode WaitPolicy where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WaitPolicy {waitPolicyLifecyclestage = acc_0, waitPolicyUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WaitPolicy {waitPolicyLifecycleStage = acc_0, waitPolicyUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -113,53 +113,53 @@ instance ProtoMessage WaitPolicy where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.UpdateWorkflowExecutionLifecycleStage"
         , fdLabel = LabelOptional
-        , fdGet = waitPolicyLifecyclestage
-        , fdSet = \v m -> m { waitPolicyLifecyclestage = v }
+        , fdGet = waitPolicyLifecycleStage
+        , fdSet = \v m -> m { waitPolicyLifecycleStage = v }
         })
     ]
 
 instance Aeson.ToJSON WaitPolicy where
   toJSON msg = jsonObject
-      [ "lifecycleStage" .=: msg.waitPolicyLifecyclestage
+      [ "lifecycleStage" .=: msg.waitPolicyLifecycleStage
 
       ]
 
 instance Aeson.FromJSON WaitPolicy where
   parseJSON = Aeson.withObject "WaitPolicy" $ \obj -> do
-    fld_waitPolicyLifecyclestage <- parseFieldMaybe obj "lifecycleStage"
+    fld_waitPolicyLifecycleStage <- parseFieldMaybe obj "lifecycleStage"
     pure defaultWaitPolicy
-      { waitPolicyLifecyclestage = maybe (waitPolicyLifecyclestage defaultWaitPolicy) id fld_waitPolicyLifecyclestage
+      { waitPolicyLifecycleStage = maybe (waitPolicyLifecycleStage defaultWaitPolicy) id fld_waitPolicyLifecycleStage
       }
 
 instance Hashable WaitPolicy where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.waitPolicyLifecyclestage
+  hashWithSalt salt msg = hashWithSalt (salt) msg.waitPolicyLifecycleStage
 
 data UpdateRef = UpdateRef
-  { updateRefWorkflowexecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
-  , updateRefUpdateid :: !Text
-  , updateRefUnknownfields :: ![UnknownField]
+  { updateRefWorkflowExecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
+  , updateRefUpdateId :: !Text
+  , updateRefUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultUpdateRef :: UpdateRef
 defaultUpdateRef = UpdateRef
-  { updateRefWorkflowexecution = Nothing
-  , updateRefUpdateid = ""
-  , updateRefUnknownfields = []
+  { updateRefWorkflowExecution = Nothing
+  , updateRefUpdateId = ""
+  , updateRefUnknownFields = []
   }
 
 instance MessageEncode UpdateRef where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.updateRefWorkflowexecution)
-    <> (if msg.updateRefUpdateid == T.empty then mempty else encodeFieldString 2 msg.updateRefUpdateid)
-    <> encodeUnknownFields msg.updateRefUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.updateRefWorkflowExecution)
+    <> (if msg.updateRefUpdateId == T.empty then mempty else encodeFieldString 2 msg.updateRefUpdateId)
+    <> encodeUnknownFields msg.updateRefUnknownFields
 
 instance MessageSize UpdateRef where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.updateRefWorkflowexecution)
-    + (if msg.updateRefUpdateid == T.empty then 0 else fieldTextSize 2 msg.updateRefUpdateid)
-    + unknownFieldsSize msg.updateRefUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.updateRefWorkflowExecution)
+    + (if msg.updateRefUpdateId == T.empty then 0 else fieldTextSize 2 msg.updateRefUpdateId)
+    + unknownFieldsSize msg.updateRefUnknownFields
 
 instance MessageDecode UpdateRef where
   {-# INLINE messageDecoder #-}
@@ -168,7 +168,7 @@ instance MessageDecode UpdateRef where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UpdateRef {updateRefWorkflowexecution = acc_0, updateRefUpdateid = acc_1, updateRefUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UpdateRef {updateRefWorkflowExecution = acc_0, updateRefUpdateId = acc_1, updateRefUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -194,39 +194,39 @@ instance ProtoMessage UpdateRef where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowExecution"
         , fdLabel = LabelOptional
-        , fdGet = updateRefWorkflowexecution
-        , fdSet = \v m -> m { updateRefWorkflowexecution = v }
+        , fdGet = updateRefWorkflowExecution
+        , fdSet = \v m -> m { updateRefWorkflowExecution = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "update_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = updateRefUpdateid
-        , fdSet = \v m -> m { updateRefUpdateid = v }
+        , fdGet = updateRefUpdateId
+        , fdSet = \v m -> m { updateRefUpdateId = v }
         })
     ]
 
 instance Aeson.ToJSON UpdateRef where
   toJSON msg = jsonObject
-      [ "workflowExecution" .=: msg.updateRefWorkflowexecution
-      , "updateId" .=: msg.updateRefUpdateid
+      [ "workflowExecution" .=: msg.updateRefWorkflowExecution
+      , "updateId" .=: msg.updateRefUpdateId
       ]
 
 instance Aeson.FromJSON UpdateRef where
   parseJSON = Aeson.withObject "UpdateRef" $ \obj -> do
-    fld_updateRefWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
-    fld_updateRefUpdateid <- parseFieldMaybe obj "updateId"
+    fld_updateRefWorkflowExecution <- parseFieldMaybe obj "workflowExecution"
+    fld_updateRefUpdateId <- parseFieldMaybe obj "updateId"
     pure defaultUpdateRef
-      { updateRefWorkflowexecution = maybe (updateRefWorkflowexecution defaultUpdateRef) id fld_updateRefWorkflowexecution
-      , updateRefUpdateid = maybe (updateRefUpdateid defaultUpdateRef) id fld_updateRefUpdateid
+      { updateRefWorkflowExecution = maybe (updateRefWorkflowExecution defaultUpdateRef) id fld_updateRefWorkflowExecution
+      , updateRefUpdateId = maybe (updateRefUpdateId defaultUpdateRef) id fld_updateRefUpdateId
       }
 
 instance Hashable UpdateRef where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.updateRefWorkflowexecution) msg.updateRefUpdateid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.updateRefWorkflowExecution) msg.updateRefUpdateId
 
 data Outcome = Outcome
   { outcomeValue :: !(Maybe Outcome'Value)
-  , outcomeUnknownfields :: ![UnknownField]
+  , outcomeUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -246,7 +246,7 @@ instance Hashable Outcome'Value where
 defaultOutcome :: Outcome
 defaultOutcome = Outcome
   { outcomeValue = Nothing
-  , outcomeUnknownfields = []
+  , outcomeUnknownFields = []
   }
 
 instance MessageEncode Outcome where
@@ -255,13 +255,13 @@ instance MessageEncode Outcome where
       Nothing -> mempty
       Just (Outcome'Value'Success v) -> encodeFieldMessage 1 v
       Just (Outcome'Value'Failure v) -> encodeFieldMessage 2 v)
-    <> encodeUnknownFields msg.outcomeUnknownfields
+    <> encodeUnknownFields msg.outcomeUnknownFields
 
 instance MessageSize Outcome where
   messageSize msg =
     (case msg.outcomeValue of { Nothing -> 0; Just (Outcome'Value'Success v) -> fieldMessageSize 1 (messageSize v)
     ; Just (Outcome'Value'Failure v) -> fieldMessageSize 2 (messageSize v) })
-    + unknownFieldsSize msg.outcomeUnknownfields
+    + unknownFieldsSize msg.outcomeUnknownFields
 
 instance MessageDecode Outcome where
   {-# INLINE messageDecoder #-}
@@ -270,7 +270,7 @@ instance MessageDecode Outcome where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Outcome {outcomeValue = acc_0, outcomeUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Outcome {outcomeValue = acc_0, outcomeUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -318,31 +318,31 @@ instance Hashable Outcome where
   hashWithSalt salt msg = hashWithSalt (salt) msg.outcomeValue
 
 data Meta = Meta
-  { metaUpdateid :: !Text
+  { metaUpdateId :: !Text
   , metaIdentity :: !Text
-  , metaUnknownfields :: ![UnknownField]
+  , metaUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultMeta :: Meta
 defaultMeta = Meta
-  { metaUpdateid = ""
+  { metaUpdateId = ""
   , metaIdentity = ""
-  , metaUnknownfields = []
+  , metaUnknownFields = []
   }
 
 instance MessageEncode Meta where
   buildMessage msg =
-    (if msg.metaUpdateid == T.empty then mempty else encodeFieldString 1 msg.metaUpdateid)
+    (if msg.metaUpdateId == T.empty then mempty else encodeFieldString 1 msg.metaUpdateId)
     <> (if msg.metaIdentity == T.empty then mempty else encodeFieldString 2 msg.metaIdentity)
-    <> encodeUnknownFields msg.metaUnknownfields
+    <> encodeUnknownFields msg.metaUnknownFields
 
 instance MessageSize Meta where
   messageSize msg =
-    (if msg.metaUpdateid == T.empty then 0 else fieldTextSize 1 msg.metaUpdateid)
+    (if msg.metaUpdateId == T.empty then 0 else fieldTextSize 1 msg.metaUpdateId)
     + (if msg.metaIdentity == T.empty then 0 else fieldTextSize 2 msg.metaIdentity)
-    + unknownFieldsSize msg.metaUnknownfields
+    + unknownFieldsSize msg.metaUnknownFields
 
 instance MessageDecode Meta where
   {-# INLINE messageDecoder #-}
@@ -351,7 +351,7 @@ instance MessageDecode Meta where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Meta {metaUpdateid = acc_0, metaIdentity = acc_1, metaUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Meta {metaUpdateId = acc_0, metaIdentity = acc_1, metaUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -377,8 +377,8 @@ instance ProtoMessage Meta where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = metaUpdateid
-        , fdSet = \v m -> m { metaUpdateid = v }
+        , fdGet = metaUpdateId
+        , fdSet = \v m -> m { metaUpdateId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "identity"
         , fdNumber = 2
@@ -391,27 +391,27 @@ instance ProtoMessage Meta where
 
 instance Aeson.ToJSON Meta where
   toJSON msg = jsonObject
-      [ "updateId" .=: msg.metaUpdateid
+      [ "updateId" .=: msg.metaUpdateId
       , "identity" .=: msg.metaIdentity
       ]
 
 instance Aeson.FromJSON Meta where
   parseJSON = Aeson.withObject "Meta" $ \obj -> do
-    fld_metaUpdateid <- parseFieldMaybe obj "updateId"
+    fld_metaUpdateId <- parseFieldMaybe obj "updateId"
     fld_metaIdentity <- parseFieldMaybe obj "identity"
     pure defaultMeta
-      { metaUpdateid = maybe (metaUpdateid defaultMeta) id fld_metaUpdateid
+      { metaUpdateId = maybe (metaUpdateId defaultMeta) id fld_metaUpdateId
       , metaIdentity = maybe (metaIdentity defaultMeta) id fld_metaIdentity
       }
 
 instance Hashable Meta where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.metaUpdateid) msg.metaIdentity
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.metaUpdateId) msg.metaIdentity
 
 data Input = Input
   { inputHeader :: !(Maybe TE_Common_V1_Message.Header)
   , inputName :: !Text
   , inputArgs :: !(Maybe TE_Common_V1_Message.Payloads)
-  , inputUnknownfields :: ![UnknownField]
+  , inputUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -421,7 +421,7 @@ defaultInput = Input
   { inputHeader = Nothing
   , inputName = ""
   , inputArgs = Nothing
-  , inputUnknownfields = []
+  , inputUnknownFields = []
   }
 
 instance MessageEncode Input where
@@ -429,14 +429,14 @@ instance MessageEncode Input where
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.inputHeader)
     <> (if msg.inputName == T.empty then mempty else encodeFieldString 2 msg.inputName)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.inputArgs)
-    <> encodeUnknownFields msg.inputUnknownfields
+    <> encodeUnknownFields msg.inputUnknownFields
 
 instance MessageSize Input where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.inputHeader)
     + (if msg.inputName == T.empty then 0 else fieldTextSize 2 msg.inputName)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.inputArgs)
-    + unknownFieldsSize msg.inputUnknownfields
+    + unknownFieldsSize msg.inputUnknownFields
 
 instance MessageDecode Input where
   {-# INLINE messageDecoder #-}
@@ -445,7 +445,7 @@ instance MessageDecode Input where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Input {inputHeader = acc_0, inputName = acc_1, inputArgs = acc_2, inputUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Input {inputHeader = acc_0, inputName = acc_1, inputArgs = acc_2, inputUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -518,7 +518,7 @@ instance Hashable Input where
 data Request = Request
   { requestMeta :: !(Maybe Meta)
   , requestInput :: !(Maybe Input)
-  , requestUnknownfields :: ![UnknownField]
+  , requestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -527,20 +527,20 @@ defaultRequest :: Request
 defaultRequest = Request
   { requestMeta = Nothing
   , requestInput = Nothing
-  , requestUnknownfields = []
+  , requestUnknownFields = []
   }
 
 instance MessageEncode Request where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.requestMeta)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.requestInput)
-    <> encodeUnknownFields msg.requestUnknownfields
+    <> encodeUnknownFields msg.requestUnknownFields
 
 instance MessageSize Request where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.requestMeta)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.requestInput)
-    + unknownFieldsSize msg.requestUnknownfields
+    + unknownFieldsSize msg.requestUnknownFields
 
 instance MessageDecode Request where
   {-# INLINE messageDecoder #-}
@@ -549,7 +549,7 @@ instance MessageDecode Request where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Request {requestMeta = acc_0, requestInput = acc_1, requestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Request {requestMeta = acc_0, requestInput = acc_1, requestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -606,39 +606,39 @@ instance Hashable Request where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.requestMeta) msg.requestInput
 
 data Rejection = Rejection
-  { rejectionRejectedrequestmessageid :: !Text
-  , rejectionRejectedrequestsequencingeventid :: {-# UNPACK #-} !Int64
-  , rejectionRejectedrequest :: !(Maybe Request)
+  { rejectionRejectedRequestMessageId :: !Text
+  , rejectionRejectedRequestSequencingEventId :: {-# UNPACK #-} !Int64
+  , rejectionRejectedRequest :: !(Maybe Request)
   , rejectionFailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , rejectionUnknownfields :: ![UnknownField]
+  , rejectionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRejection :: Rejection
 defaultRejection = Rejection
-  { rejectionRejectedrequestmessageid = ""
-  , rejectionRejectedrequestsequencingeventid = 0
-  , rejectionRejectedrequest = Nothing
+  { rejectionRejectedRequestMessageId = ""
+  , rejectionRejectedRequestSequencingEventId = 0
+  , rejectionRejectedRequest = Nothing
   , rejectionFailure = Nothing
-  , rejectionUnknownfields = []
+  , rejectionUnknownFields = []
   }
 
 instance MessageEncode Rejection where
   buildMessage msg =
-    (if msg.rejectionRejectedrequestmessageid == T.empty then mempty else encodeFieldString 1 msg.rejectionRejectedrequestmessageid)
-    <> (if msg.rejectionRejectedrequestsequencingeventid == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.rejectionRejectedrequestsequencingeventid))
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.rejectionRejectedrequest)
+    (if msg.rejectionRejectedRequestMessageId == T.empty then mempty else encodeFieldString 1 msg.rejectionRejectedRequestMessageId)
+    <> (if msg.rejectionRejectedRequestSequencingEventId == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.rejectionRejectedRequestSequencingEventId))
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.rejectionRejectedRequest)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.rejectionFailure)
-    <> encodeUnknownFields msg.rejectionUnknownfields
+    <> encodeUnknownFields msg.rejectionUnknownFields
 
 instance MessageSize Rejection where
   messageSize msg =
-    (if msg.rejectionRejectedrequestmessageid == T.empty then 0 else fieldTextSize 1 msg.rejectionRejectedrequestmessageid)
-    + (if msg.rejectionRejectedrequestsequencingeventid == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.rejectionRejectedrequestsequencingeventid))
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.rejectionRejectedrequest)
+    (if msg.rejectionRejectedRequestMessageId == T.empty then 0 else fieldTextSize 1 msg.rejectionRejectedRequestMessageId)
+    + (if msg.rejectionRejectedRequestSequencingEventId == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.rejectionRejectedRequestSequencingEventId))
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.rejectionRejectedRequest)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.rejectionFailure)
-    + unknownFieldsSize msg.rejectionUnknownfields
+    + unknownFieldsSize msg.rejectionUnknownFields
 
 instance MessageDecode Rejection where
   {-# INLINE messageDecoder #-}
@@ -647,7 +647,7 @@ instance MessageDecode Rejection where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Rejection {rejectionRejectedrequestmessageid = acc_0, rejectionRejectedrequestsequencingeventid = acc_1, rejectionRejectedrequest = acc_2, rejectionFailure = acc_3, rejectionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Rejection {rejectionRejectedRequestMessageId = acc_0, rejectionRejectedRequestSequencingEventId = acc_1, rejectionRejectedRequest = acc_2, rejectionFailure = acc_3, rejectionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -679,23 +679,23 @@ instance ProtoMessage Rejection where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = rejectionRejectedrequestmessageid
-        , fdSet = \v m -> m { rejectionRejectedrequestmessageid = v }
+        , fdGet = rejectionRejectedRequestMessageId
+        , fdSet = \v m -> m { rejectionRejectedRequestMessageId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "rejected_request_sequencing_event_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = rejectionRejectedrequestsequencingeventid
-        , fdSet = \v m -> m { rejectionRejectedrequestsequencingeventid = v }
+        , fdGet = rejectionRejectedRequestSequencingEventId
+        , fdSet = \v m -> m { rejectionRejectedRequestSequencingEventId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "rejected_request"
         , fdNumber = 3
         , fdTypeDesc = MessageType "Request"
         , fdLabel = LabelOptional
-        , fdGet = rejectionRejectedrequest
-        , fdSet = \v m -> m { rejectionRejectedrequest = v }
+        , fdGet = rejectionRejectedRequest
+        , fdSet = \v m -> m { rejectionRejectedRequest = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "failure"
@@ -709,58 +709,58 @@ instance ProtoMessage Rejection where
 
 instance Aeson.ToJSON Rejection where
   toJSON msg = jsonObject
-      [ "rejectedRequestMessageId" .=: msg.rejectionRejectedrequestmessageid
-      , "rejectedRequestSequencingEventId" .=: msg.rejectionRejectedrequestsequencingeventid
-      , "rejectedRequest" .=: msg.rejectionRejectedrequest
+      [ "rejectedRequestMessageId" .=: msg.rejectionRejectedRequestMessageId
+      , "rejectedRequestSequencingEventId" .=: msg.rejectionRejectedRequestSequencingEventId
+      , "rejectedRequest" .=: msg.rejectionRejectedRequest
       , "failure" .=: msg.rejectionFailure
       ]
 
 instance Aeson.FromJSON Rejection where
   parseJSON = Aeson.withObject "Rejection" $ \obj -> do
-    fld_rejectionRejectedrequestmessageid <- parseFieldMaybe obj "rejectedRequestMessageId"
-    fld_rejectionRejectedrequestsequencingeventid <- parseFieldMaybe obj "rejectedRequestSequencingEventId"
-    fld_rejectionRejectedrequest <- parseFieldMaybe obj "rejectedRequest"
+    fld_rejectionRejectedRequestMessageId <- parseFieldMaybe obj "rejectedRequestMessageId"
+    fld_rejectionRejectedRequestSequencingEventId <- parseFieldMaybe obj "rejectedRequestSequencingEventId"
+    fld_rejectionRejectedRequest <- parseFieldMaybe obj "rejectedRequest"
     fld_rejectionFailure <- parseFieldMaybe obj "failure"
     pure defaultRejection
-      { rejectionRejectedrequestmessageid = maybe (rejectionRejectedrequestmessageid defaultRejection) id fld_rejectionRejectedrequestmessageid
-      , rejectionRejectedrequestsequencingeventid = maybe (rejectionRejectedrequestsequencingeventid defaultRejection) id fld_rejectionRejectedrequestsequencingeventid
-      , rejectionRejectedrequest = maybe (rejectionRejectedrequest defaultRejection) id fld_rejectionRejectedrequest
+      { rejectionRejectedRequestMessageId = maybe (rejectionRejectedRequestMessageId defaultRejection) id fld_rejectionRejectedRequestMessageId
+      , rejectionRejectedRequestSequencingEventId = maybe (rejectionRejectedRequestSequencingEventId defaultRejection) id fld_rejectionRejectedRequestSequencingEventId
+      , rejectionRejectedRequest = maybe (rejectionRejectedRequest defaultRejection) id fld_rejectionRejectedRequest
       , rejectionFailure = maybe (rejectionFailure defaultRejection) id fld_rejectionFailure
       }
 
 instance Hashable Rejection where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.rejectionRejectedrequestmessageid) msg.rejectionRejectedrequestsequencingeventid) msg.rejectionRejectedrequest) msg.rejectionFailure
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.rejectionRejectedRequestMessageId) msg.rejectionRejectedRequestSequencingEventId) msg.rejectionRejectedRequest) msg.rejectionFailure
 
 data Acceptance = Acceptance
-  { acceptanceAcceptedrequestmessageid :: !Text
-  , acceptanceAcceptedrequestsequencingeventid :: {-# UNPACK #-} !Int64
-  , acceptanceAcceptedrequest :: !(Maybe Request)
-  , acceptanceUnknownfields :: ![UnknownField]
+  { acceptanceAcceptedRequestMessageId :: !Text
+  , acceptanceAcceptedRequestSequencingEventId :: {-# UNPACK #-} !Int64
+  , acceptanceAcceptedRequest :: !(Maybe Request)
+  , acceptanceUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultAcceptance :: Acceptance
 defaultAcceptance = Acceptance
-  { acceptanceAcceptedrequestmessageid = ""
-  , acceptanceAcceptedrequestsequencingeventid = 0
-  , acceptanceAcceptedrequest = Nothing
-  , acceptanceUnknownfields = []
+  { acceptanceAcceptedRequestMessageId = ""
+  , acceptanceAcceptedRequestSequencingEventId = 0
+  , acceptanceAcceptedRequest = Nothing
+  , acceptanceUnknownFields = []
   }
 
 instance MessageEncode Acceptance where
   buildMessage msg =
-    (if msg.acceptanceAcceptedrequestmessageid == T.empty then mempty else encodeFieldString 1 msg.acceptanceAcceptedrequestmessageid)
-    <> (if msg.acceptanceAcceptedrequestsequencingeventid == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.acceptanceAcceptedrequestsequencingeventid))
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.acceptanceAcceptedrequest)
-    <> encodeUnknownFields msg.acceptanceUnknownfields
+    (if msg.acceptanceAcceptedRequestMessageId == T.empty then mempty else encodeFieldString 1 msg.acceptanceAcceptedRequestMessageId)
+    <> (if msg.acceptanceAcceptedRequestSequencingEventId == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.acceptanceAcceptedRequestSequencingEventId))
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.acceptanceAcceptedRequest)
+    <> encodeUnknownFields msg.acceptanceUnknownFields
 
 instance MessageSize Acceptance where
   messageSize msg =
-    (if msg.acceptanceAcceptedrequestmessageid == T.empty then 0 else fieldTextSize 1 msg.acceptanceAcceptedrequestmessageid)
-    + (if msg.acceptanceAcceptedrequestsequencingeventid == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.acceptanceAcceptedrequestsequencingeventid))
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.acceptanceAcceptedrequest)
-    + unknownFieldsSize msg.acceptanceUnknownfields
+    (if msg.acceptanceAcceptedRequestMessageId == T.empty then 0 else fieldTextSize 1 msg.acceptanceAcceptedRequestMessageId)
+    + (if msg.acceptanceAcceptedRequestSequencingEventId == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.acceptanceAcceptedRequestSequencingEventId))
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.acceptanceAcceptedRequest)
+    + unknownFieldsSize msg.acceptanceUnknownFields
 
 instance MessageDecode Acceptance where
   {-# INLINE messageDecoder #-}
@@ -769,7 +769,7 @@ instance MessageDecode Acceptance where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Acceptance {acceptanceAcceptedrequestmessageid = acc_0, acceptanceAcceptedrequestsequencingeventid = acc_1, acceptanceAcceptedrequest = acc_2, acceptanceUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Acceptance {acceptanceAcceptedRequestMessageId = acc_0, acceptanceAcceptedRequestSequencingEventId = acc_1, acceptanceAcceptedRequest = acc_2, acceptanceUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -798,51 +798,51 @@ instance ProtoMessage Acceptance where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = acceptanceAcceptedrequestmessageid
-        , fdSet = \v m -> m { acceptanceAcceptedrequestmessageid = v }
+        , fdGet = acceptanceAcceptedRequestMessageId
+        , fdSet = \v m -> m { acceptanceAcceptedRequestMessageId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "accepted_request_sequencing_event_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = acceptanceAcceptedrequestsequencingeventid
-        , fdSet = \v m -> m { acceptanceAcceptedrequestsequencingeventid = v }
+        , fdGet = acceptanceAcceptedRequestSequencingEventId
+        , fdSet = \v m -> m { acceptanceAcceptedRequestSequencingEventId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "accepted_request"
         , fdNumber = 3
         , fdTypeDesc = MessageType "Request"
         , fdLabel = LabelOptional
-        , fdGet = acceptanceAcceptedrequest
-        , fdSet = \v m -> m { acceptanceAcceptedrequest = v }
+        , fdGet = acceptanceAcceptedRequest
+        , fdSet = \v m -> m { acceptanceAcceptedRequest = v }
         })
     ]
 
 instance Aeson.ToJSON Acceptance where
   toJSON msg = jsonObject
-      [ "acceptedRequestMessageId" .=: msg.acceptanceAcceptedrequestmessageid
-      , "acceptedRequestSequencingEventId" .=: msg.acceptanceAcceptedrequestsequencingeventid
-      , "acceptedRequest" .=: msg.acceptanceAcceptedrequest
+      [ "acceptedRequestMessageId" .=: msg.acceptanceAcceptedRequestMessageId
+      , "acceptedRequestSequencingEventId" .=: msg.acceptanceAcceptedRequestSequencingEventId
+      , "acceptedRequest" .=: msg.acceptanceAcceptedRequest
       ]
 
 instance Aeson.FromJSON Acceptance where
   parseJSON = Aeson.withObject "Acceptance" $ \obj -> do
-    fld_acceptanceAcceptedrequestmessageid <- parseFieldMaybe obj "acceptedRequestMessageId"
-    fld_acceptanceAcceptedrequestsequencingeventid <- parseFieldMaybe obj "acceptedRequestSequencingEventId"
-    fld_acceptanceAcceptedrequest <- parseFieldMaybe obj "acceptedRequest"
+    fld_acceptanceAcceptedRequestMessageId <- parseFieldMaybe obj "acceptedRequestMessageId"
+    fld_acceptanceAcceptedRequestSequencingEventId <- parseFieldMaybe obj "acceptedRequestSequencingEventId"
+    fld_acceptanceAcceptedRequest <- parseFieldMaybe obj "acceptedRequest"
     pure defaultAcceptance
-      { acceptanceAcceptedrequestmessageid = maybe (acceptanceAcceptedrequestmessageid defaultAcceptance) id fld_acceptanceAcceptedrequestmessageid
-      , acceptanceAcceptedrequestsequencingeventid = maybe (acceptanceAcceptedrequestsequencingeventid defaultAcceptance) id fld_acceptanceAcceptedrequestsequencingeventid
-      , acceptanceAcceptedrequest = maybe (acceptanceAcceptedrequest defaultAcceptance) id fld_acceptanceAcceptedrequest
+      { acceptanceAcceptedRequestMessageId = maybe (acceptanceAcceptedRequestMessageId defaultAcceptance) id fld_acceptanceAcceptedRequestMessageId
+      , acceptanceAcceptedRequestSequencingEventId = maybe (acceptanceAcceptedRequestSequencingEventId defaultAcceptance) id fld_acceptanceAcceptedRequestSequencingEventId
+      , acceptanceAcceptedRequest = maybe (acceptanceAcceptedRequest defaultAcceptance) id fld_acceptanceAcceptedRequest
       }
 
 instance Hashable Acceptance where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.acceptanceAcceptedrequestmessageid) msg.acceptanceAcceptedrequestsequencingeventid) msg.acceptanceAcceptedrequest
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.acceptanceAcceptedRequestMessageId) msg.acceptanceAcceptedRequestSequencingEventId) msg.acceptanceAcceptedRequest
 
 data Response = Response
   { responseMeta :: !(Maybe Meta)
   , responseOutcome :: !(Maybe Outcome)
-  , responseUnknownfields :: ![UnknownField]
+  , responseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -851,20 +851,20 @@ defaultResponse :: Response
 defaultResponse = Response
   { responseMeta = Nothing
   , responseOutcome = Nothing
-  , responseUnknownfields = []
+  , responseUnknownFields = []
   }
 
 instance MessageEncode Response where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.responseMeta)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.responseOutcome)
-    <> encodeUnknownFields msg.responseUnknownfields
+    <> encodeUnknownFields msg.responseUnknownFields
 
 instance MessageSize Response where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.responseMeta)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.responseOutcome)
-    + unknownFieldsSize msg.responseUnknownfields
+    + unknownFieldsSize msg.responseUnknownFields
 
 instance MessageDecode Response where
   {-# INLINE messageDecoder #-}
@@ -873,7 +873,7 @@ instance MessageDecode Response where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Response {responseMeta = acc_0, responseOutcome = acc_1, responseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Response {responseMeta = acc_0, responseOutcome = acc_1, responseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage

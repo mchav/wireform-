@@ -33,7 +33,7 @@ testBinaryRoundTrip = do
   hPutStrLn stderr "\n--- Binary round-trip tests ---"
 
   let blob = defaultDataBlob
-        { dataBlobEncodingtype = EncodingType'EncodingTypeProto3
+        { dataBlobEncodingType = EncodingType'EncodingTypeProto3
         , dataBlobData = "hello world"
         }
   let encoded = encodeMessage blob
@@ -43,7 +43,7 @@ testBinaryRoundTrip = do
       hPutStrLn stderr ("  FAIL: DataBlob decode: " <> show err)
       pure False
     Right (decoded :: DataBlob) ->
-      if decoded.dataBlobEncodingtype == blob.dataBlobEncodingtype
+      if decoded.dataBlobEncodingType == blob.dataBlobEncodingType
          && decoded.dataBlobData == blob.dataBlobData
         then do hPutStrLn stderr "  OK: DataBlob round-trip matches"; pure True
         else do hPutStrLn stderr "  FAIL: DataBlob mismatch"; pure False
@@ -53,8 +53,8 @@ testJsonAnnotations = do
   hPutStrLn stderr "\n--- JSON annotation tests ---"
 
   let wfExec = defaultWorkflowExecution
-        { workflowExecutionWorkflowid = "my-wf"
-        , workflowExecutionRunid = "my-run"
+        { workflowExecutionWorkflowId = "my-wf"
+        , workflowExecutionRunId = "my-run"
         }
   let json = show (Aeson.encode wfExec)
   hPutStrLn stderr ("  WorkflowExecution JSON: " <> json)
@@ -74,15 +74,15 @@ testPythonInterop = do
   hPutStrLn stderr "\n--- Python interop tests ---"
 
   let hsBlob = defaultDataBlob
-        { dataBlobEncodingtype = EncodingType'EncodingTypeJson
+        { dataBlobEncodingType = EncodingType'EncodingTypeJson
         , dataBlobData = "hello from haskell"
         }
   BS.writeFile "/tmp/interop_hs_datablob.bin" (encodeMessage hsBlob)
   hPutStrLn stderr "  Wrote /tmp/interop_hs_datablob.bin"
 
   let hsWf = defaultWorkflowExecution
-        { workflowExecutionWorkflowid = "hs-workflow-999"
-        , workflowExecutionRunid = "hs-run-888"
+        { workflowExecutionWorkflowId = "hs-workflow-999"
+        , workflowExecutionRunId = "hs-run-888"
         }
   BS.writeFile "/tmp/interop_hs_wfexec.bin" (encodeMessage hsWf)
   hPutStrLn stderr "  Wrote /tmp/interop_hs_wfexec.bin"
@@ -99,11 +99,11 @@ testPythonInterop = do
           hPutStrLn stderr ("  FAIL: decode Python DataBlob: " <> show err)
           pure False
         Right (decoded :: DataBlob) -> do
-          let ok1 = decoded.dataBlobEncodingtype == EncodingType'EncodingTypeProto3
+          let ok1 = decoded.dataBlobEncodingType == EncodingType'EncodingTypeProto3
               ok2 = decoded.dataBlobData == "hello from python"
           if ok1 && ok2
             then hPutStrLn stderr "  OK: Python DataBlob decoded correctly"
-            else hPutStrLn stderr ("  FAIL: Python DataBlob mismatch: enc=" <> show decoded.dataBlobEncodingtype <> " data=" <> show decoded.dataBlobData)
+            else hPutStrLn stderr ("  FAIL: Python DataBlob mismatch: enc=" <> show decoded.dataBlobEncodingType <> " data=" <> show decoded.dataBlobData)
 
           pyWfData <- BS.readFile "/tmp/interop_wfexec.bin"
           hPutStrLn stderr ("  Read Python WorkflowExecution: " <> show (BS.length pyWfData) <> " bytes")
@@ -112,8 +112,8 @@ testPythonInterop = do
               hPutStrLn stderr ("  FAIL: decode Python WF: " <> show err)
               pure False
             Right (wf :: WorkflowExecution) -> do
-              let wok1 = wf.workflowExecutionWorkflowid == "wf-python-test-123"
-                  wok2 = wf.workflowExecutionRunid == "run-python-abc-456"
+              let wok1 = wf.workflowExecutionWorkflowId == "wf-python-test-123"
+                  wok2 = wf.workflowExecutionRunId == "run-python-abc-456"
               if wok1 && wok2
                 then do hPutStrLn stderr "  OK: Python WorkflowExecution decoded correctly"; pure True
                 else do hPutStrLn stderr ("  FAIL: Python WF mismatch"); pure False

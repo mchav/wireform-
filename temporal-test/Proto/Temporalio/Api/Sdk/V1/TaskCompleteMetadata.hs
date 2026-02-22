@@ -58,39 +58,39 @@ fileDescriptorProtoBytes = case Base16.decode "0a3074656d706f72616c2f6170692f736
 
 
 data WorkflowTaskCompletedMetadata = WorkflowTaskCompletedMetadata
-  { workflowTaskCompletedMetadataCoreusedflags :: !(VU.Vector Word32)
-  , workflowTaskCompletedMetadataLangusedflags :: !(VU.Vector Word32)
-  , workflowTaskCompletedMetadataSdkname :: !Text
-  , workflowTaskCompletedMetadataSdkversion :: !Text
-  , workflowTaskCompletedMetadataUnknownfields :: ![UnknownField]
+  { workflowTaskCompletedMetadataCoreUsedFlags :: !(VU.Vector Word32)
+  , workflowTaskCompletedMetadataLangUsedFlags :: !(VU.Vector Word32)
+  , workflowTaskCompletedMetadataSdkName :: !Text
+  , workflowTaskCompletedMetadataSdkVersion :: !Text
+  , workflowTaskCompletedMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowTaskCompletedMetadata :: WorkflowTaskCompletedMetadata
 defaultWorkflowTaskCompletedMetadata = WorkflowTaskCompletedMetadata
-  { workflowTaskCompletedMetadataCoreusedflags = VU.empty
-  , workflowTaskCompletedMetadataLangusedflags = VU.empty
-  , workflowTaskCompletedMetadataSdkname = ""
-  , workflowTaskCompletedMetadataSdkversion = ""
-  , workflowTaskCompletedMetadataUnknownfields = []
+  { workflowTaskCompletedMetadataCoreUsedFlags = VU.empty
+  , workflowTaskCompletedMetadataLangUsedFlags = VU.empty
+  , workflowTaskCompletedMetadataSdkName = ""
+  , workflowTaskCompletedMetadataSdkVersion = ""
+  , workflowTaskCompletedMetadataUnknownFields = []
   }
 
 instance MessageEncode WorkflowTaskCompletedMetadata where
   buildMessage msg =
-    encodePackedWord32 1 msg.workflowTaskCompletedMetadataCoreusedflags
-    <> encodePackedWord32 2 msg.workflowTaskCompletedMetadataLangusedflags
-    <> (if msg.workflowTaskCompletedMetadataSdkname == T.empty then mempty else encodeFieldString 3 msg.workflowTaskCompletedMetadataSdkname)
-    <> (if msg.workflowTaskCompletedMetadataSdkversion == T.empty then mempty else encodeFieldString 4 msg.workflowTaskCompletedMetadataSdkversion)
-    <> encodeUnknownFields msg.workflowTaskCompletedMetadataUnknownfields
+    encodePackedWord32 1 msg.workflowTaskCompletedMetadataCoreUsedFlags
+    <> encodePackedWord32 2 msg.workflowTaskCompletedMetadataLangUsedFlags
+    <> (if msg.workflowTaskCompletedMetadataSdkName == T.empty then mempty else encodeFieldString 3 msg.workflowTaskCompletedMetadataSdkName)
+    <> (if msg.workflowTaskCompletedMetadataSdkVersion == T.empty then mempty else encodeFieldString 4 msg.workflowTaskCompletedMetadataSdkVersion)
+    <> encodeUnknownFields msg.workflowTaskCompletedMetadataUnknownFields
 
 instance MessageSize WorkflowTaskCompletedMetadata where
   messageSize msg =
-    (let pl = VU.foldl' (\a v -> a + varintSize32 v) 0 msg.workflowTaskCompletedMetadataCoreusedflags in if pl == 0 then 0 else tagSize 1 + varintSize (fromIntegral pl) + pl)
-    + (let pl = VU.foldl' (\a v -> a + varintSize32 v) 0 msg.workflowTaskCompletedMetadataLangusedflags in if pl == 0 then 0 else tagSize 2 + varintSize (fromIntegral pl) + pl)
-    + (if msg.workflowTaskCompletedMetadataSdkname == T.empty then 0 else fieldTextSize 3 msg.workflowTaskCompletedMetadataSdkname)
-    + (if msg.workflowTaskCompletedMetadataSdkversion == T.empty then 0 else fieldTextSize 4 msg.workflowTaskCompletedMetadataSdkversion)
-    + unknownFieldsSize msg.workflowTaskCompletedMetadataUnknownfields
+    (let pl = VU.foldl' (\a v -> a + varintSize32 v) 0 msg.workflowTaskCompletedMetadataCoreUsedFlags in if pl == 0 then 0 else tagSize 1 + varintSize (fromIntegral pl) + pl)
+    + (let pl = VU.foldl' (\a v -> a + varintSize32 v) 0 msg.workflowTaskCompletedMetadataLangUsedFlags in if pl == 0 then 0 else tagSize 2 + varintSize (fromIntegral pl) + pl)
+    + (if msg.workflowTaskCompletedMetadataSdkName == T.empty then 0 else fieldTextSize 3 msg.workflowTaskCompletedMetadataSdkName)
+    + (if msg.workflowTaskCompletedMetadataSdkVersion == T.empty then 0 else fieldTextSize 4 msg.workflowTaskCompletedMetadataSdkVersion)
+    + unknownFieldsSize msg.workflowTaskCompletedMetadataUnknownFields
 
 instance MessageDecode WorkflowTaskCompletedMetadata where
   {-# INLINE messageDecoder #-}
@@ -99,7 +99,7 @@ instance MessageDecode WorkflowTaskCompletedMetadata where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowTaskCompletedMetadata {workflowTaskCompletedMetadataCoreusedflags = acc_0, workflowTaskCompletedMetadataLangusedflags = acc_1, workflowTaskCompletedMetadataSdkname = acc_2, workflowTaskCompletedMetadataSdkversion = acc_3, workflowTaskCompletedMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowTaskCompletedMetadata {workflowTaskCompletedMetadataCoreUsedFlags = acc_0, workflowTaskCompletedMetadataLangUsedFlags = acc_1, workflowTaskCompletedMetadataSdkName = acc_2, workflowTaskCompletedMetadataSdkVersion = acc_3, workflowTaskCompletedMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -131,57 +131,57 @@ instance ProtoMessage WorkflowTaskCompletedMetadata where
         , fdNumber = 1
         , fdTypeDesc = ScalarType UInt32Field
         , fdLabel = LabelRepeated
-        , fdGet = workflowTaskCompletedMetadataCoreusedflags
-        , fdSet = \v m -> m { workflowTaskCompletedMetadataCoreusedflags = v }
+        , fdGet = workflowTaskCompletedMetadataCoreUsedFlags
+        , fdSet = \v m -> m { workflowTaskCompletedMetadataCoreUsedFlags = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "lang_used_flags"
         , fdNumber = 2
         , fdTypeDesc = ScalarType UInt32Field
         , fdLabel = LabelRepeated
-        , fdGet = workflowTaskCompletedMetadataLangusedflags
-        , fdSet = \v m -> m { workflowTaskCompletedMetadataLangusedflags = v }
+        , fdGet = workflowTaskCompletedMetadataLangUsedFlags
+        , fdSet = \v m -> m { workflowTaskCompletedMetadataLangUsedFlags = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "sdk_name"
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowTaskCompletedMetadataSdkname
-        , fdSet = \v m -> m { workflowTaskCompletedMetadataSdkname = v }
+        , fdGet = workflowTaskCompletedMetadataSdkName
+        , fdSet = \v m -> m { workflowTaskCompletedMetadataSdkName = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "sdk_version"
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowTaskCompletedMetadataSdkversion
-        , fdSet = \v m -> m { workflowTaskCompletedMetadataSdkversion = v }
+        , fdGet = workflowTaskCompletedMetadataSdkVersion
+        , fdSet = \v m -> m { workflowTaskCompletedMetadataSdkVersion = v }
         })
     ]
 
 instance Aeson.ToJSON WorkflowTaskCompletedMetadata where
   toJSON msg = jsonObject
-      [ "coreUsedFlags" .=: msg.workflowTaskCompletedMetadataCoreusedflags
-      , "langUsedFlags" .=: msg.workflowTaskCompletedMetadataLangusedflags
-      , "sdkName" .=: msg.workflowTaskCompletedMetadataSdkname
-      , "sdkVersion" .=: msg.workflowTaskCompletedMetadataSdkversion
+      [ "coreUsedFlags" .=: msg.workflowTaskCompletedMetadataCoreUsedFlags
+      , "langUsedFlags" .=: msg.workflowTaskCompletedMetadataLangUsedFlags
+      , "sdkName" .=: msg.workflowTaskCompletedMetadataSdkName
+      , "sdkVersion" .=: msg.workflowTaskCompletedMetadataSdkVersion
       ]
 
 instance Aeson.FromJSON WorkflowTaskCompletedMetadata where
   parseJSON = Aeson.withObject "WorkflowTaskCompletedMetadata" $ \obj -> do
-    fld_workflowTaskCompletedMetadataCoreusedflags <- parseFieldMaybe obj "coreUsedFlags"
-    fld_workflowTaskCompletedMetadataLangusedflags <- parseFieldMaybe obj "langUsedFlags"
-    fld_workflowTaskCompletedMetadataSdkname <- parseFieldMaybe obj "sdkName"
-    fld_workflowTaskCompletedMetadataSdkversion <- parseFieldMaybe obj "sdkVersion"
+    fld_workflowTaskCompletedMetadataCoreUsedFlags <- parseFieldMaybe obj "coreUsedFlags"
+    fld_workflowTaskCompletedMetadataLangUsedFlags <- parseFieldMaybe obj "langUsedFlags"
+    fld_workflowTaskCompletedMetadataSdkName <- parseFieldMaybe obj "sdkName"
+    fld_workflowTaskCompletedMetadataSdkVersion <- parseFieldMaybe obj "sdkVersion"
     pure defaultWorkflowTaskCompletedMetadata
-      { workflowTaskCompletedMetadataCoreusedflags = maybe (workflowTaskCompletedMetadataCoreusedflags defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataCoreusedflags
-      , workflowTaskCompletedMetadataLangusedflags = maybe (workflowTaskCompletedMetadataLangusedflags defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataLangusedflags
-      , workflowTaskCompletedMetadataSdkname = maybe (workflowTaskCompletedMetadataSdkname defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkname
-      , workflowTaskCompletedMetadataSdkversion = maybe (workflowTaskCompletedMetadataSdkversion defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkversion
+      { workflowTaskCompletedMetadataCoreUsedFlags = maybe (workflowTaskCompletedMetadataCoreUsedFlags defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataCoreUsedFlags
+      , workflowTaskCompletedMetadataLangUsedFlags = maybe (workflowTaskCompletedMetadataLangUsedFlags defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataLangUsedFlags
+      , workflowTaskCompletedMetadataSdkName = maybe (workflowTaskCompletedMetadataSdkName defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkName
+      , workflowTaskCompletedMetadataSdkVersion = maybe (workflowTaskCompletedMetadataSdkVersion defaultWorkflowTaskCompletedMetadata) id fld_workflowTaskCompletedMetadataSdkVersion
       }
 
 instance Hashable WorkflowTaskCompletedMetadata where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (VU.foldl' hashWithSalt (VU.foldl' hashWithSalt (salt) msg.workflowTaskCompletedMetadataCoreusedflags) msg.workflowTaskCompletedMetadataLangusedflags) msg.workflowTaskCompletedMetadataSdkname) msg.workflowTaskCompletedMetadataSdkversion
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (VU.foldl' hashWithSalt (VU.foldl' hashWithSalt (salt) msg.workflowTaskCompletedMetadataCoreUsedFlags) msg.workflowTaskCompletedMetadataLangUsedFlags) msg.workflowTaskCompletedMetadataSdkName) msg.workflowTaskCompletedMetadataSdkVersion
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

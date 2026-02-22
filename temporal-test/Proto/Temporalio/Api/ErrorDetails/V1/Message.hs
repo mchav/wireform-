@@ -63,31 +63,31 @@ fileDescriptorProtoBytes = case Base16.decode "0a2a74656d706f72616c2f6170692f657
 
 
 data NotFoundFailure = NotFoundFailure
-  { notFoundFailureCurrentcluster :: !Text
-  , notFoundFailureActivecluster :: !Text
-  , notFoundFailureUnknownfields :: ![UnknownField]
+  { notFoundFailureCurrentCluster :: !Text
+  , notFoundFailureActiveCluster :: !Text
+  , notFoundFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNotFoundFailure :: NotFoundFailure
 defaultNotFoundFailure = NotFoundFailure
-  { notFoundFailureCurrentcluster = ""
-  , notFoundFailureActivecluster = ""
-  , notFoundFailureUnknownfields = []
+  { notFoundFailureCurrentCluster = ""
+  , notFoundFailureActiveCluster = ""
+  , notFoundFailureUnknownFields = []
   }
 
 instance MessageEncode NotFoundFailure where
   buildMessage msg =
-    (if msg.notFoundFailureCurrentcluster == T.empty then mempty else encodeFieldString 1 msg.notFoundFailureCurrentcluster)
-    <> (if msg.notFoundFailureActivecluster == T.empty then mempty else encodeFieldString 2 msg.notFoundFailureActivecluster)
-    <> encodeUnknownFields msg.notFoundFailureUnknownfields
+    (if msg.notFoundFailureCurrentCluster == T.empty then mempty else encodeFieldString 1 msg.notFoundFailureCurrentCluster)
+    <> (if msg.notFoundFailureActiveCluster == T.empty then mempty else encodeFieldString 2 msg.notFoundFailureActiveCluster)
+    <> encodeUnknownFields msg.notFoundFailureUnknownFields
 
 instance MessageSize NotFoundFailure where
   messageSize msg =
-    (if msg.notFoundFailureCurrentcluster == T.empty then 0 else fieldTextSize 1 msg.notFoundFailureCurrentcluster)
-    + (if msg.notFoundFailureActivecluster == T.empty then 0 else fieldTextSize 2 msg.notFoundFailureActivecluster)
-    + unknownFieldsSize msg.notFoundFailureUnknownfields
+    (if msg.notFoundFailureCurrentCluster == T.empty then 0 else fieldTextSize 1 msg.notFoundFailureCurrentCluster)
+    + (if msg.notFoundFailureActiveCluster == T.empty then 0 else fieldTextSize 2 msg.notFoundFailureActiveCluster)
+    + unknownFieldsSize msg.notFoundFailureUnknownFields
 
 instance MessageDecode NotFoundFailure where
   {-# INLINE messageDecoder #-}
@@ -96,7 +96,7 @@ instance MessageDecode NotFoundFailure where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NotFoundFailure {notFoundFailureCurrentcluster = acc_0, notFoundFailureActivecluster = acc_1, notFoundFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NotFoundFailure {notFoundFailureCurrentCluster = acc_0, notFoundFailureActiveCluster = acc_1, notFoundFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -122,62 +122,62 @@ instance ProtoMessage NotFoundFailure where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = notFoundFailureCurrentcluster
-        , fdSet = \v m -> m { notFoundFailureCurrentcluster = v }
+        , fdGet = notFoundFailureCurrentCluster
+        , fdSet = \v m -> m { notFoundFailureCurrentCluster = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "active_cluster"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = notFoundFailureActivecluster
-        , fdSet = \v m -> m { notFoundFailureActivecluster = v }
+        , fdGet = notFoundFailureActiveCluster
+        , fdSet = \v m -> m { notFoundFailureActiveCluster = v }
         })
     ]
 
 instance Aeson.ToJSON NotFoundFailure where
   toJSON msg = jsonObject
-      [ "currentCluster" .=: msg.notFoundFailureCurrentcluster
-      , "activeCluster" .=: msg.notFoundFailureActivecluster
+      [ "currentCluster" .=: msg.notFoundFailureCurrentCluster
+      , "activeCluster" .=: msg.notFoundFailureActiveCluster
       ]
 
 instance Aeson.FromJSON NotFoundFailure where
   parseJSON = Aeson.withObject "NotFoundFailure" $ \obj -> do
-    fld_notFoundFailureCurrentcluster <- parseFieldMaybe obj "currentCluster"
-    fld_notFoundFailureActivecluster <- parseFieldMaybe obj "activeCluster"
+    fld_notFoundFailureCurrentCluster <- parseFieldMaybe obj "currentCluster"
+    fld_notFoundFailureActiveCluster <- parseFieldMaybe obj "activeCluster"
     pure defaultNotFoundFailure
-      { notFoundFailureCurrentcluster = maybe (notFoundFailureCurrentcluster defaultNotFoundFailure) id fld_notFoundFailureCurrentcluster
-      , notFoundFailureActivecluster = maybe (notFoundFailureActivecluster defaultNotFoundFailure) id fld_notFoundFailureActivecluster
+      { notFoundFailureCurrentCluster = maybe (notFoundFailureCurrentCluster defaultNotFoundFailure) id fld_notFoundFailureCurrentCluster
+      , notFoundFailureActiveCluster = maybe (notFoundFailureActiveCluster defaultNotFoundFailure) id fld_notFoundFailureActiveCluster
       }
 
 instance Hashable NotFoundFailure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.notFoundFailureCurrentcluster) msg.notFoundFailureActivecluster
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.notFoundFailureCurrentCluster) msg.notFoundFailureActiveCluster
 
 data WorkflowExecutionAlreadyStartedFailure = WorkflowExecutionAlreadyStartedFailure
-  { workflowExecutionAlreadyStartedFailureStartrequestid :: !Text
-  , workflowExecutionAlreadyStartedFailureRunid :: !Text
-  , workflowExecutionAlreadyStartedFailureUnknownfields :: ![UnknownField]
+  { workflowExecutionAlreadyStartedFailureStartRequestId :: !Text
+  , workflowExecutionAlreadyStartedFailureRunId :: !Text
+  , workflowExecutionAlreadyStartedFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowExecutionAlreadyStartedFailure :: WorkflowExecutionAlreadyStartedFailure
 defaultWorkflowExecutionAlreadyStartedFailure = WorkflowExecutionAlreadyStartedFailure
-  { workflowExecutionAlreadyStartedFailureStartrequestid = ""
-  , workflowExecutionAlreadyStartedFailureRunid = ""
-  , workflowExecutionAlreadyStartedFailureUnknownfields = []
+  { workflowExecutionAlreadyStartedFailureStartRequestId = ""
+  , workflowExecutionAlreadyStartedFailureRunId = ""
+  , workflowExecutionAlreadyStartedFailureUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutionAlreadyStartedFailure where
   buildMessage msg =
-    (if msg.workflowExecutionAlreadyStartedFailureStartrequestid == T.empty then mempty else encodeFieldString 1 msg.workflowExecutionAlreadyStartedFailureStartrequestid)
-    <> (if msg.workflowExecutionAlreadyStartedFailureRunid == T.empty then mempty else encodeFieldString 2 msg.workflowExecutionAlreadyStartedFailureRunid)
-    <> encodeUnknownFields msg.workflowExecutionAlreadyStartedFailureUnknownfields
+    (if msg.workflowExecutionAlreadyStartedFailureStartRequestId == T.empty then mempty else encodeFieldString 1 msg.workflowExecutionAlreadyStartedFailureStartRequestId)
+    <> (if msg.workflowExecutionAlreadyStartedFailureRunId == T.empty then mempty else encodeFieldString 2 msg.workflowExecutionAlreadyStartedFailureRunId)
+    <> encodeUnknownFields msg.workflowExecutionAlreadyStartedFailureUnknownFields
 
 instance MessageSize WorkflowExecutionAlreadyStartedFailure where
   messageSize msg =
-    (if msg.workflowExecutionAlreadyStartedFailureStartrequestid == T.empty then 0 else fieldTextSize 1 msg.workflowExecutionAlreadyStartedFailureStartrequestid)
-    + (if msg.workflowExecutionAlreadyStartedFailureRunid == T.empty then 0 else fieldTextSize 2 msg.workflowExecutionAlreadyStartedFailureRunid)
-    + unknownFieldsSize msg.workflowExecutionAlreadyStartedFailureUnknownfields
+    (if msg.workflowExecutionAlreadyStartedFailureStartRequestId == T.empty then 0 else fieldTextSize 1 msg.workflowExecutionAlreadyStartedFailureStartRequestId)
+    + (if msg.workflowExecutionAlreadyStartedFailureRunId == T.empty then 0 else fieldTextSize 2 msg.workflowExecutionAlreadyStartedFailureRunId)
+    + unknownFieldsSize msg.workflowExecutionAlreadyStartedFailureUnknownFields
 
 instance MessageDecode WorkflowExecutionAlreadyStartedFailure where
   {-# INLINE messageDecoder #-}
@@ -186,7 +186,7 @@ instance MessageDecode WorkflowExecutionAlreadyStartedFailure where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutionAlreadyStartedFailure {workflowExecutionAlreadyStartedFailureStartrequestid = acc_0, workflowExecutionAlreadyStartedFailureRunid = acc_1, workflowExecutionAlreadyStartedFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutionAlreadyStartedFailure {workflowExecutionAlreadyStartedFailureStartRequestId = acc_0, workflowExecutionAlreadyStartedFailureRunId = acc_1, workflowExecutionAlreadyStartedFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -212,41 +212,41 @@ instance ProtoMessage WorkflowExecutionAlreadyStartedFailure where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionAlreadyStartedFailureStartrequestid
-        , fdSet = \v m -> m { workflowExecutionAlreadyStartedFailureStartrequestid = v }
+        , fdGet = workflowExecutionAlreadyStartedFailureStartRequestId
+        , fdSet = \v m -> m { workflowExecutionAlreadyStartedFailureStartRequestId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionAlreadyStartedFailureRunid
-        , fdSet = \v m -> m { workflowExecutionAlreadyStartedFailureRunid = v }
+        , fdGet = workflowExecutionAlreadyStartedFailureRunId
+        , fdSet = \v m -> m { workflowExecutionAlreadyStartedFailureRunId = v }
         })
     ]
 
 instance Aeson.ToJSON WorkflowExecutionAlreadyStartedFailure where
   toJSON msg = jsonObject
-      [ "startRequestId" .=: msg.workflowExecutionAlreadyStartedFailureStartrequestid
-      , "runId" .=: msg.workflowExecutionAlreadyStartedFailureRunid
+      [ "startRequestId" .=: msg.workflowExecutionAlreadyStartedFailureStartRequestId
+      , "runId" .=: msg.workflowExecutionAlreadyStartedFailureRunId
       ]
 
 instance Aeson.FromJSON WorkflowExecutionAlreadyStartedFailure where
   parseJSON = Aeson.withObject "WorkflowExecutionAlreadyStartedFailure" $ \obj -> do
-    fld_workflowExecutionAlreadyStartedFailureStartrequestid <- parseFieldMaybe obj "startRequestId"
-    fld_workflowExecutionAlreadyStartedFailureRunid <- parseFieldMaybe obj "runId"
+    fld_workflowExecutionAlreadyStartedFailureStartRequestId <- parseFieldMaybe obj "startRequestId"
+    fld_workflowExecutionAlreadyStartedFailureRunId <- parseFieldMaybe obj "runId"
     pure defaultWorkflowExecutionAlreadyStartedFailure
-      { workflowExecutionAlreadyStartedFailureStartrequestid = maybe (workflowExecutionAlreadyStartedFailureStartrequestid defaultWorkflowExecutionAlreadyStartedFailure) id fld_workflowExecutionAlreadyStartedFailureStartrequestid
-      , workflowExecutionAlreadyStartedFailureRunid = maybe (workflowExecutionAlreadyStartedFailureRunid defaultWorkflowExecutionAlreadyStartedFailure) id fld_workflowExecutionAlreadyStartedFailureRunid
+      { workflowExecutionAlreadyStartedFailureStartRequestId = maybe (workflowExecutionAlreadyStartedFailureStartRequestId defaultWorkflowExecutionAlreadyStartedFailure) id fld_workflowExecutionAlreadyStartedFailureStartRequestId
+      , workflowExecutionAlreadyStartedFailureRunId = maybe (workflowExecutionAlreadyStartedFailureRunId defaultWorkflowExecutionAlreadyStartedFailure) id fld_workflowExecutionAlreadyStartedFailureRunId
       }
 
 instance Hashable WorkflowExecutionAlreadyStartedFailure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowExecutionAlreadyStartedFailureStartrequestid) msg.workflowExecutionAlreadyStartedFailureRunid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowExecutionAlreadyStartedFailureStartRequestId) msg.workflowExecutionAlreadyStartedFailureRunId
 
 data NamespaceNotActiveFailure = NamespaceNotActiveFailure
   { namespaceNotActiveFailureNamespace :: !Text
-  , namespaceNotActiveFailureCurrentcluster :: !Text
-  , namespaceNotActiveFailureActivecluster :: !Text
-  , namespaceNotActiveFailureUnknownfields :: ![UnknownField]
+  , namespaceNotActiveFailureCurrentCluster :: !Text
+  , namespaceNotActiveFailureActiveCluster :: !Text
+  , namespaceNotActiveFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -254,24 +254,24 @@ data NamespaceNotActiveFailure = NamespaceNotActiveFailure
 defaultNamespaceNotActiveFailure :: NamespaceNotActiveFailure
 defaultNamespaceNotActiveFailure = NamespaceNotActiveFailure
   { namespaceNotActiveFailureNamespace = ""
-  , namespaceNotActiveFailureCurrentcluster = ""
-  , namespaceNotActiveFailureActivecluster = ""
-  , namespaceNotActiveFailureUnknownfields = []
+  , namespaceNotActiveFailureCurrentCluster = ""
+  , namespaceNotActiveFailureActiveCluster = ""
+  , namespaceNotActiveFailureUnknownFields = []
   }
 
 instance MessageEncode NamespaceNotActiveFailure where
   buildMessage msg =
     (if msg.namespaceNotActiveFailureNamespace == T.empty then mempty else encodeFieldString 1 msg.namespaceNotActiveFailureNamespace)
-    <> (if msg.namespaceNotActiveFailureCurrentcluster == T.empty then mempty else encodeFieldString 2 msg.namespaceNotActiveFailureCurrentcluster)
-    <> (if msg.namespaceNotActiveFailureActivecluster == T.empty then mempty else encodeFieldString 3 msg.namespaceNotActiveFailureActivecluster)
-    <> encodeUnknownFields msg.namespaceNotActiveFailureUnknownfields
+    <> (if msg.namespaceNotActiveFailureCurrentCluster == T.empty then mempty else encodeFieldString 2 msg.namespaceNotActiveFailureCurrentCluster)
+    <> (if msg.namespaceNotActiveFailureActiveCluster == T.empty then mempty else encodeFieldString 3 msg.namespaceNotActiveFailureActiveCluster)
+    <> encodeUnknownFields msg.namespaceNotActiveFailureUnknownFields
 
 instance MessageSize NamespaceNotActiveFailure where
   messageSize msg =
     (if msg.namespaceNotActiveFailureNamespace == T.empty then 0 else fieldTextSize 1 msg.namespaceNotActiveFailureNamespace)
-    + (if msg.namespaceNotActiveFailureCurrentcluster == T.empty then 0 else fieldTextSize 2 msg.namespaceNotActiveFailureCurrentcluster)
-    + (if msg.namespaceNotActiveFailureActivecluster == T.empty then 0 else fieldTextSize 3 msg.namespaceNotActiveFailureActivecluster)
-    + unknownFieldsSize msg.namespaceNotActiveFailureUnknownfields
+    + (if msg.namespaceNotActiveFailureCurrentCluster == T.empty then 0 else fieldTextSize 2 msg.namespaceNotActiveFailureCurrentCluster)
+    + (if msg.namespaceNotActiveFailureActiveCluster == T.empty then 0 else fieldTextSize 3 msg.namespaceNotActiveFailureActiveCluster)
+    + unknownFieldsSize msg.namespaceNotActiveFailureUnknownFields
 
 instance MessageDecode NamespaceNotActiveFailure where
   {-# INLINE messageDecoder #-}
@@ -280,7 +280,7 @@ instance MessageDecode NamespaceNotActiveFailure where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceNotActiveFailure {namespaceNotActiveFailureNamespace = acc_0, namespaceNotActiveFailureCurrentcluster = acc_1, namespaceNotActiveFailureActivecluster = acc_2, namespaceNotActiveFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceNotActiveFailure {namespaceNotActiveFailureNamespace = acc_0, namespaceNotActiveFailureCurrentCluster = acc_1, namespaceNotActiveFailureActiveCluster = acc_2, namespaceNotActiveFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -316,43 +316,43 @@ instance ProtoMessage NamespaceNotActiveFailure where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = namespaceNotActiveFailureCurrentcluster
-        , fdSet = \v m -> m { namespaceNotActiveFailureCurrentcluster = v }
+        , fdGet = namespaceNotActiveFailureCurrentCluster
+        , fdSet = \v m -> m { namespaceNotActiveFailureCurrentCluster = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "active_cluster"
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = namespaceNotActiveFailureActivecluster
-        , fdSet = \v m -> m { namespaceNotActiveFailureActivecluster = v }
+        , fdGet = namespaceNotActiveFailureActiveCluster
+        , fdSet = \v m -> m { namespaceNotActiveFailureActiveCluster = v }
         })
     ]
 
 instance Aeson.ToJSON NamespaceNotActiveFailure where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.namespaceNotActiveFailureNamespace
-      , "currentCluster" .=: msg.namespaceNotActiveFailureCurrentcluster
-      , "activeCluster" .=: msg.namespaceNotActiveFailureActivecluster
+      , "currentCluster" .=: msg.namespaceNotActiveFailureCurrentCluster
+      , "activeCluster" .=: msg.namespaceNotActiveFailureActiveCluster
       ]
 
 instance Aeson.FromJSON NamespaceNotActiveFailure where
   parseJSON = Aeson.withObject "NamespaceNotActiveFailure" $ \obj -> do
     fld_namespaceNotActiveFailureNamespace <- parseFieldMaybe obj "namespace"
-    fld_namespaceNotActiveFailureCurrentcluster <- parseFieldMaybe obj "currentCluster"
-    fld_namespaceNotActiveFailureActivecluster <- parseFieldMaybe obj "activeCluster"
+    fld_namespaceNotActiveFailureCurrentCluster <- parseFieldMaybe obj "currentCluster"
+    fld_namespaceNotActiveFailureActiveCluster <- parseFieldMaybe obj "activeCluster"
     pure defaultNamespaceNotActiveFailure
       { namespaceNotActiveFailureNamespace = maybe (namespaceNotActiveFailureNamespace defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureNamespace
-      , namespaceNotActiveFailureCurrentcluster = maybe (namespaceNotActiveFailureCurrentcluster defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureCurrentcluster
-      , namespaceNotActiveFailureActivecluster = maybe (namespaceNotActiveFailureActivecluster defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureActivecluster
+      , namespaceNotActiveFailureCurrentCluster = maybe (namespaceNotActiveFailureCurrentCluster defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureCurrentCluster
+      , namespaceNotActiveFailureActiveCluster = maybe (namespaceNotActiveFailureActiveCluster defaultNamespaceNotActiveFailure) id fld_namespaceNotActiveFailureActiveCluster
       }
 
 instance Hashable NamespaceNotActiveFailure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceNotActiveFailureNamespace) msg.namespaceNotActiveFailureCurrentcluster) msg.namespaceNotActiveFailureActivecluster
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceNotActiveFailureNamespace) msg.namespaceNotActiveFailureCurrentCluster) msg.namespaceNotActiveFailureActiveCluster
 
 data NamespaceUnavailableFailure = NamespaceUnavailableFailure
   { namespaceUnavailableFailureNamespace :: !Text
-  , namespaceUnavailableFailureUnknownfields :: ![UnknownField]
+  , namespaceUnavailableFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -360,18 +360,18 @@ data NamespaceUnavailableFailure = NamespaceUnavailableFailure
 defaultNamespaceUnavailableFailure :: NamespaceUnavailableFailure
 defaultNamespaceUnavailableFailure = NamespaceUnavailableFailure
   { namespaceUnavailableFailureNamespace = ""
-  , namespaceUnavailableFailureUnknownfields = []
+  , namespaceUnavailableFailureUnknownFields = []
   }
 
 instance MessageEncode NamespaceUnavailableFailure where
   buildMessage msg =
     (if msg.namespaceUnavailableFailureNamespace == T.empty then mempty else encodeFieldString 1 msg.namespaceUnavailableFailureNamespace)
-    <> encodeUnknownFields msg.namespaceUnavailableFailureUnknownfields
+    <> encodeUnknownFields msg.namespaceUnavailableFailureUnknownFields
 
 instance MessageSize NamespaceUnavailableFailure where
   messageSize msg =
     (if msg.namespaceUnavailableFailureNamespace == T.empty then 0 else fieldTextSize 1 msg.namespaceUnavailableFailureNamespace)
-    + unknownFieldsSize msg.namespaceUnavailableFailureUnknownfields
+    + unknownFieldsSize msg.namespaceUnavailableFailureUnknownFields
 
 instance MessageDecode NamespaceUnavailableFailure where
   {-# INLINE messageDecoder #-}
@@ -380,7 +380,7 @@ instance MessageDecode NamespaceUnavailableFailure where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceUnavailableFailure {namespaceUnavailableFailureNamespace = acc_0, namespaceUnavailableFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceUnavailableFailure {namespaceUnavailableFailureNamespace = acc_0, namespaceUnavailableFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -427,8 +427,8 @@ instance Hashable NamespaceUnavailableFailure where
 data NamespaceInvalidStateFailure = NamespaceInvalidStateFailure
   { namespaceInvalidStateFailureNamespace :: !Text
   , namespaceInvalidStateFailureState :: !TE_Enums_V1_Namespace.NamespaceState
-  , namespaceInvalidStateFailureAllowedstates :: !(V.Vector TE_Enums_V1_Namespace.NamespaceState)
-  , namespaceInvalidStateFailureUnknownfields :: ![UnknownField]
+  , namespaceInvalidStateFailureAllowedStates :: !(V.Vector TE_Enums_V1_Namespace.NamespaceState)
+  , namespaceInvalidStateFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -437,23 +437,23 @@ defaultNamespaceInvalidStateFailure :: NamespaceInvalidStateFailure
 defaultNamespaceInvalidStateFailure = NamespaceInvalidStateFailure
   { namespaceInvalidStateFailureNamespace = ""
   , namespaceInvalidStateFailureState = (toEnum 0)
-  , namespaceInvalidStateFailureAllowedstates = V.empty
-  , namespaceInvalidStateFailureUnknownfields = []
+  , namespaceInvalidStateFailureAllowedStates = V.empty
+  , namespaceInvalidStateFailureUnknownFields = []
   }
 
 instance MessageEncode NamespaceInvalidStateFailure where
   buildMessage msg =
     (if msg.namespaceInvalidStateFailureNamespace == T.empty then mempty else encodeFieldString 1 msg.namespaceInvalidStateFailureNamespace)
     <> (if fromEnum msg.namespaceInvalidStateFailureState == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.namespaceInvalidStateFailureState)))
-    <> V.foldl' (\acc v -> acc <> encodeFieldVarint 3 (fromIntegral (fromEnum v))) mempty msg.namespaceInvalidStateFailureAllowedstates
-    <> encodeUnknownFields msg.namespaceInvalidStateFailureUnknownfields
+    <> V.foldl' (\acc v -> acc <> encodeFieldVarint 3 (fromIntegral (fromEnum v))) mempty msg.namespaceInvalidStateFailureAllowedStates
+    <> encodeUnknownFields msg.namespaceInvalidStateFailureUnknownFields
 
 instance MessageSize NamespaceInvalidStateFailure where
   messageSize msg =
     (if msg.namespaceInvalidStateFailureNamespace == T.empty then 0 else fieldTextSize 1 msg.namespaceInvalidStateFailureNamespace)
     + (if fromEnum msg.namespaceInvalidStateFailureState == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.namespaceInvalidStateFailureState)))
-    + (V.foldl' (\acc v -> acc + fieldVarintSize 3 (fromIntegral (fromEnum v))) 0 msg.namespaceInvalidStateFailureAllowedstates)
-    + unknownFieldsSize msg.namespaceInvalidStateFailureUnknownfields
+    + (V.foldl' (\acc v -> acc + fieldVarintSize 3 (fromIntegral (fromEnum v))) 0 msg.namespaceInvalidStateFailureAllowedStates)
+    + unknownFieldsSize msg.namespaceInvalidStateFailureUnknownFields
 
 instance MessageDecode NamespaceInvalidStateFailure where
   {-# INLINE messageDecoder #-}
@@ -462,7 +462,7 @@ instance MessageDecode NamespaceInvalidStateFailure where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceInvalidStateFailure {namespaceInvalidStateFailureNamespace = acc_0, namespaceInvalidStateFailureState = acc_1, namespaceInvalidStateFailureAllowedstates = acc_2, namespaceInvalidStateFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceInvalidStateFailure {namespaceInvalidStateFailureNamespace = acc_0, namespaceInvalidStateFailureState = acc_1, namespaceInvalidStateFailureAllowedStates = acc_2, namespaceInvalidStateFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -506,8 +506,8 @@ instance ProtoMessage NamespaceInvalidStateFailure where
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.enums.v1.NamespaceState"
         , fdLabel = LabelRepeated
-        , fdGet = namespaceInvalidStateFailureAllowedstates
-        , fdSet = \v m -> m { namespaceInvalidStateFailureAllowedstates = v }
+        , fdGet = namespaceInvalidStateFailureAllowedStates
+        , fdSet = \v m -> m { namespaceInvalidStateFailureAllowedStates = v }
         })
     ]
 
@@ -515,26 +515,26 @@ instance Aeson.ToJSON NamespaceInvalidStateFailure where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.namespaceInvalidStateFailureNamespace
       , "state" .=: msg.namespaceInvalidStateFailureState
-      , "allowedStates" .=: msg.namespaceInvalidStateFailureAllowedstates
+      , "allowedStates" .=: msg.namespaceInvalidStateFailureAllowedStates
       ]
 
 instance Aeson.FromJSON NamespaceInvalidStateFailure where
   parseJSON = Aeson.withObject "NamespaceInvalidStateFailure" $ \obj -> do
     fld_namespaceInvalidStateFailureNamespace <- parseFieldMaybe obj "namespace"
     fld_namespaceInvalidStateFailureState <- parseFieldMaybe obj "state"
-    fld_namespaceInvalidStateFailureAllowedstates <- parseFieldMaybe obj "allowedStates"
+    fld_namespaceInvalidStateFailureAllowedStates <- parseFieldMaybe obj "allowedStates"
     pure defaultNamespaceInvalidStateFailure
       { namespaceInvalidStateFailureNamespace = maybe (namespaceInvalidStateFailureNamespace defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureNamespace
       , namespaceInvalidStateFailureState = maybe (namespaceInvalidStateFailureState defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureState
-      , namespaceInvalidStateFailureAllowedstates = maybe (namespaceInvalidStateFailureAllowedstates defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureAllowedstates
+      , namespaceInvalidStateFailureAllowedStates = maybe (namespaceInvalidStateFailureAllowedStates defaultNamespaceInvalidStateFailure) id fld_namespaceInvalidStateFailureAllowedStates
       }
 
 instance Hashable NamespaceInvalidStateFailure where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceInvalidStateFailureNamespace) msg.namespaceInvalidStateFailureState) msg.namespaceInvalidStateFailureAllowedstates
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.namespaceInvalidStateFailureNamespace) msg.namespaceInvalidStateFailureState) msg.namespaceInvalidStateFailureAllowedStates
 
 data NamespaceNotFoundFailure = NamespaceNotFoundFailure
   { namespaceNotFoundFailureNamespace :: !Text
-  , namespaceNotFoundFailureUnknownfields :: ![UnknownField]
+  , namespaceNotFoundFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -542,18 +542,18 @@ data NamespaceNotFoundFailure = NamespaceNotFoundFailure
 defaultNamespaceNotFoundFailure :: NamespaceNotFoundFailure
 defaultNamespaceNotFoundFailure = NamespaceNotFoundFailure
   { namespaceNotFoundFailureNamespace = ""
-  , namespaceNotFoundFailureUnknownfields = []
+  , namespaceNotFoundFailureUnknownFields = []
   }
 
 instance MessageEncode NamespaceNotFoundFailure where
   buildMessage msg =
     (if msg.namespaceNotFoundFailureNamespace == T.empty then mempty else encodeFieldString 1 msg.namespaceNotFoundFailureNamespace)
-    <> encodeUnknownFields msg.namespaceNotFoundFailureUnknownfields
+    <> encodeUnknownFields msg.namespaceNotFoundFailureUnknownFields
 
 instance MessageSize NamespaceNotFoundFailure where
   messageSize msg =
     (if msg.namespaceNotFoundFailureNamespace == T.empty then 0 else fieldTextSize 1 msg.namespaceNotFoundFailureNamespace)
-    + unknownFieldsSize msg.namespaceNotFoundFailureUnknownfields
+    + unknownFieldsSize msg.namespaceNotFoundFailureUnknownFields
 
 instance MessageDecode NamespaceNotFoundFailure where
   {-# INLINE messageDecoder #-}
@@ -562,7 +562,7 @@ instance MessageDecode NamespaceNotFoundFailure where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceNotFoundFailure {namespaceNotFoundFailureNamespace = acc_0, namespaceNotFoundFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceNotFoundFailure {namespaceNotFoundFailureNamespace = acc_0, namespaceNotFoundFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -607,23 +607,23 @@ instance Hashable NamespaceNotFoundFailure where
   hashWithSalt salt msg = hashWithSalt (salt) msg.namespaceNotFoundFailureNamespace
 
 data NamespaceAlreadyExistsFailure = NamespaceAlreadyExistsFailure
-  { namespaceAlreadyExistsFailureUnknownfields :: ![UnknownField]
+  { namespaceAlreadyExistsFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNamespaceAlreadyExistsFailure :: NamespaceAlreadyExistsFailure
 defaultNamespaceAlreadyExistsFailure = NamespaceAlreadyExistsFailure
-  { namespaceAlreadyExistsFailureUnknownfields = []
+  { namespaceAlreadyExistsFailureUnknownFields = []
   }
 
 instance MessageEncode NamespaceAlreadyExistsFailure where
   buildMessage msg =
-    encodeUnknownFields msg.namespaceAlreadyExistsFailureUnknownfields
+    encodeUnknownFields msg.namespaceAlreadyExistsFailureUnknownFields
 
 instance MessageSize NamespaceAlreadyExistsFailure where
   messageSize msg =
-    unknownFieldsSize msg.namespaceAlreadyExistsFailureUnknownfields
+    unknownFieldsSize msg.namespaceAlreadyExistsFailureUnknownFields
 
 instance MessageDecode NamespaceAlreadyExistsFailure where
   {-# INLINE messageDecoder #-}
@@ -632,7 +632,7 @@ instance MessageDecode NamespaceAlreadyExistsFailure where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NamespaceAlreadyExistsFailure {namespaceAlreadyExistsFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NamespaceAlreadyExistsFailure {namespaceAlreadyExistsFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -660,35 +660,35 @@ instance Hashable NamespaceAlreadyExistsFailure where
   hashWithSalt salt _ = salt
 
 data ClientVersionNotSupportedFailure = ClientVersionNotSupportedFailure
-  { clientVersionNotSupportedFailureClientversion :: !Text
-  , clientVersionNotSupportedFailureClientname :: !Text
-  , clientVersionNotSupportedFailureSupportedversions :: !Text
-  , clientVersionNotSupportedFailureUnknownfields :: ![UnknownField]
+  { clientVersionNotSupportedFailureClientVersion :: !Text
+  , clientVersionNotSupportedFailureClientName :: !Text
+  , clientVersionNotSupportedFailureSupportedVersions :: !Text
+  , clientVersionNotSupportedFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultClientVersionNotSupportedFailure :: ClientVersionNotSupportedFailure
 defaultClientVersionNotSupportedFailure = ClientVersionNotSupportedFailure
-  { clientVersionNotSupportedFailureClientversion = ""
-  , clientVersionNotSupportedFailureClientname = ""
-  , clientVersionNotSupportedFailureSupportedversions = ""
-  , clientVersionNotSupportedFailureUnknownfields = []
+  { clientVersionNotSupportedFailureClientVersion = ""
+  , clientVersionNotSupportedFailureClientName = ""
+  , clientVersionNotSupportedFailureSupportedVersions = ""
+  , clientVersionNotSupportedFailureUnknownFields = []
   }
 
 instance MessageEncode ClientVersionNotSupportedFailure where
   buildMessage msg =
-    (if msg.clientVersionNotSupportedFailureClientversion == T.empty then mempty else encodeFieldString 1 msg.clientVersionNotSupportedFailureClientversion)
-    <> (if msg.clientVersionNotSupportedFailureClientname == T.empty then mempty else encodeFieldString 2 msg.clientVersionNotSupportedFailureClientname)
-    <> (if msg.clientVersionNotSupportedFailureSupportedversions == T.empty then mempty else encodeFieldString 3 msg.clientVersionNotSupportedFailureSupportedversions)
-    <> encodeUnknownFields msg.clientVersionNotSupportedFailureUnknownfields
+    (if msg.clientVersionNotSupportedFailureClientVersion == T.empty then mempty else encodeFieldString 1 msg.clientVersionNotSupportedFailureClientVersion)
+    <> (if msg.clientVersionNotSupportedFailureClientName == T.empty then mempty else encodeFieldString 2 msg.clientVersionNotSupportedFailureClientName)
+    <> (if msg.clientVersionNotSupportedFailureSupportedVersions == T.empty then mempty else encodeFieldString 3 msg.clientVersionNotSupportedFailureSupportedVersions)
+    <> encodeUnknownFields msg.clientVersionNotSupportedFailureUnknownFields
 
 instance MessageSize ClientVersionNotSupportedFailure where
   messageSize msg =
-    (if msg.clientVersionNotSupportedFailureClientversion == T.empty then 0 else fieldTextSize 1 msg.clientVersionNotSupportedFailureClientversion)
-    + (if msg.clientVersionNotSupportedFailureClientname == T.empty then 0 else fieldTextSize 2 msg.clientVersionNotSupportedFailureClientname)
-    + (if msg.clientVersionNotSupportedFailureSupportedversions == T.empty then 0 else fieldTextSize 3 msg.clientVersionNotSupportedFailureSupportedversions)
-    + unknownFieldsSize msg.clientVersionNotSupportedFailureUnknownfields
+    (if msg.clientVersionNotSupportedFailureClientVersion == T.empty then 0 else fieldTextSize 1 msg.clientVersionNotSupportedFailureClientVersion)
+    + (if msg.clientVersionNotSupportedFailureClientName == T.empty then 0 else fieldTextSize 2 msg.clientVersionNotSupportedFailureClientName)
+    + (if msg.clientVersionNotSupportedFailureSupportedVersions == T.empty then 0 else fieldTextSize 3 msg.clientVersionNotSupportedFailureSupportedVersions)
+    + unknownFieldsSize msg.clientVersionNotSupportedFailureUnknownFields
 
 instance MessageDecode ClientVersionNotSupportedFailure where
   {-# INLINE messageDecoder #-}
@@ -697,7 +697,7 @@ instance MessageDecode ClientVersionNotSupportedFailure where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ClientVersionNotSupportedFailure {clientVersionNotSupportedFailureClientversion = acc_0, clientVersionNotSupportedFailureClientname = acc_1, clientVersionNotSupportedFailureSupportedversions = acc_2, clientVersionNotSupportedFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ClientVersionNotSupportedFailure {clientVersionNotSupportedFailureClientVersion = acc_0, clientVersionNotSupportedFailureClientName = acc_1, clientVersionNotSupportedFailureSupportedVersions = acc_2, clientVersionNotSupportedFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -726,73 +726,73 @@ instance ProtoMessage ClientVersionNotSupportedFailure where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = clientVersionNotSupportedFailureClientversion
-        , fdSet = \v m -> m { clientVersionNotSupportedFailureClientversion = v }
+        , fdGet = clientVersionNotSupportedFailureClientVersion
+        , fdSet = \v m -> m { clientVersionNotSupportedFailureClientVersion = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "client_name"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = clientVersionNotSupportedFailureClientname
-        , fdSet = \v m -> m { clientVersionNotSupportedFailureClientname = v }
+        , fdGet = clientVersionNotSupportedFailureClientName
+        , fdSet = \v m -> m { clientVersionNotSupportedFailureClientName = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "supported_versions"
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = clientVersionNotSupportedFailureSupportedversions
-        , fdSet = \v m -> m { clientVersionNotSupportedFailureSupportedversions = v }
+        , fdGet = clientVersionNotSupportedFailureSupportedVersions
+        , fdSet = \v m -> m { clientVersionNotSupportedFailureSupportedVersions = v }
         })
     ]
 
 instance Aeson.ToJSON ClientVersionNotSupportedFailure where
   toJSON msg = jsonObject
-      [ "clientVersion" .=: msg.clientVersionNotSupportedFailureClientversion
-      , "clientName" .=: msg.clientVersionNotSupportedFailureClientname
-      , "supportedVersions" .=: msg.clientVersionNotSupportedFailureSupportedversions
+      [ "clientVersion" .=: msg.clientVersionNotSupportedFailureClientVersion
+      , "clientName" .=: msg.clientVersionNotSupportedFailureClientName
+      , "supportedVersions" .=: msg.clientVersionNotSupportedFailureSupportedVersions
       ]
 
 instance Aeson.FromJSON ClientVersionNotSupportedFailure where
   parseJSON = Aeson.withObject "ClientVersionNotSupportedFailure" $ \obj -> do
-    fld_clientVersionNotSupportedFailureClientversion <- parseFieldMaybe obj "clientVersion"
-    fld_clientVersionNotSupportedFailureClientname <- parseFieldMaybe obj "clientName"
-    fld_clientVersionNotSupportedFailureSupportedversions <- parseFieldMaybe obj "supportedVersions"
+    fld_clientVersionNotSupportedFailureClientVersion <- parseFieldMaybe obj "clientVersion"
+    fld_clientVersionNotSupportedFailureClientName <- parseFieldMaybe obj "clientName"
+    fld_clientVersionNotSupportedFailureSupportedVersions <- parseFieldMaybe obj "supportedVersions"
     pure defaultClientVersionNotSupportedFailure
-      { clientVersionNotSupportedFailureClientversion = maybe (clientVersionNotSupportedFailureClientversion defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureClientversion
-      , clientVersionNotSupportedFailureClientname = maybe (clientVersionNotSupportedFailureClientname defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureClientname
-      , clientVersionNotSupportedFailureSupportedversions = maybe (clientVersionNotSupportedFailureSupportedversions defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureSupportedversions
+      { clientVersionNotSupportedFailureClientVersion = maybe (clientVersionNotSupportedFailureClientVersion defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureClientVersion
+      , clientVersionNotSupportedFailureClientName = maybe (clientVersionNotSupportedFailureClientName defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureClientName
+      , clientVersionNotSupportedFailureSupportedVersions = maybe (clientVersionNotSupportedFailureSupportedVersions defaultClientVersionNotSupportedFailure) id fld_clientVersionNotSupportedFailureSupportedVersions
       }
 
 instance Hashable ClientVersionNotSupportedFailure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.clientVersionNotSupportedFailureClientversion) msg.clientVersionNotSupportedFailureClientname) msg.clientVersionNotSupportedFailureSupportedversions
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.clientVersionNotSupportedFailureClientVersion) msg.clientVersionNotSupportedFailureClientName) msg.clientVersionNotSupportedFailureSupportedVersions
 
 data ServerVersionNotSupportedFailure = ServerVersionNotSupportedFailure
-  { serverVersionNotSupportedFailureServerversion :: !Text
-  , serverVersionNotSupportedFailureClientsupportedserverversions :: !Text
-  , serverVersionNotSupportedFailureUnknownfields :: ![UnknownField]
+  { serverVersionNotSupportedFailureServerVersion :: !Text
+  , serverVersionNotSupportedFailureClientSupportedServerVersions :: !Text
+  , serverVersionNotSupportedFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultServerVersionNotSupportedFailure :: ServerVersionNotSupportedFailure
 defaultServerVersionNotSupportedFailure = ServerVersionNotSupportedFailure
-  { serverVersionNotSupportedFailureServerversion = ""
-  , serverVersionNotSupportedFailureClientsupportedserverversions = ""
-  , serverVersionNotSupportedFailureUnknownfields = []
+  { serverVersionNotSupportedFailureServerVersion = ""
+  , serverVersionNotSupportedFailureClientSupportedServerVersions = ""
+  , serverVersionNotSupportedFailureUnknownFields = []
   }
 
 instance MessageEncode ServerVersionNotSupportedFailure where
   buildMessage msg =
-    (if msg.serverVersionNotSupportedFailureServerversion == T.empty then mempty else encodeFieldString 1 msg.serverVersionNotSupportedFailureServerversion)
-    <> (if msg.serverVersionNotSupportedFailureClientsupportedserverversions == T.empty then mempty else encodeFieldString 2 msg.serverVersionNotSupportedFailureClientsupportedserverversions)
-    <> encodeUnknownFields msg.serverVersionNotSupportedFailureUnknownfields
+    (if msg.serverVersionNotSupportedFailureServerVersion == T.empty then mempty else encodeFieldString 1 msg.serverVersionNotSupportedFailureServerVersion)
+    <> (if msg.serverVersionNotSupportedFailureClientSupportedServerVersions == T.empty then mempty else encodeFieldString 2 msg.serverVersionNotSupportedFailureClientSupportedServerVersions)
+    <> encodeUnknownFields msg.serverVersionNotSupportedFailureUnknownFields
 
 instance MessageSize ServerVersionNotSupportedFailure where
   messageSize msg =
-    (if msg.serverVersionNotSupportedFailureServerversion == T.empty then 0 else fieldTextSize 1 msg.serverVersionNotSupportedFailureServerversion)
-    + (if msg.serverVersionNotSupportedFailureClientsupportedserverversions == T.empty then 0 else fieldTextSize 2 msg.serverVersionNotSupportedFailureClientsupportedserverversions)
-    + unknownFieldsSize msg.serverVersionNotSupportedFailureUnknownfields
+    (if msg.serverVersionNotSupportedFailureServerVersion == T.empty then 0 else fieldTextSize 1 msg.serverVersionNotSupportedFailureServerVersion)
+    + (if msg.serverVersionNotSupportedFailureClientSupportedServerVersions == T.empty then 0 else fieldTextSize 2 msg.serverVersionNotSupportedFailureClientSupportedServerVersions)
+    + unknownFieldsSize msg.serverVersionNotSupportedFailureUnknownFields
 
 instance MessageDecode ServerVersionNotSupportedFailure where
   {-# INLINE messageDecoder #-}
@@ -801,7 +801,7 @@ instance MessageDecode ServerVersionNotSupportedFailure where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ServerVersionNotSupportedFailure {serverVersionNotSupportedFailureServerversion = acc_0, serverVersionNotSupportedFailureClientsupportedserverversions = acc_1, serverVersionNotSupportedFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ServerVersionNotSupportedFailure {serverVersionNotSupportedFailureServerVersion = acc_0, serverVersionNotSupportedFailureClientSupportedServerVersions = acc_1, serverVersionNotSupportedFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -827,54 +827,54 @@ instance ProtoMessage ServerVersionNotSupportedFailure where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = serverVersionNotSupportedFailureServerversion
-        , fdSet = \v m -> m { serverVersionNotSupportedFailureServerversion = v }
+        , fdGet = serverVersionNotSupportedFailureServerVersion
+        , fdSet = \v m -> m { serverVersionNotSupportedFailureServerVersion = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "client_supported_server_versions"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = serverVersionNotSupportedFailureClientsupportedserverversions
-        , fdSet = \v m -> m { serverVersionNotSupportedFailureClientsupportedserverversions = v }
+        , fdGet = serverVersionNotSupportedFailureClientSupportedServerVersions
+        , fdSet = \v m -> m { serverVersionNotSupportedFailureClientSupportedServerVersions = v }
         })
     ]
 
 instance Aeson.ToJSON ServerVersionNotSupportedFailure where
   toJSON msg = jsonObject
-      [ "serverVersion" .=: msg.serverVersionNotSupportedFailureServerversion
-      , "clientSupportedServerVersions" .=: msg.serverVersionNotSupportedFailureClientsupportedserverversions
+      [ "serverVersion" .=: msg.serverVersionNotSupportedFailureServerVersion
+      , "clientSupportedServerVersions" .=: msg.serverVersionNotSupportedFailureClientSupportedServerVersions
       ]
 
 instance Aeson.FromJSON ServerVersionNotSupportedFailure where
   parseJSON = Aeson.withObject "ServerVersionNotSupportedFailure" $ \obj -> do
-    fld_serverVersionNotSupportedFailureServerversion <- parseFieldMaybe obj "serverVersion"
-    fld_serverVersionNotSupportedFailureClientsupportedserverversions <- parseFieldMaybe obj "clientSupportedServerVersions"
+    fld_serverVersionNotSupportedFailureServerVersion <- parseFieldMaybe obj "serverVersion"
+    fld_serverVersionNotSupportedFailureClientSupportedServerVersions <- parseFieldMaybe obj "clientSupportedServerVersions"
     pure defaultServerVersionNotSupportedFailure
-      { serverVersionNotSupportedFailureServerversion = maybe (serverVersionNotSupportedFailureServerversion defaultServerVersionNotSupportedFailure) id fld_serverVersionNotSupportedFailureServerversion
-      , serverVersionNotSupportedFailureClientsupportedserverversions = maybe (serverVersionNotSupportedFailureClientsupportedserverversions defaultServerVersionNotSupportedFailure) id fld_serverVersionNotSupportedFailureClientsupportedserverversions
+      { serverVersionNotSupportedFailureServerVersion = maybe (serverVersionNotSupportedFailureServerVersion defaultServerVersionNotSupportedFailure) id fld_serverVersionNotSupportedFailureServerVersion
+      , serverVersionNotSupportedFailureClientSupportedServerVersions = maybe (serverVersionNotSupportedFailureClientSupportedServerVersions defaultServerVersionNotSupportedFailure) id fld_serverVersionNotSupportedFailureClientSupportedServerVersions
       }
 
 instance Hashable ServerVersionNotSupportedFailure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.serverVersionNotSupportedFailureServerversion) msg.serverVersionNotSupportedFailureClientsupportedserverversions
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.serverVersionNotSupportedFailureServerVersion) msg.serverVersionNotSupportedFailureClientSupportedServerVersions
 
 data CancellationAlreadyRequestedFailure = CancellationAlreadyRequestedFailure
-  { cancellationAlreadyRequestedFailureUnknownfields :: ![UnknownField]
+  { cancellationAlreadyRequestedFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultCancellationAlreadyRequestedFailure :: CancellationAlreadyRequestedFailure
 defaultCancellationAlreadyRequestedFailure = CancellationAlreadyRequestedFailure
-  { cancellationAlreadyRequestedFailureUnknownfields = []
+  { cancellationAlreadyRequestedFailureUnknownFields = []
   }
 
 instance MessageEncode CancellationAlreadyRequestedFailure where
   buildMessage msg =
-    encodeUnknownFields msg.cancellationAlreadyRequestedFailureUnknownfields
+    encodeUnknownFields msg.cancellationAlreadyRequestedFailureUnknownFields
 
 instance MessageSize CancellationAlreadyRequestedFailure where
   messageSize msg =
-    unknownFieldsSize msg.cancellationAlreadyRequestedFailureUnknownfields
+    unknownFieldsSize msg.cancellationAlreadyRequestedFailureUnknownFields
 
 instance MessageDecode CancellationAlreadyRequestedFailure where
   {-# INLINE messageDecoder #-}
@@ -883,7 +883,7 @@ instance MessageDecode CancellationAlreadyRequestedFailure where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CancellationAlreadyRequestedFailure {cancellationAlreadyRequestedFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CancellationAlreadyRequestedFailure {cancellationAlreadyRequestedFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -912,7 +912,7 @@ instance Hashable CancellationAlreadyRequestedFailure where
 
 data QueryFailedFailure = QueryFailedFailure
   { queryFailedFailureFailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , queryFailedFailureUnknownfields :: ![UnknownField]
+  , queryFailedFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -920,18 +920,18 @@ data QueryFailedFailure = QueryFailedFailure
 defaultQueryFailedFailure :: QueryFailedFailure
 defaultQueryFailedFailure = QueryFailedFailure
   { queryFailedFailureFailure = Nothing
-  , queryFailedFailureUnknownfields = []
+  , queryFailedFailureUnknownFields = []
   }
 
 instance MessageEncode QueryFailedFailure where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.queryFailedFailureFailure)
-    <> encodeUnknownFields msg.queryFailedFailureUnknownfields
+    <> encodeUnknownFields msg.queryFailedFailureUnknownFields
 
 instance MessageSize QueryFailedFailure where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.queryFailedFailureFailure)
-    + unknownFieldsSize msg.queryFailedFailureUnknownfields
+    + unknownFieldsSize msg.queryFailedFailureUnknownFields
 
 instance MessageDecode QueryFailedFailure where
   {-# INLINE messageDecoder #-}
@@ -940,7 +940,7 @@ instance MessageDecode QueryFailedFailure where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (QueryFailedFailure {queryFailedFailureFailure = acc_0, queryFailedFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (QueryFailedFailure {queryFailedFailureFailure = acc_0, queryFailedFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -986,7 +986,7 @@ instance Hashable QueryFailedFailure where
 
 data PermissionDeniedFailure = PermissionDeniedFailure
   { permissionDeniedFailureReason :: !Text
-  , permissionDeniedFailureUnknownfields :: ![UnknownField]
+  , permissionDeniedFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -994,18 +994,18 @@ data PermissionDeniedFailure = PermissionDeniedFailure
 defaultPermissionDeniedFailure :: PermissionDeniedFailure
 defaultPermissionDeniedFailure = PermissionDeniedFailure
   { permissionDeniedFailureReason = ""
-  , permissionDeniedFailureUnknownfields = []
+  , permissionDeniedFailureUnknownFields = []
   }
 
 instance MessageEncode PermissionDeniedFailure where
   buildMessage msg =
     (if msg.permissionDeniedFailureReason == T.empty then mempty else encodeFieldString 1 msg.permissionDeniedFailureReason)
-    <> encodeUnknownFields msg.permissionDeniedFailureUnknownfields
+    <> encodeUnknownFields msg.permissionDeniedFailureUnknownFields
 
 instance MessageSize PermissionDeniedFailure where
   messageSize msg =
     (if msg.permissionDeniedFailureReason == T.empty then 0 else fieldTextSize 1 msg.permissionDeniedFailureReason)
-    + unknownFieldsSize msg.permissionDeniedFailureUnknownfields
+    + unknownFieldsSize msg.permissionDeniedFailureUnknownFields
 
 instance MessageDecode PermissionDeniedFailure where
   {-# INLINE messageDecoder #-}
@@ -1014,7 +1014,7 @@ instance MessageDecode PermissionDeniedFailure where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PermissionDeniedFailure {permissionDeniedFailureReason = acc_0, permissionDeniedFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PermissionDeniedFailure {permissionDeniedFailureReason = acc_0, permissionDeniedFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1061,7 +1061,7 @@ instance Hashable PermissionDeniedFailure where
 data ResourceExhaustedFailure = ResourceExhaustedFailure
   { resourceExhaustedFailureCause :: !TE_Enums_V1_FailedCause.ResourceExhaustedCause
   , resourceExhaustedFailureScope :: !TE_Enums_V1_FailedCause.ResourceExhaustedScope
-  , resourceExhaustedFailureUnknownfields :: ![UnknownField]
+  , resourceExhaustedFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1070,20 +1070,20 @@ defaultResourceExhaustedFailure :: ResourceExhaustedFailure
 defaultResourceExhaustedFailure = ResourceExhaustedFailure
   { resourceExhaustedFailureCause = (toEnum 0)
   , resourceExhaustedFailureScope = (toEnum 0)
-  , resourceExhaustedFailureUnknownfields = []
+  , resourceExhaustedFailureUnknownFields = []
   }
 
 instance MessageEncode ResourceExhaustedFailure where
   buildMessage msg =
     (if fromEnum msg.resourceExhaustedFailureCause == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.resourceExhaustedFailureCause)))
     <> (if fromEnum msg.resourceExhaustedFailureScope == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.resourceExhaustedFailureScope)))
-    <> encodeUnknownFields msg.resourceExhaustedFailureUnknownfields
+    <> encodeUnknownFields msg.resourceExhaustedFailureUnknownFields
 
 instance MessageSize ResourceExhaustedFailure where
   messageSize msg =
     (if fromEnum msg.resourceExhaustedFailureCause == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.resourceExhaustedFailureCause)))
     + (if fromEnum msg.resourceExhaustedFailureScope == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.resourceExhaustedFailureScope)))
-    + unknownFieldsSize msg.resourceExhaustedFailureUnknownfields
+    + unknownFieldsSize msg.resourceExhaustedFailureUnknownFields
 
 instance MessageDecode ResourceExhaustedFailure where
   {-# INLINE messageDecoder #-}
@@ -1092,7 +1092,7 @@ instance MessageDecode ResourceExhaustedFailure where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ResourceExhaustedFailure {resourceExhaustedFailureCause = acc_0, resourceExhaustedFailureScope = acc_1, resourceExhaustedFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ResourceExhaustedFailure {resourceExhaustedFailureCause = acc_0, resourceExhaustedFailureScope = acc_1, resourceExhaustedFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -1149,31 +1149,31 @@ instance Hashable ResourceExhaustedFailure where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.resourceExhaustedFailureCause) msg.resourceExhaustedFailureScope
 
 data SystemWorkflowFailure = SystemWorkflowFailure
-  { systemWorkflowFailureWorkflowexecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
-  , systemWorkflowFailureWorkflowerror :: !Text
-  , systemWorkflowFailureUnknownfields :: ![UnknownField]
+  { systemWorkflowFailureWorkflowExecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
+  , systemWorkflowFailureWorkflowError :: !Text
+  , systemWorkflowFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultSystemWorkflowFailure :: SystemWorkflowFailure
 defaultSystemWorkflowFailure = SystemWorkflowFailure
-  { systemWorkflowFailureWorkflowexecution = Nothing
-  , systemWorkflowFailureWorkflowerror = ""
-  , systemWorkflowFailureUnknownfields = []
+  { systemWorkflowFailureWorkflowExecution = Nothing
+  , systemWorkflowFailureWorkflowError = ""
+  , systemWorkflowFailureUnknownFields = []
   }
 
 instance MessageEncode SystemWorkflowFailure where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.systemWorkflowFailureWorkflowexecution)
-    <> (if msg.systemWorkflowFailureWorkflowerror == T.empty then mempty else encodeFieldString 2 msg.systemWorkflowFailureWorkflowerror)
-    <> encodeUnknownFields msg.systemWorkflowFailureUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.systemWorkflowFailureWorkflowExecution)
+    <> (if msg.systemWorkflowFailureWorkflowError == T.empty then mempty else encodeFieldString 2 msg.systemWorkflowFailureWorkflowError)
+    <> encodeUnknownFields msg.systemWorkflowFailureUnknownFields
 
 instance MessageSize SystemWorkflowFailure where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.systemWorkflowFailureWorkflowexecution)
-    + (if msg.systemWorkflowFailureWorkflowerror == T.empty then 0 else fieldTextSize 2 msg.systemWorkflowFailureWorkflowerror)
-    + unknownFieldsSize msg.systemWorkflowFailureUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.systemWorkflowFailureWorkflowExecution)
+    + (if msg.systemWorkflowFailureWorkflowError == T.empty then 0 else fieldTextSize 2 msg.systemWorkflowFailureWorkflowError)
+    + unknownFieldsSize msg.systemWorkflowFailureUnknownFields
 
 instance MessageDecode SystemWorkflowFailure where
   {-# INLINE messageDecoder #-}
@@ -1182,7 +1182,7 @@ instance MessageDecode SystemWorkflowFailure where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (SystemWorkflowFailure {systemWorkflowFailureWorkflowexecution = acc_0, systemWorkflowFailureWorkflowerror = acc_1, systemWorkflowFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (SystemWorkflowFailure {systemWorkflowFailureWorkflowExecution = acc_0, systemWorkflowFailureWorkflowError = acc_1, systemWorkflowFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1208,54 +1208,54 @@ instance ProtoMessage SystemWorkflowFailure where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowExecution"
         , fdLabel = LabelOptional
-        , fdGet = systemWorkflowFailureWorkflowexecution
-        , fdSet = \v m -> m { systemWorkflowFailureWorkflowexecution = v }
+        , fdGet = systemWorkflowFailureWorkflowExecution
+        , fdSet = \v m -> m { systemWorkflowFailureWorkflowExecution = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "workflow_error"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = systemWorkflowFailureWorkflowerror
-        , fdSet = \v m -> m { systemWorkflowFailureWorkflowerror = v }
+        , fdGet = systemWorkflowFailureWorkflowError
+        , fdSet = \v m -> m { systemWorkflowFailureWorkflowError = v }
         })
     ]
 
 instance Aeson.ToJSON SystemWorkflowFailure where
   toJSON msg = jsonObject
-      [ "workflowExecution" .=: msg.systemWorkflowFailureWorkflowexecution
-      , "workflowError" .=: msg.systemWorkflowFailureWorkflowerror
+      [ "workflowExecution" .=: msg.systemWorkflowFailureWorkflowExecution
+      , "workflowError" .=: msg.systemWorkflowFailureWorkflowError
       ]
 
 instance Aeson.FromJSON SystemWorkflowFailure where
   parseJSON = Aeson.withObject "SystemWorkflowFailure" $ \obj -> do
-    fld_systemWorkflowFailureWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
-    fld_systemWorkflowFailureWorkflowerror <- parseFieldMaybe obj "workflowError"
+    fld_systemWorkflowFailureWorkflowExecution <- parseFieldMaybe obj "workflowExecution"
+    fld_systemWorkflowFailureWorkflowError <- parseFieldMaybe obj "workflowError"
     pure defaultSystemWorkflowFailure
-      { systemWorkflowFailureWorkflowexecution = maybe (systemWorkflowFailureWorkflowexecution defaultSystemWorkflowFailure) id fld_systemWorkflowFailureWorkflowexecution
-      , systemWorkflowFailureWorkflowerror = maybe (systemWorkflowFailureWorkflowerror defaultSystemWorkflowFailure) id fld_systemWorkflowFailureWorkflowerror
+      { systemWorkflowFailureWorkflowExecution = maybe (systemWorkflowFailureWorkflowExecution defaultSystemWorkflowFailure) id fld_systemWorkflowFailureWorkflowExecution
+      , systemWorkflowFailureWorkflowError = maybe (systemWorkflowFailureWorkflowError defaultSystemWorkflowFailure) id fld_systemWorkflowFailureWorkflowError
       }
 
 instance Hashable SystemWorkflowFailure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.systemWorkflowFailureWorkflowexecution) msg.systemWorkflowFailureWorkflowerror
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.systemWorkflowFailureWorkflowExecution) msg.systemWorkflowFailureWorkflowError
 
 data WorkflowNotReadyFailure = WorkflowNotReadyFailure
-  { workflowNotReadyFailureUnknownfields :: ![UnknownField]
+  { workflowNotReadyFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowNotReadyFailure :: WorkflowNotReadyFailure
 defaultWorkflowNotReadyFailure = WorkflowNotReadyFailure
-  { workflowNotReadyFailureUnknownfields = []
+  { workflowNotReadyFailureUnknownFields = []
   }
 
 instance MessageEncode WorkflowNotReadyFailure where
   buildMessage msg =
-    encodeUnknownFields msg.workflowNotReadyFailureUnknownfields
+    encodeUnknownFields msg.workflowNotReadyFailureUnknownFields
 
 instance MessageSize WorkflowNotReadyFailure where
   messageSize msg =
-    unknownFieldsSize msg.workflowNotReadyFailureUnknownfields
+    unknownFieldsSize msg.workflowNotReadyFailureUnknownFields
 
 instance MessageDecode WorkflowNotReadyFailure where
   {-# INLINE messageDecoder #-}
@@ -1264,7 +1264,7 @@ instance MessageDecode WorkflowNotReadyFailure where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowNotReadyFailure {workflowNotReadyFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowNotReadyFailure {workflowNotReadyFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -1292,27 +1292,27 @@ instance Hashable WorkflowNotReadyFailure where
   hashWithSalt salt _ = salt
 
 data NewerBuildExistsFailure = NewerBuildExistsFailure
-  { newerBuildExistsFailureDefaultbuildid :: !Text
-  , newerBuildExistsFailureUnknownfields :: ![UnknownField]
+  { newerBuildExistsFailureDefaultBuildId :: !Text
+  , newerBuildExistsFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNewerBuildExistsFailure :: NewerBuildExistsFailure
 defaultNewerBuildExistsFailure = NewerBuildExistsFailure
-  { newerBuildExistsFailureDefaultbuildid = ""
-  , newerBuildExistsFailureUnknownfields = []
+  { newerBuildExistsFailureDefaultBuildId = ""
+  , newerBuildExistsFailureUnknownFields = []
   }
 
 instance MessageEncode NewerBuildExistsFailure where
   buildMessage msg =
-    (if msg.newerBuildExistsFailureDefaultbuildid == T.empty then mempty else encodeFieldString 1 msg.newerBuildExistsFailureDefaultbuildid)
-    <> encodeUnknownFields msg.newerBuildExistsFailureUnknownfields
+    (if msg.newerBuildExistsFailureDefaultBuildId == T.empty then mempty else encodeFieldString 1 msg.newerBuildExistsFailureDefaultBuildId)
+    <> encodeUnknownFields msg.newerBuildExistsFailureUnknownFields
 
 instance MessageSize NewerBuildExistsFailure where
   messageSize msg =
-    (if msg.newerBuildExistsFailureDefaultbuildid == T.empty then 0 else fieldTextSize 1 msg.newerBuildExistsFailureDefaultbuildid)
-    + unknownFieldsSize msg.newerBuildExistsFailureUnknownfields
+    (if msg.newerBuildExistsFailureDefaultBuildId == T.empty then 0 else fieldTextSize 1 msg.newerBuildExistsFailureDefaultBuildId)
+    + unknownFieldsSize msg.newerBuildExistsFailureUnknownFields
 
 instance MessageDecode NewerBuildExistsFailure where
   {-# INLINE messageDecoder #-}
@@ -1321,7 +1321,7 @@ instance MessageDecode NewerBuildExistsFailure where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NewerBuildExistsFailure {newerBuildExistsFailureDefaultbuildid = acc_0, newerBuildExistsFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NewerBuildExistsFailure {newerBuildExistsFailureDefaultBuildId = acc_0, newerBuildExistsFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1344,30 +1344,30 @@ instance ProtoMessage NewerBuildExistsFailure where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = newerBuildExistsFailureDefaultbuildid
-        , fdSet = \v m -> m { newerBuildExistsFailureDefaultbuildid = v }
+        , fdGet = newerBuildExistsFailureDefaultBuildId
+        , fdSet = \v m -> m { newerBuildExistsFailureDefaultBuildId = v }
         })
     ]
 
 instance Aeson.ToJSON NewerBuildExistsFailure where
   toJSON msg = jsonObject
-      [ "defaultBuildId" .=: msg.newerBuildExistsFailureDefaultbuildid
+      [ "defaultBuildId" .=: msg.newerBuildExistsFailureDefaultBuildId
 
       ]
 
 instance Aeson.FromJSON NewerBuildExistsFailure where
   parseJSON = Aeson.withObject "NewerBuildExistsFailure" $ \obj -> do
-    fld_newerBuildExistsFailureDefaultbuildid <- parseFieldMaybe obj "defaultBuildId"
+    fld_newerBuildExistsFailureDefaultBuildId <- parseFieldMaybe obj "defaultBuildId"
     pure defaultNewerBuildExistsFailure
-      { newerBuildExistsFailureDefaultbuildid = maybe (newerBuildExistsFailureDefaultbuildid defaultNewerBuildExistsFailure) id fld_newerBuildExistsFailureDefaultbuildid
+      { newerBuildExistsFailureDefaultBuildId = maybe (newerBuildExistsFailureDefaultBuildId defaultNewerBuildExistsFailure) id fld_newerBuildExistsFailureDefaultBuildId
       }
 
 instance Hashable NewerBuildExistsFailure where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.newerBuildExistsFailureDefaultbuildid
+  hashWithSalt salt msg = hashWithSalt (salt) msg.newerBuildExistsFailureDefaultBuildId
 
 data MultiOperationExecutionFailure = MultiOperationExecutionFailure
   { multiOperationExecutionFailureStatuses :: !(V.Vector MultiOperationExecutionFailure'OperationStatus)
-  , multiOperationExecutionFailureUnknownfields :: ![UnknownField]
+  , multiOperationExecutionFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1376,7 +1376,7 @@ data MultiOperationExecutionFailure'OperationStatus = MultiOperationExecutionFai
   { multiOperationExecutionFailureOperationStatusCode :: {-# UNPACK #-} !Int32
   , multiOperationExecutionFailureOperationStatusMessage :: !Text
   , multiOperationExecutionFailureOperationStatusDetails :: !(V.Vector PB_Any.Any)
-  , multiOperationExecutionFailureOperationStatusUnknownfields :: ![UnknownField]
+  , multiOperationExecutionFailureOperationStatusUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1386,7 +1386,7 @@ defaultMultiOperationExecutionFailure'OperationStatus = MultiOperationExecutionF
   { multiOperationExecutionFailureOperationStatusCode = 0
   , multiOperationExecutionFailureOperationStatusMessage = ""
   , multiOperationExecutionFailureOperationStatusDetails = V.empty
-  , multiOperationExecutionFailureOperationStatusUnknownfields = []
+  , multiOperationExecutionFailureOperationStatusUnknownFields = []
   }
 
 instance MessageEncode MultiOperationExecutionFailure'OperationStatus where
@@ -1394,14 +1394,14 @@ instance MessageEncode MultiOperationExecutionFailure'OperationStatus where
     (if msg.multiOperationExecutionFailureOperationStatusCode == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.multiOperationExecutionFailureOperationStatusCode))
     <> (if msg.multiOperationExecutionFailureOperationStatusMessage == T.empty then mempty else encodeFieldString 2 msg.multiOperationExecutionFailureOperationStatusMessage)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.multiOperationExecutionFailureOperationStatusDetails
-    <> encodeUnknownFields msg.multiOperationExecutionFailureOperationStatusUnknownfields
+    <> encodeUnknownFields msg.multiOperationExecutionFailureOperationStatusUnknownFields
 
 instance MessageSize MultiOperationExecutionFailure'OperationStatus where
   messageSize msg =
     (if msg.multiOperationExecutionFailureOperationStatusCode == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.multiOperationExecutionFailureOperationStatusCode))
     + (if msg.multiOperationExecutionFailureOperationStatusMessage == T.empty then 0 else fieldTextSize 2 msg.multiOperationExecutionFailureOperationStatusMessage)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.multiOperationExecutionFailureOperationStatusDetails)
-    + unknownFieldsSize msg.multiOperationExecutionFailureOperationStatusUnknownfields
+    + unknownFieldsSize msg.multiOperationExecutionFailureOperationStatusUnknownFields
 
 instance MessageDecode MultiOperationExecutionFailure'OperationStatus where
   {-# INLINE messageDecoder #-}
@@ -1410,7 +1410,7 @@ instance MessageDecode MultiOperationExecutionFailure'OperationStatus where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (MultiOperationExecutionFailure'OperationStatus {multiOperationExecutionFailureOperationStatusCode = acc_0, multiOperationExecutionFailureOperationStatusMessage = acc_1, multiOperationExecutionFailureOperationStatusDetails = acc_2, multiOperationExecutionFailureOperationStatusUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (MultiOperationExecutionFailure'OperationStatus {multiOperationExecutionFailureOperationStatusCode = acc_0, multiOperationExecutionFailureOperationStatusMessage = acc_1, multiOperationExecutionFailureOperationStatusDetails = acc_2, multiOperationExecutionFailureOperationStatusUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -1483,18 +1483,18 @@ instance Hashable MultiOperationExecutionFailure'OperationStatus where
 defaultMultiOperationExecutionFailure :: MultiOperationExecutionFailure
 defaultMultiOperationExecutionFailure = MultiOperationExecutionFailure
   { multiOperationExecutionFailureStatuses = V.empty
-  , multiOperationExecutionFailureUnknownfields = []
+  , multiOperationExecutionFailureUnknownFields = []
   }
 
 instance MessageEncode MultiOperationExecutionFailure where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.multiOperationExecutionFailureStatuses
-    <> encodeUnknownFields msg.multiOperationExecutionFailureUnknownfields
+    <> encodeUnknownFields msg.multiOperationExecutionFailureUnknownFields
 
 instance MessageSize MultiOperationExecutionFailure where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.multiOperationExecutionFailureStatuses)
-    + unknownFieldsSize msg.multiOperationExecutionFailureUnknownfields
+    + unknownFieldsSize msg.multiOperationExecutionFailureUnknownFields
 
 instance MessageDecode MultiOperationExecutionFailure where
   {-# INLINE messageDecoder #-}
@@ -1503,7 +1503,7 @@ instance MessageDecode MultiOperationExecutionFailure where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (MultiOperationExecutionFailure {multiOperationExecutionFailureStatuses = acc_0, multiOperationExecutionFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (MultiOperationExecutionFailure {multiOperationExecutionFailureStatuses = acc_0, multiOperationExecutionFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1548,31 +1548,31 @@ instance Hashable MultiOperationExecutionFailure where
   hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.multiOperationExecutionFailureStatuses
 
 data ActivityExecutionAlreadyStartedFailure = ActivityExecutionAlreadyStartedFailure
-  { activityExecutionAlreadyStartedFailureStartrequestid :: !Text
-  , activityExecutionAlreadyStartedFailureRunid :: !Text
-  , activityExecutionAlreadyStartedFailureUnknownfields :: ![UnknownField]
+  { activityExecutionAlreadyStartedFailureStartRequestId :: !Text
+  , activityExecutionAlreadyStartedFailureRunId :: !Text
+  , activityExecutionAlreadyStartedFailureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultActivityExecutionAlreadyStartedFailure :: ActivityExecutionAlreadyStartedFailure
 defaultActivityExecutionAlreadyStartedFailure = ActivityExecutionAlreadyStartedFailure
-  { activityExecutionAlreadyStartedFailureStartrequestid = ""
-  , activityExecutionAlreadyStartedFailureRunid = ""
-  , activityExecutionAlreadyStartedFailureUnknownfields = []
+  { activityExecutionAlreadyStartedFailureStartRequestId = ""
+  , activityExecutionAlreadyStartedFailureRunId = ""
+  , activityExecutionAlreadyStartedFailureUnknownFields = []
   }
 
 instance MessageEncode ActivityExecutionAlreadyStartedFailure where
   buildMessage msg =
-    (if msg.activityExecutionAlreadyStartedFailureStartrequestid == T.empty then mempty else encodeFieldString 1 msg.activityExecutionAlreadyStartedFailureStartrequestid)
-    <> (if msg.activityExecutionAlreadyStartedFailureRunid == T.empty then mempty else encodeFieldString 2 msg.activityExecutionAlreadyStartedFailureRunid)
-    <> encodeUnknownFields msg.activityExecutionAlreadyStartedFailureUnknownfields
+    (if msg.activityExecutionAlreadyStartedFailureStartRequestId == T.empty then mempty else encodeFieldString 1 msg.activityExecutionAlreadyStartedFailureStartRequestId)
+    <> (if msg.activityExecutionAlreadyStartedFailureRunId == T.empty then mempty else encodeFieldString 2 msg.activityExecutionAlreadyStartedFailureRunId)
+    <> encodeUnknownFields msg.activityExecutionAlreadyStartedFailureUnknownFields
 
 instance MessageSize ActivityExecutionAlreadyStartedFailure where
   messageSize msg =
-    (if msg.activityExecutionAlreadyStartedFailureStartrequestid == T.empty then 0 else fieldTextSize 1 msg.activityExecutionAlreadyStartedFailureStartrequestid)
-    + (if msg.activityExecutionAlreadyStartedFailureRunid == T.empty then 0 else fieldTextSize 2 msg.activityExecutionAlreadyStartedFailureRunid)
-    + unknownFieldsSize msg.activityExecutionAlreadyStartedFailureUnknownfields
+    (if msg.activityExecutionAlreadyStartedFailureStartRequestId == T.empty then 0 else fieldTextSize 1 msg.activityExecutionAlreadyStartedFailureStartRequestId)
+    + (if msg.activityExecutionAlreadyStartedFailureRunId == T.empty then 0 else fieldTextSize 2 msg.activityExecutionAlreadyStartedFailureRunId)
+    + unknownFieldsSize msg.activityExecutionAlreadyStartedFailureUnknownFields
 
 instance MessageDecode ActivityExecutionAlreadyStartedFailure where
   {-# INLINE messageDecoder #-}
@@ -1581,7 +1581,7 @@ instance MessageDecode ActivityExecutionAlreadyStartedFailure where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ActivityExecutionAlreadyStartedFailure {activityExecutionAlreadyStartedFailureStartrequestid = acc_0, activityExecutionAlreadyStartedFailureRunid = acc_1, activityExecutionAlreadyStartedFailureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ActivityExecutionAlreadyStartedFailure {activityExecutionAlreadyStartedFailureStartRequestId = acc_0, activityExecutionAlreadyStartedFailureRunId = acc_1, activityExecutionAlreadyStartedFailureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1607,35 +1607,35 @@ instance ProtoMessage ActivityExecutionAlreadyStartedFailure where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionAlreadyStartedFailureStartrequestid
-        , fdSet = \v m -> m { activityExecutionAlreadyStartedFailureStartrequestid = v }
+        , fdGet = activityExecutionAlreadyStartedFailureStartRequestId
+        , fdSet = \v m -> m { activityExecutionAlreadyStartedFailureStartRequestId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityExecutionAlreadyStartedFailureRunid
-        , fdSet = \v m -> m { activityExecutionAlreadyStartedFailureRunid = v }
+        , fdGet = activityExecutionAlreadyStartedFailureRunId
+        , fdSet = \v m -> m { activityExecutionAlreadyStartedFailureRunId = v }
         })
     ]
 
 instance Aeson.ToJSON ActivityExecutionAlreadyStartedFailure where
   toJSON msg = jsonObject
-      [ "startRequestId" .=: msg.activityExecutionAlreadyStartedFailureStartrequestid
-      , "runId" .=: msg.activityExecutionAlreadyStartedFailureRunid
+      [ "startRequestId" .=: msg.activityExecutionAlreadyStartedFailureStartRequestId
+      , "runId" .=: msg.activityExecutionAlreadyStartedFailureRunId
       ]
 
 instance Aeson.FromJSON ActivityExecutionAlreadyStartedFailure where
   parseJSON = Aeson.withObject "ActivityExecutionAlreadyStartedFailure" $ \obj -> do
-    fld_activityExecutionAlreadyStartedFailureStartrequestid <- parseFieldMaybe obj "startRequestId"
-    fld_activityExecutionAlreadyStartedFailureRunid <- parseFieldMaybe obj "runId"
+    fld_activityExecutionAlreadyStartedFailureStartRequestId <- parseFieldMaybe obj "startRequestId"
+    fld_activityExecutionAlreadyStartedFailureRunId <- parseFieldMaybe obj "runId"
     pure defaultActivityExecutionAlreadyStartedFailure
-      { activityExecutionAlreadyStartedFailureStartrequestid = maybe (activityExecutionAlreadyStartedFailureStartrequestid defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureStartrequestid
-      , activityExecutionAlreadyStartedFailureRunid = maybe (activityExecutionAlreadyStartedFailureRunid defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureRunid
+      { activityExecutionAlreadyStartedFailureStartRequestId = maybe (activityExecutionAlreadyStartedFailureStartRequestId defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureStartRequestId
+      , activityExecutionAlreadyStartedFailureRunId = maybe (activityExecutionAlreadyStartedFailureRunId defaultActivityExecutionAlreadyStartedFailure) id fld_activityExecutionAlreadyStartedFailureRunId
       }
 
 instance Hashable ActivityExecutionAlreadyStartedFailure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.activityExecutionAlreadyStartedFailureStartrequestid) msg.activityExecutionAlreadyStartedFailureRunid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.activityExecutionAlreadyStartedFailureStartRequestId) msg.activityExecutionAlreadyStartedFailureRunId
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

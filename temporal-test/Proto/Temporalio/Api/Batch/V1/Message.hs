@@ -67,39 +67,39 @@ fileDescriptorProtoBytes = case Base16.decode "0a2374656d706f72616c2f6170692f626
 
 
 data BatchOperationInfo = BatchOperationInfo
-  { batchOperationInfoJobid :: !Text
+  { batchOperationInfoJobId :: !Text
   , batchOperationInfoState :: !TE_Enums_V1_BatchOperation.BatchOperationState
-  , batchOperationInfoStarttime :: !(Maybe PB_Timestamp.Timestamp)
-  , batchOperationInfoClosetime :: !(Maybe PB_Timestamp.Timestamp)
-  , batchOperationInfoUnknownfields :: ![UnknownField]
+  , batchOperationInfoStartTime :: !(Maybe PB_Timestamp.Timestamp)
+  , batchOperationInfoCloseTime :: !(Maybe PB_Timestamp.Timestamp)
+  , batchOperationInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultBatchOperationInfo :: BatchOperationInfo
 defaultBatchOperationInfo = BatchOperationInfo
-  { batchOperationInfoJobid = ""
+  { batchOperationInfoJobId = ""
   , batchOperationInfoState = (toEnum 0)
-  , batchOperationInfoStarttime = Nothing
-  , batchOperationInfoClosetime = Nothing
-  , batchOperationInfoUnknownfields = []
+  , batchOperationInfoStartTime = Nothing
+  , batchOperationInfoCloseTime = Nothing
+  , batchOperationInfoUnknownFields = []
   }
 
 instance MessageEncode BatchOperationInfo where
   buildMessage msg =
-    (if msg.batchOperationInfoJobid == T.empty then mempty else encodeFieldString 1 msg.batchOperationInfoJobid)
+    (if msg.batchOperationInfoJobId == T.empty then mempty else encodeFieldString 1 msg.batchOperationInfoJobId)
     <> (if fromEnum msg.batchOperationInfoState == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.batchOperationInfoState)))
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.batchOperationInfoStarttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.batchOperationInfoClosetime)
-    <> encodeUnknownFields msg.batchOperationInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.batchOperationInfoStartTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.batchOperationInfoCloseTime)
+    <> encodeUnknownFields msg.batchOperationInfoUnknownFields
 
 instance MessageSize BatchOperationInfo where
   messageSize msg =
-    (if msg.batchOperationInfoJobid == T.empty then 0 else fieldTextSize 1 msg.batchOperationInfoJobid)
+    (if msg.batchOperationInfoJobId == T.empty then 0 else fieldTextSize 1 msg.batchOperationInfoJobId)
     + (if fromEnum msg.batchOperationInfoState == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.batchOperationInfoState)))
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.batchOperationInfoStarttime)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.batchOperationInfoClosetime)
-    + unknownFieldsSize msg.batchOperationInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.batchOperationInfoStartTime)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.batchOperationInfoCloseTime)
+    + unknownFieldsSize msg.batchOperationInfoUnknownFields
 
 instance MessageDecode BatchOperationInfo where
   {-# INLINE messageDecoder #-}
@@ -108,7 +108,7 @@ instance MessageDecode BatchOperationInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationInfo {batchOperationInfoJobid = acc_0, batchOperationInfoState = acc_1, batchOperationInfoStarttime = acc_2, batchOperationInfoClosetime = acc_3, batchOperationInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationInfo {batchOperationInfoJobId = acc_0, batchOperationInfoState = acc_1, batchOperationInfoStartTime = acc_2, batchOperationInfoCloseTime = acc_3, batchOperationInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -140,8 +140,8 @@ instance ProtoMessage BatchOperationInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = batchOperationInfoJobid
-        , fdSet = \v m -> m { batchOperationInfoJobid = v }
+        , fdGet = batchOperationInfoJobId
+        , fdSet = \v m -> m { batchOperationInfoJobId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "state"
         , fdNumber = 2
@@ -155,47 +155,47 @@ instance ProtoMessage BatchOperationInfo where
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = batchOperationInfoStarttime
-        , fdSet = \v m -> m { batchOperationInfoStarttime = v }
+        , fdGet = batchOperationInfoStartTime
+        , fdSet = \v m -> m { batchOperationInfoStartTime = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "close_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = batchOperationInfoClosetime
-        , fdSet = \v m -> m { batchOperationInfoClosetime = v }
+        , fdGet = batchOperationInfoCloseTime
+        , fdSet = \v m -> m { batchOperationInfoCloseTime = v }
         })
     ]
 
 instance Aeson.ToJSON BatchOperationInfo where
   toJSON msg = jsonObject
-      [ "jobId" .=: msg.batchOperationInfoJobid
+      [ "jobId" .=: msg.batchOperationInfoJobId
       , "state" .=: msg.batchOperationInfoState
-      , "startTime" .=: msg.batchOperationInfoStarttime
-      , "closeTime" .=: msg.batchOperationInfoClosetime
+      , "startTime" .=: msg.batchOperationInfoStartTime
+      , "closeTime" .=: msg.batchOperationInfoCloseTime
       ]
 
 instance Aeson.FromJSON BatchOperationInfo where
   parseJSON = Aeson.withObject "BatchOperationInfo" $ \obj -> do
-    fld_batchOperationInfoJobid <- parseFieldMaybe obj "jobId"
+    fld_batchOperationInfoJobId <- parseFieldMaybe obj "jobId"
     fld_batchOperationInfoState <- parseFieldMaybe obj "state"
-    fld_batchOperationInfoStarttime <- parseFieldMaybe obj "startTime"
-    fld_batchOperationInfoClosetime <- parseFieldMaybe obj "closeTime"
+    fld_batchOperationInfoStartTime <- parseFieldMaybe obj "startTime"
+    fld_batchOperationInfoCloseTime <- parseFieldMaybe obj "closeTime"
     pure defaultBatchOperationInfo
-      { batchOperationInfoJobid = maybe (batchOperationInfoJobid defaultBatchOperationInfo) id fld_batchOperationInfoJobid
+      { batchOperationInfoJobId = maybe (batchOperationInfoJobId defaultBatchOperationInfo) id fld_batchOperationInfoJobId
       , batchOperationInfoState = maybe (batchOperationInfoState defaultBatchOperationInfo) id fld_batchOperationInfoState
-      , batchOperationInfoStarttime = maybe (batchOperationInfoStarttime defaultBatchOperationInfo) id fld_batchOperationInfoStarttime
-      , batchOperationInfoClosetime = maybe (batchOperationInfoClosetime defaultBatchOperationInfo) id fld_batchOperationInfoClosetime
+      , batchOperationInfoStartTime = maybe (batchOperationInfoStartTime defaultBatchOperationInfo) id fld_batchOperationInfoStartTime
+      , batchOperationInfoCloseTime = maybe (batchOperationInfoCloseTime defaultBatchOperationInfo) id fld_batchOperationInfoCloseTime
       }
 
 instance Hashable BatchOperationInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationInfoJobid) msg.batchOperationInfoState) msg.batchOperationInfoStarttime) msg.batchOperationInfoClosetime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationInfoJobId) msg.batchOperationInfoState) msg.batchOperationInfoStartTime) msg.batchOperationInfoCloseTime
 
 data BatchOperationTermination = BatchOperationTermination
   { batchOperationTerminationDetails :: !(Maybe TE_Common_V1_Message.Payloads)
   , batchOperationTerminationIdentity :: !Text
-  , batchOperationTerminationUnknownfields :: ![UnknownField]
+  , batchOperationTerminationUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -204,20 +204,20 @@ defaultBatchOperationTermination :: BatchOperationTermination
 defaultBatchOperationTermination = BatchOperationTermination
   { batchOperationTerminationDetails = Nothing
   , batchOperationTerminationIdentity = ""
-  , batchOperationTerminationUnknownfields = []
+  , batchOperationTerminationUnknownFields = []
   }
 
 instance MessageEncode BatchOperationTermination where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.batchOperationTerminationDetails)
     <> (if msg.batchOperationTerminationIdentity == T.empty then mempty else encodeFieldString 2 msg.batchOperationTerminationIdentity)
-    <> encodeUnknownFields msg.batchOperationTerminationUnknownfields
+    <> encodeUnknownFields msg.batchOperationTerminationUnknownFields
 
 instance MessageSize BatchOperationTermination where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.batchOperationTerminationDetails)
     + (if msg.batchOperationTerminationIdentity == T.empty then 0 else fieldTextSize 2 msg.batchOperationTerminationIdentity)
-    + unknownFieldsSize msg.batchOperationTerminationUnknownfields
+    + unknownFieldsSize msg.batchOperationTerminationUnknownFields
 
 instance MessageDecode BatchOperationTermination where
   {-# INLINE messageDecoder #-}
@@ -226,7 +226,7 @@ instance MessageDecode BatchOperationTermination where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationTermination {batchOperationTerminationDetails = acc_0, batchOperationTerminationIdentity = acc_1, batchOperationTerminationUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationTermination {batchOperationTerminationDetails = acc_0, batchOperationTerminationIdentity = acc_1, batchOperationTerminationUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -287,7 +287,7 @@ data BatchOperationSignal = BatchOperationSignal
   , batchOperationSignalInput :: !(Maybe TE_Common_V1_Message.Payloads)
   , batchOperationSignalHeader :: !(Maybe TE_Common_V1_Message.Header)
   , batchOperationSignalIdentity :: !Text
-  , batchOperationSignalUnknownfields :: ![UnknownField]
+  , batchOperationSignalUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -298,7 +298,7 @@ defaultBatchOperationSignal = BatchOperationSignal
   , batchOperationSignalInput = Nothing
   , batchOperationSignalHeader = Nothing
   , batchOperationSignalIdentity = ""
-  , batchOperationSignalUnknownfields = []
+  , batchOperationSignalUnknownFields = []
   }
 
 instance MessageEncode BatchOperationSignal where
@@ -307,7 +307,7 @@ instance MessageEncode BatchOperationSignal where
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.batchOperationSignalInput)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.batchOperationSignalHeader)
     <> (if msg.batchOperationSignalIdentity == T.empty then mempty else encodeFieldString 4 msg.batchOperationSignalIdentity)
-    <> encodeUnknownFields msg.batchOperationSignalUnknownfields
+    <> encodeUnknownFields msg.batchOperationSignalUnknownFields
 
 instance MessageSize BatchOperationSignal where
   messageSize msg =
@@ -315,7 +315,7 @@ instance MessageSize BatchOperationSignal where
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.batchOperationSignalInput)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.batchOperationSignalHeader)
     + (if msg.batchOperationSignalIdentity == T.empty then 0 else fieldTextSize 4 msg.batchOperationSignalIdentity)
-    + unknownFieldsSize msg.batchOperationSignalUnknownfields
+    + unknownFieldsSize msg.batchOperationSignalUnknownFields
 
 instance MessageDecode BatchOperationSignal where
   {-# INLINE messageDecoder #-}
@@ -324,7 +324,7 @@ instance MessageDecode BatchOperationSignal where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationSignal {batchOperationSignalSignal = acc_0, batchOperationSignalInput = acc_1, batchOperationSignalHeader = acc_2, batchOperationSignalIdentity = acc_3, batchOperationSignalUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationSignal {batchOperationSignalSignal = acc_0, batchOperationSignalInput = acc_1, batchOperationSignalHeader = acc_2, batchOperationSignalIdentity = acc_3, batchOperationSignalUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -410,7 +410,7 @@ instance Hashable BatchOperationSignal where
 
 data BatchOperationCancellation = BatchOperationCancellation
   { batchOperationCancellationIdentity :: !Text
-  , batchOperationCancellationUnknownfields :: ![UnknownField]
+  , batchOperationCancellationUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -418,18 +418,18 @@ data BatchOperationCancellation = BatchOperationCancellation
 defaultBatchOperationCancellation :: BatchOperationCancellation
 defaultBatchOperationCancellation = BatchOperationCancellation
   { batchOperationCancellationIdentity = ""
-  , batchOperationCancellationUnknownfields = []
+  , batchOperationCancellationUnknownFields = []
   }
 
 instance MessageEncode BatchOperationCancellation where
   buildMessage msg =
     (if msg.batchOperationCancellationIdentity == T.empty then mempty else encodeFieldString 1 msg.batchOperationCancellationIdentity)
-    <> encodeUnknownFields msg.batchOperationCancellationUnknownfields
+    <> encodeUnknownFields msg.batchOperationCancellationUnknownFields
 
 instance MessageSize BatchOperationCancellation where
   messageSize msg =
     (if msg.batchOperationCancellationIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationCancellationIdentity)
-    + unknownFieldsSize msg.batchOperationCancellationUnknownfields
+    + unknownFieldsSize msg.batchOperationCancellationUnknownFields
 
 instance MessageDecode BatchOperationCancellation where
   {-# INLINE messageDecoder #-}
@@ -438,7 +438,7 @@ instance MessageDecode BatchOperationCancellation where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationCancellation {batchOperationCancellationIdentity = acc_0, batchOperationCancellationUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationCancellation {batchOperationCancellationIdentity = acc_0, batchOperationCancellationUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -484,7 +484,7 @@ instance Hashable BatchOperationCancellation where
 
 data BatchOperationDeletion = BatchOperationDeletion
   { batchOperationDeletionIdentity :: !Text
-  , batchOperationDeletionUnknownfields :: ![UnknownField]
+  , batchOperationDeletionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -492,18 +492,18 @@ data BatchOperationDeletion = BatchOperationDeletion
 defaultBatchOperationDeletion :: BatchOperationDeletion
 defaultBatchOperationDeletion = BatchOperationDeletion
   { batchOperationDeletionIdentity = ""
-  , batchOperationDeletionUnknownfields = []
+  , batchOperationDeletionUnknownFields = []
   }
 
 instance MessageEncode BatchOperationDeletion where
   buildMessage msg =
     (if msg.batchOperationDeletionIdentity == T.empty then mempty else encodeFieldString 1 msg.batchOperationDeletionIdentity)
-    <> encodeUnknownFields msg.batchOperationDeletionUnknownfields
+    <> encodeUnknownFields msg.batchOperationDeletionUnknownFields
 
 instance MessageSize BatchOperationDeletion where
   messageSize msg =
     (if msg.batchOperationDeletionIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationDeletionIdentity)
-    + unknownFieldsSize msg.batchOperationDeletionUnknownfields
+    + unknownFieldsSize msg.batchOperationDeletionUnknownFields
 
 instance MessageDecode BatchOperationDeletion where
   {-# INLINE messageDecoder #-}
@@ -512,7 +512,7 @@ instance MessageDecode BatchOperationDeletion where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationDeletion {batchOperationDeletionIdentity = acc_0, batchOperationDeletionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationDeletion {batchOperationDeletionIdentity = acc_0, batchOperationDeletionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -559,10 +559,10 @@ instance Hashable BatchOperationDeletion where
 data BatchOperationReset = BatchOperationReset
   { batchOperationResetIdentity :: !Text
   , batchOperationResetOptions :: !(Maybe TE_Common_V1_Message.ResetOptions)
-  , batchOperationResetResettype :: !TE_Enums_V1_Reset.ResetType
-  , batchOperationResetResetreapplytype :: !TE_Enums_V1_Reset.ResetReapplyType
-  , batchOperationResetPostresetoperations :: !(V.Vector TE_Workflow_V1_Message.PostResetOperation)
-  , batchOperationResetUnknownfields :: ![UnknownField]
+  , batchOperationResetResetType :: !TE_Enums_V1_Reset.ResetType
+  , batchOperationResetResetReapplyType :: !TE_Enums_V1_Reset.ResetReapplyType
+  , batchOperationResetPostResetOperations :: !(V.Vector TE_Workflow_V1_Message.PostResetOperation)
+  , batchOperationResetUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -571,29 +571,29 @@ defaultBatchOperationReset :: BatchOperationReset
 defaultBatchOperationReset = BatchOperationReset
   { batchOperationResetIdentity = ""
   , batchOperationResetOptions = Nothing
-  , batchOperationResetResettype = (toEnum 0)
-  , batchOperationResetResetreapplytype = (toEnum 0)
-  , batchOperationResetPostresetoperations = V.empty
-  , batchOperationResetUnknownfields = []
+  , batchOperationResetResetType = (toEnum 0)
+  , batchOperationResetResetReapplyType = (toEnum 0)
+  , batchOperationResetPostResetOperations = V.empty
+  , batchOperationResetUnknownFields = []
   }
 
 instance MessageEncode BatchOperationReset where
   buildMessage msg =
     (if msg.batchOperationResetIdentity == T.empty then mempty else encodeFieldString 3 msg.batchOperationResetIdentity)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.batchOperationResetOptions)
-    <> (if fromEnum msg.batchOperationResetResettype == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.batchOperationResetResettype)))
-    <> (if fromEnum msg.batchOperationResetResetreapplytype == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.batchOperationResetResetreapplytype)))
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 5 v) mempty msg.batchOperationResetPostresetoperations
-    <> encodeUnknownFields msg.batchOperationResetUnknownfields
+    <> (if fromEnum msg.batchOperationResetResetType == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.batchOperationResetResetType)))
+    <> (if fromEnum msg.batchOperationResetResetReapplyType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.batchOperationResetResetReapplyType)))
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 5 v) mempty msg.batchOperationResetPostResetOperations
+    <> encodeUnknownFields msg.batchOperationResetUnknownFields
 
 instance MessageSize BatchOperationReset where
   messageSize msg =
     (if msg.batchOperationResetIdentity == T.empty then 0 else fieldTextSize 3 msg.batchOperationResetIdentity)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.batchOperationResetOptions)
-    + (if fromEnum msg.batchOperationResetResettype == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.batchOperationResetResettype)))
-    + (if fromEnum msg.batchOperationResetResetreapplytype == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.batchOperationResetResetreapplytype)))
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 5 (messageSize v)) 0 msg.batchOperationResetPostresetoperations)
-    + unknownFieldsSize msg.batchOperationResetUnknownfields
+    + (if fromEnum msg.batchOperationResetResetType == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.batchOperationResetResetType)))
+    + (if fromEnum msg.batchOperationResetResetReapplyType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.batchOperationResetResetReapplyType)))
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 5 (messageSize v)) 0 msg.batchOperationResetPostResetOperations)
+    + unknownFieldsSize msg.batchOperationResetUnknownFields
 
 instance MessageDecode BatchOperationReset where
   {-# INLINE messageDecoder #-}
@@ -602,7 +602,7 @@ instance MessageDecode BatchOperationReset where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationReset {batchOperationResetIdentity = acc_0, batchOperationResetOptions = acc_1, batchOperationResetResettype = acc_2, batchOperationResetResetreapplytype = acc_3, batchOperationResetPostresetoperations = acc_4, batchOperationResetUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationReset {batchOperationResetIdentity = acc_0, batchOperationResetOptions = acc_1, batchOperationResetResetType = acc_2, batchOperationResetResetReapplyType = acc_3, batchOperationResetPostResetOperations = acc_4, batchOperationResetUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             3 -> do
               v <- decodeFieldString
@@ -652,24 +652,24 @@ instance ProtoMessage BatchOperationReset where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ResetType"
         , fdLabel = LabelOptional
-        , fdGet = batchOperationResetResettype
-        , fdSet = \v m -> m { batchOperationResetResettype = v }
+        , fdGet = batchOperationResetResetType
+        , fdSet = \v m -> m { batchOperationResetResetType = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "reset_reapply_type"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ResetReapplyType"
         , fdLabel = LabelOptional
-        , fdGet = batchOperationResetResetreapplytype
-        , fdSet = \v m -> m { batchOperationResetResetreapplytype = v }
+        , fdGet = batchOperationResetResetReapplyType
+        , fdSet = \v m -> m { batchOperationResetResetReapplyType = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "post_reset_operations"
         , fdNumber = 5
         , fdTypeDesc = MessageType "temporal.api.workflow.v1.PostResetOperation"
         , fdLabel = LabelRepeated
-        , fdGet = batchOperationResetPostresetoperations
-        , fdSet = \v m -> m { batchOperationResetPostresetoperations = v }
+        , fdGet = batchOperationResetPostResetOperations
+        , fdSet = \v m -> m { batchOperationResetPostResetOperations = v }
         })
     ]
 
@@ -677,34 +677,34 @@ instance Aeson.ToJSON BatchOperationReset where
   toJSON msg = jsonObject
       [ "identity" .=: msg.batchOperationResetIdentity
       , "options" .=: msg.batchOperationResetOptions
-      , "resetType" .=: msg.batchOperationResetResettype
-      , "resetReapplyType" .=: msg.batchOperationResetResetreapplytype
-      , "postResetOperations" .=: msg.batchOperationResetPostresetoperations
+      , "resetType" .=: msg.batchOperationResetResetType
+      , "resetReapplyType" .=: msg.batchOperationResetResetReapplyType
+      , "postResetOperations" .=: msg.batchOperationResetPostResetOperations
       ]
 
 instance Aeson.FromJSON BatchOperationReset where
   parseJSON = Aeson.withObject "BatchOperationReset" $ \obj -> do
     fld_batchOperationResetIdentity <- parseFieldMaybe obj "identity"
     fld_batchOperationResetOptions <- parseFieldMaybe obj "options"
-    fld_batchOperationResetResettype <- parseFieldMaybe obj "resetType"
-    fld_batchOperationResetResetreapplytype <- parseFieldMaybe obj "resetReapplyType"
-    fld_batchOperationResetPostresetoperations <- parseFieldMaybe obj "postResetOperations"
+    fld_batchOperationResetResetType <- parseFieldMaybe obj "resetType"
+    fld_batchOperationResetResetReapplyType <- parseFieldMaybe obj "resetReapplyType"
+    fld_batchOperationResetPostResetOperations <- parseFieldMaybe obj "postResetOperations"
     pure defaultBatchOperationReset
       { batchOperationResetIdentity = maybe (batchOperationResetIdentity defaultBatchOperationReset) id fld_batchOperationResetIdentity
       , batchOperationResetOptions = maybe (batchOperationResetOptions defaultBatchOperationReset) id fld_batchOperationResetOptions
-      , batchOperationResetResettype = maybe (batchOperationResetResettype defaultBatchOperationReset) id fld_batchOperationResetResettype
-      , batchOperationResetResetreapplytype = maybe (batchOperationResetResetreapplytype defaultBatchOperationReset) id fld_batchOperationResetResetreapplytype
-      , batchOperationResetPostresetoperations = maybe (batchOperationResetPostresetoperations defaultBatchOperationReset) id fld_batchOperationResetPostresetoperations
+      , batchOperationResetResetType = maybe (batchOperationResetResetType defaultBatchOperationReset) id fld_batchOperationResetResetType
+      , batchOperationResetResetReapplyType = maybe (batchOperationResetResetReapplyType defaultBatchOperationReset) id fld_batchOperationResetResetReapplyType
+      , batchOperationResetPostResetOperations = maybe (batchOperationResetPostResetOperations defaultBatchOperationReset) id fld_batchOperationResetPostResetOperations
       }
 
 instance Hashable BatchOperationReset where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationResetIdentity) msg.batchOperationResetOptions) msg.batchOperationResetResettype) msg.batchOperationResetResetreapplytype) msg.batchOperationResetPostresetoperations
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationResetIdentity) msg.batchOperationResetOptions) msg.batchOperationResetResetType) msg.batchOperationResetResetReapplyType) msg.batchOperationResetPostResetOperations
 
 data BatchOperationUpdateWorkflowExecutionOptions = BatchOperationUpdateWorkflowExecutionOptions
   { batchOperationUpdateWorkflowExecutionOptionsIdentity :: !Text
-  , batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions :: !(Maybe TE_Workflow_V1_Message.WorkflowExecutionOptions)
-  , batchOperationUpdateWorkflowExecutionOptionsUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
-  , batchOperationUpdateWorkflowExecutionOptionsUnknownfields :: ![UnknownField]
+  , batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions :: !(Maybe TE_Workflow_V1_Message.WorkflowExecutionOptions)
+  , batchOperationUpdateWorkflowExecutionOptionsUpdateMask :: !(Maybe PB_FieldMask.FieldMask)
+  , batchOperationUpdateWorkflowExecutionOptionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -712,24 +712,24 @@ data BatchOperationUpdateWorkflowExecutionOptions = BatchOperationUpdateWorkflow
 defaultBatchOperationUpdateWorkflowExecutionOptions :: BatchOperationUpdateWorkflowExecutionOptions
 defaultBatchOperationUpdateWorkflowExecutionOptions = BatchOperationUpdateWorkflowExecutionOptions
   { batchOperationUpdateWorkflowExecutionOptionsIdentity = ""
-  , batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions = Nothing
-  , batchOperationUpdateWorkflowExecutionOptionsUpdatemask = Nothing
-  , batchOperationUpdateWorkflowExecutionOptionsUnknownfields = []
+  , batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions = Nothing
+  , batchOperationUpdateWorkflowExecutionOptionsUpdateMask = Nothing
+  , batchOperationUpdateWorkflowExecutionOptionsUnknownFields = []
   }
 
 instance MessageEncode BatchOperationUpdateWorkflowExecutionOptions where
   buildMessage msg =
     (if msg.batchOperationUpdateWorkflowExecutionOptionsIdentity == T.empty then mempty else encodeFieldString 1 msg.batchOperationUpdateWorkflowExecutionOptionsIdentity)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.batchOperationUpdateWorkflowExecutionOptionsUpdatemask)
-    <> encodeUnknownFields msg.batchOperationUpdateWorkflowExecutionOptionsUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.batchOperationUpdateWorkflowExecutionOptionsUpdateMask)
+    <> encodeUnknownFields msg.batchOperationUpdateWorkflowExecutionOptionsUnknownFields
 
 instance MessageSize BatchOperationUpdateWorkflowExecutionOptions where
   messageSize msg =
     (if msg.batchOperationUpdateWorkflowExecutionOptionsIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationUpdateWorkflowExecutionOptionsIdentity)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.batchOperationUpdateWorkflowExecutionOptionsUpdatemask)
-    + unknownFieldsSize msg.batchOperationUpdateWorkflowExecutionOptionsUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.batchOperationUpdateWorkflowExecutionOptionsUpdateMask)
+    + unknownFieldsSize msg.batchOperationUpdateWorkflowExecutionOptionsUnknownFields
 
 instance MessageDecode BatchOperationUpdateWorkflowExecutionOptions where
   {-# INLINE messageDecoder #-}
@@ -738,7 +738,7 @@ instance MessageDecode BatchOperationUpdateWorkflowExecutionOptions where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationUpdateWorkflowExecutionOptions {batchOperationUpdateWorkflowExecutionOptionsIdentity = acc_0, batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions = acc_1, batchOperationUpdateWorkflowExecutionOptionsUpdatemask = acc_2, batchOperationUpdateWorkflowExecutionOptionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationUpdateWorkflowExecutionOptions {batchOperationUpdateWorkflowExecutionOptionsIdentity = acc_0, batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions = acc_1, batchOperationUpdateWorkflowExecutionOptionsUpdateMask = acc_2, batchOperationUpdateWorkflowExecutionOptionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -774,47 +774,47 @@ instance ProtoMessage BatchOperationUpdateWorkflowExecutionOptions where
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.workflow.v1.WorkflowExecutionOptions"
         , fdLabel = LabelOptional
-        , fdGet = batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions
-        , fdSet = \v m -> m { batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions = v }
+        , fdGet = batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions
+        , fdSet = \v m -> m { batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "update_mask"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.FieldMask"
         , fdLabel = LabelOptional
-        , fdGet = batchOperationUpdateWorkflowExecutionOptionsUpdatemask
-        , fdSet = \v m -> m { batchOperationUpdateWorkflowExecutionOptionsUpdatemask = v }
+        , fdGet = batchOperationUpdateWorkflowExecutionOptionsUpdateMask
+        , fdSet = \v m -> m { batchOperationUpdateWorkflowExecutionOptionsUpdateMask = v }
         })
     ]
 
 instance Aeson.ToJSON BatchOperationUpdateWorkflowExecutionOptions where
   toJSON msg = jsonObject
       [ "identity" .=: msg.batchOperationUpdateWorkflowExecutionOptionsIdentity
-      , "workflowExecutionOptions" .=: msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions
-      , "updateMask" .=: msg.batchOperationUpdateWorkflowExecutionOptionsUpdatemask
+      , "workflowExecutionOptions" .=: msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions
+      , "updateMask" .=: msg.batchOperationUpdateWorkflowExecutionOptionsUpdateMask
       ]
 
 instance Aeson.FromJSON BatchOperationUpdateWorkflowExecutionOptions where
   parseJSON = Aeson.withObject "BatchOperationUpdateWorkflowExecutionOptions" $ \obj -> do
     fld_batchOperationUpdateWorkflowExecutionOptionsIdentity <- parseFieldMaybe obj "identity"
-    fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions <- parseFieldMaybe obj "workflowExecutionOptions"
-    fld_batchOperationUpdateWorkflowExecutionOptionsUpdatemask <- parseFieldMaybe obj "updateMask"
+    fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions <- parseFieldMaybe obj "workflowExecutionOptions"
+    fld_batchOperationUpdateWorkflowExecutionOptionsUpdateMask <- parseFieldMaybe obj "updateMask"
     pure defaultBatchOperationUpdateWorkflowExecutionOptions
       { batchOperationUpdateWorkflowExecutionOptionsIdentity = maybe (batchOperationUpdateWorkflowExecutionOptionsIdentity defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsIdentity
-      , batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions = maybe (batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions
-      , batchOperationUpdateWorkflowExecutionOptionsUpdatemask = maybe (batchOperationUpdateWorkflowExecutionOptionsUpdatemask defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsUpdatemask
+      , batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions = maybe (batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions
+      , batchOperationUpdateWorkflowExecutionOptionsUpdateMask = maybe (batchOperationUpdateWorkflowExecutionOptionsUpdateMask defaultBatchOperationUpdateWorkflowExecutionOptions) id fld_batchOperationUpdateWorkflowExecutionOptionsUpdateMask
       }
 
 instance Hashable BatchOperationUpdateWorkflowExecutionOptions where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationUpdateWorkflowExecutionOptionsIdentity) msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowexecutionoptions) msg.batchOperationUpdateWorkflowExecutionOptionsUpdatemask
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationUpdateWorkflowExecutionOptionsIdentity) msg.batchOperationUpdateWorkflowExecutionOptionsWorkflowExecutionOptions) msg.batchOperationUpdateWorkflowExecutionOptionsUpdateMask
 
 data BatchOperationUnpauseActivities = BatchOperationUnpauseActivities
   { batchOperationUnpauseActivitiesIdentity :: !Text
   , batchOperationUnpauseActivitiesActivity :: !(Maybe BatchOperationUnpauseActivities'Activity)
-  , batchOperationUnpauseActivitiesResetattempts :: {-# UNPACK #-} !Bool
-  , batchOperationUnpauseActivitiesResetheartbeat :: {-# UNPACK #-} !Bool
+  , batchOperationUnpauseActivitiesResetAttempts :: {-# UNPACK #-} !Bool
+  , batchOperationUnpauseActivitiesResetHeartbeat :: {-# UNPACK #-} !Bool
   , batchOperationUnpauseActivitiesJitter :: !(Maybe PB_Duration.Duration)
-  , batchOperationUnpauseActivitiesUnknownfields :: ![UnknownField]
+  , batchOperationUnpauseActivitiesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -835,10 +835,10 @@ defaultBatchOperationUnpauseActivities :: BatchOperationUnpauseActivities
 defaultBatchOperationUnpauseActivities = BatchOperationUnpauseActivities
   { batchOperationUnpauseActivitiesIdentity = ""
   , batchOperationUnpauseActivitiesActivity = Nothing
-  , batchOperationUnpauseActivitiesResetattempts = False
-  , batchOperationUnpauseActivitiesResetheartbeat = False
+  , batchOperationUnpauseActivitiesResetAttempts = False
+  , batchOperationUnpauseActivitiesResetHeartbeat = False
   , batchOperationUnpauseActivitiesJitter = Nothing
-  , batchOperationUnpauseActivitiesUnknownfields = []
+  , batchOperationUnpauseActivitiesUnknownFields = []
   }
 
 instance MessageEncode BatchOperationUnpauseActivities where
@@ -848,20 +848,20 @@ instance MessageEncode BatchOperationUnpauseActivities where
       Nothing -> mempty
       Just (BatchOperationUnpauseActivities'Activity'Type v) -> encodeFieldString 2 v
       Just (BatchOperationUnpauseActivities'Activity'MatchAll v) -> encodeFieldBool 3 v)
-    <> (if msg.batchOperationUnpauseActivitiesResetattempts == False then mempty else encodeFieldBool 4 msg.batchOperationUnpauseActivitiesResetattempts)
-    <> (if msg.batchOperationUnpauseActivitiesResetheartbeat == False then mempty else encodeFieldBool 5 msg.batchOperationUnpauseActivitiesResetheartbeat)
+    <> (if msg.batchOperationUnpauseActivitiesResetAttempts == False then mempty else encodeFieldBool 4 msg.batchOperationUnpauseActivitiesResetAttempts)
+    <> (if msg.batchOperationUnpauseActivitiesResetHeartbeat == False then mempty else encodeFieldBool 5 msg.batchOperationUnpauseActivitiesResetHeartbeat)
     <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.batchOperationUnpauseActivitiesJitter)
-    <> encodeUnknownFields msg.batchOperationUnpauseActivitiesUnknownfields
+    <> encodeUnknownFields msg.batchOperationUnpauseActivitiesUnknownFields
 
 instance MessageSize BatchOperationUnpauseActivities where
   messageSize msg =
     (if msg.batchOperationUnpauseActivitiesIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationUnpauseActivitiesIdentity)
     + (case msg.batchOperationUnpauseActivitiesActivity of { Nothing -> 0; Just (BatchOperationUnpauseActivities'Activity'Type v) -> fieldTextSize 2 v
     ; Just (BatchOperationUnpauseActivities'Activity'MatchAll v) -> fieldBoolSize 3 })
-    + (if msg.batchOperationUnpauseActivitiesResetattempts == False then 0 else fieldBoolSize 4)
-    + (if msg.batchOperationUnpauseActivitiesResetheartbeat == False then 0 else fieldBoolSize 5)
+    + (if msg.batchOperationUnpauseActivitiesResetAttempts == False then 0 else fieldBoolSize 4)
+    + (if msg.batchOperationUnpauseActivitiesResetHeartbeat == False then 0 else fieldBoolSize 5)
     + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.batchOperationUnpauseActivitiesJitter)
-    + unknownFieldsSize msg.batchOperationUnpauseActivitiesUnknownfields
+    + unknownFieldsSize msg.batchOperationUnpauseActivitiesUnknownFields
 
 instance MessageDecode BatchOperationUnpauseActivities where
   {-# INLINE messageDecoder #-}
@@ -870,7 +870,7 @@ instance MessageDecode BatchOperationUnpauseActivities where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationUnpauseActivities {batchOperationUnpauseActivitiesIdentity = acc_0, batchOperationUnpauseActivitiesActivity = acc_1, batchOperationUnpauseActivitiesResetattempts = acc_2, batchOperationUnpauseActivitiesResetheartbeat = acc_3, batchOperationUnpauseActivitiesJitter = acc_4, batchOperationUnpauseActivitiesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationUnpauseActivities {batchOperationUnpauseActivitiesIdentity = acc_0, batchOperationUnpauseActivitiesActivity = acc_1, batchOperationUnpauseActivitiesResetAttempts = acc_2, batchOperationUnpauseActivitiesResetHeartbeat = acc_3, batchOperationUnpauseActivitiesJitter = acc_4, batchOperationUnpauseActivitiesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -923,16 +923,16 @@ instance ProtoMessage BatchOperationUnpauseActivities where
         , fdNumber = 4
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = batchOperationUnpauseActivitiesResetattempts
-        , fdSet = \v m -> m { batchOperationUnpauseActivitiesResetattempts = v }
+        , fdGet = batchOperationUnpauseActivitiesResetAttempts
+        , fdSet = \v m -> m { batchOperationUnpauseActivitiesResetAttempts = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "reset_heartbeat"
         , fdNumber = 5
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = batchOperationUnpauseActivitiesResetheartbeat
-        , fdSet = \v m -> m { batchOperationUnpauseActivitiesResetheartbeat = v }
+        , fdGet = batchOperationUnpauseActivitiesResetHeartbeat
+        , fdSet = \v m -> m { batchOperationUnpauseActivitiesResetHeartbeat = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "jitter"
@@ -948,8 +948,8 @@ instance Aeson.ToJSON BatchOperationUnpauseActivities where
   toJSON msg = jsonObject
       [ "identity" .=: msg.batchOperationUnpauseActivitiesIdentity
       , "activity" .=: msg.batchOperationUnpauseActivitiesActivity
-      , "resetAttempts" .=: msg.batchOperationUnpauseActivitiesResetattempts
-      , "resetHeartbeat" .=: msg.batchOperationUnpauseActivitiesResetheartbeat
+      , "resetAttempts" .=: msg.batchOperationUnpauseActivitiesResetAttempts
+      , "resetHeartbeat" .=: msg.batchOperationUnpauseActivitiesResetHeartbeat
       , "jitter" .=: msg.batchOperationUnpauseActivitiesJitter
       ]
 
@@ -957,24 +957,24 @@ instance Aeson.FromJSON BatchOperationUnpauseActivities where
   parseJSON = Aeson.withObject "BatchOperationUnpauseActivities" $ \obj -> do
     fld_batchOperationUnpauseActivitiesIdentity <- parseFieldMaybe obj "identity"
     fld_batchOperationUnpauseActivitiesActivity <- parseFieldMaybe obj "activity"
-    fld_batchOperationUnpauseActivitiesResetattempts <- parseFieldMaybe obj "resetAttempts"
-    fld_batchOperationUnpauseActivitiesResetheartbeat <- parseFieldMaybe obj "resetHeartbeat"
+    fld_batchOperationUnpauseActivitiesResetAttempts <- parseFieldMaybe obj "resetAttempts"
+    fld_batchOperationUnpauseActivitiesResetHeartbeat <- parseFieldMaybe obj "resetHeartbeat"
     fld_batchOperationUnpauseActivitiesJitter <- parseFieldMaybe obj "jitter"
     pure defaultBatchOperationUnpauseActivities
       { batchOperationUnpauseActivitiesIdentity = maybe (batchOperationUnpauseActivitiesIdentity defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesIdentity
       , batchOperationUnpauseActivitiesActivity = maybe (batchOperationUnpauseActivitiesActivity defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesActivity
-      , batchOperationUnpauseActivitiesResetattempts = maybe (batchOperationUnpauseActivitiesResetattempts defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesResetattempts
-      , batchOperationUnpauseActivitiesResetheartbeat = maybe (batchOperationUnpauseActivitiesResetheartbeat defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesResetheartbeat
+      , batchOperationUnpauseActivitiesResetAttempts = maybe (batchOperationUnpauseActivitiesResetAttempts defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesResetAttempts
+      , batchOperationUnpauseActivitiesResetHeartbeat = maybe (batchOperationUnpauseActivitiesResetHeartbeat defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesResetHeartbeat
       , batchOperationUnpauseActivitiesJitter = maybe (batchOperationUnpauseActivitiesJitter defaultBatchOperationUnpauseActivities) id fld_batchOperationUnpauseActivitiesJitter
       }
 
 instance Hashable BatchOperationUnpauseActivities where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationUnpauseActivitiesIdentity) msg.batchOperationUnpauseActivitiesActivity) msg.batchOperationUnpauseActivitiesResetattempts) msg.batchOperationUnpauseActivitiesResetheartbeat) msg.batchOperationUnpauseActivitiesJitter
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationUnpauseActivitiesIdentity) msg.batchOperationUnpauseActivitiesActivity) msg.batchOperationUnpauseActivitiesResetAttempts) msg.batchOperationUnpauseActivitiesResetHeartbeat) msg.batchOperationUnpauseActivitiesJitter
 
 data BatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
   { batchOperationTriggerWorkflowRuleIdentity :: !Text
   , batchOperationTriggerWorkflowRuleRule :: !(Maybe BatchOperationTriggerWorkflowRule'Rule)
-  , batchOperationTriggerWorkflowRuleUnknownfields :: ![UnknownField]
+  , batchOperationTriggerWorkflowRuleUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -995,7 +995,7 @@ defaultBatchOperationTriggerWorkflowRule :: BatchOperationTriggerWorkflowRule
 defaultBatchOperationTriggerWorkflowRule = BatchOperationTriggerWorkflowRule
   { batchOperationTriggerWorkflowRuleIdentity = ""
   , batchOperationTriggerWorkflowRuleRule = Nothing
-  , batchOperationTriggerWorkflowRuleUnknownfields = []
+  , batchOperationTriggerWorkflowRuleUnknownFields = []
   }
 
 instance MessageEncode BatchOperationTriggerWorkflowRule where
@@ -1005,14 +1005,14 @@ instance MessageEncode BatchOperationTriggerWorkflowRule where
       Nothing -> mempty
       Just (BatchOperationTriggerWorkflowRule'Rule'Id v) -> encodeFieldString 2 v
       Just (BatchOperationTriggerWorkflowRule'Rule'Spec v) -> encodeFieldMessage 3 v)
-    <> encodeUnknownFields msg.batchOperationTriggerWorkflowRuleUnknownfields
+    <> encodeUnknownFields msg.batchOperationTriggerWorkflowRuleUnknownFields
 
 instance MessageSize BatchOperationTriggerWorkflowRule where
   messageSize msg =
     (if msg.batchOperationTriggerWorkflowRuleIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationTriggerWorkflowRuleIdentity)
     + (case msg.batchOperationTriggerWorkflowRuleRule of { Nothing -> 0; Just (BatchOperationTriggerWorkflowRule'Rule'Id v) -> fieldTextSize 2 v
     ; Just (BatchOperationTriggerWorkflowRule'Rule'Spec v) -> fieldMessageSize 3 (messageSize v) })
-    + unknownFieldsSize msg.batchOperationTriggerWorkflowRuleUnknownfields
+    + unknownFieldsSize msg.batchOperationTriggerWorkflowRuleUnknownFields
 
 instance MessageDecode BatchOperationTriggerWorkflowRule where
   {-# INLINE messageDecoder #-}
@@ -1021,7 +1021,7 @@ instance MessageDecode BatchOperationTriggerWorkflowRule where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationTriggerWorkflowRule {batchOperationTriggerWorkflowRuleIdentity = acc_0, batchOperationTriggerWorkflowRuleRule = acc_1, batchOperationTriggerWorkflowRuleUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationTriggerWorkflowRule {batchOperationTriggerWorkflowRuleIdentity = acc_0, batchOperationTriggerWorkflowRuleRule = acc_1, batchOperationTriggerWorkflowRuleUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1083,12 +1083,12 @@ instance Hashable BatchOperationTriggerWorkflowRule where
 data BatchOperationResetActivities = BatchOperationResetActivities
   { batchOperationResetActivitiesIdentity :: !Text
   , batchOperationResetActivitiesActivity :: !(Maybe BatchOperationResetActivities'Activity)
-  , batchOperationResetActivitiesResetattempts :: {-# UNPACK #-} !Bool
-  , batchOperationResetActivitiesResetheartbeat :: {-# UNPACK #-} !Bool
-  , batchOperationResetActivitiesKeeppaused :: {-# UNPACK #-} !Bool
+  , batchOperationResetActivitiesResetAttempts :: {-# UNPACK #-} !Bool
+  , batchOperationResetActivitiesResetHeartbeat :: {-# UNPACK #-} !Bool
+  , batchOperationResetActivitiesKeepPaused :: {-# UNPACK #-} !Bool
   , batchOperationResetActivitiesJitter :: !(Maybe PB_Duration.Duration)
-  , batchOperationResetActivitiesRestoreoriginaloptions :: {-# UNPACK #-} !Bool
-  , batchOperationResetActivitiesUnknownfields :: ![UnknownField]
+  , batchOperationResetActivitiesRestoreOriginalOptions :: {-# UNPACK #-} !Bool
+  , batchOperationResetActivitiesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1109,12 +1109,12 @@ defaultBatchOperationResetActivities :: BatchOperationResetActivities
 defaultBatchOperationResetActivities = BatchOperationResetActivities
   { batchOperationResetActivitiesIdentity = ""
   , batchOperationResetActivitiesActivity = Nothing
-  , batchOperationResetActivitiesResetattempts = False
-  , batchOperationResetActivitiesResetheartbeat = False
-  , batchOperationResetActivitiesKeeppaused = False
+  , batchOperationResetActivitiesResetAttempts = False
+  , batchOperationResetActivitiesResetHeartbeat = False
+  , batchOperationResetActivitiesKeepPaused = False
   , batchOperationResetActivitiesJitter = Nothing
-  , batchOperationResetActivitiesRestoreoriginaloptions = False
-  , batchOperationResetActivitiesUnknownfields = []
+  , batchOperationResetActivitiesRestoreOriginalOptions = False
+  , batchOperationResetActivitiesUnknownFields = []
   }
 
 instance MessageEncode BatchOperationResetActivities where
@@ -1124,24 +1124,24 @@ instance MessageEncode BatchOperationResetActivities where
       Nothing -> mempty
       Just (BatchOperationResetActivities'Activity'Type v) -> encodeFieldString 2 v
       Just (BatchOperationResetActivities'Activity'MatchAll v) -> encodeFieldBool 3 v)
-    <> (if msg.batchOperationResetActivitiesResetattempts == False then mempty else encodeFieldBool 4 msg.batchOperationResetActivitiesResetattempts)
-    <> (if msg.batchOperationResetActivitiesResetheartbeat == False then mempty else encodeFieldBool 5 msg.batchOperationResetActivitiesResetheartbeat)
-    <> (if msg.batchOperationResetActivitiesKeeppaused == False then mempty else encodeFieldBool 6 msg.batchOperationResetActivitiesKeeppaused)
+    <> (if msg.batchOperationResetActivitiesResetAttempts == False then mempty else encodeFieldBool 4 msg.batchOperationResetActivitiesResetAttempts)
+    <> (if msg.batchOperationResetActivitiesResetHeartbeat == False then mempty else encodeFieldBool 5 msg.batchOperationResetActivitiesResetHeartbeat)
+    <> (if msg.batchOperationResetActivitiesKeepPaused == False then mempty else encodeFieldBool 6 msg.batchOperationResetActivitiesKeepPaused)
     <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.batchOperationResetActivitiesJitter)
-    <> (if msg.batchOperationResetActivitiesRestoreoriginaloptions == False then mempty else encodeFieldBool 8 msg.batchOperationResetActivitiesRestoreoriginaloptions)
-    <> encodeUnknownFields msg.batchOperationResetActivitiesUnknownfields
+    <> (if msg.batchOperationResetActivitiesRestoreOriginalOptions == False then mempty else encodeFieldBool 8 msg.batchOperationResetActivitiesRestoreOriginalOptions)
+    <> encodeUnknownFields msg.batchOperationResetActivitiesUnknownFields
 
 instance MessageSize BatchOperationResetActivities where
   messageSize msg =
     (if msg.batchOperationResetActivitiesIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationResetActivitiesIdentity)
     + (case msg.batchOperationResetActivitiesActivity of { Nothing -> 0; Just (BatchOperationResetActivities'Activity'Type v) -> fieldTextSize 2 v
     ; Just (BatchOperationResetActivities'Activity'MatchAll v) -> fieldBoolSize 3 })
-    + (if msg.batchOperationResetActivitiesResetattempts == False then 0 else fieldBoolSize 4)
-    + (if msg.batchOperationResetActivitiesResetheartbeat == False then 0 else fieldBoolSize 5)
-    + (if msg.batchOperationResetActivitiesKeeppaused == False then 0 else fieldBoolSize 6)
+    + (if msg.batchOperationResetActivitiesResetAttempts == False then 0 else fieldBoolSize 4)
+    + (if msg.batchOperationResetActivitiesResetHeartbeat == False then 0 else fieldBoolSize 5)
+    + (if msg.batchOperationResetActivitiesKeepPaused == False then 0 else fieldBoolSize 6)
     + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.batchOperationResetActivitiesJitter)
-    + (if msg.batchOperationResetActivitiesRestoreoriginaloptions == False then 0 else fieldBoolSize 8)
-    + unknownFieldsSize msg.batchOperationResetActivitiesUnknownfields
+    + (if msg.batchOperationResetActivitiesRestoreOriginalOptions == False then 0 else fieldBoolSize 8)
+    + unknownFieldsSize msg.batchOperationResetActivitiesUnknownFields
 
 instance MessageDecode BatchOperationResetActivities where
   {-# INLINE messageDecoder #-}
@@ -1150,7 +1150,7 @@ instance MessageDecode BatchOperationResetActivities where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationResetActivities {batchOperationResetActivitiesIdentity = acc_0, batchOperationResetActivitiesActivity = acc_1, batchOperationResetActivitiesResetattempts = acc_2, batchOperationResetActivitiesResetheartbeat = acc_3, batchOperationResetActivitiesKeeppaused = acc_4, batchOperationResetActivitiesJitter = acc_5, batchOperationResetActivitiesRestoreoriginaloptions = acc_6, batchOperationResetActivitiesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationResetActivities {batchOperationResetActivitiesIdentity = acc_0, batchOperationResetActivitiesActivity = acc_1, batchOperationResetActivitiesResetAttempts = acc_2, batchOperationResetActivitiesResetHeartbeat = acc_3, batchOperationResetActivitiesKeepPaused = acc_4, batchOperationResetActivitiesJitter = acc_5, batchOperationResetActivitiesRestoreOriginalOptions = acc_6, batchOperationResetActivitiesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1209,24 +1209,24 @@ instance ProtoMessage BatchOperationResetActivities where
         , fdNumber = 4
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = batchOperationResetActivitiesResetattempts
-        , fdSet = \v m -> m { batchOperationResetActivitiesResetattempts = v }
+        , fdGet = batchOperationResetActivitiesResetAttempts
+        , fdSet = \v m -> m { batchOperationResetActivitiesResetAttempts = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "reset_heartbeat"
         , fdNumber = 5
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = batchOperationResetActivitiesResetheartbeat
-        , fdSet = \v m -> m { batchOperationResetActivitiesResetheartbeat = v }
+        , fdGet = batchOperationResetActivitiesResetHeartbeat
+        , fdSet = \v m -> m { batchOperationResetActivitiesResetHeartbeat = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "keep_paused"
         , fdNumber = 6
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = batchOperationResetActivitiesKeeppaused
-        , fdSet = \v m -> m { batchOperationResetActivitiesKeeppaused = v }
+        , fdGet = batchOperationResetActivitiesKeepPaused
+        , fdSet = \v m -> m { batchOperationResetActivitiesKeepPaused = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "jitter"
@@ -1241,8 +1241,8 @@ instance ProtoMessage BatchOperationResetActivities where
         , fdNumber = 8
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = batchOperationResetActivitiesRestoreoriginaloptions
-        , fdSet = \v m -> m { batchOperationResetActivitiesRestoreoriginaloptions = v }
+        , fdGet = batchOperationResetActivitiesRestoreOriginalOptions
+        , fdSet = \v m -> m { batchOperationResetActivitiesRestoreOriginalOptions = v }
         })
     ]
 
@@ -1250,42 +1250,42 @@ instance Aeson.ToJSON BatchOperationResetActivities where
   toJSON msg = jsonObject
       [ "identity" .=: msg.batchOperationResetActivitiesIdentity
       , "activity" .=: msg.batchOperationResetActivitiesActivity
-      , "resetAttempts" .=: msg.batchOperationResetActivitiesResetattempts
-      , "resetHeartbeat" .=: msg.batchOperationResetActivitiesResetheartbeat
-      , "keepPaused" .=: msg.batchOperationResetActivitiesKeeppaused
+      , "resetAttempts" .=: msg.batchOperationResetActivitiesResetAttempts
+      , "resetHeartbeat" .=: msg.batchOperationResetActivitiesResetHeartbeat
+      , "keepPaused" .=: msg.batchOperationResetActivitiesKeepPaused
       , "jitter" .=: msg.batchOperationResetActivitiesJitter
-      , "restoreOriginalOptions" .=: msg.batchOperationResetActivitiesRestoreoriginaloptions
+      , "restoreOriginalOptions" .=: msg.batchOperationResetActivitiesRestoreOriginalOptions
       ]
 
 instance Aeson.FromJSON BatchOperationResetActivities where
   parseJSON = Aeson.withObject "BatchOperationResetActivities" $ \obj -> do
     fld_batchOperationResetActivitiesIdentity <- parseFieldMaybe obj "identity"
     fld_batchOperationResetActivitiesActivity <- parseFieldMaybe obj "activity"
-    fld_batchOperationResetActivitiesResetattempts <- parseFieldMaybe obj "resetAttempts"
-    fld_batchOperationResetActivitiesResetheartbeat <- parseFieldMaybe obj "resetHeartbeat"
-    fld_batchOperationResetActivitiesKeeppaused <- parseFieldMaybe obj "keepPaused"
+    fld_batchOperationResetActivitiesResetAttempts <- parseFieldMaybe obj "resetAttempts"
+    fld_batchOperationResetActivitiesResetHeartbeat <- parseFieldMaybe obj "resetHeartbeat"
+    fld_batchOperationResetActivitiesKeepPaused <- parseFieldMaybe obj "keepPaused"
     fld_batchOperationResetActivitiesJitter <- parseFieldMaybe obj "jitter"
-    fld_batchOperationResetActivitiesRestoreoriginaloptions <- parseFieldMaybe obj "restoreOriginalOptions"
+    fld_batchOperationResetActivitiesRestoreOriginalOptions <- parseFieldMaybe obj "restoreOriginalOptions"
     pure defaultBatchOperationResetActivities
       { batchOperationResetActivitiesIdentity = maybe (batchOperationResetActivitiesIdentity defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesIdentity
       , batchOperationResetActivitiesActivity = maybe (batchOperationResetActivitiesActivity defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesActivity
-      , batchOperationResetActivitiesResetattempts = maybe (batchOperationResetActivitiesResetattempts defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesResetattempts
-      , batchOperationResetActivitiesResetheartbeat = maybe (batchOperationResetActivitiesResetheartbeat defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesResetheartbeat
-      , batchOperationResetActivitiesKeeppaused = maybe (batchOperationResetActivitiesKeeppaused defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesKeeppaused
+      , batchOperationResetActivitiesResetAttempts = maybe (batchOperationResetActivitiesResetAttempts defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesResetAttempts
+      , batchOperationResetActivitiesResetHeartbeat = maybe (batchOperationResetActivitiesResetHeartbeat defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesResetHeartbeat
+      , batchOperationResetActivitiesKeepPaused = maybe (batchOperationResetActivitiesKeepPaused defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesKeepPaused
       , batchOperationResetActivitiesJitter = maybe (batchOperationResetActivitiesJitter defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesJitter
-      , batchOperationResetActivitiesRestoreoriginaloptions = maybe (batchOperationResetActivitiesRestoreoriginaloptions defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesRestoreoriginaloptions
+      , batchOperationResetActivitiesRestoreOriginalOptions = maybe (batchOperationResetActivitiesRestoreOriginalOptions defaultBatchOperationResetActivities) id fld_batchOperationResetActivitiesRestoreOriginalOptions
       }
 
 instance Hashable BatchOperationResetActivities where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationResetActivitiesIdentity) msg.batchOperationResetActivitiesActivity) msg.batchOperationResetActivitiesResetattempts) msg.batchOperationResetActivitiesResetheartbeat) msg.batchOperationResetActivitiesKeeppaused) msg.batchOperationResetActivitiesJitter) msg.batchOperationResetActivitiesRestoreoriginaloptions
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationResetActivitiesIdentity) msg.batchOperationResetActivitiesActivity) msg.batchOperationResetActivitiesResetAttempts) msg.batchOperationResetActivitiesResetHeartbeat) msg.batchOperationResetActivitiesKeepPaused) msg.batchOperationResetActivitiesJitter) msg.batchOperationResetActivitiesRestoreOriginalOptions
 
 data BatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
   { batchOperationUpdateActivityOptionsIdentity :: !Text
   , batchOperationUpdateActivityOptionsActivity :: !(Maybe BatchOperationUpdateActivityOptions'Activity)
-  , batchOperationUpdateActivityOptionsActivityoptions :: !(Maybe TE_Activity_V1_Message.ActivityOptions)
-  , batchOperationUpdateActivityOptionsUpdatemask :: !(Maybe PB_FieldMask.FieldMask)
-  , batchOperationUpdateActivityOptionsRestoreoriginal :: {-# UNPACK #-} !Bool
-  , batchOperationUpdateActivityOptionsUnknownfields :: ![UnknownField]
+  , batchOperationUpdateActivityOptionsActivityOptions :: !(Maybe TE_Activity_V1_Message.ActivityOptions)
+  , batchOperationUpdateActivityOptionsUpdateMask :: !(Maybe PB_FieldMask.FieldMask)
+  , batchOperationUpdateActivityOptionsRestoreOriginal :: {-# UNPACK #-} !Bool
+  , batchOperationUpdateActivityOptionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1306,10 +1306,10 @@ defaultBatchOperationUpdateActivityOptions :: BatchOperationUpdateActivityOption
 defaultBatchOperationUpdateActivityOptions = BatchOperationUpdateActivityOptions
   { batchOperationUpdateActivityOptionsIdentity = ""
   , batchOperationUpdateActivityOptionsActivity = Nothing
-  , batchOperationUpdateActivityOptionsActivityoptions = Nothing
-  , batchOperationUpdateActivityOptionsUpdatemask = Nothing
-  , batchOperationUpdateActivityOptionsRestoreoriginal = False
-  , batchOperationUpdateActivityOptionsUnknownfields = []
+  , batchOperationUpdateActivityOptionsActivityOptions = Nothing
+  , batchOperationUpdateActivityOptionsUpdateMask = Nothing
+  , batchOperationUpdateActivityOptionsRestoreOriginal = False
+  , batchOperationUpdateActivityOptionsUnknownFields = []
   }
 
 instance MessageEncode BatchOperationUpdateActivityOptions where
@@ -1319,20 +1319,20 @@ instance MessageEncode BatchOperationUpdateActivityOptions where
       Nothing -> mempty
       Just (BatchOperationUpdateActivityOptions'Activity'Type v) -> encodeFieldString 2 v
       Just (BatchOperationUpdateActivityOptions'Activity'MatchAll v) -> encodeFieldBool 3 v)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.batchOperationUpdateActivityOptionsActivityoptions)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.batchOperationUpdateActivityOptionsUpdatemask)
-    <> (if msg.batchOperationUpdateActivityOptionsRestoreoriginal == False then mempty else encodeFieldBool 6 msg.batchOperationUpdateActivityOptionsRestoreoriginal)
-    <> encodeUnknownFields msg.batchOperationUpdateActivityOptionsUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.batchOperationUpdateActivityOptionsActivityOptions)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.batchOperationUpdateActivityOptionsUpdateMask)
+    <> (if msg.batchOperationUpdateActivityOptionsRestoreOriginal == False then mempty else encodeFieldBool 6 msg.batchOperationUpdateActivityOptionsRestoreOriginal)
+    <> encodeUnknownFields msg.batchOperationUpdateActivityOptionsUnknownFields
 
 instance MessageSize BatchOperationUpdateActivityOptions where
   messageSize msg =
     (if msg.batchOperationUpdateActivityOptionsIdentity == T.empty then 0 else fieldTextSize 1 msg.batchOperationUpdateActivityOptionsIdentity)
     + (case msg.batchOperationUpdateActivityOptionsActivity of { Nothing -> 0; Just (BatchOperationUpdateActivityOptions'Activity'Type v) -> fieldTextSize 2 v
     ; Just (BatchOperationUpdateActivityOptions'Activity'MatchAll v) -> fieldBoolSize 3 })
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.batchOperationUpdateActivityOptionsActivityoptions)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.batchOperationUpdateActivityOptionsUpdatemask)
-    + (if msg.batchOperationUpdateActivityOptionsRestoreoriginal == False then 0 else fieldBoolSize 6)
-    + unknownFieldsSize msg.batchOperationUpdateActivityOptionsUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.batchOperationUpdateActivityOptionsActivityOptions)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.batchOperationUpdateActivityOptionsUpdateMask)
+    + (if msg.batchOperationUpdateActivityOptionsRestoreOriginal == False then 0 else fieldBoolSize 6)
+    + unknownFieldsSize msg.batchOperationUpdateActivityOptionsUnknownFields
 
 instance MessageDecode BatchOperationUpdateActivityOptions where
   {-# INLINE messageDecoder #-}
@@ -1341,7 +1341,7 @@ instance MessageDecode BatchOperationUpdateActivityOptions where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BatchOperationUpdateActivityOptions {batchOperationUpdateActivityOptionsIdentity = acc_0, batchOperationUpdateActivityOptionsActivity = acc_1, batchOperationUpdateActivityOptionsActivityoptions = acc_2, batchOperationUpdateActivityOptionsUpdatemask = acc_3, batchOperationUpdateActivityOptionsRestoreoriginal = acc_4, batchOperationUpdateActivityOptionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BatchOperationUpdateActivityOptions {batchOperationUpdateActivityOptionsIdentity = acc_0, batchOperationUpdateActivityOptionsActivity = acc_1, batchOperationUpdateActivityOptionsActivityOptions = acc_2, batchOperationUpdateActivityOptionsUpdateMask = acc_3, batchOperationUpdateActivityOptionsRestoreOriginal = acc_4, batchOperationUpdateActivityOptionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1394,24 +1394,24 @@ instance ProtoMessage BatchOperationUpdateActivityOptions where
         , fdNumber = 4
         , fdTypeDesc = MessageType "temporal.api.activity.v1.ActivityOptions"
         , fdLabel = LabelOptional
-        , fdGet = batchOperationUpdateActivityOptionsActivityoptions
-        , fdSet = \v m -> m { batchOperationUpdateActivityOptionsActivityoptions = v }
+        , fdGet = batchOperationUpdateActivityOptionsActivityOptions
+        , fdSet = \v m -> m { batchOperationUpdateActivityOptionsActivityOptions = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "update_mask"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.FieldMask"
         , fdLabel = LabelOptional
-        , fdGet = batchOperationUpdateActivityOptionsUpdatemask
-        , fdSet = \v m -> m { batchOperationUpdateActivityOptionsUpdatemask = v }
+        , fdGet = batchOperationUpdateActivityOptionsUpdateMask
+        , fdSet = \v m -> m { batchOperationUpdateActivityOptionsUpdateMask = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "restore_original"
         , fdNumber = 6
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = batchOperationUpdateActivityOptionsRestoreoriginal
-        , fdSet = \v m -> m { batchOperationUpdateActivityOptionsRestoreoriginal = v }
+        , fdGet = batchOperationUpdateActivityOptionsRestoreOriginal
+        , fdSet = \v m -> m { batchOperationUpdateActivityOptionsRestoreOriginal = v }
         })
     ]
 
@@ -1419,28 +1419,28 @@ instance Aeson.ToJSON BatchOperationUpdateActivityOptions where
   toJSON msg = jsonObject
       [ "identity" .=: msg.batchOperationUpdateActivityOptionsIdentity
       , "activity" .=: msg.batchOperationUpdateActivityOptionsActivity
-      , "activityOptions" .=: msg.batchOperationUpdateActivityOptionsActivityoptions
-      , "updateMask" .=: msg.batchOperationUpdateActivityOptionsUpdatemask
-      , "restoreOriginal" .=: msg.batchOperationUpdateActivityOptionsRestoreoriginal
+      , "activityOptions" .=: msg.batchOperationUpdateActivityOptionsActivityOptions
+      , "updateMask" .=: msg.batchOperationUpdateActivityOptionsUpdateMask
+      , "restoreOriginal" .=: msg.batchOperationUpdateActivityOptionsRestoreOriginal
       ]
 
 instance Aeson.FromJSON BatchOperationUpdateActivityOptions where
   parseJSON = Aeson.withObject "BatchOperationUpdateActivityOptions" $ \obj -> do
     fld_batchOperationUpdateActivityOptionsIdentity <- parseFieldMaybe obj "identity"
     fld_batchOperationUpdateActivityOptionsActivity <- parseFieldMaybe obj "activity"
-    fld_batchOperationUpdateActivityOptionsActivityoptions <- parseFieldMaybe obj "activityOptions"
-    fld_batchOperationUpdateActivityOptionsUpdatemask <- parseFieldMaybe obj "updateMask"
-    fld_batchOperationUpdateActivityOptionsRestoreoriginal <- parseFieldMaybe obj "restoreOriginal"
+    fld_batchOperationUpdateActivityOptionsActivityOptions <- parseFieldMaybe obj "activityOptions"
+    fld_batchOperationUpdateActivityOptionsUpdateMask <- parseFieldMaybe obj "updateMask"
+    fld_batchOperationUpdateActivityOptionsRestoreOriginal <- parseFieldMaybe obj "restoreOriginal"
     pure defaultBatchOperationUpdateActivityOptions
       { batchOperationUpdateActivityOptionsIdentity = maybe (batchOperationUpdateActivityOptionsIdentity defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsIdentity
       , batchOperationUpdateActivityOptionsActivity = maybe (batchOperationUpdateActivityOptionsActivity defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsActivity
-      , batchOperationUpdateActivityOptionsActivityoptions = maybe (batchOperationUpdateActivityOptionsActivityoptions defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsActivityoptions
-      , batchOperationUpdateActivityOptionsUpdatemask = maybe (batchOperationUpdateActivityOptionsUpdatemask defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsUpdatemask
-      , batchOperationUpdateActivityOptionsRestoreoriginal = maybe (batchOperationUpdateActivityOptionsRestoreoriginal defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsRestoreoriginal
+      , batchOperationUpdateActivityOptionsActivityOptions = maybe (batchOperationUpdateActivityOptionsActivityOptions defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsActivityOptions
+      , batchOperationUpdateActivityOptionsUpdateMask = maybe (batchOperationUpdateActivityOptionsUpdateMask defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsUpdateMask
+      , batchOperationUpdateActivityOptionsRestoreOriginal = maybe (batchOperationUpdateActivityOptionsRestoreOriginal defaultBatchOperationUpdateActivityOptions) id fld_batchOperationUpdateActivityOptionsRestoreOriginal
       }
 
 instance Hashable BatchOperationUpdateActivityOptions where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationUpdateActivityOptionsIdentity) msg.batchOperationUpdateActivityOptionsActivity) msg.batchOperationUpdateActivityOptionsActivityoptions) msg.batchOperationUpdateActivityOptionsUpdatemask) msg.batchOperationUpdateActivityOptionsRestoreoriginal
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.batchOperationUpdateActivityOptionsIdentity) msg.batchOperationUpdateActivityOptionsActivity) msg.batchOperationUpdateActivityOptionsActivityOptions) msg.batchOperationUpdateActivityOptionsUpdateMask) msg.batchOperationUpdateActivityOptionsRestoreOriginal
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

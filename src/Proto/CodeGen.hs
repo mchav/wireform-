@@ -585,7 +585,12 @@ genMessageDataDecl ctx scope msg =
     ]
 
 unknownFieldAccessor :: [Text] -> Text
-unknownFieldAccessor scope = scopedFieldName scope "_unknownFields"
+unknownFieldAccessor scope =
+  let prefix = case scope of
+        []    -> ""
+        [s]   -> lowerFirst (hsTypeName s)
+        _     -> lowerFirst (T.intercalate "" (fmap hsTypeName scope))
+  in prefix <> "UnknownFields"
 
 extractFieldDecl :: GenCtx -> [Text] -> MessageElement -> [Doc ann]
 extractFieldDecl ctx scope = \case
@@ -1824,7 +1829,12 @@ scopedFieldName scope fName =
         []    -> ""
         [s]   -> lowerFirst (hsTypeName s)
         _     -> lowerFirst (T.intercalate "" (fmap hsTypeName scope))
-  in escapeReserved (prefix <> titleCase (snakeToCamel fName))
+  in escapeReserved (prefix <> upperFirst (snakeToCamel fName))
+
+upperFirst :: Text -> Text
+upperFirst s = case T.uncons s of
+  Just (c, rest) -> T.cons (toUpper c) rest
+  Nothing        -> s
 
 scopedEnumCon :: [Text] -> Text -> Text
 scopedEnumCon scope valName =

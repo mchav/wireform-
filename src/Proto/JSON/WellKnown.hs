@@ -138,7 +138,7 @@ parseRfc3339 t = do
           Right Timestamp
             { timestampSeconds = totalSecs
             , timestampNanos = ptNanos time
-            , timestampUnknownfields = []
+            , timestampUnknownFields = []
             }
 
 data ParsedDate = ParsedDate
@@ -220,7 +220,7 @@ parseDuration t = do
         Right Duration
           { durationSeconds = fromIntegral secs
           , durationNanos = nanos
-          , durationUnknownfields = []
+          , durationUnknownFields = []
           }
 
 -- FieldMask: comma-separated paths
@@ -230,8 +230,8 @@ fieldMaskToJSON fm = Aeson.String (T.intercalate "," (V.toList (fieldMaskPaths f
 
 fieldMaskFromJSON :: Aeson.Value -> Either String FieldMask
 fieldMaskFromJSON (Aeson.String t)
-  | T.null t  = Right (FieldMask { fieldMaskPaths = V.empty, fieldMaskUnknownfields = [] })
-  | otherwise = Right (FieldMask { fieldMaskPaths = V.fromList (T.splitOn "," t), fieldMaskUnknownfields = [] })
+  | T.null t  = Right (FieldMask { fieldMaskPaths = V.empty, fieldMaskUnknownFields = [] })
+  | otherwise = Right (FieldMask { fieldMaskPaths = V.fromList (T.splitOn "," t), fieldMaskUnknownFields = [] })
 fieldMaskFromJSON _ = Left "Expected string for FieldMask"
 
 -- Struct/Value: native JSON

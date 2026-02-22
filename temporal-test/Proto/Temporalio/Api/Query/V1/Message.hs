@@ -62,35 +62,35 @@ fileDescriptorProtoBytes = case Base16.decode "0a2374656d706f72616c2f6170692f717
 
 
 data WorkflowQuery = WorkflowQuery
-  { workflowQueryQuerytype :: !Text
-  , workflowQueryQueryargs :: !(Maybe TE_Common_V1_Message.Payloads)
+  { workflowQueryQueryType :: !Text
+  , workflowQueryQueryArgs :: !(Maybe TE_Common_V1_Message.Payloads)
   , workflowQueryHeader :: !(Maybe TE_Common_V1_Message.Header)
-  , workflowQueryUnknownfields :: ![UnknownField]
+  , workflowQueryUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowQuery :: WorkflowQuery
 defaultWorkflowQuery = WorkflowQuery
-  { workflowQueryQuerytype = ""
-  , workflowQueryQueryargs = Nothing
+  { workflowQueryQueryType = ""
+  , workflowQueryQueryArgs = Nothing
   , workflowQueryHeader = Nothing
-  , workflowQueryUnknownfields = []
+  , workflowQueryUnknownFields = []
   }
 
 instance MessageEncode WorkflowQuery where
   buildMessage msg =
-    (if msg.workflowQueryQuerytype == T.empty then mempty else encodeFieldString 1 msg.workflowQueryQuerytype)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowQueryQueryargs)
+    (if msg.workflowQueryQueryType == T.empty then mempty else encodeFieldString 1 msg.workflowQueryQueryType)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowQueryQueryArgs)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workflowQueryHeader)
-    <> encodeUnknownFields msg.workflowQueryUnknownfields
+    <> encodeUnknownFields msg.workflowQueryUnknownFields
 
 instance MessageSize WorkflowQuery where
   messageSize msg =
-    (if msg.workflowQueryQuerytype == T.empty then 0 else fieldTextSize 1 msg.workflowQueryQuerytype)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowQueryQueryargs)
+    (if msg.workflowQueryQueryType == T.empty then 0 else fieldTextSize 1 msg.workflowQueryQueryType)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowQueryQueryArgs)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workflowQueryHeader)
-    + unknownFieldsSize msg.workflowQueryUnknownfields
+    + unknownFieldsSize msg.workflowQueryUnknownFields
 
 instance MessageDecode WorkflowQuery where
   {-# INLINE messageDecoder #-}
@@ -99,7 +99,7 @@ instance MessageDecode WorkflowQuery where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowQuery {workflowQueryQuerytype = acc_0, workflowQueryQueryargs = acc_1, workflowQueryHeader = acc_2, workflowQueryUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowQuery {workflowQueryQueryType = acc_0, workflowQueryQueryArgs = acc_1, workflowQueryHeader = acc_2, workflowQueryUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -128,15 +128,15 @@ instance ProtoMessage WorkflowQuery where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowQueryQuerytype
-        , fdSet = \v m -> m { workflowQueryQuerytype = v }
+        , fdGet = workflowQueryQueryType
+        , fdSet = \v m -> m { workflowQueryQueryType = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "query_args"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.common.v1.Payloads"
         , fdLabel = LabelOptional
-        , fdGet = workflowQueryQueryargs
-        , fdSet = \v m -> m { workflowQueryQueryargs = v }
+        , fdGet = workflowQueryQueryArgs
+        , fdSet = \v m -> m { workflowQueryQueryArgs = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "header"
@@ -150,59 +150,59 @@ instance ProtoMessage WorkflowQuery where
 
 instance Aeson.ToJSON WorkflowQuery where
   toJSON msg = jsonObject
-      [ "queryType" .=: msg.workflowQueryQuerytype
-      , "queryArgs" .=: msg.workflowQueryQueryargs
+      [ "queryType" .=: msg.workflowQueryQueryType
+      , "queryArgs" .=: msg.workflowQueryQueryArgs
       , "header" .=: msg.workflowQueryHeader
       ]
 
 instance Aeson.FromJSON WorkflowQuery where
   parseJSON = Aeson.withObject "WorkflowQuery" $ \obj -> do
-    fld_workflowQueryQuerytype <- parseFieldMaybe obj "queryType"
-    fld_workflowQueryQueryargs <- parseFieldMaybe obj "queryArgs"
+    fld_workflowQueryQueryType <- parseFieldMaybe obj "queryType"
+    fld_workflowQueryQueryArgs <- parseFieldMaybe obj "queryArgs"
     fld_workflowQueryHeader <- parseFieldMaybe obj "header"
     pure defaultWorkflowQuery
-      { workflowQueryQuerytype = maybe (workflowQueryQuerytype defaultWorkflowQuery) id fld_workflowQueryQuerytype
-      , workflowQueryQueryargs = maybe (workflowQueryQueryargs defaultWorkflowQuery) id fld_workflowQueryQueryargs
+      { workflowQueryQueryType = maybe (workflowQueryQueryType defaultWorkflowQuery) id fld_workflowQueryQueryType
+      , workflowQueryQueryArgs = maybe (workflowQueryQueryArgs defaultWorkflowQuery) id fld_workflowQueryQueryArgs
       , workflowQueryHeader = maybe (workflowQueryHeader defaultWorkflowQuery) id fld_workflowQueryHeader
       }
 
 instance Hashable WorkflowQuery where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowQueryQuerytype) msg.workflowQueryQueryargs) msg.workflowQueryHeader
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowQueryQueryType) msg.workflowQueryQueryArgs) msg.workflowQueryHeader
 
 data WorkflowQueryResult = WorkflowQueryResult
-  { workflowQueryResultResulttype :: !TE_Enums_V1_Query.QueryResultType
+  { workflowQueryResultResultType :: !TE_Enums_V1_Query.QueryResultType
   , workflowQueryResultAnswer :: !(Maybe TE_Common_V1_Message.Payloads)
-  , workflowQueryResultErrormessage :: !Text
+  , workflowQueryResultErrorMessage :: !Text
   , workflowQueryResultFailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , workflowQueryResultUnknownfields :: ![UnknownField]
+  , workflowQueryResultUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowQueryResult :: WorkflowQueryResult
 defaultWorkflowQueryResult = WorkflowQueryResult
-  { workflowQueryResultResulttype = (toEnum 0)
+  { workflowQueryResultResultType = (toEnum 0)
   , workflowQueryResultAnswer = Nothing
-  , workflowQueryResultErrormessage = ""
+  , workflowQueryResultErrorMessage = ""
   , workflowQueryResultFailure = Nothing
-  , workflowQueryResultUnknownfields = []
+  , workflowQueryResultUnknownFields = []
   }
 
 instance MessageEncode WorkflowQueryResult where
   buildMessage msg =
-    (if fromEnum msg.workflowQueryResultResulttype == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.workflowQueryResultResulttype)))
+    (if fromEnum msg.workflowQueryResultResultType == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.workflowQueryResultResultType)))
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workflowQueryResultAnswer)
-    <> (if msg.workflowQueryResultErrormessage == T.empty then mempty else encodeFieldString 3 msg.workflowQueryResultErrormessage)
+    <> (if msg.workflowQueryResultErrorMessage == T.empty then mempty else encodeFieldString 3 msg.workflowQueryResultErrorMessage)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workflowQueryResultFailure)
-    <> encodeUnknownFields msg.workflowQueryResultUnknownfields
+    <> encodeUnknownFields msg.workflowQueryResultUnknownFields
 
 instance MessageSize WorkflowQueryResult where
   messageSize msg =
-    (if fromEnum msg.workflowQueryResultResulttype == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.workflowQueryResultResulttype)))
+    (if fromEnum msg.workflowQueryResultResultType == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.workflowQueryResultResultType)))
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workflowQueryResultAnswer)
-    + (if msg.workflowQueryResultErrormessage == T.empty then 0 else fieldTextSize 3 msg.workflowQueryResultErrormessage)
+    + (if msg.workflowQueryResultErrorMessage == T.empty then 0 else fieldTextSize 3 msg.workflowQueryResultErrorMessage)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workflowQueryResultFailure)
-    + unknownFieldsSize msg.workflowQueryResultUnknownfields
+    + unknownFieldsSize msg.workflowQueryResultUnknownFields
 
 instance MessageDecode WorkflowQueryResult where
   {-# INLINE messageDecoder #-}
@@ -211,7 +211,7 @@ instance MessageDecode WorkflowQueryResult where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowQueryResult {workflowQueryResultResulttype = acc_0, workflowQueryResultAnswer = acc_1, workflowQueryResultErrormessage = acc_2, workflowQueryResultFailure = acc_3, workflowQueryResultUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowQueryResult {workflowQueryResultResultType = acc_0, workflowQueryResultAnswer = acc_1, workflowQueryResultErrorMessage = acc_2, workflowQueryResultFailure = acc_3, workflowQueryResultUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -243,8 +243,8 @@ instance ProtoMessage WorkflowQueryResult where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.QueryResultType"
         , fdLabel = LabelOptional
-        , fdGet = workflowQueryResultResulttype
-        , fdSet = \v m -> m { workflowQueryResultResulttype = v }
+        , fdGet = workflowQueryResultResultType
+        , fdSet = \v m -> m { workflowQueryResultResultType = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "answer"
         , fdNumber = 2
@@ -258,8 +258,8 @@ instance ProtoMessage WorkflowQueryResult where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowQueryResultErrormessage
-        , fdSet = \v m -> m { workflowQueryResultErrormessage = v }
+        , fdGet = workflowQueryResultErrorMessage
+        , fdSet = \v m -> m { workflowQueryResultErrorMessage = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "failure"
@@ -273,31 +273,31 @@ instance ProtoMessage WorkflowQueryResult where
 
 instance Aeson.ToJSON WorkflowQueryResult where
   toJSON msg = jsonObject
-      [ "resultType" .=: msg.workflowQueryResultResulttype
+      [ "resultType" .=: msg.workflowQueryResultResultType
       , "answer" .=: msg.workflowQueryResultAnswer
-      , "errorMessage" .=: msg.workflowQueryResultErrormessage
+      , "errorMessage" .=: msg.workflowQueryResultErrorMessage
       , "failure" .=: msg.workflowQueryResultFailure
       ]
 
 instance Aeson.FromJSON WorkflowQueryResult where
   parseJSON = Aeson.withObject "WorkflowQueryResult" $ \obj -> do
-    fld_workflowQueryResultResulttype <- parseFieldMaybe obj "resultType"
+    fld_workflowQueryResultResultType <- parseFieldMaybe obj "resultType"
     fld_workflowQueryResultAnswer <- parseFieldMaybe obj "answer"
-    fld_workflowQueryResultErrormessage <- parseFieldMaybe obj "errorMessage"
+    fld_workflowQueryResultErrorMessage <- parseFieldMaybe obj "errorMessage"
     fld_workflowQueryResultFailure <- parseFieldMaybe obj "failure"
     pure defaultWorkflowQueryResult
-      { workflowQueryResultResulttype = maybe (workflowQueryResultResulttype defaultWorkflowQueryResult) id fld_workflowQueryResultResulttype
+      { workflowQueryResultResultType = maybe (workflowQueryResultResultType defaultWorkflowQueryResult) id fld_workflowQueryResultResultType
       , workflowQueryResultAnswer = maybe (workflowQueryResultAnswer defaultWorkflowQueryResult) id fld_workflowQueryResultAnswer
-      , workflowQueryResultErrormessage = maybe (workflowQueryResultErrormessage defaultWorkflowQueryResult) id fld_workflowQueryResultErrormessage
+      , workflowQueryResultErrorMessage = maybe (workflowQueryResultErrorMessage defaultWorkflowQueryResult) id fld_workflowQueryResultErrorMessage
       , workflowQueryResultFailure = maybe (workflowQueryResultFailure defaultWorkflowQueryResult) id fld_workflowQueryResultFailure
       }
 
 instance Hashable WorkflowQueryResult where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowQueryResultResulttype) msg.workflowQueryResultAnswer) msg.workflowQueryResultErrormessage) msg.workflowQueryResultFailure
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workflowQueryResultResultType) msg.workflowQueryResultAnswer) msg.workflowQueryResultErrorMessage) msg.workflowQueryResultFailure
 
 data QueryRejected = QueryRejected
   { queryRejectedStatus :: !TE_Enums_V1_Workflow.WorkflowExecutionStatus
-  , queryRejectedUnknownfields :: ![UnknownField]
+  , queryRejectedUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -305,18 +305,18 @@ data QueryRejected = QueryRejected
 defaultQueryRejected :: QueryRejected
 defaultQueryRejected = QueryRejected
   { queryRejectedStatus = (toEnum 0)
-  , queryRejectedUnknownfields = []
+  , queryRejectedUnknownFields = []
   }
 
 instance MessageEncode QueryRejected where
   buildMessage msg =
     (if fromEnum msg.queryRejectedStatus == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.queryRejectedStatus)))
-    <> encodeUnknownFields msg.queryRejectedUnknownfields
+    <> encodeUnknownFields msg.queryRejectedUnknownFields
 
 instance MessageSize QueryRejected where
   messageSize msg =
     (if fromEnum msg.queryRejectedStatus == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.queryRejectedStatus)))
-    + unknownFieldsSize msg.queryRejectedUnknownfields
+    + unknownFieldsSize msg.queryRejectedUnknownFields
 
 instance MessageDecode QueryRejected where
   {-# INLINE messageDecoder #-}
@@ -325,7 +325,7 @@ instance MessageDecode QueryRejected where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (QueryRejected {queryRejectedStatus = acc_0, queryRejectedUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (QueryRejected {queryRejectedStatus = acc_0, queryRejectedUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum

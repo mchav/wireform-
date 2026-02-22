@@ -65,75 +65,75 @@ fileDescriptorProtoBytes = case Base16.decode "0a2574656d706f72616c2f6170692f636
 
 
 data ScheduleActivityTaskCommandAttributes = ScheduleActivityTaskCommandAttributes
-  { scheduleActivityTaskCommandAttributesActivityid :: !Text
-  , scheduleActivityTaskCommandAttributesActivitytype :: !(Maybe TE_Common_V1_Message.ActivityType)
-  , scheduleActivityTaskCommandAttributesTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
+  { scheduleActivityTaskCommandAttributesActivityId :: !Text
+  , scheduleActivityTaskCommandAttributesActivityType :: !(Maybe TE_Common_V1_Message.ActivityType)
+  , scheduleActivityTaskCommandAttributesTaskQueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
   , scheduleActivityTaskCommandAttributesHeader :: !(Maybe TE_Common_V1_Message.Header)
   , scheduleActivityTaskCommandAttributesInput :: !(Maybe TE_Common_V1_Message.Payloads)
-  , scheduleActivityTaskCommandAttributesScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , scheduleActivityTaskCommandAttributesScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
-  , scheduleActivityTaskCommandAttributesStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , scheduleActivityTaskCommandAttributesHeartbeattimeout :: !(Maybe PB_Duration.Duration)
-  , scheduleActivityTaskCommandAttributesRetrypolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
-  , scheduleActivityTaskCommandAttributesRequesteagerexecution :: {-# UNPACK #-} !Bool
-  , scheduleActivityTaskCommandAttributesUseworkflowbuildid :: {-# UNPACK #-} !Bool
+  , scheduleActivityTaskCommandAttributesScheduleToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleActivityTaskCommandAttributesScheduleToStartTimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleActivityTaskCommandAttributesStartToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleActivityTaskCommandAttributesHeartbeatTimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleActivityTaskCommandAttributesRetryPolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
+  , scheduleActivityTaskCommandAttributesRequestEagerExecution :: {-# UNPACK #-} !Bool
+  , scheduleActivityTaskCommandAttributesUseWorkflowBuildId :: {-# UNPACK #-} !Bool
   , scheduleActivityTaskCommandAttributesPriority :: !(Maybe TE_Common_V1_Message.Priority)
-  , scheduleActivityTaskCommandAttributesUnknownfields :: ![UnknownField]
+  , scheduleActivityTaskCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultScheduleActivityTaskCommandAttributes :: ScheduleActivityTaskCommandAttributes
 defaultScheduleActivityTaskCommandAttributes = ScheduleActivityTaskCommandAttributes
-  { scheduleActivityTaskCommandAttributesActivityid = ""
-  , scheduleActivityTaskCommandAttributesActivitytype = Nothing
-  , scheduleActivityTaskCommandAttributesTaskqueue = Nothing
+  { scheduleActivityTaskCommandAttributesActivityId = ""
+  , scheduleActivityTaskCommandAttributesActivityType = Nothing
+  , scheduleActivityTaskCommandAttributesTaskQueue = Nothing
   , scheduleActivityTaskCommandAttributesHeader = Nothing
   , scheduleActivityTaskCommandAttributesInput = Nothing
-  , scheduleActivityTaskCommandAttributesScheduletoclosetimeout = Nothing
-  , scheduleActivityTaskCommandAttributesScheduletostarttimeout = Nothing
-  , scheduleActivityTaskCommandAttributesStarttoclosetimeout = Nothing
-  , scheduleActivityTaskCommandAttributesHeartbeattimeout = Nothing
-  , scheduleActivityTaskCommandAttributesRetrypolicy = Nothing
-  , scheduleActivityTaskCommandAttributesRequesteagerexecution = False
-  , scheduleActivityTaskCommandAttributesUseworkflowbuildid = False
+  , scheduleActivityTaskCommandAttributesScheduleToCloseTimeout = Nothing
+  , scheduleActivityTaskCommandAttributesScheduleToStartTimeout = Nothing
+  , scheduleActivityTaskCommandAttributesStartToCloseTimeout = Nothing
+  , scheduleActivityTaskCommandAttributesHeartbeatTimeout = Nothing
+  , scheduleActivityTaskCommandAttributesRetryPolicy = Nothing
+  , scheduleActivityTaskCommandAttributesRequestEagerExecution = False
+  , scheduleActivityTaskCommandAttributesUseWorkflowBuildId = False
   , scheduleActivityTaskCommandAttributesPriority = Nothing
-  , scheduleActivityTaskCommandAttributesUnknownfields = []
+  , scheduleActivityTaskCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode ScheduleActivityTaskCommandAttributes where
   buildMessage msg =
-    (if msg.scheduleActivityTaskCommandAttributesActivityid == T.empty then mempty else encodeFieldString 1 msg.scheduleActivityTaskCommandAttributesActivityid)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.scheduleActivityTaskCommandAttributesActivitytype)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.scheduleActivityTaskCommandAttributesTaskqueue)
+    (if msg.scheduleActivityTaskCommandAttributesActivityId == T.empty then mempty else encodeFieldString 1 msg.scheduleActivityTaskCommandAttributesActivityId)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.scheduleActivityTaskCommandAttributesActivityType)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.scheduleActivityTaskCommandAttributesTaskQueue)
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.scheduleActivityTaskCommandAttributesHeader)
     <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.scheduleActivityTaskCommandAttributesInput)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.scheduleActivityTaskCommandAttributesScheduletoclosetimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.scheduleActivityTaskCommandAttributesScheduletostarttimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.scheduleActivityTaskCommandAttributesStarttoclosetimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.scheduleActivityTaskCommandAttributesHeartbeattimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.scheduleActivityTaskCommandAttributesRetrypolicy)
-    <> (if msg.scheduleActivityTaskCommandAttributesRequesteagerexecution == False then mempty else encodeFieldBool 12 msg.scheduleActivityTaskCommandAttributesRequesteagerexecution)
-    <> (if msg.scheduleActivityTaskCommandAttributesUseworkflowbuildid == False then mempty else encodeFieldBool 13 msg.scheduleActivityTaskCommandAttributesUseworkflowbuildid)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.scheduleActivityTaskCommandAttributesScheduleToCloseTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.scheduleActivityTaskCommandAttributesScheduleToStartTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.scheduleActivityTaskCommandAttributesStartToCloseTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.scheduleActivityTaskCommandAttributesHeartbeatTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.scheduleActivityTaskCommandAttributesRetryPolicy)
+    <> (if msg.scheduleActivityTaskCommandAttributesRequestEagerExecution == False then mempty else encodeFieldBool 12 msg.scheduleActivityTaskCommandAttributesRequestEagerExecution)
+    <> (if msg.scheduleActivityTaskCommandAttributesUseWorkflowBuildId == False then mempty else encodeFieldBool 13 msg.scheduleActivityTaskCommandAttributesUseWorkflowBuildId)
     <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.scheduleActivityTaskCommandAttributesPriority)
-    <> encodeUnknownFields msg.scheduleActivityTaskCommandAttributesUnknownfields
+    <> encodeUnknownFields msg.scheduleActivityTaskCommandAttributesUnknownFields
 
 instance MessageSize ScheduleActivityTaskCommandAttributes where
   messageSize msg =
-    (if msg.scheduleActivityTaskCommandAttributesActivityid == T.empty then 0 else fieldTextSize 1 msg.scheduleActivityTaskCommandAttributesActivityid)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.scheduleActivityTaskCommandAttributesActivitytype)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.scheduleActivityTaskCommandAttributesTaskqueue)
+    (if msg.scheduleActivityTaskCommandAttributesActivityId == T.empty then 0 else fieldTextSize 1 msg.scheduleActivityTaskCommandAttributesActivityId)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.scheduleActivityTaskCommandAttributesActivityType)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.scheduleActivityTaskCommandAttributesTaskQueue)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.scheduleActivityTaskCommandAttributesHeader)
     + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.scheduleActivityTaskCommandAttributesInput)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.scheduleActivityTaskCommandAttributesScheduletoclosetimeout)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.scheduleActivityTaskCommandAttributesScheduletostarttimeout)
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.scheduleActivityTaskCommandAttributesStarttoclosetimeout)
-    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.scheduleActivityTaskCommandAttributesHeartbeattimeout)
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.scheduleActivityTaskCommandAttributesRetrypolicy)
-    + (if msg.scheduleActivityTaskCommandAttributesRequesteagerexecution == False then 0 else fieldBoolSize 12)
-    + (if msg.scheduleActivityTaskCommandAttributesUseworkflowbuildid == False then 0 else fieldBoolSize 13)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.scheduleActivityTaskCommandAttributesScheduleToCloseTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.scheduleActivityTaskCommandAttributesScheduleToStartTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.scheduleActivityTaskCommandAttributesStartToCloseTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.scheduleActivityTaskCommandAttributesHeartbeatTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.scheduleActivityTaskCommandAttributesRetryPolicy)
+    + (if msg.scheduleActivityTaskCommandAttributesRequestEagerExecution == False then 0 else fieldBoolSize 12)
+    + (if msg.scheduleActivityTaskCommandAttributesUseWorkflowBuildId == False then 0 else fieldBoolSize 13)
     + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.scheduleActivityTaskCommandAttributesPriority)
-    + unknownFieldsSize msg.scheduleActivityTaskCommandAttributesUnknownfields
+    + unknownFieldsSize msg.scheduleActivityTaskCommandAttributesUnknownFields
 
 instance MessageDecode ScheduleActivityTaskCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -142,7 +142,7 @@ instance MessageDecode ScheduleActivityTaskCommandAttributes where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleActivityTaskCommandAttributes {scheduleActivityTaskCommandAttributesActivityid = acc_0, scheduleActivityTaskCommandAttributesActivitytype = acc_1, scheduleActivityTaskCommandAttributesTaskqueue = acc_2, scheduleActivityTaskCommandAttributesHeader = acc_3, scheduleActivityTaskCommandAttributesInput = acc_4, scheduleActivityTaskCommandAttributesScheduletoclosetimeout = acc_5, scheduleActivityTaskCommandAttributesScheduletostarttimeout = acc_6, scheduleActivityTaskCommandAttributesStarttoclosetimeout = acc_7, scheduleActivityTaskCommandAttributesHeartbeattimeout = acc_8, scheduleActivityTaskCommandAttributesRetrypolicy = acc_9, scheduleActivityTaskCommandAttributesRequesteagerexecution = acc_10, scheduleActivityTaskCommandAttributesUseworkflowbuildid = acc_11, scheduleActivityTaskCommandAttributesPriority = acc_12, scheduleActivityTaskCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleActivityTaskCommandAttributes {scheduleActivityTaskCommandAttributesActivityId = acc_0, scheduleActivityTaskCommandAttributesActivityType = acc_1, scheduleActivityTaskCommandAttributesTaskQueue = acc_2, scheduleActivityTaskCommandAttributesHeader = acc_3, scheduleActivityTaskCommandAttributesInput = acc_4, scheduleActivityTaskCommandAttributesScheduleToCloseTimeout = acc_5, scheduleActivityTaskCommandAttributesScheduleToStartTimeout = acc_6, scheduleActivityTaskCommandAttributesStartToCloseTimeout = acc_7, scheduleActivityTaskCommandAttributesHeartbeatTimeout = acc_8, scheduleActivityTaskCommandAttributesRetryPolicy = acc_9, scheduleActivityTaskCommandAttributesRequestEagerExecution = acc_10, scheduleActivityTaskCommandAttributesUseWorkflowBuildId = acc_11, scheduleActivityTaskCommandAttributesPriority = acc_12, scheduleActivityTaskCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -201,23 +201,23 @@ instance ProtoMessage ScheduleActivityTaskCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesActivityid
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesActivityid = v }
+        , fdGet = scheduleActivityTaskCommandAttributesActivityId
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesActivityId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "activity_type"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.common.v1.ActivityType"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesActivitytype
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesActivitytype = v }
+        , fdGet = scheduleActivityTaskCommandAttributesActivityType
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesActivityType = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "task_queue"
         , fdNumber = 4
         , fdTypeDesc = MessageType "temporal.api.taskqueue.v1.TaskQueue"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesTaskqueue
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesTaskqueue = v }
+        , fdGet = scheduleActivityTaskCommandAttributesTaskQueue
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesTaskQueue = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "header"
@@ -240,56 +240,56 @@ instance ProtoMessage ScheduleActivityTaskCommandAttributes where
         , fdNumber = 7
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesScheduletoclosetimeout
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesScheduletoclosetimeout = v }
+        , fdGet = scheduleActivityTaskCommandAttributesScheduleToCloseTimeout
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesScheduleToCloseTimeout = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "schedule_to_start_timeout"
         , fdNumber = 8
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesScheduletostarttimeout
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesScheduletostarttimeout = v }
+        , fdGet = scheduleActivityTaskCommandAttributesScheduleToStartTimeout
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesScheduleToStartTimeout = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "start_to_close_timeout"
         , fdNumber = 9
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesStarttoclosetimeout
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesStarttoclosetimeout = v }
+        , fdGet = scheduleActivityTaskCommandAttributesStartToCloseTimeout
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesStartToCloseTimeout = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "heartbeat_timeout"
         , fdNumber = 10
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesHeartbeattimeout
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesHeartbeattimeout = v }
+        , fdGet = scheduleActivityTaskCommandAttributesHeartbeatTimeout
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesHeartbeatTimeout = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "retry_policy"
         , fdNumber = 11
         , fdTypeDesc = MessageType "temporal.api.common.v1.RetryPolicy"
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesRetrypolicy
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesRetrypolicy = v }
+        , fdGet = scheduleActivityTaskCommandAttributesRetryPolicy
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesRetryPolicy = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "request_eager_execution"
         , fdNumber = 12
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesRequesteagerexecution
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesRequesteagerexecution = v }
+        , fdGet = scheduleActivityTaskCommandAttributesRequestEagerExecution
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesRequestEagerExecution = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "use_workflow_build_id"
         , fdNumber = 13
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = scheduleActivityTaskCommandAttributesUseworkflowbuildid
-        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesUseworkflowbuildid = v }
+        , fdGet = scheduleActivityTaskCommandAttributesUseWorkflowBuildId
+        , fdSet = \v m -> m { scheduleActivityTaskCommandAttributesUseWorkflowBuildId = v }
         })
     , (14, SomeField FieldDescriptor
         { fdName = "priority"
@@ -303,77 +303,77 @@ instance ProtoMessage ScheduleActivityTaskCommandAttributes where
 
 instance Aeson.ToJSON ScheduleActivityTaskCommandAttributes where
   toJSON msg = jsonObject
-      [ "activityId" .=: msg.scheduleActivityTaskCommandAttributesActivityid
-      , "activityType" .=: msg.scheduleActivityTaskCommandAttributesActivitytype
-      , "taskQueue" .=: msg.scheduleActivityTaskCommandAttributesTaskqueue
+      [ "activityId" .=: msg.scheduleActivityTaskCommandAttributesActivityId
+      , "activityType" .=: msg.scheduleActivityTaskCommandAttributesActivityType
+      , "taskQueue" .=: msg.scheduleActivityTaskCommandAttributesTaskQueue
       , "header" .=: msg.scheduleActivityTaskCommandAttributesHeader
       , "input" .=: msg.scheduleActivityTaskCommandAttributesInput
-      , "scheduleToCloseTimeout" .=: msg.scheduleActivityTaskCommandAttributesScheduletoclosetimeout
-      , "scheduleToStartTimeout" .=: msg.scheduleActivityTaskCommandAttributesScheduletostarttimeout
-      , "startToCloseTimeout" .=: msg.scheduleActivityTaskCommandAttributesStarttoclosetimeout
-      , "heartbeatTimeout" .=: msg.scheduleActivityTaskCommandAttributesHeartbeattimeout
-      , "retryPolicy" .=: msg.scheduleActivityTaskCommandAttributesRetrypolicy
-      , "requestEagerExecution" .=: msg.scheduleActivityTaskCommandAttributesRequesteagerexecution
-      , "useWorkflowBuildId" .=: msg.scheduleActivityTaskCommandAttributesUseworkflowbuildid
+      , "scheduleToCloseTimeout" .=: msg.scheduleActivityTaskCommandAttributesScheduleToCloseTimeout
+      , "scheduleToStartTimeout" .=: msg.scheduleActivityTaskCommandAttributesScheduleToStartTimeout
+      , "startToCloseTimeout" .=: msg.scheduleActivityTaskCommandAttributesStartToCloseTimeout
+      , "heartbeatTimeout" .=: msg.scheduleActivityTaskCommandAttributesHeartbeatTimeout
+      , "retryPolicy" .=: msg.scheduleActivityTaskCommandAttributesRetryPolicy
+      , "requestEagerExecution" .=: msg.scheduleActivityTaskCommandAttributesRequestEagerExecution
+      , "useWorkflowBuildId" .=: msg.scheduleActivityTaskCommandAttributesUseWorkflowBuildId
       , "priority" .=: msg.scheduleActivityTaskCommandAttributesPriority
       ]
 
 instance Aeson.FromJSON ScheduleActivityTaskCommandAttributes where
   parseJSON = Aeson.withObject "ScheduleActivityTaskCommandAttributes" $ \obj -> do
-    fld_scheduleActivityTaskCommandAttributesActivityid <- parseFieldMaybe obj "activityId"
-    fld_scheduleActivityTaskCommandAttributesActivitytype <- parseFieldMaybe obj "activityType"
-    fld_scheduleActivityTaskCommandAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_scheduleActivityTaskCommandAttributesActivityId <- parseFieldMaybe obj "activityId"
+    fld_scheduleActivityTaskCommandAttributesActivityType <- parseFieldMaybe obj "activityType"
+    fld_scheduleActivityTaskCommandAttributesTaskQueue <- parseFieldMaybe obj "taskQueue"
     fld_scheduleActivityTaskCommandAttributesHeader <- parseFieldMaybe obj "header"
     fld_scheduleActivityTaskCommandAttributesInput <- parseFieldMaybe obj "input"
-    fld_scheduleActivityTaskCommandAttributesScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
-    fld_scheduleActivityTaskCommandAttributesScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
-    fld_scheduleActivityTaskCommandAttributesStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
-    fld_scheduleActivityTaskCommandAttributesHeartbeattimeout <- parseFieldMaybe obj "heartbeatTimeout"
-    fld_scheduleActivityTaskCommandAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
-    fld_scheduleActivityTaskCommandAttributesRequesteagerexecution <- parseFieldMaybe obj "requestEagerExecution"
-    fld_scheduleActivityTaskCommandAttributesUseworkflowbuildid <- parseFieldMaybe obj "useWorkflowBuildId"
+    fld_scheduleActivityTaskCommandAttributesScheduleToCloseTimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_scheduleActivityTaskCommandAttributesScheduleToStartTimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_scheduleActivityTaskCommandAttributesStartToCloseTimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_scheduleActivityTaskCommandAttributesHeartbeatTimeout <- parseFieldMaybe obj "heartbeatTimeout"
+    fld_scheduleActivityTaskCommandAttributesRetryPolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_scheduleActivityTaskCommandAttributesRequestEagerExecution <- parseFieldMaybe obj "requestEagerExecution"
+    fld_scheduleActivityTaskCommandAttributesUseWorkflowBuildId <- parseFieldMaybe obj "useWorkflowBuildId"
     fld_scheduleActivityTaskCommandAttributesPriority <- parseFieldMaybe obj "priority"
     pure defaultScheduleActivityTaskCommandAttributes
-      { scheduleActivityTaskCommandAttributesActivityid = maybe (scheduleActivityTaskCommandAttributesActivityid defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesActivityid
-      , scheduleActivityTaskCommandAttributesActivitytype = maybe (scheduleActivityTaskCommandAttributesActivitytype defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesActivitytype
-      , scheduleActivityTaskCommandAttributesTaskqueue = maybe (scheduleActivityTaskCommandAttributesTaskqueue defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesTaskqueue
+      { scheduleActivityTaskCommandAttributesActivityId = maybe (scheduleActivityTaskCommandAttributesActivityId defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesActivityId
+      , scheduleActivityTaskCommandAttributesActivityType = maybe (scheduleActivityTaskCommandAttributesActivityType defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesActivityType
+      , scheduleActivityTaskCommandAttributesTaskQueue = maybe (scheduleActivityTaskCommandAttributesTaskQueue defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesTaskQueue
       , scheduleActivityTaskCommandAttributesHeader = maybe (scheduleActivityTaskCommandAttributesHeader defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesHeader
       , scheduleActivityTaskCommandAttributesInput = maybe (scheduleActivityTaskCommandAttributesInput defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesInput
-      , scheduleActivityTaskCommandAttributesScheduletoclosetimeout = maybe (scheduleActivityTaskCommandAttributesScheduletoclosetimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesScheduletoclosetimeout
-      , scheduleActivityTaskCommandAttributesScheduletostarttimeout = maybe (scheduleActivityTaskCommandAttributesScheduletostarttimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesScheduletostarttimeout
-      , scheduleActivityTaskCommandAttributesStarttoclosetimeout = maybe (scheduleActivityTaskCommandAttributesStarttoclosetimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesStarttoclosetimeout
-      , scheduleActivityTaskCommandAttributesHeartbeattimeout = maybe (scheduleActivityTaskCommandAttributesHeartbeattimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesHeartbeattimeout
-      , scheduleActivityTaskCommandAttributesRetrypolicy = maybe (scheduleActivityTaskCommandAttributesRetrypolicy defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesRetrypolicy
-      , scheduleActivityTaskCommandAttributesRequesteagerexecution = maybe (scheduleActivityTaskCommandAttributesRequesteagerexecution defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesRequesteagerexecution
-      , scheduleActivityTaskCommandAttributesUseworkflowbuildid = maybe (scheduleActivityTaskCommandAttributesUseworkflowbuildid defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesUseworkflowbuildid
+      , scheduleActivityTaskCommandAttributesScheduleToCloseTimeout = maybe (scheduleActivityTaskCommandAttributesScheduleToCloseTimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesScheduleToCloseTimeout
+      , scheduleActivityTaskCommandAttributesScheduleToStartTimeout = maybe (scheduleActivityTaskCommandAttributesScheduleToStartTimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesScheduleToStartTimeout
+      , scheduleActivityTaskCommandAttributesStartToCloseTimeout = maybe (scheduleActivityTaskCommandAttributesStartToCloseTimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesStartToCloseTimeout
+      , scheduleActivityTaskCommandAttributesHeartbeatTimeout = maybe (scheduleActivityTaskCommandAttributesHeartbeatTimeout defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesHeartbeatTimeout
+      , scheduleActivityTaskCommandAttributesRetryPolicy = maybe (scheduleActivityTaskCommandAttributesRetryPolicy defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesRetryPolicy
+      , scheduleActivityTaskCommandAttributesRequestEagerExecution = maybe (scheduleActivityTaskCommandAttributesRequestEagerExecution defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesRequestEagerExecution
+      , scheduleActivityTaskCommandAttributesUseWorkflowBuildId = maybe (scheduleActivityTaskCommandAttributesUseWorkflowBuildId defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesUseWorkflowBuildId
       , scheduleActivityTaskCommandAttributesPriority = maybe (scheduleActivityTaskCommandAttributesPriority defaultScheduleActivityTaskCommandAttributes) id fld_scheduleActivityTaskCommandAttributesPriority
       }
 
 instance Hashable ScheduleActivityTaskCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleActivityTaskCommandAttributesActivityid) msg.scheduleActivityTaskCommandAttributesActivitytype) msg.scheduleActivityTaskCommandAttributesTaskqueue) msg.scheduleActivityTaskCommandAttributesHeader) msg.scheduleActivityTaskCommandAttributesInput) msg.scheduleActivityTaskCommandAttributesScheduletoclosetimeout) msg.scheduleActivityTaskCommandAttributesScheduletostarttimeout) msg.scheduleActivityTaskCommandAttributesStarttoclosetimeout) msg.scheduleActivityTaskCommandAttributesHeartbeattimeout) msg.scheduleActivityTaskCommandAttributesRetrypolicy) msg.scheduleActivityTaskCommandAttributesRequesteagerexecution) msg.scheduleActivityTaskCommandAttributesUseworkflowbuildid) msg.scheduleActivityTaskCommandAttributesPriority
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleActivityTaskCommandAttributesActivityId) msg.scheduleActivityTaskCommandAttributesActivityType) msg.scheduleActivityTaskCommandAttributesTaskQueue) msg.scheduleActivityTaskCommandAttributesHeader) msg.scheduleActivityTaskCommandAttributesInput) msg.scheduleActivityTaskCommandAttributesScheduleToCloseTimeout) msg.scheduleActivityTaskCommandAttributesScheduleToStartTimeout) msg.scheduleActivityTaskCommandAttributesStartToCloseTimeout) msg.scheduleActivityTaskCommandAttributesHeartbeatTimeout) msg.scheduleActivityTaskCommandAttributesRetryPolicy) msg.scheduleActivityTaskCommandAttributesRequestEagerExecution) msg.scheduleActivityTaskCommandAttributesUseWorkflowBuildId) msg.scheduleActivityTaskCommandAttributesPriority
 
 data RequestCancelActivityTaskCommandAttributes = RequestCancelActivityTaskCommandAttributes
-  { requestCancelActivityTaskCommandAttributesScheduledeventid :: {-# UNPACK #-} !Int64
-  , requestCancelActivityTaskCommandAttributesUnknownfields :: ![UnknownField]
+  { requestCancelActivityTaskCommandAttributesScheduledEventId :: {-# UNPACK #-} !Int64
+  , requestCancelActivityTaskCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRequestCancelActivityTaskCommandAttributes :: RequestCancelActivityTaskCommandAttributes
 defaultRequestCancelActivityTaskCommandAttributes = RequestCancelActivityTaskCommandAttributes
-  { requestCancelActivityTaskCommandAttributesScheduledeventid = 0
-  , requestCancelActivityTaskCommandAttributesUnknownfields = []
+  { requestCancelActivityTaskCommandAttributesScheduledEventId = 0
+  , requestCancelActivityTaskCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode RequestCancelActivityTaskCommandAttributes where
   buildMessage msg =
-    (if msg.requestCancelActivityTaskCommandAttributesScheduledeventid == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.requestCancelActivityTaskCommandAttributesScheduledeventid))
-    <> encodeUnknownFields msg.requestCancelActivityTaskCommandAttributesUnknownfields
+    (if msg.requestCancelActivityTaskCommandAttributesScheduledEventId == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.requestCancelActivityTaskCommandAttributesScheduledEventId))
+    <> encodeUnknownFields msg.requestCancelActivityTaskCommandAttributesUnknownFields
 
 instance MessageSize RequestCancelActivityTaskCommandAttributes where
   messageSize msg =
-    (if msg.requestCancelActivityTaskCommandAttributesScheduledeventid == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.requestCancelActivityTaskCommandAttributesScheduledeventid))
-    + unknownFieldsSize msg.requestCancelActivityTaskCommandAttributesUnknownfields
+    (if msg.requestCancelActivityTaskCommandAttributesScheduledEventId == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.requestCancelActivityTaskCommandAttributesScheduledEventId))
+    + unknownFieldsSize msg.requestCancelActivityTaskCommandAttributesUnknownFields
 
 instance MessageDecode RequestCancelActivityTaskCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -382,7 +382,7 @@ instance MessageDecode RequestCancelActivityTaskCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RequestCancelActivityTaskCommandAttributes {requestCancelActivityTaskCommandAttributesScheduledeventid = acc_0, requestCancelActivityTaskCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RequestCancelActivityTaskCommandAttributes {requestCancelActivityTaskCommandAttributesScheduledEventId = acc_0, requestCancelActivityTaskCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -405,53 +405,53 @@ instance ProtoMessage RequestCancelActivityTaskCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = requestCancelActivityTaskCommandAttributesScheduledeventid
-        , fdSet = \v m -> m { requestCancelActivityTaskCommandAttributesScheduledeventid = v }
+        , fdGet = requestCancelActivityTaskCommandAttributesScheduledEventId
+        , fdSet = \v m -> m { requestCancelActivityTaskCommandAttributesScheduledEventId = v }
         })
     ]
 
 instance Aeson.ToJSON RequestCancelActivityTaskCommandAttributes where
   toJSON msg = jsonObject
-      [ "scheduledEventId" .=: msg.requestCancelActivityTaskCommandAttributesScheduledeventid
+      [ "scheduledEventId" .=: msg.requestCancelActivityTaskCommandAttributesScheduledEventId
 
       ]
 
 instance Aeson.FromJSON RequestCancelActivityTaskCommandAttributes where
   parseJSON = Aeson.withObject "RequestCancelActivityTaskCommandAttributes" $ \obj -> do
-    fld_requestCancelActivityTaskCommandAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_requestCancelActivityTaskCommandAttributesScheduledEventId <- parseFieldMaybe obj "scheduledEventId"
     pure defaultRequestCancelActivityTaskCommandAttributes
-      { requestCancelActivityTaskCommandAttributesScheduledeventid = maybe (requestCancelActivityTaskCommandAttributesScheduledeventid defaultRequestCancelActivityTaskCommandAttributes) id fld_requestCancelActivityTaskCommandAttributesScheduledeventid
+      { requestCancelActivityTaskCommandAttributesScheduledEventId = maybe (requestCancelActivityTaskCommandAttributesScheduledEventId defaultRequestCancelActivityTaskCommandAttributes) id fld_requestCancelActivityTaskCommandAttributesScheduledEventId
       }
 
 instance Hashable RequestCancelActivityTaskCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.requestCancelActivityTaskCommandAttributesScheduledeventid
+  hashWithSalt salt msg = hashWithSalt (salt) msg.requestCancelActivityTaskCommandAttributesScheduledEventId
 
 data StartTimerCommandAttributes = StartTimerCommandAttributes
-  { startTimerCommandAttributesTimerid :: !Text
-  , startTimerCommandAttributesStarttofiretimeout :: !(Maybe PB_Duration.Duration)
-  , startTimerCommandAttributesUnknownfields :: ![UnknownField]
+  { startTimerCommandAttributesTimerId :: !Text
+  , startTimerCommandAttributesStartToFireTimeout :: !(Maybe PB_Duration.Duration)
+  , startTimerCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultStartTimerCommandAttributes :: StartTimerCommandAttributes
 defaultStartTimerCommandAttributes = StartTimerCommandAttributes
-  { startTimerCommandAttributesTimerid = ""
-  , startTimerCommandAttributesStarttofiretimeout = Nothing
-  , startTimerCommandAttributesUnknownfields = []
+  { startTimerCommandAttributesTimerId = ""
+  , startTimerCommandAttributesStartToFireTimeout = Nothing
+  , startTimerCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode StartTimerCommandAttributes where
   buildMessage msg =
-    (if msg.startTimerCommandAttributesTimerid == T.empty then mempty else encodeFieldString 1 msg.startTimerCommandAttributesTimerid)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.startTimerCommandAttributesStarttofiretimeout)
-    <> encodeUnknownFields msg.startTimerCommandAttributesUnknownfields
+    (if msg.startTimerCommandAttributesTimerId == T.empty then mempty else encodeFieldString 1 msg.startTimerCommandAttributesTimerId)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.startTimerCommandAttributesStartToFireTimeout)
+    <> encodeUnknownFields msg.startTimerCommandAttributesUnknownFields
 
 instance MessageSize StartTimerCommandAttributes where
   messageSize msg =
-    (if msg.startTimerCommandAttributesTimerid == T.empty then 0 else fieldTextSize 1 msg.startTimerCommandAttributesTimerid)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.startTimerCommandAttributesStarttofiretimeout)
-    + unknownFieldsSize msg.startTimerCommandAttributesUnknownfields
+    (if msg.startTimerCommandAttributesTimerId == T.empty then 0 else fieldTextSize 1 msg.startTimerCommandAttributesTimerId)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.startTimerCommandAttributesStartToFireTimeout)
+    + unknownFieldsSize msg.startTimerCommandAttributesUnknownFields
 
 instance MessageDecode StartTimerCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -460,7 +460,7 @@ instance MessageDecode StartTimerCommandAttributes where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StartTimerCommandAttributes {startTimerCommandAttributesTimerid = acc_0, startTimerCommandAttributesStarttofiretimeout = acc_1, startTimerCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StartTimerCommandAttributes {startTimerCommandAttributesTimerId = acc_0, startTimerCommandAttributesStartToFireTimeout = acc_1, startTimerCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -486,39 +486,39 @@ instance ProtoMessage StartTimerCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = startTimerCommandAttributesTimerid
-        , fdSet = \v m -> m { startTimerCommandAttributesTimerid = v }
+        , fdGet = startTimerCommandAttributesTimerId
+        , fdSet = \v m -> m { startTimerCommandAttributesTimerId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "start_to_fire_timeout"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = startTimerCommandAttributesStarttofiretimeout
-        , fdSet = \v m -> m { startTimerCommandAttributesStarttofiretimeout = v }
+        , fdGet = startTimerCommandAttributesStartToFireTimeout
+        , fdSet = \v m -> m { startTimerCommandAttributesStartToFireTimeout = v }
         })
     ]
 
 instance Aeson.ToJSON StartTimerCommandAttributes where
   toJSON msg = jsonObject
-      [ "timerId" .=: msg.startTimerCommandAttributesTimerid
-      , "startToFireTimeout" .=: msg.startTimerCommandAttributesStarttofiretimeout
+      [ "timerId" .=: msg.startTimerCommandAttributesTimerId
+      , "startToFireTimeout" .=: msg.startTimerCommandAttributesStartToFireTimeout
       ]
 
 instance Aeson.FromJSON StartTimerCommandAttributes where
   parseJSON = Aeson.withObject "StartTimerCommandAttributes" $ \obj -> do
-    fld_startTimerCommandAttributesTimerid <- parseFieldMaybe obj "timerId"
-    fld_startTimerCommandAttributesStarttofiretimeout <- parseFieldMaybe obj "startToFireTimeout"
+    fld_startTimerCommandAttributesTimerId <- parseFieldMaybe obj "timerId"
+    fld_startTimerCommandAttributesStartToFireTimeout <- parseFieldMaybe obj "startToFireTimeout"
     pure defaultStartTimerCommandAttributes
-      { startTimerCommandAttributesTimerid = maybe (startTimerCommandAttributesTimerid defaultStartTimerCommandAttributes) id fld_startTimerCommandAttributesTimerid
-      , startTimerCommandAttributesStarttofiretimeout = maybe (startTimerCommandAttributesStarttofiretimeout defaultStartTimerCommandAttributes) id fld_startTimerCommandAttributesStarttofiretimeout
+      { startTimerCommandAttributesTimerId = maybe (startTimerCommandAttributesTimerId defaultStartTimerCommandAttributes) id fld_startTimerCommandAttributesTimerId
+      , startTimerCommandAttributesStartToFireTimeout = maybe (startTimerCommandAttributesStartToFireTimeout defaultStartTimerCommandAttributes) id fld_startTimerCommandAttributesStartToFireTimeout
       }
 
 instance Hashable StartTimerCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.startTimerCommandAttributesTimerid) msg.startTimerCommandAttributesStarttofiretimeout
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.startTimerCommandAttributesTimerId) msg.startTimerCommandAttributesStartToFireTimeout
 
 data CompleteWorkflowExecutionCommandAttributes = CompleteWorkflowExecutionCommandAttributes
   { completeWorkflowExecutionCommandAttributesResult :: !(Maybe TE_Common_V1_Message.Payloads)
-  , completeWorkflowExecutionCommandAttributesUnknownfields :: ![UnknownField]
+  , completeWorkflowExecutionCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -526,18 +526,18 @@ data CompleteWorkflowExecutionCommandAttributes = CompleteWorkflowExecutionComma
 defaultCompleteWorkflowExecutionCommandAttributes :: CompleteWorkflowExecutionCommandAttributes
 defaultCompleteWorkflowExecutionCommandAttributes = CompleteWorkflowExecutionCommandAttributes
   { completeWorkflowExecutionCommandAttributesResult = Nothing
-  , completeWorkflowExecutionCommandAttributesUnknownfields = []
+  , completeWorkflowExecutionCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode CompleteWorkflowExecutionCommandAttributes where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.completeWorkflowExecutionCommandAttributesResult)
-    <> encodeUnknownFields msg.completeWorkflowExecutionCommandAttributesUnknownfields
+    <> encodeUnknownFields msg.completeWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageSize CompleteWorkflowExecutionCommandAttributes where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.completeWorkflowExecutionCommandAttributesResult)
-    + unknownFieldsSize msg.completeWorkflowExecutionCommandAttributesUnknownfields
+    + unknownFieldsSize msg.completeWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageDecode CompleteWorkflowExecutionCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -546,7 +546,7 @@ instance MessageDecode CompleteWorkflowExecutionCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CompleteWorkflowExecutionCommandAttributes {completeWorkflowExecutionCommandAttributesResult = acc_0, completeWorkflowExecutionCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CompleteWorkflowExecutionCommandAttributes {completeWorkflowExecutionCommandAttributesResult = acc_0, completeWorkflowExecutionCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -592,7 +592,7 @@ instance Hashable CompleteWorkflowExecutionCommandAttributes where
 
 data FailWorkflowExecutionCommandAttributes = FailWorkflowExecutionCommandAttributes
   { failWorkflowExecutionCommandAttributesFailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , failWorkflowExecutionCommandAttributesUnknownfields :: ![UnknownField]
+  , failWorkflowExecutionCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -600,18 +600,18 @@ data FailWorkflowExecutionCommandAttributes = FailWorkflowExecutionCommandAttrib
 defaultFailWorkflowExecutionCommandAttributes :: FailWorkflowExecutionCommandAttributes
 defaultFailWorkflowExecutionCommandAttributes = FailWorkflowExecutionCommandAttributes
   { failWorkflowExecutionCommandAttributesFailure = Nothing
-  , failWorkflowExecutionCommandAttributesUnknownfields = []
+  , failWorkflowExecutionCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode FailWorkflowExecutionCommandAttributes where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.failWorkflowExecutionCommandAttributesFailure)
-    <> encodeUnknownFields msg.failWorkflowExecutionCommandAttributesUnknownfields
+    <> encodeUnknownFields msg.failWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageSize FailWorkflowExecutionCommandAttributes where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.failWorkflowExecutionCommandAttributesFailure)
-    + unknownFieldsSize msg.failWorkflowExecutionCommandAttributesUnknownfields
+    + unknownFieldsSize msg.failWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageDecode FailWorkflowExecutionCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -620,7 +620,7 @@ instance MessageDecode FailWorkflowExecutionCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (FailWorkflowExecutionCommandAttributes {failWorkflowExecutionCommandAttributesFailure = acc_0, failWorkflowExecutionCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (FailWorkflowExecutionCommandAttributes {failWorkflowExecutionCommandAttributesFailure = acc_0, failWorkflowExecutionCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -665,27 +665,27 @@ instance Hashable FailWorkflowExecutionCommandAttributes where
   hashWithSalt salt msg = hashWithSalt (salt) msg.failWorkflowExecutionCommandAttributesFailure
 
 data CancelTimerCommandAttributes = CancelTimerCommandAttributes
-  { cancelTimerCommandAttributesTimerid :: !Text
-  , cancelTimerCommandAttributesUnknownfields :: ![UnknownField]
+  { cancelTimerCommandAttributesTimerId :: !Text
+  , cancelTimerCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultCancelTimerCommandAttributes :: CancelTimerCommandAttributes
 defaultCancelTimerCommandAttributes = CancelTimerCommandAttributes
-  { cancelTimerCommandAttributesTimerid = ""
-  , cancelTimerCommandAttributesUnknownfields = []
+  { cancelTimerCommandAttributesTimerId = ""
+  , cancelTimerCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode CancelTimerCommandAttributes where
   buildMessage msg =
-    (if msg.cancelTimerCommandAttributesTimerid == T.empty then mempty else encodeFieldString 1 msg.cancelTimerCommandAttributesTimerid)
-    <> encodeUnknownFields msg.cancelTimerCommandAttributesUnknownfields
+    (if msg.cancelTimerCommandAttributesTimerId == T.empty then mempty else encodeFieldString 1 msg.cancelTimerCommandAttributesTimerId)
+    <> encodeUnknownFields msg.cancelTimerCommandAttributesUnknownFields
 
 instance MessageSize CancelTimerCommandAttributes where
   messageSize msg =
-    (if msg.cancelTimerCommandAttributesTimerid == T.empty then 0 else fieldTextSize 1 msg.cancelTimerCommandAttributesTimerid)
-    + unknownFieldsSize msg.cancelTimerCommandAttributesUnknownfields
+    (if msg.cancelTimerCommandAttributesTimerId == T.empty then 0 else fieldTextSize 1 msg.cancelTimerCommandAttributesTimerId)
+    + unknownFieldsSize msg.cancelTimerCommandAttributesUnknownFields
 
 instance MessageDecode CancelTimerCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -694,7 +694,7 @@ instance MessageDecode CancelTimerCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CancelTimerCommandAttributes {cancelTimerCommandAttributesTimerid = acc_0, cancelTimerCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CancelTimerCommandAttributes {cancelTimerCommandAttributesTimerId = acc_0, cancelTimerCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -717,30 +717,30 @@ instance ProtoMessage CancelTimerCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = cancelTimerCommandAttributesTimerid
-        , fdSet = \v m -> m { cancelTimerCommandAttributesTimerid = v }
+        , fdGet = cancelTimerCommandAttributesTimerId
+        , fdSet = \v m -> m { cancelTimerCommandAttributesTimerId = v }
         })
     ]
 
 instance Aeson.ToJSON CancelTimerCommandAttributes where
   toJSON msg = jsonObject
-      [ "timerId" .=: msg.cancelTimerCommandAttributesTimerid
+      [ "timerId" .=: msg.cancelTimerCommandAttributesTimerId
 
       ]
 
 instance Aeson.FromJSON CancelTimerCommandAttributes where
   parseJSON = Aeson.withObject "CancelTimerCommandAttributes" $ \obj -> do
-    fld_cancelTimerCommandAttributesTimerid <- parseFieldMaybe obj "timerId"
+    fld_cancelTimerCommandAttributesTimerId <- parseFieldMaybe obj "timerId"
     pure defaultCancelTimerCommandAttributes
-      { cancelTimerCommandAttributesTimerid = maybe (cancelTimerCommandAttributesTimerid defaultCancelTimerCommandAttributes) id fld_cancelTimerCommandAttributesTimerid
+      { cancelTimerCommandAttributesTimerId = maybe (cancelTimerCommandAttributesTimerId defaultCancelTimerCommandAttributes) id fld_cancelTimerCommandAttributesTimerId
       }
 
 instance Hashable CancelTimerCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.cancelTimerCommandAttributesTimerid
+  hashWithSalt salt msg = hashWithSalt (salt) msg.cancelTimerCommandAttributesTimerId
 
 data CancelWorkflowExecutionCommandAttributes = CancelWorkflowExecutionCommandAttributes
   { cancelWorkflowExecutionCommandAttributesDetails :: !(Maybe TE_Common_V1_Message.Payloads)
-  , cancelWorkflowExecutionCommandAttributesUnknownfields :: ![UnknownField]
+  , cancelWorkflowExecutionCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -748,18 +748,18 @@ data CancelWorkflowExecutionCommandAttributes = CancelWorkflowExecutionCommandAt
 defaultCancelWorkflowExecutionCommandAttributes :: CancelWorkflowExecutionCommandAttributes
 defaultCancelWorkflowExecutionCommandAttributes = CancelWorkflowExecutionCommandAttributes
   { cancelWorkflowExecutionCommandAttributesDetails = Nothing
-  , cancelWorkflowExecutionCommandAttributesUnknownfields = []
+  , cancelWorkflowExecutionCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode CancelWorkflowExecutionCommandAttributes where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.cancelWorkflowExecutionCommandAttributesDetails)
-    <> encodeUnknownFields msg.cancelWorkflowExecutionCommandAttributesUnknownfields
+    <> encodeUnknownFields msg.cancelWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageSize CancelWorkflowExecutionCommandAttributes where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.cancelWorkflowExecutionCommandAttributesDetails)
-    + unknownFieldsSize msg.cancelWorkflowExecutionCommandAttributesUnknownfields
+    + unknownFieldsSize msg.cancelWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageDecode CancelWorkflowExecutionCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -768,7 +768,7 @@ instance MessageDecode CancelWorkflowExecutionCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CancelWorkflowExecutionCommandAttributes {cancelWorkflowExecutionCommandAttributesDetails = acc_0, cancelWorkflowExecutionCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CancelWorkflowExecutionCommandAttributes {cancelWorkflowExecutionCommandAttributesDetails = acc_0, cancelWorkflowExecutionCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -814,12 +814,12 @@ instance Hashable CancelWorkflowExecutionCommandAttributes where
 
 data RequestCancelExternalWorkflowExecutionCommandAttributes = RequestCancelExternalWorkflowExecutionCommandAttributes
   { requestCancelExternalWorkflowExecutionCommandAttributesNamespace :: !Text
-  , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid :: !Text
-  , requestCancelExternalWorkflowExecutionCommandAttributesRunid :: !Text
+  , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId :: !Text
+  , requestCancelExternalWorkflowExecutionCommandAttributesRunId :: !Text
   , requestCancelExternalWorkflowExecutionCommandAttributesControl :: !Text
-  , requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly :: {-# UNPACK #-} !Bool
+  , requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly :: {-# UNPACK #-} !Bool
   , requestCancelExternalWorkflowExecutionCommandAttributesReason :: !Text
-  , requestCancelExternalWorkflowExecutionCommandAttributesUnknownfields :: ![UnknownField]
+  , requestCancelExternalWorkflowExecutionCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -827,33 +827,33 @@ data RequestCancelExternalWorkflowExecutionCommandAttributes = RequestCancelExte
 defaultRequestCancelExternalWorkflowExecutionCommandAttributes :: RequestCancelExternalWorkflowExecutionCommandAttributes
 defaultRequestCancelExternalWorkflowExecutionCommandAttributes = RequestCancelExternalWorkflowExecutionCommandAttributes
   { requestCancelExternalWorkflowExecutionCommandAttributesNamespace = ""
-  , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid = ""
-  , requestCancelExternalWorkflowExecutionCommandAttributesRunid = ""
+  , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId = ""
+  , requestCancelExternalWorkflowExecutionCommandAttributesRunId = ""
   , requestCancelExternalWorkflowExecutionCommandAttributesControl = ""
-  , requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly = False
+  , requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly = False
   , requestCancelExternalWorkflowExecutionCommandAttributesReason = ""
-  , requestCancelExternalWorkflowExecutionCommandAttributesUnknownfields = []
+  , requestCancelExternalWorkflowExecutionCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode RequestCancelExternalWorkflowExecutionCommandAttributes where
   buildMessage msg =
     (if msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace == T.empty then mempty else encodeFieldString 1 msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace)
-    <> (if msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid == T.empty then mempty else encodeFieldString 2 msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid)
-    <> (if msg.requestCancelExternalWorkflowExecutionCommandAttributesRunid == T.empty then mempty else encodeFieldString 3 msg.requestCancelExternalWorkflowExecutionCommandAttributesRunid)
+    <> (if msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId == T.empty then mempty else encodeFieldString 2 msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId)
+    <> (if msg.requestCancelExternalWorkflowExecutionCommandAttributesRunId == T.empty then mempty else encodeFieldString 3 msg.requestCancelExternalWorkflowExecutionCommandAttributesRunId)
     <> (if msg.requestCancelExternalWorkflowExecutionCommandAttributesControl == T.empty then mempty else encodeFieldString 4 msg.requestCancelExternalWorkflowExecutionCommandAttributesControl)
-    <> (if msg.requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly == False then mempty else encodeFieldBool 5 msg.requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly)
+    <> (if msg.requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly == False then mempty else encodeFieldBool 5 msg.requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly)
     <> (if msg.requestCancelExternalWorkflowExecutionCommandAttributesReason == T.empty then mempty else encodeFieldString 6 msg.requestCancelExternalWorkflowExecutionCommandAttributesReason)
-    <> encodeUnknownFields msg.requestCancelExternalWorkflowExecutionCommandAttributesUnknownfields
+    <> encodeUnknownFields msg.requestCancelExternalWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageSize RequestCancelExternalWorkflowExecutionCommandAttributes where
   messageSize msg =
     (if msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace == T.empty then 0 else fieldTextSize 1 msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace)
-    + (if msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid == T.empty then 0 else fieldTextSize 2 msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid)
-    + (if msg.requestCancelExternalWorkflowExecutionCommandAttributesRunid == T.empty then 0 else fieldTextSize 3 msg.requestCancelExternalWorkflowExecutionCommandAttributesRunid)
+    + (if msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId == T.empty then 0 else fieldTextSize 2 msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId)
+    + (if msg.requestCancelExternalWorkflowExecutionCommandAttributesRunId == T.empty then 0 else fieldTextSize 3 msg.requestCancelExternalWorkflowExecutionCommandAttributesRunId)
     + (if msg.requestCancelExternalWorkflowExecutionCommandAttributesControl == T.empty then 0 else fieldTextSize 4 msg.requestCancelExternalWorkflowExecutionCommandAttributesControl)
-    + (if msg.requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly == False then 0 else fieldBoolSize 5)
+    + (if msg.requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly == False then 0 else fieldBoolSize 5)
     + (if msg.requestCancelExternalWorkflowExecutionCommandAttributesReason == T.empty then 0 else fieldTextSize 6 msg.requestCancelExternalWorkflowExecutionCommandAttributesReason)
-    + unknownFieldsSize msg.requestCancelExternalWorkflowExecutionCommandAttributesUnknownfields
+    + unknownFieldsSize msg.requestCancelExternalWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageDecode RequestCancelExternalWorkflowExecutionCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -862,7 +862,7 @@ instance MessageDecode RequestCancelExternalWorkflowExecutionCommandAttributes w
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RequestCancelExternalWorkflowExecutionCommandAttributes {requestCancelExternalWorkflowExecutionCommandAttributesNamespace = acc_0, requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid = acc_1, requestCancelExternalWorkflowExecutionCommandAttributesRunid = acc_2, requestCancelExternalWorkflowExecutionCommandAttributesControl = acc_3, requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly = acc_4, requestCancelExternalWorkflowExecutionCommandAttributesReason = acc_5, requestCancelExternalWorkflowExecutionCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RequestCancelExternalWorkflowExecutionCommandAttributes {requestCancelExternalWorkflowExecutionCommandAttributesNamespace = acc_0, requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId = acc_1, requestCancelExternalWorkflowExecutionCommandAttributesRunId = acc_2, requestCancelExternalWorkflowExecutionCommandAttributesControl = acc_3, requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly = acc_4, requestCancelExternalWorkflowExecutionCommandAttributesReason = acc_5, requestCancelExternalWorkflowExecutionCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -907,16 +907,16 @@ instance ProtoMessage RequestCancelExternalWorkflowExecutionCommandAttributes wh
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid
-        , fdSet = \v m -> m { requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid = v }
+        , fdGet = requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId
+        , fdSet = \v m -> m { requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = requestCancelExternalWorkflowExecutionCommandAttributesRunid
-        , fdSet = \v m -> m { requestCancelExternalWorkflowExecutionCommandAttributesRunid = v }
+        , fdGet = requestCancelExternalWorkflowExecutionCommandAttributesRunId
+        , fdSet = \v m -> m { requestCancelExternalWorkflowExecutionCommandAttributesRunId = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "control"
@@ -931,8 +931,8 @@ instance ProtoMessage RequestCancelExternalWorkflowExecutionCommandAttributes wh
         , fdNumber = 5
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly
-        , fdSet = \v m -> m { requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly = v }
+        , fdGet = requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly
+        , fdSet = \v m -> m { requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "reason"
@@ -947,42 +947,42 @@ instance ProtoMessage RequestCancelExternalWorkflowExecutionCommandAttributes wh
 instance Aeson.ToJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace
-      , "workflowId" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid
-      , "runId" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesRunid
+      , "workflowId" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId
+      , "runId" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesRunId
       , "control" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesControl
-      , "childWorkflowOnly" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly
+      , "childWorkflowOnly" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly
       , "reason" .=: msg.requestCancelExternalWorkflowExecutionCommandAttributesReason
       ]
 
 instance Aeson.FromJSON RequestCancelExternalWorkflowExecutionCommandAttributes where
   parseJSON = Aeson.withObject "RequestCancelExternalWorkflowExecutionCommandAttributes" $ \obj -> do
     fld_requestCancelExternalWorkflowExecutionCommandAttributesNamespace <- parseFieldMaybe obj "namespace"
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid <- parseFieldMaybe obj "workflowId"
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesRunid <- parseFieldMaybe obj "runId"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId <- parseFieldMaybe obj "workflowId"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesRunId <- parseFieldMaybe obj "runId"
     fld_requestCancelExternalWorkflowExecutionCommandAttributesControl <- parseFieldMaybe obj "control"
-    fld_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly <- parseFieldMaybe obj "childWorkflowOnly"
+    fld_requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly <- parseFieldMaybe obj "childWorkflowOnly"
     fld_requestCancelExternalWorkflowExecutionCommandAttributesReason <- parseFieldMaybe obj "reason"
     pure defaultRequestCancelExternalWorkflowExecutionCommandAttributes
       { requestCancelExternalWorkflowExecutionCommandAttributesNamespace = maybe (requestCancelExternalWorkflowExecutionCommandAttributesNamespace defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesNamespace
-      , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid = maybe (requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid
-      , requestCancelExternalWorkflowExecutionCommandAttributesRunid = maybe (requestCancelExternalWorkflowExecutionCommandAttributesRunid defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesRunid
+      , requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId = maybe (requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId
+      , requestCancelExternalWorkflowExecutionCommandAttributesRunId = maybe (requestCancelExternalWorkflowExecutionCommandAttributesRunId defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesRunId
       , requestCancelExternalWorkflowExecutionCommandAttributesControl = maybe (requestCancelExternalWorkflowExecutionCommandAttributesControl defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesControl
-      , requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly = maybe (requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly
+      , requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly = maybe (requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly
       , requestCancelExternalWorkflowExecutionCommandAttributesReason = maybe (requestCancelExternalWorkflowExecutionCommandAttributesReason defaultRequestCancelExternalWorkflowExecutionCommandAttributes) id fld_requestCancelExternalWorkflowExecutionCommandAttributesReason
       }
 
 instance Hashable RequestCancelExternalWorkflowExecutionCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace) msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowid) msg.requestCancelExternalWorkflowExecutionCommandAttributesRunid) msg.requestCancelExternalWorkflowExecutionCommandAttributesControl) msg.requestCancelExternalWorkflowExecutionCommandAttributesChildworkflowonly) msg.requestCancelExternalWorkflowExecutionCommandAttributesReason
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.requestCancelExternalWorkflowExecutionCommandAttributesNamespace) msg.requestCancelExternalWorkflowExecutionCommandAttributesWorkflowId) msg.requestCancelExternalWorkflowExecutionCommandAttributesRunId) msg.requestCancelExternalWorkflowExecutionCommandAttributesControl) msg.requestCancelExternalWorkflowExecutionCommandAttributesChildWorkflowOnly) msg.requestCancelExternalWorkflowExecutionCommandAttributesReason
 
 data SignalExternalWorkflowExecutionCommandAttributes = SignalExternalWorkflowExecutionCommandAttributes
   { signalExternalWorkflowExecutionCommandAttributesNamespace :: !Text
   , signalExternalWorkflowExecutionCommandAttributesExecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
-  , signalExternalWorkflowExecutionCommandAttributesSignalname :: !Text
+  , signalExternalWorkflowExecutionCommandAttributesSignalName :: !Text
   , signalExternalWorkflowExecutionCommandAttributesInput :: !(Maybe TE_Common_V1_Message.Payloads)
   , signalExternalWorkflowExecutionCommandAttributesControl :: !Text
-  , signalExternalWorkflowExecutionCommandAttributesChildworkflowonly :: {-# UNPACK #-} !Bool
+  , signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly :: {-# UNPACK #-} !Bool
   , signalExternalWorkflowExecutionCommandAttributesHeader :: !(Maybe TE_Common_V1_Message.Header)
-  , signalExternalWorkflowExecutionCommandAttributesUnknownfields :: ![UnknownField]
+  , signalExternalWorkflowExecutionCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -991,35 +991,35 @@ defaultSignalExternalWorkflowExecutionCommandAttributes :: SignalExternalWorkflo
 defaultSignalExternalWorkflowExecutionCommandAttributes = SignalExternalWorkflowExecutionCommandAttributes
   { signalExternalWorkflowExecutionCommandAttributesNamespace = ""
   , signalExternalWorkflowExecutionCommandAttributesExecution = Nothing
-  , signalExternalWorkflowExecutionCommandAttributesSignalname = ""
+  , signalExternalWorkflowExecutionCommandAttributesSignalName = ""
   , signalExternalWorkflowExecutionCommandAttributesInput = Nothing
   , signalExternalWorkflowExecutionCommandAttributesControl = ""
-  , signalExternalWorkflowExecutionCommandAttributesChildworkflowonly = False
+  , signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly = False
   , signalExternalWorkflowExecutionCommandAttributesHeader = Nothing
-  , signalExternalWorkflowExecutionCommandAttributesUnknownfields = []
+  , signalExternalWorkflowExecutionCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode SignalExternalWorkflowExecutionCommandAttributes where
   buildMessage msg =
     (if msg.signalExternalWorkflowExecutionCommandAttributesNamespace == T.empty then mempty else encodeFieldString 1 msg.signalExternalWorkflowExecutionCommandAttributesNamespace)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.signalExternalWorkflowExecutionCommandAttributesExecution)
-    <> (if msg.signalExternalWorkflowExecutionCommandAttributesSignalname == T.empty then mempty else encodeFieldString 3 msg.signalExternalWorkflowExecutionCommandAttributesSignalname)
+    <> (if msg.signalExternalWorkflowExecutionCommandAttributesSignalName == T.empty then mempty else encodeFieldString 3 msg.signalExternalWorkflowExecutionCommandAttributesSignalName)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.signalExternalWorkflowExecutionCommandAttributesInput)
     <> (if msg.signalExternalWorkflowExecutionCommandAttributesControl == T.empty then mempty else encodeFieldString 5 msg.signalExternalWorkflowExecutionCommandAttributesControl)
-    <> (if msg.signalExternalWorkflowExecutionCommandAttributesChildworkflowonly == False then mempty else encodeFieldBool 6 msg.signalExternalWorkflowExecutionCommandAttributesChildworkflowonly)
+    <> (if msg.signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly == False then mempty else encodeFieldBool 6 msg.signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly)
     <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.signalExternalWorkflowExecutionCommandAttributesHeader)
-    <> encodeUnknownFields msg.signalExternalWorkflowExecutionCommandAttributesUnknownfields
+    <> encodeUnknownFields msg.signalExternalWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageSize SignalExternalWorkflowExecutionCommandAttributes where
   messageSize msg =
     (if msg.signalExternalWorkflowExecutionCommandAttributesNamespace == T.empty then 0 else fieldTextSize 1 msg.signalExternalWorkflowExecutionCommandAttributesNamespace)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.signalExternalWorkflowExecutionCommandAttributesExecution)
-    + (if msg.signalExternalWorkflowExecutionCommandAttributesSignalname == T.empty then 0 else fieldTextSize 3 msg.signalExternalWorkflowExecutionCommandAttributesSignalname)
+    + (if msg.signalExternalWorkflowExecutionCommandAttributesSignalName == T.empty then 0 else fieldTextSize 3 msg.signalExternalWorkflowExecutionCommandAttributesSignalName)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.signalExternalWorkflowExecutionCommandAttributesInput)
     + (if msg.signalExternalWorkflowExecutionCommandAttributesControl == T.empty then 0 else fieldTextSize 5 msg.signalExternalWorkflowExecutionCommandAttributesControl)
-    + (if msg.signalExternalWorkflowExecutionCommandAttributesChildworkflowonly == False then 0 else fieldBoolSize 6)
+    + (if msg.signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly == False then 0 else fieldBoolSize 6)
     + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.signalExternalWorkflowExecutionCommandAttributesHeader)
-    + unknownFieldsSize msg.signalExternalWorkflowExecutionCommandAttributesUnknownfields
+    + unknownFieldsSize msg.signalExternalWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageDecode SignalExternalWorkflowExecutionCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -1028,7 +1028,7 @@ instance MessageDecode SignalExternalWorkflowExecutionCommandAttributes where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (SignalExternalWorkflowExecutionCommandAttributes {signalExternalWorkflowExecutionCommandAttributesNamespace = acc_0, signalExternalWorkflowExecutionCommandAttributesExecution = acc_1, signalExternalWorkflowExecutionCommandAttributesSignalname = acc_2, signalExternalWorkflowExecutionCommandAttributesInput = acc_3, signalExternalWorkflowExecutionCommandAttributesControl = acc_4, signalExternalWorkflowExecutionCommandAttributesChildworkflowonly = acc_5, signalExternalWorkflowExecutionCommandAttributesHeader = acc_6, signalExternalWorkflowExecutionCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (SignalExternalWorkflowExecutionCommandAttributes {signalExternalWorkflowExecutionCommandAttributesNamespace = acc_0, signalExternalWorkflowExecutionCommandAttributesExecution = acc_1, signalExternalWorkflowExecutionCommandAttributesSignalName = acc_2, signalExternalWorkflowExecutionCommandAttributesInput = acc_3, signalExternalWorkflowExecutionCommandAttributesControl = acc_4, signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly = acc_5, signalExternalWorkflowExecutionCommandAttributesHeader = acc_6, signalExternalWorkflowExecutionCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1084,8 +1084,8 @@ instance ProtoMessage SignalExternalWorkflowExecutionCommandAttributes where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = signalExternalWorkflowExecutionCommandAttributesSignalname
-        , fdSet = \v m -> m { signalExternalWorkflowExecutionCommandAttributesSignalname = v }
+        , fdGet = signalExternalWorkflowExecutionCommandAttributesSignalName
+        , fdSet = \v m -> m { signalExternalWorkflowExecutionCommandAttributesSignalName = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "input"
@@ -1108,8 +1108,8 @@ instance ProtoMessage SignalExternalWorkflowExecutionCommandAttributes where
         , fdNumber = 6
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = signalExternalWorkflowExecutionCommandAttributesChildworkflowonly
-        , fdSet = \v m -> m { signalExternalWorkflowExecutionCommandAttributesChildworkflowonly = v }
+        , fdGet = signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly
+        , fdSet = \v m -> m { signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "header"
@@ -1125,10 +1125,10 @@ instance Aeson.ToJSON SignalExternalWorkflowExecutionCommandAttributes where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.signalExternalWorkflowExecutionCommandAttributesNamespace
       , "execution" .=: msg.signalExternalWorkflowExecutionCommandAttributesExecution
-      , "signalName" .=: msg.signalExternalWorkflowExecutionCommandAttributesSignalname
+      , "signalName" .=: msg.signalExternalWorkflowExecutionCommandAttributesSignalName
       , "input" .=: msg.signalExternalWorkflowExecutionCommandAttributesInput
       , "control" .=: msg.signalExternalWorkflowExecutionCommandAttributesControl
-      , "childWorkflowOnly" .=: msg.signalExternalWorkflowExecutionCommandAttributesChildworkflowonly
+      , "childWorkflowOnly" .=: msg.signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly
       , "header" .=: msg.signalExternalWorkflowExecutionCommandAttributesHeader
       ]
 
@@ -1136,46 +1136,46 @@ instance Aeson.FromJSON SignalExternalWorkflowExecutionCommandAttributes where
   parseJSON = Aeson.withObject "SignalExternalWorkflowExecutionCommandAttributes" $ \obj -> do
     fld_signalExternalWorkflowExecutionCommandAttributesNamespace <- parseFieldMaybe obj "namespace"
     fld_signalExternalWorkflowExecutionCommandAttributesExecution <- parseFieldMaybe obj "execution"
-    fld_signalExternalWorkflowExecutionCommandAttributesSignalname <- parseFieldMaybe obj "signalName"
+    fld_signalExternalWorkflowExecutionCommandAttributesSignalName <- parseFieldMaybe obj "signalName"
     fld_signalExternalWorkflowExecutionCommandAttributesInput <- parseFieldMaybe obj "input"
     fld_signalExternalWorkflowExecutionCommandAttributesControl <- parseFieldMaybe obj "control"
-    fld_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly <- parseFieldMaybe obj "childWorkflowOnly"
+    fld_signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly <- parseFieldMaybe obj "childWorkflowOnly"
     fld_signalExternalWorkflowExecutionCommandAttributesHeader <- parseFieldMaybe obj "header"
     pure defaultSignalExternalWorkflowExecutionCommandAttributes
       { signalExternalWorkflowExecutionCommandAttributesNamespace = maybe (signalExternalWorkflowExecutionCommandAttributesNamespace defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesNamespace
       , signalExternalWorkflowExecutionCommandAttributesExecution = maybe (signalExternalWorkflowExecutionCommandAttributesExecution defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesExecution
-      , signalExternalWorkflowExecutionCommandAttributesSignalname = maybe (signalExternalWorkflowExecutionCommandAttributesSignalname defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesSignalname
+      , signalExternalWorkflowExecutionCommandAttributesSignalName = maybe (signalExternalWorkflowExecutionCommandAttributesSignalName defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesSignalName
       , signalExternalWorkflowExecutionCommandAttributesInput = maybe (signalExternalWorkflowExecutionCommandAttributesInput defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesInput
       , signalExternalWorkflowExecutionCommandAttributesControl = maybe (signalExternalWorkflowExecutionCommandAttributesControl defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesControl
-      , signalExternalWorkflowExecutionCommandAttributesChildworkflowonly = maybe (signalExternalWorkflowExecutionCommandAttributesChildworkflowonly defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesChildworkflowonly
+      , signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly = maybe (signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly
       , signalExternalWorkflowExecutionCommandAttributesHeader = maybe (signalExternalWorkflowExecutionCommandAttributesHeader defaultSignalExternalWorkflowExecutionCommandAttributes) id fld_signalExternalWorkflowExecutionCommandAttributesHeader
       }
 
 instance Hashable SignalExternalWorkflowExecutionCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.signalExternalWorkflowExecutionCommandAttributesNamespace) msg.signalExternalWorkflowExecutionCommandAttributesExecution) msg.signalExternalWorkflowExecutionCommandAttributesSignalname) msg.signalExternalWorkflowExecutionCommandAttributesInput) msg.signalExternalWorkflowExecutionCommandAttributesControl) msg.signalExternalWorkflowExecutionCommandAttributesChildworkflowonly) msg.signalExternalWorkflowExecutionCommandAttributesHeader
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.signalExternalWorkflowExecutionCommandAttributesNamespace) msg.signalExternalWorkflowExecutionCommandAttributesExecution) msg.signalExternalWorkflowExecutionCommandAttributesSignalName) msg.signalExternalWorkflowExecutionCommandAttributesInput) msg.signalExternalWorkflowExecutionCommandAttributesControl) msg.signalExternalWorkflowExecutionCommandAttributesChildWorkflowOnly) msg.signalExternalWorkflowExecutionCommandAttributesHeader
 
 data UpsertWorkflowSearchAttributesCommandAttributes = UpsertWorkflowSearchAttributesCommandAttributes
-  { upsertWorkflowSearchAttributesCommandAttributesSearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
-  , upsertWorkflowSearchAttributesCommandAttributesUnknownfields :: ![UnknownField]
+  { upsertWorkflowSearchAttributesCommandAttributesSearchAttributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
+  , upsertWorkflowSearchAttributesCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultUpsertWorkflowSearchAttributesCommandAttributes :: UpsertWorkflowSearchAttributesCommandAttributes
 defaultUpsertWorkflowSearchAttributesCommandAttributes = UpsertWorkflowSearchAttributesCommandAttributes
-  { upsertWorkflowSearchAttributesCommandAttributesSearchattributes = Nothing
-  , upsertWorkflowSearchAttributesCommandAttributesUnknownfields = []
+  { upsertWorkflowSearchAttributesCommandAttributesSearchAttributes = Nothing
+  , upsertWorkflowSearchAttributesCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode UpsertWorkflowSearchAttributesCommandAttributes where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.upsertWorkflowSearchAttributesCommandAttributesSearchattributes)
-    <> encodeUnknownFields msg.upsertWorkflowSearchAttributesCommandAttributesUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.upsertWorkflowSearchAttributesCommandAttributesSearchAttributes)
+    <> encodeUnknownFields msg.upsertWorkflowSearchAttributesCommandAttributesUnknownFields
 
 instance MessageSize UpsertWorkflowSearchAttributesCommandAttributes where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.upsertWorkflowSearchAttributesCommandAttributesSearchattributes)
-    + unknownFieldsSize msg.upsertWorkflowSearchAttributesCommandAttributesUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.upsertWorkflowSearchAttributesCommandAttributesSearchAttributes)
+    + unknownFieldsSize msg.upsertWorkflowSearchAttributesCommandAttributesUnknownFields
 
 instance MessageDecode UpsertWorkflowSearchAttributesCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -1184,7 +1184,7 @@ instance MessageDecode UpsertWorkflowSearchAttributesCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UpsertWorkflowSearchAttributesCommandAttributes {upsertWorkflowSearchAttributesCommandAttributesSearchattributes = acc_0, upsertWorkflowSearchAttributesCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UpsertWorkflowSearchAttributesCommandAttributes {upsertWorkflowSearchAttributesCommandAttributesSearchAttributes = acc_0, upsertWorkflowSearchAttributesCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1207,49 +1207,49 @@ instance ProtoMessage UpsertWorkflowSearchAttributesCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.common.v1.SearchAttributes"
         , fdLabel = LabelOptional
-        , fdGet = upsertWorkflowSearchAttributesCommandAttributesSearchattributes
-        , fdSet = \v m -> m { upsertWorkflowSearchAttributesCommandAttributesSearchattributes = v }
+        , fdGet = upsertWorkflowSearchAttributesCommandAttributesSearchAttributes
+        , fdSet = \v m -> m { upsertWorkflowSearchAttributesCommandAttributesSearchAttributes = v }
         })
     ]
 
 instance Aeson.ToJSON UpsertWorkflowSearchAttributesCommandAttributes where
   toJSON msg = jsonObject
-      [ "searchAttributes" .=: msg.upsertWorkflowSearchAttributesCommandAttributesSearchattributes
+      [ "searchAttributes" .=: msg.upsertWorkflowSearchAttributesCommandAttributesSearchAttributes
 
       ]
 
 instance Aeson.FromJSON UpsertWorkflowSearchAttributesCommandAttributes where
   parseJSON = Aeson.withObject "UpsertWorkflowSearchAttributesCommandAttributes" $ \obj -> do
-    fld_upsertWorkflowSearchAttributesCommandAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_upsertWorkflowSearchAttributesCommandAttributesSearchAttributes <- parseFieldMaybe obj "searchAttributes"
     pure defaultUpsertWorkflowSearchAttributesCommandAttributes
-      { upsertWorkflowSearchAttributesCommandAttributesSearchattributes = maybe (upsertWorkflowSearchAttributesCommandAttributesSearchattributes defaultUpsertWorkflowSearchAttributesCommandAttributes) id fld_upsertWorkflowSearchAttributesCommandAttributesSearchattributes
+      { upsertWorkflowSearchAttributesCommandAttributesSearchAttributes = maybe (upsertWorkflowSearchAttributesCommandAttributesSearchAttributes defaultUpsertWorkflowSearchAttributesCommandAttributes) id fld_upsertWorkflowSearchAttributesCommandAttributesSearchAttributes
       }
 
 instance Hashable UpsertWorkflowSearchAttributesCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.upsertWorkflowSearchAttributesCommandAttributesSearchattributes
+  hashWithSalt salt msg = hashWithSalt (salt) msg.upsertWorkflowSearchAttributesCommandAttributesSearchAttributes
 
 data ModifyWorkflowPropertiesCommandAttributes = ModifyWorkflowPropertiesCommandAttributes
-  { modifyWorkflowPropertiesCommandAttributesUpsertedmemo :: !(Maybe TE_Common_V1_Message.Memo)
-  , modifyWorkflowPropertiesCommandAttributesUnknownfields :: ![UnknownField]
+  { modifyWorkflowPropertiesCommandAttributesUpsertedMemo :: !(Maybe TE_Common_V1_Message.Memo)
+  , modifyWorkflowPropertiesCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultModifyWorkflowPropertiesCommandAttributes :: ModifyWorkflowPropertiesCommandAttributes
 defaultModifyWorkflowPropertiesCommandAttributes = ModifyWorkflowPropertiesCommandAttributes
-  { modifyWorkflowPropertiesCommandAttributesUpsertedmemo = Nothing
-  , modifyWorkflowPropertiesCommandAttributesUnknownfields = []
+  { modifyWorkflowPropertiesCommandAttributesUpsertedMemo = Nothing
+  , modifyWorkflowPropertiesCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode ModifyWorkflowPropertiesCommandAttributes where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.modifyWorkflowPropertiesCommandAttributesUpsertedmemo)
-    <> encodeUnknownFields msg.modifyWorkflowPropertiesCommandAttributesUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.modifyWorkflowPropertiesCommandAttributesUpsertedMemo)
+    <> encodeUnknownFields msg.modifyWorkflowPropertiesCommandAttributesUnknownFields
 
 instance MessageSize ModifyWorkflowPropertiesCommandAttributes where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.modifyWorkflowPropertiesCommandAttributesUpsertedmemo)
-    + unknownFieldsSize msg.modifyWorkflowPropertiesCommandAttributesUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.modifyWorkflowPropertiesCommandAttributesUpsertedMemo)
+    + unknownFieldsSize msg.modifyWorkflowPropertiesCommandAttributesUnknownFields
 
 instance MessageDecode ModifyWorkflowPropertiesCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -1258,7 +1258,7 @@ instance MessageDecode ModifyWorkflowPropertiesCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ModifyWorkflowPropertiesCommandAttributes {modifyWorkflowPropertiesCommandAttributesUpsertedmemo = acc_0, modifyWorkflowPropertiesCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ModifyWorkflowPropertiesCommandAttributes {modifyWorkflowPropertiesCommandAttributesUpsertedMemo = acc_0, modifyWorkflowPropertiesCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1281,61 +1281,61 @@ instance ProtoMessage ModifyWorkflowPropertiesCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.common.v1.Memo"
         , fdLabel = LabelOptional
-        , fdGet = modifyWorkflowPropertiesCommandAttributesUpsertedmemo
-        , fdSet = \v m -> m { modifyWorkflowPropertiesCommandAttributesUpsertedmemo = v }
+        , fdGet = modifyWorkflowPropertiesCommandAttributesUpsertedMemo
+        , fdSet = \v m -> m { modifyWorkflowPropertiesCommandAttributesUpsertedMemo = v }
         })
     ]
 
 instance Aeson.ToJSON ModifyWorkflowPropertiesCommandAttributes where
   toJSON msg = jsonObject
-      [ "upsertedMemo" .=: msg.modifyWorkflowPropertiesCommandAttributesUpsertedmemo
+      [ "upsertedMemo" .=: msg.modifyWorkflowPropertiesCommandAttributesUpsertedMemo
 
       ]
 
 instance Aeson.FromJSON ModifyWorkflowPropertiesCommandAttributes where
   parseJSON = Aeson.withObject "ModifyWorkflowPropertiesCommandAttributes" $ \obj -> do
-    fld_modifyWorkflowPropertiesCommandAttributesUpsertedmemo <- parseFieldMaybe obj "upsertedMemo"
+    fld_modifyWorkflowPropertiesCommandAttributesUpsertedMemo <- parseFieldMaybe obj "upsertedMemo"
     pure defaultModifyWorkflowPropertiesCommandAttributes
-      { modifyWorkflowPropertiesCommandAttributesUpsertedmemo = maybe (modifyWorkflowPropertiesCommandAttributesUpsertedmemo defaultModifyWorkflowPropertiesCommandAttributes) id fld_modifyWorkflowPropertiesCommandAttributesUpsertedmemo
+      { modifyWorkflowPropertiesCommandAttributesUpsertedMemo = maybe (modifyWorkflowPropertiesCommandAttributesUpsertedMemo defaultModifyWorkflowPropertiesCommandAttributes) id fld_modifyWorkflowPropertiesCommandAttributesUpsertedMemo
       }
 
 instance Hashable ModifyWorkflowPropertiesCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.modifyWorkflowPropertiesCommandAttributesUpsertedmemo
+  hashWithSalt salt msg = hashWithSalt (salt) msg.modifyWorkflowPropertiesCommandAttributesUpsertedMemo
 
 data RecordMarkerCommandAttributes = RecordMarkerCommandAttributes
-  { recordMarkerCommandAttributesMarkername :: !Text
+  { recordMarkerCommandAttributesMarkerName :: !Text
   , recordMarkerCommandAttributesDetails :: !(Map.Map Text TE_Common_V1_Message.Payloads)
   , recordMarkerCommandAttributesHeader :: !(Maybe TE_Common_V1_Message.Header)
   , recordMarkerCommandAttributesFailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , recordMarkerCommandAttributesUnknownfields :: ![UnknownField]
+  , recordMarkerCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRecordMarkerCommandAttributes :: RecordMarkerCommandAttributes
 defaultRecordMarkerCommandAttributes = RecordMarkerCommandAttributes
-  { recordMarkerCommandAttributesMarkername = ""
+  { recordMarkerCommandAttributesMarkerName = ""
   , recordMarkerCommandAttributesDetails = Map.empty
   , recordMarkerCommandAttributesHeader = Nothing
   , recordMarkerCommandAttributesFailure = Nothing
-  , recordMarkerCommandAttributesUnknownfields = []
+  , recordMarkerCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode RecordMarkerCommandAttributes where
   buildMessage msg =
-    (if msg.recordMarkerCommandAttributesMarkername == T.empty then mempty else encodeFieldString 1 msg.recordMarkerCommandAttributesMarkername)
+    (if msg.recordMarkerCommandAttributesMarkerName == T.empty then mempty else encodeFieldString 1 msg.recordMarkerCommandAttributesMarkerName)
     <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.recordMarkerCommandAttributesDetails
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.recordMarkerCommandAttributesHeader)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.recordMarkerCommandAttributesFailure)
-    <> encodeUnknownFields msg.recordMarkerCommandAttributesUnknownfields
+    <> encodeUnknownFields msg.recordMarkerCommandAttributesUnknownFields
 
 instance MessageSize RecordMarkerCommandAttributes where
   messageSize msg =
-    (if msg.recordMarkerCommandAttributesMarkername == T.empty then 0 else fieldTextSize 1 msg.recordMarkerCommandAttributesMarkername)
+    (if msg.recordMarkerCommandAttributesMarkerName == T.empty then 0 else fieldTextSize 1 msg.recordMarkerCommandAttributesMarkerName)
     + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.recordMarkerCommandAttributesDetails)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.recordMarkerCommandAttributesHeader)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.recordMarkerCommandAttributesFailure)
-    + unknownFieldsSize msg.recordMarkerCommandAttributesUnknownfields
+    + unknownFieldsSize msg.recordMarkerCommandAttributesUnknownFields
 
 instance MessageDecode RecordMarkerCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -1344,7 +1344,7 @@ instance MessageDecode RecordMarkerCommandAttributes where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RecordMarkerCommandAttributes {recordMarkerCommandAttributesMarkername = acc_0, recordMarkerCommandAttributesDetails = acc_1, recordMarkerCommandAttributesHeader = acc_2, recordMarkerCommandAttributesFailure = acc_3, recordMarkerCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RecordMarkerCommandAttributes {recordMarkerCommandAttributesMarkerName = acc_0, recordMarkerCommandAttributesDetails = acc_1, recordMarkerCommandAttributesHeader = acc_2, recordMarkerCommandAttributesFailure = acc_3, recordMarkerCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1379,8 +1379,8 @@ instance ProtoMessage RecordMarkerCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = recordMarkerCommandAttributesMarkername
-        , fdSet = \v m -> m { recordMarkerCommandAttributesMarkername = v }
+        , fdGet = recordMarkerCommandAttributesMarkerName
+        , fdSet = \v m -> m { recordMarkerCommandAttributesMarkerName = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "details"
         , fdNumber = 2
@@ -1409,7 +1409,7 @@ instance ProtoMessage RecordMarkerCommandAttributes where
 
 instance Aeson.ToJSON RecordMarkerCommandAttributes where
   toJSON msg = jsonObject
-      [ "markerName" .=: msg.recordMarkerCommandAttributesMarkername
+      [ "markerName" .=: msg.recordMarkerCommandAttributesMarkerName
       , "details" .=: msg.recordMarkerCommandAttributesDetails
       , "header" .=: msg.recordMarkerCommandAttributesHeader
       , "failure" .=: msg.recordMarkerCommandAttributesFailure
@@ -1417,102 +1417,102 @@ instance Aeson.ToJSON RecordMarkerCommandAttributes where
 
 instance Aeson.FromJSON RecordMarkerCommandAttributes where
   parseJSON = Aeson.withObject "RecordMarkerCommandAttributes" $ \obj -> do
-    fld_recordMarkerCommandAttributesMarkername <- parseFieldMaybe obj "markerName"
+    fld_recordMarkerCommandAttributesMarkerName <- parseFieldMaybe obj "markerName"
     fld_recordMarkerCommandAttributesDetails <- parseFieldMaybe obj "details"
     fld_recordMarkerCommandAttributesHeader <- parseFieldMaybe obj "header"
     fld_recordMarkerCommandAttributesFailure <- parseFieldMaybe obj "failure"
     pure defaultRecordMarkerCommandAttributes
-      { recordMarkerCommandAttributesMarkername = maybe (recordMarkerCommandAttributesMarkername defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesMarkername
+      { recordMarkerCommandAttributesMarkerName = maybe (recordMarkerCommandAttributesMarkerName defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesMarkerName
       , recordMarkerCommandAttributesDetails = maybe (recordMarkerCommandAttributesDetails defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesDetails
       , recordMarkerCommandAttributesHeader = maybe (recordMarkerCommandAttributesHeader defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesHeader
       , recordMarkerCommandAttributesFailure = maybe (recordMarkerCommandAttributesFailure defaultRecordMarkerCommandAttributes) id fld_recordMarkerCommandAttributesFailure
       }
 
 instance Hashable RecordMarkerCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (salt) msg.recordMarkerCommandAttributesMarkername) msg.recordMarkerCommandAttributesDetails) msg.recordMarkerCommandAttributesHeader) msg.recordMarkerCommandAttributesFailure
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (salt) msg.recordMarkerCommandAttributesMarkerName) msg.recordMarkerCommandAttributesDetails) msg.recordMarkerCommandAttributesHeader) msg.recordMarkerCommandAttributesFailure
 
 data ContinueAsNewWorkflowExecutionCommandAttributes = ContinueAsNewWorkflowExecutionCommandAttributes
-  { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype :: !(Maybe TE_Common_V1_Message.WorkflowType)
-  , continueAsNewWorkflowExecutionCommandAttributesTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
+  { continueAsNewWorkflowExecutionCommandAttributesWorkflowType :: !(Maybe TE_Common_V1_Message.WorkflowType)
+  , continueAsNewWorkflowExecutionCommandAttributesTaskQueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
   , continueAsNewWorkflowExecutionCommandAttributesInput :: !(Maybe TE_Common_V1_Message.Payloads)
-  , continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
-  , continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
-  , continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval :: !(Maybe PB_Duration.Duration)
-  , continueAsNewWorkflowExecutionCommandAttributesRetrypolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
+  , continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout :: !(Maybe PB_Duration.Duration)
+  , continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout :: !(Maybe PB_Duration.Duration)
+  , continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval :: !(Maybe PB_Duration.Duration)
+  , continueAsNewWorkflowExecutionCommandAttributesRetryPolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
   , continueAsNewWorkflowExecutionCommandAttributesInitiator :: !TE_Enums_V1_Workflow.ContinueAsNewInitiator
   , continueAsNewWorkflowExecutionCommandAttributesFailure :: !(Maybe TE_Failure_V1_Message.Failure)
-  , continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult :: !(Maybe TE_Common_V1_Message.Payloads)
-  , continueAsNewWorkflowExecutionCommandAttributesCronschedule :: !Text
+  , continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult :: !(Maybe TE_Common_V1_Message.Payloads)
+  , continueAsNewWorkflowExecutionCommandAttributesCronSchedule :: !Text
   , continueAsNewWorkflowExecutionCommandAttributesHeader :: !(Maybe TE_Common_V1_Message.Header)
   , continueAsNewWorkflowExecutionCommandAttributesMemo :: !(Maybe TE_Common_V1_Message.Memo)
-  , continueAsNewWorkflowExecutionCommandAttributesSearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
-  , continueAsNewWorkflowExecutionCommandAttributesInheritbuildid :: {-# UNPACK #-} !Bool
-  , continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior :: !TE_Enums_V1_Workflow.ContinueAsNewVersioningBehavior
-  , continueAsNewWorkflowExecutionCommandAttributesUnknownfields :: ![UnknownField]
+  , continueAsNewWorkflowExecutionCommandAttributesSearchAttributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
+  , continueAsNewWorkflowExecutionCommandAttributesInheritBuildId :: {-# UNPACK #-} !Bool
+  , continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior :: !TE_Enums_V1_Workflow.ContinueAsNewVersioningBehavior
+  , continueAsNewWorkflowExecutionCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultContinueAsNewWorkflowExecutionCommandAttributes :: ContinueAsNewWorkflowExecutionCommandAttributes
 defaultContinueAsNewWorkflowExecutionCommandAttributes = ContinueAsNewWorkflowExecutionCommandAttributes
-  { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesTaskqueue = Nothing
+  { continueAsNewWorkflowExecutionCommandAttributesWorkflowType = Nothing
+  , continueAsNewWorkflowExecutionCommandAttributesTaskQueue = Nothing
   , continueAsNewWorkflowExecutionCommandAttributesInput = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesRetrypolicy = Nothing
+  , continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout = Nothing
+  , continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout = Nothing
+  , continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval = Nothing
+  , continueAsNewWorkflowExecutionCommandAttributesRetryPolicy = Nothing
   , continueAsNewWorkflowExecutionCommandAttributesInitiator = (toEnum 0)
   , continueAsNewWorkflowExecutionCommandAttributesFailure = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesCronschedule = ""
+  , continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult = Nothing
+  , continueAsNewWorkflowExecutionCommandAttributesCronSchedule = ""
   , continueAsNewWorkflowExecutionCommandAttributesHeader = Nothing
   , continueAsNewWorkflowExecutionCommandAttributesMemo = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesSearchattributes = Nothing
-  , continueAsNewWorkflowExecutionCommandAttributesInheritbuildid = False
-  , continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior = (toEnum 0)
-  , continueAsNewWorkflowExecutionCommandAttributesUnknownfields = []
+  , continueAsNewWorkflowExecutionCommandAttributesSearchAttributes = Nothing
+  , continueAsNewWorkflowExecutionCommandAttributesInheritBuildId = False
+  , continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior = (toEnum 0)
+  , continueAsNewWorkflowExecutionCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode ContinueAsNewWorkflowExecutionCommandAttributes where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtype)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.continueAsNewWorkflowExecutionCommandAttributesTaskqueue)
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowType)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.continueAsNewWorkflowExecutionCommandAttributesTaskQueue)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.continueAsNewWorkflowExecutionCommandAttributesInput)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.continueAsNewWorkflowExecutionCommandAttributesRetrypolicy)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.continueAsNewWorkflowExecutionCommandAttributesRetryPolicy)
     <> (if fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitiator == 0 then mempty else encodeFieldVarint 8 (fromIntegral (fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitiator)))
     <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.continueAsNewWorkflowExecutionCommandAttributesFailure)
-    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult)
-    <> (if msg.continueAsNewWorkflowExecutionCommandAttributesCronschedule == T.empty then mempty else encodeFieldString 11 msg.continueAsNewWorkflowExecutionCommandAttributesCronschedule)
+    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult)
+    <> (if msg.continueAsNewWorkflowExecutionCommandAttributesCronSchedule == T.empty then mempty else encodeFieldString 11 msg.continueAsNewWorkflowExecutionCommandAttributesCronSchedule)
     <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.continueAsNewWorkflowExecutionCommandAttributesHeader)
     <> (maybe mempty (\v -> encodeFieldMessage 13 v) msg.continueAsNewWorkflowExecutionCommandAttributesMemo)
-    <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.continueAsNewWorkflowExecutionCommandAttributesSearchattributes)
-    <> (if msg.continueAsNewWorkflowExecutionCommandAttributesInheritbuildid == False then mempty else encodeFieldBool 15 msg.continueAsNewWorkflowExecutionCommandAttributesInheritbuildid)
-    <> (if fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior == 0 then mempty else encodeFieldVarint 16 (fromIntegral (fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior)))
-    <> encodeUnknownFields msg.continueAsNewWorkflowExecutionCommandAttributesUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.continueAsNewWorkflowExecutionCommandAttributesSearchAttributes)
+    <> (if msg.continueAsNewWorkflowExecutionCommandAttributesInheritBuildId == False then mempty else encodeFieldBool 15 msg.continueAsNewWorkflowExecutionCommandAttributesInheritBuildId)
+    <> (if fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior == 0 then mempty else encodeFieldVarint 16 (fromIntegral (fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior)))
+    <> encodeUnknownFields msg.continueAsNewWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageSize ContinueAsNewWorkflowExecutionCommandAttributes where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtype)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesTaskqueue)
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowType)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesTaskQueue)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesInput)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesRetrypolicy)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesRetryPolicy)
     + (if fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitiator == 0 then 0 else fieldVarintSize 8 (fromIntegral (fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitiator)))
     + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesFailure)
-    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult)
-    + (if msg.continueAsNewWorkflowExecutionCommandAttributesCronschedule == T.empty then 0 else fieldTextSize 11 msg.continueAsNewWorkflowExecutionCommandAttributesCronschedule)
+    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult)
+    + (if msg.continueAsNewWorkflowExecutionCommandAttributesCronSchedule == T.empty then 0 else fieldTextSize 11 msg.continueAsNewWorkflowExecutionCommandAttributesCronSchedule)
     + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesHeader)
     + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesMemo)
-    + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesSearchattributes)
-    + (if msg.continueAsNewWorkflowExecutionCommandAttributesInheritbuildid == False then 0 else fieldBoolSize 15)
-    + (if fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior == 0 then 0 else fieldVarintSize 16 (fromIntegral (fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior)))
-    + unknownFieldsSize msg.continueAsNewWorkflowExecutionCommandAttributesUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.continueAsNewWorkflowExecutionCommandAttributesSearchAttributes)
+    + (if msg.continueAsNewWorkflowExecutionCommandAttributesInheritBuildId == False then 0 else fieldBoolSize 15)
+    + (if fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior == 0 then 0 else fieldVarintSize 16 (fromIntegral (fromEnum msg.continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior)))
+    + unknownFieldsSize msg.continueAsNewWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageDecode ContinueAsNewWorkflowExecutionCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -1521,7 +1521,7 @@ instance MessageDecode ContinueAsNewWorkflowExecutionCommandAttributes where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ContinueAsNewWorkflowExecutionCommandAttributes {continueAsNewWorkflowExecutionCommandAttributesWorkflowtype = acc_0, continueAsNewWorkflowExecutionCommandAttributesTaskqueue = acc_1, continueAsNewWorkflowExecutionCommandAttributesInput = acc_2, continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout = acc_3, continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout = acc_4, continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval = acc_5, continueAsNewWorkflowExecutionCommandAttributesRetrypolicy = acc_6, continueAsNewWorkflowExecutionCommandAttributesInitiator = acc_7, continueAsNewWorkflowExecutionCommandAttributesFailure = acc_8, continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult = acc_9, continueAsNewWorkflowExecutionCommandAttributesCronschedule = acc_10, continueAsNewWorkflowExecutionCommandAttributesHeader = acc_11, continueAsNewWorkflowExecutionCommandAttributesMemo = acc_12, continueAsNewWorkflowExecutionCommandAttributesSearchattributes = acc_13, continueAsNewWorkflowExecutionCommandAttributesInheritbuildid = acc_14, continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior = acc_15, continueAsNewWorkflowExecutionCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ContinueAsNewWorkflowExecutionCommandAttributes {continueAsNewWorkflowExecutionCommandAttributesWorkflowType = acc_0, continueAsNewWorkflowExecutionCommandAttributesTaskQueue = acc_1, continueAsNewWorkflowExecutionCommandAttributesInput = acc_2, continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout = acc_3, continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout = acc_4, continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval = acc_5, continueAsNewWorkflowExecutionCommandAttributesRetryPolicy = acc_6, continueAsNewWorkflowExecutionCommandAttributesInitiator = acc_7, continueAsNewWorkflowExecutionCommandAttributesFailure = acc_8, continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult = acc_9, continueAsNewWorkflowExecutionCommandAttributesCronSchedule = acc_10, continueAsNewWorkflowExecutionCommandAttributesHeader = acc_11, continueAsNewWorkflowExecutionCommandAttributesMemo = acc_12, continueAsNewWorkflowExecutionCommandAttributesSearchAttributes = acc_13, continueAsNewWorkflowExecutionCommandAttributesInheritBuildId = acc_14, continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior = acc_15, continueAsNewWorkflowExecutionCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1589,15 +1589,15 @@ instance ProtoMessage ContinueAsNewWorkflowExecutionCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowType"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesWorkflowtype
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesWorkflowType
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesWorkflowType = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "task_queue"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.taskqueue.v1.TaskQueue"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesTaskqueue
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesTaskqueue = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesTaskQueue
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesTaskQueue = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "input"
@@ -1612,32 +1612,32 @@ instance ProtoMessage ContinueAsNewWorkflowExecutionCommandAttributes where
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "workflow_task_timeout"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "backoff_start_interval"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "retry_policy"
         , fdNumber = 7
         , fdTypeDesc = MessageType "temporal.api.common.v1.RetryPolicy"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesRetrypolicy
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesRetrypolicy = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesRetryPolicy
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesRetryPolicy = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "initiator"
@@ -1660,16 +1660,16 @@ instance ProtoMessage ContinueAsNewWorkflowExecutionCommandAttributes where
         , fdNumber = 10
         , fdTypeDesc = MessageType "temporal.api.common.v1.Payloads"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "cron_schedule"
         , fdNumber = 11
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesCronschedule
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesCronschedule = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesCronSchedule
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesCronSchedule = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "header"
@@ -1692,107 +1692,107 @@ instance ProtoMessage ContinueAsNewWorkflowExecutionCommandAttributes where
         , fdNumber = 14
         , fdTypeDesc = MessageType "temporal.api.common.v1.SearchAttributes"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesSearchattributes
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesSearchattributes = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesSearchAttributes
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesSearchAttributes = v }
         })
     , (15, SomeField FieldDescriptor
         { fdName = "inherit_build_id"
         , fdNumber = 15
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesInheritbuildid
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesInheritbuildid = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesInheritBuildId
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesInheritBuildId = v }
         })
     , (16, SomeField FieldDescriptor
         { fdName = "initial_versioning_behavior"
         , fdNumber = 16
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ContinueAsNewVersioningBehavior"
         , fdLabel = LabelOptional
-        , fdGet = continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
-        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior = v }
+        , fdGet = continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior
+        , fdSet = \v m -> m { continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior = v }
         })
     ]
 
 instance Aeson.ToJSON ContinueAsNewWorkflowExecutionCommandAttributes where
   toJSON msg = jsonObject
-      [ "workflowType" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtype
-      , "taskQueue" .=: msg.continueAsNewWorkflowExecutionCommandAttributesTaskqueue
+      [ "workflowType" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowType
+      , "taskQueue" .=: msg.continueAsNewWorkflowExecutionCommandAttributesTaskQueue
       , "input" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInput
-      , "workflowRunTimeout" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout
-      , "workflowTaskTimeout" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout
-      , "backoffStartInterval" .=: msg.continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval
-      , "retryPolicy" .=: msg.continueAsNewWorkflowExecutionCommandAttributesRetrypolicy
+      , "workflowRunTimeout" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout
+      , "workflowTaskTimeout" .=: msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout
+      , "backoffStartInterval" .=: msg.continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval
+      , "retryPolicy" .=: msg.continueAsNewWorkflowExecutionCommandAttributesRetryPolicy
       , "initiator" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInitiator
       , "failure" .=: msg.continueAsNewWorkflowExecutionCommandAttributesFailure
-      , "lastCompletionResult" .=: msg.continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult
-      , "cronSchedule" .=: msg.continueAsNewWorkflowExecutionCommandAttributesCronschedule
+      , "lastCompletionResult" .=: msg.continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult
+      , "cronSchedule" .=: msg.continueAsNewWorkflowExecutionCommandAttributesCronSchedule
       , "header" .=: msg.continueAsNewWorkflowExecutionCommandAttributesHeader
       , "memo" .=: msg.continueAsNewWorkflowExecutionCommandAttributesMemo
-      , "searchAttributes" .=: msg.continueAsNewWorkflowExecutionCommandAttributesSearchattributes
-      , "inheritBuildId" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInheritbuildid
-      , "initialVersioningBehavior" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
+      , "searchAttributes" .=: msg.continueAsNewWorkflowExecutionCommandAttributesSearchAttributes
+      , "inheritBuildId" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInheritBuildId
+      , "initialVersioningBehavior" .=: msg.continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior
       ]
 
 instance Aeson.FromJSON ContinueAsNewWorkflowExecutionCommandAttributes where
   parseJSON = Aeson.withObject "ContinueAsNewWorkflowExecutionCommandAttributes" $ \obj -> do
-    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
-    fld_continueAsNewWorkflowExecutionCommandAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowType <- parseFieldMaybe obj "workflowType"
+    fld_continueAsNewWorkflowExecutionCommandAttributesTaskQueue <- parseFieldMaybe obj "taskQueue"
     fld_continueAsNewWorkflowExecutionCommandAttributesInput <- parseFieldMaybe obj "input"
-    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
-    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
-    fld_continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval <- parseFieldMaybe obj "backoffStartInterval"
-    fld_continueAsNewWorkflowExecutionCommandAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval <- parseFieldMaybe obj "backoffStartInterval"
+    fld_continueAsNewWorkflowExecutionCommandAttributesRetryPolicy <- parseFieldMaybe obj "retryPolicy"
     fld_continueAsNewWorkflowExecutionCommandAttributesInitiator <- parseFieldMaybe obj "initiator"
     fld_continueAsNewWorkflowExecutionCommandAttributesFailure <- parseFieldMaybe obj "failure"
-    fld_continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult <- parseFieldMaybe obj "lastCompletionResult"
-    fld_continueAsNewWorkflowExecutionCommandAttributesCronschedule <- parseFieldMaybe obj "cronSchedule"
+    fld_continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult <- parseFieldMaybe obj "lastCompletionResult"
+    fld_continueAsNewWorkflowExecutionCommandAttributesCronSchedule <- parseFieldMaybe obj "cronSchedule"
     fld_continueAsNewWorkflowExecutionCommandAttributesHeader <- parseFieldMaybe obj "header"
     fld_continueAsNewWorkflowExecutionCommandAttributesMemo <- parseFieldMaybe obj "memo"
-    fld_continueAsNewWorkflowExecutionCommandAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
-    fld_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid <- parseFieldMaybe obj "inheritBuildId"
-    fld_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior <- parseFieldMaybe obj "initialVersioningBehavior"
+    fld_continueAsNewWorkflowExecutionCommandAttributesSearchAttributes <- parseFieldMaybe obj "searchAttributes"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInheritBuildId <- parseFieldMaybe obj "inheritBuildId"
+    fld_continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior <- parseFieldMaybe obj "initialVersioningBehavior"
     pure defaultContinueAsNewWorkflowExecutionCommandAttributes
-      { continueAsNewWorkflowExecutionCommandAttributesWorkflowtype = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowtype defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtype
-      , continueAsNewWorkflowExecutionCommandAttributesTaskqueue = maybe (continueAsNewWorkflowExecutionCommandAttributesTaskqueue defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesTaskqueue
+      { continueAsNewWorkflowExecutionCommandAttributesWorkflowType = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowType defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowType
+      , continueAsNewWorkflowExecutionCommandAttributesTaskQueue = maybe (continueAsNewWorkflowExecutionCommandAttributesTaskQueue defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesTaskQueue
       , continueAsNewWorkflowExecutionCommandAttributesInput = maybe (continueAsNewWorkflowExecutionCommandAttributesInput defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInput
-      , continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout
-      , continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout
-      , continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval = maybe (continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval
-      , continueAsNewWorkflowExecutionCommandAttributesRetrypolicy = maybe (continueAsNewWorkflowExecutionCommandAttributesRetrypolicy defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesRetrypolicy
+      , continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout
+      , continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout = maybe (continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout
+      , continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval = maybe (continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval
+      , continueAsNewWorkflowExecutionCommandAttributesRetryPolicy = maybe (continueAsNewWorkflowExecutionCommandAttributesRetryPolicy defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesRetryPolicy
       , continueAsNewWorkflowExecutionCommandAttributesInitiator = maybe (continueAsNewWorkflowExecutionCommandAttributesInitiator defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInitiator
       , continueAsNewWorkflowExecutionCommandAttributesFailure = maybe (continueAsNewWorkflowExecutionCommandAttributesFailure defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesFailure
-      , continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult = maybe (continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult
-      , continueAsNewWorkflowExecutionCommandAttributesCronschedule = maybe (continueAsNewWorkflowExecutionCommandAttributesCronschedule defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesCronschedule
+      , continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult = maybe (continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult
+      , continueAsNewWorkflowExecutionCommandAttributesCronSchedule = maybe (continueAsNewWorkflowExecutionCommandAttributesCronSchedule defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesCronSchedule
       , continueAsNewWorkflowExecutionCommandAttributesHeader = maybe (continueAsNewWorkflowExecutionCommandAttributesHeader defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesHeader
       , continueAsNewWorkflowExecutionCommandAttributesMemo = maybe (continueAsNewWorkflowExecutionCommandAttributesMemo defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesMemo
-      , continueAsNewWorkflowExecutionCommandAttributesSearchattributes = maybe (continueAsNewWorkflowExecutionCommandAttributesSearchattributes defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesSearchattributes
-      , continueAsNewWorkflowExecutionCommandAttributesInheritbuildid = maybe (continueAsNewWorkflowExecutionCommandAttributesInheritbuildid defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInheritbuildid
-      , continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior = maybe (continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
+      , continueAsNewWorkflowExecutionCommandAttributesSearchAttributes = maybe (continueAsNewWorkflowExecutionCommandAttributesSearchAttributes defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesSearchAttributes
+      , continueAsNewWorkflowExecutionCommandAttributesInheritBuildId = maybe (continueAsNewWorkflowExecutionCommandAttributesInheritBuildId defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInheritBuildId
+      , continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior = maybe (continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior defaultContinueAsNewWorkflowExecutionCommandAttributes) id fld_continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior
       }
 
 instance Hashable ContinueAsNewWorkflowExecutionCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtype) msg.continueAsNewWorkflowExecutionCommandAttributesTaskqueue) msg.continueAsNewWorkflowExecutionCommandAttributesInput) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowruntimeout) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowtasktimeout) msg.continueAsNewWorkflowExecutionCommandAttributesBackoffstartinterval) msg.continueAsNewWorkflowExecutionCommandAttributesRetrypolicy) msg.continueAsNewWorkflowExecutionCommandAttributesInitiator) msg.continueAsNewWorkflowExecutionCommandAttributesFailure) msg.continueAsNewWorkflowExecutionCommandAttributesLastcompletionresult) msg.continueAsNewWorkflowExecutionCommandAttributesCronschedule) msg.continueAsNewWorkflowExecutionCommandAttributesHeader) msg.continueAsNewWorkflowExecutionCommandAttributesMemo) msg.continueAsNewWorkflowExecutionCommandAttributesSearchattributes) msg.continueAsNewWorkflowExecutionCommandAttributesInheritbuildid) msg.continueAsNewWorkflowExecutionCommandAttributesInitialversioningbehavior
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowType) msg.continueAsNewWorkflowExecutionCommandAttributesTaskQueue) msg.continueAsNewWorkflowExecutionCommandAttributesInput) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowRunTimeout) msg.continueAsNewWorkflowExecutionCommandAttributesWorkflowTaskTimeout) msg.continueAsNewWorkflowExecutionCommandAttributesBackoffStartInterval) msg.continueAsNewWorkflowExecutionCommandAttributesRetryPolicy) msg.continueAsNewWorkflowExecutionCommandAttributesInitiator) msg.continueAsNewWorkflowExecutionCommandAttributesFailure) msg.continueAsNewWorkflowExecutionCommandAttributesLastCompletionResult) msg.continueAsNewWorkflowExecutionCommandAttributesCronSchedule) msg.continueAsNewWorkflowExecutionCommandAttributesHeader) msg.continueAsNewWorkflowExecutionCommandAttributesMemo) msg.continueAsNewWorkflowExecutionCommandAttributesSearchAttributes) msg.continueAsNewWorkflowExecutionCommandAttributesInheritBuildId) msg.continueAsNewWorkflowExecutionCommandAttributesInitialVersioningBehavior
 
 data StartChildWorkflowExecutionCommandAttributes = StartChildWorkflowExecutionCommandAttributes
   { startChildWorkflowExecutionCommandAttributesNamespace :: !Text
-  , startChildWorkflowExecutionCommandAttributesWorkflowid :: !Text
-  , startChildWorkflowExecutionCommandAttributesWorkflowtype :: !(Maybe TE_Common_V1_Message.WorkflowType)
-  , startChildWorkflowExecutionCommandAttributesTaskqueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
+  , startChildWorkflowExecutionCommandAttributesWorkflowId :: !Text
+  , startChildWorkflowExecutionCommandAttributesWorkflowType :: !(Maybe TE_Common_V1_Message.WorkflowType)
+  , startChildWorkflowExecutionCommandAttributesTaskQueue :: !(Maybe TE_TaskQueue_V1_Message.TaskQueue)
   , startChildWorkflowExecutionCommandAttributesInput :: !(Maybe TE_Common_V1_Message.Payloads)
-  , startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout :: !(Maybe PB_Duration.Duration)
-  , startChildWorkflowExecutionCommandAttributesWorkflowruntimeout :: !(Maybe PB_Duration.Duration)
-  , startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout :: !(Maybe PB_Duration.Duration)
-  , startChildWorkflowExecutionCommandAttributesParentclosepolicy :: !TE_Enums_V1_Workflow.ParentClosePolicy
+  , startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout :: !(Maybe PB_Duration.Duration)
+  , startChildWorkflowExecutionCommandAttributesParentClosePolicy :: !TE_Enums_V1_Workflow.ParentClosePolicy
   , startChildWorkflowExecutionCommandAttributesControl :: !Text
-  , startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy :: !TE_Enums_V1_Workflow.WorkflowIdReusePolicy
-  , startChildWorkflowExecutionCommandAttributesRetrypolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
-  , startChildWorkflowExecutionCommandAttributesCronschedule :: !Text
+  , startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy :: !TE_Enums_V1_Workflow.WorkflowIdReusePolicy
+  , startChildWorkflowExecutionCommandAttributesRetryPolicy :: !(Maybe TE_Common_V1_Message.RetryPolicy)
+  , startChildWorkflowExecutionCommandAttributesCronSchedule :: !Text
   , startChildWorkflowExecutionCommandAttributesHeader :: !(Maybe TE_Common_V1_Message.Header)
   , startChildWorkflowExecutionCommandAttributesMemo :: !(Maybe TE_Common_V1_Message.Memo)
-  , startChildWorkflowExecutionCommandAttributesSearchattributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
-  , startChildWorkflowExecutionCommandAttributesInheritbuildid :: {-# UNPACK #-} !Bool
+  , startChildWorkflowExecutionCommandAttributesSearchAttributes :: !(Maybe TE_Common_V1_Message.SearchAttributes)
+  , startChildWorkflowExecutionCommandAttributesInheritBuildId :: {-# UNPACK #-} !Bool
   , startChildWorkflowExecutionCommandAttributesPriority :: !(Maybe TE_Common_V1_Message.Priority)
-  , startChildWorkflowExecutionCommandAttributesUnknownfields :: ![UnknownField]
+  , startChildWorkflowExecutionCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1800,69 +1800,69 @@ data StartChildWorkflowExecutionCommandAttributes = StartChildWorkflowExecutionC
 defaultStartChildWorkflowExecutionCommandAttributes :: StartChildWorkflowExecutionCommandAttributes
 defaultStartChildWorkflowExecutionCommandAttributes = StartChildWorkflowExecutionCommandAttributes
   { startChildWorkflowExecutionCommandAttributesNamespace = ""
-  , startChildWorkflowExecutionCommandAttributesWorkflowid = ""
-  , startChildWorkflowExecutionCommandAttributesWorkflowtype = Nothing
-  , startChildWorkflowExecutionCommandAttributesTaskqueue = Nothing
+  , startChildWorkflowExecutionCommandAttributesWorkflowId = ""
+  , startChildWorkflowExecutionCommandAttributesWorkflowType = Nothing
+  , startChildWorkflowExecutionCommandAttributesTaskQueue = Nothing
   , startChildWorkflowExecutionCommandAttributesInput = Nothing
-  , startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout = Nothing
-  , startChildWorkflowExecutionCommandAttributesWorkflowruntimeout = Nothing
-  , startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout = Nothing
-  , startChildWorkflowExecutionCommandAttributesParentclosepolicy = (toEnum 0)
+  , startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout = Nothing
+  , startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout = Nothing
+  , startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout = Nothing
+  , startChildWorkflowExecutionCommandAttributesParentClosePolicy = (toEnum 0)
   , startChildWorkflowExecutionCommandAttributesControl = ""
-  , startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy = (toEnum 0)
-  , startChildWorkflowExecutionCommandAttributesRetrypolicy = Nothing
-  , startChildWorkflowExecutionCommandAttributesCronschedule = ""
+  , startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy = (toEnum 0)
+  , startChildWorkflowExecutionCommandAttributesRetryPolicy = Nothing
+  , startChildWorkflowExecutionCommandAttributesCronSchedule = ""
   , startChildWorkflowExecutionCommandAttributesHeader = Nothing
   , startChildWorkflowExecutionCommandAttributesMemo = Nothing
-  , startChildWorkflowExecutionCommandAttributesSearchattributes = Nothing
-  , startChildWorkflowExecutionCommandAttributesInheritbuildid = False
+  , startChildWorkflowExecutionCommandAttributesSearchAttributes = Nothing
+  , startChildWorkflowExecutionCommandAttributesInheritBuildId = False
   , startChildWorkflowExecutionCommandAttributesPriority = Nothing
-  , startChildWorkflowExecutionCommandAttributesUnknownfields = []
+  , startChildWorkflowExecutionCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode StartChildWorkflowExecutionCommandAttributes where
   buildMessage msg =
     (if msg.startChildWorkflowExecutionCommandAttributesNamespace == T.empty then mempty else encodeFieldString 1 msg.startChildWorkflowExecutionCommandAttributesNamespace)
-    <> (if msg.startChildWorkflowExecutionCommandAttributesWorkflowid == T.empty then mempty else encodeFieldString 2 msg.startChildWorkflowExecutionCommandAttributesWorkflowid)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.startChildWorkflowExecutionCommandAttributesWorkflowtype)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.startChildWorkflowExecutionCommandAttributesTaskqueue)
+    <> (if msg.startChildWorkflowExecutionCommandAttributesWorkflowId == T.empty then mempty else encodeFieldString 2 msg.startChildWorkflowExecutionCommandAttributesWorkflowId)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.startChildWorkflowExecutionCommandAttributesWorkflowType)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.startChildWorkflowExecutionCommandAttributesTaskQueue)
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.startChildWorkflowExecutionCommandAttributesInput)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.startChildWorkflowExecutionCommandAttributesWorkflowruntimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout)
-    <> (if fromEnum msg.startChildWorkflowExecutionCommandAttributesParentclosepolicy == 0 then mempty else encodeFieldVarint 9 (fromIntegral (fromEnum msg.startChildWorkflowExecutionCommandAttributesParentclosepolicy)))
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout)
+    <> (if fromEnum msg.startChildWorkflowExecutionCommandAttributesParentClosePolicy == 0 then mempty else encodeFieldVarint 9 (fromIntegral (fromEnum msg.startChildWorkflowExecutionCommandAttributesParentClosePolicy)))
     <> (if msg.startChildWorkflowExecutionCommandAttributesControl == T.empty then mempty else encodeFieldString 10 msg.startChildWorkflowExecutionCommandAttributesControl)
-    <> (if fromEnum msg.startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy == 0 then mempty else encodeFieldVarint 11 (fromIntegral (fromEnum msg.startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy)))
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.startChildWorkflowExecutionCommandAttributesRetrypolicy)
-    <> (if msg.startChildWorkflowExecutionCommandAttributesCronschedule == T.empty then mempty else encodeFieldString 13 msg.startChildWorkflowExecutionCommandAttributesCronschedule)
+    <> (if fromEnum msg.startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy == 0 then mempty else encodeFieldVarint 11 (fromIntegral (fromEnum msg.startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy)))
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.startChildWorkflowExecutionCommandAttributesRetryPolicy)
+    <> (if msg.startChildWorkflowExecutionCommandAttributesCronSchedule == T.empty then mempty else encodeFieldString 13 msg.startChildWorkflowExecutionCommandAttributesCronSchedule)
     <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.startChildWorkflowExecutionCommandAttributesHeader)
     <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.startChildWorkflowExecutionCommandAttributesMemo)
-    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.startChildWorkflowExecutionCommandAttributesSearchattributes)
-    <> (if msg.startChildWorkflowExecutionCommandAttributesInheritbuildid == False then mempty else encodeFieldBool 17 msg.startChildWorkflowExecutionCommandAttributesInheritbuildid)
+    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.startChildWorkflowExecutionCommandAttributesSearchAttributes)
+    <> (if msg.startChildWorkflowExecutionCommandAttributesInheritBuildId == False then mempty else encodeFieldBool 17 msg.startChildWorkflowExecutionCommandAttributesInheritBuildId)
     <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.startChildWorkflowExecutionCommandAttributesPriority)
-    <> encodeUnknownFields msg.startChildWorkflowExecutionCommandAttributesUnknownfields
+    <> encodeUnknownFields msg.startChildWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageSize StartChildWorkflowExecutionCommandAttributes where
   messageSize msg =
     (if msg.startChildWorkflowExecutionCommandAttributesNamespace == T.empty then 0 else fieldTextSize 1 msg.startChildWorkflowExecutionCommandAttributesNamespace)
-    + (if msg.startChildWorkflowExecutionCommandAttributesWorkflowid == T.empty then 0 else fieldTextSize 2 msg.startChildWorkflowExecutionCommandAttributesWorkflowid)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesWorkflowtype)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesTaskqueue)
+    + (if msg.startChildWorkflowExecutionCommandAttributesWorkflowId == T.empty then 0 else fieldTextSize 2 msg.startChildWorkflowExecutionCommandAttributesWorkflowId)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesWorkflowType)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesTaskQueue)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesInput)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesWorkflowruntimeout)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout)
-    + (if fromEnum msg.startChildWorkflowExecutionCommandAttributesParentclosepolicy == 0 then 0 else fieldVarintSize 9 (fromIntegral (fromEnum msg.startChildWorkflowExecutionCommandAttributesParentclosepolicy)))
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout)
+    + (if fromEnum msg.startChildWorkflowExecutionCommandAttributesParentClosePolicy == 0 then 0 else fieldVarintSize 9 (fromIntegral (fromEnum msg.startChildWorkflowExecutionCommandAttributesParentClosePolicy)))
     + (if msg.startChildWorkflowExecutionCommandAttributesControl == T.empty then 0 else fieldTextSize 10 msg.startChildWorkflowExecutionCommandAttributesControl)
-    + (if fromEnum msg.startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy == 0 then 0 else fieldVarintSize 11 (fromIntegral (fromEnum msg.startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy)))
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesRetrypolicy)
-    + (if msg.startChildWorkflowExecutionCommandAttributesCronschedule == T.empty then 0 else fieldTextSize 13 msg.startChildWorkflowExecutionCommandAttributesCronschedule)
+    + (if fromEnum msg.startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy == 0 then 0 else fieldVarintSize 11 (fromIntegral (fromEnum msg.startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy)))
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesRetryPolicy)
+    + (if msg.startChildWorkflowExecutionCommandAttributesCronSchedule == T.empty then 0 else fieldTextSize 13 msg.startChildWorkflowExecutionCommandAttributesCronSchedule)
     + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesHeader)
     + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesMemo)
-    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesSearchattributes)
-    + (if msg.startChildWorkflowExecutionCommandAttributesInheritbuildid == False then 0 else fieldBoolSize 17)
+    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesSearchAttributes)
+    + (if msg.startChildWorkflowExecutionCommandAttributesInheritBuildId == False then 0 else fieldBoolSize 17)
     + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.startChildWorkflowExecutionCommandAttributesPriority)
-    + unknownFieldsSize msg.startChildWorkflowExecutionCommandAttributesUnknownfields
+    + unknownFieldsSize msg.startChildWorkflowExecutionCommandAttributesUnknownFields
 
 instance MessageDecode StartChildWorkflowExecutionCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -1871,7 +1871,7 @@ instance MessageDecode StartChildWorkflowExecutionCommandAttributes where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StartChildWorkflowExecutionCommandAttributes {startChildWorkflowExecutionCommandAttributesNamespace = acc_0, startChildWorkflowExecutionCommandAttributesWorkflowid = acc_1, startChildWorkflowExecutionCommandAttributesWorkflowtype = acc_2, startChildWorkflowExecutionCommandAttributesTaskqueue = acc_3, startChildWorkflowExecutionCommandAttributesInput = acc_4, startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout = acc_5, startChildWorkflowExecutionCommandAttributesWorkflowruntimeout = acc_6, startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout = acc_7, startChildWorkflowExecutionCommandAttributesParentclosepolicy = acc_8, startChildWorkflowExecutionCommandAttributesControl = acc_9, startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy = acc_10, startChildWorkflowExecutionCommandAttributesRetrypolicy = acc_11, startChildWorkflowExecutionCommandAttributesCronschedule = acc_12, startChildWorkflowExecutionCommandAttributesHeader = acc_13, startChildWorkflowExecutionCommandAttributesMemo = acc_14, startChildWorkflowExecutionCommandAttributesSearchattributes = acc_15, startChildWorkflowExecutionCommandAttributesInheritbuildid = acc_16, startChildWorkflowExecutionCommandAttributesPriority = acc_17, startChildWorkflowExecutionCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StartChildWorkflowExecutionCommandAttributes {startChildWorkflowExecutionCommandAttributesNamespace = acc_0, startChildWorkflowExecutionCommandAttributesWorkflowId = acc_1, startChildWorkflowExecutionCommandAttributesWorkflowType = acc_2, startChildWorkflowExecutionCommandAttributesTaskQueue = acc_3, startChildWorkflowExecutionCommandAttributesInput = acc_4, startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout = acc_5, startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout = acc_6, startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout = acc_7, startChildWorkflowExecutionCommandAttributesParentClosePolicy = acc_8, startChildWorkflowExecutionCommandAttributesControl = acc_9, startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy = acc_10, startChildWorkflowExecutionCommandAttributesRetryPolicy = acc_11, startChildWorkflowExecutionCommandAttributesCronSchedule = acc_12, startChildWorkflowExecutionCommandAttributesHeader = acc_13, startChildWorkflowExecutionCommandAttributesMemo = acc_14, startChildWorkflowExecutionCommandAttributesSearchAttributes = acc_15, startChildWorkflowExecutionCommandAttributesInheritBuildId = acc_16, startChildWorkflowExecutionCommandAttributesPriority = acc_17, startChildWorkflowExecutionCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1952,24 +1952,24 @@ instance ProtoMessage StartChildWorkflowExecutionCommandAttributes where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowid
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowid = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowId
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "workflow_type"
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowType"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowtype
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowtype = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowType
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowType = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "task_queue"
         , fdNumber = 4
         , fdTypeDesc = MessageType "temporal.api.taskqueue.v1.TaskQueue"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesTaskqueue
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesTaskqueue = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesTaskQueue
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesTaskQueue = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "input"
@@ -1984,32 +1984,32 @@ instance ProtoMessage StartChildWorkflowExecutionCommandAttributes where
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "workflow_run_timeout"
         , fdNumber = 7
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowruntimeout
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowruntimeout = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "workflow_task_timeout"
         , fdNumber = 8
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "parent_close_policy"
         , fdNumber = 9
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ParentClosePolicy"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesParentclosepolicy
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesParentclosepolicy = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesParentClosePolicy
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesParentClosePolicy = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "control"
@@ -2024,24 +2024,24 @@ instance ProtoMessage StartChildWorkflowExecutionCommandAttributes where
         , fdNumber = 11
         , fdTypeDesc = MessageType "temporal.api.enums.v1.WorkflowIdReusePolicy"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "retry_policy"
         , fdNumber = 12
         , fdTypeDesc = MessageType "temporal.api.common.v1.RetryPolicy"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesRetrypolicy
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesRetrypolicy = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesRetryPolicy
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesRetryPolicy = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "cron_schedule"
         , fdNumber = 13
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesCronschedule
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesCronschedule = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesCronSchedule
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesCronSchedule = v }
         })
     , (14, SomeField FieldDescriptor
         { fdName = "header"
@@ -2064,16 +2064,16 @@ instance ProtoMessage StartChildWorkflowExecutionCommandAttributes where
         , fdNumber = 16
         , fdTypeDesc = MessageType "temporal.api.common.v1.SearchAttributes"
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesSearchattributes
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesSearchattributes = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesSearchAttributes
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesSearchAttributes = v }
         })
     , (17, SomeField FieldDescriptor
         { fdName = "inherit_build_id"
         , fdNumber = 17
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = startChildWorkflowExecutionCommandAttributesInheritbuildid
-        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesInheritbuildid = v }
+        , fdGet = startChildWorkflowExecutionCommandAttributesInheritBuildId
+        , fdSet = \v m -> m { startChildWorkflowExecutionCommandAttributesInheritBuildId = v }
         })
     , (18, SomeField FieldDescriptor
         { fdName = "priority"
@@ -2088,91 +2088,91 @@ instance ProtoMessage StartChildWorkflowExecutionCommandAttributes where
 instance Aeson.ToJSON StartChildWorkflowExecutionCommandAttributes where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.startChildWorkflowExecutionCommandAttributesNamespace
-      , "workflowId" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowid
-      , "workflowType" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowtype
-      , "taskQueue" .=: msg.startChildWorkflowExecutionCommandAttributesTaskqueue
+      , "workflowId" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowId
+      , "workflowType" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowType
+      , "taskQueue" .=: msg.startChildWorkflowExecutionCommandAttributesTaskQueue
       , "input" .=: msg.startChildWorkflowExecutionCommandAttributesInput
-      , "workflowExecutionTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout
-      , "workflowRunTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowruntimeout
-      , "workflowTaskTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout
-      , "parentClosePolicy" .=: msg.startChildWorkflowExecutionCommandAttributesParentclosepolicy
+      , "workflowExecutionTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout
+      , "workflowRunTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout
+      , "workflowTaskTimeout" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout
+      , "parentClosePolicy" .=: msg.startChildWorkflowExecutionCommandAttributesParentClosePolicy
       , "control" .=: msg.startChildWorkflowExecutionCommandAttributesControl
-      , "workflowIdReusePolicy" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy
-      , "retryPolicy" .=: msg.startChildWorkflowExecutionCommandAttributesRetrypolicy
-      , "cronSchedule" .=: msg.startChildWorkflowExecutionCommandAttributesCronschedule
+      , "workflowIdReusePolicy" .=: msg.startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy
+      , "retryPolicy" .=: msg.startChildWorkflowExecutionCommandAttributesRetryPolicy
+      , "cronSchedule" .=: msg.startChildWorkflowExecutionCommandAttributesCronSchedule
       , "header" .=: msg.startChildWorkflowExecutionCommandAttributesHeader
       , "memo" .=: msg.startChildWorkflowExecutionCommandAttributesMemo
-      , "searchAttributes" .=: msg.startChildWorkflowExecutionCommandAttributesSearchattributes
-      , "inheritBuildId" .=: msg.startChildWorkflowExecutionCommandAttributesInheritbuildid
+      , "searchAttributes" .=: msg.startChildWorkflowExecutionCommandAttributesSearchAttributes
+      , "inheritBuildId" .=: msg.startChildWorkflowExecutionCommandAttributesInheritBuildId
       , "priority" .=: msg.startChildWorkflowExecutionCommandAttributesPriority
       ]
 
 instance Aeson.FromJSON StartChildWorkflowExecutionCommandAttributes where
   parseJSON = Aeson.withObject "StartChildWorkflowExecutionCommandAttributes" $ \obj -> do
     fld_startChildWorkflowExecutionCommandAttributesNamespace <- parseFieldMaybe obj "namespace"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowid <- parseFieldMaybe obj "workflowId"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowtype <- parseFieldMaybe obj "workflowType"
-    fld_startChildWorkflowExecutionCommandAttributesTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowId <- parseFieldMaybe obj "workflowId"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowType <- parseFieldMaybe obj "workflowType"
+    fld_startChildWorkflowExecutionCommandAttributesTaskQueue <- parseFieldMaybe obj "taskQueue"
     fld_startChildWorkflowExecutionCommandAttributesInput <- parseFieldMaybe obj "input"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowruntimeout <- parseFieldMaybe obj "workflowRunTimeout"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout <- parseFieldMaybe obj "workflowTaskTimeout"
-    fld_startChildWorkflowExecutionCommandAttributesParentclosepolicy <- parseFieldMaybe obj "parentClosePolicy"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout <- parseFieldMaybe obj "workflowExecutionTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout <- parseFieldMaybe obj "workflowRunTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout <- parseFieldMaybe obj "workflowTaskTimeout"
+    fld_startChildWorkflowExecutionCommandAttributesParentClosePolicy <- parseFieldMaybe obj "parentClosePolicy"
     fld_startChildWorkflowExecutionCommandAttributesControl <- parseFieldMaybe obj "control"
-    fld_startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy <- parseFieldMaybe obj "workflowIdReusePolicy"
-    fld_startChildWorkflowExecutionCommandAttributesRetrypolicy <- parseFieldMaybe obj "retryPolicy"
-    fld_startChildWorkflowExecutionCommandAttributesCronschedule <- parseFieldMaybe obj "cronSchedule"
+    fld_startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy <- parseFieldMaybe obj "workflowIdReusePolicy"
+    fld_startChildWorkflowExecutionCommandAttributesRetryPolicy <- parseFieldMaybe obj "retryPolicy"
+    fld_startChildWorkflowExecutionCommandAttributesCronSchedule <- parseFieldMaybe obj "cronSchedule"
     fld_startChildWorkflowExecutionCommandAttributesHeader <- parseFieldMaybe obj "header"
     fld_startChildWorkflowExecutionCommandAttributesMemo <- parseFieldMaybe obj "memo"
-    fld_startChildWorkflowExecutionCommandAttributesSearchattributes <- parseFieldMaybe obj "searchAttributes"
-    fld_startChildWorkflowExecutionCommandAttributesInheritbuildid <- parseFieldMaybe obj "inheritBuildId"
+    fld_startChildWorkflowExecutionCommandAttributesSearchAttributes <- parseFieldMaybe obj "searchAttributes"
+    fld_startChildWorkflowExecutionCommandAttributesInheritBuildId <- parseFieldMaybe obj "inheritBuildId"
     fld_startChildWorkflowExecutionCommandAttributesPriority <- parseFieldMaybe obj "priority"
     pure defaultStartChildWorkflowExecutionCommandAttributes
       { startChildWorkflowExecutionCommandAttributesNamespace = maybe (startChildWorkflowExecutionCommandAttributesNamespace defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesNamespace
-      , startChildWorkflowExecutionCommandAttributesWorkflowid = maybe (startChildWorkflowExecutionCommandAttributesWorkflowid defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowid
-      , startChildWorkflowExecutionCommandAttributesWorkflowtype = maybe (startChildWorkflowExecutionCommandAttributesWorkflowtype defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowtype
-      , startChildWorkflowExecutionCommandAttributesTaskqueue = maybe (startChildWorkflowExecutionCommandAttributesTaskqueue defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesTaskqueue
+      , startChildWorkflowExecutionCommandAttributesWorkflowId = maybe (startChildWorkflowExecutionCommandAttributesWorkflowId defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowId
+      , startChildWorkflowExecutionCommandAttributesWorkflowType = maybe (startChildWorkflowExecutionCommandAttributesWorkflowType defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowType
+      , startChildWorkflowExecutionCommandAttributesTaskQueue = maybe (startChildWorkflowExecutionCommandAttributesTaskQueue defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesTaskQueue
       , startChildWorkflowExecutionCommandAttributesInput = maybe (startChildWorkflowExecutionCommandAttributesInput defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesInput
-      , startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout
-      , startChildWorkflowExecutionCommandAttributesWorkflowruntimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowruntimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowruntimeout
-      , startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout
-      , startChildWorkflowExecutionCommandAttributesParentclosepolicy = maybe (startChildWorkflowExecutionCommandAttributesParentclosepolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesParentclosepolicy
+      , startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout
+      , startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout
+      , startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout = maybe (startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout
+      , startChildWorkflowExecutionCommandAttributesParentClosePolicy = maybe (startChildWorkflowExecutionCommandAttributesParentClosePolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesParentClosePolicy
       , startChildWorkflowExecutionCommandAttributesControl = maybe (startChildWorkflowExecutionCommandAttributesControl defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesControl
-      , startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy = maybe (startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy
-      , startChildWorkflowExecutionCommandAttributesRetrypolicy = maybe (startChildWorkflowExecutionCommandAttributesRetrypolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesRetrypolicy
-      , startChildWorkflowExecutionCommandAttributesCronschedule = maybe (startChildWorkflowExecutionCommandAttributesCronschedule defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesCronschedule
+      , startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy = maybe (startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy
+      , startChildWorkflowExecutionCommandAttributesRetryPolicy = maybe (startChildWorkflowExecutionCommandAttributesRetryPolicy defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesRetryPolicy
+      , startChildWorkflowExecutionCommandAttributesCronSchedule = maybe (startChildWorkflowExecutionCommandAttributesCronSchedule defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesCronSchedule
       , startChildWorkflowExecutionCommandAttributesHeader = maybe (startChildWorkflowExecutionCommandAttributesHeader defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesHeader
       , startChildWorkflowExecutionCommandAttributesMemo = maybe (startChildWorkflowExecutionCommandAttributesMemo defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesMemo
-      , startChildWorkflowExecutionCommandAttributesSearchattributes = maybe (startChildWorkflowExecutionCommandAttributesSearchattributes defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesSearchattributes
-      , startChildWorkflowExecutionCommandAttributesInheritbuildid = maybe (startChildWorkflowExecutionCommandAttributesInheritbuildid defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesInheritbuildid
+      , startChildWorkflowExecutionCommandAttributesSearchAttributes = maybe (startChildWorkflowExecutionCommandAttributesSearchAttributes defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesSearchAttributes
+      , startChildWorkflowExecutionCommandAttributesInheritBuildId = maybe (startChildWorkflowExecutionCommandAttributesInheritBuildId defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesInheritBuildId
       , startChildWorkflowExecutionCommandAttributesPriority = maybe (startChildWorkflowExecutionCommandAttributesPriority defaultStartChildWorkflowExecutionCommandAttributes) id fld_startChildWorkflowExecutionCommandAttributesPriority
       }
 
 instance Hashable StartChildWorkflowExecutionCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.startChildWorkflowExecutionCommandAttributesNamespace) msg.startChildWorkflowExecutionCommandAttributesWorkflowid) msg.startChildWorkflowExecutionCommandAttributesWorkflowtype) msg.startChildWorkflowExecutionCommandAttributesTaskqueue) msg.startChildWorkflowExecutionCommandAttributesInput) msg.startChildWorkflowExecutionCommandAttributesWorkflowexecutiontimeout) msg.startChildWorkflowExecutionCommandAttributesWorkflowruntimeout) msg.startChildWorkflowExecutionCommandAttributesWorkflowtasktimeout) msg.startChildWorkflowExecutionCommandAttributesParentclosepolicy) msg.startChildWorkflowExecutionCommandAttributesControl) msg.startChildWorkflowExecutionCommandAttributesWorkflowidreusepolicy) msg.startChildWorkflowExecutionCommandAttributesRetrypolicy) msg.startChildWorkflowExecutionCommandAttributesCronschedule) msg.startChildWorkflowExecutionCommandAttributesHeader) msg.startChildWorkflowExecutionCommandAttributesMemo) msg.startChildWorkflowExecutionCommandAttributesSearchattributes) msg.startChildWorkflowExecutionCommandAttributesInheritbuildid) msg.startChildWorkflowExecutionCommandAttributesPriority
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.startChildWorkflowExecutionCommandAttributesNamespace) msg.startChildWorkflowExecutionCommandAttributesWorkflowId) msg.startChildWorkflowExecutionCommandAttributesWorkflowType) msg.startChildWorkflowExecutionCommandAttributesTaskQueue) msg.startChildWorkflowExecutionCommandAttributesInput) msg.startChildWorkflowExecutionCommandAttributesWorkflowExecutionTimeout) msg.startChildWorkflowExecutionCommandAttributesWorkflowRunTimeout) msg.startChildWorkflowExecutionCommandAttributesWorkflowTaskTimeout) msg.startChildWorkflowExecutionCommandAttributesParentClosePolicy) msg.startChildWorkflowExecutionCommandAttributesControl) msg.startChildWorkflowExecutionCommandAttributesWorkflowIdReusePolicy) msg.startChildWorkflowExecutionCommandAttributesRetryPolicy) msg.startChildWorkflowExecutionCommandAttributesCronSchedule) msg.startChildWorkflowExecutionCommandAttributesHeader) msg.startChildWorkflowExecutionCommandAttributesMemo) msg.startChildWorkflowExecutionCommandAttributesSearchAttributes) msg.startChildWorkflowExecutionCommandAttributesInheritBuildId) msg.startChildWorkflowExecutionCommandAttributesPriority
 
 data ProtocolMessageCommandAttributes = ProtocolMessageCommandAttributes
-  { protocolMessageCommandAttributesMessageid :: !Text
-  , protocolMessageCommandAttributesUnknownfields :: ![UnknownField]
+  { protocolMessageCommandAttributesMessageId :: !Text
+  , protocolMessageCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultProtocolMessageCommandAttributes :: ProtocolMessageCommandAttributes
 defaultProtocolMessageCommandAttributes = ProtocolMessageCommandAttributes
-  { protocolMessageCommandAttributesMessageid = ""
-  , protocolMessageCommandAttributesUnknownfields = []
+  { protocolMessageCommandAttributesMessageId = ""
+  , protocolMessageCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode ProtocolMessageCommandAttributes where
   buildMessage msg =
-    (if msg.protocolMessageCommandAttributesMessageid == T.empty then mempty else encodeFieldString 1 msg.protocolMessageCommandAttributesMessageid)
-    <> encodeUnknownFields msg.protocolMessageCommandAttributesUnknownfields
+    (if msg.protocolMessageCommandAttributesMessageId == T.empty then mempty else encodeFieldString 1 msg.protocolMessageCommandAttributesMessageId)
+    <> encodeUnknownFields msg.protocolMessageCommandAttributesUnknownFields
 
 instance MessageSize ProtocolMessageCommandAttributes where
   messageSize msg =
-    (if msg.protocolMessageCommandAttributesMessageid == T.empty then 0 else fieldTextSize 1 msg.protocolMessageCommandAttributesMessageid)
-    + unknownFieldsSize msg.protocolMessageCommandAttributesUnknownfields
+    (if msg.protocolMessageCommandAttributesMessageId == T.empty then 0 else fieldTextSize 1 msg.protocolMessageCommandAttributesMessageId)
+    + unknownFieldsSize msg.protocolMessageCommandAttributesUnknownFields
 
 instance MessageDecode ProtocolMessageCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -2181,7 +2181,7 @@ instance MessageDecode ProtocolMessageCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ProtocolMessageCommandAttributes {protocolMessageCommandAttributesMessageid = acc_0, protocolMessageCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ProtocolMessageCommandAttributes {protocolMessageCommandAttributesMessageId = acc_0, protocolMessageCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2204,37 +2204,37 @@ instance ProtoMessage ProtocolMessageCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = protocolMessageCommandAttributesMessageid
-        , fdSet = \v m -> m { protocolMessageCommandAttributesMessageid = v }
+        , fdGet = protocolMessageCommandAttributesMessageId
+        , fdSet = \v m -> m { protocolMessageCommandAttributesMessageId = v }
         })
     ]
 
 instance Aeson.ToJSON ProtocolMessageCommandAttributes where
   toJSON msg = jsonObject
-      [ "messageId" .=: msg.protocolMessageCommandAttributesMessageid
+      [ "messageId" .=: msg.protocolMessageCommandAttributesMessageId
 
       ]
 
 instance Aeson.FromJSON ProtocolMessageCommandAttributes where
   parseJSON = Aeson.withObject "ProtocolMessageCommandAttributes" $ \obj -> do
-    fld_protocolMessageCommandAttributesMessageid <- parseFieldMaybe obj "messageId"
+    fld_protocolMessageCommandAttributesMessageId <- parseFieldMaybe obj "messageId"
     pure defaultProtocolMessageCommandAttributes
-      { protocolMessageCommandAttributesMessageid = maybe (protocolMessageCommandAttributesMessageid defaultProtocolMessageCommandAttributes) id fld_protocolMessageCommandAttributesMessageid
+      { protocolMessageCommandAttributesMessageId = maybe (protocolMessageCommandAttributesMessageId defaultProtocolMessageCommandAttributes) id fld_protocolMessageCommandAttributesMessageId
       }
 
 instance Hashable ProtocolMessageCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.protocolMessageCommandAttributesMessageid
+  hashWithSalt salt msg = hashWithSalt (salt) msg.protocolMessageCommandAttributesMessageId
 
 data ScheduleNexusOperationCommandAttributes = ScheduleNexusOperationCommandAttributes
   { scheduleNexusOperationCommandAttributesEndpoint :: !Text
   , scheduleNexusOperationCommandAttributesService :: !Text
   , scheduleNexusOperationCommandAttributesOperation :: !Text
   , scheduleNexusOperationCommandAttributesInput :: !(Maybe TE_Common_V1_Message.Payload)
-  , scheduleNexusOperationCommandAttributesScheduletoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , scheduleNexusOperationCommandAttributesNexusheader :: !(Map.Map Text Text)
-  , scheduleNexusOperationCommandAttributesScheduletostarttimeout :: !(Maybe PB_Duration.Duration)
-  , scheduleNexusOperationCommandAttributesStarttoclosetimeout :: !(Maybe PB_Duration.Duration)
-  , scheduleNexusOperationCommandAttributesUnknownfields :: ![UnknownField]
+  , scheduleNexusOperationCommandAttributesScheduleToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleNexusOperationCommandAttributesNexusHeader :: !(Map.Map Text Text)
+  , scheduleNexusOperationCommandAttributesScheduleToStartTimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleNexusOperationCommandAttributesStartToCloseTimeout :: !(Maybe PB_Duration.Duration)
+  , scheduleNexusOperationCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2245,11 +2245,11 @@ defaultScheduleNexusOperationCommandAttributes = ScheduleNexusOperationCommandAt
   , scheduleNexusOperationCommandAttributesService = ""
   , scheduleNexusOperationCommandAttributesOperation = ""
   , scheduleNexusOperationCommandAttributesInput = Nothing
-  , scheduleNexusOperationCommandAttributesScheduletoclosetimeout = Nothing
-  , scheduleNexusOperationCommandAttributesNexusheader = Map.empty
-  , scheduleNexusOperationCommandAttributesScheduletostarttimeout = Nothing
-  , scheduleNexusOperationCommandAttributesStarttoclosetimeout = Nothing
-  , scheduleNexusOperationCommandAttributesUnknownfields = []
+  , scheduleNexusOperationCommandAttributesScheduleToCloseTimeout = Nothing
+  , scheduleNexusOperationCommandAttributesNexusHeader = Map.empty
+  , scheduleNexusOperationCommandAttributesScheduleToStartTimeout = Nothing
+  , scheduleNexusOperationCommandAttributesStartToCloseTimeout = Nothing
+  , scheduleNexusOperationCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode ScheduleNexusOperationCommandAttributes where
@@ -2258,11 +2258,11 @@ instance MessageEncode ScheduleNexusOperationCommandAttributes where
     <> (if msg.scheduleNexusOperationCommandAttributesService == T.empty then mempty else encodeFieldString 2 msg.scheduleNexusOperationCommandAttributesService)
     <> (if msg.scheduleNexusOperationCommandAttributesOperation == T.empty then mempty else encodeFieldString 3 msg.scheduleNexusOperationCommandAttributesOperation)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.scheduleNexusOperationCommandAttributesInput)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.scheduleNexusOperationCommandAttributesScheduletoclosetimeout)
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 6 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.scheduleNexusOperationCommandAttributesNexusheader
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.scheduleNexusOperationCommandAttributesScheduletostarttimeout)
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.scheduleNexusOperationCommandAttributesStarttoclosetimeout)
-    <> encodeUnknownFields msg.scheduleNexusOperationCommandAttributesUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.scheduleNexusOperationCommandAttributesScheduleToCloseTimeout)
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 6 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.scheduleNexusOperationCommandAttributesNexusHeader
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.scheduleNexusOperationCommandAttributesScheduleToStartTimeout)
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.scheduleNexusOperationCommandAttributesStartToCloseTimeout)
+    <> encodeUnknownFields msg.scheduleNexusOperationCommandAttributesUnknownFields
 
 instance MessageSize ScheduleNexusOperationCommandAttributes where
   messageSize msg =
@@ -2270,11 +2270,11 @@ instance MessageSize ScheduleNexusOperationCommandAttributes where
     + (if msg.scheduleNexusOperationCommandAttributesService == T.empty then 0 else fieldTextSize 2 msg.scheduleNexusOperationCommandAttributesService)
     + (if msg.scheduleNexusOperationCommandAttributesOperation == T.empty then 0 else fieldTextSize 3 msg.scheduleNexusOperationCommandAttributesOperation)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.scheduleNexusOperationCommandAttributesInput)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.scheduleNexusOperationCommandAttributesScheduletoclosetimeout)
-    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 6 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.scheduleNexusOperationCommandAttributesNexusheader)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.scheduleNexusOperationCommandAttributesScheduletostarttimeout)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.scheduleNexusOperationCommandAttributesStarttoclosetimeout)
-    + unknownFieldsSize msg.scheduleNexusOperationCommandAttributesUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.scheduleNexusOperationCommandAttributesScheduleToCloseTimeout)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 6 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.scheduleNexusOperationCommandAttributesNexusHeader)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.scheduleNexusOperationCommandAttributesScheduleToStartTimeout)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.scheduleNexusOperationCommandAttributesStartToCloseTimeout)
+    + unknownFieldsSize msg.scheduleNexusOperationCommandAttributesUnknownFields
 
 instance MessageDecode ScheduleNexusOperationCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -2283,7 +2283,7 @@ instance MessageDecode ScheduleNexusOperationCommandAttributes where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ScheduleNexusOperationCommandAttributes {scheduleNexusOperationCommandAttributesEndpoint = acc_0, scheduleNexusOperationCommandAttributesService = acc_1, scheduleNexusOperationCommandAttributesOperation = acc_2, scheduleNexusOperationCommandAttributesInput = acc_3, scheduleNexusOperationCommandAttributesScheduletoclosetimeout = acc_4, scheduleNexusOperationCommandAttributesNexusheader = acc_5, scheduleNexusOperationCommandAttributesScheduletostarttimeout = acc_6, scheduleNexusOperationCommandAttributesStarttoclosetimeout = acc_7, scheduleNexusOperationCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ScheduleNexusOperationCommandAttributes {scheduleNexusOperationCommandAttributesEndpoint = acc_0, scheduleNexusOperationCommandAttributesService = acc_1, scheduleNexusOperationCommandAttributesOperation = acc_2, scheduleNexusOperationCommandAttributesInput = acc_3, scheduleNexusOperationCommandAttributesScheduleToCloseTimeout = acc_4, scheduleNexusOperationCommandAttributesNexusHeader = acc_5, scheduleNexusOperationCommandAttributesScheduleToStartTimeout = acc_6, scheduleNexusOperationCommandAttributesStartToCloseTimeout = acc_7, scheduleNexusOperationCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2361,32 +2361,32 @@ instance ProtoMessage ScheduleNexusOperationCommandAttributes where
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = scheduleNexusOperationCommandAttributesScheduletoclosetimeout
-        , fdSet = \v m -> m { scheduleNexusOperationCommandAttributesScheduletoclosetimeout = v }
+        , fdGet = scheduleNexusOperationCommandAttributesScheduleToCloseTimeout
+        , fdSet = \v m -> m { scheduleNexusOperationCommandAttributesScheduleToCloseTimeout = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "nexus_header"
         , fdNumber = 6
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = scheduleNexusOperationCommandAttributesNexusheader
-        , fdSet = \v m -> m { scheduleNexusOperationCommandAttributesNexusheader = v }
+        , fdGet = scheduleNexusOperationCommandAttributesNexusHeader
+        , fdSet = \v m -> m { scheduleNexusOperationCommandAttributesNexusHeader = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "schedule_to_start_timeout"
         , fdNumber = 7
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = scheduleNexusOperationCommandAttributesScheduletostarttimeout
-        , fdSet = \v m -> m { scheduleNexusOperationCommandAttributesScheduletostarttimeout = v }
+        , fdGet = scheduleNexusOperationCommandAttributesScheduleToStartTimeout
+        , fdSet = \v m -> m { scheduleNexusOperationCommandAttributesScheduleToStartTimeout = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "start_to_close_timeout"
         , fdNumber = 8
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = scheduleNexusOperationCommandAttributesStarttoclosetimeout
-        , fdSet = \v m -> m { scheduleNexusOperationCommandAttributesStarttoclosetimeout = v }
+        , fdGet = scheduleNexusOperationCommandAttributesStartToCloseTimeout
+        , fdSet = \v m -> m { scheduleNexusOperationCommandAttributesStartToCloseTimeout = v }
         })
     ]
 
@@ -2396,10 +2396,10 @@ instance Aeson.ToJSON ScheduleNexusOperationCommandAttributes where
       , "service" .=: msg.scheduleNexusOperationCommandAttributesService
       , "operation" .=: msg.scheduleNexusOperationCommandAttributesOperation
       , "input" .=: msg.scheduleNexusOperationCommandAttributesInput
-      , "scheduleToCloseTimeout" .=: msg.scheduleNexusOperationCommandAttributesScheduletoclosetimeout
-      , "nexusHeader" .=: msg.scheduleNexusOperationCommandAttributesNexusheader
-      , "scheduleToStartTimeout" .=: msg.scheduleNexusOperationCommandAttributesScheduletostarttimeout
-      , "startToCloseTimeout" .=: msg.scheduleNexusOperationCommandAttributesStarttoclosetimeout
+      , "scheduleToCloseTimeout" .=: msg.scheduleNexusOperationCommandAttributesScheduleToCloseTimeout
+      , "nexusHeader" .=: msg.scheduleNexusOperationCommandAttributesNexusHeader
+      , "scheduleToStartTimeout" .=: msg.scheduleNexusOperationCommandAttributesScheduleToStartTimeout
+      , "startToCloseTimeout" .=: msg.scheduleNexusOperationCommandAttributesStartToCloseTimeout
       ]
 
 instance Aeson.FromJSON ScheduleNexusOperationCommandAttributes where
@@ -2408,46 +2408,46 @@ instance Aeson.FromJSON ScheduleNexusOperationCommandAttributes where
     fld_scheduleNexusOperationCommandAttributesService <- parseFieldMaybe obj "service"
     fld_scheduleNexusOperationCommandAttributesOperation <- parseFieldMaybe obj "operation"
     fld_scheduleNexusOperationCommandAttributesInput <- parseFieldMaybe obj "input"
-    fld_scheduleNexusOperationCommandAttributesScheduletoclosetimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
-    fld_scheduleNexusOperationCommandAttributesNexusheader <- parseFieldMaybe obj "nexusHeader"
-    fld_scheduleNexusOperationCommandAttributesScheduletostarttimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
-    fld_scheduleNexusOperationCommandAttributesStarttoclosetimeout <- parseFieldMaybe obj "startToCloseTimeout"
+    fld_scheduleNexusOperationCommandAttributesScheduleToCloseTimeout <- parseFieldMaybe obj "scheduleToCloseTimeout"
+    fld_scheduleNexusOperationCommandAttributesNexusHeader <- parseFieldMaybe obj "nexusHeader"
+    fld_scheduleNexusOperationCommandAttributesScheduleToStartTimeout <- parseFieldMaybe obj "scheduleToStartTimeout"
+    fld_scheduleNexusOperationCommandAttributesStartToCloseTimeout <- parseFieldMaybe obj "startToCloseTimeout"
     pure defaultScheduleNexusOperationCommandAttributes
       { scheduleNexusOperationCommandAttributesEndpoint = maybe (scheduleNexusOperationCommandAttributesEndpoint defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesEndpoint
       , scheduleNexusOperationCommandAttributesService = maybe (scheduleNexusOperationCommandAttributesService defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesService
       , scheduleNexusOperationCommandAttributesOperation = maybe (scheduleNexusOperationCommandAttributesOperation defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesOperation
       , scheduleNexusOperationCommandAttributesInput = maybe (scheduleNexusOperationCommandAttributesInput defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesInput
-      , scheduleNexusOperationCommandAttributesScheduletoclosetimeout = maybe (scheduleNexusOperationCommandAttributesScheduletoclosetimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesScheduletoclosetimeout
-      , scheduleNexusOperationCommandAttributesNexusheader = maybe (scheduleNexusOperationCommandAttributesNexusheader defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesNexusheader
-      , scheduleNexusOperationCommandAttributesScheduletostarttimeout = maybe (scheduleNexusOperationCommandAttributesScheduletostarttimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesScheduletostarttimeout
-      , scheduleNexusOperationCommandAttributesStarttoclosetimeout = maybe (scheduleNexusOperationCommandAttributesStarttoclosetimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesStarttoclosetimeout
+      , scheduleNexusOperationCommandAttributesScheduleToCloseTimeout = maybe (scheduleNexusOperationCommandAttributesScheduleToCloseTimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesScheduleToCloseTimeout
+      , scheduleNexusOperationCommandAttributesNexusHeader = maybe (scheduleNexusOperationCommandAttributesNexusHeader defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesNexusHeader
+      , scheduleNexusOperationCommandAttributesScheduleToStartTimeout = maybe (scheduleNexusOperationCommandAttributesScheduleToStartTimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesScheduleToStartTimeout
+      , scheduleNexusOperationCommandAttributesStartToCloseTimeout = maybe (scheduleNexusOperationCommandAttributesStartToCloseTimeout defaultScheduleNexusOperationCommandAttributes) id fld_scheduleNexusOperationCommandAttributesStartToCloseTimeout
       }
 
 instance Hashable ScheduleNexusOperationCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleNexusOperationCommandAttributesEndpoint) msg.scheduleNexusOperationCommandAttributesService) msg.scheduleNexusOperationCommandAttributesOperation) msg.scheduleNexusOperationCommandAttributesInput) msg.scheduleNexusOperationCommandAttributesScheduletoclosetimeout) msg.scheduleNexusOperationCommandAttributesNexusheader) msg.scheduleNexusOperationCommandAttributesScheduletostarttimeout) msg.scheduleNexusOperationCommandAttributesStarttoclosetimeout
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.scheduleNexusOperationCommandAttributesEndpoint) msg.scheduleNexusOperationCommandAttributesService) msg.scheduleNexusOperationCommandAttributesOperation) msg.scheduleNexusOperationCommandAttributesInput) msg.scheduleNexusOperationCommandAttributesScheduleToCloseTimeout) msg.scheduleNexusOperationCommandAttributesNexusHeader) msg.scheduleNexusOperationCommandAttributesScheduleToStartTimeout) msg.scheduleNexusOperationCommandAttributesStartToCloseTimeout
 
 data RequestCancelNexusOperationCommandAttributes = RequestCancelNexusOperationCommandAttributes
-  { requestCancelNexusOperationCommandAttributesScheduledeventid :: {-# UNPACK #-} !Int64
-  , requestCancelNexusOperationCommandAttributesUnknownfields :: ![UnknownField]
+  { requestCancelNexusOperationCommandAttributesScheduledEventId :: {-# UNPACK #-} !Int64
+  , requestCancelNexusOperationCommandAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRequestCancelNexusOperationCommandAttributes :: RequestCancelNexusOperationCommandAttributes
 defaultRequestCancelNexusOperationCommandAttributes = RequestCancelNexusOperationCommandAttributes
-  { requestCancelNexusOperationCommandAttributesScheduledeventid = 0
-  , requestCancelNexusOperationCommandAttributesUnknownfields = []
+  { requestCancelNexusOperationCommandAttributesScheduledEventId = 0
+  , requestCancelNexusOperationCommandAttributesUnknownFields = []
   }
 
 instance MessageEncode RequestCancelNexusOperationCommandAttributes where
   buildMessage msg =
-    (if msg.requestCancelNexusOperationCommandAttributesScheduledeventid == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.requestCancelNexusOperationCommandAttributesScheduledeventid))
-    <> encodeUnknownFields msg.requestCancelNexusOperationCommandAttributesUnknownfields
+    (if msg.requestCancelNexusOperationCommandAttributesScheduledEventId == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.requestCancelNexusOperationCommandAttributesScheduledEventId))
+    <> encodeUnknownFields msg.requestCancelNexusOperationCommandAttributesUnknownFields
 
 instance MessageSize RequestCancelNexusOperationCommandAttributes where
   messageSize msg =
-    (if msg.requestCancelNexusOperationCommandAttributesScheduledeventid == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.requestCancelNexusOperationCommandAttributesScheduledeventid))
-    + unknownFieldsSize msg.requestCancelNexusOperationCommandAttributesUnknownfields
+    (if msg.requestCancelNexusOperationCommandAttributesScheduledEventId == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.requestCancelNexusOperationCommandAttributesScheduledEventId))
+    + unknownFieldsSize msg.requestCancelNexusOperationCommandAttributesUnknownFields
 
 instance MessageDecode RequestCancelNexusOperationCommandAttributes where
   {-# INLINE messageDecoder #-}
@@ -2456,7 +2456,7 @@ instance MessageDecode RequestCancelNexusOperationCommandAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RequestCancelNexusOperationCommandAttributes {requestCancelNexusOperationCommandAttributesScheduledeventid = acc_0, requestCancelNexusOperationCommandAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RequestCancelNexusOperationCommandAttributes {requestCancelNexusOperationCommandAttributesScheduledEventId = acc_0, requestCancelNexusOperationCommandAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -2479,32 +2479,32 @@ instance ProtoMessage RequestCancelNexusOperationCommandAttributes where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = requestCancelNexusOperationCommandAttributesScheduledeventid
-        , fdSet = \v m -> m { requestCancelNexusOperationCommandAttributesScheduledeventid = v }
+        , fdGet = requestCancelNexusOperationCommandAttributesScheduledEventId
+        , fdSet = \v m -> m { requestCancelNexusOperationCommandAttributesScheduledEventId = v }
         })
     ]
 
 instance Aeson.ToJSON RequestCancelNexusOperationCommandAttributes where
   toJSON msg = jsonObject
-      [ "scheduledEventId" .=: msg.requestCancelNexusOperationCommandAttributesScheduledeventid
+      [ "scheduledEventId" .=: msg.requestCancelNexusOperationCommandAttributesScheduledEventId
 
       ]
 
 instance Aeson.FromJSON RequestCancelNexusOperationCommandAttributes where
   parseJSON = Aeson.withObject "RequestCancelNexusOperationCommandAttributes" $ \obj -> do
-    fld_requestCancelNexusOperationCommandAttributesScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_requestCancelNexusOperationCommandAttributesScheduledEventId <- parseFieldMaybe obj "scheduledEventId"
     pure defaultRequestCancelNexusOperationCommandAttributes
-      { requestCancelNexusOperationCommandAttributesScheduledeventid = maybe (requestCancelNexusOperationCommandAttributesScheduledeventid defaultRequestCancelNexusOperationCommandAttributes) id fld_requestCancelNexusOperationCommandAttributesScheduledeventid
+      { requestCancelNexusOperationCommandAttributesScheduledEventId = maybe (requestCancelNexusOperationCommandAttributesScheduledEventId defaultRequestCancelNexusOperationCommandAttributes) id fld_requestCancelNexusOperationCommandAttributesScheduledEventId
       }
 
 instance Hashable RequestCancelNexusOperationCommandAttributes where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.requestCancelNexusOperationCommandAttributesScheduledeventid
+  hashWithSalt salt msg = hashWithSalt (salt) msg.requestCancelNexusOperationCommandAttributesScheduledEventId
 
 data Command = Command
-  { commandCommandtype :: !TE_Enums_V1_CommandType.CommandType
-  , commandUsermetadata :: !(Maybe TE_Sdk_V1_UserMetadata.UserMetadata)
+  { commandCommandType :: !TE_Enums_V1_CommandType.CommandType
+  , commandUserMetadata :: !(Maybe TE_Sdk_V1_UserMetadata.UserMetadata)
   , commandAttributes :: !(Maybe Command'Attributes)
-  , commandUnknownfields :: ![UnknownField]
+  , commandUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2553,16 +2553,16 @@ instance Hashable Command'Attributes where
 
 defaultCommand :: Command
 defaultCommand = Command
-  { commandCommandtype = (toEnum 0)
-  , commandUsermetadata = Nothing
+  { commandCommandType = (toEnum 0)
+  , commandUserMetadata = Nothing
   , commandAttributes = Nothing
-  , commandUnknownfields = []
+  , commandUnknownFields = []
   }
 
 instance MessageEncode Command where
   buildMessage msg =
-    (if fromEnum msg.commandCommandtype == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.commandCommandtype)))
-    <> (maybe mempty (\v -> encodeFieldMessage 301 v) msg.commandUsermetadata)
+    (if fromEnum msg.commandCommandType == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.commandCommandType)))
+    <> (maybe mempty (\v -> encodeFieldMessage 301 v) msg.commandUserMetadata)
     <> (case msg.commandAttributes of
       Nothing -> mempty
       Just (Command'Attributes'ScheduleActivityTaskCommandAttributes v) -> encodeFieldMessage 2 v
@@ -2582,12 +2582,12 @@ instance MessageEncode Command where
       Just (Command'Attributes'ModifyWorkflowPropertiesCommandAttributes v) -> encodeFieldMessage 17 v
       Just (Command'Attributes'ScheduleNexusOperationCommandAttributes v) -> encodeFieldMessage 18 v
       Just (Command'Attributes'RequestCancelNexusOperationCommandAttributes v) -> encodeFieldMessage 19 v)
-    <> encodeUnknownFields msg.commandUnknownfields
+    <> encodeUnknownFields msg.commandUnknownFields
 
 instance MessageSize Command where
   messageSize msg =
-    (if fromEnum msg.commandCommandtype == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.commandCommandtype)))
-    + (maybe 0 (\v -> fieldMessageSize 301 (messageSize v)) msg.commandUsermetadata)
+    (if fromEnum msg.commandCommandType == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.commandCommandType)))
+    + (maybe 0 (\v -> fieldMessageSize 301 (messageSize v)) msg.commandUserMetadata)
     + (case msg.commandAttributes of { Nothing -> 0; Just (Command'Attributes'ScheduleActivityTaskCommandAttributes v) -> fieldMessageSize 2 (messageSize v)
     ; Just (Command'Attributes'StartTimerCommandAttributes v) -> fieldMessageSize 3 (messageSize v)
     ; Just (Command'Attributes'CompleteWorkflowExecutionCommandAttributes v) -> fieldMessageSize 4 (messageSize v)
@@ -2605,7 +2605,7 @@ instance MessageSize Command where
     ; Just (Command'Attributes'ModifyWorkflowPropertiesCommandAttributes v) -> fieldMessageSize 17 (messageSize v)
     ; Just (Command'Attributes'ScheduleNexusOperationCommandAttributes v) -> fieldMessageSize 18 (messageSize v)
     ; Just (Command'Attributes'RequestCancelNexusOperationCommandAttributes v) -> fieldMessageSize 19 (messageSize v) })
-    + unknownFieldsSize msg.commandUnknownfields
+    + unknownFieldsSize msg.commandUnknownFields
 
 instance MessageDecode Command where
   {-# INLINE messageDecoder #-}
@@ -2614,7 +2614,7 @@ instance MessageDecode Command where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Command {commandCommandtype = acc_0, commandUsermetadata = acc_1, commandAttributes = acc_2, commandUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Command {commandCommandType = acc_0, commandUserMetadata = acc_1, commandAttributes = acc_2, commandUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -2691,15 +2691,15 @@ instance ProtoMessage Command where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.CommandType"
         , fdLabel = LabelOptional
-        , fdGet = commandCommandtype
-        , fdSet = \v m -> m { commandCommandtype = v }
+        , fdGet = commandCommandType
+        , fdSet = \v m -> m { commandCommandType = v }
         }), (301, SomeField FieldDescriptor
         { fdName = "user_metadata"
         , fdNumber = 301
         , fdTypeDesc = MessageType "temporal.api.sdk.v1.UserMetadata"
         , fdLabel = LabelOptional
-        , fdGet = commandUsermetadata
-        , fdSet = \v m -> m { commandUsermetadata = v }
+        , fdGet = commandUserMetadata
+        , fdSet = \v m -> m { commandUserMetadata = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "attributes"
@@ -2713,24 +2713,24 @@ instance ProtoMessage Command where
 
 instance Aeson.ToJSON Command where
   toJSON msg = jsonObject
-      [ "commandType" .=: msg.commandCommandtype
-      , "userMetadata" .=: msg.commandUsermetadata
+      [ "commandType" .=: msg.commandCommandType
+      , "userMetadata" .=: msg.commandUserMetadata
       , "attributes" .=: msg.commandAttributes
       ]
 
 instance Aeson.FromJSON Command where
   parseJSON = Aeson.withObject "Command" $ \obj -> do
-    fld_commandCommandtype <- parseFieldMaybe obj "commandType"
-    fld_commandUsermetadata <- parseFieldMaybe obj "userMetadata"
+    fld_commandCommandType <- parseFieldMaybe obj "commandType"
+    fld_commandUserMetadata <- parseFieldMaybe obj "userMetadata"
     fld_commandAttributes <- parseFieldMaybe obj "attributes"
     pure defaultCommand
-      { commandCommandtype = maybe (commandCommandtype defaultCommand) id fld_commandCommandtype
-      , commandUsermetadata = maybe (commandUsermetadata defaultCommand) id fld_commandUsermetadata
+      { commandCommandType = maybe (commandCommandType defaultCommand) id fld_commandCommandType
+      , commandUserMetadata = maybe (commandUserMetadata defaultCommand) id fld_commandUserMetadata
       , commandAttributes = maybe (commandAttributes defaultCommand) id fld_commandAttributes
       }
 
 instance Hashable Command where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.commandCommandtype) msg.commandUsermetadata) msg.commandAttributes
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.commandCommandType) msg.commandUserMetadata) msg.commandAttributes
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

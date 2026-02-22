@@ -60,10 +60,10 @@ fileDescriptorProtoBytes = case Base16.decode "0a2674656d706f72616c2f6170692f707
 
 data Message = Message
   { messageId :: !Text
-  , messageProtocolinstanceid :: !Text
-  , messageSequencingid :: !(Maybe Message'SequencingId)
+  , messageProtocolInstanceId :: !Text
+  , messageSequencingId :: !(Maybe Message'SequencingId)
   , messageBody :: !(Maybe PB_Any.Any)
-  , messageUnknownfields :: ![UnknownField]
+  , messageUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -83,31 +83,31 @@ instance Hashable Message'SequencingId where
 defaultMessage :: Message
 defaultMessage = Message
   { messageId = ""
-  , messageProtocolinstanceid = ""
-  , messageSequencingid = Nothing
+  , messageProtocolInstanceId = ""
+  , messageSequencingId = Nothing
   , messageBody = Nothing
-  , messageUnknownfields = []
+  , messageUnknownFields = []
   }
 
 instance MessageEncode Message where
   buildMessage msg =
     (if msg.messageId == T.empty then mempty else encodeFieldString 1 msg.messageId)
-    <> (if msg.messageProtocolinstanceid == T.empty then mempty else encodeFieldString 2 msg.messageProtocolinstanceid)
-    <> (case msg.messageSequencingid of
+    <> (if msg.messageProtocolInstanceId == T.empty then mempty else encodeFieldString 2 msg.messageProtocolInstanceId)
+    <> (case msg.messageSequencingId of
       Nothing -> mempty
       Just (Message'SequencingId'EventId v) -> encodeFieldVarint 3 (fromIntegral v)
       Just (Message'SequencingId'CommandIndex v) -> encodeFieldVarint 4 (fromIntegral v))
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.messageBody)
-    <> encodeUnknownFields msg.messageUnknownfields
+    <> encodeUnknownFields msg.messageUnknownFields
 
 instance MessageSize Message where
   messageSize msg =
     (if msg.messageId == T.empty then 0 else fieldTextSize 1 msg.messageId)
-    + (if msg.messageProtocolinstanceid == T.empty then 0 else fieldTextSize 2 msg.messageProtocolinstanceid)
-    + (case msg.messageSequencingid of { Nothing -> 0; Just (Message'SequencingId'EventId v) -> fieldVarintSize 3 (fromIntegral v)
+    + (if msg.messageProtocolInstanceId == T.empty then 0 else fieldTextSize 2 msg.messageProtocolInstanceId)
+    + (case msg.messageSequencingId of { Nothing -> 0; Just (Message'SequencingId'EventId v) -> fieldVarintSize 3 (fromIntegral v)
     ; Just (Message'SequencingId'CommandIndex v) -> fieldVarintSize 4 (fromIntegral v) })
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.messageBody)
-    + unknownFieldsSize msg.messageUnknownfields
+    + unknownFieldsSize msg.messageUnknownFields
 
 instance MessageDecode Message where
   {-# INLINE messageDecoder #-}
@@ -116,7 +116,7 @@ instance MessageDecode Message where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Message {messageId = acc_0, messageProtocolinstanceid = acc_1, messageSequencingid = acc_2, messageBody = acc_3, messageUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Message {messageId = acc_0, messageProtocolInstanceId = acc_1, messageSequencingId = acc_2, messageBody = acc_3, messageUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -158,16 +158,16 @@ instance ProtoMessage Message where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = messageProtocolinstanceid
-        , fdSet = \v m -> m { messageProtocolinstanceid = v }
+        , fdGet = messageProtocolInstanceId
+        , fdSet = \v m -> m { messageProtocolInstanceId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "sequencing_id"
         , fdNumber = 3
         , fdTypeDesc = MessageType "sequencing_id"
         , fdLabel = LabelOptional
-        , fdGet = messageSequencingid
-        , fdSet = \v m -> m { messageSequencingid = v }
+        , fdGet = messageSequencingId
+        , fdSet = \v m -> m { messageSequencingId = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "body"
@@ -182,26 +182,26 @@ instance ProtoMessage Message where
 instance Aeson.ToJSON Message where
   toJSON msg = jsonObject
       [ "id" .=: msg.messageId
-      , "protocolInstanceId" .=: msg.messageProtocolinstanceid
-      , "sequencingId" .=: msg.messageSequencingid
+      , "protocolInstanceId" .=: msg.messageProtocolInstanceId
+      , "sequencingId" .=: msg.messageSequencingId
       , "body" .=: msg.messageBody
       ]
 
 instance Aeson.FromJSON Message where
   parseJSON = Aeson.withObject "Message" $ \obj -> do
     fld_messageId <- parseFieldMaybe obj "id"
-    fld_messageProtocolinstanceid <- parseFieldMaybe obj "protocolInstanceId"
-    fld_messageSequencingid <- parseFieldMaybe obj "sequencingId"
+    fld_messageProtocolInstanceId <- parseFieldMaybe obj "protocolInstanceId"
+    fld_messageSequencingId <- parseFieldMaybe obj "sequencingId"
     fld_messageBody <- parseFieldMaybe obj "body"
     pure defaultMessage
       { messageId = maybe (messageId defaultMessage) id fld_messageId
-      , messageProtocolinstanceid = maybe (messageProtocolinstanceid defaultMessage) id fld_messageProtocolinstanceid
-      , messageSequencingid = maybe (messageSequencingid defaultMessage) id fld_messageSequencingid
+      , messageProtocolInstanceId = maybe (messageProtocolInstanceId defaultMessage) id fld_messageProtocolInstanceId
+      , messageSequencingId = maybe (messageSequencingId defaultMessage) id fld_messageSequencingId
       , messageBody = maybe (messageBody defaultMessage) id fld_messageBody
       }
 
 instance Hashable Message where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.messageId) msg.messageProtocolinstanceid) msg.messageSequencingid) msg.messageBody
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.messageId) msg.messageProtocolInstanceId) msg.messageSequencingId) msg.messageBody
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

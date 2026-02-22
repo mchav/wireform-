@@ -58,35 +58,35 @@ fileDescriptorProtoBytes = case Base16.decode "0a2774656d706f72616c2f6170692f736
 
 
 data WorkerConfig = WorkerConfig
-  { workerConfigWorkflowcachesize :: {-# UNPACK #-} !Int32
-  , workerConfigPollerbehavior :: !(Maybe WorkerConfig'PollerBehavior)
-  , workerConfigUnknownfields :: ![UnknownField]
+  { workerConfigWorkflowCacheSize :: {-# UNPACK #-} !Int32
+  , workerConfigPollerBehavior :: !(Maybe WorkerConfig'PollerBehavior)
+  , workerConfigUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data WorkerConfig'SimplePollerBehavior = WorkerConfig'SimplePollerBehavior
-  { workerConfigSimplePollerBehaviorMaxpollers :: {-# UNPACK #-} !Int32
-  , workerConfigSimplePollerBehaviorUnknownfields :: ![UnknownField]
+  { workerConfigSimplePollerBehaviorMaxPollers :: {-# UNPACK #-} !Int32
+  , workerConfigSimplePollerBehaviorUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerConfig'SimplePollerBehavior :: WorkerConfig'SimplePollerBehavior
 defaultWorkerConfig'SimplePollerBehavior = WorkerConfig'SimplePollerBehavior
-  { workerConfigSimplePollerBehaviorMaxpollers = 0
-  , workerConfigSimplePollerBehaviorUnknownfields = []
+  { workerConfigSimplePollerBehaviorMaxPollers = 0
+  , workerConfigSimplePollerBehaviorUnknownFields = []
   }
 
 instance MessageEncode WorkerConfig'SimplePollerBehavior where
   buildMessage msg =
-    (if msg.workerConfigSimplePollerBehaviorMaxpollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigSimplePollerBehaviorMaxpollers))
-    <> encodeUnknownFields msg.workerConfigSimplePollerBehaviorUnknownfields
+    (if msg.workerConfigSimplePollerBehaviorMaxPollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigSimplePollerBehaviorMaxPollers))
+    <> encodeUnknownFields msg.workerConfigSimplePollerBehaviorUnknownFields
 
 instance MessageSize WorkerConfig'SimplePollerBehavior where
   messageSize msg =
-    (if msg.workerConfigSimplePollerBehaviorMaxpollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigSimplePollerBehaviorMaxpollers))
-    + unknownFieldsSize msg.workerConfigSimplePollerBehaviorUnknownfields
+    (if msg.workerConfigSimplePollerBehaviorMaxPollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigSimplePollerBehaviorMaxPollers))
+    + unknownFieldsSize msg.workerConfigSimplePollerBehaviorUnknownFields
 
 instance MessageDecode WorkerConfig'SimplePollerBehavior where
   {-# INLINE messageDecoder #-}
@@ -95,7 +95,7 @@ instance MessageDecode WorkerConfig'SimplePollerBehavior where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerConfig'SimplePollerBehavior {workerConfigSimplePollerBehaviorMaxpollers = acc_0, workerConfigSimplePollerBehaviorUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerConfig'SimplePollerBehavior {workerConfigSimplePollerBehaviorMaxPollers = acc_0, workerConfigSimplePollerBehaviorUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -118,57 +118,57 @@ instance ProtoMessage WorkerConfig'SimplePollerBehavior where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerConfigSimplePollerBehaviorMaxpollers
-        , fdSet = \v m -> m { workerConfigSimplePollerBehaviorMaxpollers = v }
+        , fdGet = workerConfigSimplePollerBehaviorMaxPollers
+        , fdSet = \v m -> m { workerConfigSimplePollerBehaviorMaxPollers = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerConfig'SimplePollerBehavior where
   toJSON msg = jsonObject
-      [ "maxPollers" .=: msg.workerConfigSimplePollerBehaviorMaxpollers
+      [ "maxPollers" .=: msg.workerConfigSimplePollerBehaviorMaxPollers
 
       ]
 
 instance Aeson.FromJSON WorkerConfig'SimplePollerBehavior where
   parseJSON = Aeson.withObject "WorkerConfig'SimplePollerBehavior" $ \obj -> do
-    fld_workerConfigSimplePollerBehaviorMaxpollers <- parseFieldMaybe obj "maxPollers"
+    fld_workerConfigSimplePollerBehaviorMaxPollers <- parseFieldMaybe obj "maxPollers"
     pure defaultWorkerConfig'SimplePollerBehavior
-      { workerConfigSimplePollerBehaviorMaxpollers = maybe (workerConfigSimplePollerBehaviorMaxpollers defaultWorkerConfig'SimplePollerBehavior) id fld_workerConfigSimplePollerBehaviorMaxpollers
+      { workerConfigSimplePollerBehaviorMaxPollers = maybe (workerConfigSimplePollerBehaviorMaxPollers defaultWorkerConfig'SimplePollerBehavior) id fld_workerConfigSimplePollerBehaviorMaxPollers
       }
 
 instance Hashable WorkerConfig'SimplePollerBehavior where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.workerConfigSimplePollerBehaviorMaxpollers
+  hashWithSalt salt msg = hashWithSalt (salt) msg.workerConfigSimplePollerBehaviorMaxPollers
 
 data WorkerConfig'AutoscalingPollerBehavior = WorkerConfig'AutoscalingPollerBehavior
-  { workerConfigAutoscalingPollerBehaviorMinpollers :: {-# UNPACK #-} !Int32
-  , workerConfigAutoscalingPollerBehaviorMaxpollers :: {-# UNPACK #-} !Int32
-  , workerConfigAutoscalingPollerBehaviorInitialpollers :: {-# UNPACK #-} !Int32
-  , workerConfigAutoscalingPollerBehaviorUnknownfields :: ![UnknownField]
+  { workerConfigAutoscalingPollerBehaviorMinPollers :: {-# UNPACK #-} !Int32
+  , workerConfigAutoscalingPollerBehaviorMaxPollers :: {-# UNPACK #-} !Int32
+  , workerConfigAutoscalingPollerBehaviorInitialPollers :: {-# UNPACK #-} !Int32
+  , workerConfigAutoscalingPollerBehaviorUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerConfig'AutoscalingPollerBehavior :: WorkerConfig'AutoscalingPollerBehavior
 defaultWorkerConfig'AutoscalingPollerBehavior = WorkerConfig'AutoscalingPollerBehavior
-  { workerConfigAutoscalingPollerBehaviorMinpollers = 0
-  , workerConfigAutoscalingPollerBehaviorMaxpollers = 0
-  , workerConfigAutoscalingPollerBehaviorInitialpollers = 0
-  , workerConfigAutoscalingPollerBehaviorUnknownfields = []
+  { workerConfigAutoscalingPollerBehaviorMinPollers = 0
+  , workerConfigAutoscalingPollerBehaviorMaxPollers = 0
+  , workerConfigAutoscalingPollerBehaviorInitialPollers = 0
+  , workerConfigAutoscalingPollerBehaviorUnknownFields = []
   }
 
 instance MessageEncode WorkerConfig'AutoscalingPollerBehavior where
   buildMessage msg =
-    (if msg.workerConfigAutoscalingPollerBehaviorMinpollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMinpollers))
-    <> (if msg.workerConfigAutoscalingPollerBehaviorMaxpollers == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMaxpollers))
-    <> (if msg.workerConfigAutoscalingPollerBehaviorInitialpollers == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorInitialpollers))
-    <> encodeUnknownFields msg.workerConfigAutoscalingPollerBehaviorUnknownfields
+    (if msg.workerConfigAutoscalingPollerBehaviorMinPollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMinPollers))
+    <> (if msg.workerConfigAutoscalingPollerBehaviorMaxPollers == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMaxPollers))
+    <> (if msg.workerConfigAutoscalingPollerBehaviorInitialPollers == 0 then mempty else encodeFieldVarint 3 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorInitialPollers))
+    <> encodeUnknownFields msg.workerConfigAutoscalingPollerBehaviorUnknownFields
 
 instance MessageSize WorkerConfig'AutoscalingPollerBehavior where
   messageSize msg =
-    (if msg.workerConfigAutoscalingPollerBehaviorMinpollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMinpollers))
-    + (if msg.workerConfigAutoscalingPollerBehaviorMaxpollers == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMaxpollers))
-    + (if msg.workerConfigAutoscalingPollerBehaviorInitialpollers == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorInitialpollers))
-    + unknownFieldsSize msg.workerConfigAutoscalingPollerBehaviorUnknownfields
+    (if msg.workerConfigAutoscalingPollerBehaviorMinPollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMinPollers))
+    + (if msg.workerConfigAutoscalingPollerBehaviorMaxPollers == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorMaxPollers))
+    + (if msg.workerConfigAutoscalingPollerBehaviorInitialPollers == 0 then 0 else fieldVarintSize 3 (fromIntegral msg.workerConfigAutoscalingPollerBehaviorInitialPollers))
+    + unknownFieldsSize msg.workerConfigAutoscalingPollerBehaviorUnknownFields
 
 instance MessageDecode WorkerConfig'AutoscalingPollerBehavior where
   {-# INLINE messageDecoder #-}
@@ -177,7 +177,7 @@ instance MessageDecode WorkerConfig'AutoscalingPollerBehavior where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerConfig'AutoscalingPollerBehavior {workerConfigAutoscalingPollerBehaviorMinpollers = acc_0, workerConfigAutoscalingPollerBehaviorMaxpollers = acc_1, workerConfigAutoscalingPollerBehaviorInitialpollers = acc_2, workerConfigAutoscalingPollerBehaviorUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerConfig'AutoscalingPollerBehavior {workerConfigAutoscalingPollerBehaviorMinPollers = acc_0, workerConfigAutoscalingPollerBehaviorMaxPollers = acc_1, workerConfigAutoscalingPollerBehaviorInitialPollers = acc_2, workerConfigAutoscalingPollerBehaviorUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -206,46 +206,46 @@ instance ProtoMessage WorkerConfig'AutoscalingPollerBehavior where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerConfigAutoscalingPollerBehaviorMinpollers
-        , fdSet = \v m -> m { workerConfigAutoscalingPollerBehaviorMinpollers = v }
+        , fdGet = workerConfigAutoscalingPollerBehaviorMinPollers
+        , fdSet = \v m -> m { workerConfigAutoscalingPollerBehaviorMinPollers = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "max_pollers"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerConfigAutoscalingPollerBehaviorMaxpollers
-        , fdSet = \v m -> m { workerConfigAutoscalingPollerBehaviorMaxpollers = v }
+        , fdGet = workerConfigAutoscalingPollerBehaviorMaxPollers
+        , fdSet = \v m -> m { workerConfigAutoscalingPollerBehaviorMaxPollers = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "initial_pollers"
         , fdNumber = 3
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerConfigAutoscalingPollerBehaviorInitialpollers
-        , fdSet = \v m -> m { workerConfigAutoscalingPollerBehaviorInitialpollers = v }
+        , fdGet = workerConfigAutoscalingPollerBehaviorInitialPollers
+        , fdSet = \v m -> m { workerConfigAutoscalingPollerBehaviorInitialPollers = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerConfig'AutoscalingPollerBehavior where
   toJSON msg = jsonObject
-      [ "minPollers" .=: msg.workerConfigAutoscalingPollerBehaviorMinpollers
-      , "maxPollers" .=: msg.workerConfigAutoscalingPollerBehaviorMaxpollers
-      , "initialPollers" .=: msg.workerConfigAutoscalingPollerBehaviorInitialpollers
+      [ "minPollers" .=: msg.workerConfigAutoscalingPollerBehaviorMinPollers
+      , "maxPollers" .=: msg.workerConfigAutoscalingPollerBehaviorMaxPollers
+      , "initialPollers" .=: msg.workerConfigAutoscalingPollerBehaviorInitialPollers
       ]
 
 instance Aeson.FromJSON WorkerConfig'AutoscalingPollerBehavior where
   parseJSON = Aeson.withObject "WorkerConfig'AutoscalingPollerBehavior" $ \obj -> do
-    fld_workerConfigAutoscalingPollerBehaviorMinpollers <- parseFieldMaybe obj "minPollers"
-    fld_workerConfigAutoscalingPollerBehaviorMaxpollers <- parseFieldMaybe obj "maxPollers"
-    fld_workerConfigAutoscalingPollerBehaviorInitialpollers <- parseFieldMaybe obj "initialPollers"
+    fld_workerConfigAutoscalingPollerBehaviorMinPollers <- parseFieldMaybe obj "minPollers"
+    fld_workerConfigAutoscalingPollerBehaviorMaxPollers <- parseFieldMaybe obj "maxPollers"
+    fld_workerConfigAutoscalingPollerBehaviorInitialPollers <- parseFieldMaybe obj "initialPollers"
     pure defaultWorkerConfig'AutoscalingPollerBehavior
-      { workerConfigAutoscalingPollerBehaviorMinpollers = maybe (workerConfigAutoscalingPollerBehaviorMinpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorMinpollers
-      , workerConfigAutoscalingPollerBehaviorMaxpollers = maybe (workerConfigAutoscalingPollerBehaviorMaxpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorMaxpollers
-      , workerConfigAutoscalingPollerBehaviorInitialpollers = maybe (workerConfigAutoscalingPollerBehaviorInitialpollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorInitialpollers
+      { workerConfigAutoscalingPollerBehaviorMinPollers = maybe (workerConfigAutoscalingPollerBehaviorMinPollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorMinPollers
+      , workerConfigAutoscalingPollerBehaviorMaxPollers = maybe (workerConfigAutoscalingPollerBehaviorMaxPollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorMaxPollers
+      , workerConfigAutoscalingPollerBehaviorInitialPollers = maybe (workerConfigAutoscalingPollerBehaviorInitialPollers defaultWorkerConfig'AutoscalingPollerBehavior) id fld_workerConfigAutoscalingPollerBehaviorInitialPollers
       }
 
 instance Hashable WorkerConfig'AutoscalingPollerBehavior where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerConfigAutoscalingPollerBehaviorMinpollers) msg.workerConfigAutoscalingPollerBehaviorMaxpollers) msg.workerConfigAutoscalingPollerBehaviorInitialpollers
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerConfigAutoscalingPollerBehaviorMinPollers) msg.workerConfigAutoscalingPollerBehaviorMaxPollers) msg.workerConfigAutoscalingPollerBehaviorInitialPollers
 data WorkerConfig'PollerBehavior
   = WorkerConfig'PollerBehavior'SimplePollerBehavior !WorkerConfig'SimplePollerBehavior
   | WorkerConfig'PollerBehavior'AutoscalingPollerBehavior !WorkerConfig'AutoscalingPollerBehavior
@@ -261,26 +261,26 @@ instance Hashable WorkerConfig'PollerBehavior where
 
 defaultWorkerConfig :: WorkerConfig
 defaultWorkerConfig = WorkerConfig
-  { workerConfigWorkflowcachesize = 0
-  , workerConfigPollerbehavior = Nothing
-  , workerConfigUnknownfields = []
+  { workerConfigWorkflowCacheSize = 0
+  , workerConfigPollerBehavior = Nothing
+  , workerConfigUnknownFields = []
   }
 
 instance MessageEncode WorkerConfig where
   buildMessage msg =
-    (if msg.workerConfigWorkflowcachesize == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigWorkflowcachesize))
-    <> (case msg.workerConfigPollerbehavior of
+    (if msg.workerConfigWorkflowCacheSize == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerConfigWorkflowCacheSize))
+    <> (case msg.workerConfigPollerBehavior of
       Nothing -> mempty
       Just (WorkerConfig'PollerBehavior'SimplePollerBehavior v) -> encodeFieldMessage 2 v
       Just (WorkerConfig'PollerBehavior'AutoscalingPollerBehavior v) -> encodeFieldMessage 3 v)
-    <> encodeUnknownFields msg.workerConfigUnknownfields
+    <> encodeUnknownFields msg.workerConfigUnknownFields
 
 instance MessageSize WorkerConfig where
   messageSize msg =
-    (if msg.workerConfigWorkflowcachesize == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigWorkflowcachesize))
-    + (case msg.workerConfigPollerbehavior of { Nothing -> 0; Just (WorkerConfig'PollerBehavior'SimplePollerBehavior v) -> fieldMessageSize 2 (messageSize v)
+    (if msg.workerConfigWorkflowCacheSize == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerConfigWorkflowCacheSize))
+    + (case msg.workerConfigPollerBehavior of { Nothing -> 0; Just (WorkerConfig'PollerBehavior'SimplePollerBehavior v) -> fieldMessageSize 2 (messageSize v)
     ; Just (WorkerConfig'PollerBehavior'AutoscalingPollerBehavior v) -> fieldMessageSize 3 (messageSize v) })
-    + unknownFieldsSize msg.workerConfigUnknownfields
+    + unknownFieldsSize msg.workerConfigUnknownFields
 
 instance MessageDecode WorkerConfig where
   {-# INLINE messageDecoder #-}
@@ -289,7 +289,7 @@ instance MessageDecode WorkerConfig where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerConfig {workerConfigWorkflowcachesize = acc_0, workerConfigPollerbehavior = acc_1, workerConfigUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerConfig {workerConfigWorkflowCacheSize = acc_0, workerConfigPollerBehavior = acc_1, workerConfigUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -318,35 +318,35 @@ instance ProtoMessage WorkerConfig where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerConfigWorkflowcachesize
-        , fdSet = \v m -> m { workerConfigWorkflowcachesize = v }
+        , fdGet = workerConfigWorkflowCacheSize
+        , fdSet = \v m -> m { workerConfigWorkflowCacheSize = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "poller_behavior"
         , fdNumber = 2
         , fdTypeDesc = MessageType "poller_behavior"
         , fdLabel = LabelOptional
-        , fdGet = workerConfigPollerbehavior
-        , fdSet = \v m -> m { workerConfigPollerbehavior = v }
+        , fdGet = workerConfigPollerBehavior
+        , fdSet = \v m -> m { workerConfigPollerBehavior = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerConfig where
   toJSON msg = jsonObject
-      [ "workflowCacheSize" .=: msg.workerConfigWorkflowcachesize
-      , "pollerBehavior" .=: msg.workerConfigPollerbehavior
+      [ "workflowCacheSize" .=: msg.workerConfigWorkflowCacheSize
+      , "pollerBehavior" .=: msg.workerConfigPollerBehavior
       ]
 
 instance Aeson.FromJSON WorkerConfig where
   parseJSON = Aeson.withObject "WorkerConfig" $ \obj -> do
-    fld_workerConfigWorkflowcachesize <- parseFieldMaybe obj "workflowCacheSize"
-    fld_workerConfigPollerbehavior <- parseFieldMaybe obj "pollerBehavior"
+    fld_workerConfigWorkflowCacheSize <- parseFieldMaybe obj "workflowCacheSize"
+    fld_workerConfigPollerBehavior <- parseFieldMaybe obj "pollerBehavior"
     pure defaultWorkerConfig
-      { workerConfigWorkflowcachesize = maybe (workerConfigWorkflowcachesize defaultWorkerConfig) id fld_workerConfigWorkflowcachesize
-      , workerConfigPollerbehavior = maybe (workerConfigPollerbehavior defaultWorkerConfig) id fld_workerConfigPollerbehavior
+      { workerConfigWorkflowCacheSize = maybe (workerConfigWorkflowCacheSize defaultWorkerConfig) id fld_workerConfigWorkflowCacheSize
+      , workerConfigPollerBehavior = maybe (workerConfigPollerBehavior defaultWorkerConfig) id fld_workerConfigPollerBehavior
       }
 
 instance Hashable WorkerConfig where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workerConfigWorkflowcachesize) msg.workerConfigPollerbehavior
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workerConfigWorkflowCacheSize) msg.workerConfigPollerBehavior
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

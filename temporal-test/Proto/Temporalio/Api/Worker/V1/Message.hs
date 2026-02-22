@@ -62,35 +62,35 @@ fileDescriptorProtoBytes = case Base16.decode "0a2474656d706f72616c2f6170692f776
 
 
 data WorkerPollerInfo = WorkerPollerInfo
-  { workerPollerInfoCurrentpollers :: {-# UNPACK #-} !Int32
-  , workerPollerInfoLastsuccessfulpolltime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerPollerInfoIsautoscaling :: {-# UNPACK #-} !Bool
-  , workerPollerInfoUnknownfields :: ![UnknownField]
+  { workerPollerInfoCurrentPollers :: {-# UNPACK #-} !Int32
+  , workerPollerInfoLastSuccessfulPollTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerPollerInfoIsAutoscaling :: {-# UNPACK #-} !Bool
+  , workerPollerInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerPollerInfo :: WorkerPollerInfo
 defaultWorkerPollerInfo = WorkerPollerInfo
-  { workerPollerInfoCurrentpollers = 0
-  , workerPollerInfoLastsuccessfulpolltime = Nothing
-  , workerPollerInfoIsautoscaling = False
-  , workerPollerInfoUnknownfields = []
+  { workerPollerInfoCurrentPollers = 0
+  , workerPollerInfoLastSuccessfulPollTime = Nothing
+  , workerPollerInfoIsAutoscaling = False
+  , workerPollerInfoUnknownFields = []
   }
 
 instance MessageEncode WorkerPollerInfo where
   buildMessage msg =
-    (if msg.workerPollerInfoCurrentpollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerPollerInfoCurrentpollers))
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workerPollerInfoLastsuccessfulpolltime)
-    <> (if msg.workerPollerInfoIsautoscaling == False then mempty else encodeFieldBool 3 msg.workerPollerInfoIsautoscaling)
-    <> encodeUnknownFields msg.workerPollerInfoUnknownfields
+    (if msg.workerPollerInfoCurrentPollers == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerPollerInfoCurrentPollers))
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workerPollerInfoLastSuccessfulPollTime)
+    <> (if msg.workerPollerInfoIsAutoscaling == False then mempty else encodeFieldBool 3 msg.workerPollerInfoIsAutoscaling)
+    <> encodeUnknownFields msg.workerPollerInfoUnknownFields
 
 instance MessageSize WorkerPollerInfo where
   messageSize msg =
-    (if msg.workerPollerInfoCurrentpollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerPollerInfoCurrentpollers))
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workerPollerInfoLastsuccessfulpolltime)
-    + (if msg.workerPollerInfoIsautoscaling == False then 0 else fieldBoolSize 3)
-    + unknownFieldsSize msg.workerPollerInfoUnknownfields
+    (if msg.workerPollerInfoCurrentPollers == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerPollerInfoCurrentPollers))
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workerPollerInfoLastSuccessfulPollTime)
+    + (if msg.workerPollerInfoIsAutoscaling == False then 0 else fieldBoolSize 3)
+    + unknownFieldsSize msg.workerPollerInfoUnknownFields
 
 instance MessageDecode WorkerPollerInfo where
   {-# INLINE messageDecoder #-}
@@ -99,7 +99,7 @@ instance MessageDecode WorkerPollerInfo where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerPollerInfo {workerPollerInfoCurrentpollers = acc_0, workerPollerInfoLastsuccessfulpolltime = acc_1, workerPollerInfoIsautoscaling = acc_2, workerPollerInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerPollerInfo {workerPollerInfoCurrentPollers = acc_0, workerPollerInfoLastSuccessfulPollTime = acc_1, workerPollerInfoIsAutoscaling = acc_2, workerPollerInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -128,93 +128,93 @@ instance ProtoMessage WorkerPollerInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerPollerInfoCurrentpollers
-        , fdSet = \v m -> m { workerPollerInfoCurrentpollers = v }
+        , fdGet = workerPollerInfoCurrentPollers
+        , fdSet = \v m -> m { workerPollerInfoCurrentPollers = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "last_successful_poll_time"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerPollerInfoLastsuccessfulpolltime
-        , fdSet = \v m -> m { workerPollerInfoLastsuccessfulpolltime = v }
+        , fdGet = workerPollerInfoLastSuccessfulPollTime
+        , fdSet = \v m -> m { workerPollerInfoLastSuccessfulPollTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "is_autoscaling"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = workerPollerInfoIsautoscaling
-        , fdSet = \v m -> m { workerPollerInfoIsautoscaling = v }
+        , fdGet = workerPollerInfoIsAutoscaling
+        , fdSet = \v m -> m { workerPollerInfoIsAutoscaling = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerPollerInfo where
   toJSON msg = jsonObject
-      [ "currentPollers" .=: msg.workerPollerInfoCurrentpollers
-      , "lastSuccessfulPollTime" .=: msg.workerPollerInfoLastsuccessfulpolltime
-      , "isAutoscaling" .=: msg.workerPollerInfoIsautoscaling
+      [ "currentPollers" .=: msg.workerPollerInfoCurrentPollers
+      , "lastSuccessfulPollTime" .=: msg.workerPollerInfoLastSuccessfulPollTime
+      , "isAutoscaling" .=: msg.workerPollerInfoIsAutoscaling
       ]
 
 instance Aeson.FromJSON WorkerPollerInfo where
   parseJSON = Aeson.withObject "WorkerPollerInfo" $ \obj -> do
-    fld_workerPollerInfoCurrentpollers <- parseFieldMaybe obj "currentPollers"
-    fld_workerPollerInfoLastsuccessfulpolltime <- parseFieldMaybe obj "lastSuccessfulPollTime"
-    fld_workerPollerInfoIsautoscaling <- parseFieldMaybe obj "isAutoscaling"
+    fld_workerPollerInfoCurrentPollers <- parseFieldMaybe obj "currentPollers"
+    fld_workerPollerInfoLastSuccessfulPollTime <- parseFieldMaybe obj "lastSuccessfulPollTime"
+    fld_workerPollerInfoIsAutoscaling <- parseFieldMaybe obj "isAutoscaling"
     pure defaultWorkerPollerInfo
-      { workerPollerInfoCurrentpollers = maybe (workerPollerInfoCurrentpollers defaultWorkerPollerInfo) id fld_workerPollerInfoCurrentpollers
-      , workerPollerInfoLastsuccessfulpolltime = maybe (workerPollerInfoLastsuccessfulpolltime defaultWorkerPollerInfo) id fld_workerPollerInfoLastsuccessfulpolltime
-      , workerPollerInfoIsautoscaling = maybe (workerPollerInfoIsautoscaling defaultWorkerPollerInfo) id fld_workerPollerInfoIsautoscaling
+      { workerPollerInfoCurrentPollers = maybe (workerPollerInfoCurrentPollers defaultWorkerPollerInfo) id fld_workerPollerInfoCurrentPollers
+      , workerPollerInfoLastSuccessfulPollTime = maybe (workerPollerInfoLastSuccessfulPollTime defaultWorkerPollerInfo) id fld_workerPollerInfoLastSuccessfulPollTime
+      , workerPollerInfoIsAutoscaling = maybe (workerPollerInfoIsAutoscaling defaultWorkerPollerInfo) id fld_workerPollerInfoIsAutoscaling
       }
 
 instance Hashable WorkerPollerInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerPollerInfoCurrentpollers) msg.workerPollerInfoLastsuccessfulpolltime) msg.workerPollerInfoIsautoscaling
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerPollerInfoCurrentPollers) msg.workerPollerInfoLastSuccessfulPollTime) msg.workerPollerInfoIsAutoscaling
 
 data WorkerSlotsInfo = WorkerSlotsInfo
-  { workerSlotsInfoCurrentavailableslots :: {-# UNPACK #-} !Int32
-  , workerSlotsInfoCurrentusedslots :: {-# UNPACK #-} !Int32
-  , workerSlotsInfoSlotsupplierkind :: !Text
-  , workerSlotsInfoTotalprocessedtasks :: {-# UNPACK #-} !Int32
-  , workerSlotsInfoTotalfailedtasks :: {-# UNPACK #-} !Int32
-  , workerSlotsInfoLastintervalprocessedtasks :: {-# UNPACK #-} !Int32
-  , workerSlotsInfoLastintervalfailuretasks :: {-# UNPACK #-} !Int32
-  , workerSlotsInfoUnknownfields :: ![UnknownField]
+  { workerSlotsInfoCurrentAvailableSlots :: {-# UNPACK #-} !Int32
+  , workerSlotsInfoCurrentUsedSlots :: {-# UNPACK #-} !Int32
+  , workerSlotsInfoSlotSupplierKind :: !Text
+  , workerSlotsInfoTotalProcessedTasks :: {-# UNPACK #-} !Int32
+  , workerSlotsInfoTotalFailedTasks :: {-# UNPACK #-} !Int32
+  , workerSlotsInfoLastIntervalProcessedTasks :: {-# UNPACK #-} !Int32
+  , workerSlotsInfoLastIntervalFailureTasks :: {-# UNPACK #-} !Int32
+  , workerSlotsInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerSlotsInfo :: WorkerSlotsInfo
 defaultWorkerSlotsInfo = WorkerSlotsInfo
-  { workerSlotsInfoCurrentavailableslots = 0
-  , workerSlotsInfoCurrentusedslots = 0
-  , workerSlotsInfoSlotsupplierkind = ""
-  , workerSlotsInfoTotalprocessedtasks = 0
-  , workerSlotsInfoTotalfailedtasks = 0
-  , workerSlotsInfoLastintervalprocessedtasks = 0
-  , workerSlotsInfoLastintervalfailuretasks = 0
-  , workerSlotsInfoUnknownfields = []
+  { workerSlotsInfoCurrentAvailableSlots = 0
+  , workerSlotsInfoCurrentUsedSlots = 0
+  , workerSlotsInfoSlotSupplierKind = ""
+  , workerSlotsInfoTotalProcessedTasks = 0
+  , workerSlotsInfoTotalFailedTasks = 0
+  , workerSlotsInfoLastIntervalProcessedTasks = 0
+  , workerSlotsInfoLastIntervalFailureTasks = 0
+  , workerSlotsInfoUnknownFields = []
   }
 
 instance MessageEncode WorkerSlotsInfo where
   buildMessage msg =
-    (if msg.workerSlotsInfoCurrentavailableslots == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerSlotsInfoCurrentavailableslots))
-    <> (if msg.workerSlotsInfoCurrentusedslots == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.workerSlotsInfoCurrentusedslots))
-    <> (if msg.workerSlotsInfoSlotsupplierkind == T.empty then mempty else encodeFieldString 3 msg.workerSlotsInfoSlotsupplierkind)
-    <> (if msg.workerSlotsInfoTotalprocessedtasks == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.workerSlotsInfoTotalprocessedtasks))
-    <> (if msg.workerSlotsInfoTotalfailedtasks == 0 then mempty else encodeFieldVarint 5 (fromIntegral msg.workerSlotsInfoTotalfailedtasks))
-    <> (if msg.workerSlotsInfoLastintervalprocessedtasks == 0 then mempty else encodeFieldVarint 6 (fromIntegral msg.workerSlotsInfoLastintervalprocessedtasks))
-    <> (if msg.workerSlotsInfoLastintervalfailuretasks == 0 then mempty else encodeFieldVarint 7 (fromIntegral msg.workerSlotsInfoLastintervalfailuretasks))
-    <> encodeUnknownFields msg.workerSlotsInfoUnknownfields
+    (if msg.workerSlotsInfoCurrentAvailableSlots == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.workerSlotsInfoCurrentAvailableSlots))
+    <> (if msg.workerSlotsInfoCurrentUsedSlots == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.workerSlotsInfoCurrentUsedSlots))
+    <> (if msg.workerSlotsInfoSlotSupplierKind == T.empty then mempty else encodeFieldString 3 msg.workerSlotsInfoSlotSupplierKind)
+    <> (if msg.workerSlotsInfoTotalProcessedTasks == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.workerSlotsInfoTotalProcessedTasks))
+    <> (if msg.workerSlotsInfoTotalFailedTasks == 0 then mempty else encodeFieldVarint 5 (fromIntegral msg.workerSlotsInfoTotalFailedTasks))
+    <> (if msg.workerSlotsInfoLastIntervalProcessedTasks == 0 then mempty else encodeFieldVarint 6 (fromIntegral msg.workerSlotsInfoLastIntervalProcessedTasks))
+    <> (if msg.workerSlotsInfoLastIntervalFailureTasks == 0 then mempty else encodeFieldVarint 7 (fromIntegral msg.workerSlotsInfoLastIntervalFailureTasks))
+    <> encodeUnknownFields msg.workerSlotsInfoUnknownFields
 
 instance MessageSize WorkerSlotsInfo where
   messageSize msg =
-    (if msg.workerSlotsInfoCurrentavailableslots == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerSlotsInfoCurrentavailableslots))
-    + (if msg.workerSlotsInfoCurrentusedslots == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.workerSlotsInfoCurrentusedslots))
-    + (if msg.workerSlotsInfoSlotsupplierkind == T.empty then 0 else fieldTextSize 3 msg.workerSlotsInfoSlotsupplierkind)
-    + (if msg.workerSlotsInfoTotalprocessedtasks == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.workerSlotsInfoTotalprocessedtasks))
-    + (if msg.workerSlotsInfoTotalfailedtasks == 0 then 0 else fieldVarintSize 5 (fromIntegral msg.workerSlotsInfoTotalfailedtasks))
-    + (if msg.workerSlotsInfoLastintervalprocessedtasks == 0 then 0 else fieldVarintSize 6 (fromIntegral msg.workerSlotsInfoLastintervalprocessedtasks))
-    + (if msg.workerSlotsInfoLastintervalfailuretasks == 0 then 0 else fieldVarintSize 7 (fromIntegral msg.workerSlotsInfoLastintervalfailuretasks))
-    + unknownFieldsSize msg.workerSlotsInfoUnknownfields
+    (if msg.workerSlotsInfoCurrentAvailableSlots == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.workerSlotsInfoCurrentAvailableSlots))
+    + (if msg.workerSlotsInfoCurrentUsedSlots == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.workerSlotsInfoCurrentUsedSlots))
+    + (if msg.workerSlotsInfoSlotSupplierKind == T.empty then 0 else fieldTextSize 3 msg.workerSlotsInfoSlotSupplierKind)
+    + (if msg.workerSlotsInfoTotalProcessedTasks == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.workerSlotsInfoTotalProcessedTasks))
+    + (if msg.workerSlotsInfoTotalFailedTasks == 0 then 0 else fieldVarintSize 5 (fromIntegral msg.workerSlotsInfoTotalFailedTasks))
+    + (if msg.workerSlotsInfoLastIntervalProcessedTasks == 0 then 0 else fieldVarintSize 6 (fromIntegral msg.workerSlotsInfoLastIntervalProcessedTasks))
+    + (if msg.workerSlotsInfoLastIntervalFailureTasks == 0 then 0 else fieldVarintSize 7 (fromIntegral msg.workerSlotsInfoLastIntervalFailureTasks))
+    + unknownFieldsSize msg.workerSlotsInfoUnknownFields
 
 instance MessageDecode WorkerSlotsInfo where
   {-# INLINE messageDecoder #-}
@@ -223,7 +223,7 @@ instance MessageDecode WorkerSlotsInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerSlotsInfo {workerSlotsInfoCurrentavailableslots = acc_0, workerSlotsInfoCurrentusedslots = acc_1, workerSlotsInfoSlotsupplierkind = acc_2, workerSlotsInfoTotalprocessedtasks = acc_3, workerSlotsInfoTotalfailedtasks = acc_4, workerSlotsInfoLastintervalprocessedtasks = acc_5, workerSlotsInfoLastintervalfailuretasks = acc_6, workerSlotsInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerSlotsInfo {workerSlotsInfoCurrentAvailableSlots = acc_0, workerSlotsInfoCurrentUsedSlots = acc_1, workerSlotsInfoSlotSupplierKind = acc_2, workerSlotsInfoTotalProcessedTasks = acc_3, workerSlotsInfoTotalFailedTasks = acc_4, workerSlotsInfoLastIntervalProcessedTasks = acc_5, workerSlotsInfoLastIntervalFailureTasks = acc_6, workerSlotsInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -264,129 +264,129 @@ instance ProtoMessage WorkerSlotsInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerSlotsInfoCurrentavailableslots
-        , fdSet = \v m -> m { workerSlotsInfoCurrentavailableslots = v }
+        , fdGet = workerSlotsInfoCurrentAvailableSlots
+        , fdSet = \v m -> m { workerSlotsInfoCurrentAvailableSlots = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "current_used_slots"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerSlotsInfoCurrentusedslots
-        , fdSet = \v m -> m { workerSlotsInfoCurrentusedslots = v }
+        , fdGet = workerSlotsInfoCurrentUsedSlots
+        , fdSet = \v m -> m { workerSlotsInfoCurrentUsedSlots = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "slot_supplier_kind"
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerSlotsInfoSlotsupplierkind
-        , fdSet = \v m -> m { workerSlotsInfoSlotsupplierkind = v }
+        , fdGet = workerSlotsInfoSlotSupplierKind
+        , fdSet = \v m -> m { workerSlotsInfoSlotSupplierKind = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "total_processed_tasks"
         , fdNumber = 4
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerSlotsInfoTotalprocessedtasks
-        , fdSet = \v m -> m { workerSlotsInfoTotalprocessedtasks = v }
+        , fdGet = workerSlotsInfoTotalProcessedTasks
+        , fdSet = \v m -> m { workerSlotsInfoTotalProcessedTasks = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "total_failed_tasks"
         , fdNumber = 5
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerSlotsInfoTotalfailedtasks
-        , fdSet = \v m -> m { workerSlotsInfoTotalfailedtasks = v }
+        , fdGet = workerSlotsInfoTotalFailedTasks
+        , fdSet = \v m -> m { workerSlotsInfoTotalFailedTasks = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "last_interval_processed_tasks"
         , fdNumber = 6
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerSlotsInfoLastintervalprocessedtasks
-        , fdSet = \v m -> m { workerSlotsInfoLastintervalprocessedtasks = v }
+        , fdGet = workerSlotsInfoLastIntervalProcessedTasks
+        , fdSet = \v m -> m { workerSlotsInfoLastIntervalProcessedTasks = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "last_interval_failure_tasks"
         , fdNumber = 7
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerSlotsInfoLastintervalfailuretasks
-        , fdSet = \v m -> m { workerSlotsInfoLastintervalfailuretasks = v }
+        , fdGet = workerSlotsInfoLastIntervalFailureTasks
+        , fdSet = \v m -> m { workerSlotsInfoLastIntervalFailureTasks = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerSlotsInfo where
   toJSON msg = jsonObject
-      [ "currentAvailableSlots" .=: msg.workerSlotsInfoCurrentavailableslots
-      , "currentUsedSlots" .=: msg.workerSlotsInfoCurrentusedslots
-      , "slotSupplierKind" .=: msg.workerSlotsInfoSlotsupplierkind
-      , "totalProcessedTasks" .=: msg.workerSlotsInfoTotalprocessedtasks
-      , "totalFailedTasks" .=: msg.workerSlotsInfoTotalfailedtasks
-      , "lastIntervalProcessedTasks" .=: msg.workerSlotsInfoLastintervalprocessedtasks
-      , "lastIntervalFailureTasks" .=: msg.workerSlotsInfoLastintervalfailuretasks
+      [ "currentAvailableSlots" .=: msg.workerSlotsInfoCurrentAvailableSlots
+      , "currentUsedSlots" .=: msg.workerSlotsInfoCurrentUsedSlots
+      , "slotSupplierKind" .=: msg.workerSlotsInfoSlotSupplierKind
+      , "totalProcessedTasks" .=: msg.workerSlotsInfoTotalProcessedTasks
+      , "totalFailedTasks" .=: msg.workerSlotsInfoTotalFailedTasks
+      , "lastIntervalProcessedTasks" .=: msg.workerSlotsInfoLastIntervalProcessedTasks
+      , "lastIntervalFailureTasks" .=: msg.workerSlotsInfoLastIntervalFailureTasks
       ]
 
 instance Aeson.FromJSON WorkerSlotsInfo where
   parseJSON = Aeson.withObject "WorkerSlotsInfo" $ \obj -> do
-    fld_workerSlotsInfoCurrentavailableslots <- parseFieldMaybe obj "currentAvailableSlots"
-    fld_workerSlotsInfoCurrentusedslots <- parseFieldMaybe obj "currentUsedSlots"
-    fld_workerSlotsInfoSlotsupplierkind <- parseFieldMaybe obj "slotSupplierKind"
-    fld_workerSlotsInfoTotalprocessedtasks <- parseFieldMaybe obj "totalProcessedTasks"
-    fld_workerSlotsInfoTotalfailedtasks <- parseFieldMaybe obj "totalFailedTasks"
-    fld_workerSlotsInfoLastintervalprocessedtasks <- parseFieldMaybe obj "lastIntervalProcessedTasks"
-    fld_workerSlotsInfoLastintervalfailuretasks <- parseFieldMaybe obj "lastIntervalFailureTasks"
+    fld_workerSlotsInfoCurrentAvailableSlots <- parseFieldMaybe obj "currentAvailableSlots"
+    fld_workerSlotsInfoCurrentUsedSlots <- parseFieldMaybe obj "currentUsedSlots"
+    fld_workerSlotsInfoSlotSupplierKind <- parseFieldMaybe obj "slotSupplierKind"
+    fld_workerSlotsInfoTotalProcessedTasks <- parseFieldMaybe obj "totalProcessedTasks"
+    fld_workerSlotsInfoTotalFailedTasks <- parseFieldMaybe obj "totalFailedTasks"
+    fld_workerSlotsInfoLastIntervalProcessedTasks <- parseFieldMaybe obj "lastIntervalProcessedTasks"
+    fld_workerSlotsInfoLastIntervalFailureTasks <- parseFieldMaybe obj "lastIntervalFailureTasks"
     pure defaultWorkerSlotsInfo
-      { workerSlotsInfoCurrentavailableslots = maybe (workerSlotsInfoCurrentavailableslots defaultWorkerSlotsInfo) id fld_workerSlotsInfoCurrentavailableslots
-      , workerSlotsInfoCurrentusedslots = maybe (workerSlotsInfoCurrentusedslots defaultWorkerSlotsInfo) id fld_workerSlotsInfoCurrentusedslots
-      , workerSlotsInfoSlotsupplierkind = maybe (workerSlotsInfoSlotsupplierkind defaultWorkerSlotsInfo) id fld_workerSlotsInfoSlotsupplierkind
-      , workerSlotsInfoTotalprocessedtasks = maybe (workerSlotsInfoTotalprocessedtasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoTotalprocessedtasks
-      , workerSlotsInfoTotalfailedtasks = maybe (workerSlotsInfoTotalfailedtasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoTotalfailedtasks
-      , workerSlotsInfoLastintervalprocessedtasks = maybe (workerSlotsInfoLastintervalprocessedtasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoLastintervalprocessedtasks
-      , workerSlotsInfoLastintervalfailuretasks = maybe (workerSlotsInfoLastintervalfailuretasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoLastintervalfailuretasks
+      { workerSlotsInfoCurrentAvailableSlots = maybe (workerSlotsInfoCurrentAvailableSlots defaultWorkerSlotsInfo) id fld_workerSlotsInfoCurrentAvailableSlots
+      , workerSlotsInfoCurrentUsedSlots = maybe (workerSlotsInfoCurrentUsedSlots defaultWorkerSlotsInfo) id fld_workerSlotsInfoCurrentUsedSlots
+      , workerSlotsInfoSlotSupplierKind = maybe (workerSlotsInfoSlotSupplierKind defaultWorkerSlotsInfo) id fld_workerSlotsInfoSlotSupplierKind
+      , workerSlotsInfoTotalProcessedTasks = maybe (workerSlotsInfoTotalProcessedTasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoTotalProcessedTasks
+      , workerSlotsInfoTotalFailedTasks = maybe (workerSlotsInfoTotalFailedTasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoTotalFailedTasks
+      , workerSlotsInfoLastIntervalProcessedTasks = maybe (workerSlotsInfoLastIntervalProcessedTasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoLastIntervalProcessedTasks
+      , workerSlotsInfoLastIntervalFailureTasks = maybe (workerSlotsInfoLastIntervalFailureTasks defaultWorkerSlotsInfo) id fld_workerSlotsInfoLastIntervalFailureTasks
       }
 
 instance Hashable WorkerSlotsInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerSlotsInfoCurrentavailableslots) msg.workerSlotsInfoCurrentusedslots) msg.workerSlotsInfoSlotsupplierkind) msg.workerSlotsInfoTotalprocessedtasks) msg.workerSlotsInfoTotalfailedtasks) msg.workerSlotsInfoLastintervalprocessedtasks) msg.workerSlotsInfoLastintervalfailuretasks
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerSlotsInfoCurrentAvailableSlots) msg.workerSlotsInfoCurrentUsedSlots) msg.workerSlotsInfoSlotSupplierKind) msg.workerSlotsInfoTotalProcessedTasks) msg.workerSlotsInfoTotalFailedTasks) msg.workerSlotsInfoLastIntervalProcessedTasks) msg.workerSlotsInfoLastIntervalFailureTasks
 
 data WorkerHostInfo = WorkerHostInfo
-  { workerHostInfoHostname :: !Text
-  , workerHostInfoWorkergroupingkey :: !Text
-  , workerHostInfoProcessid :: !Text
-  , workerHostInfoCurrenthostcpuusage :: {-# UNPACK #-} !Float
-  , workerHostInfoCurrenthostmemusage :: {-# UNPACK #-} !Float
-  , workerHostInfoUnknownfields :: ![UnknownField]
+  { workerHostInfoHostName :: !Text
+  , workerHostInfoWorkerGroupingKey :: !Text
+  , workerHostInfoProcessId :: !Text
+  , workerHostInfoCurrentHostCpuUsage :: {-# UNPACK #-} !Float
+  , workerHostInfoCurrentHostMemUsage :: {-# UNPACK #-} !Float
+  , workerHostInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerHostInfo :: WorkerHostInfo
 defaultWorkerHostInfo = WorkerHostInfo
-  { workerHostInfoHostname = ""
-  , workerHostInfoWorkergroupingkey = ""
-  , workerHostInfoProcessid = ""
-  , workerHostInfoCurrenthostcpuusage = 0
-  , workerHostInfoCurrenthostmemusage = 0
-  , workerHostInfoUnknownfields = []
+  { workerHostInfoHostName = ""
+  , workerHostInfoWorkerGroupingKey = ""
+  , workerHostInfoProcessId = ""
+  , workerHostInfoCurrentHostCpuUsage = 0
+  , workerHostInfoCurrentHostMemUsage = 0
+  , workerHostInfoUnknownFields = []
   }
 
 instance MessageEncode WorkerHostInfo where
   buildMessage msg =
-    (if msg.workerHostInfoHostname == T.empty then mempty else encodeFieldString 1 msg.workerHostInfoHostname)
-    <> (if msg.workerHostInfoWorkergroupingkey == T.empty then mempty else encodeFieldString 5 msg.workerHostInfoWorkergroupingkey)
-    <> (if msg.workerHostInfoProcessid == T.empty then mempty else encodeFieldString 2 msg.workerHostInfoProcessid)
-    <> (if msg.workerHostInfoCurrenthostcpuusage == 0 then mempty else encodeFieldFloat 3 msg.workerHostInfoCurrenthostcpuusage)
-    <> (if msg.workerHostInfoCurrenthostmemusage == 0 then mempty else encodeFieldFloat 4 msg.workerHostInfoCurrenthostmemusage)
-    <> encodeUnknownFields msg.workerHostInfoUnknownfields
+    (if msg.workerHostInfoHostName == T.empty then mempty else encodeFieldString 1 msg.workerHostInfoHostName)
+    <> (if msg.workerHostInfoWorkerGroupingKey == T.empty then mempty else encodeFieldString 5 msg.workerHostInfoWorkerGroupingKey)
+    <> (if msg.workerHostInfoProcessId == T.empty then mempty else encodeFieldString 2 msg.workerHostInfoProcessId)
+    <> (if msg.workerHostInfoCurrentHostCpuUsage == 0 then mempty else encodeFieldFloat 3 msg.workerHostInfoCurrentHostCpuUsage)
+    <> (if msg.workerHostInfoCurrentHostMemUsage == 0 then mempty else encodeFieldFloat 4 msg.workerHostInfoCurrentHostMemUsage)
+    <> encodeUnknownFields msg.workerHostInfoUnknownFields
 
 instance MessageSize WorkerHostInfo where
   messageSize msg =
-    (if msg.workerHostInfoHostname == T.empty then 0 else fieldTextSize 1 msg.workerHostInfoHostname)
-    + (if msg.workerHostInfoWorkergroupingkey == T.empty then 0 else fieldTextSize 5 msg.workerHostInfoWorkergroupingkey)
-    + (if msg.workerHostInfoProcessid == T.empty then 0 else fieldTextSize 2 msg.workerHostInfoProcessid)
-    + (if msg.workerHostInfoCurrenthostcpuusage == 0 then 0 else fieldFloatSize 3)
-    + (if msg.workerHostInfoCurrenthostmemusage == 0 then 0 else fieldFloatSize 4)
-    + unknownFieldsSize msg.workerHostInfoUnknownfields
+    (if msg.workerHostInfoHostName == T.empty then 0 else fieldTextSize 1 msg.workerHostInfoHostName)
+    + (if msg.workerHostInfoWorkerGroupingKey == T.empty then 0 else fieldTextSize 5 msg.workerHostInfoWorkerGroupingKey)
+    + (if msg.workerHostInfoProcessId == T.empty then 0 else fieldTextSize 2 msg.workerHostInfoProcessId)
+    + (if msg.workerHostInfoCurrentHostCpuUsage == 0 then 0 else fieldFloatSize 3)
+    + (if msg.workerHostInfoCurrentHostMemUsage == 0 then 0 else fieldFloatSize 4)
+    + unknownFieldsSize msg.workerHostInfoUnknownFields
 
 instance MessageDecode WorkerHostInfo where
   {-# INLINE messageDecoder #-}
@@ -395,7 +395,7 @@ instance MessageDecode WorkerHostInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerHostInfo {workerHostInfoHostname = acc_0, workerHostInfoWorkergroupingkey = acc_1, workerHostInfoProcessid = acc_2, workerHostInfoCurrenthostcpuusage = acc_3, workerHostInfoCurrenthostmemusage = acc_4, workerHostInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerHostInfo {workerHostInfoHostName = acc_0, workerHostInfoWorkerGroupingKey = acc_1, workerHostInfoProcessId = acc_2, workerHostInfoCurrentHostCpuUsage = acc_3, workerHostInfoCurrentHostMemUsage = acc_4, workerHostInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -430,179 +430,179 @@ instance ProtoMessage WorkerHostInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerHostInfoHostname
-        , fdSet = \v m -> m { workerHostInfoHostname = v }
+        , fdGet = workerHostInfoHostName
+        , fdSet = \v m -> m { workerHostInfoHostName = v }
         }), (5, SomeField FieldDescriptor
         { fdName = "worker_grouping_key"
         , fdNumber = 5
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerHostInfoWorkergroupingkey
-        , fdSet = \v m -> m { workerHostInfoWorkergroupingkey = v }
+        , fdGet = workerHostInfoWorkerGroupingKey
+        , fdSet = \v m -> m { workerHostInfoWorkerGroupingKey = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "process_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerHostInfoProcessid
-        , fdSet = \v m -> m { workerHostInfoProcessid = v }
+        , fdGet = workerHostInfoProcessId
+        , fdSet = \v m -> m { workerHostInfoProcessId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "current_host_cpu_usage"
         , fdNumber = 3
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = workerHostInfoCurrenthostcpuusage
-        , fdSet = \v m -> m { workerHostInfoCurrenthostcpuusage = v }
+        , fdGet = workerHostInfoCurrentHostCpuUsage
+        , fdSet = \v m -> m { workerHostInfoCurrentHostCpuUsage = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "current_host_mem_usage"
         , fdNumber = 4
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = workerHostInfoCurrenthostmemusage
-        , fdSet = \v m -> m { workerHostInfoCurrenthostmemusage = v }
+        , fdGet = workerHostInfoCurrentHostMemUsage
+        , fdSet = \v m -> m { workerHostInfoCurrentHostMemUsage = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerHostInfo where
   toJSON msg = jsonObject
-      [ "hostName" .=: msg.workerHostInfoHostname
-      , "workerGroupingKey" .=: msg.workerHostInfoWorkergroupingkey
-      , "processId" .=: msg.workerHostInfoProcessid
-      , "currentHostCpuUsage" .=: msg.workerHostInfoCurrenthostcpuusage
-      , "currentHostMemUsage" .=: msg.workerHostInfoCurrenthostmemusage
+      [ "hostName" .=: msg.workerHostInfoHostName
+      , "workerGroupingKey" .=: msg.workerHostInfoWorkerGroupingKey
+      , "processId" .=: msg.workerHostInfoProcessId
+      , "currentHostCpuUsage" .=: msg.workerHostInfoCurrentHostCpuUsage
+      , "currentHostMemUsage" .=: msg.workerHostInfoCurrentHostMemUsage
       ]
 
 instance Aeson.FromJSON WorkerHostInfo where
   parseJSON = Aeson.withObject "WorkerHostInfo" $ \obj -> do
-    fld_workerHostInfoHostname <- parseFieldMaybe obj "hostName"
-    fld_workerHostInfoWorkergroupingkey <- parseFieldMaybe obj "workerGroupingKey"
-    fld_workerHostInfoProcessid <- parseFieldMaybe obj "processId"
-    fld_workerHostInfoCurrenthostcpuusage <- parseFieldMaybe obj "currentHostCpuUsage"
-    fld_workerHostInfoCurrenthostmemusage <- parseFieldMaybe obj "currentHostMemUsage"
+    fld_workerHostInfoHostName <- parseFieldMaybe obj "hostName"
+    fld_workerHostInfoWorkerGroupingKey <- parseFieldMaybe obj "workerGroupingKey"
+    fld_workerHostInfoProcessId <- parseFieldMaybe obj "processId"
+    fld_workerHostInfoCurrentHostCpuUsage <- parseFieldMaybe obj "currentHostCpuUsage"
+    fld_workerHostInfoCurrentHostMemUsage <- parseFieldMaybe obj "currentHostMemUsage"
     pure defaultWorkerHostInfo
-      { workerHostInfoHostname = maybe (workerHostInfoHostname defaultWorkerHostInfo) id fld_workerHostInfoHostname
-      , workerHostInfoWorkergroupingkey = maybe (workerHostInfoWorkergroupingkey defaultWorkerHostInfo) id fld_workerHostInfoWorkergroupingkey
-      , workerHostInfoProcessid = maybe (workerHostInfoProcessid defaultWorkerHostInfo) id fld_workerHostInfoProcessid
-      , workerHostInfoCurrenthostcpuusage = maybe (workerHostInfoCurrenthostcpuusage defaultWorkerHostInfo) id fld_workerHostInfoCurrenthostcpuusage
-      , workerHostInfoCurrenthostmemusage = maybe (workerHostInfoCurrenthostmemusage defaultWorkerHostInfo) id fld_workerHostInfoCurrenthostmemusage
+      { workerHostInfoHostName = maybe (workerHostInfoHostName defaultWorkerHostInfo) id fld_workerHostInfoHostName
+      , workerHostInfoWorkerGroupingKey = maybe (workerHostInfoWorkerGroupingKey defaultWorkerHostInfo) id fld_workerHostInfoWorkerGroupingKey
+      , workerHostInfoProcessId = maybe (workerHostInfoProcessId defaultWorkerHostInfo) id fld_workerHostInfoProcessId
+      , workerHostInfoCurrentHostCpuUsage = maybe (workerHostInfoCurrentHostCpuUsage defaultWorkerHostInfo) id fld_workerHostInfoCurrentHostCpuUsage
+      , workerHostInfoCurrentHostMemUsage = maybe (workerHostInfoCurrentHostMemUsage defaultWorkerHostInfo) id fld_workerHostInfoCurrentHostMemUsage
       }
 
 instance Hashable WorkerHostInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerHostInfoHostname) msg.workerHostInfoWorkergroupingkey) msg.workerHostInfoProcessid) msg.workerHostInfoCurrenthostcpuusage) msg.workerHostInfoCurrenthostmemusage
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerHostInfoHostName) msg.workerHostInfoWorkerGroupingKey) msg.workerHostInfoProcessId) msg.workerHostInfoCurrentHostCpuUsage) msg.workerHostInfoCurrentHostMemUsage
 
 data WorkerHeartbeat = WorkerHeartbeat
-  { workerHeartbeatWorkerinstancekey :: !Text
-  , workerHeartbeatWorkeridentity :: !Text
-  , workerHeartbeatHostinfo :: !(Maybe WorkerHostInfo)
-  , workerHeartbeatTaskqueue :: !Text
-  , workerHeartbeatDeploymentversion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
-  , workerHeartbeatSdkname :: !Text
-  , workerHeartbeatSdkversion :: !Text
+  { workerHeartbeatWorkerInstanceKey :: !Text
+  , workerHeartbeatWorkerIdentity :: !Text
+  , workerHeartbeatHostInfo :: !(Maybe WorkerHostInfo)
+  , workerHeartbeatTaskQueue :: !Text
+  , workerHeartbeatDeploymentVersion :: !(Maybe TE_Deployment_V1_Message.WorkerDeploymentVersion)
+  , workerHeartbeatSdkName :: !Text
+  , workerHeartbeatSdkVersion :: !Text
   , workerHeartbeatStatus :: !TE_Enums_V1_Common.WorkerStatus
-  , workerHeartbeatStarttime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerHeartbeatHeartbeattime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerHeartbeatElapsedsincelastheartbeat :: !(Maybe PB_Duration.Duration)
-  , workerHeartbeatWorkflowtaskslotsinfo :: !(Maybe WorkerSlotsInfo)
-  , workerHeartbeatActivitytaskslotsinfo :: !(Maybe WorkerSlotsInfo)
-  , workerHeartbeatNexustaskslotsinfo :: !(Maybe WorkerSlotsInfo)
-  , workerHeartbeatLocalactivityslotsinfo :: !(Maybe WorkerSlotsInfo)
-  , workerHeartbeatWorkflowpollerinfo :: !(Maybe WorkerPollerInfo)
-  , workerHeartbeatWorkflowstickypollerinfo :: !(Maybe WorkerPollerInfo)
-  , workerHeartbeatActivitypollerinfo :: !(Maybe WorkerPollerInfo)
-  , workerHeartbeatNexuspollerinfo :: !(Maybe WorkerPollerInfo)
-  , workerHeartbeatTotalstickycachehit :: {-# UNPACK #-} !Int32
-  , workerHeartbeatTotalstickycachemiss :: {-# UNPACK #-} !Int32
-  , workerHeartbeatCurrentstickycachesize :: {-# UNPACK #-} !Int32
+  , workerHeartbeatStartTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerHeartbeatHeartbeatTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerHeartbeatElapsedSinceLastHeartbeat :: !(Maybe PB_Duration.Duration)
+  , workerHeartbeatWorkflowTaskSlotsInfo :: !(Maybe WorkerSlotsInfo)
+  , workerHeartbeatActivityTaskSlotsInfo :: !(Maybe WorkerSlotsInfo)
+  , workerHeartbeatNexusTaskSlotsInfo :: !(Maybe WorkerSlotsInfo)
+  , workerHeartbeatLocalActivitySlotsInfo :: !(Maybe WorkerSlotsInfo)
+  , workerHeartbeatWorkflowPollerInfo :: !(Maybe WorkerPollerInfo)
+  , workerHeartbeatWorkflowStickyPollerInfo :: !(Maybe WorkerPollerInfo)
+  , workerHeartbeatActivityPollerInfo :: !(Maybe WorkerPollerInfo)
+  , workerHeartbeatNexusPollerInfo :: !(Maybe WorkerPollerInfo)
+  , workerHeartbeatTotalStickyCacheHit :: {-# UNPACK #-} !Int32
+  , workerHeartbeatTotalStickyCacheMiss :: {-# UNPACK #-} !Int32
+  , workerHeartbeatCurrentStickyCacheSize :: {-# UNPACK #-} !Int32
   , workerHeartbeatPlugins :: !(V.Vector PluginInfo)
-  , workerHeartbeatUnknownfields :: ![UnknownField]
+  , workerHeartbeatUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerHeartbeat :: WorkerHeartbeat
 defaultWorkerHeartbeat = WorkerHeartbeat
-  { workerHeartbeatWorkerinstancekey = ""
-  , workerHeartbeatWorkeridentity = ""
-  , workerHeartbeatHostinfo = Nothing
-  , workerHeartbeatTaskqueue = ""
-  , workerHeartbeatDeploymentversion = Nothing
-  , workerHeartbeatSdkname = ""
-  , workerHeartbeatSdkversion = ""
+  { workerHeartbeatWorkerInstanceKey = ""
+  , workerHeartbeatWorkerIdentity = ""
+  , workerHeartbeatHostInfo = Nothing
+  , workerHeartbeatTaskQueue = ""
+  , workerHeartbeatDeploymentVersion = Nothing
+  , workerHeartbeatSdkName = ""
+  , workerHeartbeatSdkVersion = ""
   , workerHeartbeatStatus = (toEnum 0)
-  , workerHeartbeatStarttime = Nothing
-  , workerHeartbeatHeartbeattime = Nothing
-  , workerHeartbeatElapsedsincelastheartbeat = Nothing
-  , workerHeartbeatWorkflowtaskslotsinfo = Nothing
-  , workerHeartbeatActivitytaskslotsinfo = Nothing
-  , workerHeartbeatNexustaskslotsinfo = Nothing
-  , workerHeartbeatLocalactivityslotsinfo = Nothing
-  , workerHeartbeatWorkflowpollerinfo = Nothing
-  , workerHeartbeatWorkflowstickypollerinfo = Nothing
-  , workerHeartbeatActivitypollerinfo = Nothing
-  , workerHeartbeatNexuspollerinfo = Nothing
-  , workerHeartbeatTotalstickycachehit = 0
-  , workerHeartbeatTotalstickycachemiss = 0
-  , workerHeartbeatCurrentstickycachesize = 0
+  , workerHeartbeatStartTime = Nothing
+  , workerHeartbeatHeartbeatTime = Nothing
+  , workerHeartbeatElapsedSinceLastHeartbeat = Nothing
+  , workerHeartbeatWorkflowTaskSlotsInfo = Nothing
+  , workerHeartbeatActivityTaskSlotsInfo = Nothing
+  , workerHeartbeatNexusTaskSlotsInfo = Nothing
+  , workerHeartbeatLocalActivitySlotsInfo = Nothing
+  , workerHeartbeatWorkflowPollerInfo = Nothing
+  , workerHeartbeatWorkflowStickyPollerInfo = Nothing
+  , workerHeartbeatActivityPollerInfo = Nothing
+  , workerHeartbeatNexusPollerInfo = Nothing
+  , workerHeartbeatTotalStickyCacheHit = 0
+  , workerHeartbeatTotalStickyCacheMiss = 0
+  , workerHeartbeatCurrentStickyCacheSize = 0
   , workerHeartbeatPlugins = V.empty
-  , workerHeartbeatUnknownfields = []
+  , workerHeartbeatUnknownFields = []
   }
 
 instance MessageEncode WorkerHeartbeat where
   buildMessage msg =
-    (if msg.workerHeartbeatWorkerinstancekey == T.empty then mempty else encodeFieldString 1 msg.workerHeartbeatWorkerinstancekey)
-    <> (if msg.workerHeartbeatWorkeridentity == T.empty then mempty else encodeFieldString 2 msg.workerHeartbeatWorkeridentity)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerHeartbeatHostinfo)
-    <> (if msg.workerHeartbeatTaskqueue == T.empty then mempty else encodeFieldString 4 msg.workerHeartbeatTaskqueue)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerHeartbeatDeploymentversion)
-    <> (if msg.workerHeartbeatSdkname == T.empty then mempty else encodeFieldString 6 msg.workerHeartbeatSdkname)
-    <> (if msg.workerHeartbeatSdkversion == T.empty then mempty else encodeFieldString 7 msg.workerHeartbeatSdkversion)
+    (if msg.workerHeartbeatWorkerInstanceKey == T.empty then mempty else encodeFieldString 1 msg.workerHeartbeatWorkerInstanceKey)
+    <> (if msg.workerHeartbeatWorkerIdentity == T.empty then mempty else encodeFieldString 2 msg.workerHeartbeatWorkerIdentity)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerHeartbeatHostInfo)
+    <> (if msg.workerHeartbeatTaskQueue == T.empty then mempty else encodeFieldString 4 msg.workerHeartbeatTaskQueue)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerHeartbeatDeploymentVersion)
+    <> (if msg.workerHeartbeatSdkName == T.empty then mempty else encodeFieldString 6 msg.workerHeartbeatSdkName)
+    <> (if msg.workerHeartbeatSdkVersion == T.empty then mempty else encodeFieldString 7 msg.workerHeartbeatSdkVersion)
     <> (if fromEnum msg.workerHeartbeatStatus == 0 then mempty else encodeFieldVarint 8 (fromIntegral (fromEnum msg.workerHeartbeatStatus)))
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workerHeartbeatStarttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.workerHeartbeatHeartbeattime)
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.workerHeartbeatElapsedsincelastheartbeat)
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workerHeartbeatWorkflowtaskslotsinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 13 v) msg.workerHeartbeatActivitytaskslotsinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.workerHeartbeatNexustaskslotsinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.workerHeartbeatLocalactivityslotsinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.workerHeartbeatWorkflowpollerinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.workerHeartbeatWorkflowstickypollerinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.workerHeartbeatActivitypollerinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 19 v) msg.workerHeartbeatNexuspollerinfo)
-    <> (if msg.workerHeartbeatTotalstickycachehit == 0 then mempty else encodeFieldVarint 20 (fromIntegral msg.workerHeartbeatTotalstickycachehit))
-    <> (if msg.workerHeartbeatTotalstickycachemiss == 0 then mempty else encodeFieldVarint 21 (fromIntegral msg.workerHeartbeatTotalstickycachemiss))
-    <> (if msg.workerHeartbeatCurrentstickycachesize == 0 then mempty else encodeFieldVarint 22 (fromIntegral msg.workerHeartbeatCurrentstickycachesize))
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workerHeartbeatStartTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.workerHeartbeatHeartbeatTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.workerHeartbeatElapsedSinceLastHeartbeat)
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workerHeartbeatWorkflowTaskSlotsInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 13 v) msg.workerHeartbeatActivityTaskSlotsInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 14 v) msg.workerHeartbeatNexusTaskSlotsInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.workerHeartbeatLocalActivitySlotsInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 16 v) msg.workerHeartbeatWorkflowPollerInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 17 v) msg.workerHeartbeatWorkflowStickyPollerInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 18 v) msg.workerHeartbeatActivityPollerInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 19 v) msg.workerHeartbeatNexusPollerInfo)
+    <> (if msg.workerHeartbeatTotalStickyCacheHit == 0 then mempty else encodeFieldVarint 20 (fromIntegral msg.workerHeartbeatTotalStickyCacheHit))
+    <> (if msg.workerHeartbeatTotalStickyCacheMiss == 0 then mempty else encodeFieldVarint 21 (fromIntegral msg.workerHeartbeatTotalStickyCacheMiss))
+    <> (if msg.workerHeartbeatCurrentStickyCacheSize == 0 then mempty else encodeFieldVarint 22 (fromIntegral msg.workerHeartbeatCurrentStickyCacheSize))
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 23 v) mempty msg.workerHeartbeatPlugins
-    <> encodeUnknownFields msg.workerHeartbeatUnknownfields
+    <> encodeUnknownFields msg.workerHeartbeatUnknownFields
 
 instance MessageSize WorkerHeartbeat where
   messageSize msg =
-    (if msg.workerHeartbeatWorkerinstancekey == T.empty then 0 else fieldTextSize 1 msg.workerHeartbeatWorkerinstancekey)
-    + (if msg.workerHeartbeatWorkeridentity == T.empty then 0 else fieldTextSize 2 msg.workerHeartbeatWorkeridentity)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerHeartbeatHostinfo)
-    + (if msg.workerHeartbeatTaskqueue == T.empty then 0 else fieldTextSize 4 msg.workerHeartbeatTaskqueue)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerHeartbeatDeploymentversion)
-    + (if msg.workerHeartbeatSdkname == T.empty then 0 else fieldTextSize 6 msg.workerHeartbeatSdkname)
-    + (if msg.workerHeartbeatSdkversion == T.empty then 0 else fieldTextSize 7 msg.workerHeartbeatSdkversion)
+    (if msg.workerHeartbeatWorkerInstanceKey == T.empty then 0 else fieldTextSize 1 msg.workerHeartbeatWorkerInstanceKey)
+    + (if msg.workerHeartbeatWorkerIdentity == T.empty then 0 else fieldTextSize 2 msg.workerHeartbeatWorkerIdentity)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerHeartbeatHostInfo)
+    + (if msg.workerHeartbeatTaskQueue == T.empty then 0 else fieldTextSize 4 msg.workerHeartbeatTaskQueue)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerHeartbeatDeploymentVersion)
+    + (if msg.workerHeartbeatSdkName == T.empty then 0 else fieldTextSize 6 msg.workerHeartbeatSdkName)
+    + (if msg.workerHeartbeatSdkVersion == T.empty then 0 else fieldTextSize 7 msg.workerHeartbeatSdkVersion)
     + (if fromEnum msg.workerHeartbeatStatus == 0 then 0 else fieldVarintSize 8 (fromIntegral (fromEnum msg.workerHeartbeatStatus)))
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workerHeartbeatStarttime)
-    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workerHeartbeatHeartbeattime)
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.workerHeartbeatElapsedsincelastheartbeat)
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workerHeartbeatWorkflowtaskslotsinfo)
-    + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.workerHeartbeatActivitytaskslotsinfo)
-    + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.workerHeartbeatNexustaskslotsinfo)
-    + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.workerHeartbeatLocalactivityslotsinfo)
-    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.workerHeartbeatWorkflowpollerinfo)
-    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.workerHeartbeatWorkflowstickypollerinfo)
-    + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.workerHeartbeatActivitypollerinfo)
-    + (maybe 0 (\v -> fieldMessageSize 19 (messageSize v)) msg.workerHeartbeatNexuspollerinfo)
-    + (if msg.workerHeartbeatTotalstickycachehit == 0 then 0 else fieldVarintSize 20 (fromIntegral msg.workerHeartbeatTotalstickycachehit))
-    + (if msg.workerHeartbeatTotalstickycachemiss == 0 then 0 else fieldVarintSize 21 (fromIntegral msg.workerHeartbeatTotalstickycachemiss))
-    + (if msg.workerHeartbeatCurrentstickycachesize == 0 then 0 else fieldVarintSize 22 (fromIntegral msg.workerHeartbeatCurrentstickycachesize))
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workerHeartbeatStartTime)
+    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workerHeartbeatHeartbeatTime)
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.workerHeartbeatElapsedSinceLastHeartbeat)
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workerHeartbeatWorkflowTaskSlotsInfo)
+    + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.workerHeartbeatActivityTaskSlotsInfo)
+    + (maybe 0 (\v -> fieldMessageSize 14 (messageSize v)) msg.workerHeartbeatNexusTaskSlotsInfo)
+    + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.workerHeartbeatLocalActivitySlotsInfo)
+    + (maybe 0 (\v -> fieldMessageSize 16 (messageSize v)) msg.workerHeartbeatWorkflowPollerInfo)
+    + (maybe 0 (\v -> fieldMessageSize 17 (messageSize v)) msg.workerHeartbeatWorkflowStickyPollerInfo)
+    + (maybe 0 (\v -> fieldMessageSize 18 (messageSize v)) msg.workerHeartbeatActivityPollerInfo)
+    + (maybe 0 (\v -> fieldMessageSize 19 (messageSize v)) msg.workerHeartbeatNexusPollerInfo)
+    + (if msg.workerHeartbeatTotalStickyCacheHit == 0 then 0 else fieldVarintSize 20 (fromIntegral msg.workerHeartbeatTotalStickyCacheHit))
+    + (if msg.workerHeartbeatTotalStickyCacheMiss == 0 then 0 else fieldVarintSize 21 (fromIntegral msg.workerHeartbeatTotalStickyCacheMiss))
+    + (if msg.workerHeartbeatCurrentStickyCacheSize == 0 then 0 else fieldVarintSize 22 (fromIntegral msg.workerHeartbeatCurrentStickyCacheSize))
     + (V.foldl' (\acc v -> acc + fieldMessageSize 23 (messageSize v)) 0 msg.workerHeartbeatPlugins)
-    + unknownFieldsSize msg.workerHeartbeatUnknownfields
+    + unknownFieldsSize msg.workerHeartbeatUnknownFields
 
 instance MessageDecode WorkerHeartbeat where
   {-# INLINE messageDecoder #-}
@@ -611,7 +611,7 @@ instance MessageDecode WorkerHeartbeat where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_15 acc_16 acc_17 acc_18 acc_19 acc_20 acc_21 acc_22 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerHeartbeat {workerHeartbeatWorkerinstancekey = acc_0, workerHeartbeatWorkeridentity = acc_1, workerHeartbeatHostinfo = acc_2, workerHeartbeatTaskqueue = acc_3, workerHeartbeatDeploymentversion = acc_4, workerHeartbeatSdkname = acc_5, workerHeartbeatSdkversion = acc_6, workerHeartbeatStatus = acc_7, workerHeartbeatStarttime = acc_8, workerHeartbeatHeartbeattime = acc_9, workerHeartbeatElapsedsincelastheartbeat = acc_10, workerHeartbeatWorkflowtaskslotsinfo = acc_11, workerHeartbeatActivitytaskslotsinfo = acc_12, workerHeartbeatNexustaskslotsinfo = acc_13, workerHeartbeatLocalactivityslotsinfo = acc_14, workerHeartbeatWorkflowpollerinfo = acc_15, workerHeartbeatWorkflowstickypollerinfo = acc_16, workerHeartbeatActivitypollerinfo = acc_17, workerHeartbeatNexuspollerinfo = acc_18, workerHeartbeatTotalstickycachehit = acc_19, workerHeartbeatTotalstickycachemiss = acc_20, workerHeartbeatCurrentstickycachesize = acc_21, workerHeartbeatPlugins = acc_22, workerHeartbeatUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerHeartbeat {workerHeartbeatWorkerInstanceKey = acc_0, workerHeartbeatWorkerIdentity = acc_1, workerHeartbeatHostInfo = acc_2, workerHeartbeatTaskQueue = acc_3, workerHeartbeatDeploymentVersion = acc_4, workerHeartbeatSdkName = acc_5, workerHeartbeatSdkVersion = acc_6, workerHeartbeatStatus = acc_7, workerHeartbeatStartTime = acc_8, workerHeartbeatHeartbeatTime = acc_9, workerHeartbeatElapsedSinceLastHeartbeat = acc_10, workerHeartbeatWorkflowTaskSlotsInfo = acc_11, workerHeartbeatActivityTaskSlotsInfo = acc_12, workerHeartbeatNexusTaskSlotsInfo = acc_13, workerHeartbeatLocalActivitySlotsInfo = acc_14, workerHeartbeatWorkflowPollerInfo = acc_15, workerHeartbeatWorkflowStickyPollerInfo = acc_16, workerHeartbeatActivityPollerInfo = acc_17, workerHeartbeatNexusPollerInfo = acc_18, workerHeartbeatTotalStickyCacheHit = acc_19, workerHeartbeatTotalStickyCacheMiss = acc_20, workerHeartbeatCurrentStickyCacheSize = acc_21, workerHeartbeatPlugins = acc_22, workerHeartbeatUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -700,55 +700,55 @@ instance ProtoMessage WorkerHeartbeat where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatWorkerinstancekey
-        , fdSet = \v m -> m { workerHeartbeatWorkerinstancekey = v }
+        , fdGet = workerHeartbeatWorkerInstanceKey
+        , fdSet = \v m -> m { workerHeartbeatWorkerInstanceKey = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "worker_identity"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatWorkeridentity
-        , fdSet = \v m -> m { workerHeartbeatWorkeridentity = v }
+        , fdGet = workerHeartbeatWorkerIdentity
+        , fdSet = \v m -> m { workerHeartbeatWorkerIdentity = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "host_info"
         , fdNumber = 3
         , fdTypeDesc = MessageType "WorkerHostInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatHostinfo
-        , fdSet = \v m -> m { workerHeartbeatHostinfo = v }
+        , fdGet = workerHeartbeatHostInfo
+        , fdSet = \v m -> m { workerHeartbeatHostInfo = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "task_queue"
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatTaskqueue
-        , fdSet = \v m -> m { workerHeartbeatTaskqueue = v }
+        , fdGet = workerHeartbeatTaskQueue
+        , fdSet = \v m -> m { workerHeartbeatTaskQueue = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "deployment_version"
         , fdNumber = 5
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatDeploymentversion
-        , fdSet = \v m -> m { workerHeartbeatDeploymentversion = v }
+        , fdGet = workerHeartbeatDeploymentVersion
+        , fdSet = \v m -> m { workerHeartbeatDeploymentVersion = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "sdk_name"
         , fdNumber = 6
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatSdkname
-        , fdSet = \v m -> m { workerHeartbeatSdkname = v }
+        , fdGet = workerHeartbeatSdkName
+        , fdSet = \v m -> m { workerHeartbeatSdkName = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "sdk_version"
         , fdNumber = 7
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatSdkversion
-        , fdSet = \v m -> m { workerHeartbeatSdkversion = v }
+        , fdGet = workerHeartbeatSdkVersion
+        , fdSet = \v m -> m { workerHeartbeatSdkVersion = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "status"
@@ -763,112 +763,112 @@ instance ProtoMessage WorkerHeartbeat where
         , fdNumber = 9
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatStarttime
-        , fdSet = \v m -> m { workerHeartbeatStarttime = v }
+        , fdGet = workerHeartbeatStartTime
+        , fdSet = \v m -> m { workerHeartbeatStartTime = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "heartbeat_time"
         , fdNumber = 10
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatHeartbeattime
-        , fdSet = \v m -> m { workerHeartbeatHeartbeattime = v }
+        , fdGet = workerHeartbeatHeartbeatTime
+        , fdSet = \v m -> m { workerHeartbeatHeartbeatTime = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "elapsed_since_last_heartbeat"
         , fdNumber = 11
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatElapsedsincelastheartbeat
-        , fdSet = \v m -> m { workerHeartbeatElapsedsincelastheartbeat = v }
+        , fdGet = workerHeartbeatElapsedSinceLastHeartbeat
+        , fdSet = \v m -> m { workerHeartbeatElapsedSinceLastHeartbeat = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "workflow_task_slots_info"
         , fdNumber = 12
         , fdTypeDesc = MessageType "WorkerSlotsInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatWorkflowtaskslotsinfo
-        , fdSet = \v m -> m { workerHeartbeatWorkflowtaskslotsinfo = v }
+        , fdGet = workerHeartbeatWorkflowTaskSlotsInfo
+        , fdSet = \v m -> m { workerHeartbeatWorkflowTaskSlotsInfo = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "activity_task_slots_info"
         , fdNumber = 13
         , fdTypeDesc = MessageType "WorkerSlotsInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatActivitytaskslotsinfo
-        , fdSet = \v m -> m { workerHeartbeatActivitytaskslotsinfo = v }
+        , fdGet = workerHeartbeatActivityTaskSlotsInfo
+        , fdSet = \v m -> m { workerHeartbeatActivityTaskSlotsInfo = v }
         })
     , (14, SomeField FieldDescriptor
         { fdName = "nexus_task_slots_info"
         , fdNumber = 14
         , fdTypeDesc = MessageType "WorkerSlotsInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatNexustaskslotsinfo
-        , fdSet = \v m -> m { workerHeartbeatNexustaskslotsinfo = v }
+        , fdGet = workerHeartbeatNexusTaskSlotsInfo
+        , fdSet = \v m -> m { workerHeartbeatNexusTaskSlotsInfo = v }
         })
     , (15, SomeField FieldDescriptor
         { fdName = "local_activity_slots_info"
         , fdNumber = 15
         , fdTypeDesc = MessageType "WorkerSlotsInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatLocalactivityslotsinfo
-        , fdSet = \v m -> m { workerHeartbeatLocalactivityslotsinfo = v }
+        , fdGet = workerHeartbeatLocalActivitySlotsInfo
+        , fdSet = \v m -> m { workerHeartbeatLocalActivitySlotsInfo = v }
         })
     , (16, SomeField FieldDescriptor
         { fdName = "workflow_poller_info"
         , fdNumber = 16
         , fdTypeDesc = MessageType "WorkerPollerInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatWorkflowpollerinfo
-        , fdSet = \v m -> m { workerHeartbeatWorkflowpollerinfo = v }
+        , fdGet = workerHeartbeatWorkflowPollerInfo
+        , fdSet = \v m -> m { workerHeartbeatWorkflowPollerInfo = v }
         })
     , (17, SomeField FieldDescriptor
         { fdName = "workflow_sticky_poller_info"
         , fdNumber = 17
         , fdTypeDesc = MessageType "WorkerPollerInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatWorkflowstickypollerinfo
-        , fdSet = \v m -> m { workerHeartbeatWorkflowstickypollerinfo = v }
+        , fdGet = workerHeartbeatWorkflowStickyPollerInfo
+        , fdSet = \v m -> m { workerHeartbeatWorkflowStickyPollerInfo = v }
         })
     , (18, SomeField FieldDescriptor
         { fdName = "activity_poller_info"
         , fdNumber = 18
         , fdTypeDesc = MessageType "WorkerPollerInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatActivitypollerinfo
-        , fdSet = \v m -> m { workerHeartbeatActivitypollerinfo = v }
+        , fdGet = workerHeartbeatActivityPollerInfo
+        , fdSet = \v m -> m { workerHeartbeatActivityPollerInfo = v }
         })
     , (19, SomeField FieldDescriptor
         { fdName = "nexus_poller_info"
         , fdNumber = 19
         , fdTypeDesc = MessageType "WorkerPollerInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatNexuspollerinfo
-        , fdSet = \v m -> m { workerHeartbeatNexuspollerinfo = v }
+        , fdGet = workerHeartbeatNexusPollerInfo
+        , fdSet = \v m -> m { workerHeartbeatNexusPollerInfo = v }
         })
     , (20, SomeField FieldDescriptor
         { fdName = "total_sticky_cache_hit"
         , fdNumber = 20
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatTotalstickycachehit
-        , fdSet = \v m -> m { workerHeartbeatTotalstickycachehit = v }
+        , fdGet = workerHeartbeatTotalStickyCacheHit
+        , fdSet = \v m -> m { workerHeartbeatTotalStickyCacheHit = v }
         })
     , (21, SomeField FieldDescriptor
         { fdName = "total_sticky_cache_miss"
         , fdNumber = 21
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatTotalstickycachemiss
-        , fdSet = \v m -> m { workerHeartbeatTotalstickycachemiss = v }
+        , fdGet = workerHeartbeatTotalStickyCacheMiss
+        , fdSet = \v m -> m { workerHeartbeatTotalStickyCacheMiss = v }
         })
     , (22, SomeField FieldDescriptor
         { fdName = "current_sticky_cache_size"
         , fdNumber = 22
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = workerHeartbeatCurrentstickycachesize
-        , fdSet = \v m -> m { workerHeartbeatCurrentstickycachesize = v }
+        , fdGet = workerHeartbeatCurrentStickyCacheSize
+        , fdSet = \v m -> m { workerHeartbeatCurrentStickyCacheSize = v }
         })
     , (23, SomeField FieldDescriptor
         { fdName = "plugins"
@@ -882,107 +882,107 @@ instance ProtoMessage WorkerHeartbeat where
 
 instance Aeson.ToJSON WorkerHeartbeat where
   toJSON msg = jsonObject
-      [ "workerInstanceKey" .=: msg.workerHeartbeatWorkerinstancekey
-      , "workerIdentity" .=: msg.workerHeartbeatWorkeridentity
-      , "hostInfo" .=: msg.workerHeartbeatHostinfo
-      , "taskQueue" .=: msg.workerHeartbeatTaskqueue
-      , "deploymentVersion" .=: msg.workerHeartbeatDeploymentversion
-      , "sdkName" .=: msg.workerHeartbeatSdkname
-      , "sdkVersion" .=: msg.workerHeartbeatSdkversion
+      [ "workerInstanceKey" .=: msg.workerHeartbeatWorkerInstanceKey
+      , "workerIdentity" .=: msg.workerHeartbeatWorkerIdentity
+      , "hostInfo" .=: msg.workerHeartbeatHostInfo
+      , "taskQueue" .=: msg.workerHeartbeatTaskQueue
+      , "deploymentVersion" .=: msg.workerHeartbeatDeploymentVersion
+      , "sdkName" .=: msg.workerHeartbeatSdkName
+      , "sdkVersion" .=: msg.workerHeartbeatSdkVersion
       , "status" .=: msg.workerHeartbeatStatus
-      , "startTime" .=: msg.workerHeartbeatStarttime
-      , "heartbeatTime" .=: msg.workerHeartbeatHeartbeattime
-      , "elapsedSinceLastHeartbeat" .=: msg.workerHeartbeatElapsedsincelastheartbeat
-      , "workflowTaskSlotsInfo" .=: msg.workerHeartbeatWorkflowtaskslotsinfo
-      , "activityTaskSlotsInfo" .=: msg.workerHeartbeatActivitytaskslotsinfo
-      , "nexusTaskSlotsInfo" .=: msg.workerHeartbeatNexustaskslotsinfo
-      , "localActivitySlotsInfo" .=: msg.workerHeartbeatLocalactivityslotsinfo
-      , "workflowPollerInfo" .=: msg.workerHeartbeatWorkflowpollerinfo
-      , "workflowStickyPollerInfo" .=: msg.workerHeartbeatWorkflowstickypollerinfo
-      , "activityPollerInfo" .=: msg.workerHeartbeatActivitypollerinfo
-      , "nexusPollerInfo" .=: msg.workerHeartbeatNexuspollerinfo
-      , "totalStickyCacheHit" .=: msg.workerHeartbeatTotalstickycachehit
-      , "totalStickyCacheMiss" .=: msg.workerHeartbeatTotalstickycachemiss
-      , "currentStickyCacheSize" .=: msg.workerHeartbeatCurrentstickycachesize
+      , "startTime" .=: msg.workerHeartbeatStartTime
+      , "heartbeatTime" .=: msg.workerHeartbeatHeartbeatTime
+      , "elapsedSinceLastHeartbeat" .=: msg.workerHeartbeatElapsedSinceLastHeartbeat
+      , "workflowTaskSlotsInfo" .=: msg.workerHeartbeatWorkflowTaskSlotsInfo
+      , "activityTaskSlotsInfo" .=: msg.workerHeartbeatActivityTaskSlotsInfo
+      , "nexusTaskSlotsInfo" .=: msg.workerHeartbeatNexusTaskSlotsInfo
+      , "localActivitySlotsInfo" .=: msg.workerHeartbeatLocalActivitySlotsInfo
+      , "workflowPollerInfo" .=: msg.workerHeartbeatWorkflowPollerInfo
+      , "workflowStickyPollerInfo" .=: msg.workerHeartbeatWorkflowStickyPollerInfo
+      , "activityPollerInfo" .=: msg.workerHeartbeatActivityPollerInfo
+      , "nexusPollerInfo" .=: msg.workerHeartbeatNexusPollerInfo
+      , "totalStickyCacheHit" .=: msg.workerHeartbeatTotalStickyCacheHit
+      , "totalStickyCacheMiss" .=: msg.workerHeartbeatTotalStickyCacheMiss
+      , "currentStickyCacheSize" .=: msg.workerHeartbeatCurrentStickyCacheSize
       , "plugins" .=: msg.workerHeartbeatPlugins
       ]
 
 instance Aeson.FromJSON WorkerHeartbeat where
   parseJSON = Aeson.withObject "WorkerHeartbeat" $ \obj -> do
-    fld_workerHeartbeatWorkerinstancekey <- parseFieldMaybe obj "workerInstanceKey"
-    fld_workerHeartbeatWorkeridentity <- parseFieldMaybe obj "workerIdentity"
-    fld_workerHeartbeatHostinfo <- parseFieldMaybe obj "hostInfo"
-    fld_workerHeartbeatTaskqueue <- parseFieldMaybe obj "taskQueue"
-    fld_workerHeartbeatDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
-    fld_workerHeartbeatSdkname <- parseFieldMaybe obj "sdkName"
-    fld_workerHeartbeatSdkversion <- parseFieldMaybe obj "sdkVersion"
+    fld_workerHeartbeatWorkerInstanceKey <- parseFieldMaybe obj "workerInstanceKey"
+    fld_workerHeartbeatWorkerIdentity <- parseFieldMaybe obj "workerIdentity"
+    fld_workerHeartbeatHostInfo <- parseFieldMaybe obj "hostInfo"
+    fld_workerHeartbeatTaskQueue <- parseFieldMaybe obj "taskQueue"
+    fld_workerHeartbeatDeploymentVersion <- parseFieldMaybe obj "deploymentVersion"
+    fld_workerHeartbeatSdkName <- parseFieldMaybe obj "sdkName"
+    fld_workerHeartbeatSdkVersion <- parseFieldMaybe obj "sdkVersion"
     fld_workerHeartbeatStatus <- parseFieldMaybe obj "status"
-    fld_workerHeartbeatStarttime <- parseFieldMaybe obj "startTime"
-    fld_workerHeartbeatHeartbeattime <- parseFieldMaybe obj "heartbeatTime"
-    fld_workerHeartbeatElapsedsincelastheartbeat <- parseFieldMaybe obj "elapsedSinceLastHeartbeat"
-    fld_workerHeartbeatWorkflowtaskslotsinfo <- parseFieldMaybe obj "workflowTaskSlotsInfo"
-    fld_workerHeartbeatActivitytaskslotsinfo <- parseFieldMaybe obj "activityTaskSlotsInfo"
-    fld_workerHeartbeatNexustaskslotsinfo <- parseFieldMaybe obj "nexusTaskSlotsInfo"
-    fld_workerHeartbeatLocalactivityslotsinfo <- parseFieldMaybe obj "localActivitySlotsInfo"
-    fld_workerHeartbeatWorkflowpollerinfo <- parseFieldMaybe obj "workflowPollerInfo"
-    fld_workerHeartbeatWorkflowstickypollerinfo <- parseFieldMaybe obj "workflowStickyPollerInfo"
-    fld_workerHeartbeatActivitypollerinfo <- parseFieldMaybe obj "activityPollerInfo"
-    fld_workerHeartbeatNexuspollerinfo <- parseFieldMaybe obj "nexusPollerInfo"
-    fld_workerHeartbeatTotalstickycachehit <- parseFieldMaybe obj "totalStickyCacheHit"
-    fld_workerHeartbeatTotalstickycachemiss <- parseFieldMaybe obj "totalStickyCacheMiss"
-    fld_workerHeartbeatCurrentstickycachesize <- parseFieldMaybe obj "currentStickyCacheSize"
+    fld_workerHeartbeatStartTime <- parseFieldMaybe obj "startTime"
+    fld_workerHeartbeatHeartbeatTime <- parseFieldMaybe obj "heartbeatTime"
+    fld_workerHeartbeatElapsedSinceLastHeartbeat <- parseFieldMaybe obj "elapsedSinceLastHeartbeat"
+    fld_workerHeartbeatWorkflowTaskSlotsInfo <- parseFieldMaybe obj "workflowTaskSlotsInfo"
+    fld_workerHeartbeatActivityTaskSlotsInfo <- parseFieldMaybe obj "activityTaskSlotsInfo"
+    fld_workerHeartbeatNexusTaskSlotsInfo <- parseFieldMaybe obj "nexusTaskSlotsInfo"
+    fld_workerHeartbeatLocalActivitySlotsInfo <- parseFieldMaybe obj "localActivitySlotsInfo"
+    fld_workerHeartbeatWorkflowPollerInfo <- parseFieldMaybe obj "workflowPollerInfo"
+    fld_workerHeartbeatWorkflowStickyPollerInfo <- parseFieldMaybe obj "workflowStickyPollerInfo"
+    fld_workerHeartbeatActivityPollerInfo <- parseFieldMaybe obj "activityPollerInfo"
+    fld_workerHeartbeatNexusPollerInfo <- parseFieldMaybe obj "nexusPollerInfo"
+    fld_workerHeartbeatTotalStickyCacheHit <- parseFieldMaybe obj "totalStickyCacheHit"
+    fld_workerHeartbeatTotalStickyCacheMiss <- parseFieldMaybe obj "totalStickyCacheMiss"
+    fld_workerHeartbeatCurrentStickyCacheSize <- parseFieldMaybe obj "currentStickyCacheSize"
     fld_workerHeartbeatPlugins <- parseFieldMaybe obj "plugins"
     pure defaultWorkerHeartbeat
-      { workerHeartbeatWorkerinstancekey = maybe (workerHeartbeatWorkerinstancekey defaultWorkerHeartbeat) id fld_workerHeartbeatWorkerinstancekey
-      , workerHeartbeatWorkeridentity = maybe (workerHeartbeatWorkeridentity defaultWorkerHeartbeat) id fld_workerHeartbeatWorkeridentity
-      , workerHeartbeatHostinfo = maybe (workerHeartbeatHostinfo defaultWorkerHeartbeat) id fld_workerHeartbeatHostinfo
-      , workerHeartbeatTaskqueue = maybe (workerHeartbeatTaskqueue defaultWorkerHeartbeat) id fld_workerHeartbeatTaskqueue
-      , workerHeartbeatDeploymentversion = maybe (workerHeartbeatDeploymentversion defaultWorkerHeartbeat) id fld_workerHeartbeatDeploymentversion
-      , workerHeartbeatSdkname = maybe (workerHeartbeatSdkname defaultWorkerHeartbeat) id fld_workerHeartbeatSdkname
-      , workerHeartbeatSdkversion = maybe (workerHeartbeatSdkversion defaultWorkerHeartbeat) id fld_workerHeartbeatSdkversion
+      { workerHeartbeatWorkerInstanceKey = maybe (workerHeartbeatWorkerInstanceKey defaultWorkerHeartbeat) id fld_workerHeartbeatWorkerInstanceKey
+      , workerHeartbeatWorkerIdentity = maybe (workerHeartbeatWorkerIdentity defaultWorkerHeartbeat) id fld_workerHeartbeatWorkerIdentity
+      , workerHeartbeatHostInfo = maybe (workerHeartbeatHostInfo defaultWorkerHeartbeat) id fld_workerHeartbeatHostInfo
+      , workerHeartbeatTaskQueue = maybe (workerHeartbeatTaskQueue defaultWorkerHeartbeat) id fld_workerHeartbeatTaskQueue
+      , workerHeartbeatDeploymentVersion = maybe (workerHeartbeatDeploymentVersion defaultWorkerHeartbeat) id fld_workerHeartbeatDeploymentVersion
+      , workerHeartbeatSdkName = maybe (workerHeartbeatSdkName defaultWorkerHeartbeat) id fld_workerHeartbeatSdkName
+      , workerHeartbeatSdkVersion = maybe (workerHeartbeatSdkVersion defaultWorkerHeartbeat) id fld_workerHeartbeatSdkVersion
       , workerHeartbeatStatus = maybe (workerHeartbeatStatus defaultWorkerHeartbeat) id fld_workerHeartbeatStatus
-      , workerHeartbeatStarttime = maybe (workerHeartbeatStarttime defaultWorkerHeartbeat) id fld_workerHeartbeatStarttime
-      , workerHeartbeatHeartbeattime = maybe (workerHeartbeatHeartbeattime defaultWorkerHeartbeat) id fld_workerHeartbeatHeartbeattime
-      , workerHeartbeatElapsedsincelastheartbeat = maybe (workerHeartbeatElapsedsincelastheartbeat defaultWorkerHeartbeat) id fld_workerHeartbeatElapsedsincelastheartbeat
-      , workerHeartbeatWorkflowtaskslotsinfo = maybe (workerHeartbeatWorkflowtaskslotsinfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowtaskslotsinfo
-      , workerHeartbeatActivitytaskslotsinfo = maybe (workerHeartbeatActivitytaskslotsinfo defaultWorkerHeartbeat) id fld_workerHeartbeatActivitytaskslotsinfo
-      , workerHeartbeatNexustaskslotsinfo = maybe (workerHeartbeatNexustaskslotsinfo defaultWorkerHeartbeat) id fld_workerHeartbeatNexustaskslotsinfo
-      , workerHeartbeatLocalactivityslotsinfo = maybe (workerHeartbeatLocalactivityslotsinfo defaultWorkerHeartbeat) id fld_workerHeartbeatLocalactivityslotsinfo
-      , workerHeartbeatWorkflowpollerinfo = maybe (workerHeartbeatWorkflowpollerinfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowpollerinfo
-      , workerHeartbeatWorkflowstickypollerinfo = maybe (workerHeartbeatWorkflowstickypollerinfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowstickypollerinfo
-      , workerHeartbeatActivitypollerinfo = maybe (workerHeartbeatActivitypollerinfo defaultWorkerHeartbeat) id fld_workerHeartbeatActivitypollerinfo
-      , workerHeartbeatNexuspollerinfo = maybe (workerHeartbeatNexuspollerinfo defaultWorkerHeartbeat) id fld_workerHeartbeatNexuspollerinfo
-      , workerHeartbeatTotalstickycachehit = maybe (workerHeartbeatTotalstickycachehit defaultWorkerHeartbeat) id fld_workerHeartbeatTotalstickycachehit
-      , workerHeartbeatTotalstickycachemiss = maybe (workerHeartbeatTotalstickycachemiss defaultWorkerHeartbeat) id fld_workerHeartbeatTotalstickycachemiss
-      , workerHeartbeatCurrentstickycachesize = maybe (workerHeartbeatCurrentstickycachesize defaultWorkerHeartbeat) id fld_workerHeartbeatCurrentstickycachesize
+      , workerHeartbeatStartTime = maybe (workerHeartbeatStartTime defaultWorkerHeartbeat) id fld_workerHeartbeatStartTime
+      , workerHeartbeatHeartbeatTime = maybe (workerHeartbeatHeartbeatTime defaultWorkerHeartbeat) id fld_workerHeartbeatHeartbeatTime
+      , workerHeartbeatElapsedSinceLastHeartbeat = maybe (workerHeartbeatElapsedSinceLastHeartbeat defaultWorkerHeartbeat) id fld_workerHeartbeatElapsedSinceLastHeartbeat
+      , workerHeartbeatWorkflowTaskSlotsInfo = maybe (workerHeartbeatWorkflowTaskSlotsInfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowTaskSlotsInfo
+      , workerHeartbeatActivityTaskSlotsInfo = maybe (workerHeartbeatActivityTaskSlotsInfo defaultWorkerHeartbeat) id fld_workerHeartbeatActivityTaskSlotsInfo
+      , workerHeartbeatNexusTaskSlotsInfo = maybe (workerHeartbeatNexusTaskSlotsInfo defaultWorkerHeartbeat) id fld_workerHeartbeatNexusTaskSlotsInfo
+      , workerHeartbeatLocalActivitySlotsInfo = maybe (workerHeartbeatLocalActivitySlotsInfo defaultWorkerHeartbeat) id fld_workerHeartbeatLocalActivitySlotsInfo
+      , workerHeartbeatWorkflowPollerInfo = maybe (workerHeartbeatWorkflowPollerInfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowPollerInfo
+      , workerHeartbeatWorkflowStickyPollerInfo = maybe (workerHeartbeatWorkflowStickyPollerInfo defaultWorkerHeartbeat) id fld_workerHeartbeatWorkflowStickyPollerInfo
+      , workerHeartbeatActivityPollerInfo = maybe (workerHeartbeatActivityPollerInfo defaultWorkerHeartbeat) id fld_workerHeartbeatActivityPollerInfo
+      , workerHeartbeatNexusPollerInfo = maybe (workerHeartbeatNexusPollerInfo defaultWorkerHeartbeat) id fld_workerHeartbeatNexusPollerInfo
+      , workerHeartbeatTotalStickyCacheHit = maybe (workerHeartbeatTotalStickyCacheHit defaultWorkerHeartbeat) id fld_workerHeartbeatTotalStickyCacheHit
+      , workerHeartbeatTotalStickyCacheMiss = maybe (workerHeartbeatTotalStickyCacheMiss defaultWorkerHeartbeat) id fld_workerHeartbeatTotalStickyCacheMiss
+      , workerHeartbeatCurrentStickyCacheSize = maybe (workerHeartbeatCurrentStickyCacheSize defaultWorkerHeartbeat) id fld_workerHeartbeatCurrentStickyCacheSize
       , workerHeartbeatPlugins = maybe (workerHeartbeatPlugins defaultWorkerHeartbeat) id fld_workerHeartbeatPlugins
       }
 
 instance Hashable WorkerHeartbeat where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerHeartbeatWorkerinstancekey) msg.workerHeartbeatWorkeridentity) msg.workerHeartbeatHostinfo) msg.workerHeartbeatTaskqueue) msg.workerHeartbeatDeploymentversion) msg.workerHeartbeatSdkname) msg.workerHeartbeatSdkversion) msg.workerHeartbeatStatus) msg.workerHeartbeatStarttime) msg.workerHeartbeatHeartbeattime) msg.workerHeartbeatElapsedsincelastheartbeat) msg.workerHeartbeatWorkflowtaskslotsinfo) msg.workerHeartbeatActivitytaskslotsinfo) msg.workerHeartbeatNexustaskslotsinfo) msg.workerHeartbeatLocalactivityslotsinfo) msg.workerHeartbeatWorkflowpollerinfo) msg.workerHeartbeatWorkflowstickypollerinfo) msg.workerHeartbeatActivitypollerinfo) msg.workerHeartbeatNexuspollerinfo) msg.workerHeartbeatTotalstickycachehit) msg.workerHeartbeatTotalstickycachemiss) msg.workerHeartbeatCurrentstickycachesize) msg.workerHeartbeatPlugins
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerHeartbeatWorkerInstanceKey) msg.workerHeartbeatWorkerIdentity) msg.workerHeartbeatHostInfo) msg.workerHeartbeatTaskQueue) msg.workerHeartbeatDeploymentVersion) msg.workerHeartbeatSdkName) msg.workerHeartbeatSdkVersion) msg.workerHeartbeatStatus) msg.workerHeartbeatStartTime) msg.workerHeartbeatHeartbeatTime) msg.workerHeartbeatElapsedSinceLastHeartbeat) msg.workerHeartbeatWorkflowTaskSlotsInfo) msg.workerHeartbeatActivityTaskSlotsInfo) msg.workerHeartbeatNexusTaskSlotsInfo) msg.workerHeartbeatLocalActivitySlotsInfo) msg.workerHeartbeatWorkflowPollerInfo) msg.workerHeartbeatWorkflowStickyPollerInfo) msg.workerHeartbeatActivityPollerInfo) msg.workerHeartbeatNexusPollerInfo) msg.workerHeartbeatTotalStickyCacheHit) msg.workerHeartbeatTotalStickyCacheMiss) msg.workerHeartbeatCurrentStickyCacheSize) msg.workerHeartbeatPlugins
 
 data WorkerInfo = WorkerInfo
-  { workerInfoWorkerheartbeat :: !(Maybe WorkerHeartbeat)
-  , workerInfoUnknownfields :: ![UnknownField]
+  { workerInfoWorkerHeartbeat :: !(Maybe WorkerHeartbeat)
+  , workerInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerInfo :: WorkerInfo
 defaultWorkerInfo = WorkerInfo
-  { workerInfoWorkerheartbeat = Nothing
-  , workerInfoUnknownfields = []
+  { workerInfoWorkerHeartbeat = Nothing
+  , workerInfoUnknownFields = []
   }
 
 instance MessageEncode WorkerInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workerInfoWorkerheartbeat)
-    <> encodeUnknownFields msg.workerInfoUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workerInfoWorkerHeartbeat)
+    <> encodeUnknownFields msg.workerInfoUnknownFields
 
 instance MessageSize WorkerInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workerInfoWorkerheartbeat)
-    + unknownFieldsSize msg.workerInfoUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workerInfoWorkerHeartbeat)
+    + unknownFieldsSize msg.workerInfoUnknownFields
 
 instance MessageDecode WorkerInfo where
   {-# INLINE messageDecoder #-}
@@ -991,7 +991,7 @@ instance MessageDecode WorkerInfo where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerInfo {workerInfoWorkerheartbeat = acc_0, workerInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerInfo {workerInfoWorkerHeartbeat = acc_0, workerInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1014,31 +1014,31 @@ instance ProtoMessage WorkerInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "WorkerHeartbeat"
         , fdLabel = LabelOptional
-        , fdGet = workerInfoWorkerheartbeat
-        , fdSet = \v m -> m { workerInfoWorkerheartbeat = v }
+        , fdGet = workerInfoWorkerHeartbeat
+        , fdSet = \v m -> m { workerInfoWorkerHeartbeat = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerInfo where
   toJSON msg = jsonObject
-      [ "workerHeartbeat" .=: msg.workerInfoWorkerheartbeat
+      [ "workerHeartbeat" .=: msg.workerInfoWorkerHeartbeat
 
       ]
 
 instance Aeson.FromJSON WorkerInfo where
   parseJSON = Aeson.withObject "WorkerInfo" $ \obj -> do
-    fld_workerInfoWorkerheartbeat <- parseFieldMaybe obj "workerHeartbeat"
+    fld_workerInfoWorkerHeartbeat <- parseFieldMaybe obj "workerHeartbeat"
     pure defaultWorkerInfo
-      { workerInfoWorkerheartbeat = maybe (workerInfoWorkerheartbeat defaultWorkerInfo) id fld_workerInfoWorkerheartbeat
+      { workerInfoWorkerHeartbeat = maybe (workerInfoWorkerHeartbeat defaultWorkerInfo) id fld_workerInfoWorkerHeartbeat
       }
 
 instance Hashable WorkerInfo where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.workerInfoWorkerheartbeat
+  hashWithSalt salt msg = hashWithSalt (salt) msg.workerInfoWorkerHeartbeat
 
 data PluginInfo = PluginInfo
   { pluginInfoName :: !Text
   , pluginInfoVersion :: !Text
-  , pluginInfoUnknownfields :: ![UnknownField]
+  , pluginInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1047,20 +1047,20 @@ defaultPluginInfo :: PluginInfo
 defaultPluginInfo = PluginInfo
   { pluginInfoName = ""
   , pluginInfoVersion = ""
-  , pluginInfoUnknownfields = []
+  , pluginInfoUnknownFields = []
   }
 
 instance MessageEncode PluginInfo where
   buildMessage msg =
     (if msg.pluginInfoName == T.empty then mempty else encodeFieldString 1 msg.pluginInfoName)
     <> (if msg.pluginInfoVersion == T.empty then mempty else encodeFieldString 2 msg.pluginInfoVersion)
-    <> encodeUnknownFields msg.pluginInfoUnknownfields
+    <> encodeUnknownFields msg.pluginInfoUnknownFields
 
 instance MessageSize PluginInfo where
   messageSize msg =
     (if msg.pluginInfoName == T.empty then 0 else fieldTextSize 1 msg.pluginInfoName)
     + (if msg.pluginInfoVersion == T.empty then 0 else fieldTextSize 2 msg.pluginInfoVersion)
-    + unknownFieldsSize msg.pluginInfoUnknownfields
+    + unknownFieldsSize msg.pluginInfoUnknownFields
 
 instance MessageDecode PluginInfo where
   {-# INLINE messageDecoder #-}
@@ -1069,7 +1069,7 @@ instance MessageDecode PluginInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (PluginInfo {pluginInfoName = acc_0, pluginInfoVersion = acc_1, pluginInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (PluginInfo {pluginInfoName = acc_0, pluginInfoVersion = acc_1, pluginInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString

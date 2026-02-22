@@ -61,31 +61,31 @@ fileDescriptorProtoBytes = case Base16.decode "0a3674656d706f72616c2f6170692f6f7
 
 
 data AddSearchAttributesRequest = AddSearchAttributesRequest
-  { addSearchAttributesRequestSearchattributes :: !(Map.Map Text TE_Enums_V1_Common.IndexedValueType)
+  { addSearchAttributesRequestSearchAttributes :: !(Map.Map Text TE_Enums_V1_Common.IndexedValueType)
   , addSearchAttributesRequestNamespace :: !Text
-  , addSearchAttributesRequestUnknownfields :: ![UnknownField]
+  , addSearchAttributesRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultAddSearchAttributesRequest :: AddSearchAttributesRequest
 defaultAddSearchAttributesRequest = AddSearchAttributesRequest
-  { addSearchAttributesRequestSearchattributes = Map.empty
+  { addSearchAttributesRequestSearchAttributes = Map.empty
   , addSearchAttributesRequestNamespace = ""
-  , addSearchAttributesRequestUnknownfields = []
+  , addSearchAttributesRequestUnknownFields = []
   }
 
 instance MessageEncode AddSearchAttributesRequest where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.addSearchAttributesRequestSearchattributes
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.addSearchAttributesRequestSearchAttributes
     <> (if msg.addSearchAttributesRequestNamespace == T.empty then mempty else encodeFieldString 2 msg.addSearchAttributesRequestNamespace)
-    <> encodeUnknownFields msg.addSearchAttributesRequestUnknownfields
+    <> encodeUnknownFields msg.addSearchAttributesRequestUnknownFields
 
 instance MessageSize AddSearchAttributesRequest where
   messageSize msg =
-    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.addSearchAttributesRequestSearchattributes)
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.addSearchAttributesRequestSearchAttributes)
     + (if msg.addSearchAttributesRequestNamespace == T.empty then 0 else fieldTextSize 2 msg.addSearchAttributesRequestNamespace)
-    + unknownFieldsSize msg.addSearchAttributesRequestUnknownfields
+    + unknownFieldsSize msg.addSearchAttributesRequestUnknownFields
 
 instance MessageDecode AddSearchAttributesRequest where
   {-# INLINE messageDecoder #-}
@@ -94,7 +94,7 @@ instance MessageDecode AddSearchAttributesRequest where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (AddSearchAttributesRequest {addSearchAttributesRequestSearchattributes = acc_0, addSearchAttributesRequestNamespace = acc_1, addSearchAttributesRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (AddSearchAttributesRequest {addSearchAttributesRequestSearchAttributes = acc_0, addSearchAttributesRequestNamespace = acc_1, addSearchAttributesRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -123,8 +123,8 @@ instance ProtoMessage AddSearchAttributesRequest where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = addSearchAttributesRequestSearchattributes
-        , fdSet = \v m -> m { addSearchAttributesRequestSearchattributes = v }
+        , fdGet = addSearchAttributesRequestSearchAttributes
+        , fdSet = \v m -> m { addSearchAttributesRequestSearchAttributes = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "namespace"
         , fdNumber = 2
@@ -137,40 +137,40 @@ instance ProtoMessage AddSearchAttributesRequest where
 
 instance Aeson.ToJSON AddSearchAttributesRequest where
   toJSON msg = jsonObject
-      [ "searchAttributes" .=: msg.addSearchAttributesRequestSearchattributes
+      [ "searchAttributes" .=: msg.addSearchAttributesRequestSearchAttributes
       , "namespace" .=: msg.addSearchAttributesRequestNamespace
       ]
 
 instance Aeson.FromJSON AddSearchAttributesRequest where
   parseJSON = Aeson.withObject "AddSearchAttributesRequest" $ \obj -> do
-    fld_addSearchAttributesRequestSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_addSearchAttributesRequestSearchAttributes <- parseFieldMaybe obj "searchAttributes"
     fld_addSearchAttributesRequestNamespace <- parseFieldMaybe obj "namespace"
     pure defaultAddSearchAttributesRequest
-      { addSearchAttributesRequestSearchattributes = maybe (addSearchAttributesRequestSearchattributes defaultAddSearchAttributesRequest) id fld_addSearchAttributesRequestSearchattributes
+      { addSearchAttributesRequestSearchAttributes = maybe (addSearchAttributesRequestSearchAttributes defaultAddSearchAttributesRequest) id fld_addSearchAttributesRequestSearchAttributes
       , addSearchAttributesRequestNamespace = maybe (addSearchAttributesRequestNamespace defaultAddSearchAttributesRequest) id fld_addSearchAttributesRequestNamespace
       }
 
 instance Hashable AddSearchAttributesRequest where
-  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.addSearchAttributesRequestSearchattributes) msg.addSearchAttributesRequestNamespace
+  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.addSearchAttributesRequestSearchAttributes) msg.addSearchAttributesRequestNamespace
 
 data AddSearchAttributesResponse = AddSearchAttributesResponse
-  { addSearchAttributesResponseUnknownfields :: ![UnknownField]
+  { addSearchAttributesResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultAddSearchAttributesResponse :: AddSearchAttributesResponse
 defaultAddSearchAttributesResponse = AddSearchAttributesResponse
-  { addSearchAttributesResponseUnknownfields = []
+  { addSearchAttributesResponseUnknownFields = []
   }
 
 instance MessageEncode AddSearchAttributesResponse where
   buildMessage msg =
-    encodeUnknownFields msg.addSearchAttributesResponseUnknownfields
+    encodeUnknownFields msg.addSearchAttributesResponseUnknownFields
 
 instance MessageSize AddSearchAttributesResponse where
   messageSize msg =
-    unknownFieldsSize msg.addSearchAttributesResponseUnknownfields
+    unknownFieldsSize msg.addSearchAttributesResponseUnknownFields
 
 instance MessageDecode AddSearchAttributesResponse where
   {-# INLINE messageDecoder #-}
@@ -179,7 +179,7 @@ instance MessageDecode AddSearchAttributesResponse where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (AddSearchAttributesResponse {addSearchAttributesResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (AddSearchAttributesResponse {addSearchAttributesResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -207,31 +207,31 @@ instance Hashable AddSearchAttributesResponse where
   hashWithSalt salt _ = salt
 
 data RemoveSearchAttributesRequest = RemoveSearchAttributesRequest
-  { removeSearchAttributesRequestSearchattributes :: !(V.Vector Text)
+  { removeSearchAttributesRequestSearchAttributes :: !(V.Vector Text)
   , removeSearchAttributesRequestNamespace :: !Text
-  , removeSearchAttributesRequestUnknownfields :: ![UnknownField]
+  , removeSearchAttributesRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRemoveSearchAttributesRequest :: RemoveSearchAttributesRequest
 defaultRemoveSearchAttributesRequest = RemoveSearchAttributesRequest
-  { removeSearchAttributesRequestSearchattributes = V.empty
+  { removeSearchAttributesRequestSearchAttributes = V.empty
   , removeSearchAttributesRequestNamespace = ""
-  , removeSearchAttributesRequestUnknownfields = []
+  , removeSearchAttributesRequestUnknownFields = []
   }
 
 instance MessageEncode RemoveSearchAttributesRequest where
   buildMessage msg =
-    V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.removeSearchAttributesRequestSearchattributes
+    V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.removeSearchAttributesRequestSearchAttributes
     <> (if msg.removeSearchAttributesRequestNamespace == T.empty then mempty else encodeFieldString 2 msg.removeSearchAttributesRequestNamespace)
-    <> encodeUnknownFields msg.removeSearchAttributesRequestUnknownfields
+    <> encodeUnknownFields msg.removeSearchAttributesRequestUnknownFields
 
 instance MessageSize RemoveSearchAttributesRequest where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.removeSearchAttributesRequestSearchattributes)
+    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.removeSearchAttributesRequestSearchAttributes)
     + (if msg.removeSearchAttributesRequestNamespace == T.empty then 0 else fieldTextSize 2 msg.removeSearchAttributesRequestNamespace)
-    + unknownFieldsSize msg.removeSearchAttributesRequestUnknownfields
+    + unknownFieldsSize msg.removeSearchAttributesRequestUnknownFields
 
 instance MessageDecode RemoveSearchAttributesRequest where
   {-# INLINE messageDecoder #-}
@@ -240,7 +240,7 @@ instance MessageDecode RemoveSearchAttributesRequest where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RemoveSearchAttributesRequest {removeSearchAttributesRequestSearchattributes = acc_0, removeSearchAttributesRequestNamespace = acc_1, removeSearchAttributesRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RemoveSearchAttributesRequest {removeSearchAttributesRequestSearchAttributes = acc_0, removeSearchAttributesRequestNamespace = acc_1, removeSearchAttributesRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -266,8 +266,8 @@ instance ProtoMessage RemoveSearchAttributesRequest where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelRepeated
-        , fdGet = removeSearchAttributesRequestSearchattributes
-        , fdSet = \v m -> m { removeSearchAttributesRequestSearchattributes = v }
+        , fdGet = removeSearchAttributesRequestSearchAttributes
+        , fdSet = \v m -> m { removeSearchAttributesRequestSearchAttributes = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "namespace"
         , fdNumber = 2
@@ -280,40 +280,40 @@ instance ProtoMessage RemoveSearchAttributesRequest where
 
 instance Aeson.ToJSON RemoveSearchAttributesRequest where
   toJSON msg = jsonObject
-      [ "searchAttributes" .=: msg.removeSearchAttributesRequestSearchattributes
+      [ "searchAttributes" .=: msg.removeSearchAttributesRequestSearchAttributes
       , "namespace" .=: msg.removeSearchAttributesRequestNamespace
       ]
 
 instance Aeson.FromJSON RemoveSearchAttributesRequest where
   parseJSON = Aeson.withObject "RemoveSearchAttributesRequest" $ \obj -> do
-    fld_removeSearchAttributesRequestSearchattributes <- parseFieldMaybe obj "searchAttributes"
+    fld_removeSearchAttributesRequestSearchAttributes <- parseFieldMaybe obj "searchAttributes"
     fld_removeSearchAttributesRequestNamespace <- parseFieldMaybe obj "namespace"
     pure defaultRemoveSearchAttributesRequest
-      { removeSearchAttributesRequestSearchattributes = maybe (removeSearchAttributesRequestSearchattributes defaultRemoveSearchAttributesRequest) id fld_removeSearchAttributesRequestSearchattributes
+      { removeSearchAttributesRequestSearchAttributes = maybe (removeSearchAttributesRequestSearchAttributes defaultRemoveSearchAttributesRequest) id fld_removeSearchAttributesRequestSearchAttributes
       , removeSearchAttributesRequestNamespace = maybe (removeSearchAttributesRequestNamespace defaultRemoveSearchAttributesRequest) id fld_removeSearchAttributesRequestNamespace
       }
 
 instance Hashable RemoveSearchAttributesRequest where
-  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (salt) msg.removeSearchAttributesRequestSearchattributes) msg.removeSearchAttributesRequestNamespace
+  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (salt) msg.removeSearchAttributesRequestSearchAttributes) msg.removeSearchAttributesRequestNamespace
 
 data RemoveSearchAttributesResponse = RemoveSearchAttributesResponse
-  { removeSearchAttributesResponseUnknownfields :: ![UnknownField]
+  { removeSearchAttributesResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRemoveSearchAttributesResponse :: RemoveSearchAttributesResponse
 defaultRemoveSearchAttributesResponse = RemoveSearchAttributesResponse
-  { removeSearchAttributesResponseUnknownfields = []
+  { removeSearchAttributesResponseUnknownFields = []
   }
 
 instance MessageEncode RemoveSearchAttributesResponse where
   buildMessage msg =
-    encodeUnknownFields msg.removeSearchAttributesResponseUnknownfields
+    encodeUnknownFields msg.removeSearchAttributesResponseUnknownFields
 
 instance MessageSize RemoveSearchAttributesResponse where
   messageSize msg =
-    unknownFieldsSize msg.removeSearchAttributesResponseUnknownfields
+    unknownFieldsSize msg.removeSearchAttributesResponseUnknownFields
 
 instance MessageDecode RemoveSearchAttributesResponse where
   {-# INLINE messageDecoder #-}
@@ -322,7 +322,7 @@ instance MessageDecode RemoveSearchAttributesResponse where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RemoveSearchAttributesResponse {removeSearchAttributesResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RemoveSearchAttributesResponse {removeSearchAttributesResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -351,7 +351,7 @@ instance Hashable RemoveSearchAttributesResponse where
 
 data ListSearchAttributesRequest = ListSearchAttributesRequest
   { listSearchAttributesRequestNamespace :: !Text
-  , listSearchAttributesRequestUnknownfields :: ![UnknownField]
+  , listSearchAttributesRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -359,18 +359,18 @@ data ListSearchAttributesRequest = ListSearchAttributesRequest
 defaultListSearchAttributesRequest :: ListSearchAttributesRequest
 defaultListSearchAttributesRequest = ListSearchAttributesRequest
   { listSearchAttributesRequestNamespace = ""
-  , listSearchAttributesRequestUnknownfields = []
+  , listSearchAttributesRequestUnknownFields = []
   }
 
 instance MessageEncode ListSearchAttributesRequest where
   buildMessage msg =
     (if msg.listSearchAttributesRequestNamespace == T.empty then mempty else encodeFieldString 1 msg.listSearchAttributesRequestNamespace)
-    <> encodeUnknownFields msg.listSearchAttributesRequestUnknownfields
+    <> encodeUnknownFields msg.listSearchAttributesRequestUnknownFields
 
 instance MessageSize ListSearchAttributesRequest where
   messageSize msg =
     (if msg.listSearchAttributesRequestNamespace == T.empty then 0 else fieldTextSize 1 msg.listSearchAttributesRequestNamespace)
-    + unknownFieldsSize msg.listSearchAttributesRequestUnknownfields
+    + unknownFieldsSize msg.listSearchAttributesRequestUnknownFields
 
 instance MessageDecode ListSearchAttributesRequest where
   {-# INLINE messageDecoder #-}
@@ -379,7 +379,7 @@ instance MessageDecode ListSearchAttributesRequest where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListSearchAttributesRequest {listSearchAttributesRequestNamespace = acc_0, listSearchAttributesRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ListSearchAttributesRequest {listSearchAttributesRequestNamespace = acc_0, listSearchAttributesRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -424,35 +424,35 @@ instance Hashable ListSearchAttributesRequest where
   hashWithSalt salt msg = hashWithSalt (salt) msg.listSearchAttributesRequestNamespace
 
 data ListSearchAttributesResponse = ListSearchAttributesResponse
-  { listSearchAttributesResponseCustomattributes :: !(Map.Map Text TE_Enums_V1_Common.IndexedValueType)
-  , listSearchAttributesResponseSystemattributes :: !(Map.Map Text TE_Enums_V1_Common.IndexedValueType)
-  , listSearchAttributesResponseStorageschema :: !(Map.Map Text Text)
-  , listSearchAttributesResponseUnknownfields :: ![UnknownField]
+  { listSearchAttributesResponseCustomAttributes :: !(Map.Map Text TE_Enums_V1_Common.IndexedValueType)
+  , listSearchAttributesResponseSystemAttributes :: !(Map.Map Text TE_Enums_V1_Common.IndexedValueType)
+  , listSearchAttributesResponseStorageSchema :: !(Map.Map Text Text)
+  , listSearchAttributesResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultListSearchAttributesResponse :: ListSearchAttributesResponse
 defaultListSearchAttributesResponse = ListSearchAttributesResponse
-  { listSearchAttributesResponseCustomattributes = Map.empty
-  , listSearchAttributesResponseSystemattributes = Map.empty
-  , listSearchAttributesResponseStorageschema = Map.empty
-  , listSearchAttributesResponseUnknownfields = []
+  { listSearchAttributesResponseCustomAttributes = Map.empty
+  , listSearchAttributesResponseSystemAttributes = Map.empty
+  , listSearchAttributesResponseStorageSchema = Map.empty
+  , listSearchAttributesResponseUnknownFields = []
   }
 
 instance MessageEncode ListSearchAttributesResponse where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.listSearchAttributesResponseCustomattributes
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.listSearchAttributesResponseSystemattributes
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 3 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.listSearchAttributesResponseStorageschema
-    <> encodeUnknownFields msg.listSearchAttributesResponseUnknownfields
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.listSearchAttributesResponseCustomAttributes
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) ((\x -> encodeFieldVarint 2 (fromIntegral (fromEnum x))) v)) mempty msg.listSearchAttributesResponseSystemAttributes
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 3 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.listSearchAttributesResponseStorageSchema
+    <> encodeUnknownFields msg.listSearchAttributesResponseUnknownFields
 
 instance MessageSize ListSearchAttributesResponse where
   messageSize msg =
-    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseCustomattributes)
-    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseSystemattributes)
-    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseStorageschema)
-    + unknownFieldsSize msg.listSearchAttributesResponseUnknownfields
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseCustomAttributes)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldVarintSize 2 (fromIntegral (fromEnum v)) in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseSystemAttributes)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 3 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.listSearchAttributesResponseStorageSchema)
+    + unknownFieldsSize msg.listSearchAttributesResponseUnknownFields
 
 instance MessageDecode ListSearchAttributesResponse where
   {-# INLINE messageDecoder #-}
@@ -461,7 +461,7 @@ instance MessageDecode ListSearchAttributesResponse where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListSearchAttributesResponse {listSearchAttributesResponseCustomattributes = acc_0, listSearchAttributesResponseSystemattributes = acc_1, listSearchAttributesResponseStorageschema = acc_2, listSearchAttributesResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ListSearchAttributesResponse {listSearchAttributesResponseCustomAttributes = acc_0, listSearchAttributesResponseSystemAttributes = acc_1, listSearchAttributesResponseStorageSchema = acc_2, listSearchAttributesResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -499,52 +499,52 @@ instance ProtoMessage ListSearchAttributesResponse where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = listSearchAttributesResponseCustomattributes
-        , fdSet = \v m -> m { listSearchAttributesResponseCustomattributes = v }
+        , fdGet = listSearchAttributesResponseCustomAttributes
+        , fdSet = \v m -> m { listSearchAttributesResponseCustomAttributes = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "system_attributes"
         , fdNumber = 2
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = listSearchAttributesResponseSystemattributes
-        , fdSet = \v m -> m { listSearchAttributesResponseSystemattributes = v }
+        , fdGet = listSearchAttributesResponseSystemAttributes
+        , fdSet = \v m -> m { listSearchAttributesResponseSystemAttributes = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "storage_schema"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = listSearchAttributesResponseStorageschema
-        , fdSet = \v m -> m { listSearchAttributesResponseStorageschema = v }
+        , fdGet = listSearchAttributesResponseStorageSchema
+        , fdSet = \v m -> m { listSearchAttributesResponseStorageSchema = v }
         })
     ]
 
 instance Aeson.ToJSON ListSearchAttributesResponse where
   toJSON msg = jsonObject
-      [ "customAttributes" .=: msg.listSearchAttributesResponseCustomattributes
-      , "systemAttributes" .=: msg.listSearchAttributesResponseSystemattributes
-      , "storageSchema" .=: msg.listSearchAttributesResponseStorageschema
+      [ "customAttributes" .=: msg.listSearchAttributesResponseCustomAttributes
+      , "systemAttributes" .=: msg.listSearchAttributesResponseSystemAttributes
+      , "storageSchema" .=: msg.listSearchAttributesResponseStorageSchema
       ]
 
 instance Aeson.FromJSON ListSearchAttributesResponse where
   parseJSON = Aeson.withObject "ListSearchAttributesResponse" $ \obj -> do
-    fld_listSearchAttributesResponseCustomattributes <- parseFieldMaybe obj "customAttributes"
-    fld_listSearchAttributesResponseSystemattributes <- parseFieldMaybe obj "systemAttributes"
-    fld_listSearchAttributesResponseStorageschema <- parseFieldMaybe obj "storageSchema"
+    fld_listSearchAttributesResponseCustomAttributes <- parseFieldMaybe obj "customAttributes"
+    fld_listSearchAttributesResponseSystemAttributes <- parseFieldMaybe obj "systemAttributes"
+    fld_listSearchAttributesResponseStorageSchema <- parseFieldMaybe obj "storageSchema"
     pure defaultListSearchAttributesResponse
-      { listSearchAttributesResponseCustomattributes = maybe (listSearchAttributesResponseCustomattributes defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseCustomattributes
-      , listSearchAttributesResponseSystemattributes = maybe (listSearchAttributesResponseSystemattributes defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseSystemattributes
-      , listSearchAttributesResponseStorageschema = maybe (listSearchAttributesResponseStorageschema defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseStorageschema
+      { listSearchAttributesResponseCustomAttributes = maybe (listSearchAttributesResponseCustomAttributes defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseCustomAttributes
+      , listSearchAttributesResponseSystemAttributes = maybe (listSearchAttributesResponseSystemAttributes defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseSystemAttributes
+      , listSearchAttributesResponseStorageSchema = maybe (listSearchAttributesResponseStorageSchema defaultListSearchAttributesResponse) id fld_listSearchAttributesResponseStorageSchema
       }
 
 instance Hashable ListSearchAttributesResponse where
-  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.listSearchAttributesResponseCustomattributes) msg.listSearchAttributesResponseSystemattributes) msg.listSearchAttributesResponseStorageschema
+  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.listSearchAttributesResponseCustomAttributes) msg.listSearchAttributesResponseSystemAttributes) msg.listSearchAttributesResponseStorageSchema
 
 data DeleteNamespaceRequest = DeleteNamespaceRequest
   { deleteNamespaceRequestNamespace :: !Text
-  , deleteNamespaceRequestNamespaceid :: !Text
-  , deleteNamespaceRequestNamespacedeletedelay :: !(Maybe PB_Duration.Duration)
-  , deleteNamespaceRequestUnknownfields :: ![UnknownField]
+  , deleteNamespaceRequestNamespaceId :: !Text
+  , deleteNamespaceRequestNamespaceDeleteDelay :: !(Maybe PB_Duration.Duration)
+  , deleteNamespaceRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -552,24 +552,24 @@ data DeleteNamespaceRequest = DeleteNamespaceRequest
 defaultDeleteNamespaceRequest :: DeleteNamespaceRequest
 defaultDeleteNamespaceRequest = DeleteNamespaceRequest
   { deleteNamespaceRequestNamespace = ""
-  , deleteNamespaceRequestNamespaceid = ""
-  , deleteNamespaceRequestNamespacedeletedelay = Nothing
-  , deleteNamespaceRequestUnknownfields = []
+  , deleteNamespaceRequestNamespaceId = ""
+  , deleteNamespaceRequestNamespaceDeleteDelay = Nothing
+  , deleteNamespaceRequestUnknownFields = []
   }
 
 instance MessageEncode DeleteNamespaceRequest where
   buildMessage msg =
     (if msg.deleteNamespaceRequestNamespace == T.empty then mempty else encodeFieldString 1 msg.deleteNamespaceRequestNamespace)
-    <> (if msg.deleteNamespaceRequestNamespaceid == T.empty then mempty else encodeFieldString 2 msg.deleteNamespaceRequestNamespaceid)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.deleteNamespaceRequestNamespacedeletedelay)
-    <> encodeUnknownFields msg.deleteNamespaceRequestUnknownfields
+    <> (if msg.deleteNamespaceRequestNamespaceId == T.empty then mempty else encodeFieldString 2 msg.deleteNamespaceRequestNamespaceId)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.deleteNamespaceRequestNamespaceDeleteDelay)
+    <> encodeUnknownFields msg.deleteNamespaceRequestUnknownFields
 
 instance MessageSize DeleteNamespaceRequest where
   messageSize msg =
     (if msg.deleteNamespaceRequestNamespace == T.empty then 0 else fieldTextSize 1 msg.deleteNamespaceRequestNamespace)
-    + (if msg.deleteNamespaceRequestNamespaceid == T.empty then 0 else fieldTextSize 2 msg.deleteNamespaceRequestNamespaceid)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.deleteNamespaceRequestNamespacedeletedelay)
-    + unknownFieldsSize msg.deleteNamespaceRequestUnknownfields
+    + (if msg.deleteNamespaceRequestNamespaceId == T.empty then 0 else fieldTextSize 2 msg.deleteNamespaceRequestNamespaceId)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.deleteNamespaceRequestNamespaceDeleteDelay)
+    + unknownFieldsSize msg.deleteNamespaceRequestUnknownFields
 
 instance MessageDecode DeleteNamespaceRequest where
   {-# INLINE messageDecoder #-}
@@ -578,7 +578,7 @@ instance MessageDecode DeleteNamespaceRequest where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeleteNamespaceRequest {deleteNamespaceRequestNamespace = acc_0, deleteNamespaceRequestNamespaceid = acc_1, deleteNamespaceRequestNamespacedeletedelay = acc_2, deleteNamespaceRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeleteNamespaceRequest {deleteNamespaceRequestNamespace = acc_0, deleteNamespaceRequestNamespaceId = acc_1, deleteNamespaceRequestNamespaceDeleteDelay = acc_2, deleteNamespaceRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -614,62 +614,62 @@ instance ProtoMessage DeleteNamespaceRequest where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = deleteNamespaceRequestNamespaceid
-        , fdSet = \v m -> m { deleteNamespaceRequestNamespaceid = v }
+        , fdGet = deleteNamespaceRequestNamespaceId
+        , fdSet = \v m -> m { deleteNamespaceRequestNamespaceId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "namespace_delete_delay"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = deleteNamespaceRequestNamespacedeletedelay
-        , fdSet = \v m -> m { deleteNamespaceRequestNamespacedeletedelay = v }
+        , fdGet = deleteNamespaceRequestNamespaceDeleteDelay
+        , fdSet = \v m -> m { deleteNamespaceRequestNamespaceDeleteDelay = v }
         })
     ]
 
 instance Aeson.ToJSON DeleteNamespaceRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.deleteNamespaceRequestNamespace
-      , "namespaceId" .=: msg.deleteNamespaceRequestNamespaceid
-      , "namespaceDeleteDelay" .=: msg.deleteNamespaceRequestNamespacedeletedelay
+      , "namespaceId" .=: msg.deleteNamespaceRequestNamespaceId
+      , "namespaceDeleteDelay" .=: msg.deleteNamespaceRequestNamespaceDeleteDelay
       ]
 
 instance Aeson.FromJSON DeleteNamespaceRequest where
   parseJSON = Aeson.withObject "DeleteNamespaceRequest" $ \obj -> do
     fld_deleteNamespaceRequestNamespace <- parseFieldMaybe obj "namespace"
-    fld_deleteNamespaceRequestNamespaceid <- parseFieldMaybe obj "namespaceId"
-    fld_deleteNamespaceRequestNamespacedeletedelay <- parseFieldMaybe obj "namespaceDeleteDelay"
+    fld_deleteNamespaceRequestNamespaceId <- parseFieldMaybe obj "namespaceId"
+    fld_deleteNamespaceRequestNamespaceDeleteDelay <- parseFieldMaybe obj "namespaceDeleteDelay"
     pure defaultDeleteNamespaceRequest
       { deleteNamespaceRequestNamespace = maybe (deleteNamespaceRequestNamespace defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespace
-      , deleteNamespaceRequestNamespaceid = maybe (deleteNamespaceRequestNamespaceid defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespaceid
-      , deleteNamespaceRequestNamespacedeletedelay = maybe (deleteNamespaceRequestNamespacedeletedelay defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespacedeletedelay
+      , deleteNamespaceRequestNamespaceId = maybe (deleteNamespaceRequestNamespaceId defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespaceId
+      , deleteNamespaceRequestNamespaceDeleteDelay = maybe (deleteNamespaceRequestNamespaceDeleteDelay defaultDeleteNamespaceRequest) id fld_deleteNamespaceRequestNamespaceDeleteDelay
       }
 
 instance Hashable DeleteNamespaceRequest where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.deleteNamespaceRequestNamespace) msg.deleteNamespaceRequestNamespaceid) msg.deleteNamespaceRequestNamespacedeletedelay
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.deleteNamespaceRequestNamespace) msg.deleteNamespaceRequestNamespaceId) msg.deleteNamespaceRequestNamespaceDeleteDelay
 
 data DeleteNamespaceResponse = DeleteNamespaceResponse
-  { deleteNamespaceResponseDeletednamespace :: !Text
-  , deleteNamespaceResponseUnknownfields :: ![UnknownField]
+  { deleteNamespaceResponseDeletedNamespace :: !Text
+  , deleteNamespaceResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultDeleteNamespaceResponse :: DeleteNamespaceResponse
 defaultDeleteNamespaceResponse = DeleteNamespaceResponse
-  { deleteNamespaceResponseDeletednamespace = ""
-  , deleteNamespaceResponseUnknownfields = []
+  { deleteNamespaceResponseDeletedNamespace = ""
+  , deleteNamespaceResponseUnknownFields = []
   }
 
 instance MessageEncode DeleteNamespaceResponse where
   buildMessage msg =
-    (if msg.deleteNamespaceResponseDeletednamespace == T.empty then mempty else encodeFieldString 1 msg.deleteNamespaceResponseDeletednamespace)
-    <> encodeUnknownFields msg.deleteNamespaceResponseUnknownfields
+    (if msg.deleteNamespaceResponseDeletedNamespace == T.empty then mempty else encodeFieldString 1 msg.deleteNamespaceResponseDeletedNamespace)
+    <> encodeUnknownFields msg.deleteNamespaceResponseUnknownFields
 
 instance MessageSize DeleteNamespaceResponse where
   messageSize msg =
-    (if msg.deleteNamespaceResponseDeletednamespace == T.empty then 0 else fieldTextSize 1 msg.deleteNamespaceResponseDeletednamespace)
-    + unknownFieldsSize msg.deleteNamespaceResponseUnknownfields
+    (if msg.deleteNamespaceResponseDeletedNamespace == T.empty then 0 else fieldTextSize 1 msg.deleteNamespaceResponseDeletedNamespace)
+    + unknownFieldsSize msg.deleteNamespaceResponseUnknownFields
 
 instance MessageDecode DeleteNamespaceResponse where
   {-# INLINE messageDecoder #-}
@@ -678,7 +678,7 @@ instance MessageDecode DeleteNamespaceResponse where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeleteNamespaceResponse {deleteNamespaceResponseDeletednamespace = acc_0, deleteNamespaceResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeleteNamespaceResponse {deleteNamespaceResponseDeletedNamespace = acc_0, deleteNamespaceResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -701,61 +701,61 @@ instance ProtoMessage DeleteNamespaceResponse where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = deleteNamespaceResponseDeletednamespace
-        , fdSet = \v m -> m { deleteNamespaceResponseDeletednamespace = v }
+        , fdGet = deleteNamespaceResponseDeletedNamespace
+        , fdSet = \v m -> m { deleteNamespaceResponseDeletedNamespace = v }
         })
     ]
 
 instance Aeson.ToJSON DeleteNamespaceResponse where
   toJSON msg = jsonObject
-      [ "deletedNamespace" .=: msg.deleteNamespaceResponseDeletednamespace
+      [ "deletedNamespace" .=: msg.deleteNamespaceResponseDeletedNamespace
 
       ]
 
 instance Aeson.FromJSON DeleteNamespaceResponse where
   parseJSON = Aeson.withObject "DeleteNamespaceResponse" $ \obj -> do
-    fld_deleteNamespaceResponseDeletednamespace <- parseFieldMaybe obj "deletedNamespace"
+    fld_deleteNamespaceResponseDeletedNamespace <- parseFieldMaybe obj "deletedNamespace"
     pure defaultDeleteNamespaceResponse
-      { deleteNamespaceResponseDeletednamespace = maybe (deleteNamespaceResponseDeletednamespace defaultDeleteNamespaceResponse) id fld_deleteNamespaceResponseDeletednamespace
+      { deleteNamespaceResponseDeletedNamespace = maybe (deleteNamespaceResponseDeletedNamespace defaultDeleteNamespaceResponse) id fld_deleteNamespaceResponseDeletedNamespace
       }
 
 instance Hashable DeleteNamespaceResponse where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.deleteNamespaceResponseDeletednamespace
+  hashWithSalt salt msg = hashWithSalt (salt) msg.deleteNamespaceResponseDeletedNamespace
 
 data AddOrUpdateRemoteClusterRequest = AddOrUpdateRemoteClusterRequest
-  { addOrUpdateRemoteClusterRequestFrontendaddress :: !Text
-  , addOrUpdateRemoteClusterRequestEnableremoteclusterconnection :: {-# UNPACK #-} !Bool
-  , addOrUpdateRemoteClusterRequestFrontendhttpaddress :: !Text
-  , addOrUpdateRemoteClusterRequestEnablereplication :: {-# UNPACK #-} !Bool
-  , addOrUpdateRemoteClusterRequestUnknownfields :: ![UnknownField]
+  { addOrUpdateRemoteClusterRequestFrontendAddress :: !Text
+  , addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection :: {-# UNPACK #-} !Bool
+  , addOrUpdateRemoteClusterRequestFrontendHttpAddress :: !Text
+  , addOrUpdateRemoteClusterRequestEnableReplication :: {-# UNPACK #-} !Bool
+  , addOrUpdateRemoteClusterRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultAddOrUpdateRemoteClusterRequest :: AddOrUpdateRemoteClusterRequest
 defaultAddOrUpdateRemoteClusterRequest = AddOrUpdateRemoteClusterRequest
-  { addOrUpdateRemoteClusterRequestFrontendaddress = ""
-  , addOrUpdateRemoteClusterRequestEnableremoteclusterconnection = False
-  , addOrUpdateRemoteClusterRequestFrontendhttpaddress = ""
-  , addOrUpdateRemoteClusterRequestEnablereplication = False
-  , addOrUpdateRemoteClusterRequestUnknownfields = []
+  { addOrUpdateRemoteClusterRequestFrontendAddress = ""
+  , addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection = False
+  , addOrUpdateRemoteClusterRequestFrontendHttpAddress = ""
+  , addOrUpdateRemoteClusterRequestEnableReplication = False
+  , addOrUpdateRemoteClusterRequestUnknownFields = []
   }
 
 instance MessageEncode AddOrUpdateRemoteClusterRequest where
   buildMessage msg =
-    (if msg.addOrUpdateRemoteClusterRequestFrontendaddress == T.empty then mempty else encodeFieldString 1 msg.addOrUpdateRemoteClusterRequestFrontendaddress)
-    <> (if msg.addOrUpdateRemoteClusterRequestEnableremoteclusterconnection == False then mempty else encodeFieldBool 2 msg.addOrUpdateRemoteClusterRequestEnableremoteclusterconnection)
-    <> (if msg.addOrUpdateRemoteClusterRequestFrontendhttpaddress == T.empty then mempty else encodeFieldString 3 msg.addOrUpdateRemoteClusterRequestFrontendhttpaddress)
-    <> (if msg.addOrUpdateRemoteClusterRequestEnablereplication == False then mempty else encodeFieldBool 4 msg.addOrUpdateRemoteClusterRequestEnablereplication)
-    <> encodeUnknownFields msg.addOrUpdateRemoteClusterRequestUnknownfields
+    (if msg.addOrUpdateRemoteClusterRequestFrontendAddress == T.empty then mempty else encodeFieldString 1 msg.addOrUpdateRemoteClusterRequestFrontendAddress)
+    <> (if msg.addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection == False then mempty else encodeFieldBool 2 msg.addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection)
+    <> (if msg.addOrUpdateRemoteClusterRequestFrontendHttpAddress == T.empty then mempty else encodeFieldString 3 msg.addOrUpdateRemoteClusterRequestFrontendHttpAddress)
+    <> (if msg.addOrUpdateRemoteClusterRequestEnableReplication == False then mempty else encodeFieldBool 4 msg.addOrUpdateRemoteClusterRequestEnableReplication)
+    <> encodeUnknownFields msg.addOrUpdateRemoteClusterRequestUnknownFields
 
 instance MessageSize AddOrUpdateRemoteClusterRequest where
   messageSize msg =
-    (if msg.addOrUpdateRemoteClusterRequestFrontendaddress == T.empty then 0 else fieldTextSize 1 msg.addOrUpdateRemoteClusterRequestFrontendaddress)
-    + (if msg.addOrUpdateRemoteClusterRequestEnableremoteclusterconnection == False then 0 else fieldBoolSize 2)
-    + (if msg.addOrUpdateRemoteClusterRequestFrontendhttpaddress == T.empty then 0 else fieldTextSize 3 msg.addOrUpdateRemoteClusterRequestFrontendhttpaddress)
-    + (if msg.addOrUpdateRemoteClusterRequestEnablereplication == False then 0 else fieldBoolSize 4)
-    + unknownFieldsSize msg.addOrUpdateRemoteClusterRequestUnknownfields
+    (if msg.addOrUpdateRemoteClusterRequestFrontendAddress == T.empty then 0 else fieldTextSize 1 msg.addOrUpdateRemoteClusterRequestFrontendAddress)
+    + (if msg.addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection == False then 0 else fieldBoolSize 2)
+    + (if msg.addOrUpdateRemoteClusterRequestFrontendHttpAddress == T.empty then 0 else fieldTextSize 3 msg.addOrUpdateRemoteClusterRequestFrontendHttpAddress)
+    + (if msg.addOrUpdateRemoteClusterRequestEnableReplication == False then 0 else fieldBoolSize 4)
+    + unknownFieldsSize msg.addOrUpdateRemoteClusterRequestUnknownFields
 
 instance MessageDecode AddOrUpdateRemoteClusterRequest where
   {-# INLINE messageDecoder #-}
@@ -764,7 +764,7 @@ instance MessageDecode AddOrUpdateRemoteClusterRequest where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (AddOrUpdateRemoteClusterRequest {addOrUpdateRemoteClusterRequestFrontendaddress = acc_0, addOrUpdateRemoteClusterRequestEnableremoteclusterconnection = acc_1, addOrUpdateRemoteClusterRequestFrontendhttpaddress = acc_2, addOrUpdateRemoteClusterRequestEnablereplication = acc_3, addOrUpdateRemoteClusterRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (AddOrUpdateRemoteClusterRequest {addOrUpdateRemoteClusterRequestFrontendAddress = acc_0, addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection = acc_1, addOrUpdateRemoteClusterRequestFrontendHttpAddress = acc_2, addOrUpdateRemoteClusterRequestEnableReplication = acc_3, addOrUpdateRemoteClusterRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -796,76 +796,76 @@ instance ProtoMessage AddOrUpdateRemoteClusterRequest where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = addOrUpdateRemoteClusterRequestFrontendaddress
-        , fdSet = \v m -> m { addOrUpdateRemoteClusterRequestFrontendaddress = v }
+        , fdGet = addOrUpdateRemoteClusterRequestFrontendAddress
+        , fdSet = \v m -> m { addOrUpdateRemoteClusterRequestFrontendAddress = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "enable_remote_cluster_connection"
         , fdNumber = 2
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = addOrUpdateRemoteClusterRequestEnableremoteclusterconnection
-        , fdSet = \v m -> m { addOrUpdateRemoteClusterRequestEnableremoteclusterconnection = v }
+        , fdGet = addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection
+        , fdSet = \v m -> m { addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "frontend_http_address"
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = addOrUpdateRemoteClusterRequestFrontendhttpaddress
-        , fdSet = \v m -> m { addOrUpdateRemoteClusterRequestFrontendhttpaddress = v }
+        , fdGet = addOrUpdateRemoteClusterRequestFrontendHttpAddress
+        , fdSet = \v m -> m { addOrUpdateRemoteClusterRequestFrontendHttpAddress = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "enable_replication"
         , fdNumber = 4
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = addOrUpdateRemoteClusterRequestEnablereplication
-        , fdSet = \v m -> m { addOrUpdateRemoteClusterRequestEnablereplication = v }
+        , fdGet = addOrUpdateRemoteClusterRequestEnableReplication
+        , fdSet = \v m -> m { addOrUpdateRemoteClusterRequestEnableReplication = v }
         })
     ]
 
 instance Aeson.ToJSON AddOrUpdateRemoteClusterRequest where
   toJSON msg = jsonObject
-      [ "frontendAddress" .=: msg.addOrUpdateRemoteClusterRequestFrontendaddress
-      , "enableRemoteClusterConnection" .=: msg.addOrUpdateRemoteClusterRequestEnableremoteclusterconnection
-      , "frontendHttpAddress" .=: msg.addOrUpdateRemoteClusterRequestFrontendhttpaddress
-      , "enableReplication" .=: msg.addOrUpdateRemoteClusterRequestEnablereplication
+      [ "frontendAddress" .=: msg.addOrUpdateRemoteClusterRequestFrontendAddress
+      , "enableRemoteClusterConnection" .=: msg.addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection
+      , "frontendHttpAddress" .=: msg.addOrUpdateRemoteClusterRequestFrontendHttpAddress
+      , "enableReplication" .=: msg.addOrUpdateRemoteClusterRequestEnableReplication
       ]
 
 instance Aeson.FromJSON AddOrUpdateRemoteClusterRequest where
   parseJSON = Aeson.withObject "AddOrUpdateRemoteClusterRequest" $ \obj -> do
-    fld_addOrUpdateRemoteClusterRequestFrontendaddress <- parseFieldMaybe obj "frontendAddress"
-    fld_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection <- parseFieldMaybe obj "enableRemoteClusterConnection"
-    fld_addOrUpdateRemoteClusterRequestFrontendhttpaddress <- parseFieldMaybe obj "frontendHttpAddress"
-    fld_addOrUpdateRemoteClusterRequestEnablereplication <- parseFieldMaybe obj "enableReplication"
+    fld_addOrUpdateRemoteClusterRequestFrontendAddress <- parseFieldMaybe obj "frontendAddress"
+    fld_addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection <- parseFieldMaybe obj "enableRemoteClusterConnection"
+    fld_addOrUpdateRemoteClusterRequestFrontendHttpAddress <- parseFieldMaybe obj "frontendHttpAddress"
+    fld_addOrUpdateRemoteClusterRequestEnableReplication <- parseFieldMaybe obj "enableReplication"
     pure defaultAddOrUpdateRemoteClusterRequest
-      { addOrUpdateRemoteClusterRequestFrontendaddress = maybe (addOrUpdateRemoteClusterRequestFrontendaddress defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestFrontendaddress
-      , addOrUpdateRemoteClusterRequestEnableremoteclusterconnection = maybe (addOrUpdateRemoteClusterRequestEnableremoteclusterconnection defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestEnableremoteclusterconnection
-      , addOrUpdateRemoteClusterRequestFrontendhttpaddress = maybe (addOrUpdateRemoteClusterRequestFrontendhttpaddress defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestFrontendhttpaddress
-      , addOrUpdateRemoteClusterRequestEnablereplication = maybe (addOrUpdateRemoteClusterRequestEnablereplication defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestEnablereplication
+      { addOrUpdateRemoteClusterRequestFrontendAddress = maybe (addOrUpdateRemoteClusterRequestFrontendAddress defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestFrontendAddress
+      , addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection = maybe (addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection
+      , addOrUpdateRemoteClusterRequestFrontendHttpAddress = maybe (addOrUpdateRemoteClusterRequestFrontendHttpAddress defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestFrontendHttpAddress
+      , addOrUpdateRemoteClusterRequestEnableReplication = maybe (addOrUpdateRemoteClusterRequestEnableReplication defaultAddOrUpdateRemoteClusterRequest) id fld_addOrUpdateRemoteClusterRequestEnableReplication
       }
 
 instance Hashable AddOrUpdateRemoteClusterRequest where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.addOrUpdateRemoteClusterRequestFrontendaddress) msg.addOrUpdateRemoteClusterRequestEnableremoteclusterconnection) msg.addOrUpdateRemoteClusterRequestFrontendhttpaddress) msg.addOrUpdateRemoteClusterRequestEnablereplication
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.addOrUpdateRemoteClusterRequestFrontendAddress) msg.addOrUpdateRemoteClusterRequestEnableRemoteClusterConnection) msg.addOrUpdateRemoteClusterRequestFrontendHttpAddress) msg.addOrUpdateRemoteClusterRequestEnableReplication
 
 data AddOrUpdateRemoteClusterResponse = AddOrUpdateRemoteClusterResponse
-  { addOrUpdateRemoteClusterResponseUnknownfields :: ![UnknownField]
+  { addOrUpdateRemoteClusterResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultAddOrUpdateRemoteClusterResponse :: AddOrUpdateRemoteClusterResponse
 defaultAddOrUpdateRemoteClusterResponse = AddOrUpdateRemoteClusterResponse
-  { addOrUpdateRemoteClusterResponseUnknownfields = []
+  { addOrUpdateRemoteClusterResponseUnknownFields = []
   }
 
 instance MessageEncode AddOrUpdateRemoteClusterResponse where
   buildMessage msg =
-    encodeUnknownFields msg.addOrUpdateRemoteClusterResponseUnknownfields
+    encodeUnknownFields msg.addOrUpdateRemoteClusterResponseUnknownFields
 
 instance MessageSize AddOrUpdateRemoteClusterResponse where
   messageSize msg =
-    unknownFieldsSize msg.addOrUpdateRemoteClusterResponseUnknownfields
+    unknownFieldsSize msg.addOrUpdateRemoteClusterResponseUnknownFields
 
 instance MessageDecode AddOrUpdateRemoteClusterResponse where
   {-# INLINE messageDecoder #-}
@@ -874,7 +874,7 @@ instance MessageDecode AddOrUpdateRemoteClusterResponse where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (AddOrUpdateRemoteClusterResponse {addOrUpdateRemoteClusterResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (AddOrUpdateRemoteClusterResponse {addOrUpdateRemoteClusterResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -902,27 +902,27 @@ instance Hashable AddOrUpdateRemoteClusterResponse where
   hashWithSalt salt _ = salt
 
 data RemoveRemoteClusterRequest = RemoveRemoteClusterRequest
-  { removeRemoteClusterRequestClustername :: !Text
-  , removeRemoteClusterRequestUnknownfields :: ![UnknownField]
+  { removeRemoteClusterRequestClusterName :: !Text
+  , removeRemoteClusterRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRemoveRemoteClusterRequest :: RemoveRemoteClusterRequest
 defaultRemoveRemoteClusterRequest = RemoveRemoteClusterRequest
-  { removeRemoteClusterRequestClustername = ""
-  , removeRemoteClusterRequestUnknownfields = []
+  { removeRemoteClusterRequestClusterName = ""
+  , removeRemoteClusterRequestUnknownFields = []
   }
 
 instance MessageEncode RemoveRemoteClusterRequest where
   buildMessage msg =
-    (if msg.removeRemoteClusterRequestClustername == T.empty then mempty else encodeFieldString 1 msg.removeRemoteClusterRequestClustername)
-    <> encodeUnknownFields msg.removeRemoteClusterRequestUnknownfields
+    (if msg.removeRemoteClusterRequestClusterName == T.empty then mempty else encodeFieldString 1 msg.removeRemoteClusterRequestClusterName)
+    <> encodeUnknownFields msg.removeRemoteClusterRequestUnknownFields
 
 instance MessageSize RemoveRemoteClusterRequest where
   messageSize msg =
-    (if msg.removeRemoteClusterRequestClustername == T.empty then 0 else fieldTextSize 1 msg.removeRemoteClusterRequestClustername)
-    + unknownFieldsSize msg.removeRemoteClusterRequestUnknownfields
+    (if msg.removeRemoteClusterRequestClusterName == T.empty then 0 else fieldTextSize 1 msg.removeRemoteClusterRequestClusterName)
+    + unknownFieldsSize msg.removeRemoteClusterRequestUnknownFields
 
 instance MessageDecode RemoveRemoteClusterRequest where
   {-# INLINE messageDecoder #-}
@@ -931,7 +931,7 @@ instance MessageDecode RemoveRemoteClusterRequest where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RemoveRemoteClusterRequest {removeRemoteClusterRequestClustername = acc_0, removeRemoteClusterRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RemoveRemoteClusterRequest {removeRemoteClusterRequestClusterName = acc_0, removeRemoteClusterRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -954,45 +954,45 @@ instance ProtoMessage RemoveRemoteClusterRequest where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = removeRemoteClusterRequestClustername
-        , fdSet = \v m -> m { removeRemoteClusterRequestClustername = v }
+        , fdGet = removeRemoteClusterRequestClusterName
+        , fdSet = \v m -> m { removeRemoteClusterRequestClusterName = v }
         })
     ]
 
 instance Aeson.ToJSON RemoveRemoteClusterRequest where
   toJSON msg = jsonObject
-      [ "clusterName" .=: msg.removeRemoteClusterRequestClustername
+      [ "clusterName" .=: msg.removeRemoteClusterRequestClusterName
 
       ]
 
 instance Aeson.FromJSON RemoveRemoteClusterRequest where
   parseJSON = Aeson.withObject "RemoveRemoteClusterRequest" $ \obj -> do
-    fld_removeRemoteClusterRequestClustername <- parseFieldMaybe obj "clusterName"
+    fld_removeRemoteClusterRequestClusterName <- parseFieldMaybe obj "clusterName"
     pure defaultRemoveRemoteClusterRequest
-      { removeRemoteClusterRequestClustername = maybe (removeRemoteClusterRequestClustername defaultRemoveRemoteClusterRequest) id fld_removeRemoteClusterRequestClustername
+      { removeRemoteClusterRequestClusterName = maybe (removeRemoteClusterRequestClusterName defaultRemoveRemoteClusterRequest) id fld_removeRemoteClusterRequestClusterName
       }
 
 instance Hashable RemoveRemoteClusterRequest where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.removeRemoteClusterRequestClustername
+  hashWithSalt salt msg = hashWithSalt (salt) msg.removeRemoteClusterRequestClusterName
 
 data RemoveRemoteClusterResponse = RemoveRemoteClusterResponse
-  { removeRemoteClusterResponseUnknownfields :: ![UnknownField]
+  { removeRemoteClusterResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRemoveRemoteClusterResponse :: RemoveRemoteClusterResponse
 defaultRemoveRemoteClusterResponse = RemoveRemoteClusterResponse
-  { removeRemoteClusterResponseUnknownfields = []
+  { removeRemoteClusterResponseUnknownFields = []
   }
 
 instance MessageEncode RemoveRemoteClusterResponse where
   buildMessage msg =
-    encodeUnknownFields msg.removeRemoteClusterResponseUnknownfields
+    encodeUnknownFields msg.removeRemoteClusterResponseUnknownFields
 
 instance MessageSize RemoveRemoteClusterResponse where
   messageSize msg =
-    unknownFieldsSize msg.removeRemoteClusterResponseUnknownfields
+    unknownFieldsSize msg.removeRemoteClusterResponseUnknownFields
 
 instance MessageDecode RemoveRemoteClusterResponse where
   {-# INLINE messageDecoder #-}
@@ -1001,7 +1001,7 @@ instance MessageDecode RemoveRemoteClusterResponse where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RemoveRemoteClusterResponse {removeRemoteClusterResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RemoveRemoteClusterResponse {removeRemoteClusterResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -1029,31 +1029,31 @@ instance Hashable RemoveRemoteClusterResponse where
   hashWithSalt salt _ = salt
 
 data ListClustersRequest = ListClustersRequest
-  { listClustersRequestPagesize :: {-# UNPACK #-} !Int32
-  , listClustersRequestNextpagetoken :: !ByteString
-  , listClustersRequestUnknownfields :: ![UnknownField]
+  { listClustersRequestPageSize :: {-# UNPACK #-} !Int32
+  , listClustersRequestNextPageToken :: !ByteString
+  , listClustersRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultListClustersRequest :: ListClustersRequest
 defaultListClustersRequest = ListClustersRequest
-  { listClustersRequestPagesize = 0
-  , listClustersRequestNextpagetoken = ""
-  , listClustersRequestUnknownfields = []
+  { listClustersRequestPageSize = 0
+  , listClustersRequestNextPageToken = ""
+  , listClustersRequestUnknownFields = []
   }
 
 instance MessageEncode ListClustersRequest where
   buildMessage msg =
-    (if msg.listClustersRequestPagesize == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.listClustersRequestPagesize))
-    <> (if BS.null msg.listClustersRequestNextpagetoken then mempty else encodeFieldBytes 2 msg.listClustersRequestNextpagetoken)
-    <> encodeUnknownFields msg.listClustersRequestUnknownfields
+    (if msg.listClustersRequestPageSize == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.listClustersRequestPageSize))
+    <> (if BS.null msg.listClustersRequestNextPageToken then mempty else encodeFieldBytes 2 msg.listClustersRequestNextPageToken)
+    <> encodeUnknownFields msg.listClustersRequestUnknownFields
 
 instance MessageSize ListClustersRequest where
   messageSize msg =
-    (if msg.listClustersRequestPagesize == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.listClustersRequestPagesize))
-    + (if BS.null msg.listClustersRequestNextpagetoken then 0 else fieldBytesSize 2 msg.listClustersRequestNextpagetoken)
-    + unknownFieldsSize msg.listClustersRequestUnknownfields
+    (if msg.listClustersRequestPageSize == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.listClustersRequestPageSize))
+    + (if BS.null msg.listClustersRequestNextPageToken then 0 else fieldBytesSize 2 msg.listClustersRequestNextPageToken)
+    + unknownFieldsSize msg.listClustersRequestUnknownFields
 
 instance MessageDecode ListClustersRequest where
   {-# INLINE messageDecoder #-}
@@ -1062,7 +1062,7 @@ instance MessageDecode ListClustersRequest where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListClustersRequest {listClustersRequestPagesize = acc_0, listClustersRequestNextpagetoken = acc_1, listClustersRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ListClustersRequest {listClustersRequestPageSize = acc_0, listClustersRequestNextPageToken = acc_1, listClustersRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -1088,40 +1088,40 @@ instance ProtoMessage ListClustersRequest where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = listClustersRequestPagesize
-        , fdSet = \v m -> m { listClustersRequestPagesize = v }
+        , fdGet = listClustersRequestPageSize
+        , fdSet = \v m -> m { listClustersRequestPageSize = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "next_page_token"
         , fdNumber = 2
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelOptional
-        , fdGet = listClustersRequestNextpagetoken
-        , fdSet = \v m -> m { listClustersRequestNextpagetoken = v }
+        , fdGet = listClustersRequestNextPageToken
+        , fdSet = \v m -> m { listClustersRequestNextPageToken = v }
         })
     ]
 
 instance Aeson.ToJSON ListClustersRequest where
   toJSON msg = jsonObject
-      [ "pageSize" .=: msg.listClustersRequestPagesize
-      , bytesFieldToJSON "nextPageToken" msg.listClustersRequestNextpagetoken
+      [ "pageSize" .=: msg.listClustersRequestPageSize
+      , bytesFieldToJSON "nextPageToken" msg.listClustersRequestNextPageToken
       ]
 
 instance Aeson.FromJSON ListClustersRequest where
   parseJSON = Aeson.withObject "ListClustersRequest" $ \obj -> do
-    fld_listClustersRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listClustersRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
+    fld_listClustersRequestPageSize <- parseFieldMaybe obj "pageSize"
+    fld_listClustersRequestNextPageToken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListClustersRequest
-      { listClustersRequestPagesize = maybe (listClustersRequestPagesize defaultListClustersRequest) id fld_listClustersRequestPagesize
-      , listClustersRequestNextpagetoken = maybe (listClustersRequestNextpagetoken defaultListClustersRequest) id fld_listClustersRequestNextpagetoken
+      { listClustersRequestPageSize = maybe (listClustersRequestPageSize defaultListClustersRequest) id fld_listClustersRequestPageSize
+      , listClustersRequestNextPageToken = maybe (listClustersRequestNextPageToken defaultListClustersRequest) id fld_listClustersRequestNextPageToken
       }
 
 instance Hashable ListClustersRequest where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.listClustersRequestPagesize) msg.listClustersRequestNextpagetoken
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.listClustersRequestPageSize) msg.listClustersRequestNextPageToken
 
 data ListClustersResponse = ListClustersResponse
   { listClustersResponseClusters :: !(V.Vector ClusterMetadata)
-  , listClustersResponseNextpagetoken :: !ByteString
-  , listClustersResponseUnknownfields :: ![UnknownField]
+  , listClustersResponseNextPageToken :: !ByteString
+  , listClustersResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1129,21 +1129,21 @@ data ListClustersResponse = ListClustersResponse
 defaultListClustersResponse :: ListClustersResponse
 defaultListClustersResponse = ListClustersResponse
   { listClustersResponseClusters = V.empty
-  , listClustersResponseNextpagetoken = ""
-  , listClustersResponseUnknownfields = []
+  , listClustersResponseNextPageToken = ""
+  , listClustersResponseUnknownFields = []
   }
 
 instance MessageEncode ListClustersResponse where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.listClustersResponseClusters
-    <> (if BS.null msg.listClustersResponseNextpagetoken then mempty else encodeFieldBytes 4 msg.listClustersResponseNextpagetoken)
-    <> encodeUnknownFields msg.listClustersResponseUnknownfields
+    <> (if BS.null msg.listClustersResponseNextPageToken then mempty else encodeFieldBytes 4 msg.listClustersResponseNextPageToken)
+    <> encodeUnknownFields msg.listClustersResponseUnknownFields
 
 instance MessageSize ListClustersResponse where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.listClustersResponseClusters)
-    + (if BS.null msg.listClustersResponseNextpagetoken then 0 else fieldBytesSize 4 msg.listClustersResponseNextpagetoken)
-    + unknownFieldsSize msg.listClustersResponseUnknownfields
+    + (if BS.null msg.listClustersResponseNextPageToken then 0 else fieldBytesSize 4 msg.listClustersResponseNextPageToken)
+    + unknownFieldsSize msg.listClustersResponseUnknownFields
 
 instance MessageDecode ListClustersResponse where
   {-# INLINE messageDecoder #-}
@@ -1152,7 +1152,7 @@ instance MessageDecode ListClustersResponse where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListClustersResponse {listClustersResponseClusters = acc_0, listClustersResponseNextpagetoken = acc_1, listClustersResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ListClustersResponse {listClustersResponseClusters = acc_0, listClustersResponseNextPageToken = acc_1, listClustersResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1185,79 +1185,79 @@ instance ProtoMessage ListClustersResponse where
         , fdNumber = 4
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelOptional
-        , fdGet = listClustersResponseNextpagetoken
-        , fdSet = \v m -> m { listClustersResponseNextpagetoken = v }
+        , fdGet = listClustersResponseNextPageToken
+        , fdSet = \v m -> m { listClustersResponseNextPageToken = v }
         })
     ]
 
 instance Aeson.ToJSON ListClustersResponse where
   toJSON msg = jsonObject
       [ "clusters" .=: msg.listClustersResponseClusters
-      , bytesFieldToJSON "nextPageToken" msg.listClustersResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listClustersResponseNextPageToken
       ]
 
 instance Aeson.FromJSON ListClustersResponse where
   parseJSON = Aeson.withObject "ListClustersResponse" $ \obj -> do
     fld_listClustersResponseClusters <- parseFieldMaybe obj "clusters"
-    fld_listClustersResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
+    fld_listClustersResponseNextPageToken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListClustersResponse
       { listClustersResponseClusters = maybe (listClustersResponseClusters defaultListClustersResponse) id fld_listClustersResponseClusters
-      , listClustersResponseNextpagetoken = maybe (listClustersResponseNextpagetoken defaultListClustersResponse) id fld_listClustersResponseNextpagetoken
+      , listClustersResponseNextPageToken = maybe (listClustersResponseNextPageToken defaultListClustersResponse) id fld_listClustersResponseNextPageToken
       }
 
 instance Hashable ListClustersResponse where
-  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (salt) msg.listClustersResponseClusters) msg.listClustersResponseNextpagetoken
+  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (salt) msg.listClustersResponseClusters) msg.listClustersResponseNextPageToken
 
 data ClusterMetadata = ClusterMetadata
-  { clusterMetadataClustername :: !Text
-  , clusterMetadataClusterid :: !Text
+  { clusterMetadataClusterName :: !Text
+  , clusterMetadataClusterId :: !Text
   , clusterMetadataAddress :: !Text
-  , clusterMetadataHttpaddress :: !Text
-  , clusterMetadataInitialfailoverversion :: {-# UNPACK #-} !Int64
-  , clusterMetadataHistoryshardcount :: {-# UNPACK #-} !Int32
-  , clusterMetadataIsconnectionenabled :: {-# UNPACK #-} !Bool
-  , clusterMetadataIsreplicationenabled :: {-# UNPACK #-} !Bool
-  , clusterMetadataUnknownfields :: ![UnknownField]
+  , clusterMetadataHttpAddress :: !Text
+  , clusterMetadataInitialFailoverVersion :: {-# UNPACK #-} !Int64
+  , clusterMetadataHistoryShardCount :: {-# UNPACK #-} !Int32
+  , clusterMetadataIsConnectionEnabled :: {-# UNPACK #-} !Bool
+  , clusterMetadataIsReplicationEnabled :: {-# UNPACK #-} !Bool
+  , clusterMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultClusterMetadata :: ClusterMetadata
 defaultClusterMetadata = ClusterMetadata
-  { clusterMetadataClustername = ""
-  , clusterMetadataClusterid = ""
+  { clusterMetadataClusterName = ""
+  , clusterMetadataClusterId = ""
   , clusterMetadataAddress = ""
-  , clusterMetadataHttpaddress = ""
-  , clusterMetadataInitialfailoverversion = 0
-  , clusterMetadataHistoryshardcount = 0
-  , clusterMetadataIsconnectionenabled = False
-  , clusterMetadataIsreplicationenabled = False
-  , clusterMetadataUnknownfields = []
+  , clusterMetadataHttpAddress = ""
+  , clusterMetadataInitialFailoverVersion = 0
+  , clusterMetadataHistoryShardCount = 0
+  , clusterMetadataIsConnectionEnabled = False
+  , clusterMetadataIsReplicationEnabled = False
+  , clusterMetadataUnknownFields = []
   }
 
 instance MessageEncode ClusterMetadata where
   buildMessage msg =
-    (if msg.clusterMetadataClustername == T.empty then mempty else encodeFieldString 1 msg.clusterMetadataClustername)
-    <> (if msg.clusterMetadataClusterid == T.empty then mempty else encodeFieldString 2 msg.clusterMetadataClusterid)
+    (if msg.clusterMetadataClusterName == T.empty then mempty else encodeFieldString 1 msg.clusterMetadataClusterName)
+    <> (if msg.clusterMetadataClusterId == T.empty then mempty else encodeFieldString 2 msg.clusterMetadataClusterId)
     <> (if msg.clusterMetadataAddress == T.empty then mempty else encodeFieldString 3 msg.clusterMetadataAddress)
-    <> (if msg.clusterMetadataHttpaddress == T.empty then mempty else encodeFieldString 7 msg.clusterMetadataHttpaddress)
-    <> (if msg.clusterMetadataInitialfailoverversion == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.clusterMetadataInitialfailoverversion))
-    <> (if msg.clusterMetadataHistoryshardcount == 0 then mempty else encodeFieldVarint 5 (fromIntegral msg.clusterMetadataHistoryshardcount))
-    <> (if msg.clusterMetadataIsconnectionenabled == False then mempty else encodeFieldBool 6 msg.clusterMetadataIsconnectionenabled)
-    <> (if msg.clusterMetadataIsreplicationenabled == False then mempty else encodeFieldBool 8 msg.clusterMetadataIsreplicationenabled)
-    <> encodeUnknownFields msg.clusterMetadataUnknownfields
+    <> (if msg.clusterMetadataHttpAddress == T.empty then mempty else encodeFieldString 7 msg.clusterMetadataHttpAddress)
+    <> (if msg.clusterMetadataInitialFailoverVersion == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.clusterMetadataInitialFailoverVersion))
+    <> (if msg.clusterMetadataHistoryShardCount == 0 then mempty else encodeFieldVarint 5 (fromIntegral msg.clusterMetadataHistoryShardCount))
+    <> (if msg.clusterMetadataIsConnectionEnabled == False then mempty else encodeFieldBool 6 msg.clusterMetadataIsConnectionEnabled)
+    <> (if msg.clusterMetadataIsReplicationEnabled == False then mempty else encodeFieldBool 8 msg.clusterMetadataIsReplicationEnabled)
+    <> encodeUnknownFields msg.clusterMetadataUnknownFields
 
 instance MessageSize ClusterMetadata where
   messageSize msg =
-    (if msg.clusterMetadataClustername == T.empty then 0 else fieldTextSize 1 msg.clusterMetadataClustername)
-    + (if msg.clusterMetadataClusterid == T.empty then 0 else fieldTextSize 2 msg.clusterMetadataClusterid)
+    (if msg.clusterMetadataClusterName == T.empty then 0 else fieldTextSize 1 msg.clusterMetadataClusterName)
+    + (if msg.clusterMetadataClusterId == T.empty then 0 else fieldTextSize 2 msg.clusterMetadataClusterId)
     + (if msg.clusterMetadataAddress == T.empty then 0 else fieldTextSize 3 msg.clusterMetadataAddress)
-    + (if msg.clusterMetadataHttpaddress == T.empty then 0 else fieldTextSize 7 msg.clusterMetadataHttpaddress)
-    + (if msg.clusterMetadataInitialfailoverversion == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.clusterMetadataInitialfailoverversion))
-    + (if msg.clusterMetadataHistoryshardcount == 0 then 0 else fieldVarintSize 5 (fromIntegral msg.clusterMetadataHistoryshardcount))
-    + (if msg.clusterMetadataIsconnectionenabled == False then 0 else fieldBoolSize 6)
-    + (if msg.clusterMetadataIsreplicationenabled == False then 0 else fieldBoolSize 8)
-    + unknownFieldsSize msg.clusterMetadataUnknownfields
+    + (if msg.clusterMetadataHttpAddress == T.empty then 0 else fieldTextSize 7 msg.clusterMetadataHttpAddress)
+    + (if msg.clusterMetadataInitialFailoverVersion == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.clusterMetadataInitialFailoverVersion))
+    + (if msg.clusterMetadataHistoryShardCount == 0 then 0 else fieldVarintSize 5 (fromIntegral msg.clusterMetadataHistoryShardCount))
+    + (if msg.clusterMetadataIsConnectionEnabled == False then 0 else fieldBoolSize 6)
+    + (if msg.clusterMetadataIsReplicationEnabled == False then 0 else fieldBoolSize 8)
+    + unknownFieldsSize msg.clusterMetadataUnknownFields
 
 instance MessageDecode ClusterMetadata where
   {-# INLINE messageDecoder #-}
@@ -1266,7 +1266,7 @@ instance MessageDecode ClusterMetadata where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ClusterMetadata {clusterMetadataClustername = acc_0, clusterMetadataClusterid = acc_1, clusterMetadataAddress = acc_2, clusterMetadataHttpaddress = acc_3, clusterMetadataInitialfailoverversion = acc_4, clusterMetadataHistoryshardcount = acc_5, clusterMetadataIsconnectionenabled = acc_6, clusterMetadataIsreplicationenabled = acc_7, clusterMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ClusterMetadata {clusterMetadataClusterName = acc_0, clusterMetadataClusterId = acc_1, clusterMetadataAddress = acc_2, clusterMetadataHttpAddress = acc_3, clusterMetadataInitialFailoverVersion = acc_4, clusterMetadataHistoryShardCount = acc_5, clusterMetadataIsConnectionEnabled = acc_6, clusterMetadataIsReplicationEnabled = acc_7, clusterMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1310,15 +1310,15 @@ instance ProtoMessage ClusterMetadata where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = clusterMetadataClustername
-        , fdSet = \v m -> m { clusterMetadataClustername = v }
+        , fdGet = clusterMetadataClusterName
+        , fdSet = \v m -> m { clusterMetadataClusterName = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "cluster_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = clusterMetadataClusterid
-        , fdSet = \v m -> m { clusterMetadataClusterid = v }
+        , fdGet = clusterMetadataClusterId
+        , fdSet = \v m -> m { clusterMetadataClusterId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "address"
@@ -1333,82 +1333,82 @@ instance ProtoMessage ClusterMetadata where
         , fdNumber = 7
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = clusterMetadataHttpaddress
-        , fdSet = \v m -> m { clusterMetadataHttpaddress = v }
+        , fdGet = clusterMetadataHttpAddress
+        , fdSet = \v m -> m { clusterMetadataHttpAddress = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "initial_failover_version"
         , fdNumber = 4
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = clusterMetadataInitialfailoverversion
-        , fdSet = \v m -> m { clusterMetadataInitialfailoverversion = v }
+        , fdGet = clusterMetadataInitialFailoverVersion
+        , fdSet = \v m -> m { clusterMetadataInitialFailoverVersion = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "history_shard_count"
         , fdNumber = 5
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = clusterMetadataHistoryshardcount
-        , fdSet = \v m -> m { clusterMetadataHistoryshardcount = v }
+        , fdGet = clusterMetadataHistoryShardCount
+        , fdSet = \v m -> m { clusterMetadataHistoryShardCount = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "is_connection_enabled"
         , fdNumber = 6
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = clusterMetadataIsconnectionenabled
-        , fdSet = \v m -> m { clusterMetadataIsconnectionenabled = v }
+        , fdGet = clusterMetadataIsConnectionEnabled
+        , fdSet = \v m -> m { clusterMetadataIsConnectionEnabled = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "is_replication_enabled"
         , fdNumber = 8
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = clusterMetadataIsreplicationenabled
-        , fdSet = \v m -> m { clusterMetadataIsreplicationenabled = v }
+        , fdGet = clusterMetadataIsReplicationEnabled
+        , fdSet = \v m -> m { clusterMetadataIsReplicationEnabled = v }
         })
     ]
 
 instance Aeson.ToJSON ClusterMetadata where
   toJSON msg = jsonObject
-      [ "clusterName" .=: msg.clusterMetadataClustername
-      , "clusterId" .=: msg.clusterMetadataClusterid
+      [ "clusterName" .=: msg.clusterMetadataClusterName
+      , "clusterId" .=: msg.clusterMetadataClusterId
       , "address" .=: msg.clusterMetadataAddress
-      , "httpAddress" .=: msg.clusterMetadataHttpaddress
-      , "initialFailoverVersion" .=: msg.clusterMetadataInitialfailoverversion
-      , "historyShardCount" .=: msg.clusterMetadataHistoryshardcount
-      , "isConnectionEnabled" .=: msg.clusterMetadataIsconnectionenabled
-      , "isReplicationEnabled" .=: msg.clusterMetadataIsreplicationenabled
+      , "httpAddress" .=: msg.clusterMetadataHttpAddress
+      , "initialFailoverVersion" .=: msg.clusterMetadataInitialFailoverVersion
+      , "historyShardCount" .=: msg.clusterMetadataHistoryShardCount
+      , "isConnectionEnabled" .=: msg.clusterMetadataIsConnectionEnabled
+      , "isReplicationEnabled" .=: msg.clusterMetadataIsReplicationEnabled
       ]
 
 instance Aeson.FromJSON ClusterMetadata where
   parseJSON = Aeson.withObject "ClusterMetadata" $ \obj -> do
-    fld_clusterMetadataClustername <- parseFieldMaybe obj "clusterName"
-    fld_clusterMetadataClusterid <- parseFieldMaybe obj "clusterId"
+    fld_clusterMetadataClusterName <- parseFieldMaybe obj "clusterName"
+    fld_clusterMetadataClusterId <- parseFieldMaybe obj "clusterId"
     fld_clusterMetadataAddress <- parseFieldMaybe obj "address"
-    fld_clusterMetadataHttpaddress <- parseFieldMaybe obj "httpAddress"
-    fld_clusterMetadataInitialfailoverversion <- parseFieldMaybe obj "initialFailoverVersion"
-    fld_clusterMetadataHistoryshardcount <- parseFieldMaybe obj "historyShardCount"
-    fld_clusterMetadataIsconnectionenabled <- parseFieldMaybe obj "isConnectionEnabled"
-    fld_clusterMetadataIsreplicationenabled <- parseFieldMaybe obj "isReplicationEnabled"
+    fld_clusterMetadataHttpAddress <- parseFieldMaybe obj "httpAddress"
+    fld_clusterMetadataInitialFailoverVersion <- parseFieldMaybe obj "initialFailoverVersion"
+    fld_clusterMetadataHistoryShardCount <- parseFieldMaybe obj "historyShardCount"
+    fld_clusterMetadataIsConnectionEnabled <- parseFieldMaybe obj "isConnectionEnabled"
+    fld_clusterMetadataIsReplicationEnabled <- parseFieldMaybe obj "isReplicationEnabled"
     pure defaultClusterMetadata
-      { clusterMetadataClustername = maybe (clusterMetadataClustername defaultClusterMetadata) id fld_clusterMetadataClustername
-      , clusterMetadataClusterid = maybe (clusterMetadataClusterid defaultClusterMetadata) id fld_clusterMetadataClusterid
+      { clusterMetadataClusterName = maybe (clusterMetadataClusterName defaultClusterMetadata) id fld_clusterMetadataClusterName
+      , clusterMetadataClusterId = maybe (clusterMetadataClusterId defaultClusterMetadata) id fld_clusterMetadataClusterId
       , clusterMetadataAddress = maybe (clusterMetadataAddress defaultClusterMetadata) id fld_clusterMetadataAddress
-      , clusterMetadataHttpaddress = maybe (clusterMetadataHttpaddress defaultClusterMetadata) id fld_clusterMetadataHttpaddress
-      , clusterMetadataInitialfailoverversion = maybe (clusterMetadataInitialfailoverversion defaultClusterMetadata) id fld_clusterMetadataInitialfailoverversion
-      , clusterMetadataHistoryshardcount = maybe (clusterMetadataHistoryshardcount defaultClusterMetadata) id fld_clusterMetadataHistoryshardcount
-      , clusterMetadataIsconnectionenabled = maybe (clusterMetadataIsconnectionenabled defaultClusterMetadata) id fld_clusterMetadataIsconnectionenabled
-      , clusterMetadataIsreplicationenabled = maybe (clusterMetadataIsreplicationenabled defaultClusterMetadata) id fld_clusterMetadataIsreplicationenabled
+      , clusterMetadataHttpAddress = maybe (clusterMetadataHttpAddress defaultClusterMetadata) id fld_clusterMetadataHttpAddress
+      , clusterMetadataInitialFailoverVersion = maybe (clusterMetadataInitialFailoverVersion defaultClusterMetadata) id fld_clusterMetadataInitialFailoverVersion
+      , clusterMetadataHistoryShardCount = maybe (clusterMetadataHistoryShardCount defaultClusterMetadata) id fld_clusterMetadataHistoryShardCount
+      , clusterMetadataIsConnectionEnabled = maybe (clusterMetadataIsConnectionEnabled defaultClusterMetadata) id fld_clusterMetadataIsConnectionEnabled
+      , clusterMetadataIsReplicationEnabled = maybe (clusterMetadataIsReplicationEnabled defaultClusterMetadata) id fld_clusterMetadataIsReplicationEnabled
       }
 
 instance Hashable ClusterMetadata where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.clusterMetadataClustername) msg.clusterMetadataClusterid) msg.clusterMetadataAddress) msg.clusterMetadataHttpaddress) msg.clusterMetadataInitialfailoverversion) msg.clusterMetadataHistoryshardcount) msg.clusterMetadataIsconnectionenabled) msg.clusterMetadataIsreplicationenabled
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.clusterMetadataClusterName) msg.clusterMetadataClusterId) msg.clusterMetadataAddress) msg.clusterMetadataHttpAddress) msg.clusterMetadataInitialFailoverVersion) msg.clusterMetadataHistoryShardCount) msg.clusterMetadataIsConnectionEnabled) msg.clusterMetadataIsReplicationEnabled
 
 data GetNexusEndpointRequest = GetNexusEndpointRequest
   { getNexusEndpointRequestId :: !Text
-  , getNexusEndpointRequestUnknownfields :: ![UnknownField]
+  , getNexusEndpointRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1416,18 +1416,18 @@ data GetNexusEndpointRequest = GetNexusEndpointRequest
 defaultGetNexusEndpointRequest :: GetNexusEndpointRequest
 defaultGetNexusEndpointRequest = GetNexusEndpointRequest
   { getNexusEndpointRequestId = ""
-  , getNexusEndpointRequestUnknownfields = []
+  , getNexusEndpointRequestUnknownFields = []
   }
 
 instance MessageEncode GetNexusEndpointRequest where
   buildMessage msg =
     (if msg.getNexusEndpointRequestId == T.empty then mempty else encodeFieldString 1 msg.getNexusEndpointRequestId)
-    <> encodeUnknownFields msg.getNexusEndpointRequestUnknownfields
+    <> encodeUnknownFields msg.getNexusEndpointRequestUnknownFields
 
 instance MessageSize GetNexusEndpointRequest where
   messageSize msg =
     (if msg.getNexusEndpointRequestId == T.empty then 0 else fieldTextSize 1 msg.getNexusEndpointRequestId)
-    + unknownFieldsSize msg.getNexusEndpointRequestUnknownfields
+    + unknownFieldsSize msg.getNexusEndpointRequestUnknownFields
 
 instance MessageDecode GetNexusEndpointRequest where
   {-# INLINE messageDecoder #-}
@@ -1436,7 +1436,7 @@ instance MessageDecode GetNexusEndpointRequest where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (GetNexusEndpointRequest {getNexusEndpointRequestId = acc_0, getNexusEndpointRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (GetNexusEndpointRequest {getNexusEndpointRequestId = acc_0, getNexusEndpointRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1482,7 +1482,7 @@ instance Hashable GetNexusEndpointRequest where
 
 data GetNexusEndpointResponse = GetNexusEndpointResponse
   { getNexusEndpointResponseEndpoint :: !(Maybe TE_Nexus_V1_Message.Endpoint)
-  , getNexusEndpointResponseUnknownfields :: ![UnknownField]
+  , getNexusEndpointResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1490,18 +1490,18 @@ data GetNexusEndpointResponse = GetNexusEndpointResponse
 defaultGetNexusEndpointResponse :: GetNexusEndpointResponse
 defaultGetNexusEndpointResponse = GetNexusEndpointResponse
   { getNexusEndpointResponseEndpoint = Nothing
-  , getNexusEndpointResponseUnknownfields = []
+  , getNexusEndpointResponseUnknownFields = []
   }
 
 instance MessageEncode GetNexusEndpointResponse where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.getNexusEndpointResponseEndpoint)
-    <> encodeUnknownFields msg.getNexusEndpointResponseUnknownfields
+    <> encodeUnknownFields msg.getNexusEndpointResponseUnknownFields
 
 instance MessageSize GetNexusEndpointResponse where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.getNexusEndpointResponseEndpoint)
-    + unknownFieldsSize msg.getNexusEndpointResponseUnknownfields
+    + unknownFieldsSize msg.getNexusEndpointResponseUnknownFields
 
 instance MessageDecode GetNexusEndpointResponse where
   {-# INLINE messageDecoder #-}
@@ -1510,7 +1510,7 @@ instance MessageDecode GetNexusEndpointResponse where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (GetNexusEndpointResponse {getNexusEndpointResponseEndpoint = acc_0, getNexusEndpointResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (GetNexusEndpointResponse {getNexusEndpointResponseEndpoint = acc_0, getNexusEndpointResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1556,7 +1556,7 @@ instance Hashable GetNexusEndpointResponse where
 
 data CreateNexusEndpointRequest = CreateNexusEndpointRequest
   { createNexusEndpointRequestSpec :: !(Maybe TE_Nexus_V1_Message.EndpointSpec)
-  , createNexusEndpointRequestUnknownfields :: ![UnknownField]
+  , createNexusEndpointRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1564,18 +1564,18 @@ data CreateNexusEndpointRequest = CreateNexusEndpointRequest
 defaultCreateNexusEndpointRequest :: CreateNexusEndpointRequest
 defaultCreateNexusEndpointRequest = CreateNexusEndpointRequest
   { createNexusEndpointRequestSpec = Nothing
-  , createNexusEndpointRequestUnknownfields = []
+  , createNexusEndpointRequestUnknownFields = []
   }
 
 instance MessageEncode CreateNexusEndpointRequest where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.createNexusEndpointRequestSpec)
-    <> encodeUnknownFields msg.createNexusEndpointRequestUnknownfields
+    <> encodeUnknownFields msg.createNexusEndpointRequestUnknownFields
 
 instance MessageSize CreateNexusEndpointRequest where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.createNexusEndpointRequestSpec)
-    + unknownFieldsSize msg.createNexusEndpointRequestUnknownfields
+    + unknownFieldsSize msg.createNexusEndpointRequestUnknownFields
 
 instance MessageDecode CreateNexusEndpointRequest where
   {-# INLINE messageDecoder #-}
@@ -1584,7 +1584,7 @@ instance MessageDecode CreateNexusEndpointRequest where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CreateNexusEndpointRequest {createNexusEndpointRequestSpec = acc_0, createNexusEndpointRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CreateNexusEndpointRequest {createNexusEndpointRequestSpec = acc_0, createNexusEndpointRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1630,7 +1630,7 @@ instance Hashable CreateNexusEndpointRequest where
 
 data CreateNexusEndpointResponse = CreateNexusEndpointResponse
   { createNexusEndpointResponseEndpoint :: !(Maybe TE_Nexus_V1_Message.Endpoint)
-  , createNexusEndpointResponseUnknownfields :: ![UnknownField]
+  , createNexusEndpointResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1638,18 +1638,18 @@ data CreateNexusEndpointResponse = CreateNexusEndpointResponse
 defaultCreateNexusEndpointResponse :: CreateNexusEndpointResponse
 defaultCreateNexusEndpointResponse = CreateNexusEndpointResponse
   { createNexusEndpointResponseEndpoint = Nothing
-  , createNexusEndpointResponseUnknownfields = []
+  , createNexusEndpointResponseUnknownFields = []
   }
 
 instance MessageEncode CreateNexusEndpointResponse where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.createNexusEndpointResponseEndpoint)
-    <> encodeUnknownFields msg.createNexusEndpointResponseUnknownfields
+    <> encodeUnknownFields msg.createNexusEndpointResponseUnknownFields
 
 instance MessageSize CreateNexusEndpointResponse where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.createNexusEndpointResponseEndpoint)
-    + unknownFieldsSize msg.createNexusEndpointResponseUnknownfields
+    + unknownFieldsSize msg.createNexusEndpointResponseUnknownFields
 
 instance MessageDecode CreateNexusEndpointResponse where
   {-# INLINE messageDecoder #-}
@@ -1658,7 +1658,7 @@ instance MessageDecode CreateNexusEndpointResponse where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CreateNexusEndpointResponse {createNexusEndpointResponseEndpoint = acc_0, createNexusEndpointResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CreateNexusEndpointResponse {createNexusEndpointResponseEndpoint = acc_0, createNexusEndpointResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1706,7 +1706,7 @@ data UpdateNexusEndpointRequest = UpdateNexusEndpointRequest
   { updateNexusEndpointRequestId :: !Text
   , updateNexusEndpointRequestVersion :: {-# UNPACK #-} !Int64
   , updateNexusEndpointRequestSpec :: !(Maybe TE_Nexus_V1_Message.EndpointSpec)
-  , updateNexusEndpointRequestUnknownfields :: ![UnknownField]
+  , updateNexusEndpointRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1716,7 +1716,7 @@ defaultUpdateNexusEndpointRequest = UpdateNexusEndpointRequest
   { updateNexusEndpointRequestId = ""
   , updateNexusEndpointRequestVersion = 0
   , updateNexusEndpointRequestSpec = Nothing
-  , updateNexusEndpointRequestUnknownfields = []
+  , updateNexusEndpointRequestUnknownFields = []
   }
 
 instance MessageEncode UpdateNexusEndpointRequest where
@@ -1724,14 +1724,14 @@ instance MessageEncode UpdateNexusEndpointRequest where
     (if msg.updateNexusEndpointRequestId == T.empty then mempty else encodeFieldString 1 msg.updateNexusEndpointRequestId)
     <> (if msg.updateNexusEndpointRequestVersion == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.updateNexusEndpointRequestVersion))
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.updateNexusEndpointRequestSpec)
-    <> encodeUnknownFields msg.updateNexusEndpointRequestUnknownfields
+    <> encodeUnknownFields msg.updateNexusEndpointRequestUnknownFields
 
 instance MessageSize UpdateNexusEndpointRequest where
   messageSize msg =
     (if msg.updateNexusEndpointRequestId == T.empty then 0 else fieldTextSize 1 msg.updateNexusEndpointRequestId)
     + (if msg.updateNexusEndpointRequestVersion == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.updateNexusEndpointRequestVersion))
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.updateNexusEndpointRequestSpec)
-    + unknownFieldsSize msg.updateNexusEndpointRequestUnknownfields
+    + unknownFieldsSize msg.updateNexusEndpointRequestUnknownFields
 
 instance MessageDecode UpdateNexusEndpointRequest where
   {-# INLINE messageDecoder #-}
@@ -1740,7 +1740,7 @@ instance MessageDecode UpdateNexusEndpointRequest where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UpdateNexusEndpointRequest {updateNexusEndpointRequestId = acc_0, updateNexusEndpointRequestVersion = acc_1, updateNexusEndpointRequestSpec = acc_2, updateNexusEndpointRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UpdateNexusEndpointRequest {updateNexusEndpointRequestId = acc_0, updateNexusEndpointRequestVersion = acc_1, updateNexusEndpointRequestSpec = acc_2, updateNexusEndpointRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1812,7 +1812,7 @@ instance Hashable UpdateNexusEndpointRequest where
 
 data UpdateNexusEndpointResponse = UpdateNexusEndpointResponse
   { updateNexusEndpointResponseEndpoint :: !(Maybe TE_Nexus_V1_Message.Endpoint)
-  , updateNexusEndpointResponseUnknownfields :: ![UnknownField]
+  , updateNexusEndpointResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1820,18 +1820,18 @@ data UpdateNexusEndpointResponse = UpdateNexusEndpointResponse
 defaultUpdateNexusEndpointResponse :: UpdateNexusEndpointResponse
 defaultUpdateNexusEndpointResponse = UpdateNexusEndpointResponse
   { updateNexusEndpointResponseEndpoint = Nothing
-  , updateNexusEndpointResponseUnknownfields = []
+  , updateNexusEndpointResponseUnknownFields = []
   }
 
 instance MessageEncode UpdateNexusEndpointResponse where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.updateNexusEndpointResponseEndpoint)
-    <> encodeUnknownFields msg.updateNexusEndpointResponseUnknownfields
+    <> encodeUnknownFields msg.updateNexusEndpointResponseUnknownFields
 
 instance MessageSize UpdateNexusEndpointResponse where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.updateNexusEndpointResponseEndpoint)
-    + unknownFieldsSize msg.updateNexusEndpointResponseUnknownfields
+    + unknownFieldsSize msg.updateNexusEndpointResponseUnknownFields
 
 instance MessageDecode UpdateNexusEndpointResponse where
   {-# INLINE messageDecoder #-}
@@ -1840,7 +1840,7 @@ instance MessageDecode UpdateNexusEndpointResponse where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UpdateNexusEndpointResponse {updateNexusEndpointResponseEndpoint = acc_0, updateNexusEndpointResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UpdateNexusEndpointResponse {updateNexusEndpointResponseEndpoint = acc_0, updateNexusEndpointResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1887,7 +1887,7 @@ instance Hashable UpdateNexusEndpointResponse where
 data DeleteNexusEndpointRequest = DeleteNexusEndpointRequest
   { deleteNexusEndpointRequestId :: !Text
   , deleteNexusEndpointRequestVersion :: {-# UNPACK #-} !Int64
-  , deleteNexusEndpointRequestUnknownfields :: ![UnknownField]
+  , deleteNexusEndpointRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1896,20 +1896,20 @@ defaultDeleteNexusEndpointRequest :: DeleteNexusEndpointRequest
 defaultDeleteNexusEndpointRequest = DeleteNexusEndpointRequest
   { deleteNexusEndpointRequestId = ""
   , deleteNexusEndpointRequestVersion = 0
-  , deleteNexusEndpointRequestUnknownfields = []
+  , deleteNexusEndpointRequestUnknownFields = []
   }
 
 instance MessageEncode DeleteNexusEndpointRequest where
   buildMessage msg =
     (if msg.deleteNexusEndpointRequestId == T.empty then mempty else encodeFieldString 1 msg.deleteNexusEndpointRequestId)
     <> (if msg.deleteNexusEndpointRequestVersion == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.deleteNexusEndpointRequestVersion))
-    <> encodeUnknownFields msg.deleteNexusEndpointRequestUnknownfields
+    <> encodeUnknownFields msg.deleteNexusEndpointRequestUnknownFields
 
 instance MessageSize DeleteNexusEndpointRequest where
   messageSize msg =
     (if msg.deleteNexusEndpointRequestId == T.empty then 0 else fieldTextSize 1 msg.deleteNexusEndpointRequestId)
     + (if msg.deleteNexusEndpointRequestVersion == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.deleteNexusEndpointRequestVersion))
-    + unknownFieldsSize msg.deleteNexusEndpointRequestUnknownfields
+    + unknownFieldsSize msg.deleteNexusEndpointRequestUnknownFields
 
 instance MessageDecode DeleteNexusEndpointRequest where
   {-# INLINE messageDecoder #-}
@@ -1918,7 +1918,7 @@ instance MessageDecode DeleteNexusEndpointRequest where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeleteNexusEndpointRequest {deleteNexusEndpointRequestId = acc_0, deleteNexusEndpointRequestVersion = acc_1, deleteNexusEndpointRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeleteNexusEndpointRequest {deleteNexusEndpointRequestId = acc_0, deleteNexusEndpointRequestVersion = acc_1, deleteNexusEndpointRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1975,23 +1975,23 @@ instance Hashable DeleteNexusEndpointRequest where
   hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.deleteNexusEndpointRequestId) msg.deleteNexusEndpointRequestVersion
 
 data DeleteNexusEndpointResponse = DeleteNexusEndpointResponse
-  { deleteNexusEndpointResponseUnknownfields :: ![UnknownField]
+  { deleteNexusEndpointResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultDeleteNexusEndpointResponse :: DeleteNexusEndpointResponse
 defaultDeleteNexusEndpointResponse = DeleteNexusEndpointResponse
-  { deleteNexusEndpointResponseUnknownfields = []
+  { deleteNexusEndpointResponseUnknownFields = []
   }
 
 instance MessageEncode DeleteNexusEndpointResponse where
   buildMessage msg =
-    encodeUnknownFields msg.deleteNexusEndpointResponseUnknownfields
+    encodeUnknownFields msg.deleteNexusEndpointResponseUnknownFields
 
 instance MessageSize DeleteNexusEndpointResponse where
   messageSize msg =
-    unknownFieldsSize msg.deleteNexusEndpointResponseUnknownfields
+    unknownFieldsSize msg.deleteNexusEndpointResponseUnknownFields
 
 instance MessageDecode DeleteNexusEndpointResponse where
   {-# INLINE messageDecoder #-}
@@ -2000,7 +2000,7 @@ instance MessageDecode DeleteNexusEndpointResponse where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeleteNexusEndpointResponse {deleteNexusEndpointResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeleteNexusEndpointResponse {deleteNexusEndpointResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -2028,35 +2028,35 @@ instance Hashable DeleteNexusEndpointResponse where
   hashWithSalt salt _ = salt
 
 data ListNexusEndpointsRequest = ListNexusEndpointsRequest
-  { listNexusEndpointsRequestPagesize :: {-# UNPACK #-} !Int32
-  , listNexusEndpointsRequestNextpagetoken :: !ByteString
+  { listNexusEndpointsRequestPageSize :: {-# UNPACK #-} !Int32
+  , listNexusEndpointsRequestNextPageToken :: !ByteString
   , listNexusEndpointsRequestName :: !Text
-  , listNexusEndpointsRequestUnknownfields :: ![UnknownField]
+  , listNexusEndpointsRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultListNexusEndpointsRequest :: ListNexusEndpointsRequest
 defaultListNexusEndpointsRequest = ListNexusEndpointsRequest
-  { listNexusEndpointsRequestPagesize = 0
-  , listNexusEndpointsRequestNextpagetoken = ""
+  { listNexusEndpointsRequestPageSize = 0
+  , listNexusEndpointsRequestNextPageToken = ""
   , listNexusEndpointsRequestName = ""
-  , listNexusEndpointsRequestUnknownfields = []
+  , listNexusEndpointsRequestUnknownFields = []
   }
 
 instance MessageEncode ListNexusEndpointsRequest where
   buildMessage msg =
-    (if msg.listNexusEndpointsRequestPagesize == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.listNexusEndpointsRequestPagesize))
-    <> (if BS.null msg.listNexusEndpointsRequestNextpagetoken then mempty else encodeFieldBytes 2 msg.listNexusEndpointsRequestNextpagetoken)
+    (if msg.listNexusEndpointsRequestPageSize == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.listNexusEndpointsRequestPageSize))
+    <> (if BS.null msg.listNexusEndpointsRequestNextPageToken then mempty else encodeFieldBytes 2 msg.listNexusEndpointsRequestNextPageToken)
     <> (if msg.listNexusEndpointsRequestName == T.empty then mempty else encodeFieldString 3 msg.listNexusEndpointsRequestName)
-    <> encodeUnknownFields msg.listNexusEndpointsRequestUnknownfields
+    <> encodeUnknownFields msg.listNexusEndpointsRequestUnknownFields
 
 instance MessageSize ListNexusEndpointsRequest where
   messageSize msg =
-    (if msg.listNexusEndpointsRequestPagesize == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.listNexusEndpointsRequestPagesize))
-    + (if BS.null msg.listNexusEndpointsRequestNextpagetoken then 0 else fieldBytesSize 2 msg.listNexusEndpointsRequestNextpagetoken)
+    (if msg.listNexusEndpointsRequestPageSize == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.listNexusEndpointsRequestPageSize))
+    + (if BS.null msg.listNexusEndpointsRequestNextPageToken then 0 else fieldBytesSize 2 msg.listNexusEndpointsRequestNextPageToken)
     + (if msg.listNexusEndpointsRequestName == T.empty then 0 else fieldTextSize 3 msg.listNexusEndpointsRequestName)
-    + unknownFieldsSize msg.listNexusEndpointsRequestUnknownfields
+    + unknownFieldsSize msg.listNexusEndpointsRequestUnknownFields
 
 instance MessageDecode ListNexusEndpointsRequest where
   {-# INLINE messageDecoder #-}
@@ -2065,7 +2065,7 @@ instance MessageDecode ListNexusEndpointsRequest where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListNexusEndpointsRequest {listNexusEndpointsRequestPagesize = acc_0, listNexusEndpointsRequestNextpagetoken = acc_1, listNexusEndpointsRequestName = acc_2, listNexusEndpointsRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ListNexusEndpointsRequest {listNexusEndpointsRequestPageSize = acc_0, listNexusEndpointsRequestNextPageToken = acc_1, listNexusEndpointsRequestName = acc_2, listNexusEndpointsRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -2094,15 +2094,15 @@ instance ProtoMessage ListNexusEndpointsRequest where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = listNexusEndpointsRequestPagesize
-        , fdSet = \v m -> m { listNexusEndpointsRequestPagesize = v }
+        , fdGet = listNexusEndpointsRequestPageSize
+        , fdSet = \v m -> m { listNexusEndpointsRequestPageSize = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "next_page_token"
         , fdNumber = 2
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelOptional
-        , fdGet = listNexusEndpointsRequestNextpagetoken
-        , fdSet = \v m -> m { listNexusEndpointsRequestNextpagetoken = v }
+        , fdGet = listNexusEndpointsRequestNextPageToken
+        , fdSet = \v m -> m { listNexusEndpointsRequestNextPageToken = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "name"
@@ -2116,51 +2116,51 @@ instance ProtoMessage ListNexusEndpointsRequest where
 
 instance Aeson.ToJSON ListNexusEndpointsRequest where
   toJSON msg = jsonObject
-      [ "pageSize" .=: msg.listNexusEndpointsRequestPagesize
-      , bytesFieldToJSON "nextPageToken" msg.listNexusEndpointsRequestNextpagetoken
+      [ "pageSize" .=: msg.listNexusEndpointsRequestPageSize
+      , bytesFieldToJSON "nextPageToken" msg.listNexusEndpointsRequestNextPageToken
       , "name" .=: msg.listNexusEndpointsRequestName
       ]
 
 instance Aeson.FromJSON ListNexusEndpointsRequest where
   parseJSON = Aeson.withObject "ListNexusEndpointsRequest" $ \obj -> do
-    fld_listNexusEndpointsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listNexusEndpointsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
+    fld_listNexusEndpointsRequestPageSize <- parseFieldMaybe obj "pageSize"
+    fld_listNexusEndpointsRequestNextPageToken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listNexusEndpointsRequestName <- parseFieldMaybe obj "name"
     pure defaultListNexusEndpointsRequest
-      { listNexusEndpointsRequestPagesize = maybe (listNexusEndpointsRequestPagesize defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestPagesize
-      , listNexusEndpointsRequestNextpagetoken = maybe (listNexusEndpointsRequestNextpagetoken defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestNextpagetoken
+      { listNexusEndpointsRequestPageSize = maybe (listNexusEndpointsRequestPageSize defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestPageSize
+      , listNexusEndpointsRequestNextPageToken = maybe (listNexusEndpointsRequestNextPageToken defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestNextPageToken
       , listNexusEndpointsRequestName = maybe (listNexusEndpointsRequestName defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestName
       }
 
 instance Hashable ListNexusEndpointsRequest where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.listNexusEndpointsRequestPagesize) msg.listNexusEndpointsRequestNextpagetoken) msg.listNexusEndpointsRequestName
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.listNexusEndpointsRequestPageSize) msg.listNexusEndpointsRequestNextPageToken) msg.listNexusEndpointsRequestName
 
 data ListNexusEndpointsResponse = ListNexusEndpointsResponse
-  { listNexusEndpointsResponseNextpagetoken :: !ByteString
+  { listNexusEndpointsResponseNextPageToken :: !ByteString
   , listNexusEndpointsResponseEndpoints :: !(V.Vector TE_Nexus_V1_Message.Endpoint)
-  , listNexusEndpointsResponseUnknownfields :: ![UnknownField]
+  , listNexusEndpointsResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultListNexusEndpointsResponse :: ListNexusEndpointsResponse
 defaultListNexusEndpointsResponse = ListNexusEndpointsResponse
-  { listNexusEndpointsResponseNextpagetoken = ""
+  { listNexusEndpointsResponseNextPageToken = ""
   , listNexusEndpointsResponseEndpoints = V.empty
-  , listNexusEndpointsResponseUnknownfields = []
+  , listNexusEndpointsResponseUnknownFields = []
   }
 
 instance MessageEncode ListNexusEndpointsResponse where
   buildMessage msg =
-    (if BS.null msg.listNexusEndpointsResponseNextpagetoken then mempty else encodeFieldBytes 1 msg.listNexusEndpointsResponseNextpagetoken)
+    (if BS.null msg.listNexusEndpointsResponseNextPageToken then mempty else encodeFieldBytes 1 msg.listNexusEndpointsResponseNextPageToken)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.listNexusEndpointsResponseEndpoints
-    <> encodeUnknownFields msg.listNexusEndpointsResponseUnknownfields
+    <> encodeUnknownFields msg.listNexusEndpointsResponseUnknownFields
 
 instance MessageSize ListNexusEndpointsResponse where
   messageSize msg =
-    (if BS.null msg.listNexusEndpointsResponseNextpagetoken then 0 else fieldBytesSize 1 msg.listNexusEndpointsResponseNextpagetoken)
+    (if BS.null msg.listNexusEndpointsResponseNextPageToken then 0 else fieldBytesSize 1 msg.listNexusEndpointsResponseNextPageToken)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.listNexusEndpointsResponseEndpoints)
-    + unknownFieldsSize msg.listNexusEndpointsResponseUnknownfields
+    + unknownFieldsSize msg.listNexusEndpointsResponseUnknownFields
 
 instance MessageDecode ListNexusEndpointsResponse where
   {-# INLINE messageDecoder #-}
@@ -2169,7 +2169,7 @@ instance MessageDecode ListNexusEndpointsResponse where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListNexusEndpointsResponse {listNexusEndpointsResponseNextpagetoken = acc_0, listNexusEndpointsResponseEndpoints = acc_1, listNexusEndpointsResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ListNexusEndpointsResponse {listNexusEndpointsResponseNextPageToken = acc_0, listNexusEndpointsResponseEndpoints = acc_1, listNexusEndpointsResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBytes
@@ -2195,8 +2195,8 @@ instance ProtoMessage ListNexusEndpointsResponse where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelOptional
-        , fdGet = listNexusEndpointsResponseNextpagetoken
-        , fdSet = \v m -> m { listNexusEndpointsResponseNextpagetoken = v }
+        , fdGet = listNexusEndpointsResponseNextPageToken
+        , fdSet = \v m -> m { listNexusEndpointsResponseNextPageToken = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "endpoints"
         , fdNumber = 2
@@ -2209,21 +2209,21 @@ instance ProtoMessage ListNexusEndpointsResponse where
 
 instance Aeson.ToJSON ListNexusEndpointsResponse where
   toJSON msg = jsonObject
-      [ bytesFieldToJSON "nextPageToken" msg.listNexusEndpointsResponseNextpagetoken
+      [ bytesFieldToJSON "nextPageToken" msg.listNexusEndpointsResponseNextPageToken
       , "endpoints" .=: msg.listNexusEndpointsResponseEndpoints
       ]
 
 instance Aeson.FromJSON ListNexusEndpointsResponse where
   parseJSON = Aeson.withObject "ListNexusEndpointsResponse" $ \obj -> do
-    fld_listNexusEndpointsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
+    fld_listNexusEndpointsResponseNextPageToken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listNexusEndpointsResponseEndpoints <- parseFieldMaybe obj "endpoints"
     pure defaultListNexusEndpointsResponse
-      { listNexusEndpointsResponseNextpagetoken = maybe (listNexusEndpointsResponseNextpagetoken defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseNextpagetoken
+      { listNexusEndpointsResponseNextPageToken = maybe (listNexusEndpointsResponseNextPageToken defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseNextPageToken
       , listNexusEndpointsResponseEndpoints = maybe (listNexusEndpointsResponseEndpoints defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseEndpoints
       }
 
 instance Hashable ListNexusEndpointsResponse where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (salt) msg.listNexusEndpointsResponseNextpagetoken) msg.listNexusEndpointsResponseEndpoints
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (salt) msg.listNexusEndpointsResponseNextPageToken) msg.listNexusEndpointsResponseEndpoints
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

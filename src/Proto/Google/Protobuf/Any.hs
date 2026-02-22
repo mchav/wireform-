@@ -58,31 +58,31 @@ fileDescriptorProtoBytes = case Base16.decode "0a19676f6f676c652f70726f746f62756
 
 
 data Any = Any
-  { anyTypeurl :: !Text
+  { anyTypeUrl :: !Text
   , anyValue :: !ByteString
-  , anyUnknownfields :: ![UnknownField]
+  , anyUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultAny :: Any
 defaultAny = Any
-  { anyTypeurl = ""
+  { anyTypeUrl = ""
   , anyValue = ""
-  , anyUnknownfields = []
+  , anyUnknownFields = []
   }
 
 instance MessageEncode Any where
   buildMessage msg =
-    (if msg.anyTypeurl == T.empty then mempty else encodeFieldString 1 msg.anyTypeurl)
+    (if msg.anyTypeUrl == T.empty then mempty else encodeFieldString 1 msg.anyTypeUrl)
     <> (if BS.null msg.anyValue then mempty else encodeFieldBytes 2 msg.anyValue)
-    <> encodeUnknownFields msg.anyUnknownfields
+    <> encodeUnknownFields msg.anyUnknownFields
 
 instance MessageSize Any where
   messageSize msg =
-    (if msg.anyTypeurl == T.empty then 0 else fieldTextSize 1 msg.anyTypeurl)
+    (if msg.anyTypeUrl == T.empty then 0 else fieldTextSize 1 msg.anyTypeUrl)
     + (if BS.null msg.anyValue then 0 else fieldBytesSize 2 msg.anyValue)
-    + unknownFieldsSize msg.anyUnknownfields
+    + unknownFieldsSize msg.anyUnknownFields
 
 instance MessageDecode Any where
   {-# INLINE messageDecoder #-}
@@ -91,7 +91,7 @@ instance MessageDecode Any where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Any {anyTypeurl = acc_0, anyValue = acc_1, anyUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Any {anyTypeUrl = acc_0, anyValue = acc_1, anyUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -117,8 +117,8 @@ instance ProtoMessage Any where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = anyTypeurl
-        , fdSet = \v m -> m { anyTypeurl = v }
+        , fdGet = anyTypeUrl
+        , fdSet = \v m -> m { anyTypeUrl = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "value"
         , fdNumber = 2
@@ -131,21 +131,21 @@ instance ProtoMessage Any where
 
 instance Aeson.ToJSON Any where
   toJSON msg = jsonObject
-      [ "typeUrl" .=: msg.anyTypeurl
+      [ "typeUrl" .=: msg.anyTypeUrl
       , bytesFieldToJSON "value" msg.anyValue
       ]
 
 instance Aeson.FromJSON Any where
   parseJSON = Aeson.withObject "Any" $ \obj -> do
-    fld_anyTypeurl <- parseFieldMaybe obj "typeUrl"
+    fld_anyTypeUrl <- parseFieldMaybe obj "typeUrl"
     fld_anyValue <- parseBytesFieldMaybe obj "value"
     pure defaultAny
-      { anyTypeurl = maybe (anyTypeurl defaultAny) id fld_anyTypeurl
+      { anyTypeUrl = maybe (anyTypeUrl defaultAny) id fld_anyTypeUrl
       , anyValue = maybe (anyValue defaultAny) id fld_anyValue
       }
 
 instance Hashable Any where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.anyTypeurl) msg.anyValue
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.anyTypeUrl) msg.anyValue
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

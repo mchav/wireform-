@@ -63,31 +63,31 @@ fileDescriptorProtoBytes = case Base16.decode "0a2474656d706f72616c2f6170692f636
 
 
 data DataBlob = DataBlob
-  { dataBlobEncodingtype :: !TE_Enums_V1_Common.EncodingType
+  { dataBlobEncodingType :: !TE_Enums_V1_Common.EncodingType
   , dataBlobData :: !ByteString
-  , dataBlobUnknownfields :: ![UnknownField]
+  , dataBlobUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultDataBlob :: DataBlob
 defaultDataBlob = DataBlob
-  { dataBlobEncodingtype = (toEnum 0)
+  { dataBlobEncodingType = (toEnum 0)
   , dataBlobData = ""
-  , dataBlobUnknownfields = []
+  , dataBlobUnknownFields = []
   }
 
 instance MessageEncode DataBlob where
   buildMessage msg =
-    (if fromEnum msg.dataBlobEncodingtype == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.dataBlobEncodingtype)))
+    (if fromEnum msg.dataBlobEncodingType == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.dataBlobEncodingType)))
     <> (if BS.null msg.dataBlobData then mempty else encodeFieldBytes 2 msg.dataBlobData)
-    <> encodeUnknownFields msg.dataBlobUnknownfields
+    <> encodeUnknownFields msg.dataBlobUnknownFields
 
 instance MessageSize DataBlob where
   messageSize msg =
-    (if fromEnum msg.dataBlobEncodingtype == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.dataBlobEncodingtype)))
+    (if fromEnum msg.dataBlobEncodingType == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.dataBlobEncodingType)))
     + (if BS.null msg.dataBlobData then 0 else fieldBytesSize 2 msg.dataBlobData)
-    + unknownFieldsSize msg.dataBlobUnknownfields
+    + unknownFieldsSize msg.dataBlobUnknownFields
 
 instance MessageDecode DataBlob where
   {-# INLINE messageDecoder #-}
@@ -96,7 +96,7 @@ instance MessageDecode DataBlob where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DataBlob {dataBlobEncodingtype = acc_0, dataBlobData = acc_1, dataBlobUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DataBlob {dataBlobEncodingType = acc_0, dataBlobData = acc_1, dataBlobUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -122,8 +122,8 @@ instance ProtoMessage DataBlob where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.EncodingType"
         , fdLabel = LabelOptional
-        , fdGet = dataBlobEncodingtype
-        , fdSet = \v m -> m { dataBlobEncodingtype = v }
+        , fdGet = dataBlobEncodingType
+        , fdSet = \v m -> m { dataBlobEncodingType = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "data"
         , fdNumber = 2
@@ -136,25 +136,25 @@ instance ProtoMessage DataBlob where
 
 instance Aeson.ToJSON DataBlob where
   toJSON msg = jsonObject
-      [ "encodingType" .=: msg.dataBlobEncodingtype
+      [ "encodingType" .=: msg.dataBlobEncodingType
       , bytesFieldToJSON "data" msg.dataBlobData
       ]
 
 instance Aeson.FromJSON DataBlob where
   parseJSON = Aeson.withObject "DataBlob" $ \obj -> do
-    fld_dataBlobEncodingtype <- parseFieldMaybe obj "encodingType"
+    fld_dataBlobEncodingType <- parseFieldMaybe obj "encodingType"
     fld_dataBlobData <- parseBytesFieldMaybe obj "data"
     pure defaultDataBlob
-      { dataBlobEncodingtype = maybe (dataBlobEncodingtype defaultDataBlob) id fld_dataBlobEncodingtype
+      { dataBlobEncodingType = maybe (dataBlobEncodingType defaultDataBlob) id fld_dataBlobEncodingType
       , dataBlobData = maybe (dataBlobData defaultDataBlob) id fld_dataBlobData
       }
 
 instance Hashable DataBlob where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.dataBlobEncodingtype) msg.dataBlobData
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.dataBlobEncodingType) msg.dataBlobData
 
 data Payloads = Payloads
   { payloadsPayloads :: !(V.Vector Payload)
-  , payloadsUnknownfields :: ![UnknownField]
+  , payloadsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -162,18 +162,18 @@ data Payloads = Payloads
 defaultPayloads :: Payloads
 defaultPayloads = Payloads
   { payloadsPayloads = V.empty
-  , payloadsUnknownfields = []
+  , payloadsUnknownFields = []
   }
 
 instance MessageEncode Payloads where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.payloadsPayloads
-    <> encodeUnknownFields msg.payloadsUnknownfields
+    <> encodeUnknownFields msg.payloadsUnknownFields
 
 instance MessageSize Payloads where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.payloadsPayloads)
-    + unknownFieldsSize msg.payloadsUnknownfields
+    + unknownFieldsSize msg.payloadsUnknownFields
 
 instance MessageDecode Payloads where
   {-# INLINE messageDecoder #-}
@@ -182,7 +182,7 @@ instance MessageDecode Payloads where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Payloads {payloadsPayloads = acc_0, payloadsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Payloads {payloadsPayloads = acc_0, payloadsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -229,34 +229,34 @@ instance Hashable Payloads where
 data Payload = Payload
   { payloadMetadata :: !(Map.Map Text ByteString)
   , payloadData :: !ByteString
-  , payloadExternalpayloads :: !(V.Vector Payload'ExternalPayloadDetails)
-  , payloadUnknownfields :: ![UnknownField]
+  , payloadExternalPayloads :: !(V.Vector Payload'ExternalPayloadDetails)
+  , payloadUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data Payload'ExternalPayloadDetails = Payload'ExternalPayloadDetails
-  { payloadExternalPayloadDetailsSizebytes :: {-# UNPACK #-} !Int64
-  , payloadExternalPayloadDetailsUnknownfields :: ![UnknownField]
+  { payloadExternalPayloadDetailsSizeBytes :: {-# UNPACK #-} !Int64
+  , payloadExternalPayloadDetailsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPayload'ExternalPayloadDetails :: Payload'ExternalPayloadDetails
 defaultPayload'ExternalPayloadDetails = Payload'ExternalPayloadDetails
-  { payloadExternalPayloadDetailsSizebytes = 0
-  , payloadExternalPayloadDetailsUnknownfields = []
+  { payloadExternalPayloadDetailsSizeBytes = 0
+  , payloadExternalPayloadDetailsUnknownFields = []
   }
 
 instance MessageEncode Payload'ExternalPayloadDetails where
   buildMessage msg =
-    (if msg.payloadExternalPayloadDetailsSizebytes == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.payloadExternalPayloadDetailsSizebytes))
-    <> encodeUnknownFields msg.payloadExternalPayloadDetailsUnknownfields
+    (if msg.payloadExternalPayloadDetailsSizeBytes == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.payloadExternalPayloadDetailsSizeBytes))
+    <> encodeUnknownFields msg.payloadExternalPayloadDetailsUnknownFields
 
 instance MessageSize Payload'ExternalPayloadDetails where
   messageSize msg =
-    (if msg.payloadExternalPayloadDetailsSizebytes == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.payloadExternalPayloadDetailsSizebytes))
-    + unknownFieldsSize msg.payloadExternalPayloadDetailsUnknownfields
+    (if msg.payloadExternalPayloadDetailsSizeBytes == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.payloadExternalPayloadDetailsSizeBytes))
+    + unknownFieldsSize msg.payloadExternalPayloadDetailsUnknownFields
 
 instance MessageDecode Payload'ExternalPayloadDetails where
   {-# INLINE messageDecoder #-}
@@ -265,7 +265,7 @@ instance MessageDecode Payload'ExternalPayloadDetails where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Payload'ExternalPayloadDetails {payloadExternalPayloadDetailsSizebytes = acc_0, payloadExternalPayloadDetailsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Payload'ExternalPayloadDetails {payloadExternalPayloadDetailsSizeBytes = acc_0, payloadExternalPayloadDetailsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -288,48 +288,48 @@ instance ProtoMessage Payload'ExternalPayloadDetails where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = payloadExternalPayloadDetailsSizebytes
-        , fdSet = \v m -> m { payloadExternalPayloadDetailsSizebytes = v }
+        , fdGet = payloadExternalPayloadDetailsSizeBytes
+        , fdSet = \v m -> m { payloadExternalPayloadDetailsSizeBytes = v }
         })
     ]
 
 instance Aeson.ToJSON Payload'ExternalPayloadDetails where
   toJSON msg = jsonObject
-      [ "sizeBytes" .=: msg.payloadExternalPayloadDetailsSizebytes
+      [ "sizeBytes" .=: msg.payloadExternalPayloadDetailsSizeBytes
 
       ]
 
 instance Aeson.FromJSON Payload'ExternalPayloadDetails where
   parseJSON = Aeson.withObject "Payload'ExternalPayloadDetails" $ \obj -> do
-    fld_payloadExternalPayloadDetailsSizebytes <- parseFieldMaybe obj "sizeBytes"
+    fld_payloadExternalPayloadDetailsSizeBytes <- parseFieldMaybe obj "sizeBytes"
     pure defaultPayload'ExternalPayloadDetails
-      { payloadExternalPayloadDetailsSizebytes = maybe (payloadExternalPayloadDetailsSizebytes defaultPayload'ExternalPayloadDetails) id fld_payloadExternalPayloadDetailsSizebytes
+      { payloadExternalPayloadDetailsSizeBytes = maybe (payloadExternalPayloadDetailsSizeBytes defaultPayload'ExternalPayloadDetails) id fld_payloadExternalPayloadDetailsSizeBytes
       }
 
 instance Hashable Payload'ExternalPayloadDetails where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.payloadExternalPayloadDetailsSizebytes
+  hashWithSalt salt msg = hashWithSalt (salt) msg.payloadExternalPayloadDetailsSizeBytes
 
 defaultPayload :: Payload
 defaultPayload = Payload
   { payloadMetadata = Map.empty
   , payloadData = ""
-  , payloadExternalpayloads = V.empty
-  , payloadUnknownfields = []
+  , payloadExternalPayloads = V.empty
+  , payloadUnknownFields = []
   }
 
 instance MessageEncode Payload where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldBytes 2 v)) mempty msg.payloadMetadata
     <> (if BS.null msg.payloadData then mempty else encodeFieldBytes 2 msg.payloadData)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.payloadExternalpayloads
-    <> encodeUnknownFields msg.payloadUnknownfields
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.payloadExternalPayloads
+    <> encodeUnknownFields msg.payloadUnknownFields
 
 instance MessageSize Payload where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldBytesSize 2 v in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.payloadMetadata)
     + (if BS.null msg.payloadData then 0 else fieldBytesSize 2 msg.payloadData)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.payloadExternalpayloads)
-    + unknownFieldsSize msg.payloadUnknownfields
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.payloadExternalPayloads)
+    + unknownFieldsSize msg.payloadUnknownFields
 
 instance MessageDecode Payload where
   {-# INLINE messageDecoder #-}
@@ -338,7 +338,7 @@ instance MessageDecode Payload where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Payload {payloadMetadata = acc_0, payloadData = acc_1, payloadExternalpayloads = acc_2, payloadUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Payload {payloadMetadata = acc_0, payloadData = acc_1, payloadExternalPayloads = acc_2, payloadUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -385,8 +385,8 @@ instance ProtoMessage Payload where
         , fdNumber = 3
         , fdTypeDesc = MessageType "ExternalPayloadDetails"
         , fdLabel = LabelRepeated
-        , fdGet = payloadExternalpayloads
-        , fdSet = \v m -> m { payloadExternalpayloads = v }
+        , fdGet = payloadExternalPayloads
+        , fdSet = \v m -> m { payloadExternalPayloads = v }
         })
     ]
 
@@ -394,45 +394,45 @@ instance Aeson.ToJSON Payload where
   toJSON msg = jsonObject
       [ bytesMapFieldToJSON "metadata" msg.payloadMetadata
       , bytesFieldToJSON "data" msg.payloadData
-      , "externalPayloads" .=: msg.payloadExternalpayloads
+      , "externalPayloads" .=: msg.payloadExternalPayloads
       ]
 
 instance Aeson.FromJSON Payload where
   parseJSON = Aeson.withObject "Payload" $ \obj -> do
     fld_payloadMetadata <- parseBytesMapFieldMaybe obj "metadata"
     fld_payloadData <- parseBytesFieldMaybe obj "data"
-    fld_payloadExternalpayloads <- parseFieldMaybe obj "externalPayloads"
+    fld_payloadExternalPayloads <- parseFieldMaybe obj "externalPayloads"
     pure defaultPayload
       { payloadMetadata = maybe (payloadMetadata defaultPayload) id fld_payloadMetadata
       , payloadData = maybe (payloadData defaultPayload) id fld_payloadData
-      , payloadExternalpayloads = maybe (payloadExternalpayloads defaultPayload) id fld_payloadExternalpayloads
+      , payloadExternalPayloads = maybe (payloadExternalPayloads defaultPayload) id fld_payloadExternalPayloads
       }
 
 instance Hashable Payload where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.payloadMetadata) msg.payloadData) msg.payloadExternalpayloads
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.payloadMetadata) msg.payloadData) msg.payloadExternalPayloads
 
 data SearchAttributes = SearchAttributes
-  { searchAttributesIndexedfields :: !(Map.Map Text Payload)
-  , searchAttributesUnknownfields :: ![UnknownField]
+  { searchAttributesIndexedFields :: !(Map.Map Text Payload)
+  , searchAttributesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultSearchAttributes :: SearchAttributes
 defaultSearchAttributes = SearchAttributes
-  { searchAttributesIndexedfields = Map.empty
-  , searchAttributesUnknownfields = []
+  { searchAttributesIndexedFields = Map.empty
+  , searchAttributesUnknownFields = []
   }
 
 instance MessageEncode SearchAttributes where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.searchAttributesIndexedfields
-    <> encodeUnknownFields msg.searchAttributesUnknownfields
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.searchAttributesIndexedFields
+    <> encodeUnknownFields msg.searchAttributesUnknownFields
 
 instance MessageSize SearchAttributes where
   messageSize msg =
-    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.searchAttributesIndexedfields)
-    + unknownFieldsSize msg.searchAttributesUnknownfields
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.searchAttributesIndexedFields)
+    + unknownFieldsSize msg.searchAttributesUnknownFields
 
 instance MessageDecode SearchAttributes where
   {-# INLINE messageDecoder #-}
@@ -441,7 +441,7 @@ instance MessageDecode SearchAttributes where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (SearchAttributes {searchAttributesIndexedfields = acc_0, searchAttributesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (SearchAttributes {searchAttributesIndexedFields = acc_0, searchAttributesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -467,30 +467,30 @@ instance ProtoMessage SearchAttributes where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = searchAttributesIndexedfields
-        , fdSet = \v m -> m { searchAttributesIndexedfields = v }
+        , fdGet = searchAttributesIndexedFields
+        , fdSet = \v m -> m { searchAttributesIndexedFields = v }
         })
     ]
 
 instance Aeson.ToJSON SearchAttributes where
   toJSON msg = jsonObject
-      [ "indexedFields" .=: msg.searchAttributesIndexedfields
+      [ "indexedFields" .=: msg.searchAttributesIndexedFields
 
       ]
 
 instance Aeson.FromJSON SearchAttributes where
   parseJSON = Aeson.withObject "SearchAttributes" $ \obj -> do
-    fld_searchAttributesIndexedfields <- parseFieldMaybe obj "indexedFields"
+    fld_searchAttributesIndexedFields <- parseFieldMaybe obj "indexedFields"
     pure defaultSearchAttributes
-      { searchAttributesIndexedfields = maybe (searchAttributesIndexedfields defaultSearchAttributes) id fld_searchAttributesIndexedfields
+      { searchAttributesIndexedFields = maybe (searchAttributesIndexedFields defaultSearchAttributes) id fld_searchAttributesIndexedFields
       }
 
 instance Hashable SearchAttributes where
-  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.searchAttributesIndexedfields
+  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.searchAttributesIndexedFields
 
 data Memo = Memo
   { memoFields :: !(Map.Map Text Payload)
-  , memoUnknownfields :: ![UnknownField]
+  , memoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -498,18 +498,18 @@ data Memo = Memo
 defaultMemo :: Memo
 defaultMemo = Memo
   { memoFields = Map.empty
-  , memoUnknownfields = []
+  , memoUnknownFields = []
   }
 
 instance MessageEncode Memo where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.memoFields
-    <> encodeUnknownFields msg.memoUnknownfields
+    <> encodeUnknownFields msg.memoUnknownFields
 
 instance MessageSize Memo where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.memoFields)
-    + unknownFieldsSize msg.memoUnknownfields
+    + unknownFieldsSize msg.memoUnknownFields
 
 instance MessageDecode Memo where
   {-# INLINE messageDecoder #-}
@@ -518,7 +518,7 @@ instance MessageDecode Memo where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Memo {memoFields = acc_0, memoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Memo {memoFields = acc_0, memoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -567,7 +567,7 @@ instance Hashable Memo where
 
 data Header = Header
   { headerFields :: !(Map.Map Text Payload)
-  , headerUnknownfields :: ![UnknownField]
+  , headerUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -575,18 +575,18 @@ data Header = Header
 defaultHeader :: Header
 defaultHeader = Header
   { headerFields = Map.empty
-  , headerUnknownfields = []
+  , headerUnknownFields = []
   }
 
 instance MessageEncode Header where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.headerFields
-    <> encodeUnknownFields msg.headerUnknownfields
+    <> encodeUnknownFields msg.headerUnknownFields
 
 instance MessageSize Header where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.headerFields)
-    + unknownFieldsSize msg.headerUnknownfields
+    + unknownFieldsSize msg.headerUnknownFields
 
 instance MessageDecode Header where
   {-# INLINE messageDecoder #-}
@@ -595,7 +595,7 @@ instance MessageDecode Header where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Header {headerFields = acc_0, headerUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Header {headerFields = acc_0, headerUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -643,31 +643,31 @@ instance Hashable Header where
   hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.headerFields
 
 data WorkflowExecution = WorkflowExecution
-  { workflowExecutionWorkflowid :: !Text
-  , workflowExecutionRunid :: !Text
-  , workflowExecutionUnknownfields :: ![UnknownField]
+  { workflowExecutionWorkflowId :: !Text
+  , workflowExecutionRunId :: !Text
+  , workflowExecutionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowExecution :: WorkflowExecution
 defaultWorkflowExecution = WorkflowExecution
-  { workflowExecutionWorkflowid = ""
-  , workflowExecutionRunid = ""
-  , workflowExecutionUnknownfields = []
+  { workflowExecutionWorkflowId = ""
+  , workflowExecutionRunId = ""
+  , workflowExecutionUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecution where
   buildMessage msg =
-    (if msg.workflowExecutionWorkflowid == T.empty then mempty else encodeFieldString 1 msg.workflowExecutionWorkflowid)
-    <> (if msg.workflowExecutionRunid == T.empty then mempty else encodeFieldString 2 msg.workflowExecutionRunid)
-    <> encodeUnknownFields msg.workflowExecutionUnknownfields
+    (if msg.workflowExecutionWorkflowId == T.empty then mempty else encodeFieldString 1 msg.workflowExecutionWorkflowId)
+    <> (if msg.workflowExecutionRunId == T.empty then mempty else encodeFieldString 2 msg.workflowExecutionRunId)
+    <> encodeUnknownFields msg.workflowExecutionUnknownFields
 
 instance MessageSize WorkflowExecution where
   messageSize msg =
-    (if msg.workflowExecutionWorkflowid == T.empty then 0 else fieldTextSize 1 msg.workflowExecutionWorkflowid)
-    + (if msg.workflowExecutionRunid == T.empty then 0 else fieldTextSize 2 msg.workflowExecutionRunid)
-    + unknownFieldsSize msg.workflowExecutionUnknownfields
+    (if msg.workflowExecutionWorkflowId == T.empty then 0 else fieldTextSize 1 msg.workflowExecutionWorkflowId)
+    + (if msg.workflowExecutionRunId == T.empty then 0 else fieldTextSize 2 msg.workflowExecutionRunId)
+    + unknownFieldsSize msg.workflowExecutionUnknownFields
 
 instance MessageDecode WorkflowExecution where
   {-# INLINE messageDecoder #-}
@@ -676,7 +676,7 @@ instance MessageDecode WorkflowExecution where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecution {workflowExecutionWorkflowid = acc_0, workflowExecutionRunid = acc_1, workflowExecutionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecution {workflowExecutionWorkflowId = acc_0, workflowExecutionRunId = acc_1, workflowExecutionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -702,39 +702,39 @@ instance ProtoMessage WorkflowExecution where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionWorkflowid
-        , fdSet = \v m -> m { workflowExecutionWorkflowid = v }
+        , fdGet = workflowExecutionWorkflowId
+        , fdSet = \v m -> m { workflowExecutionWorkflowId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionRunid
-        , fdSet = \v m -> m { workflowExecutionRunid = v }
+        , fdGet = workflowExecutionRunId
+        , fdSet = \v m -> m { workflowExecutionRunId = v }
         })
     ]
 
 instance Aeson.ToJSON WorkflowExecution where
   toJSON msg = jsonObject
-      [ "workflowId" .=: msg.workflowExecutionWorkflowid
-      , "runId" .=: msg.workflowExecutionRunid
+      [ "workflowId" .=: msg.workflowExecutionWorkflowId
+      , "runId" .=: msg.workflowExecutionRunId
       ]
 
 instance Aeson.FromJSON WorkflowExecution where
   parseJSON = Aeson.withObject "WorkflowExecution" $ \obj -> do
-    fld_workflowExecutionWorkflowid <- parseFieldMaybe obj "workflowId"
-    fld_workflowExecutionRunid <- parseFieldMaybe obj "runId"
+    fld_workflowExecutionWorkflowId <- parseFieldMaybe obj "workflowId"
+    fld_workflowExecutionRunId <- parseFieldMaybe obj "runId"
     pure defaultWorkflowExecution
-      { workflowExecutionWorkflowid = maybe (workflowExecutionWorkflowid defaultWorkflowExecution) id fld_workflowExecutionWorkflowid
-      , workflowExecutionRunid = maybe (workflowExecutionRunid defaultWorkflowExecution) id fld_workflowExecutionRunid
+      { workflowExecutionWorkflowId = maybe (workflowExecutionWorkflowId defaultWorkflowExecution) id fld_workflowExecutionWorkflowId
+      , workflowExecutionRunId = maybe (workflowExecutionRunId defaultWorkflowExecution) id fld_workflowExecutionRunId
       }
 
 instance Hashable WorkflowExecution where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowExecutionWorkflowid) msg.workflowExecutionRunid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowExecutionWorkflowId) msg.workflowExecutionRunId
 
 data WorkflowType = WorkflowType
   { workflowTypeName :: !Text
-  , workflowTypeUnknownfields :: ![UnknownField]
+  , workflowTypeUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -742,18 +742,18 @@ data WorkflowType = WorkflowType
 defaultWorkflowType :: WorkflowType
 defaultWorkflowType = WorkflowType
   { workflowTypeName = ""
-  , workflowTypeUnknownfields = []
+  , workflowTypeUnknownFields = []
   }
 
 instance MessageEncode WorkflowType where
   buildMessage msg =
     (if msg.workflowTypeName == T.empty then mempty else encodeFieldString 1 msg.workflowTypeName)
-    <> encodeUnknownFields msg.workflowTypeUnknownfields
+    <> encodeUnknownFields msg.workflowTypeUnknownFields
 
 instance MessageSize WorkflowType where
   messageSize msg =
     (if msg.workflowTypeName == T.empty then 0 else fieldTextSize 1 msg.workflowTypeName)
-    + unknownFieldsSize msg.workflowTypeUnknownfields
+    + unknownFieldsSize msg.workflowTypeUnknownFields
 
 instance MessageDecode WorkflowType where
   {-# INLINE messageDecoder #-}
@@ -762,7 +762,7 @@ instance MessageDecode WorkflowType where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowType {workflowTypeName = acc_0, workflowTypeUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowType {workflowTypeName = acc_0, workflowTypeUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -808,7 +808,7 @@ instance Hashable WorkflowType where
 
 data ActivityType = ActivityType
   { activityTypeName :: !Text
-  , activityTypeUnknownfields :: ![UnknownField]
+  , activityTypeUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -816,18 +816,18 @@ data ActivityType = ActivityType
 defaultActivityType :: ActivityType
 defaultActivityType = ActivityType
   { activityTypeName = ""
-  , activityTypeUnknownfields = []
+  , activityTypeUnknownFields = []
   }
 
 instance MessageEncode ActivityType where
   buildMessage msg =
     (if msg.activityTypeName == T.empty then mempty else encodeFieldString 1 msg.activityTypeName)
-    <> encodeUnknownFields msg.activityTypeUnknownfields
+    <> encodeUnknownFields msg.activityTypeUnknownFields
 
 instance MessageSize ActivityType where
   messageSize msg =
     (if msg.activityTypeName == T.empty then 0 else fieldTextSize 1 msg.activityTypeName)
-    + unknownFieldsSize msg.activityTypeUnknownfields
+    + unknownFieldsSize msg.activityTypeUnknownFields
 
 instance MessageDecode ActivityType where
   {-# INLINE messageDecoder #-}
@@ -836,7 +836,7 @@ instance MessageDecode ActivityType where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ActivityType {activityTypeName = acc_0, activityTypeUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ActivityType {activityTypeName = acc_0, activityTypeUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -881,43 +881,43 @@ instance Hashable ActivityType where
   hashWithSalt salt msg = hashWithSalt (salt) msg.activityTypeName
 
 data RetryPolicy = RetryPolicy
-  { retryPolicyInitialinterval :: !(Maybe PB_Duration.Duration)
-  , retryPolicyBackoffcoefficient :: {-# UNPACK #-} !Double
-  , retryPolicyMaximuminterval :: !(Maybe PB_Duration.Duration)
-  , retryPolicyMaximumattempts :: {-# UNPACK #-} !Int32
-  , retryPolicyNonretryableerrortypes :: !(V.Vector Text)
-  , retryPolicyUnknownfields :: ![UnknownField]
+  { retryPolicyInitialInterval :: !(Maybe PB_Duration.Duration)
+  , retryPolicyBackoffCoefficient :: {-# UNPACK #-} !Double
+  , retryPolicyMaximumInterval :: !(Maybe PB_Duration.Duration)
+  , retryPolicyMaximumAttempts :: {-# UNPACK #-} !Int32
+  , retryPolicyNonRetryableErrorTypes :: !(V.Vector Text)
+  , retryPolicyUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRetryPolicy :: RetryPolicy
 defaultRetryPolicy = RetryPolicy
-  { retryPolicyInitialinterval = Nothing
-  , retryPolicyBackoffcoefficient = 0
-  , retryPolicyMaximuminterval = Nothing
-  , retryPolicyMaximumattempts = 0
-  , retryPolicyNonretryableerrortypes = V.empty
-  , retryPolicyUnknownfields = []
+  { retryPolicyInitialInterval = Nothing
+  , retryPolicyBackoffCoefficient = 0
+  , retryPolicyMaximumInterval = Nothing
+  , retryPolicyMaximumAttempts = 0
+  , retryPolicyNonRetryableErrorTypes = V.empty
+  , retryPolicyUnknownFields = []
   }
 
 instance MessageEncode RetryPolicy where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.retryPolicyInitialinterval)
-    <> (if msg.retryPolicyBackoffcoefficient == 0 then mempty else encodeFieldDouble 2 msg.retryPolicyBackoffcoefficient)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.retryPolicyMaximuminterval)
-    <> (if msg.retryPolicyMaximumattempts == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.retryPolicyMaximumattempts))
-    <> V.foldl' (\acc v -> acc <> encodeFieldString 5 v) mempty msg.retryPolicyNonretryableerrortypes
-    <> encodeUnknownFields msg.retryPolicyUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.retryPolicyInitialInterval)
+    <> (if msg.retryPolicyBackoffCoefficient == 0 then mempty else encodeFieldDouble 2 msg.retryPolicyBackoffCoefficient)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.retryPolicyMaximumInterval)
+    <> (if msg.retryPolicyMaximumAttempts == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.retryPolicyMaximumAttempts))
+    <> V.foldl' (\acc v -> acc <> encodeFieldString 5 v) mempty msg.retryPolicyNonRetryableErrorTypes
+    <> encodeUnknownFields msg.retryPolicyUnknownFields
 
 instance MessageSize RetryPolicy where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.retryPolicyInitialinterval)
-    + (if msg.retryPolicyBackoffcoefficient == 0 then 0 else fieldDoubleSize 2)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.retryPolicyMaximuminterval)
-    + (if msg.retryPolicyMaximumattempts == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.retryPolicyMaximumattempts))
-    + (V.foldl' (\acc v -> acc + fieldTextSize 5 v) 0 msg.retryPolicyNonretryableerrortypes)
-    + unknownFieldsSize msg.retryPolicyUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.retryPolicyInitialInterval)
+    + (if msg.retryPolicyBackoffCoefficient == 0 then 0 else fieldDoubleSize 2)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.retryPolicyMaximumInterval)
+    + (if msg.retryPolicyMaximumAttempts == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.retryPolicyMaximumAttempts))
+    + (V.foldl' (\acc v -> acc + fieldTextSize 5 v) 0 msg.retryPolicyNonRetryableErrorTypes)
+    + unknownFieldsSize msg.retryPolicyUnknownFields
 
 instance MessageDecode RetryPolicy where
   {-# INLINE messageDecoder #-}
@@ -926,7 +926,7 @@ instance MessageDecode RetryPolicy where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RetryPolicy {retryPolicyInitialinterval = acc_0, retryPolicyBackoffcoefficient = acc_1, retryPolicyMaximuminterval = acc_2, retryPolicyMaximumattempts = acc_3, retryPolicyNonretryableerrortypes = acc_4, retryPolicyUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RetryPolicy {retryPolicyInitialInterval = acc_0, retryPolicyBackoffCoefficient = acc_1, retryPolicyMaximumInterval = acc_2, retryPolicyMaximumAttempts = acc_3, retryPolicyNonRetryableErrorTypes = acc_4, retryPolicyUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -961,91 +961,91 @@ instance ProtoMessage RetryPolicy where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = retryPolicyInitialinterval
-        , fdSet = \v m -> m { retryPolicyInitialinterval = v }
+        , fdGet = retryPolicyInitialInterval
+        , fdSet = \v m -> m { retryPolicyInitialInterval = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "backoff_coefficient"
         , fdNumber = 2
         , fdTypeDesc = ScalarType DoubleField
         , fdLabel = LabelOptional
-        , fdGet = retryPolicyBackoffcoefficient
-        , fdSet = \v m -> m { retryPolicyBackoffcoefficient = v }
+        , fdGet = retryPolicyBackoffCoefficient
+        , fdSet = \v m -> m { retryPolicyBackoffCoefficient = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "maximum_interval"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = retryPolicyMaximuminterval
-        , fdSet = \v m -> m { retryPolicyMaximuminterval = v }
+        , fdGet = retryPolicyMaximumInterval
+        , fdSet = \v m -> m { retryPolicyMaximumInterval = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "maximum_attempts"
         , fdNumber = 4
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = retryPolicyMaximumattempts
-        , fdSet = \v m -> m { retryPolicyMaximumattempts = v }
+        , fdGet = retryPolicyMaximumAttempts
+        , fdSet = \v m -> m { retryPolicyMaximumAttempts = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "non_retryable_error_types"
         , fdNumber = 5
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelRepeated
-        , fdGet = retryPolicyNonretryableerrortypes
-        , fdSet = \v m -> m { retryPolicyNonretryableerrortypes = v }
+        , fdGet = retryPolicyNonRetryableErrorTypes
+        , fdSet = \v m -> m { retryPolicyNonRetryableErrorTypes = v }
         })
     ]
 
 instance Aeson.ToJSON RetryPolicy where
   toJSON msg = jsonObject
-      [ "initialInterval" .=: msg.retryPolicyInitialinterval
-      , "backoffCoefficient" .=: msg.retryPolicyBackoffcoefficient
-      , "maximumInterval" .=: msg.retryPolicyMaximuminterval
-      , "maximumAttempts" .=: msg.retryPolicyMaximumattempts
-      , "nonRetryableErrorTypes" .=: msg.retryPolicyNonretryableerrortypes
+      [ "initialInterval" .=: msg.retryPolicyInitialInterval
+      , "backoffCoefficient" .=: msg.retryPolicyBackoffCoefficient
+      , "maximumInterval" .=: msg.retryPolicyMaximumInterval
+      , "maximumAttempts" .=: msg.retryPolicyMaximumAttempts
+      , "nonRetryableErrorTypes" .=: msg.retryPolicyNonRetryableErrorTypes
       ]
 
 instance Aeson.FromJSON RetryPolicy where
   parseJSON = Aeson.withObject "RetryPolicy" $ \obj -> do
-    fld_retryPolicyInitialinterval <- parseFieldMaybe obj "initialInterval"
-    fld_retryPolicyBackoffcoefficient <- parseFieldMaybe obj "backoffCoefficient"
-    fld_retryPolicyMaximuminterval <- parseFieldMaybe obj "maximumInterval"
-    fld_retryPolicyMaximumattempts <- parseFieldMaybe obj "maximumAttempts"
-    fld_retryPolicyNonretryableerrortypes <- parseFieldMaybe obj "nonRetryableErrorTypes"
+    fld_retryPolicyInitialInterval <- parseFieldMaybe obj "initialInterval"
+    fld_retryPolicyBackoffCoefficient <- parseFieldMaybe obj "backoffCoefficient"
+    fld_retryPolicyMaximumInterval <- parseFieldMaybe obj "maximumInterval"
+    fld_retryPolicyMaximumAttempts <- parseFieldMaybe obj "maximumAttempts"
+    fld_retryPolicyNonRetryableErrorTypes <- parseFieldMaybe obj "nonRetryableErrorTypes"
     pure defaultRetryPolicy
-      { retryPolicyInitialinterval = maybe (retryPolicyInitialinterval defaultRetryPolicy) id fld_retryPolicyInitialinterval
-      , retryPolicyBackoffcoefficient = maybe (retryPolicyBackoffcoefficient defaultRetryPolicy) id fld_retryPolicyBackoffcoefficient
-      , retryPolicyMaximuminterval = maybe (retryPolicyMaximuminterval defaultRetryPolicy) id fld_retryPolicyMaximuminterval
-      , retryPolicyMaximumattempts = maybe (retryPolicyMaximumattempts defaultRetryPolicy) id fld_retryPolicyMaximumattempts
-      , retryPolicyNonretryableerrortypes = maybe (retryPolicyNonretryableerrortypes defaultRetryPolicy) id fld_retryPolicyNonretryableerrortypes
+      { retryPolicyInitialInterval = maybe (retryPolicyInitialInterval defaultRetryPolicy) id fld_retryPolicyInitialInterval
+      , retryPolicyBackoffCoefficient = maybe (retryPolicyBackoffCoefficient defaultRetryPolicy) id fld_retryPolicyBackoffCoefficient
+      , retryPolicyMaximumInterval = maybe (retryPolicyMaximumInterval defaultRetryPolicy) id fld_retryPolicyMaximumInterval
+      , retryPolicyMaximumAttempts = maybe (retryPolicyMaximumAttempts defaultRetryPolicy) id fld_retryPolicyMaximumAttempts
+      , retryPolicyNonRetryableErrorTypes = maybe (retryPolicyNonRetryableErrorTypes defaultRetryPolicy) id fld_retryPolicyNonRetryableErrorTypes
       }
 
 instance Hashable RetryPolicy where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.retryPolicyInitialinterval) msg.retryPolicyBackoffcoefficient) msg.retryPolicyMaximuminterval) msg.retryPolicyMaximumattempts) msg.retryPolicyNonretryableerrortypes
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.retryPolicyInitialInterval) msg.retryPolicyBackoffCoefficient) msg.retryPolicyMaximumInterval) msg.retryPolicyMaximumAttempts) msg.retryPolicyNonRetryableErrorTypes
 
 data MeteringMetadata = MeteringMetadata
-  { meteringMetadataNonfirstlocalactivityexecutionattempts :: {-# UNPACK #-} !Word32
-  , meteringMetadataUnknownfields :: ![UnknownField]
+  { meteringMetadataNonfirstLocalActivityExecutionAttempts :: {-# UNPACK #-} !Word32
+  , meteringMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultMeteringMetadata :: MeteringMetadata
 defaultMeteringMetadata = MeteringMetadata
-  { meteringMetadataNonfirstlocalactivityexecutionattempts = 0
-  , meteringMetadataUnknownfields = []
+  { meteringMetadataNonfirstLocalActivityExecutionAttempts = 0
+  , meteringMetadataUnknownFields = []
   }
 
 instance MessageEncode MeteringMetadata where
   buildMessage msg =
-    (if msg.meteringMetadataNonfirstlocalactivityexecutionattempts == 0 then mempty else encodeFieldVarint 13 (fromIntegral msg.meteringMetadataNonfirstlocalactivityexecutionattempts))
-    <> encodeUnknownFields msg.meteringMetadataUnknownfields
+    (if msg.meteringMetadataNonfirstLocalActivityExecutionAttempts == 0 then mempty else encodeFieldVarint 13 (fromIntegral msg.meteringMetadataNonfirstLocalActivityExecutionAttempts))
+    <> encodeUnknownFields msg.meteringMetadataUnknownFields
 
 instance MessageSize MeteringMetadata where
   messageSize msg =
-    (if msg.meteringMetadataNonfirstlocalactivityexecutionattempts == 0 then 0 else fieldVarintSize 13 (fromIntegral msg.meteringMetadataNonfirstlocalactivityexecutionattempts))
-    + unknownFieldsSize msg.meteringMetadataUnknownfields
+    (if msg.meteringMetadataNonfirstLocalActivityExecutionAttempts == 0 then 0 else fieldVarintSize 13 (fromIntegral msg.meteringMetadataNonfirstLocalActivityExecutionAttempts))
+    + unknownFieldsSize msg.meteringMetadataUnknownFields
 
 instance MessageDecode MeteringMetadata where
   {-# INLINE messageDecoder #-}
@@ -1054,7 +1054,7 @@ instance MessageDecode MeteringMetadata where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (MeteringMetadata {meteringMetadataNonfirstlocalactivityexecutionattempts = acc_0, meteringMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (MeteringMetadata {meteringMetadataNonfirstLocalActivityExecutionAttempts = acc_0, meteringMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             13 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -1077,53 +1077,53 @@ instance ProtoMessage MeteringMetadata where
         , fdNumber = 13
         , fdTypeDesc = ScalarType UInt32Field
         , fdLabel = LabelOptional
-        , fdGet = meteringMetadataNonfirstlocalactivityexecutionattempts
-        , fdSet = \v m -> m { meteringMetadataNonfirstlocalactivityexecutionattempts = v }
+        , fdGet = meteringMetadataNonfirstLocalActivityExecutionAttempts
+        , fdSet = \v m -> m { meteringMetadataNonfirstLocalActivityExecutionAttempts = v }
         })
     ]
 
 instance Aeson.ToJSON MeteringMetadata where
   toJSON msg = jsonObject
-      [ "nonfirstLocalActivityExecutionAttempts" .=: msg.meteringMetadataNonfirstlocalactivityexecutionattempts
+      [ "nonfirstLocalActivityExecutionAttempts" .=: msg.meteringMetadataNonfirstLocalActivityExecutionAttempts
 
       ]
 
 instance Aeson.FromJSON MeteringMetadata where
   parseJSON = Aeson.withObject "MeteringMetadata" $ \obj -> do
-    fld_meteringMetadataNonfirstlocalactivityexecutionattempts <- parseFieldMaybe obj "nonfirstLocalActivityExecutionAttempts"
+    fld_meteringMetadataNonfirstLocalActivityExecutionAttempts <- parseFieldMaybe obj "nonfirstLocalActivityExecutionAttempts"
     pure defaultMeteringMetadata
-      { meteringMetadataNonfirstlocalactivityexecutionattempts = maybe (meteringMetadataNonfirstlocalactivityexecutionattempts defaultMeteringMetadata) id fld_meteringMetadataNonfirstlocalactivityexecutionattempts
+      { meteringMetadataNonfirstLocalActivityExecutionAttempts = maybe (meteringMetadataNonfirstLocalActivityExecutionAttempts defaultMeteringMetadata) id fld_meteringMetadataNonfirstLocalActivityExecutionAttempts
       }
 
 instance Hashable MeteringMetadata where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.meteringMetadataNonfirstlocalactivityexecutionattempts
+  hashWithSalt salt msg = hashWithSalt (salt) msg.meteringMetadataNonfirstLocalActivityExecutionAttempts
 
 data WorkerVersionStamp = WorkerVersionStamp
-  { workerVersionStampBuildid :: !Text
-  , workerVersionStampUseversioning :: {-# UNPACK #-} !Bool
-  , workerVersionStampUnknownfields :: ![UnknownField]
+  { workerVersionStampBuildId :: !Text
+  , workerVersionStampUseVersioning :: {-# UNPACK #-} !Bool
+  , workerVersionStampUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerVersionStamp :: WorkerVersionStamp
 defaultWorkerVersionStamp = WorkerVersionStamp
-  { workerVersionStampBuildid = ""
-  , workerVersionStampUseversioning = False
-  , workerVersionStampUnknownfields = []
+  { workerVersionStampBuildId = ""
+  , workerVersionStampUseVersioning = False
+  , workerVersionStampUnknownFields = []
   }
 
 instance MessageEncode WorkerVersionStamp where
   buildMessage msg =
-    (if msg.workerVersionStampBuildid == T.empty then mempty else encodeFieldString 1 msg.workerVersionStampBuildid)
-    <> (if msg.workerVersionStampUseversioning == False then mempty else encodeFieldBool 3 msg.workerVersionStampUseversioning)
-    <> encodeUnknownFields msg.workerVersionStampUnknownfields
+    (if msg.workerVersionStampBuildId == T.empty then mempty else encodeFieldString 1 msg.workerVersionStampBuildId)
+    <> (if msg.workerVersionStampUseVersioning == False then mempty else encodeFieldBool 3 msg.workerVersionStampUseVersioning)
+    <> encodeUnknownFields msg.workerVersionStampUnknownFields
 
 instance MessageSize WorkerVersionStamp where
   messageSize msg =
-    (if msg.workerVersionStampBuildid == T.empty then 0 else fieldTextSize 1 msg.workerVersionStampBuildid)
-    + (if msg.workerVersionStampUseversioning == False then 0 else fieldBoolSize 3)
-    + unknownFieldsSize msg.workerVersionStampUnknownfields
+    (if msg.workerVersionStampBuildId == T.empty then 0 else fieldTextSize 1 msg.workerVersionStampBuildId)
+    + (if msg.workerVersionStampUseVersioning == False then 0 else fieldBoolSize 3)
+    + unknownFieldsSize msg.workerVersionStampUnknownFields
 
 instance MessageDecode WorkerVersionStamp where
   {-# INLINE messageDecoder #-}
@@ -1132,7 +1132,7 @@ instance MessageDecode WorkerVersionStamp where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerVersionStamp {workerVersionStampBuildid = acc_0, workerVersionStampUseversioning = acc_1, workerVersionStampUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerVersionStamp {workerVersionStampBuildId = acc_0, workerVersionStampUseVersioning = acc_1, workerVersionStampUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1158,66 +1158,66 @@ instance ProtoMessage WorkerVersionStamp where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerVersionStampBuildid
-        , fdSet = \v m -> m { workerVersionStampBuildid = v }
+        , fdGet = workerVersionStampBuildId
+        , fdSet = \v m -> m { workerVersionStampBuildId = v }
         }), (3, SomeField FieldDescriptor
         { fdName = "use_versioning"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = workerVersionStampUseversioning
-        , fdSet = \v m -> m { workerVersionStampUseversioning = v }
+        , fdGet = workerVersionStampUseVersioning
+        , fdSet = \v m -> m { workerVersionStampUseVersioning = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerVersionStamp where
   toJSON msg = jsonObject
-      [ "buildId" .=: msg.workerVersionStampBuildid
-      , "useVersioning" .=: msg.workerVersionStampUseversioning
+      [ "buildId" .=: msg.workerVersionStampBuildId
+      , "useVersioning" .=: msg.workerVersionStampUseVersioning
       ]
 
 instance Aeson.FromJSON WorkerVersionStamp where
   parseJSON = Aeson.withObject "WorkerVersionStamp" $ \obj -> do
-    fld_workerVersionStampBuildid <- parseFieldMaybe obj "buildId"
-    fld_workerVersionStampUseversioning <- parseFieldMaybe obj "useVersioning"
+    fld_workerVersionStampBuildId <- parseFieldMaybe obj "buildId"
+    fld_workerVersionStampUseVersioning <- parseFieldMaybe obj "useVersioning"
     pure defaultWorkerVersionStamp
-      { workerVersionStampBuildid = maybe (workerVersionStampBuildid defaultWorkerVersionStamp) id fld_workerVersionStampBuildid
-      , workerVersionStampUseversioning = maybe (workerVersionStampUseversioning defaultWorkerVersionStamp) id fld_workerVersionStampUseversioning
+      { workerVersionStampBuildId = maybe (workerVersionStampBuildId defaultWorkerVersionStamp) id fld_workerVersionStampBuildId
+      , workerVersionStampUseVersioning = maybe (workerVersionStampUseVersioning defaultWorkerVersionStamp) id fld_workerVersionStampUseVersioning
       }
 
 instance Hashable WorkerVersionStamp where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workerVersionStampBuildid) msg.workerVersionStampUseversioning
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workerVersionStampBuildId) msg.workerVersionStampUseVersioning
 
 data WorkerVersionCapabilities = WorkerVersionCapabilities
-  { workerVersionCapabilitiesBuildid :: !Text
-  , workerVersionCapabilitiesUseversioning :: {-# UNPACK #-} !Bool
-  , workerVersionCapabilitiesDeploymentseriesname :: !Text
-  , workerVersionCapabilitiesUnknownfields :: ![UnknownField]
+  { workerVersionCapabilitiesBuildId :: !Text
+  , workerVersionCapabilitiesUseVersioning :: {-# UNPACK #-} !Bool
+  , workerVersionCapabilitiesDeploymentSeriesName :: !Text
+  , workerVersionCapabilitiesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerVersionCapabilities :: WorkerVersionCapabilities
 defaultWorkerVersionCapabilities = WorkerVersionCapabilities
-  { workerVersionCapabilitiesBuildid = ""
-  , workerVersionCapabilitiesUseversioning = False
-  , workerVersionCapabilitiesDeploymentseriesname = ""
-  , workerVersionCapabilitiesUnknownfields = []
+  { workerVersionCapabilitiesBuildId = ""
+  , workerVersionCapabilitiesUseVersioning = False
+  , workerVersionCapabilitiesDeploymentSeriesName = ""
+  , workerVersionCapabilitiesUnknownFields = []
   }
 
 instance MessageEncode WorkerVersionCapabilities where
   buildMessage msg =
-    (if msg.workerVersionCapabilitiesBuildid == T.empty then mempty else encodeFieldString 1 msg.workerVersionCapabilitiesBuildid)
-    <> (if msg.workerVersionCapabilitiesUseversioning == False then mempty else encodeFieldBool 2 msg.workerVersionCapabilitiesUseversioning)
-    <> (if msg.workerVersionCapabilitiesDeploymentseriesname == T.empty then mempty else encodeFieldString 4 msg.workerVersionCapabilitiesDeploymentseriesname)
-    <> encodeUnknownFields msg.workerVersionCapabilitiesUnknownfields
+    (if msg.workerVersionCapabilitiesBuildId == T.empty then mempty else encodeFieldString 1 msg.workerVersionCapabilitiesBuildId)
+    <> (if msg.workerVersionCapabilitiesUseVersioning == False then mempty else encodeFieldBool 2 msg.workerVersionCapabilitiesUseVersioning)
+    <> (if msg.workerVersionCapabilitiesDeploymentSeriesName == T.empty then mempty else encodeFieldString 4 msg.workerVersionCapabilitiesDeploymentSeriesName)
+    <> encodeUnknownFields msg.workerVersionCapabilitiesUnknownFields
 
 instance MessageSize WorkerVersionCapabilities where
   messageSize msg =
-    (if msg.workerVersionCapabilitiesBuildid == T.empty then 0 else fieldTextSize 1 msg.workerVersionCapabilitiesBuildid)
-    + (if msg.workerVersionCapabilitiesUseversioning == False then 0 else fieldBoolSize 2)
-    + (if msg.workerVersionCapabilitiesDeploymentseriesname == T.empty then 0 else fieldTextSize 4 msg.workerVersionCapabilitiesDeploymentseriesname)
-    + unknownFieldsSize msg.workerVersionCapabilitiesUnknownfields
+    (if msg.workerVersionCapabilitiesBuildId == T.empty then 0 else fieldTextSize 1 msg.workerVersionCapabilitiesBuildId)
+    + (if msg.workerVersionCapabilitiesUseVersioning == False then 0 else fieldBoolSize 2)
+    + (if msg.workerVersionCapabilitiesDeploymentSeriesName == T.empty then 0 else fieldTextSize 4 msg.workerVersionCapabilitiesDeploymentSeriesName)
+    + unknownFieldsSize msg.workerVersionCapabilitiesUnknownFields
 
 instance MessageDecode WorkerVersionCapabilities where
   {-# INLINE messageDecoder #-}
@@ -1226,7 +1226,7 @@ instance MessageDecode WorkerVersionCapabilities where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerVersionCapabilities {workerVersionCapabilitiesBuildid = acc_0, workerVersionCapabilitiesUseversioning = acc_1, workerVersionCapabilitiesDeploymentseriesname = acc_2, workerVersionCapabilitiesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerVersionCapabilities {workerVersionCapabilitiesBuildId = acc_0, workerVersionCapabilitiesUseVersioning = acc_1, workerVersionCapabilitiesDeploymentSeriesName = acc_2, workerVersionCapabilitiesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1255,53 +1255,53 @@ instance ProtoMessage WorkerVersionCapabilities where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerVersionCapabilitiesBuildid
-        , fdSet = \v m -> m { workerVersionCapabilitiesBuildid = v }
+        , fdGet = workerVersionCapabilitiesBuildId
+        , fdSet = \v m -> m { workerVersionCapabilitiesBuildId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "use_versioning"
         , fdNumber = 2
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = workerVersionCapabilitiesUseversioning
-        , fdSet = \v m -> m { workerVersionCapabilitiesUseversioning = v }
+        , fdGet = workerVersionCapabilitiesUseVersioning
+        , fdSet = \v m -> m { workerVersionCapabilitiesUseVersioning = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "deployment_series_name"
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerVersionCapabilitiesDeploymentseriesname
-        , fdSet = \v m -> m { workerVersionCapabilitiesDeploymentseriesname = v }
+        , fdGet = workerVersionCapabilitiesDeploymentSeriesName
+        , fdSet = \v m -> m { workerVersionCapabilitiesDeploymentSeriesName = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerVersionCapabilities where
   toJSON msg = jsonObject
-      [ "buildId" .=: msg.workerVersionCapabilitiesBuildid
-      , "useVersioning" .=: msg.workerVersionCapabilitiesUseversioning
-      , "deploymentSeriesName" .=: msg.workerVersionCapabilitiesDeploymentseriesname
+      [ "buildId" .=: msg.workerVersionCapabilitiesBuildId
+      , "useVersioning" .=: msg.workerVersionCapabilitiesUseVersioning
+      , "deploymentSeriesName" .=: msg.workerVersionCapabilitiesDeploymentSeriesName
       ]
 
 instance Aeson.FromJSON WorkerVersionCapabilities where
   parseJSON = Aeson.withObject "WorkerVersionCapabilities" $ \obj -> do
-    fld_workerVersionCapabilitiesBuildid <- parseFieldMaybe obj "buildId"
-    fld_workerVersionCapabilitiesUseversioning <- parseFieldMaybe obj "useVersioning"
-    fld_workerVersionCapabilitiesDeploymentseriesname <- parseFieldMaybe obj "deploymentSeriesName"
+    fld_workerVersionCapabilitiesBuildId <- parseFieldMaybe obj "buildId"
+    fld_workerVersionCapabilitiesUseVersioning <- parseFieldMaybe obj "useVersioning"
+    fld_workerVersionCapabilitiesDeploymentSeriesName <- parseFieldMaybe obj "deploymentSeriesName"
     pure defaultWorkerVersionCapabilities
-      { workerVersionCapabilitiesBuildid = maybe (workerVersionCapabilitiesBuildid defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesBuildid
-      , workerVersionCapabilitiesUseversioning = maybe (workerVersionCapabilitiesUseversioning defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesUseversioning
-      , workerVersionCapabilitiesDeploymentseriesname = maybe (workerVersionCapabilitiesDeploymentseriesname defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesDeploymentseriesname
+      { workerVersionCapabilitiesBuildId = maybe (workerVersionCapabilitiesBuildId defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesBuildId
+      , workerVersionCapabilitiesUseVersioning = maybe (workerVersionCapabilitiesUseVersioning defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesUseVersioning
+      , workerVersionCapabilitiesDeploymentSeriesName = maybe (workerVersionCapabilitiesDeploymentSeriesName defaultWorkerVersionCapabilities) id fld_workerVersionCapabilitiesDeploymentSeriesName
       }
 
 instance Hashable WorkerVersionCapabilities where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerVersionCapabilitiesBuildid) msg.workerVersionCapabilitiesUseversioning) msg.workerVersionCapabilitiesDeploymentseriesname
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerVersionCapabilitiesBuildId) msg.workerVersionCapabilitiesUseVersioning) msg.workerVersionCapabilitiesDeploymentSeriesName
 
 data ResetOptions = ResetOptions
   { resetOptionsTarget :: !(Maybe ResetOptions'Target)
-  , resetOptionsResetreapplytype :: !TE_Enums_V1_Reset.ResetReapplyType
-  , resetOptionsCurrentrunonly :: {-# UNPACK #-} !Bool
-  , resetOptionsResetreapplyexcludetypes :: !(V.Vector TE_Enums_V1_Reset.ResetReapplyExcludeType)
-  , resetOptionsUnknownfields :: ![UnknownField]
+  , resetOptionsResetReapplyType :: !TE_Enums_V1_Reset.ResetReapplyType
+  , resetOptionsCurrentRunOnly :: {-# UNPACK #-} !Bool
+  , resetOptionsResetReapplyExcludeTypes :: !(V.Vector TE_Enums_V1_Reset.ResetReapplyExcludeType)
+  , resetOptionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1325,10 +1325,10 @@ instance Hashable ResetOptions'Target where
 defaultResetOptions :: ResetOptions
 defaultResetOptions = ResetOptions
   { resetOptionsTarget = Nothing
-  , resetOptionsResetreapplytype = (toEnum 0)
-  , resetOptionsCurrentrunonly = False
-  , resetOptionsResetreapplyexcludetypes = V.empty
-  , resetOptionsUnknownfields = []
+  , resetOptionsResetReapplyType = (toEnum 0)
+  , resetOptionsCurrentRunOnly = False
+  , resetOptionsResetReapplyExcludeTypes = V.empty
+  , resetOptionsUnknownFields = []
   }
 
 instance MessageEncode ResetOptions where
@@ -1339,10 +1339,10 @@ instance MessageEncode ResetOptions where
       Just (ResetOptions'Target'LastWorkflowTask v) -> encodeFieldMessage 2 v
       Just (ResetOptions'Target'WorkflowTaskId v) -> encodeFieldVarint 3 (fromIntegral v)
       Just (ResetOptions'Target'BuildId v) -> encodeFieldString 4 v)
-    <> (if fromEnum msg.resetOptionsResetreapplytype == 0 then mempty else encodeFieldVarint 10 (fromIntegral (fromEnum msg.resetOptionsResetreapplytype)))
-    <> (if msg.resetOptionsCurrentrunonly == False then mempty else encodeFieldBool 11 msg.resetOptionsCurrentrunonly)
-    <> V.foldl' (\acc v -> acc <> encodeFieldVarint 12 (fromIntegral (fromEnum v))) mempty msg.resetOptionsResetreapplyexcludetypes
-    <> encodeUnknownFields msg.resetOptionsUnknownfields
+    <> (if fromEnum msg.resetOptionsResetReapplyType == 0 then mempty else encodeFieldVarint 10 (fromIntegral (fromEnum msg.resetOptionsResetReapplyType)))
+    <> (if msg.resetOptionsCurrentRunOnly == False then mempty else encodeFieldBool 11 msg.resetOptionsCurrentRunOnly)
+    <> V.foldl' (\acc v -> acc <> encodeFieldVarint 12 (fromIntegral (fromEnum v))) mempty msg.resetOptionsResetReapplyExcludeTypes
+    <> encodeUnknownFields msg.resetOptionsUnknownFields
 
 instance MessageSize ResetOptions where
   messageSize msg =
@@ -1350,10 +1350,10 @@ instance MessageSize ResetOptions where
     ; Just (ResetOptions'Target'LastWorkflowTask v) -> fieldMessageSize 2 (messageSize v)
     ; Just (ResetOptions'Target'WorkflowTaskId v) -> fieldVarintSize 3 (fromIntegral v)
     ; Just (ResetOptions'Target'BuildId v) -> fieldTextSize 4 v })
-    + (if fromEnum msg.resetOptionsResetreapplytype == 0 then 0 else fieldVarintSize 10 (fromIntegral (fromEnum msg.resetOptionsResetreapplytype)))
-    + (if msg.resetOptionsCurrentrunonly == False then 0 else fieldBoolSize 11)
-    + (V.foldl' (\acc v -> acc + fieldVarintSize 12 (fromIntegral (fromEnum v))) 0 msg.resetOptionsResetreapplyexcludetypes)
-    + unknownFieldsSize msg.resetOptionsUnknownfields
+    + (if fromEnum msg.resetOptionsResetReapplyType == 0 then 0 else fieldVarintSize 10 (fromIntegral (fromEnum msg.resetOptionsResetReapplyType)))
+    + (if msg.resetOptionsCurrentRunOnly == False then 0 else fieldBoolSize 11)
+    + (V.foldl' (\acc v -> acc + fieldVarintSize 12 (fromIntegral (fromEnum v))) 0 msg.resetOptionsResetReapplyExcludeTypes)
+    + unknownFieldsSize msg.resetOptionsUnknownFields
 
 instance MessageDecode ResetOptions where
   {-# INLINE messageDecoder #-}
@@ -1362,7 +1362,7 @@ instance MessageDecode ResetOptions where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ResetOptions {resetOptionsTarget = acc_0, resetOptionsResetreapplytype = acc_1, resetOptionsCurrentrunonly = acc_2, resetOptionsResetreapplyexcludetypes = acc_3, resetOptionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ResetOptions {resetOptionsTarget = acc_0, resetOptionsResetReapplyType = acc_1, resetOptionsCurrentRunOnly = acc_2, resetOptionsResetReapplyExcludeTypes = acc_3, resetOptionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1410,55 +1410,55 @@ instance ProtoMessage ResetOptions where
         , fdNumber = 10
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ResetReapplyType"
         , fdLabel = LabelOptional
-        , fdGet = resetOptionsResetreapplytype
-        , fdSet = \v m -> m { resetOptionsResetreapplytype = v }
+        , fdGet = resetOptionsResetReapplyType
+        , fdSet = \v m -> m { resetOptionsResetReapplyType = v }
         })
     , (11, SomeField FieldDescriptor
         { fdName = "current_run_only"
         , fdNumber = 11
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = resetOptionsCurrentrunonly
-        , fdSet = \v m -> m { resetOptionsCurrentrunonly = v }
+        , fdGet = resetOptionsCurrentRunOnly
+        , fdSet = \v m -> m { resetOptionsCurrentRunOnly = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "reset_reapply_exclude_types"
         , fdNumber = 12
         , fdTypeDesc = MessageType "temporal.api.enums.v1.ResetReapplyExcludeType"
         , fdLabel = LabelRepeated
-        , fdGet = resetOptionsResetreapplyexcludetypes
-        , fdSet = \v m -> m { resetOptionsResetreapplyexcludetypes = v }
+        , fdGet = resetOptionsResetReapplyExcludeTypes
+        , fdSet = \v m -> m { resetOptionsResetReapplyExcludeTypes = v }
         })
     ]
 
 instance Aeson.ToJSON ResetOptions where
   toJSON msg = jsonObject
       [ "target" .=: msg.resetOptionsTarget
-      , "resetReapplyType" .=: msg.resetOptionsResetreapplytype
-      , "currentRunOnly" .=: msg.resetOptionsCurrentrunonly
-      , "resetReapplyExcludeTypes" .=: msg.resetOptionsResetreapplyexcludetypes
+      , "resetReapplyType" .=: msg.resetOptionsResetReapplyType
+      , "currentRunOnly" .=: msg.resetOptionsCurrentRunOnly
+      , "resetReapplyExcludeTypes" .=: msg.resetOptionsResetReapplyExcludeTypes
       ]
 
 instance Aeson.FromJSON ResetOptions where
   parseJSON = Aeson.withObject "ResetOptions" $ \obj -> do
     fld_resetOptionsTarget <- parseFieldMaybe obj "target"
-    fld_resetOptionsResetreapplytype <- parseFieldMaybe obj "resetReapplyType"
-    fld_resetOptionsCurrentrunonly <- parseFieldMaybe obj "currentRunOnly"
-    fld_resetOptionsResetreapplyexcludetypes <- parseFieldMaybe obj "resetReapplyExcludeTypes"
+    fld_resetOptionsResetReapplyType <- parseFieldMaybe obj "resetReapplyType"
+    fld_resetOptionsCurrentRunOnly <- parseFieldMaybe obj "currentRunOnly"
+    fld_resetOptionsResetReapplyExcludeTypes <- parseFieldMaybe obj "resetReapplyExcludeTypes"
     pure defaultResetOptions
       { resetOptionsTarget = maybe (resetOptionsTarget defaultResetOptions) id fld_resetOptionsTarget
-      , resetOptionsResetreapplytype = maybe (resetOptionsResetreapplytype defaultResetOptions) id fld_resetOptionsResetreapplytype
-      , resetOptionsCurrentrunonly = maybe (resetOptionsCurrentrunonly defaultResetOptions) id fld_resetOptionsCurrentrunonly
-      , resetOptionsResetreapplyexcludetypes = maybe (resetOptionsResetreapplyexcludetypes defaultResetOptions) id fld_resetOptionsResetreapplyexcludetypes
+      , resetOptionsResetReapplyType = maybe (resetOptionsResetReapplyType defaultResetOptions) id fld_resetOptionsResetReapplyType
+      , resetOptionsCurrentRunOnly = maybe (resetOptionsCurrentRunOnly defaultResetOptions) id fld_resetOptionsCurrentRunOnly
+      , resetOptionsResetReapplyExcludeTypes = maybe (resetOptionsResetReapplyExcludeTypes defaultResetOptions) id fld_resetOptionsResetReapplyExcludeTypes
       }
 
 instance Hashable ResetOptions where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.resetOptionsTarget) msg.resetOptionsResetreapplytype) msg.resetOptionsCurrentrunonly) msg.resetOptionsResetreapplyexcludetypes
+  hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.resetOptionsTarget) msg.resetOptionsResetReapplyType) msg.resetOptionsCurrentRunOnly) msg.resetOptionsResetReapplyExcludeTypes
 
 data Callback = Callback
   { callbackVariant :: !(Maybe Callback'Variant)
   , callbackLinks :: !(V.Vector Link)
-  , callbackUnknownfields :: ![UnknownField]
+  , callbackUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1466,7 +1466,7 @@ data Callback = Callback
 data Callback'Nexus = Callback'Nexus
   { callbackNexusUrl :: !Text
   , callbackNexusHeader :: !(Map.Map Text Text)
-  , callbackNexusUnknownfields :: ![UnknownField]
+  , callbackNexusUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1475,20 +1475,20 @@ defaultCallback'Nexus :: Callback'Nexus
 defaultCallback'Nexus = Callback'Nexus
   { callbackNexusUrl = ""
   , callbackNexusHeader = Map.empty
-  , callbackNexusUnknownfields = []
+  , callbackNexusUnknownFields = []
   }
 
 instance MessageEncode Callback'Nexus where
   buildMessage msg =
     (if msg.callbackNexusUrl == T.empty then mempty else encodeFieldString 1 msg.callbackNexusUrl)
     <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.callbackNexusHeader
-    <> encodeUnknownFields msg.callbackNexusUnknownfields
+    <> encodeUnknownFields msg.callbackNexusUnknownFields
 
 instance MessageSize Callback'Nexus where
   messageSize msg =
     (if msg.callbackNexusUrl == T.empty then 0 else fieldTextSize 1 msg.callbackNexusUrl)
     + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.callbackNexusHeader)
-    + unknownFieldsSize msg.callbackNexusUnknownfields
+    + unknownFieldsSize msg.callbackNexusUnknownFields
 
 instance MessageDecode Callback'Nexus where
   {-# INLINE messageDecoder #-}
@@ -1497,7 +1497,7 @@ instance MessageDecode Callback'Nexus where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Callback'Nexus {callbackNexusUrl = acc_0, callbackNexusHeader = acc_1, callbackNexusUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Callback'Nexus {callbackNexusUrl = acc_0, callbackNexusHeader = acc_1, callbackNexusUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1558,7 +1558,7 @@ instance Hashable Callback'Nexus where
 
 data Callback'Internal = Callback'Internal
   { callbackInternalData :: !ByteString
-  , callbackInternalUnknownfields :: ![UnknownField]
+  , callbackInternalUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1566,18 +1566,18 @@ data Callback'Internal = Callback'Internal
 defaultCallback'Internal :: Callback'Internal
 defaultCallback'Internal = Callback'Internal
   { callbackInternalData = ""
-  , callbackInternalUnknownfields = []
+  , callbackInternalUnknownFields = []
   }
 
 instance MessageEncode Callback'Internal where
   buildMessage msg =
     (if BS.null msg.callbackInternalData then mempty else encodeFieldBytes 1 msg.callbackInternalData)
-    <> encodeUnknownFields msg.callbackInternalUnknownfields
+    <> encodeUnknownFields msg.callbackInternalUnknownFields
 
 instance MessageSize Callback'Internal where
   messageSize msg =
     (if BS.null msg.callbackInternalData then 0 else fieldBytesSize 1 msg.callbackInternalData)
-    + unknownFieldsSize msg.callbackInternalUnknownfields
+    + unknownFieldsSize msg.callbackInternalUnknownFields
 
 instance MessageDecode Callback'Internal where
   {-# INLINE messageDecoder #-}
@@ -1586,7 +1586,7 @@ instance MessageDecode Callback'Internal where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Callback'Internal {callbackInternalData = acc_0, callbackInternalUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Callback'Internal {callbackInternalData = acc_0, callbackInternalUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBytes
@@ -1646,7 +1646,7 @@ defaultCallback :: Callback
 defaultCallback = Callback
   { callbackVariant = Nothing
   , callbackLinks = V.empty
-  , callbackUnknownfields = []
+  , callbackUnknownFields = []
   }
 
 instance MessageEncode Callback where
@@ -1656,14 +1656,14 @@ instance MessageEncode Callback where
       Just (Callback'Variant'Nexus v) -> encodeFieldMessage 2 v
       Just (Callback'Variant'Internal v) -> encodeFieldMessage 3 v)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 100 v) mempty msg.callbackLinks
-    <> encodeUnknownFields msg.callbackUnknownfields
+    <> encodeUnknownFields msg.callbackUnknownFields
 
 instance MessageSize Callback where
   messageSize msg =
     (case msg.callbackVariant of { Nothing -> 0; Just (Callback'Variant'Nexus v) -> fieldMessageSize 2 (messageSize v)
     ; Just (Callback'Variant'Internal v) -> fieldMessageSize 3 (messageSize v) })
     + (V.foldl' (\acc v -> acc + fieldMessageSize 100 (messageSize v)) 0 msg.callbackLinks)
-    + unknownFieldsSize msg.callbackUnknownfields
+    + unknownFieldsSize msg.callbackUnknownFields
 
 instance MessageDecode Callback where
   {-# INLINE messageDecoder #-}
@@ -1672,7 +1672,7 @@ instance MessageDecode Callback where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Callback {callbackVariant = acc_0, callbackLinks = acc_1, callbackUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Callback {callbackVariant = acc_0, callbackLinks = acc_1, callbackUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             2 -> do
               v <- decodeFieldMessage
@@ -1733,47 +1733,47 @@ instance Hashable Callback where
 
 data Link = Link
   { linkVariant :: !(Maybe Link'Variant)
-  , linkUnknownfields :: ![UnknownField]
+  , linkUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data Link'WorkflowEvent = Link'WorkflowEvent
   { linkWorkflowEventNamespace :: !Text
-  , linkWorkflowEventWorkflowid :: !Text
-  , linkWorkflowEventRunid :: !Text
+  , linkWorkflowEventWorkflowId :: !Text
+  , linkWorkflowEventRunId :: !Text
   , linkWorkflowEventReference :: !(Maybe Link'WorkflowEvent'Reference)
-  , linkWorkflowEventUnknownfields :: ![UnknownField]
+  , linkWorkflowEventUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data Link'WorkflowEvent'EventReference = Link'WorkflowEvent'EventReference
-  { linkWorkflowEventEventReferenceEventid :: {-# UNPACK #-} !Int64
-  , linkWorkflowEventEventReferenceEventtype :: !TE_Enums_V1_EventType.EventType
-  , linkWorkflowEventEventReferenceUnknownfields :: ![UnknownField]
+  { linkWorkflowEventEventReferenceEventId :: {-# UNPACK #-} !Int64
+  , linkWorkflowEventEventReferenceEventType :: !TE_Enums_V1_EventType.EventType
+  , linkWorkflowEventEventReferenceUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultLink'WorkflowEvent'EventReference :: Link'WorkflowEvent'EventReference
 defaultLink'WorkflowEvent'EventReference = Link'WorkflowEvent'EventReference
-  { linkWorkflowEventEventReferenceEventid = 0
-  , linkWorkflowEventEventReferenceEventtype = (toEnum 0)
-  , linkWorkflowEventEventReferenceUnknownfields = []
+  { linkWorkflowEventEventReferenceEventId = 0
+  , linkWorkflowEventEventReferenceEventType = (toEnum 0)
+  , linkWorkflowEventEventReferenceUnknownFields = []
   }
 
 instance MessageEncode Link'WorkflowEvent'EventReference where
   buildMessage msg =
-    (if msg.linkWorkflowEventEventReferenceEventid == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.linkWorkflowEventEventReferenceEventid))
-    <> (if fromEnum msg.linkWorkflowEventEventReferenceEventtype == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.linkWorkflowEventEventReferenceEventtype)))
-    <> encodeUnknownFields msg.linkWorkflowEventEventReferenceUnknownfields
+    (if msg.linkWorkflowEventEventReferenceEventId == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.linkWorkflowEventEventReferenceEventId))
+    <> (if fromEnum msg.linkWorkflowEventEventReferenceEventType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.linkWorkflowEventEventReferenceEventType)))
+    <> encodeUnknownFields msg.linkWorkflowEventEventReferenceUnknownFields
 
 instance MessageSize Link'WorkflowEvent'EventReference where
   messageSize msg =
-    (if msg.linkWorkflowEventEventReferenceEventid == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.linkWorkflowEventEventReferenceEventid))
-    + (if fromEnum msg.linkWorkflowEventEventReferenceEventtype == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.linkWorkflowEventEventReferenceEventtype)))
-    + unknownFieldsSize msg.linkWorkflowEventEventReferenceUnknownfields
+    (if msg.linkWorkflowEventEventReferenceEventId == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.linkWorkflowEventEventReferenceEventId))
+    + (if fromEnum msg.linkWorkflowEventEventReferenceEventType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.linkWorkflowEventEventReferenceEventType)))
+    + unknownFieldsSize msg.linkWorkflowEventEventReferenceUnknownFields
 
 instance MessageDecode Link'WorkflowEvent'EventReference where
   {-# INLINE messageDecoder #-}
@@ -1782,7 +1782,7 @@ instance MessageDecode Link'WorkflowEvent'EventReference where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Link'WorkflowEvent'EventReference {linkWorkflowEventEventReferenceEventid = acc_0, linkWorkflowEventEventReferenceEventtype = acc_1, linkWorkflowEventEventReferenceUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Link'WorkflowEvent'EventReference {linkWorkflowEventEventReferenceEventId = acc_0, linkWorkflowEventEventReferenceEventType = acc_1, linkWorkflowEventEventReferenceUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -1808,62 +1808,62 @@ instance ProtoMessage Link'WorkflowEvent'EventReference where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = linkWorkflowEventEventReferenceEventid
-        , fdSet = \v m -> m { linkWorkflowEventEventReferenceEventid = v }
+        , fdGet = linkWorkflowEventEventReferenceEventId
+        , fdSet = \v m -> m { linkWorkflowEventEventReferenceEventId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "event_type"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.enums.v1.EventType"
         , fdLabel = LabelOptional
-        , fdGet = linkWorkflowEventEventReferenceEventtype
-        , fdSet = \v m -> m { linkWorkflowEventEventReferenceEventtype = v }
+        , fdGet = linkWorkflowEventEventReferenceEventType
+        , fdSet = \v m -> m { linkWorkflowEventEventReferenceEventType = v }
         })
     ]
 
 instance Aeson.ToJSON Link'WorkflowEvent'EventReference where
   toJSON msg = jsonObject
-      [ "eventId" .=: msg.linkWorkflowEventEventReferenceEventid
-      , "eventType" .=: msg.linkWorkflowEventEventReferenceEventtype
+      [ "eventId" .=: msg.linkWorkflowEventEventReferenceEventId
+      , "eventType" .=: msg.linkWorkflowEventEventReferenceEventType
       ]
 
 instance Aeson.FromJSON Link'WorkflowEvent'EventReference where
   parseJSON = Aeson.withObject "Link'WorkflowEvent'EventReference" $ \obj -> do
-    fld_linkWorkflowEventEventReferenceEventid <- parseFieldMaybe obj "eventId"
-    fld_linkWorkflowEventEventReferenceEventtype <- parseFieldMaybe obj "eventType"
+    fld_linkWorkflowEventEventReferenceEventId <- parseFieldMaybe obj "eventId"
+    fld_linkWorkflowEventEventReferenceEventType <- parseFieldMaybe obj "eventType"
     pure defaultLink'WorkflowEvent'EventReference
-      { linkWorkflowEventEventReferenceEventid = maybe (linkWorkflowEventEventReferenceEventid defaultLink'WorkflowEvent'EventReference) id fld_linkWorkflowEventEventReferenceEventid
-      , linkWorkflowEventEventReferenceEventtype = maybe (linkWorkflowEventEventReferenceEventtype defaultLink'WorkflowEvent'EventReference) id fld_linkWorkflowEventEventReferenceEventtype
+      { linkWorkflowEventEventReferenceEventId = maybe (linkWorkflowEventEventReferenceEventId defaultLink'WorkflowEvent'EventReference) id fld_linkWorkflowEventEventReferenceEventId
+      , linkWorkflowEventEventReferenceEventType = maybe (linkWorkflowEventEventReferenceEventType defaultLink'WorkflowEvent'EventReference) id fld_linkWorkflowEventEventReferenceEventType
       }
 
 instance Hashable Link'WorkflowEvent'EventReference where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.linkWorkflowEventEventReferenceEventid) msg.linkWorkflowEventEventReferenceEventtype
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.linkWorkflowEventEventReferenceEventId) msg.linkWorkflowEventEventReferenceEventType
 
 data Link'WorkflowEvent'RequestIdReference = Link'WorkflowEvent'RequestIdReference
-  { linkWorkflowEventRequestIdReferenceRequestid :: !Text
-  , linkWorkflowEventRequestIdReferenceEventtype :: !TE_Enums_V1_EventType.EventType
-  , linkWorkflowEventRequestIdReferenceUnknownfields :: ![UnknownField]
+  { linkWorkflowEventRequestIdReferenceRequestId :: !Text
+  , linkWorkflowEventRequestIdReferenceEventType :: !TE_Enums_V1_EventType.EventType
+  , linkWorkflowEventRequestIdReferenceUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultLink'WorkflowEvent'RequestIdReference :: Link'WorkflowEvent'RequestIdReference
 defaultLink'WorkflowEvent'RequestIdReference = Link'WorkflowEvent'RequestIdReference
-  { linkWorkflowEventRequestIdReferenceRequestid = ""
-  , linkWorkflowEventRequestIdReferenceEventtype = (toEnum 0)
-  , linkWorkflowEventRequestIdReferenceUnknownfields = []
+  { linkWorkflowEventRequestIdReferenceRequestId = ""
+  , linkWorkflowEventRequestIdReferenceEventType = (toEnum 0)
+  , linkWorkflowEventRequestIdReferenceUnknownFields = []
   }
 
 instance MessageEncode Link'WorkflowEvent'RequestIdReference where
   buildMessage msg =
-    (if msg.linkWorkflowEventRequestIdReferenceRequestid == T.empty then mempty else encodeFieldString 1 msg.linkWorkflowEventRequestIdReferenceRequestid)
-    <> (if fromEnum msg.linkWorkflowEventRequestIdReferenceEventtype == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.linkWorkflowEventRequestIdReferenceEventtype)))
-    <> encodeUnknownFields msg.linkWorkflowEventRequestIdReferenceUnknownfields
+    (if msg.linkWorkflowEventRequestIdReferenceRequestId == T.empty then mempty else encodeFieldString 1 msg.linkWorkflowEventRequestIdReferenceRequestId)
+    <> (if fromEnum msg.linkWorkflowEventRequestIdReferenceEventType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.linkWorkflowEventRequestIdReferenceEventType)))
+    <> encodeUnknownFields msg.linkWorkflowEventRequestIdReferenceUnknownFields
 
 instance MessageSize Link'WorkflowEvent'RequestIdReference where
   messageSize msg =
-    (if msg.linkWorkflowEventRequestIdReferenceRequestid == T.empty then 0 else fieldTextSize 1 msg.linkWorkflowEventRequestIdReferenceRequestid)
-    + (if fromEnum msg.linkWorkflowEventRequestIdReferenceEventtype == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.linkWorkflowEventRequestIdReferenceEventtype)))
-    + unknownFieldsSize msg.linkWorkflowEventRequestIdReferenceUnknownfields
+    (if msg.linkWorkflowEventRequestIdReferenceRequestId == T.empty then 0 else fieldTextSize 1 msg.linkWorkflowEventRequestIdReferenceRequestId)
+    + (if fromEnum msg.linkWorkflowEventRequestIdReferenceEventType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.linkWorkflowEventRequestIdReferenceEventType)))
+    + unknownFieldsSize msg.linkWorkflowEventRequestIdReferenceUnknownFields
 
 instance MessageDecode Link'WorkflowEvent'RequestIdReference where
   {-# INLINE messageDecoder #-}
@@ -1872,7 +1872,7 @@ instance MessageDecode Link'WorkflowEvent'RequestIdReference where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Link'WorkflowEvent'RequestIdReference {linkWorkflowEventRequestIdReferenceRequestid = acc_0, linkWorkflowEventRequestIdReferenceEventtype = acc_1, linkWorkflowEventRequestIdReferenceUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Link'WorkflowEvent'RequestIdReference {linkWorkflowEventRequestIdReferenceRequestId = acc_0, linkWorkflowEventRequestIdReferenceEventType = acc_1, linkWorkflowEventRequestIdReferenceUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1898,35 +1898,35 @@ instance ProtoMessage Link'WorkflowEvent'RequestIdReference where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = linkWorkflowEventRequestIdReferenceRequestid
-        , fdSet = \v m -> m { linkWorkflowEventRequestIdReferenceRequestid = v }
+        , fdGet = linkWorkflowEventRequestIdReferenceRequestId
+        , fdSet = \v m -> m { linkWorkflowEventRequestIdReferenceRequestId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "event_type"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.enums.v1.EventType"
         , fdLabel = LabelOptional
-        , fdGet = linkWorkflowEventRequestIdReferenceEventtype
-        , fdSet = \v m -> m { linkWorkflowEventRequestIdReferenceEventtype = v }
+        , fdGet = linkWorkflowEventRequestIdReferenceEventType
+        , fdSet = \v m -> m { linkWorkflowEventRequestIdReferenceEventType = v }
         })
     ]
 
 instance Aeson.ToJSON Link'WorkflowEvent'RequestIdReference where
   toJSON msg = jsonObject
-      [ "requestId" .=: msg.linkWorkflowEventRequestIdReferenceRequestid
-      , "eventType" .=: msg.linkWorkflowEventRequestIdReferenceEventtype
+      [ "requestId" .=: msg.linkWorkflowEventRequestIdReferenceRequestId
+      , "eventType" .=: msg.linkWorkflowEventRequestIdReferenceEventType
       ]
 
 instance Aeson.FromJSON Link'WorkflowEvent'RequestIdReference where
   parseJSON = Aeson.withObject "Link'WorkflowEvent'RequestIdReference" $ \obj -> do
-    fld_linkWorkflowEventRequestIdReferenceRequestid <- parseFieldMaybe obj "requestId"
-    fld_linkWorkflowEventRequestIdReferenceEventtype <- parseFieldMaybe obj "eventType"
+    fld_linkWorkflowEventRequestIdReferenceRequestId <- parseFieldMaybe obj "requestId"
+    fld_linkWorkflowEventRequestIdReferenceEventType <- parseFieldMaybe obj "eventType"
     pure defaultLink'WorkflowEvent'RequestIdReference
-      { linkWorkflowEventRequestIdReferenceRequestid = maybe (linkWorkflowEventRequestIdReferenceRequestid defaultLink'WorkflowEvent'RequestIdReference) id fld_linkWorkflowEventRequestIdReferenceRequestid
-      , linkWorkflowEventRequestIdReferenceEventtype = maybe (linkWorkflowEventRequestIdReferenceEventtype defaultLink'WorkflowEvent'RequestIdReference) id fld_linkWorkflowEventRequestIdReferenceEventtype
+      { linkWorkflowEventRequestIdReferenceRequestId = maybe (linkWorkflowEventRequestIdReferenceRequestId defaultLink'WorkflowEvent'RequestIdReference) id fld_linkWorkflowEventRequestIdReferenceRequestId
+      , linkWorkflowEventRequestIdReferenceEventType = maybe (linkWorkflowEventRequestIdReferenceEventType defaultLink'WorkflowEvent'RequestIdReference) id fld_linkWorkflowEventRequestIdReferenceEventType
       }
 
 instance Hashable Link'WorkflowEvent'RequestIdReference where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.linkWorkflowEventRequestIdReferenceRequestid) msg.linkWorkflowEventRequestIdReferenceEventtype
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.linkWorkflowEventRequestIdReferenceRequestId) msg.linkWorkflowEventRequestIdReferenceEventType
 data Link'WorkflowEvent'Reference
   = Link'WorkflowEvent'Reference'EventRef !Link'WorkflowEvent'EventReference
   | Link'WorkflowEvent'Reference'RequestIdRef !Link'WorkflowEvent'RequestIdReference
@@ -1943,31 +1943,31 @@ instance Hashable Link'WorkflowEvent'Reference where
 defaultLink'WorkflowEvent :: Link'WorkflowEvent
 defaultLink'WorkflowEvent = Link'WorkflowEvent
   { linkWorkflowEventNamespace = ""
-  , linkWorkflowEventWorkflowid = ""
-  , linkWorkflowEventRunid = ""
+  , linkWorkflowEventWorkflowId = ""
+  , linkWorkflowEventRunId = ""
   , linkWorkflowEventReference = Nothing
-  , linkWorkflowEventUnknownfields = []
+  , linkWorkflowEventUnknownFields = []
   }
 
 instance MessageEncode Link'WorkflowEvent where
   buildMessage msg =
     (if msg.linkWorkflowEventNamespace == T.empty then mempty else encodeFieldString 1 msg.linkWorkflowEventNamespace)
-    <> (if msg.linkWorkflowEventWorkflowid == T.empty then mempty else encodeFieldString 2 msg.linkWorkflowEventWorkflowid)
-    <> (if msg.linkWorkflowEventRunid == T.empty then mempty else encodeFieldString 3 msg.linkWorkflowEventRunid)
+    <> (if msg.linkWorkflowEventWorkflowId == T.empty then mempty else encodeFieldString 2 msg.linkWorkflowEventWorkflowId)
+    <> (if msg.linkWorkflowEventRunId == T.empty then mempty else encodeFieldString 3 msg.linkWorkflowEventRunId)
     <> (case msg.linkWorkflowEventReference of
       Nothing -> mempty
       Just (Link'WorkflowEvent'Reference'EventRef v) -> encodeFieldMessage 100 v
       Just (Link'WorkflowEvent'Reference'RequestIdRef v) -> encodeFieldMessage 101 v)
-    <> encodeUnknownFields msg.linkWorkflowEventUnknownfields
+    <> encodeUnknownFields msg.linkWorkflowEventUnknownFields
 
 instance MessageSize Link'WorkflowEvent where
   messageSize msg =
     (if msg.linkWorkflowEventNamespace == T.empty then 0 else fieldTextSize 1 msg.linkWorkflowEventNamespace)
-    + (if msg.linkWorkflowEventWorkflowid == T.empty then 0 else fieldTextSize 2 msg.linkWorkflowEventWorkflowid)
-    + (if msg.linkWorkflowEventRunid == T.empty then 0 else fieldTextSize 3 msg.linkWorkflowEventRunid)
+    + (if msg.linkWorkflowEventWorkflowId == T.empty then 0 else fieldTextSize 2 msg.linkWorkflowEventWorkflowId)
+    + (if msg.linkWorkflowEventRunId == T.empty then 0 else fieldTextSize 3 msg.linkWorkflowEventRunId)
     + (case msg.linkWorkflowEventReference of { Nothing -> 0; Just (Link'WorkflowEvent'Reference'EventRef v) -> fieldMessageSize 100 (messageSize v)
     ; Just (Link'WorkflowEvent'Reference'RequestIdRef v) -> fieldMessageSize 101 (messageSize v) })
-    + unknownFieldsSize msg.linkWorkflowEventUnknownfields
+    + unknownFieldsSize msg.linkWorkflowEventUnknownFields
 
 instance MessageDecode Link'WorkflowEvent where
   {-# INLINE messageDecoder #-}
@@ -1976,7 +1976,7 @@ instance MessageDecode Link'WorkflowEvent where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Link'WorkflowEvent {linkWorkflowEventNamespace = acc_0, linkWorkflowEventWorkflowid = acc_1, linkWorkflowEventRunid = acc_2, linkWorkflowEventReference = acc_3, linkWorkflowEventUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Link'WorkflowEvent {linkWorkflowEventNamespace = acc_0, linkWorkflowEventWorkflowId = acc_1, linkWorkflowEventRunId = acc_2, linkWorkflowEventReference = acc_3, linkWorkflowEventUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2018,16 +2018,16 @@ instance ProtoMessage Link'WorkflowEvent where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = linkWorkflowEventWorkflowid
-        , fdSet = \v m -> m { linkWorkflowEventWorkflowid = v }
+        , fdGet = linkWorkflowEventWorkflowId
+        , fdSet = \v m -> m { linkWorkflowEventWorkflowId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = linkWorkflowEventRunid
-        , fdSet = \v m -> m { linkWorkflowEventRunid = v }
+        , fdGet = linkWorkflowEventRunId
+        , fdSet = \v m -> m { linkWorkflowEventRunId = v }
         })
     , (100, SomeField FieldDescriptor
         { fdName = "reference"
@@ -2042,49 +2042,49 @@ instance ProtoMessage Link'WorkflowEvent where
 instance Aeson.ToJSON Link'WorkflowEvent where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.linkWorkflowEventNamespace
-      , "workflowId" .=: msg.linkWorkflowEventWorkflowid
-      , "runId" .=: msg.linkWorkflowEventRunid
+      , "workflowId" .=: msg.linkWorkflowEventWorkflowId
+      , "runId" .=: msg.linkWorkflowEventRunId
       , "reference" .=: msg.linkWorkflowEventReference
       ]
 
 instance Aeson.FromJSON Link'WorkflowEvent where
   parseJSON = Aeson.withObject "Link'WorkflowEvent" $ \obj -> do
     fld_linkWorkflowEventNamespace <- parseFieldMaybe obj "namespace"
-    fld_linkWorkflowEventWorkflowid <- parseFieldMaybe obj "workflowId"
-    fld_linkWorkflowEventRunid <- parseFieldMaybe obj "runId"
+    fld_linkWorkflowEventWorkflowId <- parseFieldMaybe obj "workflowId"
+    fld_linkWorkflowEventRunId <- parseFieldMaybe obj "runId"
     fld_linkWorkflowEventReference <- parseFieldMaybe obj "reference"
     pure defaultLink'WorkflowEvent
       { linkWorkflowEventNamespace = maybe (linkWorkflowEventNamespace defaultLink'WorkflowEvent) id fld_linkWorkflowEventNamespace
-      , linkWorkflowEventWorkflowid = maybe (linkWorkflowEventWorkflowid defaultLink'WorkflowEvent) id fld_linkWorkflowEventWorkflowid
-      , linkWorkflowEventRunid = maybe (linkWorkflowEventRunid defaultLink'WorkflowEvent) id fld_linkWorkflowEventRunid
+      , linkWorkflowEventWorkflowId = maybe (linkWorkflowEventWorkflowId defaultLink'WorkflowEvent) id fld_linkWorkflowEventWorkflowId
+      , linkWorkflowEventRunId = maybe (linkWorkflowEventRunId defaultLink'WorkflowEvent) id fld_linkWorkflowEventRunId
       , linkWorkflowEventReference = maybe (linkWorkflowEventReference defaultLink'WorkflowEvent) id fld_linkWorkflowEventReference
       }
 
 instance Hashable Link'WorkflowEvent where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.linkWorkflowEventNamespace) msg.linkWorkflowEventWorkflowid) msg.linkWorkflowEventRunid) msg.linkWorkflowEventReference
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.linkWorkflowEventNamespace) msg.linkWorkflowEventWorkflowId) msg.linkWorkflowEventRunId) msg.linkWorkflowEventReference
 
 data Link'BatchJob = Link'BatchJob
-  { linkBatchJobJobid :: !Text
-  , linkBatchJobUnknownfields :: ![UnknownField]
+  { linkBatchJobJobId :: !Text
+  , linkBatchJobUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultLink'BatchJob :: Link'BatchJob
 defaultLink'BatchJob = Link'BatchJob
-  { linkBatchJobJobid = ""
-  , linkBatchJobUnknownfields = []
+  { linkBatchJobJobId = ""
+  , linkBatchJobUnknownFields = []
   }
 
 instance MessageEncode Link'BatchJob where
   buildMessage msg =
-    (if msg.linkBatchJobJobid == T.empty then mempty else encodeFieldString 1 msg.linkBatchJobJobid)
-    <> encodeUnknownFields msg.linkBatchJobUnknownfields
+    (if msg.linkBatchJobJobId == T.empty then mempty else encodeFieldString 1 msg.linkBatchJobJobId)
+    <> encodeUnknownFields msg.linkBatchJobUnknownFields
 
 instance MessageSize Link'BatchJob where
   messageSize msg =
-    (if msg.linkBatchJobJobid == T.empty then 0 else fieldTextSize 1 msg.linkBatchJobJobid)
-    + unknownFieldsSize msg.linkBatchJobUnknownfields
+    (if msg.linkBatchJobJobId == T.empty then 0 else fieldTextSize 1 msg.linkBatchJobJobId)
+    + unknownFieldsSize msg.linkBatchJobUnknownFields
 
 instance MessageDecode Link'BatchJob where
   {-# INLINE messageDecoder #-}
@@ -2093,7 +2093,7 @@ instance MessageDecode Link'BatchJob where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Link'BatchJob {linkBatchJobJobid = acc_0, linkBatchJobUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Link'BatchJob {linkBatchJobJobId = acc_0, linkBatchJobUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -2116,26 +2116,26 @@ instance ProtoMessage Link'BatchJob where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = linkBatchJobJobid
-        , fdSet = \v m -> m { linkBatchJobJobid = v }
+        , fdGet = linkBatchJobJobId
+        , fdSet = \v m -> m { linkBatchJobJobId = v }
         })
     ]
 
 instance Aeson.ToJSON Link'BatchJob where
   toJSON msg = jsonObject
-      [ "jobId" .=: msg.linkBatchJobJobid
+      [ "jobId" .=: msg.linkBatchJobJobId
 
       ]
 
 instance Aeson.FromJSON Link'BatchJob where
   parseJSON = Aeson.withObject "Link'BatchJob" $ \obj -> do
-    fld_linkBatchJobJobid <- parseFieldMaybe obj "jobId"
+    fld_linkBatchJobJobId <- parseFieldMaybe obj "jobId"
     pure defaultLink'BatchJob
-      { linkBatchJobJobid = maybe (linkBatchJobJobid defaultLink'BatchJob) id fld_linkBatchJobJobid
+      { linkBatchJobJobId = maybe (linkBatchJobJobId defaultLink'BatchJob) id fld_linkBatchJobJobId
       }
 
 instance Hashable Link'BatchJob where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.linkBatchJobJobid
+  hashWithSalt salt msg = hashWithSalt (salt) msg.linkBatchJobJobId
 data Link'Variant
   = Link'Variant'WorkflowEvent !Link'WorkflowEvent
   | Link'Variant'BatchJob !Link'BatchJob
@@ -2152,7 +2152,7 @@ instance Hashable Link'Variant where
 defaultLink :: Link
 defaultLink = Link
   { linkVariant = Nothing
-  , linkUnknownfields = []
+  , linkUnknownFields = []
   }
 
 instance MessageEncode Link where
@@ -2161,13 +2161,13 @@ instance MessageEncode Link where
       Nothing -> mempty
       Just (Link'Variant'WorkflowEvent v) -> encodeFieldMessage 1 v
       Just (Link'Variant'BatchJob v) -> encodeFieldMessage 2 v)
-    <> encodeUnknownFields msg.linkUnknownfields
+    <> encodeUnknownFields msg.linkUnknownFields
 
 instance MessageSize Link where
   messageSize msg =
     (case msg.linkVariant of { Nothing -> 0; Just (Link'Variant'WorkflowEvent v) -> fieldMessageSize 1 (messageSize v)
     ; Just (Link'Variant'BatchJob v) -> fieldMessageSize 2 (messageSize v) })
-    + unknownFieldsSize msg.linkUnknownfields
+    + unknownFieldsSize msg.linkUnknownFields
 
 instance MessageDecode Link where
   {-# INLINE messageDecoder #-}
@@ -2176,7 +2176,7 @@ instance MessageDecode Link where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Link {linkVariant = acc_0, linkUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Link {linkVariant = acc_0, linkUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2224,35 +2224,35 @@ instance Hashable Link where
   hashWithSalt salt msg = hashWithSalt (salt) msg.linkVariant
 
 data Priority = Priority
-  { priorityPrioritykey :: {-# UNPACK #-} !Int32
-  , priorityFairnesskey :: !Text
-  , priorityFairnessweight :: {-# UNPACK #-} !Float
-  , priorityUnknownfields :: ![UnknownField]
+  { priorityPriorityKey :: {-# UNPACK #-} !Int32
+  , priorityFairnessKey :: !Text
+  , priorityFairnessWeight :: {-# UNPACK #-} !Float
+  , priorityUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultPriority :: Priority
 defaultPriority = Priority
-  { priorityPrioritykey = 0
-  , priorityFairnesskey = ""
-  , priorityFairnessweight = 0
-  , priorityUnknownfields = []
+  { priorityPriorityKey = 0
+  , priorityFairnessKey = ""
+  , priorityFairnessWeight = 0
+  , priorityUnknownFields = []
   }
 
 instance MessageEncode Priority where
   buildMessage msg =
-    (if msg.priorityPrioritykey == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.priorityPrioritykey))
-    <> (if msg.priorityFairnesskey == T.empty then mempty else encodeFieldString 2 msg.priorityFairnesskey)
-    <> (if msg.priorityFairnessweight == 0 then mempty else encodeFieldFloat 3 msg.priorityFairnessweight)
-    <> encodeUnknownFields msg.priorityUnknownfields
+    (if msg.priorityPriorityKey == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.priorityPriorityKey))
+    <> (if msg.priorityFairnessKey == T.empty then mempty else encodeFieldString 2 msg.priorityFairnessKey)
+    <> (if msg.priorityFairnessWeight == 0 then mempty else encodeFieldFloat 3 msg.priorityFairnessWeight)
+    <> encodeUnknownFields msg.priorityUnknownFields
 
 instance MessageSize Priority where
   messageSize msg =
-    (if msg.priorityPrioritykey == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.priorityPrioritykey))
-    + (if msg.priorityFairnesskey == T.empty then 0 else fieldTextSize 2 msg.priorityFairnesskey)
-    + (if msg.priorityFairnessweight == 0 then 0 else fieldFloatSize 3)
-    + unknownFieldsSize msg.priorityUnknownfields
+    (if msg.priorityPriorityKey == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.priorityPriorityKey))
+    + (if msg.priorityFairnessKey == T.empty then 0 else fieldTextSize 2 msg.priorityFairnessKey)
+    + (if msg.priorityFairnessWeight == 0 then 0 else fieldFloatSize 3)
+    + unknownFieldsSize msg.priorityUnknownFields
 
 instance MessageDecode Priority where
   {-# INLINE messageDecoder #-}
@@ -2261,7 +2261,7 @@ instance MessageDecode Priority where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Priority {priorityPrioritykey = acc_0, priorityFairnesskey = acc_1, priorityFairnessweight = acc_2, priorityUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Priority {priorityPriorityKey = acc_0, priorityFairnessKey = acc_1, priorityFairnessWeight = acc_2, priorityUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -2290,50 +2290,50 @@ instance ProtoMessage Priority where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int32Field
         , fdLabel = LabelOptional
-        , fdGet = priorityPrioritykey
-        , fdSet = \v m -> m { priorityPrioritykey = v }
+        , fdGet = priorityPriorityKey
+        , fdSet = \v m -> m { priorityPriorityKey = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "fairness_key"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = priorityFairnesskey
-        , fdSet = \v m -> m { priorityFairnesskey = v }
+        , fdGet = priorityFairnessKey
+        , fdSet = \v m -> m { priorityFairnessKey = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "fairness_weight"
         , fdNumber = 3
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = priorityFairnessweight
-        , fdSet = \v m -> m { priorityFairnessweight = v }
+        , fdGet = priorityFairnessWeight
+        , fdSet = \v m -> m { priorityFairnessWeight = v }
         })
     ]
 
 instance Aeson.ToJSON Priority where
   toJSON msg = jsonObject
-      [ "priorityKey" .=: msg.priorityPrioritykey
-      , "fairnessKey" .=: msg.priorityFairnesskey
-      , "fairnessWeight" .=: msg.priorityFairnessweight
+      [ "priorityKey" .=: msg.priorityPriorityKey
+      , "fairnessKey" .=: msg.priorityFairnessKey
+      , "fairnessWeight" .=: msg.priorityFairnessWeight
       ]
 
 instance Aeson.FromJSON Priority where
   parseJSON = Aeson.withObject "Priority" $ \obj -> do
-    fld_priorityPrioritykey <- parseFieldMaybe obj "priorityKey"
-    fld_priorityFairnesskey <- parseFieldMaybe obj "fairnessKey"
-    fld_priorityFairnessweight <- parseFieldMaybe obj "fairnessWeight"
+    fld_priorityPriorityKey <- parseFieldMaybe obj "priorityKey"
+    fld_priorityFairnessKey <- parseFieldMaybe obj "fairnessKey"
+    fld_priorityFairnessWeight <- parseFieldMaybe obj "fairnessWeight"
     pure defaultPriority
-      { priorityPrioritykey = maybe (priorityPrioritykey defaultPriority) id fld_priorityPrioritykey
-      , priorityFairnesskey = maybe (priorityFairnesskey defaultPriority) id fld_priorityFairnesskey
-      , priorityFairnessweight = maybe (priorityFairnessweight defaultPriority) id fld_priorityFairnessweight
+      { priorityPriorityKey = maybe (priorityPriorityKey defaultPriority) id fld_priorityPriorityKey
+      , priorityFairnessKey = maybe (priorityFairnessKey defaultPriority) id fld_priorityFairnessKey
+      , priorityFairnessWeight = maybe (priorityFairnessWeight defaultPriority) id fld_priorityFairnessWeight
       }
 
 instance Hashable Priority where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.priorityPrioritykey) msg.priorityFairnesskey) msg.priorityFairnessweight
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.priorityPriorityKey) msg.priorityFairnessKey) msg.priorityFairnessWeight
 
 data WorkerSelector = WorkerSelector
   { workerSelectorSelector :: !(Maybe WorkerSelector'Selector)
-  , workerSelectorUnknownfields :: ![UnknownField]
+  , workerSelectorUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -2351,7 +2351,7 @@ instance Hashable WorkerSelector'Selector where
 defaultWorkerSelector :: WorkerSelector
 defaultWorkerSelector = WorkerSelector
   { workerSelectorSelector = Nothing
-  , workerSelectorUnknownfields = []
+  , workerSelectorUnknownFields = []
   }
 
 instance MessageEncode WorkerSelector where
@@ -2359,12 +2359,12 @@ instance MessageEncode WorkerSelector where
     (case msg.workerSelectorSelector of
       Nothing -> mempty
       Just (WorkerSelector'Selector'WorkerInstanceKey v) -> encodeFieldString 1 v)
-    <> encodeUnknownFields msg.workerSelectorUnknownfields
+    <> encodeUnknownFields msg.workerSelectorUnknownFields
 
 instance MessageSize WorkerSelector where
   messageSize msg =
     (case msg.workerSelectorSelector of { Nothing -> 0; Just (WorkerSelector'Selector'WorkerInstanceKey v) -> fieldTextSize 1 v })
-    + unknownFieldsSize msg.workerSelectorUnknownfields
+    + unknownFieldsSize msg.workerSelectorUnknownFields
 
 instance MessageDecode WorkerSelector where
   {-# INLINE messageDecoder #-}
@@ -2373,7 +2373,7 @@ instance MessageDecode WorkerSelector where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerSelector {workerSelectorSelector = acc_0, workerSelectorUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerSelector {workerSelectorSelector = acc_0, workerSelectorUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString

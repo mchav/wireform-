@@ -59,7 +59,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a1c676f6f676c652f70726f746f62756
 
 data Struct = Struct
   { structFields :: !(Map.Map Text Value)
-  , structUnknownfields :: ![UnknownField]
+  , structUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -67,18 +67,18 @@ data Struct = Struct
 defaultStruct :: Struct
 defaultStruct = Struct
   { structFields = Map.empty
-  , structUnknownfields = []
+  , structUnknownFields = []
   }
 
 instance MessageEncode Struct where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.structFields
-    <> encodeUnknownFields msg.structUnknownfields
+    <> encodeUnknownFields msg.structUnknownFields
 
 instance MessageSize Struct where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.structFields)
-    + unknownFieldsSize msg.structUnknownfields
+    + unknownFieldsSize msg.structUnknownFields
 
 instance MessageDecode Struct where
   {-# INLINE messageDecoder #-}
@@ -87,7 +87,7 @@ instance MessageDecode Struct where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Struct {structFields = acc_0, structUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Struct {structFields = acc_0, structUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -136,7 +136,7 @@ instance Hashable Struct where
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
-  , valueUnknownfields :: ![UnknownField]
+  , valueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -164,7 +164,7 @@ instance Hashable Value'Kind where
 defaultValue :: Value
 defaultValue = Value
   { valueKind = Nothing
-  , valueUnknownfields = []
+  , valueUnknownFields = []
   }
 
 instance MessageEncode Value where
@@ -177,7 +177,7 @@ instance MessageEncode Value where
       Just (Value'Kind'BoolValue v) -> encodeFieldBool 4 v
       Just (Value'Kind'StructValue v) -> encodeFieldMessage 5 v
       Just (Value'Kind'ListValue v) -> encodeFieldMessage 6 v)
-    <> encodeUnknownFields msg.valueUnknownfields
+    <> encodeUnknownFields msg.valueUnknownFields
 
 instance MessageSize Value where
   messageSize msg =
@@ -187,7 +187,7 @@ instance MessageSize Value where
     ; Just (Value'Kind'BoolValue v) -> fieldBoolSize 4
     ; Just (Value'Kind'StructValue v) -> fieldMessageSize 5 (messageSize v)
     ; Just (Value'Kind'ListValue v) -> fieldMessageSize 6 (messageSize v) })
-    + unknownFieldsSize msg.valueUnknownfields
+    + unknownFieldsSize msg.valueUnknownFields
 
 instance MessageDecode Value where
   {-# INLINE messageDecoder #-}
@@ -196,7 +196,7 @@ instance MessageDecode Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Value {valueKind = acc_0, valueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Value {valueKind = acc_0, valueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -288,7 +288,7 @@ instance Hashable NullValue where
 
 data ListValue = ListValue
   { listValueValues :: !(V.Vector Value)
-  , listValueUnknownfields :: ![UnknownField]
+  , listValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -296,18 +296,18 @@ data ListValue = ListValue
 defaultListValue :: ListValue
 defaultListValue = ListValue
   { listValueValues = V.empty
-  , listValueUnknownfields = []
+  , listValueUnknownFields = []
   }
 
 instance MessageEncode ListValue where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.listValueValues
-    <> encodeUnknownFields msg.listValueUnknownfields
+    <> encodeUnknownFields msg.listValueUnknownFields
 
 instance MessageSize ListValue where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.listValueValues)
-    + unknownFieldsSize msg.listValueUnknownfields
+    + unknownFieldsSize msg.listValueUnknownFields
 
 instance MessageDecode ListValue where
   {-# INLINE messageDecoder #-}
@@ -316,7 +316,7 @@ instance MessageDecode ListValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ListValue {listValueValues = acc_0, listValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ListValue {listValueValues = acc_0, listValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage

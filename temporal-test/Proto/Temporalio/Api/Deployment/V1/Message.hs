@@ -62,35 +62,35 @@ fileDescriptorProtoBytes = case Base16.decode "0a2874656d706f72616c2f6170692f646
 
 
 data WorkerDeploymentOptions = WorkerDeploymentOptions
-  { workerDeploymentOptionsDeploymentname :: !Text
-  , workerDeploymentOptionsBuildid :: !Text
-  , workerDeploymentOptionsWorkerversioningmode :: !TE_Enums_V1_Deployment.WorkerVersioningMode
-  , workerDeploymentOptionsUnknownfields :: ![UnknownField]
+  { workerDeploymentOptionsDeploymentName :: !Text
+  , workerDeploymentOptionsBuildId :: !Text
+  , workerDeploymentOptionsWorkerVersioningMode :: !TE_Enums_V1_Deployment.WorkerVersioningMode
+  , workerDeploymentOptionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerDeploymentOptions :: WorkerDeploymentOptions
 defaultWorkerDeploymentOptions = WorkerDeploymentOptions
-  { workerDeploymentOptionsDeploymentname = ""
-  , workerDeploymentOptionsBuildid = ""
-  , workerDeploymentOptionsWorkerversioningmode = (toEnum 0)
-  , workerDeploymentOptionsUnknownfields = []
+  { workerDeploymentOptionsDeploymentName = ""
+  , workerDeploymentOptionsBuildId = ""
+  , workerDeploymentOptionsWorkerVersioningMode = (toEnum 0)
+  , workerDeploymentOptionsUnknownFields = []
   }
 
 instance MessageEncode WorkerDeploymentOptions where
   buildMessage msg =
-    (if msg.workerDeploymentOptionsDeploymentname == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentOptionsDeploymentname)
-    <> (if msg.workerDeploymentOptionsBuildid == T.empty then mempty else encodeFieldString 2 msg.workerDeploymentOptionsBuildid)
-    <> (if fromEnum msg.workerDeploymentOptionsWorkerversioningmode == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.workerDeploymentOptionsWorkerversioningmode)))
-    <> encodeUnknownFields msg.workerDeploymentOptionsUnknownfields
+    (if msg.workerDeploymentOptionsDeploymentName == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentOptionsDeploymentName)
+    <> (if msg.workerDeploymentOptionsBuildId == T.empty then mempty else encodeFieldString 2 msg.workerDeploymentOptionsBuildId)
+    <> (if fromEnum msg.workerDeploymentOptionsWorkerVersioningMode == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.workerDeploymentOptionsWorkerVersioningMode)))
+    <> encodeUnknownFields msg.workerDeploymentOptionsUnknownFields
 
 instance MessageSize WorkerDeploymentOptions where
   messageSize msg =
-    (if msg.workerDeploymentOptionsDeploymentname == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentOptionsDeploymentname)
-    + (if msg.workerDeploymentOptionsBuildid == T.empty then 0 else fieldTextSize 2 msg.workerDeploymentOptionsBuildid)
-    + (if fromEnum msg.workerDeploymentOptionsWorkerversioningmode == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.workerDeploymentOptionsWorkerversioningmode)))
-    + unknownFieldsSize msg.workerDeploymentOptionsUnknownfields
+    (if msg.workerDeploymentOptionsDeploymentName == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentOptionsDeploymentName)
+    + (if msg.workerDeploymentOptionsBuildId == T.empty then 0 else fieldTextSize 2 msg.workerDeploymentOptionsBuildId)
+    + (if fromEnum msg.workerDeploymentOptionsWorkerVersioningMode == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.workerDeploymentOptionsWorkerVersioningMode)))
+    + unknownFieldsSize msg.workerDeploymentOptionsUnknownFields
 
 instance MessageDecode WorkerDeploymentOptions where
   {-# INLINE messageDecoder #-}
@@ -99,7 +99,7 @@ instance MessageDecode WorkerDeploymentOptions where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerDeploymentOptions {workerDeploymentOptionsDeploymentname = acc_0, workerDeploymentOptionsBuildid = acc_1, workerDeploymentOptionsWorkerversioningmode = acc_2, workerDeploymentOptionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerDeploymentOptions {workerDeploymentOptionsDeploymentName = acc_0, workerDeploymentOptionsBuildId = acc_1, workerDeploymentOptionsWorkerVersioningMode = acc_2, workerDeploymentOptionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -128,73 +128,73 @@ instance ProtoMessage WorkerDeploymentOptions where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentOptionsDeploymentname
-        , fdSet = \v m -> m { workerDeploymentOptionsDeploymentname = v }
+        , fdGet = workerDeploymentOptionsDeploymentName
+        , fdSet = \v m -> m { workerDeploymentOptionsDeploymentName = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "build_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentOptionsBuildid
-        , fdSet = \v m -> m { workerDeploymentOptionsBuildid = v }
+        , fdGet = workerDeploymentOptionsBuildId
+        , fdSet = \v m -> m { workerDeploymentOptionsBuildId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "worker_versioning_mode"
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.enums.v1.WorkerVersioningMode"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentOptionsWorkerversioningmode
-        , fdSet = \v m -> m { workerDeploymentOptionsWorkerversioningmode = v }
+        , fdGet = workerDeploymentOptionsWorkerVersioningMode
+        , fdSet = \v m -> m { workerDeploymentOptionsWorkerVersioningMode = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerDeploymentOptions where
   toJSON msg = jsonObject
-      [ "deploymentName" .=: msg.workerDeploymentOptionsDeploymentname
-      , "buildId" .=: msg.workerDeploymentOptionsBuildid
-      , "workerVersioningMode" .=: msg.workerDeploymentOptionsWorkerversioningmode
+      [ "deploymentName" .=: msg.workerDeploymentOptionsDeploymentName
+      , "buildId" .=: msg.workerDeploymentOptionsBuildId
+      , "workerVersioningMode" .=: msg.workerDeploymentOptionsWorkerVersioningMode
       ]
 
 instance Aeson.FromJSON WorkerDeploymentOptions where
   parseJSON = Aeson.withObject "WorkerDeploymentOptions" $ \obj -> do
-    fld_workerDeploymentOptionsDeploymentname <- parseFieldMaybe obj "deploymentName"
-    fld_workerDeploymentOptionsBuildid <- parseFieldMaybe obj "buildId"
-    fld_workerDeploymentOptionsWorkerversioningmode <- parseFieldMaybe obj "workerVersioningMode"
+    fld_workerDeploymentOptionsDeploymentName <- parseFieldMaybe obj "deploymentName"
+    fld_workerDeploymentOptionsBuildId <- parseFieldMaybe obj "buildId"
+    fld_workerDeploymentOptionsWorkerVersioningMode <- parseFieldMaybe obj "workerVersioningMode"
     pure defaultWorkerDeploymentOptions
-      { workerDeploymentOptionsDeploymentname = maybe (workerDeploymentOptionsDeploymentname defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsDeploymentname
-      , workerDeploymentOptionsBuildid = maybe (workerDeploymentOptionsBuildid defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsBuildid
-      , workerDeploymentOptionsWorkerversioningmode = maybe (workerDeploymentOptionsWorkerversioningmode defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsWorkerversioningmode
+      { workerDeploymentOptionsDeploymentName = maybe (workerDeploymentOptionsDeploymentName defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsDeploymentName
+      , workerDeploymentOptionsBuildId = maybe (workerDeploymentOptionsBuildId defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsBuildId
+      , workerDeploymentOptionsWorkerVersioningMode = maybe (workerDeploymentOptionsWorkerVersioningMode defaultWorkerDeploymentOptions) id fld_workerDeploymentOptionsWorkerVersioningMode
       }
 
 instance Hashable WorkerDeploymentOptions where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerDeploymentOptionsDeploymentname) msg.workerDeploymentOptionsBuildid) msg.workerDeploymentOptionsWorkerversioningmode
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerDeploymentOptionsDeploymentName) msg.workerDeploymentOptionsBuildId) msg.workerDeploymentOptionsWorkerVersioningMode
 
 data Deployment = Deployment
-  { deploymentSeriesname :: !Text
-  , deploymentBuildid :: !Text
-  , deploymentUnknownfields :: ![UnknownField]
+  { deploymentSeriesName :: !Text
+  , deploymentBuildId :: !Text
+  , deploymentUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultDeployment :: Deployment
 defaultDeployment = Deployment
-  { deploymentSeriesname = ""
-  , deploymentBuildid = ""
-  , deploymentUnknownfields = []
+  { deploymentSeriesName = ""
+  , deploymentBuildId = ""
+  , deploymentUnknownFields = []
   }
 
 instance MessageEncode Deployment where
   buildMessage msg =
-    (if msg.deploymentSeriesname == T.empty then mempty else encodeFieldString 1 msg.deploymentSeriesname)
-    <> (if msg.deploymentBuildid == T.empty then mempty else encodeFieldString 2 msg.deploymentBuildid)
-    <> encodeUnknownFields msg.deploymentUnknownfields
+    (if msg.deploymentSeriesName == T.empty then mempty else encodeFieldString 1 msg.deploymentSeriesName)
+    <> (if msg.deploymentBuildId == T.empty then mempty else encodeFieldString 2 msg.deploymentBuildId)
+    <> encodeUnknownFields msg.deploymentUnknownFields
 
 instance MessageSize Deployment where
   messageSize msg =
-    (if msg.deploymentSeriesname == T.empty then 0 else fieldTextSize 1 msg.deploymentSeriesname)
-    + (if msg.deploymentBuildid == T.empty then 0 else fieldTextSize 2 msg.deploymentBuildid)
-    + unknownFieldsSize msg.deploymentUnknownfields
+    (if msg.deploymentSeriesName == T.empty then 0 else fieldTextSize 1 msg.deploymentSeriesName)
+    + (if msg.deploymentBuildId == T.empty then 0 else fieldTextSize 2 msg.deploymentBuildId)
+    + unknownFieldsSize msg.deploymentUnknownFields
 
 instance MessageDecode Deployment where
   {-# INLINE messageDecoder #-}
@@ -203,7 +203,7 @@ instance MessageDecode Deployment where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Deployment {deploymentSeriesname = acc_0, deploymentBuildid = acc_1, deploymentUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Deployment {deploymentSeriesName = acc_0, deploymentBuildId = acc_1, deploymentUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -229,43 +229,43 @@ instance ProtoMessage Deployment where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = deploymentSeriesname
-        , fdSet = \v m -> m { deploymentSeriesname = v }
+        , fdGet = deploymentSeriesName
+        , fdSet = \v m -> m { deploymentSeriesName = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "build_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = deploymentBuildid
-        , fdSet = \v m -> m { deploymentBuildid = v }
+        , fdGet = deploymentBuildId
+        , fdSet = \v m -> m { deploymentBuildId = v }
         })
     ]
 
 instance Aeson.ToJSON Deployment where
   toJSON msg = jsonObject
-      [ "seriesName" .=: msg.deploymentSeriesname
-      , "buildId" .=: msg.deploymentBuildid
+      [ "seriesName" .=: msg.deploymentSeriesName
+      , "buildId" .=: msg.deploymentBuildId
       ]
 
 instance Aeson.FromJSON Deployment where
   parseJSON = Aeson.withObject "Deployment" $ \obj -> do
-    fld_deploymentSeriesname <- parseFieldMaybe obj "seriesName"
-    fld_deploymentBuildid <- parseFieldMaybe obj "buildId"
+    fld_deploymentSeriesName <- parseFieldMaybe obj "seriesName"
+    fld_deploymentBuildId <- parseFieldMaybe obj "buildId"
     pure defaultDeployment
-      { deploymentSeriesname = maybe (deploymentSeriesname defaultDeployment) id fld_deploymentSeriesname
-      , deploymentBuildid = maybe (deploymentBuildid defaultDeployment) id fld_deploymentBuildid
+      { deploymentSeriesName = maybe (deploymentSeriesName defaultDeployment) id fld_deploymentSeriesName
+      , deploymentBuildId = maybe (deploymentBuildId defaultDeployment) id fld_deploymentBuildId
       }
 
 instance Hashable Deployment where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.deploymentSeriesname) msg.deploymentBuildid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.deploymentSeriesName) msg.deploymentBuildId
 
 data DeploymentInfo = DeploymentInfo
   { deploymentInfoDeployment :: !(Maybe Deployment)
-  , deploymentInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , deploymentInfoTaskqueueinfos :: !(V.Vector DeploymentInfo'TaskQueueInfo)
+  , deploymentInfoCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , deploymentInfoTaskQueueInfos :: !(V.Vector DeploymentInfo'TaskQueueInfo)
   , deploymentInfoMetadata :: !(Map.Map Text TE_Common_V1_Message.Payload)
-  , deploymentInfoIscurrent :: {-# UNPACK #-} !Bool
-  , deploymentInfoUnknownfields :: ![UnknownField]
+  , deploymentInfoIsCurrent :: {-# UNPACK #-} !Bool
+  , deploymentInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -273,8 +273,8 @@ data DeploymentInfo = DeploymentInfo
 data DeploymentInfo'TaskQueueInfo = DeploymentInfo'TaskQueueInfo
   { deploymentInfoTaskQueueInfoName :: !Text
   , deploymentInfoTaskQueueInfoType :: !TE_Enums_V1_TaskQueue.TaskQueueType
-  , deploymentInfoTaskQueueInfoFirstpollertime :: !(Maybe PB_Timestamp.Timestamp)
-  , deploymentInfoTaskQueueInfoUnknownfields :: ![UnknownField]
+  , deploymentInfoTaskQueueInfoFirstPollerTime :: !(Maybe PB_Timestamp.Timestamp)
+  , deploymentInfoTaskQueueInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -283,23 +283,23 @@ defaultDeploymentInfo'TaskQueueInfo :: DeploymentInfo'TaskQueueInfo
 defaultDeploymentInfo'TaskQueueInfo = DeploymentInfo'TaskQueueInfo
   { deploymentInfoTaskQueueInfoName = ""
   , deploymentInfoTaskQueueInfoType = (toEnum 0)
-  , deploymentInfoTaskQueueInfoFirstpollertime = Nothing
-  , deploymentInfoTaskQueueInfoUnknownfields = []
+  , deploymentInfoTaskQueueInfoFirstPollerTime = Nothing
+  , deploymentInfoTaskQueueInfoUnknownFields = []
   }
 
 instance MessageEncode DeploymentInfo'TaskQueueInfo where
   buildMessage msg =
     (if msg.deploymentInfoTaskQueueInfoName == T.empty then mempty else encodeFieldString 1 msg.deploymentInfoTaskQueueInfoName)
     <> (if fromEnum msg.deploymentInfoTaskQueueInfoType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.deploymentInfoTaskQueueInfoType)))
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.deploymentInfoTaskQueueInfoFirstpollertime)
-    <> encodeUnknownFields msg.deploymentInfoTaskQueueInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.deploymentInfoTaskQueueInfoFirstPollerTime)
+    <> encodeUnknownFields msg.deploymentInfoTaskQueueInfoUnknownFields
 
 instance MessageSize DeploymentInfo'TaskQueueInfo where
   messageSize msg =
     (if msg.deploymentInfoTaskQueueInfoName == T.empty then 0 else fieldTextSize 1 msg.deploymentInfoTaskQueueInfoName)
     + (if fromEnum msg.deploymentInfoTaskQueueInfoType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.deploymentInfoTaskQueueInfoType)))
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.deploymentInfoTaskQueueInfoFirstpollertime)
-    + unknownFieldsSize msg.deploymentInfoTaskQueueInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.deploymentInfoTaskQueueInfoFirstPollerTime)
+    + unknownFieldsSize msg.deploymentInfoTaskQueueInfoUnknownFields
 
 instance MessageDecode DeploymentInfo'TaskQueueInfo where
   {-# INLINE messageDecoder #-}
@@ -308,7 +308,7 @@ instance MessageDecode DeploymentInfo'TaskQueueInfo where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeploymentInfo'TaskQueueInfo {deploymentInfoTaskQueueInfoName = acc_0, deploymentInfoTaskQueueInfoType = acc_1, deploymentInfoTaskQueueInfoFirstpollertime = acc_2, deploymentInfoTaskQueueInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeploymentInfo'TaskQueueInfo {deploymentInfoTaskQueueInfoName = acc_0, deploymentInfoTaskQueueInfoType = acc_1, deploymentInfoTaskQueueInfoFirstPollerTime = acc_2, deploymentInfoTaskQueueInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -352,8 +352,8 @@ instance ProtoMessage DeploymentInfo'TaskQueueInfo where
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = deploymentInfoTaskQueueInfoFirstpollertime
-        , fdSet = \v m -> m { deploymentInfoTaskQueueInfoFirstpollertime = v }
+        , fdGet = deploymentInfoTaskQueueInfoFirstPollerTime
+        , fdSet = \v m -> m { deploymentInfoTaskQueueInfoFirstPollerTime = v }
         })
     ]
 
@@ -361,50 +361,50 @@ instance Aeson.ToJSON DeploymentInfo'TaskQueueInfo where
   toJSON msg = jsonObject
       [ "name" .=: msg.deploymentInfoTaskQueueInfoName
       , "type" .=: msg.deploymentInfoTaskQueueInfoType
-      , "firstPollerTime" .=: msg.deploymentInfoTaskQueueInfoFirstpollertime
+      , "firstPollerTime" .=: msg.deploymentInfoTaskQueueInfoFirstPollerTime
       ]
 
 instance Aeson.FromJSON DeploymentInfo'TaskQueueInfo where
   parseJSON = Aeson.withObject "DeploymentInfo'TaskQueueInfo" $ \obj -> do
     fld_deploymentInfoTaskQueueInfoName <- parseFieldMaybe obj "name"
     fld_deploymentInfoTaskQueueInfoType <- parseFieldMaybe obj "type"
-    fld_deploymentInfoTaskQueueInfoFirstpollertime <- parseFieldMaybe obj "firstPollerTime"
+    fld_deploymentInfoTaskQueueInfoFirstPollerTime <- parseFieldMaybe obj "firstPollerTime"
     pure defaultDeploymentInfo'TaskQueueInfo
       { deploymentInfoTaskQueueInfoName = maybe (deploymentInfoTaskQueueInfoName defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoName
       , deploymentInfoTaskQueueInfoType = maybe (deploymentInfoTaskQueueInfoType defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoType
-      , deploymentInfoTaskQueueInfoFirstpollertime = maybe (deploymentInfoTaskQueueInfoFirstpollertime defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoFirstpollertime
+      , deploymentInfoTaskQueueInfoFirstPollerTime = maybe (deploymentInfoTaskQueueInfoFirstPollerTime defaultDeploymentInfo'TaskQueueInfo) id fld_deploymentInfoTaskQueueInfoFirstPollerTime
       }
 
 instance Hashable DeploymentInfo'TaskQueueInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.deploymentInfoTaskQueueInfoName) msg.deploymentInfoTaskQueueInfoType) msg.deploymentInfoTaskQueueInfoFirstpollertime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.deploymentInfoTaskQueueInfoName) msg.deploymentInfoTaskQueueInfoType) msg.deploymentInfoTaskQueueInfoFirstPollerTime
 
 defaultDeploymentInfo :: DeploymentInfo
 defaultDeploymentInfo = DeploymentInfo
   { deploymentInfoDeployment = Nothing
-  , deploymentInfoCreatetime = Nothing
-  , deploymentInfoTaskqueueinfos = V.empty
+  , deploymentInfoCreateTime = Nothing
+  , deploymentInfoTaskQueueInfos = V.empty
   , deploymentInfoMetadata = Map.empty
-  , deploymentInfoIscurrent = False
-  , deploymentInfoUnknownfields = []
+  , deploymentInfoIsCurrent = False
+  , deploymentInfoUnknownFields = []
   }
 
 instance MessageEncode DeploymentInfo where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.deploymentInfoDeployment)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.deploymentInfoCreatetime)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.deploymentInfoTaskqueueinfos
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.deploymentInfoCreateTime)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.deploymentInfoTaskQueueInfos
     <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 4 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.deploymentInfoMetadata
-    <> (if msg.deploymentInfoIscurrent == False then mempty else encodeFieldBool 5 msg.deploymentInfoIscurrent)
-    <> encodeUnknownFields msg.deploymentInfoUnknownfields
+    <> (if msg.deploymentInfoIsCurrent == False then mempty else encodeFieldBool 5 msg.deploymentInfoIsCurrent)
+    <> encodeUnknownFields msg.deploymentInfoUnknownFields
 
 instance MessageSize DeploymentInfo where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.deploymentInfoDeployment)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.deploymentInfoCreatetime)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.deploymentInfoTaskqueueinfos)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.deploymentInfoCreateTime)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.deploymentInfoTaskQueueInfos)
     + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 4 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.deploymentInfoMetadata)
-    + (if msg.deploymentInfoIscurrent == False then 0 else fieldBoolSize 5)
-    + unknownFieldsSize msg.deploymentInfoUnknownfields
+    + (if msg.deploymentInfoIsCurrent == False then 0 else fieldBoolSize 5)
+    + unknownFieldsSize msg.deploymentInfoUnknownFields
 
 instance MessageDecode DeploymentInfo where
   {-# INLINE messageDecoder #-}
@@ -413,7 +413,7 @@ instance MessageDecode DeploymentInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeploymentInfo {deploymentInfoDeployment = acc_0, deploymentInfoCreatetime = acc_1, deploymentInfoTaskqueueinfos = acc_2, deploymentInfoMetadata = acc_3, deploymentInfoIscurrent = acc_4, deploymentInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeploymentInfo {deploymentInfoDeployment = acc_0, deploymentInfoCreateTime = acc_1, deploymentInfoTaskQueueInfos = acc_2, deploymentInfoMetadata = acc_3, deploymentInfoIsCurrent = acc_4, deploymentInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -458,16 +458,16 @@ instance ProtoMessage DeploymentInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = deploymentInfoCreatetime
-        , fdSet = \v m -> m { deploymentInfoCreatetime = v }
+        , fdGet = deploymentInfoCreateTime
+        , fdSet = \v m -> m { deploymentInfoCreateTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "task_queue_infos"
         , fdNumber = 3
         , fdTypeDesc = MessageType "TaskQueueInfo"
         , fdLabel = LabelRepeated
-        , fdGet = deploymentInfoTaskqueueinfos
-        , fdSet = \v m -> m { deploymentInfoTaskqueueinfos = v }
+        , fdGet = deploymentInfoTaskQueueInfos
+        , fdSet = \v m -> m { deploymentInfoTaskQueueInfos = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "metadata"
@@ -482,64 +482,64 @@ instance ProtoMessage DeploymentInfo where
         , fdNumber = 5
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = deploymentInfoIscurrent
-        , fdSet = \v m -> m { deploymentInfoIscurrent = v }
+        , fdGet = deploymentInfoIsCurrent
+        , fdSet = \v m -> m { deploymentInfoIsCurrent = v }
         })
     ]
 
 instance Aeson.ToJSON DeploymentInfo where
   toJSON msg = jsonObject
       [ "deployment" .=: msg.deploymentInfoDeployment
-      , "createTime" .=: msg.deploymentInfoCreatetime
-      , "taskQueueInfos" .=: msg.deploymentInfoTaskqueueinfos
+      , "createTime" .=: msg.deploymentInfoCreateTime
+      , "taskQueueInfos" .=: msg.deploymentInfoTaskQueueInfos
       , "metadata" .=: msg.deploymentInfoMetadata
-      , "isCurrent" .=: msg.deploymentInfoIscurrent
+      , "isCurrent" .=: msg.deploymentInfoIsCurrent
       ]
 
 instance Aeson.FromJSON DeploymentInfo where
   parseJSON = Aeson.withObject "DeploymentInfo" $ \obj -> do
     fld_deploymentInfoDeployment <- parseFieldMaybe obj "deployment"
-    fld_deploymentInfoCreatetime <- parseFieldMaybe obj "createTime"
-    fld_deploymentInfoTaskqueueinfos <- parseFieldMaybe obj "taskQueueInfos"
+    fld_deploymentInfoCreateTime <- parseFieldMaybe obj "createTime"
+    fld_deploymentInfoTaskQueueInfos <- parseFieldMaybe obj "taskQueueInfos"
     fld_deploymentInfoMetadata <- parseFieldMaybe obj "metadata"
-    fld_deploymentInfoIscurrent <- parseFieldMaybe obj "isCurrent"
+    fld_deploymentInfoIsCurrent <- parseFieldMaybe obj "isCurrent"
     pure defaultDeploymentInfo
       { deploymentInfoDeployment = maybe (deploymentInfoDeployment defaultDeploymentInfo) id fld_deploymentInfoDeployment
-      , deploymentInfoCreatetime = maybe (deploymentInfoCreatetime defaultDeploymentInfo) id fld_deploymentInfoCreatetime
-      , deploymentInfoTaskqueueinfos = maybe (deploymentInfoTaskqueueinfos defaultDeploymentInfo) id fld_deploymentInfoTaskqueueinfos
+      , deploymentInfoCreateTime = maybe (deploymentInfoCreateTime defaultDeploymentInfo) id fld_deploymentInfoCreateTime
+      , deploymentInfoTaskQueueInfos = maybe (deploymentInfoTaskQueueInfos defaultDeploymentInfo) id fld_deploymentInfoTaskQueueInfos
       , deploymentInfoMetadata = maybe (deploymentInfoMetadata defaultDeploymentInfo) id fld_deploymentInfoMetadata
-      , deploymentInfoIscurrent = maybe (deploymentInfoIscurrent defaultDeploymentInfo) id fld_deploymentInfoIscurrent
+      , deploymentInfoIsCurrent = maybe (deploymentInfoIsCurrent defaultDeploymentInfo) id fld_deploymentInfoIsCurrent
       }
 
 instance Hashable DeploymentInfo where
-  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.deploymentInfoDeployment) msg.deploymentInfoCreatetime) msg.deploymentInfoTaskqueueinfos) msg.deploymentInfoMetadata) msg.deploymentInfoIscurrent
+  hashWithSalt salt msg = hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.deploymentInfoDeployment) msg.deploymentInfoCreateTime) msg.deploymentInfoTaskQueueInfos) msg.deploymentInfoMetadata) msg.deploymentInfoIsCurrent
 
 data UpdateDeploymentMetadata = UpdateDeploymentMetadata
-  { updateDeploymentMetadataUpsertentries :: !(Map.Map Text TE_Common_V1_Message.Payload)
-  , updateDeploymentMetadataRemoveentries :: !(V.Vector Text)
-  , updateDeploymentMetadataUnknownfields :: ![UnknownField]
+  { updateDeploymentMetadataUpsertEntries :: !(Map.Map Text TE_Common_V1_Message.Payload)
+  , updateDeploymentMetadataRemoveEntries :: !(V.Vector Text)
+  , updateDeploymentMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultUpdateDeploymentMetadata :: UpdateDeploymentMetadata
 defaultUpdateDeploymentMetadata = UpdateDeploymentMetadata
-  { updateDeploymentMetadataUpsertentries = Map.empty
-  , updateDeploymentMetadataRemoveentries = V.empty
-  , updateDeploymentMetadataUnknownfields = []
+  { updateDeploymentMetadataUpsertEntries = Map.empty
+  , updateDeploymentMetadataRemoveEntries = V.empty
+  , updateDeploymentMetadataUnknownFields = []
   }
 
 instance MessageEncode UpdateDeploymentMetadata where
   buildMessage msg =
-    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.updateDeploymentMetadataUpsertentries
-    <> V.foldl' (\acc v -> acc <> encodeFieldString 2 v) mempty msg.updateDeploymentMetadataRemoveentries
-    <> encodeUnknownFields msg.updateDeploymentMetadataUnknownfields
+    Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.updateDeploymentMetadataUpsertEntries
+    <> V.foldl' (\acc v -> acc <> encodeFieldString 2 v) mempty msg.updateDeploymentMetadataRemoveEntries
+    <> encodeUnknownFields msg.updateDeploymentMetadataUnknownFields
 
 instance MessageSize UpdateDeploymentMetadata where
   messageSize msg =
-    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.updateDeploymentMetadataUpsertentries)
-    + (V.foldl' (\acc v -> acc + fieldTextSize 2 v) 0 msg.updateDeploymentMetadataRemoveentries)
-    + unknownFieldsSize msg.updateDeploymentMetadataUnknownfields
+    (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.updateDeploymentMetadataUpsertEntries)
+    + (V.foldl' (\acc v -> acc + fieldTextSize 2 v) 0 msg.updateDeploymentMetadataRemoveEntries)
+    + unknownFieldsSize msg.updateDeploymentMetadataUnknownFields
 
 instance MessageDecode UpdateDeploymentMetadata where
   {-# INLINE messageDecoder #-}
@@ -548,7 +548,7 @@ instance MessageDecode UpdateDeploymentMetadata where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UpdateDeploymentMetadata {updateDeploymentMetadataUpsertentries = acc_0, updateDeploymentMetadataRemoveentries = acc_1, updateDeploymentMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UpdateDeploymentMetadata {updateDeploymentMetadataUpsertEntries = acc_0, updateDeploymentMetadataRemoveEntries = acc_1, updateDeploymentMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -577,41 +577,41 @@ instance ProtoMessage UpdateDeploymentMetadata where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = updateDeploymentMetadataUpsertentries
-        , fdSet = \v m -> m { updateDeploymentMetadataUpsertentries = v }
+        , fdGet = updateDeploymentMetadataUpsertEntries
+        , fdSet = \v m -> m { updateDeploymentMetadataUpsertEntries = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "remove_entries"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelRepeated
-        , fdGet = updateDeploymentMetadataRemoveentries
-        , fdSet = \v m -> m { updateDeploymentMetadataRemoveentries = v }
+        , fdGet = updateDeploymentMetadataRemoveEntries
+        , fdSet = \v m -> m { updateDeploymentMetadataRemoveEntries = v }
         })
     ]
 
 instance Aeson.ToJSON UpdateDeploymentMetadata where
   toJSON msg = jsonObject
-      [ "upsertEntries" .=: msg.updateDeploymentMetadataUpsertentries
-      , "removeEntries" .=: msg.updateDeploymentMetadataRemoveentries
+      [ "upsertEntries" .=: msg.updateDeploymentMetadataUpsertEntries
+      , "removeEntries" .=: msg.updateDeploymentMetadataRemoveEntries
       ]
 
 instance Aeson.FromJSON UpdateDeploymentMetadata where
   parseJSON = Aeson.withObject "UpdateDeploymentMetadata" $ \obj -> do
-    fld_updateDeploymentMetadataUpsertentries <- parseFieldMaybe obj "upsertEntries"
-    fld_updateDeploymentMetadataRemoveentries <- parseFieldMaybe obj "removeEntries"
+    fld_updateDeploymentMetadataUpsertEntries <- parseFieldMaybe obj "upsertEntries"
+    fld_updateDeploymentMetadataRemoveEntries <- parseFieldMaybe obj "removeEntries"
     pure defaultUpdateDeploymentMetadata
-      { updateDeploymentMetadataUpsertentries = maybe (updateDeploymentMetadataUpsertentries defaultUpdateDeploymentMetadata) id fld_updateDeploymentMetadataUpsertentries
-      , updateDeploymentMetadataRemoveentries = maybe (updateDeploymentMetadataRemoveentries defaultUpdateDeploymentMetadata) id fld_updateDeploymentMetadataRemoveentries
+      { updateDeploymentMetadataUpsertEntries = maybe (updateDeploymentMetadataUpsertEntries defaultUpdateDeploymentMetadata) id fld_updateDeploymentMetadataUpsertEntries
+      , updateDeploymentMetadataRemoveEntries = maybe (updateDeploymentMetadataRemoveEntries defaultUpdateDeploymentMetadata) id fld_updateDeploymentMetadataRemoveEntries
       }
 
 instance Hashable UpdateDeploymentMetadata where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.updateDeploymentMetadataUpsertentries) msg.updateDeploymentMetadataRemoveentries
+  hashWithSalt salt msg = V.foldl' hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.updateDeploymentMetadataUpsertEntries) msg.updateDeploymentMetadataRemoveEntries
 
 data DeploymentListInfo = DeploymentListInfo
   { deploymentListInfoDeployment :: !(Maybe Deployment)
-  , deploymentListInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , deploymentListInfoIscurrent :: {-# UNPACK #-} !Bool
-  , deploymentListInfoUnknownfields :: ![UnknownField]
+  , deploymentListInfoCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , deploymentListInfoIsCurrent :: {-# UNPACK #-} !Bool
+  , deploymentListInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -619,24 +619,24 @@ data DeploymentListInfo = DeploymentListInfo
 defaultDeploymentListInfo :: DeploymentListInfo
 defaultDeploymentListInfo = DeploymentListInfo
   { deploymentListInfoDeployment = Nothing
-  , deploymentListInfoCreatetime = Nothing
-  , deploymentListInfoIscurrent = False
-  , deploymentListInfoUnknownfields = []
+  , deploymentListInfoCreateTime = Nothing
+  , deploymentListInfoIsCurrent = False
+  , deploymentListInfoUnknownFields = []
   }
 
 instance MessageEncode DeploymentListInfo where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.deploymentListInfoDeployment)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.deploymentListInfoCreatetime)
-    <> (if msg.deploymentListInfoIscurrent == False then mempty else encodeFieldBool 3 msg.deploymentListInfoIscurrent)
-    <> encodeUnknownFields msg.deploymentListInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.deploymentListInfoCreateTime)
+    <> (if msg.deploymentListInfoIsCurrent == False then mempty else encodeFieldBool 3 msg.deploymentListInfoIsCurrent)
+    <> encodeUnknownFields msg.deploymentListInfoUnknownFields
 
 instance MessageSize DeploymentListInfo where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.deploymentListInfoDeployment)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.deploymentListInfoCreatetime)
-    + (if msg.deploymentListInfoIscurrent == False then 0 else fieldBoolSize 3)
-    + unknownFieldsSize msg.deploymentListInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.deploymentListInfoCreateTime)
+    + (if msg.deploymentListInfoIsCurrent == False then 0 else fieldBoolSize 3)
+    + unknownFieldsSize msg.deploymentListInfoUnknownFields
 
 instance MessageDecode DeploymentListInfo where
   {-# INLINE messageDecoder #-}
@@ -645,7 +645,7 @@ instance MessageDecode DeploymentListInfo where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DeploymentListInfo {deploymentListInfoDeployment = acc_0, deploymentListInfoCreatetime = acc_1, deploymentListInfoIscurrent = acc_2, deploymentListInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DeploymentListInfo {deploymentListInfoDeployment = acc_0, deploymentListInfoCreateTime = acc_1, deploymentListInfoIsCurrent = acc_2, deploymentListInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -681,57 +681,57 @@ instance ProtoMessage DeploymentListInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = deploymentListInfoCreatetime
-        , fdSet = \v m -> m { deploymentListInfoCreatetime = v }
+        , fdGet = deploymentListInfoCreateTime
+        , fdSet = \v m -> m { deploymentListInfoCreateTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "is_current"
         , fdNumber = 3
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = deploymentListInfoIscurrent
-        , fdSet = \v m -> m { deploymentListInfoIscurrent = v }
+        , fdGet = deploymentListInfoIsCurrent
+        , fdSet = \v m -> m { deploymentListInfoIsCurrent = v }
         })
     ]
 
 instance Aeson.ToJSON DeploymentListInfo where
   toJSON msg = jsonObject
       [ "deployment" .=: msg.deploymentListInfoDeployment
-      , "createTime" .=: msg.deploymentListInfoCreatetime
-      , "isCurrent" .=: msg.deploymentListInfoIscurrent
+      , "createTime" .=: msg.deploymentListInfoCreateTime
+      , "isCurrent" .=: msg.deploymentListInfoIsCurrent
       ]
 
 instance Aeson.FromJSON DeploymentListInfo where
   parseJSON = Aeson.withObject "DeploymentListInfo" $ \obj -> do
     fld_deploymentListInfoDeployment <- parseFieldMaybe obj "deployment"
-    fld_deploymentListInfoCreatetime <- parseFieldMaybe obj "createTime"
-    fld_deploymentListInfoIscurrent <- parseFieldMaybe obj "isCurrent"
+    fld_deploymentListInfoCreateTime <- parseFieldMaybe obj "createTime"
+    fld_deploymentListInfoIsCurrent <- parseFieldMaybe obj "isCurrent"
     pure defaultDeploymentListInfo
       { deploymentListInfoDeployment = maybe (deploymentListInfoDeployment defaultDeploymentListInfo) id fld_deploymentListInfoDeployment
-      , deploymentListInfoCreatetime = maybe (deploymentListInfoCreatetime defaultDeploymentListInfo) id fld_deploymentListInfoCreatetime
-      , deploymentListInfoIscurrent = maybe (deploymentListInfoIscurrent defaultDeploymentListInfo) id fld_deploymentListInfoIscurrent
+      , deploymentListInfoCreateTime = maybe (deploymentListInfoCreateTime defaultDeploymentListInfo) id fld_deploymentListInfoCreateTime
+      , deploymentListInfoIsCurrent = maybe (deploymentListInfoIsCurrent defaultDeploymentListInfo) id fld_deploymentListInfoIsCurrent
       }
 
 instance Hashable DeploymentListInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.deploymentListInfoDeployment) msg.deploymentListInfoCreatetime) msg.deploymentListInfoIscurrent
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.deploymentListInfoDeployment) msg.deploymentListInfoCreateTime) msg.deploymentListInfoIsCurrent
 
 data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
   { workerDeploymentVersionInfoVersion :: !Text
   , workerDeploymentVersionInfoStatus :: !TE_Enums_V1_Deployment.WorkerDeploymentVersionStatus
-  , workerDeploymentVersionInfoDeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , workerDeploymentVersionInfoDeploymentname :: !Text
-  , workerDeploymentVersionInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentVersionInfoRoutingchangedtime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentVersionInfoCurrentsincetime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentVersionInfoRampingsincetime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentVersionInfoFirstactivationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentVersionInfoLastcurrenttime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentVersionInfoLastdeactivationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentVersionInfoRamppercentage :: {-# UNPACK #-} !Float
-  , workerDeploymentVersionInfoTaskqueueinfos :: !(V.Vector WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
-  , workerDeploymentVersionInfoDrainageinfo :: !(Maybe VersionDrainageInfo)
+  , workerDeploymentVersionInfoDeploymentVersion :: !(Maybe WorkerDeploymentVersion)
+  , workerDeploymentVersionInfoDeploymentName :: !Text
+  , workerDeploymentVersionInfoCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoRoutingChangedTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoCurrentSinceTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoRampingSinceTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoFirstActivationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoLastCurrentTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoLastDeactivationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentVersionInfoRampPercentage :: {-# UNPACK #-} !Float
+  , workerDeploymentVersionInfoTaskQueueInfos :: !(V.Vector WorkerDeploymentVersionInfo'VersionTaskQueueInfo)
+  , workerDeploymentVersionInfoDrainageInfo :: !(Maybe VersionDrainageInfo)
   , workerDeploymentVersionInfoMetadata :: !(Maybe VersionMetadata)
-  , workerDeploymentVersionInfoUnknownfields :: ![UnknownField]
+  , workerDeploymentVersionInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -739,7 +739,7 @@ data WorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
 data WorkerDeploymentVersionInfo'VersionTaskQueueInfo = WorkerDeploymentVersionInfo'VersionTaskQueueInfo
   { workerDeploymentVersionInfoVersionTaskQueueInfoName :: !Text
   , workerDeploymentVersionInfoVersionTaskQueueInfoType :: !TE_Enums_V1_TaskQueue.TaskQueueType
-  , workerDeploymentVersionInfoVersionTaskQueueInfoUnknownfields :: ![UnknownField]
+  , workerDeploymentVersionInfoVersionTaskQueueInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -748,20 +748,20 @@ defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo :: WorkerDeploymentVersi
 defaultWorkerDeploymentVersionInfo'VersionTaskQueueInfo = WorkerDeploymentVersionInfo'VersionTaskQueueInfo
   { workerDeploymentVersionInfoVersionTaskQueueInfoName = ""
   , workerDeploymentVersionInfoVersionTaskQueueInfoType = (toEnum 0)
-  , workerDeploymentVersionInfoVersionTaskQueueInfoUnknownfields = []
+  , workerDeploymentVersionInfoVersionTaskQueueInfoUnknownFields = []
   }
 
 instance MessageEncode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   buildMessage msg =
     (if msg.workerDeploymentVersionInfoVersionTaskQueueInfoName == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentVersionInfoVersionTaskQueueInfoName)
     <> (if fromEnum msg.workerDeploymentVersionInfoVersionTaskQueueInfoType == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.workerDeploymentVersionInfoVersionTaskQueueInfoType)))
-    <> encodeUnknownFields msg.workerDeploymentVersionInfoVersionTaskQueueInfoUnknownfields
+    <> encodeUnknownFields msg.workerDeploymentVersionInfoVersionTaskQueueInfoUnknownFields
 
 instance MessageSize WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   messageSize msg =
     (if msg.workerDeploymentVersionInfoVersionTaskQueueInfoName == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentVersionInfoVersionTaskQueueInfoName)
     + (if fromEnum msg.workerDeploymentVersionInfoVersionTaskQueueInfoType == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.workerDeploymentVersionInfoVersionTaskQueueInfoType)))
-    + unknownFieldsSize msg.workerDeploymentVersionInfoVersionTaskQueueInfoUnknownfields
+    + unknownFieldsSize msg.workerDeploymentVersionInfoVersionTaskQueueInfoUnknownFields
 
 instance MessageDecode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
   {-# INLINE messageDecoder #-}
@@ -770,7 +770,7 @@ instance MessageDecode WorkerDeploymentVersionInfo'VersionTaskQueueInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerDeploymentVersionInfo'VersionTaskQueueInfo {workerDeploymentVersionInfoVersionTaskQueueInfoName = acc_0, workerDeploymentVersionInfoVersionTaskQueueInfoType = acc_1, workerDeploymentVersionInfoVersionTaskQueueInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerDeploymentVersionInfo'VersionTaskQueueInfo {workerDeploymentVersionInfoVersionTaskQueueInfoName = acc_0, workerDeploymentVersionInfoVersionTaskQueueInfoType = acc_1, workerDeploymentVersionInfoVersionTaskQueueInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -830,59 +830,59 @@ defaultWorkerDeploymentVersionInfo :: WorkerDeploymentVersionInfo
 defaultWorkerDeploymentVersionInfo = WorkerDeploymentVersionInfo
   { workerDeploymentVersionInfoVersion = ""
   , workerDeploymentVersionInfoStatus = (toEnum 0)
-  , workerDeploymentVersionInfoDeploymentversion = Nothing
-  , workerDeploymentVersionInfoDeploymentname = ""
-  , workerDeploymentVersionInfoCreatetime = Nothing
-  , workerDeploymentVersionInfoRoutingchangedtime = Nothing
-  , workerDeploymentVersionInfoCurrentsincetime = Nothing
-  , workerDeploymentVersionInfoRampingsincetime = Nothing
-  , workerDeploymentVersionInfoFirstactivationtime = Nothing
-  , workerDeploymentVersionInfoLastcurrenttime = Nothing
-  , workerDeploymentVersionInfoLastdeactivationtime = Nothing
-  , workerDeploymentVersionInfoRamppercentage = 0
-  , workerDeploymentVersionInfoTaskqueueinfos = V.empty
-  , workerDeploymentVersionInfoDrainageinfo = Nothing
+  , workerDeploymentVersionInfoDeploymentVersion = Nothing
+  , workerDeploymentVersionInfoDeploymentName = ""
+  , workerDeploymentVersionInfoCreateTime = Nothing
+  , workerDeploymentVersionInfoRoutingChangedTime = Nothing
+  , workerDeploymentVersionInfoCurrentSinceTime = Nothing
+  , workerDeploymentVersionInfoRampingSinceTime = Nothing
+  , workerDeploymentVersionInfoFirstActivationTime = Nothing
+  , workerDeploymentVersionInfoLastCurrentTime = Nothing
+  , workerDeploymentVersionInfoLastDeactivationTime = Nothing
+  , workerDeploymentVersionInfoRampPercentage = 0
+  , workerDeploymentVersionInfoTaskQueueInfos = V.empty
+  , workerDeploymentVersionInfoDrainageInfo = Nothing
   , workerDeploymentVersionInfoMetadata = Nothing
-  , workerDeploymentVersionInfoUnknownfields = []
+  , workerDeploymentVersionInfoUnknownFields = []
   }
 
 instance MessageEncode WorkerDeploymentVersionInfo where
   buildMessage msg =
     (if msg.workerDeploymentVersionInfoVersion == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentVersionInfoVersion)
     <> (if fromEnum msg.workerDeploymentVersionInfoStatus == 0 then mempty else encodeFieldVarint 14 (fromIntegral (fromEnum msg.workerDeploymentVersionInfoStatus)))
-    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.workerDeploymentVersionInfoDeploymentversion)
-    <> (if msg.workerDeploymentVersionInfoDeploymentname == T.empty then mempty else encodeFieldString 2 msg.workerDeploymentVersionInfoDeploymentname)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerDeploymentVersionInfoCreatetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentVersionInfoRoutingchangedtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerDeploymentVersionInfoCurrentsincetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workerDeploymentVersionInfoRampingsincetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workerDeploymentVersionInfoFirstactivationtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.workerDeploymentVersionInfoLastcurrenttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 13 v) msg.workerDeploymentVersionInfoLastdeactivationtime)
-    <> (if msg.workerDeploymentVersionInfoRamppercentage == 0 then mempty else encodeFieldFloat 7 msg.workerDeploymentVersionInfoRamppercentage)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 8 v) mempty msg.workerDeploymentVersionInfoTaskqueueinfos
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workerDeploymentVersionInfoDrainageinfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 11 v) msg.workerDeploymentVersionInfoDeploymentVersion)
+    <> (if msg.workerDeploymentVersionInfoDeploymentName == T.empty then mempty else encodeFieldString 2 msg.workerDeploymentVersionInfoDeploymentName)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerDeploymentVersionInfoCreateTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentVersionInfoRoutingChangedTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerDeploymentVersionInfoCurrentSinceTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workerDeploymentVersionInfoRampingSinceTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workerDeploymentVersionInfoFirstActivationTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 15 v) msg.workerDeploymentVersionInfoLastCurrentTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 13 v) msg.workerDeploymentVersionInfoLastDeactivationTime)
+    <> (if msg.workerDeploymentVersionInfoRampPercentage == 0 then mempty else encodeFieldFloat 7 msg.workerDeploymentVersionInfoRampPercentage)
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 8 v) mempty msg.workerDeploymentVersionInfoTaskQueueInfos
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workerDeploymentVersionInfoDrainageInfo)
     <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.workerDeploymentVersionInfoMetadata)
-    <> encodeUnknownFields msg.workerDeploymentVersionInfoUnknownfields
+    <> encodeUnknownFields msg.workerDeploymentVersionInfoUnknownFields
 
 instance MessageSize WorkerDeploymentVersionInfo where
   messageSize msg =
     (if msg.workerDeploymentVersionInfoVersion == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentVersionInfoVersion)
     + (if fromEnum msg.workerDeploymentVersionInfoStatus == 0 then 0 else fieldVarintSize 14 (fromIntegral (fromEnum msg.workerDeploymentVersionInfoStatus)))
-    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.workerDeploymentVersionInfoDeploymentversion)
-    + (if msg.workerDeploymentVersionInfoDeploymentname == T.empty then 0 else fieldTextSize 2 msg.workerDeploymentVersionInfoDeploymentname)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerDeploymentVersionInfoCreatetime)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentVersionInfoRoutingchangedtime)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerDeploymentVersionInfoCurrentsincetime)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workerDeploymentVersionInfoRampingsincetime)
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workerDeploymentVersionInfoFirstactivationtime)
-    + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.workerDeploymentVersionInfoLastcurrenttime)
-    + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.workerDeploymentVersionInfoLastdeactivationtime)
-    + (if msg.workerDeploymentVersionInfoRamppercentage == 0 then 0 else fieldFloatSize 7)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 8 (messageSize v)) 0 msg.workerDeploymentVersionInfoTaskqueueinfos)
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workerDeploymentVersionInfoDrainageinfo)
+    + (maybe 0 (\v -> fieldMessageSize 11 (messageSize v)) msg.workerDeploymentVersionInfoDeploymentVersion)
+    + (if msg.workerDeploymentVersionInfoDeploymentName == T.empty then 0 else fieldTextSize 2 msg.workerDeploymentVersionInfoDeploymentName)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerDeploymentVersionInfoCreateTime)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentVersionInfoRoutingChangedTime)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerDeploymentVersionInfoCurrentSinceTime)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workerDeploymentVersionInfoRampingSinceTime)
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workerDeploymentVersionInfoFirstActivationTime)
+    + (maybe 0 (\v -> fieldMessageSize 15 (messageSize v)) msg.workerDeploymentVersionInfoLastCurrentTime)
+    + (maybe 0 (\v -> fieldMessageSize 13 (messageSize v)) msg.workerDeploymentVersionInfoLastDeactivationTime)
+    + (if msg.workerDeploymentVersionInfoRampPercentage == 0 then 0 else fieldFloatSize 7)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 8 (messageSize v)) 0 msg.workerDeploymentVersionInfoTaskQueueInfos)
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workerDeploymentVersionInfoDrainageInfo)
     + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workerDeploymentVersionInfoMetadata)
-    + unknownFieldsSize msg.workerDeploymentVersionInfoUnknownfields
+    + unknownFieldsSize msg.workerDeploymentVersionInfoUnknownFields
 
 instance MessageDecode WorkerDeploymentVersionInfo where
   {-# INLINE messageDecoder #-}
@@ -891,7 +891,7 @@ instance MessageDecode WorkerDeploymentVersionInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_12 acc_13 acc_14 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerDeploymentVersionInfo {workerDeploymentVersionInfoVersion = acc_0, workerDeploymentVersionInfoStatus = acc_1, workerDeploymentVersionInfoDeploymentversion = acc_2, workerDeploymentVersionInfoDeploymentname = acc_3, workerDeploymentVersionInfoCreatetime = acc_4, workerDeploymentVersionInfoRoutingchangedtime = acc_5, workerDeploymentVersionInfoCurrentsincetime = acc_6, workerDeploymentVersionInfoRampingsincetime = acc_7, workerDeploymentVersionInfoFirstactivationtime = acc_8, workerDeploymentVersionInfoLastcurrenttime = acc_9, workerDeploymentVersionInfoLastdeactivationtime = acc_10, workerDeploymentVersionInfoRamppercentage = acc_11, workerDeploymentVersionInfoTaskqueueinfos = acc_12, workerDeploymentVersionInfoDrainageinfo = acc_13, workerDeploymentVersionInfoMetadata = acc_14, workerDeploymentVersionInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerDeploymentVersionInfo {workerDeploymentVersionInfoVersion = acc_0, workerDeploymentVersionInfoStatus = acc_1, workerDeploymentVersionInfoDeploymentVersion = acc_2, workerDeploymentVersionInfoDeploymentName = acc_3, workerDeploymentVersionInfoCreateTime = acc_4, workerDeploymentVersionInfoRoutingChangedTime = acc_5, workerDeploymentVersionInfoCurrentSinceTime = acc_6, workerDeploymentVersionInfoRampingSinceTime = acc_7, workerDeploymentVersionInfoFirstActivationTime = acc_8, workerDeploymentVersionInfoLastCurrentTime = acc_9, workerDeploymentVersionInfoLastDeactivationTime = acc_10, workerDeploymentVersionInfoRampPercentage = acc_11, workerDeploymentVersionInfoTaskQueueInfos = acc_12, workerDeploymentVersionInfoDrainageInfo = acc_13, workerDeploymentVersionInfoMetadata = acc_14, workerDeploymentVersionInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -971,96 +971,96 @@ instance ProtoMessage WorkerDeploymentVersionInfo where
         , fdNumber = 11
         , fdTypeDesc = MessageType "WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoDeploymentversion
-        , fdSet = \v m -> m { workerDeploymentVersionInfoDeploymentversion = v }
+        , fdGet = workerDeploymentVersionInfoDeploymentVersion
+        , fdSet = \v m -> m { workerDeploymentVersionInfoDeploymentVersion = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "deployment_name"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoDeploymentname
-        , fdSet = \v m -> m { workerDeploymentVersionInfoDeploymentname = v }
+        , fdGet = workerDeploymentVersionInfoDeploymentName
+        , fdSet = \v m -> m { workerDeploymentVersionInfoDeploymentName = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "create_time"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoCreatetime
-        , fdSet = \v m -> m { workerDeploymentVersionInfoCreatetime = v }
+        , fdGet = workerDeploymentVersionInfoCreateTime
+        , fdSet = \v m -> m { workerDeploymentVersionInfoCreateTime = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "routing_changed_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoRoutingchangedtime
-        , fdSet = \v m -> m { workerDeploymentVersionInfoRoutingchangedtime = v }
+        , fdGet = workerDeploymentVersionInfoRoutingChangedTime
+        , fdSet = \v m -> m { workerDeploymentVersionInfoRoutingChangedTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "current_since_time"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoCurrentsincetime
-        , fdSet = \v m -> m { workerDeploymentVersionInfoCurrentsincetime = v }
+        , fdGet = workerDeploymentVersionInfoCurrentSinceTime
+        , fdSet = \v m -> m { workerDeploymentVersionInfoCurrentSinceTime = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "ramping_since_time"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoRampingsincetime
-        , fdSet = \v m -> m { workerDeploymentVersionInfoRampingsincetime = v }
+        , fdGet = workerDeploymentVersionInfoRampingSinceTime
+        , fdSet = \v m -> m { workerDeploymentVersionInfoRampingSinceTime = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "first_activation_time"
         , fdNumber = 12
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoFirstactivationtime
-        , fdSet = \v m -> m { workerDeploymentVersionInfoFirstactivationtime = v }
+        , fdGet = workerDeploymentVersionInfoFirstActivationTime
+        , fdSet = \v m -> m { workerDeploymentVersionInfoFirstActivationTime = v }
         })
     , (15, SomeField FieldDescriptor
         { fdName = "last_current_time"
         , fdNumber = 15
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoLastcurrenttime
-        , fdSet = \v m -> m { workerDeploymentVersionInfoLastcurrenttime = v }
+        , fdGet = workerDeploymentVersionInfoLastCurrentTime
+        , fdSet = \v m -> m { workerDeploymentVersionInfoLastCurrentTime = v }
         })
     , (13, SomeField FieldDescriptor
         { fdName = "last_deactivation_time"
         , fdNumber = 13
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoLastdeactivationtime
-        , fdSet = \v m -> m { workerDeploymentVersionInfoLastdeactivationtime = v }
+        , fdGet = workerDeploymentVersionInfoLastDeactivationTime
+        , fdSet = \v m -> m { workerDeploymentVersionInfoLastDeactivationTime = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "ramp_percentage"
         , fdNumber = 7
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoRamppercentage
-        , fdSet = \v m -> m { workerDeploymentVersionInfoRamppercentage = v }
+        , fdGet = workerDeploymentVersionInfoRampPercentage
+        , fdSet = \v m -> m { workerDeploymentVersionInfoRampPercentage = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "task_queue_infos"
         , fdNumber = 8
         , fdTypeDesc = MessageType "VersionTaskQueueInfo"
         , fdLabel = LabelRepeated
-        , fdGet = workerDeploymentVersionInfoTaskqueueinfos
-        , fdSet = \v m -> m { workerDeploymentVersionInfoTaskqueueinfos = v }
+        , fdGet = workerDeploymentVersionInfoTaskQueueInfos
+        , fdSet = \v m -> m { workerDeploymentVersionInfoTaskQueueInfos = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "drainage_info"
         , fdNumber = 9
         , fdTypeDesc = MessageType "VersionDrainageInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionInfoDrainageinfo
-        , fdSet = \v m -> m { workerDeploymentVersionInfoDrainageinfo = v }
+        , fdGet = workerDeploymentVersionInfoDrainageInfo
+        , fdSet = \v m -> m { workerDeploymentVersionInfoDrainageInfo = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "metadata"
@@ -1076,18 +1076,18 @@ instance Aeson.ToJSON WorkerDeploymentVersionInfo where
   toJSON msg = jsonObject
       [ "version" .=: msg.workerDeploymentVersionInfoVersion
       , "status" .=: msg.workerDeploymentVersionInfoStatus
-      , "deploymentVersion" .=: msg.workerDeploymentVersionInfoDeploymentversion
-      , "deploymentName" .=: msg.workerDeploymentVersionInfoDeploymentname
-      , "createTime" .=: msg.workerDeploymentVersionInfoCreatetime
-      , "routingChangedTime" .=: msg.workerDeploymentVersionInfoRoutingchangedtime
-      , "currentSinceTime" .=: msg.workerDeploymentVersionInfoCurrentsincetime
-      , "rampingSinceTime" .=: msg.workerDeploymentVersionInfoRampingsincetime
-      , "firstActivationTime" .=: msg.workerDeploymentVersionInfoFirstactivationtime
-      , "lastCurrentTime" .=: msg.workerDeploymentVersionInfoLastcurrenttime
-      , "lastDeactivationTime" .=: msg.workerDeploymentVersionInfoLastdeactivationtime
-      , "rampPercentage" .=: msg.workerDeploymentVersionInfoRamppercentage
-      , "taskQueueInfos" .=: msg.workerDeploymentVersionInfoTaskqueueinfos
-      , "drainageInfo" .=: msg.workerDeploymentVersionInfoDrainageinfo
+      , "deploymentVersion" .=: msg.workerDeploymentVersionInfoDeploymentVersion
+      , "deploymentName" .=: msg.workerDeploymentVersionInfoDeploymentName
+      , "createTime" .=: msg.workerDeploymentVersionInfoCreateTime
+      , "routingChangedTime" .=: msg.workerDeploymentVersionInfoRoutingChangedTime
+      , "currentSinceTime" .=: msg.workerDeploymentVersionInfoCurrentSinceTime
+      , "rampingSinceTime" .=: msg.workerDeploymentVersionInfoRampingSinceTime
+      , "firstActivationTime" .=: msg.workerDeploymentVersionInfoFirstActivationTime
+      , "lastCurrentTime" .=: msg.workerDeploymentVersionInfoLastCurrentTime
+      , "lastDeactivationTime" .=: msg.workerDeploymentVersionInfoLastDeactivationTime
+      , "rampPercentage" .=: msg.workerDeploymentVersionInfoRampPercentage
+      , "taskQueueInfos" .=: msg.workerDeploymentVersionInfoTaskQueueInfos
+      , "drainageInfo" .=: msg.workerDeploymentVersionInfoDrainageInfo
       , "metadata" .=: msg.workerDeploymentVersionInfoMetadata
       ]
 
@@ -1095,45 +1095,45 @@ instance Aeson.FromJSON WorkerDeploymentVersionInfo where
   parseJSON = Aeson.withObject "WorkerDeploymentVersionInfo" $ \obj -> do
     fld_workerDeploymentVersionInfoVersion <- parseFieldMaybe obj "version"
     fld_workerDeploymentVersionInfoStatus <- parseFieldMaybe obj "status"
-    fld_workerDeploymentVersionInfoDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
-    fld_workerDeploymentVersionInfoDeploymentname <- parseFieldMaybe obj "deploymentName"
-    fld_workerDeploymentVersionInfoCreatetime <- parseFieldMaybe obj "createTime"
-    fld_workerDeploymentVersionInfoRoutingchangedtime <- parseFieldMaybe obj "routingChangedTime"
-    fld_workerDeploymentVersionInfoCurrentsincetime <- parseFieldMaybe obj "currentSinceTime"
-    fld_workerDeploymentVersionInfoRampingsincetime <- parseFieldMaybe obj "rampingSinceTime"
-    fld_workerDeploymentVersionInfoFirstactivationtime <- parseFieldMaybe obj "firstActivationTime"
-    fld_workerDeploymentVersionInfoLastcurrenttime <- parseFieldMaybe obj "lastCurrentTime"
-    fld_workerDeploymentVersionInfoLastdeactivationtime <- parseFieldMaybe obj "lastDeactivationTime"
-    fld_workerDeploymentVersionInfoRamppercentage <- parseFieldMaybe obj "rampPercentage"
-    fld_workerDeploymentVersionInfoTaskqueueinfos <- parseFieldMaybe obj "taskQueueInfos"
-    fld_workerDeploymentVersionInfoDrainageinfo <- parseFieldMaybe obj "drainageInfo"
+    fld_workerDeploymentVersionInfoDeploymentVersion <- parseFieldMaybe obj "deploymentVersion"
+    fld_workerDeploymentVersionInfoDeploymentName <- parseFieldMaybe obj "deploymentName"
+    fld_workerDeploymentVersionInfoCreateTime <- parseFieldMaybe obj "createTime"
+    fld_workerDeploymentVersionInfoRoutingChangedTime <- parseFieldMaybe obj "routingChangedTime"
+    fld_workerDeploymentVersionInfoCurrentSinceTime <- parseFieldMaybe obj "currentSinceTime"
+    fld_workerDeploymentVersionInfoRampingSinceTime <- parseFieldMaybe obj "rampingSinceTime"
+    fld_workerDeploymentVersionInfoFirstActivationTime <- parseFieldMaybe obj "firstActivationTime"
+    fld_workerDeploymentVersionInfoLastCurrentTime <- parseFieldMaybe obj "lastCurrentTime"
+    fld_workerDeploymentVersionInfoLastDeactivationTime <- parseFieldMaybe obj "lastDeactivationTime"
+    fld_workerDeploymentVersionInfoRampPercentage <- parseFieldMaybe obj "rampPercentage"
+    fld_workerDeploymentVersionInfoTaskQueueInfos <- parseFieldMaybe obj "taskQueueInfos"
+    fld_workerDeploymentVersionInfoDrainageInfo <- parseFieldMaybe obj "drainageInfo"
     fld_workerDeploymentVersionInfoMetadata <- parseFieldMaybe obj "metadata"
     pure defaultWorkerDeploymentVersionInfo
       { workerDeploymentVersionInfoVersion = maybe (workerDeploymentVersionInfoVersion defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoVersion
       , workerDeploymentVersionInfoStatus = maybe (workerDeploymentVersionInfoStatus defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoStatus
-      , workerDeploymentVersionInfoDeploymentversion = maybe (workerDeploymentVersionInfoDeploymentversion defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDeploymentversion
-      , workerDeploymentVersionInfoDeploymentname = maybe (workerDeploymentVersionInfoDeploymentname defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDeploymentname
-      , workerDeploymentVersionInfoCreatetime = maybe (workerDeploymentVersionInfoCreatetime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoCreatetime
-      , workerDeploymentVersionInfoRoutingchangedtime = maybe (workerDeploymentVersionInfoRoutingchangedtime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRoutingchangedtime
-      , workerDeploymentVersionInfoCurrentsincetime = maybe (workerDeploymentVersionInfoCurrentsincetime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoCurrentsincetime
-      , workerDeploymentVersionInfoRampingsincetime = maybe (workerDeploymentVersionInfoRampingsincetime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRampingsincetime
-      , workerDeploymentVersionInfoFirstactivationtime = maybe (workerDeploymentVersionInfoFirstactivationtime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoFirstactivationtime
-      , workerDeploymentVersionInfoLastcurrenttime = maybe (workerDeploymentVersionInfoLastcurrenttime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoLastcurrenttime
-      , workerDeploymentVersionInfoLastdeactivationtime = maybe (workerDeploymentVersionInfoLastdeactivationtime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoLastdeactivationtime
-      , workerDeploymentVersionInfoRamppercentage = maybe (workerDeploymentVersionInfoRamppercentage defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRamppercentage
-      , workerDeploymentVersionInfoTaskqueueinfos = maybe (workerDeploymentVersionInfoTaskqueueinfos defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoTaskqueueinfos
-      , workerDeploymentVersionInfoDrainageinfo = maybe (workerDeploymentVersionInfoDrainageinfo defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDrainageinfo
+      , workerDeploymentVersionInfoDeploymentVersion = maybe (workerDeploymentVersionInfoDeploymentVersion defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDeploymentVersion
+      , workerDeploymentVersionInfoDeploymentName = maybe (workerDeploymentVersionInfoDeploymentName defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDeploymentName
+      , workerDeploymentVersionInfoCreateTime = maybe (workerDeploymentVersionInfoCreateTime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoCreateTime
+      , workerDeploymentVersionInfoRoutingChangedTime = maybe (workerDeploymentVersionInfoRoutingChangedTime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRoutingChangedTime
+      , workerDeploymentVersionInfoCurrentSinceTime = maybe (workerDeploymentVersionInfoCurrentSinceTime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoCurrentSinceTime
+      , workerDeploymentVersionInfoRampingSinceTime = maybe (workerDeploymentVersionInfoRampingSinceTime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRampingSinceTime
+      , workerDeploymentVersionInfoFirstActivationTime = maybe (workerDeploymentVersionInfoFirstActivationTime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoFirstActivationTime
+      , workerDeploymentVersionInfoLastCurrentTime = maybe (workerDeploymentVersionInfoLastCurrentTime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoLastCurrentTime
+      , workerDeploymentVersionInfoLastDeactivationTime = maybe (workerDeploymentVersionInfoLastDeactivationTime defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoLastDeactivationTime
+      , workerDeploymentVersionInfoRampPercentage = maybe (workerDeploymentVersionInfoRampPercentage defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoRampPercentage
+      , workerDeploymentVersionInfoTaskQueueInfos = maybe (workerDeploymentVersionInfoTaskQueueInfos defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoTaskQueueInfos
+      , workerDeploymentVersionInfoDrainageInfo = maybe (workerDeploymentVersionInfoDrainageInfo defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoDrainageInfo
       , workerDeploymentVersionInfoMetadata = maybe (workerDeploymentVersionInfoMetadata defaultWorkerDeploymentVersionInfo) id fld_workerDeploymentVersionInfoMetadata
       }
 
 instance Hashable WorkerDeploymentVersionInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerDeploymentVersionInfoVersion) msg.workerDeploymentVersionInfoStatus) msg.workerDeploymentVersionInfoDeploymentversion) msg.workerDeploymentVersionInfoDeploymentname) msg.workerDeploymentVersionInfoCreatetime) msg.workerDeploymentVersionInfoRoutingchangedtime) msg.workerDeploymentVersionInfoCurrentsincetime) msg.workerDeploymentVersionInfoRampingsincetime) msg.workerDeploymentVersionInfoFirstactivationtime) msg.workerDeploymentVersionInfoLastcurrenttime) msg.workerDeploymentVersionInfoLastdeactivationtime) msg.workerDeploymentVersionInfoRamppercentage) msg.workerDeploymentVersionInfoTaskqueueinfos) msg.workerDeploymentVersionInfoDrainageinfo) msg.workerDeploymentVersionInfoMetadata
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerDeploymentVersionInfoVersion) msg.workerDeploymentVersionInfoStatus) msg.workerDeploymentVersionInfoDeploymentVersion) msg.workerDeploymentVersionInfoDeploymentName) msg.workerDeploymentVersionInfoCreateTime) msg.workerDeploymentVersionInfoRoutingChangedTime) msg.workerDeploymentVersionInfoCurrentSinceTime) msg.workerDeploymentVersionInfoRampingSinceTime) msg.workerDeploymentVersionInfoFirstActivationTime) msg.workerDeploymentVersionInfoLastCurrentTime) msg.workerDeploymentVersionInfoLastDeactivationTime) msg.workerDeploymentVersionInfoRampPercentage) msg.workerDeploymentVersionInfoTaskQueueInfos) msg.workerDeploymentVersionInfoDrainageInfo) msg.workerDeploymentVersionInfoMetadata
 
 data VersionDrainageInfo = VersionDrainageInfo
   { versionDrainageInfoStatus :: !TE_Enums_V1_Deployment.VersionDrainageStatus
-  , versionDrainageInfoLastchangedtime :: !(Maybe PB_Timestamp.Timestamp)
-  , versionDrainageInfoLastcheckedtime :: !(Maybe PB_Timestamp.Timestamp)
-  , versionDrainageInfoUnknownfields :: ![UnknownField]
+  , versionDrainageInfoLastChangedTime :: !(Maybe PB_Timestamp.Timestamp)
+  , versionDrainageInfoLastCheckedTime :: !(Maybe PB_Timestamp.Timestamp)
+  , versionDrainageInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1141,24 +1141,24 @@ data VersionDrainageInfo = VersionDrainageInfo
 defaultVersionDrainageInfo :: VersionDrainageInfo
 defaultVersionDrainageInfo = VersionDrainageInfo
   { versionDrainageInfoStatus = (toEnum 0)
-  , versionDrainageInfoLastchangedtime = Nothing
-  , versionDrainageInfoLastcheckedtime = Nothing
-  , versionDrainageInfoUnknownfields = []
+  , versionDrainageInfoLastChangedTime = Nothing
+  , versionDrainageInfoLastCheckedTime = Nothing
+  , versionDrainageInfoUnknownFields = []
   }
 
 instance MessageEncode VersionDrainageInfo where
   buildMessage msg =
     (if fromEnum msg.versionDrainageInfoStatus == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.versionDrainageInfoStatus)))
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versionDrainageInfoLastchangedtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.versionDrainageInfoLastcheckedtime)
-    <> encodeUnknownFields msg.versionDrainageInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versionDrainageInfoLastChangedTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.versionDrainageInfoLastCheckedTime)
+    <> encodeUnknownFields msg.versionDrainageInfoUnknownFields
 
 instance MessageSize VersionDrainageInfo where
   messageSize msg =
     (if fromEnum msg.versionDrainageInfoStatus == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.versionDrainageInfoStatus)))
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versionDrainageInfoLastchangedtime)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.versionDrainageInfoLastcheckedtime)
-    + unknownFieldsSize msg.versionDrainageInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versionDrainageInfoLastChangedTime)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.versionDrainageInfoLastCheckedTime)
+    + unknownFieldsSize msg.versionDrainageInfoUnknownFields
 
 instance MessageDecode VersionDrainageInfo where
   {-# INLINE messageDecoder #-}
@@ -1167,7 +1167,7 @@ instance MessageDecode VersionDrainageInfo where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (VersionDrainageInfo {versionDrainageInfoStatus = acc_0, versionDrainageInfoLastchangedtime = acc_1, versionDrainageInfoLastcheckedtime = acc_2, versionDrainageInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (VersionDrainageInfo {versionDrainageInfoStatus = acc_0, versionDrainageInfoLastChangedTime = acc_1, versionDrainageInfoLastCheckedTime = acc_2, versionDrainageInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -1203,49 +1203,49 @@ instance ProtoMessage VersionDrainageInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = versionDrainageInfoLastchangedtime
-        , fdSet = \v m -> m { versionDrainageInfoLastchangedtime = v }
+        , fdGet = versionDrainageInfoLastChangedTime
+        , fdSet = \v m -> m { versionDrainageInfoLastChangedTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "last_checked_time"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = versionDrainageInfoLastcheckedtime
-        , fdSet = \v m -> m { versionDrainageInfoLastcheckedtime = v }
+        , fdGet = versionDrainageInfoLastCheckedTime
+        , fdSet = \v m -> m { versionDrainageInfoLastCheckedTime = v }
         })
     ]
 
 instance Aeson.ToJSON VersionDrainageInfo where
   toJSON msg = jsonObject
       [ "status" .=: msg.versionDrainageInfoStatus
-      , "lastChangedTime" .=: msg.versionDrainageInfoLastchangedtime
-      , "lastCheckedTime" .=: msg.versionDrainageInfoLastcheckedtime
+      , "lastChangedTime" .=: msg.versionDrainageInfoLastChangedTime
+      , "lastCheckedTime" .=: msg.versionDrainageInfoLastCheckedTime
       ]
 
 instance Aeson.FromJSON VersionDrainageInfo where
   parseJSON = Aeson.withObject "VersionDrainageInfo" $ \obj -> do
     fld_versionDrainageInfoStatus <- parseFieldMaybe obj "status"
-    fld_versionDrainageInfoLastchangedtime <- parseFieldMaybe obj "lastChangedTime"
-    fld_versionDrainageInfoLastcheckedtime <- parseFieldMaybe obj "lastCheckedTime"
+    fld_versionDrainageInfoLastChangedTime <- parseFieldMaybe obj "lastChangedTime"
+    fld_versionDrainageInfoLastCheckedTime <- parseFieldMaybe obj "lastCheckedTime"
     pure defaultVersionDrainageInfo
       { versionDrainageInfoStatus = maybe (versionDrainageInfoStatus defaultVersionDrainageInfo) id fld_versionDrainageInfoStatus
-      , versionDrainageInfoLastchangedtime = maybe (versionDrainageInfoLastchangedtime defaultVersionDrainageInfo) id fld_versionDrainageInfoLastchangedtime
-      , versionDrainageInfoLastcheckedtime = maybe (versionDrainageInfoLastcheckedtime defaultVersionDrainageInfo) id fld_versionDrainageInfoLastcheckedtime
+      , versionDrainageInfoLastChangedTime = maybe (versionDrainageInfoLastChangedTime defaultVersionDrainageInfo) id fld_versionDrainageInfoLastChangedTime
+      , versionDrainageInfoLastCheckedTime = maybe (versionDrainageInfoLastCheckedTime defaultVersionDrainageInfo) id fld_versionDrainageInfoLastCheckedTime
       }
 
 instance Hashable VersionDrainageInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.versionDrainageInfoStatus) msg.versionDrainageInfoLastchangedtime) msg.versionDrainageInfoLastcheckedtime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.versionDrainageInfoStatus) msg.versionDrainageInfoLastChangedTime) msg.versionDrainageInfoLastCheckedTime
 
 data WorkerDeploymentInfo = WorkerDeploymentInfo
   { workerDeploymentInfoName :: !Text
-  , workerDeploymentInfoVersionsummaries :: !(V.Vector WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
-  , workerDeploymentInfoCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentInfoRoutingconfig :: !(Maybe RoutingConfig)
-  , workerDeploymentInfoLastmodifieridentity :: !Text
-  , workerDeploymentInfoManageridentity :: !Text
-  , workerDeploymentInfoRoutingconfigupdatestate :: !TE_Enums_V1_TaskQueue.RoutingConfigUpdateState
-  , workerDeploymentInfoUnknownfields :: ![UnknownField]
+  , workerDeploymentInfoVersionSummaries :: !(V.Vector WorkerDeploymentInfo'WorkerDeploymentVersionSummary)
+  , workerDeploymentInfoCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoRoutingConfig :: !(Maybe RoutingConfig)
+  , workerDeploymentInfoLastModifierIdentity :: !Text
+  , workerDeploymentInfoManagerIdentity :: !Text
+  , workerDeploymentInfoRoutingConfigUpdateState :: !TE_Enums_V1_TaskQueue.RoutingConfigUpdateState
+  , workerDeploymentInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1253,17 +1253,17 @@ data WorkerDeploymentInfo = WorkerDeploymentInfo
 data WorkerDeploymentInfo'WorkerDeploymentVersionSummary = WorkerDeploymentInfo'WorkerDeploymentVersionSummary
   { workerDeploymentInfoWorkerDeploymentVersionSummaryVersion :: !Text
   , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus :: !TE_Enums_V1_Deployment.WorkerDeploymentVersionStatus
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus :: !TE_Enums_V1_Deployment.VersionDrainageStatus
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo :: !(Maybe VersionDrainageInfo)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime :: !(Maybe PB_Timestamp.Timestamp)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownfields :: ![UnknownField]
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion :: !(Maybe WorkerDeploymentVersion)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus :: !TE_Enums_V1_Deployment.VersionDrainageStatus
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo :: !(Maybe VersionDrainageInfo)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime :: !(Maybe PB_Timestamp.Timestamp)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1272,50 +1272,50 @@ defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary :: WorkerDeploymentIn
 defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary = WorkerDeploymentInfo'WorkerDeploymentVersionSummary
   { workerDeploymentInfoWorkerDeploymentVersionSummaryVersion = ""
   , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = (toEnum 0)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = (toEnum 0)
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime = Nothing
-  , workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownfields = []
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus = (toEnum 0)
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime = Nothing
+  , workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownFields = []
   }
 
 instance MessageEncode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   buildMessage msg =
     (if msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion)
     <> (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus == 0 then mempty else encodeFieldVarint 11 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus)))
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime)
-    <> (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus)))
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime)
-    <> encodeUnknownFields msg.workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime)
+    <> (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus)))
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 7 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 8 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 12 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 10 v) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime)
+    <> encodeUnknownFields msg.workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownFields
 
 instance MessageSize WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   messageSize msg =
     (if msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion)
     + (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus == 0 then 0 else fieldVarintSize 11 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus)))
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime)
-    + (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus)))
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime)
-    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime)
-    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime)
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime)
-    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime)
-    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime)
-    + unknownFieldsSize msg.workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime)
+    + (if fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus)))
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime)
+    + (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime)
+    + (maybe 0 (\v -> fieldMessageSize 8 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime)
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime)
+    + (maybe 0 (\v -> fieldMessageSize 12 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime)
+    + (maybe 0 (\v -> fieldMessageSize 10 (messageSize v)) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime)
+    + unknownFieldsSize msg.workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownFields
 
 instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   {-# INLINE messageDecoder #-}
@@ -1324,7 +1324,7 @@ instance MessageDecode WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_9 acc_10 acc_11 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerDeploymentInfo'WorkerDeploymentVersionSummary {workerDeploymentInfoWorkerDeploymentVersionSummaryVersion = acc_0, workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = acc_1, workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion = acc_2, workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime = acc_3, workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = acc_4, workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo = acc_5, workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime = acc_6, workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime = acc_7, workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime = acc_8, workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime = acc_9, workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime = acc_10, workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime = acc_11, workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerDeploymentInfo'WorkerDeploymentVersionSummary {workerDeploymentInfoWorkerDeploymentVersionSummaryVersion = acc_0, workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = acc_1, workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion = acc_2, workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime = acc_3, workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus = acc_4, workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo = acc_5, workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime = acc_6, workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime = acc_7, workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime = acc_8, workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime = acc_9, workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime = acc_10, workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime = acc_11, workerDeploymentInfoWorkerDeploymentVersionSummaryUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1395,80 +1395,80 @@ instance ProtoMessage WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
         , fdNumber = 4
         , fdTypeDesc = MessageType "WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "create_time"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "drainage_status"
         , fdNumber = 3
         , fdTypeDesc = MessageType "enums.v1.VersionDrainageStatus"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "drainage_info"
         , fdNumber = 5
         , fdTypeDesc = MessageType "VersionDrainageInfo"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "current_since_time"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "ramping_since_time"
         , fdNumber = 7
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime = v }
         })
     , (8, SomeField FieldDescriptor
         { fdName = "routing_update_time"
         , fdNumber = 8
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "first_activation_time"
         , fdNumber = 9
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime = v }
         })
     , (12, SomeField FieldDescriptor
         { fdName = "last_current_time"
         , fdNumber = 12
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "last_deactivation_time"
         , fdNumber = 10
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
-        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime = v }
+        , fdGet = workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime
+        , fdSet = \v m -> m { workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime = v }
         })
     ]
 
@@ -1476,83 +1476,83 @@ instance Aeson.ToJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   toJSON msg = jsonObject
       [ "version" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion
       , "status" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus
-      , "deploymentVersion" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion
-      , "createTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime
-      , "drainageStatus" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus
-      , "drainageInfo" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo
-      , "currentSinceTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime
-      , "rampingSinceTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime
-      , "routingUpdateTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime
-      , "firstActivationTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime
-      , "lastCurrentTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime
-      , "lastDeactivationTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
+      , "deploymentVersion" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion
+      , "createTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime
+      , "drainageStatus" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus
+      , "drainageInfo" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo
+      , "currentSinceTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime
+      , "rampingSinceTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime
+      , "routingUpdateTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime
+      , "firstActivationTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime
+      , "lastCurrentTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime
+      , "lastDeactivationTime" .=: msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime
       ]
 
 instance Aeson.FromJSON WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
   parseJSON = Aeson.withObject "WorkerDeploymentInfo'WorkerDeploymentVersionSummary" $ \obj -> do
     fld_workerDeploymentInfoWorkerDeploymentVersionSummaryVersion <- parseFieldMaybe obj "version"
     fld_workerDeploymentInfoWorkerDeploymentVersionSummaryStatus <- parseFieldMaybe obj "status"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion <- parseFieldMaybe obj "deploymentVersion"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime <- parseFieldMaybe obj "createTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus <- parseFieldMaybe obj "drainageStatus"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo <- parseFieldMaybe obj "drainageInfo"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime <- parseFieldMaybe obj "currentSinceTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime <- parseFieldMaybe obj "rampingSinceTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime <- parseFieldMaybe obj "routingUpdateTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime <- parseFieldMaybe obj "firstActivationTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime <- parseFieldMaybe obj "lastCurrentTime"
-    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime <- parseFieldMaybe obj "lastDeactivationTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion <- parseFieldMaybe obj "deploymentVersion"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime <- parseFieldMaybe obj "createTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus <- parseFieldMaybe obj "drainageStatus"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo <- parseFieldMaybe obj "drainageInfo"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime <- parseFieldMaybe obj "currentSinceTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime <- parseFieldMaybe obj "rampingSinceTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime <- parseFieldMaybe obj "routingUpdateTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime <- parseFieldMaybe obj "firstActivationTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime <- parseFieldMaybe obj "lastCurrentTime"
+    fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime <- parseFieldMaybe obj "lastDeactivationTime"
     pure defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary
       { workerDeploymentInfoWorkerDeploymentVersionSummaryVersion = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryVersion defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryVersion
       , workerDeploymentInfoWorkerDeploymentVersionSummaryStatus = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryStatus defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryStatus
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime
-      , workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime
+      , workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime = maybe (workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime defaultWorkerDeploymentInfo'WorkerDeploymentVersionSummary) id fld_workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime
       }
 
 instance Hashable WorkerDeploymentInfo'WorkerDeploymentVersionSummary where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentversion) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreatetime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainagestatus) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageinfo) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentsincetime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingsincetime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingupdatetime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstactivationtime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastcurrenttime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastdeactivationtime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryVersion) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryStatus) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDeploymentVersion) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCreateTime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageStatus) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryDrainageInfo) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryCurrentSinceTime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRampingSinceTime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryRoutingUpdateTime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryFirstActivationTime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastCurrentTime) msg.workerDeploymentInfoWorkerDeploymentVersionSummaryLastDeactivationTime
 
 defaultWorkerDeploymentInfo :: WorkerDeploymentInfo
 defaultWorkerDeploymentInfo = WorkerDeploymentInfo
   { workerDeploymentInfoName = ""
-  , workerDeploymentInfoVersionsummaries = V.empty
-  , workerDeploymentInfoCreatetime = Nothing
-  , workerDeploymentInfoRoutingconfig = Nothing
-  , workerDeploymentInfoLastmodifieridentity = ""
-  , workerDeploymentInfoManageridentity = ""
-  , workerDeploymentInfoRoutingconfigupdatestate = (toEnum 0)
-  , workerDeploymentInfoUnknownfields = []
+  , workerDeploymentInfoVersionSummaries = V.empty
+  , workerDeploymentInfoCreateTime = Nothing
+  , workerDeploymentInfoRoutingConfig = Nothing
+  , workerDeploymentInfoLastModifierIdentity = ""
+  , workerDeploymentInfoManagerIdentity = ""
+  , workerDeploymentInfoRoutingConfigUpdateState = (toEnum 0)
+  , workerDeploymentInfoUnknownFields = []
   }
 
 instance MessageEncode WorkerDeploymentInfo where
   buildMessage msg =
     (if msg.workerDeploymentInfoName == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentInfoName)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.workerDeploymentInfoVersionsummaries
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerDeploymentInfoCreatetime)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentInfoRoutingconfig)
-    <> (if msg.workerDeploymentInfoLastmodifieridentity == T.empty then mempty else encodeFieldString 5 msg.workerDeploymentInfoLastmodifieridentity)
-    <> (if msg.workerDeploymentInfoManageridentity == T.empty then mempty else encodeFieldString 6 msg.workerDeploymentInfoManageridentity)
-    <> (if fromEnum msg.workerDeploymentInfoRoutingconfigupdatestate == 0 then mempty else encodeFieldVarint 7 (fromIntegral (fromEnum msg.workerDeploymentInfoRoutingconfigupdatestate)))
-    <> encodeUnknownFields msg.workerDeploymentInfoUnknownfields
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.workerDeploymentInfoVersionSummaries
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.workerDeploymentInfoCreateTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.workerDeploymentInfoRoutingConfig)
+    <> (if msg.workerDeploymentInfoLastModifierIdentity == T.empty then mempty else encodeFieldString 5 msg.workerDeploymentInfoLastModifierIdentity)
+    <> (if msg.workerDeploymentInfoManagerIdentity == T.empty then mempty else encodeFieldString 6 msg.workerDeploymentInfoManagerIdentity)
+    <> (if fromEnum msg.workerDeploymentInfoRoutingConfigUpdateState == 0 then mempty else encodeFieldVarint 7 (fromIntegral (fromEnum msg.workerDeploymentInfoRoutingConfigUpdateState)))
+    <> encodeUnknownFields msg.workerDeploymentInfoUnknownFields
 
 instance MessageSize WorkerDeploymentInfo where
   messageSize msg =
     (if msg.workerDeploymentInfoName == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentInfoName)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.workerDeploymentInfoVersionsummaries)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerDeploymentInfoCreatetime)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentInfoRoutingconfig)
-    + (if msg.workerDeploymentInfoLastmodifieridentity == T.empty then 0 else fieldTextSize 5 msg.workerDeploymentInfoLastmodifieridentity)
-    + (if msg.workerDeploymentInfoManageridentity == T.empty then 0 else fieldTextSize 6 msg.workerDeploymentInfoManageridentity)
-    + (if fromEnum msg.workerDeploymentInfoRoutingconfigupdatestate == 0 then 0 else fieldVarintSize 7 (fromIntegral (fromEnum msg.workerDeploymentInfoRoutingconfigupdatestate)))
-    + unknownFieldsSize msg.workerDeploymentInfoUnknownfields
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.workerDeploymentInfoVersionSummaries)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.workerDeploymentInfoCreateTime)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.workerDeploymentInfoRoutingConfig)
+    + (if msg.workerDeploymentInfoLastModifierIdentity == T.empty then 0 else fieldTextSize 5 msg.workerDeploymentInfoLastModifierIdentity)
+    + (if msg.workerDeploymentInfoManagerIdentity == T.empty then 0 else fieldTextSize 6 msg.workerDeploymentInfoManagerIdentity)
+    + (if fromEnum msg.workerDeploymentInfoRoutingConfigUpdateState == 0 then 0 else fieldVarintSize 7 (fromIntegral (fromEnum msg.workerDeploymentInfoRoutingConfigUpdateState)))
+    + unknownFieldsSize msg.workerDeploymentInfoUnknownFields
 
 instance MessageDecode WorkerDeploymentInfo where
   {-# INLINE messageDecoder #-}
@@ -1561,7 +1561,7 @@ instance MessageDecode WorkerDeploymentInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerDeploymentInfo {workerDeploymentInfoName = acc_0, workerDeploymentInfoVersionsummaries = acc_1, workerDeploymentInfoCreatetime = acc_2, workerDeploymentInfoRoutingconfig = acc_3, workerDeploymentInfoLastmodifieridentity = acc_4, workerDeploymentInfoManageridentity = acc_5, workerDeploymentInfoRoutingconfigupdatestate = acc_6, workerDeploymentInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerDeploymentInfo {workerDeploymentInfoName = acc_0, workerDeploymentInfoVersionSummaries = acc_1, workerDeploymentInfoCreateTime = acc_2, workerDeploymentInfoRoutingConfig = acc_3, workerDeploymentInfoLastModifierIdentity = acc_4, workerDeploymentInfoManagerIdentity = acc_5, workerDeploymentInfoRoutingConfigUpdateState = acc_6, workerDeploymentInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1609,110 +1609,110 @@ instance ProtoMessage WorkerDeploymentInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "WorkerDeploymentVersionSummary"
         , fdLabel = LabelRepeated
-        , fdGet = workerDeploymentInfoVersionsummaries
-        , fdSet = \v m -> m { workerDeploymentInfoVersionsummaries = v }
+        , fdGet = workerDeploymentInfoVersionSummaries
+        , fdSet = \v m -> m { workerDeploymentInfoVersionSummaries = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "create_time"
         , fdNumber = 3
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoCreatetime
-        , fdSet = \v m -> m { workerDeploymentInfoCreatetime = v }
+        , fdGet = workerDeploymentInfoCreateTime
+        , fdSet = \v m -> m { workerDeploymentInfoCreateTime = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "routing_config"
         , fdNumber = 4
         , fdTypeDesc = MessageType "RoutingConfig"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoRoutingconfig
-        , fdSet = \v m -> m { workerDeploymentInfoRoutingconfig = v }
+        , fdGet = workerDeploymentInfoRoutingConfig
+        , fdSet = \v m -> m { workerDeploymentInfoRoutingConfig = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "last_modifier_identity"
         , fdNumber = 5
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoLastmodifieridentity
-        , fdSet = \v m -> m { workerDeploymentInfoLastmodifieridentity = v }
+        , fdGet = workerDeploymentInfoLastModifierIdentity
+        , fdSet = \v m -> m { workerDeploymentInfoLastModifierIdentity = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "manager_identity"
         , fdNumber = 6
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoManageridentity
-        , fdSet = \v m -> m { workerDeploymentInfoManageridentity = v }
+        , fdGet = workerDeploymentInfoManagerIdentity
+        , fdSet = \v m -> m { workerDeploymentInfoManagerIdentity = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "routing_config_update_state"
         , fdNumber = 7
         , fdTypeDesc = MessageType "temporal.api.enums.v1.RoutingConfigUpdateState"
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentInfoRoutingconfigupdatestate
-        , fdSet = \v m -> m { workerDeploymentInfoRoutingconfigupdatestate = v }
+        , fdGet = workerDeploymentInfoRoutingConfigUpdateState
+        , fdSet = \v m -> m { workerDeploymentInfoRoutingConfigUpdateState = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerDeploymentInfo where
   toJSON msg = jsonObject
       [ "name" .=: msg.workerDeploymentInfoName
-      , "versionSummaries" .=: msg.workerDeploymentInfoVersionsummaries
-      , "createTime" .=: msg.workerDeploymentInfoCreatetime
-      , "routingConfig" .=: msg.workerDeploymentInfoRoutingconfig
-      , "lastModifierIdentity" .=: msg.workerDeploymentInfoLastmodifieridentity
-      , "managerIdentity" .=: msg.workerDeploymentInfoManageridentity
-      , "routingConfigUpdateState" .=: msg.workerDeploymentInfoRoutingconfigupdatestate
+      , "versionSummaries" .=: msg.workerDeploymentInfoVersionSummaries
+      , "createTime" .=: msg.workerDeploymentInfoCreateTime
+      , "routingConfig" .=: msg.workerDeploymentInfoRoutingConfig
+      , "lastModifierIdentity" .=: msg.workerDeploymentInfoLastModifierIdentity
+      , "managerIdentity" .=: msg.workerDeploymentInfoManagerIdentity
+      , "routingConfigUpdateState" .=: msg.workerDeploymentInfoRoutingConfigUpdateState
       ]
 
 instance Aeson.FromJSON WorkerDeploymentInfo where
   parseJSON = Aeson.withObject "WorkerDeploymentInfo" $ \obj -> do
     fld_workerDeploymentInfoName <- parseFieldMaybe obj "name"
-    fld_workerDeploymentInfoVersionsummaries <- parseFieldMaybe obj "versionSummaries"
-    fld_workerDeploymentInfoCreatetime <- parseFieldMaybe obj "createTime"
-    fld_workerDeploymentInfoRoutingconfig <- parseFieldMaybe obj "routingConfig"
-    fld_workerDeploymentInfoLastmodifieridentity <- parseFieldMaybe obj "lastModifierIdentity"
-    fld_workerDeploymentInfoManageridentity <- parseFieldMaybe obj "managerIdentity"
-    fld_workerDeploymentInfoRoutingconfigupdatestate <- parseFieldMaybe obj "routingConfigUpdateState"
+    fld_workerDeploymentInfoVersionSummaries <- parseFieldMaybe obj "versionSummaries"
+    fld_workerDeploymentInfoCreateTime <- parseFieldMaybe obj "createTime"
+    fld_workerDeploymentInfoRoutingConfig <- parseFieldMaybe obj "routingConfig"
+    fld_workerDeploymentInfoLastModifierIdentity <- parseFieldMaybe obj "lastModifierIdentity"
+    fld_workerDeploymentInfoManagerIdentity <- parseFieldMaybe obj "managerIdentity"
+    fld_workerDeploymentInfoRoutingConfigUpdateState <- parseFieldMaybe obj "routingConfigUpdateState"
     pure defaultWorkerDeploymentInfo
       { workerDeploymentInfoName = maybe (workerDeploymentInfoName defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoName
-      , workerDeploymentInfoVersionsummaries = maybe (workerDeploymentInfoVersionsummaries defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoVersionsummaries
-      , workerDeploymentInfoCreatetime = maybe (workerDeploymentInfoCreatetime defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoCreatetime
-      , workerDeploymentInfoRoutingconfig = maybe (workerDeploymentInfoRoutingconfig defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoRoutingconfig
-      , workerDeploymentInfoLastmodifieridentity = maybe (workerDeploymentInfoLastmodifieridentity defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoLastmodifieridentity
-      , workerDeploymentInfoManageridentity = maybe (workerDeploymentInfoManageridentity defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoManageridentity
-      , workerDeploymentInfoRoutingconfigupdatestate = maybe (workerDeploymentInfoRoutingconfigupdatestate defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoRoutingconfigupdatestate
+      , workerDeploymentInfoVersionSummaries = maybe (workerDeploymentInfoVersionSummaries defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoVersionSummaries
+      , workerDeploymentInfoCreateTime = maybe (workerDeploymentInfoCreateTime defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoCreateTime
+      , workerDeploymentInfoRoutingConfig = maybe (workerDeploymentInfoRoutingConfig defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoRoutingConfig
+      , workerDeploymentInfoLastModifierIdentity = maybe (workerDeploymentInfoLastModifierIdentity defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoLastModifierIdentity
+      , workerDeploymentInfoManagerIdentity = maybe (workerDeploymentInfoManagerIdentity defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoManagerIdentity
+      , workerDeploymentInfoRoutingConfigUpdateState = maybe (workerDeploymentInfoRoutingConfigUpdateState defaultWorkerDeploymentInfo) id fld_workerDeploymentInfoRoutingConfigUpdateState
       }
 
 instance Hashable WorkerDeploymentInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.workerDeploymentInfoName) msg.workerDeploymentInfoVersionsummaries) msg.workerDeploymentInfoCreatetime) msg.workerDeploymentInfoRoutingconfig) msg.workerDeploymentInfoLastmodifieridentity) msg.workerDeploymentInfoManageridentity) msg.workerDeploymentInfoRoutingconfigupdatestate
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.workerDeploymentInfoName) msg.workerDeploymentInfoVersionSummaries) msg.workerDeploymentInfoCreateTime) msg.workerDeploymentInfoRoutingConfig) msg.workerDeploymentInfoLastModifierIdentity) msg.workerDeploymentInfoManagerIdentity) msg.workerDeploymentInfoRoutingConfigUpdateState
 
 data WorkerDeploymentVersion = WorkerDeploymentVersion
-  { workerDeploymentVersionBuildid :: !Text
-  , workerDeploymentVersionDeploymentname :: !Text
-  , workerDeploymentVersionUnknownfields :: ![UnknownField]
+  { workerDeploymentVersionBuildId :: !Text
+  , workerDeploymentVersionDeploymentName :: !Text
+  , workerDeploymentVersionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkerDeploymentVersion :: WorkerDeploymentVersion
 defaultWorkerDeploymentVersion = WorkerDeploymentVersion
-  { workerDeploymentVersionBuildid = ""
-  , workerDeploymentVersionDeploymentname = ""
-  , workerDeploymentVersionUnknownfields = []
+  { workerDeploymentVersionBuildId = ""
+  , workerDeploymentVersionDeploymentName = ""
+  , workerDeploymentVersionUnknownFields = []
   }
 
 instance MessageEncode WorkerDeploymentVersion where
   buildMessage msg =
-    (if msg.workerDeploymentVersionBuildid == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentVersionBuildid)
-    <> (if msg.workerDeploymentVersionDeploymentname == T.empty then mempty else encodeFieldString 2 msg.workerDeploymentVersionDeploymentname)
-    <> encodeUnknownFields msg.workerDeploymentVersionUnknownfields
+    (if msg.workerDeploymentVersionBuildId == T.empty then mempty else encodeFieldString 1 msg.workerDeploymentVersionBuildId)
+    <> (if msg.workerDeploymentVersionDeploymentName == T.empty then mempty else encodeFieldString 2 msg.workerDeploymentVersionDeploymentName)
+    <> encodeUnknownFields msg.workerDeploymentVersionUnknownFields
 
 instance MessageSize WorkerDeploymentVersion where
   messageSize msg =
-    (if msg.workerDeploymentVersionBuildid == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentVersionBuildid)
-    + (if msg.workerDeploymentVersionDeploymentname == T.empty then 0 else fieldTextSize 2 msg.workerDeploymentVersionDeploymentname)
-    + unknownFieldsSize msg.workerDeploymentVersionUnknownfields
+    (if msg.workerDeploymentVersionBuildId == T.empty then 0 else fieldTextSize 1 msg.workerDeploymentVersionBuildId)
+    + (if msg.workerDeploymentVersionDeploymentName == T.empty then 0 else fieldTextSize 2 msg.workerDeploymentVersionDeploymentName)
+    + unknownFieldsSize msg.workerDeploymentVersionUnknownFields
 
 instance MessageDecode WorkerDeploymentVersion where
   {-# INLINE messageDecoder #-}
@@ -1721,7 +1721,7 @@ instance MessageDecode WorkerDeploymentVersion where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkerDeploymentVersion {workerDeploymentVersionBuildid = acc_0, workerDeploymentVersionDeploymentname = acc_1, workerDeploymentVersionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkerDeploymentVersion {workerDeploymentVersionBuildId = acc_0, workerDeploymentVersionDeploymentName = acc_1, workerDeploymentVersionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1747,39 +1747,39 @@ instance ProtoMessage WorkerDeploymentVersion where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionBuildid
-        , fdSet = \v m -> m { workerDeploymentVersionBuildid = v }
+        , fdGet = workerDeploymentVersionBuildId
+        , fdSet = \v m -> m { workerDeploymentVersionBuildId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "deployment_name"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workerDeploymentVersionDeploymentname
-        , fdSet = \v m -> m { workerDeploymentVersionDeploymentname = v }
+        , fdGet = workerDeploymentVersionDeploymentName
+        , fdSet = \v m -> m { workerDeploymentVersionDeploymentName = v }
         })
     ]
 
 instance Aeson.ToJSON WorkerDeploymentVersion where
   toJSON msg = jsonObject
-      [ "buildId" .=: msg.workerDeploymentVersionBuildid
-      , "deploymentName" .=: msg.workerDeploymentVersionDeploymentname
+      [ "buildId" .=: msg.workerDeploymentVersionBuildId
+      , "deploymentName" .=: msg.workerDeploymentVersionDeploymentName
       ]
 
 instance Aeson.FromJSON WorkerDeploymentVersion where
   parseJSON = Aeson.withObject "WorkerDeploymentVersion" $ \obj -> do
-    fld_workerDeploymentVersionBuildid <- parseFieldMaybe obj "buildId"
-    fld_workerDeploymentVersionDeploymentname <- parseFieldMaybe obj "deploymentName"
+    fld_workerDeploymentVersionBuildId <- parseFieldMaybe obj "buildId"
+    fld_workerDeploymentVersionDeploymentName <- parseFieldMaybe obj "deploymentName"
     pure defaultWorkerDeploymentVersion
-      { workerDeploymentVersionBuildid = maybe (workerDeploymentVersionBuildid defaultWorkerDeploymentVersion) id fld_workerDeploymentVersionBuildid
-      , workerDeploymentVersionDeploymentname = maybe (workerDeploymentVersionDeploymentname defaultWorkerDeploymentVersion) id fld_workerDeploymentVersionDeploymentname
+      { workerDeploymentVersionBuildId = maybe (workerDeploymentVersionBuildId defaultWorkerDeploymentVersion) id fld_workerDeploymentVersionBuildId
+      , workerDeploymentVersionDeploymentName = maybe (workerDeploymentVersionDeploymentName defaultWorkerDeploymentVersion) id fld_workerDeploymentVersionDeploymentName
       }
 
 instance Hashable WorkerDeploymentVersion where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workerDeploymentVersionBuildid) msg.workerDeploymentVersionDeploymentname
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workerDeploymentVersionBuildId) msg.workerDeploymentVersionDeploymentName
 
 data VersionMetadata = VersionMetadata
   { versionMetadataEntries :: !(Map.Map Text TE_Common_V1_Message.Payload)
-  , versionMetadataUnknownfields :: ![UnknownField]
+  , versionMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1787,18 +1787,18 @@ data VersionMetadata = VersionMetadata
 defaultVersionMetadata :: VersionMetadata
 defaultVersionMetadata = VersionMetadata
   { versionMetadataEntries = Map.empty
-  , versionMetadataUnknownfields = []
+  , versionMetadataUnknownFields = []
   }
 
 instance MessageEncode VersionMetadata where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldMessage 2 v)) mempty msg.versionMetadataEntries
-    <> encodeUnknownFields msg.versionMetadataUnknownfields
+    <> encodeUnknownFields msg.versionMetadataUnknownFields
 
 instance MessageSize VersionMetadata where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldMessageSize 2 (messageSize v) in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.versionMetadataEntries)
-    + unknownFieldsSize msg.versionMetadataUnknownfields
+    + unknownFieldsSize msg.versionMetadataUnknownFields
 
 instance MessageDecode VersionMetadata where
   {-# INLINE messageDecoder #-}
@@ -1807,7 +1807,7 @@ instance MessageDecode VersionMetadata where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (VersionMetadata {versionMetadataEntries = acc_0, versionMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (VersionMetadata {versionMetadataEntries = acc_0, versionMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -1855,59 +1855,59 @@ instance Hashable VersionMetadata where
   hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.versionMetadataEntries
 
 data RoutingConfig = RoutingConfig
-  { routingConfigCurrentdeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , routingConfigCurrentversion :: !Text
-  , routingConfigRampingdeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , routingConfigRampingversion :: !Text
-  , routingConfigRampingversionpercentage :: {-# UNPACK #-} !Float
-  , routingConfigCurrentversionchangedtime :: !(Maybe PB_Timestamp.Timestamp)
-  , routingConfigRampingversionchangedtime :: !(Maybe PB_Timestamp.Timestamp)
-  , routingConfigRampingversionpercentagechangedtime :: !(Maybe PB_Timestamp.Timestamp)
-  , routingConfigRevisionnumber :: {-# UNPACK #-} !Int64
-  , routingConfigUnknownfields :: ![UnknownField]
+  { routingConfigCurrentDeploymentVersion :: !(Maybe WorkerDeploymentVersion)
+  , routingConfigCurrentVersion :: !Text
+  , routingConfigRampingDeploymentVersion :: !(Maybe WorkerDeploymentVersion)
+  , routingConfigRampingVersion :: !Text
+  , routingConfigRampingVersionPercentage :: {-# UNPACK #-} !Float
+  , routingConfigCurrentVersionChangedTime :: !(Maybe PB_Timestamp.Timestamp)
+  , routingConfigRampingVersionChangedTime :: !(Maybe PB_Timestamp.Timestamp)
+  , routingConfigRampingVersionPercentageChangedTime :: !(Maybe PB_Timestamp.Timestamp)
+  , routingConfigRevisionNumber :: {-# UNPACK #-} !Int64
+  , routingConfigUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRoutingConfig :: RoutingConfig
 defaultRoutingConfig = RoutingConfig
-  { routingConfigCurrentdeploymentversion = Nothing
-  , routingConfigCurrentversion = ""
-  , routingConfigRampingdeploymentversion = Nothing
-  , routingConfigRampingversion = ""
-  , routingConfigRampingversionpercentage = 0
-  , routingConfigCurrentversionchangedtime = Nothing
-  , routingConfigRampingversionchangedtime = Nothing
-  , routingConfigRampingversionpercentagechangedtime = Nothing
-  , routingConfigRevisionnumber = 0
-  , routingConfigUnknownfields = []
+  { routingConfigCurrentDeploymentVersion = Nothing
+  , routingConfigCurrentVersion = ""
+  , routingConfigRampingDeploymentVersion = Nothing
+  , routingConfigRampingVersion = ""
+  , routingConfigRampingVersionPercentage = 0
+  , routingConfigCurrentVersionChangedTime = Nothing
+  , routingConfigRampingVersionChangedTime = Nothing
+  , routingConfigRampingVersionPercentageChangedTime = Nothing
+  , routingConfigRevisionNumber = 0
+  , routingConfigUnknownFields = []
   }
 
 instance MessageEncode RoutingConfig where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 7 v) msg.routingConfigCurrentdeploymentversion)
-    <> (if msg.routingConfigCurrentversion == T.empty then mempty else encodeFieldString 1 msg.routingConfigCurrentversion)
-    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.routingConfigRampingdeploymentversion)
-    <> (if msg.routingConfigRampingversion == T.empty then mempty else encodeFieldString 2 msg.routingConfigRampingversion)
-    <> (if msg.routingConfigRampingversionpercentage == 0 then mempty else encodeFieldFloat 3 msg.routingConfigRampingversionpercentage)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.routingConfigCurrentversionchangedtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.routingConfigRampingversionchangedtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.routingConfigRampingversionpercentagechangedtime)
-    <> (if msg.routingConfigRevisionnumber == 0 then mempty else encodeFieldVarint 10 (fromIntegral msg.routingConfigRevisionnumber))
-    <> encodeUnknownFields msg.routingConfigUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 7 v) msg.routingConfigCurrentDeploymentVersion)
+    <> (if msg.routingConfigCurrentVersion == T.empty then mempty else encodeFieldString 1 msg.routingConfigCurrentVersion)
+    <> (maybe mempty (\v -> encodeFieldMessage 9 v) msg.routingConfigRampingDeploymentVersion)
+    <> (if msg.routingConfigRampingVersion == T.empty then mempty else encodeFieldString 2 msg.routingConfigRampingVersion)
+    <> (if msg.routingConfigRampingVersionPercentage == 0 then mempty else encodeFieldFloat 3 msg.routingConfigRampingVersionPercentage)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.routingConfigCurrentVersionChangedTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.routingConfigRampingVersionChangedTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 6 v) msg.routingConfigRampingVersionPercentageChangedTime)
+    <> (if msg.routingConfigRevisionNumber == 0 then mempty else encodeFieldVarint 10 (fromIntegral msg.routingConfigRevisionNumber))
+    <> encodeUnknownFields msg.routingConfigUnknownFields
 
 instance MessageSize RoutingConfig where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.routingConfigCurrentdeploymentversion)
-    + (if msg.routingConfigCurrentversion == T.empty then 0 else fieldTextSize 1 msg.routingConfigCurrentversion)
-    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.routingConfigRampingdeploymentversion)
-    + (if msg.routingConfigRampingversion == T.empty then 0 else fieldTextSize 2 msg.routingConfigRampingversion)
-    + (if msg.routingConfigRampingversionpercentage == 0 then 0 else fieldFloatSize 3)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.routingConfigCurrentversionchangedtime)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.routingConfigRampingversionchangedtime)
-    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.routingConfigRampingversionpercentagechangedtime)
-    + (if msg.routingConfigRevisionnumber == 0 then 0 else fieldVarintSize 10 (fromIntegral msg.routingConfigRevisionnumber))
-    + unknownFieldsSize msg.routingConfigUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 7 (messageSize v)) msg.routingConfigCurrentDeploymentVersion)
+    + (if msg.routingConfigCurrentVersion == T.empty then 0 else fieldTextSize 1 msg.routingConfigCurrentVersion)
+    + (maybe 0 (\v -> fieldMessageSize 9 (messageSize v)) msg.routingConfigRampingDeploymentVersion)
+    + (if msg.routingConfigRampingVersion == T.empty then 0 else fieldTextSize 2 msg.routingConfigRampingVersion)
+    + (if msg.routingConfigRampingVersionPercentage == 0 then 0 else fieldFloatSize 3)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.routingConfigCurrentVersionChangedTime)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.routingConfigRampingVersionChangedTime)
+    + (maybe 0 (\v -> fieldMessageSize 6 (messageSize v)) msg.routingConfigRampingVersionPercentageChangedTime)
+    + (if msg.routingConfigRevisionNumber == 0 then 0 else fieldVarintSize 10 (fromIntegral msg.routingConfigRevisionNumber))
+    + unknownFieldsSize msg.routingConfigUnknownFields
 
 instance MessageDecode RoutingConfig where
   {-# INLINE messageDecoder #-}
@@ -1916,7 +1916,7 @@ instance MessageDecode RoutingConfig where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_7 acc_8 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (RoutingConfig {routingConfigCurrentdeploymentversion = acc_0, routingConfigCurrentversion = acc_1, routingConfigRampingdeploymentversion = acc_2, routingConfigRampingversion = acc_3, routingConfigRampingversionpercentage = acc_4, routingConfigCurrentversionchangedtime = acc_5, routingConfigRampingversionchangedtime = acc_6, routingConfigRampingversionpercentagechangedtime = acc_7, routingConfigRevisionnumber = acc_8, routingConfigUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (RoutingConfig {routingConfigCurrentDeploymentVersion = acc_0, routingConfigCurrentVersion = acc_1, routingConfigRampingDeploymentVersion = acc_2, routingConfigRampingVersion = acc_3, routingConfigRampingVersionPercentage = acc_4, routingConfigCurrentVersionChangedTime = acc_5, routingConfigRampingVersionChangedTime = acc_6, routingConfigRampingVersionPercentageChangedTime = acc_7, routingConfigRevisionNumber = acc_8, routingConfigUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             7 -> do
               v <- decodeFieldMessage
@@ -1963,139 +1963,139 @@ instance ProtoMessage RoutingConfig where
         , fdNumber = 7
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = routingConfigCurrentdeploymentversion
-        , fdSet = \v m -> m { routingConfigCurrentdeploymentversion = v }
+        , fdGet = routingConfigCurrentDeploymentVersion
+        , fdSet = \v m -> m { routingConfigCurrentDeploymentVersion = v }
         }), (1, SomeField FieldDescriptor
         { fdName = "current_version"
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = routingConfigCurrentversion
-        , fdSet = \v m -> m { routingConfigCurrentversion = v }
+        , fdGet = routingConfigCurrentVersion
+        , fdSet = \v m -> m { routingConfigCurrentVersion = v }
         })
     , (9, SomeField FieldDescriptor
         { fdName = "ramping_deployment_version"
         , fdNumber = 9
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = routingConfigRampingdeploymentversion
-        , fdSet = \v m -> m { routingConfigRampingdeploymentversion = v }
+        , fdGet = routingConfigRampingDeploymentVersion
+        , fdSet = \v m -> m { routingConfigRampingDeploymentVersion = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "ramping_version"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = routingConfigRampingversion
-        , fdSet = \v m -> m { routingConfigRampingversion = v }
+        , fdGet = routingConfigRampingVersion
+        , fdSet = \v m -> m { routingConfigRampingVersion = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "ramping_version_percentage"
         , fdNumber = 3
         , fdTypeDesc = ScalarType FloatField
         , fdLabel = LabelOptional
-        , fdGet = routingConfigRampingversionpercentage
-        , fdSet = \v m -> m { routingConfigRampingversionpercentage = v }
+        , fdGet = routingConfigRampingVersionPercentage
+        , fdSet = \v m -> m { routingConfigRampingVersionPercentage = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "current_version_changed_time"
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = routingConfigCurrentversionchangedtime
-        , fdSet = \v m -> m { routingConfigCurrentversionchangedtime = v }
+        , fdGet = routingConfigCurrentVersionChangedTime
+        , fdSet = \v m -> m { routingConfigCurrentVersionChangedTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "ramping_version_changed_time"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = routingConfigRampingversionchangedtime
-        , fdSet = \v m -> m { routingConfigRampingversionchangedtime = v }
+        , fdGet = routingConfigRampingVersionChangedTime
+        , fdSet = \v m -> m { routingConfigRampingVersionChangedTime = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "ramping_version_percentage_changed_time"
         , fdNumber = 6
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = routingConfigRampingversionpercentagechangedtime
-        , fdSet = \v m -> m { routingConfigRampingversionpercentagechangedtime = v }
+        , fdGet = routingConfigRampingVersionPercentageChangedTime
+        , fdSet = \v m -> m { routingConfigRampingVersionPercentageChangedTime = v }
         })
     , (10, SomeField FieldDescriptor
         { fdName = "revision_number"
         , fdNumber = 10
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = routingConfigRevisionnumber
-        , fdSet = \v m -> m { routingConfigRevisionnumber = v }
+        , fdGet = routingConfigRevisionNumber
+        , fdSet = \v m -> m { routingConfigRevisionNumber = v }
         })
     ]
 
 instance Aeson.ToJSON RoutingConfig where
   toJSON msg = jsonObject
-      [ "currentDeploymentVersion" .=: msg.routingConfigCurrentdeploymentversion
-      , "currentVersion" .=: msg.routingConfigCurrentversion
-      , "rampingDeploymentVersion" .=: msg.routingConfigRampingdeploymentversion
-      , "rampingVersion" .=: msg.routingConfigRampingversion
-      , "rampingVersionPercentage" .=: msg.routingConfigRampingversionpercentage
-      , "currentVersionChangedTime" .=: msg.routingConfigCurrentversionchangedtime
-      , "rampingVersionChangedTime" .=: msg.routingConfigRampingversionchangedtime
-      , "rampingVersionPercentageChangedTime" .=: msg.routingConfigRampingversionpercentagechangedtime
-      , "revisionNumber" .=: msg.routingConfigRevisionnumber
+      [ "currentDeploymentVersion" .=: msg.routingConfigCurrentDeploymentVersion
+      , "currentVersion" .=: msg.routingConfigCurrentVersion
+      , "rampingDeploymentVersion" .=: msg.routingConfigRampingDeploymentVersion
+      , "rampingVersion" .=: msg.routingConfigRampingVersion
+      , "rampingVersionPercentage" .=: msg.routingConfigRampingVersionPercentage
+      , "currentVersionChangedTime" .=: msg.routingConfigCurrentVersionChangedTime
+      , "rampingVersionChangedTime" .=: msg.routingConfigRampingVersionChangedTime
+      , "rampingVersionPercentageChangedTime" .=: msg.routingConfigRampingVersionPercentageChangedTime
+      , "revisionNumber" .=: msg.routingConfigRevisionNumber
       ]
 
 instance Aeson.FromJSON RoutingConfig where
   parseJSON = Aeson.withObject "RoutingConfig" $ \obj -> do
-    fld_routingConfigCurrentdeploymentversion <- parseFieldMaybe obj "currentDeploymentVersion"
-    fld_routingConfigCurrentversion <- parseFieldMaybe obj "currentVersion"
-    fld_routingConfigRampingdeploymentversion <- parseFieldMaybe obj "rampingDeploymentVersion"
-    fld_routingConfigRampingversion <- parseFieldMaybe obj "rampingVersion"
-    fld_routingConfigRampingversionpercentage <- parseFieldMaybe obj "rampingVersionPercentage"
-    fld_routingConfigCurrentversionchangedtime <- parseFieldMaybe obj "currentVersionChangedTime"
-    fld_routingConfigRampingversionchangedtime <- parseFieldMaybe obj "rampingVersionChangedTime"
-    fld_routingConfigRampingversionpercentagechangedtime <- parseFieldMaybe obj "rampingVersionPercentageChangedTime"
-    fld_routingConfigRevisionnumber <- parseFieldMaybe obj "revisionNumber"
+    fld_routingConfigCurrentDeploymentVersion <- parseFieldMaybe obj "currentDeploymentVersion"
+    fld_routingConfigCurrentVersion <- parseFieldMaybe obj "currentVersion"
+    fld_routingConfigRampingDeploymentVersion <- parseFieldMaybe obj "rampingDeploymentVersion"
+    fld_routingConfigRampingVersion <- parseFieldMaybe obj "rampingVersion"
+    fld_routingConfigRampingVersionPercentage <- parseFieldMaybe obj "rampingVersionPercentage"
+    fld_routingConfigCurrentVersionChangedTime <- parseFieldMaybe obj "currentVersionChangedTime"
+    fld_routingConfigRampingVersionChangedTime <- parseFieldMaybe obj "rampingVersionChangedTime"
+    fld_routingConfigRampingVersionPercentageChangedTime <- parseFieldMaybe obj "rampingVersionPercentageChangedTime"
+    fld_routingConfigRevisionNumber <- parseFieldMaybe obj "revisionNumber"
     pure defaultRoutingConfig
-      { routingConfigCurrentdeploymentversion = maybe (routingConfigCurrentdeploymentversion defaultRoutingConfig) id fld_routingConfigCurrentdeploymentversion
-      , routingConfigCurrentversion = maybe (routingConfigCurrentversion defaultRoutingConfig) id fld_routingConfigCurrentversion
-      , routingConfigRampingdeploymentversion = maybe (routingConfigRampingdeploymentversion defaultRoutingConfig) id fld_routingConfigRampingdeploymentversion
-      , routingConfigRampingversion = maybe (routingConfigRampingversion defaultRoutingConfig) id fld_routingConfigRampingversion
-      , routingConfigRampingversionpercentage = maybe (routingConfigRampingversionpercentage defaultRoutingConfig) id fld_routingConfigRampingversionpercentage
-      , routingConfigCurrentversionchangedtime = maybe (routingConfigCurrentversionchangedtime defaultRoutingConfig) id fld_routingConfigCurrentversionchangedtime
-      , routingConfigRampingversionchangedtime = maybe (routingConfigRampingversionchangedtime defaultRoutingConfig) id fld_routingConfigRampingversionchangedtime
-      , routingConfigRampingversionpercentagechangedtime = maybe (routingConfigRampingversionpercentagechangedtime defaultRoutingConfig) id fld_routingConfigRampingversionpercentagechangedtime
-      , routingConfigRevisionnumber = maybe (routingConfigRevisionnumber defaultRoutingConfig) id fld_routingConfigRevisionnumber
+      { routingConfigCurrentDeploymentVersion = maybe (routingConfigCurrentDeploymentVersion defaultRoutingConfig) id fld_routingConfigCurrentDeploymentVersion
+      , routingConfigCurrentVersion = maybe (routingConfigCurrentVersion defaultRoutingConfig) id fld_routingConfigCurrentVersion
+      , routingConfigRampingDeploymentVersion = maybe (routingConfigRampingDeploymentVersion defaultRoutingConfig) id fld_routingConfigRampingDeploymentVersion
+      , routingConfigRampingVersion = maybe (routingConfigRampingVersion defaultRoutingConfig) id fld_routingConfigRampingVersion
+      , routingConfigRampingVersionPercentage = maybe (routingConfigRampingVersionPercentage defaultRoutingConfig) id fld_routingConfigRampingVersionPercentage
+      , routingConfigCurrentVersionChangedTime = maybe (routingConfigCurrentVersionChangedTime defaultRoutingConfig) id fld_routingConfigCurrentVersionChangedTime
+      , routingConfigRampingVersionChangedTime = maybe (routingConfigRampingVersionChangedTime defaultRoutingConfig) id fld_routingConfigRampingVersionChangedTime
+      , routingConfigRampingVersionPercentageChangedTime = maybe (routingConfigRampingVersionPercentageChangedTime defaultRoutingConfig) id fld_routingConfigRampingVersionPercentageChangedTime
+      , routingConfigRevisionNumber = maybe (routingConfigRevisionNumber defaultRoutingConfig) id fld_routingConfigRevisionNumber
       }
 
 instance Hashable RoutingConfig where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.routingConfigCurrentdeploymentversion) msg.routingConfigCurrentversion) msg.routingConfigRampingdeploymentversion) msg.routingConfigRampingversion) msg.routingConfigRampingversionpercentage) msg.routingConfigCurrentversionchangedtime) msg.routingConfigRampingversionchangedtime) msg.routingConfigRampingversionpercentagechangedtime) msg.routingConfigRevisionnumber
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.routingConfigCurrentDeploymentVersion) msg.routingConfigCurrentVersion) msg.routingConfigRampingDeploymentVersion) msg.routingConfigRampingVersion) msg.routingConfigRampingVersionPercentage) msg.routingConfigCurrentVersionChangedTime) msg.routingConfigRampingVersionChangedTime) msg.routingConfigRampingVersionPercentageChangedTime) msg.routingConfigRevisionNumber
 
 data InheritedAutoUpgradeInfo = InheritedAutoUpgradeInfo
-  { inheritedAutoUpgradeInfoSourcedeploymentversion :: !(Maybe WorkerDeploymentVersion)
-  , inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber :: {-# UNPACK #-} !Int64
-  , inheritedAutoUpgradeInfoUnknownfields :: ![UnknownField]
+  { inheritedAutoUpgradeInfoSourceDeploymentVersion :: !(Maybe WorkerDeploymentVersion)
+  , inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber :: {-# UNPACK #-} !Int64
+  , inheritedAutoUpgradeInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultInheritedAutoUpgradeInfo :: InheritedAutoUpgradeInfo
 defaultInheritedAutoUpgradeInfo = InheritedAutoUpgradeInfo
-  { inheritedAutoUpgradeInfoSourcedeploymentversion = Nothing
-  , inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber = 0
-  , inheritedAutoUpgradeInfoUnknownfields = []
+  { inheritedAutoUpgradeInfoSourceDeploymentVersion = Nothing
+  , inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber = 0
+  , inheritedAutoUpgradeInfoUnknownFields = []
   }
 
 instance MessageEncode InheritedAutoUpgradeInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.inheritedAutoUpgradeInfoSourcedeploymentversion)
-    <> (if msg.inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber))
-    <> encodeUnknownFields msg.inheritedAutoUpgradeInfoUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.inheritedAutoUpgradeInfoSourceDeploymentVersion)
+    <> (if msg.inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber))
+    <> encodeUnknownFields msg.inheritedAutoUpgradeInfoUnknownFields
 
 instance MessageSize InheritedAutoUpgradeInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.inheritedAutoUpgradeInfoSourcedeploymentversion)
-    + (if msg.inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber))
-    + unknownFieldsSize msg.inheritedAutoUpgradeInfoUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.inheritedAutoUpgradeInfoSourceDeploymentVersion)
+    + (if msg.inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber))
+    + unknownFieldsSize msg.inheritedAutoUpgradeInfoUnknownFields
 
 instance MessageDecode InheritedAutoUpgradeInfo where
   {-# INLINE messageDecoder #-}
@@ -2104,7 +2104,7 @@ instance MessageDecode InheritedAutoUpgradeInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (InheritedAutoUpgradeInfo {inheritedAutoUpgradeInfoSourcedeploymentversion = acc_0, inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber = acc_1, inheritedAutoUpgradeInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (InheritedAutoUpgradeInfo {inheritedAutoUpgradeInfoSourceDeploymentVersion = acc_0, inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber = acc_1, inheritedAutoUpgradeInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -2130,35 +2130,35 @@ instance ProtoMessage InheritedAutoUpgradeInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.deployment.v1.WorkerDeploymentVersion"
         , fdLabel = LabelOptional
-        , fdGet = inheritedAutoUpgradeInfoSourcedeploymentversion
-        , fdSet = \v m -> m { inheritedAutoUpgradeInfoSourcedeploymentversion = v }
+        , fdGet = inheritedAutoUpgradeInfoSourceDeploymentVersion
+        , fdSet = \v m -> m { inheritedAutoUpgradeInfoSourceDeploymentVersion = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "source_deployment_revision_number"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
-        , fdSet = \v m -> m { inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber = v }
+        , fdGet = inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber
+        , fdSet = \v m -> m { inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber = v }
         })
     ]
 
 instance Aeson.ToJSON InheritedAutoUpgradeInfo where
   toJSON msg = jsonObject
-      [ "sourceDeploymentVersion" .=: msg.inheritedAutoUpgradeInfoSourcedeploymentversion
-      , "sourceDeploymentRevisionNumber" .=: msg.inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
+      [ "sourceDeploymentVersion" .=: msg.inheritedAutoUpgradeInfoSourceDeploymentVersion
+      , "sourceDeploymentRevisionNumber" .=: msg.inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber
       ]
 
 instance Aeson.FromJSON InheritedAutoUpgradeInfo where
   parseJSON = Aeson.withObject "InheritedAutoUpgradeInfo" $ \obj -> do
-    fld_inheritedAutoUpgradeInfoSourcedeploymentversion <- parseFieldMaybe obj "sourceDeploymentVersion"
-    fld_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber <- parseFieldMaybe obj "sourceDeploymentRevisionNumber"
+    fld_inheritedAutoUpgradeInfoSourceDeploymentVersion <- parseFieldMaybe obj "sourceDeploymentVersion"
+    fld_inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber <- parseFieldMaybe obj "sourceDeploymentRevisionNumber"
     pure defaultInheritedAutoUpgradeInfo
-      { inheritedAutoUpgradeInfoSourcedeploymentversion = maybe (inheritedAutoUpgradeInfoSourcedeploymentversion defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourcedeploymentversion
-      , inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber = maybe (inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
+      { inheritedAutoUpgradeInfoSourceDeploymentVersion = maybe (inheritedAutoUpgradeInfoSourceDeploymentVersion defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourceDeploymentVersion
+      , inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber = maybe (inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber defaultInheritedAutoUpgradeInfo) id fld_inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber
       }
 
 instance Hashable InheritedAutoUpgradeInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.inheritedAutoUpgradeInfoSourcedeploymentversion) msg.inheritedAutoUpgradeInfoSourcedeploymentrevisionnumber
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.inheritedAutoUpgradeInfoSourceDeploymentVersion) msg.inheritedAutoUpgradeInfoSourceDeploymentRevisionNumber
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -64,11 +64,11 @@ fileDescriptorProtoBytes = case Base16.decode "0a2374656d706f72616c2f6170692f6e6
 
 data Failure = Failure
   { failureMessage :: !Text
-  , failureStacktrace :: !Text
+  , failureStackTrace :: !Text
   , failureMetadata :: !(Map.Map Text Text)
   , failureDetails :: !ByteString
   , failureCause :: !(Maybe Failure)
-  , failureUnknownfields :: ![UnknownField]
+  , failureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -76,30 +76,30 @@ data Failure = Failure
 defaultFailure :: Failure
 defaultFailure = Failure
   { failureMessage = ""
-  , failureStacktrace = ""
+  , failureStackTrace = ""
   , failureMetadata = Map.empty
   , failureDetails = ""
   , failureCause = Nothing
-  , failureUnknownfields = []
+  , failureUnknownFields = []
   }
 
 instance MessageEncode Failure where
   buildMessage msg =
     (if msg.failureMessage == T.empty then mempty else encodeFieldString 1 msg.failureMessage)
-    <> (if msg.failureStacktrace == T.empty then mempty else encodeFieldString 4 msg.failureStacktrace)
+    <> (if msg.failureStackTrace == T.empty then mempty else encodeFieldString 4 msg.failureStackTrace)
     <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 2 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.failureMetadata
     <> (if BS.null msg.failureDetails then mempty else encodeFieldBytes 3 msg.failureDetails)
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.failureCause)
-    <> encodeUnknownFields msg.failureUnknownfields
+    <> encodeUnknownFields msg.failureUnknownFields
 
 instance MessageSize Failure where
   messageSize msg =
     (if msg.failureMessage == T.empty then 0 else fieldTextSize 1 msg.failureMessage)
-    + (if msg.failureStacktrace == T.empty then 0 else fieldTextSize 4 msg.failureStacktrace)
+    + (if msg.failureStackTrace == T.empty then 0 else fieldTextSize 4 msg.failureStackTrace)
     + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 2 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.failureMetadata)
     + (if BS.null msg.failureDetails then 0 else fieldBytesSize 3 msg.failureDetails)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.failureCause)
-    + unknownFieldsSize msg.failureUnknownfields
+    + unknownFieldsSize msg.failureUnknownFields
 
 instance MessageDecode Failure where
   {-# INLINE messageDecoder #-}
@@ -108,7 +108,7 @@ instance MessageDecode Failure where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Failure {failureMessage = acc_0, failureStacktrace = acc_1, failureMetadata = acc_2, failureDetails = acc_3, failureCause = acc_4, failureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Failure {failureMessage = acc_0, failureStackTrace = acc_1, failureMetadata = acc_2, failureDetails = acc_3, failureCause = acc_4, failureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -153,8 +153,8 @@ instance ProtoMessage Failure where
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = failureStacktrace
-        , fdSet = \v m -> m { failureStacktrace = v }
+        , fdGet = failureStackTrace
+        , fdSet = \v m -> m { failureStackTrace = v }
         })
     , (2, SomeField FieldDescriptor
         { fdName = "metadata"
@@ -185,7 +185,7 @@ instance ProtoMessage Failure where
 instance Aeson.ToJSON Failure where
   toJSON msg = jsonObject
       [ "message" .=: msg.failureMessage
-      , "stackTrace" .=: msg.failureStacktrace
+      , "stackTrace" .=: msg.failureStackTrace
       , "metadata" .=: msg.failureMetadata
       , bytesFieldToJSON "details" msg.failureDetails
       , "cause" .=: msg.failureCause
@@ -194,51 +194,51 @@ instance Aeson.ToJSON Failure where
 instance Aeson.FromJSON Failure where
   parseJSON = Aeson.withObject "Failure" $ \obj -> do
     fld_failureMessage <- parseFieldMaybe obj "message"
-    fld_failureStacktrace <- parseFieldMaybe obj "stackTrace"
+    fld_failureStackTrace <- parseFieldMaybe obj "stackTrace"
     fld_failureMetadata <- parseFieldMaybe obj "metadata"
     fld_failureDetails <- parseBytesFieldMaybe obj "details"
     fld_failureCause <- parseFieldMaybe obj "cause"
     pure defaultFailure
       { failureMessage = maybe (failureMessage defaultFailure) id fld_failureMessage
-      , failureStacktrace = maybe (failureStacktrace defaultFailure) id fld_failureStacktrace
+      , failureStackTrace = maybe (failureStackTrace defaultFailure) id fld_failureStackTrace
       , failureMetadata = maybe (failureMetadata defaultFailure) id fld_failureMetadata
       , failureDetails = maybe (failureDetails defaultFailure) id fld_failureDetails
       , failureCause = maybe (failureCause defaultFailure) id fld_failureCause
       }
 
 instance Hashable Failure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (salt) msg.failureMessage) msg.failureStacktrace) msg.failureMetadata) msg.failureDetails) msg.failureCause
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (salt) msg.failureMessage) msg.failureStackTrace) msg.failureMetadata) msg.failureDetails) msg.failureCause
 
 data HandlerError = HandlerError
-  { handlerErrorErrortype :: !Text
+  { handlerErrorErrorType :: !Text
   , handlerErrorFailure :: !(Maybe Failure)
-  , handlerErrorRetrybehavior :: !TE_Enums_V1_Nexus.NexusHandlerErrorRetryBehavior
-  , handlerErrorUnknownfields :: ![UnknownField]
+  , handlerErrorRetryBehavior :: !TE_Enums_V1_Nexus.NexusHandlerErrorRetryBehavior
+  , handlerErrorUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultHandlerError :: HandlerError
 defaultHandlerError = HandlerError
-  { handlerErrorErrortype = ""
+  { handlerErrorErrorType = ""
   , handlerErrorFailure = Nothing
-  , handlerErrorRetrybehavior = (toEnum 0)
-  , handlerErrorUnknownfields = []
+  , handlerErrorRetryBehavior = (toEnum 0)
+  , handlerErrorUnknownFields = []
   }
 
 instance MessageEncode HandlerError where
   buildMessage msg =
-    (if msg.handlerErrorErrortype == T.empty then mempty else encodeFieldString 1 msg.handlerErrorErrortype)
+    (if msg.handlerErrorErrorType == T.empty then mempty else encodeFieldString 1 msg.handlerErrorErrorType)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.handlerErrorFailure)
-    <> (if fromEnum msg.handlerErrorRetrybehavior == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.handlerErrorRetrybehavior)))
-    <> encodeUnknownFields msg.handlerErrorUnknownfields
+    <> (if fromEnum msg.handlerErrorRetryBehavior == 0 then mempty else encodeFieldVarint 3 (fromIntegral (fromEnum msg.handlerErrorRetryBehavior)))
+    <> encodeUnknownFields msg.handlerErrorUnknownFields
 
 instance MessageSize HandlerError where
   messageSize msg =
-    (if msg.handlerErrorErrortype == T.empty then 0 else fieldTextSize 1 msg.handlerErrorErrortype)
+    (if msg.handlerErrorErrorType == T.empty then 0 else fieldTextSize 1 msg.handlerErrorErrorType)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.handlerErrorFailure)
-    + (if fromEnum msg.handlerErrorRetrybehavior == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.handlerErrorRetrybehavior)))
-    + unknownFieldsSize msg.handlerErrorUnknownfields
+    + (if fromEnum msg.handlerErrorRetryBehavior == 0 then 0 else fieldVarintSize 3 (fromIntegral (fromEnum msg.handlerErrorRetryBehavior)))
+    + unknownFieldsSize msg.handlerErrorUnknownFields
 
 instance MessageDecode HandlerError where
   {-# INLINE messageDecoder #-}
@@ -247,7 +247,7 @@ instance MessageDecode HandlerError where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (HandlerError {handlerErrorErrortype = acc_0, handlerErrorFailure = acc_1, handlerErrorRetrybehavior = acc_2, handlerErrorUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (HandlerError {handlerErrorErrorType = acc_0, handlerErrorFailure = acc_1, handlerErrorRetryBehavior = acc_2, handlerErrorUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -276,8 +276,8 @@ instance ProtoMessage HandlerError where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = handlerErrorErrortype
-        , fdSet = \v m -> m { handlerErrorErrortype = v }
+        , fdGet = handlerErrorErrorType
+        , fdSet = \v m -> m { handlerErrorErrorType = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "failure"
         , fdNumber = 2
@@ -291,58 +291,58 @@ instance ProtoMessage HandlerError where
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.enums.v1.NexusHandlerErrorRetryBehavior"
         , fdLabel = LabelOptional
-        , fdGet = handlerErrorRetrybehavior
-        , fdSet = \v m -> m { handlerErrorRetrybehavior = v }
+        , fdGet = handlerErrorRetryBehavior
+        , fdSet = \v m -> m { handlerErrorRetryBehavior = v }
         })
     ]
 
 instance Aeson.ToJSON HandlerError where
   toJSON msg = jsonObject
-      [ "errorType" .=: msg.handlerErrorErrortype
+      [ "errorType" .=: msg.handlerErrorErrorType
       , "failure" .=: msg.handlerErrorFailure
-      , "retryBehavior" .=: msg.handlerErrorRetrybehavior
+      , "retryBehavior" .=: msg.handlerErrorRetryBehavior
       ]
 
 instance Aeson.FromJSON HandlerError where
   parseJSON = Aeson.withObject "HandlerError" $ \obj -> do
-    fld_handlerErrorErrortype <- parseFieldMaybe obj "errorType"
+    fld_handlerErrorErrorType <- parseFieldMaybe obj "errorType"
     fld_handlerErrorFailure <- parseFieldMaybe obj "failure"
-    fld_handlerErrorRetrybehavior <- parseFieldMaybe obj "retryBehavior"
+    fld_handlerErrorRetryBehavior <- parseFieldMaybe obj "retryBehavior"
     pure defaultHandlerError
-      { handlerErrorErrortype = maybe (handlerErrorErrortype defaultHandlerError) id fld_handlerErrorErrortype
+      { handlerErrorErrorType = maybe (handlerErrorErrorType defaultHandlerError) id fld_handlerErrorErrorType
       , handlerErrorFailure = maybe (handlerErrorFailure defaultHandlerError) id fld_handlerErrorFailure
-      , handlerErrorRetrybehavior = maybe (handlerErrorRetrybehavior defaultHandlerError) id fld_handlerErrorRetrybehavior
+      , handlerErrorRetryBehavior = maybe (handlerErrorRetryBehavior defaultHandlerError) id fld_handlerErrorRetryBehavior
       }
 
 instance Hashable HandlerError where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.handlerErrorErrortype) msg.handlerErrorFailure) msg.handlerErrorRetrybehavior
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.handlerErrorErrorType) msg.handlerErrorFailure) msg.handlerErrorRetryBehavior
 
 data UnsuccessfulOperationError = UnsuccessfulOperationError
-  { unsuccessfulOperationErrorOperationstate :: !Text
+  { unsuccessfulOperationErrorOperationState :: !Text
   , unsuccessfulOperationErrorFailure :: !(Maybe Failure)
-  , unsuccessfulOperationErrorUnknownfields :: ![UnknownField]
+  , unsuccessfulOperationErrorUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultUnsuccessfulOperationError :: UnsuccessfulOperationError
 defaultUnsuccessfulOperationError = UnsuccessfulOperationError
-  { unsuccessfulOperationErrorOperationstate = ""
+  { unsuccessfulOperationErrorOperationState = ""
   , unsuccessfulOperationErrorFailure = Nothing
-  , unsuccessfulOperationErrorUnknownfields = []
+  , unsuccessfulOperationErrorUnknownFields = []
   }
 
 instance MessageEncode UnsuccessfulOperationError where
   buildMessage msg =
-    (if msg.unsuccessfulOperationErrorOperationstate == T.empty then mempty else encodeFieldString 1 msg.unsuccessfulOperationErrorOperationstate)
+    (if msg.unsuccessfulOperationErrorOperationState == T.empty then mempty else encodeFieldString 1 msg.unsuccessfulOperationErrorOperationState)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.unsuccessfulOperationErrorFailure)
-    <> encodeUnknownFields msg.unsuccessfulOperationErrorUnknownfields
+    <> encodeUnknownFields msg.unsuccessfulOperationErrorUnknownFields
 
 instance MessageSize UnsuccessfulOperationError where
   messageSize msg =
-    (if msg.unsuccessfulOperationErrorOperationstate == T.empty then 0 else fieldTextSize 1 msg.unsuccessfulOperationErrorOperationstate)
+    (if msg.unsuccessfulOperationErrorOperationState == T.empty then 0 else fieldTextSize 1 msg.unsuccessfulOperationErrorOperationState)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.unsuccessfulOperationErrorFailure)
-    + unknownFieldsSize msg.unsuccessfulOperationErrorUnknownfields
+    + unknownFieldsSize msg.unsuccessfulOperationErrorUnknownFields
 
 instance MessageDecode UnsuccessfulOperationError where
   {-# INLINE messageDecoder #-}
@@ -351,7 +351,7 @@ instance MessageDecode UnsuccessfulOperationError where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UnsuccessfulOperationError {unsuccessfulOperationErrorOperationstate = acc_0, unsuccessfulOperationErrorFailure = acc_1, unsuccessfulOperationErrorUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UnsuccessfulOperationError {unsuccessfulOperationErrorOperationState = acc_0, unsuccessfulOperationErrorFailure = acc_1, unsuccessfulOperationErrorUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -377,8 +377,8 @@ instance ProtoMessage UnsuccessfulOperationError where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = unsuccessfulOperationErrorOperationstate
-        , fdSet = \v m -> m { unsuccessfulOperationErrorOperationstate = v }
+        , fdGet = unsuccessfulOperationErrorOperationState
+        , fdSet = \v m -> m { unsuccessfulOperationErrorOperationState = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "failure"
         , fdNumber = 2
@@ -391,26 +391,26 @@ instance ProtoMessage UnsuccessfulOperationError where
 
 instance Aeson.ToJSON UnsuccessfulOperationError where
   toJSON msg = jsonObject
-      [ "operationState" .=: msg.unsuccessfulOperationErrorOperationstate
+      [ "operationState" .=: msg.unsuccessfulOperationErrorOperationState
       , "failure" .=: msg.unsuccessfulOperationErrorFailure
       ]
 
 instance Aeson.FromJSON UnsuccessfulOperationError where
   parseJSON = Aeson.withObject "UnsuccessfulOperationError" $ \obj -> do
-    fld_unsuccessfulOperationErrorOperationstate <- parseFieldMaybe obj "operationState"
+    fld_unsuccessfulOperationErrorOperationState <- parseFieldMaybe obj "operationState"
     fld_unsuccessfulOperationErrorFailure <- parseFieldMaybe obj "failure"
     pure defaultUnsuccessfulOperationError
-      { unsuccessfulOperationErrorOperationstate = maybe (unsuccessfulOperationErrorOperationstate defaultUnsuccessfulOperationError) id fld_unsuccessfulOperationErrorOperationstate
+      { unsuccessfulOperationErrorOperationState = maybe (unsuccessfulOperationErrorOperationState defaultUnsuccessfulOperationError) id fld_unsuccessfulOperationErrorOperationState
       , unsuccessfulOperationErrorFailure = maybe (unsuccessfulOperationErrorFailure defaultUnsuccessfulOperationError) id fld_unsuccessfulOperationErrorFailure
       }
 
 instance Hashable UnsuccessfulOperationError where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.unsuccessfulOperationErrorOperationstate) msg.unsuccessfulOperationErrorFailure
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.unsuccessfulOperationErrorOperationState) msg.unsuccessfulOperationErrorFailure
 
 data Link = Link
   { linkUrl :: !Text
   , linkType :: !Text
-  , linkUnknownfields :: ![UnknownField]
+  , linkUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -419,20 +419,20 @@ defaultLink :: Link
 defaultLink = Link
   { linkUrl = ""
   , linkType = ""
-  , linkUnknownfields = []
+  , linkUnknownFields = []
   }
 
 instance MessageEncode Link where
   buildMessage msg =
     (if msg.linkUrl == T.empty then mempty else encodeFieldString 1 msg.linkUrl)
     <> (if msg.linkType == T.empty then mempty else encodeFieldString 2 msg.linkType)
-    <> encodeUnknownFields msg.linkUnknownfields
+    <> encodeUnknownFields msg.linkUnknownFields
 
 instance MessageSize Link where
   messageSize msg =
     (if msg.linkUrl == T.empty then 0 else fieldTextSize 1 msg.linkUrl)
     + (if msg.linkType == T.empty then 0 else fieldTextSize 2 msg.linkType)
-    + unknownFieldsSize msg.linkUnknownfields
+    + unknownFieldsSize msg.linkUnknownFields
 
 instance MessageDecode Link where
   {-# INLINE messageDecoder #-}
@@ -441,7 +441,7 @@ instance MessageDecode Link where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Link {linkUrl = acc_0, linkType = acc_1, linkUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Link {linkUrl = acc_0, linkType = acc_1, linkUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -500,12 +500,12 @@ instance Hashable Link where
 data StartOperationRequest = StartOperationRequest
   { startOperationRequestService :: !Text
   , startOperationRequestOperation :: !Text
-  , startOperationRequestRequestid :: !Text
+  , startOperationRequestRequestId :: !Text
   , startOperationRequestCallback :: !Text
   , startOperationRequestPayload :: !(Maybe TE_Common_V1_Message.Payload)
-  , startOperationRequestCallbackheader :: !(Map.Map Text Text)
+  , startOperationRequestCallbackHeader :: !(Map.Map Text Text)
   , startOperationRequestLinks :: !(V.Vector Link)
-  , startOperationRequestUnknownfields :: ![UnknownField]
+  , startOperationRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -514,35 +514,35 @@ defaultStartOperationRequest :: StartOperationRequest
 defaultStartOperationRequest = StartOperationRequest
   { startOperationRequestService = ""
   , startOperationRequestOperation = ""
-  , startOperationRequestRequestid = ""
+  , startOperationRequestRequestId = ""
   , startOperationRequestCallback = ""
   , startOperationRequestPayload = Nothing
-  , startOperationRequestCallbackheader = Map.empty
+  , startOperationRequestCallbackHeader = Map.empty
   , startOperationRequestLinks = V.empty
-  , startOperationRequestUnknownfields = []
+  , startOperationRequestUnknownFields = []
   }
 
 instance MessageEncode StartOperationRequest where
   buildMessage msg =
     (if msg.startOperationRequestService == T.empty then mempty else encodeFieldString 1 msg.startOperationRequestService)
     <> (if msg.startOperationRequestOperation == T.empty then mempty else encodeFieldString 2 msg.startOperationRequestOperation)
-    <> (if msg.startOperationRequestRequestid == T.empty then mempty else encodeFieldString 3 msg.startOperationRequestRequestid)
+    <> (if msg.startOperationRequestRequestId == T.empty then mempty else encodeFieldString 3 msg.startOperationRequestRequestId)
     <> (if msg.startOperationRequestCallback == T.empty then mempty else encodeFieldString 4 msg.startOperationRequestCallback)
     <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.startOperationRequestPayload)
-    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 6 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.startOperationRequestCallbackheader
+    <> Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 6 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.startOperationRequestCallbackHeader
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 7 v) mempty msg.startOperationRequestLinks
-    <> encodeUnknownFields msg.startOperationRequestUnknownfields
+    <> encodeUnknownFields msg.startOperationRequestUnknownFields
 
 instance MessageSize StartOperationRequest where
   messageSize msg =
     (if msg.startOperationRequestService == T.empty then 0 else fieldTextSize 1 msg.startOperationRequestService)
     + (if msg.startOperationRequestOperation == T.empty then 0 else fieldTextSize 2 msg.startOperationRequestOperation)
-    + (if msg.startOperationRequestRequestid == T.empty then 0 else fieldTextSize 3 msg.startOperationRequestRequestid)
+    + (if msg.startOperationRequestRequestId == T.empty then 0 else fieldTextSize 3 msg.startOperationRequestRequestId)
     + (if msg.startOperationRequestCallback == T.empty then 0 else fieldTextSize 4 msg.startOperationRequestCallback)
     + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.startOperationRequestPayload)
-    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 6 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.startOperationRequestCallbackheader)
+    + (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 6 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.startOperationRequestCallbackHeader)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 7 (messageSize v)) 0 msg.startOperationRequestLinks)
-    + unknownFieldsSize msg.startOperationRequestUnknownfields
+    + unknownFieldsSize msg.startOperationRequestUnknownFields
 
 instance MessageDecode StartOperationRequest where
   {-# INLINE messageDecoder #-}
@@ -551,7 +551,7 @@ instance MessageDecode StartOperationRequest where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_6 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StartOperationRequest {startOperationRequestService = acc_0, startOperationRequestOperation = acc_1, startOperationRequestRequestid = acc_2, startOperationRequestCallback = acc_3, startOperationRequestPayload = acc_4, startOperationRequestCallbackheader = acc_5, startOperationRequestLinks = acc_6, startOperationRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StartOperationRequest {startOperationRequestService = acc_0, startOperationRequestOperation = acc_1, startOperationRequestRequestId = acc_2, startOperationRequestCallback = acc_3, startOperationRequestPayload = acc_4, startOperationRequestCallbackHeader = acc_5, startOperationRequestLinks = acc_6, startOperationRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -610,8 +610,8 @@ instance ProtoMessage StartOperationRequest where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = startOperationRequestRequestid
-        , fdSet = \v m -> m { startOperationRequestRequestid = v }
+        , fdGet = startOperationRequestRequestId
+        , fdSet = \v m -> m { startOperationRequestRequestId = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "callback"
@@ -634,8 +634,8 @@ instance ProtoMessage StartOperationRequest where
         , fdNumber = 6
         , fdTypeDesc = ScalarType BytesField
         , fdLabel = LabelRepeated
-        , fdGet = startOperationRequestCallbackheader
-        , fdSet = \v m -> m { startOperationRequestCallbackheader = v }
+        , fdGet = startOperationRequestCallbackHeader
+        , fdSet = \v m -> m { startOperationRequestCallbackHeader = v }
         })
     , (7, SomeField FieldDescriptor
         { fdName = "links"
@@ -651,10 +651,10 @@ instance Aeson.ToJSON StartOperationRequest where
   toJSON msg = jsonObject
       [ "service" .=: msg.startOperationRequestService
       , "operation" .=: msg.startOperationRequestOperation
-      , "requestId" .=: msg.startOperationRequestRequestid
+      , "requestId" .=: msg.startOperationRequestRequestId
       , "callback" .=: msg.startOperationRequestCallback
       , "payload" .=: msg.startOperationRequestPayload
-      , "callbackHeader" .=: msg.startOperationRequestCallbackheader
+      , "callbackHeader" .=: msg.startOperationRequestCallbackHeader
       , "links" .=: msg.startOperationRequestLinks
       ]
 
@@ -662,30 +662,30 @@ instance Aeson.FromJSON StartOperationRequest where
   parseJSON = Aeson.withObject "StartOperationRequest" $ \obj -> do
     fld_startOperationRequestService <- parseFieldMaybe obj "service"
     fld_startOperationRequestOperation <- parseFieldMaybe obj "operation"
-    fld_startOperationRequestRequestid <- parseFieldMaybe obj "requestId"
+    fld_startOperationRequestRequestId <- parseFieldMaybe obj "requestId"
     fld_startOperationRequestCallback <- parseFieldMaybe obj "callback"
     fld_startOperationRequestPayload <- parseFieldMaybe obj "payload"
-    fld_startOperationRequestCallbackheader <- parseFieldMaybe obj "callbackHeader"
+    fld_startOperationRequestCallbackHeader <- parseFieldMaybe obj "callbackHeader"
     fld_startOperationRequestLinks <- parseFieldMaybe obj "links"
     pure defaultStartOperationRequest
       { startOperationRequestService = maybe (startOperationRequestService defaultStartOperationRequest) id fld_startOperationRequestService
       , startOperationRequestOperation = maybe (startOperationRequestOperation defaultStartOperationRequest) id fld_startOperationRequestOperation
-      , startOperationRequestRequestid = maybe (startOperationRequestRequestid defaultStartOperationRequest) id fld_startOperationRequestRequestid
+      , startOperationRequestRequestId = maybe (startOperationRequestRequestId defaultStartOperationRequest) id fld_startOperationRequestRequestId
       , startOperationRequestCallback = maybe (startOperationRequestCallback defaultStartOperationRequest) id fld_startOperationRequestCallback
       , startOperationRequestPayload = maybe (startOperationRequestPayload defaultStartOperationRequest) id fld_startOperationRequestPayload
-      , startOperationRequestCallbackheader = maybe (startOperationRequestCallbackheader defaultStartOperationRequest) id fld_startOperationRequestCallbackheader
+      , startOperationRequestCallbackHeader = maybe (startOperationRequestCallbackHeader defaultStartOperationRequest) id fld_startOperationRequestCallbackHeader
       , startOperationRequestLinks = maybe (startOperationRequestLinks defaultStartOperationRequest) id fld_startOperationRequestLinks
       }
 
 instance Hashable StartOperationRequest where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.startOperationRequestService) msg.startOperationRequestOperation) msg.startOperationRequestRequestid) msg.startOperationRequestCallback) msg.startOperationRequestPayload) msg.startOperationRequestCallbackheader) msg.startOperationRequestLinks
+  hashWithSalt salt msg = V.foldl' hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.startOperationRequestService) msg.startOperationRequestOperation) msg.startOperationRequestRequestId) msg.startOperationRequestCallback) msg.startOperationRequestPayload) msg.startOperationRequestCallbackHeader) msg.startOperationRequestLinks
 
 data CancelOperationRequest = CancelOperationRequest
   { cancelOperationRequestService :: !Text
   , cancelOperationRequestOperation :: !Text
-  , cancelOperationRequestOperationid :: !Text
-  , cancelOperationRequestOperationtoken :: !Text
-  , cancelOperationRequestUnknownfields :: ![UnknownField]
+  , cancelOperationRequestOperationId :: !Text
+  , cancelOperationRequestOperationToken :: !Text
+  , cancelOperationRequestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -694,26 +694,26 @@ defaultCancelOperationRequest :: CancelOperationRequest
 defaultCancelOperationRequest = CancelOperationRequest
   { cancelOperationRequestService = ""
   , cancelOperationRequestOperation = ""
-  , cancelOperationRequestOperationid = ""
-  , cancelOperationRequestOperationtoken = ""
-  , cancelOperationRequestUnknownfields = []
+  , cancelOperationRequestOperationId = ""
+  , cancelOperationRequestOperationToken = ""
+  , cancelOperationRequestUnknownFields = []
   }
 
 instance MessageEncode CancelOperationRequest where
   buildMessage msg =
     (if msg.cancelOperationRequestService == T.empty then mempty else encodeFieldString 1 msg.cancelOperationRequestService)
     <> (if msg.cancelOperationRequestOperation == T.empty then mempty else encodeFieldString 2 msg.cancelOperationRequestOperation)
-    <> (if msg.cancelOperationRequestOperationid == T.empty then mempty else encodeFieldString 3 msg.cancelOperationRequestOperationid)
-    <> (if msg.cancelOperationRequestOperationtoken == T.empty then mempty else encodeFieldString 4 msg.cancelOperationRequestOperationtoken)
-    <> encodeUnknownFields msg.cancelOperationRequestUnknownfields
+    <> (if msg.cancelOperationRequestOperationId == T.empty then mempty else encodeFieldString 3 msg.cancelOperationRequestOperationId)
+    <> (if msg.cancelOperationRequestOperationToken == T.empty then mempty else encodeFieldString 4 msg.cancelOperationRequestOperationToken)
+    <> encodeUnknownFields msg.cancelOperationRequestUnknownFields
 
 instance MessageSize CancelOperationRequest where
   messageSize msg =
     (if msg.cancelOperationRequestService == T.empty then 0 else fieldTextSize 1 msg.cancelOperationRequestService)
     + (if msg.cancelOperationRequestOperation == T.empty then 0 else fieldTextSize 2 msg.cancelOperationRequestOperation)
-    + (if msg.cancelOperationRequestOperationid == T.empty then 0 else fieldTextSize 3 msg.cancelOperationRequestOperationid)
-    + (if msg.cancelOperationRequestOperationtoken == T.empty then 0 else fieldTextSize 4 msg.cancelOperationRequestOperationtoken)
-    + unknownFieldsSize msg.cancelOperationRequestUnknownfields
+    + (if msg.cancelOperationRequestOperationId == T.empty then 0 else fieldTextSize 3 msg.cancelOperationRequestOperationId)
+    + (if msg.cancelOperationRequestOperationToken == T.empty then 0 else fieldTextSize 4 msg.cancelOperationRequestOperationToken)
+    + unknownFieldsSize msg.cancelOperationRequestUnknownFields
 
 instance MessageDecode CancelOperationRequest where
   {-# INLINE messageDecoder #-}
@@ -722,7 +722,7 @@ instance MessageDecode CancelOperationRequest where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CancelOperationRequest {cancelOperationRequestService = acc_0, cancelOperationRequestOperation = acc_1, cancelOperationRequestOperationid = acc_2, cancelOperationRequestOperationtoken = acc_3, cancelOperationRequestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CancelOperationRequest {cancelOperationRequestService = acc_0, cancelOperationRequestOperation = acc_1, cancelOperationRequestOperationId = acc_2, cancelOperationRequestOperationToken = acc_3, cancelOperationRequestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -769,16 +769,16 @@ instance ProtoMessage CancelOperationRequest where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = cancelOperationRequestOperationid
-        , fdSet = \v m -> m { cancelOperationRequestOperationid = v }
+        , fdGet = cancelOperationRequestOperationId
+        , fdSet = \v m -> m { cancelOperationRequestOperationId = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "operation_token"
         , fdNumber = 4
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = cancelOperationRequestOperationtoken
-        , fdSet = \v m -> m { cancelOperationRequestOperationtoken = v }
+        , fdGet = cancelOperationRequestOperationToken
+        , fdSet = \v m -> m { cancelOperationRequestOperationToken = v }
         })
     ]
 
@@ -786,59 +786,59 @@ instance Aeson.ToJSON CancelOperationRequest where
   toJSON msg = jsonObject
       [ "service" .=: msg.cancelOperationRequestService
       , "operation" .=: msg.cancelOperationRequestOperation
-      , "operationId" .=: msg.cancelOperationRequestOperationid
-      , "operationToken" .=: msg.cancelOperationRequestOperationtoken
+      , "operationId" .=: msg.cancelOperationRequestOperationId
+      , "operationToken" .=: msg.cancelOperationRequestOperationToken
       ]
 
 instance Aeson.FromJSON CancelOperationRequest where
   parseJSON = Aeson.withObject "CancelOperationRequest" $ \obj -> do
     fld_cancelOperationRequestService <- parseFieldMaybe obj "service"
     fld_cancelOperationRequestOperation <- parseFieldMaybe obj "operation"
-    fld_cancelOperationRequestOperationid <- parseFieldMaybe obj "operationId"
-    fld_cancelOperationRequestOperationtoken <- parseFieldMaybe obj "operationToken"
+    fld_cancelOperationRequestOperationId <- parseFieldMaybe obj "operationId"
+    fld_cancelOperationRequestOperationToken <- parseFieldMaybe obj "operationToken"
     pure defaultCancelOperationRequest
       { cancelOperationRequestService = maybe (cancelOperationRequestService defaultCancelOperationRequest) id fld_cancelOperationRequestService
       , cancelOperationRequestOperation = maybe (cancelOperationRequestOperation defaultCancelOperationRequest) id fld_cancelOperationRequestOperation
-      , cancelOperationRequestOperationid = maybe (cancelOperationRequestOperationid defaultCancelOperationRequest) id fld_cancelOperationRequestOperationid
-      , cancelOperationRequestOperationtoken = maybe (cancelOperationRequestOperationtoken defaultCancelOperationRequest) id fld_cancelOperationRequestOperationtoken
+      , cancelOperationRequestOperationId = maybe (cancelOperationRequestOperationId defaultCancelOperationRequest) id fld_cancelOperationRequestOperationId
+      , cancelOperationRequestOperationToken = maybe (cancelOperationRequestOperationToken defaultCancelOperationRequest) id fld_cancelOperationRequestOperationToken
       }
 
 instance Hashable CancelOperationRequest where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.cancelOperationRequestService) msg.cancelOperationRequestOperation) msg.cancelOperationRequestOperationid) msg.cancelOperationRequestOperationtoken
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.cancelOperationRequestService) msg.cancelOperationRequestOperation) msg.cancelOperationRequestOperationId) msg.cancelOperationRequestOperationToken
 
 data Request = Request
   { requestHeader :: !(Map.Map Text Text)
-  , requestScheduledtime :: !(Maybe PB_Timestamp.Timestamp)
+  , requestScheduledTime :: !(Maybe PB_Timestamp.Timestamp)
   , requestCapabilities :: !(Maybe Request'Capabilities)
   , requestVariant :: !(Maybe Request'Variant)
   , requestEndpoint :: !Text
-  , requestUnknownfields :: ![UnknownField]
+  , requestUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data Request'Capabilities = Request'Capabilities
-  { requestCapabilitiesTemporalfailureresponses :: {-# UNPACK #-} !Bool
-  , requestCapabilitiesUnknownfields :: ![UnknownField]
+  { requestCapabilitiesTemporalFailureResponses :: {-# UNPACK #-} !Bool
+  , requestCapabilitiesUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultRequest'Capabilities :: Request'Capabilities
 defaultRequest'Capabilities = Request'Capabilities
-  { requestCapabilitiesTemporalfailureresponses = False
-  , requestCapabilitiesUnknownfields = []
+  { requestCapabilitiesTemporalFailureResponses = False
+  , requestCapabilitiesUnknownFields = []
   }
 
 instance MessageEncode Request'Capabilities where
   buildMessage msg =
-    (if msg.requestCapabilitiesTemporalfailureresponses == False then mempty else encodeFieldBool 1 msg.requestCapabilitiesTemporalfailureresponses)
-    <> encodeUnknownFields msg.requestCapabilitiesUnknownfields
+    (if msg.requestCapabilitiesTemporalFailureResponses == False then mempty else encodeFieldBool 1 msg.requestCapabilitiesTemporalFailureResponses)
+    <> encodeUnknownFields msg.requestCapabilitiesUnknownFields
 
 instance MessageSize Request'Capabilities where
   messageSize msg =
-    (if msg.requestCapabilitiesTemporalfailureresponses == False then 0 else fieldBoolSize 1)
-    + unknownFieldsSize msg.requestCapabilitiesUnknownfields
+    (if msg.requestCapabilitiesTemporalFailureResponses == False then 0 else fieldBoolSize 1)
+    + unknownFieldsSize msg.requestCapabilitiesUnknownFields
 
 instance MessageDecode Request'Capabilities where
   {-# INLINE messageDecoder #-}
@@ -847,7 +847,7 @@ instance MessageDecode Request'Capabilities where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Request'Capabilities {requestCapabilitiesTemporalfailureresponses = acc_0, requestCapabilitiesUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Request'Capabilities {requestCapabilitiesTemporalFailureResponses = acc_0, requestCapabilitiesUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -870,26 +870,26 @@ instance ProtoMessage Request'Capabilities where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = requestCapabilitiesTemporalfailureresponses
-        , fdSet = \v m -> m { requestCapabilitiesTemporalfailureresponses = v }
+        , fdGet = requestCapabilitiesTemporalFailureResponses
+        , fdSet = \v m -> m { requestCapabilitiesTemporalFailureResponses = v }
         })
     ]
 
 instance Aeson.ToJSON Request'Capabilities where
   toJSON msg = jsonObject
-      [ "temporalFailureResponses" .=: msg.requestCapabilitiesTemporalfailureresponses
+      [ "temporalFailureResponses" .=: msg.requestCapabilitiesTemporalFailureResponses
 
       ]
 
 instance Aeson.FromJSON Request'Capabilities where
   parseJSON = Aeson.withObject "Request'Capabilities" $ \obj -> do
-    fld_requestCapabilitiesTemporalfailureresponses <- parseFieldMaybe obj "temporalFailureResponses"
+    fld_requestCapabilitiesTemporalFailureResponses <- parseFieldMaybe obj "temporalFailureResponses"
     pure defaultRequest'Capabilities
-      { requestCapabilitiesTemporalfailureresponses = maybe (requestCapabilitiesTemporalfailureresponses defaultRequest'Capabilities) id fld_requestCapabilitiesTemporalfailureresponses
+      { requestCapabilitiesTemporalFailureResponses = maybe (requestCapabilitiesTemporalFailureResponses defaultRequest'Capabilities) id fld_requestCapabilitiesTemporalFailureResponses
       }
 
 instance Hashable Request'Capabilities where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.requestCapabilitiesTemporalfailureresponses
+  hashWithSalt salt msg = hashWithSalt (salt) msg.requestCapabilitiesTemporalFailureResponses
 data Request'Variant
   = Request'Variant'StartOperation !StartOperationRequest
   | Request'Variant'CancelOperation !CancelOperationRequest
@@ -906,34 +906,34 @@ instance Hashable Request'Variant where
 defaultRequest :: Request
 defaultRequest = Request
   { requestHeader = Map.empty
-  , requestScheduledtime = Nothing
+  , requestScheduledTime = Nothing
   , requestCapabilities = Nothing
   , requestVariant = Nothing
   , requestEndpoint = ""
-  , requestUnknownfields = []
+  , requestUnknownFields = []
   }
 
 instance MessageEncode Request where
   buildMessage msg =
     Map.foldlWithKey' (\acc k v -> acc <> encodeMapField 1 (encodeFieldString 1 k) (encodeFieldString 2 v)) mempty msg.requestHeader
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.requestScheduledtime)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.requestScheduledTime)
     <> (maybe mempty (\v -> encodeFieldMessage 100 v) msg.requestCapabilities)
     <> (case msg.requestVariant of
       Nothing -> mempty
       Just (Request'Variant'StartOperation v) -> encodeFieldMessage 3 v
       Just (Request'Variant'CancelOperation v) -> encodeFieldMessage 4 v)
     <> (if msg.requestEndpoint == T.empty then mempty else encodeFieldString 10 msg.requestEndpoint)
-    <> encodeUnknownFields msg.requestUnknownfields
+    <> encodeUnknownFields msg.requestUnknownFields
 
 instance MessageSize Request where
   messageSize msg =
     (Map.foldlWithKey' (\acc k v -> let entrySz = fieldTextSize 1 k + fieldTextSize 2 v in acc + tagSize 1 + varintSize (fromIntegral entrySz) + entrySz) 0 msg.requestHeader)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.requestScheduledtime)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.requestScheduledTime)
     + (maybe 0 (\v -> fieldMessageSize 100 (messageSize v)) msg.requestCapabilities)
     + (case msg.requestVariant of { Nothing -> 0; Just (Request'Variant'StartOperation v) -> fieldMessageSize 3 (messageSize v)
     ; Just (Request'Variant'CancelOperation v) -> fieldMessageSize 4 (messageSize v) })
     + (if msg.requestEndpoint == T.empty then 0 else fieldTextSize 10 msg.requestEndpoint)
-    + unknownFieldsSize msg.requestUnknownfields
+    + unknownFieldsSize msg.requestUnknownFields
 
 instance MessageDecode Request where
   {-# INLINE messageDecoder #-}
@@ -942,7 +942,7 @@ instance MessageDecode Request where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Request {requestHeader = acc_0, requestScheduledtime = acc_1, requestCapabilities = acc_2, requestVariant = acc_3, requestEndpoint = acc_4, requestUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Request {requestHeader = acc_0, requestScheduledTime = acc_1, requestCapabilities = acc_2, requestVariant = acc_3, requestEndpoint = acc_4, requestUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               bs' <- getLengthDelimited
@@ -990,8 +990,8 @@ instance ProtoMessage Request where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = requestScheduledtime
-        , fdSet = \v m -> m { requestScheduledtime = v }
+        , fdGet = requestScheduledTime
+        , fdSet = \v m -> m { requestScheduledTime = v }
         })
     , (100, SomeField FieldDescriptor
         { fdName = "capabilities"
@@ -1022,7 +1022,7 @@ instance ProtoMessage Request where
 instance Aeson.ToJSON Request where
   toJSON msg = jsonObject
       [ "header" .=: msg.requestHeader
-      , "scheduledTime" .=: msg.requestScheduledtime
+      , "scheduledTime" .=: msg.requestScheduledTime
       , "capabilities" .=: msg.requestCapabilities
       , "variant" .=: msg.requestVariant
       , "endpoint" .=: msg.requestEndpoint
@@ -1031,24 +1031,24 @@ instance Aeson.ToJSON Request where
 instance Aeson.FromJSON Request where
   parseJSON = Aeson.withObject "Request" $ \obj -> do
     fld_requestHeader <- parseFieldMaybe obj "header"
-    fld_requestScheduledtime <- parseFieldMaybe obj "scheduledTime"
+    fld_requestScheduledTime <- parseFieldMaybe obj "scheduledTime"
     fld_requestCapabilities <- parseFieldMaybe obj "capabilities"
     fld_requestVariant <- parseFieldMaybe obj "variant"
     fld_requestEndpoint <- parseFieldMaybe obj "endpoint"
     pure defaultRequest
       { requestHeader = maybe (requestHeader defaultRequest) id fld_requestHeader
-      , requestScheduledtime = maybe (requestScheduledtime defaultRequest) id fld_requestScheduledtime
+      , requestScheduledTime = maybe (requestScheduledTime defaultRequest) id fld_requestScheduledTime
       , requestCapabilities = maybe (requestCapabilities defaultRequest) id fld_requestCapabilities
       , requestVariant = maybe (requestVariant defaultRequest) id fld_requestVariant
       , requestEndpoint = maybe (requestEndpoint defaultRequest) id fld_requestEndpoint
       }
 
 instance Hashable Request where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.requestHeader) msg.requestScheduledtime) msg.requestCapabilities) msg.requestVariant) msg.requestEndpoint
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.requestHeader) msg.requestScheduledTime) msg.requestCapabilities) msg.requestVariant) msg.requestEndpoint
 
 data StartOperationResponse = StartOperationResponse
   { startOperationResponseVariant :: !(Maybe StartOperationResponse'Variant)
-  , startOperationResponseUnknownfields :: ![UnknownField]
+  , startOperationResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1056,7 +1056,7 @@ data StartOperationResponse = StartOperationResponse
 data StartOperationResponse'Sync = StartOperationResponse'Sync
   { startOperationResponseSyncPayload :: !(Maybe TE_Common_V1_Message.Payload)
   , startOperationResponseSyncLinks :: !(V.Vector Link)
-  , startOperationResponseSyncUnknownfields :: ![UnknownField]
+  , startOperationResponseSyncUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1065,20 +1065,20 @@ defaultStartOperationResponse'Sync :: StartOperationResponse'Sync
 defaultStartOperationResponse'Sync = StartOperationResponse'Sync
   { startOperationResponseSyncPayload = Nothing
   , startOperationResponseSyncLinks = V.empty
-  , startOperationResponseSyncUnknownfields = []
+  , startOperationResponseSyncUnknownFields = []
   }
 
 instance MessageEncode StartOperationResponse'Sync where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.startOperationResponseSyncPayload)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.startOperationResponseSyncLinks
-    <> encodeUnknownFields msg.startOperationResponseSyncUnknownfields
+    <> encodeUnknownFields msg.startOperationResponseSyncUnknownFields
 
 instance MessageSize StartOperationResponse'Sync where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.startOperationResponseSyncPayload)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.startOperationResponseSyncLinks)
-    + unknownFieldsSize msg.startOperationResponseSyncUnknownfields
+    + unknownFieldsSize msg.startOperationResponseSyncUnknownFields
 
 instance MessageDecode StartOperationResponse'Sync where
   {-# INLINE messageDecoder #-}
@@ -1087,7 +1087,7 @@ instance MessageDecode StartOperationResponse'Sync where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StartOperationResponse'Sync {startOperationResponseSyncPayload = acc_0, startOperationResponseSyncLinks = acc_1, startOperationResponseSyncUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StartOperationResponse'Sync {startOperationResponseSyncPayload = acc_0, startOperationResponseSyncLinks = acc_1, startOperationResponseSyncUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1144,35 +1144,35 @@ instance Hashable StartOperationResponse'Sync where
   hashWithSalt salt msg = V.foldl' hashWithSalt (hashWithSalt (salt) msg.startOperationResponseSyncPayload) msg.startOperationResponseSyncLinks
 
 data StartOperationResponse'Async = StartOperationResponse'Async
-  { startOperationResponseAsyncOperationid :: !Text
+  { startOperationResponseAsyncOperationId :: !Text
   , startOperationResponseAsyncLinks :: !(V.Vector Link)
-  , startOperationResponseAsyncOperationtoken :: !Text
-  , startOperationResponseAsyncUnknownfields :: ![UnknownField]
+  , startOperationResponseAsyncOperationToken :: !Text
+  , startOperationResponseAsyncUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultStartOperationResponse'Async :: StartOperationResponse'Async
 defaultStartOperationResponse'Async = StartOperationResponse'Async
-  { startOperationResponseAsyncOperationid = ""
+  { startOperationResponseAsyncOperationId = ""
   , startOperationResponseAsyncLinks = V.empty
-  , startOperationResponseAsyncOperationtoken = ""
-  , startOperationResponseAsyncUnknownfields = []
+  , startOperationResponseAsyncOperationToken = ""
+  , startOperationResponseAsyncUnknownFields = []
   }
 
 instance MessageEncode StartOperationResponse'Async where
   buildMessage msg =
-    (if msg.startOperationResponseAsyncOperationid == T.empty then mempty else encodeFieldString 1 msg.startOperationResponseAsyncOperationid)
+    (if msg.startOperationResponseAsyncOperationId == T.empty then mempty else encodeFieldString 1 msg.startOperationResponseAsyncOperationId)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.startOperationResponseAsyncLinks
-    <> (if msg.startOperationResponseAsyncOperationtoken == T.empty then mempty else encodeFieldString 3 msg.startOperationResponseAsyncOperationtoken)
-    <> encodeUnknownFields msg.startOperationResponseAsyncUnknownfields
+    <> (if msg.startOperationResponseAsyncOperationToken == T.empty then mempty else encodeFieldString 3 msg.startOperationResponseAsyncOperationToken)
+    <> encodeUnknownFields msg.startOperationResponseAsyncUnknownFields
 
 instance MessageSize StartOperationResponse'Async where
   messageSize msg =
-    (if msg.startOperationResponseAsyncOperationid == T.empty then 0 else fieldTextSize 1 msg.startOperationResponseAsyncOperationid)
+    (if msg.startOperationResponseAsyncOperationId == T.empty then 0 else fieldTextSize 1 msg.startOperationResponseAsyncOperationId)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.startOperationResponseAsyncLinks)
-    + (if msg.startOperationResponseAsyncOperationtoken == T.empty then 0 else fieldTextSize 3 msg.startOperationResponseAsyncOperationtoken)
-    + unknownFieldsSize msg.startOperationResponseAsyncUnknownfields
+    + (if msg.startOperationResponseAsyncOperationToken == T.empty then 0 else fieldTextSize 3 msg.startOperationResponseAsyncOperationToken)
+    + unknownFieldsSize msg.startOperationResponseAsyncUnknownFields
 
 instance MessageDecode StartOperationResponse'Async where
   {-# INLINE messageDecoder #-}
@@ -1181,7 +1181,7 @@ instance MessageDecode StartOperationResponse'Async where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StartOperationResponse'Async {startOperationResponseAsyncOperationid = acc_0, startOperationResponseAsyncLinks = acc_1, startOperationResponseAsyncOperationtoken = acc_2, startOperationResponseAsyncUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StartOperationResponse'Async {startOperationResponseAsyncOperationId = acc_0, startOperationResponseAsyncLinks = acc_1, startOperationResponseAsyncOperationToken = acc_2, startOperationResponseAsyncUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1210,8 +1210,8 @@ instance ProtoMessage StartOperationResponse'Async where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = startOperationResponseAsyncOperationid
-        , fdSet = \v m -> m { startOperationResponseAsyncOperationid = v }
+        , fdGet = startOperationResponseAsyncOperationId
+        , fdSet = \v m -> m { startOperationResponseAsyncOperationId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "links"
         , fdNumber = 2
@@ -1225,31 +1225,31 @@ instance ProtoMessage StartOperationResponse'Async where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = startOperationResponseAsyncOperationtoken
-        , fdSet = \v m -> m { startOperationResponseAsyncOperationtoken = v }
+        , fdGet = startOperationResponseAsyncOperationToken
+        , fdSet = \v m -> m { startOperationResponseAsyncOperationToken = v }
         })
     ]
 
 instance Aeson.ToJSON StartOperationResponse'Async where
   toJSON msg = jsonObject
-      [ "operationId" .=: msg.startOperationResponseAsyncOperationid
+      [ "operationId" .=: msg.startOperationResponseAsyncOperationId
       , "links" .=: msg.startOperationResponseAsyncLinks
-      , "operationToken" .=: msg.startOperationResponseAsyncOperationtoken
+      , "operationToken" .=: msg.startOperationResponseAsyncOperationToken
       ]
 
 instance Aeson.FromJSON StartOperationResponse'Async where
   parseJSON = Aeson.withObject "StartOperationResponse'Async" $ \obj -> do
-    fld_startOperationResponseAsyncOperationid <- parseFieldMaybe obj "operationId"
+    fld_startOperationResponseAsyncOperationId <- parseFieldMaybe obj "operationId"
     fld_startOperationResponseAsyncLinks <- parseFieldMaybe obj "links"
-    fld_startOperationResponseAsyncOperationtoken <- parseFieldMaybe obj "operationToken"
+    fld_startOperationResponseAsyncOperationToken <- parseFieldMaybe obj "operationToken"
     pure defaultStartOperationResponse'Async
-      { startOperationResponseAsyncOperationid = maybe (startOperationResponseAsyncOperationid defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncOperationid
+      { startOperationResponseAsyncOperationId = maybe (startOperationResponseAsyncOperationId defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncOperationId
       , startOperationResponseAsyncLinks = maybe (startOperationResponseAsyncLinks defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncLinks
-      , startOperationResponseAsyncOperationtoken = maybe (startOperationResponseAsyncOperationtoken defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncOperationtoken
+      , startOperationResponseAsyncOperationToken = maybe (startOperationResponseAsyncOperationToken defaultStartOperationResponse'Async) id fld_startOperationResponseAsyncOperationToken
       }
 
 instance Hashable StartOperationResponse'Async where
-  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.startOperationResponseAsyncOperationid) msg.startOperationResponseAsyncLinks) msg.startOperationResponseAsyncOperationtoken
+  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.startOperationResponseAsyncOperationId) msg.startOperationResponseAsyncLinks) msg.startOperationResponseAsyncOperationToken
 data StartOperationResponse'Variant
   = StartOperationResponse'Variant'SyncSuccess !StartOperationResponse'Sync
   | StartOperationResponse'Variant'AsyncSuccess !StartOperationResponse'Async
@@ -1270,7 +1270,7 @@ instance Hashable StartOperationResponse'Variant where
 defaultStartOperationResponse :: StartOperationResponse
 defaultStartOperationResponse = StartOperationResponse
   { startOperationResponseVariant = Nothing
-  , startOperationResponseUnknownfields = []
+  , startOperationResponseUnknownFields = []
   }
 
 instance MessageEncode StartOperationResponse where
@@ -1281,7 +1281,7 @@ instance MessageEncode StartOperationResponse where
       Just (StartOperationResponse'Variant'AsyncSuccess v) -> encodeFieldMessage 2 v
       Just (StartOperationResponse'Variant'OperationError v) -> encodeFieldMessage 3 v
       Just (StartOperationResponse'Variant'Failure v) -> encodeFieldMessage 4 v)
-    <> encodeUnknownFields msg.startOperationResponseUnknownfields
+    <> encodeUnknownFields msg.startOperationResponseUnknownFields
 
 instance MessageSize StartOperationResponse where
   messageSize msg =
@@ -1289,7 +1289,7 @@ instance MessageSize StartOperationResponse where
     ; Just (StartOperationResponse'Variant'AsyncSuccess v) -> fieldMessageSize 2 (messageSize v)
     ; Just (StartOperationResponse'Variant'OperationError v) -> fieldMessageSize 3 (messageSize v)
     ; Just (StartOperationResponse'Variant'Failure v) -> fieldMessageSize 4 (messageSize v) })
-    + unknownFieldsSize msg.startOperationResponseUnknownfields
+    + unknownFieldsSize msg.startOperationResponseUnknownFields
 
 instance MessageDecode StartOperationResponse where
   {-# INLINE messageDecoder #-}
@@ -1298,7 +1298,7 @@ instance MessageDecode StartOperationResponse where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StartOperationResponse {startOperationResponseVariant = acc_0, startOperationResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StartOperationResponse {startOperationResponseVariant = acc_0, startOperationResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1352,23 +1352,23 @@ instance Hashable StartOperationResponse where
   hashWithSalt salt msg = hashWithSalt (salt) msg.startOperationResponseVariant
 
 data CancelOperationResponse = CancelOperationResponse
-  { cancelOperationResponseUnknownfields :: ![UnknownField]
+  { cancelOperationResponseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultCancelOperationResponse :: CancelOperationResponse
 defaultCancelOperationResponse = CancelOperationResponse
-  { cancelOperationResponseUnknownfields = []
+  { cancelOperationResponseUnknownFields = []
   }
 
 instance MessageEncode CancelOperationResponse where
   buildMessage msg =
-    encodeUnknownFields msg.cancelOperationResponseUnknownfields
+    encodeUnknownFields msg.cancelOperationResponseUnknownFields
 
 instance MessageSize CancelOperationResponse where
   messageSize msg =
-    unknownFieldsSize msg.cancelOperationResponseUnknownfields
+    unknownFieldsSize msg.cancelOperationResponseUnknownFields
 
 instance MessageDecode CancelOperationResponse where
   {-# INLINE messageDecoder #-}
@@ -1377,7 +1377,7 @@ instance MessageDecode CancelOperationResponse where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CancelOperationResponse {cancelOperationResponseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CancelOperationResponse {cancelOperationResponseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -1406,7 +1406,7 @@ instance Hashable CancelOperationResponse where
 
 data Response = Response
   { responseVariant :: !(Maybe Response'Variant)
-  , responseUnknownfields :: ![UnknownField]
+  , responseUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1426,7 +1426,7 @@ instance Hashable Response'Variant where
 defaultResponse :: Response
 defaultResponse = Response
   { responseVariant = Nothing
-  , responseUnknownfields = []
+  , responseUnknownFields = []
   }
 
 instance MessageEncode Response where
@@ -1435,13 +1435,13 @@ instance MessageEncode Response where
       Nothing -> mempty
       Just (Response'Variant'StartOperation v) -> encodeFieldMessage 1 v
       Just (Response'Variant'CancelOperation v) -> encodeFieldMessage 2 v)
-    <> encodeUnknownFields msg.responseUnknownfields
+    <> encodeUnknownFields msg.responseUnknownFields
 
 instance MessageSize Response where
   messageSize msg =
     (case msg.responseVariant of { Nothing -> 0; Just (Response'Variant'StartOperation v) -> fieldMessageSize 1 (messageSize v)
     ; Just (Response'Variant'CancelOperation v) -> fieldMessageSize 2 (messageSize v) })
-    + unknownFieldsSize msg.responseUnknownfields
+    + unknownFieldsSize msg.responseUnknownFields
 
 instance MessageDecode Response where
   {-# INLINE messageDecoder #-}
@@ -1450,7 +1450,7 @@ instance MessageDecode Response where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Response {responseVariant = acc_0, responseUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Response {responseVariant = acc_0, responseUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -1501,10 +1501,10 @@ data Endpoint = Endpoint
   { endpointVersion :: {-# UNPACK #-} !Int64
   , endpointId :: !Text
   , endpointSpec :: !(Maybe EndpointSpec)
-  , endpointCreatedtime :: !(Maybe PB_Timestamp.Timestamp)
-  , endpointLastmodifiedtime :: !(Maybe PB_Timestamp.Timestamp)
-  , endpointUrlprefix :: !Text
-  , endpointUnknownfields :: ![UnknownField]
+  , endpointCreatedTime :: !(Maybe PB_Timestamp.Timestamp)
+  , endpointLastModifiedTime :: !(Maybe PB_Timestamp.Timestamp)
+  , endpointUrlPrefix :: !Text
+  , endpointUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1514,10 +1514,10 @@ defaultEndpoint = Endpoint
   { endpointVersion = 0
   , endpointId = ""
   , endpointSpec = Nothing
-  , endpointCreatedtime = Nothing
-  , endpointLastmodifiedtime = Nothing
-  , endpointUrlprefix = ""
-  , endpointUnknownfields = []
+  , endpointCreatedTime = Nothing
+  , endpointLastModifiedTime = Nothing
+  , endpointUrlPrefix = ""
+  , endpointUnknownFields = []
   }
 
 instance MessageEncode Endpoint where
@@ -1525,20 +1525,20 @@ instance MessageEncode Endpoint where
     (if msg.endpointVersion == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.endpointVersion))
     <> (if msg.endpointId == T.empty then mempty else encodeFieldString 2 msg.endpointId)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.endpointSpec)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.endpointCreatedtime)
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.endpointLastmodifiedtime)
-    <> (if msg.endpointUrlprefix == T.empty then mempty else encodeFieldString 6 msg.endpointUrlprefix)
-    <> encodeUnknownFields msg.endpointUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.endpointCreatedTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.endpointLastModifiedTime)
+    <> (if msg.endpointUrlPrefix == T.empty then mempty else encodeFieldString 6 msg.endpointUrlPrefix)
+    <> encodeUnknownFields msg.endpointUnknownFields
 
 instance MessageSize Endpoint where
   messageSize msg =
     (if msg.endpointVersion == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.endpointVersion))
     + (if msg.endpointId == T.empty then 0 else fieldTextSize 2 msg.endpointId)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.endpointSpec)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.endpointCreatedtime)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.endpointLastmodifiedtime)
-    + (if msg.endpointUrlprefix == T.empty then 0 else fieldTextSize 6 msg.endpointUrlprefix)
-    + unknownFieldsSize msg.endpointUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.endpointCreatedTime)
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.endpointLastModifiedTime)
+    + (if msg.endpointUrlPrefix == T.empty then 0 else fieldTextSize 6 msg.endpointUrlPrefix)
+    + unknownFieldsSize msg.endpointUnknownFields
 
 instance MessageDecode Endpoint where
   {-# INLINE messageDecoder #-}
@@ -1547,7 +1547,7 @@ instance MessageDecode Endpoint where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Endpoint {endpointVersion = acc_0, endpointId = acc_1, endpointSpec = acc_2, endpointCreatedtime = acc_3, endpointLastmodifiedtime = acc_4, endpointUrlprefix = acc_5, endpointUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Endpoint {endpointVersion = acc_0, endpointId = acc_1, endpointSpec = acc_2, endpointCreatedTime = acc_3, endpointLastModifiedTime = acc_4, endpointUrlPrefix = acc_5, endpointUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -1608,24 +1608,24 @@ instance ProtoMessage Endpoint where
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = endpointCreatedtime
-        , fdSet = \v m -> m { endpointCreatedtime = v }
+        , fdGet = endpointCreatedTime
+        , fdSet = \v m -> m { endpointCreatedTime = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "last_modified_time"
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = endpointLastmodifiedtime
-        , fdSet = \v m -> m { endpointLastmodifiedtime = v }
+        , fdGet = endpointLastModifiedTime
+        , fdSet = \v m -> m { endpointLastModifiedTime = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "url_prefix"
         , fdNumber = 6
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = endpointUrlprefix
-        , fdSet = \v m -> m { endpointUrlprefix = v }
+        , fdGet = endpointUrlPrefix
+        , fdSet = \v m -> m { endpointUrlPrefix = v }
         })
     ]
 
@@ -1634,9 +1634,9 @@ instance Aeson.ToJSON Endpoint where
       [ "version" .=: msg.endpointVersion
       , "id" .=: msg.endpointId
       , "spec" .=: msg.endpointSpec
-      , "createdTime" .=: msg.endpointCreatedtime
-      , "lastModifiedTime" .=: msg.endpointLastmodifiedtime
-      , "urlPrefix" .=: msg.endpointUrlprefix
+      , "createdTime" .=: msg.endpointCreatedTime
+      , "lastModifiedTime" .=: msg.endpointLastModifiedTime
+      , "urlPrefix" .=: msg.endpointUrlPrefix
       ]
 
 instance Aeson.FromJSON Endpoint where
@@ -1644,26 +1644,26 @@ instance Aeson.FromJSON Endpoint where
     fld_endpointVersion <- parseFieldMaybe obj "version"
     fld_endpointId <- parseFieldMaybe obj "id"
     fld_endpointSpec <- parseFieldMaybe obj "spec"
-    fld_endpointCreatedtime <- parseFieldMaybe obj "createdTime"
-    fld_endpointLastmodifiedtime <- parseFieldMaybe obj "lastModifiedTime"
-    fld_endpointUrlprefix <- parseFieldMaybe obj "urlPrefix"
+    fld_endpointCreatedTime <- parseFieldMaybe obj "createdTime"
+    fld_endpointLastModifiedTime <- parseFieldMaybe obj "lastModifiedTime"
+    fld_endpointUrlPrefix <- parseFieldMaybe obj "urlPrefix"
     pure defaultEndpoint
       { endpointVersion = maybe (endpointVersion defaultEndpoint) id fld_endpointVersion
       , endpointId = maybe (endpointId defaultEndpoint) id fld_endpointId
       , endpointSpec = maybe (endpointSpec defaultEndpoint) id fld_endpointSpec
-      , endpointCreatedtime = maybe (endpointCreatedtime defaultEndpoint) id fld_endpointCreatedtime
-      , endpointLastmodifiedtime = maybe (endpointLastmodifiedtime defaultEndpoint) id fld_endpointLastmodifiedtime
-      , endpointUrlprefix = maybe (endpointUrlprefix defaultEndpoint) id fld_endpointUrlprefix
+      , endpointCreatedTime = maybe (endpointCreatedTime defaultEndpoint) id fld_endpointCreatedTime
+      , endpointLastModifiedTime = maybe (endpointLastModifiedTime defaultEndpoint) id fld_endpointLastModifiedTime
+      , endpointUrlPrefix = maybe (endpointUrlPrefix defaultEndpoint) id fld_endpointUrlPrefix
       }
 
 instance Hashable Endpoint where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.endpointVersion) msg.endpointId) msg.endpointSpec) msg.endpointCreatedtime) msg.endpointLastmodifiedtime) msg.endpointUrlprefix
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.endpointVersion) msg.endpointId) msg.endpointSpec) msg.endpointCreatedTime) msg.endpointLastModifiedTime) msg.endpointUrlPrefix
 
 data EndpointSpec = EndpointSpec
   { endpointSpecName :: !Text
   , endpointSpecDescription :: !(Maybe TE_Common_V1_Message.Payload)
   , endpointSpecTarget :: !(Maybe EndpointTarget)
-  , endpointSpecUnknownfields :: ![UnknownField]
+  , endpointSpecUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1673,7 +1673,7 @@ defaultEndpointSpec = EndpointSpec
   { endpointSpecName = ""
   , endpointSpecDescription = Nothing
   , endpointSpecTarget = Nothing
-  , endpointSpecUnknownfields = []
+  , endpointSpecUnknownFields = []
   }
 
 instance MessageEncode EndpointSpec where
@@ -1681,14 +1681,14 @@ instance MessageEncode EndpointSpec where
     (if msg.endpointSpecName == T.empty then mempty else encodeFieldString 1 msg.endpointSpecName)
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.endpointSpecDescription)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.endpointSpecTarget)
-    <> encodeUnknownFields msg.endpointSpecUnknownfields
+    <> encodeUnknownFields msg.endpointSpecUnknownFields
 
 instance MessageSize EndpointSpec where
   messageSize msg =
     (if msg.endpointSpecName == T.empty then 0 else fieldTextSize 1 msg.endpointSpecName)
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.endpointSpecDescription)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.endpointSpecTarget)
-    + unknownFieldsSize msg.endpointSpecUnknownfields
+    + unknownFieldsSize msg.endpointSpecUnknownFields
 
 instance MessageDecode EndpointSpec where
   {-# INLINE messageDecoder #-}
@@ -1697,7 +1697,7 @@ instance MessageDecode EndpointSpec where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (EndpointSpec {endpointSpecName = acc_0, endpointSpecDescription = acc_1, endpointSpecTarget = acc_2, endpointSpecUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (EndpointSpec {endpointSpecName = acc_0, endpointSpecDescription = acc_1, endpointSpecTarget = acc_2, endpointSpecUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1769,15 +1769,15 @@ instance Hashable EndpointSpec where
 
 data EndpointTarget = EndpointTarget
   { endpointTargetVariant :: !(Maybe EndpointTarget'Variant)
-  , endpointTargetUnknownfields :: ![UnknownField]
+  , endpointTargetUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 data EndpointTarget'Worker = EndpointTarget'Worker
   { endpointTargetWorkerNamespace :: !Text
-  , endpointTargetWorkerTaskqueue :: !Text
-  , endpointTargetWorkerUnknownfields :: ![UnknownField]
+  , endpointTargetWorkerTaskQueue :: !Text
+  , endpointTargetWorkerUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1785,21 +1785,21 @@ data EndpointTarget'Worker = EndpointTarget'Worker
 defaultEndpointTarget'Worker :: EndpointTarget'Worker
 defaultEndpointTarget'Worker = EndpointTarget'Worker
   { endpointTargetWorkerNamespace = ""
-  , endpointTargetWorkerTaskqueue = ""
-  , endpointTargetWorkerUnknownfields = []
+  , endpointTargetWorkerTaskQueue = ""
+  , endpointTargetWorkerUnknownFields = []
   }
 
 instance MessageEncode EndpointTarget'Worker where
   buildMessage msg =
     (if msg.endpointTargetWorkerNamespace == T.empty then mempty else encodeFieldString 1 msg.endpointTargetWorkerNamespace)
-    <> (if msg.endpointTargetWorkerTaskqueue == T.empty then mempty else encodeFieldString 2 msg.endpointTargetWorkerTaskqueue)
-    <> encodeUnknownFields msg.endpointTargetWorkerUnknownfields
+    <> (if msg.endpointTargetWorkerTaskQueue == T.empty then mempty else encodeFieldString 2 msg.endpointTargetWorkerTaskQueue)
+    <> encodeUnknownFields msg.endpointTargetWorkerUnknownFields
 
 instance MessageSize EndpointTarget'Worker where
   messageSize msg =
     (if msg.endpointTargetWorkerNamespace == T.empty then 0 else fieldTextSize 1 msg.endpointTargetWorkerNamespace)
-    + (if msg.endpointTargetWorkerTaskqueue == T.empty then 0 else fieldTextSize 2 msg.endpointTargetWorkerTaskqueue)
-    + unknownFieldsSize msg.endpointTargetWorkerUnknownfields
+    + (if msg.endpointTargetWorkerTaskQueue == T.empty then 0 else fieldTextSize 2 msg.endpointTargetWorkerTaskQueue)
+    + unknownFieldsSize msg.endpointTargetWorkerUnknownFields
 
 instance MessageDecode EndpointTarget'Worker where
   {-# INLINE messageDecoder #-}
@@ -1808,7 +1808,7 @@ instance MessageDecode EndpointTarget'Worker where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (EndpointTarget'Worker {endpointTargetWorkerNamespace = acc_0, endpointTargetWorkerTaskqueue = acc_1, endpointTargetWorkerUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (EndpointTarget'Worker {endpointTargetWorkerNamespace = acc_0, endpointTargetWorkerTaskQueue = acc_1, endpointTargetWorkerUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1841,32 +1841,32 @@ instance ProtoMessage EndpointTarget'Worker where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = endpointTargetWorkerTaskqueue
-        , fdSet = \v m -> m { endpointTargetWorkerTaskqueue = v }
+        , fdGet = endpointTargetWorkerTaskQueue
+        , fdSet = \v m -> m { endpointTargetWorkerTaskQueue = v }
         })
     ]
 
 instance Aeson.ToJSON EndpointTarget'Worker where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.endpointTargetWorkerNamespace
-      , "taskQueue" .=: msg.endpointTargetWorkerTaskqueue
+      , "taskQueue" .=: msg.endpointTargetWorkerTaskQueue
       ]
 
 instance Aeson.FromJSON EndpointTarget'Worker where
   parseJSON = Aeson.withObject "EndpointTarget'Worker" $ \obj -> do
     fld_endpointTargetWorkerNamespace <- parseFieldMaybe obj "namespace"
-    fld_endpointTargetWorkerTaskqueue <- parseFieldMaybe obj "taskQueue"
+    fld_endpointTargetWorkerTaskQueue <- parseFieldMaybe obj "taskQueue"
     pure defaultEndpointTarget'Worker
       { endpointTargetWorkerNamespace = maybe (endpointTargetWorkerNamespace defaultEndpointTarget'Worker) id fld_endpointTargetWorkerNamespace
-      , endpointTargetWorkerTaskqueue = maybe (endpointTargetWorkerTaskqueue defaultEndpointTarget'Worker) id fld_endpointTargetWorkerTaskqueue
+      , endpointTargetWorkerTaskQueue = maybe (endpointTargetWorkerTaskQueue defaultEndpointTarget'Worker) id fld_endpointTargetWorkerTaskQueue
       }
 
 instance Hashable EndpointTarget'Worker where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.endpointTargetWorkerNamespace) msg.endpointTargetWorkerTaskqueue
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.endpointTargetWorkerNamespace) msg.endpointTargetWorkerTaskQueue
 
 data EndpointTarget'External = EndpointTarget'External
   { endpointTargetExternalUrl :: !Text
-  , endpointTargetExternalUnknownfields :: ![UnknownField]
+  , endpointTargetExternalUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1874,18 +1874,18 @@ data EndpointTarget'External = EndpointTarget'External
 defaultEndpointTarget'External :: EndpointTarget'External
 defaultEndpointTarget'External = EndpointTarget'External
   { endpointTargetExternalUrl = ""
-  , endpointTargetExternalUnknownfields = []
+  , endpointTargetExternalUnknownFields = []
   }
 
 instance MessageEncode EndpointTarget'External where
   buildMessage msg =
     (if msg.endpointTargetExternalUrl == T.empty then mempty else encodeFieldString 1 msg.endpointTargetExternalUrl)
-    <> encodeUnknownFields msg.endpointTargetExternalUnknownfields
+    <> encodeUnknownFields msg.endpointTargetExternalUnknownFields
 
 instance MessageSize EndpointTarget'External where
   messageSize msg =
     (if msg.endpointTargetExternalUrl == T.empty then 0 else fieldTextSize 1 msg.endpointTargetExternalUrl)
-    + unknownFieldsSize msg.endpointTargetExternalUnknownfields
+    + unknownFieldsSize msg.endpointTargetExternalUnknownFields
 
 instance MessageDecode EndpointTarget'External where
   {-# INLINE messageDecoder #-}
@@ -1894,7 +1894,7 @@ instance MessageDecode EndpointTarget'External where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (EndpointTarget'External {endpointTargetExternalUrl = acc_0, endpointTargetExternalUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (EndpointTarget'External {endpointTargetExternalUrl = acc_0, endpointTargetExternalUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1953,7 +1953,7 @@ instance Hashable EndpointTarget'Variant where
 defaultEndpointTarget :: EndpointTarget
 defaultEndpointTarget = EndpointTarget
   { endpointTargetVariant = Nothing
-  , endpointTargetUnknownfields = []
+  , endpointTargetUnknownFields = []
   }
 
 instance MessageEncode EndpointTarget where
@@ -1962,13 +1962,13 @@ instance MessageEncode EndpointTarget where
       Nothing -> mempty
       Just (EndpointTarget'Variant'Worker v) -> encodeFieldMessage 1 v
       Just (EndpointTarget'Variant'External v) -> encodeFieldMessage 2 v)
-    <> encodeUnknownFields msg.endpointTargetUnknownfields
+    <> encodeUnknownFields msg.endpointTargetUnknownFields
 
 instance MessageSize EndpointTarget where
   messageSize msg =
     (case msg.endpointTargetVariant of { Nothing -> 0; Just (EndpointTarget'Variant'Worker v) -> fieldMessageSize 1 (messageSize v)
     ; Just (EndpointTarget'Variant'External v) -> fieldMessageSize 2 (messageSize v) })
-    + unknownFieldsSize msg.endpointTargetUnknownfields
+    + unknownFieldsSize msg.endpointTargetUnknownFields
 
 instance MessageDecode EndpointTarget where
   {-# INLINE messageDecoder #-}
@@ -1977,7 +1977,7 @@ instance MessageDecode EndpointTarget where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (EndpointTarget {endpointTargetVariant = acc_0, endpointTargetUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (EndpointTarget {endpointTargetVariant = acc_0, endpointTargetUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage

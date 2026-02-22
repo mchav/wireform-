@@ -60,7 +60,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a2474656d706f72616c2f6170692f657
 
 data WorkflowExecution = WorkflowExecution
   { workflowExecutionHistory :: !(Maybe TE_History_V1_Message.History)
-  , workflowExecutionUnknownfields :: ![UnknownField]
+  , workflowExecutionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -68,18 +68,18 @@ data WorkflowExecution = WorkflowExecution
 defaultWorkflowExecution :: WorkflowExecution
 defaultWorkflowExecution = WorkflowExecution
   { workflowExecutionHistory = Nothing
-  , workflowExecutionUnknownfields = []
+  , workflowExecutionUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecution where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowExecutionHistory)
-    <> encodeUnknownFields msg.workflowExecutionUnknownfields
+    <> encodeUnknownFields msg.workflowExecutionUnknownFields
 
 instance MessageSize WorkflowExecution where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowExecutionHistory)
-    + unknownFieldsSize msg.workflowExecutionUnknownfields
+    + unknownFieldsSize msg.workflowExecutionUnknownFields
 
 instance MessageDecode WorkflowExecution where
   {-# INLINE messageDecoder #-}
@@ -88,7 +88,7 @@ instance MessageDecode WorkflowExecution where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecution {workflowExecutionHistory = acc_0, workflowExecutionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecution {workflowExecutionHistory = acc_0, workflowExecutionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -134,7 +134,7 @@ instance Hashable WorkflowExecution where
 
 data WorkflowExecutions = WorkflowExecutions
   { workflowExecutionsItems :: !(V.Vector WorkflowExecution)
-  , workflowExecutionsUnknownfields :: ![UnknownField]
+  , workflowExecutionsUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -142,18 +142,18 @@ data WorkflowExecutions = WorkflowExecutions
 defaultWorkflowExecutions :: WorkflowExecutions
 defaultWorkflowExecutions = WorkflowExecutions
   { workflowExecutionsItems = V.empty
-  , workflowExecutionsUnknownfields = []
+  , workflowExecutionsUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutions where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldMessage 1 v) mempty msg.workflowExecutionsItems
-    <> encodeUnknownFields msg.workflowExecutionsUnknownfields
+    <> encodeUnknownFields msg.workflowExecutionsUnknownFields
 
 instance MessageSize WorkflowExecutions where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldMessageSize 1 (messageSize v)) 0 msg.workflowExecutionsItems)
-    + unknownFieldsSize msg.workflowExecutionsUnknownfields
+    + unknownFieldsSize msg.workflowExecutionsUnknownFields
 
 instance MessageDecode WorkflowExecutions where
   {-# INLINE messageDecoder #-}
@@ -162,7 +162,7 @@ instance MessageDecode WorkflowExecutions where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutions {workflowExecutionsItems = acc_0, workflowExecutionsUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutions {workflowExecutionsItems = acc_0, workflowExecutionsUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage

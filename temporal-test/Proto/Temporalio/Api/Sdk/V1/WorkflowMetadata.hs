@@ -59,8 +59,8 @@ fileDescriptorProtoBytes = case Base16.decode "0a2b74656d706f72616c2f6170692f736
 
 data WorkflowMetadata = WorkflowMetadata
   { workflowMetadataDefinition :: !(Maybe WorkflowDefinition)
-  , workflowMetadataCurrentdetails :: !Text
-  , workflowMetadataUnknownfields :: ![UnknownField]
+  , workflowMetadataCurrentDetails :: !Text
+  , workflowMetadataUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -68,21 +68,21 @@ data WorkflowMetadata = WorkflowMetadata
 defaultWorkflowMetadata :: WorkflowMetadata
 defaultWorkflowMetadata = WorkflowMetadata
   { workflowMetadataDefinition = Nothing
-  , workflowMetadataCurrentdetails = ""
-  , workflowMetadataUnknownfields = []
+  , workflowMetadataCurrentDetails = ""
+  , workflowMetadataUnknownFields = []
   }
 
 instance MessageEncode WorkflowMetadata where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.workflowMetadataDefinition)
-    <> (if msg.workflowMetadataCurrentdetails == T.empty then mempty else encodeFieldString 2 msg.workflowMetadataCurrentdetails)
-    <> encodeUnknownFields msg.workflowMetadataUnknownfields
+    <> (if msg.workflowMetadataCurrentDetails == T.empty then mempty else encodeFieldString 2 msg.workflowMetadataCurrentDetails)
+    <> encodeUnknownFields msg.workflowMetadataUnknownFields
 
 instance MessageSize WorkflowMetadata where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.workflowMetadataDefinition)
-    + (if msg.workflowMetadataCurrentdetails == T.empty then 0 else fieldTextSize 2 msg.workflowMetadataCurrentdetails)
-    + unknownFieldsSize msg.workflowMetadataUnknownfields
+    + (if msg.workflowMetadataCurrentDetails == T.empty then 0 else fieldTextSize 2 msg.workflowMetadataCurrentDetails)
+    + unknownFieldsSize msg.workflowMetadataUnknownFields
 
 instance MessageDecode WorkflowMetadata where
   {-# INLINE messageDecoder #-}
@@ -91,7 +91,7 @@ instance MessageDecode WorkflowMetadata where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowMetadata {workflowMetadataDefinition = acc_0, workflowMetadataCurrentdetails = acc_1, workflowMetadataUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowMetadata {workflowMetadataDefinition = acc_0, workflowMetadataCurrentDetails = acc_1, workflowMetadataUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -124,35 +124,35 @@ instance ProtoMessage WorkflowMetadata where
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowMetadataCurrentdetails
-        , fdSet = \v m -> m { workflowMetadataCurrentdetails = v }
+        , fdGet = workflowMetadataCurrentDetails
+        , fdSet = \v m -> m { workflowMetadataCurrentDetails = v }
         })
     ]
 
 instance Aeson.ToJSON WorkflowMetadata where
   toJSON msg = jsonObject
       [ "definition" .=: msg.workflowMetadataDefinition
-      , "currentDetails" .=: msg.workflowMetadataCurrentdetails
+      , "currentDetails" .=: msg.workflowMetadataCurrentDetails
       ]
 
 instance Aeson.FromJSON WorkflowMetadata where
   parseJSON = Aeson.withObject "WorkflowMetadata" $ \obj -> do
     fld_workflowMetadataDefinition <- parseFieldMaybe obj "definition"
-    fld_workflowMetadataCurrentdetails <- parseFieldMaybe obj "currentDetails"
+    fld_workflowMetadataCurrentDetails <- parseFieldMaybe obj "currentDetails"
     pure defaultWorkflowMetadata
       { workflowMetadataDefinition = maybe (workflowMetadataDefinition defaultWorkflowMetadata) id fld_workflowMetadataDefinition
-      , workflowMetadataCurrentdetails = maybe (workflowMetadataCurrentdetails defaultWorkflowMetadata) id fld_workflowMetadataCurrentdetails
+      , workflowMetadataCurrentDetails = maybe (workflowMetadataCurrentDetails defaultWorkflowMetadata) id fld_workflowMetadataCurrentDetails
       }
 
 instance Hashable WorkflowMetadata where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowMetadataDefinition) msg.workflowMetadataCurrentdetails
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowMetadataDefinition) msg.workflowMetadataCurrentDetails
 
 data WorkflowDefinition = WorkflowDefinition
   { workflowDefinitionType :: !Text
-  , workflowDefinitionQuerydefinitions :: !(V.Vector WorkflowInteractionDefinition)
-  , workflowDefinitionSignaldefinitions :: !(V.Vector WorkflowInteractionDefinition)
-  , workflowDefinitionUpdatedefinitions :: !(V.Vector WorkflowInteractionDefinition)
-  , workflowDefinitionUnknownfields :: ![UnknownField]
+  , workflowDefinitionQueryDefinitions :: !(V.Vector WorkflowInteractionDefinition)
+  , workflowDefinitionSignalDefinitions :: !(V.Vector WorkflowInteractionDefinition)
+  , workflowDefinitionUpdateDefinitions :: !(V.Vector WorkflowInteractionDefinition)
+  , workflowDefinitionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -160,27 +160,27 @@ data WorkflowDefinition = WorkflowDefinition
 defaultWorkflowDefinition :: WorkflowDefinition
 defaultWorkflowDefinition = WorkflowDefinition
   { workflowDefinitionType = ""
-  , workflowDefinitionQuerydefinitions = V.empty
-  , workflowDefinitionSignaldefinitions = V.empty
-  , workflowDefinitionUpdatedefinitions = V.empty
-  , workflowDefinitionUnknownfields = []
+  , workflowDefinitionQueryDefinitions = V.empty
+  , workflowDefinitionSignalDefinitions = V.empty
+  , workflowDefinitionUpdateDefinitions = V.empty
+  , workflowDefinitionUnknownFields = []
   }
 
 instance MessageEncode WorkflowDefinition where
   buildMessage msg =
     (if msg.workflowDefinitionType == T.empty then mempty else encodeFieldString 1 msg.workflowDefinitionType)
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.workflowDefinitionQuerydefinitions
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.workflowDefinitionSignaldefinitions
-    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.workflowDefinitionUpdatedefinitions
-    <> encodeUnknownFields msg.workflowDefinitionUnknownfields
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 2 v) mempty msg.workflowDefinitionQueryDefinitions
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 3 v) mempty msg.workflowDefinitionSignalDefinitions
+    <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.workflowDefinitionUpdateDefinitions
+    <> encodeUnknownFields msg.workflowDefinitionUnknownFields
 
 instance MessageSize WorkflowDefinition where
   messageSize msg =
     (if msg.workflowDefinitionType == T.empty then 0 else fieldTextSize 1 msg.workflowDefinitionType)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.workflowDefinitionQuerydefinitions)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.workflowDefinitionSignaldefinitions)
-    + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.workflowDefinitionUpdatedefinitions)
-    + unknownFieldsSize msg.workflowDefinitionUnknownfields
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 2 (messageSize v)) 0 msg.workflowDefinitionQueryDefinitions)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 3 (messageSize v)) 0 msg.workflowDefinitionSignalDefinitions)
+    + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.workflowDefinitionUpdateDefinitions)
+    + unknownFieldsSize msg.workflowDefinitionUnknownFields
 
 instance MessageDecode WorkflowDefinition where
   {-# INLINE messageDecoder #-}
@@ -189,7 +189,7 @@ instance MessageDecode WorkflowDefinition where
       loop acc_0 acc_1 acc_2 acc_3 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowDefinition {workflowDefinitionType = acc_0, workflowDefinitionQuerydefinitions = acc_1, workflowDefinitionSignaldefinitions = acc_2, workflowDefinitionUpdatedefinitions = acc_3, workflowDefinitionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowDefinition {workflowDefinitionType = acc_0, workflowDefinitionQueryDefinitions = acc_1, workflowDefinitionSignalDefinitions = acc_2, workflowDefinitionUpdateDefinitions = acc_3, workflowDefinitionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -228,55 +228,55 @@ instance ProtoMessage WorkflowDefinition where
         , fdNumber = 2
         , fdTypeDesc = MessageType "WorkflowInteractionDefinition"
         , fdLabel = LabelRepeated
-        , fdGet = workflowDefinitionQuerydefinitions
-        , fdSet = \v m -> m { workflowDefinitionQuerydefinitions = v }
+        , fdGet = workflowDefinitionQueryDefinitions
+        , fdSet = \v m -> m { workflowDefinitionQueryDefinitions = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "signal_definitions"
         , fdNumber = 3
         , fdTypeDesc = MessageType "WorkflowInteractionDefinition"
         , fdLabel = LabelRepeated
-        , fdGet = workflowDefinitionSignaldefinitions
-        , fdSet = \v m -> m { workflowDefinitionSignaldefinitions = v }
+        , fdGet = workflowDefinitionSignalDefinitions
+        , fdSet = \v m -> m { workflowDefinitionSignalDefinitions = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "update_definitions"
         , fdNumber = 4
         , fdTypeDesc = MessageType "WorkflowInteractionDefinition"
         , fdLabel = LabelRepeated
-        , fdGet = workflowDefinitionUpdatedefinitions
-        , fdSet = \v m -> m { workflowDefinitionUpdatedefinitions = v }
+        , fdGet = workflowDefinitionUpdateDefinitions
+        , fdSet = \v m -> m { workflowDefinitionUpdateDefinitions = v }
         })
     ]
 
 instance Aeson.ToJSON WorkflowDefinition where
   toJSON msg = jsonObject
       [ "type" .=: msg.workflowDefinitionType
-      , "queryDefinitions" .=: msg.workflowDefinitionQuerydefinitions
-      , "signalDefinitions" .=: msg.workflowDefinitionSignaldefinitions
-      , "updateDefinitions" .=: msg.workflowDefinitionUpdatedefinitions
+      , "queryDefinitions" .=: msg.workflowDefinitionQueryDefinitions
+      , "signalDefinitions" .=: msg.workflowDefinitionSignalDefinitions
+      , "updateDefinitions" .=: msg.workflowDefinitionUpdateDefinitions
       ]
 
 instance Aeson.FromJSON WorkflowDefinition where
   parseJSON = Aeson.withObject "WorkflowDefinition" $ \obj -> do
     fld_workflowDefinitionType <- parseFieldMaybe obj "type"
-    fld_workflowDefinitionQuerydefinitions <- parseFieldMaybe obj "queryDefinitions"
-    fld_workflowDefinitionSignaldefinitions <- parseFieldMaybe obj "signalDefinitions"
-    fld_workflowDefinitionUpdatedefinitions <- parseFieldMaybe obj "updateDefinitions"
+    fld_workflowDefinitionQueryDefinitions <- parseFieldMaybe obj "queryDefinitions"
+    fld_workflowDefinitionSignalDefinitions <- parseFieldMaybe obj "signalDefinitions"
+    fld_workflowDefinitionUpdateDefinitions <- parseFieldMaybe obj "updateDefinitions"
     pure defaultWorkflowDefinition
       { workflowDefinitionType = maybe (workflowDefinitionType defaultWorkflowDefinition) id fld_workflowDefinitionType
-      , workflowDefinitionQuerydefinitions = maybe (workflowDefinitionQuerydefinitions defaultWorkflowDefinition) id fld_workflowDefinitionQuerydefinitions
-      , workflowDefinitionSignaldefinitions = maybe (workflowDefinitionSignaldefinitions defaultWorkflowDefinition) id fld_workflowDefinitionSignaldefinitions
-      , workflowDefinitionUpdatedefinitions = maybe (workflowDefinitionUpdatedefinitions defaultWorkflowDefinition) id fld_workflowDefinitionUpdatedefinitions
+      , workflowDefinitionQueryDefinitions = maybe (workflowDefinitionQueryDefinitions defaultWorkflowDefinition) id fld_workflowDefinitionQueryDefinitions
+      , workflowDefinitionSignalDefinitions = maybe (workflowDefinitionSignalDefinitions defaultWorkflowDefinition) id fld_workflowDefinitionSignalDefinitions
+      , workflowDefinitionUpdateDefinitions = maybe (workflowDefinitionUpdateDefinitions defaultWorkflowDefinition) id fld_workflowDefinitionUpdateDefinitions
       }
 
 instance Hashable WorkflowDefinition where
-  hashWithSalt salt msg = V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.workflowDefinitionType) msg.workflowDefinitionQuerydefinitions) msg.workflowDefinitionSignaldefinitions) msg.workflowDefinitionUpdatedefinitions
+  hashWithSalt salt msg = V.foldl' hashWithSalt (V.foldl' hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (salt) msg.workflowDefinitionType) msg.workflowDefinitionQueryDefinitions) msg.workflowDefinitionSignalDefinitions) msg.workflowDefinitionUpdateDefinitions
 
 data WorkflowInteractionDefinition = WorkflowInteractionDefinition
   { workflowInteractionDefinitionName :: !Text
   , workflowInteractionDefinitionDescription :: !Text
-  , workflowInteractionDefinitionUnknownfields :: ![UnknownField]
+  , workflowInteractionDefinitionUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -285,20 +285,20 @@ defaultWorkflowInteractionDefinition :: WorkflowInteractionDefinition
 defaultWorkflowInteractionDefinition = WorkflowInteractionDefinition
   { workflowInteractionDefinitionName = ""
   , workflowInteractionDefinitionDescription = ""
-  , workflowInteractionDefinitionUnknownfields = []
+  , workflowInteractionDefinitionUnknownFields = []
   }
 
 instance MessageEncode WorkflowInteractionDefinition where
   buildMessage msg =
     (if msg.workflowInteractionDefinitionName == T.empty then mempty else encodeFieldString 1 msg.workflowInteractionDefinitionName)
     <> (if msg.workflowInteractionDefinitionDescription == T.empty then mempty else encodeFieldString 2 msg.workflowInteractionDefinitionDescription)
-    <> encodeUnknownFields msg.workflowInteractionDefinitionUnknownfields
+    <> encodeUnknownFields msg.workflowInteractionDefinitionUnknownFields
 
 instance MessageSize WorkflowInteractionDefinition where
   messageSize msg =
     (if msg.workflowInteractionDefinitionName == T.empty then 0 else fieldTextSize 1 msg.workflowInteractionDefinitionName)
     + (if msg.workflowInteractionDefinitionDescription == T.empty then 0 else fieldTextSize 2 msg.workflowInteractionDefinitionDescription)
-    + unknownFieldsSize msg.workflowInteractionDefinitionUnknownfields
+    + unknownFieldsSize msg.workflowInteractionDefinitionUnknownFields
 
 instance MessageDecode WorkflowInteractionDefinition where
   {-# INLINE messageDecoder #-}
@@ -307,7 +307,7 @@ instance MessageDecode WorkflowInteractionDefinition where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowInteractionDefinition {workflowInteractionDefinitionName = acc_0, workflowInteractionDefinitionDescription = acc_1, workflowInteractionDefinitionUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowInteractionDefinition {workflowInteractionDefinitionName = acc_0, workflowInteractionDefinitionDescription = acc_1, workflowInteractionDefinitionUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString

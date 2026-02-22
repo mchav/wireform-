@@ -60,7 +60,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a1f676f6f676c652f70726f746f62756
 data Timestamp = Timestamp
   { timestampSeconds :: {-# UNPACK #-} !Int64
   , timestampNanos :: {-# UNPACK #-} !Int32
-  , timestampUnknownfields :: ![UnknownField]
+  , timestampUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -69,20 +69,20 @@ defaultTimestamp :: Timestamp
 defaultTimestamp = Timestamp
   { timestampSeconds = 0
   , timestampNanos = 0
-  , timestampUnknownfields = []
+  , timestampUnknownFields = []
   }
 
 instance MessageEncode Timestamp where
   buildMessage msg =
     (if msg.timestampSeconds == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.timestampSeconds))
     <> (if msg.timestampNanos == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.timestampNanos))
-    <> encodeUnknownFields msg.timestampUnknownfields
+    <> encodeUnknownFields msg.timestampUnknownFields
 
 instance MessageSize Timestamp where
   messageSize msg =
     (if msg.timestampSeconds == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.timestampSeconds))
     + (if msg.timestampNanos == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.timestampNanos))
-    + unknownFieldsSize msg.timestampUnknownfields
+    + unknownFieldsSize msg.timestampUnknownFields
 
 instance MessageDecode Timestamp where
   {-# INLINE messageDecoder #-}
@@ -91,7 +91,7 @@ instance MessageDecode Timestamp where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)

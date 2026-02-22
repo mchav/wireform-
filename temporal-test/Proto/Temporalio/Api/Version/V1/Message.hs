@@ -61,9 +61,9 @@ fileDescriptorProtoBytes = case Base16.decode "0a2574656d706f72616c2f6170692f766
 
 data ReleaseInfo = ReleaseInfo
   { releaseInfoVersion :: !Text
-  , releaseInfoReleasetime :: !(Maybe PB_Timestamp.Timestamp)
+  , releaseInfoReleaseTime :: !(Maybe PB_Timestamp.Timestamp)
   , releaseInfoNotes :: !Text
-  , releaseInfoUnknownfields :: ![UnknownField]
+  , releaseInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -71,24 +71,24 @@ data ReleaseInfo = ReleaseInfo
 defaultReleaseInfo :: ReleaseInfo
 defaultReleaseInfo = ReleaseInfo
   { releaseInfoVersion = ""
-  , releaseInfoReleasetime = Nothing
+  , releaseInfoReleaseTime = Nothing
   , releaseInfoNotes = ""
-  , releaseInfoUnknownfields = []
+  , releaseInfoUnknownFields = []
   }
 
 instance MessageEncode ReleaseInfo where
   buildMessage msg =
     (if msg.releaseInfoVersion == T.empty then mempty else encodeFieldString 1 msg.releaseInfoVersion)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.releaseInfoReleasetime)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.releaseInfoReleaseTime)
     <> (if msg.releaseInfoNotes == T.empty then mempty else encodeFieldString 3 msg.releaseInfoNotes)
-    <> encodeUnknownFields msg.releaseInfoUnknownfields
+    <> encodeUnknownFields msg.releaseInfoUnknownFields
 
 instance MessageSize ReleaseInfo where
   messageSize msg =
     (if msg.releaseInfoVersion == T.empty then 0 else fieldTextSize 1 msg.releaseInfoVersion)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.releaseInfoReleasetime)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.releaseInfoReleaseTime)
     + (if msg.releaseInfoNotes == T.empty then 0 else fieldTextSize 3 msg.releaseInfoNotes)
-    + unknownFieldsSize msg.releaseInfoUnknownfields
+    + unknownFieldsSize msg.releaseInfoUnknownFields
 
 instance MessageDecode ReleaseInfo where
   {-# INLINE messageDecoder #-}
@@ -97,7 +97,7 @@ instance MessageDecode ReleaseInfo where
       loop acc_0 acc_1 acc_2 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ReleaseInfo {releaseInfoVersion = acc_0, releaseInfoReleasetime = acc_1, releaseInfoNotes = acc_2, releaseInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ReleaseInfo {releaseInfoVersion = acc_0, releaseInfoReleaseTime = acc_1, releaseInfoNotes = acc_2, releaseInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -133,8 +133,8 @@ instance ProtoMessage ReleaseInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = releaseInfoReleasetime
-        , fdSet = \v m -> m { releaseInfoReleasetime = v }
+        , fdGet = releaseInfoReleaseTime
+        , fdSet = \v m -> m { releaseInfoReleaseTime = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "notes"
@@ -149,28 +149,28 @@ instance ProtoMessage ReleaseInfo where
 instance Aeson.ToJSON ReleaseInfo where
   toJSON msg = jsonObject
       [ "version" .=: msg.releaseInfoVersion
-      , "releaseTime" .=: msg.releaseInfoReleasetime
+      , "releaseTime" .=: msg.releaseInfoReleaseTime
       , "notes" .=: msg.releaseInfoNotes
       ]
 
 instance Aeson.FromJSON ReleaseInfo where
   parseJSON = Aeson.withObject "ReleaseInfo" $ \obj -> do
     fld_releaseInfoVersion <- parseFieldMaybe obj "version"
-    fld_releaseInfoReleasetime <- parseFieldMaybe obj "releaseTime"
+    fld_releaseInfoReleaseTime <- parseFieldMaybe obj "releaseTime"
     fld_releaseInfoNotes <- parseFieldMaybe obj "notes"
     pure defaultReleaseInfo
       { releaseInfoVersion = maybe (releaseInfoVersion defaultReleaseInfo) id fld_releaseInfoVersion
-      , releaseInfoReleasetime = maybe (releaseInfoReleasetime defaultReleaseInfo) id fld_releaseInfoReleasetime
+      , releaseInfoReleaseTime = maybe (releaseInfoReleaseTime defaultReleaseInfo) id fld_releaseInfoReleaseTime
       , releaseInfoNotes = maybe (releaseInfoNotes defaultReleaseInfo) id fld_releaseInfoNotes
       }
 
 instance Hashable ReleaseInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.releaseInfoVersion) msg.releaseInfoReleasetime) msg.releaseInfoNotes
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.releaseInfoVersion) msg.releaseInfoReleaseTime) msg.releaseInfoNotes
 
 data Alert = Alert
   { alertMessage :: !Text
   , alertSeverity :: !TE_Enums_V1_Common.Severity
-  , alertUnknownfields :: ![UnknownField]
+  , alertUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -179,20 +179,20 @@ defaultAlert :: Alert
 defaultAlert = Alert
   { alertMessage = ""
   , alertSeverity = (toEnum 0)
-  , alertUnknownfields = []
+  , alertUnknownFields = []
   }
 
 instance MessageEncode Alert where
   buildMessage msg =
     (if msg.alertMessage == T.empty then mempty else encodeFieldString 1 msg.alertMessage)
     <> (if fromEnum msg.alertSeverity == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.alertSeverity)))
-    <> encodeUnknownFields msg.alertUnknownfields
+    <> encodeUnknownFields msg.alertUnknownFields
 
 instance MessageSize Alert where
   messageSize msg =
     (if msg.alertMessage == T.empty then 0 else fieldTextSize 1 msg.alertMessage)
     + (if fromEnum msg.alertSeverity == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.alertSeverity)))
-    + unknownFieldsSize msg.alertUnknownfields
+    + unknownFieldsSize msg.alertUnknownFields
 
 instance MessageDecode Alert where
   {-# INLINE messageDecoder #-}
@@ -201,7 +201,7 @@ instance MessageDecode Alert where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Alert {alertMessage = acc_0, alertSeverity = acc_1, alertUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Alert {alertMessage = acc_0, alertSeverity = acc_1, alertUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -262,8 +262,8 @@ data VersionInfo = VersionInfo
   , versionInfoRecommended :: !(Maybe ReleaseInfo)
   , versionInfoInstructions :: !Text
   , versionInfoAlerts :: !(V.Vector Alert)
-  , versionInfoLastupdatetime :: !(Maybe PB_Timestamp.Timestamp)
-  , versionInfoUnknownfields :: ![UnknownField]
+  , versionInfoLastUpdateTime :: !(Maybe PB_Timestamp.Timestamp)
+  , versionInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -274,8 +274,8 @@ defaultVersionInfo = VersionInfo
   , versionInfoRecommended = Nothing
   , versionInfoInstructions = ""
   , versionInfoAlerts = V.empty
-  , versionInfoLastupdatetime = Nothing
-  , versionInfoUnknownfields = []
+  , versionInfoLastUpdateTime = Nothing
+  , versionInfoUnknownFields = []
   }
 
 instance MessageEncode VersionInfo where
@@ -284,8 +284,8 @@ instance MessageEncode VersionInfo where
     <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.versionInfoRecommended)
     <> (if msg.versionInfoInstructions == T.empty then mempty else encodeFieldString 3 msg.versionInfoInstructions)
     <> V.foldl' (\acc v -> acc <> encodeFieldMessage 4 v) mempty msg.versionInfoAlerts
-    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.versionInfoLastupdatetime)
-    <> encodeUnknownFields msg.versionInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 5 v) msg.versionInfoLastUpdateTime)
+    <> encodeUnknownFields msg.versionInfoUnknownFields
 
 instance MessageSize VersionInfo where
   messageSize msg =
@@ -293,8 +293,8 @@ instance MessageSize VersionInfo where
     + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.versionInfoRecommended)
     + (if msg.versionInfoInstructions == T.empty then 0 else fieldTextSize 3 msg.versionInfoInstructions)
     + (V.foldl' (\acc v -> acc + fieldMessageSize 4 (messageSize v)) 0 msg.versionInfoAlerts)
-    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.versionInfoLastupdatetime)
-    + unknownFieldsSize msg.versionInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 5 (messageSize v)) msg.versionInfoLastUpdateTime)
+    + unknownFieldsSize msg.versionInfoUnknownFields
 
 instance MessageDecode VersionInfo where
   {-# INLINE messageDecoder #-}
@@ -303,7 +303,7 @@ instance MessageDecode VersionInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (VersionInfo {versionInfoCurrent = acc_0, versionInfoRecommended = acc_1, versionInfoInstructions = acc_2, versionInfoAlerts = acc_3, versionInfoLastupdatetime = acc_4, versionInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (VersionInfo {versionInfoCurrent = acc_0, versionInfoRecommended = acc_1, versionInfoInstructions = acc_2, versionInfoAlerts = acc_3, versionInfoLastUpdateTime = acc_4, versionInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -369,8 +369,8 @@ instance ProtoMessage VersionInfo where
         , fdNumber = 5
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = versionInfoLastupdatetime
-        , fdSet = \v m -> m { versionInfoLastupdatetime = v }
+        , fdGet = versionInfoLastUpdateTime
+        , fdSet = \v m -> m { versionInfoLastUpdateTime = v }
         })
     ]
 
@@ -380,7 +380,7 @@ instance Aeson.ToJSON VersionInfo where
       , "recommended" .=: msg.versionInfoRecommended
       , "instructions" .=: msg.versionInfoInstructions
       , "alerts" .=: msg.versionInfoAlerts
-      , "lastUpdateTime" .=: msg.versionInfoLastupdatetime
+      , "lastUpdateTime" .=: msg.versionInfoLastUpdateTime
       ]
 
 instance Aeson.FromJSON VersionInfo where
@@ -389,17 +389,17 @@ instance Aeson.FromJSON VersionInfo where
     fld_versionInfoRecommended <- parseFieldMaybe obj "recommended"
     fld_versionInfoInstructions <- parseFieldMaybe obj "instructions"
     fld_versionInfoAlerts <- parseFieldMaybe obj "alerts"
-    fld_versionInfoLastupdatetime <- parseFieldMaybe obj "lastUpdateTime"
+    fld_versionInfoLastUpdateTime <- parseFieldMaybe obj "lastUpdateTime"
     pure defaultVersionInfo
       { versionInfoCurrent = maybe (versionInfoCurrent defaultVersionInfo) id fld_versionInfoCurrent
       , versionInfoRecommended = maybe (versionInfoRecommended defaultVersionInfo) id fld_versionInfoRecommended
       , versionInfoInstructions = maybe (versionInfoInstructions defaultVersionInfo) id fld_versionInfoInstructions
       , versionInfoAlerts = maybe (versionInfoAlerts defaultVersionInfo) id fld_versionInfoAlerts
-      , versionInfoLastupdatetime = maybe (versionInfoLastupdatetime defaultVersionInfo) id fld_versionInfoLastupdatetime
+      , versionInfoLastUpdateTime = maybe (versionInfoLastUpdateTime defaultVersionInfo) id fld_versionInfoLastUpdateTime
       }
 
 instance Hashable VersionInfo where
-  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.versionInfoCurrent) msg.versionInfoRecommended) msg.versionInfoInstructions) msg.versionInfoAlerts) msg.versionInfoLastupdatetime
+  hashWithSalt salt msg = hashWithSalt (V.foldl' hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.versionInfoCurrent) msg.versionInfoRecommended) msg.versionInfoInstructions) msg.versionInfoAlerts) msg.versionInfoLastUpdateTime
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

@@ -58,23 +58,23 @@ fileDescriptorProtoBytes = case Base16.decode "0a1b676f6f676c652f70726f746f62756
 
 
 data Empty = Empty
-  { emptyUnknownfields :: ![UnknownField]
+  { emptyUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultEmpty :: Empty
 defaultEmpty = Empty
-  { emptyUnknownfields = []
+  { emptyUnknownFields = []
   }
 
 instance MessageEncode Empty where
   buildMessage msg =
-    encodeUnknownFields msg.emptyUnknownfields
+    encodeUnknownFields msg.emptyUnknownFields
 
 instance MessageSize Empty where
   messageSize msg =
-    unknownFieldsSize msg.emptyUnknownfields
+    unknownFieldsSize msg.emptyUnknownFields
 
 instance MessageDecode Empty where
   {-# INLINE messageDecoder #-}
@@ -83,7 +83,7 @@ instance MessageDecode Empty where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Empty {emptyUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Empty {emptyUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt

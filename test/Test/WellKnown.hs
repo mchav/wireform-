@@ -81,7 +81,7 @@ wellKnownTests = testGroup "Well-Known Types"
       [ testProperty "raw Any roundtrip" $ property $ do
           tu <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
           v <- forAll $ Gen.bytes (Range.linear 0 200)
-          let msg = defaultAny { anyTypeurl = tu, anyValue = v }
+          let msg = defaultAny { anyTypeUrl = tu, anyValue = v }
               encoded = encodeMessage msg
           decodeMessage encoded === Right msg
 
@@ -90,7 +90,7 @@ wellKnownTests = testGroup "Well-Known Types"
           n <- forAll $ Gen.int32 (Range.linear 0 999999999)
           let ts = defaultTimestamp { timestampSeconds = s, timestampNanos = n }
               packed = packAny ts
-          anyTypeurl packed === "type.googleapis.com/google.protobuf.Timestamp"
+          anyTypeUrl packed === "type.googleapis.com/google.protobuf.Timestamp"
           case unpackAny packed of
             Just (Right decoded) -> decoded === ts
             Just (Left err) -> do annotate (show err); failure
@@ -107,7 +107,7 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "packAny Empty" $ do
           let packed = packAny defaultEmpty
-          anyTypeurl packed @?= "type.googleapis.com/google.protobuf.Empty"
+          anyTypeUrl packed @?= "type.googleapis.com/google.protobuf.Empty"
           case unpackAny packed :: Maybe (Either DecodeError Empty) of
             Just (Right _) -> pure ()
             other -> assertFailure ("Expected Just (Right Empty), got " <> show other)
@@ -133,7 +133,7 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "packAnyWithPrefix custom prefix" $ do
           let packed = packAnyWithPrefix "myhost/" (defaultTimestamp { timestampSeconds = 1 })
-          anyTypeurl packed @?= "myhost/google.protobuf.Timestamp"
+          anyTypeUrl packed @?= "myhost/google.protobuf.Timestamp"
           case unpackAny packed of
             Just (Right ts) -> ts @?= defaultTimestamp { timestampSeconds = 1 }
             _ -> assertFailure "Should unpack with any prefix"
@@ -162,7 +162,7 @@ wellKnownTests = testGroup "Well-Known Types"
 
       , testCase "TypeRegistry unknown type returns Nothing" $ do
           let registry = registerType (Proxy :: Proxy Timestamp) emptyRegistry
-              unknownAny = defaultAny { anyTypeurl = "type.googleapis.com/unknown.Type" }
+              unknownAny = defaultAny { anyTypeUrl = "type.googleapis.com/unknown.Type" }
           case unpackAnyDynamic registry unknownAny of
             Nothing -> pure ()
             Just _  -> assertFailure "Should return Nothing for unknown type"
@@ -229,7 +229,7 @@ wellKnownTests = testGroup "Well-Known Types"
   , testGroup "SourceContext"
       [ testProperty "roundtrip" $ property $ do
           fn <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
-          let msg = defaultSourceContext { sourceContextFilename = fn }
+          let msg = defaultSourceContext { sourceContextFileName = fn }
           decodeMessage (encodeMessage msg) === Right msg
       ]
 

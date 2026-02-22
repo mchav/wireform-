@@ -59,7 +59,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a1e676f6f676c652f70726f746f62756
 
 data DoubleValue = DoubleValue
   { doubleValueValue :: {-# UNPACK #-} !Double
-  , doubleValueUnknownfields :: ![UnknownField]
+  , doubleValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -67,18 +67,18 @@ data DoubleValue = DoubleValue
 defaultDoubleValue :: DoubleValue
 defaultDoubleValue = DoubleValue
   { doubleValueValue = 0
-  , doubleValueUnknownfields = []
+  , doubleValueUnknownFields = []
   }
 
 instance MessageEncode DoubleValue where
   buildMessage msg =
     (if msg.doubleValueValue == 0 then mempty else encodeFieldDouble 1 msg.doubleValueValue)
-    <> encodeUnknownFields msg.doubleValueUnknownfields
+    <> encodeUnknownFields msg.doubleValueUnknownFields
 
 instance MessageSize DoubleValue where
   messageSize msg =
     (if msg.doubleValueValue == 0 then 0 else fieldDoubleSize 1)
-    + unknownFieldsSize msg.doubleValueUnknownfields
+    + unknownFieldsSize msg.doubleValueUnknownFields
 
 instance MessageDecode DoubleValue where
   {-# INLINE messageDecoder #-}
@@ -87,7 +87,7 @@ instance MessageDecode DoubleValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (DoubleValue {doubleValueValue = acc_0, doubleValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (DoubleValue {doubleValueValue = acc_0, doubleValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldDouble
@@ -133,7 +133,7 @@ instance Hashable DoubleValue where
 
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
-  , floatValueUnknownfields :: ![UnknownField]
+  , floatValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -141,18 +141,18 @@ data FloatValue = FloatValue
 defaultFloatValue :: FloatValue
 defaultFloatValue = FloatValue
   { floatValueValue = 0
-  , floatValueUnknownfields = []
+  , floatValueUnknownFields = []
   }
 
 instance MessageEncode FloatValue where
   buildMessage msg =
     (if msg.floatValueValue == 0 then mempty else encodeFieldFloat 1 msg.floatValueValue)
-    <> encodeUnknownFields msg.floatValueUnknownfields
+    <> encodeUnknownFields msg.floatValueUnknownFields
 
 instance MessageSize FloatValue where
   messageSize msg =
     (if msg.floatValueValue == 0 then 0 else fieldFloatSize 1)
-    + unknownFieldsSize msg.floatValueUnknownfields
+    + unknownFieldsSize msg.floatValueUnknownFields
 
 instance MessageDecode FloatValue where
   {-# INLINE messageDecoder #-}
@@ -161,7 +161,7 @@ instance MessageDecode FloatValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (FloatValue {floatValueValue = acc_0, floatValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (FloatValue {floatValueValue = acc_0, floatValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldFloat
@@ -207,7 +207,7 @@ instance Hashable FloatValue where
 
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
-  , int64ValueUnknownfields :: ![UnknownField]
+  , int64ValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -215,18 +215,18 @@ data Int64Value = Int64Value
 defaultInt64Value :: Int64Value
 defaultInt64Value = Int64Value
   { int64ValueValue = 0
-  , int64ValueUnknownfields = []
+  , int64ValueUnknownFields = []
   }
 
 instance MessageEncode Int64Value where
   buildMessage msg =
     (if msg.int64ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.int64ValueValue))
-    <> encodeUnknownFields msg.int64ValueUnknownfields
+    <> encodeUnknownFields msg.int64ValueUnknownFields
 
 instance MessageSize Int64Value where
   messageSize msg =
     (if msg.int64ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.int64ValueValue))
-    + unknownFieldsSize msg.int64ValueUnknownfields
+    + unknownFieldsSize msg.int64ValueUnknownFields
 
 instance MessageDecode Int64Value where
   {-# INLINE messageDecoder #-}
@@ -235,7 +235,7 @@ instance MessageDecode Int64Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Int64Value {int64ValueValue = acc_0, int64ValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Int64Value {int64ValueValue = acc_0, int64ValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -281,7 +281,7 @@ instance Hashable Int64Value where
 
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
-  , uInt64ValueUnknownfields :: ![UnknownField]
+  , uInt64ValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -289,18 +289,18 @@ data UInt64Value = UInt64Value
 defaultUInt64Value :: UInt64Value
 defaultUInt64Value = UInt64Value
   { uInt64ValueValue = 0
-  , uInt64ValueUnknownfields = []
+  , uInt64ValueUnknownFields = []
   }
 
 instance MessageEncode UInt64Value where
   buildMessage msg =
     (if msg.uInt64ValueValue == 0 then mempty else encodeFieldVarint 1 msg.uInt64ValueValue)
-    <> encodeUnknownFields msg.uInt64ValueUnknownfields
+    <> encodeUnknownFields msg.uInt64ValueUnknownFields
 
 instance MessageSize UInt64Value where
   messageSize msg =
     (if msg.uInt64ValueValue == 0 then 0 else fieldVarintSize 1 msg.uInt64ValueValue)
-    + unknownFieldsSize msg.uInt64ValueUnknownfields
+    + unknownFieldsSize msg.uInt64ValueUnknownFields
 
 instance MessageDecode UInt64Value where
   {-# INLINE messageDecoder #-}
@@ -309,7 +309,7 @@ instance MessageDecode UInt64Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UInt64Value {uInt64ValueValue = acc_0, uInt64ValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UInt64Value {uInt64ValueValue = acc_0, uInt64ValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldVarint
@@ -355,7 +355,7 @@ instance Hashable UInt64Value where
 
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
-  , int32ValueUnknownfields :: ![UnknownField]
+  , int32ValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -363,18 +363,18 @@ data Int32Value = Int32Value
 defaultInt32Value :: Int32Value
 defaultInt32Value = Int32Value
   { int32ValueValue = 0
-  , int32ValueUnknownfields = []
+  , int32ValueUnknownFields = []
   }
 
 instance MessageEncode Int32Value where
   buildMessage msg =
     (if msg.int32ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.int32ValueValue))
-    <> encodeUnknownFields msg.int32ValueUnknownfields
+    <> encodeUnknownFields msg.int32ValueUnknownFields
 
 instance MessageSize Int32Value where
   messageSize msg =
     (if msg.int32ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.int32ValueValue))
-    + unknownFieldsSize msg.int32ValueUnknownfields
+    + unknownFieldsSize msg.int32ValueUnknownFields
 
 instance MessageDecode Int32Value where
   {-# INLINE messageDecoder #-}
@@ -383,7 +383,7 @@ instance MessageDecode Int32Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Int32Value {int32ValueValue = acc_0, int32ValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Int32Value {int32ValueValue = acc_0, int32ValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -429,7 +429,7 @@ instance Hashable Int32Value where
 
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
-  , uInt32ValueUnknownfields :: ![UnknownField]
+  , uInt32ValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -437,18 +437,18 @@ data UInt32Value = UInt32Value
 defaultUInt32Value :: UInt32Value
 defaultUInt32Value = UInt32Value
   { uInt32ValueValue = 0
-  , uInt32ValueUnknownfields = []
+  , uInt32ValueUnknownFields = []
   }
 
 instance MessageEncode UInt32Value where
   buildMessage msg =
     (if msg.uInt32ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.uInt32ValueValue))
-    <> encodeUnknownFields msg.uInt32ValueUnknownfields
+    <> encodeUnknownFields msg.uInt32ValueUnknownFields
 
 instance MessageSize UInt32Value where
   messageSize msg =
     (if msg.uInt32ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.uInt32ValueValue))
-    + unknownFieldsSize msg.uInt32ValueUnknownfields
+    + unknownFieldsSize msg.uInt32ValueUnknownFields
 
 instance MessageDecode UInt32Value where
   {-# INLINE messageDecoder #-}
@@ -457,7 +457,7 @@ instance MessageDecode UInt32Value where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0, uInt32ValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (UInt32Value {uInt32ValueValue = acc_0, uInt32ValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -503,7 +503,7 @@ instance Hashable UInt32Value where
 
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
-  , boolValueUnknownfields :: ![UnknownField]
+  , boolValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -511,18 +511,18 @@ data BoolValue = BoolValue
 defaultBoolValue :: BoolValue
 defaultBoolValue = BoolValue
   { boolValueValue = False
-  , boolValueUnknownfields = []
+  , boolValueUnknownFields = []
   }
 
 instance MessageEncode BoolValue where
   buildMessage msg =
     (if msg.boolValueValue == False then mempty else encodeFieldBool 1 msg.boolValueValue)
-    <> encodeUnknownFields msg.boolValueUnknownfields
+    <> encodeUnknownFields msg.boolValueUnknownFields
 
 instance MessageSize BoolValue where
   messageSize msg =
     (if msg.boolValueValue == False then 0 else fieldBoolSize 1)
-    + unknownFieldsSize msg.boolValueUnknownfields
+    + unknownFieldsSize msg.boolValueUnknownFields
 
 instance MessageDecode BoolValue where
   {-# INLINE messageDecoder #-}
@@ -531,7 +531,7 @@ instance MessageDecode BoolValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BoolValue {boolValueValue = acc_0, boolValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BoolValue {boolValueValue = acc_0, boolValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -577,7 +577,7 @@ instance Hashable BoolValue where
 
 data StringValue = StringValue
   { stringValueValue :: !Text
-  , stringValueUnknownfields :: ![UnknownField]
+  , stringValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -585,18 +585,18 @@ data StringValue = StringValue
 defaultStringValue :: StringValue
 defaultStringValue = StringValue
   { stringValueValue = ""
-  , stringValueUnknownfields = []
+  , stringValueUnknownFields = []
   }
 
 instance MessageEncode StringValue where
   buildMessage msg =
     (if msg.stringValueValue == T.empty then mempty else encodeFieldString 1 msg.stringValueValue)
-    <> encodeUnknownFields msg.stringValueUnknownfields
+    <> encodeUnknownFields msg.stringValueUnknownFields
 
 instance MessageSize StringValue where
   messageSize msg =
     (if msg.stringValueValue == T.empty then 0 else fieldTextSize 1 msg.stringValueValue)
-    + unknownFieldsSize msg.stringValueUnknownfields
+    + unknownFieldsSize msg.stringValueUnknownFields
 
 instance MessageDecode StringValue where
   {-# INLINE messageDecoder #-}
@@ -605,7 +605,7 @@ instance MessageDecode StringValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StringValue {stringValueValue = acc_0, stringValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StringValue {stringValueValue = acc_0, stringValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -651,7 +651,7 @@ instance Hashable StringValue where
 
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
-  , bytesValueUnknownfields :: ![UnknownField]
+  , bytesValueUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -659,18 +659,18 @@ data BytesValue = BytesValue
 defaultBytesValue :: BytesValue
 defaultBytesValue = BytesValue
   { bytesValueValue = ""
-  , bytesValueUnknownfields = []
+  , bytesValueUnknownFields = []
   }
 
 instance MessageEncode BytesValue where
   buildMessage msg =
     (if BS.null msg.bytesValueValue then mempty else encodeFieldBytes 1 msg.bytesValueValue)
-    <> encodeUnknownFields msg.bytesValueUnknownfields
+    <> encodeUnknownFields msg.bytesValueUnknownFields
 
 instance MessageSize BytesValue where
   messageSize msg =
     (if BS.null msg.bytesValueValue then 0 else fieldBytesSize 1 msg.bytesValueValue)
-    + unknownFieldsSize msg.bytesValueUnknownfields
+    + unknownFieldsSize msg.bytesValueUnknownFields
 
 instance MessageDecode BytesValue where
   {-# INLINE messageDecoder #-}
@@ -679,7 +679,7 @@ instance MessageDecode BytesValue where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (BytesValue {bytesValueValue = acc_0, bytesValueUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (BytesValue {bytesValueValue = acc_0, bytesValueUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBytes

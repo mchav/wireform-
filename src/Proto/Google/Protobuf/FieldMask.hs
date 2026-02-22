@@ -59,7 +59,7 @@ fileDescriptorProtoBytes = case Base16.decode "0a20676f6f676c652f70726f746f62756
 
 data FieldMask = FieldMask
   { fieldMaskPaths :: !(V.Vector Text)
-  , fieldMaskUnknownfields :: ![UnknownField]
+  , fieldMaskUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -67,18 +67,18 @@ data FieldMask = FieldMask
 defaultFieldMask :: FieldMask
 defaultFieldMask = FieldMask
   { fieldMaskPaths = V.empty
-  , fieldMaskUnknownfields = []
+  , fieldMaskUnknownFields = []
   }
 
 instance MessageEncode FieldMask where
   buildMessage msg =
     V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.fieldMaskPaths
-    <> encodeUnknownFields msg.fieldMaskUnknownfields
+    <> encodeUnknownFields msg.fieldMaskUnknownFields
 
 instance MessageSize FieldMask where
   messageSize msg =
     (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths)
-    + unknownFieldsSize msg.fieldMaskUnknownfields
+    + unknownFieldsSize msg.fieldMaskUnknownFields
 
 instance MessageDecode FieldMask where
   {-# INLINE messageDecoder #-}
@@ -87,7 +87,7 @@ instance MessageDecode FieldMask where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (FieldMask {fieldMaskPaths = acc_0, fieldMaskUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString

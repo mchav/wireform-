@@ -60,31 +60,31 @@ fileDescriptorProtoBytes = case Base16.decode "0a2474656d706f72616c2f6170692f666
 
 
 data WorkflowExecutionFilter = WorkflowExecutionFilter
-  { workflowExecutionFilterWorkflowid :: !Text
-  , workflowExecutionFilterRunid :: !Text
-  , workflowExecutionFilterUnknownfields :: ![UnknownField]
+  { workflowExecutionFilterWorkflowId :: !Text
+  , workflowExecutionFilterRunId :: !Text
+  , workflowExecutionFilterUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultWorkflowExecutionFilter :: WorkflowExecutionFilter
 defaultWorkflowExecutionFilter = WorkflowExecutionFilter
-  { workflowExecutionFilterWorkflowid = ""
-  , workflowExecutionFilterRunid = ""
-  , workflowExecutionFilterUnknownfields = []
+  { workflowExecutionFilterWorkflowId = ""
+  , workflowExecutionFilterRunId = ""
+  , workflowExecutionFilterUnknownFields = []
   }
 
 instance MessageEncode WorkflowExecutionFilter where
   buildMessage msg =
-    (if msg.workflowExecutionFilterWorkflowid == T.empty then mempty else encodeFieldString 1 msg.workflowExecutionFilterWorkflowid)
-    <> (if msg.workflowExecutionFilterRunid == T.empty then mempty else encodeFieldString 2 msg.workflowExecutionFilterRunid)
-    <> encodeUnknownFields msg.workflowExecutionFilterUnknownfields
+    (if msg.workflowExecutionFilterWorkflowId == T.empty then mempty else encodeFieldString 1 msg.workflowExecutionFilterWorkflowId)
+    <> (if msg.workflowExecutionFilterRunId == T.empty then mempty else encodeFieldString 2 msg.workflowExecutionFilterRunId)
+    <> encodeUnknownFields msg.workflowExecutionFilterUnknownFields
 
 instance MessageSize WorkflowExecutionFilter where
   messageSize msg =
-    (if msg.workflowExecutionFilterWorkflowid == T.empty then 0 else fieldTextSize 1 msg.workflowExecutionFilterWorkflowid)
-    + (if msg.workflowExecutionFilterRunid == T.empty then 0 else fieldTextSize 2 msg.workflowExecutionFilterRunid)
-    + unknownFieldsSize msg.workflowExecutionFilterUnknownfields
+    (if msg.workflowExecutionFilterWorkflowId == T.empty then 0 else fieldTextSize 1 msg.workflowExecutionFilterWorkflowId)
+    + (if msg.workflowExecutionFilterRunId == T.empty then 0 else fieldTextSize 2 msg.workflowExecutionFilterRunId)
+    + unknownFieldsSize msg.workflowExecutionFilterUnknownFields
 
 instance MessageDecode WorkflowExecutionFilter where
   {-# INLINE messageDecoder #-}
@@ -93,7 +93,7 @@ instance MessageDecode WorkflowExecutionFilter where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowExecutionFilter {workflowExecutionFilterWorkflowid = acc_0, workflowExecutionFilterRunid = acc_1, workflowExecutionFilterUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowExecutionFilter {workflowExecutionFilterWorkflowId = acc_0, workflowExecutionFilterRunId = acc_1, workflowExecutionFilterUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -119,39 +119,39 @@ instance ProtoMessage WorkflowExecutionFilter where
         , fdNumber = 1
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionFilterWorkflowid
-        , fdSet = \v m -> m { workflowExecutionFilterWorkflowid = v }
+        , fdGet = workflowExecutionFilterWorkflowId
+        , fdSet = \v m -> m { workflowExecutionFilterWorkflowId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "run_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = workflowExecutionFilterRunid
-        , fdSet = \v m -> m { workflowExecutionFilterRunid = v }
+        , fdGet = workflowExecutionFilterRunId
+        , fdSet = \v m -> m { workflowExecutionFilterRunId = v }
         })
     ]
 
 instance Aeson.ToJSON WorkflowExecutionFilter where
   toJSON msg = jsonObject
-      [ "workflowId" .=: msg.workflowExecutionFilterWorkflowid
-      , "runId" .=: msg.workflowExecutionFilterRunid
+      [ "workflowId" .=: msg.workflowExecutionFilterWorkflowId
+      , "runId" .=: msg.workflowExecutionFilterRunId
       ]
 
 instance Aeson.FromJSON WorkflowExecutionFilter where
   parseJSON = Aeson.withObject "WorkflowExecutionFilter" $ \obj -> do
-    fld_workflowExecutionFilterWorkflowid <- parseFieldMaybe obj "workflowId"
-    fld_workflowExecutionFilterRunid <- parseFieldMaybe obj "runId"
+    fld_workflowExecutionFilterWorkflowId <- parseFieldMaybe obj "workflowId"
+    fld_workflowExecutionFilterRunId <- parseFieldMaybe obj "runId"
     pure defaultWorkflowExecutionFilter
-      { workflowExecutionFilterWorkflowid = maybe (workflowExecutionFilterWorkflowid defaultWorkflowExecutionFilter) id fld_workflowExecutionFilterWorkflowid
-      , workflowExecutionFilterRunid = maybe (workflowExecutionFilterRunid defaultWorkflowExecutionFilter) id fld_workflowExecutionFilterRunid
+      { workflowExecutionFilterWorkflowId = maybe (workflowExecutionFilterWorkflowId defaultWorkflowExecutionFilter) id fld_workflowExecutionFilterWorkflowId
+      , workflowExecutionFilterRunId = maybe (workflowExecutionFilterRunId defaultWorkflowExecutionFilter) id fld_workflowExecutionFilterRunId
       }
 
 instance Hashable WorkflowExecutionFilter where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowExecutionFilterWorkflowid) msg.workflowExecutionFilterRunid
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.workflowExecutionFilterWorkflowId) msg.workflowExecutionFilterRunId
 
 data WorkflowTypeFilter = WorkflowTypeFilter
   { workflowTypeFilterName :: !Text
-  , workflowTypeFilterUnknownfields :: ![UnknownField]
+  , workflowTypeFilterUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -159,18 +159,18 @@ data WorkflowTypeFilter = WorkflowTypeFilter
 defaultWorkflowTypeFilter :: WorkflowTypeFilter
 defaultWorkflowTypeFilter = WorkflowTypeFilter
   { workflowTypeFilterName = ""
-  , workflowTypeFilterUnknownfields = []
+  , workflowTypeFilterUnknownFields = []
   }
 
 instance MessageEncode WorkflowTypeFilter where
   buildMessage msg =
     (if msg.workflowTypeFilterName == T.empty then mempty else encodeFieldString 1 msg.workflowTypeFilterName)
-    <> encodeUnknownFields msg.workflowTypeFilterUnknownfields
+    <> encodeUnknownFields msg.workflowTypeFilterUnknownFields
 
 instance MessageSize WorkflowTypeFilter where
   messageSize msg =
     (if msg.workflowTypeFilterName == T.empty then 0 else fieldTextSize 1 msg.workflowTypeFilterName)
-    + unknownFieldsSize msg.workflowTypeFilterUnknownfields
+    + unknownFieldsSize msg.workflowTypeFilterUnknownFields
 
 instance MessageDecode WorkflowTypeFilter where
   {-# INLINE messageDecoder #-}
@@ -179,7 +179,7 @@ instance MessageDecode WorkflowTypeFilter where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (WorkflowTypeFilter {workflowTypeFilterName = acc_0, workflowTypeFilterUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (WorkflowTypeFilter {workflowTypeFilterName = acc_0, workflowTypeFilterUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -224,31 +224,31 @@ instance Hashable WorkflowTypeFilter where
   hashWithSalt salt msg = hashWithSalt (salt) msg.workflowTypeFilterName
 
 data StartTimeFilter = StartTimeFilter
-  { startTimeFilterEarliesttime :: !(Maybe PB_Timestamp.Timestamp)
-  , startTimeFilterLatesttime :: !(Maybe PB_Timestamp.Timestamp)
-  , startTimeFilterUnknownfields :: ![UnknownField]
+  { startTimeFilterEarliestTime :: !(Maybe PB_Timestamp.Timestamp)
+  , startTimeFilterLatestTime :: !(Maybe PB_Timestamp.Timestamp)
+  , startTimeFilterUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultStartTimeFilter :: StartTimeFilter
 defaultStartTimeFilter = StartTimeFilter
-  { startTimeFilterEarliesttime = Nothing
-  , startTimeFilterLatesttime = Nothing
-  , startTimeFilterUnknownfields = []
+  { startTimeFilterEarliestTime = Nothing
+  , startTimeFilterLatestTime = Nothing
+  , startTimeFilterUnknownFields = []
   }
 
 instance MessageEncode StartTimeFilter where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.startTimeFilterEarliesttime)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.startTimeFilterLatesttime)
-    <> encodeUnknownFields msg.startTimeFilterUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.startTimeFilterEarliestTime)
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.startTimeFilterLatestTime)
+    <> encodeUnknownFields msg.startTimeFilterUnknownFields
 
 instance MessageSize StartTimeFilter where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.startTimeFilterEarliesttime)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.startTimeFilterLatesttime)
-    + unknownFieldsSize msg.startTimeFilterUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.startTimeFilterEarliestTime)
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.startTimeFilterLatestTime)
+    + unknownFieldsSize msg.startTimeFilterUnknownFields
 
 instance MessageDecode StartTimeFilter where
   {-# INLINE messageDecoder #-}
@@ -257,7 +257,7 @@ instance MessageDecode StartTimeFilter where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StartTimeFilter {startTimeFilterEarliesttime = acc_0, startTimeFilterLatesttime = acc_1, startTimeFilterUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StartTimeFilter {startTimeFilterEarliestTime = acc_0, startTimeFilterLatestTime = acc_1, startTimeFilterUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -283,39 +283,39 @@ instance ProtoMessage StartTimeFilter where
         , fdNumber = 1
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = startTimeFilterEarliesttime
-        , fdSet = \v m -> m { startTimeFilterEarliesttime = v }
+        , fdGet = startTimeFilterEarliestTime
+        , fdSet = \v m -> m { startTimeFilterEarliestTime = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "latest_time"
         , fdNumber = 2
         , fdTypeDesc = MessageType "google.protobuf.Timestamp"
         , fdLabel = LabelOptional
-        , fdGet = startTimeFilterLatesttime
-        , fdSet = \v m -> m { startTimeFilterLatesttime = v }
+        , fdGet = startTimeFilterLatestTime
+        , fdSet = \v m -> m { startTimeFilterLatestTime = v }
         })
     ]
 
 instance Aeson.ToJSON StartTimeFilter where
   toJSON msg = jsonObject
-      [ "earliestTime" .=: msg.startTimeFilterEarliesttime
-      , "latestTime" .=: msg.startTimeFilterLatesttime
+      [ "earliestTime" .=: msg.startTimeFilterEarliestTime
+      , "latestTime" .=: msg.startTimeFilterLatestTime
       ]
 
 instance Aeson.FromJSON StartTimeFilter where
   parseJSON = Aeson.withObject "StartTimeFilter" $ \obj -> do
-    fld_startTimeFilterEarliesttime <- parseFieldMaybe obj "earliestTime"
-    fld_startTimeFilterLatesttime <- parseFieldMaybe obj "latestTime"
+    fld_startTimeFilterEarliestTime <- parseFieldMaybe obj "earliestTime"
+    fld_startTimeFilterLatestTime <- parseFieldMaybe obj "latestTime"
     pure defaultStartTimeFilter
-      { startTimeFilterEarliesttime = maybe (startTimeFilterEarliesttime defaultStartTimeFilter) id fld_startTimeFilterEarliesttime
-      , startTimeFilterLatesttime = maybe (startTimeFilterLatesttime defaultStartTimeFilter) id fld_startTimeFilterLatesttime
+      { startTimeFilterEarliestTime = maybe (startTimeFilterEarliestTime defaultStartTimeFilter) id fld_startTimeFilterEarliestTime
+      , startTimeFilterLatestTime = maybe (startTimeFilterLatestTime defaultStartTimeFilter) id fld_startTimeFilterLatestTime
       }
 
 instance Hashable StartTimeFilter where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.startTimeFilterEarliesttime) msg.startTimeFilterLatesttime
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.startTimeFilterEarliestTime) msg.startTimeFilterLatestTime
 
 data StatusFilter = StatusFilter
   { statusFilterStatus :: !TE_Enums_V1_Workflow.WorkflowExecutionStatus
-  , statusFilterUnknownfields :: ![UnknownField]
+  , statusFilterUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -323,18 +323,18 @@ data StatusFilter = StatusFilter
 defaultStatusFilter :: StatusFilter
 defaultStatusFilter = StatusFilter
   { statusFilterStatus = (toEnum 0)
-  , statusFilterUnknownfields = []
+  , statusFilterUnknownFields = []
   }
 
 instance MessageEncode StatusFilter where
   buildMessage msg =
     (if fromEnum msg.statusFilterStatus == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.statusFilterStatus)))
-    <> encodeUnknownFields msg.statusFilterUnknownfields
+    <> encodeUnknownFields msg.statusFilterUnknownFields
 
 instance MessageSize StatusFilter where
   messageSize msg =
     (if fromEnum msg.statusFilterStatus == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.statusFilterStatus)))
-    + unknownFieldsSize msg.statusFilterUnknownfields
+    + unknownFieldsSize msg.statusFilterUnknownFields
 
 instance MessageDecode StatusFilter where
   {-# INLINE messageDecoder #-}
@@ -343,7 +343,7 @@ instance MessageDecode StatusFilter where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (StatusFilter {statusFilterStatus = acc_0, statusFilterUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (StatusFilter {statusFilterStatus = acc_0, statusFilterUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum

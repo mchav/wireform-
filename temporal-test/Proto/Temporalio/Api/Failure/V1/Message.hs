@@ -64,11 +64,11 @@ fileDescriptorProtoBytes = case Base16.decode "0a2574656d706f72616c2f6170692f666
 
 data ApplicationFailureInfo = ApplicationFailureInfo
   { applicationFailureInfoType :: !Text
-  , applicationFailureInfoNonretryable :: {-# UNPACK #-} !Bool
+  , applicationFailureInfoNonRetryable :: {-# UNPACK #-} !Bool
   , applicationFailureInfoDetails :: !(Maybe TE_Common_V1_Message.Payloads)
-  , applicationFailureInfoNextretrydelay :: !(Maybe PB_Duration.Duration)
+  , applicationFailureInfoNextRetryDelay :: !(Maybe PB_Duration.Duration)
   , applicationFailureInfoCategory :: !TE_Enums_V1_Common.ApplicationErrorCategory
-  , applicationFailureInfoUnknownfields :: ![UnknownField]
+  , applicationFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -76,30 +76,30 @@ data ApplicationFailureInfo = ApplicationFailureInfo
 defaultApplicationFailureInfo :: ApplicationFailureInfo
 defaultApplicationFailureInfo = ApplicationFailureInfo
   { applicationFailureInfoType = ""
-  , applicationFailureInfoNonretryable = False
+  , applicationFailureInfoNonRetryable = False
   , applicationFailureInfoDetails = Nothing
-  , applicationFailureInfoNextretrydelay = Nothing
+  , applicationFailureInfoNextRetryDelay = Nothing
   , applicationFailureInfoCategory = (toEnum 0)
-  , applicationFailureInfoUnknownfields = []
+  , applicationFailureInfoUnknownFields = []
   }
 
 instance MessageEncode ApplicationFailureInfo where
   buildMessage msg =
     (if msg.applicationFailureInfoType == T.empty then mempty else encodeFieldString 1 msg.applicationFailureInfoType)
-    <> (if msg.applicationFailureInfoNonretryable == False then mempty else encodeFieldBool 2 msg.applicationFailureInfoNonretryable)
+    <> (if msg.applicationFailureInfoNonRetryable == False then mempty else encodeFieldBool 2 msg.applicationFailureInfoNonRetryable)
     <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.applicationFailureInfoDetails)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.applicationFailureInfoNextretrydelay)
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.applicationFailureInfoNextRetryDelay)
     <> (if fromEnum msg.applicationFailureInfoCategory == 0 then mempty else encodeFieldVarint 5 (fromIntegral (fromEnum msg.applicationFailureInfoCategory)))
-    <> encodeUnknownFields msg.applicationFailureInfoUnknownfields
+    <> encodeUnknownFields msg.applicationFailureInfoUnknownFields
 
 instance MessageSize ApplicationFailureInfo where
   messageSize msg =
     (if msg.applicationFailureInfoType == T.empty then 0 else fieldTextSize 1 msg.applicationFailureInfoType)
-    + (if msg.applicationFailureInfoNonretryable == False then 0 else fieldBoolSize 2)
+    + (if msg.applicationFailureInfoNonRetryable == False then 0 else fieldBoolSize 2)
     + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.applicationFailureInfoDetails)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.applicationFailureInfoNextretrydelay)
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.applicationFailureInfoNextRetryDelay)
     + (if fromEnum msg.applicationFailureInfoCategory == 0 then 0 else fieldVarintSize 5 (fromIntegral (fromEnum msg.applicationFailureInfoCategory)))
-    + unknownFieldsSize msg.applicationFailureInfoUnknownfields
+    + unknownFieldsSize msg.applicationFailureInfoUnknownFields
 
 instance MessageDecode ApplicationFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -108,7 +108,7 @@ instance MessageDecode ApplicationFailureInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ApplicationFailureInfo {applicationFailureInfoType = acc_0, applicationFailureInfoNonretryable = acc_1, applicationFailureInfoDetails = acc_2, applicationFailureInfoNextretrydelay = acc_3, applicationFailureInfoCategory = acc_4, applicationFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ApplicationFailureInfo {applicationFailureInfoType = acc_0, applicationFailureInfoNonRetryable = acc_1, applicationFailureInfoDetails = acc_2, applicationFailureInfoNextRetryDelay = acc_3, applicationFailureInfoCategory = acc_4, applicationFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -150,8 +150,8 @@ instance ProtoMessage ApplicationFailureInfo where
         , fdNumber = 2
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = applicationFailureInfoNonretryable
-        , fdSet = \v m -> m { applicationFailureInfoNonretryable = v }
+        , fdGet = applicationFailureInfoNonRetryable
+        , fdSet = \v m -> m { applicationFailureInfoNonRetryable = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "details"
@@ -166,8 +166,8 @@ instance ProtoMessage ApplicationFailureInfo where
         , fdNumber = 4
         , fdTypeDesc = MessageType "google.protobuf.Duration"
         , fdLabel = LabelOptional
-        , fdGet = applicationFailureInfoNextretrydelay
-        , fdSet = \v m -> m { applicationFailureInfoNextretrydelay = v }
+        , fdGet = applicationFailureInfoNextRetryDelay
+        , fdSet = \v m -> m { applicationFailureInfoNextRetryDelay = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "category"
@@ -182,56 +182,56 @@ instance ProtoMessage ApplicationFailureInfo where
 instance Aeson.ToJSON ApplicationFailureInfo where
   toJSON msg = jsonObject
       [ "type" .=: msg.applicationFailureInfoType
-      , "nonRetryable" .=: msg.applicationFailureInfoNonretryable
+      , "nonRetryable" .=: msg.applicationFailureInfoNonRetryable
       , "details" .=: msg.applicationFailureInfoDetails
-      , "nextRetryDelay" .=: msg.applicationFailureInfoNextretrydelay
+      , "nextRetryDelay" .=: msg.applicationFailureInfoNextRetryDelay
       , "category" .=: msg.applicationFailureInfoCategory
       ]
 
 instance Aeson.FromJSON ApplicationFailureInfo where
   parseJSON = Aeson.withObject "ApplicationFailureInfo" $ \obj -> do
     fld_applicationFailureInfoType <- parseFieldMaybe obj "type"
-    fld_applicationFailureInfoNonretryable <- parseFieldMaybe obj "nonRetryable"
+    fld_applicationFailureInfoNonRetryable <- parseFieldMaybe obj "nonRetryable"
     fld_applicationFailureInfoDetails <- parseFieldMaybe obj "details"
-    fld_applicationFailureInfoNextretrydelay <- parseFieldMaybe obj "nextRetryDelay"
+    fld_applicationFailureInfoNextRetryDelay <- parseFieldMaybe obj "nextRetryDelay"
     fld_applicationFailureInfoCategory <- parseFieldMaybe obj "category"
     pure defaultApplicationFailureInfo
       { applicationFailureInfoType = maybe (applicationFailureInfoType defaultApplicationFailureInfo) id fld_applicationFailureInfoType
-      , applicationFailureInfoNonretryable = maybe (applicationFailureInfoNonretryable defaultApplicationFailureInfo) id fld_applicationFailureInfoNonretryable
+      , applicationFailureInfoNonRetryable = maybe (applicationFailureInfoNonRetryable defaultApplicationFailureInfo) id fld_applicationFailureInfoNonRetryable
       , applicationFailureInfoDetails = maybe (applicationFailureInfoDetails defaultApplicationFailureInfo) id fld_applicationFailureInfoDetails
-      , applicationFailureInfoNextretrydelay = maybe (applicationFailureInfoNextretrydelay defaultApplicationFailureInfo) id fld_applicationFailureInfoNextretrydelay
+      , applicationFailureInfoNextRetryDelay = maybe (applicationFailureInfoNextRetryDelay defaultApplicationFailureInfo) id fld_applicationFailureInfoNextRetryDelay
       , applicationFailureInfoCategory = maybe (applicationFailureInfoCategory defaultApplicationFailureInfo) id fld_applicationFailureInfoCategory
       }
 
 instance Hashable ApplicationFailureInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.applicationFailureInfoType) msg.applicationFailureInfoNonretryable) msg.applicationFailureInfoDetails) msg.applicationFailureInfoNextretrydelay) msg.applicationFailureInfoCategory
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.applicationFailureInfoType) msg.applicationFailureInfoNonRetryable) msg.applicationFailureInfoDetails) msg.applicationFailureInfoNextRetryDelay) msg.applicationFailureInfoCategory
 
 data TimeoutFailureInfo = TimeoutFailureInfo
-  { timeoutFailureInfoTimeouttype :: !TE_Enums_V1_Workflow.TimeoutType
-  , timeoutFailureInfoLastheartbeatdetails :: !(Maybe TE_Common_V1_Message.Payloads)
-  , timeoutFailureInfoUnknownfields :: ![UnknownField]
+  { timeoutFailureInfoTimeoutType :: !TE_Enums_V1_Workflow.TimeoutType
+  , timeoutFailureInfoLastHeartbeatDetails :: !(Maybe TE_Common_V1_Message.Payloads)
+  , timeoutFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTimeoutFailureInfo :: TimeoutFailureInfo
 defaultTimeoutFailureInfo = TimeoutFailureInfo
-  { timeoutFailureInfoTimeouttype = (toEnum 0)
-  , timeoutFailureInfoLastheartbeatdetails = Nothing
-  , timeoutFailureInfoUnknownfields = []
+  { timeoutFailureInfoTimeoutType = (toEnum 0)
+  , timeoutFailureInfoLastHeartbeatDetails = Nothing
+  , timeoutFailureInfoUnknownFields = []
   }
 
 instance MessageEncode TimeoutFailureInfo where
   buildMessage msg =
-    (if fromEnum msg.timeoutFailureInfoTimeouttype == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.timeoutFailureInfoTimeouttype)))
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.timeoutFailureInfoLastheartbeatdetails)
-    <> encodeUnknownFields msg.timeoutFailureInfoUnknownfields
+    (if fromEnum msg.timeoutFailureInfoTimeoutType == 0 then mempty else encodeFieldVarint 1 (fromIntegral (fromEnum msg.timeoutFailureInfoTimeoutType)))
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.timeoutFailureInfoLastHeartbeatDetails)
+    <> encodeUnknownFields msg.timeoutFailureInfoUnknownFields
 
 instance MessageSize TimeoutFailureInfo where
   messageSize msg =
-    (if fromEnum msg.timeoutFailureInfoTimeouttype == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.timeoutFailureInfoTimeouttype)))
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.timeoutFailureInfoLastheartbeatdetails)
-    + unknownFieldsSize msg.timeoutFailureInfoUnknownfields
+    (if fromEnum msg.timeoutFailureInfoTimeoutType == 0 then 0 else fieldVarintSize 1 (fromIntegral (fromEnum msg.timeoutFailureInfoTimeoutType)))
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.timeoutFailureInfoLastHeartbeatDetails)
+    + unknownFieldsSize msg.timeoutFailureInfoUnknownFields
 
 instance MessageDecode TimeoutFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -240,7 +240,7 @@ instance MessageDecode TimeoutFailureInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TimeoutFailureInfo {timeoutFailureInfoTimeouttype = acc_0, timeoutFailureInfoLastheartbeatdetails = acc_1, timeoutFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TimeoutFailureInfo {timeoutFailureInfoTimeoutType = acc_0, timeoutFailureInfoLastHeartbeatDetails = acc_1, timeoutFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldEnum
@@ -266,39 +266,39 @@ instance ProtoMessage TimeoutFailureInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.enums.v1.TimeoutType"
         , fdLabel = LabelOptional
-        , fdGet = timeoutFailureInfoTimeouttype
-        , fdSet = \v m -> m { timeoutFailureInfoTimeouttype = v }
+        , fdGet = timeoutFailureInfoTimeoutType
+        , fdSet = \v m -> m { timeoutFailureInfoTimeoutType = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "last_heartbeat_details"
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.common.v1.Payloads"
         , fdLabel = LabelOptional
-        , fdGet = timeoutFailureInfoLastheartbeatdetails
-        , fdSet = \v m -> m { timeoutFailureInfoLastheartbeatdetails = v }
+        , fdGet = timeoutFailureInfoLastHeartbeatDetails
+        , fdSet = \v m -> m { timeoutFailureInfoLastHeartbeatDetails = v }
         })
     ]
 
 instance Aeson.ToJSON TimeoutFailureInfo where
   toJSON msg = jsonObject
-      [ "timeoutType" .=: msg.timeoutFailureInfoTimeouttype
-      , "lastHeartbeatDetails" .=: msg.timeoutFailureInfoLastheartbeatdetails
+      [ "timeoutType" .=: msg.timeoutFailureInfoTimeoutType
+      , "lastHeartbeatDetails" .=: msg.timeoutFailureInfoLastHeartbeatDetails
       ]
 
 instance Aeson.FromJSON TimeoutFailureInfo where
   parseJSON = Aeson.withObject "TimeoutFailureInfo" $ \obj -> do
-    fld_timeoutFailureInfoTimeouttype <- parseFieldMaybe obj "timeoutType"
-    fld_timeoutFailureInfoLastheartbeatdetails <- parseFieldMaybe obj "lastHeartbeatDetails"
+    fld_timeoutFailureInfoTimeoutType <- parseFieldMaybe obj "timeoutType"
+    fld_timeoutFailureInfoLastHeartbeatDetails <- parseFieldMaybe obj "lastHeartbeatDetails"
     pure defaultTimeoutFailureInfo
-      { timeoutFailureInfoTimeouttype = maybe (timeoutFailureInfoTimeouttype defaultTimeoutFailureInfo) id fld_timeoutFailureInfoTimeouttype
-      , timeoutFailureInfoLastheartbeatdetails = maybe (timeoutFailureInfoLastheartbeatdetails defaultTimeoutFailureInfo) id fld_timeoutFailureInfoLastheartbeatdetails
+      { timeoutFailureInfoTimeoutType = maybe (timeoutFailureInfoTimeoutType defaultTimeoutFailureInfo) id fld_timeoutFailureInfoTimeoutType
+      , timeoutFailureInfoLastHeartbeatDetails = maybe (timeoutFailureInfoLastHeartbeatDetails defaultTimeoutFailureInfo) id fld_timeoutFailureInfoLastHeartbeatDetails
       }
 
 instance Hashable TimeoutFailureInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timeoutFailureInfoTimeouttype) msg.timeoutFailureInfoLastheartbeatdetails
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timeoutFailureInfoTimeoutType) msg.timeoutFailureInfoLastHeartbeatDetails
 
 data CanceledFailureInfo = CanceledFailureInfo
   { canceledFailureInfoDetails :: !(Maybe TE_Common_V1_Message.Payloads)
-  , canceledFailureInfoUnknownfields :: ![UnknownField]
+  , canceledFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -306,18 +306,18 @@ data CanceledFailureInfo = CanceledFailureInfo
 defaultCanceledFailureInfo :: CanceledFailureInfo
 defaultCanceledFailureInfo = CanceledFailureInfo
   { canceledFailureInfoDetails = Nothing
-  , canceledFailureInfoUnknownfields = []
+  , canceledFailureInfoUnknownFields = []
   }
 
 instance MessageEncode CanceledFailureInfo where
   buildMessage msg =
     (maybe mempty (\v -> encodeFieldMessage 1 v) msg.canceledFailureInfoDetails)
-    <> encodeUnknownFields msg.canceledFailureInfoUnknownfields
+    <> encodeUnknownFields msg.canceledFailureInfoUnknownFields
 
 instance MessageSize CanceledFailureInfo where
   messageSize msg =
     (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.canceledFailureInfoDetails)
-    + unknownFieldsSize msg.canceledFailureInfoUnknownfields
+    + unknownFieldsSize msg.canceledFailureInfoUnknownFields
 
 instance MessageDecode CanceledFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -326,7 +326,7 @@ instance MessageDecode CanceledFailureInfo where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (CanceledFailureInfo {canceledFailureInfoDetails = acc_0, canceledFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (CanceledFailureInfo {canceledFailureInfoDetails = acc_0, canceledFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -371,23 +371,23 @@ instance Hashable CanceledFailureInfo where
   hashWithSalt salt msg = hashWithSalt (salt) msg.canceledFailureInfoDetails
 
 data TerminatedFailureInfo = TerminatedFailureInfo
-  { terminatedFailureInfoUnknownfields :: ![UnknownField]
+  { terminatedFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultTerminatedFailureInfo :: TerminatedFailureInfo
 defaultTerminatedFailureInfo = TerminatedFailureInfo
-  { terminatedFailureInfoUnknownfields = []
+  { terminatedFailureInfoUnknownFields = []
   }
 
 instance MessageEncode TerminatedFailureInfo where
   buildMessage msg =
-    encodeUnknownFields msg.terminatedFailureInfoUnknownfields
+    encodeUnknownFields msg.terminatedFailureInfoUnknownFields
 
 instance MessageSize TerminatedFailureInfo where
   messageSize msg =
-    unknownFieldsSize msg.terminatedFailureInfoUnknownfields
+    unknownFieldsSize msg.terminatedFailureInfoUnknownFields
 
 instance MessageDecode TerminatedFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -396,7 +396,7 @@ instance MessageDecode TerminatedFailureInfo where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (TerminatedFailureInfo {terminatedFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (TerminatedFailureInfo {terminatedFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
@@ -424,27 +424,27 @@ instance Hashable TerminatedFailureInfo where
   hashWithSalt salt _ = salt
 
 data ServerFailureInfo = ServerFailureInfo
-  { serverFailureInfoNonretryable :: {-# UNPACK #-} !Bool
-  , serverFailureInfoUnknownfields :: ![UnknownField]
+  { serverFailureInfoNonRetryable :: {-# UNPACK #-} !Bool
+  , serverFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultServerFailureInfo :: ServerFailureInfo
 defaultServerFailureInfo = ServerFailureInfo
-  { serverFailureInfoNonretryable = False
-  , serverFailureInfoUnknownfields = []
+  { serverFailureInfoNonRetryable = False
+  , serverFailureInfoUnknownFields = []
   }
 
 instance MessageEncode ServerFailureInfo where
   buildMessage msg =
-    (if msg.serverFailureInfoNonretryable == False then mempty else encodeFieldBool 1 msg.serverFailureInfoNonretryable)
-    <> encodeUnknownFields msg.serverFailureInfoUnknownfields
+    (if msg.serverFailureInfoNonRetryable == False then mempty else encodeFieldBool 1 msg.serverFailureInfoNonRetryable)
+    <> encodeUnknownFields msg.serverFailureInfoUnknownFields
 
 instance MessageSize ServerFailureInfo where
   messageSize msg =
-    (if msg.serverFailureInfoNonretryable == False then 0 else fieldBoolSize 1)
-    + unknownFieldsSize msg.serverFailureInfoUnknownfields
+    (if msg.serverFailureInfoNonRetryable == False then 0 else fieldBoolSize 1)
+    + unknownFieldsSize msg.serverFailureInfoUnknownFields
 
 instance MessageDecode ServerFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -453,7 +453,7 @@ instance MessageDecode ServerFailureInfo where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ServerFailureInfo {serverFailureInfoNonretryable = acc_0, serverFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ServerFailureInfo {serverFailureInfoNonRetryable = acc_0, serverFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldBool
@@ -476,49 +476,49 @@ instance ProtoMessage ServerFailureInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType BoolField
         , fdLabel = LabelOptional
-        , fdGet = serverFailureInfoNonretryable
-        , fdSet = \v m -> m { serverFailureInfoNonretryable = v }
+        , fdGet = serverFailureInfoNonRetryable
+        , fdSet = \v m -> m { serverFailureInfoNonRetryable = v }
         })
     ]
 
 instance Aeson.ToJSON ServerFailureInfo where
   toJSON msg = jsonObject
-      [ "nonRetryable" .=: msg.serverFailureInfoNonretryable
+      [ "nonRetryable" .=: msg.serverFailureInfoNonRetryable
 
       ]
 
 instance Aeson.FromJSON ServerFailureInfo where
   parseJSON = Aeson.withObject "ServerFailureInfo" $ \obj -> do
-    fld_serverFailureInfoNonretryable <- parseFieldMaybe obj "nonRetryable"
+    fld_serverFailureInfoNonRetryable <- parseFieldMaybe obj "nonRetryable"
     pure defaultServerFailureInfo
-      { serverFailureInfoNonretryable = maybe (serverFailureInfoNonretryable defaultServerFailureInfo) id fld_serverFailureInfoNonretryable
+      { serverFailureInfoNonRetryable = maybe (serverFailureInfoNonRetryable defaultServerFailureInfo) id fld_serverFailureInfoNonRetryable
       }
 
 instance Hashable ServerFailureInfo where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.serverFailureInfoNonretryable
+  hashWithSalt salt msg = hashWithSalt (salt) msg.serverFailureInfoNonRetryable
 
 data ResetWorkflowFailureInfo = ResetWorkflowFailureInfo
-  { resetWorkflowFailureInfoLastheartbeatdetails :: !(Maybe TE_Common_V1_Message.Payloads)
-  , resetWorkflowFailureInfoUnknownfields :: ![UnknownField]
+  { resetWorkflowFailureInfoLastHeartbeatDetails :: !(Maybe TE_Common_V1_Message.Payloads)
+  , resetWorkflowFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultResetWorkflowFailureInfo :: ResetWorkflowFailureInfo
 defaultResetWorkflowFailureInfo = ResetWorkflowFailureInfo
-  { resetWorkflowFailureInfoLastheartbeatdetails = Nothing
-  , resetWorkflowFailureInfoUnknownfields = []
+  { resetWorkflowFailureInfoLastHeartbeatDetails = Nothing
+  , resetWorkflowFailureInfoUnknownFields = []
   }
 
 instance MessageEncode ResetWorkflowFailureInfo where
   buildMessage msg =
-    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.resetWorkflowFailureInfoLastheartbeatdetails)
-    <> encodeUnknownFields msg.resetWorkflowFailureInfoUnknownfields
+    (maybe mempty (\v -> encodeFieldMessage 1 v) msg.resetWorkflowFailureInfoLastHeartbeatDetails)
+    <> encodeUnknownFields msg.resetWorkflowFailureInfoUnknownFields
 
 instance MessageSize ResetWorkflowFailureInfo where
   messageSize msg =
-    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.resetWorkflowFailureInfoLastheartbeatdetails)
-    + unknownFieldsSize msg.resetWorkflowFailureInfoUnknownfields
+    (maybe 0 (\v -> fieldMessageSize 1 (messageSize v)) msg.resetWorkflowFailureInfoLastHeartbeatDetails)
+    + unknownFieldsSize msg.resetWorkflowFailureInfoUnknownFields
 
 instance MessageDecode ResetWorkflowFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -527,7 +527,7 @@ instance MessageDecode ResetWorkflowFailureInfo where
       loop acc_0 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ResetWorkflowFailureInfo {resetWorkflowFailureInfoLastheartbeatdetails = acc_0, resetWorkflowFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ResetWorkflowFailureInfo {resetWorkflowFailureInfoLastHeartbeatDetails = acc_0, resetWorkflowFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldMessage
@@ -550,69 +550,69 @@ instance ProtoMessage ResetWorkflowFailureInfo where
         , fdNumber = 1
         , fdTypeDesc = MessageType "temporal.api.common.v1.Payloads"
         , fdLabel = LabelOptional
-        , fdGet = resetWorkflowFailureInfoLastheartbeatdetails
-        , fdSet = \v m -> m { resetWorkflowFailureInfoLastheartbeatdetails = v }
+        , fdGet = resetWorkflowFailureInfoLastHeartbeatDetails
+        , fdSet = \v m -> m { resetWorkflowFailureInfoLastHeartbeatDetails = v }
         })
     ]
 
 instance Aeson.ToJSON ResetWorkflowFailureInfo where
   toJSON msg = jsonObject
-      [ "lastHeartbeatDetails" .=: msg.resetWorkflowFailureInfoLastheartbeatdetails
+      [ "lastHeartbeatDetails" .=: msg.resetWorkflowFailureInfoLastHeartbeatDetails
 
       ]
 
 instance Aeson.FromJSON ResetWorkflowFailureInfo where
   parseJSON = Aeson.withObject "ResetWorkflowFailureInfo" $ \obj -> do
-    fld_resetWorkflowFailureInfoLastheartbeatdetails <- parseFieldMaybe obj "lastHeartbeatDetails"
+    fld_resetWorkflowFailureInfoLastHeartbeatDetails <- parseFieldMaybe obj "lastHeartbeatDetails"
     pure defaultResetWorkflowFailureInfo
-      { resetWorkflowFailureInfoLastheartbeatdetails = maybe (resetWorkflowFailureInfoLastheartbeatdetails defaultResetWorkflowFailureInfo) id fld_resetWorkflowFailureInfoLastheartbeatdetails
+      { resetWorkflowFailureInfoLastHeartbeatDetails = maybe (resetWorkflowFailureInfoLastHeartbeatDetails defaultResetWorkflowFailureInfo) id fld_resetWorkflowFailureInfoLastHeartbeatDetails
       }
 
 instance Hashable ResetWorkflowFailureInfo where
-  hashWithSalt salt msg = hashWithSalt (salt) msg.resetWorkflowFailureInfoLastheartbeatdetails
+  hashWithSalt salt msg = hashWithSalt (salt) msg.resetWorkflowFailureInfoLastHeartbeatDetails
 
 data ActivityFailureInfo = ActivityFailureInfo
-  { activityFailureInfoScheduledeventid :: {-# UNPACK #-} !Int64
-  , activityFailureInfoStartedeventid :: {-# UNPACK #-} !Int64
+  { activityFailureInfoScheduledEventId :: {-# UNPACK #-} !Int64
+  , activityFailureInfoStartedEventId :: {-# UNPACK #-} !Int64
   , activityFailureInfoIdentity :: !Text
-  , activityFailureInfoActivitytype :: !(Maybe TE_Common_V1_Message.ActivityType)
-  , activityFailureInfoActivityid :: !Text
-  , activityFailureInfoRetrystate :: !TE_Enums_V1_Workflow.RetryState
-  , activityFailureInfoUnknownfields :: ![UnknownField]
+  , activityFailureInfoActivityType :: !(Maybe TE_Common_V1_Message.ActivityType)
+  , activityFailureInfoActivityId :: !Text
+  , activityFailureInfoRetryState :: !TE_Enums_V1_Workflow.RetryState
+  , activityFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultActivityFailureInfo :: ActivityFailureInfo
 defaultActivityFailureInfo = ActivityFailureInfo
-  { activityFailureInfoScheduledeventid = 0
-  , activityFailureInfoStartedeventid = 0
+  { activityFailureInfoScheduledEventId = 0
+  , activityFailureInfoStartedEventId = 0
   , activityFailureInfoIdentity = ""
-  , activityFailureInfoActivitytype = Nothing
-  , activityFailureInfoActivityid = ""
-  , activityFailureInfoRetrystate = (toEnum 0)
-  , activityFailureInfoUnknownfields = []
+  , activityFailureInfoActivityType = Nothing
+  , activityFailureInfoActivityId = ""
+  , activityFailureInfoRetryState = (toEnum 0)
+  , activityFailureInfoUnknownFields = []
   }
 
 instance MessageEncode ActivityFailureInfo where
   buildMessage msg =
-    (if msg.activityFailureInfoScheduledeventid == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.activityFailureInfoScheduledeventid))
-    <> (if msg.activityFailureInfoStartedeventid == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.activityFailureInfoStartedeventid))
+    (if msg.activityFailureInfoScheduledEventId == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.activityFailureInfoScheduledEventId))
+    <> (if msg.activityFailureInfoStartedEventId == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.activityFailureInfoStartedEventId))
     <> (if msg.activityFailureInfoIdentity == T.empty then mempty else encodeFieldString 3 msg.activityFailureInfoIdentity)
-    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.activityFailureInfoActivitytype)
-    <> (if msg.activityFailureInfoActivityid == T.empty then mempty else encodeFieldString 5 msg.activityFailureInfoActivityid)
-    <> (if fromEnum msg.activityFailureInfoRetrystate == 0 then mempty else encodeFieldVarint 6 (fromIntegral (fromEnum msg.activityFailureInfoRetrystate)))
-    <> encodeUnknownFields msg.activityFailureInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.activityFailureInfoActivityType)
+    <> (if msg.activityFailureInfoActivityId == T.empty then mempty else encodeFieldString 5 msg.activityFailureInfoActivityId)
+    <> (if fromEnum msg.activityFailureInfoRetryState == 0 then mempty else encodeFieldVarint 6 (fromIntegral (fromEnum msg.activityFailureInfoRetryState)))
+    <> encodeUnknownFields msg.activityFailureInfoUnknownFields
 
 instance MessageSize ActivityFailureInfo where
   messageSize msg =
-    (if msg.activityFailureInfoScheduledeventid == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.activityFailureInfoScheduledeventid))
-    + (if msg.activityFailureInfoStartedeventid == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.activityFailureInfoStartedeventid))
+    (if msg.activityFailureInfoScheduledEventId == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.activityFailureInfoScheduledEventId))
+    + (if msg.activityFailureInfoStartedEventId == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.activityFailureInfoStartedEventId))
     + (if msg.activityFailureInfoIdentity == T.empty then 0 else fieldTextSize 3 msg.activityFailureInfoIdentity)
-    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.activityFailureInfoActivitytype)
-    + (if msg.activityFailureInfoActivityid == T.empty then 0 else fieldTextSize 5 msg.activityFailureInfoActivityid)
-    + (if fromEnum msg.activityFailureInfoRetrystate == 0 then 0 else fieldVarintSize 6 (fromIntegral (fromEnum msg.activityFailureInfoRetrystate)))
-    + unknownFieldsSize msg.activityFailureInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.activityFailureInfoActivityType)
+    + (if msg.activityFailureInfoActivityId == T.empty then 0 else fieldTextSize 5 msg.activityFailureInfoActivityId)
+    + (if fromEnum msg.activityFailureInfoRetryState == 0 then 0 else fieldVarintSize 6 (fromIntegral (fromEnum msg.activityFailureInfoRetryState)))
+    + unknownFieldsSize msg.activityFailureInfoUnknownFields
 
 instance MessageDecode ActivityFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -621,7 +621,7 @@ instance MessageDecode ActivityFailureInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ActivityFailureInfo {activityFailureInfoScheduledeventid = acc_0, activityFailureInfoStartedeventid = acc_1, activityFailureInfoIdentity = acc_2, activityFailureInfoActivitytype = acc_3, activityFailureInfoActivityid = acc_4, activityFailureInfoRetrystate = acc_5, activityFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ActivityFailureInfo {activityFailureInfoScheduledEventId = acc_0, activityFailureInfoStartedEventId = acc_1, activityFailureInfoIdentity = acc_2, activityFailureInfoActivityType = acc_3, activityFailureInfoActivityId = acc_4, activityFailureInfoRetryState = acc_5, activityFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -659,15 +659,15 @@ instance ProtoMessage ActivityFailureInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = activityFailureInfoScheduledeventid
-        , fdSet = \v m -> m { activityFailureInfoScheduledeventid = v }
+        , fdGet = activityFailureInfoScheduledEventId
+        , fdSet = \v m -> m { activityFailureInfoScheduledEventId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "started_event_id"
         , fdNumber = 2
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = activityFailureInfoStartedeventid
-        , fdSet = \v m -> m { activityFailureInfoStartedeventid = v }
+        , fdGet = activityFailureInfoStartedEventId
+        , fdSet = \v m -> m { activityFailureInfoStartedEventId = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "identity"
@@ -682,65 +682,65 @@ instance ProtoMessage ActivityFailureInfo where
         , fdNumber = 4
         , fdTypeDesc = MessageType "temporal.api.common.v1.ActivityType"
         , fdLabel = LabelOptional
-        , fdGet = activityFailureInfoActivitytype
-        , fdSet = \v m -> m { activityFailureInfoActivitytype = v }
+        , fdGet = activityFailureInfoActivityType
+        , fdSet = \v m -> m { activityFailureInfoActivityType = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "activity_id"
         , fdNumber = 5
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = activityFailureInfoActivityid
-        , fdSet = \v m -> m { activityFailureInfoActivityid = v }
+        , fdGet = activityFailureInfoActivityId
+        , fdSet = \v m -> m { activityFailureInfoActivityId = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "retry_state"
         , fdNumber = 6
         , fdTypeDesc = MessageType "temporal.api.enums.v1.RetryState"
         , fdLabel = LabelOptional
-        , fdGet = activityFailureInfoRetrystate
-        , fdSet = \v m -> m { activityFailureInfoRetrystate = v }
+        , fdGet = activityFailureInfoRetryState
+        , fdSet = \v m -> m { activityFailureInfoRetryState = v }
         })
     ]
 
 instance Aeson.ToJSON ActivityFailureInfo where
   toJSON msg = jsonObject
-      [ "scheduledEventId" .=: msg.activityFailureInfoScheduledeventid
-      , "startedEventId" .=: msg.activityFailureInfoStartedeventid
+      [ "scheduledEventId" .=: msg.activityFailureInfoScheduledEventId
+      , "startedEventId" .=: msg.activityFailureInfoStartedEventId
       , "identity" .=: msg.activityFailureInfoIdentity
-      , "activityType" .=: msg.activityFailureInfoActivitytype
-      , "activityId" .=: msg.activityFailureInfoActivityid
-      , "retryState" .=: msg.activityFailureInfoRetrystate
+      , "activityType" .=: msg.activityFailureInfoActivityType
+      , "activityId" .=: msg.activityFailureInfoActivityId
+      , "retryState" .=: msg.activityFailureInfoRetryState
       ]
 
 instance Aeson.FromJSON ActivityFailureInfo where
   parseJSON = Aeson.withObject "ActivityFailureInfo" $ \obj -> do
-    fld_activityFailureInfoScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
-    fld_activityFailureInfoStartedeventid <- parseFieldMaybe obj "startedEventId"
+    fld_activityFailureInfoScheduledEventId <- parseFieldMaybe obj "scheduledEventId"
+    fld_activityFailureInfoStartedEventId <- parseFieldMaybe obj "startedEventId"
     fld_activityFailureInfoIdentity <- parseFieldMaybe obj "identity"
-    fld_activityFailureInfoActivitytype <- parseFieldMaybe obj "activityType"
-    fld_activityFailureInfoActivityid <- parseFieldMaybe obj "activityId"
-    fld_activityFailureInfoRetrystate <- parseFieldMaybe obj "retryState"
+    fld_activityFailureInfoActivityType <- parseFieldMaybe obj "activityType"
+    fld_activityFailureInfoActivityId <- parseFieldMaybe obj "activityId"
+    fld_activityFailureInfoRetryState <- parseFieldMaybe obj "retryState"
     pure defaultActivityFailureInfo
-      { activityFailureInfoScheduledeventid = maybe (activityFailureInfoScheduledeventid defaultActivityFailureInfo) id fld_activityFailureInfoScheduledeventid
-      , activityFailureInfoStartedeventid = maybe (activityFailureInfoStartedeventid defaultActivityFailureInfo) id fld_activityFailureInfoStartedeventid
+      { activityFailureInfoScheduledEventId = maybe (activityFailureInfoScheduledEventId defaultActivityFailureInfo) id fld_activityFailureInfoScheduledEventId
+      , activityFailureInfoStartedEventId = maybe (activityFailureInfoStartedEventId defaultActivityFailureInfo) id fld_activityFailureInfoStartedEventId
       , activityFailureInfoIdentity = maybe (activityFailureInfoIdentity defaultActivityFailureInfo) id fld_activityFailureInfoIdentity
-      , activityFailureInfoActivitytype = maybe (activityFailureInfoActivitytype defaultActivityFailureInfo) id fld_activityFailureInfoActivitytype
-      , activityFailureInfoActivityid = maybe (activityFailureInfoActivityid defaultActivityFailureInfo) id fld_activityFailureInfoActivityid
-      , activityFailureInfoRetrystate = maybe (activityFailureInfoRetrystate defaultActivityFailureInfo) id fld_activityFailureInfoRetrystate
+      , activityFailureInfoActivityType = maybe (activityFailureInfoActivityType defaultActivityFailureInfo) id fld_activityFailureInfoActivityType
+      , activityFailureInfoActivityId = maybe (activityFailureInfoActivityId defaultActivityFailureInfo) id fld_activityFailureInfoActivityId
+      , activityFailureInfoRetryState = maybe (activityFailureInfoRetryState defaultActivityFailureInfo) id fld_activityFailureInfoRetryState
       }
 
 instance Hashable ActivityFailureInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.activityFailureInfoScheduledeventid) msg.activityFailureInfoStartedeventid) msg.activityFailureInfoIdentity) msg.activityFailureInfoActivitytype) msg.activityFailureInfoActivityid) msg.activityFailureInfoRetrystate
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.activityFailureInfoScheduledEventId) msg.activityFailureInfoStartedEventId) msg.activityFailureInfoIdentity) msg.activityFailureInfoActivityType) msg.activityFailureInfoActivityId) msg.activityFailureInfoRetryState
 
 data ChildWorkflowExecutionFailureInfo = ChildWorkflowExecutionFailureInfo
   { childWorkflowExecutionFailureInfoNamespace :: !Text
-  , childWorkflowExecutionFailureInfoWorkflowexecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
-  , childWorkflowExecutionFailureInfoWorkflowtype :: !(Maybe TE_Common_V1_Message.WorkflowType)
-  , childWorkflowExecutionFailureInfoInitiatedeventid :: {-# UNPACK #-} !Int64
-  , childWorkflowExecutionFailureInfoStartedeventid :: {-# UNPACK #-} !Int64
-  , childWorkflowExecutionFailureInfoRetrystate :: !TE_Enums_V1_Workflow.RetryState
-  , childWorkflowExecutionFailureInfoUnknownfields :: ![UnknownField]
+  , childWorkflowExecutionFailureInfoWorkflowExecution :: !(Maybe TE_Common_V1_Message.WorkflowExecution)
+  , childWorkflowExecutionFailureInfoWorkflowType :: !(Maybe TE_Common_V1_Message.WorkflowType)
+  , childWorkflowExecutionFailureInfoInitiatedEventId :: {-# UNPACK #-} !Int64
+  , childWorkflowExecutionFailureInfoStartedEventId :: {-# UNPACK #-} !Int64
+  , childWorkflowExecutionFailureInfoRetryState :: !TE_Enums_V1_Workflow.RetryState
+  , childWorkflowExecutionFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -748,33 +748,33 @@ data ChildWorkflowExecutionFailureInfo = ChildWorkflowExecutionFailureInfo
 defaultChildWorkflowExecutionFailureInfo :: ChildWorkflowExecutionFailureInfo
 defaultChildWorkflowExecutionFailureInfo = ChildWorkflowExecutionFailureInfo
   { childWorkflowExecutionFailureInfoNamespace = ""
-  , childWorkflowExecutionFailureInfoWorkflowexecution = Nothing
-  , childWorkflowExecutionFailureInfoWorkflowtype = Nothing
-  , childWorkflowExecutionFailureInfoInitiatedeventid = 0
-  , childWorkflowExecutionFailureInfoStartedeventid = 0
-  , childWorkflowExecutionFailureInfoRetrystate = (toEnum 0)
-  , childWorkflowExecutionFailureInfoUnknownfields = []
+  , childWorkflowExecutionFailureInfoWorkflowExecution = Nothing
+  , childWorkflowExecutionFailureInfoWorkflowType = Nothing
+  , childWorkflowExecutionFailureInfoInitiatedEventId = 0
+  , childWorkflowExecutionFailureInfoStartedEventId = 0
+  , childWorkflowExecutionFailureInfoRetryState = (toEnum 0)
+  , childWorkflowExecutionFailureInfoUnknownFields = []
   }
 
 instance MessageEncode ChildWorkflowExecutionFailureInfo where
   buildMessage msg =
     (if msg.childWorkflowExecutionFailureInfoNamespace == T.empty then mempty else encodeFieldString 1 msg.childWorkflowExecutionFailureInfoNamespace)
-    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.childWorkflowExecutionFailureInfoWorkflowexecution)
-    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.childWorkflowExecutionFailureInfoWorkflowtype)
-    <> (if msg.childWorkflowExecutionFailureInfoInitiatedeventid == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.childWorkflowExecutionFailureInfoInitiatedeventid))
-    <> (if msg.childWorkflowExecutionFailureInfoStartedeventid == 0 then mempty else encodeFieldVarint 5 (fromIntegral msg.childWorkflowExecutionFailureInfoStartedeventid))
-    <> (if fromEnum msg.childWorkflowExecutionFailureInfoRetrystate == 0 then mempty else encodeFieldVarint 6 (fromIntegral (fromEnum msg.childWorkflowExecutionFailureInfoRetrystate)))
-    <> encodeUnknownFields msg.childWorkflowExecutionFailureInfoUnknownfields
+    <> (maybe mempty (\v -> encodeFieldMessage 2 v) msg.childWorkflowExecutionFailureInfoWorkflowExecution)
+    <> (maybe mempty (\v -> encodeFieldMessage 3 v) msg.childWorkflowExecutionFailureInfoWorkflowType)
+    <> (if msg.childWorkflowExecutionFailureInfoInitiatedEventId == 0 then mempty else encodeFieldVarint 4 (fromIntegral msg.childWorkflowExecutionFailureInfoInitiatedEventId))
+    <> (if msg.childWorkflowExecutionFailureInfoStartedEventId == 0 then mempty else encodeFieldVarint 5 (fromIntegral msg.childWorkflowExecutionFailureInfoStartedEventId))
+    <> (if fromEnum msg.childWorkflowExecutionFailureInfoRetryState == 0 then mempty else encodeFieldVarint 6 (fromIntegral (fromEnum msg.childWorkflowExecutionFailureInfoRetryState)))
+    <> encodeUnknownFields msg.childWorkflowExecutionFailureInfoUnknownFields
 
 instance MessageSize ChildWorkflowExecutionFailureInfo where
   messageSize msg =
     (if msg.childWorkflowExecutionFailureInfoNamespace == T.empty then 0 else fieldTextSize 1 msg.childWorkflowExecutionFailureInfoNamespace)
-    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.childWorkflowExecutionFailureInfoWorkflowexecution)
-    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.childWorkflowExecutionFailureInfoWorkflowtype)
-    + (if msg.childWorkflowExecutionFailureInfoInitiatedeventid == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.childWorkflowExecutionFailureInfoInitiatedeventid))
-    + (if msg.childWorkflowExecutionFailureInfoStartedeventid == 0 then 0 else fieldVarintSize 5 (fromIntegral msg.childWorkflowExecutionFailureInfoStartedeventid))
-    + (if fromEnum msg.childWorkflowExecutionFailureInfoRetrystate == 0 then 0 else fieldVarintSize 6 (fromIntegral (fromEnum msg.childWorkflowExecutionFailureInfoRetrystate)))
-    + unknownFieldsSize msg.childWorkflowExecutionFailureInfoUnknownfields
+    + (maybe 0 (\v -> fieldMessageSize 2 (messageSize v)) msg.childWorkflowExecutionFailureInfoWorkflowExecution)
+    + (maybe 0 (\v -> fieldMessageSize 3 (messageSize v)) msg.childWorkflowExecutionFailureInfoWorkflowType)
+    + (if msg.childWorkflowExecutionFailureInfoInitiatedEventId == 0 then 0 else fieldVarintSize 4 (fromIntegral msg.childWorkflowExecutionFailureInfoInitiatedEventId))
+    + (if msg.childWorkflowExecutionFailureInfoStartedEventId == 0 then 0 else fieldVarintSize 5 (fromIntegral msg.childWorkflowExecutionFailureInfoStartedEventId))
+    + (if fromEnum msg.childWorkflowExecutionFailureInfoRetryState == 0 then 0 else fieldVarintSize 6 (fromIntegral (fromEnum msg.childWorkflowExecutionFailureInfoRetryState)))
+    + unknownFieldsSize msg.childWorkflowExecutionFailureInfoUnknownFields
 
 instance MessageDecode ChildWorkflowExecutionFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -783,7 +783,7 @@ instance MessageDecode ChildWorkflowExecutionFailureInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (ChildWorkflowExecutionFailureInfo {childWorkflowExecutionFailureInfoNamespace = acc_0, childWorkflowExecutionFailureInfoWorkflowexecution = acc_1, childWorkflowExecutionFailureInfoWorkflowtype = acc_2, childWorkflowExecutionFailureInfoInitiatedeventid = acc_3, childWorkflowExecutionFailureInfoStartedeventid = acc_4, childWorkflowExecutionFailureInfoRetrystate = acc_5, childWorkflowExecutionFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (ChildWorkflowExecutionFailureInfo {childWorkflowExecutionFailureInfoNamespace = acc_0, childWorkflowExecutionFailureInfoWorkflowExecution = acc_1, childWorkflowExecutionFailureInfoWorkflowType = acc_2, childWorkflowExecutionFailureInfoInitiatedEventId = acc_3, childWorkflowExecutionFailureInfoStartedEventId = acc_4, childWorkflowExecutionFailureInfoRetryState = acc_5, childWorkflowExecutionFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -828,115 +828,115 @@ instance ProtoMessage ChildWorkflowExecutionFailureInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowExecution"
         , fdLabel = LabelOptional
-        , fdGet = childWorkflowExecutionFailureInfoWorkflowexecution
-        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoWorkflowexecution = v }
+        , fdGet = childWorkflowExecutionFailureInfoWorkflowExecution
+        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoWorkflowExecution = v }
         })
     , (3, SomeField FieldDescriptor
         { fdName = "workflow_type"
         , fdNumber = 3
         , fdTypeDesc = MessageType "temporal.api.common.v1.WorkflowType"
         , fdLabel = LabelOptional
-        , fdGet = childWorkflowExecutionFailureInfoWorkflowtype
-        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoWorkflowtype = v }
+        , fdGet = childWorkflowExecutionFailureInfoWorkflowType
+        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoWorkflowType = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "initiated_event_id"
         , fdNumber = 4
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = childWorkflowExecutionFailureInfoInitiatedeventid
-        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoInitiatedeventid = v }
+        , fdGet = childWorkflowExecutionFailureInfoInitiatedEventId
+        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoInitiatedEventId = v }
         })
     , (5, SomeField FieldDescriptor
         { fdName = "started_event_id"
         , fdNumber = 5
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = childWorkflowExecutionFailureInfoStartedeventid
-        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoStartedeventid = v }
+        , fdGet = childWorkflowExecutionFailureInfoStartedEventId
+        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoStartedEventId = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "retry_state"
         , fdNumber = 6
         , fdTypeDesc = MessageType "temporal.api.enums.v1.RetryState"
         , fdLabel = LabelOptional
-        , fdGet = childWorkflowExecutionFailureInfoRetrystate
-        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoRetrystate = v }
+        , fdGet = childWorkflowExecutionFailureInfoRetryState
+        , fdSet = \v m -> m { childWorkflowExecutionFailureInfoRetryState = v }
         })
     ]
 
 instance Aeson.ToJSON ChildWorkflowExecutionFailureInfo where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.childWorkflowExecutionFailureInfoNamespace
-      , "workflowExecution" .=: msg.childWorkflowExecutionFailureInfoWorkflowexecution
-      , "workflowType" .=: msg.childWorkflowExecutionFailureInfoWorkflowtype
-      , "initiatedEventId" .=: msg.childWorkflowExecutionFailureInfoInitiatedeventid
-      , "startedEventId" .=: msg.childWorkflowExecutionFailureInfoStartedeventid
-      , "retryState" .=: msg.childWorkflowExecutionFailureInfoRetrystate
+      , "workflowExecution" .=: msg.childWorkflowExecutionFailureInfoWorkflowExecution
+      , "workflowType" .=: msg.childWorkflowExecutionFailureInfoWorkflowType
+      , "initiatedEventId" .=: msg.childWorkflowExecutionFailureInfoInitiatedEventId
+      , "startedEventId" .=: msg.childWorkflowExecutionFailureInfoStartedEventId
+      , "retryState" .=: msg.childWorkflowExecutionFailureInfoRetryState
       ]
 
 instance Aeson.FromJSON ChildWorkflowExecutionFailureInfo where
   parseJSON = Aeson.withObject "ChildWorkflowExecutionFailureInfo" $ \obj -> do
     fld_childWorkflowExecutionFailureInfoNamespace <- parseFieldMaybe obj "namespace"
-    fld_childWorkflowExecutionFailureInfoWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
-    fld_childWorkflowExecutionFailureInfoWorkflowtype <- parseFieldMaybe obj "workflowType"
-    fld_childWorkflowExecutionFailureInfoInitiatedeventid <- parseFieldMaybe obj "initiatedEventId"
-    fld_childWorkflowExecutionFailureInfoStartedeventid <- parseFieldMaybe obj "startedEventId"
-    fld_childWorkflowExecutionFailureInfoRetrystate <- parseFieldMaybe obj "retryState"
+    fld_childWorkflowExecutionFailureInfoWorkflowExecution <- parseFieldMaybe obj "workflowExecution"
+    fld_childWorkflowExecutionFailureInfoWorkflowType <- parseFieldMaybe obj "workflowType"
+    fld_childWorkflowExecutionFailureInfoInitiatedEventId <- parseFieldMaybe obj "initiatedEventId"
+    fld_childWorkflowExecutionFailureInfoStartedEventId <- parseFieldMaybe obj "startedEventId"
+    fld_childWorkflowExecutionFailureInfoRetryState <- parseFieldMaybe obj "retryState"
     pure defaultChildWorkflowExecutionFailureInfo
       { childWorkflowExecutionFailureInfoNamespace = maybe (childWorkflowExecutionFailureInfoNamespace defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoNamespace
-      , childWorkflowExecutionFailureInfoWorkflowexecution = maybe (childWorkflowExecutionFailureInfoWorkflowexecution defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoWorkflowexecution
-      , childWorkflowExecutionFailureInfoWorkflowtype = maybe (childWorkflowExecutionFailureInfoWorkflowtype defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoWorkflowtype
-      , childWorkflowExecutionFailureInfoInitiatedeventid = maybe (childWorkflowExecutionFailureInfoInitiatedeventid defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoInitiatedeventid
-      , childWorkflowExecutionFailureInfoStartedeventid = maybe (childWorkflowExecutionFailureInfoStartedeventid defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoStartedeventid
-      , childWorkflowExecutionFailureInfoRetrystate = maybe (childWorkflowExecutionFailureInfoRetrystate defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoRetrystate
+      , childWorkflowExecutionFailureInfoWorkflowExecution = maybe (childWorkflowExecutionFailureInfoWorkflowExecution defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoWorkflowExecution
+      , childWorkflowExecutionFailureInfoWorkflowType = maybe (childWorkflowExecutionFailureInfoWorkflowType defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoWorkflowType
+      , childWorkflowExecutionFailureInfoInitiatedEventId = maybe (childWorkflowExecutionFailureInfoInitiatedEventId defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoInitiatedEventId
+      , childWorkflowExecutionFailureInfoStartedEventId = maybe (childWorkflowExecutionFailureInfoStartedEventId defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoStartedEventId
+      , childWorkflowExecutionFailureInfoRetryState = maybe (childWorkflowExecutionFailureInfoRetryState defaultChildWorkflowExecutionFailureInfo) id fld_childWorkflowExecutionFailureInfoRetryState
       }
 
 instance Hashable ChildWorkflowExecutionFailureInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.childWorkflowExecutionFailureInfoNamespace) msg.childWorkflowExecutionFailureInfoWorkflowexecution) msg.childWorkflowExecutionFailureInfoWorkflowtype) msg.childWorkflowExecutionFailureInfoInitiatedeventid) msg.childWorkflowExecutionFailureInfoStartedeventid) msg.childWorkflowExecutionFailureInfoRetrystate
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.childWorkflowExecutionFailureInfoNamespace) msg.childWorkflowExecutionFailureInfoWorkflowExecution) msg.childWorkflowExecutionFailureInfoWorkflowType) msg.childWorkflowExecutionFailureInfoInitiatedEventId) msg.childWorkflowExecutionFailureInfoStartedEventId) msg.childWorkflowExecutionFailureInfoRetryState
 
 data NexusOperationFailureInfo = NexusOperationFailureInfo
-  { nexusOperationFailureInfoScheduledeventid :: {-# UNPACK #-} !Int64
+  { nexusOperationFailureInfoScheduledEventId :: {-# UNPACK #-} !Int64
   , nexusOperationFailureInfoEndpoint :: !Text
   , nexusOperationFailureInfoService :: !Text
   , nexusOperationFailureInfoOperation :: !Text
-  , nexusOperationFailureInfoOperationid :: !Text
-  , nexusOperationFailureInfoOperationtoken :: !Text
-  , nexusOperationFailureInfoUnknownfields :: ![UnknownField]
+  , nexusOperationFailureInfoOperationId :: !Text
+  , nexusOperationFailureInfoOperationToken :: !Text
+  , nexusOperationFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultNexusOperationFailureInfo :: NexusOperationFailureInfo
 defaultNexusOperationFailureInfo = NexusOperationFailureInfo
-  { nexusOperationFailureInfoScheduledeventid = 0
+  { nexusOperationFailureInfoScheduledEventId = 0
   , nexusOperationFailureInfoEndpoint = ""
   , nexusOperationFailureInfoService = ""
   , nexusOperationFailureInfoOperation = ""
-  , nexusOperationFailureInfoOperationid = ""
-  , nexusOperationFailureInfoOperationtoken = ""
-  , nexusOperationFailureInfoUnknownfields = []
+  , nexusOperationFailureInfoOperationId = ""
+  , nexusOperationFailureInfoOperationToken = ""
+  , nexusOperationFailureInfoUnknownFields = []
   }
 
 instance MessageEncode NexusOperationFailureInfo where
   buildMessage msg =
-    (if msg.nexusOperationFailureInfoScheduledeventid == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.nexusOperationFailureInfoScheduledeventid))
+    (if msg.nexusOperationFailureInfoScheduledEventId == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.nexusOperationFailureInfoScheduledEventId))
     <> (if msg.nexusOperationFailureInfoEndpoint == T.empty then mempty else encodeFieldString 2 msg.nexusOperationFailureInfoEndpoint)
     <> (if msg.nexusOperationFailureInfoService == T.empty then mempty else encodeFieldString 3 msg.nexusOperationFailureInfoService)
     <> (if msg.nexusOperationFailureInfoOperation == T.empty then mempty else encodeFieldString 4 msg.nexusOperationFailureInfoOperation)
-    <> (if msg.nexusOperationFailureInfoOperationid == T.empty then mempty else encodeFieldString 5 msg.nexusOperationFailureInfoOperationid)
-    <> (if msg.nexusOperationFailureInfoOperationtoken == T.empty then mempty else encodeFieldString 6 msg.nexusOperationFailureInfoOperationtoken)
-    <> encodeUnknownFields msg.nexusOperationFailureInfoUnknownfields
+    <> (if msg.nexusOperationFailureInfoOperationId == T.empty then mempty else encodeFieldString 5 msg.nexusOperationFailureInfoOperationId)
+    <> (if msg.nexusOperationFailureInfoOperationToken == T.empty then mempty else encodeFieldString 6 msg.nexusOperationFailureInfoOperationToken)
+    <> encodeUnknownFields msg.nexusOperationFailureInfoUnknownFields
 
 instance MessageSize NexusOperationFailureInfo where
   messageSize msg =
-    (if msg.nexusOperationFailureInfoScheduledeventid == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.nexusOperationFailureInfoScheduledeventid))
+    (if msg.nexusOperationFailureInfoScheduledEventId == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.nexusOperationFailureInfoScheduledEventId))
     + (if msg.nexusOperationFailureInfoEndpoint == T.empty then 0 else fieldTextSize 2 msg.nexusOperationFailureInfoEndpoint)
     + (if msg.nexusOperationFailureInfoService == T.empty then 0 else fieldTextSize 3 msg.nexusOperationFailureInfoService)
     + (if msg.nexusOperationFailureInfoOperation == T.empty then 0 else fieldTextSize 4 msg.nexusOperationFailureInfoOperation)
-    + (if msg.nexusOperationFailureInfoOperationid == T.empty then 0 else fieldTextSize 5 msg.nexusOperationFailureInfoOperationid)
-    + (if msg.nexusOperationFailureInfoOperationtoken == T.empty then 0 else fieldTextSize 6 msg.nexusOperationFailureInfoOperationtoken)
-    + unknownFieldsSize msg.nexusOperationFailureInfoUnknownfields
+    + (if msg.nexusOperationFailureInfoOperationId == T.empty then 0 else fieldTextSize 5 msg.nexusOperationFailureInfoOperationId)
+    + (if msg.nexusOperationFailureInfoOperationToken == T.empty then 0 else fieldTextSize 6 msg.nexusOperationFailureInfoOperationToken)
+    + unknownFieldsSize msg.nexusOperationFailureInfoUnknownFields
 
 instance MessageDecode NexusOperationFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -945,7 +945,7 @@ instance MessageDecode NexusOperationFailureInfo where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NexusOperationFailureInfo {nexusOperationFailureInfoScheduledeventid = acc_0, nexusOperationFailureInfoEndpoint = acc_1, nexusOperationFailureInfoService = acc_2, nexusOperationFailureInfoOperation = acc_3, nexusOperationFailureInfoOperationid = acc_4, nexusOperationFailureInfoOperationtoken = acc_5, nexusOperationFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NexusOperationFailureInfo {nexusOperationFailureInfoScheduledEventId = acc_0, nexusOperationFailureInfoEndpoint = acc_1, nexusOperationFailureInfoService = acc_2, nexusOperationFailureInfoOperation = acc_3, nexusOperationFailureInfoOperationId = acc_4, nexusOperationFailureInfoOperationToken = acc_5, nexusOperationFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
@@ -983,8 +983,8 @@ instance ProtoMessage NexusOperationFailureInfo where
         , fdNumber = 1
         , fdTypeDesc = ScalarType Int64Field
         , fdLabel = LabelOptional
-        , fdGet = nexusOperationFailureInfoScheduledeventid
-        , fdSet = \v m -> m { nexusOperationFailureInfoScheduledeventid = v }
+        , fdGet = nexusOperationFailureInfoScheduledEventId
+        , fdSet = \v m -> m { nexusOperationFailureInfoScheduledEventId = v }
         }), (2, SomeField FieldDescriptor
         { fdName = "endpoint"
         , fdNumber = 2
@@ -1014,53 +1014,53 @@ instance ProtoMessage NexusOperationFailureInfo where
         , fdNumber = 5
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = nexusOperationFailureInfoOperationid
-        , fdSet = \v m -> m { nexusOperationFailureInfoOperationid = v }
+        , fdGet = nexusOperationFailureInfoOperationId
+        , fdSet = \v m -> m { nexusOperationFailureInfoOperationId = v }
         })
     , (6, SomeField FieldDescriptor
         { fdName = "operation_token"
         , fdNumber = 6
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = nexusOperationFailureInfoOperationtoken
-        , fdSet = \v m -> m { nexusOperationFailureInfoOperationtoken = v }
+        , fdGet = nexusOperationFailureInfoOperationToken
+        , fdSet = \v m -> m { nexusOperationFailureInfoOperationToken = v }
         })
     ]
 
 instance Aeson.ToJSON NexusOperationFailureInfo where
   toJSON msg = jsonObject
-      [ "scheduledEventId" .=: msg.nexusOperationFailureInfoScheduledeventid
+      [ "scheduledEventId" .=: msg.nexusOperationFailureInfoScheduledEventId
       , "endpoint" .=: msg.nexusOperationFailureInfoEndpoint
       , "service" .=: msg.nexusOperationFailureInfoService
       , "operation" .=: msg.nexusOperationFailureInfoOperation
-      , "operationId" .=: msg.nexusOperationFailureInfoOperationid
-      , "operationToken" .=: msg.nexusOperationFailureInfoOperationtoken
+      , "operationId" .=: msg.nexusOperationFailureInfoOperationId
+      , "operationToken" .=: msg.nexusOperationFailureInfoOperationToken
       ]
 
 instance Aeson.FromJSON NexusOperationFailureInfo where
   parseJSON = Aeson.withObject "NexusOperationFailureInfo" $ \obj -> do
-    fld_nexusOperationFailureInfoScheduledeventid <- parseFieldMaybe obj "scheduledEventId"
+    fld_nexusOperationFailureInfoScheduledEventId <- parseFieldMaybe obj "scheduledEventId"
     fld_nexusOperationFailureInfoEndpoint <- parseFieldMaybe obj "endpoint"
     fld_nexusOperationFailureInfoService <- parseFieldMaybe obj "service"
     fld_nexusOperationFailureInfoOperation <- parseFieldMaybe obj "operation"
-    fld_nexusOperationFailureInfoOperationid <- parseFieldMaybe obj "operationId"
-    fld_nexusOperationFailureInfoOperationtoken <- parseFieldMaybe obj "operationToken"
+    fld_nexusOperationFailureInfoOperationId <- parseFieldMaybe obj "operationId"
+    fld_nexusOperationFailureInfoOperationToken <- parseFieldMaybe obj "operationToken"
     pure defaultNexusOperationFailureInfo
-      { nexusOperationFailureInfoScheduledeventid = maybe (nexusOperationFailureInfoScheduledeventid defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoScheduledeventid
+      { nexusOperationFailureInfoScheduledEventId = maybe (nexusOperationFailureInfoScheduledEventId defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoScheduledEventId
       , nexusOperationFailureInfoEndpoint = maybe (nexusOperationFailureInfoEndpoint defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoEndpoint
       , nexusOperationFailureInfoService = maybe (nexusOperationFailureInfoService defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoService
       , nexusOperationFailureInfoOperation = maybe (nexusOperationFailureInfoOperation defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperation
-      , nexusOperationFailureInfoOperationid = maybe (nexusOperationFailureInfoOperationid defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperationid
-      , nexusOperationFailureInfoOperationtoken = maybe (nexusOperationFailureInfoOperationtoken defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperationtoken
+      , nexusOperationFailureInfoOperationId = maybe (nexusOperationFailureInfoOperationId defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperationId
+      , nexusOperationFailureInfoOperationToken = maybe (nexusOperationFailureInfoOperationToken defaultNexusOperationFailureInfo) id fld_nexusOperationFailureInfoOperationToken
       }
 
 instance Hashable NexusOperationFailureInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.nexusOperationFailureInfoScheduledeventid) msg.nexusOperationFailureInfoEndpoint) msg.nexusOperationFailureInfoService) msg.nexusOperationFailureInfoOperation) msg.nexusOperationFailureInfoOperationid) msg.nexusOperationFailureInfoOperationtoken
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.nexusOperationFailureInfoScheduledEventId) msg.nexusOperationFailureInfoEndpoint) msg.nexusOperationFailureInfoService) msg.nexusOperationFailureInfoOperation) msg.nexusOperationFailureInfoOperationId) msg.nexusOperationFailureInfoOperationToken
 
 data NexusHandlerFailureInfo = NexusHandlerFailureInfo
   { nexusHandlerFailureInfoType :: !Text
-  , nexusHandlerFailureInfoRetrybehavior :: !TE_Enums_V1_Nexus.NexusHandlerErrorRetryBehavior
-  , nexusHandlerFailureInfoUnknownfields :: ![UnknownField]
+  , nexusHandlerFailureInfoRetryBehavior :: !TE_Enums_V1_Nexus.NexusHandlerErrorRetryBehavior
+  , nexusHandlerFailureInfoUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1068,21 +1068,21 @@ data NexusHandlerFailureInfo = NexusHandlerFailureInfo
 defaultNexusHandlerFailureInfo :: NexusHandlerFailureInfo
 defaultNexusHandlerFailureInfo = NexusHandlerFailureInfo
   { nexusHandlerFailureInfoType = ""
-  , nexusHandlerFailureInfoRetrybehavior = (toEnum 0)
-  , nexusHandlerFailureInfoUnknownfields = []
+  , nexusHandlerFailureInfoRetryBehavior = (toEnum 0)
+  , nexusHandlerFailureInfoUnknownFields = []
   }
 
 instance MessageEncode NexusHandlerFailureInfo where
   buildMessage msg =
     (if msg.nexusHandlerFailureInfoType == T.empty then mempty else encodeFieldString 1 msg.nexusHandlerFailureInfoType)
-    <> (if fromEnum msg.nexusHandlerFailureInfoRetrybehavior == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.nexusHandlerFailureInfoRetrybehavior)))
-    <> encodeUnknownFields msg.nexusHandlerFailureInfoUnknownfields
+    <> (if fromEnum msg.nexusHandlerFailureInfoRetryBehavior == 0 then mempty else encodeFieldVarint 2 (fromIntegral (fromEnum msg.nexusHandlerFailureInfoRetryBehavior)))
+    <> encodeUnknownFields msg.nexusHandlerFailureInfoUnknownFields
 
 instance MessageSize NexusHandlerFailureInfo where
   messageSize msg =
     (if msg.nexusHandlerFailureInfoType == T.empty then 0 else fieldTextSize 1 msg.nexusHandlerFailureInfoType)
-    + (if fromEnum msg.nexusHandlerFailureInfoRetrybehavior == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.nexusHandlerFailureInfoRetrybehavior)))
-    + unknownFieldsSize msg.nexusHandlerFailureInfoUnknownfields
+    + (if fromEnum msg.nexusHandlerFailureInfoRetryBehavior == 0 then 0 else fieldVarintSize 2 (fromIntegral (fromEnum msg.nexusHandlerFailureInfoRetryBehavior)))
+    + unknownFieldsSize msg.nexusHandlerFailureInfoUnknownFields
 
 instance MessageDecode NexusHandlerFailureInfo where
   {-# INLINE messageDecoder #-}
@@ -1091,7 +1091,7 @@ instance MessageDecode NexusHandlerFailureInfo where
       loop acc_0 acc_1 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (NexusHandlerFailureInfo {nexusHandlerFailureInfoType = acc_0, nexusHandlerFailureInfoRetrybehavior = acc_1, nexusHandlerFailureInfoUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (NexusHandlerFailureInfo {nexusHandlerFailureInfoType = acc_0, nexusHandlerFailureInfoRetryBehavior = acc_1, nexusHandlerFailureInfoUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1124,37 +1124,37 @@ instance ProtoMessage NexusHandlerFailureInfo where
         , fdNumber = 2
         , fdTypeDesc = MessageType "temporal.api.enums.v1.NexusHandlerErrorRetryBehavior"
         , fdLabel = LabelOptional
-        , fdGet = nexusHandlerFailureInfoRetrybehavior
-        , fdSet = \v m -> m { nexusHandlerFailureInfoRetrybehavior = v }
+        , fdGet = nexusHandlerFailureInfoRetryBehavior
+        , fdSet = \v m -> m { nexusHandlerFailureInfoRetryBehavior = v }
         })
     ]
 
 instance Aeson.ToJSON NexusHandlerFailureInfo where
   toJSON msg = jsonObject
       [ "type" .=: msg.nexusHandlerFailureInfoType
-      , "retryBehavior" .=: msg.nexusHandlerFailureInfoRetrybehavior
+      , "retryBehavior" .=: msg.nexusHandlerFailureInfoRetryBehavior
       ]
 
 instance Aeson.FromJSON NexusHandlerFailureInfo where
   parseJSON = Aeson.withObject "NexusHandlerFailureInfo" $ \obj -> do
     fld_nexusHandlerFailureInfoType <- parseFieldMaybe obj "type"
-    fld_nexusHandlerFailureInfoRetrybehavior <- parseFieldMaybe obj "retryBehavior"
+    fld_nexusHandlerFailureInfoRetryBehavior <- parseFieldMaybe obj "retryBehavior"
     pure defaultNexusHandlerFailureInfo
       { nexusHandlerFailureInfoType = maybe (nexusHandlerFailureInfoType defaultNexusHandlerFailureInfo) id fld_nexusHandlerFailureInfoType
-      , nexusHandlerFailureInfoRetrybehavior = maybe (nexusHandlerFailureInfoRetrybehavior defaultNexusHandlerFailureInfo) id fld_nexusHandlerFailureInfoRetrybehavior
+      , nexusHandlerFailureInfoRetryBehavior = maybe (nexusHandlerFailureInfoRetryBehavior defaultNexusHandlerFailureInfo) id fld_nexusHandlerFailureInfoRetryBehavior
       }
 
 instance Hashable NexusHandlerFailureInfo where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.nexusHandlerFailureInfoType) msg.nexusHandlerFailureInfoRetrybehavior
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.nexusHandlerFailureInfoType) msg.nexusHandlerFailureInfoRetryBehavior
 
 data Failure = Failure
   { failureMessage :: !Text
   , failureSource :: !Text
-  , failureStacktrace :: !Text
-  , failureEncodedattributes :: !(Maybe TE_Common_V1_Message.Payload)
+  , failureStackTrace :: !Text
+  , failureEncodedAttributes :: !(Maybe TE_Common_V1_Message.Payload)
   , failureCause :: !(Maybe Failure)
-  , failureFailureinfo :: !(Maybe Failure'FailureInfo)
-  , failureUnknownfields :: ![UnknownField]
+  , failureFailureInfo :: !(Maybe Failure'FailureInfo)
+  , failureUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
@@ -1191,21 +1191,21 @@ defaultFailure :: Failure
 defaultFailure = Failure
   { failureMessage = ""
   , failureSource = ""
-  , failureStacktrace = ""
-  , failureEncodedattributes = Nothing
+  , failureStackTrace = ""
+  , failureEncodedAttributes = Nothing
   , failureCause = Nothing
-  , failureFailureinfo = Nothing
-  , failureUnknownfields = []
+  , failureFailureInfo = Nothing
+  , failureUnknownFields = []
   }
 
 instance MessageEncode Failure where
   buildMessage msg =
     (if msg.failureMessage == T.empty then mempty else encodeFieldString 1 msg.failureMessage)
     <> (if msg.failureSource == T.empty then mempty else encodeFieldString 2 msg.failureSource)
-    <> (if msg.failureStacktrace == T.empty then mempty else encodeFieldString 3 msg.failureStacktrace)
-    <> (maybe mempty (\v -> encodeFieldMessage 20 v) msg.failureEncodedattributes)
+    <> (if msg.failureStackTrace == T.empty then mempty else encodeFieldString 3 msg.failureStackTrace)
+    <> (maybe mempty (\v -> encodeFieldMessage 20 v) msg.failureEncodedAttributes)
     <> (maybe mempty (\v -> encodeFieldMessage 4 v) msg.failureCause)
-    <> (case msg.failureFailureinfo of
+    <> (case msg.failureFailureInfo of
       Nothing -> mempty
       Just (Failure'FailureInfo'ApplicationFailureInfo v) -> encodeFieldMessage 5 v
       Just (Failure'FailureInfo'TimeoutFailureInfo v) -> encodeFieldMessage 6 v
@@ -1217,16 +1217,16 @@ instance MessageEncode Failure where
       Just (Failure'FailureInfo'ChildWorkflowExecutionFailureInfo v) -> encodeFieldMessage 12 v
       Just (Failure'FailureInfo'NexusOperationExecutionFailureInfo v) -> encodeFieldMessage 13 v
       Just (Failure'FailureInfo'NexusHandlerFailureInfo v) -> encodeFieldMessage 14 v)
-    <> encodeUnknownFields msg.failureUnknownfields
+    <> encodeUnknownFields msg.failureUnknownFields
 
 instance MessageSize Failure where
   messageSize msg =
     (if msg.failureMessage == T.empty then 0 else fieldTextSize 1 msg.failureMessage)
     + (if msg.failureSource == T.empty then 0 else fieldTextSize 2 msg.failureSource)
-    + (if msg.failureStacktrace == T.empty then 0 else fieldTextSize 3 msg.failureStacktrace)
-    + (maybe 0 (\v -> fieldMessageSize 20 (messageSize v)) msg.failureEncodedattributes)
+    + (if msg.failureStackTrace == T.empty then 0 else fieldTextSize 3 msg.failureStackTrace)
+    + (maybe 0 (\v -> fieldMessageSize 20 (messageSize v)) msg.failureEncodedAttributes)
     + (maybe 0 (\v -> fieldMessageSize 4 (messageSize v)) msg.failureCause)
-    + (case msg.failureFailureinfo of { Nothing -> 0; Just (Failure'FailureInfo'ApplicationFailureInfo v) -> fieldMessageSize 5 (messageSize v)
+    + (case msg.failureFailureInfo of { Nothing -> 0; Just (Failure'FailureInfo'ApplicationFailureInfo v) -> fieldMessageSize 5 (messageSize v)
     ; Just (Failure'FailureInfo'TimeoutFailureInfo v) -> fieldMessageSize 6 (messageSize v)
     ; Just (Failure'FailureInfo'CanceledFailureInfo v) -> fieldMessageSize 7 (messageSize v)
     ; Just (Failure'FailureInfo'TerminatedFailureInfo v) -> fieldMessageSize 8 (messageSize v)
@@ -1236,7 +1236,7 @@ instance MessageSize Failure where
     ; Just (Failure'FailureInfo'ChildWorkflowExecutionFailureInfo v) -> fieldMessageSize 12 (messageSize v)
     ; Just (Failure'FailureInfo'NexusOperationExecutionFailureInfo v) -> fieldMessageSize 13 (messageSize v)
     ; Just (Failure'FailureInfo'NexusHandlerFailureInfo v) -> fieldMessageSize 14 (messageSize v) })
-    + unknownFieldsSize msg.failureUnknownfields
+    + unknownFieldsSize msg.failureUnknownFields
 
 instance MessageDecode Failure where
   {-# INLINE messageDecoder #-}
@@ -1245,7 +1245,7 @@ instance MessageDecode Failure where
       loop acc_0 acc_1 acc_2 acc_3 acc_4 acc_5 acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (Failure {failureMessage = acc_0, failureSource = acc_1, failureStacktrace = acc_2, failureEncodedattributes = acc_3, failureCause = acc_4, failureFailureinfo = acc_5, failureUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (Failure {failureMessage = acc_0, failureSource = acc_1, failureStackTrace = acc_2, failureEncodedAttributes = acc_3, failureCause = acc_4, failureFailureInfo = acc_5, failureUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             1 -> do
               v <- decodeFieldString
@@ -1325,16 +1325,16 @@ instance ProtoMessage Failure where
         , fdNumber = 3
         , fdTypeDesc = ScalarType StringField
         , fdLabel = LabelOptional
-        , fdGet = failureStacktrace
-        , fdSet = \v m -> m { failureStacktrace = v }
+        , fdGet = failureStackTrace
+        , fdSet = \v m -> m { failureStackTrace = v }
         })
     , (20, SomeField FieldDescriptor
         { fdName = "encoded_attributes"
         , fdNumber = 20
         , fdTypeDesc = MessageType "temporal.api.common.v1.Payload"
         , fdLabel = LabelOptional
-        , fdGet = failureEncodedattributes
-        , fdSet = \v m -> m { failureEncodedattributes = v }
+        , fdGet = failureEncodedAttributes
+        , fdSet = \v m -> m { failureEncodedAttributes = v }
         })
     , (4, SomeField FieldDescriptor
         { fdName = "cause"
@@ -1349,8 +1349,8 @@ instance ProtoMessage Failure where
         , fdNumber = 5
         , fdTypeDesc = MessageType "failure_info"
         , fdLabel = LabelOptional
-        , fdGet = failureFailureinfo
-        , fdSet = \v m -> m { failureFailureinfo = v }
+        , fdGet = failureFailureInfo
+        , fdSet = \v m -> m { failureFailureInfo = v }
         })
     ]
 
@@ -1358,50 +1358,50 @@ instance Aeson.ToJSON Failure where
   toJSON msg = jsonObject
       [ "message" .=: msg.failureMessage
       , "source" .=: msg.failureSource
-      , "stackTrace" .=: msg.failureStacktrace
-      , "encodedAttributes" .=: msg.failureEncodedattributes
+      , "stackTrace" .=: msg.failureStackTrace
+      , "encodedAttributes" .=: msg.failureEncodedAttributes
       , "cause" .=: msg.failureCause
-      , "failureInfo" .=: msg.failureFailureinfo
+      , "failureInfo" .=: msg.failureFailureInfo
       ]
 
 instance Aeson.FromJSON Failure where
   parseJSON = Aeson.withObject "Failure" $ \obj -> do
     fld_failureMessage <- parseFieldMaybe obj "message"
     fld_failureSource <- parseFieldMaybe obj "source"
-    fld_failureStacktrace <- parseFieldMaybe obj "stackTrace"
-    fld_failureEncodedattributes <- parseFieldMaybe obj "encodedAttributes"
+    fld_failureStackTrace <- parseFieldMaybe obj "stackTrace"
+    fld_failureEncodedAttributes <- parseFieldMaybe obj "encodedAttributes"
     fld_failureCause <- parseFieldMaybe obj "cause"
-    fld_failureFailureinfo <- parseFieldMaybe obj "failureInfo"
+    fld_failureFailureInfo <- parseFieldMaybe obj "failureInfo"
     pure defaultFailure
       { failureMessage = maybe (failureMessage defaultFailure) id fld_failureMessage
       , failureSource = maybe (failureSource defaultFailure) id fld_failureSource
-      , failureStacktrace = maybe (failureStacktrace defaultFailure) id fld_failureStacktrace
-      , failureEncodedattributes = maybe (failureEncodedattributes defaultFailure) id fld_failureEncodedattributes
+      , failureStackTrace = maybe (failureStackTrace defaultFailure) id fld_failureStackTrace
+      , failureEncodedAttributes = maybe (failureEncodedAttributes defaultFailure) id fld_failureEncodedAttributes
       , failureCause = maybe (failureCause defaultFailure) id fld_failureCause
-      , failureFailureinfo = maybe (failureFailureinfo defaultFailure) id fld_failureFailureinfo
+      , failureFailureInfo = maybe (failureFailureInfo defaultFailure) id fld_failureFailureInfo
       }
 
 instance Hashable Failure where
-  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.failureMessage) msg.failureSource) msg.failureStacktrace) msg.failureEncodedattributes) msg.failureCause) msg.failureFailureinfo
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (hashWithSalt (salt) msg.failureMessage) msg.failureSource) msg.failureStackTrace) msg.failureEncodedAttributes) msg.failureCause) msg.failureFailureInfo
 
 data MultiOperationExecutionAborted = MultiOperationExecutionAborted
-  { multiOperationExecutionAbortedUnknownfields :: ![UnknownField]
+  { multiOperationExecutionAbortedUnknownFields :: ![UnknownField]
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass NFData
 
 defaultMultiOperationExecutionAborted :: MultiOperationExecutionAborted
 defaultMultiOperationExecutionAborted = MultiOperationExecutionAborted
-  { multiOperationExecutionAbortedUnknownfields = []
+  { multiOperationExecutionAbortedUnknownFields = []
   }
 
 instance MessageEncode MultiOperationExecutionAborted where
   buildMessage msg =
-    encodeUnknownFields msg.multiOperationExecutionAbortedUnknownfields
+    encodeUnknownFields msg.multiOperationExecutionAbortedUnknownFields
 
 instance MessageSize MultiOperationExecutionAborted where
   messageSize msg =
-    unknownFieldsSize msg.multiOperationExecutionAbortedUnknownfields
+    unknownFieldsSize msg.multiOperationExecutionAbortedUnknownFields
 
 instance MessageDecode MultiOperationExecutionAborted where
   {-# INLINE messageDecoder #-}
@@ -1410,7 +1410,7 @@ instance MessageDecode MultiOperationExecutionAborted where
       loop acc_unknown_ = do
         mTag <- getTagOrU
         case mTag of
-          UNothing -> pure (MultiOperationExecutionAborted {multiOperationExecutionAbortedUnknownfields = reverse acc_unknown_})
+          UNothing -> pure (MultiOperationExecutionAborted {multiOperationExecutionAbortedUnknownFields = reverse acc_unknown_})
           UJust (Tag fn wt) -> case fn of
             _ -> do
               uf <- captureUnknownField fn wt
