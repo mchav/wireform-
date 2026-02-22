@@ -66,8 +66,13 @@ module Proto.JSON
   , hashMapToJSON
   , parseOrdMapFromJSON
   , parseHashMapFromJSON
+
+    -- * Bytes map helpers (maps with ByteString values)
+  , bytesMapFieldToJSON
+  , parseBytesMapFieldMaybe
   ) where
 
+import Data.Bifunctor (bimap, first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as Base64
@@ -94,7 +99,7 @@ import qualified Data.Aeson.KeyMap as AesonKM
 
 -- | Build a JSON object from key-value pairs (for generated code).
 jsonObject :: [(Text, Aeson.Value)] -> Aeson.Value
-jsonObject = Aeson.Object . AesonKM.fromList . fmap (\(k, v) -> (AesonKey.fromText k, v))
+jsonObject = Aeson.Object . AesonKM.fromList . fmap (first AesonKey.fromText)
 
 -- | Create a JSON field pair.
 jsonField :: Text -> Aeson.Value -> (Text, Aeson.Value)
@@ -311,6 +316,24 @@ parseHashMapFromJSON (Aeson.Object o) =
       val <- Aeson.parseJSON v
       pure (key, val)
 parseHashMapFromJSON _ = fail "Expected JSON object for map field"
+
+-- ---------------------------------------------------------------------------
+-- Bytes map helpers (Map k ByteString, common in proto APIs)
+-- ---------------------------------------------------------------------------
+
+bytesMapFieldToJSON :: Text -> Map Text ByteString -> (Text, Aeson.Value)
+bytesMapFieldToJSON key m =
+  (key, Aeson.Object (AesonKM.fromList
+    (fmap (bimap AesonKey.fromText protoBytesToJSON) (Map.toList m))))
+
+parseBytesMapFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe (Map Text ByteString))
+parseBytesMapFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just (Aeson.Object o) -> do
+    pairs <- traverse (\(k, v) -> (,) (AesonKey.toText k) <$> protoBytesFromJSON v) (AesonKM.toList o)
+    pure (Just (Map.fromList pairs))
+  Just _ -> fail ("Expected object for bytes map field: " <> T.unpack key)
 
 -- ---------------------------------------------------------------------------
 -- Internal numeric helpers

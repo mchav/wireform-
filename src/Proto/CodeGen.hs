@@ -460,7 +460,7 @@ genImports externalModules = vsep $
   , txt "import qualified Data.Aeson.Types as Aeson"
   , txt "import qualified Data.Aeson.Key as AesonKey"
   , txt "import qualified Data.Aeson.KeyMap as AesonKM"
-  , txt "import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)"
+  , txt "import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe, bytesMapFieldToJSON, parseBytesMapFieldMaybe)"
   , txt "import Data.Proxy (Proxy(..))"
   , txt "import Proto.Message (IsMessage(..))"
   , txt "import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))"
@@ -1323,10 +1323,12 @@ genToJSONInstance ctx scope msg =
         ]
 
 genToJSONField :: GenCtx -> JSONFieldInfo -> Doc ann
-genToJSONField ctx jfi
-  | jfiIsBytes jfi =
+genToJSONField ctx jfi = case jfiKind jfi of
+  JFKBytes ->
     txt "bytesFieldToJSON " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text) <+> txt "msg." <> pretty (jfiAccessor jfi)
-  | otherwise =
+  JFKBytesMap ->
+    txt "bytesMapFieldToJSON " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text) <+> txt "msg." <> pretty (jfiAccessor jfi)
+  JFKNormal ->
     pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\" .=: msg." :: Text) <> pretty (jfiAccessor jfi)
 
 genFromJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
@@ -1362,10 +1364,12 @@ genFromJSONInstance ctx scope msg =
           ]
 
 genFromJSONFieldBind :: JSONFieldInfo -> Doc ann
-genFromJSONFieldBind jfi
-  | jfiIsBytes jfi =
+genFromJSONFieldBind jfi = case jfiKind jfi of
+  JFKBytes ->
     txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseBytesFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
-  | otherwise =
+  JFKBytesMap ->
+    txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseBytesMapFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
+  JFKNormal ->
     txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
 
 genFromJSONFieldAssign :: Text -> JSONFieldInfo -> Doc ann
@@ -1517,11 +1521,14 @@ resolveTypeKindScoped :: GenCtx -> [Text] -> Text -> TypeKind
 resolveTypeKindScoped ctx scope name = maybe TKMessage tiKind (resolveTypeWithScope ctx scope name)
 
 -- JSON field info
+data JSONFieldKind = JFKNormal | JFKBytes | JFKBytesMap
+  deriving stock (Show, Eq)
+
 data JSONFieldInfo = JSONFieldInfo
   { jfiAccessor :: Text
   , jfiJsonName :: Text
   , jfiOptional :: Bool
-  , jfiIsBytes  :: Bool
+  , jfiKind     :: JSONFieldKind
   } deriving stock (Show, Eq)
 
 extractAllFieldsJSON :: GenCtx -> [Text] -> [MessageElement] -> [JSONFieldInfo]
@@ -1531,16 +1538,17 @@ extractAllFieldsJSON ctx scope = concatMap go
       MEField fd ->
         let accessor = scopedFieldName scope (fieldName fd)
             jsonName = fromMaybe (snakeToCamel (fieldName fd)) (getJsonName (fieldOptions fd))
-            isBytes = case fieldType fd of { FTScalar SBytes -> True; _ -> False }
-        in [JSONFieldInfo accessor jsonName True isBytes]
+            kind = case fieldType fd of { FTScalar SBytes -> JFKBytes; _ -> JFKNormal }
+        in [JSONFieldInfo accessor jsonName True kind]
       MEMapField mf ->
         let accessor = scopedFieldName scope (mapFieldName mf)
             jsonName = fromMaybe (snakeToCamel (mapFieldName mf)) (getJsonName (mapOptions mf))
-        in [JSONFieldInfo accessor jsonName True False]
+            kind = case mapValueType mf of { FTScalar SBytes -> JFKBytesMap; _ -> JFKNormal }
+        in [JSONFieldInfo accessor jsonName True kind]
       MEOneof od ->
         let accessor = scopedFieldName scope (oneofName od)
             jsonName = snakeToCamel (oneofName od)
-        in [JSONFieldInfo accessor jsonName True False]
+        in [JSONFieldInfo accessor jsonName True JFKNormal]
       _ -> []
 
 getJsonName :: [OptionDef] -> Maybe Text
@@ -1553,7 +1561,29 @@ getJsonName = \case
 -- ---------------------------------------------------------------------------
 
 genServiceTopLevel :: GenCtx -> [Text] -> ServiceDef -> [Doc ann]
-genServiceTopLevel ctx = Service.genServiceDecls (gcPkg ctx)
+genServiceTopLevel ctx scope svc =
+  let rpcTypes = concatMap (\r -> [rpcInput r, rpcOutput r]) (svcRpcs svc)
+      pkg = fromMaybe "" (gcPkg ctx)
+      resolveRpcType name =
+        let candidates = [name, pkg <> "." <> name]
+            go [] = Nothing
+            go (c:cs) = case Map.lookup c (gcRegistry ctx) of
+              Just ti -> Just ti
+              Nothing -> go cs
+        in go candidates
+      extraImports = Set.fromList
+        [ tiModule ti
+        | typeName <- rpcTypes
+        , Just ti <- [resolveRpcType typeName]
+        , tiModule ti /= gcThisMod ctx
+        ]
+      importDocs = fmap genQualifiedImport (Set.toAscList extraImports)
+      qualifyRpcType name = case resolveRpcType name of
+        Just ti | tiModule ti /= gcThisMod ctx -> moduleAlias (tiModule ti) <> "." <> tiHsName ti
+                | otherwise -> tiHsName ti
+        Nothing -> hsTypeName (lastPart name)
+      lastPart t = case T.splitOn "." t of { [] -> t; parts -> last parts }
+  in importDocs <> Service.genServiceDeclsQualified (gcPkg ctx) scope qualifyRpcType svc
 
 -- ---------------------------------------------------------------------------
 -- Enum generation

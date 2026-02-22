@@ -18,6 +18,7 @@ module Proto.JSON.WellKnown
   , parseRfc3339
   ) where
 
+import Data.Bifunctor (bimap)
 import Data.Char (isDigit)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
@@ -238,12 +239,12 @@ fieldMaskFromJSON _ = Left "Expected string for FieldMask"
 structToJSON :: Struct -> Aeson.Value
 structToJSON s =
   Aeson.Object (AesonKM.fromList
-    (fmap (\(k, v) -> (AesonKey.fromText k, valueToJSON v)) (Map.toList (structFields s))))
+    (fmap (bimap AesonKey.fromText valueToJSON) (Map.toList (structFields s))))
 
 structFromJSON :: Aeson.Value -> Either String Struct
 structFromJSON (Aeson.Object o) =
   Right defaultStruct { structFields = Map.fromList
-    (fmap (\(k, v) -> (AesonKey.toText k, jsonToValue v)) (AesonKM.toList o)) }
+    (fmap (bimap AesonKey.toText jsonToValue) (AesonKM.toList o)) }
 structFromJSON _ = Left "Expected object for Struct"
 
 valueToJSON :: Value -> Aeson.Value
@@ -266,4 +267,4 @@ jsonToValue (Aeson.Bool b) = defaultValue { valueKind = Just (Value'Kind'BoolVal
 jsonToValue (Aeson.Number n) = defaultValue { valueKind = Just (Value'Kind'NumberValue (toRealFloat n)) }
 jsonToValue (Aeson.String s) = defaultValue { valueKind = Just (Value'Kind'StringValue s) }
 jsonToValue (Aeson.Array vs) = defaultValue { valueKind = Just (Value'Kind'ListValue (defaultListValue { listValueValues = fmap jsonToValue vs })) }
-jsonToValue (Aeson.Object o) = defaultValue { valueKind = Just (Value'Kind'StructValue (defaultStruct { structFields = Map.fromList (fmap (\(k, v) -> (AesonKey.toText k, jsonToValue v)) (AesonKM.toList o)) })) }
+jsonToValue (Aeson.Object o) = defaultValue { valueKind = Just (Value'Kind'StructValue (defaultStruct { structFields = Map.fromList (fmap (bimap AesonKey.toText jsonToValue) (AesonKM.toList o)) })) }

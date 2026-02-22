@@ -87,7 +87,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import qualified Data.Foldable as Foldable
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -280,7 +279,7 @@ foldList f = go mempty
 
 -- | Fold over a Seq to encode each element.
 foldSeq :: (a -> B.Builder) -> Seq a -> B.Builder
-foldSeq f = foldl' (\acc v -> acc <> f v) mempty . Foldable.toList
+foldSeq f = foldl' (\acc v -> acc <> f v) mempty
 {-# INLINE foldSeq #-}
 
 

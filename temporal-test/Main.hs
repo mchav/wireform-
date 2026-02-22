@@ -4,13 +4,14 @@
 module Main where
 
 import Control.Exception (try, SomeException)
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hPutStrLn, stderr)
 
 import Proto.Encode (encodeMessage)
 import Proto.Decode (decodeMessage, DecodeError)
-import Proto.JSON (protoToJSON, renderJson, JsonValue(..))
 
 import Proto.Temporalio.Api.Common.V1.Message
 import Proto.Temporalio.Api.Enums.V1.Common
@@ -55,13 +56,13 @@ testJsonAnnotations = do
         { workflowExecutionWorkflowid = "my-wf"
         , workflowExecutionRunid = "my-run"
         }
-  let json = renderJson (protoToJSON wfExec)
-  hPutStrLn stderr ("  WorkflowExecution JSON: " <> show json)
+  let json = show (Aeson.encode wfExec)
+  hPutStrLn stderr ("  WorkflowExecution JSON: " <> json)
 
-  let enumJson = renderJson (protoToJSON EncodingType'EncodingTypeJson)
+  let enumJson = Aeson.toJSON EncodingType'EncodingTypeJson
   hPutStrLn stderr ("  EncodingType JSON: " <> show enumJson)
-  case protoToJSON EncodingType'EncodingTypeJson of
-    JsonString "ENCODING_TYPE_JSON" -> do
+  case enumJson of
+    Aeson.String "ENCODING_TYPE_JSON" -> do
       hPutStrLn stderr "  OK: enum JSON name correct"
       pure True
     other -> do

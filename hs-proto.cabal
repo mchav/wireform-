@@ -521,11 +521,14 @@ test-suite temporal-codegen-test
     build-depends:
         base             >= 4.16 && < 5
       , hs-proto
+      , aeson
+      , base16-bytestring
       , bytestring
       , containers
+      , deepseq
+      , hashable
       , text
       , vector
-      , deepseq
     hs-source-dirs:   temporal-test
     default-language: GHC2021
     default-extensions:
