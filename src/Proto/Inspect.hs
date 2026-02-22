@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 -- | AST inspection and query utilities for proto files.
 --
 -- Provides functions for navigating, searching, and extracting
@@ -55,7 +56,7 @@ module Proto.Inspect
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -166,7 +167,7 @@ serviceRpcs = svcRpcs
 allFields :: ProtoFile -> [(Text, FieldDef)]
 allFields pf = concatMap go (allMessages pf)
   where
-    go msg = fmap (\fd -> (msgName msg, fd)) (messageFields msg)
+    go msg = fmap (msgName msg,) (messageFields msg)
 
 -- | Find a field by name within a message.
 findField :: Text -> MessageDef -> Maybe FieldDef
@@ -279,7 +280,7 @@ prettyPrintSummary :: ProtoSummary -> Text
 prettyPrintSummary s = T.unlines
   [ "Proto File Summary"
   , "  Syntax:   " <> T.pack (show (summSyntax s))
-  , "  Package:  " <> maybe "(none)" id (summPackage s)
+  , "  Package:  " <> fromMaybe "(none)" (summPackage s)
   , "  Imports:  " <> T.pack (show (summImportCount s))
   , "  Messages: " <> T.pack (show (summMessageCount s))
   , "  Enums:    " <> T.pack (show (summEnumCount s))

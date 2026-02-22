@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE UnboxedTuples #-}
 -- | Low-level, high-performance wire format decoding primitives.
 --
@@ -75,7 +75,11 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8Lenient)
+#if MIN_VERSION_text(2,0,2)
 import Data.Text.Internal.Encoding (validateUtf8Chunk)
+#else
+import qualified Data.Text.Encoding as TE
+#endif
 import Data.Word (Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Exts (Int#, Int(I#), (+#), (>=#), isTrue#)
@@ -185,7 +189,7 @@ getVarint = Decoder $ \bs off ->
 {-# INLINE getVarint #-}
 
 getVarintSlow :: ByteString -> Int# -> (# (# Word64, Int# #) | DecodeError #)
-getVarintSlow bs off0 = go 0 0 off0
+getVarintSlow bs = go 0 0
   where
     len = bsLen bs
     go :: Word64 -> Int -> Int# -> (# (# Word64, Int# #) | DecodeError #)
@@ -421,14 +425,20 @@ decodeTagParts w =
       I# wt# -> (# fn#, wt# #)
 {-# INLINE decodeTagParts #-}
 
--- | Validate UTF-8 without exceptions using text's own validator.
--- This avoids the catch#-based exception path in decodeUtf8' which
--- Core showed allocates Right/Left constructors in the hot decode path.
--- validateUtf8Chunk returns (bytesConsumed, maybeState); if it consumed
--- all bytes, the input is valid UTF-8.
+-- | Validate UTF-8 without exceptions.
+--
+-- On text >= 2.0.2 this uses the internal @validateUtf8Chunk@ for a
+-- zero-allocation fast path.  On older text versions it falls back to
+-- @decodeUtf8'@ which may allocate but is still correct.
 validateUtf8 :: ByteString -> Bool
+#if MIN_VERSION_text(2,0,2)
 validateUtf8 bs =
   let (n, _) = validateUtf8Chunk bs
   in n == BS.length bs
+#else
+validateUtf8 bs = case TE.decodeUtf8' bs of
+  Right _ -> True
+  Left _  -> False
+#endif
 {-# INLINE validateUtf8 #-}
 

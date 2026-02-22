@@ -60,6 +60,7 @@ library
       Proto.Decode
       Proto.Annotations
       Proto.CodeGen
+      Proto.CodeGen.Combinators
       Proto.CodeGen.Types
       Proto.CodeGen.Encode
       Proto.CodeGen.Decode
@@ -106,12 +107,14 @@ library
       Proto.Internal.Maybe
       Proto.Internal.Either
       Proto.Wire.Result
+      Proto.Decode.Stream
+      Proto.Encode.Lazy
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
 
     build-depends:
-        base             >= 4.17   && < 5
+        base             >= 4.16   && < 5
       , bytestring       >= 0.11   && < 0.13
       , containers       >= 0.6    && < 0.8
       , megaparsec       >= 9.0    && < 10
@@ -122,7 +125,7 @@ library
       , filepath         >= 1.4    && < 1.6
       , directory        >= 1.3    && < 1.4
       , deepseq          >= 1.4    && < 1.6
-      , template-haskell >= 2.19   && < 2.21
+      , template-haskell >= 2.18   && < 2.24
       , prettyprinter    >= 1.7    && < 1.8
       , base16-bytestring >= 1.0  && < 1.1
       , base64-bytestring >= 1.2  && < 1.3
@@ -152,9 +155,10 @@ test-suite hs-proto-test
       Test.Schema
       Test.Options
       Test.Lens
+      Test.StreamCodec
 
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , containers
@@ -176,7 +180,7 @@ executable hs-proto-gen
     import:           warnings
     main-is:          Main.hs
     build-depends:
-        base                 >= 4.17 && < 5
+        base                 >= 4.16 && < 5
       , hs-proto
       , text
       , containers
@@ -193,7 +197,7 @@ executable example-basic
     import:           warnings
     main-is:          BasicEncodeDecode.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , text
@@ -207,7 +211,7 @@ executable example-any
     import:           warnings
     main-is:          AnyExample.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , text
@@ -221,7 +225,7 @@ executable example-wellknown
     import:           warnings
     main-is:          WellKnownTypes.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , containers
@@ -235,7 +239,7 @@ executable example-codegen
     import:           warnings
     main-is:          ProtoCodeGen.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , text
     hs-source-dirs:   examples
@@ -248,7 +252,7 @@ executable example-setup-hook
     import:           warnings
     main-is:          ExampleSetup.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , text
     hs-source-dirs:   examples
@@ -260,7 +264,7 @@ executable example-custom-repr
     import:           warnings
     main-is:          CustomReprExample.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , text
@@ -274,7 +278,7 @@ executable example-th
     import:           warnings
     main-is:          THExample.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , text
@@ -287,7 +291,7 @@ executable example-qq
     import:           warnings
     main-is:          QQExample.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
     hs-source-dirs:   examples
@@ -300,7 +304,7 @@ test-suite conformance-self-test
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , vector
@@ -313,7 +317,7 @@ executable bench-grow
     import:           warnings
     main-is:          Main.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , vector
 
@@ -326,7 +330,7 @@ executable hs-proto-conformance
     import:           warnings
     main-is:          Main.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
 
     hs-source-dirs:   conformance
@@ -336,7 +340,7 @@ executable protoc-gen-hs-proto
     import:           warnings
     main-is:          Main.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , text
       , vector
@@ -354,7 +358,7 @@ benchmark compare-bench
                     , Proto.Bench
                     , Proto.Bench_Fields
     build-depends:
-        base               >= 4.17 && < 5
+        base               >= 4.16 && < 5
       , hs-proto
       , bytestring
       , text
@@ -375,12 +379,27 @@ benchmark compare-bench
       DeriveAnyClass
       OverloadedStrings
 
+executable gen-wkt
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , hs-proto
+      , containers
+      , text
+      , directory
+      , filepath
+    hs-source-dirs:   gen-wkt
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
 executable profile
     import:           warnings
     main-is:          Main.hs
     ghc-options:      -O2 -rtsopts
     build-depends:
-        base >= 4.17 && < 5
+        base >= 4.16 && < 5
       , hs-proto
       , bytestring
       , text
@@ -397,7 +416,7 @@ executable hs-proto-bench
     import:           warnings
     main-is:          Main.hs
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , text
@@ -420,7 +439,7 @@ test-suite python-interop
       buildable: False
 
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , text
@@ -493,7 +512,7 @@ test-suite temporal-codegen-test
       Proto.Temporalio.Api.WorkflowService.V1.Service
       Proto.Temporalio.Api.Workflow.V1.Message
     build-depends:
-        base             >= 4.17 && < 5
+        base             >= 4.16 && < 5
       , hs-proto
       , bytestring
       , containers

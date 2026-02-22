@@ -71,8 +71,8 @@ instance MessageDecode ConformanceRequest where
           UJust (Tag 4 _) -> do v <- decodeFieldString; loop cr { crMessageType = v }
           UJust (Tag _ wt) -> skipField wt >> loop cr
 
-data ConformanceResponse = ConformanceResponse
-  { crsResult :: !ConformanceResult
+newtype ConformanceResponse = ConformanceResponse
+  { crsResult :: ConformanceResult
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 
@@ -105,12 +105,12 @@ instance MessageDecode ConformanceResponse where
         mt <- getTagOrU
         case mt of
           UNothing -> pure cr
-          UJust (Tag 1 _) -> do v <- decodeFieldString; pure (ConformanceResponse (ParseError v))
-          UJust (Tag 2 _) -> do v <- decodeFieldString; pure (ConformanceResponse (RuntimeError v))
-          UJust (Tag 3 _) -> do v <- decodeFieldBytes; pure (ConformanceResponse (ProtobufPayload v))
-          UJust (Tag 4 _) -> do v <- decodeFieldString; pure (ConformanceResponse (JsonPayload v))
-          UJust (Tag 5 _) -> do v <- decodeFieldString; pure (ConformanceResponse (Skipped v))
-          UJust (Tag 6 _) -> do v <- decodeFieldString; pure (ConformanceResponse (SerializeError v))
+          UJust (Tag 1 _) -> ConformanceResponse . ParseError <$> decodeFieldString
+          UJust (Tag 2 _) -> ConformanceResponse . RuntimeError <$> decodeFieldString
+          UJust (Tag 3 _) -> ConformanceResponse . ProtobufPayload <$> decodeFieldBytes
+          UJust (Tag 4 _) -> ConformanceResponse . JsonPayload <$> decodeFieldString
+          UJust (Tag 5 _) -> ConformanceResponse . Skipped <$> decodeFieldString
+          UJust (Tag 6 _) -> ConformanceResponse . SerializeError <$> decodeFieldString
           UJust (Tag _ wt) -> skipField wt >> loop cr
 
 -- | Main loop for conformance testing.

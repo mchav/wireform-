@@ -22,7 +22,7 @@ hsFieldName :: Text -> Text
 hsFieldName = snakeToCamel
 
 hsEnumCon :: Text -> Text -> Text
-hsEnumCon _enumName valName = snakeToPascal valName
+hsEnumCon _enumName = snakeToPascal
 
 hsScopedTypeName :: [Text] -> Text -> Text
 hsScopedTypeName parents name = scopedTypeName (parents <> [name])

@@ -1,17 +1,36 @@
-# HLint configuration for hs-proto
+# ---------------------------------------------------------------------------
+# Auto-generated modules (Proto.Google.Protobuf.*)
+# ---------------------------------------------------------------------------
+# These files are produced by `cabal run gen-wkt` and must not be hand-edited.
+# The patterns hlint flags are deliberate codegen output; the correct fix is
+# to improve the code generator, not to patch the generated files.
 
-# Ignore suggestions that conflict with our coding style
-- ignore: {name: "Use list comprehension"}
-- ignore: {name: "Use newtype instead of data", within: [Proto.Wire.Result, Proto.Internal.Maybe, Proto.Internal.Either]}
-- ignore: {name: "Reduce duplication"}
-- ignore: {name: "Use camelCase", within: [Proto.Wire.Result]}
+- ignore: {within: [Proto.Google.Protobuf.Any]}
+- ignore: {within: [Proto.Google.Protobuf.Duration]}
+- ignore: {within: [Proto.Google.Protobuf.Empty]}
+- ignore: {within: [Proto.Google.Protobuf.FieldMask]}
+- ignore: {within: [Proto.Google.Protobuf.SourceContext]}
+- ignore: {within: [Proto.Google.Protobuf.Struct]}
+- ignore: {within: [Proto.Google.Protobuf.Timestamp]}
+- ignore: {within: [Proto.Google.Protobuf.Wrappers]}
+- ignore: {within: [Proto.Google.Protobuf.Descriptor]}
+- ignore: {within: [Proto.Google.Protobuf.Compiler.Plugin]}
 
-# The generated well-known type modules have patterns from the codegen
-# that hlint may not like — ignore those files
-- ignore: {within: [Proto.Google.Protobuf.Timestamp, Proto.Google.Protobuf.Duration, Proto.Google.Protobuf.Empty, Proto.Google.Protobuf.FieldMask, Proto.Google.Protobuf.SourceContext, Proto.Google.Protobuf.Wrappers, Proto.Google.Protobuf.Struct]}
+# ---------------------------------------------------------------------------
+# Template Haskell false positives
+# ---------------------------------------------------------------------------
+# hlint cannot see variable references inside TH splices.  The lambdas \v
+# and \mt bind variables used by $loopCall / $(caseE ...) via
+# varE (mkName "v") / varE (mkName "mt").
+- ignore: {name: "Use const", within: [Proto.TH]}
 
-# Temporal test files are generated
-- ignore: {within: "Proto.Temporalio.**"}
+# ---------------------------------------------------------------------------
+# Unboxed-sum internals
+# ---------------------------------------------------------------------------
+# maybe BaseMaybe.Nothing BaseMaybe.Just converts between two distinct
+# Maybe types (Proto.Internal.Maybe.Maybe vs Data.Maybe.Maybe).
+- ignore: {name: "Redundant maybe", within: [Proto.Internal.Maybe]}
 
-# Unboxed sums/tuples trigger false positives
-- ignore: {name: "Redundant bracket", within: [Proto.Wire.Decode]}
+# These types use unboxed sums where data (not newtype) is required for
+# the pattern synonym machinery and to preserve semantics.
+- ignore: {name: "Use newtype instead of data", within: [Proto.Wire.Decode, Proto.Internal.Either, Proto.Internal.Maybe]}

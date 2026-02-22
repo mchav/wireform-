@@ -1,4 +1,3 @@
-{-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE MagicHash #-}
 -- | High-level decoding interface for protobuf messages.
@@ -439,7 +438,7 @@ encodeUnknownFields = foldMap encodeOne
 
 -- | Decode a map entry (key=field1, value=field2) from a length-delimited chunk.
 decodeMapEntry :: Decoder k -> Decoder v -> k -> v -> Decoder (k, v)
-decodeMapEntry decK decV defK defV = loop defK defV
+decodeMapEntry decK decV = loop
   where
     loop !mk !mv = do
       mt <- getTagOr

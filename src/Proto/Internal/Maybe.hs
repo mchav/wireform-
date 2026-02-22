@@ -5,9 +5,7 @@
 -- Unpacked Maybe using unboxed sums for zero-allocation optionals.
 -- Internal module — public API boundaries convert to standard Maybe.
 
-{-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE UnboxedSums     #-}
 {-# LANGUAGE UnboxedTuples   #-}
 
 module Proto.Internal.Maybe

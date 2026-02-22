@@ -59,4 +59,4 @@ buildRegistry qtypes = do
 -- myRegistry = registryFromList [Timestamp.registerModuleTypes, Duration.registerModuleTypes]
 -- @
 registryFromList :: [MessageRegistry -> MessageRegistry] -> MessageRegistry
-registryFromList fs = foldl (\acc f -> f acc) emptyRegistry fs
+registryFromList = foldl (\acc f -> f acc) emptyRegistry

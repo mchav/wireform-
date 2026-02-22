@@ -4,7 +4,6 @@
 -- Unpacked Either using unboxed sums for zero-allocation branching.
 -- Internal module — public API boundaries convert to standard Either.
 
-{-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedSums     #-}
 

@@ -17,6 +17,7 @@ import qualified Data.Text as T
 import Prettyprinter
 
 import Proto.AST
+import Proto.CodeGen.Combinators (txt)
 import Proto.CodeGen.Types (hsTypeName, hsFieldName)
 
 -- | Generate a MessageEncode instance for a message.
@@ -24,18 +25,18 @@ genEncodeInstance :: MessageDef -> Doc ann
 genEncodeInstance msg =
   let fields = extractFields (msgElements msg)
   in vsep
-    [ pretty ("instance MessageEncode" :: Text) <+> pretty (hsTypeName (msgName msg)) <+> pretty ("where" :: Text)
+    [ txt "instance MessageEncode" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
     , indent 2 $ vsep
-        [ pretty ("buildMessage msg =" :: Text)
+        [ txt "buildMessage msg ="
         , indent 2 $ case fields of
-            [] -> pretty ("mempty" :: Text)
-            _  -> vsep (fmap (\(i, f) -> genFieldBuild i f) (zip [0..] fields))
+            [] -> txt "mempty"
+            _  -> vsep (fmap (uncurry genFieldBuild) (zip [0..] fields))
         ]
     ]
   where
     genFieldBuild :: Int -> FieldInfo -> Doc ann
     genFieldBuild idx fi =
-      let op = if idx == 0 then mempty else pretty ("<> " :: Text)
+      let op = if idx == 0 then mempty else txt "<> "
           accessor = "msg." <> hsFieldName (fiName fi)
           fn = T.pack (show (fiFieldNum fi))
       in op <> genBuildExpr fn accessor (fiLabel fi) (fiType fi)
@@ -43,97 +44,97 @@ genEncodeInstance msg =
 genBuildExpr :: Text -> Text -> Maybe FieldLabel -> FieldType -> Doc ann
 genBuildExpr fn accessor lbl ft = case lbl of
   Just Repeated -> genRepeatedBuild fn accessor ft
-  Just Optional -> pretty ("(maybe mempty (\\v -> " :: Text) <> genSingleBuild fn "v" ft <> pretty (") " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  Just Optional -> txt "(maybe mempty (\\v -> " <> genSingleBuild fn "v" ft <> txt ") " <> pretty accessor <> txt ")"
   _ -> genProto3Build fn accessor ft
 
 genProto3Build :: Text -> Text -> FieldType -> Doc ann
 genProto3Build fn accessor ft =
   let cond = defaultCheck accessor ft
-  in pretty ("(if " :: Text) <> cond <> pretty (" then mempty else " :: Text) <> genSingleBuild fn accessor ft <> pretty (")" :: Text)
+  in txt "(if " <> cond <> txt " then mempty else " <> genSingleBuild fn accessor ft <> txt ")"
 
 genSingleBuild :: Text -> Text -> FieldType -> Doc ann
 genSingleBuild fn accessor = \case
-  FTScalar SDouble   -> pretty ("encodeFieldDouble " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SFloat    -> pretty ("encodeFieldFloat " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SInt32    -> pretty ("encodeFieldVarint " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SInt64    -> pretty ("encodeFieldVarint " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SUInt32   -> pretty ("encodeFieldVarint " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SUInt64   -> pretty ("encodeFieldVarint " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SSInt32   -> pretty ("encodeFieldSVarint32 " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SSInt64   -> pretty ("encodeFieldSVarint64 " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SFixed32  -> pretty ("encodeFieldFixed32 " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SFixed64  -> pretty ("encodeFieldFixed64 " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SSFixed32 -> pretty ("encodeFieldFixed32 " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SSFixed64 -> pretty ("encodeFieldFixed64 " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SBool     -> pretty ("encodeFieldBool " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SString   -> pretty ("encodeFieldString " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SBytes    -> pretty ("encodeFieldBytes " :: Text) <> pretty fn <+> pretty accessor
-  FTNamed _          -> pretty ("encodeFieldMessageSized " :: Text) <> pretty fn <+> pretty accessor
+  FTScalar SDouble   -> txt "encodeFieldDouble " <> pretty fn <+> pretty accessor
+  FTScalar SFloat    -> txt "encodeFieldFloat " <> pretty fn <+> pretty accessor
+  FTScalar SInt32    -> txt "encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  FTScalar SInt64    -> txt "encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  FTScalar SUInt32   -> txt "encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  FTScalar SUInt64   -> txt "encodeFieldVarint " <> pretty fn <+> pretty accessor
+  FTScalar SSInt32   -> txt "encodeFieldSVarint32 " <> pretty fn <+> pretty accessor
+  FTScalar SSInt64   -> txt "encodeFieldSVarint64 " <> pretty fn <+> pretty accessor
+  FTScalar SFixed32  -> txt "encodeFieldFixed32 " <> pretty fn <+> pretty accessor
+  FTScalar SFixed64  -> txt "encodeFieldFixed64 " <> pretty fn <+> pretty accessor
+  FTScalar SSFixed32 -> txt "encodeFieldFixed32 " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  FTScalar SSFixed64 -> txt "encodeFieldFixed64 " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  FTScalar SBool     -> txt "encodeFieldBool " <> pretty fn <+> pretty accessor
+  FTScalar SString   -> txt "encodeFieldString " <> pretty fn <+> pretty accessor
+  FTScalar SBytes    -> txt "encodeFieldBytes " <> pretty fn <+> pretty accessor
+  FTNamed _          -> txt "encodeFieldMessageSized " <> pretty fn <+> pretty accessor
 
 genRepeatedBuild :: Text -> Text -> FieldType -> Doc ann
 genRepeatedBuild fn accessor = \case
   FTScalar SString ->
-    pretty ("V.foldl' (\\acc v -> acc <> encodeFieldString " :: Text) <> pretty fn <+> pretty ("v) mempty " :: Text) <> pretty accessor
+    txt "V.foldl' (\\acc v -> acc <> encodeFieldString " <> pretty fn <+> txt "v) mempty " <> pretty accessor
   FTScalar SBytes ->
-    pretty ("V.foldl' (\\acc v -> acc <> encodeFieldBytes " :: Text) <> pretty fn <+> pretty ("v) mempty " :: Text) <> pretty accessor
+    txt "V.foldl' (\\acc v -> acc <> encodeFieldBytes " <> pretty fn <+> txt "v) mempty " <> pretty accessor
   FTScalar s ->
-    pretty ("encode" :: Text) <> pretty (packedFnName s) <+> pretty fn <+> pretty accessor
+    txt "encode" <> pretty (packedFnName s) <+> pretty fn <+> pretty accessor
   FTNamed _ ->
-    pretty ("V.foldl' (\\acc v -> acc <> encodeFieldMessageSized " :: Text) <> pretty fn <+> pretty ("v) mempty " :: Text) <> pretty accessor
+    txt "V.foldl' (\\acc v -> acc <> encodeFieldMessageSized " <> pretty fn <+> txt "v) mempty " <> pretty accessor
 
 defaultCheck :: Text -> FieldType -> Doc ann
 defaultCheck accessor = \case
-  FTScalar SBool   -> pretty accessor <+> pretty ("== False" :: Text)
+  FTScalar SBool   -> pretty accessor <+> txt "== False"
   FTScalar SString -> pretty accessor <+> pretty ("== \"\"" :: Text)
-  FTScalar SBytes  -> pretty ("BS.null " :: Text) <> pretty accessor
-  FTScalar _       -> pretty accessor <+> pretty ("== 0" :: Text)
-  FTNamed _        -> pretty accessor <+> pretty ("== Nothing" :: Text)
+  FTScalar SBytes  -> txt "BS.null " <> pretty accessor
+  FTScalar _       -> pretty accessor <+> txt "== 0"
+  FTNamed _        -> pretty accessor <+> txt "== Nothing"
 
 -- | Generate a MessageSize instance.
 genSizeInstance :: MessageDef -> Doc ann
 genSizeInstance msg =
   let fields = extractFields (msgElements msg)
   in vsep
-    [ pretty ("instance MessageSize" :: Text) <+> pretty (hsTypeName (msgName msg)) <+> pretty ("where" :: Text)
+    [ txt "instance MessageSize" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
     , indent 2 $ vsep
-        [ pretty ("messageSize msg =" :: Text)
+        [ txt "messageSize msg ="
         , indent 2 $ case fields of
-            [] -> pretty ("0" :: Text)
-            _  -> vsep (fmap (\(i, f) -> genFieldSize i f) (zip [0..] fields))
+            [] -> txt "0"
+            _  -> vsep (fmap (uncurry genFieldSize) (zip [0..] fields))
         ]
     ]
   where
     genFieldSize :: Int -> FieldInfo -> Doc ann
     genFieldSize idx fi =
-      let op = if idx == 0 then mempty else pretty ("+ " :: Text)
+      let op = if idx == 0 then mempty else txt "+ "
           accessor = "msg." <> hsFieldName (fiName fi)
           fn = T.pack (show (fiFieldNum fi))
       in op <> genSizeExpr fn accessor (fiLabel fi) (fiType fi)
 
 genSizeExpr :: Text -> Text -> Maybe FieldLabel -> FieldType -> Doc ann
 genSizeExpr fn accessor lbl ft = case lbl of
-  Just Repeated -> pretty ("(sizeRepeated " :: Text) <> pretty fn <+> pretty accessor <> pretty (")" :: Text)
-  Just Optional -> pretty ("(maybe 0 (\\v -> " :: Text) <> genSingleSize fn "v" ft <> pretty (") " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  _ -> pretty ("(if " :: Text) <> defaultCheck accessor ft <> pretty (" then 0 else " :: Text) <> genSingleSize fn accessor ft <> pretty (")" :: Text)
+  Just Repeated -> txt "(sizeRepeated " <> pretty fn <+> pretty accessor <> txt ")"
+  Just Optional -> txt "(maybe 0 (\\v -> " <> genSingleSize fn "v" ft <> txt ") " <> pretty accessor <> txt ")"
+  _ -> txt "(if " <> defaultCheck accessor ft <> txt " then 0 else " <> genSingleSize fn accessor ft <> txt ")"
 
 genSingleSize :: Text -> Text -> FieldType -> Doc ann
 genSingleSize fn accessor = \case
-  FTScalar SDouble   -> pretty ("fieldDoubleSize " :: Text) <> pretty fn
-  FTScalar SFloat    -> pretty ("fieldFloatSize " :: Text) <> pretty fn
-  FTScalar SFixed32  -> pretty ("fieldFixed32Size " :: Text) <> pretty fn
-  FTScalar SFixed64  -> pretty ("fieldFixed64Size " :: Text) <> pretty fn
-  FTScalar SSFixed32 -> pretty ("fieldFixed32Size " :: Text) <> pretty fn
-  FTScalar SSFixed64 -> pretty ("fieldFixed64Size " :: Text) <> pretty fn
-  FTScalar SBool     -> pretty ("fieldBoolSize " :: Text) <> pretty fn
-  FTScalar SInt32    -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SInt64    -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SUInt32   -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty ("(fromIntegral " :: Text) <> pretty accessor <> pretty (")" :: Text)
-  FTScalar SUInt64   -> pretty ("fieldVarintSize " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SSInt32   -> pretty ("fieldSVarint32Size " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SSInt64   -> pretty ("fieldSVarint64Size " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SString   -> pretty ("fieldTextSize " :: Text) <> pretty fn <+> pretty accessor
-  FTScalar SBytes    -> pretty ("fieldBytesSize " :: Text) <> pretty fn <+> pretty accessor
-  FTNamed _          -> pretty ("fieldMessageSize " :: Text) <> pretty fn <+> pretty ("(messageSize " :: Text) <> pretty accessor <> pretty (")" :: Text)
+  FTScalar SDouble   -> txt "fieldDoubleSize " <> pretty fn
+  FTScalar SFloat    -> txt "fieldFloatSize " <> pretty fn
+  FTScalar SFixed32  -> txt "fieldFixed32Size " <> pretty fn
+  FTScalar SFixed64  -> txt "fieldFixed64Size " <> pretty fn
+  FTScalar SSFixed32 -> txt "fieldFixed32Size " <> pretty fn
+  FTScalar SSFixed64 -> txt "fieldFixed64Size " <> pretty fn
+  FTScalar SBool     -> txt "fieldBoolSize " <> pretty fn
+  FTScalar SInt32    -> txt "fieldVarintSize " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  FTScalar SInt64    -> txt "fieldVarintSize " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  FTScalar SUInt32   -> txt "fieldVarintSize " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  FTScalar SUInt64   -> txt "fieldVarintSize " <> pretty fn <+> pretty accessor
+  FTScalar SSInt32   -> txt "fieldSVarint32Size " <> pretty fn <+> pretty accessor
+  FTScalar SSInt64   -> txt "fieldSVarint64Size " <> pretty fn <+> pretty accessor
+  FTScalar SString   -> txt "fieldTextSize " <> pretty fn <+> pretty accessor
+  FTScalar SBytes    -> txt "fieldBytesSize " <> pretty fn <+> pretty accessor
+  FTNamed _          -> txt "fieldMessageSize " <> pretty fn <+> txt "(messageSize " <> pretty accessor <> txt ")"
 
 packedFnName :: ScalarType -> Text
 packedFnName = \case

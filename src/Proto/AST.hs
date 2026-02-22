@@ -234,8 +234,8 @@ data OptionDef = OptionDef
 
 -- | An option name can be a simple identifier or a parenthesized extension name,
 -- optionally followed by dotted sub-field access.
-data OptionName = OptionName
-  { optNameParts :: ![OptionNamePart]
+newtype OptionName = OptionName
+  { optNameParts :: [OptionNamePart]
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 

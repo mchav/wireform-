@@ -33,7 +33,7 @@ module Proto.Setup
   ) where
 
 import Control.Exception (catch, IOException)
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, unless, when)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist,
@@ -77,7 +77,7 @@ generateProtos cfg = do
     then putStrLn $ "[hs-proto] Proto directory not found: " <> protoDir
     else do
       protos <- findProtoFiles protoDir
-      when (not (null protos)) $
+      unless (null protos) $
         putStrLn $ "[hs-proto] Found " <> show (length protos) <> " .proto file(s) in " <> protoDir
       forM_ protos $ \relPath ->
         generateProtoFile cfg (protoDir </> relPath)

@@ -21,7 +21,7 @@ module Proto.Parser.Lexer
   ) where
 
 import Control.Monad (void)
-import Data.Char (chr, digitToInt, isAlphaNum, isLetter)
+import Data.Char (chr, digitToInt, isAlphaNum, isDigit, isLetter, isOctDigit)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -98,7 +98,7 @@ intLiteral = lexeme $ do
   pure (sign n)
   where
     octalNum = do
-      digits <- takeWhile1P (Just "octal digit") (\c -> c >= '0' && c <= '7')
+      digits <- takeWhile1P (Just "octal digit") isOctDigit
       pure (T.foldl' (\acc c -> acc * 8 + fromIntegral (digitToInt c)) 0 digits)
 
 floatLiteral :: Parser Double
@@ -106,13 +106,13 @@ floatLiteral = lexeme $ do
   sign <- option id (negate <$ char '-')
   n <- choice
     [ try $ do
-        whole <- takeWhile1P Nothing (\c -> c >= '0' && c <= '9')
+        whole <- takeWhile1P Nothing isDigit
         void (char '.')
-        frac <- takeWhileP Nothing (\c -> c >= '0' && c <= '9')
+        frac <- takeWhileP Nothing isDigit
         ex <- option "" exponentPart
         pure (read (T.unpack whole <> "." <> T.unpack frac <> T.unpack ex))
     , try $ do
-        whole <- takeWhile1P Nothing (\c -> c >= '0' && c <= '9')
+        whole <- takeWhile1P Nothing isDigit
         ex <- exponentPart
         pure (read (T.unpack whole <> T.unpack ex))
     , 1/0 <$ (string "inf" <|> string "infinity")
@@ -123,7 +123,7 @@ floatLiteral = lexeme $ do
     exponentPart = do
       e <- T.singleton <$> char' 'e'
       s <- option "" (T.singleton <$> (char '+' <|> char '-'))
-      digits <- takeWhile1P Nothing (\c -> c >= '0' && c <= '9')
+      digits <- takeWhile1P Nothing isDigit
       pure (e <> s <> digits)
 
 -- | Parse a string literal (double-quoted or single-quoted), with escape support.

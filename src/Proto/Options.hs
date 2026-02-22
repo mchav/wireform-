@@ -66,6 +66,7 @@ module Proto.Options
   , deprecatedEnumValues
   ) where
 
+import Data.Char (isAsciiLower)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -152,8 +153,8 @@ extractEnumOptions opts = EnumOptions
   }
 
 -- | Standard enum value options.
-data EnumValueOptions = EnumValueOptions
-  { evoDeprecated :: !Bool
+newtype EnumValueOptions = EnumValueOptions
+  { evoDeprecated :: Bool
   } deriving stock (Show, Eq)
 
 extractEnumValueOptions :: [OptionDef] -> EnumValueOptions
@@ -162,8 +163,8 @@ extractEnumValueOptions opts = EnumValueOptions
   }
 
 -- | Standard service-level options.
-data ServiceOptions = ServiceOptions
-  { svoDeprecated :: !Bool
+newtype ServiceOptions = ServiceOptions
+  { svoDeprecated :: Bool
   } deriving stock (Show, Eq)
 
 extractServiceOptions :: [OptionDef] -> ServiceOptions
@@ -172,8 +173,8 @@ extractServiceOptions opts = ServiceOptions
   }
 
 -- | Standard RPC-level options.
-data RpcOptions = RpcOptions
-  { roDeprecated :: !Bool
+newtype RpcOptions = RpcOptions
+  { roDeprecated :: Bool
   } deriving stock (Show, Eq)
 
 extractRpcOptions :: [OptionDef] -> RpcOptions
@@ -220,7 +221,7 @@ deriveHaskellModule (Just pkg) =
       Just (c, rest) -> T.cons (toUpper c) rest
       Nothing        -> t
     toUpper c
-      | c >= 'a' && c <= 'z' = toEnum (fromEnum c - 32)
+      | isAsciiLower c = toEnum (fromEnum c - 32)
       | otherwise = c
 
 -- | Check if something is marked deprecated.
@@ -230,7 +231,7 @@ isDeprecated opts = fromMaybe False (lookupSimpleOption "deprecated" opts >>= op
 -- | All deprecated fields in a message.
 deprecatedFields :: MessageDef -> [FieldDef]
 deprecatedFields msg =
-  filter (isDeprecated . fieldOptions) (concatMap extractF (msgElements msg))
+  concatMap (filter (isDeprecated . fieldOptions) . extractF) (msgElements msg)
   where
     extractF (MEField fd) = [fd]
     extractF _            = []
