@@ -52,6 +52,7 @@ library
       Proto.AST
       Proto.Parser
       Proto.Parser.Lexer
+      Proto.Parser.Error
       Proto.Parser.Resolver
       Proto.Wire
       Proto.Wire.Encode

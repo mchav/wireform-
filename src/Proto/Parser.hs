@@ -7,19 +7,22 @@ module Proto.Parser
   ( parseProtoFile
   , parseProto
   , Parser
+  , renderParseError
+  , renderParseErrors
   ) where
 
 import Control.Monad (void)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Text.Megaparsec
+import Text.Megaparsec hiding (option)
 import Text.Megaparsec.Char ()
 
 import Data.Void (Void)
 
 import Proto.AST
 import Proto.Parser.Lexer
+import Proto.Parser.Error (renderParseError, renderParseErrors)
 
 -- | Parse a .proto file from its filename and contents.
 parseProtoFile :: FilePath -> Text -> Either (ParseErrorBundle Text Void) ProtoFile
@@ -63,11 +66,11 @@ syntaxDecl = do
   reserved "syntax"
   equals
   s <- stringLiteral
-  semi
   case s of
-    "proto2" -> pure Proto2
-    "proto3" -> pure Proto3
-    _        -> fail ("Unknown syntax: " <> T.unpack s)
+    "proto2" -> semi >> pure Proto2
+    "proto3" -> semi >> pure Proto3
+    _        -> fail ("unknown syntax \"" <> T.unpack s
+                     <> "\": expected \"proto2\" or \"proto3\"")
 
 editionDecl :: Parser Syntax
 editionDecl = do
@@ -78,12 +81,25 @@ editionDecl = do
   pure (Editions (Edition ed))
 
 topLevelStmt :: Parser TLStmt
-topLevelStmt = choice
-  [ try (TLStmtPackage  <$> packageDecl)
-  , try (TLStmtImport   <$> importDecl)
-  , try (TLStmtOption   <$> optionDecl)
-  , TLStmtTopLevel <$> topLevelDef
-  ]
+topLevelStmt = do
+  kw <- lookAhead (identifier <?> "top-level declaration (message, enum, service, import, package, or option)")
+  case kw of
+    "package"  -> TLStmtPackage <$> packageDecl
+    "import"   -> TLStmtImport <$> importDecl
+    "option"   -> TLStmtOption <$> optionDecl
+    "message"  -> TLStmtTopLevel . TLMessage <$> messageDef
+    "enum"     -> TLStmtTopLevel . TLEnum <$> enumDef
+    "service"  -> TLStmtTopLevel . TLService <$> serviceDef
+    "extend"   -> TLStmtTopLevel <$> extendDef
+    _          -> fail ("unexpected keyword '" <> T.unpack kw
+                       <> "', expected one of: message, enum, service, import, package, option, or extend")
+
+extendDef :: Parser TopLevel
+extendDef = do
+  reserved "extend"
+  name <- fullIdent
+  fields <- braces (many fieldDef)
+  pure (TLExtend name fields)
 
 packageDecl :: Parser Text
 packageDecl = do
@@ -139,7 +155,7 @@ constant = choice
   , CInt <$> try intLiteral
   , CAggregate <$> aggregateLiteral
   , CIdent <$> fullIdent
-  ]
+  ] <?> "constant value (string, number, boolean, identifier, or aggregate)"
 
 aggregateLiteral :: Parser [(Text, Constant)]
 aggregateLiteral = braces (many aggregateField)
@@ -151,50 +167,37 @@ aggregateLiteral = braces (many aggregateField)
       _ <- optional (comma <|> semi)
       pure (key, val)
 
-topLevelDef :: Parser TopLevel
-topLevelDef = choice
-  [ try (TLMessage <$> messageDef)
-  , try (TLEnum    <$> enumDef)
-  , try (TLService <$> serviceDef)
-  , try extendDef
-  ]
-  where
-    extendDef = do
-      reserved "extend"
-      name <- fullIdent
-      fields <- braces (many fieldDef)
-      pure (TLExtend name fields)
-
 messageDef :: Parser MessageDef
 messageDef = do
   reserved "message"
-  name <- identifier
+  name <- identifier <?> "message name"
   elems <- braces (many messageElement)
   pure MessageDef { msgName = name, msgElements = elems }
 
 messageElement :: Parser MessageElement
-messageElement = choice
-  [ try (MEReserved   <$> reservedDecl)
-  , try (MEExtensions <$> extensionsDecl)
-  , try (MEOption     <$> optionDecl)
-  , try (MEEnum       <$> enumDef)
-  , try (MEMessage    <$> messageDef)
-  , try (MEOneof      <$> oneofDef)
-  , try (MEMapField   <$> mapFieldDef)
-  , MEField           <$> fieldDef
-  ]
+messageElement = do
+  kw <- lookAhead (identifier <?> "message element (field, enum, message, oneof, map, option, reserved, or extensions)")
+  case kw of
+    "reserved"   -> MEReserved <$> reservedDecl
+    "extensions" -> MEExtensions <$> extensionsDecl
+    "option"     -> MEOption <$> optionDecl
+    "enum"       -> MEEnum <$> enumDef
+    "message"    -> MEMessage <$> messageDef
+    "oneof"      -> MEOneof <$> oneofDef
+    "map"        -> MEMapField <$> mapFieldDef
+    _            -> MEField <$> fieldDef
 
 fieldDef :: Parser FieldDef
 fieldDef = do
-  lbl <- optional $ choice
+  lbl <- optional (choice
     [ try (Optional <$ reserved "optional")
     , try (Required <$ reserved "required")
     , try (Repeated <$ reserved "repeated")
-    ]
+    ] <?> "field label (optional, required, or repeated)")
   ft <- parseFieldType
-  name <- identifier
+  name <- identifier <?> "field name"
   equals
-  num <- FieldNumber . fromIntegral <$> intLiteral
+  num <- FieldNumber . fromIntegral <$> (intLiteral <?> "field number")
   opts <- fieldOptionList
   semi
   pure FieldDef
@@ -223,7 +226,7 @@ parseFieldType = choice
   , FTScalar SString   <$ reserved "string"
   , FTScalar SBytes    <$ reserved "bytes"
   , FTNamed <$> fullIdent
-  ]
+  ] <?> "field type (double, float, int32, int64, string, bytes, bool, or message/enum name)"
 
 mapFieldDef :: Parser MapField
 mapFieldDef = do
@@ -263,7 +266,7 @@ scalarType = choice
   , SBool     <$ reserved "bool"
   , SString   <$ reserved "string"
   , SBytes    <$ reserved "bytes"
-  ]
+  ] <?> "scalar type (double, float, int32, int64, uint32, uint64, sint32, sint64, fixed32, fixed64, sfixed32, sfixed64, bool, string, or bytes)"
 
 oneofDef :: Parser OneofDef
 oneofDef = do
@@ -351,7 +354,7 @@ enumItem = choice
   [ EIOption <$> try optionDecl
   , EIReserved <$ try enumReservedDecl
   , EIValue <$> enumValueDef
-  ]
+  ] <?> "enum value, option, or reserved declaration"
 
 enumReservedDecl :: Parser ()
 enumReservedDecl = do
