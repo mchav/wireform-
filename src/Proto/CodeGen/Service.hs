@@ -22,6 +22,7 @@ import Prettyprinter
 
 import Data.Char (toLower, toUpper)
 import Proto.AST
+import Proto.CodeGen.Combinators (txt)
 
 -- | Generate all declarations for a service definition.
 genServiceDecls :: Maybe Text -> [Text] -> ServiceDef -> [Doc ann]
@@ -42,14 +43,14 @@ genServiceModule :: Maybe Text -> Text -> ServiceDef -> Doc ann
 genServiceModule pkg prefix svc =
   let modName = prefix <> "." <> hsModuleName' (fromMaybe "" pkg) <> "." <> hsTypeName' (svcName svc)
   in vsep
-    [ pretty ("{-# LANGUAGE OverloadedStrings #-}" :: Text)
-    , pretty ("-- | Generated gRPC service interface for " :: Text) <> pretty (svcName svc)
-    , pretty ("module " :: Text) <> pretty modName <> pretty (" where" :: Text)
+    [ txt "{-# LANGUAGE OverloadedStrings #-}"
+    , txt "-- | Generated gRPC service interface for " <> pretty (svcName svc)
+    , txt "module " <> pretty modName <> txt " where"
     , mempty
-    , pretty ("import Data.ByteString (ByteString)" :: Text)
-    , pretty ("import Data.Text (Text)" :: Text)
-    , pretty ("import Proto.Encode (MessageEncode, encodeMessage)" :: Text)
-    , pretty ("import Proto.Decode (MessageDecode, decodeMessage)" :: Text)
+    , txt "import Data.ByteString (ByteString)"
+    , txt "import Data.Text (Text)"
+    , txt "import Proto.Encode (MessageEncode, encodeMessage)"
+    , txt "import Proto.Decode (MessageDecode, decodeMessage)"
     , mempty
     , vsep (genServiceDecls pkg [] svc)
     ]
@@ -58,69 +59,69 @@ genServiceDoc :: Maybe Text -> ServiceDef -> Doc ann
 genServiceDoc pkg svc =
   let qualified = maybe (svcName svc) (\p -> p <> "." <> svcName svc) pkg
   in vsep
-    [ pretty ("-- | gRPC service @" :: Text) <> pretty qualified <> pretty ("@." :: Text)
-    , pretty ("--" :: Text)
-    , pretty ("-- Methods:" :: Text)
+    [ txt "-- | gRPC service @" <> pretty qualified <> txt "@."
+    , txt "--"
+    , txt "-- Methods:"
     , vsep (fmap (\r ->
-        pretty ("-- * " :: Text) <> pretty (rpcName r) <>
-        pretty (" (" :: Text) <> streamLabel (rpcInputStr r) <>
-        pretty (rpcInput r) <> pretty (" -> " :: Text) <>
+        txt "-- * " <> pretty (rpcName r) <>
+        txt " (" <> streamLabel (rpcInputStr r) <>
+        pretty (rpcInput r) <> txt " -> " <>
         streamLabel (rpcOutputStr r) <> pretty (rpcOutput r) <>
-        pretty (")" :: Text)) (svcRpcs svc))
+        txt ")") (svcRpcs svc))
     ]
 
 streamLabel :: StreamQualifier -> Doc ann
 streamLabel NoStream  = mempty
-streamLabel Streaming = pretty ("stream " :: Text)
+streamLabel Streaming = txt "stream "
 
 -- | Generate the server handler record type.
 genServerType :: [Text] -> ServiceDef -> Doc ann
 genServerType scope svc =
   let tyN = svcTypeName scope svc <> "Server"
   in vsep
-    [ pretty ("-- | Server handler record for @" :: Text) <> pretty (svcName svc) <> pretty ("@." :: Text)
-    , pretty ("-- Each field is a handler function for one RPC method." :: Text)
-    , pretty ("-- Implement all fields to create a server." :: Text)
-    , pretty ("data " :: Text) <> pretty tyN <> pretty (" m = " :: Text) <> pretty tyN
+    [ txt "-- | Server handler record for @" <> pretty (svcName svc) <> txt "@."
+    , txt "-- Each field is a handler function for one RPC method."
+    , txt "-- Implement all fields to create a server."
+    , txt "data " <> pretty tyN <> txt " m = " <> pretty tyN
     , indent 2 (braceFields (fmap (genServerField scope) (svcRpcs svc)))
     ]
 
 genServerField :: [Text] -> RpcDef -> Doc ann
 genServerField scope rpc =
   let fname = lowerFirst' (snakeToCamel' (rpcName rpc)) <> "Handler"
-  in pretty (escapeReserved' fname) <+> pretty ("::" :: Text) <+> genRpcServerType scope rpc
+  in pretty (escapeReserved' fname) <+> txt "::" <+> genRpcServerType scope rpc
 
 genRpcServerType :: [Text] -> RpcDef -> Doc ann
 genRpcServerType _ rpc = case (rpcInputStr rpc, rpcOutputStr rpc) of
   (NoStream, NoStream) ->
-    pretty (hsTypeName' (rpcInput rpc)) <+> pretty ("-> m" :: Text) <+> pretty (hsTypeName' (rpcOutput rpc))
+    pretty (hsTypeName' (rpcInput rpc)) <+> txt "-> m" <+> pretty (hsTypeName' (rpcOutput rpc))
   (Streaming, NoStream) ->
-    pretty ("m " :: Text) <> pretty (hsTypeName' (rpcInput rpc)) <+>
-    pretty ("-> m" :: Text) <+> pretty (hsTypeName' (rpcOutput rpc))
+    txt "m " <> pretty (hsTypeName' (rpcInput rpc)) <+>
+    txt "-> m" <+> pretty (hsTypeName' (rpcOutput rpc))
   (NoStream, Streaming) ->
     pretty (hsTypeName' (rpcInput rpc)) <+>
-    pretty ("-> (" :: Text) <> pretty (hsTypeName' (rpcOutput rpc)) <+>
-    pretty ("-> m ()) -> m ()" :: Text)
+    txt "-> (" <> pretty (hsTypeName' (rpcOutput rpc)) <+>
+    txt "-> m ()) -> m ()"
   (Streaming, Streaming) ->
-    pretty ("m " :: Text) <> pretty (hsTypeName' (rpcInput rpc)) <+>
-    pretty ("-> (" :: Text) <> pretty (hsTypeName' (rpcOutput rpc)) <+>
-    pretty ("-> m ()) -> m ()" :: Text)
+    txt "m " <> pretty (hsTypeName' (rpcInput rpc)) <+>
+    txt "-> (" <> pretty (hsTypeName' (rpcOutput rpc)) <+>
+    txt "-> m ()) -> m ()"
 
 -- | Generate the client record type.
 genClientType :: [Text] -> ServiceDef -> Doc ann
 genClientType scope svc =
   let tyN = svcTypeName scope svc <> "Client"
   in vsep
-    [ pretty ("-- | Client stub record for @" :: Text) <> pretty (svcName svc) <> pretty ("@." :: Text)
-    , pretty ("-- Each field is a function for calling one RPC method." :: Text)
-    , pretty ("data " :: Text) <> pretty tyN <> pretty (" m = " :: Text) <> pretty tyN
+    [ txt "-- | Client stub record for @" <> pretty (svcName svc) <> txt "@."
+    , txt "-- Each field is a function for calling one RPC method."
+    , txt "data " <> pretty tyN <> txt " m = " <> pretty tyN
     , indent 2 (braceFields (fmap (genClientField scope) (svcRpcs svc)))
     ]
 
 genClientField :: [Text] -> RpcDef -> Doc ann
 genClientField scope rpc =
   let fname = lowerFirst' (snakeToCamel' (rpcName rpc))
-  in pretty (escapeReserved' fname) <+> pretty ("::" :: Text) <+> genRpcClientType scope rpc
+  in pretty (escapeReserved' fname) <+> txt "::" <+> genRpcClientType scope rpc
 
 genRpcClientType :: [Text] -> RpcDef -> Doc ann
 genRpcClientType = genRpcServerType
@@ -130,13 +131,13 @@ genMethodInfos :: [Text] -> ServiceDef -> Doc ann
 genMethodInfos scope svc =
   let tyN = svcTypeName scope svc
   in vsep
-    [ pretty ("-- | Method metadata for @" :: Text) <> pretty (svcName svc) <> pretty ("@." :: Text)
-    , pretty ("data " :: Text) <> pretty tyN <> pretty ("Method" :: Text)
+    [ txt "-- | Method metadata for @" <> pretty (svcName svc) <> txt "@."
+    , txt "data " <> pretty tyN <> txt "Method"
     , indent 2 (vsep (zipWith (\pfx r -> pfx <+>
         pretty (hsTypeName' (rpcName r) <> "Method")) seps (svcRpcs svc)))
-    , indent 2 (pretty ("deriving stock (Show, Eq, Ord, Enum, Bounded)" :: Text))
+    , indent 2 (txt "deriving stock (Show, Eq, Ord, Enum, Bounded)")
     , mempty
-    , pretty (T.toLower tyN <> "MethodName :: " :: Text) <> pretty tyN <> pretty ("Method -> Text" :: Text)
+    , pretty (T.toLower tyN <> "MethodName :: " :: Text) <> pretty tyN <> txt "Method -> Text"
     , vsep (fmap (\r ->
         pretty (T.toLower tyN <> "MethodName " :: Text) <>
         pretty (hsTypeName' (rpcName r) <> "Method" :: Text) <+>
@@ -144,7 +145,7 @@ genMethodInfos scope svc =
         ) (svcRpcs svc))
     ]
   where
-    seps = pretty ("=" :: Text) : repeat (pretty ("|" :: Text))
+    seps = txt "=" : repeat (txt "|")
 
 -- | Generate ProtoService metadata instance.
 genServiceMeta :: [Text] -> ServiceDef -> Doc ann
@@ -152,11 +153,11 @@ genServiceMeta scope svc =
   let tyN = svcTypeName scope svc
       fullName = T.intercalate "." (scope <> [svcName svc])
   in vsep
-    [ pretty ("-- | Fully-qualified service name: @" :: Text) <> pretty fullName <> pretty ("@" :: Text)
+    [ txt "-- | Fully-qualified service name: @" <> pretty fullName <> txt "@"
     , pretty (T.toLower tyN <> "ServiceName :: Text" :: Text)
     , pretty (T.toLower tyN <> "ServiceName = \"" :: Text) <> pretty fullName <> pretty ("\"" :: Text)
     , mempty
-    , pretty ("-- | All method paths for @" :: Text) <> pretty (svcName svc) <> pretty ("@." :: Text)
+    , txt "-- | All method paths for @" <> pretty (svcName svc) <> txt "@."
     , pretty (T.toLower tyN <> "MethodPaths :: [Text]" :: Text)
     , pretty (T.toLower tyN <> "MethodPaths = " :: Text) <>
       pretty (T.pack (show (fmap (\r -> "/" <> fullName <> "/" <> rpcName r) (svcRpcs svc))))
@@ -166,10 +167,10 @@ svcTypeName :: [Text] -> ServiceDef -> Text
 svcTypeName scope svc = T.intercalate "'" (fmap hsTypeName' (scope <> [svcName svc]))
 
 braceFields :: [Doc ann] -> Doc ann
-braceFields [] = pretty ("{ }" :: Text)
+braceFields [] = txt "{ }"
 braceFields (f:fs) =
-  vsep (pretty ("{ " :: Text) <> f : fmap (\x -> pretty (", " :: Text) <> x) fs) <>
-  line <> pretty ("}" :: Text)
+  vsep (txt "{ " <> f : fmap (\x -> txt ", " <> x) fs) <>
+  line <> txt "}"
 
 hsTypeName' :: Text -> Text
 hsTypeName' t = case T.uncons t of

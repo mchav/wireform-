@@ -15,6 +15,7 @@ import qualified Data.Text as T
 import Prettyprinter
 
 import Proto.AST
+import Proto.CodeGen.Combinators (txt)
 import Proto.CodeGen.Types (hsTypeName, hsFieldName)
 
 -- | Generate a MessageDecode instance for a message.
@@ -23,19 +24,19 @@ genDecodeInstance msg =
   let fields = extractFields (msgElements msg)
       allAccs = fmap fieldAccum fields
   in vsep
-    [ pretty ("instance MessageDecode" :: Text) <+> pretty (hsTypeName (msgName msg)) <+> pretty ("where" :: Text)
+    [ txt "instance MessageDecode" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
     , indent 2 $ vsep
-        [ pretty ("messageDecoder =" :: Text) <+> pretty ("loop" :: Text) <+>
+        [ txt "messageDecoder =" <+> txt "loop" <+>
           hsep (fmap (pretty . fieldDefault) fields)
-        , indent 2 $ pretty ("where" :: Text)
+        , indent 2 $ txt "where"
         , indent 4 $ vsep
-            [ pretty ("loop" :: Text) <+> hsep (fmap (pretty . fieldAccum) fields) <+> pretty ("= do" :: Text)
+            [ txt "loop" <+> hsep (fmap (pretty . fieldAccum) fields) <+> txt "= do"
             , indent 2 $ vsep
-                [ pretty ("mTag <- getTagOrU" :: Text)
-                , pretty ("case mTag of" :: Text)
+                [ txt "mTag <- getTagOrU"
+                , txt "case mTag of"
                 , indent 2 $ vsep
-                    [ pretty ("UNothing -> pure" :: Text) <+> genRecordCon msg fields
-                    , pretty ("UJust (Tag fn wt) -> case fn of" :: Text)
+                    [ txt "UNothing -> pure" <+> genRecordCon msg fields
+                    , txt "UJust (Tag fn wt) -> case fn of"
                     , indent 2 $ vsep (fmap (genFieldCase allAccs) fields <> [genDefaultCase allAccs])
                     ]
                 ]
@@ -46,7 +47,7 @@ genDecodeInstance msg =
 genFieldCase :: [Text] -> FieldInfo -> Doc ann
 genFieldCase allAccs fi =
   let fn = T.pack (show (fiFieldNum fi))
-  in pretty fn <+> pretty ("-> do" :: Text) <> line <>
+  in pretty fn <+> txt "-> do" <> line <>
      indent 2 (genFieldDecode allAccs fi)
 
 genFieldDecode :: [Text] -> FieldInfo -> Doc ann
@@ -55,23 +56,23 @@ genFieldDecode allAccs fi =
       newAccs = case fiLabel fi of
         Just Repeated -> replaceAt idx ("(" <> fieldAccum fi <> " <> V.singleton v)") allAccs
         _             -> replaceAt idx "v" allAccs
-  in vsep [ pretty ("v <- " :: Text) <> pretty (decoderExpr (fiType fi))
-          , pretty ("loop " :: Text) <> hsep (fmap pretty newAccs)
+  in vsep [ txt "v <- " <> pretty (decoderExpr (fiType fi))
+          , txt "loop " <> hsep (fmap pretty newAccs)
           ]
 
 genDefaultCase :: [Text] -> Doc ann
 genDefaultCase allAccs =
-  pretty ("_ -> skipField wt >> loop " :: Text) <> hsep (fmap pretty allAccs)
+  txt "_ -> skipField wt >> loop " <> hsep (fmap pretty allAccs)
 
 genRecordCon :: MessageDef -> [FieldInfo] -> Doc ann
 genRecordCon msg fields = case fields of
-  [] -> pretty (hsTypeName (msgName msg)) <+> pretty ("{ }" :: Text)
+  [] -> pretty (hsTypeName (msgName msg)) <+> txt "{ }"
   _  -> parens $
     pretty (hsTypeName (msgName msg)) <+>
     braces (hsep (punctuate comma (fmap genAssign fields)))
   where
     genAssign fi =
-      pretty (hsFieldName (fiName fi)) <+> pretty ("=" :: Text) <+> pretty (fieldAccum fi)
+      pretty (hsFieldName (fiName fi)) <+> txt "=" <+> pretty (fieldAccum fi)
 
 fieldAccum :: FieldInfo -> Text
 fieldAccum fi = "acc_" <> T.pack (show (fiIndex fi))
