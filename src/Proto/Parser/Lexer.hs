@@ -18,6 +18,7 @@ module Proto.Parser.Lexer
   , stringLiteral
   , boolLiteral
   , reserved
+  , option
   ) where
 
 import Control.Monad (void)
@@ -25,11 +26,15 @@ import Data.Char (chr, digitToInt, isAlphaNum, isDigit, isLetter, isOctDigit)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
-import Text.Megaparsec
+import Text.Megaparsec hiding (option)
+import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void Text
+
+option :: a -> Parser a -> Parser a
+option = MP.option
 
 -- | Space consumer: line comments (//) and block comments (/* ... */)
 sc :: Parser ()
@@ -45,41 +50,57 @@ symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
 braces :: Parser a -> Parser a
-braces = between (symbol "{") (symbol "}")
+braces p = do
+  _ <- symbol "{" <?> "'{'"
+  x <- p
+  _ <- symbol "}" <?> "closing '}'"
+  pure x
 
 brackets :: Parser a -> Parser a
-brackets = between (symbol "[") (symbol "]")
+brackets p = do
+  _ <- symbol "[" <?> "'['"
+  x <- p
+  _ <- symbol "]" <?> "closing ']'"
+  pure x
 
 parens :: Parser a -> Parser a
-parens = between (symbol "(") (symbol ")")
+parens p = do
+  _ <- symbol "(" <?> "'('"
+  x <- p
+  _ <- symbol ")" <?> "closing ')'"
+  pure x
 
 angles :: Parser a -> Parser a
-angles = between (symbol "<") (symbol ">")
+angles p = do
+  _ <- symbol "<" <?> "'<'"
+  x <- p
+  _ <- symbol ">" <?> "closing '>'"
+  pure x
 
 semi :: Parser ()
-semi = void (symbol ";")
+semi = void (symbol ";" <?> "';'")
 
 comma :: Parser ()
-comma = void (symbol ",")
+comma = void (symbol "," <?> "','")
 
 equals :: Parser ()
-equals = void (symbol "=")
+equals = void (symbol "=" <?> "'='")
 
 -- | An identifier: letter or underscore followed by alphanums/underscores.
 identifier :: Parser Text
-identifier = lexeme $ do
+identifier = lexeme (do
   c <- satisfy (\ch -> isLetter ch || ch == '_')
   rest <- takeWhileP (Just "identifier character") (\ch -> isAlphaNum ch || ch == '_')
-  pure (T.cons c rest)
+  pure (T.cons c rest)) <?> "identifier"
 
 -- | A fully-qualified identifier: ident (.ident)*
 -- Also handles leading dot for fully qualified names.
 fullIdent :: Parser Text
-fullIdent = lexeme $ do
+fullIdent = (lexeme $ do
   leading <- option "" (T.singleton <$> char '.')
   first <- identRaw
   rest <- many (T.cons <$> char '.' <*> identRaw)
-  pure (T.concat (leading : first : rest))
+  pure (T.concat (leading : first : rest))) <?> "type name"
   where
     identRaw :: Parser Text
     identRaw = do
@@ -88,21 +109,21 @@ fullIdent = lexeme $ do
       pure (T.cons c rest)
 
 intLiteral :: Parser Integer
-intLiteral = lexeme $ do
+intLiteral = (lexeme $ do
   sign <- option id (negate <$ char '-')
   n <- choice
     [ try (char '0' *> char' 'x') *> L.hexadecimal
     , try (char '0' *> octalNum)
     , L.decimal
     ]
-  pure (sign n)
+  pure (sign n)) <?> "integer literal"
   where
     octalNum = do
       digits <- takeWhile1P (Just "octal digit") isOctDigit
       pure (T.foldl' (\acc c -> acc * 8 + fromIntegral (digitToInt c)) 0 digits)
 
 floatLiteral :: Parser Double
-floatLiteral = lexeme $ do
+floatLiteral = (lexeme $ do
   sign <- option id (negate <$ char '-')
   n <- choice
     [ try $ do
@@ -118,7 +139,7 @@ floatLiteral = lexeme $ do
     , 1/0 <$ (string "inf" <|> string "infinity")
     , (0/0) <$ string "nan"
     ]
-  pure (sign n)
+  pure (sign n)) <?> "float literal"
   where
     exponentPart = do
       e <- T.singleton <$> char' 'e'
@@ -129,9 +150,9 @@ floatLiteral = lexeme $ do
 -- | Parse a string literal (double-quoted or single-quoted), with escape support.
 -- Adjacent string literals are concatenated per the proto spec.
 stringLiteral :: Parser Text
-stringLiteral = lexeme $ do
+stringLiteral = (lexeme $ do
   parts <- some singleString
-  pure (T.concat parts)
+  pure (T.concat parts)) <?> "string literal"
   where
     singleString = do
       q <- char '"' <|> char '\''
@@ -172,10 +193,10 @@ stringLiteral = lexeme $ do
       pure (chr val)
 
 boolLiteral :: Parser Bool
-boolLiteral = lexeme $ choice
+boolLiteral = (lexeme $ choice
   [ True  <$ string "true"
   , False <$ string "false"
-  ]
+  ]) <?> "boolean (true or false)"
 
 reserved :: Text -> Parser ()
 reserved w = lexeme $ do

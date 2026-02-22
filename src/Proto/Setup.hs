@@ -64,7 +64,7 @@ import System.Directory (createDirectoryIfMissing, doesFileExist,
 import System.FilePath ((</>), (<.>), takeDirectory, takeExtension)
 
 import Proto.AST (ProtoFile(..))
-import Proto.Parser (parseProtoFile)
+import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..),
                       TypeRegistry, hsModuleName, moduleNameForProto)
 import Proto.CodeGen.Hooks (CodeGenHooks, defaultCodeGenHooks)
@@ -127,7 +127,7 @@ generateProtoFile cfg protoPath = do
   contents <- TIO.readFile protoPath
   case parseProtoFile protoPath contents of
     Left err ->
-      putStrLn $ "[hs-proto] Parse error in " <> protoPath <> ": " <> show err
+      putStrLn $ "[hs-proto] " <> renderParseError err
     Right pf -> do
       let opts = defaultGenerateOpts
             { genModulePrefix    = pgcModulePrefix cfg

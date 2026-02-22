@@ -181,10 +181,14 @@ runSummary so = do
     Right resolved -> TIO.putStr (prettyPrintSummary (summarize (rpFile resolved)))
 
 showResolveError :: ResolveError -> String
-showResolveError (ParseError path msg) = "Parse error in " <> path <> ": " <> msg
-showResolveError (FileNotFound _ importPath searched) =
-  "Import not found: " <> T.unpack importPath <> "\nSearched: " <> show searched
-showResolveError (CircularImport chain) = "Circular import: " <> show chain
+showResolveError (ParseError _path msg) = msg
+showResolveError (FileNotFound _ importPath' searched) =
+  "error: import not found: " <> T.unpack importPath'
+  <> "\n  searched directories:\n"
+  <> concatMap (\d -> "    - " <> d <> "\n") searched
+showResolveError (CircularImport chain) =
+  "error: circular import detected\n"
+  <> "  import chain: " <> T.unpack (T.intercalate " -> " chain)
 
 modulePathFromProto :: GenerateOpts -> FilePath -> ProtoFile -> FilePath
 modulePathFromProto opts filePath pf =

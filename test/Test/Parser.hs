@@ -1,6 +1,7 @@
 module Test.Parser (parserTests) where
 
-import Data.Either (isRight)
+import Data.Either (isLeft, isRight)
+import Data.List (isInfixOf)
 import Data.Text (Text)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -380,6 +381,137 @@ parserTests = testGroup "Parser"
                 , "}"
                 ]
           assertBool "Should parse with block comments" (isRight (parseProtoFile "<test>" input))
+      ]
+
+  , testGroup "Error message quality"
+      [ testCase "missing semicolon points to correct location" $ do
+          let input = unlines'
+                [ "syntax = \"proto3\";"
+                , "message Foo {"
+                , "  string name = 1"
+                , "}"
+                ]
+          case parseProtoFile "test.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should mention ';'" ("';'" `isInfixOf` msg)
+              assertBool "should show file location" ("test.proto:4:" `isInfixOf` msg)
+              assertBool "should show source context" ("string name = 1" `isInfixOf` msg)
+              assertBool "should have caret pointer" ("^" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "missing field number gives helpful message" $ do
+          let input = unlines'
+                [ "syntax = \"proto3\";"
+                , "message Foo {"
+                , "  string name = ;"
+                , "}"
+                ]
+          case parseProtoFile "test.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should mention field number" ("field number" `isInfixOf` msg || "integer" `isInfixOf` msg)
+              assertBool "should show source line" ("string name" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "missing equals sign gives helpful message" $ do
+          let input = unlines'
+                [ "syntax = \"proto3\";"
+                , "message Foo {"
+                , "  string name 1;"
+                , "}"
+                ]
+          case parseProtoFile "test.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should mention '='" ("'='" `isInfixOf` msg)
+              assertBool "should point to correct column" ("test.proto:3:15" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "invalid syntax version gives clear message" $ do
+          let input = "syntax = \"proto4\";\n"
+          case parseProtoFile "test.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should mention proto4" ("proto4" `isInfixOf` msg)
+              assertBool "should mention expected versions" ("proto2" `isInfixOf` msg && "proto3" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "unclosed string literal gives clear message" $ do
+          let input = "syntax = \"proto3;\n"
+          case parseProtoFile "test.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should mention newline" ("newline" `isInfixOf` msg)
+              assertBool "should point to correct location" ("test.proto:1:" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "missing message name gives clear message" $ do
+          let input = unlines'
+                [ "syntax = \"proto3\";"
+                , "message {"
+                , "  string name = 1;"
+                , "}"
+                ]
+          case parseProtoFile "test.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should mention message name" ("message name" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "unexpected token at top level gives clear message" $ do
+          let input = unlines'
+                [ "syntax = \"proto3\";"
+                , "12345"
+                ]
+          case parseProtoFile "test.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should mention expected declarations" ("message" `isInfixOf` msg || "top-level" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "missing comma in map type gives clear message" $ do
+          let input = unlines'
+                [ "syntax = \"proto3\";"
+                , "message Foo {"
+                , "  map<string int32> x = 1;"
+                , "}"
+                ]
+          case parseProtoFile "test.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should mention comma" ("','" `isInfixOf` msg)
+              assertBool "should point to correct location" ("test.proto:3:14" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "error messages include source context with line numbers" $ do
+          let input = unlines'
+                [ "syntax = \"proto3\";"
+                , "package myapp;"
+                , ""
+                , "message User {"
+                , "  string name = 1;"
+                , "  int32 age = 2;"
+                , "  string email = 3"
+                , "}"
+                ]
+          case parseProtoFile "api/user.proto" input of
+            Left e -> do
+              let msg = renderParseError e
+              assertBool "should have file:line:col format" ("api/user.proto:" `isInfixOf` msg)
+              assertBool "should have --> arrow" ("-->" `isInfixOf` msg)
+              assertBool "should have pipe separator" (" | " `isInfixOf` msg)
+              assertBool "should have caret pointer" ("^" `isInfixOf` msg)
+            Right _ -> assertFailure "Should have failed to parse"
+
+      , testCase "error output rejects invalid inputs" $ do
+          let cases =
+                [ ("empty message body missing brace", "syntax = \"proto3\";\nmessage Foo {\n")
+                , ("unknown keyword at top level", "syntax = \"proto3\";\nfoobar baz;\n")
+                , ("missing closing brace for enum", "syntax = \"proto3\";\nenum Foo {\n  A = 0;\n")
+                ]
+          mapM_ (\(desc, input) ->
+            assertBool desc (isLeft (parseProtoFile "test.proto" input))) cases
       ]
   ]
 
