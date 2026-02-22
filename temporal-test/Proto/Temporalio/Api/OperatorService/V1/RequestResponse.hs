@@ -28,7 +28,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -722,13 +722,13 @@ instance IsMessage ListClustersRequest where
 instance Aeson.ToJSON ListClustersRequest where
   toJSON msg = jsonObject
       [ "pageSize" .=: msg.listClustersRequestPagesize
-      , "nextPageToken" .=: msg.listClustersRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listClustersRequestNextpagetoken
       ]
 
 instance Aeson.FromJSON ListClustersRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listClustersRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listClustersRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listClustersRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListClustersRequest
       { listClustersRequestPagesize = maybe (listClustersRequestPagesize defaultListClustersRequest) id fld_listClustersRequestPagesize
       , listClustersRequestNextpagetoken = maybe (listClustersRequestNextpagetoken defaultListClustersRequest) id fld_listClustersRequestNextpagetoken
@@ -779,13 +779,13 @@ instance IsMessage ListClustersResponse where
 instance Aeson.ToJSON ListClustersResponse where
   toJSON msg = jsonObject
       [ "clusters" .=: msg.listClustersResponseClusters
-      , "nextPageToken" .=: msg.listClustersResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listClustersResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListClustersResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listClustersResponseClusters <- parseFieldMaybe obj "clusters"
-    fld_listClustersResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listClustersResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListClustersResponse
       { listClustersResponseClusters = maybe (listClustersResponseClusters defaultListClustersResponse) id fld_listClustersResponseClusters
       , listClustersResponseNextpagetoken = maybe (listClustersResponseNextpagetoken defaultListClustersResponse) id fld_listClustersResponseNextpagetoken
@@ -1362,14 +1362,14 @@ instance IsMessage ListNexusEndpointsRequest where
 instance Aeson.ToJSON ListNexusEndpointsRequest where
   toJSON msg = jsonObject
       [ "pageSize" .=: msg.listNexusEndpointsRequestPagesize
-      , "nextPageToken" .=: msg.listNexusEndpointsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listNexusEndpointsRequestNextpagetoken
       , "name" .=: msg.listNexusEndpointsRequestName
       ]
 
 instance Aeson.FromJSON ListNexusEndpointsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listNexusEndpointsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listNexusEndpointsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listNexusEndpointsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listNexusEndpointsRequestName <- parseFieldMaybe obj "name"
     pure defaultListNexusEndpointsRequest
       { listNexusEndpointsRequestPagesize = maybe (listNexusEndpointsRequestPagesize defaultListNexusEndpointsRequest) id fld_listNexusEndpointsRequestPagesize
@@ -1421,13 +1421,13 @@ instance IsMessage ListNexusEndpointsResponse where
 
 instance Aeson.ToJSON ListNexusEndpointsResponse where
   toJSON msg = jsonObject
-      [ "nextPageToken" .=: msg.listNexusEndpointsResponseNextpagetoken
+      [ bytesFieldToJSON "nextPageToken" msg.listNexusEndpointsResponseNextpagetoken
       , "endpoints" .=: msg.listNexusEndpointsResponseEndpoints
       ]
 
 instance Aeson.FromJSON ListNexusEndpointsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_listNexusEndpointsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listNexusEndpointsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listNexusEndpointsResponseEndpoints <- parseFieldMaybe obj "endpoints"
     pure defaultListNexusEndpointsResponse
       { listNexusEndpointsResponseNextpagetoken = maybe (listNexusEndpointsResponseNextpagetoken defaultListNexusEndpointsResponse) id fld_listNexusEndpointsResponseNextpagetoken

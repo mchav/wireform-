@@ -28,7 +28,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -120,7 +120,7 @@ instance Aeson.ToJSON Failure where
       [ "message" .=: msg.failureMessage
       , "stackTrace" .=: msg.failureStacktrace
       , "metadata" .=: msg.failureMetadata
-      , "details" .=: msg.failureDetails
+      , bytesFieldToJSON "details" msg.failureDetails
       , "cause" .=: msg.failureCause
       ]
 
@@ -129,7 +129,7 @@ instance Aeson.FromJSON Failure where
     fld_failureMessage <- parseFieldMaybe obj "message"
     fld_failureStacktrace <- parseFieldMaybe obj "stackTrace"
     fld_failureMetadata <- parseFieldMaybe obj "metadata"
-    fld_failureDetails <- parseFieldMaybe obj "details"
+    fld_failureDetails <- parseBytesFieldMaybe obj "details"
     fld_failureCause <- parseFieldMaybe obj "cause"
     pure defaultFailure
       { failureMessage = maybe (failureMessage defaultFailure) id fld_failureMessage

@@ -459,7 +459,7 @@ genImports externalModules = vsep $
   , txt "import qualified Data.Aeson.Types as Aeson"
   , txt "import qualified Data.Aeson.Key as AesonKey"
   , txt "import qualified Data.Aeson.KeyMap as AesonKM"
-  , txt "import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)"
+  , txt "import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)"
   , txt "import Data.Proxy (Proxy(..))"
   , txt "import Proto.Message (IsMessage(..))"
   , txt "import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))"
@@ -1320,8 +1320,11 @@ genToJSONInstance ctx scope msg =
         ]
 
 genToJSONField :: GenCtx -> JSONFieldInfo -> Doc ann
-genToJSONField ctx jfi =
-  pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\" .=: msg." :: Text) <> pretty (jfiAccessor jfi)
+genToJSONField ctx jfi
+  | jfiIsBytes jfi =
+    txt "bytesFieldToJSON " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text) <+> txt "msg." <> pretty (jfiAccessor jfi)
+  | otherwise =
+    pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\" .=: msg." :: Text) <> pretty (jfiAccessor jfi)
 
 genFromJSONInstance :: GenCtx -> [Text] -> MessageDef -> Doc ann
 genFromJSONInstance ctx scope msg =
@@ -1356,8 +1359,11 @@ genFromJSONInstance ctx scope msg =
           ]
 
 genFromJSONFieldBind :: JSONFieldInfo -> Doc ann
-genFromJSONFieldBind jfi =
-  txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
+genFromJSONFieldBind jfi
+  | jfiIsBytes jfi =
+    txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseBytesFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
+  | otherwise =
+    txt "fld_" <> pretty (jfiAccessor jfi) <+> txt "<- parseFieldMaybe obj " <> pretty ("\"" :: Text) <> pretty (jfiJsonName jfi) <> pretty ("\"" :: Text)
 
 genFromJSONFieldAssign :: Text -> JSONFieldInfo -> Doc ann
 genFromJSONFieldAssign tyN jfi =
@@ -1453,6 +1459,7 @@ data JSONFieldInfo = JSONFieldInfo
   { jfiAccessor :: Text
   , jfiJsonName :: Text
   , jfiOptional :: Bool
+  , jfiIsBytes  :: Bool
   } deriving stock (Show, Eq)
 
 extractAllFieldsJSON :: GenCtx -> [Text] -> [MessageElement] -> [JSONFieldInfo]
@@ -1462,15 +1469,16 @@ extractAllFieldsJSON ctx scope = concatMap go
       MEField fd ->
         let accessor = scopedFieldName scope (fieldName fd)
             jsonName = fromMaybe (snakeToCamel (fieldName fd)) (getJsonName (fieldOptions fd))
-        in [JSONFieldInfo accessor jsonName True]
+            isBytes = case fieldType fd of { FTScalar SBytes -> True; _ -> False }
+        in [JSONFieldInfo accessor jsonName True isBytes]
       MEMapField mf ->
         let accessor = scopedFieldName scope (mapFieldName mf)
             jsonName = fromMaybe (snakeToCamel (mapFieldName mf)) (getJsonName (mapOptions mf))
-        in [JSONFieldInfo accessor jsonName True]
+        in [JSONFieldInfo accessor jsonName True False]
       MEOneof od ->
         let accessor = scopedFieldName scope (oneofName od)
             jsonName = snakeToCamel (oneofName od)
-        in [JSONFieldInfo accessor jsonName True]
+        in [JSONFieldInfo accessor jsonName True False]
       _ -> []
 
 getJsonName :: [OptionDef] -> Maybe Text

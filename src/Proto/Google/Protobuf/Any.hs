@@ -31,7 +31,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))
@@ -131,13 +131,13 @@ instance ProtoMessage Any where
 instance Aeson.ToJSON Any where
   toJSON msg = jsonObject
       [ "typeUrl" .=: msg.anyTypeurl
-      , "value" .=: msg.anyValue
+      , bytesFieldToJSON "value" msg.anyValue
       ]
 
 instance Aeson.FromJSON Any where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_anyTypeurl <- parseFieldMaybe obj "typeUrl"
-    fld_anyValue <- parseFieldMaybe obj "value"
+    fld_anyValue <- parseBytesFieldMaybe obj "value"
     pure defaultAny
       { anyTypeurl = maybe (anyTypeurl defaultAny) id fld_anyTypeurl
       , anyValue = maybe (anyValue defaultAny) id fld_anyValue

@@ -28,7 +28,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -527,7 +527,7 @@ instance Aeson.ToJSON ScheduleSpec where
       , "endTime" .=: msg.scheduleSpecEndtime
       , "jitter" .=: msg.scheduleSpecJitter
       , "timezoneName" .=: msg.scheduleSpecTimezonename
-      , "timezoneData" .=: msg.scheduleSpecTimezonedata
+      , bytesFieldToJSON "timezoneData" msg.scheduleSpecTimezonedata
       ]
 
 instance Aeson.FromJSON ScheduleSpec where
@@ -542,7 +542,7 @@ instance Aeson.FromJSON ScheduleSpec where
     fld_scheduleSpecEndtime <- parseFieldMaybe obj "endTime"
     fld_scheduleSpecJitter <- parseFieldMaybe obj "jitter"
     fld_scheduleSpecTimezonename <- parseFieldMaybe obj "timezoneName"
-    fld_scheduleSpecTimezonedata <- parseFieldMaybe obj "timezoneData"
+    fld_scheduleSpecTimezonedata <- parseBytesFieldMaybe obj "timezoneData"
     pure defaultScheduleSpec
       { scheduleSpecStructuredcalendar = maybe (scheduleSpecStructuredcalendar defaultScheduleSpec) id fld_scheduleSpecStructuredcalendar
       , scheduleSpecCronstring = maybe (scheduleSpecCronstring defaultScheduleSpec) id fld_scheduleSpecCronstring

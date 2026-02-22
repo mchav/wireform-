@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 -- | Proto3 canonical JSON encoding and decoding via aeson.
 --
 -- This module re-exports the aeson types and provides helpers for
@@ -24,8 +23,10 @@ module Proto.JSON
   , jsonField
   , protoObject
   , (.=:)
+  , bytesFieldToJSON
   , parseField
   , parseFieldMaybe
+  , parseBytesFieldMaybe
 
     -- * Proto-specific scalar JSON encoding
   , protoInt64ToJSON
@@ -88,6 +89,17 @@ parseFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
   Just Aeson.Null -> pure Nothing
   Just v         -> Just <$> Aeson.parseJSON v
 
+-- | Encode a bytes field as a base64 JSON string field pair.
+bytesFieldToJSON :: Text -> ByteString -> (Text, Aeson.Value)
+bytesFieldToJSON key bs = (key, protoBytesToJSON bs)
+
+-- | Parse an optional bytes field from base64.
+parseBytesFieldMaybe :: Aeson.Object -> Text -> Aeson.Parser (Maybe ByteString)
+parseBytesFieldMaybe obj key = case AesonKM.lookup (AesonKey.fromText key) obj of
+  Nothing        -> pure Nothing
+  Just Aeson.Null -> pure Nothing
+  Just v         -> Just <$> protoBytesFromJSON v
+
 -- Proto3 canonical JSON: 64-bit integers are encoded as strings.
 
 protoInt64ToJSON :: Int64 -> Aeson.Value
@@ -141,14 +153,6 @@ protoBytesFromJSON (Aeson.String s) = case Base64.decode (TE.encodeUtf8 s) of
   Right bs -> pure bs
   Left err -> fail ("Invalid base64 bytes: " <> err)
 protoBytesFromJSON _ = fail "Expected base64 string for bytes"
-
--- Orphan instances for proto3 canonical JSON encoding of ByteString.
--- Proto3 spec: bytes fields are base64-encoded strings in JSON.
-instance Aeson.ToJSON ByteString where
-  toJSON = protoBytesToJSON
-
-instance Aeson.FromJSON ByteString where
-  parseJSON = protoBytesFromJSON
 
 int64ToText :: Int64 -> Text
 int64ToText n

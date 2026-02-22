@@ -28,7 +28,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -341,14 +341,14 @@ instance IsMessage ListNamespacesRequest where
 instance Aeson.ToJSON ListNamespacesRequest where
   toJSON msg = jsonObject
       [ "pageSize" .=: msg.listNamespacesRequestPagesize
-      , "nextPageToken" .=: msg.listNamespacesRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listNamespacesRequestNextpagetoken
       , "namespaceFilter" .=: msg.listNamespacesRequestNamespacefilter
       ]
 
 instance Aeson.FromJSON ListNamespacesRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listNamespacesRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listNamespacesRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listNamespacesRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listNamespacesRequestNamespacefilter <- parseFieldMaybe obj "namespaceFilter"
     pure defaultListNamespacesRequest
       { listNamespacesRequestPagesize = maybe (listNamespacesRequestPagesize defaultListNamespacesRequest) id fld_listNamespacesRequestPagesize
@@ -401,13 +401,13 @@ instance IsMessage ListNamespacesResponse where
 instance Aeson.ToJSON ListNamespacesResponse where
   toJSON msg = jsonObject
       [ "namespaces" .=: msg.listNamespacesResponseNamespaces
-      , "nextPageToken" .=: msg.listNamespacesResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listNamespacesResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListNamespacesResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listNamespacesResponseNamespaces <- parseFieldMaybe obj "namespaces"
-    fld_listNamespacesResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listNamespacesResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListNamespacesResponse
       { listNamespacesResponseNamespaces = maybe (listNamespacesResponseNamespaces defaultListNamespacesResponse) id fld_listNamespacesResponseNamespaces
       , listNamespacesResponseNextpagetoken = maybe (listNamespacesResponseNextpagetoken defaultListNamespacesResponse) id fld_listNamespacesResponseNextpagetoken
@@ -1346,7 +1346,7 @@ instance Aeson.ToJSON GetWorkflowExecutionHistoryRequest where
       [ "namespace" .=: msg.getWorkflowExecutionHistoryRequestNamespace
       , "execution" .=: msg.getWorkflowExecutionHistoryRequestExecution
       , "maximumPageSize" .=: msg.getWorkflowExecutionHistoryRequestMaximumpagesize
-      , "nextPageToken" .=: msg.getWorkflowExecutionHistoryRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.getWorkflowExecutionHistoryRequestNextpagetoken
       , "waitNewEvent" .=: msg.getWorkflowExecutionHistoryRequestWaitnewevent
       , "historyEventFilterType" .=: msg.getWorkflowExecutionHistoryRequestHistoryeventfiltertype
       , "skipArchival" .=: msg.getWorkflowExecutionHistoryRequestSkiparchival
@@ -1357,7 +1357,7 @@ instance Aeson.FromJSON GetWorkflowExecutionHistoryRequest where
     fld_getWorkflowExecutionHistoryRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_getWorkflowExecutionHistoryRequestExecution <- parseFieldMaybe obj "execution"
     fld_getWorkflowExecutionHistoryRequestMaximumpagesize <- parseFieldMaybe obj "maximumPageSize"
-    fld_getWorkflowExecutionHistoryRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_getWorkflowExecutionHistoryRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_getWorkflowExecutionHistoryRequestWaitnewevent <- parseFieldMaybe obj "waitNewEvent"
     fld_getWorkflowExecutionHistoryRequestHistoryeventfiltertype <- parseFieldMaybe obj "historyEventFilterType"
     fld_getWorkflowExecutionHistoryRequestSkiparchival <- parseFieldMaybe obj "skipArchival"
@@ -1432,7 +1432,7 @@ instance Aeson.ToJSON GetWorkflowExecutionHistoryResponse where
   toJSON msg = jsonObject
       [ "history" .=: msg.getWorkflowExecutionHistoryResponseHistory
       , "rawHistory" .=: msg.getWorkflowExecutionHistoryResponseRawhistory
-      , "nextPageToken" .=: msg.getWorkflowExecutionHistoryResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.getWorkflowExecutionHistoryResponseNextpagetoken
       , "archived" .=: msg.getWorkflowExecutionHistoryResponseArchived
       ]
 
@@ -1440,7 +1440,7 @@ instance Aeson.FromJSON GetWorkflowExecutionHistoryResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_getWorkflowExecutionHistoryResponseHistory <- parseFieldMaybe obj "history"
     fld_getWorkflowExecutionHistoryResponseRawhistory <- parseFieldMaybe obj "rawHistory"
-    fld_getWorkflowExecutionHistoryResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_getWorkflowExecutionHistoryResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_getWorkflowExecutionHistoryResponseArchived <- parseFieldMaybe obj "archived"
     pure defaultGetWorkflowExecutionHistoryResponse
       { getWorkflowExecutionHistoryResponseHistory = maybe (getWorkflowExecutionHistoryResponseHistory defaultGetWorkflowExecutionHistoryResponse) id fld_getWorkflowExecutionHistoryResponseHistory
@@ -1511,7 +1511,7 @@ instance Aeson.ToJSON GetWorkflowExecutionHistoryReverseRequest where
       [ "namespace" .=: msg.getWorkflowExecutionHistoryReverseRequestNamespace
       , "execution" .=: msg.getWorkflowExecutionHistoryReverseRequestExecution
       , "maximumPageSize" .=: msg.getWorkflowExecutionHistoryReverseRequestMaximumpagesize
-      , "nextPageToken" .=: msg.getWorkflowExecutionHistoryReverseRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.getWorkflowExecutionHistoryReverseRequestNextpagetoken
       ]
 
 instance Aeson.FromJSON GetWorkflowExecutionHistoryReverseRequest where
@@ -1519,7 +1519,7 @@ instance Aeson.FromJSON GetWorkflowExecutionHistoryReverseRequest where
     fld_getWorkflowExecutionHistoryReverseRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_getWorkflowExecutionHistoryReverseRequestExecution <- parseFieldMaybe obj "execution"
     fld_getWorkflowExecutionHistoryReverseRequestMaximumpagesize <- parseFieldMaybe obj "maximumPageSize"
-    fld_getWorkflowExecutionHistoryReverseRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_getWorkflowExecutionHistoryReverseRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultGetWorkflowExecutionHistoryReverseRequest
       { getWorkflowExecutionHistoryReverseRequestNamespace = maybe (getWorkflowExecutionHistoryReverseRequestNamespace defaultGetWorkflowExecutionHistoryReverseRequest) id fld_getWorkflowExecutionHistoryReverseRequestNamespace
       , getWorkflowExecutionHistoryReverseRequestExecution = maybe (getWorkflowExecutionHistoryReverseRequestExecution defaultGetWorkflowExecutionHistoryReverseRequest) id fld_getWorkflowExecutionHistoryReverseRequestExecution
@@ -1573,13 +1573,13 @@ instance IsMessage GetWorkflowExecutionHistoryReverseResponse where
 instance Aeson.ToJSON GetWorkflowExecutionHistoryReverseResponse where
   toJSON msg = jsonObject
       [ "history" .=: msg.getWorkflowExecutionHistoryReverseResponseHistory
-      , "nextPageToken" .=: msg.getWorkflowExecutionHistoryReverseResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.getWorkflowExecutionHistoryReverseResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON GetWorkflowExecutionHistoryReverseResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_getWorkflowExecutionHistoryReverseResponseHistory <- parseFieldMaybe obj "history"
-    fld_getWorkflowExecutionHistoryReverseResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_getWorkflowExecutionHistoryReverseResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultGetWorkflowExecutionHistoryReverseResponse
       { getWorkflowExecutionHistoryReverseResponseHistory = maybe (getWorkflowExecutionHistoryReverseResponseHistory defaultGetWorkflowExecutionHistoryReverseResponse) id fld_getWorkflowExecutionHistoryReverseResponseHistory
       , getWorkflowExecutionHistoryReverseResponseNextpagetoken = maybe (getWorkflowExecutionHistoryReverseResponseNextpagetoken defaultGetWorkflowExecutionHistoryReverseResponse) id fld_getWorkflowExecutionHistoryReverseResponseNextpagetoken
@@ -1838,7 +1838,7 @@ instance IsMessage PollWorkflowTaskQueueResponse where
 
 instance Aeson.ToJSON PollWorkflowTaskQueueResponse where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.pollWorkflowTaskQueueResponseTasktoken
+      [ bytesFieldToJSON "taskToken" msg.pollWorkflowTaskQueueResponseTasktoken
       , "workflowExecution" .=: msg.pollWorkflowTaskQueueResponseWorkflowexecution
       , "workflowType" .=: msg.pollWorkflowTaskQueueResponseWorkflowtype
       , "previousStartedEventId" .=: msg.pollWorkflowTaskQueueResponsePreviousstartedeventid
@@ -1846,7 +1846,7 @@ instance Aeson.ToJSON PollWorkflowTaskQueueResponse where
       , "attempt" .=: msg.pollWorkflowTaskQueueResponseAttempt
       , "backlogCountHint" .=: msg.pollWorkflowTaskQueueResponseBacklogcounthint
       , "history" .=: msg.pollWorkflowTaskQueueResponseHistory
-      , "nextPageToken" .=: msg.pollWorkflowTaskQueueResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.pollWorkflowTaskQueueResponseNextpagetoken
       , "query" .=: msg.pollWorkflowTaskQueueResponseQuery
       , "workflowExecutionTaskQueue" .=: msg.pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue
       , "scheduledTime" .=: msg.pollWorkflowTaskQueueResponseScheduledtime
@@ -1858,7 +1858,7 @@ instance Aeson.ToJSON PollWorkflowTaskQueueResponse where
 
 instance Aeson.FromJSON PollWorkflowTaskQueueResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_pollWorkflowTaskQueueResponseTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_pollWorkflowTaskQueueResponseTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_pollWorkflowTaskQueueResponseWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
     fld_pollWorkflowTaskQueueResponseWorkflowtype <- parseFieldMaybe obj "workflowType"
     fld_pollWorkflowTaskQueueResponsePreviousstartedeventid <- parseFieldMaybe obj "previousStartedEventId"
@@ -1866,7 +1866,7 @@ instance Aeson.FromJSON PollWorkflowTaskQueueResponse where
     fld_pollWorkflowTaskQueueResponseAttempt <- parseFieldMaybe obj "attempt"
     fld_pollWorkflowTaskQueueResponseBacklogcounthint <- parseFieldMaybe obj "backlogCountHint"
     fld_pollWorkflowTaskQueueResponseHistory <- parseFieldMaybe obj "history"
-    fld_pollWorkflowTaskQueueResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_pollWorkflowTaskQueueResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_pollWorkflowTaskQueueResponseQuery <- parseFieldMaybe obj "query"
     fld_pollWorkflowTaskQueueResponseWorkflowexecutiontaskqueue <- parseFieldMaybe obj "workflowExecutionTaskQueue"
     fld_pollWorkflowTaskQueueResponseScheduledtime <- parseFieldMaybe obj "scheduledTime"
@@ -2094,7 +2094,7 @@ instance IsMessage RespondWorkflowTaskCompletedRequest where
 
 instance Aeson.ToJSON RespondWorkflowTaskCompletedRequest where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.respondWorkflowTaskCompletedRequestTasktoken
+      [ bytesFieldToJSON "taskToken" msg.respondWorkflowTaskCompletedRequestTasktoken
       , "commands" .=: msg.respondWorkflowTaskCompletedRequestCommands
       , "identity" .=: msg.respondWorkflowTaskCompletedRequestIdentity
       , "stickyAttributes" .=: msg.respondWorkflowTaskCompletedRequestStickyattributes
@@ -2115,7 +2115,7 @@ instance Aeson.ToJSON RespondWorkflowTaskCompletedRequest where
 
 instance Aeson.FromJSON RespondWorkflowTaskCompletedRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_respondWorkflowTaskCompletedRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_respondWorkflowTaskCompletedRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_respondWorkflowTaskCompletedRequestCommands <- parseFieldMaybe obj "commands"
     fld_respondWorkflowTaskCompletedRequestIdentity <- parseFieldMaybe obj "identity"
     fld_respondWorkflowTaskCompletedRequestStickyattributes <- parseFieldMaybe obj "stickyAttributes"
@@ -2320,7 +2320,7 @@ instance IsMessage RespondWorkflowTaskFailedRequest where
 
 instance Aeson.ToJSON RespondWorkflowTaskFailedRequest where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.respondWorkflowTaskFailedRequestTasktoken
+      [ bytesFieldToJSON "taskToken" msg.respondWorkflowTaskFailedRequestTasktoken
       , "cause" .=: msg.respondWorkflowTaskFailedRequestCause
       , "failure" .=: msg.respondWorkflowTaskFailedRequestFailure
       , "identity" .=: msg.respondWorkflowTaskFailedRequestIdentity
@@ -2334,7 +2334,7 @@ instance Aeson.ToJSON RespondWorkflowTaskFailedRequest where
 
 instance Aeson.FromJSON RespondWorkflowTaskFailedRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_respondWorkflowTaskFailedRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_respondWorkflowTaskFailedRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_respondWorkflowTaskFailedRequestCause <- parseFieldMaybe obj "cause"
     fld_respondWorkflowTaskFailedRequestFailure <- parseFieldMaybe obj "failure"
     fld_respondWorkflowTaskFailedRequestIdentity <- parseFieldMaybe obj "identity"
@@ -2673,7 +2673,7 @@ instance IsMessage PollActivityTaskQueueResponse where
 
 instance Aeson.ToJSON PollActivityTaskQueueResponse where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.pollActivityTaskQueueResponseTasktoken
+      [ bytesFieldToJSON "taskToken" msg.pollActivityTaskQueueResponseTasktoken
       , "workflowNamespace" .=: msg.pollActivityTaskQueueResponseWorkflownamespace
       , "workflowType" .=: msg.pollActivityTaskQueueResponseWorkflowtype
       , "workflowExecution" .=: msg.pollActivityTaskQueueResponseWorkflowexecution
@@ -2697,7 +2697,7 @@ instance Aeson.ToJSON PollActivityTaskQueueResponse where
 
 instance Aeson.FromJSON PollActivityTaskQueueResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_pollActivityTaskQueueResponseTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_pollActivityTaskQueueResponseTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_pollActivityTaskQueueResponseWorkflownamespace <- parseFieldMaybe obj "workflowNamespace"
     fld_pollActivityTaskQueueResponseWorkflowtype <- parseFieldMaybe obj "workflowType"
     fld_pollActivityTaskQueueResponseWorkflowexecution <- parseFieldMaybe obj "workflowExecution"
@@ -2799,7 +2799,7 @@ instance IsMessage RecordActivityTaskHeartbeatRequest where
 
 instance Aeson.ToJSON RecordActivityTaskHeartbeatRequest where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.recordActivityTaskHeartbeatRequestTasktoken
+      [ bytesFieldToJSON "taskToken" msg.recordActivityTaskHeartbeatRequestTasktoken
       , "details" .=: msg.recordActivityTaskHeartbeatRequestDetails
       , "identity" .=: msg.recordActivityTaskHeartbeatRequestIdentity
       , "namespace" .=: msg.recordActivityTaskHeartbeatRequestNamespace
@@ -2807,7 +2807,7 @@ instance Aeson.ToJSON RecordActivityTaskHeartbeatRequest where
 
 instance Aeson.FromJSON RecordActivityTaskHeartbeatRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_recordActivityTaskHeartbeatRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_recordActivityTaskHeartbeatRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_recordActivityTaskHeartbeatRequestDetails <- parseFieldMaybe obj "details"
     fld_recordActivityTaskHeartbeatRequestIdentity <- parseFieldMaybe obj "identity"
     fld_recordActivityTaskHeartbeatRequestNamespace <- parseFieldMaybe obj "namespace"
@@ -3130,7 +3130,7 @@ instance IsMessage RespondActivityTaskCompletedRequest where
 
 instance Aeson.ToJSON RespondActivityTaskCompletedRequest where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.respondActivityTaskCompletedRequestTasktoken
+      [ bytesFieldToJSON "taskToken" msg.respondActivityTaskCompletedRequestTasktoken
       , "result" .=: msg.respondActivityTaskCompletedRequestResult
       , "identity" .=: msg.respondActivityTaskCompletedRequestIdentity
       , "namespace" .=: msg.respondActivityTaskCompletedRequestNamespace
@@ -3141,7 +3141,7 @@ instance Aeson.ToJSON RespondActivityTaskCompletedRequest where
 
 instance Aeson.FromJSON RespondActivityTaskCompletedRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_respondActivityTaskCompletedRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_respondActivityTaskCompletedRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_respondActivityTaskCompletedRequestResult <- parseFieldMaybe obj "result"
     fld_respondActivityTaskCompletedRequestIdentity <- parseFieldMaybe obj "identity"
     fld_respondActivityTaskCompletedRequestNamespace <- parseFieldMaybe obj "namespace"
@@ -3417,7 +3417,7 @@ instance IsMessage RespondActivityTaskFailedRequest where
 
 instance Aeson.ToJSON RespondActivityTaskFailedRequest where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.respondActivityTaskFailedRequestTasktoken
+      [ bytesFieldToJSON "taskToken" msg.respondActivityTaskFailedRequestTasktoken
       , "failure" .=: msg.respondActivityTaskFailedRequestFailure
       , "identity" .=: msg.respondActivityTaskFailedRequestIdentity
       , "namespace" .=: msg.respondActivityTaskFailedRequestNamespace
@@ -3429,7 +3429,7 @@ instance Aeson.ToJSON RespondActivityTaskFailedRequest where
 
 instance Aeson.FromJSON RespondActivityTaskFailedRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_respondActivityTaskFailedRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_respondActivityTaskFailedRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_respondActivityTaskFailedRequestFailure <- parseFieldMaybe obj "failure"
     fld_respondActivityTaskFailedRequestIdentity <- parseFieldMaybe obj "identity"
     fld_respondActivityTaskFailedRequestNamespace <- parseFieldMaybe obj "namespace"
@@ -3732,7 +3732,7 @@ instance IsMessage RespondActivityTaskCanceledRequest where
 
 instance Aeson.ToJSON RespondActivityTaskCanceledRequest where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.respondActivityTaskCanceledRequestTasktoken
+      [ bytesFieldToJSON "taskToken" msg.respondActivityTaskCanceledRequestTasktoken
       , "details" .=: msg.respondActivityTaskCanceledRequestDetails
       , "identity" .=: msg.respondActivityTaskCanceledRequestIdentity
       , "namespace" .=: msg.respondActivityTaskCanceledRequestNamespace
@@ -3743,7 +3743,7 @@ instance Aeson.ToJSON RespondActivityTaskCanceledRequest where
 
 instance Aeson.FromJSON RespondActivityTaskCanceledRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_respondActivityTaskCanceledRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_respondActivityTaskCanceledRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_respondActivityTaskCanceledRequestDetails <- parseFieldMaybe obj "details"
     fld_respondActivityTaskCanceledRequestIdentity <- parseFieldMaybe obj "identity"
     fld_respondActivityTaskCanceledRequestNamespace <- parseFieldMaybe obj "namespace"
@@ -5096,7 +5096,7 @@ instance Aeson.ToJSON ListOpenWorkflowExecutionsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listOpenWorkflowExecutionsRequestNamespace
       , "maximumPageSize" .=: msg.listOpenWorkflowExecutionsRequestMaximumpagesize
-      , "nextPageToken" .=: msg.listOpenWorkflowExecutionsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listOpenWorkflowExecutionsRequestNextpagetoken
       , "startTimeFilter" .=: msg.listOpenWorkflowExecutionsRequestStarttimefilter
       , "filters" .=: msg.listOpenWorkflowExecutionsRequestFilters
       ]
@@ -5105,7 +5105,7 @@ instance Aeson.FromJSON ListOpenWorkflowExecutionsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listOpenWorkflowExecutionsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listOpenWorkflowExecutionsRequestMaximumpagesize <- parseFieldMaybe obj "maximumPageSize"
-    fld_listOpenWorkflowExecutionsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listOpenWorkflowExecutionsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listOpenWorkflowExecutionsRequestStarttimefilter <- parseFieldMaybe obj "startTimeFilter"
     fld_listOpenWorkflowExecutionsRequestFilters <- parseFieldMaybe obj "filters"
     pure defaultListOpenWorkflowExecutionsRequest
@@ -5162,13 +5162,13 @@ instance IsMessage ListOpenWorkflowExecutionsResponse where
 instance Aeson.ToJSON ListOpenWorkflowExecutionsResponse where
   toJSON msg = jsonObject
       [ "executions" .=: msg.listOpenWorkflowExecutionsResponseExecutions
-      , "nextPageToken" .=: msg.listOpenWorkflowExecutionsResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listOpenWorkflowExecutionsResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListOpenWorkflowExecutionsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listOpenWorkflowExecutionsResponseExecutions <- parseFieldMaybe obj "executions"
-    fld_listOpenWorkflowExecutionsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listOpenWorkflowExecutionsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListOpenWorkflowExecutionsResponse
       { listOpenWorkflowExecutionsResponseExecutions = maybe (listOpenWorkflowExecutionsResponseExecutions defaultListOpenWorkflowExecutionsResponse) id fld_listOpenWorkflowExecutionsResponseExecutions
       , listOpenWorkflowExecutionsResponseNextpagetoken = maybe (listOpenWorkflowExecutionsResponseNextpagetoken defaultListOpenWorkflowExecutionsResponse) id fld_listOpenWorkflowExecutionsResponseNextpagetoken
@@ -5263,7 +5263,7 @@ instance Aeson.ToJSON ListClosedWorkflowExecutionsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listClosedWorkflowExecutionsRequestNamespace
       , "maximumPageSize" .=: msg.listClosedWorkflowExecutionsRequestMaximumpagesize
-      , "nextPageToken" .=: msg.listClosedWorkflowExecutionsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listClosedWorkflowExecutionsRequestNextpagetoken
       , "startTimeFilter" .=: msg.listClosedWorkflowExecutionsRequestStarttimefilter
       , "filters" .=: msg.listClosedWorkflowExecutionsRequestFilters
       ]
@@ -5272,7 +5272,7 @@ instance Aeson.FromJSON ListClosedWorkflowExecutionsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listClosedWorkflowExecutionsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listClosedWorkflowExecutionsRequestMaximumpagesize <- parseFieldMaybe obj "maximumPageSize"
-    fld_listClosedWorkflowExecutionsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listClosedWorkflowExecutionsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listClosedWorkflowExecutionsRequestStarttimefilter <- parseFieldMaybe obj "startTimeFilter"
     fld_listClosedWorkflowExecutionsRequestFilters <- parseFieldMaybe obj "filters"
     pure defaultListClosedWorkflowExecutionsRequest
@@ -5329,13 +5329,13 @@ instance IsMessage ListClosedWorkflowExecutionsResponse where
 instance Aeson.ToJSON ListClosedWorkflowExecutionsResponse where
   toJSON msg = jsonObject
       [ "executions" .=: msg.listClosedWorkflowExecutionsResponseExecutions
-      , "nextPageToken" .=: msg.listClosedWorkflowExecutionsResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listClosedWorkflowExecutionsResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListClosedWorkflowExecutionsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listClosedWorkflowExecutionsResponseExecutions <- parseFieldMaybe obj "executions"
-    fld_listClosedWorkflowExecutionsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listClosedWorkflowExecutionsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListClosedWorkflowExecutionsResponse
       { listClosedWorkflowExecutionsResponseExecutions = maybe (listClosedWorkflowExecutionsResponseExecutions defaultListClosedWorkflowExecutionsResponse) id fld_listClosedWorkflowExecutionsResponseExecutions
       , listClosedWorkflowExecutionsResponseNextpagetoken = maybe (listClosedWorkflowExecutionsResponseNextpagetoken defaultListClosedWorkflowExecutionsResponse) id fld_listClosedWorkflowExecutionsResponseNextpagetoken
@@ -5401,7 +5401,7 @@ instance Aeson.ToJSON ListWorkflowExecutionsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listWorkflowExecutionsRequestNamespace
       , "pageSize" .=: msg.listWorkflowExecutionsRequestPagesize
-      , "nextPageToken" .=: msg.listWorkflowExecutionsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listWorkflowExecutionsRequestNextpagetoken
       , "query" .=: msg.listWorkflowExecutionsRequestQuery
       ]
 
@@ -5409,7 +5409,7 @@ instance Aeson.FromJSON ListWorkflowExecutionsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listWorkflowExecutionsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listWorkflowExecutionsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listWorkflowExecutionsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listWorkflowExecutionsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listWorkflowExecutionsRequestQuery <- parseFieldMaybe obj "query"
     pure defaultListWorkflowExecutionsRequest
       { listWorkflowExecutionsRequestNamespace = maybe (listWorkflowExecutionsRequestNamespace defaultListWorkflowExecutionsRequest) id fld_listWorkflowExecutionsRequestNamespace
@@ -5464,13 +5464,13 @@ instance IsMessage ListWorkflowExecutionsResponse where
 instance Aeson.ToJSON ListWorkflowExecutionsResponse where
   toJSON msg = jsonObject
       [ "executions" .=: msg.listWorkflowExecutionsResponseExecutions
-      , "nextPageToken" .=: msg.listWorkflowExecutionsResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listWorkflowExecutionsResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListWorkflowExecutionsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listWorkflowExecutionsResponseExecutions <- parseFieldMaybe obj "executions"
-    fld_listWorkflowExecutionsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listWorkflowExecutionsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListWorkflowExecutionsResponse
       { listWorkflowExecutionsResponseExecutions = maybe (listWorkflowExecutionsResponseExecutions defaultListWorkflowExecutionsResponse) id fld_listWorkflowExecutionsResponseExecutions
       , listWorkflowExecutionsResponseNextpagetoken = maybe (listWorkflowExecutionsResponseNextpagetoken defaultListWorkflowExecutionsResponse) id fld_listWorkflowExecutionsResponseNextpagetoken
@@ -5536,7 +5536,7 @@ instance Aeson.ToJSON ListArchivedWorkflowExecutionsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listArchivedWorkflowExecutionsRequestNamespace
       , "pageSize" .=: msg.listArchivedWorkflowExecutionsRequestPagesize
-      , "nextPageToken" .=: msg.listArchivedWorkflowExecutionsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listArchivedWorkflowExecutionsRequestNextpagetoken
       , "query" .=: msg.listArchivedWorkflowExecutionsRequestQuery
       ]
 
@@ -5544,7 +5544,7 @@ instance Aeson.FromJSON ListArchivedWorkflowExecutionsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listArchivedWorkflowExecutionsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listArchivedWorkflowExecutionsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listArchivedWorkflowExecutionsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listArchivedWorkflowExecutionsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listArchivedWorkflowExecutionsRequestQuery <- parseFieldMaybe obj "query"
     pure defaultListArchivedWorkflowExecutionsRequest
       { listArchivedWorkflowExecutionsRequestNamespace = maybe (listArchivedWorkflowExecutionsRequestNamespace defaultListArchivedWorkflowExecutionsRequest) id fld_listArchivedWorkflowExecutionsRequestNamespace
@@ -5599,13 +5599,13 @@ instance IsMessage ListArchivedWorkflowExecutionsResponse where
 instance Aeson.ToJSON ListArchivedWorkflowExecutionsResponse where
   toJSON msg = jsonObject
       [ "executions" .=: msg.listArchivedWorkflowExecutionsResponseExecutions
-      , "nextPageToken" .=: msg.listArchivedWorkflowExecutionsResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listArchivedWorkflowExecutionsResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListArchivedWorkflowExecutionsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listArchivedWorkflowExecutionsResponseExecutions <- parseFieldMaybe obj "executions"
-    fld_listArchivedWorkflowExecutionsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listArchivedWorkflowExecutionsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListArchivedWorkflowExecutionsResponse
       { listArchivedWorkflowExecutionsResponseExecutions = maybe (listArchivedWorkflowExecutionsResponseExecutions defaultListArchivedWorkflowExecutionsResponse) id fld_listArchivedWorkflowExecutionsResponseExecutions
       , listArchivedWorkflowExecutionsResponseNextpagetoken = maybe (listArchivedWorkflowExecutionsResponseNextpagetoken defaultListArchivedWorkflowExecutionsResponse) id fld_listArchivedWorkflowExecutionsResponseNextpagetoken
@@ -5671,7 +5671,7 @@ instance Aeson.ToJSON ScanWorkflowExecutionsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.scanWorkflowExecutionsRequestNamespace
       , "pageSize" .=: msg.scanWorkflowExecutionsRequestPagesize
-      , "nextPageToken" .=: msg.scanWorkflowExecutionsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.scanWorkflowExecutionsRequestNextpagetoken
       , "query" .=: msg.scanWorkflowExecutionsRequestQuery
       ]
 
@@ -5679,7 +5679,7 @@ instance Aeson.FromJSON ScanWorkflowExecutionsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_scanWorkflowExecutionsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_scanWorkflowExecutionsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_scanWorkflowExecutionsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_scanWorkflowExecutionsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_scanWorkflowExecutionsRequestQuery <- parseFieldMaybe obj "query"
     pure defaultScanWorkflowExecutionsRequest
       { scanWorkflowExecutionsRequestNamespace = maybe (scanWorkflowExecutionsRequestNamespace defaultScanWorkflowExecutionsRequest) id fld_scanWorkflowExecutionsRequestNamespace
@@ -5734,13 +5734,13 @@ instance IsMessage ScanWorkflowExecutionsResponse where
 instance Aeson.ToJSON ScanWorkflowExecutionsResponse where
   toJSON msg = jsonObject
       [ "executions" .=: msg.scanWorkflowExecutionsResponseExecutions
-      , "nextPageToken" .=: msg.scanWorkflowExecutionsResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.scanWorkflowExecutionsResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ScanWorkflowExecutionsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_scanWorkflowExecutionsResponseExecutions <- parseFieldMaybe obj "executions"
-    fld_scanWorkflowExecutionsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_scanWorkflowExecutionsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultScanWorkflowExecutionsResponse
       { scanWorkflowExecutionsResponseExecutions = maybe (scanWorkflowExecutionsResponseExecutions defaultScanWorkflowExecutionsResponse) id fld_scanWorkflowExecutionsResponseExecutions
       , scanWorkflowExecutionsResponseNextpagetoken = maybe (scanWorkflowExecutionsResponseNextpagetoken defaultScanWorkflowExecutionsResponse) id fld_scanWorkflowExecutionsResponseNextpagetoken
@@ -6084,7 +6084,7 @@ instance IsMessage RespondQueryTaskCompletedRequest where
 
 instance Aeson.ToJSON RespondQueryTaskCompletedRequest where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.respondQueryTaskCompletedRequestTasktoken
+      [ bytesFieldToJSON "taskToken" msg.respondQueryTaskCompletedRequestTasktoken
       , "completedType" .=: msg.respondQueryTaskCompletedRequestCompletedtype
       , "queryResult" .=: msg.respondQueryTaskCompletedRequestQueryresult
       , "errorMessage" .=: msg.respondQueryTaskCompletedRequestErrormessage
@@ -6095,7 +6095,7 @@ instance Aeson.ToJSON RespondQueryTaskCompletedRequest where
 
 instance Aeson.FromJSON RespondQueryTaskCompletedRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_respondQueryTaskCompletedRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_respondQueryTaskCompletedRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_respondQueryTaskCompletedRequestCompletedtype <- parseFieldMaybe obj "completedType"
     fld_respondQueryTaskCompletedRequestQueryresult <- parseFieldMaybe obj "queryResult"
     fld_respondQueryTaskCompletedRequestErrormessage <- parseFieldMaybe obj "errorMessage"
@@ -7727,13 +7727,13 @@ instance IsMessage CreateScheduleResponse where
 
 instance Aeson.ToJSON CreateScheduleResponse where
   toJSON msg = jsonObject
-      [ "conflictToken" .=: msg.createScheduleResponseConflicttoken
+      [ bytesFieldToJSON "conflictToken" msg.createScheduleResponseConflicttoken
 
       ]
 
 instance Aeson.FromJSON CreateScheduleResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_createScheduleResponseConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_createScheduleResponseConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     pure defaultCreateScheduleResponse
       { createScheduleResponseConflicttoken = maybe (createScheduleResponseConflicttoken defaultCreateScheduleResponse) id fld_createScheduleResponseConflicttoken
       }
@@ -7864,7 +7864,7 @@ instance Aeson.ToJSON DescribeScheduleResponse where
       , "info" .=: msg.describeScheduleResponseInfo
       , "memo" .=: msg.describeScheduleResponseMemo
       , "searchAttributes" .=: msg.describeScheduleResponseSearchattributes
-      , "conflictToken" .=: msg.describeScheduleResponseConflicttoken
+      , bytesFieldToJSON "conflictToken" msg.describeScheduleResponseConflicttoken
       ]
 
 instance Aeson.FromJSON DescribeScheduleResponse where
@@ -7873,7 +7873,7 @@ instance Aeson.FromJSON DescribeScheduleResponse where
     fld_describeScheduleResponseInfo <- parseFieldMaybe obj "info"
     fld_describeScheduleResponseMemo <- parseFieldMaybe obj "memo"
     fld_describeScheduleResponseSearchattributes <- parseFieldMaybe obj "searchAttributes"
-    fld_describeScheduleResponseConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_describeScheduleResponseConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     pure defaultDescribeScheduleResponse
       { describeScheduleResponseSchedule = maybe (describeScheduleResponseSchedule defaultDescribeScheduleResponse) id fld_describeScheduleResponseSchedule
       , describeScheduleResponseInfo = maybe (describeScheduleResponseInfo defaultDescribeScheduleResponse) id fld_describeScheduleResponseInfo
@@ -7965,7 +7965,7 @@ instance Aeson.ToJSON UpdateScheduleRequest where
       [ "namespace" .=: msg.updateScheduleRequestNamespace
       , "scheduleId" .=: msg.updateScheduleRequestScheduleid
       , "schedule" .=: msg.updateScheduleRequestSchedule
-      , "conflictToken" .=: msg.updateScheduleRequestConflicttoken
+      , bytesFieldToJSON "conflictToken" msg.updateScheduleRequestConflicttoken
       , "identity" .=: msg.updateScheduleRequestIdentity
       , "requestId" .=: msg.updateScheduleRequestRequestid
       , "searchAttributes" .=: msg.updateScheduleRequestSearchattributes
@@ -7976,7 +7976,7 @@ instance Aeson.FromJSON UpdateScheduleRequest where
     fld_updateScheduleRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_updateScheduleRequestScheduleid <- parseFieldMaybe obj "scheduleId"
     fld_updateScheduleRequestSchedule <- parseFieldMaybe obj "schedule"
-    fld_updateScheduleRequestConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_updateScheduleRequestConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_updateScheduleRequestIdentity <- parseFieldMaybe obj "identity"
     fld_updateScheduleRequestRequestid <- parseFieldMaybe obj "requestId"
     fld_updateScheduleRequestSearchattributes <- parseFieldMaybe obj "searchAttributes"
@@ -8443,7 +8443,7 @@ instance Aeson.ToJSON ListSchedulesRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listSchedulesRequestNamespace
       , "maximumPageSize" .=: msg.listSchedulesRequestMaximumpagesize
-      , "nextPageToken" .=: msg.listSchedulesRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listSchedulesRequestNextpagetoken
       , "query" .=: msg.listSchedulesRequestQuery
       ]
 
@@ -8451,7 +8451,7 @@ instance Aeson.FromJSON ListSchedulesRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listSchedulesRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listSchedulesRequestMaximumpagesize <- parseFieldMaybe obj "maximumPageSize"
-    fld_listSchedulesRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listSchedulesRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listSchedulesRequestQuery <- parseFieldMaybe obj "query"
     pure defaultListSchedulesRequest
       { listSchedulesRequestNamespace = maybe (listSchedulesRequestNamespace defaultListSchedulesRequest) id fld_listSchedulesRequestNamespace
@@ -8506,13 +8506,13 @@ instance IsMessage ListSchedulesResponse where
 instance Aeson.ToJSON ListSchedulesResponse where
   toJSON msg = jsonObject
       [ "schedules" .=: msg.listSchedulesResponseSchedules
-      , "nextPageToken" .=: msg.listSchedulesResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listSchedulesResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListSchedulesResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listSchedulesResponseSchedules <- parseFieldMaybe obj "schedules"
-    fld_listSchedulesResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listSchedulesResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListSchedulesResponse
       { listSchedulesResponseSchedules = maybe (listSchedulesResponseSchedules defaultListSchedulesResponse) id fld_listSchedulesResponseSchedules
       , listSchedulesResponseNextpagetoken = maybe (listSchedulesResponseNextpagetoken defaultListSchedulesResponse) id fld_listSchedulesResponseNextpagetoken
@@ -9554,7 +9554,7 @@ instance Aeson.ToJSON UpdateWorkerVersioningRulesRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.updateWorkerVersioningRulesRequestNamespace
       , "taskQueue" .=: msg.updateWorkerVersioningRulesRequestTaskqueue
-      , "conflictToken" .=: msg.updateWorkerVersioningRulesRequestConflicttoken
+      , bytesFieldToJSON "conflictToken" msg.updateWorkerVersioningRulesRequestConflicttoken
       , "operation" .=: msg.updateWorkerVersioningRulesRequestOperation
       ]
 
@@ -9562,7 +9562,7 @@ instance Aeson.FromJSON UpdateWorkerVersioningRulesRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_updateWorkerVersioningRulesRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_updateWorkerVersioningRulesRequestTaskqueue <- parseFieldMaybe obj "taskQueue"
-    fld_updateWorkerVersioningRulesRequestConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_updateWorkerVersioningRulesRequestConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_updateWorkerVersioningRulesRequestOperation <- parseFieldMaybe obj "operation"
     pure defaultUpdateWorkerVersioningRulesRequest
       { updateWorkerVersioningRulesRequestNamespace = maybe (updateWorkerVersioningRulesRequestNamespace defaultUpdateWorkerVersioningRulesRequest) id fld_updateWorkerVersioningRulesRequestNamespace
@@ -9625,14 +9625,14 @@ instance Aeson.ToJSON UpdateWorkerVersioningRulesResponse where
   toJSON msg = jsonObject
       [ "assignmentRules" .=: msg.updateWorkerVersioningRulesResponseAssignmentrules
       , "compatibleRedirectRules" .=: msg.updateWorkerVersioningRulesResponseCompatibleredirectrules
-      , "conflictToken" .=: msg.updateWorkerVersioningRulesResponseConflicttoken
+      , bytesFieldToJSON "conflictToken" msg.updateWorkerVersioningRulesResponseConflicttoken
       ]
 
 instance Aeson.FromJSON UpdateWorkerVersioningRulesResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_updateWorkerVersioningRulesResponseAssignmentrules <- parseFieldMaybe obj "assignmentRules"
     fld_updateWorkerVersioningRulesResponseCompatibleredirectrules <- parseFieldMaybe obj "compatibleRedirectRules"
-    fld_updateWorkerVersioningRulesResponseConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_updateWorkerVersioningRulesResponseConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     pure defaultUpdateWorkerVersioningRulesResponse
       { updateWorkerVersioningRulesResponseAssignmentrules = maybe (updateWorkerVersioningRulesResponseAssignmentrules defaultUpdateWorkerVersioningRulesResponse) id fld_updateWorkerVersioningRulesResponseAssignmentrules
       , updateWorkerVersioningRulesResponseCompatibleredirectrules = maybe (updateWorkerVersioningRulesResponseCompatibleredirectrules defaultUpdateWorkerVersioningRulesResponse) id fld_updateWorkerVersioningRulesResponseCompatibleredirectrules
@@ -9749,14 +9749,14 @@ instance Aeson.ToJSON GetWorkerVersioningRulesResponse where
   toJSON msg = jsonObject
       [ "assignmentRules" .=: msg.getWorkerVersioningRulesResponseAssignmentrules
       , "compatibleRedirectRules" .=: msg.getWorkerVersioningRulesResponseCompatibleredirectrules
-      , "conflictToken" .=: msg.getWorkerVersioningRulesResponseConflicttoken
+      , bytesFieldToJSON "conflictToken" msg.getWorkerVersioningRulesResponseConflicttoken
       ]
 
 instance Aeson.FromJSON GetWorkerVersioningRulesResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_getWorkerVersioningRulesResponseAssignmentrules <- parseFieldMaybe obj "assignmentRules"
     fld_getWorkerVersioningRulesResponseCompatibleredirectrules <- parseFieldMaybe obj "compatibleRedirectRules"
-    fld_getWorkerVersioningRulesResponseConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_getWorkerVersioningRulesResponseConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     pure defaultGetWorkerVersioningRulesResponse
       { getWorkerVersioningRulesResponseAssignmentrules = maybe (getWorkerVersioningRulesResponseAssignmentrules defaultGetWorkerVersioningRulesResponse) id fld_getWorkerVersioningRulesResponseAssignmentrules
       , getWorkerVersioningRulesResponseCompatibleredirectrules = maybe (getWorkerVersioningRulesResponseCompatibleredirectrules defaultGetWorkerVersioningRulesResponse) id fld_getWorkerVersioningRulesResponseCompatibleredirectrules
@@ -10610,14 +10610,14 @@ instance Aeson.ToJSON ListBatchOperationsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listBatchOperationsRequestNamespace
       , "pageSize" .=: msg.listBatchOperationsRequestPagesize
-      , "nextPageToken" .=: msg.listBatchOperationsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listBatchOperationsRequestNextpagetoken
       ]
 
 instance Aeson.FromJSON ListBatchOperationsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listBatchOperationsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listBatchOperationsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listBatchOperationsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listBatchOperationsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListBatchOperationsRequest
       { listBatchOperationsRequestNamespace = maybe (listBatchOperationsRequestNamespace defaultListBatchOperationsRequest) id fld_listBatchOperationsRequestNamespace
       , listBatchOperationsRequestPagesize = maybe (listBatchOperationsRequestPagesize defaultListBatchOperationsRequest) id fld_listBatchOperationsRequestPagesize
@@ -10669,13 +10669,13 @@ instance IsMessage ListBatchOperationsResponse where
 instance Aeson.ToJSON ListBatchOperationsResponse where
   toJSON msg = jsonObject
       [ "operationInfo" .=: msg.listBatchOperationsResponseOperationinfo
-      , "nextPageToken" .=: msg.listBatchOperationsResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listBatchOperationsResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListBatchOperationsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listBatchOperationsResponseOperationinfo <- parseFieldMaybe obj "operationInfo"
-    fld_listBatchOperationsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listBatchOperationsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListBatchOperationsResponse
       { listBatchOperationsResponseOperationinfo = maybe (listBatchOperationsResponseOperationinfo defaultListBatchOperationsResponse) id fld_listBatchOperationsResponseOperationinfo
       , listBatchOperationsResponseNextpagetoken = maybe (listBatchOperationsResponseNextpagetoken defaultListBatchOperationsResponse) id fld_listBatchOperationsResponseNextpagetoken
@@ -10985,14 +10985,14 @@ instance IsMessage PollNexusTaskQueueResponse where
 
 instance Aeson.ToJSON PollNexusTaskQueueResponse where
   toJSON msg = jsonObject
-      [ "taskToken" .=: msg.pollNexusTaskQueueResponseTasktoken
+      [ bytesFieldToJSON "taskToken" msg.pollNexusTaskQueueResponseTasktoken
       , "request" .=: msg.pollNexusTaskQueueResponseRequest
       , "pollerScalingDecision" .=: msg.pollNexusTaskQueueResponsePollerscalingdecision
       ]
 
 instance Aeson.FromJSON PollNexusTaskQueueResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_pollNexusTaskQueueResponseTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_pollNexusTaskQueueResponseTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_pollNexusTaskQueueResponseRequest <- parseFieldMaybe obj "request"
     fld_pollNexusTaskQueueResponsePollerscalingdecision <- parseFieldMaybe obj "pollerScalingDecision"
     pure defaultPollNexusTaskQueueResponse
@@ -11061,7 +11061,7 @@ instance Aeson.ToJSON RespondNexusTaskCompletedRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.respondNexusTaskCompletedRequestNamespace
       , "identity" .=: msg.respondNexusTaskCompletedRequestIdentity
-      , "taskToken" .=: msg.respondNexusTaskCompletedRequestTasktoken
+      , bytesFieldToJSON "taskToken" msg.respondNexusTaskCompletedRequestTasktoken
       , "response" .=: msg.respondNexusTaskCompletedRequestResponse
       ]
 
@@ -11069,7 +11069,7 @@ instance Aeson.FromJSON RespondNexusTaskCompletedRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_respondNexusTaskCompletedRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_respondNexusTaskCompletedRequestIdentity <- parseFieldMaybe obj "identity"
-    fld_respondNexusTaskCompletedRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_respondNexusTaskCompletedRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_respondNexusTaskCompletedRequestResponse <- parseFieldMaybe obj "response"
     pure defaultRespondNexusTaskCompletedRequest
       { respondNexusTaskCompletedRequestNamespace = maybe (respondNexusTaskCompletedRequestNamespace defaultRespondNexusTaskCompletedRequest) id fld_respondNexusTaskCompletedRequestNamespace
@@ -11183,7 +11183,7 @@ instance Aeson.ToJSON RespondNexusTaskFailedRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.respondNexusTaskFailedRequestNamespace
       , "identity" .=: msg.respondNexusTaskFailedRequestIdentity
-      , "taskToken" .=: msg.respondNexusTaskFailedRequestTasktoken
+      , bytesFieldToJSON "taskToken" msg.respondNexusTaskFailedRequestTasktoken
       , "error" .=: msg.respondNexusTaskFailedRequestError
       , "failure" .=: msg.respondNexusTaskFailedRequestFailure
       ]
@@ -11192,7 +11192,7 @@ instance Aeson.FromJSON RespondNexusTaskFailedRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_respondNexusTaskFailedRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_respondNexusTaskFailedRequestIdentity <- parseFieldMaybe obj "identity"
-    fld_respondNexusTaskFailedRequestTasktoken <- parseFieldMaybe obj "taskToken"
+    fld_respondNexusTaskFailedRequestTasktoken <- parseBytesFieldMaybe obj "taskToken"
     fld_respondNexusTaskFailedRequestError <- parseFieldMaybe obj "error"
     fld_respondNexusTaskFailedRequestFailure <- parseFieldMaybe obj "failure"
     pure defaultRespondNexusTaskFailedRequest
@@ -12695,13 +12695,13 @@ instance IsMessage DescribeWorkerDeploymentResponse where
 
 instance Aeson.ToJSON DescribeWorkerDeploymentResponse where
   toJSON msg = jsonObject
-      [ "conflictToken" .=: msg.describeWorkerDeploymentResponseConflicttoken
+      [ bytesFieldToJSON "conflictToken" msg.describeWorkerDeploymentResponseConflicttoken
       , "workerDeploymentInfo" .=: msg.describeWorkerDeploymentResponseWorkerdeploymentinfo
       ]
 
 instance Aeson.FromJSON DescribeWorkerDeploymentResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_describeWorkerDeploymentResponseConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_describeWorkerDeploymentResponseConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_describeWorkerDeploymentResponseWorkerdeploymentinfo <- parseFieldMaybe obj "workerDeploymentInfo"
     pure defaultDescribeWorkerDeploymentResponse
       { describeWorkerDeploymentResponseConflicttoken = maybe (describeWorkerDeploymentResponseConflicttoken defaultDescribeWorkerDeploymentResponse) id fld_describeWorkerDeploymentResponseConflicttoken
@@ -12768,7 +12768,7 @@ instance Aeson.ToJSON ListDeploymentsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listDeploymentsRequestNamespace
       , "pageSize" .=: msg.listDeploymentsRequestPagesize
-      , "nextPageToken" .=: msg.listDeploymentsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listDeploymentsRequestNextpagetoken
       , "seriesName" .=: msg.listDeploymentsRequestSeriesname
       ]
 
@@ -12776,7 +12776,7 @@ instance Aeson.FromJSON ListDeploymentsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listDeploymentsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listDeploymentsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listDeploymentsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listDeploymentsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listDeploymentsRequestSeriesname <- parseFieldMaybe obj "seriesName"
     pure defaultListDeploymentsRequest
       { listDeploymentsRequestNamespace = maybe (listDeploymentsRequestNamespace defaultListDeploymentsRequest) id fld_listDeploymentsRequestNamespace
@@ -12830,13 +12830,13 @@ instance IsMessage ListDeploymentsResponse where
 
 instance Aeson.ToJSON ListDeploymentsResponse where
   toJSON msg = jsonObject
-      [ "nextPageToken" .=: msg.listDeploymentsResponseNextpagetoken
+      [ bytesFieldToJSON "nextPageToken" msg.listDeploymentsResponseNextpagetoken
       , "deployments" .=: msg.listDeploymentsResponseDeployments
       ]
 
 instance Aeson.FromJSON ListDeploymentsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_listDeploymentsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listDeploymentsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listDeploymentsResponseDeployments <- parseFieldMaybe obj "deployments"
     pure defaultListDeploymentsResponse
       { listDeploymentsResponseNextpagetoken = maybe (listDeploymentsResponseNextpagetoken defaultListDeploymentsResponse) id fld_listDeploymentsResponseNextpagetoken
@@ -13068,7 +13068,7 @@ instance Aeson.ToJSON SetWorkerDeploymentCurrentVersionRequest where
       , "deploymentName" .=: msg.setWorkerDeploymentCurrentVersionRequestDeploymentname
       , "version" .=: msg.setWorkerDeploymentCurrentVersionRequestVersion
       , "buildId" .=: msg.setWorkerDeploymentCurrentVersionRequestBuildid
-      , "conflictToken" .=: msg.setWorkerDeploymentCurrentVersionRequestConflicttoken
+      , bytesFieldToJSON "conflictToken" msg.setWorkerDeploymentCurrentVersionRequestConflicttoken
       , "identity" .=: msg.setWorkerDeploymentCurrentVersionRequestIdentity
       , "ignoreMissingTaskQueues" .=: msg.setWorkerDeploymentCurrentVersionRequestIgnoremissingtaskqueues
       , "allowNoPollers" .=: msg.setWorkerDeploymentCurrentVersionRequestAllownopollers
@@ -13080,7 +13080,7 @@ instance Aeson.FromJSON SetWorkerDeploymentCurrentVersionRequest where
     fld_setWorkerDeploymentCurrentVersionRequestDeploymentname <- parseFieldMaybe obj "deploymentName"
     fld_setWorkerDeploymentCurrentVersionRequestVersion <- parseFieldMaybe obj "version"
     fld_setWorkerDeploymentCurrentVersionRequestBuildid <- parseFieldMaybe obj "buildId"
-    fld_setWorkerDeploymentCurrentVersionRequestConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_setWorkerDeploymentCurrentVersionRequestConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_setWorkerDeploymentCurrentVersionRequestIdentity <- parseFieldMaybe obj "identity"
     fld_setWorkerDeploymentCurrentVersionRequestIgnoremissingtaskqueues <- parseFieldMaybe obj "ignoreMissingTaskQueues"
     fld_setWorkerDeploymentCurrentVersionRequestAllownopollers <- parseFieldMaybe obj "allowNoPollers"
@@ -13147,14 +13147,14 @@ instance IsMessage SetWorkerDeploymentCurrentVersionResponse where
 
 instance Aeson.ToJSON SetWorkerDeploymentCurrentVersionResponse where
   toJSON msg = jsonObject
-      [ "conflictToken" .=: msg.setWorkerDeploymentCurrentVersionResponseConflicttoken
+      [ bytesFieldToJSON "conflictToken" msg.setWorkerDeploymentCurrentVersionResponseConflicttoken
       , "previousVersion" .=: msg.setWorkerDeploymentCurrentVersionResponsePreviousversion
       , "previousDeploymentVersion" .=: msg.setWorkerDeploymentCurrentVersionResponsePreviousdeploymentversion
       ]
 
 instance Aeson.FromJSON SetWorkerDeploymentCurrentVersionResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_setWorkerDeploymentCurrentVersionResponseConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_setWorkerDeploymentCurrentVersionResponseConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_setWorkerDeploymentCurrentVersionResponsePreviousversion <- parseFieldMaybe obj "previousVersion"
     fld_setWorkerDeploymentCurrentVersionResponsePreviousdeploymentversion <- parseFieldMaybe obj "previousDeploymentVersion"
     pure defaultSetWorkerDeploymentCurrentVersionResponse
@@ -13261,7 +13261,7 @@ instance Aeson.ToJSON SetWorkerDeploymentRampingVersionRequest where
       , "version" .=: msg.setWorkerDeploymentRampingVersionRequestVersion
       , "buildId" .=: msg.setWorkerDeploymentRampingVersionRequestBuildid
       , "percentage" .=: msg.setWorkerDeploymentRampingVersionRequestPercentage
-      , "conflictToken" .=: msg.setWorkerDeploymentRampingVersionRequestConflicttoken
+      , bytesFieldToJSON "conflictToken" msg.setWorkerDeploymentRampingVersionRequestConflicttoken
       , "identity" .=: msg.setWorkerDeploymentRampingVersionRequestIdentity
       , "ignoreMissingTaskQueues" .=: msg.setWorkerDeploymentRampingVersionRequestIgnoremissingtaskqueues
       , "allowNoPollers" .=: msg.setWorkerDeploymentRampingVersionRequestAllownopollers
@@ -13274,7 +13274,7 @@ instance Aeson.FromJSON SetWorkerDeploymentRampingVersionRequest where
     fld_setWorkerDeploymentRampingVersionRequestVersion <- parseFieldMaybe obj "version"
     fld_setWorkerDeploymentRampingVersionRequestBuildid <- parseFieldMaybe obj "buildId"
     fld_setWorkerDeploymentRampingVersionRequestPercentage <- parseFieldMaybe obj "percentage"
-    fld_setWorkerDeploymentRampingVersionRequestConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_setWorkerDeploymentRampingVersionRequestConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_setWorkerDeploymentRampingVersionRequestIdentity <- parseFieldMaybe obj "identity"
     fld_setWorkerDeploymentRampingVersionRequestIgnoremissingtaskqueues <- parseFieldMaybe obj "ignoreMissingTaskQueues"
     fld_setWorkerDeploymentRampingVersionRequestAllownopollers <- parseFieldMaybe obj "allowNoPollers"
@@ -13349,7 +13349,7 @@ instance IsMessage SetWorkerDeploymentRampingVersionResponse where
 
 instance Aeson.ToJSON SetWorkerDeploymentRampingVersionResponse where
   toJSON msg = jsonObject
-      [ "conflictToken" .=: msg.setWorkerDeploymentRampingVersionResponseConflicttoken
+      [ bytesFieldToJSON "conflictToken" msg.setWorkerDeploymentRampingVersionResponseConflicttoken
       , "previousVersion" .=: msg.setWorkerDeploymentRampingVersionResponsePreviousversion
       , "previousDeploymentVersion" .=: msg.setWorkerDeploymentRampingVersionResponsePreviousdeploymentversion
       , "previousPercentage" .=: msg.setWorkerDeploymentRampingVersionResponsePreviouspercentage
@@ -13357,7 +13357,7 @@ instance Aeson.ToJSON SetWorkerDeploymentRampingVersionResponse where
 
 instance Aeson.FromJSON SetWorkerDeploymentRampingVersionResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_setWorkerDeploymentRampingVersionResponseConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_setWorkerDeploymentRampingVersionResponseConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_setWorkerDeploymentRampingVersionResponsePreviousversion <- parseFieldMaybe obj "previousVersion"
     fld_setWorkerDeploymentRampingVersionResponsePreviousdeploymentversion <- parseFieldMaybe obj "previousDeploymentVersion"
     fld_setWorkerDeploymentRampingVersionResponsePreviouspercentage <- parseFieldMaybe obj "previousPercentage"
@@ -13422,14 +13422,14 @@ instance Aeson.ToJSON ListWorkerDeploymentsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listWorkerDeploymentsRequestNamespace
       , "pageSize" .=: msg.listWorkerDeploymentsRequestPagesize
-      , "nextPageToken" .=: msg.listWorkerDeploymentsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listWorkerDeploymentsRequestNextpagetoken
       ]
 
 instance Aeson.FromJSON ListWorkerDeploymentsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listWorkerDeploymentsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listWorkerDeploymentsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listWorkerDeploymentsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listWorkerDeploymentsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListWorkerDeploymentsRequest
       { listWorkerDeploymentsRequestNamespace = maybe (listWorkerDeploymentsRequestNamespace defaultListWorkerDeploymentsRequest) id fld_listWorkerDeploymentsRequestNamespace
       , listWorkerDeploymentsRequestPagesize = maybe (listWorkerDeploymentsRequestPagesize defaultListWorkerDeploymentsRequest) id fld_listWorkerDeploymentsRequestPagesize
@@ -13578,13 +13578,13 @@ instance IsMessage ListWorkerDeploymentsResponse where
 
 instance Aeson.ToJSON ListWorkerDeploymentsResponse where
   toJSON msg = jsonObject
-      [ "nextPageToken" .=: msg.listWorkerDeploymentsResponseNextpagetoken
+      [ bytesFieldToJSON "nextPageToken" msg.listWorkerDeploymentsResponseNextpagetoken
       , "workerDeployments" .=: msg.listWorkerDeploymentsResponseWorkerdeployments
       ]
 
 instance Aeson.FromJSON ListWorkerDeploymentsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_listWorkerDeploymentsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listWorkerDeploymentsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listWorkerDeploymentsResponseWorkerdeployments <- parseFieldMaybe obj "workerDeployments"
     pure defaultListWorkerDeploymentsResponse
       { listWorkerDeploymentsResponseNextpagetoken = maybe (listWorkerDeploymentsResponseNextpagetoken defaultListWorkerDeploymentsResponse) id fld_listWorkerDeploymentsResponseNextpagetoken
@@ -14053,7 +14053,7 @@ instance Aeson.ToJSON SetWorkerDeploymentManagerRequest where
       [ "namespace" .=: msg.setWorkerDeploymentManagerRequestNamespace
       , "deploymentName" .=: msg.setWorkerDeploymentManagerRequestDeploymentname
       , "newManagerIdentity" .=: msg.setWorkerDeploymentManagerRequestNewmanageridentity
-      , "conflictToken" .=: msg.setWorkerDeploymentManagerRequestConflicttoken
+      , bytesFieldToJSON "conflictToken" msg.setWorkerDeploymentManagerRequestConflicttoken
       , "identity" .=: msg.setWorkerDeploymentManagerRequestIdentity
       ]
 
@@ -14062,7 +14062,7 @@ instance Aeson.FromJSON SetWorkerDeploymentManagerRequest where
     fld_setWorkerDeploymentManagerRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_setWorkerDeploymentManagerRequestDeploymentname <- parseFieldMaybe obj "deploymentName"
     fld_setWorkerDeploymentManagerRequestNewmanageridentity <- parseFieldMaybe obj "newManagerIdentity"
-    fld_setWorkerDeploymentManagerRequestConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_setWorkerDeploymentManagerRequestConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_setWorkerDeploymentManagerRequestIdentity <- parseFieldMaybe obj "identity"
     pure defaultSetWorkerDeploymentManagerRequest
       { setWorkerDeploymentManagerRequestNamespace = maybe (setWorkerDeploymentManagerRequestNamespace defaultSetWorkerDeploymentManagerRequest) id fld_setWorkerDeploymentManagerRequestNamespace
@@ -14117,13 +14117,13 @@ instance IsMessage SetWorkerDeploymentManagerResponse where
 
 instance Aeson.ToJSON SetWorkerDeploymentManagerResponse where
   toJSON msg = jsonObject
-      [ "conflictToken" .=: msg.setWorkerDeploymentManagerResponseConflicttoken
+      [ bytesFieldToJSON "conflictToken" msg.setWorkerDeploymentManagerResponseConflicttoken
       , "previousManagerIdentity" .=: msg.setWorkerDeploymentManagerResponsePreviousmanageridentity
       ]
 
 instance Aeson.FromJSON SetWorkerDeploymentManagerResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_setWorkerDeploymentManagerResponseConflicttoken <- parseFieldMaybe obj "conflictToken"
+    fld_setWorkerDeploymentManagerResponseConflicttoken <- parseBytesFieldMaybe obj "conflictToken"
     fld_setWorkerDeploymentManagerResponsePreviousmanageridentity <- parseFieldMaybe obj "previousManagerIdentity"
     pure defaultSetWorkerDeploymentManagerResponse
       { setWorkerDeploymentManagerResponseConflicttoken = maybe (setWorkerDeploymentManagerResponseConflicttoken defaultSetWorkerDeploymentManagerResponse) id fld_setWorkerDeploymentManagerResponseConflicttoken
@@ -14758,13 +14758,13 @@ instance IsMessage ListWorkflowRulesRequest where
 instance Aeson.ToJSON ListWorkflowRulesRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listWorkflowRulesRequestNamespace
-      , "nextPageToken" .=: msg.listWorkflowRulesRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listWorkflowRulesRequestNextpagetoken
       ]
 
 instance Aeson.FromJSON ListWorkflowRulesRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listWorkflowRulesRequestNamespace <- parseFieldMaybe obj "namespace"
-    fld_listWorkflowRulesRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listWorkflowRulesRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListWorkflowRulesRequest
       { listWorkflowRulesRequestNamespace = maybe (listWorkflowRulesRequestNamespace defaultListWorkflowRulesRequest) id fld_listWorkflowRulesRequestNamespace
       , listWorkflowRulesRequestNextpagetoken = maybe (listWorkflowRulesRequestNextpagetoken defaultListWorkflowRulesRequest) id fld_listWorkflowRulesRequestNextpagetoken
@@ -14815,13 +14815,13 @@ instance IsMessage ListWorkflowRulesResponse where
 instance Aeson.ToJSON ListWorkflowRulesResponse where
   toJSON msg = jsonObject
       [ "rules" .=: msg.listWorkflowRulesResponseRules
-      , "nextPageToken" .=: msg.listWorkflowRulesResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listWorkflowRulesResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListWorkflowRulesResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listWorkflowRulesResponseRules <- parseFieldMaybe obj "rules"
-    fld_listWorkflowRulesResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listWorkflowRulesResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListWorkflowRulesResponse
       { listWorkflowRulesResponseRules = maybe (listWorkflowRulesResponseRules defaultListWorkflowRulesResponse) id fld_listWorkflowRulesResponseRules
       , listWorkflowRulesResponseNextpagetoken = maybe (listWorkflowRulesResponseNextpagetoken defaultListWorkflowRulesResponse) id fld_listWorkflowRulesResponseNextpagetoken
@@ -15133,7 +15133,7 @@ instance Aeson.ToJSON ListWorkersRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listWorkersRequestNamespace
       , "pageSize" .=: msg.listWorkersRequestPagesize
-      , "nextPageToken" .=: msg.listWorkersRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listWorkersRequestNextpagetoken
       , "query" .=: msg.listWorkersRequestQuery
       ]
 
@@ -15141,7 +15141,7 @@ instance Aeson.FromJSON ListWorkersRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listWorkersRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listWorkersRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listWorkersRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listWorkersRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listWorkersRequestQuery <- parseFieldMaybe obj "query"
     pure defaultListWorkersRequest
       { listWorkersRequestNamespace = maybe (listWorkersRequestNamespace defaultListWorkersRequest) id fld_listWorkersRequestNamespace
@@ -15196,13 +15196,13 @@ instance IsMessage ListWorkersResponse where
 instance Aeson.ToJSON ListWorkersResponse where
   toJSON msg = jsonObject
       [ "workersInfo" .=: msg.listWorkersResponseWorkersinfo
-      , "nextPageToken" .=: msg.listWorkersResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listWorkersResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListWorkersResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listWorkersResponseWorkersinfo <- parseFieldMaybe obj "workersInfo"
-    fld_listWorkersResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listWorkersResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListWorkersResponse
       { listWorkersResponseWorkersinfo = maybe (listWorkersResponseWorkersinfo defaultListWorkersResponse) id fld_listWorkersResponseWorkersinfo
       , listWorkersResponseNextpagetoken = maybe (listWorkersResponseNextpagetoken defaultListWorkersResponse) id fld_listWorkersResponseNextpagetoken
@@ -16443,7 +16443,7 @@ instance Aeson.ToJSON DescribeActivityExecutionRequest where
       , "runId" .=: msg.describeActivityExecutionRequestRunid
       , "includeInput" .=: msg.describeActivityExecutionRequestIncludeinput
       , "includeOutcome" .=: msg.describeActivityExecutionRequestIncludeoutcome
-      , "longPollToken" .=: msg.describeActivityExecutionRequestLongpolltoken
+      , bytesFieldToJSON "longPollToken" msg.describeActivityExecutionRequestLongpolltoken
       ]
 
 instance Aeson.FromJSON DescribeActivityExecutionRequest where
@@ -16453,7 +16453,7 @@ instance Aeson.FromJSON DescribeActivityExecutionRequest where
     fld_describeActivityExecutionRequestRunid <- parseFieldMaybe obj "runId"
     fld_describeActivityExecutionRequestIncludeinput <- parseFieldMaybe obj "includeInput"
     fld_describeActivityExecutionRequestIncludeoutcome <- parseFieldMaybe obj "includeOutcome"
-    fld_describeActivityExecutionRequestLongpolltoken <- parseFieldMaybe obj "longPollToken"
+    fld_describeActivityExecutionRequestLongpolltoken <- parseBytesFieldMaybe obj "longPollToken"
     pure defaultDescribeActivityExecutionRequest
       { describeActivityExecutionRequestNamespace = maybe (describeActivityExecutionRequestNamespace defaultDescribeActivityExecutionRequest) id fld_describeActivityExecutionRequestNamespace
       , describeActivityExecutionRequestActivityid = maybe (describeActivityExecutionRequestActivityid defaultDescribeActivityExecutionRequest) id fld_describeActivityExecutionRequestActivityid
@@ -16533,7 +16533,7 @@ instance Aeson.ToJSON DescribeActivityExecutionResponse where
       , "info" .=: msg.describeActivityExecutionResponseInfo
       , "input" .=: msg.describeActivityExecutionResponseInput
       , "outcome" .=: msg.describeActivityExecutionResponseOutcome
-      , "longPollToken" .=: msg.describeActivityExecutionResponseLongpolltoken
+      , bytesFieldToJSON "longPollToken" msg.describeActivityExecutionResponseLongpolltoken
       ]
 
 instance Aeson.FromJSON DescribeActivityExecutionResponse where
@@ -16542,7 +16542,7 @@ instance Aeson.FromJSON DescribeActivityExecutionResponse where
     fld_describeActivityExecutionResponseInfo <- parseFieldMaybe obj "info"
     fld_describeActivityExecutionResponseInput <- parseFieldMaybe obj "input"
     fld_describeActivityExecutionResponseOutcome <- parseFieldMaybe obj "outcome"
-    fld_describeActivityExecutionResponseLongpolltoken <- parseFieldMaybe obj "longPollToken"
+    fld_describeActivityExecutionResponseLongpolltoken <- parseBytesFieldMaybe obj "longPollToken"
     pure defaultDescribeActivityExecutionResponse
       { describeActivityExecutionResponseRunid = maybe (describeActivityExecutionResponseRunid defaultDescribeActivityExecutionResponse) id fld_describeActivityExecutionResponseRunid
       , describeActivityExecutionResponseInfo = maybe (describeActivityExecutionResponseInfo defaultDescribeActivityExecutionResponse) id fld_describeActivityExecutionResponseInfo
@@ -16736,7 +16736,7 @@ instance Aeson.ToJSON ListActivityExecutionsRequest where
   toJSON msg = jsonObject
       [ "namespace" .=: msg.listActivityExecutionsRequestNamespace
       , "pageSize" .=: msg.listActivityExecutionsRequestPagesize
-      , "nextPageToken" .=: msg.listActivityExecutionsRequestNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listActivityExecutionsRequestNextpagetoken
       , "query" .=: msg.listActivityExecutionsRequestQuery
       ]
 
@@ -16744,7 +16744,7 @@ instance Aeson.FromJSON ListActivityExecutionsRequest where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listActivityExecutionsRequestNamespace <- parseFieldMaybe obj "namespace"
     fld_listActivityExecutionsRequestPagesize <- parseFieldMaybe obj "pageSize"
-    fld_listActivityExecutionsRequestNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listActivityExecutionsRequestNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     fld_listActivityExecutionsRequestQuery <- parseFieldMaybe obj "query"
     pure defaultListActivityExecutionsRequest
       { listActivityExecutionsRequestNamespace = maybe (listActivityExecutionsRequestNamespace defaultListActivityExecutionsRequest) id fld_listActivityExecutionsRequestNamespace
@@ -16799,13 +16799,13 @@ instance IsMessage ListActivityExecutionsResponse where
 instance Aeson.ToJSON ListActivityExecutionsResponse where
   toJSON msg = jsonObject
       [ "executions" .=: msg.listActivityExecutionsResponseExecutions
-      , "nextPageToken" .=: msg.listActivityExecutionsResponseNextpagetoken
+      , bytesFieldToJSON "nextPageToken" msg.listActivityExecutionsResponseNextpagetoken
       ]
 
 instance Aeson.FromJSON ListActivityExecutionsResponse where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_listActivityExecutionsResponseExecutions <- parseFieldMaybe obj "executions"
-    fld_listActivityExecutionsResponseNextpagetoken <- parseFieldMaybe obj "nextPageToken"
+    fld_listActivityExecutionsResponseNextpagetoken <- parseBytesFieldMaybe obj "nextPageToken"
     pure defaultListActivityExecutionsResponse
       { listActivityExecutionsResponseExecutions = maybe (listActivityExecutionsResponseExecutions defaultListActivityExecutionsResponse) id fld_listActivityExecutionsResponseExecutions
       , listActivityExecutionsResponseNextpagetoken = maybe (listActivityExecutionsResponseNextpagetoken defaultListActivityExecutionsResponse) id fld_listActivityExecutionsResponseNextpagetoken

@@ -28,7 +28,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as AesonKM
-import Proto.JSON (jsonObject, (.=:), parseFieldMaybe)
+import Proto.JSON (jsonObject, (.=:), parseFieldMaybe, bytesFieldToJSON, parseBytesFieldMaybe)
 import Data.Proxy (Proxy(..))
 import Proto.Message (IsMessage(..))
 import qualified Proto.Registry
@@ -94,13 +94,13 @@ instance IsMessage DataBlob where
 instance Aeson.ToJSON DataBlob where
   toJSON msg = jsonObject
       [ "encodingType" .=: msg.dataBlobEncodingtype
-      , "data" .=: msg.dataBlobData
+      , bytesFieldToJSON "data" msg.dataBlobData
       ]
 
 instance Aeson.FromJSON DataBlob where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_dataBlobEncodingtype <- parseFieldMaybe obj "encodingType"
-    fld_dataBlobData <- parseFieldMaybe obj "data"
+    fld_dataBlobData <- parseBytesFieldMaybe obj "data"
     pure defaultDataBlob
       { dataBlobEncodingtype = maybe (dataBlobEncodingtype defaultDataBlob) id fld_dataBlobEncodingtype
       , dataBlobData = maybe (dataBlobData defaultDataBlob) id fld_dataBlobData
@@ -257,14 +257,14 @@ instance IsMessage Payload where
 instance Aeson.ToJSON Payload where
   toJSON msg = jsonObject
       [ "metadata" .=: msg.payloadMetadata
-      , "data" .=: msg.payloadData
+      , bytesFieldToJSON "data" msg.payloadData
       , "externalPayloads" .=: msg.payloadExternalpayloads
       ]
 
 instance Aeson.FromJSON Payload where
   parseJSON = Aeson.withObject "" $ \obj -> do
     fld_payloadMetadata <- parseFieldMaybe obj "metadata"
-    fld_payloadData <- parseFieldMaybe obj "data"
+    fld_payloadData <- parseBytesFieldMaybe obj "data"
     fld_payloadExternalpayloads <- parseFieldMaybe obj "externalPayloads"
     pure defaultPayload
       { payloadMetadata = maybe (payloadMetadata defaultPayload) id fld_payloadMetadata
@@ -1048,13 +1048,13 @@ instance IsMessage Callback'Internal where
 
 instance Aeson.ToJSON Callback'Internal where
   toJSON msg = jsonObject
-      [ "data" .=: msg.callbackInternalData
+      [ bytesFieldToJSON "data" msg.callbackInternalData
 
       ]
 
 instance Aeson.FromJSON Callback'Internal where
   parseJSON = Aeson.withObject "" $ \obj -> do
-    fld_callbackInternalData <- parseFieldMaybe obj "data"
+    fld_callbackInternalData <- parseBytesFieldMaybe obj "data"
     pure defaultCallback'Internal
       { callbackInternalData = maybe (callbackInternalData defaultCallback'Internal) id fld_callbackInternalData
       }
