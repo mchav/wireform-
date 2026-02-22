@@ -12,7 +12,7 @@ import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog
 
-import Proto.Decode (MessageDecode (..), decodeMessage)
+import Proto.Decode (MessageDecode (..))
 import Proto.Decode.Stream (decodeMessageLazy, decodeMessageStream)
 import Proto.Encode (MessageEncode (..), MessageSize (..), encodeMessage, encodeMessageSized)
 import Proto.Encode.Lazy
@@ -21,8 +21,8 @@ import Proto.Encode.Lazy
   , encodeMessageStream
   , encodeMessageStreamSized
   )
-import Proto.Wire (WireType (..))
-import Proto.Wire.Decode (DecodeError (..), Decoder, getTagOr, getVarint, getText, runDecoder, skipField)
+import Proto.Wire (Tag (..), WireType (..))
+import Proto.Wire.Decode (DecodeError (..), Decoder, getTagOr, getVarint, getText, skipField)
 import Proto.Wire.Encode (fieldBoolSize, fieldTextSize, fieldVarintSize, putTag, putVarint, putText)
 
 streamCodecTests :: TestTree
@@ -158,7 +158,7 @@ instance MessageDecode SMsg where
         mt <- getTagOr
         case mt of
           Nothing -> pure (SMsg val name active)
-          Just (Proto.Wire.Tag fn wt) -> case fn of
+          Just (Tag fn wt) -> case fn of
             1 -> getVarint >>= \v -> loop v name active
             2 -> getText >>= \v -> loop val v active
             3 -> getVarint >>= \v -> loop val name (v /= 0)
