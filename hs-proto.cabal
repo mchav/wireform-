@@ -106,6 +106,8 @@ library
       Proto.Internal.Maybe
       Proto.Internal.Either
       Proto.Wire.Result
+      Proto.Decode.Stream
+      Proto.Encode.Lazy
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
@@ -152,6 +154,7 @@ test-suite hs-proto-test
       Test.Schema
       Test.Options
       Test.Lens
+      Test.StreamCodec
 
     build-depends:
         base             >= 4.17 && < 5
