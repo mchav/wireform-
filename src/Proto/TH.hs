@@ -53,7 +53,7 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile, addModFinalizer)
 
 import Proto.AST
-import Proto.Parser (parseProtoFile)
+import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal, lowerFirst, escapeReserved)
 import qualified Proto.Encode as Encode
 import qualified Proto.Decode as Decode
@@ -87,7 +87,7 @@ loadProtoWith opts path = do
   addDependentFile path
   contents <- runIO (TIO.readFile path)
   case parseProtoFile path contents of
-    Left err -> fail ("Proto parse error in " <> path <> ": " <> show err)
+    Left err -> fail (renderParseError err)
     Right pf -> protoFileToDecls' (loRepConfig opts) pf
 
 protoFileToDecls :: ProtoFile -> Q [Dec]

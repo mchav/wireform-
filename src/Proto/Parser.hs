@@ -7,19 +7,22 @@ module Proto.Parser
   ( parseProtoFile
   , parseProto
   , Parser
+  , renderParseError
+  , renderParseErrors
   ) where
 
 import Control.Monad (void)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Text.Megaparsec
+import Text.Megaparsec hiding (option)
 import Text.Megaparsec.Char ()
 
 import Data.Void (Void)
 
 import Proto.AST
 import Proto.Parser.Lexer
+import Proto.Parser.Error (renderParseError, renderParseErrors)
 
 -- | Parse a .proto file from its filename and contents.
 parseProtoFile :: FilePath -> Text -> Either (ParseErrorBundle Text Void) ProtoFile
@@ -83,7 +86,7 @@ topLevelStmt = choice
   , try (TLStmtImport   <$> importDecl)
   , try (TLStmtOption   <$> optionDecl)
   , TLStmtTopLevel <$> topLevelDef
-  ]
+  ] <?> "top-level declaration (message, enum, service, import, package, or option)"
 
 packageDecl :: Parser Text
 packageDecl = do
@@ -139,7 +142,7 @@ constant = choice
   , CInt <$> try intLiteral
   , CAggregate <$> aggregateLiteral
   , CIdent <$> fullIdent
-  ]
+  ] <?> "constant value (string, number, boolean, identifier, or aggregate)"
 
 aggregateLiteral :: Parser [(Text, Constant)]
 aggregateLiteral = braces (many aggregateField)
@@ -157,7 +160,7 @@ topLevelDef = choice
   , try (TLEnum    <$> enumDef)
   , try (TLService <$> serviceDef)
   , try extendDef
-  ]
+  ] <?> "top-level definition (message, enum, service, or extend)"
   where
     extendDef = do
       reserved "extend"
@@ -182,19 +185,19 @@ messageElement = choice
   , try (MEOneof      <$> oneofDef)
   , try (MEMapField   <$> mapFieldDef)
   , MEField           <$> fieldDef
-  ]
+  ] <?> "message element (field, enum, message, oneof, map, option, reserved, or extensions)"
 
 fieldDef :: Parser FieldDef
 fieldDef = do
-  lbl <- optional $ choice
+  lbl <- optional (choice
     [ try (Optional <$ reserved "optional")
     , try (Required <$ reserved "required")
     , try (Repeated <$ reserved "repeated")
-    ]
+    ] <?> "field label (optional, required, or repeated)")
   ft <- parseFieldType
-  name <- identifier
+  name <- identifier <?> "field name"
   equals
-  num <- FieldNumber . fromIntegral <$> intLiteral
+  num <- FieldNumber . fromIntegral <$> (intLiteral <?> "field number")
   opts <- fieldOptionList
   semi
   pure FieldDef
@@ -223,7 +226,7 @@ parseFieldType = choice
   , FTScalar SString   <$ reserved "string"
   , FTScalar SBytes    <$ reserved "bytes"
   , FTNamed <$> fullIdent
-  ]
+  ] <?> "field type (double, float, int32, int64, string, bytes, bool, or message/enum name)"
 
 mapFieldDef :: Parser MapField
 mapFieldDef = do
@@ -263,7 +266,7 @@ scalarType = choice
   , SBool     <$ reserved "bool"
   , SString   <$ reserved "string"
   , SBytes    <$ reserved "bytes"
-  ]
+  ] <?> "scalar type (double, float, int32, int64, uint32, uint64, sint32, sint64, fixed32, fixed64, sfixed32, sfixed64, bool, string, or bytes)"
 
 oneofDef :: Parser OneofDef
 oneofDef = do
@@ -351,7 +354,7 @@ enumItem = choice
   [ EIOption <$> try optionDecl
   , EIReserved <$ try enumReservedDecl
   , EIValue <$> enumValueDef
-  ]
+  ] <?> "enum value, option, or reserved declaration"
 
 enumReservedDecl :: Parser ()
 enumReservedDecl = do

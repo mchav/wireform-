@@ -28,7 +28,7 @@ import System.Directory (doesFileExist)
 import System.FilePath ((</>), takeDirectory)
 
 import Proto.AST
-import Proto.Parser (parseProtoFile)
+import Proto.Parser (parseProtoFile, renderParseError)
 
 -- | Configuration for proto file resolution.
 data ResolveConfig = ResolveConfig
@@ -94,7 +94,7 @@ resolve cfg cache visiting path = do
       Nothing -> do
         contents <- TIO.readFile path
         case parseProtoFile path contents of
-          Left e -> pure (Left (ParseError path (show e)))
+          Left e -> pure (Left (ParseError path (renderParseError e)))
           Right pf -> do
             let imports = protoImports pf
             result <- foldM (resolveImport cfg (pathT : visiting)) (Right Map.empty) imports

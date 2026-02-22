@@ -82,7 +82,7 @@ main = do
   -- 1. Parse the proto file
   putStrLn "--- Parsing proto IDL ---"
   case parseProtoFile "<example>" sampleProto of
-    Left err -> putStrLn $ "Parse error: " <> show err
+    Left err -> putStrLn $ renderParseError err
     Right pf -> do
       putStrLn $ "Syntax:   " <> show (protoSyntax pf)
       putStrLn $ "Package:  " <> show (protoPackage pf)

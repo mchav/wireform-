@@ -26,7 +26,7 @@ import qualified Data.Text as T
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
 
-import Proto.Parser (parseProtoFile)
+import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.TH (protoFileToDecls)
 
 -- | QuasiQuoter for inline protobuf definitions.
@@ -47,5 +47,5 @@ protoDec :: String -> Q [Dec]
 protoDec src = do
   let txt = T.pack src
   case parseProtoFile "<quasiquote>" txt of
-    Left err -> fail ("Proto parse error in quasiquote: " <> show err)
+    Left err -> fail (renderParseError err)
     Right pf -> protoFileToDecls pf
