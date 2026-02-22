@@ -162,10 +162,7 @@ instance Aeson.FromJSON Timestamp where
 
 
 instance Hashable Timestamp where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.timestampSeconds
-    `hashWithSalt` msg.timestampNanos
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.timestampSeconds) msg.timestampNanos
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

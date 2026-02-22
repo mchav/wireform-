@@ -129,9 +129,7 @@ instance Aeson.FromJSON SourceContext where
       }
 
 instance Hashable SourceContext where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.sourceContextFilename
+  hashWithSalt salt msg = hashWithSalt (salt) msg.sourceContextFilename
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

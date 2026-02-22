@@ -146,10 +146,7 @@ instance Aeson.FromJSON Duration where
 
 
 instance Hashable Duration where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.durationSeconds
-    `hashWithSalt` msg.durationNanos
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.durationSeconds) msg.durationNanos
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

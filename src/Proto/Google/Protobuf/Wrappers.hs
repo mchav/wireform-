@@ -129,9 +129,7 @@ instance Aeson.FromJSON DoubleValue where
       }
 
 instance Hashable DoubleValue where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.doubleValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.doubleValueValue
 
 data FloatValue = FloatValue
   { floatValueValue :: {-# UNPACK #-} !Float
@@ -205,9 +203,7 @@ instance Aeson.FromJSON FloatValue where
       }
 
 instance Hashable FloatValue where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.floatValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.floatValueValue
 
 data Int64Value = Int64Value
   { int64ValueValue :: {-# UNPACK #-} !Int64
@@ -281,9 +277,7 @@ instance Aeson.FromJSON Int64Value where
       }
 
 instance Hashable Int64Value where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.int64ValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.int64ValueValue
 
 data UInt64Value = UInt64Value
   { uInt64ValueValue :: {-# UNPACK #-} !Word64
@@ -357,9 +351,7 @@ instance Aeson.FromJSON UInt64Value where
       }
 
 instance Hashable UInt64Value where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.uInt64ValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.uInt64ValueValue
 
 data Int32Value = Int32Value
   { int32ValueValue :: {-# UNPACK #-} !Int32
@@ -433,9 +425,7 @@ instance Aeson.FromJSON Int32Value where
       }
 
 instance Hashable Int32Value where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.int32ValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.int32ValueValue
 
 data UInt32Value = UInt32Value
   { uInt32ValueValue :: {-# UNPACK #-} !Word32
@@ -509,9 +499,7 @@ instance Aeson.FromJSON UInt32Value where
       }
 
 instance Hashable UInt32Value where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.uInt32ValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.uInt32ValueValue
 
 data BoolValue = BoolValue
   { boolValueValue :: {-# UNPACK #-} !Bool
@@ -585,9 +573,7 @@ instance Aeson.FromJSON BoolValue where
       }
 
 instance Hashable BoolValue where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.boolValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.boolValueValue
 
 data StringValue = StringValue
   { stringValueValue :: !Text
@@ -661,9 +647,7 @@ instance Aeson.FromJSON StringValue where
       }
 
 instance Hashable StringValue where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.stringValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.stringValueValue
 
 data BytesValue = BytesValue
   { bytesValueValue :: !ByteString
@@ -737,9 +721,7 @@ instance Aeson.FromJSON BytesValue where
       }
 
 instance Hashable BytesValue where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.bytesValueValue
+  hashWithSalt salt msg = hashWithSalt (salt) msg.bytesValueValue
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

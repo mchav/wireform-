@@ -1384,28 +1384,29 @@ genHashableInstance ctx scope msg =
     [ instanceHead "Hashable" tyN
     , indent 2 $ case fields of
         [] -> txt "hashWithSalt salt _ = salt"
-        _  -> txt "hashWithSalt salt msg =" <> line <>
-              indent 2 (genHashChain fields)
+        _  -> txt "hashWithSalt salt msg = " <> genHashExpr fields
     ]
 
-genHashChain :: [FieldInfoFull] -> Doc ann
-genHashChain [] = txt "salt"
-genHashChain fields =
-  let exprs = fmap genFieldHash fields
-  in vsep (txt "salt" : exprs)
+genHashExpr :: [FieldInfoFull] -> Doc ann
+genHashExpr = go (txt "salt")
+  where
+    go acc [] = acc
+    go acc (fi : rest) = go (genFieldHashApp acc fi) rest
 
-genFieldHash :: FieldInfoFull -> Doc ann
-genFieldHash fi = case fifKind fi of
-  FKScalar (Just Repeated) st | isUnboxableScalar st ->
-    txt "`hashWithSalt` VU.toList msg." <> pretty (fifAccessor fi)
-  FKScalar (Just Repeated) _ ->
-    txt "`hashWithSalt` V.toList msg." <> pretty (fifAccessor fi)
-  FKNamed (Just Repeated) _ _ ->
-    txt "`hashWithSalt` V.toList msg." <> pretty (fifAccessor fi)
-  FKMap _ _ ->
-    txt "`hashWithSalt` Map.toList msg." <> pretty (fifAccessor fi)
-  _ ->
-    txt "`hashWithSalt` msg." <> pretty (fifAccessor fi)
+genFieldHashApp :: Doc ann -> FieldInfoFull -> Doc ann
+genFieldHashApp acc fi =
+  let fld = txt "msg." <> pretty (fifAccessor fi)
+  in case fifKind fi of
+    FKScalar (Just Repeated) st | isUnboxableScalar st ->
+      txt "VU.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
+    FKScalar (Just Repeated) _ ->
+      txt "V.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
+    FKNamed (Just Repeated) _ _ ->
+      txt "V.foldl' hashWithSalt (" <> acc <> txt ") " <> fld
+    FKMap _ _ ->
+      txt "Map.foldlWithKey' (\\s k v -> s `hashWithSalt` k `hashWithSalt` v) (" <> acc <> txt ") " <> fld
+    _ ->
+      txt "hashWithSalt (" <> acc <> txt ") " <> fld
 
 genOneofHashableInstance :: GenCtx -> [Text] -> OneofDef -> Doc ann
 genOneofHashableInstance ctx scope od =

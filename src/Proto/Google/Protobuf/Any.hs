@@ -145,10 +145,7 @@ instance Aeson.FromJSON Any where
       }
 
 instance Hashable Any where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.anyTypeurl
-    `hashWithSalt` msg.anyValue
+  hashWithSalt salt msg = hashWithSalt (hashWithSalt (salt) msg.anyTypeurl) msg.anyValue
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

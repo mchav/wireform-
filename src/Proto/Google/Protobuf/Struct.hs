@@ -132,9 +132,7 @@ instance Aeson.FromJSON Struct where
       }
 
 instance Hashable Struct where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` Map.toList msg.structFields
+  hashWithSalt salt msg = Map.foldlWithKey' (\s k v -> s `hashWithSalt` k `hashWithSalt` v) (salt) msg.structFields
 
 data Value = Value
   { valueKind :: !(Maybe Value'Kind)
@@ -255,9 +253,7 @@ instance Aeson.FromJSON Value where
       }
 
 instance Hashable Value where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` msg.valueKind
+  hashWithSalt salt msg = hashWithSalt (salt) msg.valueKind
 
 data NullValue
   = NullValue'NullValue
@@ -362,9 +358,7 @@ instance Aeson.FromJSON ListValue where
       }
 
 instance Hashable ListValue where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` V.toList msg.listValueValues
+  hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.listValueValues
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry

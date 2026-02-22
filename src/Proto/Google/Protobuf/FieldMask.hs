@@ -129,9 +129,7 @@ instance Aeson.FromJSON FieldMask where
       }
 
 instance Hashable FieldMask where
-  hashWithSalt salt msg =
-    salt
-    `hashWithSalt` V.toList msg.fieldMaskPaths
+  hashWithSalt salt msg = V.foldl' hashWithSalt (salt) msg.fieldMaskPaths
 
 -- | Register all message types defined in this module.
 registerModuleTypes :: Proto.Registry.MessageRegistry -> Proto.Registry.MessageRegistry
