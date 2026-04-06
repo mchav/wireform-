@@ -338,109 +338,95 @@ fastDecodeSmallInner origBs = runFastDecode origBs $ \fd off0 ->
               _ -> go i n a (fdSkipField fd off1 wt)
   in go 0 "" False off0
 
--- | Fast repeated decoder using mutable vectors + Addr#-based reading.
--- Eliminates all GrowList closure allocation.
+-- | Fast repeated decoder. Two passes:
+-- Pass 1: scan to count elements per field (cheap — just tag decode + skip)
+-- Pass 2: decode with pre-allocated exact-size vectors (zero grow)
 fastDecodeRepeated :: ByteString -> Either DecodeError HWithRepeated
 fastDecodeRepeated origBs = unsafeDupablePerformIO $
   withForeignPtr fp $ \ptr -> do
     let !fd = FastDec (castPtr ptr) len
 
-    -- Pre-allocate mutable vectors. We don't know exact counts upfront,
-    -- so start with reasonable capacities and grow if needed.
-    valsRef  <- newIORef =<< MVU.new 64
-    valsLen  <- newIORef (0 :: Int)
-    tagsRef  <- newIORef =<< MV.new 32
-    tagsLen  <- newIORef (0 :: Int)
-    itemsRef <- newIORef =<< MV.new 16
-    itemsLen <- newIORef (0 :: Int)
+    -- Pass 1: count elements
+    let count !nv !nt !ni !off
+          | off >= len = (nv, nt, ni)
+          | otherwise =
+              let (!fn, !wt, !off1) = fdTag fd off
+              in case fn of
+                1 | wt == 2 ->
+                    let (!blen, !off2) = fdVarint fd off1
+                        !bl = fromIntegral blen
+                        -- Count varints in packed buffer
+                        !nVarints = countVarints fd off2 (off2 + bl)
+                    in count (nv + nVarints) nt ni (off2 + bl)
+                  | otherwise ->
+                    count (nv + 1) nt ni (snd (fdVarint fd off1))
+                2 -> count nv (nt + 1) ni (fdSkipField fd off1 wt)
+                3 -> count nv nt (ni + 1) (fdSkipField fd off1 wt)
+                _ -> count nv nt ni (fdSkipField fd off1 wt)
 
-    let pushVal :: Int32 -> IO ()
-        pushVal !v = do
-          !n <- readIORef valsLen
-          !mv <- readIORef valsRef
-          mv' <- if n >= MVU.length mv
-                 then MVU.grow mv (MVU.length mv)
-                 else pure mv
-          MVU.unsafeWrite mv' n v
-          writeIORef valsRef mv'
-          writeIORef valsLen (n + 1)
+    let (!numVals, !numTags, !numItems) = count 0 0 0 0
 
-        pushTag :: Text -> IO ()
-        pushTag !v = do
-          !n <- readIORef tagsLen
-          !mv <- readIORef tagsRef
-          mv' <- if n >= MV.length mv
-                 then MV.grow mv (MV.length mv)
-                 else pure mv
-          MV.unsafeWrite mv' n v
-          writeIORef tagsRef mv'
-          writeIORef tagsLen (n + 1)
+    -- Pass 2: decode with exact-size pre-allocated vectors
+    mvVals  <- MVU.unsafeNew numVals
+    mvTags  <- MV.unsafeNew numTags
+    mvItems <- MV.unsafeNew numItems
 
-        pushItem :: HSmall -> IO ()
-        pushItem !v = do
-          !n <- readIORef itemsLen
-          !mv <- readIORef itemsRef
-          mv' <- if n >= MV.length mv
-                 then MV.grow mv (MV.length mv)
-                 else pure mv
-          MV.unsafeWrite mv' n v
-          writeIORef itemsRef mv'
-          writeIORef itemsLen (n + 1)
-
-        go :: Int -> IO (Either DecodeError Int)
-        go !off
+    let go !vi !ti !ii !off
           | off >= len = pure (Right off)
           | otherwise = do
               let (!fn, !wt, !off1) = fdTag fd off
               case fn of
                 1 | wt == 2 -> do
-                    -- Packed int32
                     let (!blen, !off2) = fdVarint fd off1
                         !bl = fromIntegral blen
                         !endOff = off2 + bl
-                    let goP !p
-                          | p >= endOff = pure ()
-                          | otherwise = do
-                              let (!v, !p') = fdVarint fd p
-                              pushVal (fromIntegral v)
-                              goP p'
-                    goP off2
-                    go endOff
+                    vi' <- goP vi off2 endOff
+                    go vi' ti ii endOff
                   | otherwise -> do
                     let (!v, !off2) = fdVarint fd off1
-                    pushVal (fromIntegral v)
-                    go off2
+                    MVU.unsafeWrite mvVals vi (fromIntegral v)
+                    go (vi + 1) ti ii off2
                 2 -> do
                   let (!v, !off2) = fdText fd off1 origBs
-                  pushTag v
-                  go off2
+                  MV.unsafeWrite mvTags ti v
+                  go vi (ti + 1) ii off2
                 3 -> do
                   let (!subBs, !off2) = fdBytes fd off1 origBs
                   case fastDecodeSmallInner subBs of
                     Right m -> do
-                      pushItem m
-                      go off2
+                      MV.unsafeWrite mvItems ii m
+                      go vi ti (ii + 1) off2
                     Left e -> pure (Left (SubMessageError e))
-                _ -> go (fdSkipField fd off1 wt)
+                _ -> go vi ti ii (fdSkipField fd off1 wt)
 
-    result <- go 0
+        goP !vi !p !endOff
+          | p >= endOff = pure vi
+          | otherwise = do
+              let (!v, !p') = fdVarint fd p
+              MVU.unsafeWrite mvVals vi (fromIntegral v)
+              goP (vi + 1) p' endOff
+
+    result <- go 0 0 0 0
     case result of
       Left e -> pure (Left e)
       Right off
         | off == len -> do
-            vn <- readIORef valsLen
-            mv <- readIORef valsRef
-            vals <- VU.unsafeFreeze (MVU.unsafeTake vn mv)
-            tn <- readIORef tagsLen
-            mtags <- readIORef tagsRef
-            tags <- V.unsafeFreeze (MV.unsafeTake tn mtags)
-            ini <- readIORef itemsLen
-            mitems <- readIORef itemsRef
-            items <- V.unsafeFreeze (MV.unsafeTake ini mitems)
+            vals  <- VU.unsafeFreeze mvVals
+            tags  <- V.unsafeFreeze mvTags
+            items <- V.unsafeFreeze mvItems
             pure (Right (HWithRepeated vals tags items))
         | otherwise -> pure (Left ExtraBytes)
   where
     !(BSI.BS fp len) = origBs
+
+    countVarints :: FastDec -> Int -> Int -> Int
+    countVarints fd = go 0
+      where
+        go !n !p !endP
+          | p >= endP = n
+          | otherwise =
+              let (!_, !p') = fdVarint fd p
+              in go (n + 1) p' endP
 {-# NOINLINE fastDecodeRepeated #-}
 
 decodePackedInto :: GrowList Int32 -> ByteString -> GrowList Int32
