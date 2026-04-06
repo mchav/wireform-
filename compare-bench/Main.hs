@@ -140,7 +140,7 @@ rtNestedP m = PLC.decodeMessage (PLC.encodeMessage m)
 {-# NOINLINE rtNestedP #-}
 
 decRepH :: BS.ByteString -> Either H.DecodeError HWithRepeated
-decRepH = H.decodeMessage
+decRepH = fastDecodeRepeated
 {-# NOINLINE decRepH #-}
 decRepP :: BS.ByteString -> Either String PL.WithRepeated
 decRepP = PLC.decodeMessage

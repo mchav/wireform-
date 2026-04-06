@@ -13,6 +13,7 @@ module HsProtoTypes where
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Vector as V
@@ -26,6 +27,12 @@ import Foreign.Ptr (Ptr)
 import Data.Word (Word8)
 import Proto.Encode
 import Proto.Decode.Fast
+import qualified Data.Vector.Mutable as MV
+import qualified Data.Vector.Unboxed.Mutable as MVU
+import Data.IORef
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (castPtr)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 import Proto.Decode
 import Proto.Encode.Archetype
 import Proto.Encode.Direct
@@ -331,12 +338,117 @@ fastDecodeSmallInner origBs = runFastDecode origBs $ \fd off0 ->
               _ -> go i n a (fdSkipField fd off1 wt)
   in go 0 "" False off0
 
+-- | Fast repeated decoder using mutable vectors + Addr#-based reading.
+-- Eliminates all GrowList closure allocation.
+fastDecodeRepeated :: ByteString -> Either DecodeError HWithRepeated
+fastDecodeRepeated origBs = unsafeDupablePerformIO $
+  withForeignPtr fp $ \ptr -> do
+    let !fd = FastDec (castPtr ptr) len
+
+    -- Pre-allocate mutable vectors. We don't know exact counts upfront,
+    -- so start with reasonable capacities and grow if needed.
+    valsRef  <- newIORef =<< MVU.new 64
+    valsLen  <- newIORef (0 :: Int)
+    tagsRef  <- newIORef =<< MV.new 32
+    tagsLen  <- newIORef (0 :: Int)
+    itemsRef <- newIORef =<< MV.new 16
+    itemsLen <- newIORef (0 :: Int)
+
+    let pushVal :: Int32 -> IO ()
+        pushVal !v = do
+          !n <- readIORef valsLen
+          !mv <- readIORef valsRef
+          mv' <- if n >= MVU.length mv
+                 then MVU.grow mv (MVU.length mv)
+                 else pure mv
+          MVU.unsafeWrite mv' n v
+          writeIORef valsRef mv'
+          writeIORef valsLen (n + 1)
+
+        pushTag :: Text -> IO ()
+        pushTag !v = do
+          !n <- readIORef tagsLen
+          !mv <- readIORef tagsRef
+          mv' <- if n >= MV.length mv
+                 then MV.grow mv (MV.length mv)
+                 else pure mv
+          MV.unsafeWrite mv' n v
+          writeIORef tagsRef mv'
+          writeIORef tagsLen (n + 1)
+
+        pushItem :: HSmall -> IO ()
+        pushItem !v = do
+          !n <- readIORef itemsLen
+          !mv <- readIORef itemsRef
+          mv' <- if n >= MV.length mv
+                 then MV.grow mv (MV.length mv)
+                 else pure mv
+          MV.unsafeWrite mv' n v
+          writeIORef itemsRef mv'
+          writeIORef itemsLen (n + 1)
+
+        go :: Int -> IO (Either DecodeError Int)
+        go !off
+          | off >= len = pure (Right off)
+          | otherwise = do
+              let (!fn, !wt, !off1) = fdTag fd off
+              case fn of
+                1 | wt == 2 -> do
+                    -- Packed int32
+                    let (!blen, !off2) = fdVarint fd off1
+                        !bl = fromIntegral blen
+                        !endOff = off2 + bl
+                    let goP !p
+                          | p >= endOff = pure ()
+                          | otherwise = do
+                              let (!v, !p') = fdVarint fd p
+                              pushVal (fromIntegral v)
+                              goP p'
+                    goP off2
+                    go endOff
+                  | otherwise -> do
+                    let (!v, !off2) = fdVarint fd off1
+                    pushVal (fromIntegral v)
+                    go off2
+                2 -> do
+                  let (!v, !off2) = fdText fd off1 origBs
+                  pushTag v
+                  go off2
+                3 -> do
+                  let (!subBs, !off2) = fdBytes fd off1 origBs
+                  case fastDecodeSmallInner subBs of
+                    Right m -> do
+                      pushItem m
+                      go off2
+                    Left e -> pure (Left (SubMessageError e))
+                _ -> go (fdSkipField fd off1 wt)
+
+    result <- go 0
+    case result of
+      Left e -> pure (Left e)
+      Right off
+        | off == len -> do
+            vn <- readIORef valsLen
+            mv <- readIORef valsRef
+            vals <- VU.unsafeFreeze (MVU.unsafeTake vn mv)
+            tn <- readIORef tagsLen
+            mtags <- readIORef tagsRef
+            tags <- V.unsafeFreeze (MV.unsafeTake tn mtags)
+            ini <- readIORef itemsLen
+            mitems <- readIORef itemsRef
+            items <- V.unsafeFreeze (MV.unsafeTake ini mitems)
+            pure (Right (HWithRepeated vals tags items))
+        | otherwise -> pure (Left ExtraBytes)
+  where
+    !(BSI.BS fp len) = origBs
+{-# NOINLINE fastDecodeRepeated #-}
+
 decodePackedInto :: GrowList Int32 -> ByteString -> GrowList Int32
 decodePackedInto !gl bs = go gl 0
   where
-    len = BS.length bs
+    bsLen = BS.length bs
     go !acc !off
-      | off >= len = acc
+      | off >= bsLen = acc
       | otherwise = case runDecoder' getVarint bs off of
           DecodeOK v off' -> go (snocGrowList acc (fromIntegral v)) off'
           DecodeFail _    -> acc
