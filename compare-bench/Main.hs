@@ -28,19 +28,19 @@ import qualified Proto.SizedBuilder as SB
 import HsProtoTypes
 
 encSmallH :: HSmall -> BS.ByteString
-encSmallH = SB.toByteString . buildSizedSmall
+encSmallH = directEncodeSmall
 {-# NOINLINE encSmallH #-}
 
 encMediumH :: HMedium -> BS.ByteString
-encMediumH = SB.toByteString . buildSizedMedium
+encMediumH = directEncodeMedium
 {-# NOINLINE encMediumH #-}
 
 encNestedH :: HWithNested -> BS.ByteString
-encNestedH = SB.toByteString . buildSizedNested
+encNestedH = directEncodeNested
 {-# NOINLINE encNestedH #-}
 
 encRepH :: HWithRepeated -> BS.ByteString
-encRepH = SB.toByteString . buildSizedRepeated
+encRepH = directEncodeRepeated
 {-# NOINLINE encRepH #-}
 
 main :: IO ()

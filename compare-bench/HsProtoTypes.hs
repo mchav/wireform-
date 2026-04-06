@@ -25,6 +25,7 @@ import Control.DeepSeq (NFData)
 import Proto.Encode
 import Proto.Decode
 import Proto.Encode.Archetype
+import Proto.Encode.Direct
 import qualified Proto.SizedBuilder as SB
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize,
@@ -267,4 +268,95 @@ decodePackedInto !gl bs = go gl 0
       | otherwise = case runDecoder' getVarint bs off of
           DecodeOK v off' -> go (snocGrowList acc (fromIntegral v)) off'
           DecodeFail _    -> acc
+
+-- | Direct-write encode for HSmall. Zero Builder overhead.
+directEncodeSmall :: HSmall -> ByteString
+directEncodeSmall msg =
+  let !sz = SB.size (buildSizedSmall msg)
+  in directEncode sz (writeSmall msg)
+{-# NOINLINE directEncodeSmall #-}
+
+writeSmall :: HSmall -> WriteCtx -> IO WriteCtx
+writeSmall (HSmall i n a) ctx = do
+  ctx1 <- if i == 0 then pure ctx
+          else dWord8 0x08 ctx >>= dVarint (fromIntegral i)
+  ctx2 <- if n == "" then pure ctx1
+          else dWord8 0x12 ctx1 >>= dText n
+  if not a then pure ctx2
+  else dWord8 0x18 ctx2 >>= dWord8 1
+{-# INLINE writeSmall #-}
+
+-- | Direct-write encode for HMedium.
+directEncodeMedium :: HMedium -> ByteString
+directEncodeMedium msg =
+  let !sz = SB.size (buildSizedMedium msg)
+  in directEncode sz (writeMedium msg)
+{-# NOINLINE directEncodeMedium #-}
+
+writeMedium :: HMedium -> WriteCtx -> IO WriteCtx
+writeMedium m ctx = do
+  ctx1 <- if hmTitle m == "" then pure ctx
+          else dWord8 0x0a ctx >>= dText (hmTitle m)
+  ctx2 <- if hmCount m == 0 then pure ctx1
+          else dWord8 0x10 ctx1 >>= dVarint (fromIntegral (hmCount m))
+  ctx3 <- if hmScore m == 0 then pure ctx2
+          else dWord8 0x19 ctx2 >>= dDoubleLE (hmScore m)
+  ctx4 <- if BS.null (hmPayload m) then pure ctx3
+          else dWord8 0x22 ctx3 >>= dByteString (hmPayload m)
+  ctx5 <- if not (hmEnabled m) then pure ctx4
+          else dWord8 0x28 ctx4 >>= dWord8 1
+  ctx6 <- if hmTimestamp m == 0 then pure ctx5
+          else dWord8 0x30 ctx5 >>= dVarint (fromIntegral (hmTimestamp m))
+  ctx7 <- if hmDescription m == "" then pure ctx6
+          else dWord8 0x3a ctx6 >>= dText (hmDescription m)
+  if hmRatio m == 0 then pure ctx7
+  else dWord8 0x45 ctx7 >>= dFloatLE (hmRatio m)
+{-# INLINE writeMedium #-}
+
+-- | Direct-write encode for HWithNested.
+directEncodeNested :: HWithNested -> ByteString
+directEncodeNested msg =
+  let !sz = SB.size (buildSizedNested msg)
+  in directEncode sz (writeNested msg)
+{-# NOINLINE directEncodeNested #-}
+
+writeNested :: HWithNested -> WriteCtx -> IO WriteCtx
+writeNested m ctx = do
+  ctx1 <- if hwnId m == 0 then pure ctx
+          else dWord8 0x08 ctx >>= dVarint (fromIntegral (hwnId m))
+  ctx2 <- case hwnInner m of
+    Nothing -> pure ctx1
+    Just inner -> do
+      let !innerSz = SB.size (buildSizedSmall inner)
+      ctx1a <- dWord8 0x12 ctx1
+      ctx1b <- dVarint (fromIntegral innerSz) ctx1a
+      writeSmall inner ctx1b
+  if hwnLabel m == "" then pure ctx2
+  else dWord8 0x1a ctx2 >>= dText (hwnLabel m)
+{-# INLINE writeNested #-}
+
+-- | Direct-write encode for HWithRepeated.
+directEncodeRepeated :: HWithRepeated -> ByteString
+directEncodeRepeated msg =
+  let !sz = SB.size (buildSizedRepeated msg)
+  in directEncode sz (writeRepeated msg)
+{-# NOINLINE directEncodeRepeated #-}
+
+writeRepeated :: HWithRepeated -> WriteCtx -> IO WriteCtx
+writeRepeated m ctx = do
+  ctx1 <- if VU.null (hwrValues m) then pure ctx
+          else do
+            let (!packedSz, _) = VU.foldl' (\(!sz, !_) v ->
+                  let !w = fromIntegral v :: Word64
+                  in (sz + varintSize w, ())) (0, ()) (hwrValues m)
+            ctx1a <- dWord8 0x0a ctx
+            ctx1b <- dVarint (fromIntegral packedSz) ctx1a
+            VU.foldM' (\c v -> dVarint (fromIntegral v) c) ctx1b (hwrValues m)
+  ctx2 <- V.foldM' (\c s -> dWord8 0x12 c >>= dText s) ctx1 (hwrTags m)
+  V.foldM' (\c item -> do
+    let !innerSz = SB.size (buildSizedSmall item)
+    c1 <- dWord8 0x1a c
+    c2 <- dVarint (fromIntegral innerSz) c1
+    writeSmall item c2) ctx2 (hwrItems m)
+{-# INLINE writeRepeated #-}
 
