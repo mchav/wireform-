@@ -108,6 +108,7 @@ library
       Proto.Internal.Maybe
       Proto.Internal.Either
       Proto.Wire.Result
+      Proto.Wire.FFI
       Proto.Decode.Stream
       Proto.Encode.Lazy
       -- Well-known type utilities

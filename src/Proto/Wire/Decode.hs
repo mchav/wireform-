@@ -71,6 +71,7 @@ module Proto.Wire.Decode
 import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
@@ -81,8 +82,12 @@ import Data.Text.Internal.Encoding (validateUtf8Chunk)
 import qualified Data.Text.Encoding as TE
 #endif
 import Data.Word (Word32, Word64)
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, plusPtr, castPtr)
+import Foreign.Storable (peek)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Exts (Int#, Int(I#), (+#), (>=#), isTrue#)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 import Control.DeepSeq (NFData(..))
 
 import Proto.Wire (Tag (..), WireType (..), decodeTag)
@@ -168,7 +173,12 @@ bsLen :: ByteString -> Int#
 bsLen bs = case BS.length bs of I# n -> n
 {-# INLINE bsLen #-}
 
--- | Decode a varint. Inline fast path for 1-2 byte varints (most common).
+-- | Decode a varint. Inline fast path for 1-4 byte varints.
+--
+-- Hyperpb insight: most varints are 1-3 bytes (tags, small integers,
+-- enum values). Inlining up to 4 bytes covers field tags up to
+-- field number ~500k and values up to 2^28, hitting the slow path
+-- only for genuinely large values.
 getVarint :: Decoder Word64
 getVarint = Decoder $ \bs off ->
   let len = bsLen bs
@@ -185,7 +195,24 @@ getVarint = Decoder $ \bs off ->
                     let !b1 = fromIntegral (BSU.unsafeIndex bs (I# off1)) :: Word64
                     in if b1 < 0x80
                        then (# (# (b0 .&. 0x7F) .|. (b1 `shiftL` 7), off +# 2# #) | #)
-                       else getVarintSlow bs off
+                       else let off2 = off +# 2#
+                            in if isTrue# (off2 >=# len)
+                               then (# | UnexpectedEnd #)
+                               else
+                                 let !b2 = fromIntegral (BSU.unsafeIndex bs (I# off2)) :: Word64
+                                 in if b2 < 0x80
+                                    then (# (# (b0 .&. 0x7F) .|. ((b1 .&. 0x7F) `shiftL` 7) .|. (b2 `shiftL` 14)
+                                            , off +# 3# #) | #)
+                                    else let off3 = off +# 3#
+                                         in if isTrue# (off3 >=# len)
+                                            then (# | UnexpectedEnd #)
+                                            else
+                                              let !b3 = fromIntegral (BSU.unsafeIndex bs (I# off3)) :: Word64
+                                              in if b3 < 0x80
+                                                 then (# (# (b0 .&. 0x7F) .|. ((b1 .&. 0x7F) `shiftL` 7)
+                                                             .|. ((b2 .&. 0x7F) `shiftL` 14) .|. (b3 `shiftL` 21)
+                                                         , off +# 4# #) | #)
+                                                 else getVarintSlow bs off
 {-# INLINE getVarint #-}
 
 getVarintSlow :: ByteString -> Int# -> (# (# Word64, Int# #) | DecodeError #)
@@ -224,40 +251,43 @@ unZigZag64 :: Word64 -> Int64
 unZigZag64 n = fromIntegral ((n `shiftR` 1) `xor` negate (n .&. 1))
 {-# INLINE unZigZag64 #-}
 
--- | Decode a fixed32 (little-endian).
+-- | Decode a fixed32 (little-endian) via a single aligned/unaligned
+-- word load.  On x86_64 and aarch64-LE this compiles to one MOV.
 getFixed32 :: Decoder Word32
 getFixed32 = Decoder $ \bs off ->
   if I# (off +# 4#) > BS.length bs
   then (# | UnexpectedEnd #)
   else
-    let !i = I# off
-        !b0 = fromIntegral (BSU.unsafeIndex bs i) :: Word32
-        !b1 = fromIntegral (BSU.unsafeIndex bs (i + 1)) :: Word32
-        !b2 = fromIntegral (BSU.unsafeIndex bs (i + 2)) :: Word32
-        !b3 = fromIntegral (BSU.unsafeIndex bs (i + 3)) :: Word32
-        !val = b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+    let !val = readWord32LE bs (I# off)
     in (# (# val, off +# 4# #) | #)
 {-# INLINE getFixed32 #-}
 
--- | Decode a fixed64 (little-endian).
+-- | Decode a fixed64 (little-endian) via a single word load.
 getFixed64 :: Decoder Word64
 getFixed64 = Decoder $ \bs off ->
   if I# (off +# 8#) > BS.length bs
   then (# | UnexpectedEnd #)
   else
-    let !i = I# off
-        !b0 = fromIntegral (BSU.unsafeIndex bs i) :: Word64
-        !b1 = fromIntegral (BSU.unsafeIndex bs (i + 1)) :: Word64
-        !b2 = fromIntegral (BSU.unsafeIndex bs (i + 2)) :: Word64
-        !b3 = fromIntegral (BSU.unsafeIndex bs (i + 3)) :: Word64
-        !b4 = fromIntegral (BSU.unsafeIndex bs (i + 4)) :: Word64
-        !b5 = fromIntegral (BSU.unsafeIndex bs (i + 5)) :: Word64
-        !b6 = fromIntegral (BSU.unsafeIndex bs (i + 6)) :: Word64
-        !b7 = fromIntegral (BSU.unsafeIndex bs (i + 7)) :: Word64
-        !val = b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
-           .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
+    let !val = readWord64LE bs (I# off)
     in (# (# val, off +# 8# #) | #)
 {-# INLINE getFixed64 #-}
+
+-- Direct word-sized reads from a ByteString.
+-- On little-endian platforms (all targets we care about: x86_64, aarch64-LE)
+-- this is a single unaligned load instruction, replacing 4 or 8 separate
+-- byte reads + shifts + ORs.
+
+readWord32LE :: ByteString -> Int -> Word32
+readWord32LE (BSI.BS fp _) off = unsafeDupablePerformIO $
+  withForeignPtr fp $ \ptr ->
+    peek (castPtr (ptr `plusPtr` off) :: Ptr Word32)
+{-# INLINE readWord32LE #-}
+
+readWord64LE :: ByteString -> Int -> Word64
+readWord64LE (BSI.BS fp _) off = unsafeDupablePerformIO $
+  withForeignPtr fp $ \ptr ->
+    peek (castPtr (ptr `plusPtr` off) :: Ptr Word64)
+{-# INLINE readWord64LE #-}
 
 getFloat :: Decoder Float
 getFloat = castWord32ToFloat <$> getFixed32

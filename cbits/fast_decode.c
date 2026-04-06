@@ -175,38 +175,91 @@ int hs_proto_decode_packed_varints(
 
 /*
  * Count the number of varints in a packed buffer.
- * Uses SWAR to process multiple bytes: count bytes with high bit clear.
+ * Uses SWAR to process 8 bytes at a time: each byte with its high bit
+ * clear terminates a varint, so we popcount the inverted high-bit mask.
  */
 int hs_proto_count_packed_varints(
     const uint8_t *buf,
     int len)
 {
     int count = 0;
+    int i = 0;
 
 #if defined(__x86_64__) || defined(__aarch64__)
-    /* Process 8 bytes at a time using SWAR */
-    int i = 0;
     for (; i + 8 <= len; i += 8) {
         uint64_t word;
         memcpy(&word, buf + i, 8);
-        /*
-         * Each byte with high bit clear marks the end of a varint.
-         * Mask to get high bits, then invert and count.
-         */
         uint64_t term_mask = ~word & 0x8080808080808080ULL;
-        /* popcount gives the number of varint-terminating bytes */
-        count += __builtin_popcountll(term_mask) / 1;
-        /* Each set bit in term_mask >> 7 is a terminator */
-        count = 0; /* reset, we'll recount properly */
+        count += __builtin_popcountll(term_mask >> 7);
     }
-    /* Fallback: simple count */
-    count = 0;
 #endif
 
-    for (int i = 0; i < len; i++) {
+    for (; i < len; i++) {
         if (buf[i] < 0x80) count++;
     }
     return count;
+}
+
+/*
+ * Check if all varints in a packed buffer are single-byte (0x00-0x7F).
+ * When true, each byte is a complete varint, enabling zero-copy decode:
+ * just read the bytes directly as values without varint parsing.
+ *
+ * Uses SWAR: if no byte has its high bit set, the entire buffer is
+ * single-byte varints.  Returns 1 if all single-byte, 0 otherwise.
+ */
+int hs_proto_packed_all_single_byte(
+    const uint8_t *buf,
+    int len)
+{
+    int i = 0;
+
+#if defined(__x86_64__) || defined(__aarch64__)
+    for (; i + 8 <= len; i += 8) {
+        uint64_t word;
+        memcpy(&word, buf + i, 8);
+        if (word & 0x8080808080808080ULL) return 0;
+    }
+#endif
+
+    for (; i < len; i++) {
+        if (buf[i] >= 0x80) return 0;
+    }
+    return 1;
+}
+
+/*
+ * Batch decode packed single-byte varints into a pre-allocated uint64 array.
+ * Caller must ensure all bytes are < 0x80 (check with
+ * hs_proto_packed_all_single_byte first).  Each byte becomes one uint64.
+ * Returns number of values written (== len).
+ */
+int hs_proto_decode_packed_single_byte_varints(
+    const uint8_t *buf,
+    int len,
+    uint64_t *out)
+{
+    int i = 0;
+
+#if defined(__x86_64__) || defined(__aarch64__)
+    for (; i + 8 <= len; i += 8) {
+        uint64_t word;
+        memcpy(&word, buf + i, 8);
+        out[i]     = (word)       & 0xFF;
+        out[i + 1] = (word >> 8)  & 0xFF;
+        out[i + 2] = (word >> 16) & 0xFF;
+        out[i + 3] = (word >> 24) & 0xFF;
+        out[i + 4] = (word >> 32) & 0xFF;
+        out[i + 5] = (word >> 40) & 0xFF;
+        out[i + 6] = (word >> 48) & 0xFF;
+        out[i + 7] = (word >> 56) & 0xFF;
+    }
+#endif
+
+    for (; i < len; i++) {
+        out[i] = buf[i];
+    }
+    return len;
 }
 
 /*

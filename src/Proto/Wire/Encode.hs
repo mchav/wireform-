@@ -41,6 +41,10 @@ module Proto.Wire.Encode
   , fieldTextSize
   , fieldMessageSize
 
+    -- * Pre-computed tags (for generated code)
+  , precomputeTag
+  , putPrecomputedTag
+
     -- * Helpers
   , zigZag32
   , zigZag64
@@ -51,6 +55,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -58,8 +63,8 @@ import Data.Word (Word32, Word64)
 
 import Proto.Wire (WireType, fieldTag)
 
--- | Encode a varint (unsigned). Unrolled for values that fit in 1-2 bytes
--- (the common case for field tags and small values).
+-- | Encode a varint (unsigned). Unrolled for values that fit in 1-3 bytes
+-- (covers field tags up to ~250k and values up to 2^21).
 putVarint :: Word64 -> Builder
 putVarint !n
   | n < 0x80 =
@@ -67,6 +72,10 @@ putVarint !n
   | n < 0x4000 =
       B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80) <>
       B.word8 (fromIntegral (n `shiftR` 7))
+  | n < 0x200000 =
+      B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80) <>
+      B.word8 (fromIntegral ((n `shiftR` 7) .&. 0x7F) .|. 0x80) <>
+      B.word8 (fromIntegral (n `shiftR` 14))
   | otherwise = putVarintSlow n
 {-# INLINE putVarint #-}
 
@@ -164,6 +173,21 @@ putText t =
 putTag :: Int -> WireType -> Builder
 putTag fn wt = putVarint (fieldTag fn wt)
 {-# INLINE putTag #-}
+
+-- | Pre-compute the tag bytes for a field at definition time.
+-- Returns a strict ByteString containing the varint-encoded tag.
+-- Use with 'B.byteString' in generated code to avoid re-encoding
+-- the tag on every call — the tag bytes are a compile-time constant
+-- baked into the .data section.
+precomputeTag :: Int -> WireType -> ByteString
+precomputeTag fn wt =
+  BL.toStrict $ B.toLazyByteString $ putVarint (fieldTag fn wt)
+
+-- | Emit a pre-computed tag. This is a single memcpy of 1-2 bytes
+-- rather than the varint encoding arithmetic on every encode call.
+putPrecomputedTag :: ByteString -> Builder
+putPrecomputedTag = B.byteString
+{-# INLINE putPrecomputedTag #-}
 
 -- Size calculation functions: compute the encoded size of values without
 -- actually encoding them. Critical for submessage encoding where we need

@@ -94,10 +94,10 @@ module Proto.Decode
   , DecRes# (..)
   ) where
 
-import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import Data.Int (Int32, Int64)
@@ -105,10 +105,17 @@ import Control.DeepSeq (NFData(..))
 import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Unboxed.Mutable as MVU
 import Data.Word (Word32, Word64)
+import Control.Monad.ST (runST)
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, plusPtr, castPtr)
+import Foreign.Storable (peek)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 import Proto.Wire (Tag(..), WireType (..))
 import Proto.Wire.Decode
 import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64, putLengthDelimited, varintSize, tagSize)
+import Proto.Wire.FFI (countPackedVarints, packedAllSingleByte)
 import Proto.Wire.Result
 
 -- | Typeclass for types that can be decoded from protobuf wire format.
@@ -210,15 +217,37 @@ decodePackedVarint = do
     Right vs -> pure vs
 {-# INLINE decodePackedVarint #-}
 
+-- | Decode all varints from a packed buffer.
+--
+-- Optimizations borrowed from hyperpb (mcyoung.xyz/2025/07/16/hyperpb):
+--
+--  1. SWAR pre-count: use the C SWAR routine to count terminator bytes
+--     in one pass, then allocate the output vector to exact size upfront.
+--     This avoids grow-and-copy or list-reversal overhead.
+--
+--  2. Single-byte zero-copy: when every varint is one byte (values 0-127),
+--     each byte IS the value. We skip varint parsing entirely and just
+--     widen bytes to Word64. This is the common case for enum fields,
+--     small indices, and boolean-like repeated fields.
 decodeAllVarints :: ByteString -> Either DecodeError (VU.Vector Word64)
-decodeAllVarints bs = go [] 0
-  where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getVarint bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+decodeAllVarints bs
+  | BS.null bs = Right VU.empty
+  | packedAllSingleByte bs =
+      Right $! VU.generate (BS.length bs) (\i -> fromIntegral (BSU.unsafeIndex bs i))
+  | otherwise =
+      let !n = countPackedVarints bs
+      in Right $! runST $ do
+        mv <- MVU.unsafeNew n
+        let len = BS.length bs
+            go !idx !off
+              | off >= len = pure ()
+              | otherwise = case runDecoder' getVarint bs off of
+                  DecodeOK v off' -> do
+                    MVU.unsafeWrite mv idx v
+                    go (idx + 1) off'
+                  DecodeFail _ -> pure ()
+        go 0 0
+        VU.unsafeFreeze mv
 
 -- | Decode packed fixed32 values.
 decodePackedFixed32 :: Decoder (VU.Vector Word32)
@@ -238,12 +267,9 @@ decodeAllFixed32 bs
     (!n, !r) = BS.length bs `quotRem` 4
 
 readFixed32At :: ByteString -> Int -> Word32
-readFixed32At bs off =
-  let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word32
-      !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word32
-      !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word32
-      !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word32
-  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+readFixed32At (BSI.BS fp _) off = unsafeDupablePerformIO $
+  withForeignPtr fp $ \ptr ->
+    peek (castPtr (ptr `plusPtr` off) :: Ptr Word32)
 {-# INLINE readFixed32At #-}
 
 -- | Decode packed fixed64 values. Count is known: byteLength / 8.
@@ -263,17 +289,9 @@ decodeAllFixed64 bs
     (!n, !r) = BS.length bs `quotRem` 8
 
 readFixed64At :: ByteString -> Int -> Word64
-readFixed64At bs off =
-  let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word64
-      !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
-      !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word64
-      !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word64
-      !b4 = fromIntegral (BSU.unsafeIndex bs (off + 4)) :: Word64
-      !b5 = fromIntegral (BSU.unsafeIndex bs (off + 5)) :: Word64
-      !b6 = fromIntegral (BSU.unsafeIndex bs (off + 6)) :: Word64
-      !b7 = fromIntegral (BSU.unsafeIndex bs (off + 7)) :: Word64
-  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
-     .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
+readFixed64At (BSI.BS fp _) off = unsafeDupablePerformIO $
+  withForeignPtr fp $ \ptr ->
+    peek (castPtr (ptr `plusPtr` off) :: Ptr Word64)
 {-# INLINE readFixed64At #-}
 
 -- | Decode packed float values. Count is known: byteLength / 4.
@@ -318,14 +336,22 @@ decodePackedSVarint32 = do
 {-# INLINE decodePackedSVarint32 #-}
 
 decodeAllSVarint32 :: ByteString -> Either DecodeError (VU.Vector Int32)
-decodeAllSVarint32 bs = go [] 0
-  where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getSVarint32 bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+decodeAllSVarint32 bs
+  | BS.null bs = Right VU.empty
+  | otherwise =
+      let !n = countPackedVarints bs
+      in Right $! runST $ do
+        mv <- MVU.unsafeNew n
+        let len = BS.length bs
+            go !idx !off
+              | off >= len = pure ()
+              | otherwise = case runDecoder' getSVarint32 bs off of
+                  DecodeOK v off' -> do
+                    MVU.unsafeWrite mv idx v
+                    go (idx + 1) off'
+                  DecodeFail _ -> pure ()
+        go 0 0
+        VU.unsafeFreeze mv
 
 -- | Decode packed sint64 values.
 decodePackedSVarint64 :: Decoder (VU.Vector Int64)
@@ -337,14 +363,22 @@ decodePackedSVarint64 = do
 {-# INLINE decodePackedSVarint64 #-}
 
 decodeAllSVarint64 :: ByteString -> Either DecodeError (VU.Vector Int64)
-decodeAllSVarint64 bs = go [] 0
-  where
-    len = BS.length bs
-    go !acc !off
-      | off >= len = Right (VU.fromList (reverse acc))
-      | otherwise = case runDecoder' getSVarint64 bs off of
-          DecodeOK v off' -> go (v : acc) off'
-          DecodeFail e    -> Left e
+decodeAllSVarint64 bs
+  | BS.null bs = Right VU.empty
+  | otherwise =
+      let !n = countPackedVarints bs
+      in Right $! runST $ do
+        mv <- MVU.unsafeNew n
+        let len = BS.length bs
+            go !idx !off
+              | off >= len = pure ()
+              | otherwise = case runDecoder' getSVarint64 bs off of
+                  DecodeOK v off' -> do
+                    MVU.unsafeWrite mv idx v
+                    go (idx + 1) off'
+                  DecodeFail _ -> pure ()
+        go 0 0
+        VU.unsafeFreeze mv
 
 -- | A lazily-decoded submessage. The raw bytes are captured during the
 -- parent message decode, but the actual submessage parsing is deferred

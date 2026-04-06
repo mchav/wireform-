@@ -6,6 +6,14 @@
 -- * Handle unknown fields by skipping efficiently
 -- * Support both packed and unpacked repeated fields
 -- * Support proto3 merge semantics for submessages
+--
+-- Field-order scheduling (inspired by hyperpb):
+-- After decoding field N, the generated code predicts that the next
+-- field on the wire will be field N+1 (declaration order). This is
+-- almost always correct since every protobuf encoder emits fields in
+-- order. On a correct prediction, we skip the full case dispatch and
+-- go straight to the right decoder — a single comparison instead of
+-- a multi-way branch.
 module Proto.CodeGen.Decode
   ( genDecodeInstance
   ) where
@@ -19,11 +27,23 @@ import Proto.CodeGen.Combinators (txt)
 import Proto.CodeGen.Types (hsTypeName, hsFieldName)
 
 -- | Generate a MessageDecode instance for a message.
+--
+-- For messages with 2+ fields, generates per-field entry points that
+-- predict the next field in declaration order (field-order scheduling).
+-- For 0-1 field messages, uses the simpler flat dispatch.
 genDecodeInstance :: MessageDef -> Doc ann
 genDecodeInstance msg =
   let fields = extractFields (msgElements msg)
       allAccs = fmap fieldAccum fields
-  in vsep
+  in case fields of
+    []  -> genDecodeInstanceSimple msg fields allAccs
+    [_] -> genDecodeInstanceSimple msg fields allAccs
+    _   -> genDecodeInstanceScheduled msg fields allAccs
+
+-- | Simple flat dispatch (for 0-1 fields).
+genDecodeInstanceSimple :: MessageDef -> [FieldInfo] -> [Text] -> Doc ann
+genDecodeInstanceSimple msg fields allAccs =
+  vsep
     [ txt "instance MessageDecode" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
     , indent 2 $ vsep
         [ txt "messageDecoder =" <+> txt "loop" <+>
@@ -37,32 +57,124 @@ genDecodeInstance msg =
                 , indent 2 $ vsep
                     [ txt "UNothing -> pure" <+> genRecordCon msg fields
                     , txt "UJust (Tag fn wt) -> case fn of"
-                    , indent 2 $ vsep (fmap (genFieldCase allAccs) fields <> [genDefaultCase allAccs])
+                    , indent 2 $ vsep (fmap (genFieldCaseSimple allAccs "loop") fields <> [genDefaultCase allAccs "loop"])
                     ]
                 ]
             ]
         ]
     ]
 
-genFieldCase :: [Text] -> FieldInfo -> Doc ann
-genFieldCase allAccs fi =
+-- | Field-order scheduled dispatch (for 2+ fields).
+--
+-- Generates:
+--   loop_dispatch (the full case dispatch, used as fallback)
+--   loop_after_0, loop_after_1, ... (per-field entry points)
+--
+-- Each loop_after_i first checks if fn == field[i+1].fieldNum;
+-- on match, decodes and calls loop_after_{i+1}; on mismatch,
+-- falls through to loop_dispatch.
+genDecodeInstanceScheduled :: MessageDef -> [FieldInfo] -> [Text] -> Doc ann
+genDecodeInstanceScheduled msg fields allAccs =
+  let nFields = length fields
+  in vsep
+    [ txt "instance MessageDecode" <+> pretty (hsTypeName (msgName msg)) <+> txt "where"
+    , indent 2 $ vsep
+        [ txt "messageDecoder =" <+> txt "loop_dispatch" <+>
+          hsep (fmap (pretty . fieldDefault) fields)
+        , indent 2 $ txt "where"
+        , indent 4 $ vsep $
+            -- The full dispatch loop (fallback)
+            [ genDispatchLoop msg fields allAccs nFields ] <>
+            -- Per-field entry points with next-field prediction
+            fmap (genAfterLoop msg fields allAccs nFields) [0 .. nFields - 1]
+        ]
+    ]
+
+-- | Generate the full dispatch loop (fallback for mispredictions).
+genDispatchLoop :: MessageDef -> [FieldInfo] -> [Text] -> Int -> Doc ann
+genDispatchLoop msg fields allAccs nFields =
+  vsep
+    [ txt "loop_dispatch" <+> hsep (fmap (pretty . fieldAccum) fields) <+> txt "= do"
+    , indent 2 $ vsep
+        [ txt "mTag <- getTagOrU"
+        , txt "case mTag of"
+        , indent 2 $ vsep
+            [ txt "UNothing -> pure" <+> genRecordCon msg fields
+            , txt "UJust (Tag fn wt) -> case fn of"
+            , indent 2 $ vsep (fmap (genFieldCaseScheduled allAccs nFields) fields
+                              <> [genDefaultCase allAccs "loop_dispatch"])
+            ]
+        ]
+    ]
+
+-- | Generate a per-field "after" loop that predicts the next field.
+genAfterLoop :: MessageDef -> [FieldInfo] -> [Text] -> Int -> Int -> Doc ann
+genAfterLoop msg fields allAccs nFields currentIdx =
+  let nextIdx = (currentIdx + 1) `mod` nFields
+      nextField = fields !! nextIdx
+      nextFn = T.pack (show (fiFieldNum nextField))
+      afterName = afterLoopName nextIdx nFields
+  in vsep
+    [ txt (afterLoopNameForCurrent currentIdx) <+> hsep (fmap (pretty . fieldAccum) fields) <+> txt "= do"
+    , indent 2 $ vsep
+        [ txt "mTag <- getTagOrU"
+        , txt "case mTag of"
+        , indent 2 $ vsep
+            [ txt "UNothing -> pure" <+> genRecordCon msg fields
+            , txt "UJust (Tag fn wt)"
+            , indent 2 $ vsep
+                [ txt "| fn ==" <+> pretty nextFn <+> txt "-> do"
+                , indent 4 $ genFieldDecodeScheduled allAccs nextField afterName nFields
+                , txt "| otherwise -> case fn of"
+                , indent 4 $ vsep (fmap (genFieldCaseScheduled allAccs nFields) fields
+                                  <> [genDefaultCase allAccs "loop_dispatch"])
+                ]
+            ]
+        ]
+    ]
+
+afterLoopNameForCurrent :: Int -> Text
+afterLoopNameForCurrent idx = "loop_after_" <> T.pack (show idx)
+
+afterLoopName :: Int -> Int -> Text
+afterLoopName idx _nFields = "loop_after_" <> T.pack (show idx)
+
+genFieldCaseSimple :: [Text] -> Text -> FieldInfo -> Doc ann
+genFieldCaseSimple allAccs loopName fi =
   let fn = T.pack (show (fiFieldNum fi))
   in pretty fn <+> txt "-> do" <> line <>
-     indent 2 (genFieldDecode allAccs fi)
+     indent 2 (genFieldDecodeSimple allAccs fi loopName)
 
-genFieldDecode :: [Text] -> FieldInfo -> Doc ann
-genFieldDecode allAccs fi =
+genFieldDecodeSimple :: [Text] -> FieldInfo -> Text -> Doc ann
+genFieldDecodeSimple allAccs fi loopName =
   let idx = fiIndex fi
       newAccs = case fiLabel fi of
         Just Repeated -> replaceAt idx ("(" <> fieldAccum fi <> " <> V.singleton v)") allAccs
         _             -> replaceAt idx "v" allAccs
   in vsep [ txt "v <- " <> pretty (decoderExpr (fiType fi))
-          , txt "loop " <> hsep (fmap pretty newAccs)
+          , pretty loopName <+> hsep (fmap pretty newAccs)
           ]
 
-genDefaultCase :: [Text] -> Doc ann
-genDefaultCase allAccs =
-  txt "_ -> skipField wt >> loop " <> hsep (fmap pretty allAccs)
+genFieldCaseScheduled :: [Text] -> Int -> FieldInfo -> Doc ann
+genFieldCaseScheduled allAccs nFields fi =
+  let fn = T.pack (show (fiFieldNum fi))
+      after = afterLoopName (fiIndex fi) nFields
+  in pretty fn <+> txt "-> do" <> line <>
+     indent 2 (genFieldDecodeScheduled allAccs fi after nFields)
+
+genFieldDecodeScheduled :: [Text] -> FieldInfo -> Text -> Int -> Doc ann
+genFieldDecodeScheduled allAccs fi loopName _nFields =
+  let idx = fiIndex fi
+      newAccs = case fiLabel fi of
+        Just Repeated -> replaceAt idx ("(" <> fieldAccum fi <> " <> V.singleton v)") allAccs
+        _             -> replaceAt idx "v" allAccs
+  in vsep [ txt "v <- " <> pretty (decoderExpr (fiType fi))
+          , pretty loopName <+> hsep (fmap pretty newAccs)
+          ]
+
+genDefaultCase :: [Text] -> Text -> Doc ann
+genDefaultCase allAccs loopName =
+  txt "_ -> skipField wt >> " <> pretty loopName <+> hsep (fmap pretty allAccs)
 
 genRecordCon :: MessageDef -> [FieldInfo] -> Doc ann
 genRecordCon msg fields = case fields of
