@@ -24,6 +24,7 @@ import Control.DeepSeq (NFData)
 
 import Proto.Encode
 import Proto.Decode
+import Proto.Encode.Archetype
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize,
   fieldBoolSize, fieldDoubleSize, fieldFloatSize, fieldMessageSize,
@@ -44,16 +45,16 @@ data HSmall = HSmall
 
 instance MessageEncode HSmall where
   buildMessage (HSmall i n a) =
-    (if i == 0 then mempty else B.word8 0x08 <> putVarint (fromIntegral i)) <>
-    (if n == "" then mempty else B.word8 0x12 <> putText n) <>
-    (if not a then mempty else B.word8 0x18 <> putVarint 1)
+    (if i == 0 then mempty else archVarint 0x08 (fromIntegral i)) <>
+    (if n == "" then mempty else archString 0x12 n) <>
+    (if not a then mempty else archBool 0x18 True)
   {-# INLINE buildMessage #-}
 
 instance MessageSize HSmall where
   messageSize (HSmall i n a) =
-    (if i == 0 then 0 else fieldVarintSize 1 (fromIntegral i)) +
-    (if n == "" then 0 else fieldTextSize 2 n) +
-    (if not a then 0 else fieldBoolSize 3)
+    (if i == 0 then 0 else archVarintSize (fromIntegral i)) +
+    (if n == "" then 0 else archStringSize n) +
+    (if not a then 0 else archBoolSize)
   {-# INLINE messageSize #-}
 
 instance MessageDecode HSmall where
@@ -96,26 +97,26 @@ data HMedium = HMedium
 
 instance MessageEncode HMedium where
   buildMessage m =
-    (if hmTitle m == "" then mempty else B.word8 0x0a <> putText (hmTitle m)) <>
-    (if hmCount m == 0 then mempty else B.word8 0x10 <> putVarint (fromIntegral (hmCount m))) <>
-    (if hmScore m == 0 then mempty else B.word8 0x19 <> B.doubleLE (hmScore m)) <>
-    (if BS.null (hmPayload m) then mempty else B.word8 0x22 <> putByteString (hmPayload m)) <>
-    (if not (hmEnabled m) then mempty else B.word8 0x28 <> putVarint 1) <>
-    (if hmTimestamp m == 0 then mempty else B.word8 0x30 <> putVarint (fromIntegral (hmTimestamp m))) <>
-    (if hmDescription m == "" then mempty else B.word8 0x3a <> putText (hmDescription m)) <>
-    (if hmRatio m == 0 then mempty else B.word8 0x45 <> B.floatLE (hmRatio m))
+    (if hmTitle m == "" then mempty else archString 0x0a (hmTitle m)) <>
+    (if hmCount m == 0 then mempty else archVarint 0x10 (fromIntegral (hmCount m))) <>
+    (if hmScore m == 0 then mempty else archDouble 0x19 (hmScore m)) <>
+    (if BS.null (hmPayload m) then mempty else archBytes 0x22 (hmPayload m)) <>
+    (if not (hmEnabled m) then mempty else archBool 0x28 True) <>
+    (if hmTimestamp m == 0 then mempty else archVarint 0x30 (fromIntegral (hmTimestamp m))) <>
+    (if hmDescription m == "" then mempty else archString 0x3a (hmDescription m)) <>
+    (if hmRatio m == 0 then mempty else archFloat 0x45 (hmRatio m))
   {-# INLINE buildMessage #-}
 
 instance MessageSize HMedium where
   messageSize m =
-    (if hmTitle m == "" then 0 else fieldTextSize 1 (hmTitle m)) +
-    (if hmCount m == 0 then 0 else fieldVarintSize 2 (fromIntegral (hmCount m))) +
-    (if hmScore m == 0 then 0 else fieldDoubleSize 3) +
-    (if BS.null (hmPayload m) then 0 else fieldBytesSize 4 (hmPayload m)) +
-    (if not (hmEnabled m) then 0 else fieldBoolSize 5) +
-    (if hmTimestamp m == 0 then 0 else fieldVarintSize 6 (fromIntegral (hmTimestamp m))) +
-    (if hmDescription m == "" then 0 else fieldTextSize 7 (hmDescription m)) +
-    (if hmRatio m == 0 then 0 else fieldFloatSize 8)
+    (if hmTitle m == "" then 0 else archStringSize (hmTitle m)) +
+    (if hmCount m == 0 then 0 else archVarintSize (fromIntegral (hmCount m))) +
+    (if hmScore m == 0 then 0 else archFixed64Size) +
+    (if BS.null (hmPayload m) then 0 else archBytesSize (hmPayload m)) +
+    (if not (hmEnabled m) then 0 else archBoolSize) +
+    (if hmTimestamp m == 0 then 0 else archVarintSize (fromIntegral (hmTimestamp m))) +
+    (if hmDescription m == "" then 0 else archStringSize (hmDescription m)) +
+    (if hmRatio m == 0 then 0 else archFixed32Size)
   {-# INLINE messageSize #-}
 
 instance MessageDecode HMedium where
@@ -168,16 +169,19 @@ data HWithNested = HWithNested
 
 instance MessageEncode HWithNested where
   buildMessage m =
-    (if hwnId m == 0 then mempty else B.word8 0x08 <> putVarint (fromIntegral (hwnId m))) <>
-    maybe mempty (\inner -> B.word8 0x12 <> putVarint (fromIntegral (messageSize inner)) <> buildMessage inner) (hwnInner m) <>
-    (if hwnLabel m == "" then mempty else B.word8 0x1a <> putText (hwnLabel m))
+    (if hwnId m == 0 then mempty else archVarint 0x08 (fromIntegral (hwnId m))) <>
+    maybe mempty (\inner ->
+      let !sz = messageSize inner
+      in archSubmessage 0x12 sz (buildMessage inner)
+    ) (hwnInner m) <>
+    (if hwnLabel m == "" then mempty else archString 0x1a (hwnLabel m))
   {-# INLINE buildMessage #-}
 
 instance MessageSize HWithNested where
   messageSize m =
-    (if hwnId m == 0 then 0 else fieldVarintSize 1 (fromIntegral (hwnId m))) +
-    maybe 0 (\inner -> fieldMessageSize 2 (messageSize inner)) (hwnInner m) +
-    (if hwnLabel m == "" then 0 else fieldTextSize 3 (hwnLabel m))
+    (if hwnId m == 0 then 0 else archVarintSize (fromIntegral (hwnId m))) +
+    maybe 0 (\inner -> archSubmessageSize (messageSize inner)) (hwnInner m) +
+    (if hwnLabel m == "" then 0 else archStringSize (hwnLabel m))
   {-# INLINE messageSize #-}
 
 instance MessageDecode HWithNested where
@@ -207,7 +211,7 @@ instance MessageDecode HWithNested where
 -- WithRepeated
 
 data HWithRepeated = HWithRepeated
-  { hwrValues :: !(V.Vector Int32)
+  { hwrValues :: !(VU.Vector Int32)
   , hwrTags   :: !(V.Vector Text)
   , hwrItems  :: !(V.Vector HSmall)
   } deriving stock (Show, Eq, Generic)
@@ -215,20 +219,34 @@ data HWithRepeated = HWithRepeated
 
 instance MessageEncode HWithRepeated where
   buildMessage m =
-    (let vs = hwrValues m in if V.null vs then mempty
-       else encodePackedInt32 1 (VU.convert vs)) <>
-    V.foldl' (\acc s -> acc <> B.word8 0x12 <> putText s) mempty (hwrTags m) <>
-    V.foldl' (\acc item -> acc <> B.word8 0x1a <> putVarint (fromIntegral (messageSize item)) <> buildMessage item) mempty (hwrItems m)
+    (let vs = hwrValues m in if VU.null vs then mempty
+       else let !sz = packedInt32Size vs
+            in B.word8 0x0a <> putVarint (fromIntegral sz) <> packedInt32Build vs) <>
+    V.foldl' (\acc s -> acc <> archString 0x12 s) mempty (hwrTags m) <>
+    V.foldl' (\acc item ->
+      let !sz = messageSize item
+      in acc <> archSubmessage 0x1a sz (buildMessage item)) mempty (hwrItems m)
   {-# INLINE buildMessage #-}
 
 instance MessageSize HWithRepeated where
   messageSize m =
-    (let vs = hwrValues m in if V.null vs then 0
-       else let packedSz = V.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0 vs
+    (let vs = hwrValues m in if VU.null vs then 0
+       else let !packedSz = packedInt32Size vs
             in 1 + varintSize (fromIntegral packedSz) + packedSz) +
-    V.foldl' (\acc s -> acc + fieldTextSize 2 s) 0 (hwrTags m) +
-    V.foldl' (\acc item -> acc + fieldMessageSize 3 (messageSize item)) 0 (hwrItems m)
+    V.foldl' (\acc s -> acc + archStringSize s) 0 (hwrTags m) +
+    V.foldl' (\acc item -> acc + archSubmessageSize (messageSize item)) 0 (hwrItems m)
   {-# INLINE messageSize #-}
+
+-- | Compute the packed size of int32 varints.
+-- Negative values are sign-extended to 64 bits (10-byte encoding).
+packedInt32Size :: VU.Vector Int32 -> Int
+packedInt32Size = VU.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0
+{-# INLINE packedInt32Size #-}
+
+-- | Build the packed payload for int32 varints.
+packedInt32Build :: VU.Vector Int32 -> B.Builder
+packedInt32Build = VU.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty
+{-# INLINE packedInt32Build #-}
 
 instance MessageDecode HWithRepeated where
   messageDecoder = Decoder (\bs off -> loop emptyGrowList emptyGrowList emptyGrowList bs off)
@@ -236,7 +254,7 @@ instance MessageDecode HWithRepeated where
       loop :: GrowList Int32 -> GrowList Text -> GrowList HSmall -> ByteString -> Int# -> (# (# HWithRepeated, Int# #) | DecodeError #)
       loop !vals !tags !items !bs !off =
         withTag bs off
-          (\off' -> (# (# HWithRepeated (growListToVector vals) (growListToVector tags) (growListToVector items), off' #) | #))
+          (\off' -> (# (# HWithRepeated (growListToVectorU vals) (growListToVector tags) (growListToVector items), off' #) | #))
           (\fn wt off' -> case I# fn of
             1 -> case I# wt of
               2 -> case runDecoder# getLengthDelimited bs off' of

@@ -112,6 +112,7 @@ library
       Proto.Wire.FFI
       Proto.Decode.Stream
       Proto.Encode.Lazy
+      Proto.Encode.Archetype
       -- Well-known type utilities
       Proto.Google.Protobuf.Timestamp.Util
       Proto.Google.Protobuf.Duration.Util

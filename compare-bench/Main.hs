@@ -143,7 +143,7 @@ nestedHS = HWithNested 99 (Just (HSmall 1 "inner" True)) "outer label"
 
 repeatedHS :: HWithRepeated
 repeatedHS = HWithRepeated
-  (V.fromList [1..50])
+  (VU.fromList [1..50])
   (V.fromList (fmap (\i -> "tag_" <> T.pack (show i)) [1..20 :: Int]))
   (V.fromList [ HSmall (fromIntegral i) ("item" <> T.pack (show i)) (even i) | i <- [1..10 :: Int] ])
 
