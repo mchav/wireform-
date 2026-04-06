@@ -120,6 +120,118 @@ int hs_proto_decode_tag_fast(
 }
 
 /*
+ * SWAR branchless varint decode.
+ *
+ * Ported from hyperpb's number: block in vm/run.go.
+ * Loads 8 bytes, XORs sign bits to invert them, uses CTZ to find the
+ * first cleared sign bit (= varint terminator byte), masks off trailing
+ * bytes, and strips the remaining sign bits.
+ *
+ * REQUIRES: at least 8 readable bytes starting at buf+offset.
+ * The caller must ensure this (via page boundary relocation or bounds check).
+ *
+ * Returns bytes consumed (1-10), or 0 on overflow (>10 byte varint).
+ * Result is written to *out.
+ */
+int hs_proto_decode_varint_swar(
+    const uint8_t *buf,
+    int offset,
+    uint64_t *out)
+{
+    uint64_t word;
+    memcpy(&word, buf + offset, 8);
+
+    /* Fast path: single byte (most common for tags) */
+    if ((word & 0x80) == 0) {
+        *out = word & 0x7F;
+        return 1;
+    }
+
+    /*
+     * XOR the sign bits. After this, each continuation byte has its
+     * sign bit CLEARED, and the terminator byte has its sign bit SET.
+     */
+    uint64_t flipped = word ^ 0x8080808080808080ULL;
+
+    /* Find the first set sign bit in flipped = first terminator byte. */
+    uint64_t term_mask = flipped & 0x8080808080808080ULL;
+
+    if (term_mask == 0) {
+        /* All 8 bytes are continuation bytes.  Need bytes 9-10. */
+        /* For tags this is extremely rare.  Fall back to slow path. */
+        return 0;
+    }
+
+    /* CTZ gives the bit position of the terminator's sign bit. */
+    unsigned tag_bits = __builtin_ctzll(term_mask);
+
+    /*
+     * tag_bits is 7 for a 1-byte varint, 15 for 2-byte, 23 for 3-byte, etc.
+     * Number of bytes consumed = (tag_bits / 8) + 1.
+     *
+     * Mask off all bytes past the terminator.
+     */
+    uint64_t mask = tag_bits < 63
+        ? (1ULL << (tag_bits + 1)) - 1
+        : ~0ULL;
+    uint64_t masked = word & mask;
+
+    /* Strip all sign bits (continuation markers). */
+    /* Sign bits are at positions 7, 15, 23, 31, 39, 47, 55, 63. */
+    /* After masking, only continuation bytes + the terminator remain. */
+    /* The terminator's sign bit is already 0, so we just need to clear */
+    /* the continuation bytes' sign bits. */
+    uint64_t stripped = masked & ~0x8080808080808080ULL;
+
+    /* Now compact the 7-bit groups. Each byte has 7 useful bits in [6:0]. */
+    uint64_t result = (stripped & 0x7F)
+        | ((stripped >> 1) & (0x7FUL << 7))
+        | ((stripped >> 2) & (0x7FUL << 14))
+        | ((stripped >> 3) & (0x7FUL << 21))
+        | ((stripped >> 4) & (0x7FUL << 28))
+        | ((stripped >> 5) & (0x7FUL << 35))
+        | ((stripped >> 6) & (0x7FUL << 42))
+        | ((stripped >> 7) & (0x7FUL << 49));
+
+    *out = result;
+    return (int)(tag_bits / 8) + 1;
+}
+
+/*
+ * Pad a buffer so that 8-byte loads at any position won't segfault.
+ *
+ * hyperpb's RelocatePageBoundary: if the last 7 bytes of buf might cross
+ * a page boundary, copy the entire buffer into a new allocation with 7
+ * bytes of padding. The padding bytes are zero, which look like varint
+ * terminators (byte < 0x80).
+ *
+ * Returns 1 if a copy was made (caller should use out_buf), 0 if the
+ * original buffer is safe (no copy needed).
+ */
+int hs_proto_relocate_page_boundary(
+    const uint8_t *buf,
+    int len,
+    uint8_t *out_buf,
+    int out_len)
+{
+    if (len == 0) return 0;
+
+    /* Check if the buffer end is within 7 bytes of a page boundary. */
+    /* Pages are typically 4096 bytes on all platforms we care about. */
+    uintptr_t end_addr = (uintptr_t)(buf + len);
+    uintptr_t page_end = (end_addr + 4095) & ~(uintptr_t)4095;
+
+    if (page_end - end_addr < 8) {
+        /* Too close to page boundary; need to copy. */
+        if (out_len < len + 7) return -1; /* buffer too small */
+        memcpy(out_buf, buf, len);
+        memset(out_buf + len, 0, 7); /* Zero padding acts as varint terminators */
+        return 1;
+    }
+    return 0;
+}
+
+/*
  * Skip a varint without decoding its value.
  * Returns bytes consumed, or 0 on error.
  *

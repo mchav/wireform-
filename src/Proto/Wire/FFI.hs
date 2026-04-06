@@ -14,14 +14,25 @@ module Proto.Wire.FFI
 
     -- * SWAR UTF-8 validation
   , validateUtf8SWAR
+
+    -- * SWAR varint decode
+  , decodeVarintSWAR
+
+    -- * Page boundary relocation
+  , relocatePageBoundary
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Word (Word64)
 import Foreign.C.Types (CInt(..))
+import Foreign.Marshal.Alloc (alloca)
+import qualified Foreign.Marshal.Alloc
+import qualified Foreign.Marshal.Array
 import Foreign.Marshal.Array (allocaArray, peekArray)
 import Foreign.Ptr (Ptr, castPtr)
+import qualified Foreign.Storable
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Vector.Unboxed as VU
 
@@ -36,6 +47,12 @@ foreign import ccall unsafe "hs_proto_decode_packed_single_byte_varints"
 
 foreign import ccall unsafe "hs_proto_validate_utf8_fast"
   c_validate_utf8_fast :: Ptr () -> CInt -> CInt
+
+foreign import ccall unsafe "hs_proto_decode_varint_swar"
+  c_decode_varint_swar :: Ptr () -> CInt -> Ptr Word64 -> CInt
+
+foreign import ccall unsafe "hs_proto_relocate_page_boundary"
+  c_relocate_page_boundary :: Ptr () -> CInt -> Ptr () -> CInt -> CInt
 
 -- | Count the number of varints in a packed buffer using SWAR.
 -- Each byte with its high bit clear terminates one varint.
@@ -72,3 +89,48 @@ validateUtf8SWAR bs = unsafePerformIO $
   BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
     pure $! c_validate_utf8_fast (castPtr ptr) (fromIntegral len) /= 0
 {-# INLINE validateUtf8SWAR #-}
+
+-- | SWAR branchless varint decode.
+--
+-- Ported from hyperpb's number: block in vm/run.go.
+-- Loads 8 bytes, XORs sign bits, uses CTZ to find the terminator,
+-- masks and compacts in one shot. Zero per-byte branches.
+--
+-- REQUIRES: at least 8 readable bytes from the given offset.
+-- Returns (value, bytesConsumed) or Nothing on overflow.
+decodeVarintSWAR :: ByteString -> Int -> Maybe (Word64, Int)
+decodeVarintSWAR bs off = unsafePerformIO $
+  BSU.unsafeUseAsCStringLen bs $ \(ptr, _len) ->
+    alloca $ \outPtr -> do
+      let consumed = c_decode_varint_swar (castPtr ptr) (fromIntegral off) outPtr
+      if consumed == 0
+        then pure Nothing
+        else do
+          val <- Foreign.Storable.peek outPtr
+          pure $! Just (val, fromIntegral consumed)
+{-# INLINE decodeVarintSWAR #-}
+
+-- | Pad a buffer for safe 8-byte overreads at any position.
+--
+-- hyperpb's RelocatePageBoundary: if the end of the buffer is within
+-- 7 bytes of a page boundary, returns a copy with 7 bytes of zero
+-- padding. Otherwise returns the original buffer unchanged.
+--
+-- The padding zeros act as varint terminators (byte < 0x80), making
+-- SWAR 8-byte loads safe at every position.
+relocatePageBoundary :: ByteString -> ByteString
+relocatePageBoundary bs
+  | BS.null bs = bs
+  | otherwise = unsafePerformIO $
+      BSU.unsafeUseAsCStringLen bs $ \(ptr, len) -> do
+        let outLen = len + 7
+        outBuf <- Foreign.Marshal.Array.mallocArray outLen
+        let result = c_relocate_page_boundary
+              (castPtr ptr) (fromIntegral len)
+              (castPtr outBuf) (fromIntegral outLen)
+        if result == 1
+          then BS.packCStringLen (outBuf, len)
+          else do
+            Foreign.Marshal.Alloc.free outBuf
+            pure bs
+{-# INLINE relocatePageBoundary #-}

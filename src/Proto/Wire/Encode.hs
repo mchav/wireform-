@@ -50,7 +50,7 @@ module Proto.Wire.Encode
   , zigZag64
   ) where
 
-import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor)
+import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor, countLeadingZeros)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder)
@@ -194,18 +194,16 @@ putPrecomputedTag = B.byteString
 -- the size prefix before the payload.
 
 -- | Size of a varint encoding in bytes.
+--
+-- Uses CLZ (count leading zeros) for a branchless computation:
+-- each varint byte encodes 7 bits, so size = ceil((64 - clz(n|1)) / 7).
+-- The (n .|. 1) ensures clz is 63 for n=0 (not undefined).
 varintSize :: Word64 -> Int
-varintSize !n
-  | n < 0x80       = 1
-  | n < 0x4000     = 2
-  | n < 0x200000   = 3
-  | n < 0x10000000 = 4
-  | n < 0x800000000 = 5
-  | n < 0x40000000000 = 6
-  | n < 0x2000000000000 = 7
-  | n < 0x100000000000000 = 8
-  | n < 0x8000000000000000 = 9
-  | otherwise       = 10
+varintSize !n =
+  let !bits = 64 - countLeadingZeros (n .|. 1)
+      -- ceiling division by 7: (bits + 6) / 7
+      !sz = (bits + 6) `quot` 7
+  in sz
 {-# INLINE varintSize #-}
 
 -- | Size of a 32-bit varint encoding in bytes.  Max 5 bytes.

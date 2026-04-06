@@ -62,6 +62,7 @@ import Proto.Wire.Decode
   , getVarint, getFixed32, getFixed64, getText, getLengthDelimited
   , skipField, validateUtf8
   )
+import Proto.Wire.FFI (decodeVarintSWAR, relocatePageBoundary)
 import Proto.Schema
   ( ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..)
   , FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..)
@@ -321,24 +322,41 @@ runParseTableRaw bs = unsafePerformIO $ do
 -- 7. Store the value in the accumulator.
 -- 8. Repeat until end of input.
 runParseTable :: ParseTable -> ByteString -> Either DecodeError TDPMessage
-runParseTable pt bs
-  | BS.null bs = Right (TDPMessage IntMap.empty BS.empty)
-  | V.null (ptFields pt) = Right (runParseTableRaw bs)
+runParseTable pt bs0
+  | BS.null bs0 = Right (TDPMessage IntMap.empty BS.empty)
+  | V.null (ptFields pt) = Right (runParseTableRaw bs0)
   | otherwise = unsafePerformIO $ do
+      let !bs = relocatePageBoundary bs0
       fieldsRef <- newIORef IntMap.empty
-      let len = BS.length bs
+      let len = BS.length bs0
           nFields = V.length (ptFields pt)
+
+          decodeTag !off
+            | off + 8 <= BS.length bs =
+                case decodeVarintSWAR bs off of
+                  Just (v, consumed) -> Just (v, off + consumed)
+                  Nothing -> decodeTagSlow off
+            | otherwise = decodeTagSlow off
+
+          decodeTagSlow !off =
+            case runDecoder' getVarint bs0 off of
+              DecodeOK v o -> Just (v, o)
+              DecodeFail _ -> Nothing
+
           go !off !curIdx
             | off >= len = pure ()
-            | otherwise = do
-                case runDecoder' getVarint bs off of
-                  DecodeOK tagW off1 -> do
+            | otherwise =
+                case decodeTag off of
+                  Nothing -> pure ()
+                  Just (tagW, off1)
+                    | off1 > len -> pure ()
+                    | otherwise -> do
                     let !tagInt = fromIntegral tagW :: Int
                     mIdx <- findField pt tagW tagInt curIdx
                     case mIdx of
                       Just idx -> do
                         let !fp = ptFields pt V.! idx
-                        (val, off2) <- fpParse fp bs off1
+                        (val, off2) <- fpParse fp bs0 off1
                         case fpLabel fp of
                           LabelRepeated -> do
                             fields <- readIORef fieldsRef
@@ -354,10 +372,9 @@ runParseTable pt bs
                       Nothing -> do
                         -- Unknown field: skip it
                         let !wt = fromIntegral (tagW `mod` 8) :: Int
-                        case skipWireValue wt bs off1 of
+                        case skipWireValue wt bs0 off1 of
                           Just off2 -> go off2 curIdx
                           Nothing   -> pure ()
-                  DecodeFail _ -> pure ()
       go 0 0
       fields <- readIORef fieldsRef
       pure (Right (TDPMessage fields BS.empty))
