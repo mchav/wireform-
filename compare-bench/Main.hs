@@ -24,13 +24,14 @@ import qualified Proto.Bench_Fields as F
 
 import qualified Proto.Encode as H
 import qualified Proto.Decode as H
+import qualified Proto.SizedBuilder as SB
 import HsProtoTypes
 
 main :: IO ()
 main = defaultMain
   [ bgroup "Small"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf H.encodeMessage smallHS
+          [ bench "hs-proto"   $ nf H.encodeMessageSized smallHS
           , bench "proto-lens" $ nf PLC.encodeMessage smallPL
           ]
       , bgroup "decode"
@@ -44,7 +45,7 @@ main = defaultMain
       ]
   , bgroup "Medium"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf H.encodeMessage mediumHS
+          [ bench "hs-proto"   $ nf H.encodeMessageSized mediumHS
           , bench "proto-lens" $ nf PLC.encodeMessage mediumPL
           ]
       , bgroup "decode"
@@ -58,7 +59,7 @@ main = defaultMain
       ]
   , bgroup "Nested"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf H.encodeMessage nestedHS
+          [ bench "hs-proto"   $ nf H.encodeMessageSized nestedHS
           , bench "proto-lens" $ nf PLC.encodeMessage nestedPL
           ]
       , bgroup "decode"
@@ -72,7 +73,7 @@ main = defaultMain
       ]
   , bgroup "Repeated"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf H.encodeMessage repeatedHS
+          [ bench "hs-proto"   $ nf H.encodeMessageSized repeatedHS
           , bench "proto-lens" $ nf PLC.encodeMessage repeatedPL
           ]
       , bgroup "decode"
@@ -90,7 +91,7 @@ decSmallP :: BS.ByteString -> Either String PL.Small
 decSmallP = PLC.decodeMessage
 {-# NOINLINE decSmallP #-}
 rtSmallH :: HSmall -> Either H.DecodeError HSmall
-rtSmallH m = H.decodeMessage (H.encodeMessage m)
+rtSmallH m = H.decodeMessage (H.encodeMessageSized m)
 {-# NOINLINE rtSmallH #-}
 rtSmallP :: PL.Small -> Either String PL.Small
 rtSmallP m = PLC.decodeMessage (PLC.encodeMessage m)
@@ -103,7 +104,7 @@ decMediumP :: BS.ByteString -> Either String PL.Medium
 decMediumP = PLC.decodeMessage
 {-# NOINLINE decMediumP #-}
 rtMediumH :: HMedium -> Either H.DecodeError HMedium
-rtMediumH m = H.decodeMessage (H.encodeMessage m)
+rtMediumH m = H.decodeMessage (H.encodeMessageSized m)
 {-# NOINLINE rtMediumH #-}
 rtMediumP :: PL.Medium -> Either String PL.Medium
 rtMediumP m = PLC.decodeMessage (PLC.encodeMessage m)
@@ -116,7 +117,7 @@ decNestedP :: BS.ByteString -> Either String PL.WithNested
 decNestedP = PLC.decodeMessage
 {-# NOINLINE decNestedP #-}
 rtNestedH :: HWithNested -> Either H.DecodeError HWithNested
-rtNestedH m = H.decodeMessage (H.encodeMessage m)
+rtNestedH m = H.decodeMessage (H.encodeMessageSized m)
 {-# NOINLINE rtNestedH #-}
 rtNestedP :: PL.WithNested -> Either String PL.WithNested
 rtNestedP m = PLC.decodeMessage (PLC.encodeMessage m)
@@ -190,7 +191,7 @@ repeatedPL =
 
 -- Pre-encoded bytes
 smallBytes, mediumBytes, nestedBytes, repeatedBytes :: BS.ByteString
-smallBytes = H.encodeMessage smallHS
-mediumBytes = H.encodeMessage mediumHS
-nestedBytes = H.encodeMessage nestedHS
-repeatedBytes = H.encodeMessage repeatedHS
+smallBytes = H.encodeMessageSized smallHS
+mediumBytes = H.encodeMessageSized mediumHS
+nestedBytes = H.encodeMessageSized nestedHS
+repeatedBytes = H.encodeMessageSized repeatedHS

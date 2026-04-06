@@ -12,6 +12,7 @@ module HsProtoTypes where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as B
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Vector as V
@@ -26,7 +27,9 @@ import Proto.Decode
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize,
   fieldBoolSize, fieldDoubleSize, fieldFloatSize, fieldMessageSize,
-  putTag, putVarint, putLengthDelimited)
+  fieldFixed32Size, fieldFixed64Size,
+  putTag, putVarint, putLengthDelimited, putText, putByteString,
+  precomputeTag, putPrecomputedTag, varintSize)
 import Proto.Wire.Decode (runDecoder', DecodeResult(..), Decoder(..), withTag)
 import Proto.VectorBuilder
 
@@ -41,9 +44,9 @@ data HSmall = HSmall
 
 instance MessageEncode HSmall where
   buildMessage (HSmall i n a) =
-    (if i == 0 then mempty else encodeFieldVarint 1 (fromIntegral i)) <>
-    (if n == "" then mempty else encodeFieldString 2 n) <>
-    (if not a then mempty else encodeFieldBool 3 a)
+    (if i == 0 then mempty else B.word8 0x08 <> putVarint (fromIntegral i)) <>
+    (if n == "" then mempty else B.word8 0x12 <> putText n) <>
+    (if not a then mempty else B.word8 0x18 <> putVarint 1)
   {-# INLINE buildMessage #-}
 
 instance MessageSize HSmall where
@@ -93,15 +96,27 @@ data HMedium = HMedium
 
 instance MessageEncode HMedium where
   buildMessage m =
-    (if hmTitle m == "" then mempty else encodeFieldString 1 (hmTitle m)) <>
-    (if hmCount m == 0 then mempty else encodeFieldVarint 2 (fromIntegral (hmCount m))) <>
-    (if hmScore m == 0 then mempty else encodeFieldDouble 3 (hmScore m)) <>
-    (if BS.null (hmPayload m) then mempty else encodeFieldBytes 4 (hmPayload m)) <>
-    (if not (hmEnabled m) then mempty else encodeFieldBool 5 (hmEnabled m)) <>
-    (if hmTimestamp m == 0 then mempty else encodeFieldVarint 6 (fromIntegral (hmTimestamp m))) <>
-    (if hmDescription m == "" then mempty else encodeFieldString 7 (hmDescription m)) <>
-    (if hmRatio m == 0 then mempty else encodeFieldFloat 8 (hmRatio m))
+    (if hmTitle m == "" then mempty else B.word8 0x0a <> putText (hmTitle m)) <>
+    (if hmCount m == 0 then mempty else B.word8 0x10 <> putVarint (fromIntegral (hmCount m))) <>
+    (if hmScore m == 0 then mempty else B.word8 0x19 <> B.doubleLE (hmScore m)) <>
+    (if BS.null (hmPayload m) then mempty else B.word8 0x22 <> putByteString (hmPayload m)) <>
+    (if not (hmEnabled m) then mempty else B.word8 0x28 <> putVarint 1) <>
+    (if hmTimestamp m == 0 then mempty else B.word8 0x30 <> putVarint (fromIntegral (hmTimestamp m))) <>
+    (if hmDescription m == "" then mempty else B.word8 0x3a <> putText (hmDescription m)) <>
+    (if hmRatio m == 0 then mempty else B.word8 0x45 <> B.floatLE (hmRatio m))
   {-# INLINE buildMessage #-}
+
+instance MessageSize HMedium where
+  messageSize m =
+    (if hmTitle m == "" then 0 else fieldTextSize 1 (hmTitle m)) +
+    (if hmCount m == 0 then 0 else fieldVarintSize 2 (fromIntegral (hmCount m))) +
+    (if hmScore m == 0 then 0 else fieldDoubleSize 3) +
+    (if BS.null (hmPayload m) then 0 else fieldBytesSize 4 (hmPayload m)) +
+    (if not (hmEnabled m) then 0 else fieldBoolSize 5) +
+    (if hmTimestamp m == 0 then 0 else fieldVarintSize 6 (fromIntegral (hmTimestamp m))) +
+    (if hmDescription m == "" then 0 else fieldTextSize 7 (hmDescription m)) +
+    (if hmRatio m == 0 then 0 else fieldFloatSize 8)
+  {-# INLINE messageSize #-}
 
 instance MessageDecode HMedium where
   messageDecoder = Decoder (\bs off -> loop "" 0 0 "" False 0 "" 0 bs off)
@@ -153,10 +168,17 @@ data HWithNested = HWithNested
 
 instance MessageEncode HWithNested where
   buildMessage m =
-    (if hwnId m == 0 then mempty else encodeFieldVarint 1 (fromIntegral (hwnId m))) <>
-    maybe mempty (encodeFieldMessageSized 2) (hwnInner m) <>
-    (if hwnLabel m == "" then mempty else encodeFieldString 3 (hwnLabel m))
+    (if hwnId m == 0 then mempty else B.word8 0x08 <> putVarint (fromIntegral (hwnId m))) <>
+    maybe mempty (\inner -> B.word8 0x12 <> putVarint (fromIntegral (messageSize inner)) <> buildMessage inner) (hwnInner m) <>
+    (if hwnLabel m == "" then mempty else B.word8 0x1a <> putText (hwnLabel m))
   {-# INLINE buildMessage #-}
+
+instance MessageSize HWithNested where
+  messageSize m =
+    (if hwnId m == 0 then 0 else fieldVarintSize 1 (fromIntegral (hwnId m))) +
+    maybe 0 (\inner -> fieldMessageSize 2 (messageSize inner)) (hwnInner m) +
+    (if hwnLabel m == "" then 0 else fieldTextSize 3 (hwnLabel m))
+  {-# INLINE messageSize #-}
 
 instance MessageDecode HWithNested where
   messageDecoder = Decoder (\bs off -> loop 0 Nothing "" bs off)
@@ -195,9 +217,18 @@ instance MessageEncode HWithRepeated where
   buildMessage m =
     (let vs = hwrValues m in if V.null vs then mempty
        else encodePackedInt32 1 (VU.convert vs)) <>
-    V.foldl' (\acc s -> acc <> encodeFieldString 2 s) mempty (hwrTags m) <>
-    V.foldl' (\acc item -> acc <> encodeFieldMessageSized 3 item) mempty (hwrItems m)
+    V.foldl' (\acc s -> acc <> B.word8 0x12 <> putText s) mempty (hwrTags m) <>
+    V.foldl' (\acc item -> acc <> B.word8 0x1a <> putVarint (fromIntegral (messageSize item)) <> buildMessage item) mempty (hwrItems m)
   {-# INLINE buildMessage #-}
+
+instance MessageSize HWithRepeated where
+  messageSize m =
+    (let vs = hwrValues m in if V.null vs then 0
+       else let packedSz = V.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0 vs
+            in 1 + varintSize (fromIntegral packedSz) + packedSz) +
+    V.foldl' (\acc s -> acc + fieldTextSize 2 s) 0 (hwrTags m) +
+    V.foldl' (\acc item -> acc + fieldMessageSize 3 (messageSize item)) 0 (hwrItems m)
+  {-# INLINE messageSize #-}
 
 instance MessageDecode HWithRepeated where
   messageDecoder = Decoder (\bs off -> loop emptyGrowList emptyGrowList emptyGrowList bs off)
