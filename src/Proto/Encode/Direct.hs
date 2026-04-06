@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 -- | Direct-write encoder: bypasses ByteString.Builder entirely.
 --
 -- Uses offset-based writes to a pre-allocated buffer. The offset is
@@ -16,13 +17,7 @@ module Proto.Encode.Direct
 
     -- * Offset-based write primitives (return new offset)
   , dWord8
-  , dWord32LE
-  , dWord64LE
-  , dFloatLE
-  , dDoubleLE
   , dVarint
-  , dBytes
-  , dText
 
     -- * Field-level writes (tag + value in one call)
   , dVarintField
@@ -33,31 +28,21 @@ module Proto.Encode.Direct
   , dFixed64Field
   , dFloatField
   , dDoubleField
-
-    -- * Legacy WriteCtx API
-  , WriteCtx (..)
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftR)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
-import qualified Data.ByteString.Unsafe as BSU
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8, Word32, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Ptr (Ptr, plusPtr, castPtr)
-import Foreign.Storable (poke, pokeByteOff)
+import Foreign.Ptr (Ptr, plusPtr)
+import Foreign.Storable (pokeByteOff)
 import GHC.Float (castFloatToWord32, castDoubleToWord64)
 
 import Proto.Wire.FFI (encodeVarintFieldC, encodeBoolFieldC, encodeLengthDelimitedC)
-
--- | Legacy WriteCtx for backward compat.
-data WriteCtx = WriteCtx
-  { wcPtr :: {-# UNPACK #-} !(Ptr Word8)
-  , wcEnd :: {-# UNPACK #-} !(Ptr Word8)
-  }
 
 -- | Allocate a buffer of exactly @sz@ bytes, run the writer, return ByteString.
 -- The writer takes (Ptr Word8, offset) and returns the final offset.

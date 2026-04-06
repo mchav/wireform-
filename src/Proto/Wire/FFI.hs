@@ -10,7 +10,6 @@ module Proto.Wire.FFI
   ( -- * Packed varint helpers
     countPackedVarints
   , packedAllSingleByte
-  , decodeSingleByteVarints
 
     -- * SWAR UTF-8 validation
   , validateUtf8SWAR
@@ -22,7 +21,6 @@ module Proto.Wire.FFI
   , relocatePageBoundary
 
     -- * C-native encode primitives
-  , encodeVarintC
   , encodeLengthDelimitedC
   , encodeVarintFieldC
   , encodeBoolFieldC
@@ -36,20 +34,15 @@ import Foreign.C.Types (CInt(..))
 import Foreign.Marshal.Alloc (alloca)
 import qualified Foreign.Marshal.Alloc
 import qualified Foreign.Marshal.Array
-import Foreign.Marshal.Array (allocaArray, peekArray)
 import Foreign.Ptr (Ptr, castPtr)
 import qualified Foreign.Storable
 import System.IO.Unsafe (unsafePerformIO)
-import qualified Data.Vector.Unboxed as VU
 
 foreign import ccall unsafe "hs_proto_count_packed_varints"
   c_count_packed_varints :: Ptr () -> CInt -> CInt
 
 foreign import ccall unsafe "hs_proto_packed_all_single_byte"
   c_packed_all_single_byte :: Ptr () -> CInt -> CInt
-
-foreign import ccall unsafe "hs_proto_decode_packed_single_byte_varints"
-  c_decode_single_byte_varints :: Ptr () -> CInt -> Ptr Word64 -> CInt
 
 foreign import ccall unsafe "hs_proto_validate_utf8_fast"
   c_validate_utf8_fast :: Ptr () -> CInt -> CInt
@@ -59,9 +52,6 @@ foreign import ccall unsafe "hs_proto_decode_varint_swar"
 
 foreign import ccall unsafe "hs_proto_relocate_page_boundary"
   c_relocate_page_boundary :: Ptr () -> CInt -> Ptr () -> CInt -> CInt
-
-foreign import ccall unsafe "hs_proto_encode_varint"
-  c_encode_varint :: Ptr () -> CInt -> Word64 -> CInt
 
 foreign import ccall unsafe "hs_proto_encode_length_delimited"
   c_encode_length_delimited :: Ptr () -> CInt -> Word8 -> Ptr () -> CInt -> CInt
@@ -87,23 +77,6 @@ packedAllSingleByte bs = unsafePerformIO $
   BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
     pure $! c_packed_all_single_byte (castPtr ptr) (fromIntegral len) /= 0
 {-# INLINE packedAllSingleByte #-}
-
--- | Decode packed single-byte varints into a Vector.
--- Precondition: 'packedAllSingleByte' returned True for this buffer.
--- Each byte is expanded to a Word64 in the output vector.
-decodeSingleByteVarints :: ByteString -> VU.Vector Word64
-decodeSingleByteVarints bs = unsafePerformIO $
-  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-    allocaArray len $ \outPtr -> do
-      _ <- pure $! c_decode_single_byte_varints (castPtr ptr) (fromIntegral len) outPtr
-      VU.fromList <$> peekArray len outPtr
-{-# INLINE decodeSingleByteVarints #-}
-
--- | Encode a varint directly into a buffer. Returns bytes written.
-encodeVarintC :: Ptr Word8 -> Int -> Word64 -> IO Int
-encodeVarintC buf off val = pure $! fromIntegral $
-  c_encode_varint (castPtr buf) (fromIntegral off) val
-{-# INLINE encodeVarintC #-}
 
 -- | Encode a length-delimited field (tag + length varint + data) in one C call.
 encodeLengthDelimitedC :: Ptr Word8 -> Int -> Word8 -> Ptr Word8 -> Int -> IO Int

@@ -21,11 +21,11 @@ import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8, Word64)
-import Foreign.C.Types (CInt(..), CChar)
+import Foreign.C.Types (CInt(..))
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Alloc (alloca)
 import Foreign.Ptr (Ptr, castPtr)
-import Foreign.Storable (peek, peekByteOff)
+import Foreign.Storable (peek)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Control.DeepSeq (NFData(..))

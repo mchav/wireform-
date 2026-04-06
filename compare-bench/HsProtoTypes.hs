@@ -12,7 +12,6 @@ module HsProtoTypes where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
@@ -29,7 +28,6 @@ import Proto.Encode
 import Proto.Decode.Fast
 import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector.Unboxed.Mutable as MVU
-import Data.IORef
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (castPtr)
 import System.IO.Unsafe (unsafeDupablePerformIO)
@@ -37,13 +35,8 @@ import Proto.Decode
 import Proto.Encode.Archetype
 import Proto.Encode.Direct
 import qualified Proto.SizedBuilder as SB
-import Proto.Wire (Tag(..), WireType(..))
-import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize,
-  fieldBoolSize, fieldDoubleSize, fieldFloatSize, fieldMessageSize,
-  fieldFixed32Size, fieldFixed64Size,
-  putTag, putVarint, putLengthDelimited, putText, putByteString,
-  precomputeTag, putPrecomputedTag, varintSize)
-import Proto.Wire.Decode (runDecoder', DecodeResult(..), Decoder(..), withTag)
+import Proto.Wire.Encode (varintSize)
+import Proto.Wire.Decode (runDecoder', Decoder(..))
 import Proto.VectorBuilder
 
 -- Small

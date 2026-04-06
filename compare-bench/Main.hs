@@ -12,7 +12,6 @@ import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Word (Word64)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Data.ProtoLens (defMessage)
@@ -24,7 +23,6 @@ import qualified Proto.Bench_Fields as F
 
 import qualified Proto.Encode as H
 import qualified Proto.Decode as H
-import qualified Proto.SizedBuilder as SB
 import HsProtoTypes
 
 encSmallH :: HSmall -> BS.ByteString

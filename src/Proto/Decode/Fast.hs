@@ -28,7 +28,6 @@ module Proto.Decode.Fast
   , fdTag
   , fdSkipField
   , fdDone
-  , fdFail
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL, shiftR)
@@ -198,8 +197,3 @@ fdSkipField fd !off !wt = case wt of
 fdDone :: FastDec -> Int -> Bool
 fdDone fd !off = off >= fdLen fd
 {-# INLINE fdDone #-}
-
--- | Return an error.
-fdFail :: DecodeError -> Either DecodeError a
-fdFail = Left
-{-# INLINE fdFail #-}

@@ -57,10 +57,10 @@ import qualified Data.Text.Encoding as TE
 
 import Proto.Wire (WireType(..), fieldTag)
 import Proto.Wire.Decode
-  ( Decoder, runDecoder, runDecoder'
+  ( runDecoder'
   , DecodeResult(..), DecodeError(..)
-  , getVarint, getFixed32, getFixed64, getText, getLengthDelimited
-  , skipField, validateUtf8
+  , getVarint, getFixed32, getFixed64, getLengthDelimited
+  , validateUtf8
   )
 import Proto.Wire.FFI (decodeVarintSWAR, relocatePageBoundary)
 import Proto.Schema
