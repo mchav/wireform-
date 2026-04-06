@@ -1,5 +1,6 @@
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedSums #-}
 -- | High-level decoding interface for protobuf messages.
 --
 -- This module provides the 'MessageDecode' typeclass and utilities for
@@ -90,6 +91,10 @@ module Proto.Decode
   , TagResult#
   , withTag
 
+    -- * Monadic CPS tag dispatch (zero Tag allocation, for generated code)
+  , withTagM
+  , skipWireType
+
     -- * Combined three-way result type
   , DecRes# (..)
   ) where
@@ -99,18 +104,22 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
+import GHC.Exts (Int(I#))
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import Data.Int (Int32, Int64)
 import Control.DeepSeq (NFData(..))
 import Data.List (foldl')
 import Data.Text (Text)
+import qualified Data.Vector.Storable as VS
+import qualified Data.Vector.Storable.Mutable as VSM
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Unboxed.Mutable as MVU
 import Data.Word (Word32, Word64)
 import Control.Monad.ST (runST)
 import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Ptr (Ptr, plusPtr, castPtr)
-import Foreign.Storable (peek)
+import Foreign.Marshal.Utils (copyBytes)
+import Foreign.Ptr (Ptr, castPtr)
+import Foreign.Storable (Storable)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import Proto.Wire (Tag(..), WireType (..))
 import Proto.Wire.Decode
@@ -181,14 +190,30 @@ decodeFieldBytes :: Decoder ByteString
 decodeFieldBytes = getByteString
 {-# INLINE decodeFieldBytes #-}
 
--- | Decode a submessage field. The length-delimited bytes are read and then
--- the submessage decoder is run on them.
+-- | Decode a submessage field using a bounded sub-buffer.
+--
+-- Reads the length prefix from the parent buffer, slices the exact
+-- submessage bytes (zero-copy — just ForeignPtr offset adjustment),
+-- then runs the sub-decoder on that slice. The sub-decoder's end-of-input
+-- check naturally enforces the submessage boundary.
 decodeFieldMessage :: MessageDecode a => Decoder a
-decodeFieldMessage = do
-  bs <- getLengthDelimited
-  case runDecoder messageDecoder bs of
-    Left e  -> decodeFail (SubMessageError e)
-    Right a -> pure a
+decodeFieldMessage = Decoder $ \bs off ->
+  case runDecoder# getVarint bs off of
+    (# (# lenW, off' #) | #) ->
+      let !len = fromIntegral lenW :: Int
+      in if len < 0
+         then (# | NegativeLength #)
+         else if I# off' + len > BS.length bs
+         then (# | UnexpectedEnd #)
+         else
+           let !subBs = BSU.unsafeTake len (BSU.unsafeDrop (I# off') bs)
+           in case runDecoder# messageDecoder subBs 0# of
+             (# (# a, subOff #) | #)
+               | I# subOff == len ->
+                   (# (# a, case I# off' + len of I# r -> r #) | #)
+               | otherwise -> (# | SubMessageError ExtraBytes #)
+             (# | e #) -> (# | SubMessageError e #)
+    (# | e #) -> (# | e #)
 {-# INLINE decodeFieldMessage #-}
 
 -- | CPS-compatible failure: calls the error continuation.
@@ -259,18 +284,15 @@ decodePackedFixed32 = do
 {-# INLINE decodePackedFixed32 #-}
 
 -- | Decode packed fixed32 values. Count is known: byteLength / 4.
+-- On little-endian (x86_64, aarch64-LE): single memcpy of the entire packed
+-- buffer into the vector's backing store. The wire bytes are already the
+-- native representation, so no per-element work is needed.
 decodeAllFixed32 :: ByteString -> Either DecodeError (VU.Vector Word32)
 decodeAllFixed32 bs
   | r /= 0    = Left (CustomError "packed fixed32: byte length not multiple of 4")
-  | otherwise  = Right $ VU.generate n (\i -> readFixed32At bs (i * 4))
+  | otherwise  = Right $! unsafeBulkCopyToVectorU n 4 bs
   where
     (!n, !r) = BS.length bs `quotRem` 4
-
-readFixed32At :: ByteString -> Int -> Word32
-readFixed32At (BSI.BS fp _) off = unsafeDupablePerformIO $
-  withForeignPtr fp $ \ptr ->
-    peek (castPtr (ptr `plusPtr` off) :: Ptr Word32)
-{-# INLINE readFixed32At #-}
 
 -- | Decode packed fixed64 values. Count is known: byteLength / 8.
 decodePackedFixed64 :: Decoder (VU.Vector Word64)
@@ -284,17 +306,13 @@ decodePackedFixed64 = do
 decodeAllFixed64 :: ByteString -> Either DecodeError (VU.Vector Word64)
 decodeAllFixed64 bs
   | r /= 0    = Left (CustomError "packed fixed64: byte length not multiple of 8")
-  | otherwise  = Right $ VU.generate n (\i -> readFixed64At bs (i * 8))
+  | otherwise  = Right $! unsafeBulkCopyToVectorU n 8 bs
   where
     (!n, !r) = BS.length bs `quotRem` 8
 
-readFixed64At :: ByteString -> Int -> Word64
-readFixed64At (BSI.BS fp _) off = unsafeDupablePerformIO $
-  withForeignPtr fp $ \ptr ->
-    peek (castPtr (ptr `plusPtr` off) :: Ptr Word64)
-{-# INLINE readFixed64At #-}
-
 -- | Decode packed float values. Count is known: byteLength / 4.
+-- On LE platforms: the IEEE 754 bytes are already in native order,
+-- so we bulk-copy and reinterpret as Float via VU.unsafeCast.
 decodePackedFloat :: Decoder (VU.Vector Float)
 decodePackedFloat = do
   bs <- getLengthDelimited
@@ -306,7 +324,7 @@ decodePackedFloat = do
 decodeAllFloat :: ByteString -> Either DecodeError (VU.Vector Float)
 decodeAllFloat bs
   | r /= 0    = Left (CustomError "packed float: byte length not multiple of 4")
-  | otherwise  = Right $ VU.generate n (\i -> castWord32ToFloat (readFixed32At bs (i * 4)))
+  | otherwise  = Right $! VU.map castWord32ToFloat (unsafeBulkCopyToVectorU n 4 bs :: VU.Vector Word32)
   where
     (!n, !r) = BS.length bs `quotRem` 4
 
@@ -322,9 +340,32 @@ decodePackedDouble = do
 decodeAllDouble :: ByteString -> Either DecodeError (VU.Vector Double)
 decodeAllDouble bs
   | r /= 0    = Left (CustomError "packed double: byte length not multiple of 8")
-  | otherwise  = Right $ VU.generate n (\i -> castWord64ToDouble (readFixed64At bs (i * 8)))
+  | otherwise  = Right $! VU.map castWord64ToDouble (unsafeBulkCopyToVectorU n 8 bs :: VU.Vector Word64)
   where
     (!n, !r) = BS.length bs `quotRem` 8
+
+-- | Bulk-copy a ByteString into a new unboxed vector using a single memcpy.
+-- On little-endian platforms (x86_64, aarch64-LE), the wire bytes for
+-- fixed-width protobuf fields are already in native byte order, so this
+-- is a zero-decode operation — just copy the bytes into a properly-typed
+-- vector backing store.
+--
+-- Uses Storable.Vector for the raw memcpy (its backing store IS a
+-- ForeignPtr), then converts to Unboxed via VU.convert (which copies
+-- once from the Storable ForeignPtr into a ByteArray#).  Net result:
+-- one memcpy vs N individual peek-and-write calls.
+unsafeBulkCopyToVectorU
+  :: (VU.Unbox a, Storable a)
+  => Int -> Int -> ByteString -> VU.Vector a
+unsafeBulkCopyToVectorU elemCount elemSize (BSI.BS fp _) =
+  let sv = unsafeDupablePerformIO $ do
+        mvs <- VSM.unsafeNew elemCount
+        VSM.unsafeWith mvs $ \dst ->
+          withForeignPtr fp $ \src ->
+            copyBytes dst (castPtr src) (elemCount * elemSize)
+        VS.unsafeFreeze mvs
+  in VU.convert sv
+{-# INLINE unsafeBulkCopyToVectorU #-}
 
 -- | Decode packed sint32 values.
 decodePackedSVarint32 :: Decoder (VU.Vector Int32)
@@ -463,14 +504,13 @@ encodeUnknownFields = foldMap encodeOne
       putTag fn WireLengthDelimited <> putLengthDelimited val
 
 -- | Decode a map entry (key=field1, value=field2) from a length-delimited chunk.
+-- Uses 'withTagM' CPS to avoid allocating a 'Tag' per field.
 decodeMapEntry :: Decoder k -> Decoder v -> k -> v -> Decoder (k, v)
 decodeMapEntry decK decV = loop
   where
-    loop !mk !mv = do
-      mt <- getTagOr
-      case mt of
-        Nothing          -> pure (mk, mv)
-        Just (Tag f wt') -> case f of
-          1 -> do { kv <- decK; loop kv mv }
-          2 -> do { vv <- decV; loop mk vv }
-          _ -> skipField wt' >> loop mk mv
+    loop !mk !mv = withTagM
+      (pure (mk, mv))
+      (\fn wt -> case fn of
+        1 -> do { kv <- decK; loop kv mv }
+        2 -> do { vv <- decV; loop mk vv }
+        _ -> skipWireType wt >> loop mk mv)

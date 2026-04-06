@@ -11,6 +11,9 @@ module Proto.Wire.FFI
     countPackedVarints
   , packedAllSingleByte
   , decodeSingleByteVarints
+
+    -- * SWAR UTF-8 validation
+  , validateUtf8SWAR
   ) where
 
 import Data.ByteString (ByteString)
@@ -30,6 +33,9 @@ foreign import ccall unsafe "hs_proto_packed_all_single_byte"
 
 foreign import ccall unsafe "hs_proto_decode_packed_single_byte_varints"
   c_decode_single_byte_varints :: Ptr () -> CInt -> Ptr Word64 -> CInt
+
+foreign import ccall unsafe "hs_proto_validate_utf8_fast"
+  c_validate_utf8_fast :: Ptr () -> CInt -> CInt
 
 -- | Count the number of varints in a packed buffer using SWAR.
 -- Each byte with its high bit clear terminates one varint.
@@ -57,3 +63,12 @@ decodeSingleByteVarints bs = unsafePerformIO $
       _ <- pure $! c_decode_single_byte_varints (castPtr ptr) (fromIntegral len) outPtr
       VU.fromList <$> peekArray len outPtr
 {-# INLINE decodeSingleByteVarints #-}
+
+-- | Validate UTF-8 using SWAR ASCII fast path.
+-- Processes 8 bytes at a time for ASCII (the common case), only entering
+-- the full multibyte validator when non-ASCII bytes are found.
+validateUtf8SWAR :: ByteString -> Bool
+validateUtf8SWAR bs = unsafePerformIO $
+  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
+    pure $! c_validate_utf8_fast (castPtr ptr) (fromIntegral len) /= 0
+{-# INLINE validateUtf8SWAR #-}

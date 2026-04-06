@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedTuples #-}
@@ -64,6 +63,10 @@ module Proto.Wire.Decode
   , TagResult#
   , withTag
 
+    -- * Monadic CPS tag dispatch (zero Tag allocation, for generated code)
+  , withTagM
+  , skipWireType
+
     -- * Non-throwing UTF-8 validation
   , validateUtf8
   ) where
@@ -76,11 +79,6 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8Lenient)
-#if MIN_VERSION_text(2,0,2)
-import Data.Text.Internal.Encoding (validateUtf8Chunk)
-#else
-import qualified Data.Text.Encoding as TE
-#endif
 import Data.Word (Word32, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, plusPtr, castPtr)
@@ -91,6 +89,7 @@ import System.IO.Unsafe (unsafeDupablePerformIO)
 import Control.DeepSeq (NFData(..))
 
 import Proto.Wire (Tag (..), WireType (..), decodeTag)
+import Proto.Wire.FFI (validateUtf8SWAR)
 
 data DecodeError
   = UnexpectedEnd
@@ -455,20 +454,52 @@ decodeTagParts w =
       I# wt# -> (# fn#, wt# #)
 {-# INLINE decodeTagParts #-}
 
+-- | Monadic CPS tag dispatch for generated decoders.
+--
+-- At end-of-input: calls @kEOF@.
+-- On a valid tag: calls @kTag fieldNumber wireType@, where both are
+-- unboxed 'Int' values (no Tag constructor allocated).
+-- On error: propagates the decode error.
+--
+-- This is the monadic counterpart to 'withTag', intended for generated
+-- code. Avoids allocating the 'Tag' record that 'getTagOrU' produces.
+withTagM
+  :: Decoder a                    -- ^ kEOF: continuation at end-of-input
+  -> (Int -> Int -> Decoder a)    -- ^ kTag: continuation with (fieldNumber, wireType)
+  -> Decoder a
+withTagM (Decoder kEOF) kTag = Decoder $ \bs off ->
+  if isTrue# (off >=# bsLen bs)
+  then kEOF bs off
+  else case runDecoder# getVarint bs off of
+    (# (# w, off' #) | #) ->
+      case decodeTagParts w of
+        (# fn#, wt# #) -> runDecoder# (kTag (I# fn#) (I# wt#)) bs off'
+    (# | e #) -> (# | e #)
+{-# INLINE withTagM #-}
+
+-- | Skip a field given its wire type as an 'Int' (for use with 'withTagM').
+skipWireType :: Int -> Decoder ()
+skipWireType wt = case wt of
+  0 -> skipVarint
+  1 -> skip 8
+  2 -> Decoder $ \bs off ->
+    case runDecoder# getVarint bs off of
+      (# (# lenW, off' #) | #) ->
+        let !len = fromIntegral lenW :: Int
+        in if I# off' + len > BS.length bs
+           then (# | UnexpectedEnd #)
+           else (# (# (), case I# off' + len of I# r -> r #) | #)
+      (# | e #) -> (# | e #)
+  5 -> skip 4
+  _ -> Decoder $ \_ _ -> (# | InvalidWireType wt #)
+{-# INLINE skipWireType #-}
+
 -- | Validate UTF-8 without exceptions.
 --
--- On text >= 2.0.2 this uses the internal @validateUtf8Chunk@ for a
--- zero-allocation fast path.  On older text versions it falls back to
--- @decodeUtf8'@ which may allocate but is still correct.
+-- Uses the SWAR-accelerated C validator as the primary path: it checks
+-- 8 ASCII bytes at a time, only entering the multibyte validator when
+-- non-ASCII is found. Falls back to @text@'s validator on older text.
 validateUtf8 :: ByteString -> Bool
-#if MIN_VERSION_text(2,0,2)
-validateUtf8 bs =
-  let (n, _) = validateUtf8Chunk bs
-  in n == BS.length bs
-#else
-validateUtf8 bs = case TE.decodeUtf8' bs of
-  Right _ -> True
-  Left _  -> False
-#endif
+validateUtf8 = validateUtf8SWAR
 {-# INLINE validateUtf8 #-}
 

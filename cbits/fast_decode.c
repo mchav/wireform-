@@ -263,6 +263,97 @@ int hs_proto_decode_packed_single_byte_varints(
 }
 
 /*
+ * SWAR UTF-8 validation with ASCII fast path.
+ *
+ * Inspired by hyperpb's verifyUTF8 in vm/utf8.go:
+ * - Process 8 bytes at a time checking for ASCII (no high bits set)
+ * - Only enter expensive multibyte validation when non-ASCII found
+ * - Returns 1 if valid UTF-8, 0 otherwise
+ *
+ * For the ASCII-only case (the vast majority of protobuf string fields:
+ * URLs, identifiers, enum names, etc.) this is dramatically faster than
+ * calling into a full UTF-8 state machine.
+ */
+int hs_proto_validate_utf8_fast(
+    const uint8_t *buf,
+    int len)
+{
+    int i = 0;
+
+#if defined(__x86_64__) || defined(__aarch64__)
+    /* SWAR ASCII fast path: 8 bytes at a time */
+    for (; i + 8 <= len; i += 8) {
+        uint64_t word;
+        memcpy(&word, buf + i, 8);
+        if (word & 0x8080808080808080ULL) {
+            goto slow_from_i;
+        }
+    }
+    /* Check remaining bytes for ASCII */
+    if (i < len) {
+        int rem = len - i;
+        uint64_t word = 0;
+        memcpy(&word, buf + i, rem < 8 ? rem : 8);
+        uint64_t mask = rem >= 8
+            ? 0x8080808080808080ULL
+            : 0x8080808080808080ULL >> ((8 - rem) * 8);
+        if (word & mask) {
+            goto slow_from_i;
+        }
+        i = len;
+    }
+    return 1;
+
+slow_from_i:
+    ;
+#endif
+
+    /* Full UTF-8 validation from position i */
+    while (i < len) {
+        uint8_t b = buf[i];
+        if (b < 0x80) {
+            i++;
+            continue;
+        }
+
+        int count;
+        uint32_t codepoint;
+        if ((b & 0xE0) == 0xC0) {
+            count = 2;
+            codepoint = b & 0x1F;
+        } else if ((b & 0xF0) == 0xE0) {
+            count = 3;
+            codepoint = b & 0x0F;
+        } else if ((b & 0xF8) == 0xF0) {
+            count = 4;
+            codepoint = b & 0x07;
+        } else {
+            return 0;
+        }
+
+        if (i + count > len) return 0;
+
+        for (int j = 1; j < count; j++) {
+            uint8_t cb = buf[i + j];
+            if ((cb & 0xC0) != 0x80) return 0;
+            codepoint = (codepoint << 6) | (cb & 0x3F);
+        }
+
+        /* Overlong check */
+        if (count == 2 && codepoint < 0x80) return 0;
+        if (count == 3 && codepoint < 0x800) return 0;
+        if (count == 4 && codepoint < 0x10000) return 0;
+
+        /* Surrogate range and max codepoint checks */
+        if (codepoint >= 0xD800 && codepoint <= 0xDFFF) return 0;
+        if (codepoint > 0x10FFFF) return 0;
+
+        i += count;
+    }
+    return 1;
+}
+
+/*
  * Decode a fixed32 (little-endian) without alignment requirements.
  */
 uint32_t hs_proto_decode_fixed32(const uint8_t *buf, int offset)
