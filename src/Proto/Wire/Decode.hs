@@ -78,7 +78,7 @@ import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8Lenient)
+import qualified Data.Text.Encoding as TE
 import Data.Word (Word32, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, plusPtr, castPtr)
@@ -315,13 +315,18 @@ getByteString :: Decoder ByteString
 getByteString = getLengthDelimited
 {-# INLINE getByteString #-}
 
+-- | Decode a text field.
+--
+-- On text >= 2.0 (UTF-8 internal representation), uses 'decodeUtf8'' which
+-- validates and produces Text in a single pass, avoiding the
+-- validate-then-decode double traversal.
 getText :: Decoder Text
 getText = Decoder $ \bs off ->
   case runDecoder# getLengthDelimited bs off of
     (# (# bytes, off' #) | #) ->
-      if validateUtf8 bytes
-      then (# (# decodeUtf8Lenient bytes, off' #) | #)
-      else (# | InvalidUtf8 #)
+      case TE.decodeUtf8' bytes of
+        Right t -> (# (# t, off' #) | #)
+        Left _  -> (# | InvalidUtf8 #)
     (# | e #) -> (# | e #)
 {-# INLINE getText #-}
 

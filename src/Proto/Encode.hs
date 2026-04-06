@@ -72,13 +72,19 @@ module Proto.Encode
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word32, Word64)
 import Data.Text (Text)
+import Foreign.Storable (Storable, sizeOf)
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (castPtr)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Proto.Wire (WireType (..))
 import Proto.Wire.Encode
@@ -269,6 +275,8 @@ encodePackedVarint = encodePackedWord64
 {-# INLINE encodePackedVarint #-}
 
 -- | Encode a packed repeated fixed32 field.
+-- On LE platforms: the vector's backing store is already the wire bytes.
+-- We bulk-copy via a single B.byteString instead of N individual putFixed32.
 encodePackedFixed32 :: Int -> VU.Vector Word32 -> B.Builder
 encodePackedFixed32 fn vals
   | VU.null vals = mempty
@@ -276,7 +284,7 @@ encodePackedFixed32 fn vals
       let sz = VU.length vals * 4
       in putTag fn WireLengthDelimited <>
          putVarint (fromIntegral sz) <>
-         VU.foldl' (\acc v -> acc <> putFixed32 v) mempty vals
+         vectorToBuilder vals 4
 {-# INLINE encodePackedFixed32 #-}
 
 -- | Encode a packed repeated fixed64 field.
@@ -287,7 +295,7 @@ encodePackedFixed64 fn vals
       let sz = VU.length vals * 8
       in putTag fn WireLengthDelimited <>
          putVarint (fromIntegral sz) <>
-         VU.foldl' (\acc v -> acc <> putFixed64 v) mempty vals
+         vectorToBuilder vals 8
 {-# INLINE encodePackedFixed64 #-}
 
 -- | Encode a packed repeated float field.
@@ -298,7 +306,7 @@ encodePackedFloat fn vals
       let sz = VU.length vals * 4
       in putTag fn WireLengthDelimited <>
          putVarint (fromIntegral sz) <>
-         VU.foldl' (\acc v -> acc <> putFloat v) mempty vals
+         vectorToBuilder vals 4
 {-# INLINE encodePackedFloat #-}
 
 -- | Encode a packed repeated double field.
@@ -309,8 +317,25 @@ encodePackedDouble fn vals
       let sz = VU.length vals * 8
       in putTag fn WireLengthDelimited <>
          putVarint (fromIntegral sz) <>
-         VU.foldl' (\acc v -> acc <> putDouble v) mempty vals
+         vectorToBuilder vals 8
 {-# INLINE encodePackedDouble #-}
+
+-- | Bulk-copy an unboxed vector's backing bytes into a Builder.
+-- On LE platforms (x86_64, aarch64-LE), the vector's internal
+-- representation is already in wire byte order for fixed-width
+-- protobuf types. This emits a single B.byteString instead of
+-- N individual word writes.
+vectorToBuilder :: (VU.Unbox a, Storable a) => VU.Vector a -> Int -> B.Builder
+vectorToBuilder vec elemSize =
+  let sv = unboxedToStorable vec
+      bs = unsafeDupablePerformIO $ VS.unsafeWith sv $ \ptr ->
+        BS.packCStringLen (castPtr ptr, VS.length sv * elemSize)
+  in B.byteString bs
+{-# INLINE vectorToBuilder #-}
+
+unboxedToStorable :: (VU.Unbox a, Storable a) => VU.Vector a -> VS.Vector a
+unboxedToStorable uv = VS.generate (VU.length uv) (VU.unsafeIndex uv)
+{-# INLINE unboxedToStorable #-}
 
 -- | Encode a packed repeated sint32 field.
 encodePackedSVarint32 :: Int -> VU.Vector Int32 -> B.Builder

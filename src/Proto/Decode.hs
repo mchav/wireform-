@@ -99,6 +99,7 @@ module Proto.Decode
   , DecRes# (..)
   ) where
 
+import Data.Bits ((.&.), (.|.), shiftL)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -254,25 +255,66 @@ decodePackedVarint = do
 --     each byte IS the value. We skip varint parsing entirely and just
 --     widen bytes to Word64. This is the common case for enum fields,
 --     small indices, and boolean-like repeated fields.
+-- | Decode all varints from a packed buffer.
+--
+-- Adaptive 3-strategy decode from hyperpb's parsePackedVarint:
+--
+--  1. count == byteLength: every varint is 1 byte (values 0-127).
+--     Zero-copy widening — each byte IS the value.
+--
+--  2. count >= byteLength/2: mostly 1-2 byte varints.
+--     Inline 1-2 byte fast path with fallback for larger varints.
+--     The 1-2 byte branches are well-predicted because they're common.
+--
+--  3. count < byteLength/2: many large varints.
+--     Call full varint decoder (1-2 byte branches would mispredict often).
 decodeAllVarints :: ByteString -> Either DecodeError (VU.Vector Word64)
 decodeAllVarints bs
   | BS.null bs = Right VU.empty
-  | packedAllSingleByte bs =
-      Right $! VU.generate (BS.length bs) (\i -> fromIntegral (BSU.unsafeIndex bs i))
   | otherwise =
-      let !n = countPackedVarints bs
-      in Right $! runST $ do
-        mv <- MVU.unsafeNew n
-        let len = BS.length bs
-            go !idx !off
-              | off >= len = pure ()
-              | otherwise = case runDecoder' getVarint bs off of
-                  DecodeOK v off' -> do
-                    MVU.unsafeWrite mv idx v
-                    go (idx + 1) off'
-                  DecodeFail _ -> pure ()
-        go 0 0
-        VU.unsafeFreeze mv
+      let !len = BS.length bs
+          !n = countPackedVarints bs
+      in if n == len
+         -- Strategy 1: all single-byte
+         then Right $! VU.generate n (\i -> fromIntegral (BSU.unsafeIndex bs i))
+         else Right $! runST $ do
+           mv <- MVU.unsafeNew n
+           if n >= len `quot` 2
+             -- Strategy 2: mostly small varints, inline 1-2 byte fast path
+             then do
+               let go !idx !off
+                     | off >= len = pure ()
+                     | otherwise =
+                         let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word64
+                         in if b0 < 0x80
+                            then do
+                              MVU.unsafeWrite mv idx b0
+                              go (idx + 1) (off + 1)
+                            else if off + 1 < len
+                            then
+                              let !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word64
+                              in if b1 < 0x80
+                                 then do
+                                   MVU.unsafeWrite mv idx ((b0 .&. 0x7F) .|. (b1 `shiftL` 7))
+                                   go (idx + 1) (off + 2)
+                                 else case runDecoder' getVarint bs off of
+                                   DecodeOK v off' -> do
+                                     MVU.unsafeWrite mv idx v
+                                     go (idx + 1) off'
+                                   DecodeFail _ -> pure ()
+                            else pure ()
+               go 0 0
+             -- Strategy 3: many large varints, full decoder
+             else do
+               let go !idx !off
+                     | off >= len = pure ()
+                     | otherwise = case runDecoder' getVarint bs off of
+                         DecodeOK v off' -> do
+                           MVU.unsafeWrite mv idx v
+                           go (idx + 1) off'
+                         DecodeFail _ -> pure ()
+               go 0 0
+           VU.unsafeFreeze mv
 
 -- | Decode packed fixed32 values.
 decodePackedFixed32 :: Decoder (VU.Vector Word32)
