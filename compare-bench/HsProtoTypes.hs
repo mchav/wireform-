@@ -25,6 +25,7 @@ import Control.DeepSeq (NFData)
 import Foreign.Ptr (Ptr)
 import Data.Word (Word8)
 import Proto.Encode
+import Proto.Decode.Fast
 import Proto.Decode
 import Proto.Encode.Archetype
 import Proto.Encode.Direct
@@ -260,6 +261,75 @@ instance MessageDecode HWithRepeated where
           )
           (\e -> (# | e #))
   {-# INLINE messageDecoder #-}
+
+-- | Fast Addr#-based decoder for HSmall. Zero touch# during the loop.
+fastDecodeSmall :: ByteString -> Either DecodeError HSmall
+fastDecodeSmall origBs = runFastDecode origBs $ \fd off0 ->
+  let go !i !n !a !off
+        | fdDone fd off = Right (HSmall i n a, off)
+        | otherwise =
+            let (!fn, !wt, !off1) = fdTag fd off
+            in case fn of
+              1 -> let (!v, !off2) = fdVarint fd off1
+                   in go (fromIntegral v) n a off2
+              2 -> let (!v, !off2) = fdText fd off1 origBs
+                   in go i v a off2
+              3 -> let (!v, !off2) = fdVarint fd off1
+                   in go i n (v /= 0) off2
+              _ -> go i n a (fdSkipField fd off1 wt)
+  in go 0 "" False off0
+{-# NOINLINE fastDecodeSmall #-}
+
+-- | Fast decoder for HMedium.
+fastDecodeMedium :: ByteString -> Either DecodeError HMedium
+fastDecodeMedium origBs = runFastDecode origBs $ \fd off0 ->
+  let go !t !c !sc !p !e !ts !d !r !off
+        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
+        | otherwise =
+            let (!fn, !wt, !off1) = fdTag fd off
+            in case fn of
+              1 -> let (!v, !off2) = fdText fd off1 origBs in go v c sc p e ts d r off2
+              2 -> let (!v, !off2) = fdVarint fd off1 in go t (fromIntegral v) sc p e ts d r off2
+              3 -> let (!v, !off2) = fdDouble fd off1 in go t c v p e ts d r off2
+              4 -> let (!v, !off2) = fdBytes fd off1 origBs in go t c sc v e ts d r off2
+              5 -> let (!v, !off2) = fdBool fd off1 in go t c sc p v ts d r off2
+              6 -> let (!v, !off2) = fdVarint fd off1 in go t c sc p e (fromIntegral v) d r off2
+              7 -> let (!v, !off2) = fdText fd off1 origBs in go t c sc p e ts v r off2
+              8 -> let (!v, !off2) = fdFloat fd off1 in go t c sc p e ts d v off2
+              _ -> go t c sc p e ts d r (fdSkipField fd off1 wt)
+  in go "" 0 0.0 BS.empty False 0 "" 0.0 off0
+{-# NOINLINE fastDecodeMedium #-}
+
+-- | Fast decoder for HWithNested.
+fastDecodeNested :: ByteString -> Either DecodeError HWithNested
+fastDecodeNested origBs = runFastDecode origBs $ \fd off0 ->
+  let go !i !inner !lbl !off
+        | fdDone fd off = Right (HWithNested i inner lbl, off)
+        | otherwise =
+            let (!fn, !wt, !off1) = fdTag fd off
+            in case fn of
+              1 -> let (!v, !off2) = fdVarint fd off1 in go (fromIntegral v) inner lbl off2
+              2 -> let (!subBs, !off2) = fdBytes fd off1 origBs
+                   in case fastDecodeSmallInner subBs of
+                        Right m -> go i (Just m) lbl off2
+                        Left e -> Left (SubMessageError e)
+              3 -> let (!v, !off2) = fdText fd off1 origBs in go i inner v off2
+              _ -> go i inner lbl (fdSkipField fd off1 wt)
+  in go 0 Nothing "" off0
+{-# NOINLINE fastDecodeNested #-}
+
+fastDecodeSmallInner :: ByteString -> Either DecodeError HSmall
+fastDecodeSmallInner origBs = runFastDecode origBs $ \fd off0 ->
+  let go !i !n !a !off
+        | fdDone fd off = Right (HSmall i n a, off)
+        | otherwise =
+            let (!fn, !wt, !off1) = fdTag fd off
+            in case fn of
+              1 -> let (!v, !off2) = fdVarint fd off1 in go (fromIntegral v) n a off2
+              2 -> let (!v, !off2) = fdText fd off1 origBs in go i v a off2
+              3 -> let (!v, !off2) = fdVarint fd off1 in go i n (v /= 0) off2
+              _ -> go i n a (fdSkipField fd off1 wt)
+  in go 0 "" False off0
 
 decodePackedInto :: GrowList Int32 -> ByteString -> GrowList Int32
 decodePackedInto !gl bs = go gl 0

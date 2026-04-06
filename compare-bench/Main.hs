@@ -99,9 +99,9 @@ main = defaultMain
       ]
   ]
 
--- Decode/roundtrip wrappers to avoid ambiguous types
+-- Decode wrappers — using fast Addr#-based decoders
 decSmallH :: BS.ByteString -> Either H.DecodeError HSmall
-decSmallH = H.decodeMessage
+decSmallH = fastDecodeSmall
 {-# NOINLINE decSmallH #-}
 decSmallP :: BS.ByteString -> Either String PL.Small
 decSmallP = PLC.decodeMessage
@@ -114,7 +114,7 @@ rtSmallP m = PLC.decodeMessage (PLC.encodeMessage m)
 {-# NOINLINE rtSmallP #-}
 
 decMediumH :: BS.ByteString -> Either H.DecodeError HMedium
-decMediumH = H.decodeMessage
+decMediumH = fastDecodeMedium
 {-# NOINLINE decMediumH #-}
 decMediumP :: BS.ByteString -> Either String PL.Medium
 decMediumP = PLC.decodeMessage
@@ -127,7 +127,7 @@ rtMediumP m = PLC.decodeMessage (PLC.encodeMessage m)
 {-# NOINLINE rtMediumP #-}
 
 decNestedH :: BS.ByteString -> Either H.DecodeError HWithNested
-decNestedH = H.decodeMessage
+decNestedH = fastDecodeNested
 {-# NOINLINE decNestedH #-}
 decNestedP :: BS.ByteString -> Either String PL.WithNested
 decNestedP = PLC.decodeMessage
