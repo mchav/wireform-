@@ -26,6 +26,7 @@ module Proto.Decode.Fast
   , fdBytes
   , fdText
   , fdTag
+  , fdTagCPS
   , fdSkipField
   , fdDone
   ) where
@@ -181,6 +182,15 @@ fdTag fd !off =
   case fdVarint fd off of
     (w, off') -> (fromIntegral (w `shiftR` 3), fromIntegral (w .&. 7), off')
 {-# INLINE fdTag #-}
+
+-- | CPS version of fdTag that avoids tuple allocation.
+-- The continuation receives (fieldNumber, wireType, newOffset) as
+-- separate arguments — GHC passes them in registers.
+fdTagCPS :: FastDec -> Int -> (Int -> Int -> Int -> a) -> a
+fdTagCPS fd !off k =
+  case fdVarint fd off of
+    (w, off') -> k (fromIntegral (w `shiftR` 3)) (fromIntegral (w .&. 7)) off'
+{-# INLINE fdTagCPS #-}
 
 -- | Skip a field based on wire type. Returns new offset.
 fdSkipField :: FastDec -> Int -> Int -> Int
