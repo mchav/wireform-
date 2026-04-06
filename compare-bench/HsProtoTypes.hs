@@ -22,6 +22,8 @@ import GHC.Generics (Generic)
 import GHC.Exts (Int#, Int(I#))
 import Control.DeepSeq (NFData)
 
+import Foreign.Ptr (Ptr)
+import Data.Word (Word8)
 import Proto.Encode
 import Proto.Decode
 import Proto.Encode.Archetype
@@ -283,14 +285,14 @@ sizeSmall (HSmall i n a) =
   (if not a then 0 else archBoolSize)
 {-# INLINE sizeSmall #-}
 
-writeSmall :: HSmall -> WriteCtx -> IO WriteCtx
-writeSmall (HSmall i n a) ctx = do
-  ctx1 <- if i == 0 then pure ctx
-          else dWord8 0x08 ctx >>= dVarint (fromIntegral i)
-  ctx2 <- if n == "" then pure ctx1
-          else dWord8 0x12 ctx1 >>= dText n
-  if not a then pure ctx2
-  else dWord8 0x18 ctx2 >>= dWord8 1
+writeSmall :: HSmall -> Ptr Word8 -> Int -> IO Int
+writeSmall (HSmall i n a) !p !off = do
+  off1 <- if i == 0 then pure off
+          else dVarintField p off 0x08 (fromIntegral i)
+  off2 <- if n == "" then pure off1
+          else dStringField p off1 0x12 n
+  if not a then pure off2
+  else dBoolField p off2 0x18 True
 {-# INLINE writeSmall #-}
 
 -- | Direct-write encode for HMedium.
@@ -312,24 +314,24 @@ sizeMedium m =
   (if hmRatio m == 0 then 0 else archFixed32Size)
 {-# INLINE sizeMedium #-}
 
-writeMedium :: HMedium -> WriteCtx -> IO WriteCtx
-writeMedium m ctx = do
-  ctx1 <- if hmTitle m == "" then pure ctx
-          else dWord8 0x0a ctx >>= dText (hmTitle m)
-  ctx2 <- if hmCount m == 0 then pure ctx1
-          else dWord8 0x10 ctx1 >>= dVarint (fromIntegral (hmCount m))
-  ctx3 <- if hmScore m == 0 then pure ctx2
-          else dWord8 0x19 ctx2 >>= dDoubleLE (hmScore m)
-  ctx4 <- if BS.null (hmPayload m) then pure ctx3
-          else dWord8 0x22 ctx3 >>= dByteString (hmPayload m)
-  ctx5 <- if not (hmEnabled m) then pure ctx4
-          else dWord8 0x28 ctx4 >>= dWord8 1
-  ctx6 <- if hmTimestamp m == 0 then pure ctx5
-          else dWord8 0x30 ctx5 >>= dVarint (fromIntegral (hmTimestamp m))
-  ctx7 <- if hmDescription m == "" then pure ctx6
-          else dWord8 0x3a ctx6 >>= dText (hmDescription m)
-  if hmRatio m == 0 then pure ctx7
-  else dWord8 0x45 ctx7 >>= dFloatLE (hmRatio m)
+writeMedium :: HMedium -> Ptr Word8 -> Int -> IO Int
+writeMedium m !p !off = do
+  off1 <- if hmTitle m == "" then pure off
+          else dStringField p off 0x0a (hmTitle m)
+  off2 <- if hmCount m == 0 then pure off1
+          else dVarintField p off1 0x10 (fromIntegral (hmCount m))
+  off3 <- if hmScore m == 0 then pure off2
+          else dDoubleField p off2 0x19 (hmScore m)
+  off4 <- if BS.null (hmPayload m) then pure off3
+          else dBytesField p off3 0x22 (hmPayload m)
+  off5 <- if not (hmEnabled m) then pure off4
+          else dBoolField p off4 0x28 True
+  off6 <- if hmTimestamp m == 0 then pure off5
+          else dVarintField p off5 0x30 (fromIntegral (hmTimestamp m))
+  off7 <- if hmDescription m == "" then pure off6
+          else dStringField p off6 0x3a (hmDescription m)
+  if hmRatio m == 0 then pure off7
+  else dFloatField p off7 0x45 (hmRatio m)
 {-# INLINE writeMedium #-}
 
 -- | Direct-write encode for HWithNested.
@@ -346,19 +348,19 @@ sizeNested m =
   (if hwnLabel m == "" then 0 else archStringSize (hwnLabel m))
 {-# INLINE sizeNested #-}
 
-writeNested :: HWithNested -> WriteCtx -> IO WriteCtx
-writeNested m ctx = do
-  ctx1 <- if hwnId m == 0 then pure ctx
-          else dWord8 0x08 ctx >>= dVarint (fromIntegral (hwnId m))
-  ctx2 <- case hwnInner m of
-    Nothing -> pure ctx1
+writeNested :: HWithNested -> Ptr Word8 -> Int -> IO Int
+writeNested m !p !off = do
+  off1 <- if hwnId m == 0 then pure off
+          else dVarintField p off 0x08 (fromIntegral (hwnId m))
+  off2 <- case hwnInner m of
+    Nothing -> pure off1
     Just inner -> do
       let !innerSz = sizeSmall inner
-      ctx1a <- dWord8 0x12 ctx1
-      ctx1b <- dVarint (fromIntegral innerSz) ctx1a
-      writeSmall inner ctx1b
-  if hwnLabel m == "" then pure ctx2
-  else dWord8 0x1a ctx2 >>= dText (hwnLabel m)
+      off1a <- dWord8 p off1 0x12
+      off1b <- dVarint p off1a (fromIntegral innerSz)
+      writeSmall inner p off1b
+  if hwnLabel m == "" then pure off2
+  else dStringField p off2 0x1a (hwnLabel m)
 {-# INLINE writeNested #-}
 
 -- | Direct-write encode for HWithRepeated.
@@ -377,21 +379,19 @@ sizeRepeated m =
   V.foldl' (\acc item -> acc + archSubmessageSize (sizeSmall item)) 0 (hwrItems m)
 {-# INLINE sizeRepeated #-}
 
-writeRepeated :: HWithRepeated -> WriteCtx -> IO WriteCtx
-writeRepeated m ctx = do
-  ctx1 <- if VU.null (hwrValues m) then pure ctx
+writeRepeated :: HWithRepeated -> Ptr Word8 -> Int -> IO Int
+writeRepeated m !p !off = do
+  off1 <- if VU.null (hwrValues m) then pure off
           else do
-            let (!packedSz, _) = VU.foldl' (\(!sz, !_) v ->
-                  let !w = fromIntegral v :: Word64
-                  in (sz + varintSize w, ())) (0, ()) (hwrValues m)
-            ctx1a <- dWord8 0x0a ctx
-            ctx1b <- dVarint (fromIntegral packedSz) ctx1a
-            VU.foldM' (\c v -> dVarint (fromIntegral v) c) ctx1b (hwrValues m)
-  ctx2 <- V.foldM' (\c s -> dWord8 0x12 c >>= dText s) ctx1 (hwrTags m)
-  V.foldM' (\c item -> do
+            let !packedSz = VU.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0 (hwrValues m)
+            off1a <- dWord8 p off 0x0a
+            off1b <- dVarint p off1a (fromIntegral packedSz)
+            VU.foldM' (\o v -> dVarint p o (fromIntegral v)) off1b (hwrValues m)
+  off2 <- V.foldM' (\o s -> dStringField p o 0x12 s) off1 (hwrTags m)
+  V.foldM' (\o item -> do
     let !innerSz = sizeSmall item
-    c1 <- dWord8 0x1a c
-    c2 <- dVarint (fromIntegral innerSz) c1
-    writeSmall item c2) ctx2 (hwrItems m)
+    off2a <- dWord8 p o 0x1a
+    off2b <- dVarint p off2a (fromIntegral innerSz)
+    writeSmall item p off2b) off2 (hwrItems m)
 {-# INLINE writeRepeated #-}
 

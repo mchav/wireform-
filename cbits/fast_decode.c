@@ -466,6 +466,102 @@ slow_from_i:
 }
 
 /*
+ * Encode a varint into buf at the given offset.
+ * Returns the number of bytes written.
+ */
+int hs_proto_encode_varint(
+    uint8_t *buf,
+    int offset,
+    uint64_t value)
+{
+    uint8_t *p = buf + offset;
+    if (value < 0x80) {
+        p[0] = (uint8_t)value;
+        return 1;
+    }
+    if (value < 0x4000) {
+        p[0] = (uint8_t)((value & 0x7F) | 0x80);
+        p[1] = (uint8_t)(value >> 7);
+        return 2;
+    }
+    if (value < 0x200000) {
+        p[0] = (uint8_t)((value & 0x7F) | 0x80);
+        p[1] = (uint8_t)(((value >> 7) & 0x7F) | 0x80);
+        p[2] = (uint8_t)(value >> 14);
+        return 3;
+    }
+    if (value < 0x10000000) {
+        p[0] = (uint8_t)((value & 0x7F) | 0x80);
+        p[1] = (uint8_t)(((value >> 7) & 0x7F) | 0x80);
+        p[2] = (uint8_t)(((value >> 14) & 0x7F) | 0x80);
+        p[3] = (uint8_t)(value >> 21);
+        return 4;
+    }
+    if (value < 0x800000000ULL) {
+        p[0] = (uint8_t)((value & 0x7F) | 0x80);
+        p[1] = (uint8_t)(((value >> 7) & 0x7F) | 0x80);
+        p[2] = (uint8_t)(((value >> 14) & 0x7F) | 0x80);
+        p[3] = (uint8_t)(((value >> 21) & 0x7F) | 0x80);
+        p[4] = (uint8_t)(value >> 28);
+        return 5;
+    }
+    int n = 0;
+    while (value >= 0x80) {
+        p[n++] = (uint8_t)((value & 0x7F) | 0x80);
+        value >>= 7;
+    }
+    p[n++] = (uint8_t)value;
+    return n;
+}
+
+/*
+ * Encode a length-delimited field: tag_byte + varint(len) + memcpy(data, len).
+ * Returns bytes written. This is a single C call for the entire field.
+ */
+int hs_proto_encode_length_delimited(
+    uint8_t *buf,
+    int offset,
+    uint8_t tag,
+    const uint8_t *data,
+    int len)
+{
+    uint8_t *p = buf + offset;
+    p[0] = tag;
+    int n = 1 + hs_proto_encode_varint(buf, offset + 1, (uint64_t)len);
+    memcpy(buf + offset + n, data, len);
+    return n + len;
+}
+
+/*
+ * Encode a varint field: tag_byte + varint(value).
+ * Returns bytes written.
+ */
+int hs_proto_encode_varint_field(
+    uint8_t *buf,
+    int offset,
+    uint8_t tag,
+    uint64_t value)
+{
+    buf[offset] = tag;
+    return 1 + hs_proto_encode_varint(buf, offset + 1, value);
+}
+
+/*
+ * Encode a bool field: tag_byte + 0x01/0x00.
+ * Returns 2 (always 2 bytes).
+ */
+int hs_proto_encode_bool_field(
+    uint8_t *buf,
+    int offset,
+    uint8_t tag,
+    int value)
+{
+    buf[offset] = tag;
+    buf[offset + 1] = value ? 1 : 0;
+    return 2;
+}
+
+/*
  * Decode a fixed32 (little-endian) without alignment requirements.
  */
 uint32_t hs_proto_decode_fixed32(const uint8_t *buf, int offset)

@@ -20,12 +20,18 @@ module Proto.Wire.FFI
 
     -- * Page boundary relocation
   , relocatePageBoundary
+
+    -- * C-native encode primitives
+  , encodeVarintC
+  , encodeLengthDelimitedC
+  , encodeVarintFieldC
+  , encodeBoolFieldC
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
-import Data.Word (Word64)
+import Data.Word (Word8, Word64)
 import Foreign.C.Types (CInt(..))
 import Foreign.Marshal.Alloc (alloca)
 import qualified Foreign.Marshal.Alloc
@@ -54,6 +60,18 @@ foreign import ccall unsafe "hs_proto_decode_varint_swar"
 foreign import ccall unsafe "hs_proto_relocate_page_boundary"
   c_relocate_page_boundary :: Ptr () -> CInt -> Ptr () -> CInt -> CInt
 
+foreign import ccall unsafe "hs_proto_encode_varint"
+  c_encode_varint :: Ptr () -> CInt -> Word64 -> CInt
+
+foreign import ccall unsafe "hs_proto_encode_length_delimited"
+  c_encode_length_delimited :: Ptr () -> CInt -> Word8 -> Ptr () -> CInt -> CInt
+
+foreign import ccall unsafe "hs_proto_encode_varint_field"
+  c_encode_varint_field :: Ptr () -> CInt -> Word8 -> Word64 -> CInt
+
+foreign import ccall unsafe "hs_proto_encode_bool_field"
+  c_encode_bool_field :: Ptr () -> CInt -> Word8 -> CInt -> CInt
+
 -- | Count the number of varints in a packed buffer using SWAR.
 -- Each byte with its high bit clear terminates one varint.
 countPackedVarints :: ByteString -> Int
@@ -80,6 +98,30 @@ decodeSingleByteVarints bs = unsafePerformIO $
       _ <- pure $! c_decode_single_byte_varints (castPtr ptr) (fromIntegral len) outPtr
       VU.fromList <$> peekArray len outPtr
 {-# INLINE decodeSingleByteVarints #-}
+
+-- | Encode a varint directly into a buffer. Returns bytes written.
+encodeVarintC :: Ptr Word8 -> Int -> Word64 -> IO Int
+encodeVarintC buf off val = pure $! fromIntegral $
+  c_encode_varint (castPtr buf) (fromIntegral off) val
+{-# INLINE encodeVarintC #-}
+
+-- | Encode a length-delimited field (tag + length varint + data) in one C call.
+encodeLengthDelimitedC :: Ptr Word8 -> Int -> Word8 -> Ptr Word8 -> Int -> IO Int
+encodeLengthDelimitedC buf off tag dataPtr dataLen = pure $! fromIntegral $
+  c_encode_length_delimited (castPtr buf) (fromIntegral off) tag (castPtr dataPtr) (fromIntegral dataLen)
+{-# INLINE encodeLengthDelimitedC #-}
+
+-- | Encode a varint field (tag + varint) in one C call.
+encodeVarintFieldC :: Ptr Word8 -> Int -> Word8 -> Word64 -> IO Int
+encodeVarintFieldC buf off tag val = pure $! fromIntegral $
+  c_encode_varint_field (castPtr buf) (fromIntegral off) tag val
+{-# INLINE encodeVarintFieldC #-}
+
+-- | Encode a bool field (tag + 0/1) in one C call. Always 2 bytes.
+encodeBoolFieldC :: Ptr Word8 -> Int -> Word8 -> Bool -> IO Int
+encodeBoolFieldC buf off tag val = pure $! fromIntegral $
+  c_encode_bool_field (castPtr buf) (fromIntegral off) tag (if val then 1 else 0)
+{-# INLINE encodeBoolFieldC #-}
 
 -- | Validate UTF-8 using SWAR ASCII fast path.
 -- Processes 8 bytes at a time for ASCII (the common case), only entering
