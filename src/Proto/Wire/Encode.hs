@@ -58,10 +58,19 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word32, Word64)
 
 import Proto.Wire (WireType, fieldTag)
+
+-- | Get the UTF-8 byte length of a Text without allocating a ByteString.
+-- On text >= 2.0 (UTF-8 internal representation) this is O(1) since
+-- the internal byte length IS the UTF-8 byte length.
+-- Falls back to encodeUtf8 + BS.length on older versions.
+textUtf8Length :: Text -> Int
+textUtf8Length t = BS.length (TE.encodeUtf8 t)
+{-# INLINE textUtf8Length #-}
 
 -- | Encode a varint (unsigned). Unrolled for values that fit in 1-3 bytes
 -- (covers field tags up to ~250k and values up to 2^21).
@@ -163,15 +172,25 @@ putByteString = putLengthDelimited
 {-# INLINE putByteString #-}
 
 -- | Encode a string field (UTF-8).
+-- On text >= 2.0, encodeUtf8 is O(1) (no copy, just wraps the internal
+-- ByteArray# in a ByteString ForeignPtr).
 putText :: Text -> Builder
 putText t =
-  let bs = TE.encodeUtf8 t
-  in putLengthDelimited bs
+  let !bs = TE.encodeUtf8 t
+  in putVarint (fromIntegral (BS.length bs)) <> B.byteString bs
 {-# INLINE putText #-}
 
 -- | Encode a field tag (field number + wire type) as a varint.
+--
+-- For field numbers 1-15 (the vast majority in practice), the tag
+-- fits in a single byte. We emit B.word8 directly, avoiding the
+-- putVarint branch chain entirely.
 putTag :: Int -> WireType -> Builder
-putTag fn wt = putVarint (fieldTag fn wt)
+putTag fn wt
+  | tagVal < 0x80 = B.word8 (fromIntegral tagVal)
+  | otherwise = putVarint tagVal
+  where
+    !tagVal = fieldTag fn wt
 {-# INLINE putTag #-}
 
 -- | Pre-compute the tag bytes for a field at definition time.
@@ -269,10 +288,10 @@ fieldBytesSize fn bs =
 {-# INLINE fieldBytesSize #-}
 
 -- | Size of a text field (tag + varint length + UTF-8 payload).
+-- Uses textUtf8Length to get the byte count.
 fieldTextSize :: Int -> Text -> Int
 fieldTextSize fn t =
-  let bs = TE.encodeUtf8 t
-      len = BS.length bs
+  let !len = textUtf8Length t
   in tagSize fn + varintSize (fromIntegral len) + len
 {-# INLINE fieldTextSize #-}
 

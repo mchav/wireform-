@@ -83,22 +83,46 @@ instance MessageSize Timestamp where
 
 instance MessageDecode Timestamp where
   {-# INLINE messageDecoder #-}
-  messageDecoder = loop 0 0 []
+  messageDecoder = loop_dispatch 0 0 []
     where
-      loop acc_0 acc_1 acc_unknown_ = do
-        mTag <- getTagOrU
-        case mTag of
-          UNothing -> pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_})
-          UJust (Tag fn wt) -> case fn of
+      loop_dispatch acc_0 acc_1 acc_unknown_ = withTagM
+        (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> case fn of
+          1 -> do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop_after_0 v acc_1 acc_unknown_
+          2 -> do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop_after_1 acc_0 v acc_unknown_
+          _ -> do
+            uf <- captureUnknownField fn (toEnum wt)
+            loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
+      loop_after_0 acc_0 acc_1 acc_unknown_ = withTagM
+        (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> if fn == 2
+          then do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop_after_1 acc_0 v acc_unknown_
+          else case fn of
             1 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop v acc_1 acc_unknown_
+              loop_after_0 v acc_1 acc_unknown_
+            _ -> do
+              uf <- captureUnknownField fn (toEnum wt)
+              loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
+      loop_after_1 acc_0 acc_1 acc_unknown_ = withTagM
+        (pure (Timestamp {timestampSeconds = acc_0, timestampNanos = acc_1, timestampUnknownFields = reverse acc_unknown_}))
+        (\fn wt -> if fn == 1
+          then do
+            v <- (fromIntegral <$> decodeFieldVarint)
+            loop_after_0 v acc_1 acc_unknown_
+          else case fn of
             2 -> do
               v <- (fromIntegral <$> decodeFieldVarint)
-              loop acc_0 v acc_unknown_
+              loop_after_1 acc_0 v acc_unknown_
             _ -> do
-              uf <- captureUnknownField fn wt
-              loop acc_0 acc_1 (uf : acc_unknown_)
+              uf <- captureUnknownField fn (toEnum wt)
+              loop_dispatch acc_0 acc_1 (uf : acc_unknown_))
 
 instance IsMessage Timestamp where
   messageTypeName _ = "google.protobuf.Timestamp"
