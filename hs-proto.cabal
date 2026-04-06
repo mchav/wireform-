@@ -96,6 +96,7 @@ library
       Proto.Registry.TH
       -- New modules
       Proto.Dynamic
+      Proto.TDP
       Proto.TextFormat
       Proto.Conformance
       Proto.CodeGen.Service
