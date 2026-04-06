@@ -262,109 +262,68 @@ instance MessageDecode HWithRepeated where
           (\e -> (# | e #))
   {-# INLINE messageDecoder #-}
 
--- | Fast Addr#-based decoder for HSmall. Zero touch# during the loop.
+-- | Tag-byte dispatch: single byte read + case match.
+-- Fields: id(1,varint)=0x08, name(2,bytes)=0x12, active(3,varint)=0x18
 fastDecodeSmall :: ByteString -> Either DecodeError HSmall
 fastDecodeSmall origBs = runFastDecode origBs $ \fd off0 ->
   let go !i !n !a !off
         | fdDone fd off = Right (HSmall i n a, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in case fn of
-              1 -> let (!v, !off2) = fdVarint fd off1
-                   in go (fromIntegral v) n a off2
-              2 -> let (!v, !off2) = fdText fd off1 origBs
-                   in go i v a off2
-              3 -> let (!v, !off2) = fdVarint fd off1
-                   in go i n (v /= 0) off2
-              _ -> go i n a (fdSkipField fd off1 wt)
+        | otherwise =
+            let !tag = readByte fd off
+                !off1 = off + 1
+            in case tag of
+              0x08 -> let (!v, !off2) = fdVarint fd off1
+                      in go (fromIntegral v) n a off2
+              0x12 -> let (!v, !off2) = fdText fd off1 origBs
+                      in go i v a off2
+              0x18 -> let (!v, !off2) = fdVarint fd off1
+                      in go i n (v /= 0) off2
+              _    -> let (!fn, !wt, !off1') = fdTag fd off
+                      in go i n a (fdSkipField fd off1' wt)
   in go 0 "" False off0
 {-# NOINLINE fastDecodeSmall #-}
 
--- | Fast decoder for HMedium with field-order scheduling.
--- After decoding field N, predicts field N+1 (single comparison).
+-- | Fast decoder for HMedium. Tag-byte dispatch: reads the single-byte tag
+-- directly and dispatches without going through fdTag/fdVarint for the tag.
+-- Fields 1-8 all have single-byte tags (0x0a,0x10,0x19,0x22,0x28,0x30,0x3a,0x45).
 fastDecodeMedium :: ByteString -> Either DecodeError HMedium
 fastDecodeMedium origBs = runFastDecode origBs $ \fd off0 ->
-  let dispatch !t !c !sc !p !e !ts !d !r !fn !wt !off1 = case fn of
-        1 -> let (!v, !off2) = fdText fd off1 origBs in after1 v c sc p e ts d r off2
-        2 -> let (!v, !off2) = fdVarint fd off1 in after2 t (fromIntegral v) sc p e ts d r off2
-        3 -> let (!v, !off2) = fdDouble fd off1 in after3 t c v p e ts d r off2
-        4 -> let (!v, !off2) = fdBytes fd off1 origBs in after4 t c sc v e ts d r off2
-        5 -> let (!v, !off2) = fdBool fd off1 in after5 t c sc p v ts d r off2
-        6 -> let (!v, !off2) = fdVarint fd off1 in after6 t c sc p e (fromIntegral v) d r off2
-        7 -> let (!v, !off2) = fdText fd off1 origBs in after7 t c sc p e ts v r off2
-        8 -> let (!v, !off2) = fdFloat fd off1 in after8 t c sc p e ts d v off2
-        _ -> dispatch0 t c sc p e ts d r (fdSkipField fd off1 wt)
-
-      dispatch0 !t !c !sc !p !e !ts !d !r !off
+  let go !t !c !sc !p !e !ts !d !r !off
         | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-                      dispatch t c sc p e ts d r fn wt off1
-
-      -- After field 1, predict field 2
-      after1 !t !c !sc !p !e !ts !d !r !off
-        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-          if fn == 2 then let (!v, !off2) = fdVarint fd off1 in after2 t (fromIntegral v) sc p e ts d r off2
-             else dispatch t c sc p e ts d r fn wt off1
-
-      after2 !t !c !sc !p !e !ts !d !r !off
-        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-          if fn == 3 then let (!v, !off2) = fdDouble fd off1 in after3 t c v p e ts d r off2
-             else dispatch t c sc p e ts d r fn wt off1
-
-      after3 !t !c !sc !p !e !ts !d !r !off
-        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-          if fn == 4 then let (!v, !off2) = fdBytes fd off1 origBs in after4 t c sc v e ts d r off2
-             else dispatch t c sc p e ts d r fn wt off1
-
-      after4 !t !c !sc !p !e !ts !d !r !off
-        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-          if fn == 5 then let (!v, !off2) = fdBool fd off1 in after5 t c sc p v ts d r off2
-             else dispatch t c sc p e ts d r fn wt off1
-
-      after5 !t !c !sc !p !e !ts !d !r !off
-        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-          if fn == 6 then let (!v, !off2) = fdVarint fd off1 in after6 t c sc p e (fromIntegral v) d r off2
-             else dispatch t c sc p e ts d r fn wt off1
-
-      after6 !t !c !sc !p !e !ts !d !r !off
-        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-          if fn == 7 then let (!v, !off2) = fdText fd off1 origBs in after7 t c sc p e ts v r off2
-             else dispatch t c sc p e ts d r fn wt off1
-
-      after7 !t !c !sc !p !e !ts !d !r !off
-        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-          if fn == 8 then let (!v, !off2) = fdFloat fd off1 in after8 t c sc p e ts d v off2
-             else dispatch t c sc p e ts d r fn wt off1
-
-      after8 !t !c !sc !p !e !ts !d !r !off
-        | fdDone fd off = Right (HMedium t c sc p e ts d r, off)
-        | otherwise = let (!fn, !wt, !off1) = fdTag fd off in
-          if fn == 1 then let (!v, !off2) = fdText fd off1 origBs in after1 v c sc p e ts d r off2
-             else dispatch t c sc p e ts d r fn wt off1
-
-  in dispatch0 "" 0 0.0 BS.empty False 0 "" 0.0 off0
+        | otherwise =
+            let !tag = readByte fd off
+                !off1 = off + 1
+            in case tag of
+              0x0a -> let (!v, !off2) = fdText fd off1 origBs in go v c sc p e ts d r off2
+              0x10 -> let (!v, !off2) = fdVarint fd off1 in go t (fromIntegral v) sc p e ts d r off2
+              0x19 -> let (!v, !off2) = fdDouble fd off1 in go t c v p e ts d r off2
+              0x22 -> let (!v, !off2) = fdBytes fd off1 origBs in go t c sc v e ts d r off2
+              0x28 -> let (!v, !off2) = fdVarint fd off1 in go t c sc p (v /= 0) ts d r off2
+              0x30 -> let (!v, !off2) = fdVarint fd off1 in go t c sc p e (fromIntegral v) d r off2
+              0x3a -> let (!v, !off2) = fdText fd off1 origBs in go t c sc p e ts v r off2
+              0x45 -> let (!v, !off2) = fdFloat fd off1 in go t c sc p e ts d v off2
+              _    -> let (!fn, !wt, !off1') = fdTag fd off
+                      in go t c sc p e ts d r (fdSkipField fd off1' wt)
+  in go "" 0 0.0 BS.empty False 0 "" 0.0 off0
 {-# NOINLINE fastDecodeMedium #-}
 
--- | Fast decoder for HWithNested.
+-- | Tag-byte dispatch for nested. id(1)=0x08, inner(2)=0x12, label(3)=0x1a
 fastDecodeNested :: ByteString -> Either DecodeError HWithNested
 fastDecodeNested origBs = runFastDecode origBs $ \fd off0 ->
   let go !i !inner !lbl !off
         | fdDone fd off = Right (HWithNested i inner lbl, off)
         | otherwise =
-            let (!fn, !wt, !off1) = fdTag fd off in
-            case fn of
-              1 -> let (!v, !off2) = fdVarint fd off1 in go (fromIntegral v) inner lbl off2
-              2 -> let (!subBs, !off2) = fdBytes fd off1 origBs
-                   in case fastDecodeSmallInner subBs of
-                        Right m -> go i (Just m) lbl off2
-                        Left e -> Left (SubMessageError e)
-              3 -> let (!v, !off2) = fdText fd off1 origBs in go i inner v off2
-              _ -> go i inner lbl (fdSkipField fd off1 wt)
+            let !tag = readByte fd off
+                !off1 = off + 1
+            in case tag of
+              0x08 -> let (!v, !off2) = fdVarint fd off1 in go (fromIntegral v) inner lbl off2
+              0x12 -> let (!subBs, !off2) = fdBytes fd off1 origBs
+                      in case fastDecodeSmallInner subBs of
+                           Right m -> go i (Just m) lbl off2
+                           Left e -> Left (SubMessageError e)
+              0x1a -> let (!v, !off2) = fdText fd off1 origBs in go i inner v off2
+              _    -> let (!fn, !wt, !off1') = fdTag fd off
+                      in go i inner lbl (fdSkipField fd off1' wt)
   in go 0 Nothing "" off0
 {-# NOINLINE fastDecodeNested #-}
 

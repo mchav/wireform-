@@ -17,6 +17,7 @@ module Proto.Decode.Fast
 
     -- * Primitives for building fast decoders
   , FastDec(..)
+  , readByte
   , fdVarint
   , fdFixed32
   , fdFixed64
