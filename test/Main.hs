@@ -16,6 +16,7 @@ import Test.Lens (lensTests)
 import Test.StreamCodec (streamCodecTests)
 import Test.JSON (jsonTests)
 import Test.Hooks (hooksTests)
+import Test.TDP (tdpTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -33,4 +34,5 @@ main = defaultMain $ testGroup "hs-proto"
   , streamCodecTests
   , jsonTests
   , hooksTests
+  , tdpTests
   ]

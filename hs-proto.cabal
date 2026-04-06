@@ -173,6 +173,7 @@ test-suite hs-proto-test
       Test.StreamCodec
       Test.JSON
       Test.Hooks
+      Test.TDP
 
     build-depends:
         base             >= 4.16 && < 5
