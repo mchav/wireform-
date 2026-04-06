@@ -25,6 +25,7 @@ import Control.DeepSeq (NFData)
 import Proto.Encode
 import Proto.Decode
 import Proto.Encode.Archetype
+import qualified Proto.SizedBuilder as SB
 import Proto.Wire (Tag(..), WireType(..))
 import Proto.Wire.Encode (fieldVarintSize, fieldTextSize, fieldBytesSize,
   fieldBoolSize, fieldDoubleSize, fieldFloatSize, fieldMessageSize,
@@ -43,18 +44,19 @@ data HSmall = HSmall
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 
+buildSizedSmall :: HSmall -> SB.SizedBuilder
+buildSizedSmall (HSmall i n a) =
+  (if i == 0 then mempty else sbArchVarint 0x08 (fromIntegral i)) <>
+  (if n == "" then mempty else sbArchString 0x12 n) <>
+  (if not a then mempty else sbArchBool 0x18 True)
+{-# INLINE buildSizedSmall #-}
+
 instance MessageEncode HSmall where
-  buildMessage (HSmall i n a) =
-    (if i == 0 then mempty else archVarint 0x08 (fromIntegral i)) <>
-    (if n == "" then mempty else archString 0x12 n) <>
-    (if not a then mempty else archBool 0x18 True)
+  buildMessage m = SB.toBuilder (buildSizedSmall m)
   {-# INLINE buildMessage #-}
 
 instance MessageSize HSmall where
-  messageSize (HSmall i n a) =
-    (if i == 0 then 0 else archVarintSize (fromIntegral i)) +
-    (if n == "" then 0 else archStringSize n) +
-    (if not a then 0 else archBoolSize)
+  messageSize m = SB.size (buildSizedSmall m)
   {-# INLINE messageSize #-}
 
 instance MessageDecode HSmall where
@@ -95,28 +97,24 @@ data HMedium = HMedium
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 
+buildSizedMedium :: HMedium -> SB.SizedBuilder
+buildSizedMedium m =
+  (if hmTitle m == "" then mempty else sbArchString 0x0a (hmTitle m)) <>
+  (if hmCount m == 0 then mempty else sbArchVarint 0x10 (fromIntegral (hmCount m))) <>
+  (if hmScore m == 0 then mempty else sbArchDouble 0x19 (hmScore m)) <>
+  (if BS.null (hmPayload m) then mempty else sbArchBytes 0x22 (hmPayload m)) <>
+  (if not (hmEnabled m) then mempty else sbArchBool 0x28 True) <>
+  (if hmTimestamp m == 0 then mempty else sbArchVarint 0x30 (fromIntegral (hmTimestamp m))) <>
+  (if hmDescription m == "" then mempty else sbArchString 0x3a (hmDescription m)) <>
+  (if hmRatio m == 0 then mempty else sbArchFloat 0x45 (hmRatio m))
+{-# INLINE buildSizedMedium #-}
+
 instance MessageEncode HMedium where
-  buildMessage m =
-    (if hmTitle m == "" then mempty else archString 0x0a (hmTitle m)) <>
-    (if hmCount m == 0 then mempty else archVarint 0x10 (fromIntegral (hmCount m))) <>
-    (if hmScore m == 0 then mempty else archDouble 0x19 (hmScore m)) <>
-    (if BS.null (hmPayload m) then mempty else archBytes 0x22 (hmPayload m)) <>
-    (if not (hmEnabled m) then mempty else archBool 0x28 True) <>
-    (if hmTimestamp m == 0 then mempty else archVarint 0x30 (fromIntegral (hmTimestamp m))) <>
-    (if hmDescription m == "" then mempty else archString 0x3a (hmDescription m)) <>
-    (if hmRatio m == 0 then mempty else archFloat 0x45 (hmRatio m))
+  buildMessage m = SB.toBuilder (buildSizedMedium m)
   {-# INLINE buildMessage #-}
 
 instance MessageSize HMedium where
-  messageSize m =
-    (if hmTitle m == "" then 0 else archStringSize (hmTitle m)) +
-    (if hmCount m == 0 then 0 else archVarintSize (fromIntegral (hmCount m))) +
-    (if hmScore m == 0 then 0 else archFixed64Size) +
-    (if BS.null (hmPayload m) then 0 else archBytesSize (hmPayload m)) +
-    (if not (hmEnabled m) then 0 else archBoolSize) +
-    (if hmTimestamp m == 0 then 0 else archVarintSize (fromIntegral (hmTimestamp m))) +
-    (if hmDescription m == "" then 0 else archStringSize (hmDescription m)) +
-    (if hmRatio m == 0 then 0 else archFixed32Size)
+  messageSize m = SB.size (buildSizedMedium m)
   {-# INLINE messageSize #-}
 
 instance MessageDecode HMedium where
@@ -167,21 +165,19 @@ data HWithNested = HWithNested
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 
+buildSizedNested :: HWithNested -> SB.SizedBuilder
+buildSizedNested m =
+  (if hwnId m == 0 then mempty else sbArchVarint 0x08 (fromIntegral (hwnId m))) <>
+  maybe mempty (\inner -> sbArchSubmessage 0x12 (buildSizedSmall inner)) (hwnInner m) <>
+  (if hwnLabel m == "" then mempty else sbArchString 0x1a (hwnLabel m))
+{-# INLINE buildSizedNested #-}
+
 instance MessageEncode HWithNested where
-  buildMessage m =
-    (if hwnId m == 0 then mempty else archVarint 0x08 (fromIntegral (hwnId m))) <>
-    maybe mempty (\inner ->
-      let !sz = messageSize inner
-      in archSubmessage 0x12 sz (buildMessage inner)
-    ) (hwnInner m) <>
-    (if hwnLabel m == "" then mempty else archString 0x1a (hwnLabel m))
+  buildMessage m = SB.toBuilder (buildSizedNested m)
   {-# INLINE buildMessage #-}
 
 instance MessageSize HWithNested where
-  messageSize m =
-    (if hwnId m == 0 then 0 else archVarintSize (fromIntegral (hwnId m))) +
-    maybe 0 (\inner -> archSubmessageSize (messageSize inner)) (hwnInner m) +
-    (if hwnLabel m == "" then 0 else archStringSize (hwnLabel m))
+  messageSize m = SB.size (buildSizedNested m)
   {-# INLINE messageSize #-}
 
 instance MessageDecode HWithNested where
@@ -217,36 +213,20 @@ data HWithRepeated = HWithRepeated
   } deriving stock (Show, Eq, Generic)
     deriving anyclass NFData
 
+buildSizedRepeated :: HWithRepeated -> SB.SizedBuilder
+buildSizedRepeated m =
+  sbArchPackedVarints 0x0a (hwrValues m) <>
+  V.foldl' (\acc s -> acc <> sbArchString 0x12 s) mempty (hwrTags m) <>
+  V.foldl' (\acc item -> acc <> sbArchSubmessage 0x1a (buildSizedSmall item)) mempty (hwrItems m)
+{-# INLINE buildSizedRepeated #-}
+
 instance MessageEncode HWithRepeated where
-  buildMessage m =
-    (let vs = hwrValues m in if VU.null vs then mempty
-       else let !sz = packedInt32Size vs
-            in B.word8 0x0a <> putVarint (fromIntegral sz) <> packedInt32Build vs) <>
-    V.foldl' (\acc s -> acc <> archString 0x12 s) mempty (hwrTags m) <>
-    V.foldl' (\acc item ->
-      let !sz = messageSize item
-      in acc <> archSubmessage 0x1a sz (buildMessage item)) mempty (hwrItems m)
+  buildMessage m = SB.toBuilder (buildSizedRepeated m)
   {-# INLINE buildMessage #-}
 
 instance MessageSize HWithRepeated where
-  messageSize m =
-    (let vs = hwrValues m in if VU.null vs then 0
-       else let !packedSz = packedInt32Size vs
-            in 1 + varintSize (fromIntegral packedSz) + packedSz) +
-    V.foldl' (\acc s -> acc + archStringSize s) 0 (hwrTags m) +
-    V.foldl' (\acc item -> acc + archSubmessageSize (messageSize item)) 0 (hwrItems m)
+  messageSize m = SB.size (buildSizedRepeated m)
   {-# INLINE messageSize #-}
-
--- | Compute the packed size of int32 varints.
--- Negative values are sign-extended to 64 bits (10-byte encoding).
-packedInt32Size :: VU.Vector Int32 -> Int
-packedInt32Size = VU.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0
-{-# INLINE packedInt32Size #-}
-
--- | Build the packed payload for int32 varints.
-packedInt32Build :: VU.Vector Int32 -> B.Builder
-packedInt32Build = VU.foldl' (\acc v -> acc <> putVarint (fromIntegral v)) mempty
-{-# INLINE packedInt32Build #-}
 
 instance MessageDecode HWithRepeated where
   messageDecoder = Decoder (\bs off -> loop emptyGrowList emptyGrowList emptyGrowList bs off)
