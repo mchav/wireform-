@@ -272,9 +272,16 @@ decodePackedInto !gl bs = go gl 0
 -- | Direct-write encode for HSmall. Zero Builder overhead.
 directEncodeSmall :: HSmall -> ByteString
 directEncodeSmall msg =
-  let !sz = SB.size (buildSizedSmall msg)
+  let !sz = sizeSmall msg
   in directEncode sz (writeSmall msg)
 {-# NOINLINE directEncodeSmall #-}
+
+sizeSmall :: HSmall -> Int
+sizeSmall (HSmall i n a) =
+  (if i == 0 then 0 else archVarintSize (fromIntegral i)) +
+  (if n == "" then 0 else archStringSize n) +
+  (if not a then 0 else archBoolSize)
+{-# INLINE sizeSmall #-}
 
 writeSmall :: HSmall -> WriteCtx -> IO WriteCtx
 writeSmall (HSmall i n a) ctx = do
@@ -289,9 +296,21 @@ writeSmall (HSmall i n a) ctx = do
 -- | Direct-write encode for HMedium.
 directEncodeMedium :: HMedium -> ByteString
 directEncodeMedium msg =
-  let !sz = SB.size (buildSizedMedium msg)
+  let !sz = sizeMedium msg
   in directEncode sz (writeMedium msg)
 {-# NOINLINE directEncodeMedium #-}
+
+sizeMedium :: HMedium -> Int
+sizeMedium m =
+  (if hmTitle m == "" then 0 else archStringSize (hmTitle m)) +
+  (if hmCount m == 0 then 0 else archVarintSize (fromIntegral (hmCount m))) +
+  (if hmScore m == 0 then 0 else archFixed64Size) +
+  (if BS.null (hmPayload m) then 0 else archBytesSize (hmPayload m)) +
+  (if not (hmEnabled m) then 0 else archBoolSize) +
+  (if hmTimestamp m == 0 then 0 else archVarintSize (fromIntegral (hmTimestamp m))) +
+  (if hmDescription m == "" then 0 else archStringSize (hmDescription m)) +
+  (if hmRatio m == 0 then 0 else archFixed32Size)
+{-# INLINE sizeMedium #-}
 
 writeMedium :: HMedium -> WriteCtx -> IO WriteCtx
 writeMedium m ctx = do
@@ -316,9 +335,16 @@ writeMedium m ctx = do
 -- | Direct-write encode for HWithNested.
 directEncodeNested :: HWithNested -> ByteString
 directEncodeNested msg =
-  let !sz = SB.size (buildSizedNested msg)
+  let !sz = sizeNested msg
   in directEncode sz (writeNested msg)
 {-# NOINLINE directEncodeNested #-}
+
+sizeNested :: HWithNested -> Int
+sizeNested m =
+  (if hwnId m == 0 then 0 else archVarintSize (fromIntegral (hwnId m))) +
+  maybe 0 (\inner -> archSubmessageSize (sizeSmall inner)) (hwnInner m) +
+  (if hwnLabel m == "" then 0 else archStringSize (hwnLabel m))
+{-# INLINE sizeNested #-}
 
 writeNested :: HWithNested -> WriteCtx -> IO WriteCtx
 writeNested m ctx = do
@@ -327,7 +353,7 @@ writeNested m ctx = do
   ctx2 <- case hwnInner m of
     Nothing -> pure ctx1
     Just inner -> do
-      let !innerSz = SB.size (buildSizedSmall inner)
+      let !innerSz = sizeSmall inner
       ctx1a <- dWord8 0x12 ctx1
       ctx1b <- dVarint (fromIntegral innerSz) ctx1a
       writeSmall inner ctx1b
@@ -338,9 +364,18 @@ writeNested m ctx = do
 -- | Direct-write encode for HWithRepeated.
 directEncodeRepeated :: HWithRepeated -> ByteString
 directEncodeRepeated msg =
-  let !sz = SB.size (buildSizedRepeated msg)
+  let !sz = sizeRepeated msg
   in directEncode sz (writeRepeated msg)
 {-# NOINLINE directEncodeRepeated #-}
+
+sizeRepeated :: HWithRepeated -> Int
+sizeRepeated m =
+  (let vs = hwrValues m in if VU.null vs then 0
+     else let !packedSz = VU.foldl' (\acc v -> acc + varintSize (fromIntegral v :: Word64)) 0 vs
+          in 1 + varintSize (fromIntegral packedSz) + packedSz) +
+  V.foldl' (\acc s -> acc + archStringSize s) 0 (hwrTags m) +
+  V.foldl' (\acc item -> acc + archSubmessageSize (sizeSmall item)) 0 (hwrItems m)
+{-# INLINE sizeRepeated #-}
 
 writeRepeated :: HWithRepeated -> WriteCtx -> IO WriteCtx
 writeRepeated m ctx = do
@@ -354,7 +389,7 @@ writeRepeated m ctx = do
             VU.foldM' (\c v -> dVarint (fromIntegral v) c) ctx1b (hwrValues m)
   ctx2 <- V.foldM' (\c s -> dWord8 0x12 c >>= dText s) ctx1 (hwrTags m)
   V.foldM' (\c item -> do
-    let !innerSz = SB.size (buildSizedSmall item)
+    let !innerSz = sizeSmall item
     c1 <- dWord8 0x1a c
     c2 <- dVarint (fromIntegral innerSz) c1
     writeSmall item c2) ctx2 (hwrItems m)

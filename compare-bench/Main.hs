@@ -107,7 +107,7 @@ decSmallP :: BS.ByteString -> Either String PL.Small
 decSmallP = PLC.decodeMessage
 {-# NOINLINE decSmallP #-}
 rtSmallH :: HSmall -> Either H.DecodeError HSmall
-rtSmallH m = H.decodeMessage (SB.toByteString (buildSizedSmall m))
+rtSmallH m = H.decodeMessage (directEncodeSmall m)
 {-# NOINLINE rtSmallH #-}
 rtSmallP :: PL.Small -> Either String PL.Small
 rtSmallP m = PLC.decodeMessage (PLC.encodeMessage m)
@@ -120,7 +120,7 @@ decMediumP :: BS.ByteString -> Either String PL.Medium
 decMediumP = PLC.decodeMessage
 {-# NOINLINE decMediumP #-}
 rtMediumH :: HMedium -> Either H.DecodeError HMedium
-rtMediumH m = H.decodeMessage (SB.toByteString (buildSizedMedium m))
+rtMediumH m = H.decodeMessage (directEncodeMedium m)
 {-# NOINLINE rtMediumH #-}
 rtMediumP :: PL.Medium -> Either String PL.Medium
 rtMediumP m = PLC.decodeMessage (PLC.encodeMessage m)
@@ -133,7 +133,7 @@ decNestedP :: BS.ByteString -> Either String PL.WithNested
 decNestedP = PLC.decodeMessage
 {-# NOINLINE decNestedP #-}
 rtNestedH :: HWithNested -> Either H.DecodeError HWithNested
-rtNestedH m = H.decodeMessage (SB.toByteString (buildSizedNested m))
+rtNestedH m = H.decodeMessage (directEncodeNested m)
 {-# NOINLINE rtNestedH #-}
 rtNestedP :: PL.WithNested -> Either String PL.WithNested
 rtNestedP m = PLC.decodeMessage (PLC.encodeMessage m)
