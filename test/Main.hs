@@ -44,6 +44,8 @@ import Test.BondParser (bondParserTests)
 import Test.AvroCodeGen (avroCodeGenTests)
 import Test.ThriftCodeGen (thriftCodeGenTests)
 import Test.Resolver (resolverTests)
+import Test.CapnProtoParser (capnProtoParserTests)
+import Test.FlatBuffersParser (flatBuffersParserTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform"
@@ -89,4 +91,6 @@ main = defaultMain $ testGroup "wireform"
   , avroCodeGenTests
   , thriftCodeGenTests
   , resolverTests
+  , capnProtoParserTests
+  , flatBuffersParserTests
   ]

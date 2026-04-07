@@ -190,10 +190,14 @@ library
       CapnProto.Value
       CapnProto.Encode
       CapnProto.Decode
+      CapnProto.Schema
+      CapnProto.Parser
       -- FlatBuffers support
       FlatBuffers.Value
       FlatBuffers.Encode
       FlatBuffers.Decode
+      FlatBuffers.Schema
+      FlatBuffers.Parser
       -- Apache Iceberg table metadata
       Iceberg.Types
       Iceberg.JSON
@@ -334,6 +338,8 @@ test-suite wireform-test
       Test.AvroCodeGen
       Test.ThriftCodeGen
       Test.Resolver
+      Test.CapnProtoParser
+      Test.FlatBuffersParser
 
     build-depends:
         base             >= 4.16 && < 5
