@@ -468,6 +468,25 @@ executable hs-proto-bench
       DerivingStrategies
       OverloadedStrings
 
+executable avro-thrift-bench
+    import:           warnings
+    main-is:          AvroBench.hs
+    ghc-options:      -O2
+    build-depends:
+        base             >= 4.16 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , deepseq
+      , vector
+
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+
 test-suite python-interop
     import:           warnings
     type:             exitcode-stdio-1.0
