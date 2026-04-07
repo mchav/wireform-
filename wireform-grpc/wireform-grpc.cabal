@@ -106,10 +106,12 @@ library
       Network.GRPC.Common.StreamType
       Network.GRPC.Server
       Network.GRPC.Server.Binary
+      Network.GRPC.Server.Otel
       Network.GRPC.Server.Protobuf
       Network.GRPC.Server.Run
       Network.GRPC.Server.StreamType
       Network.GRPC.Server.StreamType.Binary
+      Network.GRPC.Client.Otel
   other-modules:
       Network.GRPC.Util.Imports
       Network.GRPC.Util.Stream

@@ -80,6 +80,11 @@ module Network.GRPC.Client (
   , ServerDisconnected(..)
   , CallSetupFailure(..)
   , InvalidTrailers(..)
+
+    -- * OpenTelemetry
+    -- | For OpenTelemetry instrumentation, see "Network.GRPC.Client.Otel".
+    -- Use 'Network.GRPC.Client.Otel.withTracedRPC' to wrap client calls
+    -- with tracing spans.
   ) where
 
 import Network.GRPC.Client.Call

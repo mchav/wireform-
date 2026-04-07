@@ -47,6 +47,11 @@ module Network.GRPC.Server (
   , ClientDisconnected(..)
   , HandlerTerminated(..)
   , ResponseAlreadyInitiated(..)
+
+    -- * OpenTelemetry
+    -- | For OpenTelemetry instrumentation, see "Network.GRPC.Server.Otel".
+    -- Use 'Network.GRPC.Server.Otel.otelServerParams' to wrap 'ServerParams'
+    -- with tracing middleware.
   ) where
 
 import Network.HTTP.Semantics.Server qualified as Server
