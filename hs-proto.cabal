@@ -111,7 +111,6 @@ library
       Proto.Wire.Result
       Proto.Wire.FFI
       Proto.Decode.Stream
-      Proto.Decode.CVM
       Proto.Decode.Fast
       Proto.Encode.Lazy
       Proto.Encode.Archetype
@@ -124,7 +123,6 @@ library
       Proto.Google.Protobuf.Struct.Util
 
     c-sources:        cbits/fast_decode.c
-                      cbits/fast_vm.c
     cc-options:       -O3 -march=native
 
     build-depends:
