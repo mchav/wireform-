@@ -612,3 +612,21 @@ test-suite temporal-codegen-test
       OverloadedStrings
       OverloadedRecordDot
       LambdaCase
+
+benchmark format-bench
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          FormatBench.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , hs-proto
+      , bytestring
+      , text
+      , vector
+      , deepseq
+      , criterion        >= 1.5  && < 1.7
+      , msgpack          >= 1.0  && < 1.1
+      , cborg            >= 0.2  && < 0.3
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    ghc-options:      -O2
