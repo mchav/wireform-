@@ -46,6 +46,9 @@ import Test.ThriftCodeGen (thriftCodeGenTests)
 import Test.Resolver (resolverTests)
 import Test.CapnProtoParser (capnProtoParserTests)
 import Test.FlatBuffersParser (flatBuffersParserTests)
+import Test.ASN1Parser (asn1ParserTests)
+import Test.CDDLParser (cddlParserTests)
+import Test.ISLParser (islParserTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform"
@@ -93,4 +96,7 @@ main = defaultMain $ testGroup "wireform"
   , resolverTests
   , capnProtoParserTests
   , flatBuffersParserTests
+  , asn1ParserTests
+  , cddlParserTests
+  , islParserTests
   ]

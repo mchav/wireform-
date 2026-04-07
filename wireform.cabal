@@ -171,6 +171,8 @@ library
       CBOR.JSON
       CBOR.Diagnostic
       CBOR.Stream
+      CBOR.CDDLSchema
+      CBOR.CDDL
       -- MessagePack support
       MsgPack.Value
       MsgPack.Encode
@@ -186,6 +188,8 @@ library
       Ion.Value
       Ion.Encode
       Ion.Decode
+      Ion.ISLSchema
+      Ion.SchemaLang
       -- Cap'n Proto support
       CapnProto.Value
       CapnProto.Encode
@@ -212,6 +216,8 @@ library
       ASN1.Value
       ASN1.Encode
       ASN1.Decode
+      ASN1.Schema
+      ASN1.Parser
       -- Apache Parquet metadata
       Parquet.Types
       Parquet.Footer
@@ -340,6 +346,9 @@ test-suite wireform-test
       Test.Resolver
       Test.CapnProtoParser
       Test.FlatBuffersParser
+      Test.ASN1Parser
+      Test.CDDLParser
+      Test.ISLParser
 
     build-depends:
         base             >= 4.16 && < 5
