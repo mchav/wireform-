@@ -21,10 +21,14 @@ module FlatBuffers.Value
 
 import Control.DeepSeq (NFData)
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Scientific (fromFloatDigits)
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics (Generic)
+
+import qualified Data.Aeson as Aeson
 
 data Value
   = VBool    !Bool
@@ -44,3 +48,20 @@ data Value
   | VStruct  !(Vector Value)
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
+
+instance Aeson.ToJSON Value where
+  toJSON (VBool b)    = Aeson.Bool b
+  toJSON (VInt8 n)    = Aeson.Number (fromIntegral n)
+  toJSON (VInt16 n)   = Aeson.Number (fromIntegral n)
+  toJSON (VInt32 n)   = Aeson.Number (fromIntegral n)
+  toJSON (VInt64 n)   = Aeson.Number (fromIntegral n)
+  toJSON (VWord8 n)   = Aeson.Number (fromIntegral n)
+  toJSON (VWord16 n)  = Aeson.Number (fromIntegral n)
+  toJSON (VWord32 n)  = Aeson.Number (fromIntegral n)
+  toJSON (VWord64 n)  = Aeson.Number (fromIntegral n)
+  toJSON (VFloat f)   = Aeson.Number (fromFloatDigits f)
+  toJSON (VDouble d)  = Aeson.Number (fromFloatDigits d)
+  toJSON (VString t)  = Aeson.String t
+  toJSON (VVector vs) = Aeson.Array (V.map Aeson.toJSON vs)
+  toJSON (VTable vs)  = Aeson.Array (V.map (maybe Aeson.Null Aeson.toJSON) vs)
+  toJSON (VStruct vs) = Aeson.Array (V.map Aeson.toJSON vs)

@@ -10,11 +10,20 @@ module Bond.Value
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Base64 as Base64
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Scientific (fromFloatDigits)
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics (Generic)
+
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KM
 
 data Value
   = Bool     !Bool
@@ -80,3 +89,30 @@ bondTypeId BT_LIST   = 15
 bondTypeId BT_SET    = 16
 bondTypeId BT_MAP    = 17
 bondTypeId BT_STRUCT = 18
+
+instance Aeson.ToJSON Value where
+  toJSON (Bool b)    = Aeson.Bool b
+  toJSON (Int8 n)    = Aeson.Number (fromIntegral n)
+  toJSON (Int16 n)   = Aeson.Number (fromIntegral n)
+  toJSON (Int32 n)   = Aeson.Number (fromIntegral n)
+  toJSON (Int64 n)   = Aeson.Number (fromIntegral n)
+  toJSON (UInt8 n)   = Aeson.Number (fromIntegral n)
+  toJSON (UInt16 n)  = Aeson.Number (fromIntegral n)
+  toJSON (UInt32 n)  = Aeson.Number (fromIntegral n)
+  toJSON (UInt64 n)  = Aeson.Number (fromIntegral n)
+  toJSON (Float f)   = Aeson.Number (fromFloatDigits f)
+  toJSON (Double d)  = Aeson.Number (fromFloatDigits d)
+  toJSON (String t)  = Aeson.String t
+  toJSON (WString t) = Aeson.String t
+  toJSON (Blob bs)   = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
+  toJSON (List _ vs) = Aeson.Array (V.map Aeson.toJSON vs)
+  toJSON (Set _ vs)  = Aeson.Array (V.map Aeson.toJSON vs)
+  toJSON (Map _ _ entries) = Aeson.Array $ V.map
+    (\(k, v) -> Aeson.Array (V.fromList [Aeson.toJSON k, Aeson.toJSON v])) entries
+  toJSON (Struct base fields) = Aeson.Object $ KM.fromList $
+    [(Key.fromText "__base__", Aeson.Array (V.map Aeson.toJSON base)) | not (V.null base)]
+    ++ [(Key.fromText (T.pack (show fid)), Aeson.toJSON v)
+       | (fid, _, v) <- V.toList fields]
+  toJSON (Nullable Nothing)  = Aeson.Null
+  toJSON (Nullable (Just v)) = Aeson.toJSON v
+  toJSON (Enum n)    = Aeson.Number (fromIntegral n)

@@ -10,6 +10,7 @@
 -- * /Typed JSON/ ('thriftToTypedJSON' \/ 'thriftFromTypedJSON'): each value is
 --   wrapped in a type-tagged object (TJSONProtocol-like), enabling decoding
 --   without a separate schema.
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Thrift.JSON
   ( -- * Simple JSON
     thriftToJSON
@@ -472,3 +473,11 @@ defaultForWireType = \case
   TT_SET    -> TV.Set TT_STOP V.empty
   TT_UUID   -> TV.UUID BS.empty
   TT_STOP   -> TV.Bool False
+
+instance Aeson.ToJSON TV.Value where
+  toJSON = thriftToJSON
+
+instance Aeson.FromJSON TV.Value where
+  parseJSON v = case thriftFromTypedJSON v of
+    Right val -> pure val
+    Left err  -> fail err

@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- | MessagePack / JSON interop.
 --
 -- Converts between 'MsgPack.Value.Value' and 'Data.Aeson.Value'.
@@ -100,3 +101,9 @@ numToMsgPack n
         Just w  -> MV.Word w
         Nothing -> MV.Double (toRealFloat n)
   | otherwise = MV.Double (toRealFloat n)
+
+instance Aeson.ToJSON MV.Value where
+  toJSON = toJSON
+
+instance Aeson.FromJSON MV.Value where
+  parseJSON = pure . fromJSON

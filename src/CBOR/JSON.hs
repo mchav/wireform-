@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- | CBOR / JSON interconversion (RFC 8949 Section 6.1).
 --
 -- Converts between 'CBOR.Value.Value' and 'Data.Aeson.Value' following
@@ -99,3 +100,9 @@ doubleToJSON !d
   | isInfinite d && d > 0 = Aeson.String "Infinity"
   | isInfinite d          = Aeson.String "-Infinity"
   | otherwise             = Aeson.Number (fromFloatDigits d)
+
+instance Aeson.ToJSON C.Value where
+  toJSON = toJSON
+
+instance Aeson.FromJSON C.Value where
+  parseJSON = pure . fromJSON

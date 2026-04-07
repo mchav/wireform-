@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- | Avro JSON encoding, decoding, and schema serialization.
 --
 -- Implements the Avro specification's JSON encoding for values and schemas.
@@ -356,3 +357,24 @@ optString :: Text -> KM.KeyMap Aeson.Value -> Maybe Text
 optString k obj = case KM.lookup (Key.fromText k) obj of
   Just (Aeson.String s) -> Just s
   _                     -> Nothing
+
+instance Aeson.ToJSON AV.Value where
+  toJSON = valueToJSON
+
+valueToJSON :: AV.Value -> Aeson.Value
+valueToJSON AV.Null         = Aeson.Null
+valueToJSON (AV.Bool b)     = Aeson.Bool b
+valueToJSON (AV.Int n)      = Aeson.Number (fromIntegral n)
+valueToJSON (AV.Long n)     = Aeson.Number (fromIntegral n)
+valueToJSON (AV.Float f)    = floatToJSON f
+valueToJSON (AV.Double d)   = doubleToJSON d
+valueToJSON (AV.Bytes bs)   = bytesToJSON bs
+valueToJSON (AV.String t)   = Aeson.String t
+valueToJSON (AV.Record vs)  = Aeson.Array (V.map valueToJSON vs)
+valueToJSON (AV.Enum idx)   = Aeson.Number (fromIntegral idx)
+valueToJSON (AV.Array vs)   = Aeson.Array (V.map valueToJSON vs)
+valueToJSON (AV.Map entries) =
+  Aeson.Object $ KM.fromList
+    [(Key.fromText k, valueToJSON v) | (k, v) <- V.toList entries]
+valueToJSON (AV.Union _ val) = valueToJSON val
+valueToJSON (AV.Fixed bs)   = bytesToJSON bs

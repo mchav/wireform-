@@ -23,11 +23,18 @@ module ASN1.Value
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
-import Data.Int (Int64)
+import qualified Data.ByteString.Base64 as Base64
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 import Data.Word (Word64)
 import GHC.Generics (Generic)
+
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KM
 
 data TagClass = Universal | Application | ContextSpecific | Private
   deriving stock (Show, Eq, Ord, Generic)
@@ -51,3 +58,23 @@ data Value
   | Other !TagClass !Bool !Int !ByteString
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
+
+instance Aeson.ToJSON Value where
+  toJSON (Boolean b)       = Aeson.Bool b
+  toJSON (Integer n)       = Aeson.Number (fromInteger n)
+  toJSON (BitString _ bs)  = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
+  toJSON (OctetString bs)  = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
+  toJSON Null              = Aeson.Null
+  toJSON (OID components)  = Aeson.String $ T.intercalate "." $
+    map (T.pack . show) (V.toList components)
+  toJSON (UTF8String t)       = Aeson.String t
+  toJSON (PrintableString t)  = Aeson.String t
+  toJSON (IA5String t)        = Aeson.String t
+  toJSON (UTCTime t)          = Aeson.String t
+  toJSON (GeneralizedTime t)  = Aeson.String t
+  toJSON (Sequence vs)     = Aeson.Array (V.map Aeson.toJSON vs)
+  toJSON (Set vs)          = Aeson.Array (V.map Aeson.toJSON vs)
+  toJSON (Tagged _ tag v)  = Aeson.Object $ KM.fromList
+    [(Key.fromText (T.pack (show tag)), Aeson.toJSON v)]
+  toJSON (Other _ _ tag bs) = Aeson.Object $ KM.fromList
+    [(Key.fromText (T.pack (show tag)), Aeson.String (TE.decodeUtf8 (Base64.encode bs)))]

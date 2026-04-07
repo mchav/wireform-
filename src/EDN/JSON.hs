@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- | EDN / JSON interconversion.
 --
 -- Converts between 'EDN.Value.Value' and 'Data.Aeson.Value'. The mapping
@@ -107,3 +108,9 @@ doubleToJSON !d
   | isInfinite d && d > 0 = Aeson.String "Infinity"
   | isInfinite d          = Aeson.String "-Infinity"
   | otherwise             = Aeson.Number (fromFloatDigits d)
+
+instance Aeson.ToJSON E.Value where
+  toJSON = toJSON
+
+instance Aeson.FromJSON E.Value where
+  parseJSON = pure . fromJSON

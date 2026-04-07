@@ -22,11 +22,19 @@ module CapnProto.Value
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Base64 as Base64
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Scientific (fromFloatDigits)
 import Data.Text (Text)
+import qualified Data.Text.Encoding as TE
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics (Generic)
+
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KM
 
 data Value
   = Void
@@ -48,3 +56,25 @@ data Value
   | Enum       {-# UNPACK #-} !Word16
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
+
+instance Aeson.ToJSON Value where
+  toJSON Void         = Aeson.Null
+  toJSON (Bool b)     = Aeson.Bool b
+  toJSON (Int8 n)     = Aeson.Number (fromIntegral n)
+  toJSON (Int16 n)    = Aeson.Number (fromIntegral n)
+  toJSON (Int32 n)    = Aeson.Number (fromIntegral n)
+  toJSON (Int64 n)    = Aeson.Number (fromIntegral n)
+  toJSON (UInt8 n)    = Aeson.Number (fromIntegral n)
+  toJSON (UInt16 n)   = Aeson.Number (fromIntegral n)
+  toJSON (UInt32 n)   = Aeson.Number (fromIntegral n)
+  toJSON (UInt64 n)   = Aeson.Number (fromIntegral n)
+  toJSON (Float32 f)  = Aeson.Number (fromFloatDigits f)
+  toJSON (Float64 d)  = Aeson.Number (fromFloatDigits d)
+  toJSON (Text t)     = Aeson.String t
+  toJSON (Data bs)    = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
+  toJSON (Struct dataFields ptrFields) = Aeson.Object $ KM.fromList
+    [ (Key.fromText "data", Aeson.Array (V.map Aeson.toJSON dataFields))
+    , (Key.fromText "pointers", Aeson.Array (V.map Aeson.toJSON ptrFields))
+    ]
+  toJSON (List vs)    = Aeson.Array (V.map Aeson.toJSON vs)
+  toJSON (Enum n)     = Aeson.Number (fromIntegral n)
