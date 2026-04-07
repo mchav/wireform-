@@ -4,24 +4,23 @@
 -- Decodes a BSON wire-format 'ByteString' into a 'BSON.Value.Value'.
 -- Uses unsafe indexing for performance on validated input. Supports
 -- all standard BSON element types.
+-- Uses growing mutable vectors for document element accumulation.
 module BSON.Decode
   ( decode
   ) where
 
+import Control.Monad.ST (ST, runST)
+import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import qualified Data.Text.Encoding as TE
 import Data.Text (Text)
 import Data.Word (Word8, Word32, Word64)
 import qualified Data.Vector as V
-import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Ptr (Ptr, castPtr, plusPtr)
-import Foreign.Storable (peekByteOff)
+import qualified Data.Vector.Mutable as MV
 import GHC.Float (castWord64ToDouble)
-import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified BSON.Value as B
 
@@ -36,17 +35,27 @@ rdByte :: ByteString -> Int -> Word8
 rdByte !bs !off = BSU.unsafeIndex bs off
 {-# INLINE rdByte #-}
 
-withBSPtrOff :: ByteString -> Int -> (Ptr Word8 -> IO a) -> a
-withBSPtrOff (BSI.BS fp _) off f = unsafeDupablePerformIO $
-  withForeignPtr fp $ \p -> f (castPtr p `plusPtr` off)
-{-# INLINE withBSPtrOff #-}
-
 readLE32 :: ByteString -> Int -> Word32
-readLE32 bs off = withBSPtrOff bs off $ \p -> peekByteOff p 0
+readLE32 bs off =
+  let !b0 = fromIntegral (rdByte bs off) :: Word32
+      !b1 = fromIntegral (rdByte bs (off + 1)) :: Word32
+      !b2 = fromIntegral (rdByte bs (off + 2)) :: Word32
+      !b3 = fromIntegral (rdByte bs (off + 3)) :: Word32
+  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
 {-# INLINE readLE32 #-}
 
 readLE64 :: ByteString -> Int -> Word64
-readLE64 bs off = withBSPtrOff bs off $ \p -> peekByteOff p 0
+readLE64 bs off =
+  let !b0 = fromIntegral (rdByte bs off) :: Word64
+      !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
+      !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
+      !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
+      !b4 = fromIntegral (rdByte bs (off + 4)) :: Word64
+      !b5 = fromIntegral (rdByte bs (off + 5)) :: Word64
+      !b6 = fromIntegral (rdByte bs (off + 6)) :: Word64
+      !b7 = fromIntegral (rdByte bs (off + 7)) :: Word64
+  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+       .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
 {-# INLINE readLE64 #-}
 
 ensure :: ByteString -> Int -> Int -> Either String ()
@@ -87,19 +96,38 @@ decodeDocument bs off = do
   if rdByte bs (docEnd - 1) /= 0x00
     then Left "BSON.Decode: document missing terminator"
     else do
-      (elems, _) <- readElements bs (off + 4) (docEnd - 1)
-      Right (B.Document (V.fromList elems), docEnd)
+      (vec, _) <- readElements bs (off + 4) (docEnd - 1)
+      Right (B.Document vec, docEnd)
 
-readElements :: ByteString -> Int -> Int -> Either String ([(Text, B.Value)], Int)
-readElements bs off end
-  | off >= end = Right ([], off)
-  | otherwise = do
-      ensure bs off 1
-      let !tag = rdByte bs off
-      (key, off1) <- readCString bs (off + 1)
-      (val, off2) <- readValue bs off1 tag
-      (rest, off3) <- readElements bs off2 end
-      Right ((key, val) : rest, off3)
+readElements :: ByteString -> Int -> Int -> Either String (V.Vector (Text, B.Value), Int)
+readElements bs off end = runST $ do
+  mv <- MV.new 8
+  go mv 0 8 off
+  where
+    go :: MV.MVector s (Text, B.Value) -> Int -> Int -> Int -> ST s (Either String (V.Vector (Text, B.Value), Int))
+    go !mv !i !cap !o
+      | o >= end = do
+          vec <- V.unsafeFreeze (MV.take i mv)
+          pure $! Right (vec, o)
+      | otherwise = case readOneElement bs o of
+          Left e -> pure $! Left e
+          Right (kv, o') -> do
+            mv' <- if i >= cap
+              then MV.grow mv cap
+              else pure mv
+            let !cap' = if i >= cap then cap * 2 else cap
+            MV.unsafeWrite mv' i kv
+            go mv' (i + 1) cap' o'
+{-# INLINE readElements #-}
+
+readOneElement :: ByteString -> Int -> Either String ((Text, B.Value), Int)
+readOneElement bs off = do
+  ensure bs off 1
+  let !tag = rdByte bs off
+  (key, off1) <- readCString bs (off + 1)
+  (val, off2) <- readValue bs off1 tag
+  Right ((key, val), off2)
+{-# INLINE readOneElement #-}
 
 readValue :: ByteString -> Int -> Word8 -> Either String (B.Value, Int)
 readValue bs off tag = case tag of

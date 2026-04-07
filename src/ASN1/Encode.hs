@@ -5,6 +5,8 @@
 -- Rules. DER is the canonical subset of BER that produces a unique
 -- encoding for each value. Tag-length-value (TLV) triplets are emitted
 -- with definite-length encoding.
+--
+-- Uses direct buffer writes via 'Proto.Encode.Direct.directEncode'.
 module ASN1.Encode
   ( encode
   ) where
@@ -12,57 +14,161 @@ module ASN1.Encode
 import Data.Bits (shiftR, shiftL, (.&.), (.|.), testBit)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
-import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Internal as BSI
 import Data.Word (Word8, Word64)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, plusPtr)
+import Foreign.Storable (pokeByteOff)
 
 import ASN1.Value
+import Proto.Encode.Direct (directEncode)
 
 encode :: Value -> ByteString
-encode = BL.toStrict . B.toLazyByteString . buildValue
+encode val = directEncode (asn1Size val) (writeASN1 val)
+{-# INLINE encode #-}
 
-buildValue :: Value -> B.Builder
-buildValue = \case
-  Boolean b -> buildTLV 0x01 (BS.singleton (if b then 0xFF else 0x00))
-  Integer n -> buildTLV 0x02 (encodeInteger n)
-  BitString unused dat ->
-    buildTLV 0x03 (BS.cons (fromIntegral unused) dat)
-  OctetString bs -> buildTLV 0x04 bs
-  Null -> B.word8 0x05 <> B.word8 0x00
-  OID components -> buildTLV 0x06 (encodeOID components)
-  UTF8String t -> buildTLV 0x0C (TE.encodeUtf8 t)
-  PrintableString t -> buildTLV 0x13 (TE.encodeUtf8 t)
-  IA5String t -> buildTLV 0x16 (TE.encodeUtf8 t)
-  UTCTime t -> buildTLV 0x17 (TE.encodeUtf8 t)
-  GeneralizedTime t -> buildTLV 0x18 (TE.encodeUtf8 t)
-  Sequence vs -> buildConstructed 0x30 vs
-  Set vs -> buildConstructed 0x31 vs
-  Tagged tc tagNum v ->
-    let !inner = BL.toStrict (B.toLazyByteString (buildValue v))
+-- Size computation
+
+asn1Size :: Value -> Int
+asn1Size = \case
+  Boolean _ -> 1 + 1 + 1
+  Integer n -> let !content = encodeInteger n in 1 + lengthOfLength (BS.length content) + BS.length content
+  BitString _unused dat ->
+    let !contentLen = 1 + BS.length dat
+    in 1 + lengthOfLength contentLen + contentLen
+  OctetString bs -> 1 + lengthOfLength (BS.length bs) + BS.length bs
+  Null -> 2
+  OID components -> let !content = encodeOID components in 1 + lengthOfLength (BS.length content) + BS.length content
+  UTF8String t -> let !bs = TE.encodeUtf8 t in 1 + lengthOfLength (BS.length bs) + BS.length bs
+  PrintableString t -> let !bs = TE.encodeUtf8 t in 1 + lengthOfLength (BS.length bs) + BS.length bs
+  IA5String t -> let !bs = TE.encodeUtf8 t in 1 + lengthOfLength (BS.length bs) + BS.length bs
+  UTCTime t -> let !bs = TE.encodeUtf8 t in 1 + lengthOfLength (BS.length bs) + BS.length bs
+  GeneralizedTime t -> let !bs = TE.encodeUtf8 t in 1 + lengthOfLength (BS.length bs) + BS.length bs
+  Sequence vs ->
+    let !innerLen = V.foldl' (\s v -> s + asn1Size v) 0 vs
+    in 1 + lengthOfLength innerLen + innerLen
+  Set vs ->
+    let !innerLen = V.foldl' (\s v -> s + asn1Size v) 0 vs
+    in 1 + lengthOfLength innerLen + innerLen
+  Tagged _tc tagNum v ->
+    let !innerLen = asn1Size v
+        !tagHdrSz = tagBytesSize tagNum
+    in tagHdrSz + lengthOfLength innerLen + innerLen
+  Other _tc _constructed tagNum raw ->
+    let !tagHdrSz = tagBytesSize tagNum
+    in tagHdrSz + lengthOfLength (BS.length raw) + BS.length raw
+
+lengthOfLength :: Int -> Int
+lengthOfLength n
+  | n < 128   = 1
+  | n < 256   = 2
+  | n < 65536 = 3
+  | otherwise = let !bs = encodeNonNegativeInteger (fromIntegral n) in 1 + BS.length bs
+{-# INLINE lengthOfLength #-}
+
+tagBytesSize :: Int -> Int
+tagBytesSize tagNum
+  | tagNum < 31 = 1
+  | otherwise    = 1 + BS.length (encodeBase128 (fromIntegral tagNum))
+{-# INLINE tagBytesSize #-}
+
+-- Offset-based writer
+
+writeASN1 :: Value -> Ptr Word8 -> Int -> IO Int
+writeASN1 val p off = writeValueDER val p off
+
+writeValueDER :: Value -> Ptr Word8 -> Int -> IO Int
+writeValueDER val p off = case val of
+  Boolean b -> do
+    pokeByteOff p off (0x01 :: Word8)
+    pokeByteOff p (off + 1) (0x01 :: Word8)
+    pokeByteOff p (off + 2) (if b then 0xFF :: Word8 else 0x00)
+    pure $! off + 3
+
+  Integer n -> writeTLV p off 0x02 (encodeInteger n)
+
+  BitString unused dat -> do
+    let !contentLen = 1 + BS.length dat
+    pokeByteOff p off (0x03 :: Word8)
+    off1 <- writeLength p (off + 1) contentLen
+    pokeByteOff p off1 (fromIntegral unused :: Word8)
+    writeRaw p (off1 + 1) dat
+
+  OctetString bs -> writeTLV p off 0x04 bs
+
+  Null -> do
+    pokeByteOff p off (0x05 :: Word8)
+    pokeByteOff p (off + 1) (0x00 :: Word8)
+    pure $! off + 2
+
+  OID components -> writeTLV p off 0x06 (encodeOID components)
+  UTF8String t -> writeTLV p off 0x0C (TE.encodeUtf8 t)
+  PrintableString t -> writeTLV p off 0x13 (TE.encodeUtf8 t)
+  IA5String t -> writeTLV p off 0x16 (TE.encodeUtf8 t)
+  UTCTime t -> writeTLV p off 0x17 (TE.encodeUtf8 t)
+  GeneralizedTime t -> writeTLV p off 0x18 (TE.encodeUtf8 t)
+
+  Sequence vs -> writeConstructed p off 0x30 vs
+  Set vs -> writeConstructed p off 0x31 vs
+
+  Tagged tc tagNum v -> do
+    let !innerLen = asn1Size v
         !tagByte = encodeTagByte tc True tagNum
-    in buildTagBytes tagByte tagNum <> buildLength (BS.length inner) <> B.byteString inner
-  Other tc constructed tagNum raw ->
+    off1 <- writeTagBytes p off tagByte tagNum
+    off2 <- writeLength p off1 innerLen
+    writeValueDER v p off2
+
+  Other tc constructed tagNum raw -> do
     let !tagByte = encodeTagByte tc constructed tagNum
-    in buildTagBytes tagByte tagNum <> buildLength (BS.length raw) <> B.byteString raw
+    off1 <- writeTagBytes p off tagByte tagNum
+    off2 <- writeLength p off1 (BS.length raw)
+    writeRaw p off2 raw
 
-buildTLV :: Word8 -> ByteString -> B.Builder
-buildTLV tag content =
-  B.word8 tag <> buildLength (BS.length content) <> B.byteString content
+writeTLV :: Ptr Word8 -> Int -> Word8 -> ByteString -> IO Int
+writeTLV p off tag content = do
+  pokeByteOff p off tag
+  off1 <- writeLength p (off + 1) (BS.length content)
+  writeRaw p off1 content
+{-# INLINE writeTLV #-}
 
-buildConstructed :: Word8 -> V.Vector Value -> B.Builder
-buildConstructed tag vs =
-  let !inner = BL.toStrict $ B.toLazyByteString $ V.foldl' (\acc v -> acc <> buildValue v) mempty vs
-  in B.word8 tag <> buildLength (BS.length inner) <> B.byteString inner
+writeConstructed :: Ptr Word8 -> Int -> Word8 -> V.Vector Value -> IO Int
+writeConstructed p off tag vs = do
+  let !innerLen = V.foldl' (\s v -> s + asn1Size v) 0 vs
+  pokeByteOff p off tag
+  off1 <- writeLength p (off + 1) innerLen
+  V.foldM' (\o v -> writeValueDER v p o) off1 vs
 
-buildLength :: Int -> B.Builder
-buildLength !n
-  | n < 128 = B.word8 (fromIntegral n)
-  | otherwise =
+writeLength :: Ptr Word8 -> Int -> Int -> IO Int
+writeLength p off n
+  | n < 128 = do
+      pokeByteOff p off (fromIntegral n :: Word8)
+      pure $! off + 1
+  | otherwise = do
       let !bs = encodeNonNegativeInteger (fromIntegral n)
           !numBytes = BS.length bs
-      in B.word8 (0x80 .|. fromIntegral numBytes) <> B.byteString bs
+      pokeByteOff p off (0x80 .|. fromIntegral numBytes :: Word8)
+      writeRaw p (off + 1) bs
+{-# INLINE writeLength #-}
+
+writeTagBytes :: Ptr Word8 -> Int -> Word8 -> Int -> IO Int
+writeTagBytes p off tagByte tagNum
+  | tagNum < 31 = do
+      pokeByteOff p off tagByte
+      pure $! off + 1
+  | otherwise = do
+      pokeByteOff p off tagByte
+      writeRaw p (off + 1) (encodeBase128 (fromIntegral tagNum))
+{-# INLINE writeTagBytes #-}
+
+writeRaw :: Ptr Word8 -> Int -> ByteString -> IO Int
+writeRaw p off (BSI.BS fp len) = do
+  withForeignPtr fp $ \src -> BSI.memcpy (p `plusPtr` off) src len
+  pure $! off + len
+{-# INLINE writeRaw #-}
+
+-- Pure helpers (kept from original)
 
 encodeNonNegativeInteger :: Integer -> ByteString
 encodeNonNegativeInteger 0 = BS.singleton 0
@@ -95,7 +201,7 @@ integerToTwosComplement n
     byteWidth v = go 1
       where go k = if v <= (1 `shiftL` (8 * k - 1)) then k else go (k + 1)
 
-    intToBE val k = [fromIntegral ((val `shiftR` (8 * (k - 1 - i))) .&. 0xFF) | i <- [0 .. k - 1]]
+    intToBE val' k = [fromIntegral ((val' `shiftR` (8 * (k - 1 - i))) .&. 0xFF) | i <- [0 .. k - 1]]
 
     trimFF (0xFF : b : rest)
       | testBit b 7 = trimFF (b : rest)
@@ -130,11 +236,6 @@ encodeTagByte tc constructed tagNum =
       !consBit = if constructed then 0x20 else 0x00
       !tagBits = if tagNum < 31 then fromIntegral tagNum else 0x1F
   in classBits .|. consBit .|. tagBits
-
-buildTagBytes :: Word8 -> Int -> B.Builder
-buildTagBytes tagByte tagNum
-  | tagNum < 31 = B.word8 tagByte
-  | otherwise = B.word8 tagByte <> B.byteString (encodeBase128 (fromIntegral tagNum))
 
 encodeBase128 :: Word64 -> ByteString
 encodeBase128 n

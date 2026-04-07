@@ -18,6 +18,12 @@ module Proto.Encode.Direct
     -- * Offset-based write primitives (return new offset)
   , dWord8
   , dVarint
+  , dWord32LE
+  , dWord64LE
+  , dFloatLE
+  , dDoubleLE
+  , dBytes
+  , dText
 
     -- * Field-level writes (tag + value in one call)
   , dVarintField

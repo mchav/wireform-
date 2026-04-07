@@ -1,24 +1,22 @@
 {-# LANGUAGE BangPatterns #-}
 -- | CBOR (RFC 8949) binary decoding.
 --
--- Uses 'Proto.Decode.Fast' for Ptr-based reading.
+-- Uses mutable vectors for definite-length arrays/maps and growing
+-- vectors for indefinite-length containers.
 module CBOR.Decode
   ( decode
   ) where
 
+import Control.Monad.ST (ST, runST)
 import Data.Bits (shiftL, shiftR, (.|.), (.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
-import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
-import Foreign.ForeignPtr (withForeignPtr)
-import Foreign.Ptr (Ptr, castPtr, plusPtr)
-import Foreign.Storable (peekByteOff)
+import qualified Data.Vector.Mutable as MV
+import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
-import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified CBOR.Value as C
 
@@ -32,7 +30,6 @@ decode !bs
         | off == BS.length bs -> Right val
         | otherwise -> Left $ "CBOR.Decode: " ++ show (BS.length bs - off) ++ " trailing bytes"
 
--- | Read a byte at offset using unsafe indexing.
 rdByte :: ByteString -> Int -> Word8
 rdByte !bs !off = BSU.unsafeIndex bs off
 {-# INLINE rdByte #-}
@@ -43,27 +40,6 @@ ensureBytes !bs !off !n
   | otherwise = Right ()
 {-# INLINE ensureBytes #-}
 
-withBSPtrOff :: ByteString -> Int -> (Ptr Word8 -> IO a) -> a
-withBSPtrOff (BSI.BS fp _) off f = unsafeDupablePerformIO $
-  withForeignPtr fp $ \p -> f (castPtr p `plusPtr` off)
-{-# INLINE withBSPtrOff #-}
-
-readBE16BS :: ByteString -> Int -> Word64
-readBE16BS bs off = withBSPtrOff bs off $ \p ->
-  fromIntegral . byteSwap16 <$> (peekByteOff p 0 :: IO Word16)
-{-# INLINE readBE16BS #-}
-
-readBE32BS :: ByteString -> Int -> Word64
-readBE32BS bs off = withBSPtrOff bs off $ \p ->
-  fromIntegral . byteSwap32 <$> (peekByteOff p 0 :: IO Word32)
-{-# INLINE readBE32BS #-}
-
-readBE64BS :: ByteString -> Int -> Word64
-readBE64BS bs off = withBSPtrOff bs off $ \p ->
-  byteSwap64 <$> (peekByteOff p 0 :: IO Word64)
-{-# INLINE readBE64BS #-}
-
--- | Read the argument value from additional info.
 readArg :: ByteString -> Int -> Word8 -> Either String (Word64, Int)
 readArg !bs !off !info
   | info <= 23 = Right (fromIntegral info, off)
@@ -72,17 +48,33 @@ readArg !bs !off !info
       Right (fromIntegral (rdByte bs off), off + 1)
   | info == 25 = do
       ensureBytes bs off 2
-      Right (readBE16BS bs off, off + 2)
+      let !b0 = fromIntegral (rdByte bs off) :: Word64
+          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
+      Right ((b0 `shiftL` 8) .|. b1, off + 2)
   | info == 26 = do
       ensureBytes bs off 4
-      Right (readBE32BS bs off, off + 4)
+      let !b0 = fromIntegral (rdByte bs off) :: Word64
+          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
+          !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
+          !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
+      Right ((b0 `shiftL` 24) .|. (b1 `shiftL` 16) .|. (b2 `shiftL` 8) .|. b3, off + 4)
   | info == 27 = do
       ensureBytes bs off 8
-      Right (readBE64BS bs off, off + 8)
+      let !b0 = fromIntegral (rdByte bs off) :: Word64
+          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
+          !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
+          !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
+          !b4 = fromIntegral (rdByte bs (off + 4)) :: Word64
+          !b5 = fromIntegral (rdByte bs (off + 5)) :: Word64
+          !b6 = fromIntegral (rdByte bs (off + 6)) :: Word64
+          !b7 = fromIntegral (rdByte bs (off + 7)) :: Word64
+      Right ( (b0 `shiftL` 56) .|. (b1 `shiftL` 48) .|. (b2 `shiftL` 40)
+              .|. (b3 `shiftL` 32) .|. (b4 `shiftL` 24) .|. (b5 `shiftL` 16)
+              .|. (b6 `shiftL` 8) .|. b7
+            , off + 8)
   | info == 31 = Left "CBOR.Decode: indefinite length not expected here"
   | otherwise  = Left $ "CBOR.Decode: reserved additional info: " ++ show info
 
--- | Decode a single CBOR item. Returns (value, newOffset).
 decodeOne :: ByteString -> Int -> Either String (C.Value, Int)
 decodeOne !bs !off
   | off >= BS.length bs = Left "CBOR.Decode: unexpected end of input"
@@ -105,11 +97,13 @@ decodeUInt :: ByteString -> Int -> Word8 -> Either String (C.Value, Int)
 decodeUInt bs off info = do
   (n, off') <- readArg bs off info
   Right (C.UInt n, off')
+{-# INLINE decodeUInt #-}
 
 decodeNInt :: ByteString -> Int -> Word8 -> Either String (C.Value, Int)
 decodeNInt bs off info = do
   (n, off') <- readArg bs off info
   Right (C.NInt n, off')
+{-# INLINE decodeNInt #-}
 
 decodeBStr :: ByteString -> Int -> Word8 -> Either String (C.Value, Int)
 decodeBStr bs off info
@@ -181,24 +175,47 @@ decodeArray bs off info
   | otherwise = do
       (len64, off') <- readArg bs off info
       let !len = fromIntegral len64
-      decodeNItems bs off' len []
+      decodeNItems bs off' len
+{-# INLINE decodeArray #-}
 
-decodeNItems :: ByteString -> Int -> Int -> [C.Value] -> Either String (C.Value, Int)
-decodeNItems _bs !off 0 !acc =
-  Right (C.Array (V.fromList (reverse acc)), off)
-decodeNItems bs !off !n !acc = do
-  (v, off') <- decodeOne bs off
-  decodeNItems bs off' (n - 1) (v : acc)
+decodeNItems :: ByteString -> Int -> Int -> Either String (C.Value, Int)
+decodeNItems _bs !off 0 = Right (C.Array V.empty, off)
+decodeNItems bs !off !n = runST $ do
+  mv <- MV.new n
+  go mv 0 off
+  where
+    go :: MV.MVector s C.Value -> Int -> Int -> ST s (Either String (C.Value, Int))
+    go !mv !i !o
+      | i >= n = do
+          vec <- V.unsafeFreeze mv
+          pure $! Right (C.Array vec, o)
+      | otherwise = case decodeOne bs o of
+          Left e -> pure $! Left e
+          Right (v, o') -> do
+            MV.unsafeWrite mv i v
+            go mv (i + 1) o'
+{-# INLINE decodeNItems #-}
 
 decodeIndefiniteArray :: ByteString -> Int -> Either String (C.Value, Int)
-decodeIndefiniteArray bs off0 = go off0 []
+decodeIndefiniteArray bs off0 = runST $ do
+  mv <- MV.new 8
+  go mv 0 8 off0
   where
-    go !off !acc
-      | off >= BS.length bs = Left "CBOR.Decode: unexpected end of input in indefinite array"
-      | rdByte bs off == 0xff = Right (C.Array (V.fromList (reverse acc)), off + 1)
-      | otherwise = do
-          (v, off') <- decodeOne bs off
-          go off' (v : acc)
+    go :: MV.MVector s C.Value -> Int -> Int -> Int -> ST s (Either String (C.Value, Int))
+    go !mv !i !cap !off
+      | off >= BS.length bs = pure $! Left "CBOR.Decode: unexpected end of input in indefinite array"
+      | rdByte bs off == 0xff = do
+          vec <- V.unsafeFreeze (MV.take i mv)
+          pure $! Right (C.Array vec, off + 1)
+      | otherwise = case decodeOne bs off of
+          Left e -> pure $! Left e
+          Right (v, off') -> do
+            mv' <- if i >= cap
+              then MV.grow mv cap
+              else pure mv
+            let !cap' = if i >= cap then cap * 2 else cap
+            MV.unsafeWrite mv' i v
+            go mv' (i + 1) cap' off'
 
 decodeMap :: ByteString -> Int -> Word8 -> Either String (C.Value, Int)
 decodeMap bs off info
@@ -206,26 +223,51 @@ decodeMap bs off info
   | otherwise = do
       (len64, off') <- readArg bs off info
       let !len = fromIntegral len64
-      decodeNPairs bs off' len []
+      decodeNPairs bs off' len
+{-# INLINE decodeMap #-}
 
-decodeNPairs :: ByteString -> Int -> Int -> [(C.Value, C.Value)] -> Either String (C.Value, Int)
-decodeNPairs _bs !off 0 !acc =
-  Right (C.Map (V.fromList (reverse acc)), off)
-decodeNPairs bs !off !n !acc = do
-  (k, off')  <- decodeOne bs off
-  (v, off'') <- decodeOne bs off'
-  decodeNPairs bs off'' (n - 1) ((k, v) : acc)
+decodeNPairs :: ByteString -> Int -> Int -> Either String (C.Value, Int)
+decodeNPairs _bs !off 0 = Right (C.Map V.empty, off)
+decodeNPairs bs !off !n = runST $ do
+  mv <- MV.new n
+  go mv 0 off
+  where
+    go :: MV.MVector s (C.Value, C.Value) -> Int -> Int -> ST s (Either String (C.Value, Int))
+    go !mv !i !o
+      | i >= n = do
+          vec <- V.unsafeFreeze mv
+          pure $! Right (C.Map vec, o)
+      | otherwise = case decodeOne bs o of
+          Left e -> pure $! Left e
+          Right (k, o') -> case decodeOne bs o' of
+            Left e -> pure $! Left e
+            Right (v, o'') -> do
+              MV.unsafeWrite mv i (k, v)
+              go mv (i + 1) o''
+{-# INLINE decodeNPairs #-}
 
 decodeIndefiniteMap :: ByteString -> Int -> Either String (C.Value, Int)
-decodeIndefiniteMap bs off0 = go off0 []
+decodeIndefiniteMap bs off0 = runST $ do
+  mv <- MV.new 8
+  go mv 0 8 off0
   where
-    go !off !acc
-      | off >= BS.length bs = Left "CBOR.Decode: unexpected end of input in indefinite map"
-      | rdByte bs off == 0xff = Right (C.Map (V.fromList (reverse acc)), off + 1)
-      | otherwise = do
-          (k, off')  <- decodeOne bs off
-          (v, off'') <- decodeOne bs off'
-          go off'' ((k, v) : acc)
+    go :: MV.MVector s (C.Value, C.Value) -> Int -> Int -> Int -> ST s (Either String (C.Value, Int))
+    go !mv !i !cap !off
+      | off >= BS.length bs = pure $! Left "CBOR.Decode: unexpected end of input in indefinite map"
+      | rdByte bs off == 0xff = do
+          vec <- V.unsafeFreeze (MV.take i mv)
+          pure $! Right (C.Map vec, off + 1)
+      | otherwise = case decodeOne bs off of
+          Left e -> pure $! Left e
+          Right (k, off') -> case decodeOne bs off' of
+            Left e -> pure $! Left e
+            Right (v, off'') -> do
+              mv' <- if i >= cap
+                then MV.grow mv cap
+                else pure mv
+              let !cap' = if i >= cap then cap * 2 else cap
+              MV.unsafeWrite mv' i (k, v)
+              go mv' (i + 1) cap' off''
 
 decodeTag :: ByteString -> Int -> Word8 -> Either String (C.Value, Int)
 decodeTag bs off info = do
@@ -246,21 +288,37 @@ decodeSimpleOrFloat bs off info
       Right (C.Simple sv, off + 1)
   | info == 25 = do
       ensureBytes bs off 2
-      let !halfBits = fromIntegral (readBE16BS bs off) :: Word16
+      let !b0 = rdByte bs off
+          !b1 = rdByte bs (off + 1)
+          !halfBits = (fromIntegral b0 :: Word16) `shiftL` 8
+                      .|. fromIntegral b1
           !f = halfToFloat halfBits
       Right (C.Float16 f, off + 2)
   | info == 26 = do
       ensureBytes bs off 4
-      let !w = fromIntegral (readBE32BS bs off) :: Word32
+      let !b0 = fromIntegral (rdByte bs off) :: Word32
+          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word32
+          !b2 = fromIntegral (rdByte bs (off + 2)) :: Word32
+          !b3 = fromIntegral (rdByte bs (off + 3)) :: Word32
+          !w  = (b0 `shiftL` 24) .|. (b1 `shiftL` 16) .|. (b2 `shiftL` 8) .|. b3
       Right (C.Float32 (castWord32ToFloat w), off + 4)
   | info == 27 = do
       ensureBytes bs off 8
-      let !w = readBE64BS bs off
+      let !b0 = fromIntegral (rdByte bs off) :: Word64
+          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
+          !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
+          !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
+          !b4 = fromIntegral (rdByte bs (off + 4)) :: Word64
+          !b5 = fromIntegral (rdByte bs (off + 5)) :: Word64
+          !b6 = fromIntegral (rdByte bs (off + 6)) :: Word64
+          !b7 = fromIntegral (rdByte bs (off + 7)) :: Word64
+          !w  = (b0 `shiftL` 56) .|. (b1 `shiftL` 48) .|. (b2 `shiftL` 40)
+                .|. (b3 `shiftL` 32) .|. (b4 `shiftL` 24) .|. (b5 `shiftL` 16)
+                .|. (b6 `shiftL` 8) .|. b7
       Right (C.Float64 (castWord64ToDouble w), off + 8)
   | info == 31 = Left "CBOR.Decode: break (0xff) at top level is not valid"
   | otherwise  = Left $ "CBOR.Decode: reserved simple value info: " ++ show info
 
--- | Convert IEEE 754 half-precision (16-bit) to Float.
 halfToFloat :: Word16 -> Float
 halfToFloat !h =
   let !sign = (fromIntegral h :: Word32) `shiftR` 15
