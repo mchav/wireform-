@@ -12,13 +12,18 @@ module Ion.Decode
 import Data.Bits (shiftL, shiftR, (.|.), (.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int64)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word8, Word64)
+import Data.Word (Word8, Word64, byteSwap64)
 import qualified Data.Vector as V
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.Storable (peekByteOff)
 import GHC.Float (castWord64ToDouble)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Ion.Value as I
 
@@ -69,19 +74,15 @@ readMagnitude bs off nbytes
                 in go (i + 1) ((acc `shiftL` 8) .|. b)
       go 0 0
 
+withBSPtrOff :: ByteString -> Int -> (Ptr Word8 -> IO a) -> a
+withBSPtrOff (BSI.BS fp _) off f = unsafeDupablePerformIO $
+  withForeignPtr fp $ \p -> f (castPtr p `plusPtr` off)
+{-# INLINE withBSPtrOff #-}
+
 readBE64 :: ByteString -> Int -> Word64
-readBE64 bs off =
-  let !b0 = fromIntegral (rdByte bs off) :: Word64
-      !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
-      !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
-      !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
-      !b4 = fromIntegral (rdByte bs (off + 4)) :: Word64
-      !b5 = fromIntegral (rdByte bs (off + 5)) :: Word64
-      !b6 = fromIntegral (rdByte bs (off + 6)) :: Word64
-      !b7 = fromIntegral (rdByte bs (off + 7)) :: Word64
-  in (b0 `shiftL` 56) .|. (b1 `shiftL` 48) .|. (b2 `shiftL` 40)
-     .|. (b3 `shiftL` 32) .|. (b4 `shiftL` 24) .|. (b5 `shiftL` 16)
-     .|. (b6 `shiftL` 8) .|. b7
+readBE64 bs off = withBSPtrOff bs off $ \p ->
+  byteSwap64 <$> (peekByteOff p 0 :: IO Word64)
+{-# INLINE readBE64 #-}
 
 decodeValue :: ByteString -> Int -> Either String (I.Value, Int)
 decodeValue bs off = do

@@ -10,15 +10,20 @@ module MsgPack.Stream
   , feedMore
   ) where
 
-import Data.Bits ((.&.), (.|.), shiftL, shiftR)
+import Data.Bits ((.&.), (.|.), shiftR)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import qualified Data.Vector as V
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.Storable (peekByteOff)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified MsgPack.Value as MV
 
@@ -206,25 +211,19 @@ requireN bs off n action
   | otherwise = action
 {-# INLINE requireN #-}
 
+withBSPtrOff :: ByteString -> Int -> (Ptr Word8 -> IO a) -> a
+withBSPtrOff (BSI.BS fp _) off f = unsafeDupablePerformIO $
+  withForeignPtr fp $ \p -> f (castPtr p `plusPtr` off)
+{-# INLINE withBSPtrOff #-}
+
 readBE16' :: ByteString -> Int -> Word64
-readBE16' bs off =
-  (fromIntegral (BS.index bs off) `shiftL` 8) .|.
-  fromIntegral (BS.index bs (off + 1))
+readBE16' bs off = withBSPtrOff bs off $ \p ->
+  fromIntegral . byteSwap16 <$> (peekByteOff p 0 :: IO Word16)
 
 readBE32' :: ByteString -> Int -> Word64
-readBE32' bs off =
-  (fromIntegral (BS.index bs off) `shiftL` 24) .|.
-  (fromIntegral (BS.index bs (off + 1)) `shiftL` 16) .|.
-  (fromIntegral (BS.index bs (off + 2)) `shiftL` 8) .|.
-  fromIntegral (BS.index bs (off + 3))
+readBE32' bs off = withBSPtrOff bs off $ \p ->
+  fromIntegral . byteSwap32 <$> (peekByteOff p 0 :: IO Word32)
 
 readBE64' :: ByteString -> Int -> Word64
-readBE64' bs off =
-  (fromIntegral (BS.index bs off) `shiftL` 56) .|.
-  (fromIntegral (BS.index bs (off + 1)) `shiftL` 48) .|.
-  (fromIntegral (BS.index bs (off + 2)) `shiftL` 40) .|.
-  (fromIntegral (BS.index bs (off + 3)) `shiftL` 32) .|.
-  (fromIntegral (BS.index bs (off + 4)) `shiftL` 24) .|.
-  (fromIntegral (BS.index bs (off + 5)) `shiftL` 16) .|.
-  (fromIntegral (BS.index bs (off + 6)) `shiftL` 8) .|.
-  fromIntegral (BS.index bs (off + 7))
+readBE64' bs off = withBSPtrOff bs off $ \p ->
+  byteSwap64 <$> (peekByteOff p 0 :: IO Word64)

@@ -9,11 +9,16 @@ module CBOR.Decode
 import Data.Bits (shiftL, shiftR, (.|.), (.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
-import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.Storable (peekByteOff)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified CBOR.Value as C
 
@@ -38,6 +43,26 @@ ensureBytes !bs !off !n
   | otherwise = Right ()
 {-# INLINE ensureBytes #-}
 
+withBSPtrOff :: ByteString -> Int -> (Ptr Word8 -> IO a) -> a
+withBSPtrOff (BSI.BS fp _) off f = unsafeDupablePerformIO $
+  withForeignPtr fp $ \p -> f (castPtr p `plusPtr` off)
+{-# INLINE withBSPtrOff #-}
+
+readBE16BS :: ByteString -> Int -> Word64
+readBE16BS bs off = withBSPtrOff bs off $ \p ->
+  fromIntegral . byteSwap16 <$> (peekByteOff p 0 :: IO Word16)
+{-# INLINE readBE16BS #-}
+
+readBE32BS :: ByteString -> Int -> Word64
+readBE32BS bs off = withBSPtrOff bs off $ \p ->
+  fromIntegral . byteSwap32 <$> (peekByteOff p 0 :: IO Word32)
+{-# INLINE readBE32BS #-}
+
+readBE64BS :: ByteString -> Int -> Word64
+readBE64BS bs off = withBSPtrOff bs off $ \p ->
+  byteSwap64 <$> (peekByteOff p 0 :: IO Word64)
+{-# INLINE readBE64BS #-}
+
 -- | Read the argument value from additional info.
 readArg :: ByteString -> Int -> Word8 -> Either String (Word64, Int)
 readArg !bs !off !info
@@ -47,30 +72,13 @@ readArg !bs !off !info
       Right (fromIntegral (rdByte bs off), off + 1)
   | info == 25 = do
       ensureBytes bs off 2
-      let !b0 = fromIntegral (rdByte bs off) :: Word64
-          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
-      Right ((b0 `shiftL` 8) .|. b1, off + 2)
+      Right (readBE16BS bs off, off + 2)
   | info == 26 = do
       ensureBytes bs off 4
-      let !b0 = fromIntegral (rdByte bs off) :: Word64
-          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
-          !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
-          !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
-      Right ((b0 `shiftL` 24) .|. (b1 `shiftL` 16) .|. (b2 `shiftL` 8) .|. b3, off + 4)
+      Right (readBE32BS bs off, off + 4)
   | info == 27 = do
       ensureBytes bs off 8
-      let !b0 = fromIntegral (rdByte bs off) :: Word64
-          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
-          !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
-          !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
-          !b4 = fromIntegral (rdByte bs (off + 4)) :: Word64
-          !b5 = fromIntegral (rdByte bs (off + 5)) :: Word64
-          !b6 = fromIntegral (rdByte bs (off + 6)) :: Word64
-          !b7 = fromIntegral (rdByte bs (off + 7)) :: Word64
-      Right ( (b0 `shiftL` 56) .|. (b1 `shiftL` 48) .|. (b2 `shiftL` 40)
-              .|. (b3 `shiftL` 32) .|. (b4 `shiftL` 24) .|. (b5 `shiftL` 16)
-              .|. (b6 `shiftL` 8) .|. b7
-            , off + 8)
+      Right (readBE64BS bs off, off + 8)
   | info == 31 = Left "CBOR.Decode: indefinite length not expected here"
   | otherwise  = Left $ "CBOR.Decode: reserved additional info: " ++ show info
 
@@ -238,33 +246,16 @@ decodeSimpleOrFloat bs off info
       Right (C.Simple sv, off + 1)
   | info == 25 = do
       ensureBytes bs off 2
-      let !b0 = rdByte bs off
-          !b1 = rdByte bs (off + 1)
-          !halfBits = (fromIntegral b0 :: Word16) `shiftL` 8
-                      .|. fromIntegral b1
+      let !halfBits = fromIntegral (readBE16BS bs off) :: Word16
           !f = halfToFloat halfBits
       Right (C.Float16 f, off + 2)
   | info == 26 = do
       ensureBytes bs off 4
-      let !b0 = fromIntegral (rdByte bs off) :: Word32
-          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word32
-          !b2 = fromIntegral (rdByte bs (off + 2)) :: Word32
-          !b3 = fromIntegral (rdByte bs (off + 3)) :: Word32
-          !w  = (b0 `shiftL` 24) .|. (b1 `shiftL` 16) .|. (b2 `shiftL` 8) .|. b3
+      let !w = fromIntegral (readBE32BS bs off) :: Word32
       Right (C.Float32 (castWord32ToFloat w), off + 4)
   | info == 27 = do
       ensureBytes bs off 8
-      let !b0 = fromIntegral (rdByte bs off) :: Word64
-          !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
-          !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
-          !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
-          !b4 = fromIntegral (rdByte bs (off + 4)) :: Word64
-          !b5 = fromIntegral (rdByte bs (off + 5)) :: Word64
-          !b6 = fromIntegral (rdByte bs (off + 6)) :: Word64
-          !b7 = fromIntegral (rdByte bs (off + 7)) :: Word64
-          !w  = (b0 `shiftL` 56) .|. (b1 `shiftL` 48) .|. (b2 `shiftL` 40)
-                .|. (b3 `shiftL` 32) .|. (b4 `shiftL` 24) .|. (b5 `shiftL` 16)
-                .|. (b6 `shiftL` 8) .|. b7
+      let !w = readBE64BS bs off
       Right (C.Float64 (castWord64ToDouble w), off + 8)
   | info == 31 = Left "CBOR.Decode: break (0xff) at top level is not valid"
   | otherwise  = Left $ "CBOR.Decode: reserved simple value info: " ++ show info

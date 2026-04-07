@@ -24,18 +24,33 @@ module Proto.Wire.FFI
   , encodeLengthDelimitedC
   , encodeVarintFieldC
   , encodeBoolFieldC
+
+    -- * Endianness helpers (Haskell-side, single MOV + BSWAP)
+  , readBE16H
+  , readBE32H
+  , readBE64H
+  , writeBE16H
+  , writeBE32H
+  , writeBE64H
+  , readLE16H
+  , readLE32H
+  , readLE64H
+  , writeLE16H
+  , writeLE32H
+  , writeLE64H
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
-import Data.Word (Word8, Word64)
+import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import Foreign.C.Types (CInt(..))
 import Foreign.Marshal.Alloc (alloca)
 import qualified Foreign.Marshal.Alloc
 import qualified Foreign.Marshal.Array
 import Foreign.Ptr (Ptr, castPtr)
 import qualified Foreign.Storable
+import Foreign.Storable (peekByteOff, pokeByteOff)
 import System.IO.Unsafe (unsafePerformIO)
 
 foreign import ccall unsafe "hs_proto_count_packed_varints"
@@ -149,3 +164,55 @@ relocatePageBoundary bs
             Foreign.Marshal.Alloc.free outBuf
             pure bs
 {-# INLINE relocatePageBoundary #-}
+
+------------------------------------------------------------------------
+-- Haskell-side endianness helpers (single MOV + BSWAP on x86)
+------------------------------------------------------------------------
+
+readBE16H :: Ptr Word8 -> Int -> IO Word16
+readBE16H p off = byteSwap16 <$> peekByteOff p off
+{-# INLINE readBE16H #-}
+
+readBE32H :: Ptr Word8 -> Int -> IO Word32
+readBE32H p off = byteSwap32 <$> peekByteOff p off
+{-# INLINE readBE32H #-}
+
+readBE64H :: Ptr Word8 -> Int -> IO Word64
+readBE64H p off = byteSwap64 <$> peekByteOff p off
+{-# INLINE readBE64H #-}
+
+writeBE16H :: Ptr Word8 -> Int -> Word16 -> IO ()
+writeBE16H p off v = pokeByteOff p off (byteSwap16 v)
+{-# INLINE writeBE16H #-}
+
+writeBE32H :: Ptr Word8 -> Int -> Word32 -> IO ()
+writeBE32H p off v = pokeByteOff p off (byteSwap32 v)
+{-# INLINE writeBE32H #-}
+
+writeBE64H :: Ptr Word8 -> Int -> Word64 -> IO ()
+writeBE64H p off v = pokeByteOff p off (byteSwap64 v)
+{-# INLINE writeBE64H #-}
+
+readLE16H :: Ptr Word8 -> Int -> IO Word16
+readLE16H p off = peekByteOff p off
+{-# INLINE readLE16H #-}
+
+readLE32H :: Ptr Word8 -> Int -> IO Word32
+readLE32H p off = peekByteOff p off
+{-# INLINE readLE32H #-}
+
+readLE64H :: Ptr Word8 -> Int -> IO Word64
+readLE64H p off = peekByteOff p off
+{-# INLINE readLE64H #-}
+
+writeLE16H :: Ptr Word8 -> Int -> Word16 -> IO ()
+writeLE16H p off v = pokeByteOff p off v
+{-# INLINE writeLE16H #-}
+
+writeLE32H :: Ptr Word8 -> Int -> Word32 -> IO ()
+writeLE32H p off v = pokeByteOff p off v
+{-# INLINE writeLE32H #-}
+
+writeLE64H :: Ptr Word8 -> Int -> Word64 -> IO ()
+writeLE64H p off v = pokeByteOff p off v
+{-# INLINE writeLE64H #-}

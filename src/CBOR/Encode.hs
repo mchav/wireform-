@@ -14,7 +14,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
-import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, plusPtr)
@@ -42,26 +42,15 @@ writeHeader !p !off !major !n
       pure $! off + 2
   | n <= 0xffff = do
       pokeByteOff p off (major .|. 25 :: Word8)
-      pokeByteOff p (off + 1) (fromIntegral (n `shiftR` 8) :: Word8)
-      pokeByteOff p (off + 2) (fromIntegral (n .&. 0xff) :: Word8)
+      pokeByteOff p (off + 1) (byteSwap16 (fromIntegral n) :: Word16)
       pure $! off + 3
   | n <= 0xffffffff = do
       pokeByteOff p off (major .|. 26 :: Word8)
-      pokeByteOff p (off + 1) (fromIntegral (n `shiftR` 24) :: Word8)
-      pokeByteOff p (off + 2) (fromIntegral ((n `shiftR` 16) .&. 0xff) :: Word8)
-      pokeByteOff p (off + 3) (fromIntegral ((n `shiftR` 8) .&. 0xff) :: Word8)
-      pokeByteOff p (off + 4) (fromIntegral (n .&. 0xff) :: Word8)
+      pokeByteOff p (off + 1) (byteSwap32 (fromIntegral n) :: Word32)
       pure $! off + 5
   | otherwise = do
       pokeByteOff p off (major .|. 27 :: Word8)
-      pokeByteOff p (off + 1) (fromIntegral (n `shiftR` 56) :: Word8)
-      pokeByteOff p (off + 2) (fromIntegral ((n `shiftR` 48) .&. 0xff) :: Word8)
-      pokeByteOff p (off + 3) (fromIntegral ((n `shiftR` 40) .&. 0xff) :: Word8)
-      pokeByteOff p (off + 4) (fromIntegral ((n `shiftR` 32) .&. 0xff) :: Word8)
-      pokeByteOff p (off + 5) (fromIntegral ((n `shiftR` 24) .&. 0xff) :: Word8)
-      pokeByteOff p (off + 6) (fromIntegral ((n `shiftR` 16) .&. 0xff) :: Word8)
-      pokeByteOff p (off + 7) (fromIntegral ((n `shiftR` 8) .&. 0xff) :: Word8)
-      pokeByteOff p (off + 8) (fromIntegral (n .&. 0xff) :: Word8)
+      pokeByteOff p (off + 1) (byteSwap64 n)
       pure $! off + 9
 {-# INLINE writeHeader #-}
 
@@ -96,30 +85,19 @@ writeValue !p !off = \case
     let !w = castFloatToWord32 f
         !h = floatToHalf w
     pokeByteOff p off (0xf9 :: Word8)
-    pokeByteOff p (off + 1) (fromIntegral (h `shiftR` 8) :: Word8)
-    pokeByteOff p (off + 2) (fromIntegral (h .&. 0xff) :: Word8)
+    pokeByteOff p (off + 1) (byteSwap16 h :: Word16)
     pure $! off + 3
 
   C.Float32 f -> do
     let !w = castFloatToWord32 f
     pokeByteOff p off (0xfa :: Word8)
-    pokeByteOff p (off + 1) (fromIntegral (w `shiftR` 24) :: Word8)
-    pokeByteOff p (off + 2) (fromIntegral ((w `shiftR` 16) .&. 0xff) :: Word8)
-    pokeByteOff p (off + 3) (fromIntegral ((w `shiftR` 8) .&. 0xff) :: Word8)
-    pokeByteOff p (off + 4) (fromIntegral (w .&. 0xff) :: Word8)
+    pokeByteOff p (off + 1) (byteSwap32 w :: Word32)
     pure $! off + 5
 
   C.Float64 d -> do
     let !w = castDoubleToWord64 d
     pokeByteOff p off (0xfb :: Word8)
-    pokeByteOff p (off + 1) (fromIntegral (w `shiftR` 56) :: Word8)
-    pokeByteOff p (off + 2) (fromIntegral ((w `shiftR` 48) .&. 0xff) :: Word8)
-    pokeByteOff p (off + 3) (fromIntegral ((w `shiftR` 40) .&. 0xff) :: Word8)
-    pokeByteOff p (off + 4) (fromIntegral ((w `shiftR` 32) .&. 0xff) :: Word8)
-    pokeByteOff p (off + 5) (fromIntegral ((w `shiftR` 24) .&. 0xff) :: Word8)
-    pokeByteOff p (off + 6) (fromIntegral ((w `shiftR` 16) .&. 0xff) :: Word8)
-    pokeByteOff p (off + 7) (fromIntegral ((w `shiftR` 8) .&. 0xff) :: Word8)
-    pokeByteOff p (off + 8) (fromIntegral (w .&. 0xff) :: Word8)
+    pokeByteOff p (off + 1) (byteSwap64 w)
     pure $! off + 9
 
   C.ByteString bs -> do

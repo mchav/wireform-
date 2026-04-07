@@ -14,7 +14,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int8, Int64)
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import qualified Data.Vector as V
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
@@ -321,30 +321,19 @@ writeTimestamp p off s ns
 
 pokeBE16 :: Ptr Word8 -> Int -> Word64 -> IO Int
 pokeBE16 p off w = do
-  pokeByteOff p off       (fromIntegral (w `shiftR` 8) :: Word8)
-  pokeByteOff p (off + 1) (fromIntegral (w .&. 0xFF) :: Word8)
+  pokeByteOff p off (byteSwap16 (fromIntegral w) :: Word16)
   pure $! off + 2
 {-# INLINE pokeBE16 #-}
 
 pokeBE32 :: Ptr Word8 -> Int -> Word64 -> IO Int
 pokeBE32 p off w = do
-  pokeByteOff p off       (fromIntegral (w `shiftR` 24) :: Word8)
-  pokeByteOff p (off + 1) (fromIntegral ((w `shiftR` 16) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 2) (fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 3) (fromIntegral (w .&. 0xFF) :: Word8)
+  pokeByteOff p off (byteSwap32 (fromIntegral w) :: Word32)
   pure $! off + 4
 {-# INLINE pokeBE32 #-}
 
 pokeBE64 :: Ptr Word8 -> Int -> Word64 -> IO Int
 pokeBE64 p off w = do
-  pokeByteOff p off       (fromIntegral (w `shiftR` 56) :: Word8)
-  pokeByteOff p (off + 1) (fromIntegral ((w `shiftR` 48) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 2) (fromIntegral ((w `shiftR` 40) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 3) (fromIntegral ((w `shiftR` 32) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 4) (fromIntegral ((w `shiftR` 24) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 5) (fromIntegral ((w `shiftR` 16) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 6) (fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 7) (fromIntegral (w .&. 0xFF) :: Word8)
+  pokeByteOff p off (byteSwap64 w)
   pure $! off + 8
 {-# INLINE pokeBE64 #-}
 

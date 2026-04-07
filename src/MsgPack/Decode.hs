@@ -14,7 +14,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int8, Int16, Int32, Int64)
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import qualified Data.Vector as V
 import qualified Data.ByteString.Internal as BSI
 import Foreign.ForeignPtr (withForeignPtr)
@@ -46,42 +46,15 @@ peekAt p off = peekByteOff p off
 {-# INLINE peekAt #-}
 
 readBE16 :: Ptr Word8 -> Int -> IO Word64
-readBE16 p off = do
-  b0 <- peekAt p off
-  b1 <- peekAt p (off + 1)
-  pure $! (fromIntegral b0 `shiftL` 8) .|. fromIntegral b1
+readBE16 p off = fromIntegral . byteSwap16 <$> (peekByteOff p off :: IO Word16)
 {-# INLINE readBE16 #-}
 
 readBE32 :: Ptr Word8 -> Int -> IO Word64
-readBE32 p off = do
-  b0 <- peekAt p off
-  b1 <- peekAt p (off + 1)
-  b2 <- peekAt p (off + 2)
-  b3 <- peekAt p (off + 3)
-  pure $! (fromIntegral b0 `shiftL` 24)
-      .|. (fromIntegral b1 `shiftL` 16)
-      .|. (fromIntegral b2 `shiftL` 8)
-      .|. fromIntegral b3
+readBE32 p off = fromIntegral . byteSwap32 <$> (peekByteOff p off :: IO Word32)
 {-# INLINE readBE32 #-}
 
 readBE64 :: Ptr Word8 -> Int -> IO Word64
-readBE64 p off = do
-  b0 <- peekAt p off
-  b1 <- peekAt p (off + 1)
-  b2 <- peekAt p (off + 2)
-  b3 <- peekAt p (off + 3)
-  b4 <- peekAt p (off + 4)
-  b5 <- peekAt p (off + 5)
-  b6 <- peekAt p (off + 6)
-  b7 <- peekAt p (off + 7)
-  pure $! (fromIntegral b0 `shiftL` 56)
-      .|. (fromIntegral b1 `shiftL` 48)
-      .|. (fromIntegral b2 `shiftL` 40)
-      .|. (fromIntegral b3 `shiftL` 32)
-      .|. (fromIntegral b4 `shiftL` 24)
-      .|. (fromIntegral b5 `shiftL` 16)
-      .|. (fromIntegral b6 `shiftL` 8)
-      .|. fromIntegral b7
+readBE64 p off = byteSwap64 <$> peekByteOff p off
 {-# INLINE readBE64 #-}
 
 type DecResult = IO (Either String (MV.Value, Int))
@@ -372,4 +345,3 @@ decodeTimestamp off elen origBs = case elen of
     pure $ Right (MV.Timestamp (fromIntegral sec64 :: Int64) (fromIntegral ns32 :: Word32), off + 12)
 
   _ -> pure $ Left $ "MsgPack.Decode: invalid timestamp ext size: " ++ show elen
-

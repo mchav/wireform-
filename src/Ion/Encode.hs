@@ -15,7 +15,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word8, Word64)
+import Data.Word (Word8, Word64, byteSwap64)
 import qualified Data.Vector as V
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
@@ -241,13 +241,6 @@ writeField p off k v = do
 
 writeBE64 :: Ptr Word8 -> Int -> Word64 -> IO Int
 writeBE64 p off w = do
-  pokeByteOff p off       (fromIntegral (w `shiftR` 56) :: Word8)
-  pokeByteOff p (off + 1) (fromIntegral ((w `shiftR` 48) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 2) (fromIntegral ((w `shiftR` 40) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 3) (fromIntegral ((w `shiftR` 32) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 4) (fromIntegral ((w `shiftR` 24) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 5) (fromIntegral ((w `shiftR` 16) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 6) (fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 7) (fromIntegral (w .&. 0xFF) :: Word8)
+  pokeByteOff p off (byteSwap64 w)
   pure $! off + 8
 {-# INLINE writeBE64 #-}

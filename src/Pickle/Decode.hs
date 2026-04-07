@@ -12,12 +12,17 @@ module Pickle.Decode
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int64)
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word8, Word32, Word64, byteSwap64)
 import qualified Data.Vector as V
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.Storable (peekByteOff)
 import GHC.Float (castWord64ToDouble)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Pickle.Value as P
 
@@ -197,22 +202,23 @@ decodeLittleEndianSigned bs off nbytes
          then unsigned - (1 `shiftL` (8 * nbytes))
          else unsigned
 
-readLE32 :: ByteString -> Int -> Word32
-readLE32 bs off =
-  let !b0 = fromIntegral (rdByte bs off) :: Word32
-      !b1 = fromIntegral (rdByte bs (off + 1)) :: Word32
-      !b2 = fromIntegral (rdByte bs (off + 2)) :: Word32
-      !b3 = fromIntegral (rdByte bs (off + 3)) :: Word32
-  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
-
-readBE64 :: ByteString -> Int -> Word64
-readBE64 bs off =
-  let rd i = fromIntegral (rdByte bs (off + i)) :: Word64
-  in (rd 0 `shiftL` 56) .|. (rd 1 `shiftL` 48) .|. (rd 2 `shiftL` 40) .|. (rd 3 `shiftL` 32)
-     .|. (rd 4 `shiftL` 24) .|. (rd 5 `shiftL` 16) .|. (rd 6 `shiftL` 8) .|. rd 7
 rdByte :: ByteString -> Int -> Word8
 rdByte !bs !off = BSU.unsafeIndex bs off
 {-# INLINE rdByte #-}
+
+withBSPtrOff :: ByteString -> Int -> (Ptr Word8 -> IO a) -> a
+withBSPtrOff (BSI.BS fp _) off f = unsafeDupablePerformIO $
+  withForeignPtr fp $ \p -> f (castPtr p `plusPtr` off)
+{-# INLINE withBSPtrOff #-}
+
+readLE32 :: ByteString -> Int -> Word32
+readLE32 bs off = withBSPtrOff bs off $ \p -> peekByteOff p 0
+{-# INLINE readLE32 #-}
+
+readBE64 :: ByteString -> Int -> Word64
+readBE64 bs off = withBSPtrOff bs off $ \p ->
+  byteSwap64 <$> (peekByteOff p 0 :: IO Word64)
+{-# INLINE readBE64 #-}
 
 ensure :: ByteString -> Int -> Int -> Either String ()
 ensure bs off n

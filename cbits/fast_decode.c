@@ -648,3 +648,102 @@ int hs_proto_skip_field(
             return -1;
     }
 }
+
+/* Big-endian read helpers — single word load + byteswap */
+uint16_t hs_proto_read_be16(const uint8_t *buf, int offset) {
+    uint16_t val;
+    memcpy(&val, buf + offset, 2);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    val = __builtin_bswap16(val);
+#endif
+    return val;
+}
+
+uint32_t hs_proto_read_be32(const uint8_t *buf, int offset) {
+    uint32_t val;
+    memcpy(&val, buf + offset, 4);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    val = __builtin_bswap32(val);
+#endif
+    return val;
+}
+
+uint64_t hs_proto_read_be64(const uint8_t *buf, int offset) {
+    uint64_t val;
+    memcpy(&val, buf + offset, 8);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    val = __builtin_bswap64(val);
+#endif
+    return val;
+}
+
+/* Big-endian write helpers */
+void hs_proto_write_be16(uint8_t *buf, int offset, uint16_t val) {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    val = __builtin_bswap16(val);
+#endif
+    memcpy(buf + offset, &val, 2);
+}
+
+void hs_proto_write_be32(uint8_t *buf, int offset, uint32_t val) {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    val = __builtin_bswap32(val);
+#endif
+    memcpy(buf + offset, &val, 4);
+}
+
+void hs_proto_write_be64(uint8_t *buf, int offset, uint64_t val) {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    val = __builtin_bswap64(val);
+#endif
+    memcpy(buf + offset, &val, 8);
+}
+
+/* LE read/write — on LE platforms these are just memcpy (which the compiler optimizes to a single MOV) */
+uint16_t hs_proto_read_le16(const uint8_t *buf, int offset) {
+    uint16_t val;
+    memcpy(&val, buf + offset, 2);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    val = __builtin_bswap16(val);
+#endif
+    return val;
+}
+
+uint32_t hs_proto_read_le32(const uint8_t *buf, int offset) {
+    uint32_t val;
+    memcpy(&val, buf + offset, 4);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    val = __builtin_bswap32(val);
+#endif
+    return val;
+}
+
+uint64_t hs_proto_read_le64(const uint8_t *buf, int offset) {
+    uint64_t val;
+    memcpy(&val, buf + offset, 8);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    val = __builtin_bswap64(val);
+#endif
+    return val;
+}
+
+void hs_proto_write_le16(uint8_t *buf, int offset, uint16_t val) {
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    val = __builtin_bswap16(val);
+#endif
+    memcpy(buf + offset, &val, 2);
+}
+
+void hs_proto_write_le32(uint8_t *buf, int offset, uint32_t val) {
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    val = __builtin_bswap32(val);
+#endif
+    memcpy(buf + offset, &val, 4);
+}
+
+void hs_proto_write_le64(uint8_t *buf, int offset, uint64_t val) {
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    val = __builtin_bswap64(val);
+#endif
+    memcpy(buf + offset, &val, 8);
+}

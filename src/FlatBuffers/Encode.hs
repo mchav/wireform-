@@ -11,7 +11,6 @@ module FlatBuffers.Encode
   ( encode
   ) where
 
-import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
@@ -108,30 +107,19 @@ padding n = (4 - (n `mod` 4)) `mod` 4
 
 writeLE16 :: Ptr Word8 -> Int -> Word16 -> IO Int
 writeLE16 p off w = do
-  pokeByteOff p off       (fromIntegral (w .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 1) (fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8)
+  pokeByteOff p off w
   pure $! off + 2
 {-# INLINE writeLE16 #-}
 
 writeLE32 :: Ptr Word8 -> Int -> Word32 -> IO Int
 writeLE32 p off w = do
-  pokeByteOff p off       (fromIntegral (w .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 1) (fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 2) (fromIntegral ((w `shiftR` 16) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 3) (fromIntegral ((w `shiftR` 24) .&. 0xFF) :: Word8)
+  pokeByteOff p off w
   pure $! off + 4
 {-# INLINE writeLE32 #-}
 
 writeLE64 :: Ptr Word8 -> Int -> Word64 -> IO Int
 writeLE64 p off w = do
-  pokeByteOff p off       (fromIntegral (w .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 1) (fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 2) (fromIntegral ((w `shiftR` 16) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 3) (fromIntegral ((w `shiftR` 24) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 4) (fromIntegral ((w `shiftR` 32) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 5) (fromIntegral ((w `shiftR` 40) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 6) (fromIntegral ((w `shiftR` 48) .&. 0xFF) :: Word8)
-  pokeByteOff p (off + 7) (fromIntegral ((w `shiftR` 56) .&. 0xFF) :: Word8)
+  pokeByteOff p off w
   pure $! off + 8
 {-# INLINE writeLE64 #-}
 

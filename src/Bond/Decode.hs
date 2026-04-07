@@ -11,12 +11,17 @@ module Bond.Decode
 import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int64)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.Storable (peekByteOff)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Bond.Value
 
@@ -57,26 +62,29 @@ decodeBool bs off = do
   b <- peekByte bs off
   Right (Bool (b /= 0), off + 1)
 
+withBSPtrOff :: ByteString -> Int -> (Ptr Word8 -> IO a) -> a
+withBSPtrOff (BSI.BS fp _) off f = unsafeDupablePerformIO $
+  withForeignPtr fp $ \p -> f (castPtr p `plusPtr` off)
+{-# INLINE withBSPtrOff #-}
+
+readLE32BS :: ByteString -> Int -> Word32
+readLE32BS bs off = withBSPtrOff bs off $ \p -> peekByteOff p 0
+{-# INLINE readLE32BS #-}
+
+readLE64BS :: ByteString -> Int -> Word64
+readLE64BS bs off = withBSPtrOff bs off $ \p -> peekByteOff p 0
+{-# INLINE readLE64BS #-}
+
 decodeBondFloat :: ByteString -> Offset -> Either String (Value, Offset)
 decodeBondFloat bs off = do
   checkLen bs off 4
-  let !w = fromIntegral (BS.index bs off)
-        .|. (fromIntegral (BS.index bs (off+1)) `shiftL` 8)
-        .|. (fromIntegral (BS.index bs (off+2)) `shiftL` 16)
-        .|. (fromIntegral (BS.index bs (off+3)) `shiftL` 24) :: Word32
+  let !w = readLE32BS bs off
   Right (Float (castWord32ToFloat w), off + 4)
 
 decodeBondDouble :: ByteString -> Offset -> Either String (Value, Offset)
 decodeBondDouble bs off = do
   checkLen bs off 8
-  let !w = fromIntegral (BS.index bs off)
-        .|. (fromIntegral (BS.index bs (off+1)) `shiftL` 8)
-        .|. (fromIntegral (BS.index bs (off+2)) `shiftL` 16)
-        .|. (fromIntegral (BS.index bs (off+3)) `shiftL` 24)
-        .|. (fromIntegral (BS.index bs (off+4)) `shiftL` 32)
-        .|. (fromIntegral (BS.index bs (off+5)) `shiftL` 40)
-        .|. (fromIntegral (BS.index bs (off+6)) `shiftL` 48)
-        .|. (fromIntegral (BS.index bs (off+7)) `shiftL` 56) :: Word64
+  let !w = readLE64BS bs off
   Right (Double (castWord64ToDouble w), off + 8)
 
 decodeBondString :: (T.Text -> Value) -> ByteString -> Offset -> Either String (Value, Offset)

@@ -9,13 +9,17 @@ module FlatBuffers.Decode
   ( decode
   ) where
 
-import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Vector as V
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.Storable (peekByteOff)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified FlatBuffers.Value as F
 
@@ -30,34 +34,21 @@ rdByte :: ByteString -> Int -> Word8
 rdByte !bs !off = BSU.unsafeIndex bs off
 {-# INLINE rdByte #-}
 
+withBSPtrOff :: ByteString -> Int -> (Ptr Word8 -> IO a) -> a
+withBSPtrOff (BSI.BS fp _) off f = unsafeDupablePerformIO $
+  withForeignPtr fp $ \p -> f (castPtr p `plusPtr` off)
+{-# INLINE withBSPtrOff #-}
+
 readLE16 :: ByteString -> Int -> Word16
-readLE16 bs off =
-  let !b0 = fromIntegral (rdByte bs off) :: Word16
-      !b1 = fromIntegral (rdByte bs (off + 1)) :: Word16
-  in b0 .|. (b1 `shiftL` 8)
+readLE16 bs off = withBSPtrOff bs off $ \p -> peekByteOff p 0
 {-# INLINE readLE16 #-}
 
 readLE32 :: ByteString -> Int -> Word32
-readLE32 bs off =
-  let !b0 = fromIntegral (rdByte bs off) :: Word32
-      !b1 = fromIntegral (rdByte bs (off + 1)) :: Word32
-      !b2 = fromIntegral (rdByte bs (off + 2)) :: Word32
-      !b3 = fromIntegral (rdByte bs (off + 3)) :: Word32
-  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+readLE32 bs off = withBSPtrOff bs off $ \p -> peekByteOff p 0
 {-# INLINE readLE32 #-}
 
 readLE64 :: ByteString -> Int -> Word64
-readLE64 bs off =
-  let !b0 = fromIntegral (rdByte bs off) :: Word64
-      !b1 = fromIntegral (rdByte bs (off + 1)) :: Word64
-      !b2 = fromIntegral (rdByte bs (off + 2)) :: Word64
-      !b3 = fromIntegral (rdByte bs (off + 3)) :: Word64
-      !b4 = fromIntegral (rdByte bs (off + 4)) :: Word64
-      !b5 = fromIntegral (rdByte bs (off + 5)) :: Word64
-      !b6 = fromIntegral (rdByte bs (off + 6)) :: Word64
-      !b7 = fromIntegral (rdByte bs (off + 7)) :: Word64
-  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
-       .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
+readLE64 bs off = withBSPtrOff bs off $ \p -> peekByteOff p 0
 {-# INLINE readLE64 #-}
 
 ensure :: ByteString -> Int -> Int -> Either String ()
