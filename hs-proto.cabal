@@ -115,6 +115,8 @@ library
       Proto.Encode.Lazy
       Proto.Encode.Archetype
       Proto.Encode.Direct
+      Avro.Wire
+      Avro.Schema
       -- Well-known type utilities
       Proto.Google.Protobuf.Timestamp.Util
       Proto.Google.Protobuf.Duration.Util
