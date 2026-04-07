@@ -117,6 +117,9 @@ library
       Proto.Encode.Direct
       Avro.Wire
       Avro.Schema
+      Avro.Value
+      Avro.Encode
+      Avro.Decode
       -- Well-known type utilities
       Proto.Google.Protobuf.Timestamp.Util
       Proto.Google.Protobuf.Duration.Util
@@ -182,6 +185,7 @@ test-suite hs-proto-test
       Test.JSON
       Test.Hooks
       Test.TDP
+      Test.Avro
 
     build-depends:
         base             >= 4.16 && < 5

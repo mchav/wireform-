@@ -43,6 +43,9 @@ module Avro.Wire
   , avroDecodeBytes
   , avroDecodeString
 
+    -- * Decode result
+  , AvroDecodeResult(..)
+
     -- * ZigZag varint (long)
   , avroEncodeVarint
   , avroDecodeVarint

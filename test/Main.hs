@@ -17,6 +17,7 @@ import Test.StreamCodec (streamCodecTests)
 import Test.JSON (jsonTests)
 import Test.Hooks (hooksTests)
 import Test.TDP (tdpTests)
+import Test.Avro (avroTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -35,4 +36,5 @@ main = defaultMain $ testGroup "hs-proto"
   , jsonTests
   , hooksTests
   , tdpTests
+  , avroTests
   ]
