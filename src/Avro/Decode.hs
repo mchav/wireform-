@@ -5,6 +5,7 @@
 -- Uses the wire primitives from "Avro.Wire".
 module Avro.Decode
   ( decodeAvro
+  , decodeAvroAt
   ) where
 
 import Data.ByteString (ByteString)
@@ -28,6 +29,12 @@ decodeAvro !ty !bs = case decodeValue ty bs 0 of
     | off == BS.length bs -> Right val
     | otherwise -> Left $ "Avro.Decode: " ++ show (BS.length bs - off) ++ " trailing bytes"
   AvroDecodeFail e -> Left e
+
+-- | Decode a value starting at a given offset, returning the value and the new offset.
+decodeAvroAt :: AvroType -> ByteString -> Int -> Either String (AV.Value, Int)
+decodeAvroAt !ty !bs !off = case decodeValue ty bs off of
+  AvroDecodeOK val off' -> Right (val, off')
+  AvroDecodeFail e      -> Left e
 
 decodeValue :: AvroType -> ByteString -> Int -> AvroDecodeResult AV.Value
 decodeValue (AvroPrimitive s) bs off = decodePrimitive s bs off

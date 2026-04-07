@@ -33,9 +33,17 @@ import Test.Parquet (parquetTests)
 import Test.Pickle (pickleTests)
 import Test.Arrow (arrowTests)
 import Test.EDN (ednTests)
+import Test.MsgPackRPC (msgPackRPCTests)
+import Test.CBORDiagnostic (cborDiagnosticTests)
+import Test.Streaming (streamingTests)
+import Test.Class (classTests)
+import Test.AvroContainer (avroContainerTests)
+import Test.ThriftParser (thriftParserTests)
+import Test.AvroSchemaParse (avroSchemaParseTests)
+import Test.BondParser (bondParserTests)
 
 main :: IO ()
-main = defaultMain $ testGroup "hs-proto"
+main = defaultMain $ testGroup "wireform"
   [ parserTests
   , wireTests
   , roundtripTests
@@ -67,4 +75,12 @@ main = defaultMain $ testGroup "hs-proto"
   , pickleTests
   , arrowTests
   , ednTests
+  , classTests
+  , msgPackRPCTests
+  , cborDiagnosticTests
+  , streamingTests
+  , avroContainerTests
+  , thriftParserTests
+  , avroSchemaParseTests
+  , bondParserTests
   ]

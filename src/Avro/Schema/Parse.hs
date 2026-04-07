@@ -1,0 +1,23 @@
+module Avro.Schema.Parse
+  ( parseAvroSchema
+  , parseAvroSchemaFile
+  ) where
+
+import qualified Data.Aeson as Aeson
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+
+import Avro.JSON (avroSchemaFromJSON)
+import Avro.Schema (AvroType)
+
+-- | Parse an Avro schema from a JSON-encoded 'ByteString' (e.g. the contents
+-- of a @.avsc@ file).
+parseAvroSchema :: ByteString -> Either String AvroType
+parseAvroSchema bs =
+  case Aeson.decodeStrict bs of
+    Nothing -> Left "Avro.Schema.Parse: invalid JSON"
+    Just v  -> avroSchemaFromJSON v
+
+-- | Parse an Avro schema from a @.avsc@ file on disk.
+parseAvroSchemaFile :: FilePath -> IO (Either String AvroType)
+parseAvroSchemaFile fp = parseAvroSchema <$> BS.readFile fp
