@@ -16,12 +16,14 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import Data.Char (chr, ord)
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import Data.Scientific (fromFloatDigits, toBoundedInteger, toRealFloat)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
-import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..))
+import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..), SortOrder(..), LogicalType(..))
 import qualified Avro.Value as AV
 
 -- | Convert an 'AV.Value' to a JSON 'Aeson.Value' according to its schema.
@@ -80,17 +82,18 @@ avroFromJSON _ _ = Left "Avro.JSON: type/value mismatch"
 avroSchemaToJSON :: AvroType -> Aeson.Value
 avroSchemaToJSON (AvroPrimitive s) = Aeson.String (schemaName s)
 avroSchemaToJSON ty@AvroRecord{} =
-  Aeson.Object $ KM.fromList
+  Aeson.Object $ KM.fromList $
     [ ("type", Aeson.String "record")
     , ("name", Aeson.String (avroRecordName ty))
     , ("fields", Aeson.Array $ V.map fieldToJSON (avroRecordFields ty))
-    ]
+    ] ++ aliasesPair (avroRecordAliases ty)
 avroSchemaToJSON ty@AvroEnum{} =
   Aeson.Object $ KM.fromList $
     [ ("type", Aeson.String "enum")
     , ("name", Aeson.String (avroEnumName ty))
     , ("symbols", Aeson.Array $ V.map Aeson.String (avroEnumSymbols ty))
     ] ++ maybe [] (\d -> [("default", Aeson.String d)]) (avroEnumDefault ty)
+      ++ aliasesPair (avroEnumAliases ty)
 avroSchemaToJSON AvroArray{avroArrayItems = items} =
   Aeson.Object $ KM.fromList
     [ ("type", Aeson.String "array")
@@ -104,12 +107,24 @@ avroSchemaToJSON AvroMap{avroMapValues = vals} =
 avroSchemaToJSON AvroUnion{avroUnionBranches = branches} =
   Aeson.Array $ V.map avroSchemaToJSON branches
 avroSchemaToJSON ty@AvroFixed{} =
-  Aeson.Object $ KM.fromList
+  Aeson.Object $ KM.fromList $
     [ ("type", Aeson.String "fixed")
     , ("name", Aeson.String (avroFixedName ty))
     , ("size", Aeson.Number (fromIntegral (avroFixedSize ty)))
-    ]
-avroSchemaToJSON AvroLogical{avroLogicalBase = base} = avroSchemaToJSON base
+    ] ++ aliasesPair (avroFixedAliases ty)
+avroSchemaToJSON AvroLogical{avroLogicalBase = base, avroLogicalType = lt} =
+  case avroSchemaToJSON base of
+    Aeson.Object obj -> Aeson.Object (KM.insert "logicalType" (Aeson.String (logicalTypeName lt)) obj)
+    Aeson.String s -> Aeson.Object $ KM.fromList
+      [ ("type", Aeson.String s)
+      , ("logicalType", Aeson.String (logicalTypeName lt))
+      ]
+    other -> other
+
+aliasesPair :: V.Vector Text -> [(Key.Key, Aeson.Value)]
+aliasesPair aliases
+  | V.null aliases = []
+  | otherwise = [("aliases", Aeson.Array (V.map Aeson.String aliases))]
 
 -- | Parse a JSON value as an Avro schema.
 avroSchemaFromJSON :: Aeson.Value -> Either String AvroType
@@ -129,6 +144,16 @@ avroSchemaFromJSON (Aeson.Object obj) = do
   typStr <- case KM.lookup "type" obj of
     Just (Aeson.String t) -> Right t
     _ -> Left "schema object missing 'type' string field"
+  baseTy <- parseBaseType typStr obj
+  case KM.lookup "logicalType" obj of
+    Just (Aeson.String lt) -> case parseLogicalType lt of
+      Just logTy -> Right AvroLogical { avroLogicalBase = baseTy, avroLogicalType = logTy }
+      Nothing    -> Right baseTy
+    _ -> Right baseTy
+avroSchemaFromJSON _ = Left "invalid schema JSON: expected string, array, or object"
+
+parseBaseType :: Text -> KM.KeyMap Aeson.Value -> Either String AvroType
+parseBaseType typStr obj =
   case typStr of
     "record" -> do
       name <- requireString "name" obj
@@ -136,12 +161,16 @@ avroSchemaFromJSON (Aeson.Object obj) = do
         Just (Aeson.Array arr) -> Right arr
         _ -> Left "record missing 'fields' array"
       fields <- V.mapM fieldFromJSON fieldsArr
+      let aliases = parseAliases obj
+          knownKeys = Set.fromList ["type", "name", "namespace", "doc", "fields", "aliases"]
+          props = extractProps knownKeys obj
       Right AvroRecord
         { avroRecordName      = name
         , avroRecordNamespace  = optString "namespace" obj
         , avroRecordDoc        = optString "doc" obj
-        , avroRecordAliases    = V.empty
+        , avroRecordAliases    = aliases
         , avroRecordFields     = fields
+        , avroRecordProps      = props
         }
     "enum" -> do
       name <- requireString "name" obj
@@ -151,11 +180,12 @@ avroSchemaFromJSON (Aeson.Object obj) = do
       syms <- V.mapM (\case
         Aeson.String s -> Right s
         _ -> Left "enum symbol must be a string") symsArr
+      let aliases = parseAliases obj
       Right AvroEnum
         { avroEnumName      = name
         , avroEnumNamespace  = optString "namespace" obj
         , avroEnumDoc        = optString "doc" obj
-        , avroEnumAliases    = V.empty
+        , avroEnumAliases    = aliases
         , avroEnumSymbols    = syms
         , avroEnumDefault    = optString "default" obj
         }
@@ -176,14 +206,28 @@ avroSchemaFromJSON (Aeson.Object obj) = do
           Just i  -> Right (i :: Int)
           Nothing -> Left "fixed: size out of range"
         _ -> Left "fixed missing 'size'"
+      let aliases = parseAliases obj
       Right AvroFixed
         { avroFixedName      = name
         , avroFixedNamespace  = optString "namespace" obj
         , avroFixedSize       = sz
-        , avroFixedAliases    = V.empty
+        , avroFixedAliases    = aliases
         }
-    other -> Left $ "unknown schema type: " ++ T.unpack other
-avroSchemaFromJSON _ = Left "invalid schema JSON: expected string, array, or object"
+    other -> case primitiveFromString other of
+      Just ty -> Right ty
+      Nothing -> Left $ "unknown schema type: " ++ T.unpack other
+
+primitiveFromString :: Text -> Maybe AvroType
+primitiveFromString s = case s of
+  "null"    -> Just (AvroPrimitive AvroNull)
+  "boolean" -> Just (AvroPrimitive AvroBool)
+  "int"     -> Just (AvroPrimitive AvroInt)
+  "long"    -> Just (AvroPrimitive AvroLong)
+  "float"   -> Just (AvroPrimitive AvroFloat)
+  "double"  -> Just (AvroPrimitive AvroDouble)
+  "bytes"   -> Just (AvroPrimitive AvroBytes)
+  "string"  -> Just (AvroPrimitive AvroString)
+  _         -> Nothing
 
 -- ============================================================
 -- Internal helpers — value encoding
@@ -308,10 +352,18 @@ fieldToJSON :: AvroField -> Aeson.Value
 fieldToJSON f = Aeson.Object $ KM.fromList $
   [ ("name", Aeson.String (avroFieldName f))
   , ("type", avroSchemaToJSON (avroFieldType f))
-  ] ++ dfltPair
+  ] ++ dfltPair ++ orderPair ++ aliasesPair (avroFieldAliases f) ++ docPair
   where
     dfltPair = case avroFieldDefault f of
       Just s  -> [("default", defaultSchemaToJSON s)]
+      Nothing -> []
+    orderPair = case avroFieldOrder f of
+      Just Ascending  -> [("order", Aeson.String "ascending")]
+      Just Descending -> [("order", Aeson.String "descending")]
+      Just Ignore     -> [("order", Aeson.String "ignore")]
+      Nothing         -> []
+    docPair = case avroFieldDoc f of
+      Just d  -> [("doc", Aeson.String d)]
       Nothing -> []
 
 defaultSchemaToJSON :: AvroSchema -> Aeson.Value
@@ -334,13 +386,23 @@ fieldFromJSON (Aeson.Object obj) = do
   let dflt = case KM.lookup "default" obj of
         Just _  -> defaultForType ty
         Nothing -> Nothing
+      order = case KM.lookup "order" obj of
+        Just (Aeson.String "ascending")  -> Just Ascending
+        Just (Aeson.String "descending") -> Just Descending
+        Just (Aeson.String "ignore")     -> Just Ignore
+        _                                -> Nothing
+      aliases = parseAliases obj
+      doc = optString "doc" obj
+      knownFieldKeys = Set.fromList ["name", "type", "default", "order", "aliases", "doc"]
+      props = extractProps knownFieldKeys obj
   Right AvroField
     { avroFieldName    = name
     , avroFieldType    = ty
     , avroFieldDefault = dflt
-    , avroFieldOrder   = Nothing
-    , avroFieldAliases = V.empty
-    , avroFieldDoc     = Nothing
+    , avroFieldOrder   = order
+    , avroFieldAliases = aliases
+    , avroFieldDoc     = doc
+    , avroFieldProps   = props
     }
 fieldFromJSON _ = Left "field must be a JSON object"
 
@@ -357,6 +419,44 @@ optString :: Text -> KM.KeyMap Aeson.Value -> Maybe Text
 optString k obj = case KM.lookup (Key.fromText k) obj of
   Just (Aeson.String s) -> Just s
   _                     -> Nothing
+
+parseAliases :: KM.KeyMap Aeson.Value -> V.Vector Text
+parseAliases obj = case KM.lookup "aliases" obj of
+  Just (Aeson.Array arr) -> V.mapMaybe (\case
+    Aeson.String s -> Just s
+    _ -> Nothing) arr
+  _ -> V.empty
+
+extractProps :: Set.Set Text -> KM.KeyMap Aeson.Value -> Map.Map Text Text
+extractProps known obj =
+  Map.fromList
+    [ (Key.toText k, t)
+    | (k, v) <- KM.toList obj
+    , not (Set.member (Key.toText k) known)
+    , t <- case v of
+        Aeson.String s -> [s]
+        _ -> []
+    ]
+
+parseLogicalType :: Text -> Maybe LogicalType
+parseLogicalType "date"             = Just DateLogical
+parseLogicalType "time-millis"      = Just TimeMillisLogical
+parseLogicalType "time-micros"      = Just TimeMicrosLogical
+parseLogicalType "timestamp-millis" = Just TimestampMillisLogical
+parseLogicalType "timestamp-micros" = Just TimestampMicrosLogical
+parseLogicalType "duration"         = Just DurationLogical
+parseLogicalType "uuid"             = Just UuidLogical
+parseLogicalType _                  = Nothing
+
+logicalTypeName :: LogicalType -> Text
+logicalTypeName DateLogical             = "date"
+logicalTypeName TimeMillisLogical       = "time-millis"
+logicalTypeName TimeMicrosLogical       = "time-micros"
+logicalTypeName TimestampMillisLogical  = "timestamp-millis"
+logicalTypeName TimestampMicrosLogical  = "timestamp-micros"
+logicalTypeName DurationLogical         = "duration"
+logicalTypeName UuidLogical             = "uuid"
+logicalTypeName (DecimalLogical _ _)    = "decimal"
 
 instance Aeson.ToJSON AV.Value where
   toJSON = valueToJSON

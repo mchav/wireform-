@@ -8,6 +8,7 @@ module Iceberg.Manifest
   , manifestFileSchema
   ) where
 
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
@@ -21,6 +22,7 @@ manifestEntrySchema = AvroRecord
   , avroRecordNamespace  = Just "org.apache.iceberg"
   , avroRecordDoc        = Just "Entry in an Iceberg manifest file"
   , avroRecordAliases    = V.empty
+  , avroRecordProps      = Map.empty
   , avroRecordFields     = V.fromList
       [ mkField "status"          (AvroPrimitive AvroInt) (Just "File status: 0=existing, 1=added, 2=deleted")
       , mkFieldOpt "snapshot_id"  (AvroPrimitive AvroLong) (Just "Snapshot that added the file")
@@ -35,6 +37,7 @@ dataFileSchema = AvroRecord
   , avroRecordNamespace  = Just "org.apache.iceberg"
   , avroRecordDoc        = Just "Description of a data file"
   , avroRecordAliases    = V.empty
+  , avroRecordProps      = Map.empty
   , avroRecordFields     = V.fromList
       [ mkField "file_path"      (AvroPrimitive AvroString) (Just "Full URI of data file")
       , mkField "file_format"    (AvroPrimitive AvroString) (Just "File format: avro, parquet, or orc")
@@ -43,6 +46,7 @@ dataFileSchema = AvroRecord
           , avroRecordNamespace  = Just "org.apache.iceberg"
           , avroRecordDoc        = Nothing
           , avroRecordAliases    = V.empty
+          , avroRecordProps      = Map.empty
           , avroRecordFields     = V.empty
           }) Nothing
       , mkField "record_count"   (AvroPrimitive AvroLong) (Just "Number of records in file")
@@ -65,6 +69,7 @@ manifestFileSchema = AvroRecord
   , avroRecordNamespace  = Just "org.apache.iceberg"
   , avroRecordDoc        = Just "Entry in an Iceberg manifest list"
   , avroRecordAliases    = V.empty
+  , avroRecordProps      = Map.empty
   , avroRecordFields     = V.fromList
       [ mkField "manifest_path"    (AvroPrimitive AvroString) (Just "Location of the manifest file")
       , mkField "manifest_length"  (AvroPrimitive AvroLong) (Just "Length of the manifest file")
@@ -94,6 +99,7 @@ mkField name ty doc = AvroField
   , avroFieldOrder   = Nothing
   , avroFieldAliases = V.empty
   , avroFieldDoc     = fmap T.pack doc
+  , avroFieldProps   = Map.empty
   }
 
 mkFieldOpt :: String -> AvroType -> Maybe String -> AvroField
@@ -104,4 +110,5 @@ mkFieldOpt name ty doc = AvroField
   , avroFieldOrder   = Nothing
   , avroFieldAliases = V.empty
   , avroFieldDoc     = fmap T.pack doc
+  , avroFieldProps   = Map.empty
   }

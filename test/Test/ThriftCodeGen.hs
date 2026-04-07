@@ -3,8 +3,8 @@ module Test.ThriftCodeGen (thriftCodeGenTests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import Thrift.Schema
 import Thrift.CodeGen (generateThriftTypes)
@@ -25,10 +25,11 @@ testStructCodeGen = testCase "generates struct data type from Thrift schema" $ d
             { tsName = "Person"
             , tsKind = StructNormal
             , tsFields =
-              [ ThriftField 1 "name" TString Required Nothing
-              , ThriftField 2 "age" TI32 Optional Nothing
-              , ThriftField 3 "tags" (TList TString) Default Nothing
+              [ ThriftField 1 "name" TString Required Nothing V.empty
+              , ThriftField 2 "age" TI32 Optional Nothing V.empty
+              , ThriftField 3 "tags" (TList TString) Default Nothing V.empty
               ]
+            , tsAnnotations = V.empty
             }]
         , tsEnums = []
         , tsTypedefs = []
@@ -71,8 +72,9 @@ testOptionalFieldCodeGen = testCase "optional fields produce Maybe types" $ do
             { tsName = "Optional"
             , tsKind = StructNormal
             , tsFields =
-              [ ThriftField 1 "value" TI64 Optional Nothing
+              [ ThriftField 1 "value" TI64 Optional Nothing V.empty
               ]
+            , tsAnnotations = V.empty
             }]
         , tsEnums = []
         , tsTypedefs = []
@@ -89,10 +91,11 @@ testListSetMapCodeGen = testCase "lists -> Vector, sets -> Vector, maps -> Map" 
             { tsName = "Container"
             , tsKind = StructNormal
             , tsFields =
-              [ ThriftField 1 "items" (TList TString) Default Nothing
-              , ThriftField 2 "unique_items" (TSet TI32) Default Nothing
-              , ThriftField 3 "labels" (TMap TString TI64) Default Nothing
+              [ ThriftField 1 "items" (TList TString) Default Nothing V.empty
+              , ThriftField 2 "unique_items" (TSet TI32) Default Nothing V.empty
+              , ThriftField 3 "labels" (TMap TString TI64) Default Nothing V.empty
               ]
+            , tsAnnotations = V.empty
             }]
         , tsEnums = []
         , tsTypedefs = []
@@ -115,8 +118,8 @@ testServiceCodeGen = testCase "services produce method descriptors" $ do
             { tsvName = "UserService"
             , tsvExtends = Nothing
             , tsvMethods =
-              [ ThriftMethod "getUser" (Just (TStruct "User")) [ThriftField 1 "id" TI64 Required Nothing] [] False
-              , ThriftMethod "deleteUser" Nothing [ThriftField 1 "id" TI64 Required Nothing] [] False
+              [ ThriftMethod "getUser" (Just (TStruct "User")) [ThriftField 1 "id" TI64 Required Nothing V.empty] [] False
+              , ThriftMethod "deleteUser" Nothing [ThriftField 1 "id" TI64 Required Nothing V.empty] [] False
               ]
             }]
         }

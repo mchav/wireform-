@@ -2,6 +2,7 @@ module Test.AvroContainer (avroContainerTests) where
 
 import qualified Data.ByteString as BS
 import Data.Int (Int32)
+import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -30,9 +31,10 @@ avroContainerTests = testGroup "Avro Container"
             , avroRecordNamespace = Nothing
             , avroRecordDoc       = Nothing
             , avroRecordAliases   = V.empty
+            , avroRecordProps     = Map.empty
             , avroRecordFields    = V.fromList
-                [ AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
-                , AvroField "age"  (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
+                [ AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
+                , AvroField "age"  (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty
                 ]
             }
           vals = V.fromList
@@ -101,17 +103,19 @@ avroContainerTests = testGroup "Avro Container"
             , avroRecordNamespace = Nothing
             , avroRecordDoc       = Nothing
             , avroRecordAliases   = V.empty
+            , avroRecordProps     = Map.empty
             , avroRecordFields    = V.fromList
-                [ AvroField "a" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing ]
+                [ AvroField "a" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty ]
             }
           readerSchema = AvroRecord
             { avroRecordName      = "Rec"
             , avroRecordNamespace = Nothing
             , avroRecordDoc       = Nothing
             , avroRecordAliases   = V.empty
+            , avroRecordProps     = Map.empty
             , avroRecordFields    = V.fromList
-                [ AvroField "a" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
-                , AvroField "b" (AvroPrimitive AvroString) (Just AvroString) Nothing V.empty Nothing
+                [ AvroField "a" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty
+                , AvroField "b" (AvroPrimitive AvroString) (Just AvroString) Nothing V.empty Nothing Map.empty
                 ]
             }
           writerVal = AV.Record (V.fromList [AV.Int 42])
@@ -137,9 +141,10 @@ avroContainerTests = testGroup "Avro Container"
             , avroRecordNamespace = Nothing
             , avroRecordDoc       = Nothing
             , avroRecordAliases   = V.empty
+            , avroRecordProps     = Map.empty
             , avroRecordFields    = V.fromList
-                [ AvroField "id"   (AvroPrimitive AvroLong) Nothing Nothing V.empty Nothing
-                , AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
+                [ AvroField "id"   (AvroPrimitive AvroLong) Nothing Nothing V.empty Nothing Map.empty
+                , AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
                 ]
             }
           vals = V.fromList
@@ -159,17 +164,19 @@ avroContainerTests = testGroup "Avro Container"
             , avroRecordNamespace = Nothing
             , avroRecordDoc       = Nothing
             , avroRecordAliases   = V.empty
+            , avroRecordProps     = Map.empty
             , avroRecordFields    = V.fromList
-                [ AvroField "id" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing ]
+                [ AvroField "id" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty ]
             }
           readerSchema = AvroRecord
             { avroRecordName      = "Msg"
             , avroRecordNamespace = Nothing
             , avroRecordDoc       = Nothing
             , avroRecordAliases   = V.empty
+            , avroRecordProps     = Map.empty
             , avroRecordFields    = V.fromList
-                [ AvroField "id"   (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
-                , AvroField "tag"  (AvroPrimitive AvroString) (Just AvroString) Nothing V.empty Nothing
+                [ AvroField "id"   (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty
+                , AvroField "tag"  (AvroPrimitive AvroString) (Just AvroString) Nothing V.empty Nothing Map.empty
                 ]
             }
           vals = V.fromList
@@ -190,17 +197,19 @@ avroContainerTests = testGroup "Avro Container"
             , avroRecordNamespace = Nothing
             , avroRecordDoc       = Nothing
             , avroRecordAliases   = V.empty
+            , avroRecordProps     = Map.empty
             , avroRecordFields    = V.fromList
-                [ AvroField "x" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing ]
+                [ AvroField "x" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty ]
             }
           readerSchema = AvroRecord
             { avroRecordName      = "Item"
             , avroRecordNamespace = Nothing
             , avroRecordDoc       = Nothing
             , avroRecordAliases   = V.empty
+            , avroRecordProps     = Map.empty
             , avroRecordFields    = V.fromList
-                [ AvroField "x" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
-                , AvroField "y" (AvroPrimitive AvroLong) (Just AvroLong) Nothing V.empty Nothing
+                [ AvroField "x" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty
+                , AvroField "y" (AvroPrimitive AvroLong) (Just AvroLong) Nothing V.empty Nothing Map.empty
                 ]
             }
           vals = V.fromList [ AV.Record (V.fromList [AV.Int 5]) ]

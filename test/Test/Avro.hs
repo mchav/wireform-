@@ -5,6 +5,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -854,6 +855,7 @@ mkRecordType name fields = AvroRecord
   , avroRecordNamespace = Nothing
   , avroRecordDoc       = Nothing
   , avroRecordAliases   = V.empty
+  , avroRecordProps     = Map.empty
   , avroRecordFields    = V.fromList
       [ AvroField
           { avroFieldName    = fname
@@ -862,6 +864,7 @@ mkRecordType name fields = AvroRecord
           , avroFieldOrder   = Nothing
           , avroFieldAliases = V.empty
           , avroFieldDoc     = Nothing
+          , avroFieldProps   = Map.empty
           }
       | (fname, ftype) <- fields
       ]
@@ -873,6 +876,7 @@ mkRecordTypeWithDefaults name fields = AvroRecord
   , avroRecordNamespace = Nothing
   , avroRecordDoc       = Nothing
   , avroRecordAliases   = V.empty
+  , avroRecordProps     = Map.empty
   , avroRecordFields    = V.fromList
       [ AvroField
           { avroFieldName    = fname
@@ -881,6 +885,7 @@ mkRecordTypeWithDefaults name fields = AvroRecord
           , avroFieldOrder   = Nothing
           , avroFieldAliases = V.empty
           , avroFieldDoc     = Nothing
+          , avroFieldProps   = Map.empty
           }
       | (fname, ftype, dflt) <- fields
       ]

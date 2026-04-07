@@ -5,6 +5,7 @@ import Test.Tasty.HUnit
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 
 import Avro.Schema
@@ -25,10 +26,11 @@ personSchema = AvroRecord
   , avroRecordNamespace = Nothing
   , avroRecordDoc = Nothing
   , avroRecordAliases = V.empty
+  , avroRecordProps = Map.empty
   , avroRecordFields = V.fromList
-    [ AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
-    , AvroField "age" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
-    , AvroField "email" (AvroUnion { avroUnionBranches = V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString] }) Nothing Nothing V.empty Nothing
+    [ AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
+    , AvroField "age" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty
+    , AvroField "email" (AvroUnion { avroUnionBranches = V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString] }) Nothing Nothing V.empty Nothing Map.empty
     ]
   }
 
@@ -75,8 +77,9 @@ testNullableUnionCodeGen = testCase "union [null, T] produces Maybe T" $ do
         , avroRecordNamespace = Nothing
         , avroRecordDoc = Nothing
         , avroRecordAliases = V.empty
+        , avroRecordProps = Map.empty
         , avroRecordFields = V.fromList
-          [ AvroField "value" (AvroUnion { avroUnionBranches = V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroLong] }) Nothing Nothing V.empty Nothing
+          [ AvroField "value" (AvroUnion { avroUnionBranches = V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroLong] }) Nothing Nothing V.empty Nothing Map.empty
           ]
         }
       code = generateAvroTypes schema
@@ -89,9 +92,10 @@ testNestedRecordCodeGen = testCase "nested records produce separate data types" 
         , avroRecordNamespace = Nothing
         , avroRecordDoc = Nothing
         , avroRecordAliases = V.empty
+        , avroRecordProps = Map.empty
         , avroRecordFields = V.fromList
-          [ AvroField "street" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
-          , AvroField "city" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
+          [ AvroField "street" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
+          , AvroField "city" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
           ]
         }
       schema = AvroRecord
@@ -99,9 +103,10 @@ testNestedRecordCodeGen = testCase "nested records produce separate data types" 
         , avroRecordNamespace = Nothing
         , avroRecordDoc = Nothing
         , avroRecordAliases = V.empty
+        , avroRecordProps = Map.empty
         , avroRecordFields = V.fromList
-          [ AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
-          , AvroField "address" addressSchema Nothing Nothing V.empty Nothing
+          [ AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
+          , AvroField "address" addressSchema Nothing Nothing V.empty Nothing Map.empty
           ]
         }
       code = generateAvroTypes schema
@@ -119,9 +124,10 @@ testArrayAndMapCodeGen = testCase "arrays -> Vector, maps -> Map Text" $ do
         , avroRecordNamespace = Nothing
         , avroRecordDoc = Nothing
         , avroRecordAliases = V.empty
+        , avroRecordProps = Map.empty
         , avroRecordFields = V.fromList
-          [ AvroField "tags" (AvroArray { avroArrayItems = AvroPrimitive AvroString }) Nothing Nothing V.empty Nothing
-          , AvroField "metadata" (AvroMap { avroMapValues = AvroPrimitive AvroString }) Nothing Nothing V.empty Nothing
+          [ AvroField "tags" (AvroArray { avroArrayItems = AvroPrimitive AvroString }) Nothing Nothing V.empty Nothing Map.empty
+          , AvroField "metadata" (AvroMap { avroMapValues = AvroPrimitive AvroString }) Nothing Nothing V.empty Nothing Map.empty
           ]
         }
       code = generateAvroTypes schema
