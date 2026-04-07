@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 -- | High-level Thrift encoding for Binary and Compact protocols.
 --
--- Converts a 'ThriftValue' tree into a wire-format 'ByteString'.
+-- Converts a 'Thrift.Value.Value' tree into a wire-format 'ByteString'.
 module Thrift.Encode
   ( encodeBinary
   , encodeCompact
@@ -14,99 +14,100 @@ import Data.Int (Int16, Int32)
 import Data.List (sortBy)
 import Data.Ord (comparing)
 import qualified Data.Text.Encoding as TE
+import qualified Data.Vector as V
 
-import Thrift.Value
+import qualified Thrift.Value as TV
 import Thrift.Wire
 
 --------------------------------------------------------------------------------
 -- Binary Protocol
 --------------------------------------------------------------------------------
 
-encodeBinary :: ThriftValue -> ByteString
+encodeBinary :: TV.Value -> ByteString
 encodeBinary = BL.toStrict . B.toLazyByteString . buildBinary
 
-buildBinary :: ThriftValue -> B.Builder
+buildBinary :: TV.Value -> B.Builder
 buildBinary = \case
-  TVBool b   -> tBinEncodeBool b
-  TVByte v   -> tBinEncodeI8 v
-  TVI16 v    -> tBinEncodeI16 v
-  TVI32 v    -> tBinEncodeI32 v
-  TVI64 v    -> tBinEncodeI64 v
-  TVDouble d -> tBinEncodeDouble d
-  TVString t -> tBinEncodeString (TE.encodeUtf8 t)
-  TVBinary b -> tBinEncodeBinary b
-  TVUUID b   -> B.byteString b
+  TV.Bool b   -> tBinEncodeBool b
+  TV.Byte v   -> tBinEncodeI8 v
+  TV.I16 v    -> tBinEncodeI16 v
+  TV.I32 v    -> tBinEncodeI32 v
+  TV.I64 v    -> tBinEncodeI64 v
+  TV.Double d -> tBinEncodeDouble d
+  TV.String t -> tBinEncodeString (TE.encodeUtf8 t)
+  TV.Binary b -> tBinEncodeBinary b
+  TV.UUID b   -> B.byteString b
 
-  TVStruct fields ->
-    let sorted = sortBy (comparing fst) fields
-    in mconcat [ tBinEncodeFieldBegin (thriftTypeOf v) fid <> buildBinary v
+  TV.Struct fields ->
+    let sorted = sortBy (comparing fst) (V.toList fields)
+    in mconcat [ tBinEncodeFieldBegin (TV.thriftTypeOf v) fid <> buildBinary v
                | (fid, v) <- sorted
                ]
        <> tBinEncodeFieldStop
 
-  TVMap kt vt entries ->
-    tBinEncodeMapBegin kt vt (fromIntegral (length entries) :: Int32)
-    <> mconcat [ buildBinary k <> buildBinary v | (k, v) <- entries ]
+  TV.Map kt vt entries ->
+    tBinEncodeMapBegin kt vt (fromIntegral (V.length entries) :: Int32)
+    <> V.foldl' (\acc (k, v) -> acc <> buildBinary k <> buildBinary v) mempty entries
 
-  TVList et elems ->
-    tBinEncodeListBegin et (fromIntegral (length elems) :: Int32)
-    <> mconcat (map buildBinary elems)
+  TV.List et elems ->
+    tBinEncodeListBegin et (fromIntegral (V.length elems) :: Int32)
+    <> V.foldl' (\acc v -> acc <> buildBinary v) mempty elems
 
-  TVSet et elems ->
-    tBinEncodeSetBegin et (fromIntegral (length elems) :: Int32)
-    <> mconcat (map buildBinary elems)
+  TV.Set et elems ->
+    tBinEncodeSetBegin et (fromIntegral (V.length elems) :: Int32)
+    <> V.foldl' (\acc v -> acc <> buildBinary v) mempty elems
 
 --------------------------------------------------------------------------------
 -- Compact Protocol
 --------------------------------------------------------------------------------
 
-encodeCompact :: ThriftValue -> ByteString
+encodeCompact :: TV.Value -> ByteString
 encodeCompact = BL.toStrict . B.toLazyByteString . buildCompact
 
-buildCompact :: ThriftValue -> B.Builder
+buildCompact :: TV.Value -> B.Builder
 buildCompact val = case val of
-  TVStruct fields -> buildCompactStruct fields
-  _               -> buildCompactValue val
+  TV.Struct fields -> buildCompactStruct fields
+  _                -> buildCompactValue val
 
-buildCompactStruct :: [(Int16, ThriftValue)] -> B.Builder
+buildCompactStruct :: V.Vector (Int16, TV.Value) -> B.Builder
 buildCompactStruct fields =
-  let sorted = sortBy (comparing fst) fields
+  let sorted = sortBy (comparing fst) (V.toList fields)
   in go 0 sorted <> tCompEncodeFieldStop
   where
-    go :: Int16 -> [(Int16, ThriftValue)] -> B.Builder
+    go :: Int16 -> [(Int16, TV.Value)] -> B.Builder
     go _ [] = mempty
     go !lastFid ((fid, v) : rest) =
       let boolVal = case v of
-                      TVBool b -> b
-                      _        -> False
-      in tCompEncodeFieldBegin (thriftTypeOf v) fid lastFid boolVal
+                      TV.Bool b -> b
+                      _         -> False
+      in tCompEncodeFieldBegin (TV.thriftTypeOf v) fid lastFid boolVal
          <> (case v of
-               TVBool _ -> mempty
-               _        -> buildCompactValue v)
+               TV.Bool _ -> mempty
+               _         -> buildCompactValue v)
          <> go fid rest
 
-buildCompactValue :: ThriftValue -> B.Builder
+buildCompactValue :: TV.Value -> B.Builder
 buildCompactValue = \case
-  TVBool b   -> tCompEncodeBool b
-  TVByte v   -> tCompEncodeI8 v
-  TVI16 v    -> tCompEncodeI16 v
-  TVI32 v    -> tCompEncodeI32 v
-  TVI64 v    -> tCompEncodeI64 v
-  TVDouble d -> tCompEncodeDouble d
-  TVString t -> tCompEncodeString (TE.encodeUtf8 t)
-  TVBinary b -> tCompEncodeBinary b
-  TVUUID b   -> B.byteString b
+  TV.Bool b   -> tCompEncodeBool b
+  TV.Byte v   -> tCompEncodeI8 v
+  TV.I16 v    -> tCompEncodeI16 v
+  TV.I32 v    -> tCompEncodeI32 v
+  TV.I64 v    -> tCompEncodeI64 v
+  TV.Double d -> tCompEncodeDouble d
+  TV.String t -> tCompEncodeString (TE.encodeUtf8 t)
+  TV.Binary b -> tCompEncodeBinary b
+  TV.UUID b   -> B.byteString b
 
-  TVStruct fields -> buildCompactStruct fields
+  TV.Struct fields -> buildCompactStruct fields
 
-  TVMap kt vt entries ->
-    tCompEncodeMapBegin kt vt (fromIntegral (length entries) :: Int32)
-    <> mconcat [ buildCompactValue k <> buildCompactValue v | (k, v) <- entries ]
+  TV.Map kt vt entries ->
+    tCompEncodeMapBegin kt vt (fromIntegral (V.length entries) :: Int32)
+    <> V.foldl' (\acc (k, v) -> acc <> buildCompactValue k <> buildCompactValue v) mempty entries
 
-  TVList et elems ->
-    tCompEncodeListBegin et (fromIntegral (length elems) :: Int32)
-    <> mconcat (map buildCompactValue elems)
+  TV.List et elems ->
+    tCompEncodeListBegin et (fromIntegral (V.length elems) :: Int32)
+    <> V.foldl' (\acc v -> acc <> buildCompactValue v) mempty elems
 
-  TVSet et elems ->
-    tCompEncodeSetBegin et (fromIntegral (length elems) :: Int32)
-    <> mconcat (map buildCompactValue elems)
+  TV.Set et elems ->
+    tCompEncodeSetBegin et (fromIntegral (V.length elems) :: Int32)
+    <> V.foldl' (\acc v -> acc <> buildCompactValue v) mempty elems

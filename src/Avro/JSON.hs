@@ -21,56 +21,56 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..))
-import Avro.Value (AvroValue(..))
+import qualified Avro.Value as AV
 
--- | Convert an 'AvroValue' to a JSON 'Aeson.Value' according to its schema.
-avroToJSON :: AvroType -> AvroValue -> Aeson.Value
+-- | Convert an 'AV.Value' to a JSON 'Aeson.Value' according to its schema.
+avroToJSON :: AvroType -> AV.Value -> Aeson.Value
 avroToJSON (AvroPrimitive s) v = primToJSON s v
-avroToJSON AvroRecord{avroRecordFields = fields} (AvRecord vals) =
+avroToJSON AvroRecord{avroRecordFields = fields} (AV.Record vals) =
   Aeson.Object $ KM.fromList
     [ (Key.fromText (avroFieldName f), avroToJSON (avroFieldType f) v)
-    | (f, v) <- zip (V.toList fields) vals
+    | (f, v) <- zip (V.toList fields) (V.toList vals)
     ]
-avroToJSON AvroEnum{avroEnumSymbols = syms} (AvEnum idx) =
+avroToJSON AvroEnum{avroEnumSymbols = syms} (AV.Enum idx) =
   Aeson.String (syms V.! idx)
-avroToJSON AvroArray{avroArrayItems = itemTy} (AvArray items) =
-  Aeson.Array $ V.fromList [avroToJSON itemTy v | v <- items]
-avroToJSON AvroMap{avroMapValues = valTy} (AvMap entries) =
+avroToJSON AvroArray{avroArrayItems = itemTy} (AV.Array items) =
+  Aeson.Array $ V.map (avroToJSON itemTy) items
+avroToJSON AvroMap{avroMapValues = valTy} (AV.Map entries) =
   Aeson.Object $ KM.fromList
-    [(Key.fromText k, avroToJSON valTy v) | (k, v) <- entries]
-avroToJSON AvroUnion{avroUnionBranches = branches} (AvUnion idx val) =
+    [(Key.fromText k, avroToJSON valTy v) | (k, v) <- V.toList entries]
+avroToJSON AvroUnion{avroUnionBranches = branches} (AV.Union idx val) =
   let branchTy = branches V.! idx
   in case val of
-    AvNull -> Aeson.Null
-    _      -> Aeson.Object $ KM.singleton
+    AV.Null -> Aeson.Null
+    _       -> Aeson.Object $ KM.singleton
                 (Key.fromText (typeName branchTy))
                 (avroToJSON branchTy val)
-avroToJSON AvroFixed{} (AvFixed bs) = bytesToJSON bs
+avroToJSON AvroFixed{} (AV.Fixed bs) = bytesToJSON bs
 avroToJSON AvroLogical{avroLogicalBase = base} v = avroToJSON base v
 avroToJSON _ _ = error "Avro.JSON: schema/value mismatch"
 
--- | Parse a JSON 'Aeson.Value' into an 'AvroValue' according to its schema.
-avroFromJSON :: AvroType -> Aeson.Value -> Either String AvroValue
+-- | Parse a JSON 'Aeson.Value' into an 'AV.Value' according to its schema.
+avroFromJSON :: AvroType -> Aeson.Value -> Either String AV.Value
 avroFromJSON (AvroPrimitive s) v = primFromJSON s v
 avroFromJSON AvroRecord{avroRecordFields = fields} (Aeson.Object obj) =
-  AvRecord <$> mapM (\f ->
+  AV.Record . V.fromList <$> mapM (\f ->
     case KM.lookup (Key.fromText (avroFieldName f)) obj of
       Just v  -> avroFromJSON (avroFieldType f) v
       Nothing -> Left $ "missing field: " ++ T.unpack (avroFieldName f)
     ) (V.toList fields)
 avroFromJSON AvroEnum{avroEnumSymbols = syms} (Aeson.String s) =
   case V.findIndex (== s) syms of
-    Just idx -> Right (AvEnum idx)
+    Just idx -> Right (AV.Enum idx)
     Nothing  -> Left $ "unknown enum symbol: " ++ T.unpack s
 avroFromJSON AvroArray{avroArrayItems = itemTy} (Aeson.Array arr) =
-  AvArray <$> mapM (avroFromJSON itemTy) (V.toList arr)
+  AV.Array <$> V.mapM (avroFromJSON itemTy) arr
 avroFromJSON AvroMap{avroMapValues = valTy} (Aeson.Object obj) =
-  AvMap <$> mapM (\(k, v) -> (Key.toText k,) <$> avroFromJSON valTy v) (KM.toList obj)
+  AV.Map . V.fromList <$> mapM (\(k, v) -> (Key.toText k,) <$> avroFromJSON valTy v) (KM.toList obj)
 avroFromJSON AvroUnion{avroUnionBranches = branches} v = unionFromJSON branches v
 avroFromJSON AvroFixed{avroFixedSize = sz} (Aeson.String s) =
   let bs = textToBytes s
   in if BS.length bs == sz
-     then Right (AvFixed bs)
+     then Right (AV.Fixed bs)
      else Left $ "fixed size mismatch: expected " ++ show sz ++ " got " ++ show (BS.length bs)
 avroFromJSON AvroLogical{avroLogicalBase = base} v = avroFromJSON base v
 avroFromJSON _ _ = Left "Avro.JSON: type/value mismatch"
@@ -188,49 +188,49 @@ avroSchemaFromJSON _ = Left "invalid schema JSON: expected string, array, or obj
 -- Internal helpers — value encoding
 -- ============================================================
 
-primToJSON :: AvroSchema -> AvroValue -> Aeson.Value
-primToJSON AvroNull   AvNull       = Aeson.Null
-primToJSON AvroBool   (AvBool b)   = Aeson.Bool b
-primToJSON AvroInt    (AvInt n)    = Aeson.Number (fromIntegral n)
-primToJSON AvroLong   (AvLong n)
+primToJSON :: AvroSchema -> AV.Value -> Aeson.Value
+primToJSON AvroNull   AV.Null       = Aeson.Null
+primToJSON AvroBool   (AV.Bool b)   = Aeson.Bool b
+primToJSON AvroInt    (AV.Int n)    = Aeson.Number (fromIntegral n)
+primToJSON AvroLong   (AV.Long n)
   | n > 9007199254740992 || n < -9007199254740992 =
       Aeson.String (T.pack (show n))
   | otherwise = Aeson.Number (fromIntegral n)
-primToJSON AvroFloat  (AvFloat f)  = floatToJSON f
-primToJSON AvroDouble (AvDouble d) = doubleToJSON d
-primToJSON AvroBytes  (AvBytes bs) = bytesToJSON bs
-primToJSON AvroString (AvString t) = Aeson.String t
+primToJSON AvroFloat  (AV.Float f)  = floatToJSON f
+primToJSON AvroDouble (AV.Double d) = doubleToJSON d
+primToJSON AvroBytes  (AV.Bytes bs) = bytesToJSON bs
+primToJSON AvroString (AV.String t) = Aeson.String t
 primToJSON _ _ = error "Avro.JSON: primitive schema/value mismatch"
 
-primFromJSON :: AvroSchema -> Aeson.Value -> Either String AvroValue
-primFromJSON AvroNull Aeson.Null = Right AvNull
-primFromJSON AvroBool (Aeson.Bool b) = Right (AvBool b)
+primFromJSON :: AvroSchema -> Aeson.Value -> Either String AV.Value
+primFromJSON AvroNull Aeson.Null = Right AV.Null
+primFromJSON AvroBool (Aeson.Bool b) = Right (AV.Bool b)
 primFromJSON AvroInt (Aeson.Number n) =
   case toBoundedInteger n :: Maybe Int32 of
-    Just i  -> Right (AvInt i)
+    Just i  -> Right (AV.Int i)
     Nothing -> Left "int: value out of Int32 range"
 primFromJSON AvroLong (Aeson.Number n) =
   case toBoundedInteger n :: Maybe Int64 of
-    Just i  -> Right (AvLong i)
+    Just i  -> Right (AV.Long i)
     Nothing -> Left "long: value out of Int64 range"
 primFromJSON AvroLong (Aeson.String s) =
   case reads (T.unpack s) of
-    [(i, "")] -> Right (AvLong i)
+    [(i, "")] -> Right (AV.Long i)
     _         -> Left "long: invalid string encoding"
-primFromJSON AvroFloat (Aeson.Number n) = Right (AvFloat (toRealFloat n))
+primFromJSON AvroFloat (Aeson.Number n) = Right (AV.Float (toRealFloat n))
 primFromJSON AvroFloat (Aeson.String s) = case s of
-  "NaN"       -> Right (AvFloat (0 / 0))
-  "Infinity"  -> Right (AvFloat (1 / 0))
-  "-Infinity" -> Right (AvFloat (negate (1 / 0)))
+  "NaN"       -> Right (AV.Float (0 / 0))
+  "Infinity"  -> Right (AV.Float (1 / 0))
+  "-Infinity" -> Right (AV.Float (negate (1 / 0)))
   _           -> Left "float: unrecognized string value"
-primFromJSON AvroDouble (Aeson.Number n) = Right (AvDouble (toRealFloat n))
+primFromJSON AvroDouble (Aeson.Number n) = Right (AV.Double (toRealFloat n))
 primFromJSON AvroDouble (Aeson.String s) = case s of
-  "NaN"       -> Right (AvDouble (0 / 0))
-  "Infinity"  -> Right (AvDouble (1 / 0))
-  "-Infinity" -> Right (AvDouble (negate (1 / 0)))
+  "NaN"       -> Right (AV.Double (0 / 0))
+  "Infinity"  -> Right (AV.Double (1 / 0))
+  "-Infinity" -> Right (AV.Double (negate (1 / 0)))
   _           -> Left "double: unrecognized string value"
-primFromJSON AvroBytes (Aeson.String s) = Right (AvBytes (textToBytes s))
-primFromJSON AvroString (Aeson.String s) = Right (AvString s)
+primFromJSON AvroBytes (Aeson.String s) = Right (AV.Bytes (textToBytes s))
+primFromJSON AvroString (Aeson.String s) = Right (AV.String s)
 primFromJSON _ _ = Left "primitive type/JSON mismatch"
 
 floatToJSON :: Float -> Aeson.Value
@@ -257,10 +257,10 @@ textToBytes = BS.pack . map (fromIntegral . ord) . T.unpack
 -- Internal helpers — union encoding
 -- ============================================================
 
-unionFromJSON :: V.Vector AvroType -> Aeson.Value -> Either String AvroValue
+unionFromJSON :: V.Vector AvroType -> Aeson.Value -> Either String AV.Value
 unionFromJSON branches Aeson.Null =
   case V.findIndex isNullType branches of
-    Just idx -> Right (AvUnion idx AvNull)
+    Just idx -> Right (AV.Union idx AV.Null)
     Nothing  -> Left "union: null is not a branch of this union"
 unionFromJSON branches (Aeson.Object obj) =
   case KM.toList obj of
@@ -269,7 +269,7 @@ unionFromJSON branches (Aeson.Object obj) =
       in case V.findIndex (\t -> typeName t == name) branches of
            Just idx -> do
              val <- avroFromJSON (branches V.! idx) v
-             Right (AvUnion idx val)
+             Right (AV.Union idx val)
            Nothing -> Left $ "union: no branch named " ++ T.unpack name
     _ -> Left "union: expected single-key object or null"
 unionFromJSON _ _ = Left "union: expected null or single-key object"

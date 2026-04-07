@@ -4,7 +4,7 @@
 --
 -- * /Simple JSON/ ('thriftToJSON' \/ 'thriftFromJSON'): primitives as direct
 --   JSON values, structs as objects keyed by field ID, containers as arrays.
---   Decoding is template-guided (a sample 'ThriftValue' provides the type
+--   Decoding is template-guided (a sample 'TV.Value' provides the type
 --   structure).
 --
 -- * /Typed JSON/ ('thriftToTypedJSON' \/ 'thriftFromTypedJSON'): each value is
@@ -35,109 +35,101 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Scientific as Sci
 import qualified Data.Vector as V
 
-import Thrift.Value
+import qualified Thrift.Value as TV
 import Thrift.Wire (ThriftType(..))
 
 --------------------------------------------------------------------------------
 -- Simple JSON encoding
 --------------------------------------------------------------------------------
 
--- | Encode a 'ThriftValue' as simple JSON.
---
--- * Primitives map to their natural JSON counterparts (i64 → string for
---   precision).
--- * Struct → object keyed by field-ID strings.
--- * List\/Set → JSON array.
--- * Map → array of @[key, value]@ pairs.
--- * Binary → base64 string, UUID → hex string.
-thriftToJSON :: ThriftValue -> Aeson.Value
+-- | Encode a 'TV.Value' as simple JSON.
+thriftToJSON :: TV.Value -> Aeson.Value
 thriftToJSON = \case
-  TVBool b    -> Aeson.Bool b
-  TVByte v    -> Aeson.Number (fromIntegral v)
-  TVI16 v     -> Aeson.Number (fromIntegral v)
-  TVI32 v     -> Aeson.Number (fromIntegral v)
-  TVI64 v     -> Aeson.String (Text.pack (show v))
-  TVDouble d  -> Aeson.Number (Sci.fromFloatDigits d)
-  TVString t  -> Aeson.String t
-  TVBinary bs -> Aeson.String (TE.decodeUtf8 (Base64.encode bs))
-  TVUUID bs   -> Aeson.String (TE.decodeUtf8 (Base16.encode bs))
-  TVStruct fields ->
+  TV.Bool b    -> Aeson.Bool b
+  TV.Byte v    -> Aeson.Number (fromIntegral v)
+  TV.I16 v     -> Aeson.Number (fromIntegral v)
+  TV.I32 v     -> Aeson.Number (fromIntegral v)
+  TV.I64 v     -> Aeson.String (Text.pack (show v))
+  TV.Double d  -> Aeson.Number (Sci.fromFloatDigits d)
+  TV.String t  -> Aeson.String t
+  TV.Binary bs -> Aeson.String (TE.decodeUtf8 (Base64.encode bs))
+  TV.UUID bs   -> Aeson.String (TE.decodeUtf8 (Base16.encode bs))
+  TV.Struct fields ->
     Aeson.object [ (Key.fromText (Text.pack (show fid)), thriftToJSON v)
-                 | (fid, v) <- fields ]
-  TVList _ elems ->
-    Aeson.Array (V.fromList (map thriftToJSON elems))
-  TVSet _ elems ->
-    Aeson.Array (V.fromList (map thriftToJSON elems))
-  TVMap _ _ entries ->
-    Aeson.Array (V.fromList
-      [ Aeson.Array (V.fromList [thriftToJSON k, thriftToJSON v])
-      | (k, v) <- entries ])
+                 | (fid, v) <- V.toList fields ]
+  TV.List _ elems ->
+    Aeson.Array (V.map thriftToJSON elems)
+  TV.Set _ elems ->
+    Aeson.Array (V.map thriftToJSON elems)
+  TV.Map _ _ entries ->
+    Aeson.Array (V.map
+      (\(k, v) -> Aeson.Array (V.fromList [thriftToJSON k, thriftToJSON v]))
+      entries)
 
 --------------------------------------------------------------------------------
 -- Simple JSON decoding (template-guided)
 --------------------------------------------------------------------------------
 
--- | Decode a JSON value into a 'ThriftValue', using a template value that
--- supplies the expected type structure.  The template's /values/ are ignored;
--- only its shape (constructor choices, field IDs, element types) matters.
-thriftFromJSON :: ThriftValue -> Aeson.Value -> Either String ThriftValue
+-- | Decode a JSON value into a 'TV.Value', using a template value that
+-- supplies the expected type structure.
+thriftFromJSON :: TV.Value -> Aeson.Value -> Either String TV.Value
 thriftFromJSON template json = case template of
-  TVBool _ -> case json of
-    Aeson.Bool b -> Right (TVBool b)
+  TV.Bool _ -> case json of
+    Aeson.Bool b -> Right (TV.Bool b)
     _            -> Left "Expected JSON bool"
 
-  TVByte _ -> case json of
+  TV.Byte _ -> case json of
     Aeson.Number n -> case Sci.toBoundedInteger n of
-      Just v  -> Right (TVByte (v :: Int8))
+      Just v  -> Right (TV.Byte (v :: Int8))
       Nothing -> Left "Number out of range for byte"
     _ -> Left "Expected JSON number for byte"
 
-  TVI16 _ -> case json of
+  TV.I16 _ -> case json of
     Aeson.Number n -> case Sci.toBoundedInteger n of
-      Just v  -> Right (TVI16 v)
+      Just v  -> Right (TV.I16 v)
       Nothing -> Left "Number out of range for i16"
     _ -> Left "Expected JSON number for i16"
 
-  TVI32 _ -> case json of
+  TV.I32 _ -> case json of
     Aeson.Number n -> case Sci.toBoundedInteger n of
-      Just v  -> Right (TVI32 v)
+      Just v  -> Right (TV.I32 v)
       Nothing -> Left "Number out of range for i32"
     _ -> Left "Expected JSON number for i32"
 
-  TVI64 _ -> case json of
+  TV.I64 _ -> case json of
     Aeson.String s -> case (TR.signed TR.decimal s :: Either String (Int64, Text)) of
-      Right (v, "") -> Right (TVI64 v)
+      Right (v, "") -> Right (TV.I64 v)
       _             -> Left ("Invalid i64 string: " <> Text.unpack s)
     Aeson.Number n -> case Sci.toBoundedInteger n of
-      Just v  -> Right (TVI64 (v :: Int64))
+      Just v  -> Right (TV.I64 (v :: Int64))
       Nothing -> Left "Number out of range for i64"
     _ -> Left "Expected JSON string or number for i64"
 
-  TVDouble _ -> case json of
-    Aeson.Number n -> Right (TVDouble (Sci.toRealFloat n))
+  TV.Double _ -> case json of
+    Aeson.Number n -> Right (TV.Double (Sci.toRealFloat n))
     _              -> Left "Expected JSON number for double"
 
-  TVString _ -> case json of
-    Aeson.String t -> Right (TVString t)
+  TV.String _ -> case json of
+    Aeson.String t -> Right (TV.String t)
     _              -> Left "Expected JSON string"
 
-  TVBinary _ -> case json of
+  TV.Binary _ -> case json of
     Aeson.String s -> case Base64.decode (TE.encodeUtf8 s) of
-      Right bs -> Right (TVBinary bs)
+      Right bs -> Right (TV.Binary bs)
       Left err -> Left ("Invalid base64: " <> err)
     _ -> Left "Expected JSON string (base64) for binary"
 
-  TVUUID _ -> case json of
+  TV.UUID _ -> case json of
     Aeson.String s -> case Base16.decode (TE.encodeUtf8 s) of
-      Right bs | BS.length bs == 16 -> Right (TVUUID bs)
+      Right bs | BS.length bs == 16 -> Right (TV.UUID bs)
                | otherwise -> Left "UUID hex must decode to 16 bytes"
       Left err -> Left ("Invalid hex for UUID: " <> err)
     _ -> Left "Expected JSON string (hex) for UUID"
 
-  TVStruct templateFields -> case json of
+  TV.Struct templateFields -> case json of
     Aeson.Object obj -> do
       let tmplMap = [ (Text.pack (show fid), tmpl)
-                    | (fid, tmpl) <- templateFields ]
+                    | (fid, tmpl) <- V.toList templateFields ]
       fields <- mapM (\(key, val) -> do
           let kt = Key.toText key
           fid <- parseFieldId kt
@@ -147,137 +139,121 @@ thriftFromJSON template json = case template of
               Right (fid, v)
             Nothing -> Left ("Unknown field: " <> Text.unpack kt)
         ) (KM.toList obj)
-      Right (TVStruct (sortBy (comparing fst) fields))
+      Right (TV.Struct (V.fromList (sortBy (comparing fst) fields)))
     _ -> Left "Expected JSON object for struct"
 
-  TVList et tmplElems -> case json of
+  TV.List et tmplElems -> case json of
     Aeson.Array arr -> do
-      let etmpl = case tmplElems of
-            (e:_) -> e
-            []    -> defaultForWireType et
-      elems <- mapM (thriftFromJSON etmpl) (V.toList arr)
-      Right (TVList et elems)
+      let etmpl = if V.null tmplElems
+                  then defaultForWireType et
+                  else V.head tmplElems
+      elems <- V.mapM (thriftFromJSON etmpl) arr
+      Right (TV.List et elems)
     _ -> Left "Expected JSON array for list"
 
-  TVSet et tmplElems -> case json of
+  TV.Set et tmplElems -> case json of
     Aeson.Array arr -> do
-      let etmpl = case tmplElems of
-            (e:_) -> e
-            []    -> defaultForWireType et
-      elems <- mapM (thriftFromJSON etmpl) (V.toList arr)
-      Right (TVSet et elems)
+      let etmpl = if V.null tmplElems
+                  then defaultForWireType et
+                  else V.head tmplElems
+      elems <- V.mapM (thriftFromJSON etmpl) arr
+      Right (TV.Set et elems)
     _ -> Left "Expected JSON array for set"
 
-  TVMap kt vt tmplEntries -> case json of
+  TV.Map kt vt tmplEntries -> case json of
     Aeson.Array arr -> do
-      let (kTmpl, vTmpl) = case tmplEntries of
-            ((k, v):_) -> (k, v)
-            []         -> (defaultForWireType kt, defaultForWireType vt)
-      entries <- mapM (\pairJson -> case pairJson of
+      let (kTmpl, vTmpl) = if V.null tmplEntries
+                            then (defaultForWireType kt, defaultForWireType vt)
+                            else let (k, v) = V.head tmplEntries in (k, v)
+      entries <- V.mapM (\pairJson -> case pairJson of
           Aeson.Array pairArr
             | V.length pairArr == 2 -> do
                 k <- thriftFromJSON kTmpl (pairArr V.! 0)
                 v <- thriftFromJSON vTmpl (pairArr V.! 1)
                 Right (k, v)
           _ -> Left "Expected [key, value] pair in map"
-        ) (V.toList arr)
-      Right (TVMap kt vt entries)
+        ) arr
+      Right (TV.Map kt vt entries)
     _ -> Left "Expected JSON array of pairs for map"
 
 --------------------------------------------------------------------------------
 -- Typed JSON encoding (TJSONProtocol-like)
 --------------------------------------------------------------------------------
 
--- | Encode a 'ThriftValue' as typed JSON (TJSONProtocol format).
---
--- * Struct → object keyed by field-ID strings; each field value is wrapped in
---   a single-key object whose key is the type abbreviation:
---   @{\"1\": {\"tf\": true}, \"2\": {\"i32\": 42}}@.
--- * List\/Set → @[\"elemType\", count, elem1, …]@ inside a @{\"lst\": …}@ /
---   @{\"set\": …}@ wrapper.
--- * Map → @[\"keyType\", \"valType\", count, {k1: v1, …}]@ inside a
---   @{\"map\": …}@ wrapper.
---
--- Type abbreviations: @tf@ bool, @i8@ byte, @i16@, @i32@, @i64@, @dbl@
--- double, @str@ string, @bin@ binary, @rec@ struct, @lst@ list, @set@, @map@,
--- @uuid@.
-thriftToTypedJSON :: ThriftValue -> Aeson.Value
+-- | Encode a 'TV.Value' as typed JSON (TJSONProtocol format).
+thriftToTypedJSON :: TV.Value -> Aeson.Value
 thriftToTypedJSON = \case
-  TVStruct fields -> encodeTypedStruct fields
-  v               -> wrapTyped v
+  TV.Struct fields -> encodeTypedStruct fields
+  v                -> wrapTyped v
 
-encodeTypedStruct :: [(Int16, ThriftValue)] -> Aeson.Value
+encodeTypedStruct :: V.Vector (Int16, TV.Value) -> Aeson.Value
 encodeTypedStruct fields =
   Aeson.object [ (Key.fromText (Text.pack (show fid)), wrapTyped v)
-               | (fid, v) <- fields ]
+               | (fid, v) <- V.toList fields ]
 
-wrapTyped :: ThriftValue -> Aeson.Value
+wrapTyped :: TV.Value -> Aeson.Value
 wrapTyped v = Aeson.object [(Key.fromText (typeAbbrev v), rawTyped v)]
 
-rawTyped :: ThriftValue -> Aeson.Value
+rawTyped :: TV.Value -> Aeson.Value
 rawTyped = \case
-  TVBool b    -> Aeson.Bool b
-  TVByte v    -> Aeson.Number (fromIntegral v)
-  TVI16 v     -> Aeson.Number (fromIntegral v)
-  TVI32 v     -> Aeson.Number (fromIntegral v)
-  TVI64 v     -> Aeson.String (Text.pack (show v))
-  TVDouble d  -> Aeson.Number (Sci.fromFloatDigits d)
-  TVString t  -> Aeson.String t
-  TVBinary bs -> Aeson.String (TE.decodeUtf8 (Base64.encode bs))
-  TVUUID bs   -> Aeson.String (TE.decodeUtf8 (Base16.encode bs))
-  TVStruct fields -> encodeTypedStruct fields
-  TVList et elems ->
+  TV.Bool b    -> Aeson.Bool b
+  TV.Byte v    -> Aeson.Number (fromIntegral v)
+  TV.I16 v     -> Aeson.Number (fromIntegral v)
+  TV.I32 v     -> Aeson.Number (fromIntegral v)
+  TV.I64 v     -> Aeson.String (Text.pack (show v))
+  TV.Double d  -> Aeson.Number (Sci.fromFloatDigits d)
+  TV.String t  -> Aeson.String t
+  TV.Binary bs -> Aeson.String (TE.decodeUtf8 (Base64.encode bs))
+  TV.UUID bs   -> Aeson.String (TE.decodeUtf8 (Base16.encode bs))
+  TV.Struct fields -> encodeTypedStruct fields
+  TV.List et elems ->
     let etTag = containerElemTag et elems
     in Aeson.Array (V.fromList
         ( Aeson.String etTag
-        : Aeson.Number (fromIntegral (length elems))
-        : map rawTyped elems ))
-  TVSet et elems ->
+        : Aeson.Number (fromIntegral (V.length elems))
+        : V.toList (V.map rawTyped elems) ))
+  TV.Set et elems ->
     let etTag = containerElemTag et elems
     in Aeson.Array (V.fromList
         ( Aeson.String etTag
-        : Aeson.Number (fromIntegral (length elems))
-        : map rawTyped elems ))
-  TVMap kt vt entries ->
-    let ktTag = case entries of { ((k,_):_) -> typeAbbrev k; _ -> wireTypeTag kt }
-        vtTag = case entries of { ((_,v):_) -> typeAbbrev v; _ -> wireTypeTag vt }
+        : Aeson.Number (fromIntegral (V.length elems))
+        : V.toList (V.map rawTyped elems) ))
+  TV.Map kt vt entries ->
+    let ktTag = if V.null entries then wireTypeTag kt else typeAbbrev (fst (V.head entries))
+        vtTag = if V.null entries then wireTypeTag vt else typeAbbrev (snd (V.head entries))
     in Aeson.Array (V.fromList
         [ Aeson.String ktTag
         , Aeson.String vtTag
-        , Aeson.Number (fromIntegral (length entries))
+        , Aeson.Number (fromIntegral (V.length entries))
         , Aeson.object [ (Key.fromText (stringifyKey k), rawTyped v)
-                        | (k, v) <- entries ]
+                        | (k, v) <- V.toList entries ]
         ])
 
 --------------------------------------------------------------------------------
 -- Typed JSON decoding
 --------------------------------------------------------------------------------
 
--- | Decode a typed JSON value (TJSONProtocol format) into a 'ThriftValue'.
---
--- Structs are recognised as objects whose keys are numeric field-ID strings.
--- Single-key objects whose key is a type abbreviation are decoded as the
--- corresponding wrapped value.  An empty object is decoded as an empty struct.
-thriftFromTypedJSON :: Aeson.Value -> Either String ThriftValue
+-- | Decode a typed JSON value (TJSONProtocol format) into a 'TV.Value'.
+thriftFromTypedJSON :: Aeson.Value -> Either String TV.Value
 thriftFromTypedJSON json = case json of
   Aeson.Object obj
-    | KM.null obj -> Right (TVStruct [])
+    | KM.null obj -> Right (TV.Struct V.empty)
     | [(key, val)] <- KM.toList obj
     , isTypeTag (Key.toText key) ->
         decodeTypedWrapped (Key.toText key) val
     | otherwise -> decodeTypedStruct obj
   _ -> Left "Expected JSON object for typed Thrift value"
 
-decodeTypedStruct :: KM.KeyMap Aeson.Value -> Either String ThriftValue
+decodeTypedStruct :: KM.KeyMap Aeson.Value -> Either String TV.Value
 decodeTypedStruct obj = do
   fields <- mapM (\(key, val) -> do
       fid <- parseFieldId (Key.toText key)
       v <- decodeWrappedField val
       Right (fid, v)
     ) (KM.toList obj)
-  Right (TVStruct (sortBy (comparing fst) fields))
+  Right (TV.Struct (V.fromList (sortBy (comparing fst) fields)))
 
-decodeWrappedField :: Aeson.Value -> Either String ThriftValue
+decodeWrappedField :: Aeson.Value -> Either String TV.Value
 decodeWrappedField json = case json of
   Aeson.Object obj
     | [(key, val)] <- KM.toList obj ->
@@ -285,48 +261,48 @@ decodeWrappedField json = case json of
     | otherwise -> Left "Expected single type-tag in wrapped field"
   _ -> Left "Expected type-wrapped object for field"
 
-decodeTypedWrapped :: Text -> Aeson.Value -> Either String ThriftValue
+decodeTypedWrapped :: Text -> Aeson.Value -> Either String TV.Value
 decodeTypedWrapped tag val = case tag of
   "tf" -> case val of
-    Aeson.Bool b -> Right (TVBool b)
+    Aeson.Bool b -> Right (TV.Bool b)
     _            -> Left "Expected bool for 'tf'"
   "i8" -> case val of
     Aeson.Number n -> case Sci.toBoundedInteger n of
-      Just v  -> Right (TVByte v)
+      Just v  -> Right (TV.Byte v)
       Nothing -> Left "Out of range for i8"
     _ -> Left "Expected number for 'i8'"
   "i16" -> case val of
     Aeson.Number n -> case Sci.toBoundedInteger n of
-      Just v  -> Right (TVI16 v)
+      Just v  -> Right (TV.I16 v)
       Nothing -> Left "Out of range for i16"
     _ -> Left "Expected number for 'i16'"
   "i32" -> case val of
     Aeson.Number n -> case Sci.toBoundedInteger n of
-      Just v  -> Right (TVI32 v)
+      Just v  -> Right (TV.I32 v)
       Nothing -> Left "Out of range for i32"
     _ -> Left "Expected number for 'i32'"
   "i64" -> case val of
     Aeson.String s -> case (TR.signed TR.decimal s :: Either String (Int64, Text)) of
-      Right (v, "") -> Right (TVI64 v)
+      Right (v, "") -> Right (TV.I64 v)
       _             -> Left ("Invalid i64: " <> Text.unpack s)
     Aeson.Number n -> case Sci.toBoundedInteger n of
-      Just v  -> Right (TVI64 (v :: Int64))
+      Just v  -> Right (TV.I64 (v :: Int64))
       Nothing -> Left "Out of range for i64"
     _ -> Left "Expected string or number for 'i64'"
   "dbl" -> case val of
-    Aeson.Number n -> Right (TVDouble (Sci.toRealFloat n))
+    Aeson.Number n -> Right (TV.Double (Sci.toRealFloat n))
     _              -> Left "Expected number for 'dbl'"
   "str" -> case val of
-    Aeson.String t -> Right (TVString t)
+    Aeson.String t -> Right (TV.String t)
     _              -> Left "Expected string for 'str'"
   "bin" -> case val of
     Aeson.String s -> case Base64.decode (TE.encodeUtf8 s) of
-      Right bs -> Right (TVBinary bs)
+      Right bs -> Right (TV.Binary bs)
       Left err -> Left ("Invalid base64: " <> err)
     _ -> Left "Expected string for 'bin'"
   "uuid" -> case val of
     Aeson.String s -> case Base16.decode (TE.encodeUtf8 s) of
-      Right bs | BS.length bs == 16 -> Right (TVUUID bs)
+      Right bs | BS.length bs == 16 -> Right (TV.UUID bs)
                | otherwise -> Left "UUID hex must be 16 bytes"
       Left err -> Left ("Invalid hex: " <> err)
     _ -> Left "Expected string for 'uuid'"
@@ -336,7 +312,7 @@ decodeTypedWrapped tag val = case tag of
   "map" -> decodeTypedMap val
   _     -> Left ("Unknown type tag: " <> Text.unpack tag)
 
-decodeTypedList :: Aeson.Value -> Either String ThriftValue
+decodeTypedList :: Aeson.Value -> Either String TV.Value
 decodeTypedList json = case json of
   Aeson.Array arr
     | V.length arr >= 2 -> do
@@ -344,10 +320,10 @@ decodeTypedList json = case json of
         et <- wireTypeFromTag etTag
         let elems = V.toList (V.drop 2 arr)
         decoded <- mapM (decodeTypedWrapped etTag) elems
-        Right (TVList et decoded)
+        Right (TV.List et (V.fromList decoded))
   _ -> Left "Expected array (length >= 2) for typed list"
 
-decodeTypedSet :: Aeson.Value -> Either String ThriftValue
+decodeTypedSet :: Aeson.Value -> Either String TV.Value
 decodeTypedSet json = case json of
   Aeson.Array arr
     | V.length arr >= 2 -> do
@@ -355,10 +331,10 @@ decodeTypedSet json = case json of
         et <- wireTypeFromTag etTag
         let elems = V.toList (V.drop 2 arr)
         decoded <- mapM (decodeTypedWrapped etTag) elems
-        Right (TVSet et decoded)
+        Right (TV.Set et (V.fromList decoded))
   _ -> Left "Expected array (length >= 2) for typed set"
 
-decodeTypedMap :: Aeson.Value -> Either String ThriftValue
+decodeTypedMap :: Aeson.Value -> Either String TV.Value
 decodeTypedMap json = case json of
   Aeson.Array arr
     | V.length arr >= 3 -> do
@@ -367,7 +343,7 @@ decodeTypedMap json = case json of
         kt <- wireTypeFromTag ktTag
         vt <- wireTypeFromTag vtTag
         if V.length arr < 4
-          then Right (TVMap kt vt [])
+          then Right (TV.Map kt vt V.empty)
           else case arr V.! 3 of
             Aeson.Object obj -> do
               entries <- mapM (\(k, v) -> do
@@ -375,7 +351,7 @@ decodeTypedMap json = case json of
                   val' <- decodeTypedWrapped vtTag v
                   Right (key, val')
                 ) (KM.toList obj)
-              Right (TVMap kt vt entries)
+              Right (TV.Map kt vt (V.fromList entries))
             _ -> Left "Expected object for map entries"
   _ -> Left "Expected array (length >= 3) for typed map"
 
@@ -425,74 +401,74 @@ wireTypeTag = \case
   TT_UUID   -> "uuid"
   TT_STOP   -> "stop"
 
-typeAbbrev :: ThriftValue -> Text
+typeAbbrev :: TV.Value -> Text
 typeAbbrev = \case
-  TVBool{}   -> "tf"
-  TVByte{}   -> "i8"
-  TVI16{}    -> "i16"
-  TVI32{}    -> "i32"
-  TVI64{}    -> "i64"
-  TVDouble{} -> "dbl"
-  TVString{} -> "str"
-  TVBinary{} -> "bin"
-  TVStruct{} -> "rec"
-  TVMap{}    -> "map"
-  TVList{}   -> "lst"
-  TVSet{}    -> "set"
-  TVUUID{}   -> "uuid"
+  TV.Bool{}   -> "tf"
+  TV.Byte{}   -> "i8"
+  TV.I16{}    -> "i16"
+  TV.I32{}    -> "i32"
+  TV.I64{}    -> "i64"
+  TV.Double{} -> "dbl"
+  TV.String{} -> "str"
+  TV.Binary{} -> "bin"
+  TV.Struct{} -> "rec"
+  TV.Map{}    -> "map"
+  TV.List{}   -> "lst"
+  TV.Set{}    -> "set"
+  TV.UUID{}   -> "uuid"
 
 isTypeTag :: Text -> Bool
 isTypeTag t = t `elem`
   ["tf","i8","i16","i32","i64","dbl","str","bin","rec","map","lst","set","uuid"]
 
-containerElemTag :: ThriftType -> [ThriftValue] -> Text
-containerElemTag et = \case
-  (e:_) -> typeAbbrev e
-  []    -> wireTypeTag et
+containerElemTag :: ThriftType -> V.Vector TV.Value -> Text
+containerElemTag et elems
+  | V.null elems = wireTypeTag et
+  | otherwise    = typeAbbrev (V.head elems)
 
-stringifyKey :: ThriftValue -> Text
+stringifyKey :: TV.Value -> Text
 stringifyKey = \case
-  TVString t  -> t
-  TVBool b    -> if b then "true" else "false"
-  TVByte v    -> Text.pack (show v)
-  TVI16 v     -> Text.pack (show v)
-  TVI32 v     -> Text.pack (show v)
-  TVI64 v     -> Text.pack (show v)
-  TVDouble d  -> Text.pack (show d)
-  TVBinary bs -> TE.decodeUtf8 (Base64.encode bs)
-  TVUUID bs   -> TE.decodeUtf8 (Base16.encode bs)
-  _           -> "<complex>"
+  TV.String t  -> t
+  TV.Bool b    -> if b then "true" else "false"
+  TV.Byte v    -> Text.pack (show v)
+  TV.I16 v     -> Text.pack (show v)
+  TV.I32 v     -> Text.pack (show v)
+  TV.I64 v     -> Text.pack (show v)
+  TV.Double d  -> Text.pack (show d)
+  TV.Binary bs -> TE.decodeUtf8 (Base64.encode bs)
+  TV.UUID bs   -> TE.decodeUtf8 (Base16.encode bs)
+  _            -> "<complex>"
 
-parseTypedKeyFromTag :: Text -> Text -> Either String ThriftValue
+parseTypedKeyFromTag :: Text -> Text -> Either String TV.Value
 parseTypedKeyFromTag tag keyStr = case tag of
-  "str" -> Right (TVString keyStr)
+  "str" -> Right (TV.String keyStr)
   "tf"  -> case keyStr of
-    "true"  -> Right (TVBool True)
-    "false" -> Right (TVBool False)
+    "true"  -> Right (TV.Bool True)
+    "false" -> Right (TV.Bool False)
     _       -> Left "Invalid bool key"
-  "i8"  -> readIntKey (\n -> TVByte (fromIntegral n)) keyStr
-  "i16" -> readIntKey (\n -> TVI16 (fromIntegral n)) keyStr
-  "i32" -> readIntKey (\n -> TVI32 (fromIntegral n)) keyStr
-  "i64" -> readIntKey TVI64 keyStr
+  "i8"  -> readIntKey (\n -> TV.Byte (fromIntegral n)) keyStr
+  "i16" -> readIntKey (\n -> TV.I16 (fromIntegral n)) keyStr
+  "i32" -> readIntKey (\n -> TV.I32 (fromIntegral n)) keyStr
+  "i64" -> readIntKey TV.I64 keyStr
   _     -> Left ("Unsupported map key type: " <> Text.unpack tag)
 
-readIntKey :: (Int64 -> ThriftValue) -> Text -> Either String ThriftValue
+readIntKey :: (Int64 -> TV.Value) -> Text -> Either String TV.Value
 readIntKey f t = case (TR.signed TR.decimal t :: Either String (Int64, Text)) of
   Right (n, "") -> Right (f n)
   _             -> Left ("Invalid numeric key: " <> Text.unpack t)
 
-defaultForWireType :: ThriftType -> ThriftValue
+defaultForWireType :: ThriftType -> TV.Value
 defaultForWireType = \case
-  TT_BOOL   -> TVBool False
-  TT_BYTE   -> TVByte 0
-  TT_I16    -> TVI16 0
-  TT_I32    -> TVI32 0
-  TT_I64    -> TVI64 0
-  TT_DOUBLE -> TVDouble 0
-  TT_STRING -> TVString ""
-  TT_STRUCT -> TVStruct []
-  TT_MAP    -> TVMap TT_STOP TT_STOP []
-  TT_LIST   -> TVList TT_STOP []
-  TT_SET    -> TVSet TT_STOP []
-  TT_UUID   -> TVUUID BS.empty
-  TT_STOP   -> TVBool False
+  TT_BOOL   -> TV.Bool False
+  TT_BYTE   -> TV.Byte 0
+  TT_I16    -> TV.I16 0
+  TT_I32    -> TV.I32 0
+  TT_I64    -> TV.I64 0
+  TT_DOUBLE -> TV.Double 0
+  TT_STRING -> TV.String ""
+  TT_STRUCT -> TV.Struct V.empty
+  TT_MAP    -> TV.Map TT_STOP TT_STOP V.empty
+  TT_LIST   -> TV.List TT_STOP V.empty
+  TT_SET    -> TV.Set TT_STOP V.empty
+  TT_UUID   -> TV.UUID BS.empty
+  TT_STOP   -> TV.Bool False

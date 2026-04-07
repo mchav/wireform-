@@ -6,11 +6,11 @@ import qualified Data.Vector as V
 import System.CPUTime
 
 import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..))
-import Avro.Value (AvroValue(..))
+import qualified Avro.Value as AV
 import Avro.Encode (encodeAvro)
 import Avro.Decode (decodeAvro)
 
-import Thrift.Value (ThriftValue(..))
+import qualified Thrift.Value as TV
 import Thrift.Wire ()
 import Thrift.Encode (encodeBinary, encodeCompact)
 import Thrift.Decode (decodeBinary, decodeCompact)
@@ -45,20 +45,20 @@ personSchema = AvroRecord
       ]
   }
 
-personAvro :: AvroValue
-personAvro = AvRecord
-  [ AvString "John Doe"
-  , AvInt 30
-  , AvString "john@example.com"
-  , AvDouble 95.5
+personAvro :: AV.Value
+personAvro = AV.Record $ V.fromList
+  [ AV.String "John Doe"
+  , AV.Int 30
+  , AV.String "john@example.com"
+  , AV.Double 95.5
   ]
 
-personThrift :: ThriftValue
-personThrift = TVStruct
-  [ (1, TVString "John Doe")
-  , (2, TVI32 30)
-  , (3, TVString "john@example.com")
-  , (4, TVDouble 95.5)
+personThrift :: TV.Value
+personThrift = TV.Struct $ V.fromList
+  [ (1, TV.String "John Doe")
+  , (2, TV.I32 30)
+  , (3, TV.String "john@example.com")
+  , (4, TV.Double 95.5)
   ]
 
 iterations :: Int

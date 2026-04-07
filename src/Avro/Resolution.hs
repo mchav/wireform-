@@ -15,20 +15,17 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..))
-import Avro.Value (AvroValue(..))
+import qualified Avro.Value as AV
 
 -- | Describes how to convert a writer field to a reader field.
 data FieldResolution
   = FieldFromWriter !Int !ResolvedSchema
-    -- ^ Use the writer field at the given index, applying the nested resolution.
-  | FieldDefault !AvroValue
-    -- ^ Writer doesn't have this field; use the reader's default value.
+  | FieldDefault !AV.Value
   deriving stock (Show, Eq)
 
 -- | A plan for transforming writer-schema values into reader-schema values.
 data ResolvedSchema
   = ResolvedSame
-    -- ^ Schemas are identical; no transformation needed.
   | ResolvedPromoteIntToLong
   | ResolvedPromoteIntToFloat
   | ResolvedPromoteIntToDouble
@@ -36,15 +33,10 @@ data ResolvedSchema
   | ResolvedPromoteLongToDouble
   | ResolvedPromoteFloatToDouble
   | ResolvedRecord !(V.Vector FieldResolution)
-    -- ^ Record resolution: one entry per reader field.
   | ResolvedEnum !Text !(V.Vector Int)
-    -- ^ Enum: maps writer index -> reader index. Name for error messages.
   | ResolvedArray !ResolvedSchema
-    -- ^ Array: resolve each item.
   | ResolvedMap !ResolvedSchema
-    -- ^ Map: resolve each value.
   | ResolvedUnion !(V.Vector ResolvedSchema)
-    -- ^ Union: maps writer branch index -> resolution for matching reader branch.
   deriving stock (Show, Eq)
 
 -- | Check compatibility between a writer and reader schema and produce a
@@ -110,16 +102,16 @@ resolveOneField wFields rField =
         Nothing   -> Left $ "reader field '" ++ T.unpack (avroFieldName rField)
                            ++ "' not in writer and has no default"
 
-defaultToValue :: AvroType -> AvroSchema -> AvroValue
-defaultToValue _ AvroNull   = AvNull
-defaultToValue _ AvroBool   = AvBool False
-defaultToValue _ AvroInt    = AvInt 0
-defaultToValue _ AvroLong   = AvLong 0
-defaultToValue _ AvroFloat  = AvFloat 0
-defaultToValue _ AvroDouble = AvDouble 0
-defaultToValue _ AvroBytes  = AvBytes ""
-defaultToValue _ AvroString = AvString ""
-defaultToValue _ _          = AvNull
+defaultToValue :: AvroType -> AvroSchema -> AV.Value
+defaultToValue _ AvroNull   = AV.Null
+defaultToValue _ AvroBool   = AV.Bool False
+defaultToValue _ AvroInt    = AV.Int 0
+defaultToValue _ AvroLong   = AV.Long 0
+defaultToValue _ AvroFloat  = AV.Float 0
+defaultToValue _ AvroDouble = AV.Double 0
+defaultToValue _ AvroBytes  = AV.Bytes ""
+defaultToValue _ AvroString = AV.String ""
+defaultToValue _ _          = AV.Null
 
 -- ============================================================
 -- Enum resolution
@@ -181,32 +173,31 @@ findFirstMatch wt branches idx
 
 -- | Transform a writer-schema value into a reader-schema value using
 -- a previously computed 'ResolvedSchema'.
-resolveValue :: ResolvedSchema -> AvroValue -> Either String AvroValue
+resolveValue :: ResolvedSchema -> AV.Value -> Either String AV.Value
 resolveValue ResolvedSame v = Right v
-resolveValue ResolvedPromoteIntToLong (AvInt n) = Right (AvLong (fromIntegral n))
-resolveValue ResolvedPromoteIntToFloat (AvInt n) = Right (AvFloat (fromIntegral n))
-resolveValue ResolvedPromoteIntToDouble (AvInt n) = Right (AvDouble (fromIntegral n))
-resolveValue ResolvedPromoteLongToFloat (AvLong n) = Right (AvFloat (fromIntegral n))
-resolveValue ResolvedPromoteLongToDouble (AvLong n) = Right (AvDouble (fromIntegral n))
-resolveValue ResolvedPromoteFloatToDouble (AvFloat f) = Right (AvDouble (realToFrac f))
-resolveValue (ResolvedRecord fieldRes) (AvRecord wFields) =
-  AvRecord <$> mapM (resolveField wFieldVec) (V.toList fieldRes)
-  where wFieldVec = V.fromList wFields
-resolveValue (ResolvedEnum name mapping) (AvEnum wIdx) =
+resolveValue ResolvedPromoteIntToLong (AV.Int n) = Right (AV.Long (fromIntegral n))
+resolveValue ResolvedPromoteIntToFloat (AV.Int n) = Right (AV.Float (fromIntegral n))
+resolveValue ResolvedPromoteIntToDouble (AV.Int n) = Right (AV.Double (fromIntegral n))
+resolveValue ResolvedPromoteLongToFloat (AV.Long n) = Right (AV.Float (fromIntegral n))
+resolveValue ResolvedPromoteLongToDouble (AV.Long n) = Right (AV.Double (fromIntegral n))
+resolveValue ResolvedPromoteFloatToDouble (AV.Float f) = Right (AV.Double (realToFrac f))
+resolveValue (ResolvedRecord fieldRes) (AV.Record wFields) =
+  AV.Record <$> V.mapM (resolveField wFields) fieldRes
+resolveValue (ResolvedEnum name mapping) (AV.Enum wIdx) =
   if wIdx < V.length mapping
-  then Right (AvEnum (mapping V.! wIdx))
+  then Right (AV.Enum (mapping V.! wIdx))
   else Left $ "enum '" ++ T.unpack name ++ "': writer index out of range"
-resolveValue (ResolvedArray res) (AvArray items) =
-  AvArray <$> mapM (resolveValue res) items
-resolveValue (ResolvedMap res) (AvMap entries) =
-  AvMap <$> mapM (\(k, v) -> (k,) <$> resolveValue res v) entries
-resolveValue (ResolvedUnion resolutions) (AvUnion wIdx val) = do
+resolveValue (ResolvedArray res) (AV.Array items) =
+  AV.Array <$> V.mapM (resolveValue res) items
+resolveValue (ResolvedMap res) (AV.Map entries) =
+  AV.Map <$> V.mapM (\(k, v) -> (k,) <$> resolveValue res v) entries
+resolveValue (ResolvedUnion resolutions) (AV.Union wIdx val) = do
   if wIdx < V.length resolutions
   then resolveValue (resolutions V.! wIdx) val
   else Left "union: writer branch index out of range"
 resolveValue _ _ = Left "resolution/value mismatch"
 
-resolveField :: V.Vector AvroValue -> FieldResolution -> Either String AvroValue
+resolveField :: V.Vector AV.Value -> FieldResolution -> Either String AV.Value
 resolveField wFields (FieldFromWriter idx res) =
   if idx < V.length wFields
   then resolveValue res (wFields V.! idx)

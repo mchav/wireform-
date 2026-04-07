@@ -25,14 +25,14 @@ import Data.Word (Word8, Word32, Word64)
 
 import Thrift.Decode (decodeBinary, decodeCompact)
 import Thrift.Encode (encodeBinary, encodeCompact)
-import Thrift.Value (ThriftValue)
+import qualified Thrift.Value as TV
 
 -- | Thrift RPC message types.
 data ThriftMessageType
-  = TMsgCall       -- ^ Client invoking a method (type=1)
-  | TMsgReply      -- ^ Server response (type=2)
-  | TMsgException  -- ^ Server-side exception (type=3)
-  | TMsgOneway     -- ^ Fire-and-forget call (type=4)
+  = TMsgCall
+  | TMsgReply
+  | TMsgException
+  | TMsgOneway
   deriving stock (Show, Eq, Ord, Enum, Bounded)
 
 -- | A complete Thrift RPC message: header + payload.
@@ -40,7 +40,7 @@ data ThriftMessage = ThriftMessage
   { tmsgName    :: !Text
   , tmsgType    :: !ThriftMessageType
   , tmsgSeqId   :: {-# UNPACK #-} !Int32
-  , tmsgPayload :: !ThriftValue
+  , tmsgPayload :: !TV.Value
   } deriving stock (Show, Eq)
 
 msgTypeToWord8 :: ThriftMessageType -> Word8
@@ -65,10 +65,6 @@ msgTypeFromWord8 _ = Nothing
 binaryVersion :: Word32
 binaryVersion = 0x80010000
 
--- | Encode a Thrift RPC message using the Binary Protocol (strict format).
---
--- Strict format: version (0x80010000 | message_type) as i32,
--- then name (i32-prefixed string), then seqid (i32), then payload struct.
 encodeMessageBinary :: ThriftMessage -> ByteString
 encodeMessageBinary (ThriftMessage name mtype seqid payload) =
   BL.toStrict $ B.toLazyByteString $
@@ -80,10 +76,6 @@ encodeMessageBinary (ThriftMessage name mtype seqid payload) =
        <> putBE32i (fromIntegral seqid)
        <> B.byteString (encodeBinary payload)
 
--- | Decode a Thrift RPC message from Binary Protocol wire bytes.
---
--- Supports both strict format (version word with high bit set) and
--- old format (name first, then type byte, then seqid).
 decodeMessageBinary :: ByteString -> Either String ThriftMessage
 decodeMessageBinary !bs
   | BS.length bs < 4 = Left "decodeMessageBinary: insufficient data"
@@ -136,10 +128,6 @@ compactProtocolId = 0x82
 compactVersion :: Word8
 compactVersion = 1
 
--- | Encode a Thrift RPC message using the Compact Protocol.
---
--- Format: protocol ID (0x82), version+type byte, seqid (varint),
--- name (varint-prefixed string), then payload struct.
 encodeMessageCompact :: ThriftMessage -> ByteString
 encodeMessageCompact (ThriftMessage name mtype seqid payload) =
   BL.toStrict $ B.toLazyByteString $
@@ -152,7 +140,6 @@ encodeMessageCompact (ThriftMessage name mtype seqid payload) =
        <> B.byteString nameBytes
        <> B.byteString (encodeCompact payload)
 
--- | Decode a Thrift RPC message from Compact Protocol wire bytes.
 decodeMessageCompact :: ByteString -> Either String ThriftMessage
 decodeMessageCompact !bs
   | BS.length bs < 2 = Left "decodeMessageCompact: insufficient data"
