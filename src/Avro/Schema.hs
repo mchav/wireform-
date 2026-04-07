@@ -15,6 +15,7 @@ module Avro.Schema
   , LogicalType (..)
   ) where
 
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import GHC.Generics (Generic)
@@ -57,6 +58,7 @@ data AvroField = AvroField
   , avroFieldOrder   :: !(Maybe SortOrder)
   , avroFieldAliases :: !(Vector Text)
   , avroFieldDoc     :: !(Maybe Text)
+  , avroFieldProps   :: !(Map Text Text)
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
@@ -98,6 +100,7 @@ data AvroType
       , avroRecordDoc       :: !(Maybe Text)
       , avroRecordAliases   :: !(Vector Text)
       , avroRecordFields    :: !(Vector AvroField)
+      , avroRecordProps     :: !(Map Text Text)
       }
     -- ^ Record: ordered list of named, typed fields.
   | AvroEnum

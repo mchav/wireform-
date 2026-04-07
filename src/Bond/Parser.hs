@@ -13,6 +13,7 @@ import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import Data.Void (Void)
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -99,21 +100,39 @@ declarationP = choice
   , BondDeclEnum <$> enumP
   ]
 
+bondAttributeP :: Parser (Text, Maybe Text)
+bondAttributeP = do
+  void (symbol "[")
+  name <- identifier
+  val <- optional (do
+    void (symbol "(")
+    v <- stringLiteral
+    void (symbol ")")
+    pure v)
+  void (symbol "]")
+  pure (name, val)
+
+bondAttributesP :: Parser (V.Vector (Text, Maybe Text))
+bondAttributesP = V.fromList <$> many (try bondAttributeP)
+
 structP :: Parser BondStruct
 structP = do
+  attrs <- bondAttributesP
   reserved "struct"
   name <- identifier
   tp <- optional (angles identifier)
   optional (symbol ":" *> identifier)
   fields <- braces (many fieldP)
   pure BondStruct
-    { bsName      = name
-    , bsTypeParam = tp
-    , bsFields    = fields
+    { bsName       = name
+    , bsTypeParam  = tp
+    , bsFields     = fields
+    , bsAttributes = attrs
     }
 
 fieldP :: Parser BondField
 fieldP = do
+  attrs <- bondAttributesP
   fid <- integerLiteral
   void (symbol ":")
   mods <- optional modifierP
@@ -122,11 +141,12 @@ fieldP = do
   dflt <- optional (symbol "=" *> defaultValueP)
   void (symbol ";")
   pure BondField
-    { bfFieldId  = fromIntegral fid
-    , bfModifier = fromMaybe BondOptional mods
-    , bfType     = ftype
-    , bfName     = fname
-    , bfDefault  = dflt
+    { bfFieldId    = fromIntegral fid
+    , bfModifier   = fromMaybe BondOptional mods
+    , bfType       = ftype
+    , bfName       = fname
+    , bfDefault    = dflt
+    , bfAttributes = attrs
     }
 
 modifierP :: Parser BondFieldModifier

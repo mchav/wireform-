@@ -1,6 +1,7 @@
 module Test.BondParser (bondParserTests) where
 
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -204,4 +205,31 @@ bondParserTests = testGroup "Bond Parser"
         Right schema -> do
           bondNamespace schema @?= Just "test"
           length (bondDecls schema) @?= 1
+
+  , testCase "parse struct with attributes" $ do
+      let input = T.pack $ unlines
+            [ "[Namespace(\"example\")]"
+            , "[Schema(\"v2\")]"
+            , "struct Annotated {"
+            , "  [JsonName(\"display_name\")]"
+            , "  0: string name;"
+            , "  1: int32 age;"
+            , "}"
+            ]
+      case parseBond input of
+        Left err -> assertFailure err
+        Right schema -> do
+          case head (bondDecls schema) of
+            BondDeclStruct s -> do
+              bsName s @?= "Annotated"
+              V.length (bsAttributes s) @?= 2
+              bsAttributes s V.! 0 @?= ("Namespace", Just "example")
+              bsAttributes s V.! 1 @?= ("Schema", Just "v2")
+              let f1 = head (bsFields s)
+              bfName f1 @?= "name"
+              V.length (bfAttributes f1) @?= 1
+              bfAttributes f1 V.! 0 @?= ("JsonName", Just "display_name")
+              let f2 = (bsFields s) !! 1
+              V.length (bfAttributes f2) @?= 0
+            _ -> assertFailure "expected struct declaration"
   ]

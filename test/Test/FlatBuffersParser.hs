@@ -259,4 +259,49 @@ flatBuffersParserTests = testGroup "FlatBuffers Parser"
           V.length (fbsIncludes schema) @?= 1
           fbsRootType schema @?= Just "Monster"
           V.length (fbsDecls schema) @?= 4
+
+  , testCase "parse field with metadata" $ do
+      let input = T.pack $ unlines
+            [ "table Config {"
+            , "  priority:int (id: 1, deprecated);"
+            , "  name:string (required);"
+            , "  value:float;"
+            , "}"
+            ]
+      case parseFlatBuffers input of
+        Left err -> assertFailure err
+        Right schema -> do
+          case fbsDecls schema V.! 0 of
+            FBTable tbl -> do
+              tdName tbl @?= "Config"
+              V.length (tdFields tbl) @?= 3
+              let f0 = tdFields tbl V.! 0
+              tfName f0 @?= "priority"
+              tfDeprecated f0 @?= True
+              V.length (tfMetadata f0) @?= 2
+              tfMetadata f0 V.! 0 @?= ("id", Just "1")
+              tfMetadata f0 V.! 1 @?= ("deprecated", Nothing)
+              let f1 = tdFields tbl V.! 1
+              tfName f1 @?= "name"
+              V.length (tfMetadata f1) @?= 1
+              tfMetadata f1 V.! 0 @?= ("required", Nothing)
+              let f2 = tdFields tbl V.! 2
+              V.length (tfMetadata f2) @?= 0
+            other -> assertFailure $ "expected FBTable, got " ++ show other
+
+  , testCase "parse attribute declarations stored" $ do
+      let input = T.pack $ unlines
+            [ "attribute \"priority\";"
+            , "attribute \"custom_hash\";"
+            , ""
+            , "table Item {"
+            , "  name:string;"
+            , "}"
+            ]
+      case parseFlatBuffers input of
+        Left err -> assertFailure err
+        Right schema -> do
+          V.length (fbsAttributes schema) @?= 2
+          fbsAttributes schema V.! 0 @?= "priority"
+          fbsAttributes schema V.! 1 @?= "custom_hash"
   ]

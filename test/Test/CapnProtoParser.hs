@@ -219,4 +219,29 @@ capnProtoParserTests = testGroup "CapnProto Parser"
             DStruct s ->
               fdType (sdFields s V.! 0) @?= CTNamed "MyCustomType"
             other -> assertFailure $ "expected DStruct, got " ++ show other
+
+  , testCase "parse field with $annotation" $ do
+      let input = T.pack $ unlines
+            [ "struct Config {"
+            , "  timeout @0 :UInt32 $jsonName(\"timeout_ms\");"
+            , "  name @1 :Text $deprecated $label(\"display\");"
+            , "}"
+            ]
+      case parseCapnProto input of
+        Left err -> assertFailure err
+        Right schema -> do
+          case csDecls schema V.! 0 of
+            DStruct s -> do
+              sdName s @?= "Config"
+              V.length (sdFields s) @?= 2
+              let f0 = sdFields s V.! 0
+              fdName f0 @?= "timeout"
+              V.length (fdAnnotations f0) @?= 1
+              fdAnnotations f0 V.! 0 @?= ("jsonName", Just "timeout_ms")
+              let f1 = sdFields s V.! 1
+              fdName f1 @?= "name"
+              V.length (fdAnnotations f1) @?= 2
+              fst (fdAnnotations f1 V.! 0) @?= "deprecated"
+              fdAnnotations f1 V.! 1 @?= ("label", Just "display")
+            other -> assertFailure $ "expected DStruct, got " ++ show other
   ]

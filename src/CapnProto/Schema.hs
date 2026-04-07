@@ -36,10 +36,11 @@ data StructDef = StructDef
   } deriving stock (Show, Eq)
 
 data FieldDef = FieldDef
-  { fdName    :: !Text
-  , fdOrdinal :: !Word16
-  , fdType    :: !CapnType
-  , fdDefault :: !(Maybe Text)
+  { fdName        :: !Text
+  , fdOrdinal     :: !Word16
+  , fdType        :: !CapnType
+  , fdDefault     :: !(Maybe Text)
+  , fdAnnotations :: !(Vector (Text, Maybe Text))
   } deriving stock (Show, Eq)
 
 data CapnType

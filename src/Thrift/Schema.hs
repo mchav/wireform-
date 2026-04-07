@@ -33,6 +33,7 @@ module Thrift.Schema
 
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
+import Data.Vector (Vector)
 
 --------------------------------------------------------------------------------
 -- Requiredness
@@ -79,6 +80,7 @@ data ThriftField = ThriftField
   , tfFieldType    :: !ThriftType
   , tfRequiredness :: !Requiredness
   , tfDefault      :: !(Maybe ThriftConstValue)
+  , tfAnnotations  :: !(Vector (Text, Text))
   } deriving stock (Show, Eq)
 
 --------------------------------------------------------------------------------
@@ -91,9 +93,10 @@ data StructKind = StructNormal | StructUnion | StructException
 
 -- | A Thrift struct, union, or exception.
 data ThriftStruct = ThriftStruct
-  { tsName   :: !Text
-  , tsKind   :: !StructKind
-  , tsFields :: ![ThriftField]
+  { tsName        :: !Text
+  , tsKind        :: !StructKind
+  , tsFields      :: ![ThriftField]
+  , tsAnnotations :: !(Vector (Text, Text))
   } deriving stock (Show, Eq)
 
 --------------------------------------------------------------------------------

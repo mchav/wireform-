@@ -1,6 +1,7 @@
 module Test.ThriftParser (thriftParserTests) where
 
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -192,4 +193,27 @@ thriftParserTests = testGroup "Thrift Parser"
           length (tsStructs schema) @?= 2
           length (tsEnums schema) @?= 1
           length (tsServices schema) @?= 1
+
+  , testCase "parse struct with annotations" $ do
+      let input = T.pack $ unlines
+            [ "struct Annotated {"
+            , "  1: required string name (max_length = \"255\")"
+            , "  2: optional i32 age"
+            , "} (cpp.type = \"AnnotatedStruct\", java.final = \"true\")"
+            ]
+      case parseThrift input of
+        Left err -> assertFailure err
+        Right schema -> do
+          length (tsStructs schema) @?= 1
+          let s = head (tsStructs schema)
+          tsName s @?= "Annotated"
+          V.length (tsAnnotations s) @?= 2
+          tsAnnotations s V.! 0 @?= ("cpp.type", "AnnotatedStruct")
+          tsAnnotations s V.! 1 @?= ("java.final", "true")
+          let f1 = head (tsFields s)
+          tfFieldName f1 @?= "name"
+          V.length (tfAnnotations f1) @?= 1
+          tfAnnotations f1 V.! 0 @?= ("max_length", "255")
+          let f2 = (tsFields s) !! 1
+          V.length (tfAnnotations f2) @?= 0
   ]

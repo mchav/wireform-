@@ -16,6 +16,7 @@ module Bond.Schema
 
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
+import Data.Vector (Vector)
 
 data BondFieldModifier
   = BondRequired
@@ -46,17 +47,19 @@ data BondFieldType
   deriving stock (Show, Eq)
 
 data BondField = BondField
-  { bfFieldId   :: {-# UNPACK #-} !Int32
-  , bfModifier  :: !BondFieldModifier
-  , bfType      :: !BondFieldType
-  , bfName      :: !Text
-  , bfDefault   :: !(Maybe Text)
+  { bfFieldId     :: {-# UNPACK #-} !Int32
+  , bfModifier    :: !BondFieldModifier
+  , bfType        :: !BondFieldType
+  , bfName        :: !Text
+  , bfDefault     :: !(Maybe Text)
+  , bfAttributes  :: !(Vector (Text, Maybe Text))
   } deriving stock (Show, Eq)
 
 data BondStruct = BondStruct
   { bsName       :: !Text
   , bsTypeParam  :: !(Maybe Text)
   , bsFields     :: ![BondField]
+  , bsAttributes :: !(Vector (Text, Maybe Text))
   } deriving stock (Show, Eq)
 
 data BondEnumValue = BondEnumValue

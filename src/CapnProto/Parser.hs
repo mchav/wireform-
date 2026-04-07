@@ -180,6 +180,16 @@ structMemberP = choice
   , SMField <$> fieldDefP
   ]
 
+fieldAnnotationP :: Parser (Text, Maybe Text)
+fieldAnnotationP = do
+  void (symbol "$")
+  name <- identifier
+  val <- optional (parens (stringLiteral <|> lexeme (takeWhile1P Nothing (\c -> c /= ')' && c /= '\n'))))
+  pure (name, val)
+
+fieldAnnotationsP :: Parser (V.Vector (Text, Maybe Text))
+fieldAnnotationsP = V.fromList <$> many (try fieldAnnotationP)
+
 fieldDefP :: Parser FieldDef
 fieldDefP = do
   name <- identifier
@@ -188,16 +198,18 @@ fieldDefP = do
   void (symbol ":")
   ty <- capnTypeP
   dflt <- optional (symbol "=" *> defaultValueP)
+  anns <- fieldAnnotationsP
   void (symbol ";")
   pure FieldDef
-    { fdName    = name
-    , fdOrdinal = ordinal
-    , fdType    = ty
-    , fdDefault = dflt
+    { fdName        = name
+    , fdOrdinal     = ordinal
+    , fdType        = ty
+    , fdDefault     = dflt
+    , fdAnnotations = anns
     }
 
 defaultValueP :: Parser Text
-defaultValueP = lexeme $ takeWhile1P Nothing (\c -> c /= ';' && c /= '\n')
+defaultValueP = lexeme $ takeWhile1P Nothing (\c -> c /= ';' && c /= '\n' && c /= '$')
 
 --------------------------------------------------------------------------------
 -- Union

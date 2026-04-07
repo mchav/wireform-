@@ -20,6 +20,7 @@ data FlatBuffersSchema = FlatBuffersSchema
   , fbsRootType       :: !(Maybe Text)
   , fbsFileIdentifier :: !(Maybe Text)
   , fbsFileExtension  :: !(Maybe Text)
+  , fbsAttributes     :: !(Vector Text)
   } deriving stock (Show, Eq)
 
 data FBDeclaration
@@ -39,6 +40,7 @@ data TableField = TableField
   , tfType       :: !FBType
   , tfDefault    :: !(Maybe Text)
   , tfDeprecated :: !Bool
+  , tfMetadata   :: !(Vector (Text, Maybe Text))
   } deriving stock (Show, Eq)
 
 data FBStructDef = FBStructDef

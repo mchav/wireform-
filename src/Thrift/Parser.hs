@@ -8,6 +8,7 @@ import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import Data.Void (Void)
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -133,15 +134,15 @@ namespaceP = do
   reserved "namespace"
   _ <- identifier
   _ <- identifier <|> stringLiteral
-  optional (parens (many annotationP))
+  optional (parens (many annotationPairP))
   pure ()
 
-annotationP :: Parser ()
-annotationP = do
-  _ <- identifier
-  optional (symbol "=" *> (stringLiteral <|> identifier))
+annotationPairP :: Parser (Text, Text)
+annotationPairP = do
+  key <- identifier
+  val <- option "" (symbol "=" *> (stringLiteral <|> identifier))
   optListSep
-  pure ()
+  pure (key, val)
 
 definitionP :: Parser Definition
 definitionP = choice
@@ -159,11 +160,12 @@ structP = do
   reserved "struct"
   name <- identifier
   fields <- braces (many fieldP)
-  optAnnotations
+  anns <- annotationsP
   pure ThriftStruct
     { tsName = name
     , tsKind = StructNormal
     , tsFields = fields
+    , tsAnnotations = anns
     }
 
 unionP :: Parser ThriftStruct
@@ -171,11 +173,12 @@ unionP = do
   reserved "union"
   name <- identifier
   fields <- braces (many fieldP)
-  optAnnotations
+  anns <- annotationsP
   pure ThriftStruct
     { tsName = name
     , tsKind = StructUnion
     , tsFields = fields
+    , tsAnnotations = anns
     }
 
 exceptionP :: Parser ThriftStruct
@@ -183,11 +186,12 @@ exceptionP = do
   reserved "exception"
   name <- identifier
   fields <- braces (many fieldP)
-  optAnnotations
+  anns <- annotationsP
   pure ThriftStruct
     { tsName = name
     , tsKind = StructException
     , tsFields = fields
+    , tsAnnotations = anns
     }
 
 fieldP :: Parser ThriftField
@@ -199,13 +203,14 @@ fieldP = do
   fname <- identifier
   dflt <- optional (symbol "=" *> constValueP)
   optListSep
-  optAnnotations
+  anns <- annotationsP
   pure ThriftField
     { tfFieldId      = fromIntegral fid
     , tfFieldName    = fname
     , tfFieldType    = ftype
     , tfRequiredness = fromMaybe Default req
     , tfDefault      = dflt
+    , tfAnnotations  = anns
     }
 
 requirednessP :: Parser Requiredness
@@ -252,7 +257,7 @@ enumP = do
   reserved "enum"
   name <- identifier
   vals <- braces (many enumValueP)
-  optAnnotations
+  _ <- annotationsP
   let numbered = assignEnumValues vals 0
   pure ThriftEnum { teName = name, teValues = numbered }
 
@@ -261,7 +266,7 @@ enumValueP = do
   name <- identifier
   val <- optional (symbol "=" *> (fromIntegral <$> integerLiteral))
   optListSep
-  optAnnotations
+  _ <- annotationsP
   pure (name, val)
 
 assignEnumValues :: [(Text, Maybe Int32)] -> Int32 -> [(Text, Int32)]
@@ -276,7 +281,7 @@ serviceP = do
   name <- identifier
   extends <- optional (reserved "extends" *> identifier)
   methods <- braces (many methodP)
-  optAnnotations
+  _ <- annotationsP
   pure ThriftService
     { tsvName    = name
     , tsvExtends = extends
@@ -291,7 +296,7 @@ methodP = do
   params <- parens (many fieldP)
   throws <- option [] (reserved "throws" *> parens (many fieldP))
   optListSep
-  optAnnotations
+  _ <- annotationsP
   pure ThriftMethod
     { tmName       = name
     , tmReturnType = retType
@@ -305,7 +310,7 @@ typedefP = do
   reserved "typedef"
   ty <- typeP
   name <- identifier
-  optAnnotations
+  _ <- annotationsP
   optListSep
   pure ThriftTypedef { ttName = name, ttType = ty }
 
@@ -352,5 +357,7 @@ constMapEntry = do
   v <- constValueP
   pure (k, v)
 
-optAnnotations :: Parser ()
-optAnnotations = void $ optional $ parens (many annotationP)
+annotationsP :: Parser (V.Vector (Text, Text))
+annotationsP = do
+  mAnns <- optional $ parens (many annotationPairP)
+  pure $ V.fromList (fromMaybe [] mAnns)

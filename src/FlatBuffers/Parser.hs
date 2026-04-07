@@ -83,6 +83,7 @@ schemaP = do
       root    = listToMaybe' [r | TLRootType r <- items]
       fileId  = listToMaybe' [f | TLFileIdentifier f <- items]
       fileExt = listToMaybe' [e | TLFileExtension e <- items]
+      attrs   = V.fromList [a | TLAttribute a <- items]
   pure FlatBuffersSchema
     { fbsNamespace      = ns
     , fbsIncludes       = incs
@@ -90,6 +91,7 @@ schemaP = do
     , fbsRootType       = root
     , fbsFileIdentifier = fileId
     , fbsFileExtension  = fileExt
+    , fbsAttributes     = attrs
     }
 
 listToMaybe' :: [a] -> Maybe a
@@ -103,7 +105,7 @@ data TopLevel
   | TLRootType !Text
   | TLFileIdentifier !Text
   | TLFileExtension !Text
-  | TLAttribute
+  | TLAttribute !Text
 
 topLevelP :: Parser TopLevel
 topLevelP = choice
@@ -112,7 +114,7 @@ topLevelP = choice
   , TLRootType <$> rootTypeP
   , TLFileIdentifier <$> fileIdentifierP
   , TLFileExtension <$> fileExtensionP
-  , TLAttribute <$ attributeP
+  , TLAttribute <$> attributeP
   , TLDecl <$> declP
   ]
 
@@ -155,11 +157,12 @@ fileExtensionP = do
   void (symbol ";")
   pure ext
 
-attributeP :: Parser ()
+attributeP :: Parser Text
 attributeP = do
   reserved "attribute"
-  _ <- stringLiteral
+  name <- stringLiteral
   void (symbol ";")
+  pure name
 
 --------------------------------------------------------------------------------
 -- Declarations
@@ -187,19 +190,39 @@ tableP = do
     , tdFields = V.fromList fields
     }
 
+metadataEntryP :: Parser (Text, Maybe Text)
+metadataEntryP = do
+  key <- identifier
+  val <- optional (symbol ":" *> metadataValueP)
+  pure (key, val)
+
+metadataValueP :: Parser Text
+metadataValueP = stringLiteral <|> lexeme (takeWhile1P Nothing (\c -> c /= ',' && c /= ')' && c /= ' ' && c /= '\n'))
+
+fieldMetadataP :: Parser (V.Vector (Text, Maybe Text))
+fieldMetadataP = do
+  mMeta <- optional $ do
+    void (symbol "(")
+    entries <- metadataEntryP `sepBy` symbol ","
+    void (symbol ")")
+    pure entries
+  pure $ V.fromList (maybe [] id mMeta)
+
 tableFieldP :: Parser TableField
 tableFieldP = do
   name <- identifier
   void (symbol ":")
   ty <- fbTypeP
   dflt <- optional (symbol "=" *> defaultValP)
-  depr <- option False (True <$ try (symbol "(" *> symbol "deprecated" *> symbol ")"))
+  meta <- fieldMetadataP
+  let depr = V.any (\(k, _) -> k == "deprecated") meta
   void (symbol ";")
   pure TableField
     { tfName       = name
     , tfType       = ty
     , tfDefault    = dflt
     , tfDeprecated = depr
+    , tfMetadata   = meta
     }
 
 defaultValP :: Parser Text
