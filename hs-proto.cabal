@@ -121,6 +121,9 @@ library
       Proto.Google.Protobuf.FieldMask.Util
       Proto.Google.Protobuf.Wrappers.Util
       Proto.Google.Protobuf.Struct.Util
+      -- Thrift support
+      Thrift.Wire
+      Thrift.Schema
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
