@@ -188,6 +188,11 @@ library
       -- Apache Arrow IPC
       Arrow.Types
       Arrow.IPC
+      -- EDN (Extensible Data Notation) support
+      EDN.Value
+      EDN.Encode
+      EDN.Decode
+      EDN.JSON
 
     c-sources:        cbits/fast_decode.c
     include-dirs:     cbits/simde
@@ -261,6 +266,7 @@ test-suite hs-proto-test
       Test.Parquet
       Test.Pickle
       Test.Arrow
+      Test.EDN
 
     build-depends:
         base             >= 4.16 && < 5

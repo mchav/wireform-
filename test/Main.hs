@@ -32,6 +32,7 @@ import Test.ASN1 (asn1Tests)
 import Test.Parquet (parquetTests)
 import Test.Pickle (pickleTests)
 import Test.Arrow (arrowTests)
+import Test.EDN (ednTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -65,4 +66,5 @@ main = defaultMain $ testGroup "hs-proto"
   , parquetTests
   , pickleTests
   , arrowTests
+  , ednTests
   ]
