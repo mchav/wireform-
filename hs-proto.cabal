@@ -120,6 +120,8 @@ library
       Avro.Value
       Avro.Encode
       Avro.Decode
+      Avro.JSON
+      Avro.Resolution
       -- Well-known type utilities
       Proto.Google.Protobuf.Timestamp.Util
       Proto.Google.Protobuf.Duration.Util
