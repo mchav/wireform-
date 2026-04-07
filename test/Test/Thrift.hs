@@ -12,6 +12,7 @@ import Test.Tasty.Hedgehog
 
 import Thrift.Encode (encodeBinary, encodeCompact)
 import Thrift.Decode (decodeBinary, decodeCompact)
+import Thrift.JSON (thriftToJSON, thriftFromJSON, thriftToTypedJSON, thriftFromTypedJSON)
 import Thrift.Value
 import Thrift.Wire (ThriftType (..))
 
@@ -24,6 +25,7 @@ thriftTests = testGroup "Thrift Encode/Decode"
   , unitContainers
   , unitEmptyStructAndContainers
   , unitProtocolsDiffer
+  , jsonTests
   ]
 
 --------------------------------------------------------------------------------
@@ -364,3 +366,127 @@ unitProtocolsDiffer = testGroup "Protocols differ in bytes, agree on values"
       decodeBinary binBytes   @?= Right v
       decodeCompact compBytes @?= Right v
   ]
+
+--------------------------------------------------------------------------------
+-- JSON protocol tests
+--------------------------------------------------------------------------------
+
+jsonTests :: TestTree
+jsonTests = testGroup "Thrift JSON"
+  [ jsonPrimitiveRoundtrip
+  , jsonStructEncodeDecode
+  , jsonNestedStruct
+  , jsonContainers
+  , jsonEmptyContainers
+  , typedJsonMixedStruct
+  ]
+
+jsonPrimitiveRoundtrip :: TestTree
+jsonPrimitiveRoundtrip = testGroup "JSON primitive roundtrip"
+  [ testCase "Bool" $ do
+      let v = TVBool True
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "Byte" $ do
+      let v = TVByte 42
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "I16" $ do
+      let v = TVI16 (-1000)
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "I32" $ do
+      let v = TVI32 100000
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "I64" $ do
+      let v = TVI64 9999999999
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "Double" $ do
+      let v = TVDouble 3.14
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "String" $ do
+      let v = TVString "hello"
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "Binary" $ do
+      let v = TVBinary (BS.pack [0xDE, 0xAD])
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "UUID" $ do
+      let v = TVUUID (BS.pack [0..15])
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+  ]
+
+jsonStructEncodeDecode :: TestTree
+jsonStructEncodeDecode = testCase "JSON struct encode/decode" $ do
+  let v = TVStruct
+            [ (1, TVBool True)
+            , (2, TVI32 42)
+            , (3, TVString "test")
+            ]
+  thriftFromJSON v (thriftToJSON v) @?= Right v
+
+jsonNestedStruct :: TestTree
+jsonNestedStruct = testCase "JSON nested struct" $ do
+  let v = TVStruct
+            [ (1, TVString "outer")
+            , (2, TVStruct
+                [ (1, TVString "inner")
+                , (2, TVI32 42)
+                ])
+            ]
+  thriftFromJSON v (thriftToJSON v) @?= Right v
+
+jsonContainers :: TestTree
+jsonContainers = testGroup "JSON list/set/map"
+  [ testCase "List of i32" $ do
+      let v = TVList TT_I32 [TVI32 1, TVI32 2, TVI32 3]
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "Set of strings" $ do
+      let v = TVSet TT_STRING [TVString "a", TVString "b"]
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "Map i32->string" $ do
+      let v = TVMap TT_I32 TT_STRING
+                [ (TVI32 1, TVString "one")
+                , (TVI32 2, TVString "two")
+                ]
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+  ]
+
+jsonEmptyContainers :: TestTree
+jsonEmptyContainers = testGroup "JSON empty containers"
+  [ testCase "Empty list" $ do
+      let v = TVList TT_I32 []
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "Empty set" $ do
+      let v = TVSet TT_STRING []
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+
+  , testCase "Empty map" $ do
+      let v = TVMap TT_I32 TT_STRING []
+      thriftFromJSON v (thriftToJSON v) @?= Right v
+  ]
+
+typedJsonMixedStruct :: TestTree
+typedJsonMixedStruct = testCase "Typed JSON roundtrip (mixed struct)" $ do
+  let v = TVStruct
+            [ (1,  TVBool True)
+            , (2,  TVByte 42)
+            , (3,  TVI16 1000)
+            , (4,  TVI32 100000)
+            , (5,  TVI64 9999999999)
+            , (6,  TVDouble 3.14)
+            , (7,  TVString "hello world")
+            , (8,  TVBinary (BS.pack [0xDE, 0xAD, 0xBE, 0xEF]))
+            , (9,  TVList TT_I32 [TVI32 1, TVI32 2])
+            , (10, TVSet TT_STRING [TVString "x", TVString "y"])
+            ]
+      encoded = thriftToTypedJSON v
+      decoded = thriftFromTypedJSON encoded
+  decoded @?= Right v

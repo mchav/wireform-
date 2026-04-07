@@ -134,6 +134,7 @@ library
       Thrift.Value
       Thrift.Encode
       Thrift.Decode
+      Thrift.JSON
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
