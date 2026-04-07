@@ -140,6 +140,16 @@ library
       Proto.GRPC
       -- Avro Protocol / IPC
       Avro.Protocol
+      -- CBOR support
+      CBOR.Value
+      CBOR.Encode
+      CBOR.Decode
+      CBOR.JSON
+      -- MessagePack support
+      MsgPack.Value
+      MsgPack.Encode
+      MsgPack.Decode
+      MsgPack.JSON
 
     c-sources:        cbits/fast_decode.c
     include-dirs:     cbits/simde
@@ -201,6 +211,8 @@ test-suite hs-proto-test
       Test.Thrift
       Test.Avro
       Test.GRPC
+      Test.CBOR
+      Test.MsgPack
 
     build-depends:
         base             >= 4.16 && < 5

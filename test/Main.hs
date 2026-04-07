@@ -20,6 +20,8 @@ import Test.TDP (tdpTests)
 import Test.Thrift (thriftTests)
 import Test.Avro (avroTests)
 import Test.GRPC (grpcTests)
+import Test.MsgPack (msgPackTests)
+import Test.CBOR (cborTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -41,4 +43,6 @@ main = defaultMain $ testGroup "hs-proto"
   , avroTests
   , thriftTests
   , grpcTests
+  , msgPackTests
+  , cborTests
   ]
