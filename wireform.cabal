@@ -149,6 +149,9 @@ library
       Thrift.JSON
       Thrift.Message
       Thrift.Parser
+      Thrift.CodeGen
+      -- Avro code generation
+      Avro.CodeGen
       -- gRPC framing
       Proto.GRPC
       -- Avro Protocol / IPC
@@ -302,6 +305,8 @@ test-suite wireform-test
       Test.ThriftParser
       Test.AvroSchemaParse
       Test.BondParser
+      Test.AvroCodeGen
+      Test.ThriftCodeGen
 
     build-depends:
         base             >= 4.16 && < 5
@@ -592,6 +597,24 @@ executable avro-thrift-bench
       , bytestring
       , text
       , deepseq
+      , vector
+
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+
+executable all-formats-bench
+    import:           warnings
+    main-is:          AllFormatsBench.hs
+    ghc-options:      -O2
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , text
       , vector
 
     hs-source-dirs:   bench

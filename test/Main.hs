@@ -41,6 +41,8 @@ import Test.AvroContainer (avroContainerTests)
 import Test.ThriftParser (thriftParserTests)
 import Test.AvroSchemaParse (avroSchemaParseTests)
 import Test.BondParser (bondParserTests)
+import Test.AvroCodeGen (avroCodeGenTests)
+import Test.ThriftCodeGen (thriftCodeGenTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform"
@@ -83,4 +85,6 @@ main = defaultMain $ testGroup "wireform"
   , thriftParserTests
   , avroSchemaParseTests
   , bondParserTests
+  , avroCodeGenTests
+  , thriftCodeGenTests
   ]
