@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.setup.outputs.cabal-store }}
-          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('wireform.cabal') }}
+          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('wireform.cabal', 'wireform-grpc/wireform-grpc.cabal') }}
           restore-keys: |
             ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-
 
@@ -37,16 +37,10 @@ jobs:
       - name: Configure
         run: cabal configure --enable-tests --enable-benchmarks
 
-      - name: Build library
-        run: cabal build lib:wireform
+      - name: Build all packages
+        run: cabal build all
 
-      - name: Build all executables
-        run: |
-          cabal build exe:wireform-gen
-          cabal build exe:protoc-gen-wireform
-          cabal build exe:wireform-conformance
-
-      - name: Run unit tests
+      - name: Run unit tests (wireform-test)
         run: cabal test wireform-test --test-show-details=streaming
 
       - name: Run conformance self-test
@@ -71,9 +65,8 @@ jobs:
           fail-on: warning
 
   benchmarks:
-    name: Benchmarks
+    name: Build Benchmarks
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -86,37 +79,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cabal/store
-          key: ${{ runner.os }}-bench-cabal-${{ hashFiles('wireform.cabal') }}
+          key: ${{ runner.os }}-bench-cabal-${{ hashFiles('wireform.cabal', 'wireform-grpc/wireform-grpc.cabal') }}
           restore-keys: |
             ${{ runner.os }}-bench-cabal-
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev
 
-      - name: Build benchmarks
+      - name: Build all benchmarks
         run: |
           cabal configure --enable-benchmarks
           cabal build exe:wireform-bench
+          cabal build exe:avro-thrift-bench
+          cabal build exe:all-formats-bench
           cabal build exe:profile
           cabal build exe:bench-grow
-
-      - name: Run quick benchmarks
-        run: cabal exec wireform-bench
-
-      - name: Run GrowList benchmarks
-        run: cabal exec bench-grow
-
-      - name: Run profile (decode-small)
-        run: |
-          cabal exec profile -- decode-small 1000000 +RTS -s 2>&1 | tee /tmp/profile-decode.txt
-          echo "---"
-          cabal exec profile -- encode-small 1000000 +RTS -s 2>&1 | tee /tmp/profile-encode.txt
-
-      - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results
-          path: /tmp/profile-*.txt
 
   codegen-roundtrip:
     name: Codegen roundtrip
