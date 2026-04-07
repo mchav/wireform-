@@ -22,6 +22,10 @@ import Test.Avro (avroTests)
 import Test.GRPC (grpcTests)
 import Test.MsgPack (msgPackTests)
 import Test.CBOR (cborTests)
+import Test.BSON (bsonTests)
+import Test.Ion (ionTests)
+import Test.CapnProto (capnProtoTests)
+import Test.FlatBuffers (flatBuffersTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -45,4 +49,8 @@ main = defaultMain $ testGroup "hs-proto"
   , grpcTests
   , msgPackTests
   , cborTests
+  , bsonTests
+  , ionTests
+  , capnProtoTests
+  , flatBuffersTests
   ]

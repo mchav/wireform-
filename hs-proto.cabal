@@ -150,6 +150,22 @@ library
       MsgPack.Encode
       MsgPack.Decode
       MsgPack.JSON
+      -- BSON support
+      BSON.Value
+      BSON.Encode
+      BSON.Decode
+      -- Amazon Ion support
+      Ion.Value
+      Ion.Encode
+      Ion.Decode
+      -- Cap'n Proto support
+      CapnProto.Value
+      CapnProto.Encode
+      CapnProto.Decode
+      -- FlatBuffers support
+      FlatBuffers.Value
+      FlatBuffers.Encode
+      FlatBuffers.Decode
 
     c-sources:        cbits/fast_decode.c
     include-dirs:     cbits/simde
@@ -213,6 +229,10 @@ test-suite hs-proto-test
       Test.GRPC
       Test.CBOR
       Test.MsgPack
+      Test.BSON
+      Test.Ion
+      Test.CapnProto
+      Test.FlatBuffers
 
     build-depends:
         base             >= 4.16 && < 5
