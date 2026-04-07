@@ -26,6 +26,8 @@ import Test.BSON (bsonTests)
 import Test.Ion (ionTests)
 import Test.CapnProto (capnProtoTests)
 import Test.FlatBuffers (flatBuffersTests)
+import Test.Iceberg (icebergTests)
+import Test.Bond (bondTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -53,4 +55,6 @@ main = defaultMain $ testGroup "hs-proto"
   , ionTests
   , capnProtoTests
   , flatBuffersTests
+  , icebergTests
+  , bondTests
   ]

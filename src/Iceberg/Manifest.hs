@@ -1,0 +1,107 @@
+-- | Avro schemas for Apache Iceberg manifest files and manifest lists.
+--
+-- The Iceberg specification defines manifest entries and manifest file
+-- (manifest list) entries as Avro records. This module constructs the
+-- standard 'AvroType' schemas for these structures.
+module Iceberg.Manifest
+  ( manifestEntrySchema
+  , manifestFileSchema
+  ) where
+
+import qualified Data.Text as T
+import qualified Data.Vector as V
+
+import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..))
+
+-- | Avro schema for @manifest_entry@ records, as defined by the Iceberg
+-- specification. Each manifest entry describes a single data or delete file.
+manifestEntrySchema :: AvroType
+manifestEntrySchema = AvroRecord
+  { avroRecordName      = "manifest_entry"
+  , avroRecordNamespace  = Just "org.apache.iceberg"
+  , avroRecordDoc        = Just "Entry in an Iceberg manifest file"
+  , avroRecordAliases    = V.empty
+  , avroRecordFields     = V.fromList
+      [ mkField "status"          (AvroPrimitive AvroInt) (Just "File status: 0=existing, 1=added, 2=deleted")
+      , mkFieldOpt "snapshot_id"  (AvroPrimitive AvroLong) (Just "Snapshot that added the file")
+      , mkFieldOpt "sequence_number" (AvroPrimitive AvroLong) (Just "Data sequence number")
+      , mkField "data_file"       dataFileSchema Nothing
+      ]
+  }
+
+dataFileSchema :: AvroType
+dataFileSchema = AvroRecord
+  { avroRecordName      = "data_file"
+  , avroRecordNamespace  = Just "org.apache.iceberg"
+  , avroRecordDoc        = Just "Description of a data file"
+  , avroRecordAliases    = V.empty
+  , avroRecordFields     = V.fromList
+      [ mkField "file_path"      (AvroPrimitive AvroString) (Just "Full URI of data file")
+      , mkField "file_format"    (AvroPrimitive AvroString) (Just "File format: avro, parquet, or orc")
+      , mkField "partition"      (AvroRecord
+          { avroRecordName      = "partition_data"
+          , avroRecordNamespace  = Just "org.apache.iceberg"
+          , avroRecordDoc        = Nothing
+          , avroRecordAliases    = V.empty
+          , avroRecordFields     = V.empty
+          }) Nothing
+      , mkField "record_count"   (AvroPrimitive AvroLong) (Just "Number of records in file")
+      , mkField "file_size_in_bytes" (AvroPrimitive AvroLong) (Just "Total file size in bytes")
+      , mkField "block_size_in_bytes" (AvroPrimitive AvroLong) Nothing
+      , mkFieldOpt "column_sizes" (AvroMap { avroMapValues = AvroPrimitive AvroLong }) (Just "Map from column id to size")
+      , mkFieldOpt "value_counts" (AvroMap { avroMapValues = AvroPrimitive AvroLong }) (Just "Map from column id to value count")
+      , mkFieldOpt "null_value_counts" (AvroMap { avroMapValues = AvroPrimitive AvroLong }) (Just "Map from column id to null count")
+      , mkFieldOpt "lower_bounds" (AvroMap { avroMapValues = AvroPrimitive AvroBytes }) (Just "Map from column id to lower bound")
+      , mkFieldOpt "upper_bounds" (AvroMap { avroMapValues = AvroPrimitive AvroBytes }) (Just "Map from column id to upper bound")
+      ]
+  }
+
+-- | Avro schema for manifest list entries (@manifest_file@ records),
+-- as defined by the Iceberg specification. Each entry describes a
+-- single manifest file within a snapshot's manifest list.
+manifestFileSchema :: AvroType
+manifestFileSchema = AvroRecord
+  { avroRecordName      = "manifest_file"
+  , avroRecordNamespace  = Just "org.apache.iceberg"
+  , avroRecordDoc        = Just "Entry in an Iceberg manifest list"
+  , avroRecordAliases    = V.empty
+  , avroRecordFields     = V.fromList
+      [ mkField "manifest_path"    (AvroPrimitive AvroString) (Just "Location of the manifest file")
+      , mkField "manifest_length"  (AvroPrimitive AvroLong) (Just "Length of the manifest file")
+      , mkField "partition_spec_id" (AvroPrimitive AvroInt) (Just "ID of the partition spec")
+      , mkField "content"          (AvroPrimitive AvroInt) (Just "0=data, 1=deletes")
+      , mkField "sequence_number"  (AvroPrimitive AvroLong) (Just "Sequence number when manifest was written")
+      , mkField "min_sequence_number" (AvroPrimitive AvroLong) (Just "Minimum data sequence number in manifest")
+      , mkField "added_snapshot_id" (AvroPrimitive AvroLong) (Just "Snapshot ID that added the manifest")
+      , mkFieldOpt "added_data_files_count" (AvroPrimitive AvroInt) Nothing
+      , mkFieldOpt "existing_data_files_count" (AvroPrimitive AvroInt) Nothing
+      , mkFieldOpt "deleted_data_files_count" (AvroPrimitive AvroInt) Nothing
+      , mkFieldOpt "added_rows_count" (AvroPrimitive AvroLong) Nothing
+      , mkFieldOpt "existing_rows_count" (AvroPrimitive AvroLong) Nothing
+      , mkFieldOpt "deleted_rows_count" (AvroPrimitive AvroLong) Nothing
+      ]
+  }
+
+-- ============================================================
+-- Helpers
+-- ============================================================
+
+mkField :: String -> AvroType -> Maybe String -> AvroField
+mkField name ty doc = AvroField
+  { avroFieldName    = T.pack name
+  , avroFieldType    = ty
+  , avroFieldDefault = Nothing
+  , avroFieldOrder   = Nothing
+  , avroFieldAliases = V.empty
+  , avroFieldDoc     = fmap T.pack doc
+  }
+
+mkFieldOpt :: String -> AvroType -> Maybe String -> AvroField
+mkFieldOpt name ty doc = AvroField
+  { avroFieldName    = T.pack name
+  , avroFieldType    = AvroUnion { avroUnionBranches = V.fromList [AvroPrimitive AvroNull, ty] }
+  , avroFieldDefault = Just AvroNull
+  , avroFieldOrder   = Nothing
+  , avroFieldAliases = V.empty
+  , avroFieldDoc     = fmap T.pack doc
+  }
