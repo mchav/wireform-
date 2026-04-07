@@ -1,4 +1,4 @@
-# hs-proto Development Guidelines
+# wireform Development Guidelines
 
 ## Code Generation Principles
 

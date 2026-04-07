@@ -51,7 +51,7 @@ import Network.GRPC.Common.Protobuf.Any qualified as Any
 import Proto.Google.Protobuf.Any qualified as PbAny
 
 {-------------------------------------------------------------------------------
-  Wire-compatible google.rpc.Status using hs-proto encoding/decoding.
+  Wire-compatible google.rpc.Status using wireform encoding/decoding.
 
   google.rpc.Status has:
     int32 code = 1;

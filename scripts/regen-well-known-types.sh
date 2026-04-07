@@ -5,7 +5,7 @@ set -euo pipefail
 # proto/google/protobuf/*.proto files.
 #
 # Prerequisites:
-#   - hs-proto-gen must be built: cabal build exe:hs-proto-gen
+#   - wireform-gen must be built: cabal build exe:wireform-gen
 #
 # Usage:
 #   ./scripts/regen-well-known-types.sh
@@ -26,7 +26,7 @@ PROTOS=(
 
 echo "==> Regenerating well-known type modules..."
 for f in "${PROTOS[@]}"; do
-  cabal exec hs-proto-gen -- generate \
+  cabal exec wireform-gen -- generate \
     -I "$PROJECT_ROOT/proto" \
     -o "$PROJECT_ROOT/src" \
     --module-prefix Proto \

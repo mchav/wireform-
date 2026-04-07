@@ -160,7 +160,7 @@ library
     , deepseq                   >= 1.4     && < 1.6
     , exceptions                >= 0.10    && < 0.11
     , grpc-spec                 >= 1.0     && < 1.1
-    , hs-proto
+    , wireform
     , http-semantics            >= 0.3.0   && < 0.3.1
     , http-types                >= 0.12    && < 0.13
     , http2-tls                 >= 0.4.9   && < 0.5
@@ -181,7 +181,7 @@ library
       -- We pin very specific versions of http2.
     , http2 == 5.3.9
 
--- Test suites and benchmarks are disabled while migrating from proto-lens to hs-proto.
+-- Test suites and benchmarks are disabled while migrating from proto-lens to wireform.
 -- They depend on proto-lens generated code that needs to be regenerated.
 
 Flag build-stress-test

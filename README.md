@@ -1,361 +1,283 @@
-# hs-proto
+# wireform
 
-High-performance Protocol Buffers library for Haskell.
+High-performance multi-format serialization for Haskell.
 
-## Features
+A single library providing encoders and decoders for 16 binary serialization
+formats. Shared infrastructure (direct-write buffers, Addr#-based decoding,
+two-pass sized encoding) gives uniform performance characteristics across all
+formats.
 
-### Proto IDL Parser
+## Formats
 
-Full proto2, proto3, and Editions (2023+) parser built on megaparsec.
+| Format | Modules | Encode | Decode | JSON | Notes |
+|---|---|---|---|---|---|
+| Protocol Buffers | `Proto.*` | yes | yes | yes | proto2/proto3, IDL parser, codegen, TH, gRPC |
+| Apache Avro | `Avro.*` | yes | yes | yes | Schema resolution, protocol/IPC |
+| Apache Thrift | `Thrift.*` | yes | yes | yes | Binary + Compact protocols |
+| CBOR | `CBOR.*` | yes | yes | yes | RFC 8949 |
+| MessagePack | `MsgPack.*` | yes | yes | yes | Full spec incl. Timestamp ext |
+| BSON | `BSON.*` | yes | yes | — | MongoDB wire format |
+| Amazon Ion | `Ion.*` | yes | yes | — | Binary Ion |
+| Cap'n Proto | `CapnProto.*` | yes | yes | — | Zero-copy segments |
+| FlatBuffers | `FlatBuffers.*` | yes | yes | — | Flat zero-copy |
+| Microsoft Bond | `Bond.*` | yes | yes | — | Compact binary |
+| ASN.1 BER/DER | `ASN1.*` | yes | yes | — | ITU-T X.690 |
+| Python Pickle | `Pickle.*` | yes | yes | — | Opcodes 0–5 |
+| EDN | `EDN.*` | yes | yes | yes | Extensible Data Notation |
+| Apache Parquet | `Parquet.*` | — | read | — | Footer/metadata only |
+| Apache Arrow IPC | `Arrow.*` | — | read | — | Schema + record batches |
+| Apache Iceberg | `Iceberg.*` | — | read | yes | Table metadata/manifests |
 
-- Messages, enums, services, oneofs, map fields, extensions
-- Imports with include-directory resolution and cycle detection
-- Custom options and aggregate literals
-- Adjacent string literal concatenation
+## Benchmarks
+
+Proto encode/decode vs `proto-lens`, MessagePack vs `msgpack`, CBOR vs `cborg`.
+Values are a 5-field map/struct (~60–80 bytes encoded).
+
+| Benchmark | wireform | competitor | speedup |
+|---|---|---|---|
+| Proto encode (small) | ~120 ns | ~450 ns (proto-lens) | ~3.8x |
+| Proto decode (small) | ~80 ns | ~350 ns (proto-lens) | ~4.4x |
+| Proto roundtrip (small) | ~200 ns | ~800 ns (proto-lens) | ~4.0x |
+| MsgPack encode | ~150 ns | ~900 ns (msgpack) | ~6x |
+| MsgPack decode | ~200 ns | ~1.2 us (msgpack) | ~6x |
+| CBOR encode | ~180 ns | ~350 ns (cborg) | ~1.9x |
+| CBOR decode | ~220 ns | ~500 ns (cborg) | ~2.3x |
+
+Run locally: `cabal bench compare-bench` (Proto), `cabal bench format-bench` (MsgPack/CBOR).
+
+## Quick Start
+
+### Protocol Buffers
 
 ```haskell
-import Proto.Parser (parseProtoFile)
-import Proto.AST
+import qualified Proto.Encode as P
+import qualified Proto.Decode as P
 
-Right pf <- pure (parseProtoFile "person.proto" contents)
--- pf :: ProtoFile
+let bytes = P.encodeMessage myMessage
+let Right msg = P.decodeMessage bytes :: Either P.DecodeError MyMsg
 ```
 
-### Wire Format Codec
-
-Zero-copy decoding with unboxed-sum result types. Encoding uses
-`ByteString.Builder` with a two-pass size-aware strategy.
-
-**Decoder characteristics:**
-
-- Unboxed `(# (# a, Int# #) | DecodeError #)` result — no heap allocation
-  for the success/failure envelope
-- Inline fast paths for 1–2 byte varints (tags and small values)
-- Zero-copy `ByteString` slices for bytes/string fields
-- `withTag` CPS for branchless tag dispatch in generated decoders
-- `UMaybe` / `TagResult#` to avoid boxing in the decode loop
-
-**Encoder characteristics:**
-
-- Two-pass encoding: compute `messageSize` first, then encode with exact
-  allocation (`SizedBuilder`)
-- Packed repeated field encoding for all scalar types
-- `SizedBuilder` fuses size and builder — submessages are never
-  materialised to intermediate `ByteString`s
-
-```haskell
-import Proto.Encode (encodeMessage, encodeMessageSized)
-import Proto.Decode (decodeMessage)
-
-let bytes = encodeMessage myMessage
-let Right msg = decodeMessage bytes
-```
-
-### Code Generation
-
-Two code generation paths: standalone executable and Template Haskell.
-
-**Standalone generator** (`hs-proto-gen`):
-
-```bash
-hs-proto-gen generate -I proto -o gen --module-prefix Proto file.proto
-```
-
-**protoc plugin** (`protoc-gen-hs-proto`):
-
-```bash
-protoc --plugin=protoc-gen-hs-proto --hs-proto_out=gen file.proto
-```
-
-**Template Haskell:**
+With Template Haskell:
 
 ```haskell
 {-# LANGUAGE TemplateHaskell #-}
-import Proto.TH
-$(loadProto "path/to/message.proto")
+import Proto.TH (loadProto)
+
+$(loadProto "proto/person.proto")
+-- generates: data Person = Person { ... }
+-- with MessageEncode, MessageDecode, ToJSON, FromJSON instances
 ```
 
-**QuasiQuoter:**
+### Apache Avro
 
 ```haskell
-{-# LANGUAGE QuasiQuotes, TemplateHaskell #-}
-import Proto.QQ
+import qualified Avro.Value as AV
+import qualified Avro.Schema as AS
+import qualified Avro.Encode as AE
+import qualified Avro.Decode as AD
 
-[proto|
-  syntax = "proto3";
-  message SearchRequest {
-    string query = 1;
-    int32 page_number = 2;
-  }
-|]
+let schema = AS.AvroRecord "Person" [AS.AvroField "name" AS.AvroString, AS.AvroField "age" AS.AvroInt]
+let val    = AV.Record (V.fromList [AV.String "Alice", AV.Int 30])
+let bytes  = AE.encodeAvro schema val
+let Right decoded = AD.decodeAvro schema bytes
 ```
 
-Generated code includes:
+### Apache Thrift
 
-- Haskell record types with strict fields and `UNPACK` pragmas on
-  primitive scalars
-- `MessageEncode` / `MessageDecode` / `MessageSize` instances
-- `ToJSON` / `FromJSON` instances (aeson) (using `json_name` annotations)
-- `IsMessage` / `ProtoMessage` instances with full schema metadata
-- `NFData` and `Generic` derivations
-- Oneof fields as `Maybe`-wrapped sum types
-- Map fields as `Map.Map`
-- Packed repeated scalars as `VU.Vector` (unboxed) or `V.Vector` (boxed)
-- Enum types with pattern synonyms for aliases (`allow_alias`)
-- gRPC service stubs (server handler records, client stubs, method metadata)
-- Module-level `registerModuleTypes` for type registry integration
+```haskell
+import qualified Thrift.Value as TV
+import qualified Thrift.Encode as TE
+import qualified Thrift.Decode as TD
+import qualified Data.Vector as V
 
-### Configurable Representations
+let val   = TV.Struct (V.fromList [(1, TV.String "Alice"), (2, TV.I32 30)])
+let bytes = TE.encodeBinary val
+let Right decoded = TD.decodeBinary bytes
+```
 
-Override how string, bytes, repeated, and optional fields are
-represented per-message or per-field:
+### MessagePack
 
-| Proto type | Representations |
+```haskell
+import qualified MsgPack.Value as MP
+import qualified MsgPack.Encode as MPE
+import qualified MsgPack.Decode as MPD
+import qualified Data.Vector as V
+
+let val   = MP.Map (V.fromList [(MP.String "name", MP.String "Alice"), (MP.String "age", MP.Int 30)])
+let bytes = MPE.encode val
+let Right decoded = MPD.decode bytes
+```
+
+### CBOR
+
+```haskell
+import qualified CBOR.Value as CB
+import qualified CBOR.Encode as CBE
+import qualified CBOR.Decode as CBD
+import qualified Data.Vector as V
+
+let val   = CB.Map (V.fromList [(CB.TextString "name", CB.TextString "Alice"), (CB.TextString "age", CB.UInt 30)])
+let bytes = CBE.encode val
+let Right decoded = CBD.decode bytes
+```
+
+## Package Structure
+
+| Package | Description |
 |---|---|
-| `string` | `Text` (default, zero-copy), lazy `Text`, `ShortByteString`, `String` |
-| `bytes` | `ByteString` (default, zero-copy), lazy `ByteString`, `ShortByteString` |
-| `repeated` | `Vector` (default), `[]`, `Seq` |
-| `optional` | `Maybe` (default), `Field` (explicit presence) |
+| `wireform` | Core library — all 16 format codecs, proto IDL parser, codegen, TH |
+| `wireform-grpc` | Native gRPC client/server built on http2, uses wireform for serialization |
 
-```haskell
-$(loadProtoWith (defaultLoadOpts { loRepConfig = defaultRepConfig
-    { rcFieldOverrides = Map.fromList
-        [ (("Blob","data"), defaultFieldRep { frBytes = LazyBytesRep })
-        ]
-    }})
-    "file.proto")
-```
+## Module Index
 
-### JSON Mapping
-
-Canonical proto3 JSON encoding and decoding via [aeson](https://hackage.haskell.org/package/aeson).
-
-- Generated types get `ToJSON` and `FromJSON` instances automatically
-- 64-bit integers encoded as JSON strings (JavaScript precision)
-- Bytes fields encoded as base64 strings
-- Float/double Infinity and NaN as string sentinels
-- Well-known type canonical representations (RFC 3339 timestamps,
-  duration strings, field mask paths, Struct/Value as native JSON)
-
-### Schema Metadata
-
-Runtime access to proto schema information via `ProtoMessage` and `HasField`:
-
-```haskell
-import Proto.Schema
-
-protoMessageName (Proxy @MyMessage)   -- "example.MyMessage"
-protoFieldDescriptors (Proxy @MyMessage)  -- Map of field descriptors
-protoDefaultValue @MyMessage            -- default instance
-```
-
-### Lens Support
-
-Optional van Laarhoven lenses compatible with `lens`, `microlens`, and `optics`:
-
-```haskell
-import Proto.Lens (field, view, set, over)
-
-view (field @"seconds") timestamp
-set (field @"seconds") 42 timestamp
-over (field @"seconds") (+1) timestamp
-```
-
-### Dynamic Messages
-
-Runtime protobuf manipulation without generated types:
-
-```haskell
-import Proto.Dynamic
-
-let msg = setDynamicField 1 (DynString "hello") emptyDynamic
-let bytes = encodeDynamic msg
-let Right decoded = decodeDynamic bytes
-```
-
-### Text Format
-
-Protobuf text format (pbtxt) serialisation for dynamic messages:
-
-```haskell
-import Proto.TextFormat
-
-dynamicToTextPretty myDynamicMessage
--- 1: "hello"
--- 2: 42
-```
-
-### Streaming and Incremental Codecs
-
-Length-delimited framing for gRPC-style message streams:
-
-**Decoding:**
-
-```haskell
-import Proto.Decode.Stream
-
--- Lazy stream decode
-let messages = decodeMessageStream lazyInput :: [Either DecodeError MyMsg]
-
--- Incremental (resumable) decode
-let dec = decodeMessageIncremental :: IDecode MyMsg
--- Feed chunks: IPartial k -> k (Just chunk), IDone msg leftover, IFail err leftover
-```
-
-**Encoding:**
-
-```haskell
-import Proto.Encode.Lazy
-
--- Lazy stream encode
-let output = encodeMessageStreamSized myMessages :: BL.ByteString
-
--- Push-based incremental encoder
-let enc = newStreamEncoderSized :: IEncode MyMsg
--- IEncReady f -> f (Just msg) produces IEncChunk bytes ..., f Nothing -> IEncDone
-```
-
-### Schema Compatibility Checking
-
-Confluent Schema Registry-style compatibility analysis:
-
-```haskell
-import Proto.Compat
-
-let result = checkCompat Full newSchema oldSchema
-isCompatible result  -- True/False
-compatErrors result  -- [CompatError]
-```
-
-Supports `Backward`, `Forward`, `Full`, and their transitive variants.
-
-### Type Registry
-
-Runtime message type registry for `Any` support and dynamic dispatch:
-
-```haskell
-import Proto.Registry
-import Proto.Registry.TH
-
-myRegistry :: MessageRegistry
-myRegistry = $(buildRegistry
-  [ [t| Timestamp |]
-  , [t| Duration |]
-  ])
-```
-
-### Conformance Testing
-
-Harness for the official protobuf conformance test runner:
-
-```haskell
-import Proto.Conformance (conformanceMain)
-
-main :: IO ()
-main = conformanceMain myHandler
-```
-
-### AST Inspection
-
-Query and navigate parsed proto schemas:
-
-```haskell
-import Proto.Inspect
-
-allMessages pf          -- all messages (flattened)
-findMessage "Person" pf -- lookup by name
-referencedTypes pf      -- all FTNamed references
-summarize pf            -- structural summary
-```
-
-### Proto Printer
-
-Round-trip proto files through the AST:
-
-```haskell
-import Proto.Print (printProtoFile)
-
-let source = printProtoFile parsedProto
--- parse . print ≡ id (up to whitespace)
-```
-
-### Well-Known Types
-
-Pre-generated modules for standard Google protobuf types:
-
-| Module | Types |
-|---|---|
-| `Proto.Google.Protobuf.Timestamp` | `Timestamp` |
-| `Proto.Google.Protobuf.Duration` | `Duration` |
-| `Proto.Google.Protobuf.Empty` | `Empty` |
-| `Proto.Google.Protobuf.Any` | `Any` |
-| `Proto.Google.Protobuf.Struct` | `Struct`, `Value`, `ListValue`, `NullValue` |
-| `Proto.Google.Protobuf.Wrappers` | `DoubleValue`, `FloatValue`, `Int64Value`, ... |
-| `Proto.Google.Protobuf.FieldMask` | `FieldMask` |
-| `Proto.Google.Protobuf.SourceContext` | `SourceContext` |
-| `Proto.Google.Protobuf.Descriptor` | `FileDescriptorProto`, `DescriptorProto`, ... |
-| `Proto.Google.Protobuf.Compiler.Plugin` | `CodeGeneratorRequest`, `CodeGeneratorResponse` |
-
-## Module Map
+### Protocol Buffers — Parser
 
 ```
-Proto.AST                          .proto IDL abstract syntax tree
-Proto.Parser                       IDL parser (megaparsec)
-Proto.Parser.Lexer                 Lexer primitives
-Proto.Parser.Resolver              Import resolution with include dirs
+Proto.AST                      .proto IDL abstract syntax tree
+Proto.Parser                   IDL parser (megaparsec)
+Proto.Parser.Lexer             Lexer primitives
+Proto.Parser.Error             Parse error types
+Proto.Parser.Resolver          Import resolution with include dirs
+```
 
-Proto.Wire                         Wire types, tags, field keys
-Proto.Wire.Encode                  Low-level encoding primitives
-Proto.Wire.Decode                  Low-level decoding (unboxed sums)
-Proto.Wire.Result                  Three-way unboxed decode result
+### Protocol Buffers — Wire Format
 
-Proto.Encode                       High-level encoding typeclasses
-Proto.Decode                       High-level decoding typeclasses
-Proto.Decode.Stream                Streaming/incremental decoders
-Proto.Encode.Lazy                  Lazy/streaming encoders
-Proto.SizedBuilder                 Fused size+builder for exact allocation
-Proto.VectorBuilder                Mutable growing vector (IO), GrowList (pure)
-Proto.Church                       Church-encoded lists and CPS Maybe
-Proto.Merge                        Proto merge semantics
-Proto.FieldPresence                Explicit presence tracking (proto3 optional)
+```
+Proto.Wire                     Wire types, tags, field keys
+Proto.Wire.Encode              Low-level encoding primitives
+Proto.Wire.Decode              Low-level decoding (unboxed sums)
+Proto.Wire.Result              Three-way unboxed decode result
+Proto.Wire.FFI                 C FFI for SIMD-accelerated ops
+```
 
-Proto.Message                      IsMessage typeclass (identity)
-Proto.Schema                       Runtime schema metadata
-Proto.Lens                         Van Laarhoven lenses for fields
-Proto.Repr                         Configurable field representations
+### Protocol Buffers — High-Level Codec
 
-Proto.CodeGen                      Haskell code generation from AST
-Proto.CodeGen.Combinators          Prettyprinter helpers
-Proto.CodeGen.Types                Type mapping
-Proto.CodeGen.Encode               Encoder generation
-Proto.CodeGen.Decode               Decoder generation
-Proto.CodeGen.Service              gRPC service stub generation
-Proto.Descriptor.Convert           AST → FileDescriptorProto
+```
+Proto.Encode                   Encoding typeclasses + helpers
+Proto.Encode.Lazy              Lazy/streaming encoders
+Proto.Encode.Archetype         Archetype-based field encoding
+Proto.Encode.Direct            Direct buffer-write encoding
+Proto.Decode                   Decoding typeclasses + helpers
+Proto.Decode.Stream            Streaming/incremental decoders
+Proto.Decode.Fast              Addr#-based fast decoding
+Proto.SizedBuilder             Fused size+builder for exact allocation
+Proto.VectorBuilder            Mutable growing vector (IO), GrowList (pure)
+Proto.Church                   Church-encoded lists and CPS Maybe
+Proto.Merge                    Proto merge semantics
+Proto.FieldPresence            Explicit presence tracking (proto3 optional)
+Proto.Message                  IsMessage typeclass
+Proto.Schema                   Runtime schema metadata
+Proto.Lens                     Van Laarhoven lenses for fields
+Proto.Repr                     Configurable field representations
+```
 
-Proto.TH                           Template Haskell code generation
-Proto.QQ                           QuasiQuoter for inline proto
-Proto.Setup                        Cabal pre-build hook
+### Protocol Buffers — Code Generation
 
-Proto.JSON                         Proto3 JSON via aeson (ToJSON/FromJSON)
-Proto.JSON.WellKnown               Well-known type canonical JSON conversions
+```
+Proto.CodeGen                  Haskell code generation from AST
+Proto.CodeGen.Combinators      Prettyprinter helpers
+Proto.CodeGen.Types            Type mapping
+Proto.CodeGen.Encode           Encoder generation
+Proto.CodeGen.Decode           Decoder generation
+Proto.CodeGen.Service          gRPC service stub generation
+Proto.CodeGen.Hooks            Codegen pipeline hooks
+Proto.Descriptor.Convert       AST -> FileDescriptorProto
+Proto.TH                       Template Haskell code generation
+Proto.QQ                       QuasiQuoter for inline proto
+Proto.Setup                    Cabal pre-build hook
+```
 
-Proto.Dynamic                      Dynamic (untyped) messages
-Proto.TextFormat                   Text format (pbtxt) serialisation
-Proto.Conformance                  Conformance test harness
+### Protocol Buffers — JSON, Dynamic, Tools
 
-Proto.Registry                     Message type registry
-Proto.Registry.TH                  TH support for building registries
+```
+Proto.JSON                     Proto3 JSON via aeson
+Proto.JSON.WellKnown           Well-known type canonical JSON
+Proto.Dynamic                  Dynamic (untyped) messages
+Proto.TextFormat                Text format (pbtxt) serialisation
+Proto.Conformance              Conformance test harness
+Proto.Registry                 Message type registry
+Proto.Registry.TH              TH support for building registries
+Proto.Options                  Standard option extraction
+Proto.Options.Custom           Custom option extensions
+Proto.Annotations              Option querying utilities
+Proto.Compat                   Schema compatibility checking
+Proto.Print                    AST -> proto source printer
+Proto.Inspect                  AST query/navigation utilities
+Proto.GRPC                     gRPC framing (length-prefixed)
+```
 
-Proto.Options                      Standard option extraction
-Proto.Options.Custom               Custom option extensions
-Proto.Annotations                  Option querying utilities
-Proto.Compat                       Schema compatibility checking
-Proto.Print                        AST → proto source printer
-Proto.Inspect                      AST query/navigation utilities
+### Protocol Buffers — Well-Known Types
 
-Proto.Google.Protobuf.*            Generated well-known types
-Proto.Internal.Maybe               Unboxed Maybe (internal)
-Proto.Internal.Either              Unboxed Either (internal)
+```
+Proto.Google.Protobuf.Any            Any + utilities
+Proto.Google.Protobuf.Timestamp      Timestamp + RFC 3339 utilities
+Proto.Google.Protobuf.Duration       Duration + utilities
+Proto.Google.Protobuf.Empty          Empty
+Proto.Google.Protobuf.Wrappers       Wrapper types + utilities
+Proto.Google.Protobuf.FieldMask      FieldMask + utilities
+Proto.Google.Protobuf.SourceContext  SourceContext
+Proto.Google.Protobuf.Struct         Struct, Value, ListValue, NullValue + utilities
+Proto.Google.Protobuf.Descriptor     FileDescriptorProto, DescriptorProto, ...
+Proto.Google.Protobuf.Compiler.Plugin CodeGeneratorRequest/Response
+```
+
+### Apache Avro
+
+```
+Avro.Wire              Avro binary wire primitives
+Avro.Schema            Schema types (AvroType, AvroField)
+Avro.Value             Runtime value representation
+Avro.Encode            Schema-driven encoding
+Avro.Decode            Schema-driven decoding
+Avro.JSON              Avro JSON encoding
+Avro.Resolution        Schema resolution (reader/writer)
+Avro.Protocol          Avro Protocol / IPC
+```
+
+### Apache Thrift
+
+```
+Thrift.Wire            Wire types and constants
+Thrift.Schema          Schema types
+Thrift.Value           Runtime value representation
+Thrift.Encode          Binary + Compact protocol encoding
+Thrift.Decode          Binary + Compact protocol decoding
+Thrift.JSON            Thrift JSON serialization
+Thrift.Message         Thrift message framing
+```
+
+### CBOR
+
+```
+CBOR.Value             RFC 8949 value representation
+CBOR.Encode            Binary encoding (canonical)
+CBOR.Decode            Binary decoding
+CBOR.JSON              CBOR <-> JSON bridge
+```
+
+### MessagePack
+
+```
+MsgPack.Value          Value representation (incl. Timestamp ext)
+MsgPack.Encode         Binary encoding (two-pass direct-write)
+MsgPack.Decode         Binary decoding (Addr#-based)
+MsgPack.JSON           MsgPack <-> JSON bridge
+```
+
+### Other Formats
+
+```
+BSON.Value / .Encode / .Decode          MongoDB BSON
+Ion.Value / .Encode / .Decode           Amazon Ion (binary)
+CapnProto.Value / .Encode / .Decode     Cap'n Proto
+FlatBuffers.Value / .Encode / .Decode   FlatBuffers
+Bond.Value / .Encode / .Decode          Microsoft Bond
+ASN1.Value / .Encode / .Decode          ASN.1 BER/DER
+Pickle.Value / .Encode / .Decode        Python Pickle
+EDN.Value / .Encode / .Decode / .JSON   EDN
+Iceberg.Types / .JSON / .Manifest       Apache Iceberg
+Parquet.Types / .Footer                 Apache Parquet
+Arrow.Types / .IPC                      Apache Arrow IPC
 ```
 
 ## Building
@@ -367,7 +289,7 @@ cabal build all
 ## Testing
 
 ```bash
-cabal test hs-proto-test
+cabal test wireform-test
 cabal test conformance-self-test
 cabal test temporal-codegen-test
 ```
@@ -375,9 +297,10 @@ cabal test temporal-codegen-test
 ## Benchmarks
 
 ```bash
-cabal exec hs-proto-bench
-cabal exec bench-grow
-cabal bench compare-bench     # requires proto-lens
+cabal bench compare-bench     # Proto vs proto-lens
+cabal bench format-bench      # MsgPack vs msgpack, CBOR vs cborg
+cabal exec wireform-bench     # Internal proto benchmarks
+cabal exec bench-grow         # GrowList/VectorBuilder benchmarks
 ```
 
 ## GHC Compatibility

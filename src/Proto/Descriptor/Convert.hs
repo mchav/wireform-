@@ -1,4 +1,4 @@
--- | Convert hs-proto's AST types to descriptor.proto types.
+-- | Convert wireform's AST types to descriptor.proto types.
 --
 -- This enables bundling schema metadata with generated types:
 -- the parsed 'ProtoFile' is converted to a 'FileDescriptorProto',

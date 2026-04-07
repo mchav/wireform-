@@ -1,10 +1,10 @@
 {-# LANGUAGE ApplicativeDo #-}
--- | hs-proto code generator CLI.
+-- | wireform code generator CLI.
 --
 -- Usage:
 --
 -- @
--- hs-proto-gen [OPTIONS] INPUT.proto [INPUT2.proto ...]
+-- wireform-gen [OPTIONS] INPUT.proto [INPUT2.proto ...]
 --
 --   -I, --include DIR         Add import search directory (repeatable)
 --   -o, --out DIR             Output directory for generated files (default: .)
@@ -67,7 +67,7 @@ main = do
   where
     opts = info (cmdParser <**> helper)
       ( fullDesc
-     <> header "hs-proto-gen — Protocol Buffers code generator for Haskell"
+     <> header "wireform-gen — Protocol Buffers code generator for Haskell"
      <> progDesc "Generate Haskell types and instances from .proto files"
       )
 

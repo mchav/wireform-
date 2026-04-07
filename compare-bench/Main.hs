@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
--- | Criterion benchmark: hs-proto vs proto-lens (real generated code).
+-- | Criterion benchmark: wireform vs proto-lens (real generated code).
 --
 -- Run: cabal bench compare-bench
 module Main where
@@ -23,7 +23,7 @@ import qualified Proto.Bench_Fields as F
 
 import qualified Proto.Encode as H
 import qualified Proto.Decode as H
-import HsProtoTypes
+import WireformTypes
 
 encSmallH :: HSmall -> BS.ByteString
 encSmallH = directEncodeSmall
@@ -45,53 +45,53 @@ main :: IO ()
 main = defaultMain
   [ bgroup "Small"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf encSmallH smallHS
+          [ bench "wireform"   $ nf encSmallH smallHS
           , bench "proto-lens" $ nf PLC.encodeMessage smallPL
           ]
       , bgroup "decode"
-          [ bench "hs-proto"   $ nf decSmallH smallBytes
+          [ bench "wireform"   $ nf decSmallH smallBytes
           , bench "proto-lens" $ nf decSmallP smallBytes
           ]
       , bgroup "roundtrip"
-          [ bench "hs-proto"   $ nf rtSmallH smallHS
+          [ bench "wireform"   $ nf rtSmallH smallHS
           , bench "proto-lens" $ nf rtSmallP smallPL
           ]
       ]
   , bgroup "Medium"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf encMediumH mediumHS
+          [ bench "wireform"   $ nf encMediumH mediumHS
           , bench "proto-lens" $ nf PLC.encodeMessage mediumPL
           ]
       , bgroup "decode"
-          [ bench "hs-proto"   $ nf decMediumH mediumBytes
+          [ bench "wireform"   $ nf decMediumH mediumBytes
           , bench "proto-lens" $ nf decMediumP mediumBytes
           ]
       , bgroup "roundtrip"
-          [ bench "hs-proto"   $ nf rtMediumH mediumHS
+          [ bench "wireform"   $ nf rtMediumH mediumHS
           , bench "proto-lens" $ nf rtMediumP mediumPL
           ]
       ]
   , bgroup "Nested"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf encNestedH nestedHS
+          [ bench "wireform"   $ nf encNestedH nestedHS
           , bench "proto-lens" $ nf PLC.encodeMessage nestedPL
           ]
       , bgroup "decode"
-          [ bench "hs-proto"   $ nf decNestedH nestedBytes
+          [ bench "wireform"   $ nf decNestedH nestedBytes
           , bench "proto-lens" $ nf decNestedP nestedBytes
           ]
       , bgroup "roundtrip"
-          [ bench "hs-proto"   $ nf rtNestedH nestedHS
+          [ bench "wireform"   $ nf rtNestedH nestedHS
           , bench "proto-lens" $ nf rtNestedP nestedPL
           ]
       ]
   , bgroup "Repeated"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf encRepH repeatedHS
+          [ bench "wireform"   $ nf encRepH repeatedHS
           , bench "proto-lens" $ nf PLC.encodeMessage repeatedPL
           ]
       , bgroup "decode"
-          [ bench "hs-proto"   $ nf decRepH repeatedBytes
+          [ bench "wireform"   $ nf decRepH repeatedBytes
           , bench "proto-lens" $ nf decRepP repeatedBytes
           ]
       ]
@@ -144,7 +144,7 @@ decRepP :: BS.ByteString -> Either String PL.WithRepeated
 decRepP = PLC.decodeMessage
 {-# NOINLINE decRepP #-}
 
--- hs-proto test values
+-- wireform test values
 
 smallHS :: HSmall
 smallHS = HSmall 42 "hello world" True

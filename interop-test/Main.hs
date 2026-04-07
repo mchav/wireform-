@@ -6,7 +6,7 @@
 -- pipes the bytes to Python's official protobuf library for decode+re-encode,
 -- then decodes the Python output back in Haskell and checks equality.
 --
--- This proves wire-format compatibility between hs-proto and the reference
+-- This proves wire-format compatibility between wireform and the reference
 -- Python implementation for all scalar types, nested messages, repeated
 -- fields, and enums.
 module Main where
@@ -177,8 +177,8 @@ genRepeated = Repeated
 
 callPythonRoundtrip :: String -> BS.ByteString -> IO (Either String BS.ByteString)
 callPythonRoundtrip msgType inputBytes = do
-  let tmpIn  = "/tmp/hs-proto-interop-in.bin"
-      tmpOut = "/tmp/hs-proto-interop-out.bin"
+  let tmpIn  = "/tmp/wireform-interop-in.bin"
+      tmpOut = "/tmp/wireform-interop-out.bin"
   BS.writeFile tmpIn inputBytes
   (exitCode, _, stderr) <- readProcessWithExitCode "bash"
     [ "-c"
@@ -192,7 +192,7 @@ callPythonRoundtrip msgType inputBytes = do
 
 pythonEncode :: String -> String -> IO BS.ByteString
 pythonEncode msgType json = do
-  let tmpOut = "/tmp/hs-proto-interop-encode.bin"
+  let tmpOut = "/tmp/wireform-interop-encode.bin"
   (exitCode, _, stderr) <- readProcessWithExitCode "bash"
     [ "-c"
     , "PYTHONPATH=" <> workDir <> "/interop-test:$PYTHONPATH python3 "

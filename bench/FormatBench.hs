@@ -8,12 +8,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Vector as V
 
--- hs-proto MessagePack
+-- wireform MessagePack
 import qualified MsgPack.Value as MP
 import qualified MsgPack.Encode as MPE
 import qualified MsgPack.Decode as MPD
 
--- hs-proto CBOR
+-- wireform CBOR
 import qualified CBOR.Value as CB
 import qualified CBOR.Encode as CBE
 import qualified CBOR.Decode as CBD
@@ -28,7 +28,7 @@ import qualified Codec.CBOR.Read as CBORRead
 import qualified Codec.CBOR.Encoding as CBOREnc
 
 --------------------------------------------------------------------------------
--- hs-proto MessagePack test value
+-- wireform MessagePack test value
 --------------------------------------------------------------------------------
 
 msgpackValue :: MP.Value
@@ -63,7 +63,7 @@ oldMsgpackBytes :: BS.ByteString
 oldMsgpackBytes = BL.toStrict $ OldMP.pack oldMsgpackValue
 
 --------------------------------------------------------------------------------
--- hs-proto CBOR test value
+-- wireform CBOR test value
 --------------------------------------------------------------------------------
 
 cborValue :: CB.Value
@@ -166,30 +166,30 @@ instance NFData CBOR.Term where
 
 main :: IO ()
 main = do
-  putStrLn $ "MessagePack payload: " ++ show (BS.length msgpackBytes) ++ " bytes (hs-proto)"
+  putStrLn $ "MessagePack payload: " ++ show (BS.length msgpackBytes) ++ " bytes (wireform)"
   let !oldMsgpackBytesLazy = BL.fromStrict oldMsgpackBytes
   putStrLn $ "MessagePack payload: " ++ show (BS.length oldMsgpackBytes) ++ " bytes (msgpack)"
-  putStrLn $ "CBOR payload:        " ++ show (BS.length cborBytes) ++ " bytes (hs-proto)"
+  putStrLn $ "CBOR payload:        " ++ show (BS.length cborBytes) ++ " bytes (wireform)"
   putStrLn $ "CBOR payload:        " ++ show (BS.length cborgBytes) ++ " bytes (cborg)"
 
   defaultMain
     [ bgroup "MessagePack"
         [ bgroup "encode"
-            [ bench "hs-proto" $ nf mpEncode msgpackValue
+            [ bench "wireform" $ nf mpEncode msgpackValue
             , bench "msgpack"  $ nf oldMpPack oldMsgpackValue
             ]
         , bgroup "decode"
-            [ bench "hs-proto" $ nf mpDecode msgpackBytes
+            [ bench "wireform" $ nf mpDecode msgpackBytes
             , bench "msgpack"  $ nf oldMpUnpack oldMsgpackBytesLazy
             ]
         ]
     , bgroup "CBOR"
         [ bgroup "encode"
-            [ bench "hs-proto" $ nf cbEncode cborValue
+            [ bench "wireform" $ nf cbEncode cborValue
             , bench "cborg"    $ nf cborgEncode cborgTerm
             ]
         , bgroup "decode"
-            [ bench "hs-proto" $ nf cbDecode cborBytes
+            [ bench "wireform" $ nf cbDecode cborBytes
             , bench "cborg"    $ nf cborgDecode cborgBytes
             ]
         ]

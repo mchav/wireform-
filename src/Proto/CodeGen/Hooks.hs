@@ -7,10 +7,10 @@
 --
 -- = Three integration points
 --
--- There are three ways proto files get turned into Haskell code in hs-proto,
+-- There are three ways proto files get turned into Haskell code in wireform,
 -- and hooks plug into all of them:
 --
--- 1. __Text-based codegen__ (@hs-proto-gen@ CLI, 'Proto.Setup', 'Proto.CodeGen.generateModuleText'):
+-- 1. __Text-based codegen__ (@wireform-gen@ CLI, 'Proto.Setup', 'Proto.CodeGen.generateModuleText'):
 --    set the 'genHooks' field of 'Proto.CodeGen.GenerateOpts'.
 -- 2. __Template Haskell splices__ ('Proto.TH.loadProtoWith'):
 --    set the 'loTHHooks' field of 'Proto.TH.LoadOpts'.

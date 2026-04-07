@@ -7,8 +7,8 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE UnboxedSums #-}
 {-# LANGUAGE UnboxedTuples #-}
--- | hs-proto types matching bench.proto for benchmark comparison.
-module HsProtoTypes where
+-- | wireform types matching bench.proto for benchmark comparison.
+module WireformTypes where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS

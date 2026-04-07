@@ -41,7 +41,7 @@ footerRoundtrips = testGroup "Footer roundtrips"
                 ]
             , fmNumRows = 100
             , fmRowGroups = V.empty
-            , fmCreatedBy = Just (T.pack "hs-proto")
+            , fmCreatedBy = Just (T.pack "wireform")
             }
       readFooter (writeFooter fm) @?= Right fm
 

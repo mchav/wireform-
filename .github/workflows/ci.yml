@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.setup.outputs.cabal-store }}
-          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('hs-proto.cabal') }}
+          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-${{ hashFiles('wireform.cabal') }}
           restore-keys: |
             ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-
 
@@ -38,16 +38,16 @@ jobs:
         run: cabal configure --enable-tests --enable-benchmarks
 
       - name: Build library
-        run: cabal build lib:hs-proto
+        run: cabal build lib:wireform
 
       - name: Build all executables
         run: |
-          cabal build exe:hs-proto-gen
-          cabal build exe:protoc-gen-hs-proto
-          cabal build exe:hs-proto-conformance
+          cabal build exe:wireform-gen
+          cabal build exe:protoc-gen-wireform
+          cabal build exe:wireform-conformance
 
       - name: Run unit tests
-        run: cabal test hs-proto-test --test-show-details=streaming
+        run: cabal test wireform-test --test-show-details=streaming
 
       - name: Run conformance self-test
         run: cabal test conformance-self-test --test-show-details=streaming
@@ -86,7 +86,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cabal/store
-          key: ${{ runner.os }}-bench-cabal-${{ hashFiles('hs-proto.cabal') }}
+          key: ${{ runner.os }}-bench-cabal-${{ hashFiles('wireform.cabal') }}
           restore-keys: |
             ${{ runner.os }}-bench-cabal-
 
@@ -96,12 +96,12 @@ jobs:
       - name: Build benchmarks
         run: |
           cabal configure --enable-benchmarks
-          cabal build exe:hs-proto-bench
+          cabal build exe:wireform-bench
           cabal build exe:profile
           cabal build exe:bench-grow
 
       - name: Run quick benchmarks
-        run: cabal exec hs-proto-bench
+        run: cabal exec wireform-bench
 
       - name: Run GrowList benchmarks
         run: cabal exec bench-grow
@@ -133,7 +133,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cabal/store
-          key: ${{ runner.os }}-codegen-cabal-${{ hashFiles('hs-proto.cabal') }}
+          key: ${{ runner.os }}-codegen-cabal-${{ hashFiles('wireform.cabal') }}
           restore-keys: |
             ${{ runner.os }}-codegen-cabal-
 
@@ -143,7 +143,7 @@ jobs:
       - name: Build code generator
         run: |
           cabal configure
-          cabal build exe:hs-proto-gen
+          cabal build exe:wireform-gen
 
       - name: Generate well-known types and verify they compile
         run: |
@@ -155,7 +155,7 @@ jobs:
                    proto/google/protobuf/source_context.proto \
                    proto/google/protobuf/wrappers.proto \
                    proto/google/protobuf/struct.proto; do
-            cabal exec hs-proto-gen -- generate -I proto -o /tmp/gen-test --module-prefix Proto "$f"
+            cabal exec wireform-gen -- generate -I proto -o /tmp/gen-test --module-prefix Proto "$f"
           done
           echo "Generated files:"
           find /tmp/gen-test -name "*.hs" -exec echo "  {}" \;

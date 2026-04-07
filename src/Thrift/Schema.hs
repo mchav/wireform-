@@ -12,6 +12,7 @@ module Thrift.Schema
 
     -- * Struct / Union / Exception
   , ThriftStruct (..)
+  , StructKind (..)
   , ThriftField (..)
   , Requiredness (..)
 

@@ -1,6 +1,6 @@
-# Feature Gap Analysis: hs-proto vs Other Protobuf Libraries
+# Feature Gap Analysis: wireform vs Other Protobuf Libraries
 
-Analysis comparing hs-proto against proto-lens (Haskell), prost (Rust), and the
+Analysis comparing wireform against proto-lens (Haskell), prost (Rust), and the
 official Google protobuf runtimes (Java, Python, Go, C++).
 
 ## Implementation Status
@@ -8,12 +8,12 @@ official Google protobuf runtimes (Java, Python, Go, C++).
 | # | Feature | Status | Module(s) |
 |---|---------|--------|-----------|
 | 1 | gRPC Service Stub Generation | **Implemented** | `Proto.CodeGen.Service` |
-| 2 | protoc Plugin Mode | **Implemented** | `Proto.Google.Protobuf.Compiler.Plugin`, `protoc-gen-hs-proto` exe |
+| 2 | protoc Plugin Mode | **Implemented** | `Proto.Google.Protobuf.Compiler.Plugin`, `protoc-gen-wireform` exe |
 | 3 | Protobuf Editions Support | **Implemented** | `Proto.AST` (Editions, FeatureSet), `Proto.Parser` |
 | 4 | Full descriptor.proto Types | **Implemented** | `Proto.Google.Protobuf.Descriptor` |
 | 5 | Text Format (pbtxt) | **Implemented** | `Proto.TextFormat` |
 | 6 | Dynamic Messages | **Implemented** | `Proto.Dynamic` |
-| 7 | Conformance Test Harness | **Implemented** | `Proto.Conformance`, `hs-proto-conformance` exe |
+| 7 | Conformance Test Harness | **Implemented** | `Proto.Conformance`, `wireform-conformance` exe |
 | 8 | Streaming/Incremental Decode | **Implemented** | `Proto.Decode.Stream`, `Proto.Encode.Lazy` |
 | 9 | Well-Known Type JSON | **Implemented** | `Proto.JSON.WellKnown` |
 | 10 | aeson Integration | **Implemented** | `Proto.JSON.Aeson` |
@@ -33,7 +33,7 @@ declarations instead of discarding them. `Proto.CodeGen.Service` generates:
 
 **2. protoc Plugin Mode** — `Proto.Google.Protobuf.Compiler.Plugin` provides
 `CodeGeneratorRequest`/`CodeGeneratorResponse` types with full encode/decode,
-plus a `pluginMain` entry point. The `protoc-gen-hs-proto` executable
+plus a `pluginMain` entry point. The `protoc-gen-wireform` executable
 implements the protoc plugin protocol.
 
 **3. Protobuf Editions** — The AST now has `Editions Edition` as a `Syntax`
