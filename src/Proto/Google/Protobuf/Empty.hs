@@ -47,6 +47,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
+import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+  archFixed32, archFixed64, archFloat, archDouble, archBool,
+  archString, archBytes, archSubmessage,
+  archVarintSize, archStringSize, archBytesSize, archBoolSize,
+  archFixed32Size, archFixed64Size, archSubmessageSize)
 
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.

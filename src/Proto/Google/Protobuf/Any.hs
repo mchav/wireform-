@@ -47,6 +47,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
+import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+  archFixed32, archFixed64, archFloat, archDouble, archBool,
+  archString, archBytes, archSubmessage,
+  archVarintSize, archStringSize, archBytesSize, archBoolSize,
+  archFixed32Size, archFixed64Size, archSubmessageSize)
 
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
@@ -71,14 +76,14 @@ defaultAny = Any
 
 instance MessageEncode Any where
   buildMessage msg =
-    (if msg.anyTypeUrl == T.empty then mempty else encodeFieldString 1 msg.anyTypeUrl)
-    <> (if BS.null msg.anyValue then mempty else encodeFieldBytes 2 msg.anyValue)
+    (if msg.anyTypeUrl == T.empty then mempty else archString 10 msg.anyTypeUrl)
+    <> (if BS.null msg.anyValue then mempty else archBytes 18 msg.anyValue)
     <> encodeUnknownFields msg.anyUnknownFields
 
 instance MessageSize Any where
   messageSize msg =
-    (if msg.anyTypeUrl == T.empty then 0 else fieldTextSize 1 msg.anyTypeUrl)
-    + (if BS.null msg.anyValue then 0 else fieldBytesSize 2 msg.anyValue)
+    (if msg.anyTypeUrl == T.empty then 0 else archStringSize msg.anyTypeUrl)
+    + (if BS.null msg.anyValue then 0 else archBytesSize msg.anyValue)
     + unknownFieldsSize msg.anyUnknownFields
 
 instance MessageDecode Any where

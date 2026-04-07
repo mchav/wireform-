@@ -47,6 +47,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
+import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+  archFixed32, archFixed64, archFloat, archDouble, archBool,
+  archString, archBytes, archSubmessage,
+  archVarintSize, archStringSize, archBytesSize, archBoolSize,
+  archFixed32Size, archFixed64Size, archSubmessageSize)
 
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
@@ -69,12 +74,12 @@ defaultDoubleValue = DoubleValue
 
 instance MessageEncode DoubleValue where
   buildMessage msg =
-    (if msg.doubleValueValue == 0 then mempty else encodeFieldDouble 1 msg.doubleValueValue)
+    (if msg.doubleValueValue == 0 then mempty else archDouble 9 msg.doubleValueValue)
     <> encodeUnknownFields msg.doubleValueUnknownFields
 
 instance MessageSize DoubleValue where
   messageSize msg =
-    (if msg.doubleValueValue == 0 then 0 else fieldDoubleSize 1)
+    (if msg.doubleValueValue == 0 then 0 else archFixed64Size)
     + unknownFieldsSize msg.doubleValueUnknownFields
 
 instance MessageDecode DoubleValue where
@@ -143,12 +148,12 @@ defaultFloatValue = FloatValue
 
 instance MessageEncode FloatValue where
   buildMessage msg =
-    (if msg.floatValueValue == 0 then mempty else encodeFieldFloat 1 msg.floatValueValue)
+    (if msg.floatValueValue == 0 then mempty else archFloat 13 msg.floatValueValue)
     <> encodeUnknownFields msg.floatValueUnknownFields
 
 instance MessageSize FloatValue where
   messageSize msg =
-    (if msg.floatValueValue == 0 then 0 else fieldFloatSize 1)
+    (if msg.floatValueValue == 0 then 0 else archFixed32Size)
     + unknownFieldsSize msg.floatValueUnknownFields
 
 instance MessageDecode FloatValue where
@@ -217,12 +222,12 @@ defaultInt64Value = Int64Value
 
 instance MessageEncode Int64Value where
   buildMessage msg =
-    (if msg.int64ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.int64ValueValue))
+    (if msg.int64ValueValue == 0 then mempty else archVarint 8 (fromIntegral msg.int64ValueValue))
     <> encodeUnknownFields msg.int64ValueUnknownFields
 
 instance MessageSize Int64Value where
   messageSize msg =
-    (if msg.int64ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.int64ValueValue))
+    (if msg.int64ValueValue == 0 then 0 else archVarintSize (fromIntegral msg.int64ValueValue))
     + unknownFieldsSize msg.int64ValueUnknownFields
 
 instance MessageDecode Int64Value where
@@ -291,12 +296,12 @@ defaultUInt64Value = UInt64Value
 
 instance MessageEncode UInt64Value where
   buildMessage msg =
-    (if msg.uInt64ValueValue == 0 then mempty else encodeFieldVarint 1 msg.uInt64ValueValue)
+    (if msg.uInt64ValueValue == 0 then mempty else archVarint 8 msg.uInt64ValueValue)
     <> encodeUnknownFields msg.uInt64ValueUnknownFields
 
 instance MessageSize UInt64Value where
   messageSize msg =
-    (if msg.uInt64ValueValue == 0 then 0 else fieldVarintSize 1 msg.uInt64ValueValue)
+    (if msg.uInt64ValueValue == 0 then 0 else archVarintSize msg.uInt64ValueValue)
     + unknownFieldsSize msg.uInt64ValueUnknownFields
 
 instance MessageDecode UInt64Value where
@@ -365,12 +370,12 @@ defaultInt32Value = Int32Value
 
 instance MessageEncode Int32Value where
   buildMessage msg =
-    (if msg.int32ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.int32ValueValue))
+    (if msg.int32ValueValue == 0 then mempty else archVarint 8 (fromIntegral msg.int32ValueValue))
     <> encodeUnknownFields msg.int32ValueUnknownFields
 
 instance MessageSize Int32Value where
   messageSize msg =
-    (if msg.int32ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.int32ValueValue))
+    (if msg.int32ValueValue == 0 then 0 else archVarintSize (fromIntegral msg.int32ValueValue))
     + unknownFieldsSize msg.int32ValueUnknownFields
 
 instance MessageDecode Int32Value where
@@ -439,12 +444,12 @@ defaultUInt32Value = UInt32Value
 
 instance MessageEncode UInt32Value where
   buildMessage msg =
-    (if msg.uInt32ValueValue == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.uInt32ValueValue))
+    (if msg.uInt32ValueValue == 0 then mempty else archVarint 8 (fromIntegral msg.uInt32ValueValue))
     <> encodeUnknownFields msg.uInt32ValueUnknownFields
 
 instance MessageSize UInt32Value where
   messageSize msg =
-    (if msg.uInt32ValueValue == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.uInt32ValueValue))
+    (if msg.uInt32ValueValue == 0 then 0 else archVarintSize (fromIntegral msg.uInt32ValueValue))
     + unknownFieldsSize msg.uInt32ValueUnknownFields
 
 instance MessageDecode UInt32Value where
@@ -513,12 +518,12 @@ defaultBoolValue = BoolValue
 
 instance MessageEncode BoolValue where
   buildMessage msg =
-    (if msg.boolValueValue == False then mempty else encodeFieldBool 1 msg.boolValueValue)
+    (if msg.boolValueValue == False then mempty else archBool 8 msg.boolValueValue)
     <> encodeUnknownFields msg.boolValueUnknownFields
 
 instance MessageSize BoolValue where
   messageSize msg =
-    (if msg.boolValueValue == False then 0 else fieldBoolSize 1)
+    (if msg.boolValueValue == False then 0 else archBoolSize)
     + unknownFieldsSize msg.boolValueUnknownFields
 
 instance MessageDecode BoolValue where
@@ -587,12 +592,12 @@ defaultStringValue = StringValue
 
 instance MessageEncode StringValue where
   buildMessage msg =
-    (if msg.stringValueValue == T.empty then mempty else encodeFieldString 1 msg.stringValueValue)
+    (if msg.stringValueValue == T.empty then mempty else archString 10 msg.stringValueValue)
     <> encodeUnknownFields msg.stringValueUnknownFields
 
 instance MessageSize StringValue where
   messageSize msg =
-    (if msg.stringValueValue == T.empty then 0 else fieldTextSize 1 msg.stringValueValue)
+    (if msg.stringValueValue == T.empty then 0 else archStringSize msg.stringValueValue)
     + unknownFieldsSize msg.stringValueUnknownFields
 
 instance MessageDecode StringValue where
@@ -661,12 +666,12 @@ defaultBytesValue = BytesValue
 
 instance MessageEncode BytesValue where
   buildMessage msg =
-    (if BS.null msg.bytesValueValue then mempty else encodeFieldBytes 1 msg.bytesValueValue)
+    (if BS.null msg.bytesValueValue then mempty else archBytes 10 msg.bytesValueValue)
     <> encodeUnknownFields msg.bytesValueUnknownFields
 
 instance MessageSize BytesValue where
   messageSize msg =
-    (if BS.null msg.bytesValueValue then 0 else fieldBytesSize 1 msg.bytesValueValue)
+    (if BS.null msg.bytesValueValue then 0 else archBytesSize msg.bytesValueValue)
     + unknownFieldsSize msg.bytesValueUnknownFields
 
 instance MessageDecode BytesValue where

@@ -47,6 +47,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
+import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+  archFixed32, archFixed64, archFloat, archDouble, archBool,
+  archString, archBytes, archSubmessage,
+  archVarintSize, archStringSize, archBytesSize, archBoolSize,
+  archFixed32Size, archFixed64Size, archSubmessageSize)
 
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
@@ -69,12 +74,12 @@ defaultFieldMask = FieldMask
 
 instance MessageEncode FieldMask where
   buildMessage msg =
-    V.foldl' (\acc v -> acc <> encodeFieldString 1 v) mempty msg.fieldMaskPaths
+    V.foldl' (\acc v -> acc <> archString 10 v) mempty msg.fieldMaskPaths
     <> encodeUnknownFields msg.fieldMaskUnknownFields
 
 instance MessageSize FieldMask where
   messageSize msg =
-    (V.foldl' (\acc v -> acc + fieldTextSize 1 v) 0 msg.fieldMaskPaths)
+    (V.foldl' (\acc v -> acc + archStringSize v) 0 msg.fieldMaskPaths)
     + unknownFieldsSize msg.fieldMaskUnknownFields
 
 instance MessageDecode FieldMask where

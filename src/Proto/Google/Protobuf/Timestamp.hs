@@ -47,6 +47,11 @@ import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,
   fieldTextSize, fieldBytesSize,
   fieldSVarint32Size, fieldSVarint64Size,
   varintSize32, zigZag32, zigZag64)
+import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,
+  archFixed32, archFixed64, archFloat, archDouble, archBool,
+  archString, archBytes, archSubmessage,
+  archVarintSize, archStringSize, archBytesSize, archBoolSize,
+  archFixed32Size, archFixed64Size, archSubmessageSize)
 
 -- | Serialized FileDescriptorProto for this .proto file.
 -- Decode with @Proto.Google.Protobuf.Descriptor.decodeMessage@.
@@ -71,14 +76,14 @@ defaultTimestamp = Timestamp
 
 instance MessageEncode Timestamp where
   buildMessage msg =
-    (if msg.timestampSeconds == 0 then mempty else encodeFieldVarint 1 (fromIntegral msg.timestampSeconds))
-    <> (if msg.timestampNanos == 0 then mempty else encodeFieldVarint 2 (fromIntegral msg.timestampNanos))
+    (if msg.timestampSeconds == 0 then mempty else archVarint 8 (fromIntegral msg.timestampSeconds))
+    <> (if msg.timestampNanos == 0 then mempty else archVarint 16 (fromIntegral msg.timestampNanos))
     <> encodeUnknownFields msg.timestampUnknownFields
 
 instance MessageSize Timestamp where
   messageSize msg =
-    (if msg.timestampSeconds == 0 then 0 else fieldVarintSize 1 (fromIntegral msg.timestampSeconds))
-    + (if msg.timestampNanos == 0 then 0 else fieldVarintSize 2 (fromIntegral msg.timestampNanos))
+    (if msg.timestampSeconds == 0 then 0 else archVarintSize (fromIntegral msg.timestampSeconds))
+    + (if msg.timestampNanos == 0 then 0 else archVarintSize (fromIntegral msg.timestampNanos))
     + unknownFieldsSize msg.timestampUnknownFields
 
 instance MessageDecode Timestamp where

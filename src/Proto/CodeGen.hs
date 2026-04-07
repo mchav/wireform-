@@ -62,6 +62,38 @@ import Proto.Descriptor.Convert (serializeFileDescriptor)
 import qualified Data.ByteString as BS
 import Data.Word (Word8)
 
+wireVarint, wire64Bit, wireLengthDelimited, wire32Bit :: Int
+wireVarint = 0
+wire64Bit = 1
+wireLengthDelimited = 2
+wire32Bit = 5
+
+computeTagByte :: Int -> Int -> Int
+computeTagByte fieldNum wireType = fieldNum * 8 + wireType
+
+scalarWireType :: ScalarType -> Int
+scalarWireType = \case
+  SDouble   -> wire64Bit
+  SFloat    -> wire32Bit
+  SInt32    -> wireVarint
+  SInt64    -> wireVarint
+  SUInt32   -> wireVarint
+  SUInt64   -> wireVarint
+  SSInt32   -> wireVarint
+  SSInt64   -> wireVarint
+  SFixed32  -> wire32Bit
+  SFixed64  -> wire64Bit
+  SSFixed32 -> wire32Bit
+  SSFixed64 -> wire64Bit
+  SBool     -> wireVarint
+  SString   -> wireLengthDelimited
+  SBytes    -> wireLengthDelimited
+
+tagLit :: Text -> Int -> Doc ann
+tagLit fnText wt =
+  let fieldNum = read (T.unpack fnText) :: Int
+  in pretty (computeTagByte fieldNum wt)
+
 -- ---------------------------------------------------------------------------
 -- Options
 -- ---------------------------------------------------------------------------
@@ -490,6 +522,11 @@ genImports externalModules = vsep $
   , txt "  fieldTextSize, fieldBytesSize,"
   , txt "  fieldSVarint32Size, fieldSVarint64Size,"
   , txt "  varintSize32, zigZag32, zigZag64)"
+  , txt "import Proto.Encode.Archetype (archVarint, archSVarint32, archSVarint64,"
+  , txt "  archFixed32, archFixed64, archFloat, archDouble, archBool,"
+  , txt "  archString, archBytes, archSubmessage,"
+  , txt "  archVarintSize, archStringSize, archBytesSize, archBoolSize,"
+  , txt "  archFixed32Size, archFixed64Size, archSubmessageSize)"
   ]
   <> fmap genQualifiedImport (Set.toAscList externalModules)
 
@@ -769,13 +806,13 @@ genBuildExprScalar fn accessor lbl st = case lbl of
 genBuildExprNamed :: GenCtx -> Text -> Text -> Maybe FieldLabel -> Text -> TypeKind -> Doc ann
 genBuildExprNamed ctx fn accessor lbl _name tk = case tk of
   TKEnum -> case lbl of
-    Just Repeated -> txt "V.foldl' (\\acc v -> acc <> encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral (fromEnum v))) mempty " <> pretty accessor
-    Just Optional -> txt "(maybe mempty (\\v -> encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral (fromEnum v))) " <> pretty accessor <> txt ")"
-    _ -> txt "(if fromEnum " <> pretty accessor <> txt " == 0 then mempty else encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral (fromEnum " <> pretty accessor <> txt ")))"
+    Just Repeated -> txt "V.foldl' (\\acc v -> acc <> archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral (fromEnum v))) mempty " <> pretty accessor
+    Just Optional -> txt "(maybe mempty (\\v -> archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral (fromEnum v))) " <> pretty accessor <> txt ")"
+    _ -> txt "(if fromEnum " <> pretty accessor <> txt " == 0 then mempty else archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral (fromEnum " <> pretty accessor <> txt ")))"
   TKMessage -> case lbl of
-    Just Repeated -> txt "V.foldl' (\\acc v -> acc <> encodeFieldMessage " <> pretty fn <+> txt "v) mempty " <> pretty accessor
-    Just Optional -> txt "(maybe mempty (\\v -> encodeFieldMessage " <> pretty fn <+> txt "v) " <> pretty accessor <> txt ")"
-    _ -> txt "(maybe mempty (\\v -> encodeFieldMessage " <> pretty fn <+> txt "v) " <> pretty accessor <> txt ")"
+    Just Repeated -> txt "V.foldl' (\\acc v -> let sz = messageSize v in acc <> archSubmessage " <> tagLit fn wireLengthDelimited <+> txt "sz (buildMessage v)) mempty " <> pretty accessor
+    Just Optional -> txt "(maybe mempty (\\v -> let sz = messageSize v in archSubmessage " <> tagLit fn wireLengthDelimited <+> txt "sz (buildMessage v)) " <> pretty accessor <> txt ")"
+    _ -> txt "(maybe mempty (\\v -> let sz = messageSize v in archSubmessage " <> tagLit fn wireLengthDelimited <+> txt "sz (buildMessage v)) " <> pretty accessor <> txt ")"
 
 genBuildExprMap :: GenCtx -> Text -> Text -> ScalarType -> FieldType -> Doc ann
 genBuildExprMap ctx fn accessor keyT valT =
@@ -834,33 +871,33 @@ genOneofArmEncode ctx scope ooName f =
        FTScalar st -> genSingleScalarBuild fn "v" st
        FTNamed n -> case resolveType ctx n of
          Just ti | tiKind ti == TKEnum ->
-           txt "encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral (fromEnum v))"
-         _ -> txt "encodeFieldMessage " <> pretty fn <+> txt "v"
+           txt "archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral (fromEnum v))"
+         _ -> txt "(let sz = messageSize v in archSubmessage " <> tagLit fn wireLengthDelimited <+> txt "sz (buildMessage v))"
 
 genSingleScalarBuild :: Text -> Text -> ScalarType -> Doc ann
 genSingleScalarBuild fn accessor = \case
-  SDouble   -> txt "encodeFieldDouble " <> pretty fn <+> pretty accessor
-  SFloat    -> txt "encodeFieldFloat " <> pretty fn <+> pretty accessor
-  SInt32    -> txt "encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
-  SInt64    -> txt "encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
-  SUInt32   -> txt "encodeFieldVarint " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
-  SUInt64   -> txt "encodeFieldVarint " <> pretty fn <+> pretty accessor
-  SSInt32   -> txt "encodeFieldSVarint32 " <> pretty fn <+> pretty accessor
-  SSInt64   -> txt "encodeFieldSVarint64 " <> pretty fn <+> pretty accessor
-  SFixed32  -> txt "encodeFieldFixed32 " <> pretty fn <+> pretty accessor
-  SFixed64  -> txt "encodeFieldFixed64 " <> pretty fn <+> pretty accessor
-  SSFixed32 -> txt "encodeFieldFixed32 " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
-  SSFixed64 -> txt "encodeFieldFixed64 " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
-  SBool     -> txt "encodeFieldBool " <> pretty fn <+> pretty accessor
-  SString   -> txt "encodeFieldString " <> pretty fn <+> pretty accessor
-  SBytes    -> txt "encodeFieldBytes " <> pretty fn <+> pretty accessor
+  SDouble   -> txt "archDouble " <> tagLit fn wire64Bit <+> pretty accessor
+  SFloat    -> txt "archFloat " <> tagLit fn wire32Bit <+> pretty accessor
+  SInt32    -> txt "archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  SInt64    -> txt "archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  SUInt32   -> txt "archVarint " <> tagLit fn wireVarint <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  SUInt64   -> txt "archVarint " <> tagLit fn wireVarint <+> pretty accessor
+  SSInt32   -> txt "archSVarint32 " <> tagLit fn wireVarint <+> pretty accessor
+  SSInt64   -> txt "archSVarint64 " <> tagLit fn wireVarint <+> pretty accessor
+  SFixed32  -> txt "archFixed32 " <> tagLit fn wire32Bit <+> pretty accessor
+  SFixed64  -> txt "archFixed64 " <> tagLit fn wire64Bit <+> pretty accessor
+  SSFixed32 -> txt "archFixed32 " <> tagLit fn wire32Bit <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  SSFixed64 -> txt "archFixed64 " <> tagLit fn wire64Bit <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
+  SBool     -> txt "archBool " <> tagLit fn wireVarint <+> pretty accessor
+  SString   -> txt "archString " <> tagLit fn wireLengthDelimited <+> pretty accessor
+  SBytes    -> txt "archBytes " <> tagLit fn wireLengthDelimited <+> pretty accessor
 
 genRepeatedScalarBuild :: Text -> Text -> ScalarType -> Doc ann
 genRepeatedScalarBuild fn accessor = \case
   SString ->
-    txt "V.foldl' (\\acc v -> acc <> encodeFieldString " <> pretty fn <+> txt "v) mempty " <> pretty accessor
+    txt "V.foldl' (\\acc v -> acc <> archString " <> tagLit fn wireLengthDelimited <+> txt "v) mempty " <> pretty accessor
   SBytes ->
-    txt "V.foldl' (\\acc v -> acc <> encodeFieldBytes " <> pretty fn <+> txt "v) mempty " <> pretty accessor
+    txt "V.foldl' (\\acc v -> acc <> archBytes " <> tagLit fn wireLengthDelimited <+> txt "v) mempty " <> pretty accessor
   s -> txt "encode" <> pretty (packedFnName s) <+> pretty fn <+> pretty accessor
 
 scalarDefaultCheck :: Text -> ScalarType -> Doc ann
@@ -959,32 +996,32 @@ genRepeatedSizeScalar fn accessor = \case
 
 genSingleSizeScalar :: Text -> Text -> ScalarType -> Doc ann
 genSingleSizeScalar fn accessor = \case
-  SDouble   -> txt "fieldDoubleSize " <> pretty fn
-  SFloat    -> txt "fieldFloatSize " <> pretty fn
-  SFixed32  -> txt "fieldFixed32Size " <> pretty fn
-  SFixed64  -> txt "fieldFixed64Size " <> pretty fn
-  SSFixed32 -> txt "fieldFixed32Size " <> pretty fn
-  SSFixed64 -> txt "fieldFixed64Size " <> pretty fn
-  SBool     -> txt "fieldBoolSize " <> pretty fn
-  SInt32    -> txt "fieldVarintSize " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
-  SInt64    -> txt "fieldVarintSize " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
-  SUInt32   -> txt "fieldVarintSize " <> pretty fn <+> txt "(fromIntegral " <> pretty accessor <> txt ")"
-  SUInt64   -> txt "fieldVarintSize " <> pretty fn <+> pretty accessor
-  SSInt32   -> txt "fieldSVarint32Size " <> pretty fn <+> pretty accessor
-  SSInt64   -> txt "fieldSVarint64Size " <> pretty fn <+> pretty accessor
-  SString   -> txt "fieldTextSize " <> pretty fn <+> pretty accessor
-  SBytes    -> txt "fieldBytesSize " <> pretty fn <+> pretty accessor
+  SDouble   -> txt "archFixed64Size"
+  SFloat    -> txt "archFixed32Size"
+  SFixed32  -> txt "archFixed32Size"
+  SFixed64  -> txt "archFixed64Size"
+  SSFixed32 -> txt "archFixed32Size"
+  SSFixed64 -> txt "archFixed64Size"
+  SBool     -> txt "archBoolSize"
+  SInt32    -> txt "archVarintSize (fromIntegral " <> pretty accessor <> txt ")"
+  SInt64    -> txt "archVarintSize (fromIntegral " <> pretty accessor <> txt ")"
+  SUInt32   -> txt "archVarintSize (fromIntegral " <> pretty accessor <> txt ")"
+  SUInt64   -> txt "archVarintSize " <> pretty accessor
+  SSInt32   -> txt "(1 + varintSize (fromIntegral (zigZag32 " <> pretty accessor <> txt ")))"
+  SSInt64   -> txt "(1 + varintSize (zigZag64 " <> pretty accessor <> txt "))"
+  SString   -> txt "archStringSize " <> pretty accessor
+  SBytes    -> txt "archBytesSize " <> pretty accessor
 
 genSizeNamed :: GenCtx -> Text -> Text -> Maybe FieldLabel -> Text -> TypeKind -> Doc ann
 genSizeNamed ctx fn accessor lbl name tk = case tk of
   TKEnum -> case lbl of
-    Just Repeated -> txt "(V.foldl' (\\acc v -> acc + fieldVarintSize " <> pretty fn <+> txt "(fromIntegral (fromEnum v))) 0 " <> pretty accessor <> txt ")"
-    Just Optional -> txt "(maybe 0 (\\v -> fieldVarintSize " <> pretty fn <+> txt "(fromIntegral (fromEnum v))) " <> pretty accessor <> txt ")"
-    _ -> txt "(if fromEnum " <> pretty accessor <> txt " == 0 then 0 else fieldVarintSize " <> pretty fn <+> txt "(fromIntegral (fromEnum " <> pretty accessor <> txt ")))"
+    Just Repeated -> txt "(V.foldl' (\\acc v -> acc + archVarintSize (fromIntegral (fromEnum v))) 0 " <> pretty accessor <> txt ")"
+    Just Optional -> txt "(maybe 0 (\\v -> archVarintSize (fromIntegral (fromEnum v))) " <> pretty accessor <> txt ")"
+    _ -> txt "(if fromEnum " <> pretty accessor <> txt " == 0 then 0 else archVarintSize (fromIntegral (fromEnum " <> pretty accessor <> txt ")))"
   TKMessage -> case lbl of
-    Just Repeated -> txt "(V.foldl' (\\acc v -> acc + fieldMessageSize " <> pretty fn <+> txt "(messageSize v)) 0 " <> pretty accessor <> txt ")"
-    Just Optional -> txt "(maybe 0 (\\v -> fieldMessageSize " <> pretty fn <+> txt "(messageSize v)) " <> pretty accessor <> txt ")"
-    _ -> txt "(maybe 0 (\\v -> fieldMessageSize " <> pretty fn <+> txt "(messageSize v)) " <> pretty accessor <> txt ")"
+    Just Repeated -> txt "(V.foldl' (\\acc v -> acc + archSubmessageSize (messageSize v)) 0 " <> pretty accessor <> txt ")"
+    Just Optional -> txt "(maybe 0 (\\v -> archSubmessageSize (messageSize v)) " <> pretty accessor <> txt ")"
+    _ -> txt "(maybe 0 (\\v -> archSubmessageSize (messageSize v)) " <> pretty accessor <> txt ")"
 
 genSizeMap :: GenCtx -> Text -> Text -> ScalarType -> FieldType -> Doc ann
 genSizeMap ctx fn accessor keyT valT =
@@ -1035,8 +1072,8 @@ genSizeOneof ctx scope fn accessor ood =
        case oneofFieldType f of
          FTScalar st -> genSingleSizeScalar ffn "v" st
          FTNamed n -> case resolveType ctx n of
-           Just ti | tiKind ti == TKEnum -> txt "fieldVarintSize " <> pretty ffn <+> txt "(fromIntegral (fromEnum v))"
-           _ -> txt "fieldMessageSize " <> pretty ffn <+> txt "(messageSize v)"
+           Just ti | tiKind ti == TKEnum -> txt "archVarintSize (fromIntegral (fromEnum v))"
+           _ -> txt "archSubmessageSize (messageSize v)"
   ) (oneofFields ood)) <>
   txt " })"
 
@@ -1467,8 +1504,8 @@ genOneofHashableInstance ctx scope od =
 genOneofHashArm :: [Text] -> Text -> Int -> OneofField -> Doc ann
 genOneofHashArm scope ooName tag f =
   let conName = oneofConName scope ooName (oneofFieldName f)
-      tagLit = T.pack (show tag)
-  in txt "hashWithSalt salt (" <> pretty conName <+> txt "v) = salt `hashWithSalt` (" <> pretty tagLit <> txt " :: Int) `hashWithSalt` v"
+      tagStr = T.pack (show tag)
+  in txt "hashWithSalt salt (" <> pretty conName <+> txt "v) = salt `hashWithSalt` (" <> pretty tagStr <> txt " :: Int) `hashWithSalt` v"
 
 genEnumHashableInstance :: [Text] -> EnumDef -> Doc ann
 genEnumHashableInstance scope ed =
