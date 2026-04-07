@@ -142,6 +142,7 @@ library
       Avro.Protocol
 
     c-sources:        cbits/fast_decode.c
+    include-dirs:     cbits/simde
     cc-options:       -O3 -march=native
 
     build-depends:

@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <simde/x86/sse2.h>
 
 /*
  * Fast varint decode using SWAR technique.
@@ -297,6 +298,19 @@ int hs_proto_count_packed_varints(
     int count = 0;
     int i = 0;
 
+    {
+        simde__m128i high_bit = simde_mm_set1_epi8((char)0x80);
+        for (; i + 16 <= len; i += 16) {
+            simde__m128i chunk = simde_mm_loadu_si128(
+                (const simde__m128i *)(buf + i));
+            simde__m128i has_high = simde_mm_and_si128(chunk, high_bit);
+            simde__m128i is_term = simde_mm_cmpeq_epi8(has_high,
+                simde_mm_setzero_si128());
+            int mask = simde_mm_movemask_epi8(is_term);
+            count += __builtin_popcount(mask);
+        }
+    }
+
 #if defined(__x86_64__) || defined(__aarch64__)
     for (; i + 8 <= len; i += 8) {
         uint64_t word;
@@ -325,6 +339,16 @@ int hs_proto_packed_all_single_byte(
     int len)
 {
     int i = 0;
+
+    {
+        simde__m128i high_bit = simde_mm_set1_epi8((char)0x80);
+        for (; i + 16 <= len; i += 16) {
+            simde__m128i chunk = simde_mm_loadu_si128(
+                (const simde__m128i *)(buf + i));
+            simde__m128i has_high = simde_mm_and_si128(chunk, high_bit);
+            if (simde_mm_movemask_epi8(has_high)) return 0;
+        }
+    }
 
 #if defined(__x86_64__) || defined(__aarch64__)
     for (; i + 8 <= len; i += 8) {
@@ -392,8 +416,19 @@ int hs_proto_validate_utf8_fast(
 {
     int i = 0;
 
+    {
+        simde__m128i high_bit = simde_mm_set1_epi8((char)0x80);
+        for (; i + 16 <= len; i += 16) {
+            simde__m128i chunk = simde_mm_loadu_si128(
+                (const simde__m128i *)(buf + i));
+            simde__m128i has_high = simde_mm_and_si128(chunk, high_bit);
+            if (simde_mm_movemask_epi8(has_high)) {
+                goto slow_from_i;
+            }
+        }
+    }
+
 #if defined(__x86_64__) || defined(__aarch64__)
-    /* SWAR ASCII fast path: 8 bytes at a time */
     for (; i + 8 <= len; i += 8) {
         uint64_t word;
         memcpy(&word, buf + i, 8);
@@ -401,24 +436,15 @@ int hs_proto_validate_utf8_fast(
             goto slow_from_i;
         }
     }
-    /* Check remaining bytes for ASCII */
-    if (i < len) {
-        int rem = len - i;
-        uint64_t word = 0;
-        memcpy(&word, buf + i, rem < 8 ? rem : 8);
-        uint64_t mask = rem >= 8
-            ? 0x8080808080808080ULL
-            : 0x8080808080808080ULL >> ((8 - rem) * 8);
-        if (word & mask) {
-            goto slow_from_i;
-        }
-        i = len;
+#endif
+
+    for (; i < len; i++) {
+        if (buf[i] >= 0x80) goto slow_from_i;
     }
     return 1;
 
 slow_from_i:
     ;
-#endif
 
     /* Full UTF-8 validation from position i */
     while (i < len) {
