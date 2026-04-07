@@ -162,6 +162,9 @@ library
       Avro.CodeGen
       -- gRPC framing
       Proto.GRPC
+      -- Avro IDL (.avdl) parser and converter
+      Avro.IDL
+      Avro.IDLConvert
       -- Avro Protocol / IPC
       Avro.Protocol
       -- CBOR support
@@ -349,6 +352,7 @@ test-suite wireform-test
       Test.ASN1Parser
       Test.CDDLParser
       Test.ISLParser
+      Test.AvroIDL
 
     build-depends:
         base             >= 4.16 && < 5

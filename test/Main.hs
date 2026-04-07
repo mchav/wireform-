@@ -49,6 +49,7 @@ import Test.FlatBuffersParser (flatBuffersParserTests)
 import Test.ASN1Parser (asn1ParserTests)
 import Test.CDDLParser (cddlParserTests)
 import Test.ISLParser (islParserTests)
+import Test.AvroIDL (avroIDLTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform"
@@ -99,4 +100,5 @@ main = defaultMain $ testGroup "wireform"
   , asn1ParserTests
   , cddlParserTests
   , islParserTests
+  , avroIDLTests
   ]
