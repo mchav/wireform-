@@ -13,6 +13,7 @@ import Test.Tasty.Hedgehog
 import Thrift.Encode (encodeBinary, encodeCompact)
 import Thrift.Decode (decodeBinary, decodeCompact)
 import Thrift.JSON (thriftToJSON, thriftFromJSON, thriftToTypedJSON, thriftFromTypedJSON)
+import Thrift.Message
 import Thrift.Value
 import Thrift.Wire (ThriftType (..))
 
@@ -26,6 +27,7 @@ thriftTests = testGroup "Thrift Encode/Decode"
   , unitEmptyStructAndContainers
   , unitProtocolsDiffer
   , jsonTests
+  , messageTests
   ]
 
 --------------------------------------------------------------------------------
@@ -490,3 +492,97 @@ typedJsonMixedStruct = testCase "Typed JSON roundtrip (mixed struct)" $ do
       encoded = thriftToTypedJSON v
       decoded = thriftFromTypedJSON encoded
   decoded @?= Right v
+
+--------------------------------------------------------------------------------
+-- Thrift RPC message header roundtrip tests
+--------------------------------------------------------------------------------
+
+messageTests :: TestTree
+messageTests = testGroup "Thrift Message Headers"
+  [ binaryMessageTests
+  , compactMessageTests
+  ]
+
+binaryMessageTests :: TestTree
+binaryMessageTests = testGroup "Binary Protocol messages"
+  [ testCase "Call roundtrip" $ do
+      let msg = ThriftMessage "getUser" TMsgCall 1 simplePayload
+      decodeMessageBinary (encodeMessageBinary msg) @?= Right msg
+
+  , testCase "Reply roundtrip" $ do
+      let msg = ThriftMessage "getUser" TMsgReply 1 simplePayload
+      decodeMessageBinary (encodeMessageBinary msg) @?= Right msg
+
+  , testCase "Exception roundtrip" $ do
+      let msg = ThriftMessage "getUser" TMsgException 42 simplePayload
+      decodeMessageBinary (encodeMessageBinary msg) @?= Right msg
+
+  , testCase "Oneway roundtrip" $ do
+      let msg = ThriftMessage "fireAndForget" TMsgOneway 99 (TVStruct [])
+      decodeMessageBinary (encodeMessageBinary msg) @?= Right msg
+
+  , testCase "Complex payload roundtrip" $ do
+      let payload = TVStruct
+            [ (1, TVString "hello")
+            , (2, TVI32 42)
+            , (3, TVList TT_I64 [TVI64 100, TVI64 200])
+            ]
+          msg = ThriftMessage "complexMethod" TMsgCall 7 payload
+      decodeMessageBinary (encodeMessageBinary msg) @?= Right msg
+
+  , testCase "Empty method name" $ do
+      let msg = ThriftMessage "" TMsgCall 0 (TVStruct [])
+      decodeMessageBinary (encodeMessageBinary msg) @?= Right msg
+
+  , testCase "Negative seqid" $ do
+      let msg = ThriftMessage "test" TMsgReply (-1) simplePayload
+      decodeMessageBinary (encodeMessageBinary msg) @?= Right msg
+  ]
+
+compactMessageTests :: TestTree
+compactMessageTests = testGroup "Compact Protocol messages"
+  [ testCase "Call roundtrip" $ do
+      let msg = ThriftMessage "getUser" TMsgCall 1 simplePayload
+      decodeMessageCompact (encodeMessageCompact msg) @?= Right msg
+
+  , testCase "Reply roundtrip" $ do
+      let msg = ThriftMessage "getUser" TMsgReply 1 simplePayload
+      decodeMessageCompact (encodeMessageCompact msg) @?= Right msg
+
+  , testCase "Exception roundtrip" $ do
+      let msg = ThriftMessage "getUser" TMsgException 42 simplePayload
+      decodeMessageCompact (encodeMessageCompact msg) @?= Right msg
+
+  , testCase "Oneway roundtrip" $ do
+      let msg = ThriftMessage "fireAndForget" TMsgOneway 99 (TVStruct [])
+      decodeMessageCompact (encodeMessageCompact msg) @?= Right msg
+
+  , testCase "Complex payload roundtrip" $ do
+      let payload = TVStruct
+            [ (1, TVString "hello")
+            , (2, TVI32 42)
+            , (3, TVList TT_I64 [TVI64 100, TVI64 200])
+            ]
+          msg = ThriftMessage "complexMethod" TMsgCall 7 payload
+      decodeMessageCompact (encodeMessageCompact msg) @?= Right msg
+
+  , testCase "Empty method name" $ do
+      let msg = ThriftMessage "" TMsgCall 0 (TVStruct [])
+      decodeMessageCompact (encodeMessageCompact msg) @?= Right msg
+
+  , testCase "Large seqid" $ do
+      let msg = ThriftMessage "test" TMsgReply 100000 simplePayload
+      decodeMessageCompact (encodeMessageCompact msg) @?= Right msg
+
+  , testCase "Binary and Compact produce different bytes" $ do
+      let msg = ThriftMessage "method" TMsgCall 1 simplePayload
+          binBytes  = encodeMessageBinary msg
+          compBytes = encodeMessageCompact msg
+      assertBool "Binary and Compact should produce different bytes"
+                 (binBytes /= compBytes)
+      decodeMessageBinary binBytes @?= Right msg
+      decodeMessageCompact compBytes @?= Right msg
+  ]
+
+simplePayload :: ThriftValue
+simplePayload = TVStruct [(1, TVI32 42)]

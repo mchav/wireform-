@@ -135,6 +135,11 @@ library
       Thrift.Encode
       Thrift.Decode
       Thrift.JSON
+      Thrift.Message
+      -- gRPC framing
+      Proto.GRPC
+      -- Avro Protocol / IPC
+      Avro.Protocol
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
@@ -160,6 +165,7 @@ library
       , hashable          >= 1.3  && < 1.6
       , unordered-containers >= 0.2.16 && < 0.3
       , time              >= 1.9    && < 1.15
+      , cryptohash-md5    >= 0.11   && < 0.12
 
     hs-source-dirs:   src
     default-language: GHC2021
@@ -193,6 +199,7 @@ test-suite hs-proto-test
       Test.TDP
       Test.Thrift
       Test.Avro
+      Test.GRPC
 
     build-depends:
         base             >= 4.16 && < 5

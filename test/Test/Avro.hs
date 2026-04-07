@@ -17,11 +17,13 @@ import Avro.Value
 import Avro.Encode (encodeAvro)
 import Avro.Decode (decodeAvro)
 import Avro.JSON (avroToJSON, avroFromJSON, avroSchemaToJSON, avroSchemaFromJSON)
+import Avro.Protocol
 import Avro.Resolution (ResolvedSchema(..), FieldResolution(..), resolveSchema, resolveValue)
 
 avroTests :: TestTree
 avroTests = testGroup "Avro Encode/Decode"
-  [ testGroup "Primitive roundtrips (property)"
+  [ protocolTests
+  , testGroup "Primitive roundtrips (property)"
       [ testProperty "null roundtrip" $ property $ do
           let ty = AvroPrimitive AvroNull
           roundtrip ty AvNull
@@ -467,6 +469,164 @@ avroTests = testGroup "Avro Encode/Decode"
             Right _ -> assertFailure "expected incompatibility error"
       ]
   ]
+
+--------------------------------------------------------------------------------
+-- Avro Protocol tests
+--------------------------------------------------------------------------------
+
+protocolTests :: TestTree
+protocolTests = testGroup "Avro Protocol"
+  [ protocolJsonRoundtrip
+  , protocolFingerprintTest
+  , handshakeTests
+  , minimalProtocol
+  ]
+
+protocolJsonRoundtrip :: TestTree
+protocolJsonRoundtrip = testCase "Protocol JSON roundtrip" $ do
+  let proto = AvroProtocol
+        { protoName      = "HelloService"
+        , protoNamespace = Just "com.example"
+        , protoDoc       = Just "A simple service"
+        , protoTypes     =
+            [ mkRecordType "Greeting"
+                [ ("message", AvroPrimitive AvroString) ]
+            , AvroEnum
+                { avroEnumName      = "Tone"
+                , avroEnumNamespace = Nothing
+                , avroEnumDoc       = Nothing
+                , avroEnumAliases   = V.empty
+                , avroEnumSymbols   = V.fromList ["FRIENDLY", "FORMAL"]
+                , avroEnumDefault   = Nothing
+                }
+            ]
+        , protoMessages  =
+            [ ("hello", AvroMessage
+                { msgRequest  =
+                    [ AvroParam "name" (AvroPrimitive AvroString)
+                    , AvroParam "tone" (AvroPrimitive (AvroSchemaRef "Tone"))
+                    ]
+                , msgResponse = AvroPrimitive (AvroSchemaRef "Greeting")
+                , msgErrors   = Nothing
+                , msgOneWay   = False
+                })
+            , ("ping", AvroMessage
+                { msgRequest  = []
+                , msgResponse = AvroPrimitive AvroNull
+                , msgErrors   = Nothing
+                , msgOneWay   = True
+                })
+            ]
+        }
+      json = protocolToJSON proto
+  case protocolFromJSON json of
+    Left err -> assertFailure $ "Failed to parse protocol JSON: " ++ err
+    Right parsed -> do
+      protoName parsed @?= "HelloService"
+      protoNamespace parsed @?= Just "com.example"
+      protoDoc parsed @?= Just "A simple service"
+      length (protoTypes parsed) @?= 2
+      length (protoMessages parsed) @?= 2
+
+protocolFingerprintTest :: TestTree
+protocolFingerprintTest = testCase "Protocol fingerprint is 16 bytes (MD5)" $ do
+  let proto = AvroProtocol
+        { protoName      = "TestService"
+        , protoNamespace = Nothing
+        , protoDoc       = Nothing
+        , protoTypes     = []
+        , protoMessages  =
+            [ ("echo", AvroMessage
+                { msgRequest  = [AvroParam "msg" (AvroPrimitive AvroString)]
+                , msgResponse = AvroPrimitive AvroString
+                , msgErrors   = Nothing
+                , msgOneWay   = False
+                })
+            ]
+        }
+      fp = avroProtocolFingerprint proto
+  BS.length fp @?= 16
+  let fp2 = avroProtocolFingerprint proto
+  fp @?= fp2
+
+handshakeTests :: TestTree
+handshakeTests = testGroup "Handshake types"
+  [ testCase "HandshakeRequest roundtrip" $ do
+      let req = HandshakeRequest
+            { hsReqClientHash     = BS.replicate 16 0xAA
+            , hsReqClientProtocol = Just "{\"protocol\":\"Test\"}"
+            , hsReqServerHash     = BS.replicate 16 0xBB
+            , hsReqMeta           = Nothing
+            }
+          json = handshakeRequestToJSON req
+      case handshakeRequestFromJSON json of
+        Left err -> assertFailure $ "Failed to parse handshake request: " ++ err
+        Right parsed -> do
+          hsReqClientHash parsed @?= hsReqClientHash req
+          hsReqClientProtocol parsed @?= hsReqClientProtocol req
+          hsReqServerHash parsed @?= hsReqServerHash req
+
+  , testCase "HandshakeResponse roundtrip" $ do
+      let resp = HandshakeResponse
+            { hsRespMatch          = MatchBoth
+            , hsRespServerProtocol = Nothing
+            , hsRespServerHash     = Nothing
+            , hsRespMeta           = Nothing
+            }
+          json = handshakeResponseToJSON resp
+      case handshakeResponseFromJSON json of
+        Left err -> assertFailure $ "Failed to parse handshake response: " ++ err
+        Right parsed -> do
+          hsRespMatch parsed @?= MatchBoth
+          hsRespServerProtocol parsed @?= Nothing
+
+  , testCase "HandshakeResponse CLIENT match" $ do
+      let resp = HandshakeResponse
+            { hsRespMatch          = MatchClient
+            , hsRespServerProtocol = Just "{\"protocol\":\"Test\"}"
+            , hsRespServerHash     = Just (BS.replicate 16 0xCC)
+            , hsRespMeta           = Nothing
+            }
+          json = handshakeResponseToJSON resp
+      case handshakeResponseFromJSON json of
+        Left err -> assertFailure $ "Failed to parse handshake response: " ++ err
+        Right parsed -> do
+          hsRespMatch parsed @?= MatchClient
+          hsRespServerProtocol parsed @?= Just "{\"protocol\":\"Test\"}"
+
+  , testCase "HandshakeResponse NONE match" $ do
+      let resp = HandshakeResponse
+            { hsRespMatch          = MatchNone
+            , hsRespServerProtocol = Just "{}"
+            , hsRespServerHash     = Just (BS.replicate 16 0x00)
+            , hsRespMeta           = Just [("key", BS.pack [1,2,3])]
+            }
+          json = handshakeResponseToJSON resp
+      case handshakeResponseFromJSON json of
+        Left err -> assertFailure $ "Failed to parse handshake response: " ++ err
+        Right parsed ->
+          hsRespMatch parsed @?= MatchNone
+  ]
+
+minimalProtocol :: TestTree
+minimalProtocol = testCase "Minimal protocol (no types, no messages)" $ do
+  let proto = AvroProtocol
+        { protoName      = "Empty"
+        , protoNamespace = Nothing
+        , protoDoc       = Nothing
+        , protoTypes     = []
+        , protoMessages  = []
+        }
+      json = protocolToJSON proto
+  case protocolFromJSON json of
+    Left err -> assertFailure $ "Failed to parse minimal protocol: " ++ err
+    Right parsed -> do
+      protoName parsed @?= "Empty"
+      null (protoTypes parsed) @?= True
+      null (protoMessages parsed) @?= True
+  let fp1 = avroProtocolFingerprint proto
+      fp2 = avroProtocolFingerprint proto
+  fp1 @?= fp2
 
 -- Helpers
 

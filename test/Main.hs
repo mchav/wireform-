@@ -19,6 +19,7 @@ import Test.Hooks (hooksTests)
 import Test.TDP (tdpTests)
 import Test.Thrift (thriftTests)
 import Test.Avro (avroTests)
+import Test.GRPC (grpcTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -39,4 +40,5 @@ main = defaultMain $ testGroup "hs-proto"
   , tdpTests
   , avroTests
   , thriftTests
+  , grpcTests
   ]
