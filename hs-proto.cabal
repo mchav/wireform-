@@ -129,6 +129,9 @@ library
       -- Thrift support
       Thrift.Wire
       Thrift.Schema
+      Thrift.Value
+      Thrift.Encode
+      Thrift.Decode
 
     c-sources:        cbits/fast_decode.c
     cc-options:       -O3 -march=native
@@ -185,6 +188,7 @@ test-suite hs-proto-test
       Test.JSON
       Test.Hooks
       Test.TDP
+      Test.Thrift
       Test.Avro
 
     build-depends:
