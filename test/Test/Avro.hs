@@ -2,8 +2,12 @@ module Test.Avro (avroTests) where
 
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as BL
+import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
@@ -16,6 +20,7 @@ import Avro.Schema
 import Avro.Value
 import Avro.Encode (encodeAvro)
 import Avro.Decode (decodeAvro)
+import Avro.Wire (avroEncodeInt, avroEncodeLong)
 import Avro.JSON (avroToJSON, avroFromJSON, avroSchemaToJSON, avroSchemaFromJSON)
 import Avro.Protocol
 import Avro.Resolution (ResolvedSchema(..), FieldResolution(..), resolveSchema, resolveValue)
@@ -23,6 +28,13 @@ import Avro.Resolution (ResolvedSchema(..), FieldResolution(..), resolveSchema, 
 avroTests :: TestTree
 avroTests = testGroup "Avro Encode/Decode"
   [ protocolTests
+  , zigzagComplianceTests
+  , byteEncodingComplianceTests
+  , nullUnionComplianceTests
+  , arrayEncodingComplianceTests
+  , mapEncodingComplianceTests
+  , deconflictComplianceTests
+  , propertyRoundtripComplianceTests
   , testGroup "Primitive roundtrips (property)"
       [ testProperty "null roundtrip" $ property $ do
           let ty = AvroPrimitive AvroNull
@@ -627,6 +639,205 @@ minimalProtocol = testCase "Minimal protocol (no types, no messages)" $ do
   let fp1 = avroProtocolFingerprint proto
       fp2 = avroProtocolFingerprint proto
   fp1 @?= fp2
+
+--------------------------------------------------------------------------------
+-- Avro spec compliance tests (ported from haskell-works/avro)
+--------------------------------------------------------------------------------
+
+buildBytes :: B.Builder -> BS.ByteString
+buildBytes = BL.toStrict . B.toLazyByteString
+
+zigzagComplianceTests :: TestTree
+zigzagComplianceTests = testGroup "ZigZag encoding compliance"
+  [ testCase "zigzag(0) = 0x00" $
+      buildBytes (avroEncodeInt 0) @?= BS.pack [0x00]
+  , testCase "zigzag(-1) = 0x01" $
+      buildBytes (avroEncodeInt (-1)) @?= BS.pack [0x01]
+  , testCase "zigzag(1) = 0x02" $
+      buildBytes (avroEncodeInt 1) @?= BS.pack [0x02]
+  , testCase "zigzag(-2) = 0x03" $
+      buildBytes (avroEncodeInt (-2)) @?= BS.pack [0x03]
+  , testCase "zigzag(2147483647) = 4294967294 as ULEB128" $
+      buildBytes (avroEncodeInt 2147483647)
+        @?= BS.pack [0xFE, 0xFF, 0xFF, 0xFF, 0x0F]
+  , testCase "zigzag(-2147483648) = 4294967295 as ULEB128" $
+      buildBytes (avroEncodeInt (-2147483648))
+        @?= BS.pack [0xFF, 0xFF, 0xFF, 0xFF, 0x0F]
+  ]
+
+byteEncodingComplianceTests :: TestTree
+byteEncodingComplianceTests = testGroup "Byte encoding compliance"
+  [ testCase "bool true = [0x01]" $
+      encodeAvro (AvroPrimitive AvroBool) (AvBool True) @?= BS.pack [0x01]
+  , testCase "bool false = [0x00]" $
+      encodeAvro (AvroPrimitive AvroBool) (AvBool False) @?= BS.pack [0x00]
+  , testCase "int 0 = [0x00]" $
+      encodeAvro (AvroPrimitive AvroInt) (AvInt 0) @?= BS.pack [0x00]
+  , testCase "int -1 = [0x01]" $
+      encodeAvro (AvroPrimitive AvroInt) (AvInt (-1)) @?= BS.pack [0x01]
+  , testCase "int 1 = [0x02]" $
+      encodeAvro (AvroPrimitive AvroInt) (AvInt 1) @?= BS.pack [0x02]
+  , testCase "int 64 = [0x80, 0x01]" $
+      encodeAvro (AvroPrimitive AvroInt) (AvInt 64) @?= BS.pack [0x80, 0x01]
+  , testCase "long 90071992547409917 = [0xfa,..,0x02]" $
+      encodeAvro (AvroPrimitive AvroLong) (AvLong 90071992547409917)
+        @?= BS.pack [0xfa, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xbf, 0x02]
+  , testCase "double 0.89 = LE IEEE 754" $
+      encodeAvro (AvroPrimitive AvroDouble) (AvDouble 0.89)
+        @?= BS.pack [123, 20, 174, 71, 225, 122, 236, 63]
+  , testCase "double -2.0 = LE IEEE 754" $
+      encodeAvro (AvroPrimitive AvroDouble) (AvDouble (-2.0))
+        @?= BS.pack [0, 0, 0, 0, 0, 0, 0, 192]
+  , testCase "double 1.0 = LE IEEE 754" $
+      encodeAvro (AvroPrimitive AvroDouble) (AvDouble 1.0)
+        @?= BS.pack [0, 0, 0, 0, 0, 0, 240, 63]
+  , testCase "string \"foo\" = [0x06, 0x66, 0x6f, 0x6f]" $
+      encodeAvro (AvroPrimitive AvroString) (AvString "foo")
+        @?= BS.pack [0x06, 0x66, 0x6f, 0x6f]
+  , testCase "string \"This is an unit test\"" $ do
+      let encoded = encodeAvro (AvroPrimitive AvroString) (AvString "This is an unit test")
+          expected = BS.pack (0x28 : BS.unpack (TE.encodeUtf8 "This is an unit test"))
+      encoded @?= expected
+  , testCase "null = []" $
+      encodeAvro (AvroPrimitive AvroNull) AvNull @?= BS.empty
+  , testCase "float 0.0 = [0, 0, 0, 0]" $
+      encodeAvro (AvroPrimitive AvroFloat) (AvFloat 0.0)
+        @?= BS.pack [0, 0, 0, 0]
+  ]
+
+nullUnionComplianceTests :: TestTree
+nullUnionComplianceTests = testGroup "Null in union compliance"
+  [ testCase "null first in [null, string] = [0x00]" $ do
+      let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
+          encoded = encodeAvro ty (AvUnion 0 AvNull)
+      encoded @?= BS.pack [0x00]
+  , testCase "null third in [string, bool, null] = [0x04]" $ do
+      let ty = AvroUnion (V.fromList
+                 [ AvroPrimitive AvroString
+                 , AvroPrimitive AvroBool
+                 , AvroPrimitive AvroNull
+                 ])
+          encoded = encodeAvro ty (AvUnion 2 AvNull)
+      encoded @?= BS.pack [0x04]
+  ]
+
+arrayEncodingComplianceTests :: TestTree
+arrayEncodingComplianceTests = testGroup "Array encoding compliance"
+  [ testCase "empty array = [0x00]" $ do
+      let ty = AvroArray (AvroPrimitive AvroInt)
+          encoded = encodeAvro ty (AvArray [])
+      encoded @?= BS.pack [0x00]
+  , testCase "array [1,2,3] of int" $ do
+      let ty = AvroArray (AvroPrimitive AvroInt)
+          encoded = encodeAvro ty (AvArray [AvInt 1, AvInt 2, AvInt 3])
+      encoded @?= BS.pack [0x06, 0x02, 0x04, 0x06, 0x00]
+  ]
+
+mapEncodingComplianceTests :: TestTree
+mapEncodingComplianceTests = testGroup "Map encoding compliance"
+  [ testCase "empty map = [0x00]" $ do
+      let ty = AvroMap (AvroPrimitive AvroInt)
+          encoded = encodeAvro ty (AvMap [])
+      encoded @?= BS.pack [0x00]
+  , testCase "map {\"a\": 1}" $ do
+      let ty = AvroMap (AvroPrimitive AvroInt)
+          encoded = encodeAvro ty (AvMap [("a", AvInt 1)])
+      encoded @?= BS.pack [0x02, 0x02, 0x61, 0x02, 0x00]
+  ]
+
+deconflictComplianceTests :: TestTree
+deconflictComplianceTests = testGroup "Schema resolution (deconflict) compliance"
+  [ testCase "reader adds optional field with null default" $ do
+      let innerWriter = mkRecordType "Inner"
+                          [ ("id", AvroPrimitive AvroInt) ]
+          innerReader = mkRecordTypeWithDefaults "Inner"
+                          [ ("id", AvroPrimitive AvroInt, Nothing)
+                          , ("smell", AvroUnion (V.fromList
+                              [ AvroPrimitive AvroNull
+                              , AvroPrimitive AvroString
+                              ]), Just AvroNull)
+                          ]
+          writerTy = mkRecordType "Outer"
+                       [ ("name",  AvroPrimitive AvroString)
+                       , ("inner", innerWriter)
+                       , ("other", innerWriter)
+                       ]
+          readerTy = mkRecordType "Outer"
+                       [ ("name",  AvroPrimitive AvroString)
+                       , ("inner", innerReader)
+                       , ("other", innerReader)
+                       ]
+          writerVal = AvRecord
+            [ AvString "test"
+            , AvRecord [AvInt 42]
+            , AvRecord [AvInt 99]
+            ]
+          writerBs = encodeAvro writerTy writerVal
+
+      case resolveSchema writerTy readerTy of
+        Left err -> assertFailure $ "resolveSchema failed: " ++ err
+        Right res -> do
+          case decodeAvro writerTy writerBs of
+            Left err -> assertFailure $ "decode failed: " ++ err
+            Right decoded -> do
+              case resolveValue res decoded of
+                Left err -> assertFailure $ "resolveValue failed: " ++ err
+                Right resolved -> do
+                  case resolved of
+                    AvRecord [AvString nm, AvRecord innerFields, AvRecord otherFields] -> do
+                      nm @?= "test"
+                      length innerFields @?= 2
+                      head innerFields @?= AvInt 42
+                      innerFields !! 1 @?= AvNull
+                      length otherFields @?= 2
+                      head otherFields @?= AvInt 99
+                      otherFields !! 1 @?= AvNull
+                    other -> assertFailure $ "unexpected resolved value: " ++ show other
+  ]
+
+propertyRoundtripComplianceTests :: TestTree
+propertyRoundtripComplianceTests = testGroup "Property-based roundtrip compliance"
+  [ testProperty "int32 full range roundtrip" $ property $ do
+      n <- forAll $ Gen.int32 Range.linearBounded
+      let ty = AvroPrimitive AvroInt
+          val = AvInt n
+      decodeAvro ty (encodeAvro ty val) === Right val
+
+  , testProperty "int64 full range roundtrip" $ property $ do
+      n <- forAll $ Gen.int64 Range.linearBounded
+      let ty = AvroPrimitive AvroLong
+          val = AvLong n
+      decodeAvro ty (encodeAvro ty val) === Right val
+
+  , testProperty "double roundtrip" $ property $ do
+      d <- forAll $ Gen.double (Range.linearFrac (-1e15) 1e15)
+      let ty = AvroPrimitive AvroDouble
+          val = AvDouble d
+      decodeAvro ty (encodeAvro ty val) === Right val
+
+  , testProperty "text roundtrip (unicode)" $ property $ do
+      t <- forAll $ Gen.text (Range.linear 0 512) Gen.unicode
+      let ty = AvroPrimitive AvroString
+          val = AvString t
+      decodeAvro ty (encodeAvro ty val) === Right val
+
+  , testProperty "text roundtrip (empty)" $ property $ do
+      let ty = AvroPrimitive AvroString
+          val = AvString ""
+      decodeAvro ty (encodeAvro ty val) === Right val
+
+  , testProperty "text roundtrip (long strings)" $ property $ do
+      t <- forAll $ Gen.text (Range.linear 256 2048) Gen.unicode
+      let ty = AvroPrimitive AvroString
+          val = AvString t
+      decodeAvro ty (encodeAvro ty val) === Right val
+
+  , testProperty "bytes roundtrip (random binary)" $ property $ do
+      bs <- forAll $ Gen.bytes (Range.linear 0 1024)
+      let ty = AvroPrimitive AvroBytes
+          val = AvBytes bs
+      decodeAvro ty (encodeAvro ty val) === Right val
+  ]
 
 -- Helpers
 
