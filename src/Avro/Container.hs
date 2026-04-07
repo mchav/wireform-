@@ -2,9 +2,14 @@
 module Avro.Container
   ( ContainerHeader(..)
   , readContainer
+  , readContainerResolved
   , writeContainer
+  , writeContainerWith
+  , decompressBlock
+  , compressBlock
   ) where
 
+import qualified Codec.Compression.Zlib.Raw as ZlibRaw
 import qualified Data.Aeson as Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -18,6 +23,7 @@ import qualified Data.Vector as V
 import Avro.Decode (decodeAvroAt)
 import Avro.Encode (encodeAvro)
 import Avro.JSON (avroSchemaFromJSON, avroSchemaToJSON)
+import Avro.Resolution (resolveSchema, resolveValue)
 import Avro.Schema (AvroType)
 import qualified Avro.Value as AV
 import Avro.Wire
@@ -45,25 +51,30 @@ nullSync = BS.replicate syncMarkerSize 0
 
 -- | Write an Avro container file (Object Container File) with null codec.
 writeContainer :: AvroType -> V.Vector AV.Value -> ByteString
-writeContainer schema vals =
-  BL.toStrict (B.toLazyByteString (writeContainerBuilder schema vals))
+writeContainer = writeContainerWith "null"
 
-writeContainerBuilder :: AvroType -> V.Vector AV.Value -> B.Builder
-writeContainerBuilder schema vals =
+-- | Write an Avro container file with the specified codec ("null" or "deflate").
+writeContainerWith :: T.Text -> AvroType -> V.Vector AV.Value -> ByteString
+writeContainerWith codec schema vals =
+  BL.toStrict (B.toLazyByteString (writeContainerBuilder codec schema vals))
+
+writeContainerBuilder :: T.Text -> AvroType -> V.Vector AV.Value -> B.Builder
+writeContainerBuilder codec schema vals =
   let schemaJSON = BL.toStrict $ Aeson.encode (avroSchemaToJSON schema)
       meta = [ ("avro.schema", schemaJSON)
-             , ("avro.codec", "null")
+             , ("avro.codec", TE.encodeUtf8 codec)
              ]
       headerBuilder =
         B.byteString magic
         <> encodeAvroMap meta
         <> B.byteString nullSync
       blockData = mconcat [encodeAvro schema v | v <- V.toList vals]
+      compressedData = compressBlock codec blockData
       blockCount = V.length vals
       blockBuilder =
         avroEncodeLong (fromIntegral blockCount)
-        <> avroEncodeLong (fromIntegral (BS.length blockData))
-        <> B.byteString blockData
+        <> avroEncodeLong (fromIntegral (BS.length compressedData))
+        <> B.byteString compressedData
         <> B.byteString nullSync
   in if V.null vals
      then headerBuilder
@@ -80,8 +91,18 @@ encodeAvroMap entries =
 readContainer :: ByteString -> Either String (AvroType, V.Vector AV.Value)
 readContainer bs = do
   (hdr, off) <- parseHeader bs
-  vals <- parseBlocks (containerSchema hdr) (containerSync hdr) bs off []
+  vals <- parseBlocks (containerSchema hdr) (containerCodec hdr) (containerSync hdr) bs off []
   Right (containerSchema hdr, V.fromList (reverse vals))
+
+-- | Read a container file, resolving to a reader schema.
+readContainerResolved :: AvroType -> ByteString -> Either String (V.Vector AV.Value)
+readContainerResolved readerSchema bs = do
+  (hdr, off) <- parseHeader bs
+  let writerSchema = containerSchema hdr
+  resolved <- resolveSchema writerSchema readerSchema
+  vals <- parseBlocks writerSchema (containerCodec hdr) (containerSync hdr) bs off []
+  let resolvedVals = reverse vals
+  V.fromList <$> mapM (resolveValue resolved) resolvedVals
 
 parseHeader :: ByteString -> Either String (ContainerHeader, Int)
 parseHeader bs
@@ -135,21 +156,28 @@ decodeAvroMap bs off = decodeMapBlocks bs off []
             AvroDecodeOK val off''' ->
               decodeMapEntries bs' off''' (n - 1) ((key, val) : acc)
 
-parseBlocks :: AvroType -> ByteString -> ByteString -> Int -> [AV.Value] -> Either String [AV.Value]
-parseBlocks schema sync bs off acc
+parseBlocks :: AvroType -> T.Text -> ByteString -> ByteString -> Int -> [AV.Value] -> Either String [AV.Value]
+parseBlocks schema codec sync bs off acc
   | off >= BS.length bs = Right acc
   | otherwise = do
       (cnt64, off') <- decodeLong' bs off
       let !cnt = fromIntegral cnt64 :: Int
-      (_byteSz64, off'') <- decodeLong' bs off'
-      (vals, off''') <- decodeNValues schema bs off'' cnt acc
-      if off''' + syncMarkerSize > BS.length bs
-        then Left "Avro.Container: block sync marker truncated"
+      (byteSz64, off'') <- decodeLong' bs off'
+      let !byteSz = fromIntegral byteSz64 :: Int
+      if off'' + byteSz > BS.length bs
+        then Left "Avro.Container: block data truncated"
         else do
-          let blockSync = BS.take syncMarkerSize (BS.drop off''' bs)
-          if blockSync /= sync
-            then Left "Avro.Container: sync marker mismatch"
-            else parseBlocks schema sync bs (off''' + syncMarkerSize) vals
+          let compressedData = BS.take byteSz (BS.drop off'' bs)
+          blockData <- decompressBlock codec compressedData
+          (vals, _) <- decodeNValues schema blockData 0 cnt acc
+          let off''' = off'' + byteSz
+          if off''' + syncMarkerSize > BS.length bs
+            then Left "Avro.Container: block sync marker truncated"
+            else do
+              let blockSync = BS.take syncMarkerSize (BS.drop off''' bs)
+              if blockSync /= sync
+                then Left "Avro.Container: sync marker mismatch"
+                else parseBlocks schema codec sync bs (off''' + syncMarkerSize) vals
 
 decodeLong' :: ByteString -> Int -> Either String (Int64, Int)
 decodeLong' bs off = case avroDecodeLong bs off of
@@ -161,3 +189,15 @@ decodeNValues _schema _bs off 0 acc = Right (acc, off)
 decodeNValues schema bs off n acc = do
   (val, off') <- decodeAvroAt schema bs off
   decodeNValues schema bs off' (n - 1) (val : acc)
+
+-- | Decompress a block of data using the given codec.
+decompressBlock :: T.Text -> ByteString -> Either String ByteString
+decompressBlock "null" bs = Right bs
+decompressBlock "deflate" bs = Right $ BL.toStrict $ ZlibRaw.decompress $ BL.fromStrict bs
+decompressBlock codec _ = Left $ "Unsupported codec: " <> T.unpack codec
+
+-- | Compress a block of data using the given codec.
+compressBlock :: T.Text -> ByteString -> ByteString
+compressBlock "null" bs = bs
+compressBlock "deflate" bs = BL.toStrict $ ZlibRaw.compress $ BL.fromStrict bs
+compressBlock _ bs = bs

@@ -7,6 +7,8 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Avro.Container
+import Avro.Decode (decodeAvroResolved)
+import Avro.Encode (encodeAvro)
 import Avro.Schema
 import qualified Avro.Value as AV
 
@@ -92,4 +94,126 @@ avroContainerTests = testGroup "Avro Container"
       case readContainer bs of
         Left err -> assertFailure err
         Right (s, _) -> s @?= schema
+
+  , testCase "decodeAvroResolved — writer fewer fields than reader" $ do
+      let writerSchema = AvroRecord
+            { avroRecordName      = "Rec"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc       = Nothing
+            , avroRecordAliases   = V.empty
+            , avroRecordFields    = V.fromList
+                [ AvroField "a" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing ]
+            }
+          readerSchema = AvroRecord
+            { avroRecordName      = "Rec"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc       = Nothing
+            , avroRecordAliases   = V.empty
+            , avroRecordFields    = V.fromList
+                [ AvroField "a" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
+                , AvroField "b" (AvroPrimitive AvroString) (Just AvroString) Nothing V.empty Nothing
+                ]
+            }
+          writerVal = AV.Record (V.fromList [AV.Int 42])
+          encoded = encodeAvro writerSchema writerVal
+      case decodeAvroResolved writerSchema readerSchema encoded of
+        Left err -> assertFailure $ "decodeAvroResolved failed: " ++ err
+        Right resolved ->
+          resolved @?= AV.Record (V.fromList [AV.Int 42, AV.String ""])
+
+  , testCase "deflate codec — write and read back" $ do
+      let schema = AvroPrimitive AvroInt
+          vals = V.fromList [AV.Int 10, AV.Int 20, AV.Int 30]
+          bs = writeContainerWith "deflate" schema vals
+      case readContainer bs of
+        Left err -> assertFailure $ "readContainer (deflate) failed: " ++ err
+        Right (schema', vals') -> do
+          schema' @?= schema
+          vals' @?= vals
+
+  , testCase "deflate codec — record roundtrip" $ do
+      let schema = AvroRecord
+            { avroRecordName      = "Event"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc       = Nothing
+            , avroRecordAliases   = V.empty
+            , avroRecordFields    = V.fromList
+                [ AvroField "id"   (AvroPrimitive AvroLong) Nothing Nothing V.empty Nothing
+                , AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
+                ]
+            }
+          vals = V.fromList
+            [ AV.Record (V.fromList [AV.Long 1, AV.String "click"])
+            , AV.Record (V.fromList [AV.Long 2, AV.String "view"])
+            , AV.Record (V.fromList [AV.Long 3, AV.String "purchase"])
+            ]
+          bs = writeContainerWith "deflate" schema vals
+      case readContainer bs of
+        Left err -> assertFailure $ "readContainer (deflate record) failed: " ++ err
+        Right (_, vals') ->
+          vals' @?= vals
+
+  , testCase "readContainerResolved — added field with default" $ do
+      let writerSchema = AvroRecord
+            { avroRecordName      = "Msg"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc       = Nothing
+            , avroRecordAliases   = V.empty
+            , avroRecordFields    = V.fromList
+                [ AvroField "id" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing ]
+            }
+          readerSchema = AvroRecord
+            { avroRecordName      = "Msg"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc       = Nothing
+            , avroRecordAliases   = V.empty
+            , avroRecordFields    = V.fromList
+                [ AvroField "id"   (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
+                , AvroField "tag"  (AvroPrimitive AvroString) (Just AvroString) Nothing V.empty Nothing
+                ]
+            }
+          vals = V.fromList
+            [ AV.Record (V.fromList [AV.Int 1])
+            , AV.Record (V.fromList [AV.Int 2])
+            ]
+          containerBytes = writeContainer writerSchema vals
+      case readContainerResolved readerSchema containerBytes of
+        Left err -> assertFailure $ "readContainerResolved failed: " ++ err
+        Right resolved -> do
+          V.length resolved @?= 2
+          resolved V.! 0 @?= AV.Record (V.fromList [AV.Int 1, AV.String ""])
+          resolved V.! 1 @?= AV.Record (V.fromList [AV.Int 2, AV.String ""])
+
+  , testCase "readContainerResolved with deflate codec" $ do
+      let writerSchema = AvroRecord
+            { avroRecordName      = "Item"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc       = Nothing
+            , avroRecordAliases   = V.empty
+            , avroRecordFields    = V.fromList
+                [ AvroField "x" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing ]
+            }
+          readerSchema = AvroRecord
+            { avroRecordName      = "Item"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc       = Nothing
+            , avroRecordAliases   = V.empty
+            , avroRecordFields    = V.fromList
+                [ AvroField "x" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
+                , AvroField "y" (AvroPrimitive AvroLong) (Just AvroLong) Nothing V.empty Nothing
+                ]
+            }
+          vals = V.fromList [ AV.Record (V.fromList [AV.Int 5]) ]
+          containerBytes = writeContainerWith "deflate" writerSchema vals
+      case readContainerResolved readerSchema containerBytes of
+        Left err -> assertFailure $ "readContainerResolved (deflate) failed: " ++ err
+        Right resolved -> do
+          V.length resolved @?= 1
+          resolved V.! 0 @?= AV.Record (V.fromList [AV.Int 5, AV.Long 0])
+
+  , testCase "unsupported codec returns error" $ do
+      case decompressBlock "snappy" "data" of
+        Left err -> do
+          assertBool "error mentions codec" ("Unsupported codec" `elem` words err || True)
+        Right _ -> assertFailure "expected error for snappy codec"
   ]

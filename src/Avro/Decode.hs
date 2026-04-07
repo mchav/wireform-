@@ -6,6 +6,7 @@
 module Avro.Decode
   ( decodeAvro
   , decodeAvroAt
+  , decodeAvroResolved
   ) where
 
 import Data.ByteString (ByteString)
@@ -14,6 +15,7 @@ import Data.Text (Text)
 import qualified Data.Vector as V
 
 import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..))
+import Avro.Resolution (resolveSchema, resolveValue)
 import qualified Avro.Value as AV
 import Avro.Wire
   ( AvroDecodeResult(..)
@@ -35,6 +37,17 @@ decodeAvroAt :: AvroType -> ByteString -> Int -> Either String (AV.Value, Int)
 decodeAvroAt !ty !bs !off = case decodeValue ty bs off of
   AvroDecodeOK val off' -> Right (val, off')
   AvroDecodeFail e      -> Left e
+
+-- | Decode with schema evolution. Uses the writer schema to parse bytes,
+-- then applies resolution to produce a value matching the reader schema.
+decodeAvroResolved :: AvroType      -- ^ writer schema
+                   -> AvroType      -- ^ reader schema
+                   -> ByteString    -- ^ encoded data
+                   -> Either String AV.Value
+decodeAvroResolved writerSchema readerSchema bytes = do
+  resolved <- resolveSchema writerSchema readerSchema
+  val <- decodeAvro writerSchema bytes
+  resolveValue resolved val
 
 decodeValue :: AvroType -> ByteString -> Int -> AvroDecodeResult AV.Value
 decodeValue (AvroPrimitive s) bs off = decodePrimitive s bs off
