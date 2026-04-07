@@ -158,8 +158,10 @@ library
       Thrift.Message
       Thrift.Parser
       Thrift.CodeGen
+      Thrift.QQ
       -- Avro code generation
       Avro.CodeGen
+      Avro.QQ
       -- gRPC framing
       Proto.GRPC
       -- Avro IDL (.avdl) parser and converter
@@ -176,6 +178,8 @@ library
       CBOR.Stream
       CBOR.CDDLSchema
       CBOR.CDDL
+      CBOR.CDDLCodeGen
+      CBOR.QQ
       -- MessagePack support
       MsgPack.Value
       MsgPack.Encode
@@ -193,18 +197,24 @@ library
       Ion.Decode
       Ion.ISLSchema
       Ion.SchemaLang
+      Ion.ISLCodeGen
+      Ion.QQ
       -- Cap'n Proto support
       CapnProto.Value
       CapnProto.Encode
       CapnProto.Decode
       CapnProto.Schema
       CapnProto.Parser
+      CapnProto.CodeGen
+      CapnProto.QQ
       -- FlatBuffers support
       FlatBuffers.Value
       FlatBuffers.Encode
       FlatBuffers.Decode
       FlatBuffers.Schema
       FlatBuffers.Parser
+      FlatBuffers.CodeGen
+      FlatBuffers.QQ
       -- Apache Iceberg table metadata
       Iceberg.Types
       Iceberg.JSON
@@ -215,12 +225,16 @@ library
       Bond.Decode
       Bond.Schema
       Bond.Parser
+      Bond.CodeGen
+      Bond.QQ
       -- ASN.1 BER/DER support
       ASN1.Value
       ASN1.Encode
       ASN1.Decode
       ASN1.Schema
       ASN1.Parser
+      ASN1.CodeGen
+      ASN1.QQ
       -- Apache Parquet metadata
       Parquet.Types
       Parquet.Footer
@@ -389,6 +403,103 @@ executable wireform-gen
       , wireform
       , text
       , containers
+      , directory
+      , filepath
+      , optparse-applicative >= 0.17 && < 0.20
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable wireform-avro-gen
+    import:           warnings
+    main-is:          AvroGen.hs
+    build-depends:
+        base                 >= 4.16 && < 5
+      , wireform
+      , text
+      , vector
+      , directory
+      , filepath
+      , optparse-applicative >= 0.17 && < 0.20
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable wireform-thrift-gen
+    import:           warnings
+    main-is:          ThriftGen.hs
+    build-depends:
+        base                 >= 4.16 && < 5
+      , wireform
+      , text
+      , directory
+      , filepath
+      , optparse-applicative >= 0.17 && < 0.20
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable wireform-bond-gen
+    import:           warnings
+    main-is:          BondGen.hs
+    build-depends:
+        base                 >= 4.16 && < 5
+      , wireform
+      , text
+      , directory
+      , filepath
+      , optparse-applicative >= 0.17 && < 0.20
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable wireform-capnp-gen
+    import:           warnings
+    main-is:          CapnProtoGen.hs
+    build-depends:
+        base                 >= 4.16 && < 5
+      , wireform
+      , text
+      , directory
+      , filepath
+      , optparse-applicative >= 0.17 && < 0.20
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable wireform-fbs-gen
+    import:           warnings
+    main-is:          FlatBuffersGen.hs
+    build-depends:
+        base                 >= 4.16 && < 5
+      , wireform
+      , text
+      , directory
+      , filepath
+      , optparse-applicative >= 0.17 && < 0.20
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable wireform-asn1-gen
+    import:           warnings
+    main-is:          ASN1Gen.hs
+    build-depends:
+        base                 >= 4.16 && < 5
+      , wireform
+      , text
       , directory
       , filepath
       , optparse-applicative >= 0.17 && < 0.20
