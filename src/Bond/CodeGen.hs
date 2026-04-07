@@ -119,13 +119,13 @@ bondInnerHsType = \case
 -- ---------------------------------------------------------------------------
 
 genToBondStruct :: Text -> [BondField] -> Text
-genToBondStruct name fields = T.unlines
+genToBondStruct name _fields = T.unlines
   [ "instance ToBond " <> name <> " where"
   , "  toBond _ = error \"ToBond " <> name <> ": stub\""
   ]
 
 genFromBondStruct :: Text -> [BondField] -> Text
-genFromBondStruct name fields = T.unlines
+genFromBondStruct name _fields = T.unlines
   [ "instance FromBond " <> name <> " where"
   , "  fromBond _ = Left \"FromBond " <> name <> ": stub\""
   ]
@@ -155,7 +155,7 @@ genEnumDataDecl name vals = T.unlines $
 
 bondEnumConName :: Text -> Text -> Text
 bondEnumConName enumName valName =
-  enumName <> upperFirst (snakeToCamel valName)
+  enumName <> upperFirst (snakeToCamel (T.toLower valName))
 
 genToBondEnum :: Text -> [BondEnumValue] -> Text
 genToBondEnum name vals = T.unlines $

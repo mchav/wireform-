@@ -43,6 +43,12 @@ import Test.AvroSchemaParse (avroSchemaParseTests)
 import Test.BondParser (bondParserTests)
 import Test.AvroCodeGen (avroCodeGenTests)
 import Test.ThriftCodeGen (thriftCodeGenTests)
+import Test.BondCodeGen (bondCodeGenTests)
+import Test.CapnProtoCodeGen (capnProtoCodeGenTests)
+import Test.FlatBuffersCodeGen (flatBuffersCodeGenTests)
+import Test.ASN1CodeGen (asn1CodeGenTests)
+import Test.CDDLCodeGen (cddlCodeGenTests)
+import Test.ISLCodeGen (islCodeGenTests)
 import Test.Resolver (resolverTests)
 import Test.CapnProtoParser (capnProtoParserTests)
 import Test.FlatBuffersParser (flatBuffersParserTests)
@@ -94,6 +100,12 @@ main = defaultMain $ testGroup "wireform"
   , bondParserTests
   , avroCodeGenTests
   , thriftCodeGenTests
+  , bondCodeGenTests
+  , capnProtoCodeGenTests
+  , flatBuffersCodeGenTests
+  , asn1CodeGenTests
+  , cddlCodeGenTests
+  , islCodeGenTests
   , resolverTests
   , capnProtoParserTests
   , flatBuffersParserTests

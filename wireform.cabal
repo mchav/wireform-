@@ -360,6 +360,12 @@ test-suite wireform-test
       Test.BondParser
       Test.AvroCodeGen
       Test.ThriftCodeGen
+      Test.BondCodeGen
+      Test.CapnProtoCodeGen
+      Test.FlatBuffersCodeGen
+      Test.ASN1CodeGen
+      Test.CDDLCodeGen
+      Test.ISLCodeGen
       Test.Resolver
       Test.CapnProtoParser
       Test.FlatBuffersParser
