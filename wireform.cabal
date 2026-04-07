@@ -23,7 +23,11 @@ description:
   * EDN (Extensible Data Notation)
 
 license:            BSD-3-Clause
+homepage:           https://github.com/iand675/wireform-
+bug-reports:        https://github.com/iand675/wireform-/issues
 build-type:         Simple
+tested-with:        GHC == 9.6.4, GHC == 9.8.4
+extra-source-files: CHANGELOG.md
 
 data-files:
   proto/google/protobuf/any.proto
@@ -38,6 +42,10 @@ data-files:
   proto/google/protobuf/wrappers.proto
 
 data-dir: .
+
+source-repository head
+  type:     git
+  location: https://github.com/iand675/wireform-
 
 flag python-interop
   description: Enable Python interop conformance tests (requires python3, protobuf pip package, protoc)
@@ -223,6 +231,23 @@ library
       Ion.Class
       Avro.Class
       Thrift.Class
+      -- Convenience re-export modules
+      Wireform.MsgPack
+      Wireform.CBOR
+      Wireform.Avro
+      Wireform.Thrift
+      Wireform.EDN
+      Wireform.BSON
+      Wireform.Ion
+      Wireform.Bond
+      Wireform.Proto
+      Wireform.CapnProto
+      Wireform.FlatBuffers
+      Wireform.ASN1
+      Wireform.Pickle
+
+    other-modules:    Paths_wireform
+    autogen-modules:  Paths_wireform
 
     c-sources:        cbits/fast_decode.c
     include-dirs:     cbits/simde
@@ -308,6 +333,7 @@ test-suite wireform-test
       Test.BondParser
       Test.AvroCodeGen
       Test.ThriftCodeGen
+      Test.Resolver
 
     build-depends:
         base             >= 4.16 && < 5
@@ -320,6 +346,8 @@ test-suite wireform-test
       , hashable
       , unordered-containers
       , time
+      , filepath
+      , directory
       , hedgehog         >= 1.0  && < 1.5
       , tasty            >= 1.4  && < 1.6
       , tasty-hedgehog   >= 1.0  && < 1.5
@@ -458,6 +486,70 @@ executable example-qq
     default-extensions:
       OverloadedStrings
 
+executable example-msgpack
+    import:           warnings
+    main-is:          MsgPackExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-cbor
+    import:           warnings
+    main-is:          CBORExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-avro
+    import:           warnings
+    main-is:          AvroExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-thrift
+    import:           warnings
+    main-is:          ThriftExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-edn
+    import:           warnings
+    main-is:          EDNExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
 test-suite conformance-self-test
     import:           warnings
     type:             exitcode-stdio-1.0
@@ -501,6 +593,7 @@ executable protoc-gen-wireform
     build-depends:
         base             >= 4.16 && < 5
       , wireform
+      , containers
       , text
       , vector
 
