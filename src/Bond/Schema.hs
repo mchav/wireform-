@@ -1,3 +1,8 @@
+-- | Microsoft Bond schema types.
+--
+-- Defines the abstract syntax tree for Bond IDL schemas, including
+-- struct declarations, field definitions with modifiers, enums,
+-- and Bond's type system (primitives, containers, nullable, bonded).
 module Bond.Schema
   ( BondSchema(..)
   , BondDecl(..)

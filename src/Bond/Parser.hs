@@ -1,3 +1,8 @@
+-- | Microsoft Bond IDL parser.
+--
+-- Parses Bond schema definition files (@.bond@) into a 'Bond.Schema.BondSchema'
+-- AST using Megaparsec. Supports structs, enums, field modifiers
+-- (required\/optional), generics, and default values.
 module Bond.Parser
   ( parseBond
   ) where

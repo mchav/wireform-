@@ -1,5 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 -- | CBOR / JSON interconversion (RFC 8949 Section 6.1).
+--
+-- Converts between 'CBOR.Value.Value' and 'Data.Aeson.Value' following
+-- the preferred serialization mapping from RFC 8949 Section 6.1. The
+-- mapping is lossy: CBOR byte strings are base64url-encoded, tags are
+-- dropped, and negative integers use JSON numbers.
 module CBOR.JSON
   ( toJSON
   , fromJSON

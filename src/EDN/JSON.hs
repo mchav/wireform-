@@ -1,5 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 -- | EDN / JSON interconversion.
+--
+-- Converts between 'EDN.Value.Value' and 'Data.Aeson.Value'. The mapping
+-- is lossy: EDN keywords, symbols, characters, sets, and tagged literals
+-- have no direct JSON equivalent and are mapped to strings or arrays.
 module EDN.JSON
   ( toJSON
   , fromJSON

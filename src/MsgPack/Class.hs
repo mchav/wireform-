@@ -4,6 +4,24 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- | Typeclass-based MessagePack serialization with GHC Generics support.
+--
+-- Provides 'ToMsgPack' and 'FromMsgPack' typeclasses that can be derived
+-- automatically for record types via @DeriveGeneric@. Records are encoded
+-- as MessagePack maps with field names as string keys.
+--
+-- @
+-- {-\# LANGUAGE DeriveGeneric \#-}
+-- import GHC.Generics (Generic)
+-- import MsgPack.Class
+--
+-- data Person = Person { name :: Text, age :: Int } deriving (Generic)
+-- instance ToMsgPack Person
+-- instance FromMsgPack Person
+--
+-- let bytes = encodeMsgPack (Person \"Alice\" 30)
+-- let Right person = decodeMsgPack bytes :: Either String Person
+-- @
 module MsgPack.Class
   ( ToMsgPack(..)
   , FromMsgPack(..)

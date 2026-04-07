@@ -4,6 +4,24 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- | Typeclass-based BSON serialization with GHC Generics support.
+--
+-- Provides 'ToBSON' and 'FromBSON' typeclasses for converting Haskell
+-- records to\/from BSON documents. Records are encoded as BSON documents
+-- with field names as keys. Derive instances via @DeriveGeneric@.
+--
+-- @
+-- {-\# LANGUAGE DeriveGeneric \#-}
+-- import GHC.Generics (Generic)
+-- import BSON.Class
+--
+-- data User = User { name :: Text, age :: Int } deriving (Generic)
+-- instance ToBSON User
+-- instance FromBSON User
+--
+-- let bytes = encodeBSON (User \"Bob\" 25)
+-- let Right user = decodeBSON bytes :: Either String User
+-- @
 module BSON.Class
   ( ToBSON(..)
   , FromBSON(..)

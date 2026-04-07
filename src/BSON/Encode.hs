@@ -1,5 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 -- | BSON binary encoding.
+--
+-- Encodes a 'BSON.Value.Value' to its BSON wire format using direct
+-- buffer writes via 'Proto.Encode.Direct.directEncode'. Integers are
+-- little-endian, strings are UTF-8 with null terminators, and documents
+-- include a leading 4-byte length prefix.
 module BSON.Encode
   ( encode
   ) where

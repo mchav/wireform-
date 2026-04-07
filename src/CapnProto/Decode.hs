@@ -1,6 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 -- | Cap'n Proto binary decoding.
+--
+-- Decodes a Cap'n Proto single-segment message from a 'ByteString'.
+-- Reads the segment table, follows struct and list pointers, and
+-- reconstructs a 'CapnProto.Value.Value' tree.
 module CapnProto.Decode
   ( decode
   ) where

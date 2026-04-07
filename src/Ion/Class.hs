@@ -4,6 +4,23 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- | Typeclass-based Amazon Ion serialization with GHC Generics support.
+--
+-- Provides 'ToIon' and 'FromIon' typeclasses for converting Haskell
+-- records to\/from Ion structs. Derive instances via @DeriveGeneric@.
+--
+-- @
+-- {-\# LANGUAGE DeriveGeneric \#-}
+-- import GHC.Generics (Generic)
+-- import Ion.Class
+--
+-- data Metric = Metric { name :: Text, value :: Double } deriving (Generic)
+-- instance ToIon Metric
+-- instance FromIon Metric
+--
+-- let bytes = encodeIon (Metric \"cpu\" 0.95)
+-- let Right m = decodeIon bytes :: Either String Metric
+-- @
 module Ion.Class
   ( ToIon(..)
   , FromIon(..)

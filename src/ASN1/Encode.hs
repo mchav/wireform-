@@ -1,5 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 -- | ASN.1 DER (Distinguished Encoding Rules) encoder.
+--
+-- Encodes an 'ASN1.Value.Value' using ITU-T X.690 Distinguished Encoding
+-- Rules. DER is the canonical subset of BER that produces a unique
+-- encoding for each value. Tag-length-value (TLV) triplets are emitted
+-- with definite-length encoding.
 module ASN1.Encode
   ( encode
   ) where

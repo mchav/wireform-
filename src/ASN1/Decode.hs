@@ -1,5 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 -- | ASN.1 BER decoder (accepts DER-encoded data as well).
+--
+-- Decodes BER\/DER-encoded 'ByteString' data into an 'ASN1.Value.Value'.
+-- Handles both primitive and constructed encodings, definite and
+-- indefinite lengths, and all common universal tag types.
 module ASN1.Decode
   ( decode
   ) where

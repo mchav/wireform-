@@ -1,4 +1,21 @@
 -- | ASN.1 value representation, covering the common universal types.
+--
+-- ASN.1 (Abstract Syntax Notation One) is the ITU-T standard for
+-- describing data structures. This module defines values for common
+-- universal tags: BOOLEAN, INTEGER, BIT STRING, OCTET STRING,
+-- NULL, OID, UTF8String, PrintableString, IA5String, UTCTime,
+-- GeneralizedTime, SEQUENCE, SET, and context-tagged values.
+--
+-- @
+-- import qualified ASN1.Value as A
+-- import qualified ASN1.Encode as AE
+-- import qualified ASN1.Decode as AD
+-- import qualified Data.Vector as V
+--
+-- let val = A.Sequence (V.fromList [A.Integer 42, A.UTF8String \"hello\"])
+-- let bytes = AE.encode val
+-- let Right decoded = AD.decode bytes
+-- @
 module ASN1.Value
   ( Value(..)
   , TagClass(..)

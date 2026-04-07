@@ -1,5 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 -- | BSON binary decoding.
+--
+-- Decodes a BSON wire-format 'ByteString' into a 'BSON.Value.Value'.
+-- Uses unsafe indexing for performance on validated input. Supports
+-- all standard BSON element types.
 module BSON.Decode
   ( decode
   ) where

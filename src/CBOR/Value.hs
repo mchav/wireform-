@@ -1,4 +1,20 @@
 -- | CBOR (RFC 8949) runtime value representation.
+--
+-- Provides a dynamically-typed Haskell value that can represent any CBOR
+-- data item. Each constructor corresponds to a CBOR major type: unsigned
+-- integers, negative integers, byte strings, text strings, arrays, maps,
+-- tags, and simple values (booleans, null, undefined, floats).
+--
+-- @
+-- import qualified CBOR.Value as C
+-- import qualified CBOR.Encode as CE
+-- import qualified CBOR.Decode as CD
+-- import qualified Data.Vector as V
+--
+-- let val = C.Map (V.fromList [(C.TextString \"key\", C.UInt 42)])
+-- let bytes = CE.encode val
+-- let Right decoded = CD.decode bytes
+-- @
 module CBOR.Value
   ( Value(..)
   ) where

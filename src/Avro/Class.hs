@@ -1,4 +1,10 @@
 {-# LANGUAGE FlexibleInstances #-}
+-- | Typeclass-based Avro serialization.
+--
+-- Provides 'ToAvro' and 'FromAvro' typeclasses for converting Haskell
+-- values to\/from 'Avro.Value.Value'. Instances are provided for common
+-- types: 'Bool', 'Int', 'Int32', 'Int64', 'Float', 'Double', 'Text',
+-- 'ByteString', 'Vector', and 'Maybe' (as Avro unions).
 module Avro.Class
   ( ToAvro(..)
   , FromAvro(..)

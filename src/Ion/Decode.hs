@@ -1,5 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 -- | Amazon Ion binary decoding.
+--
+-- Decodes an Amazon Ion binary 'ByteString' into an 'Ion.Value.Value'.
+-- Validates the Binary Version Marker, then uses unsafe indexing for
+-- high-performance reading of type descriptors, VarUInt lengths, and
+-- payload data.
 module Ion.Decode
   ( decode
   ) where

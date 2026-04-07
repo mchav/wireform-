@@ -1,5 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 -- | Python Pickle protocol 2 decoder (stack-based VM).
+--
+-- Decodes a Pickle wire-format 'ByteString' by simulating the Pickle
+-- virtual machine's stack. Supports protocols 0 through 5 opcodes:
+-- MARK, STOP, INT, LONG, STRING, UNICODE, FLOAT, LIST, DICT, TUPLE,
+-- SETITEMS, APPENDS, EMPTY_*, PROTO, FRAME, and more.
 module Pickle.Decode
   ( decode
   ) where

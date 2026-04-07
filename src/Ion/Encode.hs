@@ -1,5 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 -- | Amazon Ion binary encoding.
+--
+-- Encodes an 'Ion.Value.Value' to Amazon Ion binary format. The output
+-- begins with the Ion Binary Version Marker (BVM: @0xE0 0x01 0x00 0xEA@)
+-- followed by the encoded value. Uses 'Proto.Encode.Direct.directEncode'
+-- for direct buffer writes with pre-computed sizes.
 module Ion.Encode
   ( encode
   ) where

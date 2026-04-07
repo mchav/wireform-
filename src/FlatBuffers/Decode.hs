@@ -1,6 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 -- | FlatBuffers binary decoding.
+--
+-- Decodes a FlatBuffers binary buffer into a 'FlatBuffers.Value.Value'.
+-- Reads the root table offset, follows vtable indirection, and
+-- reconstructs all scalar, string, vector, and nested table fields.
 module FlatBuffers.Decode
   ( decode
   ) where

@@ -1,4 +1,21 @@
 -- | BSON (Binary JSON) value representation.
+--
+-- BSON is the binary serialization format used by MongoDB. This module
+-- defines a dynamically-typed value covering all BSON element types:
+-- doubles, strings, documents (ordered key-value maps), arrays, binary
+-- data, booleans, datetimes, null, 32-bit and 64-bit integers, ObjectIds,
+-- and regular expressions.
+--
+-- @
+-- import qualified BSON.Value as B
+-- import qualified BSON.Encode as BE
+-- import qualified BSON.Decode as BD
+-- import qualified Data.Vector as V
+--
+-- let doc = B.Document (V.fromList [(\"name\", B.String \"Alice\"), (\"age\", B.Int32 30)])
+-- let bytes = BE.encode doc
+-- let Right decoded = BD.decode bytes
+-- @
 module BSON.Value
   ( Value(..)
   ) where

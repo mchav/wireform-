@@ -4,6 +4,24 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- | Typeclass-based CBOR serialization with GHC Generics support.
+--
+-- Provides 'ToCBOR' and 'FromCBOR' typeclasses that can be derived
+-- automatically for record types via @DeriveGeneric@. Records are encoded
+-- as CBOR maps with field names as text-string keys.
+--
+-- @
+-- {-\# LANGUAGE DeriveGeneric \#-}
+-- import GHC.Generics (Generic)
+-- import CBOR.Class
+--
+-- data Config = Config { host :: Text, port :: Int } deriving (Generic)
+-- instance ToCBOR Config
+-- instance FromCBOR Config
+--
+-- let bytes = encodeCBOR (Config \"localhost\" 8080)
+-- let Right cfg = decodeCBOR bytes :: Either String Config
+-- @
 module CBOR.Class
   ( ToCBOR(..)
   , FromCBOR(..)

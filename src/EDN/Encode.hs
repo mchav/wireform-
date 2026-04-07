@@ -1,5 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 -- | EDN (Extensible Data Notation) text encoding.
+--
+-- Renders an 'EDN.Value.Value' to its canonical text representation.
+-- Supports all EDN types including tagged literals, keywords with
+-- namespaces, and special float values (@##NaN@, @##Inf@, @##-Inf@).
+-- Strings are properly escaped per the EDN specification.
 module EDN.Encode
   ( encode
   , encodeBS

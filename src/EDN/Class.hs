@@ -4,6 +4,24 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- | Typeclass-based EDN serialization with GHC Generics support.
+--
+-- Provides 'ToEDN' and 'FromEDN' typeclasses for converting Haskell
+-- values to\/from EDN. Records are encoded as EDN maps with keyword keys.
+-- Derive instances automatically via @DeriveGeneric@.
+--
+-- @
+-- {-\# LANGUAGE DeriveGeneric \#-}
+-- import GHC.Generics (Generic)
+-- import EDN.Class
+--
+-- data Point = Point { x :: Double, y :: Double } deriving (Generic)
+-- instance ToEDN Point
+-- instance FromEDN Point
+--
+-- let bs = encodeEDN (Point 1.0 2.0)
+-- let Right pt = decodeEDN bs :: Either String Point
+-- @
 module EDN.Class
   ( ToEDN(..)
   , FromEDN(..)

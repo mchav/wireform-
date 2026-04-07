@@ -1,5 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 -- | Python Pickle protocol 2 encoder.
+--
+-- Encodes a 'Pickle.Value.Value' to Python Pickle protocol 2 wire format.
+-- Emits the protocol 2 header (@0x80 0x02@) followed by opcodes and data,
+-- terminated by the STOP opcode. Compatible with Python's @pickle.loads@.
 module Pickle.Encode
   ( encode
   ) where

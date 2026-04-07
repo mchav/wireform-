@@ -1,4 +1,21 @@
 -- | Cap'n Proto value representation.
+--
+-- Cap'n Proto is a zero-copy serialization format where data is laid out
+-- in memory exactly as it appears on the wire. This module defines a
+-- dynamically-typed value covering Cap'n Proto's type system: void,
+-- integers, floats, booleans, text, data, structs, lists, enums, and
+-- unions.
+--
+-- @
+-- import qualified CapnProto.Value as CP
+-- import qualified CapnProto.Encode as CPE
+-- import qualified CapnProto.Decode as CPD
+-- import qualified Data.Vector as V
+--
+-- let val = CP.Struct (V.fromList [CP.Text \"hello\", CP.UInt32 42])
+-- let bytes = CPE.encode val
+-- let Right decoded = CPD.decode bytes
+-- @
 module CapnProto.Value
   ( Value(..)
   ) where

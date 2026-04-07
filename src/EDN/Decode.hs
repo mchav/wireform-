@@ -1,5 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 -- | EDN (Extensible Data Notation) text decoding via recursive descent.
+--
+-- Parses EDN text into an 'EDN.Value.Value'. Handles all EDN types:
+-- nil, booleans, integers, floats, strings, characters, keywords,
+-- symbols, lists, vectors, maps, sets, tagged literals, and the
+-- @#_@ discard reader macro. Whitespace includes commas per the EDN spec.
 module EDN.Decode
   ( decode
   , decodeBS

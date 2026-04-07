@@ -1,4 +1,18 @@
 {-# LANGUAGE FlexibleInstances #-}
+-- | Typeclass-based Thrift serialization.
+--
+-- Provides 'ToThrift' and 'FromThrift' typeclasses for converting Haskell
+-- values to\/from 'Thrift.Value.Value'. Convenience functions serialize
+-- directly to\/from binary or compact protocol wire format.
+--
+-- @
+-- import Thrift.Class
+-- import qualified Data.Vector as V
+-- import Data.Int (Int16)
+--
+-- let bytes = encodeThriftBinary myThriftValue
+-- let Right val = decodeThriftBinary bytes
+-- @
 module Thrift.Class
   ( ToThrift(..)
   , FromThrift(..)

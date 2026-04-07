@@ -1,4 +1,20 @@
 -- | FlatBuffers value representation.
+--
+-- FlatBuffers is Google's zero-copy flat serialization format. This module
+-- defines a dynamically-typed value covering FlatBuffers' type system:
+-- scalars (integers, floats, booleans), strings, vectors, tables (with
+-- optional fields), structs (fixed-size inline), and unions.
+--
+-- @
+-- import qualified FlatBuffers.Value as FB
+-- import qualified FlatBuffers.Encode as FBE
+-- import qualified FlatBuffers.Decode as FBD
+-- import qualified Data.Vector as V
+--
+-- let val = FB.Table (V.fromList [Just (FB.FBString \"hello\"), Just (FB.Int32 42)])
+-- let bytes = FBE.encode val
+-- let Right decoded = FBD.decode bytes
+-- @
 module FlatBuffers.Value
   ( Value(..)
   ) where
