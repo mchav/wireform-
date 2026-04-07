@@ -4,8 +4,12 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
+import Hedgehog
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
 import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
+import Test.Tasty.Hedgehog
 
 import qualified CapnProto.Value as C
 import CapnProto.Encode (encode)
@@ -16,6 +20,7 @@ capnProtoTests = testGroup "CapnProto"
   [ unitTests
   , wireFormatTests
   , edgeCases
+  , propertyTests
   ]
 
 unitTests :: TestTree
@@ -144,6 +149,50 @@ edgeCases = testGroup "Edge cases"
       let val = C.Text (T.pack "A")
           bs = encode val
       BS.length bs > 8 @?= True
+  ]
+
+propertyTests :: TestTree
+propertyTests = testGroup "Property tests"
+  [ testProperty "UInt64 encode/decode roundtrip" $ property $ do
+      w <- forAll $ Gen.word64 (Range.linear 1 maxBound)
+      let bs = encode (C.UInt64 w)
+      case decode bs of
+        Right (C.UInt64 w') -> w === w'
+        Right other -> do
+          annotate $ "unexpected decode result: " ++ show other
+          failure
+        Left err -> do
+          annotate err
+          failure
+
+  , testProperty "Int64 encode preserves size" $ property $ do
+      n <- forAll $ Gen.int64 Range.linearBounded
+      let bs = encode (C.Int64 n)
+      BS.length bs === 16
+
+  , testProperty "UInt32 encode preserves size" $ property $ do
+      w <- forAll $ Gen.word32 Range.linearBounded
+      let bs = encode (C.UInt32 w)
+      BS.length bs === 16
+
+  , testProperty "Bool encode preserves size" $ property $ do
+      b <- forAll Gen.bool
+      let bs = encode (C.Bool b)
+      BS.length bs === 16
+
+  , testProperty "Float64 encode preserves size" $ property $ do
+      d <- forAll $ Gen.double (Range.linearFrac (-1e6) 1e6)
+      let bs = encode (C.Float64 d)
+      BS.length bs === 16
+
+  , testProperty "Text encode has correct minimum size" $ property $ do
+      t <- forAll $ Gen.text (Range.linear 0 64) Gen.alphaNum
+      let bs = encode (C.Text t)
+      assert (BS.length bs > 8)
+
+  , testProperty "Void encode is 8 bytes" $ property $ do
+      let bs = encode C.Void
+      BS.length bs === 8
   ]
 
 readLE32 :: BS.ByteString -> Int -> Word32

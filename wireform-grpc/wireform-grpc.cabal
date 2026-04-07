@@ -184,6 +184,16 @@ library
 -- Test suites and benchmarks are disabled while migrating from proto-lens to wireform.
 -- They depend on proto-lens generated code that needs to be regenerated.
 
+test-suite wireform-grpc-test-minimal
+  import:          lang, common-executable-flags
+  type:            exitcode-stdio-1.0
+  hs-source-dirs:  test-minimal
+  main-is:         Main.hs
+  build-depends:
+    , wireform-grpc
+    , wireform
+    , bytestring >= 0.10.12 && < 0.13
+
 Flag build-stress-test
   description: Build the stress test
   default: False

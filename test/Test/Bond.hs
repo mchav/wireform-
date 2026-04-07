@@ -212,6 +212,57 @@ propertyRoundtrips = testGroup "Property roundtrips"
       b <- forAll Gen.bool
       let val = Bool b
       decode BT_BOOL (encode val) === Right val
+
+  , testProperty "Int8 roundtrip" $ property $ do
+      n <- forAll $ Gen.int8 Range.linearBounded
+      let val = Int8 n
+      decode BT_INT8 (encode val) === Right val
+
+  , testProperty "Int16 roundtrip" $ property $ do
+      n <- forAll $ Gen.int16 Range.linearBounded
+      let val = Int16 n
+      decode BT_INT16 (encode val) === Right val
+
+  , testProperty "UInt8 roundtrip" $ property $ do
+      n <- forAll $ Gen.word8 Range.linearBounded
+      let val = UInt8 n
+      decode BT_UINT8 (encode val) === Right val
+
+  , testProperty "UInt16 roundtrip" $ property $ do
+      n <- forAll $ Gen.word16 Range.linearBounded
+      let val = UInt16 n
+      decode BT_UINT16 (encode val) === Right val
+
+  , testProperty "Float roundtrip" $ property $ do
+      f <- forAll $ Gen.float (Range.linearFrac (-1e6) 1e6)
+      let val = Float f
+      decode BT_FLOAT (encode val) === Right val
+
+  , testProperty "Double roundtrip" $ property $ do
+      d <- forAll $ Gen.double (Range.linearFrac (-1e6) 1e6)
+      let val = Double d
+      decode BT_DOUBLE (encode val) === Right val
+
+  , testProperty "WString roundtrip" $ property $ do
+      t <- forAll $ Gen.text (Range.linear 0 100) Gen.alphaNum
+      let val = WString t
+      decode BT_WSTRING (encode val) === Right val
+
+  , testProperty "Struct roundtrip" $ property $ do
+      n <- forAll $ Gen.int32 Range.linearBounded
+      t <- forAll $ Gen.text (Range.linear 0 64) Gen.alphaNum
+      b <- forAll Gen.bool
+      let val = Struct V.empty (V.fromList
+            [ (1, BT_INT32, Int32 n)
+            , (2, BT_STRING, String t)
+            , (3, BT_BOOL, Bool b)
+            ])
+      decode BT_STRUCT (encode val) === Right val
+
+  , testProperty "List roundtrip" $ property $ do
+      ns <- forAll $ Gen.list (Range.linear 0 15) (Gen.int32 Range.linearBounded)
+      let val = List BT_INT32 (V.fromList (map Int32 ns))
+      decode BT_LIST (encode val) === Right val
   ]
 
 -- ============================================================

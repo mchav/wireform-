@@ -124,6 +124,38 @@ propertyRoundtrips = testGroup "Property roundtrips"
       bs <- forAll $ Gen.bytes (Range.linear 0 256)
       let val = P.Bytes bs
       decode (encode val) === Right val
+
+  , testProperty "Bool roundtrip" $ property $ do
+      b <- forAll Gen.bool
+      let val = P.Bool b
+      decode (encode val) === Right val
+
+  , testProperty "Float roundtrip" $ property $ do
+      d <- forAll $ Gen.double (Range.linearFrac (-1e12) 1e12)
+      let val = P.Float d
+      decode (encode val) === Right val
+
+  , testProperty "List roundtrip" $ property $ do
+      ns <- forAll $ Gen.list (Range.linear 0 15) (Gen.int64 Range.linearBounded)
+      let val = P.List (V.fromList (map P.Int ns))
+      decode (encode val) === Right val
+
+  , testProperty "Tuple roundtrip" $ property $ do
+      ns <- forAll $ Gen.list (Range.linear 0 8) (Gen.int64 (Range.linear (-1000) 1000))
+      let val = P.Tuple (V.fromList (map P.Int ns))
+      decode (encode val) === Right val
+
+  , testProperty "Dict roundtrip" $ property $ do
+      kvs <- forAll $ Gen.list (Range.linear 0 10) $ do
+        k <- Gen.text (Range.linear 1 32) Gen.alphaNum
+        v <- Gen.int64 Range.linearBounded
+        pure (P.String k, P.Int v)
+      let val = P.Dict (V.fromList kvs)
+      decode (encode val) === Right val
+
+  , testProperty "None roundtrip" $ property $ do
+      let val = P.None
+      decode (encode val) === Right val
   ]
 
 edgeCases :: TestTree

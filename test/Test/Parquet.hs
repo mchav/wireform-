@@ -3,8 +3,12 @@ module Test.Parquet (parquetTests) where
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Hedgehog
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
 import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
+import Test.Tasty.Hedgehog
 
 import Parquet.Types
 import Parquet.Footer
@@ -14,6 +18,7 @@ parquetTests = testGroup "Parquet"
   [ footerRoundtrips
   , magicTests
   , edgeCases
+  , propertyRoundtrips
   ]
 
 footerRoundtrips :: TestTree
@@ -228,4 +233,64 @@ edgeCases = testGroup "Edge cases"
             , fmCreatedBy = Nothing
             }
       readFooter (writeFooter fm) @?= Right fm
+  ]
+
+propertyRoundtrips :: TestTree
+propertyRoundtrips = testGroup "Property roundtrips"
+  [ testProperty "FileMetadata with random version and numRows" $ property $ do
+      ver <- forAll $ Gen.int32 (Range.linear 1 3)
+      nRows <- forAll $ Gen.int64 (Range.linear 0 1000000)
+      createdBy <- forAll $ Gen.maybe (Gen.text (Range.linear 1 32) Gen.alphaNum)
+      let fm = FileMetadata
+            { fmVersion = ver
+            , fmSchema = V.empty
+            , fmNumRows = nRows
+            , fmRowGroups = V.empty
+            , fmCreatedBy = createdBy
+            }
+      readFooter (writeFooter fm) === Right fm
+
+  , testProperty "FileMetadata with random schema elements" $ property $ do
+      nFields <- forAll $ Gen.int (Range.linear 0 5)
+      fields <- forAll $ traverse (\_ -> do
+          name <- Gen.text (Range.linear 1 20) Gen.alphaNum
+          rep <- Gen.maybe (Gen.element [Required, Optional, Repeated])
+          pt <- Gen.maybe (Gen.element [PTBoolean, PTInt32, PTInt64, PTFloat, PTDouble, PTByteArray])
+          pure SchemaElement
+            { seName = name
+            , seRepetition = rep
+            , seType = pt
+            , seNumChildren = Nothing
+            , seConvertedType = Nothing
+            , seLogicalType = Nothing
+            }
+        ) [1..nFields]
+      let fm = FileMetadata
+            { fmVersion = 2
+            , fmSchema = V.fromList fields
+            , fmNumRows = 0
+            , fmRowGroups = V.empty
+            , fmCreatedBy = Nothing
+            }
+      readFooter (writeFooter fm) === Right fm
+
+  , testProperty "FileMetadata with random row groups" $ property $ do
+      nGroups <- forAll $ Gen.int (Range.linear 0 3)
+      rgs <- forAll $ traverse (\_ -> do
+          nRows <- Gen.int64 (Range.linear 0 100000)
+          totalBytes <- Gen.int64 (Range.linear 0 1000000)
+          pure RowGroup
+            { rgColumns = V.empty
+            , rgTotalByteSize = totalBytes
+            , rgNumRows = nRows
+            }
+        ) [1..nGroups]
+      let fm = FileMetadata
+            { fmVersion = 2
+            , fmSchema = V.empty
+            , fmNumRows = sum (map rgNumRows rgs)
+            , fmRowGroups = V.fromList rgs
+            , fmCreatedBy = Nothing
+            }
+      readFooter (writeFooter fm) === Right fm
   ]

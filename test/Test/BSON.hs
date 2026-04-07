@@ -106,6 +106,51 @@ propertyRoundtrips = testGroup "Property roundtrips"
       bs <- forAll $ Gen.bytes (Range.linear 0 256)
       let val = B.Document (V.singleton (T.pack "v", B.Binary bs))
       decode (encode val) === Right val
+
+  , testProperty "Bool roundtrip" $ property $ do
+      b <- forAll Gen.bool
+      let val = B.Document (V.singleton (T.pack "v", B.Bool b))
+      decode (encode val) === Right val
+
+  , testProperty "DateTime roundtrip" $ property $ do
+      ms <- forAll $ Gen.int64 Range.linearBounded
+      let val = B.Document (V.singleton (T.pack "v", B.DateTime ms))
+      decode (encode val) === Right val
+
+  , testProperty "Nested document roundtrip" $ property $ do
+      n <- forAll $ Gen.int32 Range.linearBounded
+      t <- forAll $ Gen.text (Range.linear 0 64) Gen.alphaNum
+      b <- forAll Gen.bool
+      let inner = B.Document (V.fromList
+            [ (T.pack "n", B.Int32 n)
+            , (T.pack "s", B.String t)
+            ])
+          val = B.Document (V.fromList
+            [ (T.pack "inner", inner)
+            , (T.pack "flag", B.Bool b)
+            , (T.pack "top", B.Null)
+            ])
+      decode (encode val) === Right val
+
+  , testProperty "Array roundtrip" $ property $ do
+      ns <- forAll $ Gen.list (Range.linear 0 10) (Gen.int32 Range.linearBounded)
+      let arr = B.Array (V.fromList (map B.Int32 ns))
+          val = B.Document (V.singleton (T.pack "a", arr))
+      decode (encode val) === Right val
+
+  , testProperty "Multiple fields roundtrip" $ property $ do
+      n <- forAll $ Gen.int32 Range.linearBounded
+      m <- forAll $ Gen.int64 Range.linearBounded
+      t <- forAll $ Gen.text (Range.linear 0 64) Gen.alphaNum
+      b <- forAll Gen.bool
+      let val = B.Document (V.fromList
+            [ (T.pack "i32", B.Int32 n)
+            , (T.pack "i64", B.Int64 m)
+            , (T.pack "str", B.String t)
+            , (T.pack "bool", B.Bool b)
+            , (T.pack "null", B.Null)
+            ])
+      decode (encode val) === Right val
   ]
 
 edgeCases :: TestTree

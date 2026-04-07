@@ -115,6 +115,32 @@ propertyRoundtrips = testGroup "Property roundtrips"
       ns <- forAll $ Gen.list (Range.linear 0 20) (Gen.int64 (Range.linear 0 1000))
       let val = I.List (V.fromList (map I.Int ns))
       decode (encode val) === Right val
+
+  , testProperty "Symbol roundtrip" $ property $ do
+      t <- forAll $ Gen.text (Range.linear 1 64) Gen.alphaNum
+      decode (encode (I.Symbol t)) === Right (I.Symbol t)
+
+  , testProperty "Clob roundtrip" $ property $ do
+      bs <- forAll $ Gen.bytes (Range.linear 0 128)
+      decode (encode (I.Clob bs)) === Right (I.Clob bs)
+
+  , testProperty "Struct roundtrip" $ property $ do
+      ns <- forAll $ Gen.list (Range.linear 0 8)
+              (Gen.int64 (Range.linear 0 1000))
+      let fields = zipWith (\i n -> (T.pack ("f" ++ show i), I.Int n)) [(0::Int)..] ns
+          val = I.Struct (V.fromList fields)
+      decode (encode val) === Right val
+
+  , testProperty "List of strings roundtrip" $ property $ do
+      ts <- forAll $ Gen.list (Range.linear 0 10) (Gen.text (Range.linear 0 32) Gen.alphaNum)
+      let val = I.List (V.fromList (map I.String ts))
+      decode (encode val) === Right val
+
+  , testProperty "Annotation roundtrip" $ property $ do
+      ann <- forAll $ Gen.text (Range.linear 1 20) Gen.alpha
+      n <- forAll $ Gen.int64 (Range.linear 0 10000)
+      let val = I.Annotation ann (I.Int n)
+      decode (encode val) === Right val
   ]
 
 edgeCases :: TestTree
