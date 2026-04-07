@@ -28,6 +28,10 @@ import Test.CapnProto (capnProtoTests)
 import Test.FlatBuffers (flatBuffersTests)
 import Test.Iceberg (icebergTests)
 import Test.Bond (bondTests)
+import Test.ASN1 (asn1Tests)
+import Test.Parquet (parquetTests)
+import Test.Pickle (pickleTests)
+import Test.Arrow (arrowTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "hs-proto"
@@ -57,4 +61,8 @@ main = defaultMain $ testGroup "hs-proto"
   , flatBuffersTests
   , icebergTests
   , bondTests
+  , asn1Tests
+  , parquetTests
+  , pickleTests
+  , arrowTests
   ]

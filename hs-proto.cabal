@@ -174,6 +174,20 @@ library
       Bond.Value
       Bond.Encode
       Bond.Decode
+      -- ASN.1 BER/DER support
+      ASN1.Value
+      ASN1.Encode
+      ASN1.Decode
+      -- Apache Parquet metadata
+      Parquet.Types
+      Parquet.Footer
+      -- Python Pickle support
+      Pickle.Value
+      Pickle.Encode
+      Pickle.Decode
+      -- Apache Arrow IPC
+      Arrow.Types
+      Arrow.IPC
 
     c-sources:        cbits/fast_decode.c
     include-dirs:     cbits/simde
@@ -243,6 +257,10 @@ test-suite hs-proto-test
       Test.FlatBuffers
       Test.Iceberg
       Test.Bond
+      Test.ASN1
+      Test.Parquet
+      Test.Pickle
+      Test.Arrow
 
     build-depends:
         base             >= 4.16 && < 5
