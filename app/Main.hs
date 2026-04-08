@@ -39,6 +39,9 @@ import FlatBuffers.Parser (parseFlatBuffers)
 import ASN1.CodeGen (generateASN1Types)
 import ASN1.Parser (parseASN1Module)
 
+import XML.Schema (parseXSD)
+import XML.CodeGen (generateXMLTypes)
+
 -- Top-level command dispatch
 data Command
   = CmdProto ProtoCmd
@@ -48,6 +51,7 @@ data Command
   | CmdCapnProto GenOpts
   | CmdFlatBuffers GenOpts
   | CmdASN1 GenOpts
+  | CmdXSD GenOpts
 
 -- Proto has sub-subcommands to preserve generate/print/summary
 data ProtoCmd
@@ -91,6 +95,7 @@ main = do
     CmdCapnProto go   -> runCapnProto go
     CmdFlatBuffers go -> runFlatBuffers go
     CmdASN1 go        -> runASN1 go
+    CmdXSD go         -> runXSD go
   where
     opts = info (commandParser <**> helper)
       ( fullDesc
@@ -114,6 +119,8 @@ commandParser = subparser
       (progDesc "Generate Haskell from .fbs files"))
   <> command "asn1" (info (CmdASN1 <$> genOptsParser <**> helper)
       (progDesc "Generate Haskell from ASN.1 module definitions"))
+  <> command "xsd" (info (CmdXSD <$> genOptsParser <**> helper)
+      (progDesc "Generate Haskell from XSD (XML Schema) files"))
   )
 
 -- Shared options for simple formats (thrift, bond, capnp, fbs, asn1)
@@ -303,6 +310,13 @@ runASN1 go = do
   case parseASN1Module src of
     Left err -> hPutStrLn stderr err >> exitFailure
     Right modl -> writeOutput (goOutput go) (generateASN1Types modl)
+
+runXSD :: GenOpts -> IO ()
+runXSD go = do
+  src <- TIO.readFile (goInput go)
+  case parseXSD src of
+    Left err -> hPutStrLn stderr err >> exitFailure
+    Right schema -> writeOutput (goOutput go) (generateXMLTypes schema)
 
 ------------------------------------------------------------------------
 -- Helpers

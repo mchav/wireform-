@@ -278,11 +278,24 @@ library
       Wireform.FlatBuffers
       Wireform.ASN1
       Wireform.Pickle
+      -- XML support
+      XML.Value
+      XML.SAX
+      XML.Decode
+      XML.Encode
+      XML.Path
+      XML.Class
+      XML.Generic
+      XML.Schema
+      XML.CodeGen
+      XML.QQ
+      Wireform.XML
 
     other-modules:    Paths_wireform
     autogen-modules:  Paths_wireform
 
     c-sources:        cbits/fast_decode.c
+                      cbits/fast_xml.c
     include-dirs:     cbits/simde
     cc-options:       -O3 -march=native
 
@@ -380,6 +393,7 @@ test-suite wireform-test
       Test.ISLParser
       Test.AvroIDL
       Test.Registry
+      Test.XML
 
     build-depends:
         base             >= 4.16 && < 5
