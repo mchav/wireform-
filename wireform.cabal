@@ -3,7 +3,7 @@ name:               wireform
 version:            0.1.0.0
 synopsis:           High-performance multi-format serialization toolkit for Haskell
 description:
-  A comprehensive binary serialization library supporting 16 formats:
+  A comprehensive binary serialization library supporting 15 formats:
   .
   * Protocol Buffers (proto2/proto3 with full IDL parser, code generation, JSON mapping)
   * Apache Avro (schema resolution, JSON conversion, protocol/IPC)
@@ -19,7 +19,6 @@ description:
   * Apache Parquet (columnar metadata/footer)
   * Apache Arrow IPC (in-memory columnar)
   * Apache Iceberg (table metadata/manifests)
-  * Python Pickle (opcodes 0–5)
   * EDN (Extensible Data Notation)
 
 license:            BSD-3-Clause
@@ -49,6 +48,11 @@ source-repository head
 
 flag python-interop
   description: Enable Python interop conformance tests (requires python3, protobuf pip package, protoc)
+  manual: True
+  default: False
+
+flag snappy
+  description: Enable snappy compression for Avro containers
   manual: True
   default: False
 
@@ -248,10 +252,6 @@ library
       -- Apache Parquet metadata
       Parquet.Types
       Parquet.Footer
-      -- Python Pickle support
-      Pickle.Value
-      Pickle.Encode
-      Pickle.Decode
       -- Apache Arrow IPC
       Arrow.Types
       Arrow.IPC
@@ -281,7 +281,6 @@ library
       Wireform.CapnProto
       Wireform.FlatBuffers
       Wireform.ASN1
-      Wireform.Pickle
       -- XML support
       XML.Value
       XML.SAX
@@ -332,6 +331,10 @@ library
       , zlib              >= 0.6    && < 0.8
       , stm               >= 2.5    && < 2.6
 
+    if flag(snappy)
+      build-depends: snappy >= 0.2 && < 0.3
+      cpp-options: -DHAVE_SNAPPY
+
     hs-source-dirs:   src
     default-language: GHC2021
     default-extensions:
@@ -375,7 +378,6 @@ test-suite wireform-test
       Test.Bond
       Test.ASN1
       Test.Parquet
-      Test.Pickle
       Test.Arrow
       Test.EDN
       Test.MsgPackRPC
@@ -717,19 +719,6 @@ executable example-asn1
 executable example-parquet
     import:           warnings
     main-is:          ParquetExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-pickle
-    import:           warnings
-    main-is:          PickleExample.hs
     build-depends:
         base             >= 4.16 && < 5
       , wireform

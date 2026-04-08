@@ -20,10 +20,6 @@ import qualified CBOR.Value as C
 import qualified CBOR.Encode as CE
 import qualified CBOR.Decode as CD
 
-import qualified Pickle.Value as P
-import qualified Pickle.Encode as PE
-import qualified Pickle.Decode as PD
-
 import qualified BSON.Value as B
 import qualified BSON.Encode as BE
 import qualified BSON.Decode as BD
@@ -47,7 +43,6 @@ main :: IO ()
 main = defaultMain $ testGroup "Cross-Language Interop"
   [ testGroup "MsgPack ↔ Python msgpack" msgpackTests
   , testGroup "CBOR ↔ Python cbor2" cborTests
-  , testGroup "Pickle ↔ Python pickle" pickleTests
   , testGroup "XML ↔ Python xml.etree" xmlTests
   , testGroup "BSON ↔ Python bson" bsonTests
   , testGroup "Ion ↔ Python amazon.ion" ionTests
@@ -270,91 +265,6 @@ assertCBOREquiv expected actual = case (expected, actual) of
   (C.Map as, C.Map bs) -> do
     V.length as @?= V.length bs
     V.zipWithM_ (\(k1,v1) (k2,v2) -> assertCBOREquiv k1 k2 >> assertCBOREquiv v1 v2) as bs
-  _ -> expected @?= actual
-
---------------------------------------------------------------------------------
--- Pickle tests (standard library — always available)
---------------------------------------------------------------------------------
-
-pickleTests :: [TestTree]
-pickleTests =
-  [ testCase "roundtrip dict {key: 42}" $ do
-      let val = P.Dict $ V.fromList [(P.String "key", P.Int 42)]
-      let encoded = PE.encode val
-      result <- runPythonBinary "test-interop/test_pickle.py" [] encoded
-      case result of
-        Right pythonEncoded -> case PD.decode pythonEncoded of
-          Right decoded -> assertPickleEquiv val decoded
-          Left err -> assertFailure $ "wireform Pickle decode failed: " ++ err
-        Left err -> assertFailure err
-
-  , testCase "roundtrip list [1, hello, True, None]" $ do
-      let val = P.List $ V.fromList
-            [P.Int 1, P.String "hello", P.Bool True, P.None]
-      let encoded = PE.encode val
-      result <- runPythonBinary "test-interop/test_pickle.py" [] encoded
-      case result of
-        Right pythonEncoded -> case PD.decode pythonEncoded of
-          Right decoded -> assertPickleEquiv val decoded
-          Left err -> assertFailure $ "wireform Pickle decode failed: " ++ err
-        Left err -> assertFailure err
-
-  , testCase "roundtrip nested dict" $ do
-      let val = P.Dict $ V.fromList
-            [ (P.String "outer", P.Dict $ V.fromList
-                [ (P.String "inner", P.Int 99) ])
-            ]
-      let encoded = PE.encode val
-      result <- runPythonBinary "test-interop/test_pickle.py" [] encoded
-      case result of
-        Right pythonEncoded -> case PD.decode pythonEncoded of
-          Right decoded -> assertPickleEquiv val decoded
-          Left err -> assertFailure $ "wireform Pickle decode failed: " ++ err
-        Left err -> assertFailure err
-
-  , testCase "roundtrip tuple" $ do
-      let val = P.Tuple $ V.fromList [P.Int 1, P.Int 2, P.Int 3]
-      let encoded = PE.encode val
-      result <- runPythonBinary "test-interop/test_pickle.py" [] encoded
-      case result of
-        Right pythonEncoded -> case PD.decode pythonEncoded of
-          Right decoded -> assertPickleEquiv val decoded
-          Left err -> assertFailure $ "wireform Pickle decode failed: " ++ err
-        Left err -> assertFailure err
-
-  , testCase "roundtrip float" $ do
-      let val = P.Float 3.14
-      let encoded = PE.encode val
-      result <- runPythonBinary "test-interop/test_pickle.py" [] encoded
-      case result of
-        Right pythonEncoded -> case PD.decode pythonEncoded of
-          Right decoded -> assertPickleEquiv val decoded
-          Left err -> assertFailure $ "wireform Pickle decode failed: " ++ err
-        Left err -> assertFailure err
-
-  , testCase "roundtrip boolean" $ do
-      let val = P.Bool False
-      let encoded = PE.encode val
-      result <- runPythonBinary "test-interop/test_pickle.py" [] encoded
-      case result of
-        Right pythonEncoded -> case PD.decode pythonEncoded of
-          Right decoded -> assertPickleEquiv val decoded
-          Left err -> assertFailure $ "wireform Pickle decode failed: " ++ err
-        Left err -> assertFailure err
-  ]
-
-assertPickleEquiv :: P.Value -> P.Value -> Assertion
-assertPickleEquiv expected actual = case (expected, actual) of
-  (P.Float a, P.Float b) -> abs (a - b) < 1e-10 @? "float mismatch"
-  (P.List as, P.List bs) -> do
-    V.length as @?= V.length bs
-    V.zipWithM_ assertPickleEquiv as bs
-  (P.Tuple as, P.Tuple bs) -> do
-    V.length as @?= V.length bs
-    V.zipWithM_ assertPickleEquiv as bs
-  (P.Dict as, P.Dict bs) -> do
-    V.length as @?= V.length bs
-    V.zipWithM_ (\(k1,v1) (k2,v2) -> assertPickleEquiv k1 k2 >> assertPickleEquiv v1 v2) as bs
   _ -> expected @?= actual
 
 --------------------------------------------------------------------------------

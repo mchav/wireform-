@@ -30,7 +30,6 @@ import Test.Iceberg (icebergTests)
 import Test.Bond (bondTests)
 import Test.ASN1 (asn1Tests)
 import Test.Parquet (parquetTests)
-import Test.Pickle (pickleTests)
 import Test.Arrow (arrowTests)
 import Test.EDN (ednTests)
 import Test.MsgPackRPC (msgPackRPCTests)
@@ -89,7 +88,6 @@ main = defaultMain $ testGroup "wireform"
   , bondTests
   , asn1Tests
   , parquetTests
-  , pickleTests
   , arrowTests
   , ednTests
   , classTests

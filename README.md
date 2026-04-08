@@ -2,7 +2,7 @@
 
 High-performance multi-format serialization for Haskell.
 
-A single library providing encoders and decoders for 16 binary serialization
+A single library providing encoders and decoders for 15 binary serialization
 formats. Shared infrastructure (direct-write buffers, Addr#-based decoding,
 two-pass sized encoding) gives uniform performance characteristics across all
 formats.
@@ -22,7 +22,6 @@ formats.
 | FlatBuffers | `FlatBuffers.*` | yes | yes | — | Flat zero-copy |
 | Microsoft Bond | `Bond.*` | yes | yes | — | Compact binary |
 | ASN.1 BER/DER | `ASN1.*` | yes | yes | — | ITU-T X.690 |
-| Python Pickle | `Pickle.*` | yes | yes | — | Opcodes 0–5 |
 | EDN | `EDN.*` | yes | yes | yes | Extensible Data Notation |
 | Apache Parquet | `Parquet.*` | — | read | — | Footer/metadata only |
 | Apache Arrow IPC | `Arrow.*` | — | read | — | Schema + record batches |
@@ -125,7 +124,7 @@ let Right decoded = CBD.decode bytes
 
 | Package | Description |
 |---|---|
-| `wireform` | Core library — all 16 format codecs, proto IDL parser, codegen, TH |
+| `wireform` | Core library — all 15 format codecs, proto IDL parser, codegen, TH |
 | `wireform-grpc` | Native gRPC client/server built on http2, uses wireform for serialization |
 
 ## Module Index
@@ -273,7 +272,6 @@ CapnProto.Value / .Encode / .Decode     Cap'n Proto
 FlatBuffers.Value / .Encode / .Decode   FlatBuffers
 Bond.Value / .Encode / .Decode          Microsoft Bond
 ASN1.Value / .Encode / .Decode          ASN.1 BER/DER
-Pickle.Value / .Encode / .Decode        Python Pickle
 EDN.Value / .Encode / .Decode / .JSON   EDN
 Iceberg.Types / .JSON / .Manifest       Apache Iceberg
 Parquet.Types / .Footer                 Apache Parquet
