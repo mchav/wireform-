@@ -591,7 +591,12 @@ genTopLevel ctx scope = \case
   TLMessage msg -> genMessage ctx scope msg
   TLEnum ed     -> genEnum ctx scope ed
   TLService svc -> genServiceTopLevel ctx scope svc
-  TLExtend _ _  -> []
+  TLExtend extName _fields ->
+    [ txt "-- WARNING: extension block 'extend " <> pretty extName <>
+      txt "' was skipped during code generation."
+    , txt "-- Proto2 extensions are not yet supported by wireform codegen."
+    , txt "-- To access extension fields, use dynamic message APIs."
+    ]
   TLOption _    -> []
 
 genMessage :: GenCtx -> [Text] -> MessageDef -> [Doc ann]

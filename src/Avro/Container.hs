@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 -- | Avro Object Container File (OCF) format.
 --
 -- Reads and writes Avro container files, which consist of a header
@@ -23,6 +24,9 @@ module Avro.Container
   ) where
 
 import qualified Codec.Compression.Zlib.Raw as ZlibRaw
+#ifdef HAVE_SNAPPY
+import qualified Codec.Compression.Snappy as Snappy
+#endif
 import qualified Data.Aeson as Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -207,10 +211,18 @@ decodeNValues schema bs off n acc = do
 decompressBlock :: T.Text -> ByteString -> Either String ByteString
 decompressBlock "null" bs = Right bs
 decompressBlock "deflate" bs = Right $ BL.toStrict $ ZlibRaw.decompress $ BL.fromStrict bs
+#ifdef HAVE_SNAPPY
+decompressBlock "snappy" bs = Right (Snappy.decompress bs)
+#else
+decompressBlock "snappy" _ = Left "Avro: snappy codec not available (build with -fsnappy)"
+#endif
 decompressBlock codec _ = Left $ "Unsupported codec: " <> T.unpack codec
 
 -- | Compress a block of data using the given codec.
 compressBlock :: T.Text -> ByteString -> ByteString
 compressBlock "null" bs = bs
 compressBlock "deflate" bs = BL.toStrict $ ZlibRaw.compress $ BL.fromStrict bs
+#ifdef HAVE_SNAPPY
+compressBlock "snappy" bs = Snappy.compress bs
+#endif
 compressBlock _ bs = bs

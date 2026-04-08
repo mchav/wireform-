@@ -17,6 +17,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Char (chr, isDigit, isHexDigit, digitToInt, ord)
 import Data.IORef
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -112,6 +114,7 @@ data PState = PState
   , psOffset :: !Int
   , psLen    :: !Int
   , psNsStack :: ![(Text, Text)]
+  , psEntities :: !(Map Text Text)
   }
 
 ------------------------------------------------------------------------
@@ -168,7 +171,7 @@ foldSAX f z bs = unsafeDupablePerformIO $
 
 parseSAXImpl :: ByteString -> Ptr Word8 -> Int -> (SAXEvent -> IO ()) -> IO (Either String ())
 parseSAXImpl bs ptr len emit = do
-  let initState = PState bs ptr 0 len []
+  let initState = PState bs ptr 0 len [] Map.empty
   result <- parseProlog initState emit
   case result of
     Left err -> pure (Left err)
@@ -223,15 +226,76 @@ skipDoctypeIfPresent !st _emit = do
      BSU.unsafeIndex bs (off+1) == 0x21 &&
      matchBytes bs (off + 2) [0x44, 0x4F, 0x43, 0x54, 0x59, 0x50, 0x45]
     then do
-      let go !i !depth
-            | i >= len = i
-            | BSU.unsafeIndex bs i == 0x3E && depth == 0 = i + 1
-            | BSU.unsafeIndex bs i == 0x5B = go (i + 1) (depth + 1 :: Int)
-            | BSU.unsafeIndex bs i == 0x5D = go (i + 1) (depth - 1)
-            | otherwise = go (i + 1) depth
-          !newOff = go (off + 2) 0
-      pure (st { psOffset = newOff })
+      let findBracketOrGt !i
+            | i >= len = (i, False)
+            | BSU.unsafeIndex bs i == 0x5B = (i, True)
+            | BSU.unsafeIndex bs i == 0x3E = (i + 1, False)
+            | otherwise = findBracketOrGt (i + 1)
+          (!pos, !hasSubset) = findBracketOrGt (off + 9)
+      if hasSubset
+        then do
+          let (entities, endOff) = parseInternalSubset bs (pos + 1) len
+              closeBracket = skipSpaces bs endOff len
+              !finalOff = if closeBracket < len && BSU.unsafeIndex bs closeBracket == 0x5D
+                            then let !afterBracket = skipSpaces bs (closeBracket + 1) len
+                                 in if afterBracket < len && BSU.unsafeIndex bs afterBracket == 0x3E
+                                      then afterBracket + 1
+                                      else afterBracket
+                            else closeBracket
+          pure (st { psOffset = finalOff, psEntities = Map.union entities (psEntities st) })
+        else pure (st { psOffset = pos })
     else pure (st { psOffset = off })
+
+parseInternalSubset :: ByteString -> Int -> Int -> (Map Text Text, Int)
+parseInternalSubset !bs !off !len = go off Map.empty
+  where
+    go !i !ents
+      | i >= len = (ents, i)
+      | BSU.unsafeIndex bs i == 0x5D = (ents, i)
+      | i + 8 < len &&
+        BSU.unsafeIndex bs i == 0x3C &&
+        BSU.unsafeIndex bs (i+1) == 0x21 &&
+        matchBytes bs (i + 2) [0x45, 0x4E, 0x54, 0x49, 0x54, 0x59] &&
+        isSpaceByte (BSU.unsafeIndex bs (i + 8)) =
+          case parseEntityDecl bs (i + 9) len of
+            Just (name, val, nextOff) -> go nextOff (Map.insert name val ents)
+            Nothing -> skipToGt i ents
+      | BSU.unsafeIndex bs i == 0x3C = skipToGt i ents
+      | otherwise = go (i + 1) ents
+    skipToGt !i !ents =
+      let findGt !j
+            | j >= len = j
+            | BSU.unsafeIndex bs j == 0x3E = j + 1
+            | otherwise = findGt (j + 1)
+      in go (findGt (i + 1)) ents
+
+parseEntityDecl :: ByteString -> Int -> Int -> Maybe (Text, Text, Int)
+parseEntityDecl !bs !off !len =
+  let !nameStart = skipSpaces bs off len
+      !nameEnd = skipNameChars bs nameStart len
+  in if nameEnd <= nameStart
+       then Nothing
+       else let !name = decodeSlice bs nameStart (nameEnd - nameStart)
+                !afterName = skipSpaces bs nameEnd len
+            in if afterName >= len
+                 then Nothing
+                 else let !q = BSU.unsafeIndex bs afterName
+                      in if q == 0x22 || q == 0x27
+                           then let !valStart = afterName + 1
+                                    findQuote !j
+                                      | j >= len = Nothing
+                                      | BSU.unsafeIndex bs j == q = Just j
+                                      | otherwise = findQuote (j + 1)
+                                in case findQuote valStart of
+                                     Nothing -> Nothing
+                                     Just valEnd ->
+                                       let !val = decodeSlice bs valStart (valEnd - valStart)
+                                           !afterVal = skipSpaces bs (valEnd + 1) len
+                                           !nextOff = if afterVal < len && BSU.unsafeIndex bs afterVal == 0x3E
+                                                        then afterVal + 1
+                                                        else afterVal
+                                       in Just (name, val, nextOff)
+                           else Nothing
 
 parseXMLDeclAttrs :: ByteString -> Ptr Word8 -> Int -> Int -> IO (Either String (XMLDecl, Int))
 parseXMLDeclAttrs !bs !ptr !off !len = go off Nothing Nothing Nothing
@@ -302,7 +366,8 @@ parseTextContent !st emit !stack = do
       !bs  = psBS st
       !ptr = psPtr st
       !len = psLen st
-  result <- collectText bs ptr off len
+      !ents = psEntities st
+  result <- collectText ents bs ptr off len
   case result of
     Left err -> pure (Left err)
     Right (txt, newOff) -> do
@@ -310,20 +375,17 @@ parseTextContent !st emit !stack = do
         emit (Characters txt)
       parseContent (st { psOffset = newOff }) emit stack
 
-collectText :: ByteString -> Ptr Word8 -> Int -> Int -> IO (Either String (Text, Int))
-collectText !bs !ptr !off !len
+collectText :: Map Text Text -> ByteString -> Ptr Word8 -> Int -> Int -> IO (Either String (Text, Int))
+collectText !ents !bs !ptr !off !len
   | off >= len = pure (Right (T.empty, off))
   | BSU.unsafeIndex bs off == 0x3C = pure (Right (T.empty, off))
   | otherwise = do
-      -- findTextEndP finds the first '<' or '&' using SIMD
       endPos <- findTextEndP ptr off len
       if endPos >= len || BSU.unsafeIndex bs endPos == 0x3C
         then do
-          -- Fast path: text run ends at '<' or EOF, no entities
           let !txt = decodeSlice bs off (endPos - off)
           pure (Right (txt, endPos))
         else
-          -- endPos points at '&': slow path with entities
           goEntities off []
   where
     goEntities !i !acc
@@ -337,7 +399,7 @@ collectText !bs !ptr !off !len
             then pure (Left "Unterminated entity reference")
             else do
               let !entityName = decodeSlice bs (i + 1) (semicPos - i - 1)
-              case resolveEntity entityName of
+              case resolveEntityWith ents entityName of
                 Nothing -> pure (Left $ "Unknown entity: &" ++ T.unpack entityName ++ ";")
                 Just replacement ->
                   goEntities (semicPos + 1) (replacement : acc)
@@ -453,7 +515,7 @@ parseStartTag !st emit !stack = do
       !nameStart = off + 1
       !nameEnd = skipNameChars bs nameStart len
       !rawName = decodeSlice bs nameStart (nameEnd - nameStart)
-  attrResult <- parseAttributes bs ptr nameEnd len
+  attrResult <- parseAttributes (psEntities st) bs ptr nameEnd len
   case attrResult of
     Left err -> pure (Left err)
     Right (attrs, endOff, selfClose) -> do
@@ -500,9 +562,9 @@ parseEndTag !st emit !stack = do
 -- Attribute parsing with mutable vector (Fix 4)
 ------------------------------------------------------------------------
 
-parseAttributes :: ByteString -> Ptr Word8 -> Int -> Int
+parseAttributes :: Map Text Text -> ByteString -> Ptr Word8 -> Int -> Int
                 -> IO (Either String (Vector Attribute, Int, Bool))
-parseAttributes !bs !ptr !off !len = do
+parseAttributes !ents !bs !ptr !off !len = do
   mv0 <- MV.unsafeNew 8
   go mv0 off 0
   where
@@ -540,7 +602,7 @@ parseAttributes !bs !ptr !off !len = do
                             if valEnd < 0
                               then pure (Left "Unterminated attribute value")
                               else do
-                                valResult <- resolveAttrValue bs ptr valStart (valEnd - valStart)
+                                valResult <- resolveAttrValue ents bs ptr valStart (valEnd - valStart)
                                 case valResult of
                                   Left err -> pure (Left err)
                                   Right val -> do
@@ -552,13 +614,13 @@ parseAttributes !bs !ptr !off !len = do
                                     MV.unsafeWrite mv' n attr
                                     go mv' (valEnd + 1) (n + 1)
 
-resolveAttrValue :: ByteString -> Ptr Word8 -> Int -> Int -> IO (Either String Text)
-resolveAttrValue !bs !ptr !valStart !valLen = do
+resolveAttrValue :: Map Text Text -> ByteString -> Ptr Word8 -> Int -> Int -> IO (Either String Text)
+resolveAttrValue !ents !bs !ptr !valStart !valLen = do
   let !valEnd = valStart + valLen
   ampPos <- findByteP ptr valStart valEnd 0x26
   if ampPos < 0
     then pure (Right (decodeSlice bs valStart valLen))
-    else pure (resolveEntities (decodeSlice bs valStart valLen))
+    else pure (resolveEntities ents (decodeSlice bs valStart valLen))
 {-# INLINE resolveAttrValue #-}
 
 ------------------------------------------------------------------------
@@ -601,8 +663,8 @@ addNs stack (Attribute name val)
 -- Entity resolution
 ------------------------------------------------------------------------
 
-resolveEntities :: Text -> Either String Text
-resolveEntities txt
+resolveEntities :: Map Text Text -> Text -> Either String Text
+resolveEntities ents txt
   | T.null txt = Right T.empty
   | not (T.any (== '&') txt) = Right txt
   | otherwise = resolveLoop txt
@@ -620,11 +682,16 @@ resolveEntities txt
                   | otherwise ->
                       let !entityName = T.takeWhile (/= ';') afterAmp
                           !remaining = T.drop 1 (T.dropWhile (/= ';') afterAmp)
-                      in case resolveEntity entityName of
+                      in case resolveEntityWith ents entityName of
                         Nothing -> Left $ "Unknown entity: &" ++ T.unpack entityName ++ ";"
                         Just replacement -> do
                           rest' <- resolveLoop remaining
                           Right (before <> replacement <> rest')
+
+resolveEntityWith :: Map Text Text -> Text -> Maybe Text
+resolveEntityWith ents name = case resolveEntity name of
+  Just t  -> Just t
+  Nothing -> Map.lookup name ents
 
 resolveEntity :: Text -> Maybe Text
 resolveEntity "amp"  = Just "&"
