@@ -1,4 +1,8 @@
--- | Example: create a FlatBuffers table with mixed fields, encode, and decode.
+-- | This format uses schema-driven codegen. For real usage:
+-- wireform-gen flatbuffers -i schema.fbs -o src/Gen/
+-- Then use the generated types directly.
+--
+-- Example: create a FlatBuffers table with mixed fields, encode, and decode.
 --
 -- Run with: cabal run example-flatbuffers
 module Main where

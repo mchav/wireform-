@@ -1,31 +1,30 @@
--- | Example: create Ion values with annotations, encode to binary, and decode.
---
--- Run with: cabal run example-ion
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import GHC.Generics (Generic)
+import Data.Text (Text)
 import qualified Data.ByteString as BS
-import qualified Data.Vector as V
-import qualified Ion.Value as I
-import qualified Ion.Encode as IE
-import qualified Ion.Decode as ID
+import Ion.Class (ToIon, FromIon, encodeIon, decodeIon)
+
+data Event = Event
+  { eventType :: !Text
+  , timestamp :: !Int
+  , payload   :: !Text
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (ToIon, FromIon)
 
 main :: IO ()
 main = do
-  let val = I.Struct $ V.fromList
-        [ ("name",   I.String "Bob")
-        , ("age",    I.Int 25)
-        , ("scores", I.List $ V.fromList [I.Int 95, I.Int 88, I.Int 72])
-        ]
+  let evt = Event "click" 1700000000 "button-submit"
 
-  let bytes = IE.encode val
-  putStrLn $ "Struct encoded: " ++ show (BS.length bytes) ++ " bytes"
-  case ID.decode bytes of
-    Right decoded -> putStrLn $ "Struct decoded: " ++ show decoded
+  let bytes = encodeIon evt
+  putStrLn $ "Encoded Event to " ++ show (BS.length bytes) ++ " bytes"
+
+  case decodeIon bytes of
+    Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: Event)
     Left err      -> putStrLn $ "Error: " ++ err
 
-  let annotated = I.Annotation "dollars" (I.Float 19.99)
-  let annBytes = IE.encode annotated
-  putStrLn $ "Annotated encoded: " ++ show (BS.length annBytes) ++ " bytes"
-  case ID.decode annBytes of
-    Right decoded -> putStrLn $ "Annotated decoded: " ++ show decoded
-    Left err      -> putStrLn $ "Error: " ++ err
+  putStrLn $ "Roundtrip: " ++ show (decodeIon (encodeIon evt) == Right evt)

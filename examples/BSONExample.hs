@@ -1,33 +1,30 @@
--- | Example: create a BSON document with nested values, encode, and decode.
---
--- Run with: cabal run example-bson
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import GHC.Generics (Generic)
+import Data.Text (Text)
 import qualified Data.ByteString as BS
-import qualified Data.Vector as V
-import qualified BSON.Value as B
-import qualified BSON.Encode as BE
-import qualified BSON.Decode as BD
+import BSON.Class (ToBSON, FromBSON, encodeBSON, decodeBSON)
+
+data User = User
+  { username :: !Text
+  , score    :: !Int
+  , active   :: !Bool
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (ToBSON, FromBSON)
 
 main :: IO ()
 main = do
-  let address = B.Document $ V.fromList
-        [ ("street", B.String "123 Main St")
-        , ("city",   B.String "Springfield")
-        , ("zip",    B.Int32 62701)
-        ]
-  let person = B.Document $ V.fromList
-        [ ("name",    B.String "Alice")
-        , ("age",     B.Int32 30)
-        , ("active",  B.Bool True)
-        , ("score",   B.Double 98.5)
-        , ("address", address)
-        , ("tags",    B.Array $ V.fromList [B.String "admin", B.String "user"])
-        ]
+  let user = User "alice" 42 True
 
-  let bytes = BE.encode person
-  putStrLn $ "Encoded: " ++ show (BS.length bytes) ++ " bytes"
+  let bytes = encodeBSON user
+  putStrLn $ "Encoded User to " ++ show (BS.length bytes) ++ " bytes"
 
-  case BD.decode bytes of
-    Right val -> putStrLn $ "Decoded: " ++ show val
-    Left err  -> putStrLn $ "Error: " ++ err
+  case decodeBSON bytes of
+    Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: User)
+    Left err      -> putStrLn $ "Error: " ++ err
+
+  putStrLn $ "Roundtrip: " ++ show (decodeBSON (encodeBSON user) == Right user)

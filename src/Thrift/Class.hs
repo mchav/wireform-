@@ -1,17 +1,28 @@
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
--- | Typeclass-based Thrift serialization.
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+-- | Typeclass-based Thrift serialization with GHC Generics support.
 --
 -- Provides 'ToThrift' and 'FromThrift' typeclasses for converting Haskell
--- values to\/from 'Thrift.Value.Value'. Convenience functions serialize
--- directly to\/from binary or compact protocol wire format.
+-- values to\/from 'Thrift.Value.Value'. Records are encoded as Thrift
+-- structs with field IDs assigned sequentially (1, 2, 3, ...).
+-- Derive instances via @DeriveGeneric@.
 --
 -- @
+-- {-\# LANGUAGE DeriveGeneric \#-}
+-- import GHC.Generics (Generic)
 -- import Thrift.Class
--- import qualified Data.Vector as V
--- import Data.Int (Int16)
 --
--- let bytes = encodeThriftBinary myThriftValue
--- let Right val = decodeThriftBinary bytes
+-- data LogEntry = LogEntry { level :: Text, message :: Text, code :: Int }
+--   deriving (Generic)
+-- instance ToThrift LogEntry
+-- instance FromThrift LogEntry
+--
+-- let bytes = encodeThriftBinary (LogEntry \"ERROR\" \"disk full\" 507)
+-- let Right entry = decodeThriftBinary bytes :: Either String LogEntry
 -- @
 module Thrift.Class
   ( ToThrift(..)
@@ -20,6 +31,8 @@ module Thrift.Class
   , decodeThriftBinary
   , encodeThriftCompact
   , decodeThriftCompact
+  , GToThrift(..)
+  , GFromThrift(..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -28,6 +41,7 @@ import Data.Text (Text)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
+import GHC.Generics
 
 import qualified Thrift.Value as TV
 import Thrift.Wire (ThriftType(..))
@@ -36,9 +50,13 @@ import qualified Thrift.Decode as TD
 
 class ToThrift a where
   toThrift :: a -> TV.Value
+  default toThrift :: (Generic a, GToThrift (Rep a)) => a -> TV.Value
+  toThrift = gToThrift . from
 
 class FromThrift a where
   fromThrift :: TV.Value -> Either String a
+  default fromThrift :: (Generic a, GFromThrift (Rep a)) => TV.Value -> Either String a
+  fromThrift v = to <$> gFromThrift v
 
 encodeThriftBinary :: ToThrift a => a -> ByteString
 encodeThriftBinary = TE.encodeBinary . toThrift
@@ -226,3 +244,70 @@ instance ToThrift TV.Value where
 
 instance FromThrift TV.Value where
   fromThrift = Right
+
+-- GHC.Generics support
+
+class GToThrift f where
+  gToThrift :: f p -> TV.Value
+
+class GFromThrift f where
+  gFromThrift :: TV.Value -> Either String (f p)
+
+instance GToThrift f => GToThrift (M1 D c f) where
+  gToThrift (M1 x) = gToThrift x
+
+instance GFromThrift f => GFromThrift (M1 D c f) where
+  gFromThrift v = M1 <$> gFromThrift v
+
+instance (GToThriftFields f) => GToThrift (M1 C c f) where
+  gToThrift (M1 x) =
+    let fields = gToThriftFields 1 x
+    in TV.Struct (V.fromList fields)
+
+instance (GFromThriftFields f) => GFromThrift (M1 C c f) where
+  gFromThrift (TV.Struct kvs) =
+    let lkup fid = lookupField fid kvs
+    in M1 <$> gFromThriftFields 1 lkup
+  gFromThrift _ = Left "GFromThrift: expected Struct for record type"
+
+lookupField :: Int16 -> Vector (Int16, TV.Value) -> Maybe TV.Value
+lookupField fid kvs = go 0
+  where
+    len = V.length kvs
+    go i
+      | i >= len = Nothing
+      | (k, v) <- kvs V.! i, k == fid = Just v
+      | otherwise = go (i + 1)
+
+class GToThriftFields f where
+  gToThriftFields :: Int16 -> f p -> [(Int16, TV.Value)]
+
+class GFromThriftFields f where
+  gFromThriftFields :: Int16 -> (Int16 -> Maybe TV.Value) -> Either String (f p)
+
+instance (GToThriftFields a, GToThriftFields b, GFieldCount a) => GToThriftFields (a :*: b) where
+  gToThriftFields fid (a :*: b) =
+    gToThriftFields fid a ++ gToThriftFields (fid + gFieldCount (undefined :: a p)) b
+
+instance (GFromThriftFields a, GFromThriftFields b, GFieldCount a) => GFromThriftFields (a :*: b) where
+  gFromThriftFields fid lkup =
+    (:*:) <$> gFromThriftFields fid lkup
+          <*> gFromThriftFields (fid + gFieldCount (undefined :: a p)) lkup
+
+instance (ToThrift a) => GToThriftFields (M1 S s (K1 i a)) where
+  gToThriftFields fid (M1 (K1 x)) = [(fid, toThrift x)]
+
+instance (FromThrift a) => GFromThriftFields (M1 S s (K1 i a)) where
+  gFromThriftFields fid lkup =
+    case lkup fid of
+      Nothing -> Left $ "GFromThrift: missing field " ++ show fid
+      Just v  -> M1 . K1 <$> fromThrift v
+
+class GFieldCount f where
+  gFieldCount :: f p -> Int16
+
+instance GFieldCount (M1 S s (K1 i a)) where
+  gFieldCount _ = 1
+
+instance (GFieldCount a, GFieldCount b) => GFieldCount (a :*: b) where
+  gFieldCount _ = gFieldCount (undefined :: a p) + gFieldCount (undefined :: b p)

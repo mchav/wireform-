@@ -1,4 +1,8 @@
--- | Example: create a Cap'n Proto struct with data and pointer fields,
+-- | This format uses schema-driven codegen. For real usage:
+-- wireform-gen capnp -i schema.capnp -o src/Gen/
+-- Then use the generated types directly.
+--
+-- Example: create a Cap'n Proto struct with data and pointer fields,
 -- encode, and decode.
 --
 -- Run with: cabal run example-capnproto

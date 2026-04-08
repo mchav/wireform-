@@ -1,4 +1,8 @@
--- | Example: create Iceberg TableMetadata, serialize to JSON, and parse back.
+-- | This format uses schema-driven codegen. For real usage:
+-- wireform-gen iceberg -i spec.json -o src/Gen/
+-- Then use the generated types directly.
+--
+-- Example: create Iceberg TableMetadata, serialize to JSON, and parse back.
 --
 -- Run with: cabal run example-iceberg
 module Main where

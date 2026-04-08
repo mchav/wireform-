@@ -566,7 +566,7 @@ executable example-msgpack
         base             >= 4.16 && < 5
       , wireform
       , bytestring
-      , vector
+      , text
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:
@@ -579,7 +579,7 @@ executable example-cbor
         base             >= 4.16 && < 5
       , wireform
       , bytestring
-      , vector
+      , text
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:
@@ -592,6 +592,7 @@ executable example-avro
         base             >= 4.16 && < 5
       , wireform
       , bytestring
+      , containers
       , vector
     hs-source-dirs:   examples
     default-language: GHC2021
@@ -605,7 +606,7 @@ executable example-thrift
         base             >= 4.16 && < 5
       , wireform
       , bytestring
-      , vector
+      , text
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:
@@ -617,7 +618,7 @@ executable example-edn
     build-depends:
         base             >= 4.16 && < 5
       , wireform
-      , vector
+      , text
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:
@@ -630,7 +631,7 @@ executable example-bson
         base             >= 4.16 && < 5
       , wireform
       , bytestring
-      , vector
+      , text
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:
@@ -643,7 +644,7 @@ executable example-ion
         base             >= 4.16 && < 5
       , wireform
       , bytestring
-      , vector
+      , text
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:
@@ -749,6 +750,19 @@ executable example-protobuf
         base             >= 4.16 && < 5
       , wireform
       , bytestring
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-xml
+    import:           warnings
+    main-is:          XMLExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , text
     hs-source-dirs:   examples
     default-language: GHC2021
     default-extensions:

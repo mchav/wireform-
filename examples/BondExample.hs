@@ -1,4 +1,8 @@
--- | Example: create a Bond struct, encode with Compact Binary, and decode.
+-- | This format uses schema-driven codegen. For real usage:
+-- wireform-gen bond -i schema.bond -o src/Gen/
+-- Then use the generated types directly.
+--
+-- Example: create a Bond struct, encode with Compact Binary, and decode.
 --
 -- Run with: cabal run example-bond
 module Main where

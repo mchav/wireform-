@@ -1,9 +1,12 @@
--- | Example: encode and decode Avro values with a schema.
+-- | Avro is schema-driven: you define a schema and encode/decode values
+-- against it. For real usage, use wireform-gen to generate Haskell types
+-- from .avsc schema files. This example shows the schema-driven API directly.
 --
 -- Run with: cabal run example-avro
 module Main where
 
 import qualified Data.ByteString as BS
+import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import qualified Avro.Value as A
 import Avro.Encode (encodeAvro)
@@ -18,9 +21,10 @@ main = do
         , avroRecordDoc = Nothing
         , avroRecordAliases = V.empty
         , avroRecordFields = V.fromList
-            [ AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
-            , AvroField "age" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing
+            [ AvroField "name" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
+            , AvroField "age" (AvroPrimitive AvroInt) Nothing Nothing V.empty Nothing Map.empty
             ]
+        , avroRecordProps = Map.empty
         }
 
   let val = A.Record (V.fromList [A.String "Charlie", A.Int 42])
@@ -28,13 +32,7 @@ main = do
   putStrLn $ "Encoded: " ++ show (BS.length bytes) ++ " bytes"
 
   case decodeAvro schema bytes of
-    Right decoded -> putStrLn $ "Decoded: " ++ show decoded
-    Left err      -> putStrLn $ "Error: " ++ err
-
-  let intSchema = AvroPrimitive AvroLong
-      intVal = A.Long 1234567890
-      intBytes = encodeAvro intSchema intVal
-  putStrLn $ "Long encoded: " ++ show (BS.length intBytes) ++ " bytes"
-  case decodeAvro intSchema intBytes of
-    Right decoded -> putStrLn $ "Long decoded: " ++ show decoded
-    Left err      -> putStrLn $ "Long error: " ++ err
+    Right decoded -> do
+      putStrLn $ "Decoded: " ++ show decoded
+      putStrLn $ "Roundtrip: " ++ show (decoded == val)
+    Left err -> putStrLn $ "Error: " ++ err

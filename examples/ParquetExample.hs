@@ -1,4 +1,8 @@
--- | Example: create Parquet FileMetadata, write as footer, and read back.
+-- | This format uses schema-driven codegen. For real usage:
+-- wireform-gen parquet -i schema.thrift -o src/Gen/
+-- Then use the generated types directly.
+--
+-- Example: create Parquet FileMetadata, write as footer, and read back.
 --
 -- Run with: cabal run example-parquet
 module Main where

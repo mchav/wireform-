@@ -1,33 +1,30 @@
--- | Example: parse and render EDN (Extensible Data Notation).
---
--- Run with: cabal run example-edn
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import qualified Data.Vector as V
-import qualified EDN.Value as E
-import EDN.Encode (encode)
-import EDN.Decode (decode)
+import GHC.Generics (Generic)
+import Data.Text (Text)
+import qualified Data.Text as T
+import EDN.Class (ToEDN, FromEDN, encodeEDN, decodeEDN)
+
+data Config = Config
+  { host  :: !Text
+  , port  :: !Int
+  , debug :: !Bool
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (ToEDN, FromEDN)
 
 main :: IO ()
 main = do
-  let person = E.Map $ V.fromList
-        [ (E.Keyword Nothing "name", E.String "Eve")
-        , (E.Keyword Nothing "age", E.Integer 35)
-        , (E.Keyword Nothing "roles", E.Set $ V.fromList
-            [ E.Keyword Nothing "admin"
-            , E.Keyword Nothing "user"
-            ])
-        ]
+  let cfg = Config "localhost" 8080 True
 
-  let text = encode person
-  putStrLn $ "Rendered: " ++ show text
+  let text = encodeEDN cfg
+  putStrLn $ "EDN:\n" ++ T.unpack text
 
-  case decode text of
-    Right val -> putStrLn $ "Parsed: " ++ show val
-    Left err  -> putStrLn $ "Error: " ++ err
+  case decodeEDN text of
+    Right decoded -> putStrLn $ "Decoded: " ++ show (decoded :: Config)
+    Left err      -> putStrLn $ "Error: " ++ err
 
-  let tagged = E.Tagged "" "inst" (E.String "2024-01-15T10:30:00Z")
-  putStrLn $ "Tagged: " ++ show (encode tagged)
-  case decode (encode tagged) of
-    Right val -> putStrLn $ "Tagged parsed: " ++ show val
-    Left err  -> putStrLn $ "Tagged error: " ++ err
+  putStrLn $ "Roundtrip: " ++ show (decodeEDN (encodeEDN cfg) == Right cfg)

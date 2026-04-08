@@ -1,4 +1,8 @@
--- | Example: create an Arrow Schema, encode as IPC message, and decode.
+-- | This format uses schema-driven codegen. For real usage:
+-- wireform-gen arrow -i schema.fbs -o src/Gen/
+-- Then use the generated types directly.
+--
+-- Example: create an Arrow Schema, encode as IPC message, and decode.
 --
 -- Run with: cabal run example-arrow
 module Main where

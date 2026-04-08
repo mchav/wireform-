@@ -1,5 +1,5 @@
--- | Example: hand-written Protocol Buffers message encode/decode using
--- the wire primitives.
+-- | For real Protobuf usage, define types in .proto files and use
+-- wireform-gen or the protoc plugin. This example shows the low-level API.
 --
 -- Encodes a simple Person message:
 --   field 1 (string): name

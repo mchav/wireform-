@@ -1,32 +1,39 @@
--- | Example: encode and decode Thrift values using binary and compact protocols.
---
--- Run with: cabal run example-thrift
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import GHC.Generics (Generic)
+import Data.Text (Text)
 import qualified Data.ByteString as BS
-import qualified Data.Vector as V
-import qualified Thrift.Value as T
-import Thrift.Encode (encodeBinary, encodeCompact)
-import Thrift.Decode (decodeBinary, decodeCompact)
+import Thrift.Class (ToThrift, FromThrift, encodeThriftBinary, decodeThriftBinary,
+                     encodeThriftCompact, decodeThriftCompact)
+
+data LogEntry = LogEntry
+  { level   :: !Text
+  , message :: !Text
+  , code    :: !Int
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (ToThrift, FromThrift)
 
 main :: IO ()
 main = do
-  let person = T.Struct $ V.fromList
-        [ (1, T.String "Diana")
-        , (2, T.I32 28)
-        , (3, T.Bool True)
-        ]
+  let entry = LogEntry "ERROR" "disk full" 507
 
-  -- Binary protocol
-  let binBytes = encodeBinary person
-  putStrLn $ "Binary encoded: " ++ show (BS.length binBytes) ++ " bytes"
-  case decodeBinary binBytes of
-    Right val -> putStrLn $ "Binary decoded: " ++ show val
-    Left err  -> putStrLn $ "Binary error: " ++ err
+  let binBytes = encodeThriftBinary entry
+  putStrLn $ "Binary: " ++ show (BS.length binBytes) ++ " bytes"
 
-  -- Compact protocol
-  let compactBytes = encodeCompact person
-  putStrLn $ "Compact encoded: " ++ show (BS.length compactBytes) ++ " bytes"
-  case decodeCompact compactBytes of
-    Right val -> putStrLn $ "Compact decoded: " ++ show val
-    Left err  -> putStrLn $ "Compact error: " ++ err
+  case decodeThriftBinary binBytes of
+    Right decoded -> putStrLn $ "Binary decoded: " ++ show (decoded :: LogEntry)
+    Left err      -> putStrLn $ "Binary error: " ++ err
+
+  let compBytes = encodeThriftCompact entry
+  putStrLn $ "Compact: " ++ show (BS.length compBytes) ++ " bytes"
+
+  case decodeThriftCompact compBytes of
+    Right decoded -> putStrLn $ "Compact decoded: " ++ show (decoded :: LogEntry)
+    Left err      -> putStrLn $ "Compact error: " ++ err
+
+  putStrLn $ "Roundtrip (binary): " ++ show (decodeThriftBinary (encodeThriftBinary entry) == Right entry)
+  putStrLn $ "Roundtrip (compact): " ++ show (decodeThriftCompact (encodeThriftCompact entry) == Right entry)

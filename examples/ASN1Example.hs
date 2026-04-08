@@ -1,4 +1,8 @@
--- | Example: create an ASN.1 SEQUENCE (simplified X.509 field), DER encode,
+-- | This format uses schema-driven codegen. For real usage:
+-- wireform-gen asn1 -i schema.asn1 -o src/Gen/
+-- Then use the generated types directly.
+--
+-- Example: create an ASN.1 SEQUENCE (simplified X.509 field), DER encode,
 -- and BER decode.
 --
 -- Run with: cabal run example-asn1
