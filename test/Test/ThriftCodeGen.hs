@@ -16,6 +16,8 @@ thriftCodeGenTests = testGroup "Thrift.CodeGen"
   , testOptionalFieldCodeGen
   , testListSetMapCodeGen
   , testServiceCodeGen
+  , testTypedefCodeGen
+  , testConstCodeGen
   ]
 
 testStructCodeGen :: TestTree
@@ -128,3 +130,37 @@ testServiceCodeGen = testCase "services produce method descriptors" $ do
   assertBool "contains method descriptor type" ("UserServiceMethod" `T.isInfixOf` code)
   assertBool "contains GetUser method" ("GetUser" `T.isInfixOf` code || "getUser" `T.isInfixOf` code)
   assertBool "contains service name binding" ("UserServiceServiceName" `T.isInfixOf` code)
+
+testTypedefCodeGen :: TestTree
+testTypedefCodeGen = testCase "generates type synonym for typedef" $ do
+  let schema = ThriftSchema
+        { tsStructs = []
+        , tsEnums = []
+        , tsTypedefs =
+          [ ThriftTypedef "UserId" TI64
+          , ThriftTypedef "UserName" TString
+          ]
+        , tsConsts = []
+        , tsServices = []
+        }
+      code = generateThriftTypes schema
+  assertBool "contains type UserId = Int64" ("type UserId = Int64" `T.isInfixOf` code)
+  assertBool "contains type UserName = Text" ("type UserName = Text" `T.isInfixOf` code)
+
+testConstCodeGen :: TestTree
+testConstCodeGen = testCase "generates constant values for consts" $ do
+  let schema = ThriftSchema
+        { tsStructs = []
+        , tsEnums = []
+        , tsTypedefs = []
+        , tsConsts =
+          [ ThriftConst "MAX_RETRIES" TI32 (TCVInt 3)
+          , ThriftConst "DEFAULT_NAME" TString (TCVString "guest")
+          ]
+        , tsServices = []
+        }
+      code = generateThriftTypes schema
+  assertBool "contains maxRetries :: Int32" ("maxRetries :: Int32" `T.isInfixOf` code)
+  assertBool "contains maxRetries = 3" ("maxRetries = 3" `T.isInfixOf` code)
+  assertBool "contains defaultName :: Text" ("defaultName :: Text" `T.isInfixOf` code)
+  assertBool "contains defaultName = \"guest\"" ("defaultName = \"guest\"" `T.isInfixOf` code)

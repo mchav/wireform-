@@ -14,6 +14,7 @@
 -- @
 module CBOR.Decode
   ( decode
+  , decodeSequence
   ) where
 
 import Control.Monad.ST (ST, runST)
@@ -38,6 +39,18 @@ decode !bs
       Right (val, off)
         | off == BS.length bs -> Right val
         | otherwise -> Left $ "CBOR.Decode: " ++ show (BS.length bs - off) ++ " trailing bytes"
+
+-- | Decode a CBOR sequence (multiple concatenated items, RFC 8742).
+decodeSequence :: ByteString -> Either String (V.Vector C.Value)
+decodeSequence !bs
+  | BS.length bs == 0 = Right V.empty
+  | otherwise = go 0 []
+  where
+    go !off !acc
+      | off >= BS.length bs = Right (V.fromList (reverse acc))
+      | otherwise = case decodeOne bs off of
+          Left err -> Left err
+          Right (val, off') -> go off' (val : acc)
 
 rdByte :: ByteString -> Int -> Word8
 rdByte !bs !off = BSU.unsafeIndex bs off

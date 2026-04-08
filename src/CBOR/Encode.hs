@@ -13,6 +13,8 @@
 -- @
 module CBOR.Encode
   ( encode
+  , encodeDeterministic
+  , encodeSequence
   ) where
 
 import Data.Bits (shiftL, shiftR, (.|.), (.&.))
@@ -21,6 +23,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
+import Data.List (sortBy)
+import Data.Ord (comparing)
 import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
@@ -37,6 +41,40 @@ encode :: C.Value -> ByteString
 encode !val =
   let !sz = valueSize val
   in directEncode sz (\p off -> writeValue p off val)
+
+-- | Encode in Deterministic CBOR (RFC 8949 Section 4.2):
+-- map keys sorted by encoded form (shortest first, then lexicographic),
+-- minimal integer encoding (already done), no indefinite-length (already done).
+encodeDeterministic :: C.Value -> ByteString
+encodeDeterministic !val =
+  let !sorted = sortMapKeys val
+      !sz = valueSize sorted
+  in directEncode sz (\p off -> writeValue p off sorted)
+
+-- | Encode a sequence of CBOR values (concatenated, no framing; RFC 8742).
+encodeSequence :: V.Vector C.Value -> ByteString
+encodeSequence !vals =
+  let !sz = V.foldl' (\acc v -> acc + valueSize v) 0 vals
+  in directEncode sz (\p off -> V.foldM' (\o v -> writeValue p o v) off vals)
+
+sortMapKeys :: C.Value -> C.Value
+sortMapKeys = \case
+  C.Map kvs ->
+    let sorted = V.fromList $ sortBy cmpEncodedKey $ V.toList $ V.map (\(k, v) -> (sortMapKeys k, sortMapKeys v)) kvs
+    in C.Map sorted
+  C.Array vs -> C.Array (V.map sortMapKeys vs)
+  C.Tag n v -> C.Tag n (sortMapKeys v)
+  other -> other
+
+cmpEncodedKey :: (C.Value, C.Value) -> (C.Value, C.Value) -> Ordering
+cmpEncodedKey (k1, _) (k2, _) =
+  let !e1 = encode k1
+      !e2 = encode k2
+      !l1 = BS.length e1
+      !l2 = BS.length e2
+  in case compare l1 l2 of
+       EQ -> compare e1 e2
+       other -> other
 
 writeHeader :: Ptr Word8 -> Int -> Word8 -> Word64 -> IO Int
 writeHeader !p !off !major !n

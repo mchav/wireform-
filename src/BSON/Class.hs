@@ -175,10 +175,10 @@ instance FromBSON Text where
   fromBSON _ = Left "FromBSON Text: expected String"
 
 instance ToBSON ByteString where
-  toBSON = BV.Binary
+  toBSON = BV.Binary 0x00
 
 instance FromBSON ByteString where
-  fromBSON (BV.Binary bs) = Right bs
+  fromBSON (BV.Binary _sub bs) = Right bs
   fromBSON _ = Left "FromBSON ByteString: expected Binary"
 
 instance ToBSON () where

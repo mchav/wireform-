@@ -45,10 +45,42 @@ generateThriftTypes = generateThriftTypesWithRegistry defaultThriftRegistry
 -- is applied and extra code is emitted.
 generateThriftTypesWithRegistry :: ThriftRegistry -> ThriftSchema -> Text
 generateThriftTypesWithRegistry reg schema =
-  let enumDecls = map genThriftEnum (tsEnums schema)
+  let typedefDecls = map genThriftTypedef (tsTypedefs schema)
+      constDecls = map genThriftConst (tsConsts schema)
+      enumDecls = map genThriftEnum (tsEnums schema)
       structDecls = map (genThriftStructWithRegistry reg) (tsStructs schema)
       serviceDecls = map genThriftService (tsServices schema)
-  in T.intercalate "\n\n" (enumDecls <> structDecls <> serviceDecls)
+  in T.intercalate "\n\n" (typedefDecls <> constDecls <> enumDecls <> structDecls <> serviceDecls)
+
+-- ---------------------------------------------------------------------------
+-- Typedef generation (text)
+-- ---------------------------------------------------------------------------
+
+genThriftTypedef :: ThriftTypedef -> Text
+genThriftTypedef td =
+  "type " <> ttName td <> " = " <> thriftInnerHsType (ttType td)
+
+-- ---------------------------------------------------------------------------
+-- Const generation (text)
+-- ---------------------------------------------------------------------------
+
+genThriftConst :: ThriftConst -> Text
+genThriftConst tc =
+  let name = lowerFirst (snakeToCamel (T.toLower (tcName tc)))
+      hsType = thriftInnerHsType (tcType tc)
+      hsVal = constValueToHs (tcType tc) (tcValue tc)
+  in name <> " :: " <> hsType <> "\n" <> name <> " = " <> hsVal
+
+constValueToHs :: ThriftType -> ThriftConstValue -> Text
+constValueToHs _ (TCVInt n) = T.pack (show n)
+constValueToHs _ (TCVDouble d) = T.pack (show d)
+constValueToHs _ (TCVString s) = "\"" <> s <> "\""
+constValueToHs _ (TCVBool True) = "True"
+constValueToHs _ (TCVBool False) = "False"
+constValueToHs _ (TCVIdent i) = i
+constValueToHs _ (TCVList vs) =
+  "[" <> T.intercalate ", " (map (constValueToHs TString) vs) <> "]"
+constValueToHs _ (TCVMap _) = "mempty"
 
 -- ---------------------------------------------------------------------------
 -- Enum generation (text)

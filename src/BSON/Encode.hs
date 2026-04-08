@@ -15,7 +15,7 @@ import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int32, Int64)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Vector as V
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Utils (copyBytes)
@@ -52,7 +52,7 @@ valuePayloadSize = \case
   B.String t       -> 4 + BS.length (TE.encodeUtf8 t) + 1
   B.Document fs    -> docSize fs
   B.Array vs       -> arrayDocSize vs
-  B.Binary bs      -> 4 + 1 + BS.length bs
+  B.Binary _ bs    -> 4 + 1 + BS.length bs
   B.Bool _         -> 1
   B.DateTime _     -> 8
   B.Null           -> 0
@@ -60,6 +60,17 @@ valuePayloadSize = \case
   B.Int64 _        -> 8
   B.ObjectId _     -> 12
   B.Regex p o      -> cstringSize p + cstringSize o
+  B.Decimal128 _   -> 16
+  B.MinKey         -> 0
+  B.MaxKey         -> 0
+  B.JavaScript code -> 4 + BS.length (TE.encodeUtf8 code) + 1
+  B.JavaScriptScope code scope ->
+    let codeBS = TE.encodeUtf8 code
+        scopeSz = docSize (case scope of B.Document fs -> fs; _ -> V.empty)
+    in 4 + 4 + BS.length codeBS + 1 + scopeSz
+  B.Timestamp _    -> 8
+  B.Symbol t       -> 4 + BS.length (TE.encodeUtf8 t) + 1
+  B.Undefined      -> 0
 
 arrayDocSize :: V.Vector B.Value -> Int
 arrayDocSize vs = 4 + V.ifoldl' (\acc i v -> acc + elementSize (T.pack (show i)) v) 0 vs + 1
@@ -84,7 +95,7 @@ typeTag = \case
   B.String _    -> 0x02
   B.Document _  -> 0x03
   B.Array _     -> 0x04
-  B.Binary _    -> 0x05
+  B.Binary _ _  -> 0x05
   B.Bool _      -> 0x08
   B.DateTime _  -> 0x09
   B.Null        -> 0x0A
@@ -92,6 +103,14 @@ typeTag = \case
   B.Int64 _     -> 0x12
   B.ObjectId _  -> 0x07
   B.Regex _ _   -> 0x0B
+  B.Undefined   -> 0x06
+  B.JavaScript _ -> 0x0D
+  B.Symbol _    -> 0x0E
+  B.JavaScriptScope _ _ -> 0x0F
+  B.Timestamp _ -> 0x11
+  B.Decimal128 _ -> 0x13
+  B.MinKey      -> 0xFF
+  B.MaxKey      -> 0x7F
 
 writeCString :: Ptr Word8 -> Int -> T.Text -> IO Int
 writeCString p off t = do
@@ -133,10 +152,10 @@ writeValuePayload p off = \case
   B.Array vs -> do
     let arrayFields = V.imap (\i v -> (T.pack (show i), v)) vs
     writeDocument p off arrayFields
-  B.Binary bs -> do
+  B.Binary sub bs -> do
     let !len = BS.length bs
     off1 <- writeLE32 p off (fromIntegral len)
-    pokeByteOff p off1 (0x00 :: Word8)
+    pokeByteOff p off1 sub
     writeRawBytes p (off1 + 1) bs
   B.Bool b -> do
     pokeByteOff p off (if b then 0x01 else 0x00 :: Word8)
@@ -149,3 +168,33 @@ writeValuePayload p off = \case
   B.Regex pat opts -> do
     off1 <- writeCString p off pat
     writeCString p off1 opts
+  B.Undefined -> pure off
+  B.JavaScript code -> do
+    let !bs = TE.encodeUtf8 code
+        !len = BS.length bs + 1
+    off1 <- writeLE32 p off (fromIntegral len)
+    off2 <- writeRawBytes p off1 bs
+    pokeByteOff p off2 (0x00 :: Word8)
+    pure $! off2 + 1
+  B.Symbol t -> do
+    let !bs = TE.encodeUtf8 t
+        !len = BS.length bs + 1
+    off1 <- writeLE32 p off (fromIntegral len)
+    off2 <- writeRawBytes p off1 bs
+    pokeByteOff p off2 (0x00 :: Word8)
+    pure $! off2 + 1
+  B.JavaScriptScope code scope -> do
+    let !codeBS = TE.encodeUtf8 code
+        !scopeFields = case scope of B.Document fs -> fs; _ -> V.empty
+        !codeSzLen = BS.length codeBS + 1
+        !scopeSz = docSize scopeFields
+        !totalSz = 4 + codeSzLen + scopeSz
+    off1 <- writeLE32 p off (fromIntegral totalSz)
+    off2 <- writeLE32 p off1 (fromIntegral codeSzLen)
+    off3 <- writeRawBytes p off2 codeBS
+    pokeByteOff p off3 (0x00 :: Word8)
+    writeDocument p (off3 + 1) scopeFields
+  B.Timestamp w -> writeLE64 p off w
+  B.Decimal128 bs -> writeRawBytes p off (BS.take 16 (bs <> BS.replicate 16 0))
+  B.MinKey -> pure off
+  B.MaxKey -> pure off

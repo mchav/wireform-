@@ -144,10 +144,12 @@ readValue bs off tag = case tag of
   0x05 -> do
     ensure bs off 5
     let !len = fromIntegral (readLE32 bs off) :: Int
+        !sub = rdByte bs (off + 4)
         !off1 = off + 4 + 1
     ensure bs off1 len
     let !dat = BSU.unsafeTake len (BSU.unsafeDrop off1 bs)
-    Right (B.Binary dat, off1 + len)
+    Right (B.Binary sub dat, off1 + len)
+  0x06 -> Right (B.Undefined, off)
   0x07 -> do
     ensure bs off 12
     let !dat = BSU.unsafeTake 12 (BSU.unsafeDrop off bs)
@@ -165,9 +167,27 @@ readValue bs off tag = case tag of
     (pat, off1) <- readCString bs off
     (opts, off2) <- readCString bs off1
     Right (B.Regex pat opts, off2)
+  0x0D -> do
+    (code, off1) <- readBSONString bs off
+    Right (B.JavaScript code, off1)
   0x0E -> do
     (t, off1) <- readBSONString bs off
-    Right (B.String t, off1)
+    Right (B.Symbol t, off1)
+  0x0F -> do
+    ensure bs off 4
+    let !_totalSz = fromIntegral (readLE32 bs off) :: Int
+    (code, off1) <- readBSONString bs (off + 4)
+    case decodeDocument bs off1 of
+      Left err -> Left err
+      Right (scope, off2) -> Right (B.JavaScriptScope code scope, off2)
+  0x11 -> do
+    ensure bs off 8
+    let !w = readLE64 bs off
+    Right (B.Timestamp w, off + 8)
+  0x13 -> do
+    ensure bs off 16
+    let !dat = BSU.unsafeTake 16 (BSU.unsafeDrop off bs)
+    Right (B.Decimal128 dat, off + 16)
   0x10 -> do
     ensure bs off 4
     let !n = fromIntegral (readLE32 bs off) :: Int32
@@ -176,4 +196,6 @@ readValue bs off tag = case tag of
     ensure bs off 8
     let !n = fromIntegral (readLE64 bs off) :: Int64
     Right (B.Int64 n, off + 8)
+  0x7F -> Right (B.MaxKey, off)
+  0xFF -> Right (B.MinKey, off)
   _ -> Left $ "BSON.Decode: unknown type tag: " ++ show tag

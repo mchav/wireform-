@@ -15,6 +15,7 @@ import Thrift.Encode (encodeBinary, encodeCompact)
 import Thrift.Decode (decodeBinary, decodeCompact)
 import Thrift.JSON (thriftToJSON, thriftFromJSON, thriftToTypedJSON, thriftFromTypedJSON)
 import Thrift.Message
+import Thrift.Transport (frameMessage, unframeMessage, unframeMessages)
 import qualified Thrift.Value as TV
 import Thrift.Wire (ThriftType (..))
 
@@ -29,6 +30,7 @@ thriftTests = testGroup "Thrift Encode/Decode"
   , unitProtocolsDiffer
   , jsonTests
   , messageTests
+  , transportTests
   ]
 
 --------------------------------------------------------------------------------
@@ -600,3 +602,51 @@ compactMessageTests = testGroup "Compact Protocol messages"
 
 simplePayload :: TV.Value
 simplePayload = TV.Struct (V.fromList [(1, TV.I32 42)])
+
+--------------------------------------------------------------------------------
+-- Thrift framed transport tests
+--------------------------------------------------------------------------------
+
+transportTests :: TestTree
+transportTests = testGroup "Thrift Framed Transport"
+  [ testCase "frame/unframe roundtrip" $ do
+      let payload = BS.pack [1,2,3,4,5]
+      unframeMessage (frameMessage payload) @?= Right payload
+
+  , testCase "frame/unframe empty payload" $ do
+      let payload = BS.empty
+      unframeMessage (frameMessage payload) @?= Right payload
+
+  , testCase "frame adds 4-byte big-endian length prefix" $ do
+      let payload = BS.pack [0xDE, 0xAD]
+          framed = frameMessage payload
+      BS.length framed @?= 6
+      BS.take 4 framed @?= BS.pack [0, 0, 0, 2]
+
+  , testCase "unframe rejects too-short input" $ do
+      case unframeMessage (BS.pack [0, 0]) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "expected error on short input"
+
+  , testCase "unframe rejects truncated payload" $ do
+      case unframeMessage (BS.pack [0, 0, 0, 10, 1, 2]) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "expected error on truncated payload"
+
+  , testCase "unframeMessages empty" $ do
+      unframeMessages BS.empty @?= Right []
+
+  , testCase "unframeMessages multiple" $ do
+      let p1 = BS.pack [1,2]
+          p2 = BS.pack [3,4,5]
+          stream = frameMessage p1 <> frameMessage p2
+      unframeMessages stream @?= Right [p1, p2]
+
+  , testCase "unframeMessages with framed thrift message" $ do
+      let msg = ThriftMessage "test" TMsgCall 1 simplePayload
+          payload = encodeMessageBinary msg
+          framed = frameMessage payload
+      case unframeMessage framed of
+        Right unframed -> decodeMessageBinary unframed @?= Right msg
+        Left err -> assertFailure err
+  ]

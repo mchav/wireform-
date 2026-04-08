@@ -3,6 +3,7 @@ module Test.BSON (bsonTests) where
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Data.Word (Word64)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -20,6 +21,7 @@ bsonTests = testGroup "BSON"
   , propertyRoundtrips
   , edgeCases
   , wireFormatTests
+  , newTypeTests
   ]
 
 unitTests :: TestTree
@@ -53,7 +55,7 @@ unitTests = testGroup "Unit roundtrips"
       decode (encode val) @?= Right val
 
   , testCase "Binary" $ do
-      let val = B.Document (V.singleton (T.pack "b", B.Binary (BS.pack [1,2,3,4])))
+      let val = B.Document (V.singleton (T.pack "b", B.Binary 0x00 (BS.pack [1,2,3,4])))
       decode (encode val) @?= Right val
 
   , testCase "DateTime" $ do
@@ -104,7 +106,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
 
   , testProperty "Binary roundtrip" $ property $ do
       bs <- forAll $ Gen.bytes (Range.linear 0 256)
-      let val = B.Document (V.singleton (T.pack "v", B.Binary bs))
+      let val = B.Document (V.singleton (T.pack "v", B.Binary 0x00 bs))
       decode (encode val) === Right val
 
   , testProperty "Bool roundtrip" $ property $ do
@@ -164,7 +166,7 @@ edgeCases = testGroup "Edge cases"
       decode (encode val) @?= Right val
 
   , testCase "Empty binary" $ do
-      let val = B.Document (V.singleton (T.pack "b", B.Binary BS.empty))
+      let val = B.Document (V.singleton (T.pack "b", B.Binary 0x00 BS.empty))
       decode (encode val) @?= Right val
 
   , testCase "Empty array" $ do
@@ -210,4 +212,74 @@ wireFormatTests = testGroup "Wire format"
   , testCase "Bool true type tag is 0x08" $ do
       let bs = encode (B.Document (V.singleton (T.pack "b", B.Bool True)))
       BS.index bs 4 @?= 0x08
+  ]
+
+newTypeTests :: TestTree
+newTypeTests = testGroup "New BSON types"
+  [ testCase "Undefined roundtrip" $ do
+      let val = B.Document (V.singleton (T.pack "u", B.Undefined))
+      decode (encode val) @?= Right val
+
+  , testCase "MinKey roundtrip" $ do
+      let val = B.Document (V.singleton (T.pack "mk", B.MinKey))
+      decode (encode val) @?= Right val
+
+  , testCase "MaxKey roundtrip" $ do
+      let val = B.Document (V.singleton (T.pack "mk", B.MaxKey))
+      decode (encode val) @?= Right val
+
+  , testCase "JavaScript roundtrip" $ do
+      let val = B.Document (V.singleton (T.pack "js", B.JavaScript (T.pack "function(){}")))
+      decode (encode val) @?= Right val
+
+  , testCase "Symbol roundtrip" $ do
+      let val = B.Document (V.singleton (T.pack "sym", B.Symbol (T.pack "mySymbol")))
+      decode (encode val) @?= Right val
+
+  , testCase "Timestamp roundtrip" $ do
+      let val = B.Document (V.singleton (T.pack "ts", B.Timestamp 6832747927879254017))
+      decode (encode val) @?= Right val
+
+  , testCase "Decimal128 roundtrip" $ do
+      let d128 = BS.pack [0..15]
+          val = B.Document (V.singleton (T.pack "d", B.Decimal128 d128))
+      decode (encode val) @?= Right val
+
+  , testCase "JavaScriptScope roundtrip" $ do
+      let scope = B.Document (V.singleton (T.pack "x", B.Int32 42))
+          val = B.Document (V.singleton (T.pack "jss", B.JavaScriptScope (T.pack "return x") scope))
+      decode (encode val) @?= Right val
+
+  , testCase "Binary with subtype roundtrip" $ do
+      let val = B.Document (V.singleton (T.pack "b", B.Binary 0x04 (BS.pack [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])))
+      decode (encode val) @?= Right val
+
+  , testCase "Binary subtype 0x00 (generic)" $ do
+      let val = B.Document (V.singleton (T.pack "b", B.Binary 0x00 (BS.pack [0xDE, 0xAD])))
+      decode (encode val) @?= Right val
+
+  , testCase "Binary subtype preserved" $ do
+      let val = B.Document (V.singleton (T.pack "b", B.Binary 0x05 (BS.pack [1,2,3])))
+          Right (B.Document fields) = decode (encode val)
+          (_, B.Binary sub _) = V.head fields
+      sub @?= 0x05
+
+  , testCase "MinKey type tag is 0xFF" $ do
+      let bs = encode (B.Document (V.singleton (T.pack "mk", B.MinKey)))
+      BS.index bs 4 @?= 0xFF
+
+  , testCase "MaxKey type tag is 0x7F" $ do
+      let bs = encode (B.Document (V.singleton (T.pack "mk", B.MaxKey)))
+      BS.index bs 4 @?= 0x7F
+
+  , testCase "Multiple new types in one document" $ do
+      let val = B.Document (V.fromList
+            [ (T.pack "js", B.JavaScript (T.pack "1+1"))
+            , (T.pack "ts", B.Timestamp 100)
+            , (T.pack "mk", B.MinKey)
+            , (T.pack "MK", B.MaxKey)
+            , (T.pack "u", B.Undefined)
+            , (T.pack "sym", B.Symbol (T.pack "x"))
+            ])
+      decode (encode val) @?= Right val
   ]

@@ -29,6 +29,7 @@ import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Word (Word8, Word64)
 import GHC.Generics (Generic)
 
 import qualified Data.Aeson as Aeson
@@ -40,7 +41,7 @@ data Value
   | String   !Text
   | Document !(Vector (Text, Value))
   | Array    !(Vector Value)
-  | Binary   !ByteString
+  | Binary   {-# UNPACK #-} !Word8 !ByteString  -- ^ subtype + data
   | Bool     !Bool
   | DateTime {-# UNPACK #-} !Int64
   | Null
@@ -48,6 +49,14 @@ data Value
   | Int64    {-# UNPACK #-} !Int64
   | ObjectId !ByteString
   | Regex    !Text !Text
+  | Decimal128 !ByteString         -- ^ 16 bytes IEEE 754 decimal128
+  | MinKey                          -- ^ special comparison type
+  | MaxKey                          -- ^ special comparison type
+  | JavaScript !Text                -- ^ JavaScript code
+  | JavaScriptScope !Text !Value    -- ^ JS code with scope (Document)
+  | Timestamp {-# UNPACK #-} !Word64  -- ^ MongoDB internal timestamp (secs + increment)
+  | Symbol    !Text                 -- ^ deprecated but in spec
+  | Undefined                       -- ^ deprecated but in spec
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 
@@ -57,7 +66,7 @@ instance Aeson.ToJSON Value where
   toJSON (Document kvs)  = Aeson.Object $ KM.fromList
     [(Key.fromText k, Aeson.toJSON v) | (k, v) <- V.toList kvs]
   toJSON (Array vs)      = Aeson.Array (V.map Aeson.toJSON vs)
-  toJSON (Binary bs)     = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
+  toJSON (Binary _sub bs) = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
   toJSON (Bool b)        = Aeson.Bool b
   toJSON (DateTime ms)   = Aeson.object [(Key.fromText "$date", Aeson.Number (fromIntegral ms))]
   toJSON Null            = Aeson.Null
@@ -66,6 +75,16 @@ instance Aeson.ToJSON Value where
   toJSON (ObjectId bs)   = Aeson.String (TE.decodeUtf8 (Base64.encode bs))
   toJSON (Regex pat opts) = Aeson.object
     [(Key.fromText "$regex", Aeson.String pat), (Key.fromText "$options", Aeson.String opts)]
+  toJSON (Decimal128 bs) = Aeson.object
+    [(Key.fromText "$numberDecimal", Aeson.String (TE.decodeUtf8 (Base64.encode bs)))]
+  toJSON MinKey          = Aeson.object [(Key.fromText "$minKey", Aeson.Number 1)]
+  toJSON MaxKey          = Aeson.object [(Key.fromText "$maxKey", Aeson.Number 1)]
+  toJSON (JavaScript code) = Aeson.object [(Key.fromText "$code", Aeson.String code)]
+  toJSON (JavaScriptScope code scope) = Aeson.object
+    [(Key.fromText "$code", Aeson.String code), (Key.fromText "$scope", Aeson.toJSON scope)]
+  toJSON (Timestamp w)   = Aeson.object [(Key.fromText "$timestamp", Aeson.Number (fromIntegral w))]
+  toJSON (Symbol t)      = Aeson.object [(Key.fromText "$symbol", Aeson.String t)]
+  toJSON Undefined       = Aeson.object [(Key.fromText "$undefined", Aeson.Bool True)]
 
 instance Aeson.FromJSON Value where
   parseJSON Aeson.Null       = pure Null

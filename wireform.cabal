@@ -194,6 +194,10 @@ library
       BSON.Value
       BSON.Encode
       BSON.Decode
+      -- Thrift framed transport
+      Thrift.Transport
+      -- Avro fingerprinting
+      Avro.Fingerprint
       -- Amazon Ion support
       Ion.Value
       Ion.Encode

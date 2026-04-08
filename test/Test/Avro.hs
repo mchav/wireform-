@@ -25,10 +25,13 @@ import Avro.Wire (avroEncodeInt, avroEncodeLong)
 import Avro.JSON (avroToJSON, avroFromJSON, avroSchemaToJSON, avroSchemaFromJSON)
 import Avro.Protocol
 import Avro.Resolution (ResolvedSchema(..), FieldResolution(..), resolveSchema, resolveValue)
+import Avro.Fingerprint (avroFingerprint, avroFingerprintMD5, parsingCanonicalForm)
 
 avroTests :: TestTree
 avroTests = testGroup "Avro Encode/Decode"
-  [ protocolTests
+  [ fingerprintTests
+  , aliasResolutionTests
+  , protocolTests
   , zigzagComplianceTests
   , byteEncodingComplianceTests
   , nullUnionComplianceTests
@@ -842,6 +845,116 @@ propertyRoundtripComplianceTests = testGroup "Property-based roundtrip complianc
       let ty = AvroPrimitive AvroBytes
           val = AV.Bytes bs
       decodeAvro ty (encodeAvro ty val) === Right val
+  ]
+
+fingerprintTests :: TestTree
+fingerprintTests = testGroup "Schema fingerprinting"
+  [ testCase "CRC-64-AVRO fingerprint is 8 bytes" $ do
+      let ty = AvroPrimitive AvroInt
+      BS.length (avroFingerprint ty) @?= 8
+
+  , testCase "MD5 fingerprint is 16 bytes" $ do
+      let ty = AvroPrimitive AvroInt
+      BS.length (avroFingerprintMD5 ty) @?= 16
+
+  , testCase "same schema produces same fingerprint" $ do
+      let ty = mkRecordType "User"
+                 [ ("name", AvroPrimitive AvroString)
+                 , ("age", AvroPrimitive AvroInt)
+                 ]
+      avroFingerprint ty @?= avroFingerprint ty
+
+  , testCase "different schemas produce different fingerprints" $ do
+      let ty1 = AvroPrimitive AvroInt
+          ty2 = AvroPrimitive AvroLong
+      assertBool "fingerprints should differ" (avroFingerprint ty1 /= avroFingerprint ty2)
+
+  , testCase "parsing canonical form strips doc and aliases" $ do
+      let ty = AvroRecord
+            { avroRecordName = "TestRec"
+            , avroRecordNamespace = Just "com.example"
+            , avroRecordDoc = Just "A doc string that should be stripped"
+            , avroRecordAliases = V.fromList ["OldName"]
+            , avroRecordFields = V.fromList
+                [ AvroField
+                    { avroFieldName = "x"
+                    , avroFieldType = AvroPrimitive AvroInt
+                    , avroFieldDefault = Nothing
+                    , avroFieldOrder = Just Ascending
+                    , avroFieldAliases = V.fromList ["old_x"]
+                    , avroFieldDoc = Just "field doc"
+                    , avroFieldProps = Map.empty
+                    }
+                ]
+            , avroRecordProps = Map.empty
+            }
+          pcf = parsingCanonicalForm ty
+      assertBool "PCF should not contain doc" (not $ BS.isInfixOf "doc string" pcf)
+
+  , testCase "PCF for primitive is quoted string" $ do
+      parsingCanonicalForm (AvroPrimitive AvroNull) @?= "\"null\""
+      parsingCanonicalForm (AvroPrimitive AvroInt) @?= "\"int\""
+      parsingCanonicalForm (AvroPrimitive AvroString) @?= "\"string\""
+  ]
+
+aliasResolutionTests :: TestTree
+aliasResolutionTests = testGroup "Alias-aware resolution"
+  [ testCase "reader field alias matches writer field name" $ do
+      let writerTy = mkRecordType "Rec"
+                       [ ("old_name", AvroPrimitive AvroInt) ]
+          readerTy = AvroRecord
+            { avroRecordName = "Rec"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc = Nothing
+            , avroRecordAliases = V.empty
+            , avroRecordProps = Map.empty
+            , avroRecordFields = V.fromList
+                [ AvroField
+                    { avroFieldName = "new_name"
+                    , avroFieldType = AvroPrimitive AvroInt
+                    , avroFieldDefault = Nothing
+                    , avroFieldOrder = Nothing
+                    , avroFieldAliases = V.fromList ["old_name"]
+                    , avroFieldDoc = Nothing
+                    , avroFieldProps = Map.empty
+                    }
+                ]
+            }
+          writerVal = AV.Record (V.fromList [AV.Int 42])
+      case resolveSchema writerTy readerTy of
+        Left err -> assertFailure $ "resolveSchema failed: " ++ err
+        Right res -> resolveValue res writerVal @?= Right (AV.Record (V.fromList [AV.Int 42]))
+
+  , testCase "writer field alias matches reader field name" $ do
+      let writerTy = AvroRecord
+            { avroRecordName = "Rec"
+            , avroRecordNamespace = Nothing
+            , avroRecordDoc = Nothing
+            , avroRecordAliases = V.empty
+            , avroRecordProps = Map.empty
+            , avroRecordFields = V.fromList
+                [ AvroField
+                    { avroFieldName = "old_name"
+                    , avroFieldType = AvroPrimitive AvroInt
+                    , avroFieldDefault = Nothing
+                    , avroFieldOrder = Nothing
+                    , avroFieldAliases = V.fromList ["new_name"]
+                    , avroFieldDoc = Nothing
+                    , avroFieldProps = Map.empty
+                    }
+                ]
+            }
+          readerTy = mkRecordType "Rec"
+                       [ ("new_name", AvroPrimitive AvroInt) ]
+          writerVal = AV.Record (V.fromList [AV.Int 99])
+      case resolveSchema writerTy readerTy of
+        Left err -> assertFailure $ "resolveSchema failed: " ++ err
+        Right res -> resolveValue res writerVal @?= Right (AV.Record (V.fromList [AV.Int 99]))
+
+  , testCase "exact name match still works" $ do
+      let writerTy = mkRecordType "Rec" [("x", AvroPrimitive AvroInt)]
+          readerTy = mkRecordType "Rec" [("x", AvroPrimitive AvroInt)]
+      resolveSchema writerTy readerTy @?= Right ResolvedSame
   ]
 
 -- Helpers

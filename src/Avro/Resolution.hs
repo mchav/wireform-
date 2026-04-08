@@ -91,7 +91,7 @@ resolveRecords w r = do
 
 resolveOneField :: V.Vector AvroField -> AvroField -> Either String FieldResolution
 resolveOneField wFields rField =
-  case V.findIndex (\f -> avroFieldName f == avroFieldName rField) wFields of
+  case findFieldWithAliases wFields rField of
     Just wIdx -> do
       let wField = wFields V.! wIdx
       res <- resolveSchema (avroFieldType wField) (avroFieldType rField)
@@ -101,6 +101,17 @@ resolveOneField wFields rField =
         Just dflt -> Right (FieldDefault (defaultToValue (avroFieldType rField) dflt))
         Nothing   -> Left $ "reader field '" ++ T.unpack (avroFieldName rField)
                            ++ "' not in writer and has no default"
+
+findFieldWithAliases :: V.Vector AvroField -> AvroField -> Maybe Int
+findFieldWithAliases wFields rField =
+  case V.findIndex (\f -> avroFieldName f == avroFieldName rField) wFields of
+    Just idx -> Just idx
+    Nothing ->
+      case V.findIndex (\f -> avroFieldName f `V.elem` avroFieldAliases rField) wFields of
+        Just idx -> Just idx
+        Nothing ->
+          let rName = avroFieldName rField
+          in V.findIndex (\f -> rName `V.elem` avroFieldAliases f) wFields
 
 defaultToValue :: AvroType -> AvroSchema -> AV.Value
 defaultToValue _ AvroNull   = AV.Null

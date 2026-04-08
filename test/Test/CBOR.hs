@@ -14,8 +14,8 @@ import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog
 
 import qualified CBOR.Value as C
-import CBOR.Encode (encode)
-import CBOR.Decode (decode)
+import CBOR.Encode (encode, encodeDeterministic, encodeSequence)
+import CBOR.Decode (decode, decodeSequence)
 import CBOR.JSON (toJSON, fromJSON)
 
 cborTests :: TestTree
@@ -25,6 +25,8 @@ cborTests = testGroup "CBOR"
   , propertyRoundtrips
   , edgeCases
   , jsonTests
+  , deterministicTests
+  , sequenceTests
   ]
 
 -- | RFC 8949 Appendix A test vectors: exact byte sequences.
@@ -592,4 +594,77 @@ jsonTests = testGroup "JSON conversion"
   , testCase "fromJSON array" $
       fromJSON (Aeson.Array (V.fromList [Aeson.Number 1]))
         @?= C.Array (V.fromList [C.UInt 1])
+  ]
+
+deterministicTests :: TestTree
+deterministicTests = testGroup "Deterministic encoding"
+  [ testCase "sorted map keys by length first" $ do
+      let val = C.Map (V.fromList
+            [ (C.TextString "bb", C.UInt 2)
+            , (C.UInt 1, C.UInt 1)
+            , (C.TextString "a", C.UInt 3)
+            ])
+          bs = encodeDeterministic val
+      case decode bs of
+        Right (C.Map kvs) -> do
+          let keys = V.toList (V.map fst kvs)
+          keys @?= [C.UInt 1, C.TextString "a", C.TextString "bb"]
+        other -> assertFailure $ "expected Map, got: " ++ show other
+
+  , testCase "deterministic roundtrip" $ do
+      let val = C.Map (V.fromList
+            [ (C.TextString "z", C.UInt 1)
+            , (C.TextString "a", C.UInt 2)
+            ])
+          bs = encodeDeterministic val
+      case decode bs of
+        Right decoded -> do
+          case decoded of
+            C.Map kvs -> V.map fst kvs @?= V.fromList [C.TextString "a", C.TextString "z"]
+            _ -> assertFailure "expected map"
+        Left err -> assertFailure err
+
+  , testCase "deterministic preserves non-map values" $ do
+      let val = C.Array (V.fromList [C.UInt 3, C.UInt 1, C.UInt 2])
+      decode (encodeDeterministic val) @?= Right val
+
+  , testCase "deterministic encoding is valid CBOR" $ do
+      let val = C.Map (V.fromList
+            [ (C.TextString "key", C.UInt 42)
+            , (C.UInt 1, C.TextString "val")
+            ])
+      case decode (encodeDeterministic val) of
+        Right _ -> pure ()
+        Left err -> assertFailure err
+  ]
+
+sequenceTests :: TestTree
+sequenceTests = testGroup "CBOR Sequences (RFC 8742)"
+  [ testCase "encode/decode empty sequence" $ do
+      let vals = V.empty
+          bs = encodeSequence vals
+      BS.length bs @?= 0
+      decodeSequence bs @?= Right V.empty
+
+  , testCase "encode/decode single item sequence" $ do
+      let vals = V.singleton (C.UInt 42)
+          bs = encodeSequence vals
+      decodeSequence bs @?= Right vals
+
+  , testCase "encode/decode multi-item sequence" $ do
+      let vals = V.fromList [C.UInt 1, C.TextString "hello", C.Bool True]
+          bs = encodeSequence vals
+      decodeSequence bs @?= Right vals
+
+  , testCase "sequence is concatenation of individual encodings" $ do
+      let v1 = C.UInt 1
+          v2 = C.TextString "hi"
+          seq' = encodeSequence (V.fromList [v1, v2])
+          cat  = encode v1 <> encode v2
+      seq' @?= cat
+
+  , testProperty "sequence roundtrip" $ property $ do
+      ns <- forAll $ Gen.list (Range.linear 0 20) (Gen.word64 (Range.linear 0 0xffff))
+      let vals = V.fromList (map C.UInt ns)
+      decodeSequence (encodeSequence vals) === Right vals
   ]
