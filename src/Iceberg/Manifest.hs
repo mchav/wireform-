@@ -3,16 +3,22 @@
 -- The Iceberg specification defines manifest entries and manifest file
 -- (manifest list) entries as Avro records. This module constructs the
 -- standard 'AvroType' schemas for these structures.
+--
+-- Also provides SIMD-accelerated helpers for manifest file pruning
+-- (comparing serialized partition bounds against filter predicates).
 module Iceberg.Manifest
   ( manifestEntrySchema
   , manifestFileSchema
+  , filterBoundsMask
   ) where
 
+import Data.ByteString (ByteString)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..))
+import Proto.Wire.FFI (compareBoundsBS)
 
 -- | Avro schema for @manifest_entry@ records, as defined by the Iceberg
 -- specification. Each manifest entry describes a single data or delete file.
@@ -112,3 +118,21 @@ mkFieldOpt name ty doc = AvroField
   , avroFieldDoc     = fmap T.pack doc
   , avroFieldProps   = Map.empty
   }
+
+-- | Bulk-compare a search value against @N@ serialized partition bounds
+-- (all the same @width@ bytes each, packed contiguously in @bounds@).
+--
+-- Returns a bitmask where bit @i@ is set if @bounds[i] <= search@.
+-- For 4-byte LE int32 bounds (common for Iceberg int32 columns), this
+-- uses SSE2 to compare 4 bounds at once.
+--
+-- @bounds@ must contain exactly @count * width@ bytes.
+-- @search@ must contain exactly @width@ bytes.
+filterBoundsMask
+  :: ByteString  -- ^ Packed serialized bounds, @count * width@ bytes
+  -> Int         -- ^ Number of bounds
+  -> Int         -- ^ Width of each bound in bytes
+  -> ByteString  -- ^ Search value, @width@ bytes
+  -> Int         -- ^ Bitmask result
+filterBoundsMask = compareBoundsBS
+{-# INLINE filterBoundsMask #-}
