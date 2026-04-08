@@ -1,3 +1,16 @@
+-- | Avro schema parsing from JSON.
+--
+-- Parses Avro schema definitions from JSON-encoded 'ByteString' data
+-- (i.e. the contents of an @.avsc@ file). Delegates to 'Avro.JSON' for
+-- the actual JSON-to-schema conversion.
+--
+-- @
+-- import Avro.Schema.Parse (parseAvroSchema)
+-- schema <- BS.readFile \"user.avsc\"
+-- case parseAvroSchema schema of
+--   Right ty -> print ty
+--   Left err -> putStrLn err
+-- @
 module Avro.Schema.Parse
   ( parseAvroSchema
   , parseAvroSchemaFile

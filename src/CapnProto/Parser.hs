@@ -1,3 +1,20 @@
+-- | Cap'n Proto schema parser.
+--
+-- Parses Cap'n Proto schema definitions into a 'CapnProto.Schema.CapnProtoSchema'
+-- AST using Megaparsec. Supports structs with numbered fields, enums,
+-- constants, interfaces, unions, and the Cap'n Proto type system.
+--
+-- @
+-- struct Person {
+--   name \@0 :Text;
+--   age  \@1 :UInt32;
+-- }
+-- @
+--
+-- @
+-- import CapnProto.Parser (parseCapnProto)
+-- let Right schema = parseCapnProto input
+-- @
 module CapnProto.Parser
   ( parseCapnProto
   ) where

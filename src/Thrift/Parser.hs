@@ -1,3 +1,21 @@
+-- | Thrift IDL parser.
+--
+-- Parses Thrift IDL definitions (@.thrift@ files) into a
+-- 'Thrift.Schema.ThriftSchema' AST using Megaparsec. Supports structs,
+-- unions, exceptions, enums, services, typedefs, constants, includes,
+-- namespaces, and all Thrift type annotations.
+--
+-- @
+-- struct Person {
+--   1: required string name;
+--   2: optional i32 age;
+-- }
+-- @
+--
+-- @
+-- import Thrift.Parser (parseThrift)
+-- let Right schema = parseThrift input
+-- @
 module Thrift.Parser
   ( parseThrift
   ) where

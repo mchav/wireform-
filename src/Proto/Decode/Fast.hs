@@ -8,9 +8,17 @@
 -- The standard Decoder uses ByteString + offset, which means every
 -- byte read goes through BSU.unsafeIndex -> withForeignPtr -> touch#.
 --
--- This module extracts the Addr# once, does all reads via
--- indexWord8OffAddr# (zero GC interaction), then touch# once.
+-- This module extracts the @Addr#@ once, does all reads via
+-- @indexWord8OffAddr#@ (zero GC interaction), then @touch#@ once.
 -- Matches hyperpb's P1.PtrAddr approach.
+--
+-- @
+-- import Proto.Decode.Fast (runFastDecode, fdVarint)
+--
+-- case runFastDecode fdVarint bytes of
+--   Right val -> print val
+--   Left err  -> putStrLn (show err)
+-- @
 module Proto.Decode.Fast
   ( -- * Running
     runFastDecode

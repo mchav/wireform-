@@ -9,8 +9,16 @@
 -- allocation for the write context.
 --
 -- For field writes (tag + value), uses single C FFI calls that
--- handle the entire field in one shot, minimizing Haskell/C
+-- handle the entire field in one shot, minimizing Haskell\/C
 -- call overhead.
+--
+-- @
+-- import Proto.Encode.Direct (directEncode, dWord8, dVarint)
+--
+-- let bytes = directEncode 3 (\\p off -> do
+--       off1 <- dWord8 p off 0x42
+--       dVarint p off1 12345)
+-- @
 module Proto.Encode.Direct
   ( -- * Core
     directEncode

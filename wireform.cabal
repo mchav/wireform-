@@ -686,6 +686,150 @@ executable example-edn
     default-extensions:
       OverloadedStrings
 
+executable example-bson
+    import:           warnings
+    main-is:          BSONExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-ion
+    import:           warnings
+    main-is:          IonExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-capnproto
+    import:           warnings
+    main-is:          CapnProtoExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-flatbuffers
+    import:           warnings
+    main-is:          FlatBuffersExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-iceberg
+    import:           warnings
+    main-is:          IcebergExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , containers
+      , vector
+      , aeson
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-bond
+    import:           warnings
+    main-is:          BondExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-asn1
+    import:           warnings
+    main-is:          ASN1Example.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-parquet
+    import:           warnings
+    main-is:          ParquetExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-pickle
+    import:           warnings
+    main-is:          PickleExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-arrow
+    import:           warnings
+    main-is:          ArrowExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , vector
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+executable example-protobuf
+    import:           warnings
+    main-is:          ProtobufExample.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+    hs-source-dirs:   examples
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
 test-suite conformance-self-test
     import:           warnings
     type:             exitcode-stdio-1.0

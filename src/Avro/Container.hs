@@ -1,4 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
+-- | Avro Object Container File (OCF) format.
+--
+-- Reads and writes Avro container files, which consist of a header
+-- (with the writer schema and sync marker), followed by data blocks.
+-- Supports null and deflate codecs.
+--
+-- @
+-- import Avro.Container (readContainer, writeContainer)
+-- import qualified Data.ByteString as BS
+--
+-- bytes <- BS.readFile \"data.avro\"
+-- let Right (header, values) = readContainer bytes
+-- @
 module Avro.Container
   ( ContainerHeader(..)
   , readContainer

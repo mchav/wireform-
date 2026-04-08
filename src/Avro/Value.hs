@@ -2,6 +2,15 @@
 --
 -- A generic, schema-agnostic value type that can represent any Avro datum.
 -- Used by 'Avro.Encode' and 'Avro.Decode' for schema-driven serialisation.
+-- Covers null, boolean, int, long, float, double, bytes, string, records,
+-- enums, arrays, maps, unions, and fixed.
+--
+-- @
+-- import qualified Avro.Value as A
+-- import qualified Data.Vector as V
+--
+-- let val = A.Record (V.fromList [A.String \"Alice\", A.Int 30])
+-- @
 module Avro.Value
   ( Value(..)
   ) where

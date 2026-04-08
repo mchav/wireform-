@@ -1,4 +1,16 @@
 -- | Convert parsed Avro IDL AST to the standard Avro schema and protocol types.
+--
+-- Transforms the intermediate 'Avro.IDL.AvroIDL' representation into
+-- the canonical 'Avro.Schema.AvroType' and 'Avro.Protocol.AvroProtocol'
+-- types that the rest of the library works with.
+--
+-- @
+-- import Avro.IDL (parseAvroIDL)
+-- import Avro.IDLConvert (idlToProtocol)
+--
+-- let Right idl = parseAvroIDL input
+-- let protocol = idlToProtocol idl
+-- @
 module Avro.IDLConvert
   ( idlToProtocol
   , idlToType

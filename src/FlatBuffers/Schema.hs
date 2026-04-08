@@ -1,11 +1,27 @@
+-- | FlatBuffers schema types.
+--
+-- Defines the abstract syntax tree for FlatBuffers schema definitions,
+-- including tables (with optional fields and defaults), structs (fixed-size
+-- inline), enums, unions, and the FlatBuffers type system.
+--
+-- @
+-- import FlatBuffers.Parser (parseFlatBuffers)
+-- import FlatBuffers.Schema
+--
+-- let Right schema = parseFlatBuffers \"table Monster { name:string; hp:int = 100; }\"
+-- print (fbsDecls schema)
+-- @
 module FlatBuffers.Schema
-  ( FlatBuffersSchema (..)
+  ( -- * Schema
+    FlatBuffersSchema (..)
+    -- * Declarations
   , FBDeclaration (..)
   , TableDef (..)
   , TableField (..)
   , FBStructDef (..)
   , FBEnumDef (..)
   , FBUnionDef (..)
+    -- * Types
   , FBType (..)
   ) where
 

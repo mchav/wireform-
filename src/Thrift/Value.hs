@@ -1,8 +1,16 @@
--- | Shared Value type for high-level Thrift encode/decode.
+-- | Shared Value type for high-level Thrift encode\/decode.
 --
 -- Each variant carries its wire data directly. Struct fields are
 -- tagged by their Int16 field ID so both protocols can encode them
--- with the correct field headers.
+-- with the correct field headers. Covers bool, byte, i16, i32, i64,
+-- double, string, binary, list, set, map, and struct.
+--
+-- @
+-- import qualified Thrift.Value as T
+-- import qualified Data.Vector as V
+--
+-- let person = T.Struct (V.fromList [(1, T.String \"Alice\"), (2, T.I32 30)])
+-- @
 module Thrift.Value
   ( Value (..)
   , thriftTypeOf

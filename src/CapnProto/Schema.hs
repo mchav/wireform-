@@ -1,13 +1,29 @@
+-- | Cap'n Proto schema types.
+--
+-- Defines the abstract syntax tree for Cap'n Proto schema definitions,
+-- including structs with data\/pointer sections, enums, constants,
+-- interfaces (RPC), unions, and the Cap'n Proto type system.
+--
+-- @
+-- import CapnProto.Parser (parseCapnProto)
+-- import CapnProto.Schema
+--
+-- let Right schema = parseCapnProto \"struct Point { x \@0 :Float64; y \@1 :Float64; }\"
+-- print (csDecls schema)
+-- @
 module CapnProto.Schema
-  ( CapnProtoSchema (..)
+  ( -- * Schema
+    CapnProtoSchema (..)
+    -- * Declarations
   , Declaration (..)
   , StructDef (..)
   , FieldDef (..)
-  , CapnType (..)
   , EnumDef (..)
   , UnionDef (..)
   , InterfaceDef (..)
   , MethodDef (..)
+    -- * Types
+  , CapnType (..)
   ) where
 
 import Data.Text (Text)

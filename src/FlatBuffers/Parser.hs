@@ -1,3 +1,22 @@
+-- | FlatBuffers schema parser.
+--
+-- Parses FlatBuffers schema definitions (@.fbs@ files) into a
+-- 'FlatBuffers.Schema.FlatBuffersSchema' AST using Megaparsec.
+-- Supports tables, structs, enums, unions, namespaces, includes,
+-- file identifiers, and root types.
+--
+-- @
+-- table Monster {
+--   name:string;
+--   hp:int = 100;
+--   mana:short = 150;
+-- }
+-- @
+--
+-- @
+-- import FlatBuffers.Parser (parseFlatBuffers)
+-- let Right schema = parseFlatBuffers input
+-- @
 module FlatBuffers.Parser
   ( parseFlatBuffers
   ) where
