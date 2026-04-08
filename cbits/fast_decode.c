@@ -788,3 +788,188 @@ void hs_proto_write_le64(uint8_t *buf, int offset, uint64_t val) {
 #endif
     memcpy(buf + offset, &val, 8);
 }
+
+/*
+ * Find the first byte in buf[offset..offset+len) that needs JSON escaping:
+ * anything < 0x20, or '"', or '\\'.
+ * Returns the offset of the first such byte, or offset+len if none found.
+ * 16-byte SIMD fast path.
+ */
+int hs_proto_find_json_escape(const uint8_t *buf, int offset, int len)
+{
+    int i = 0;
+    const uint8_t *p = buf + offset;
+    simde__m128i dquote = simde_mm_set1_epi8('"');
+    simde__m128i bslash = simde_mm_set1_epi8('\\');
+
+    for (; i + 16 <= len; i += 16) {
+        simde__m128i chunk = simde_mm_loadu_si128((const simde__m128i *)(p + i));
+        int m1 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, dquote));
+        int m2 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, bslash));
+        /* Control chars: unsigned byte <= 0x1F via bias trick */
+        simde__m128i biased = simde_mm_xor_si128(chunk, simde_mm_set1_epi8((char)0x80));
+        simde__m128i limit = simde_mm_set1_epi8((char)(0x20 ^ 0x80));
+        int m3 = simde_mm_movemask_epi8(simde_mm_cmplt_epi8(biased, limit));
+        int mask = m1 | m2 | m3;
+        if (mask != 0) return offset + i + __builtin_ctz(mask);
+    }
+    for (; i < len; i++) {
+        uint8_t b = p[i];
+        if (b == '"' || b == '\\' || b < 0x20) return offset + i;
+    }
+    return offset + len;
+}
+
+/*
+ * Skip EDN whitespace characters (space, tab, newline, carriage return, comma).
+ * Returns the offset of the first non-whitespace character.
+ * EDN treats commas as whitespace. Also skips ; comments to end of line.
+ * 16-byte SIMD fast path for the common whitespace chars.
+ */
+int hs_proto_skip_ws(const uint8_t *buf, int offset, int len)
+{
+    int i = offset;
+
+    while (i < len) {
+        /* SIMD fast path: skip blocks of 16 whitespace bytes */
+        while (i + 16 <= len) {
+            simde__m128i chunk = simde_mm_loadu_si128((const simde__m128i *)(buf + i));
+            /* Check each byte against whitespace chars */
+            simde__m128i eq_space = simde_mm_cmpeq_epi8(chunk, simde_mm_set1_epi8(' '));
+            simde__m128i eq_tab   = simde_mm_cmpeq_epi8(chunk, simde_mm_set1_epi8('\t'));
+            simde__m128i eq_nl    = simde_mm_cmpeq_epi8(chunk, simde_mm_set1_epi8('\n'));
+            simde__m128i eq_cr    = simde_mm_cmpeq_epi8(chunk, simde_mm_set1_epi8('\r'));
+            simde__m128i eq_comma = simde_mm_cmpeq_epi8(chunk, simde_mm_set1_epi8(','));
+            simde__m128i ws = simde_mm_or_si128(
+                simde_mm_or_si128(eq_space, eq_tab),
+                simde_mm_or_si128(simde_mm_or_si128(eq_nl, eq_cr), eq_comma));
+            int mask = simde_mm_movemask_epi8(ws);
+            if (mask == 0xFFFF) {
+                i += 16;
+            } else {
+                i += __builtin_ctz(~mask);
+                break;
+            }
+        }
+        if (i >= len) break;
+
+        uint8_t b = buf[i];
+        if (b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == ',') {
+            i++;
+        } else if (b == ';') {
+            /* Skip comment to end of line */
+            i++;
+            while (i < len && buf[i] != '\n') i++;
+        } else {
+            break;
+        }
+    }
+    return i;
+}
+
+/*
+ * Compare a search value against N serialized LE int32 bounds.
+ * Returns a bitmask where bit i is set if bounds[i] <= search_val.
+ * Processes 4 bounds at a time using SSE2.
+ * count must be <= 32.
+ */
+int hs_proto_compare_bounds(
+    const uint8_t *bounds, int count, int width,
+    const uint8_t *search)
+{
+    if (width != 4) {
+        /* Scalar fallback for non-int32 widths */
+        int result = 0;
+        for (int i = 0; i < count && i < 32; i++) {
+            int cmp = memcmp(bounds + i * width, search, width);
+            if (cmp <= 0) result |= (1 << i);
+        }
+        return result;
+    }
+
+    /* Fast path for 4-byte LE int32 bounds */
+    int32_t search_val;
+    memcpy(&search_val, search, 4);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    search_val = __builtin_bswap32(search_val);
+#endif
+
+    int result = 0;
+    int i = 0;
+    simde__m128i sv = simde_mm_set1_epi32(search_val);
+
+    for (; i + 4 <= count; i += 4) {
+        simde__m128i bv = simde_mm_loadu_si128((const simde__m128i *)(bounds + i * 4));
+        /* bounds[j] <= search_val  iff  NOT (search_val < bounds[j]) */
+        simde__m128i lt = simde_mm_cmplt_epi32(sv, bv);
+        /* lt has 0xFFFFFFFF where search < bound, 0 where search >= bound */
+        int mask = simde_mm_movemask_ps(simde_mm_castsi128_ps(lt));
+        /* Invert: we want bits set where search >= bound */
+        result |= ((~mask) & 0xF) << i;
+    }
+
+    /* Scalar tail */
+    for (; i < count && i < 32; i++) {
+        int32_t bval;
+        memcpy(&bval, bounds + i * 4, 4);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        bval = __builtin_bswap32(bval);
+#endif
+        if (bval <= search_val) result |= (1 << i);
+    }
+    return result;
+}
+
+/*
+ * Validate Arrow IPC buffer offset/length pairs.
+ * Each buffer is (offset: int64, length: int64), packed contiguously.
+ * Checks:
+ *   1. offset >= 0 and length >= 0
+ *   2. offset + length <= body_length (no overflow)
+ *   3. No two buffers overlap
+ *
+ * For the non-overlap check, we do a simple O(n) scan since buffers in
+ * Arrow IPC are typically in order. Returns 1 if valid, 0 if invalid.
+ */
+int hs_proto_validate_arrow_buffers(
+    const int64_t *buf_pairs, int count, int64_t body_length)
+{
+    if (count == 0) return 1;
+
+    int64_t prev_end = 0;
+    int i = 0;
+
+    /* SSE2 path: validate 2 buffers (4 int64s) at a time for non-negative */
+    for (; i + 1 < count; i += 2) {
+        simde__m128i pair0 = simde_mm_loadu_si128(
+            (const simde__m128i *)(buf_pairs + i * 2));
+        simde__m128i pair1 = simde_mm_loadu_si128(
+            (const simde__m128i *)(buf_pairs + i * 2 + 2));
+        /* Check all 4 values are non-negative (high bit clear) */
+        simde__m128i combined = simde_mm_or_si128(pair0, pair1);
+        if (simde_mm_movemask_epi8(combined) & 0x8888) return 0;
+
+        /* Scalar bounds + overlap checks */
+        for (int j = 0; j < 2; j++) {
+            int idx = i + j;
+            int64_t off = buf_pairs[idx * 2];
+            int64_t len = buf_pairs[idx * 2 + 1];
+            if (off + len > body_length) return 0;
+            if (off < prev_end && len > 0) return 0;
+            int64_t end = off + len;
+            if (end > prev_end) prev_end = end;
+        }
+    }
+
+    /* Scalar tail */
+    for (; i < count; i++) {
+        int64_t off = buf_pairs[i * 2];
+        int64_t len = buf_pairs[i * 2 + 1];
+        if (off < 0 || len < 0) return 0;
+        if (off + len > body_length) return 0;
+        if (off < prev_end && len > 0) return 0;
+        int64_t end = off + len;
+        if (end > prev_end) prev_end = end;
+    }
+    return 1;
+}
