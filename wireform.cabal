@@ -1051,6 +1051,27 @@ benchmark xml-bench
     default-language: GHC2021
     ghc-options: -O2
 
+test-suite interop-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          InteropTest.hs
+    build-depends:
+        base             >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , text
+      , vector
+      , containers
+      , process          >= 1.6  && < 1.8
+      , tasty            >= 1.4  && < 1.6
+      , tasty-hunit      >= 0.10 && < 0.11
+    hs-source-dirs:   test-interop
+    default-language: GHC2021
+    default-extensions:
+      StrictData
+      DerivingStrategies
+      OverloadedStrings
+
 benchmark format-bench
     import:           warnings
     type:             exitcode-stdio-1.0
