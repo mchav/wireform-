@@ -2,14 +2,26 @@
 --
 -- Produces Haskell source text with data types and ToXML\/FromXML instances
 -- corresponding to XSD complex types.
+--
+-- == Text generation
+--
+-- 'generateXMLTypes' takes an 'XSDSchema' and produces Haskell source
+-- as 'Text'.
+--
+-- == Template Haskell
+--
+-- 'deriveXSD' generates declarations at compile time from an 'XSDSchema'.
+{-# LANGUAGE TemplateHaskell #-}
 module XML.CodeGen
   ( generateXMLTypes
+  , deriveXSD
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Language.Haskell.TH
 
 import XML.Schema
 
@@ -127,3 +139,113 @@ sanitizeFieldName t
 isIdChar :: Char -> Bool
 isIdChar c = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' ||
              c >= '0' && c <= '9' || c == '_'
+
+-- ---------------------------------------------------------------------------
+-- Template Haskell
+-- ---------------------------------------------------------------------------
+
+-- | Generate Haskell declarations from an 'XSDSchema' at compile time.
+-- Produces data types with @Show@, @Eq@, @Generic@ deriving and
+-- @ToXML@\/@FromXML@ instances via @DeriveAnyClass@.
+deriveXSD :: XSDSchema -> Q [Dec]
+deriveXSD (XSDSchema types) =
+  concat <$> mapM deriveXSDType (V.toList types)
+
+deriveXSDType :: XSDType -> Q [Dec]
+deriveXSDType (XSDSimple name _restriction) = do
+  let tyName = mkName (T.unpack (sanitizeName name))
+      target = ConT (mkName "Text")
+  pure [TySynD tyName [] target]
+deriveXSDType (XSDComplex name content) =
+  deriveXSDComplex name content
+
+deriveXSDComplex :: Text -> ComplexContent -> Q [Dec]
+deriveXSDComplex name (CCSequence elements) =
+  deriveXSDRecord name elements
+deriveXSDComplex name (CCChoice elements) =
+  deriveXSDSumType name elements
+deriveXSDComplex name (CCAll elements) =
+  deriveXSDRecord name elements
+deriveXSDComplex name (CCSimpleContent baseType) = do
+  let tyName = mkName (T.unpack (sanitizeName name))
+  target <- mapTypeToTH baseType
+  pure [TySynD tyName [] target]
+deriveXSDComplex name CCEmpty = do
+  let sname = sanitizeName name
+      tyName = mkName (T.unpack sname)
+      conName = mkName (T.unpack sname)
+      dataDec = DataD [] tyName [] Nothing
+        [NormalC conName []]
+        [ DerivClause (Just StockStrategy)
+            [ConT ''Show, ConT ''Eq, ConT (mkName "Generic")]
+        , DerivClause (Just AnyclassStrategy)
+            [ConT (mkName "ToXML"), ConT (mkName "FromXML")]
+        ]
+  pure [dataDec]
+
+deriveXSDRecord :: Text -> Vector XSDElement -> Q [Dec]
+deriveXSDRecord name elements
+  | V.null elements = deriveXSDComplex name CCEmpty
+  | otherwise = do
+      let sname = sanitizeName name
+          tyName = mkName (T.unpack sname)
+          conName = mkName (T.unpack sname)
+      fields <- mapM mkXSDRecordField (V.toList elements)
+      let dataDec = DataD [] tyName [] Nothing
+            [RecC conName fields]
+            [ DerivClause (Just StockStrategy)
+                [ConT ''Show, ConT ''Eq, ConT (mkName "Generic")]
+            , DerivClause (Just AnyclassStrategy)
+                [ConT (mkName "ToXML"), ConT (mkName "FromXML")]
+            ]
+      pure [dataDec]
+
+mkXSDRecordField :: XSDElement -> Q VarBangType
+mkXSDRecordField (XSDElement fname ftype _nillable occ) = do
+  let fieldName = mkName (T.unpack (sanitizeFieldName fname))
+  innerTy <- mapTypeToTH ftype
+  let wrappedTy = wrapOccurrenceTH occ innerTy
+      strictBang = Bang NoSourceUnpackedness SourceStrict
+  pure (fieldName, strictBang, wrappedTy)
+
+deriveXSDSumType :: Text -> Vector XSDElement -> Q [Dec]
+deriveXSDSumType name elements = do
+  let sname = sanitizeName name
+      tyName = mkName (T.unpack sname)
+  cons <- mapM mkXSDVariant (V.toList elements)
+  let dataDec = DataD [] tyName [] Nothing cons
+        [ DerivClause (Just StockStrategy)
+            [ConT ''Show, ConT ''Eq, ConT (mkName "Generic")]
+        ]
+  pure [dataDec]
+
+mkXSDVariant :: XSDElement -> Q Con
+mkXSDVariant (XSDElement vname vtype _nillable _occ) = do
+  ty <- mapTypeToTH vtype
+  let conName = mkName (T.unpack (sanitizeName (T.toTitle vname)))
+      strictBang = Bang NoSourceUnpackedness SourceStrict
+  pure (NormalC conName [(strictBang, ty)])
+
+wrapOccurrenceTH :: Occurrence -> Type -> Type
+wrapOccurrenceTH Once t = t
+wrapOccurrenceTH Optional t = AppT (ConT ''Maybe) t
+wrapOccurrenceTH Unbounded t = AppT (ConT (mkName "Vector")) t
+wrapOccurrenceTH (Range _ _) t = AppT (ConT (mkName "Vector")) t
+
+mapTypeToTH :: Text -> Q Type
+mapTypeToTH t = do
+  let local = case T.breakOnEnd ":" t of
+        (_, l) | T.null l -> t
+        (_, l) -> l
+  case local of
+    "string"       -> pure (ConT (mkName "Text"))
+    "int"          -> pure (ConT ''Int)
+    "integer"      -> pure (ConT ''Integer)
+    "decimal"      -> pure (ConT ''Double)
+    "float"        -> pure (ConT ''Float)
+    "double"       -> pure (ConT ''Double)
+    "date"         -> pure (ConT (mkName "Text"))
+    "dateTime"     -> pure (ConT (mkName "Text"))
+    "boolean"      -> pure (ConT ''Bool)
+    "base64Binary" -> pure (ConT (mkName "ByteString"))
+    other          -> pure (ConT (mkName (T.unpack (sanitizeName other))))

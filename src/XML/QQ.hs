@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
--- | QuasiQuoter for inline XML literals.
+-- | QuasiQuoters for inline XML literals and XSD schema declarations.
 --
 -- @
 -- {-\# LANGUAGE QuasiQuotes \#-}
@@ -9,9 +9,28 @@
 -- myNode = [xml|\<person\>\<name\>John\<\/name\>\<age\>30\<\/age\>\<\/person\>|]
 -- @
 --
--- Parses the XML at compile time and produces a 'Node' literal.
+-- @
+-- {-\# LANGUAGE QuasiQuotes \#-}
+-- {-\# LANGUAGE TemplateHaskell \#-}
+-- import XML.QQ
+--
+-- [xsd|
+--   \<xs:schema xmlns:xs=\"http:\/\/www.w3.org\/2001\/XMLSchema\"\>
+--     \<xs:complexType name=\"Person\"\>
+--       \<xs:sequence\>
+--         \<xs:element name=\"name\" type=\"xs:string\"\/\>
+--         \<xs:element name=\"age\" type=\"xs:integer\"\/\>
+--       \<\/xs:sequence\>
+--     \<\/xs:complexType\>
+--   \<\/xs:schema\>
+-- |]
+-- @
+--
+-- Parses the XML at compile time and produces a 'Node' literal (@xml@),
+-- or generates Haskell data types from an XSD schema (@xsd@).
 module XML.QQ
   ( xml
+  , xsd
   ) where
 
 import qualified Data.Text as T
@@ -23,6 +42,8 @@ import Language.Haskell.TH.Quote
 
 import qualified XML.Value as XV
 import qualified XML.Decode as XD
+import XML.Schema (parseXSD)
+import XML.CodeGen (deriveXSD)
 
 -- | QuasiQuoter for XML literals.
 xml :: QuasiQuoter
@@ -75,3 +96,20 @@ liftVector :: (a -> Q Exp) -> Vector a -> Q Exp
 liftVector f vec = do
   elems <- mapM f (V.toList vec)
   [| V.fromList $(listE (map pure elems)) |]
+
+-- | QuasiQuoter for XSD schema declarations.
+-- Parses the XSD at compile time and generates Haskell data types
+-- with @ToXML@\/@FromXML@ instances.
+xsd :: QuasiQuoter
+xsd = QuasiQuoter
+  { quoteExp  = \_ -> fail "xsd: not an expression quoter"
+  , quotePat  = \_ -> fail "xsd: not a pattern quoter"
+  , quoteType = \_ -> fail "xsd: not a type quoter"
+  , quoteDec  = xsdDec
+  }
+
+xsdDec :: String -> Q [Dec]
+xsdDec src =
+  case parseXSD (T.pack src) of
+    Left err -> fail ("xsd parse error: " ++ err)
+    Right schema -> deriveXSD schema
