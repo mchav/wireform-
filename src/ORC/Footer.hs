@@ -25,7 +25,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word32, Word64)
 
 import ORC.Types
 

@@ -132,27 +132,25 @@ skipNewline bs !pos !len
 parseQuotedField :: ByteString -> Int -> Int -> Word8 -> (Text, Int)
 parseQuotedField bs !start !len !quoteW = go start []
   where
+    quoteText :: Text
+    quoteText = T.singleton (toEnum (fromIntegral quoteW))
+
     go !pos !chunks
-      | pos >= len = (assembleChunks start pos chunks, len)
+      | pos >= len = (assemble pos chunks, len)
       | otherwise =
           let !qPos = findByte bs pos quoteW
           in if qPos >= len
-               then (assembleChunks start qPos chunks, len)
+               then (assemble qPos chunks, len)
                else if qPos + 1 < len && BSU.unsafeIndex bs (qPos + 1) == quoteW
                     then go (qPos + 2) (sliceText bs pos qPos : chunks)
-                    else (assembleQuoted start qPos chunks bs, qPos + 1)
+                    else
+                      let !lastChunk = sliceText bs pos qPos
+                      in (T.intercalate quoteText (reverse (lastChunk : chunks)), qPos + 1)
 
-    assembleQuoted !s !e ![] !b = sliceText b s e
-    assembleQuoted _s !e !cs !b =
-      let lastChunk = sliceText b (chunkEnd cs) e
-          allChunks = reverse (lastChunk : cs)
-      in T.intercalate (T.singleton (toEnum (fromIntegral quoteW))) allChunks
-
-    chunkEnd [] = 0
-    chunkEnd _  = 0
-
-    assembleChunks !s !e [] = sliceText bs s e
-    assembleChunks _s _e cs = T.concat (reverse cs)
+    assemble !endPos [] = sliceText bs start endPos
+    assemble !endPos chunks =
+      let !lastChunk = sliceText bs start endPos
+      in T.intercalate quoteText (reverse (lastChunk : chunks))
 
 parseUnquotedField :: ByteString -> Int -> Int -> Word8 -> (Text, Int)
 parseUnquotedField bs !start !len !delimW = scanTo start

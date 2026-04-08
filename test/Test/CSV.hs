@@ -206,9 +206,10 @@ genericTests = testGroup "Generic deriving"
       persons @?= V.fromList [Person "Alice" 30, Person "Bob" 25]
 
   , testCase "Person record roundtrip" $ do
-      let persons = V.fromList [Person "Alice" 30, Person "Bob" 25]
-          encoded = encodeRecords defaultCSV persons
-          Right decoded = decodeRecords defaultCSV encoded :: Either String (V.Vector Person)
+      let cfg = defaultCSV { csvHasHeader = False }
+          persons = V.fromList [Person "Alice" 30, Person "Bob" 25]
+          encoded = encodeRecords cfg persons
+          Right decoded = decodeRecords cfg encoded :: Either String (V.Vector Person)
       decoded @?= persons
   ]
 
