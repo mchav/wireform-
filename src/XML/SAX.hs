@@ -10,6 +10,7 @@ module XML.SAX
   , foldSAX
   ) where
 
+import Control.DeepSeq (NFData(..))
 import Control.Monad (when)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -38,6 +39,16 @@ data SAXEvent
   | StartDocument !(Maybe XMLDecl)
   | EndDocument
   deriving stock (Show, Eq)
+
+instance NFData SAXEvent where
+  rnf (StartElement n as) = rnf n `seq` rnf as
+  rnf (EndElement n) = rnf n
+  rnf (Characters t) = rnf t
+  rnf (CDATASection t) = rnf t
+  rnf (CommentEvent t) = rnf t
+  rnf (PI t1 t2) = rnf t1 `seq` rnf t2
+  rnf (StartDocument md) = rnf md
+  rnf EndDocument = ()
 
 -- FFI imports for SIMD scanning
 foreign import ccall unsafe "hs_xml_find_byte"

@@ -1027,6 +1027,25 @@ test-suite temporal-codegen-test
       OverloadedRecordDot
       LambdaCase
 
+benchmark xml-bench
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          XMLBench.hs
+    build-depends:
+        base
+      , wireform
+      , bytestring
+      , text
+      , vector
+      , deepseq
+      , criterion >= 1.5 && < 1.7
+      , xml-conduit >= 1.9 && < 1.11
+      , xeno >= 0.6 && < 0.7
+      , hexml >= 0.3 && < 0.5
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    ghc-options: -O2
+
 benchmark format-bench
     import:           warnings
     type:             exitcode-stdio-1.0
