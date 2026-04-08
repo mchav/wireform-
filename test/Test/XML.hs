@@ -18,6 +18,8 @@ import XML.SAX
 import XML.Decode
 import XML.Encode
 import XML.Path
+import XML.DSL (Query(..))
+import qualified XML.DSL as DSL
 import XML.Class
 import XML.Schema
 import XML.CodeGen
@@ -32,6 +34,8 @@ xmlTests = testGroup "XML"
   , cdataTests
   , commentAndPITests
   , pathTests
+  , pathEnhancedTests
+  , dslTests
   , typeclassTests
   , genericTests
   , largeDocTests
@@ -444,6 +448,157 @@ edgeCaseTests = testGroup "Edge Cases"
       let xml = "<?xml version=\"1.0\"?><!DOCTYPE root SYSTEM \"root.dtd\"><root/>"
           Right doc = decode (TE.encodeUtf8 xml)
       elementName (docRoot doc) @?= Just (simpleName "root")
+  ]
+
+-- Enhanced parsePath tests
+pathEnhancedTests :: TestTree
+pathEnhancedTests = testGroup "Enhanced Path Parsing"
+  [ testCase "parse \".\" (self)" $ do
+      let Right path = parsePath "."
+      case path of
+        Sequence [Self] -> pure ()
+        _ -> assertFailure $ "Expected Sequence [Self], got " ++ show path
+
+  , testCase "parse \"..\" (parent)" $ do
+      let Right path = parsePath ".."
+      case path of
+        Sequence [Parent] -> pure ()
+        _ -> assertFailure $ "Expected Sequence [Parent], got " ++ show path
+
+  , testCase "parse \"*\" (wildcard)" $ do
+      let Right path = parsePath "*"
+          xml = "<root><a/><b/><c/></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          results = query path (docRoot doc)
+      V.length results @?= 3
+
+  , testCase "parse \"name[@attr='val']\"" $ do
+      let Right path = parsePath "item[@type='book']"
+          xml = "<root><item type=\"book\">B</item><item type=\"dvd\">D</item></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          results = query path (docRoot doc)
+      V.length results @?= 1
+      textContent (V.head results) @?= "B"
+
+  , testCase "parse \"name[3]\" (1-based index)" $ do
+      let Right path = parsePath "item[2]"
+          xml = "<root><item>a</item><item>b</item><item>c</item></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          results = query path (docRoot doc)
+      V.length results @?= 1
+      textContent (V.head results) @?= "b"
+  ]
+
+-- DSL tests
+dslTests :: TestTree
+dslTests = testGroup "XML DSL"
+  [ testCase "child /> child composition" $ do
+      let xml = "<root><items><item>a</item><item>b</item></items></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.child "items" DSL./> DSL.child "item"
+          results = DSL.select q (docRoot doc)
+      V.length results @?= 2
+      textContent (V.head results) @?= "a"
+
+  , testCase "anyDescendant search" $ do
+      let xml = "<root><a><b><target>found</target></b></a><target>also</target></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.anyDescendant
+          results = DSL.select q (docRoot doc)
+      assertBool "found descendants" (V.length results >= 3)
+
+  , testCase "where_ filter with attribute" $ do
+      let xml = "<root><item type=\"book\">B</item><item type=\"dvd\">D</item></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.whereAttr "type" "book" (DSL.child "item")
+          results = DSL.select q (docRoot doc)
+      V.length results @?= 1
+      textContent (V.head results) @?= "B"
+
+  , testCase "whereContains" $ do
+      let xml = "<root><a href=\"https://example.com/foo\">X</a><a href=\"other\">Y</a></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.whereContains "href" "example" (DSL.child "a")
+          results = DSL.select q (docRoot doc)
+      V.length results @?= 1
+      textContent (V.head results) @?= "X"
+
+  , testCase "index (1-based)" $ do
+      let xml = "<root><item>a</item><item>b</item><item>c</item></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.index 2 (DSL.child "item")
+          results = DSL.select q (docRoot doc)
+      V.length results @?= 1
+      textContent (V.head results) @?= "b"
+
+  , testCase "selectOne" $ do
+      let xml = "<root><item>a</item><item>b</item></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.child "item"
+          result = DSL.selectOne q (docRoot doc)
+      case result of
+        Just n -> textContent n @?= "a"
+        Nothing -> assertFailure "Expected Just"
+
+  , testCase "selectText" $ do
+      let xml = "<root><msg>hello </msg><msg>world</msg></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.child "msg" DSL./> DSL.textContent
+          result = DSL.selectText q (docRoot doc)
+      result @?= "hello world"
+
+  , testCase "count" $ do
+      let xml = "<root><item/><item/><item/></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.count (DSL.child "item")
+          results = DSL.select q (docRoot doc)
+      V.length results @?= 1
+      V.head results @?= 3
+
+  , testCase "liftQuery extension" $ do
+      let xml = "<root><a/><b/><c/></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          customQ = DSL.liftQuery $ \n -> case n of
+            Element _ _ cs -> V.filter (isElementNamed "b") cs
+            _ -> V.empty
+          results = DSL.select customQ (docRoot doc)
+      V.length results @?= 1
+
+  , testCase "union (|>)" $ do
+      let xml = "<root><a>1</a><b>2</b><c>3</c></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.child "a" DSL.|> DSL.child "c"
+          results = DSL.select q (docRoot doc)
+      V.length results @?= 2
+      textContent (V.head results) @?= "1"
+      textContent (results V.! 1) @?= "3"
+
+  , testCase "first and last" $ do
+      let xml = "<root><item>a</item><item>b</item><item>c</item></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          qFirst = DSL.first (DSL.child "item")
+          qLast = DSL.last (DSL.child "item")
+      case DSL.selectOne qFirst (docRoot doc) of
+        Just n -> textContent n @?= "a"
+        Nothing -> assertFailure "Expected first"
+      case DSL.selectOne qLast (docRoot doc) of
+        Just n -> textContent n @?= "c"
+        Nothing -> assertFailure "Expected last"
+
+  , testCase "descendant search by name" $ do
+      let xml = "<root><a><b><target>deep</target></b></a></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.descendant "target"
+          results = DSL.select q (docRoot doc)
+      V.length results @?= 1
+      textContent (V.head results) @?= "deep"
+
+  , testCase "descendant chain (//>)" $ do
+      let xml = "<root><a><item>x</item></a><b><item>y</item></b></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          q = DSL.anyChild DSL.//> DSL.child "item"
+          results = DSL.select q (docRoot doc)
+      V.length results @?= 2
   ]
 
 -- Helpers

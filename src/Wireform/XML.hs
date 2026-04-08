@@ -10,6 +10,7 @@ module Wireform.XML
   , module XML.Encode
   , module XML.Path
   , module XML.Class
+  , module XML.DSL
   ) where
 
 import XML.Value
@@ -18,3 +19,4 @@ import XML.Decode
 import XML.Encode
 import XML.Path
 import XML.Class
+import XML.DSL hiding (textContent, textNodes, commentNodes)
