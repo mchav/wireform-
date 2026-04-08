@@ -14,7 +14,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.Int (Int64)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
@@ -24,6 +23,7 @@ import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import Bond.Value
+import Proto.Wire.FFI (decodeTextFast)
 
 btStop :: Word8
 btStop = 0
@@ -92,8 +92,10 @@ decodeBondString ctor bs off = do
   (len, off') <- decodeVarint bs off
   let !n = fromIntegral len
   checkLen bs off' n
-  let !t = TE.decodeUtf8 (BS.take n (BS.drop off' bs))
-  Right (ctor t, off' + n)
+  let !raw = BS.take n (BS.drop off' bs)
+  case decodeTextFast raw of
+    Left e  -> Left $ "Bond.Decode: " ++ e
+    Right t -> Right (ctor t, off' + n)
 
 decodeList :: ByteString -> Offset -> Either String (Value, Offset)
 decodeList bs off = do

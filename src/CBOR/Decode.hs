@@ -12,13 +12,13 @@ import Data.Bits (shiftL, shiftR, (.|.), (.&.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
-import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 
 import qualified CBOR.Value as C
+import Proto.Wire.FFI (decodeTextFast)
 
 -- | Decode a CBOR value from a strict 'ByteString'.
 decode :: ByteString -> Either String C.Value
@@ -123,7 +123,7 @@ decodeTStr bs off info
       let !len = fromIntegral len64
       ensureBytes bs off' len
       let !raw = BSU.unsafeTake len (BSU.unsafeDrop off' bs)
-      case TE.decodeUtf8' raw of
+      case decodeTextFast raw of
         Left _  -> Left "CBOR.Decode: invalid UTF-8 in text string"
         Right t -> Right (C.TextString t, off' + len)
 
@@ -153,7 +153,7 @@ decodeIndefiniteTStr bs off0 = go off0 []
       | off >= BS.length bs = Left "CBOR.Decode: unexpected end of input in indefinite text string"
       | rdByte bs off == 0xff = do
           let !combined = BS.concat (reverse acc)
-          case TE.decodeUtf8' combined of
+          case decodeTextFast combined of
             Left _  -> Left "CBOR.Decode: invalid UTF-8 in indefinite text string"
             Right t -> Right (C.TextString t, off + 1)
       | otherwise = do

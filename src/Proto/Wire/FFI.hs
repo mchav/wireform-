@@ -25,6 +25,15 @@ module Proto.Wire.FFI
   , encodeVarintFieldC
   , encodeBoolFieldC
 
+    -- * SIMD NUL scanner (for BSON cstrings)
+  , findNul
+  , findNulBS
+
+    -- * SIMD ASCII check (for all string decoders)
+  , isAscii
+  , isAsciiBS
+  , decodeTextFast
+
     -- * Endianness helpers (Haskell-side, single MOV + BSWAP)
   , readBE16H
   , readBE32H
@@ -43,6 +52,8 @@ module Proto.Wire.FFI
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
+import Data.Text (Text)
+import qualified Data.Text.Encoding as TE
 import Data.Word (Word8, Word16, Word32, Word64, byteSwap16, byteSwap32, byteSwap64)
 import Foreign.C.Types (CInt(..))
 import Foreign.Marshal.Alloc (alloca)
@@ -164,6 +175,61 @@ relocatePageBoundary bs
             Foreign.Marshal.Alloc.free outBuf
             pure bs
 {-# INLINE relocatePageBoundary #-}
+
+------------------------------------------------------------------------
+-- SIMD NUL scanner
+------------------------------------------------------------------------
+
+foreign import ccall unsafe "hs_proto_find_nul"
+  c_find_nul :: Ptr () -> CInt -> CInt -> CInt
+
+-- | Find the first NUL byte starting at the given offset within a raw pointer.
+-- Returns @Just idx@ (absolute offset from buf start) or @Nothing@.
+findNul :: Ptr Word8 -> Int -> Int -> Maybe Int
+findNul !ptr !offset !len =
+  let !r = c_find_nul (castPtr ptr) (fromIntegral offset) (fromIntegral len)
+  in if r < 0 then Nothing else Just (fromIntegral r)
+{-# INLINE findNul #-}
+
+-- | Find the first NUL byte in a 'ByteString' starting at the given offset.
+-- Returns @Just idx@ (offset into the ByteString) or @Nothing@.
+findNulBS :: ByteString -> Int -> Maybe Int
+findNulBS bs off = unsafePerformIO $
+  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
+    pure $! findNul (castPtr ptr) off len
+{-# INLINE findNulBS #-}
+
+------------------------------------------------------------------------
+-- SIMD ASCII check
+------------------------------------------------------------------------
+
+foreign import ccall unsafe "hs_proto_is_ascii"
+  c_is_ascii :: Ptr () -> CInt -> CInt -> CInt
+
+-- | Check if @len@ bytes starting at @ptr+offset@ are all ASCII.
+isAscii :: Ptr Word8 -> Int -> Int -> Bool
+isAscii !ptr !offset !len =
+  c_is_ascii (castPtr ptr) (fromIntegral offset) (fromIntegral len) /= 0
+{-# INLINE isAscii #-}
+
+-- | Check if a 'ByteString' is entirely ASCII.
+isAsciiBS :: ByteString -> Bool
+isAsciiBS bs = unsafePerformIO $
+  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
+    pure $! isAscii (castPtr ptr) 0 len
+{-# INLINE isAsciiBS #-}
+
+-- | Fast text decoding with SIMD ASCII pre-check.
+-- When the input is all ASCII, skip UTF-8 validation entirely.
+-- Falls back to 'TE.decodeUtf8'' for non-ASCII, with lenient fallback.
+decodeTextFast :: ByteString -> Either String Text
+decodeTextFast !bs
+  | BS.null bs = Right mempty
+  | isAsciiBS bs = Right (TE.decodeLatin1 bs)
+  | otherwise = case TE.decodeUtf8' bs of
+      Right t -> Right t
+      Left _  -> Left "invalid UTF-8"
+{-# INLINE decodeTextFast #-}
 
 ------------------------------------------------------------------------
 -- Haskell-side endianness helpers (single MOV + BSWAP on x86)

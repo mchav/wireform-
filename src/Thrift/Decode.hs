@@ -12,12 +12,12 @@ import Control.Monad.ST (ST, runST)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int16)
-import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 
 import qualified Thrift.Value as TV
 import Thrift.Wire
+import Proto.Wire.FFI (decodeTextFast)
 
 --------------------------------------------------------------------------------
 -- Binary Protocol
@@ -66,7 +66,7 @@ decodeBinValue !tt !bs !off = case tt of
     Nothing -> Nothing
 
   TT_STRING -> case tBinDecodeString bs off of
-    Just (b, o) -> case TE.decodeUtf8' b of
+    Just (b, o) -> case decodeTextFast b of
       Right t -> Just (TV.String t, o)
       Left _  -> Just (TV.Binary b, o)
     Nothing -> Nothing
@@ -210,7 +210,7 @@ decodeCompValue !tt !bs !off = case tt of
     Nothing -> Nothing
 
   TT_STRING -> case tCompDecodeString bs off of
-    Just (b, o) -> case TE.decodeUtf8' b of
+    Just (b, o) -> case decodeTextFast b of
       Right t -> Just (TV.String t, o)
       Left _  -> Just (TV.Binary b, o)
     Nothing -> Nothing

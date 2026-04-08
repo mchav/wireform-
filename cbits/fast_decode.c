@@ -699,6 +699,47 @@ void hs_proto_write_be64(uint8_t *buf, int offset, uint64_t val) {
     memcpy(buf + offset, &val, 8);
 }
 
+/* Find the offset of the first NUL byte starting at buf+offset.
+   Returns offset relative to buf, or -1 if not found within len bytes.
+   16-byte SIMD fast path. */
+int hs_proto_find_nul(const uint8_t *buf, int offset, int len)
+{
+    int i = offset;
+    simde__m128i zero = simde_mm_setzero_si128();
+
+    for (; i + 16 <= len; i += 16) {
+        simde__m128i chunk = simde_mm_loadu_si128((const simde__m128i *)(buf + i));
+        simde__m128i cmp = simde_mm_cmpeq_epi8(chunk, zero);
+        int mask = simde_mm_movemask_epi8(cmp);
+        if (mask != 0) {
+            return i + __builtin_ctz(mask);
+        }
+    }
+    for (; i < len; i++) {
+        if (buf[i] == 0) return i;
+    }
+    return -1;
+}
+
+/* Check if len bytes starting at buf+offset are all ASCII (< 0x80).
+   Uses 16-byte SIMD. Returns 1 if all ASCII, 0 otherwise. */
+int hs_proto_is_ascii(const uint8_t *buf, int offset, int len)
+{
+    int i = 0;
+    const uint8_t *p = buf + offset;
+    simde__m128i highbit = simde_mm_set1_epi8((char)0x80);
+
+    for (; i + 16 <= len; i += 16) {
+        simde__m128i chunk = simde_mm_loadu_si128((const simde__m128i *)(p + i));
+        simde__m128i test = simde_mm_and_si128(chunk, highbit);
+        if (simde_mm_movemask_epi8(test) != 0) return 0;
+    }
+    for (; i < len; i++) {
+        if (p[i] >= 0x80) return 0;
+    }
+    return 1;
+}
+
 /* LE read/write — on LE platforms these are just memcpy (which the compiler optimizes to a single MOV) */
 uint16_t hs_proto_read_le16(const uint8_t *buf, int offset) {
     uint16_t val;

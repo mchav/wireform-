@@ -15,7 +15,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
-import qualified Data.Text.Encoding as TE
 import Data.Text (Text)
 import Data.Word (Word8, Word32, Word64)
 import qualified Data.Vector as V
@@ -23,6 +22,7 @@ import qualified Data.Vector.Mutable as MV
 import GHC.Float (castWord64ToDouble)
 
 import qualified BSON.Value as B
+import Proto.Wire.FFI (findNulBS, decodeTextFast)
 
 decode :: ByteString -> Either String B.Value
 decode !bs
@@ -65,17 +65,14 @@ ensure bs off n
 {-# INLINE ensure #-}
 
 readCString :: ByteString -> Int -> Either String (Text, Int)
-readCString bs off = go off
-  where
-    !bsLen = BS.length bs
-    go !i
-      | i >= bsLen = Left "BSON.Decode: unterminated cstring"
-      | rdByte bs i == 0x00 =
-          let !raw = BSU.unsafeTake (i - off) (BSU.unsafeDrop off bs)
-          in case TE.decodeUtf8' raw of
-               Left _  -> Left "BSON.Decode: invalid UTF-8 in cstring"
-               Right t -> Right (t, i + 1)
-      | otherwise = go (i + 1)
+readCString bs off =
+  case findNulBS bs off of
+    Nothing -> Left "BSON.Decode: unterminated cstring"
+    Just !i ->
+      let !raw = BSU.unsafeTake (i - off) (BSU.unsafeDrop off bs)
+      in case decodeTextFast raw of
+           Left _  -> Left "BSON.Decode: invalid UTF-8 in cstring"
+           Right t -> Right (t, i + 1)
 
 readBSONString :: ByteString -> Int -> Either String (Text, Int)
 readBSONString bs off = do
@@ -83,7 +80,7 @@ readBSONString bs off = do
   let !len = fromIntegral (readLE32 bs off) :: Int
   ensure bs (off + 4) len
   let !raw = BSU.unsafeTake (len - 1) (BSU.unsafeDrop (off + 4) bs)
-  case TE.decodeUtf8' raw of
+  case decodeTextFast raw of
     Left _  -> Left "BSON.Decode: invalid UTF-8 in string"
     Right t -> Right (t, off + 4 + len)
 

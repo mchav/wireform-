@@ -13,7 +13,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int8, Int16, Int32, Int64)
-import qualified Data.Text.Encoding as TE
 import Data.Word (Word8, Word32, Word64)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
@@ -25,6 +24,7 @@ import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified MsgPack.Value as MV'
+import Proto.Wire.FFI (decodeTextFast)
 
 -- | Decode a MessagePack binary into a Value.
 decode :: ByteString -> Either String MV'.Value
@@ -277,7 +277,7 @@ decodeStr _ len off slen origBs
   | off + slen > len = pure $ Left "MsgPack.Decode: string truncated"
   | otherwise = do
       let !slice = BSU.unsafeTake slen (BSU.unsafeDrop off origBs)
-      case TE.decodeUtf8' slice of
+      case decodeTextFast slice of
         Left _  -> pure $ Left "MsgPack.Decode: invalid UTF-8 in string"
         Right t -> pure $ Right (MV'.String t, off + slen)
 

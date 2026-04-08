@@ -16,7 +16,6 @@ import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int64)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import Data.Word (Word8, Word64, byteSwap64)
 import qualified Data.Vector as V
 import Foreign.ForeignPtr (withForeignPtr)
@@ -26,6 +25,7 @@ import GHC.Float (castWord64ToDouble)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Ion.Value as I
+import Proto.Wire.FFI (decodeTextFast)
 
 decode :: ByteString -> Either String I.Value
 decode !bs
@@ -140,7 +140,7 @@ decodeString bs off lenNibble = do
   (len, off1) <- readLength bs off lenNibble
   ensure bs off1 len
   let !raw = BSU.unsafeTake len (BSU.unsafeDrop off1 bs)
-  case TE.decodeUtf8' raw of
+  case decodeTextFast raw of
     Left _  -> Left "Ion.Decode: invalid UTF-8 in string"
     Right t -> Right (I.String t, off1 + len)
 
@@ -149,7 +149,7 @@ decodeSymbol bs off lenNibble = do
   (len, off1) <- readLength bs off lenNibble
   ensure bs off1 len
   let !raw = BSU.unsafeTake len (BSU.unsafeDrop off1 bs)
-  case TE.decodeUtf8' raw of
+  case decodeTextFast raw of
     Left _  -> Left "Ion.Decode: invalid UTF-8 in symbol"
     Right t -> Right (I.Symbol t, off1 + len)
 
@@ -196,7 +196,7 @@ readFields bs off end
       (klen, off1) <- readVarUInt bs off
       ensure bs off1 klen
       let !kraw = BSU.unsafeTake klen (BSU.unsafeDrop off1 bs)
-      case TE.decodeUtf8' kraw of
+      case decodeTextFast kraw of
         Left _  -> Left "Ion.Decode: invalid UTF-8 in struct field name"
         Right k -> do
           (v, off2) <- decodeValue bs (off1 + klen)
@@ -212,7 +212,7 @@ decodeAnnotation bs off lenNibble = do
   (annLen, off3) <- readVarUInt bs off2
   ensure bs off3 annLen
   let !annRaw = BSU.unsafeTake annLen (BSU.unsafeDrop off3 bs)
-  case TE.decodeUtf8' annRaw of
+  case decodeTextFast annRaw of
     Left _   -> Left "Ion.Decode: invalid UTF-8 in annotation"
     Right ann -> do
       (inner, _off4) <- decodeValue bs (off3 + annLen)

@@ -68,6 +68,7 @@ import Data.Word (Word32, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, plusPtr, castPtr)
 import Foreign.Storable (peek)
+import Proto.Wire.FFI (decodeTextFast)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble,
                   castFloatToWord32, castDoubleToWord64)
 import GHC.Exts (Int#, Int(I#), (+#), (>=#), isTrue#)
@@ -319,7 +320,7 @@ avroDecodeString :: ByteString -> Int -> AvroDecodeResult Text
 avroDecodeString !bs !off =
   case avroDecodeBytes bs off of
     AvroDecodeOK !raw !off' ->
-      case TE.decodeUtf8' raw of
+      case decodeTextFast raw of
         Right t -> AvroDecodeOK t off'
         Left _  -> AvroDecodeFail "avroDecodeString: invalid UTF-8"
     AvroDecodeFail e -> AvroDecodeFail e
