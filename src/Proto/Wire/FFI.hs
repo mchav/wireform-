@@ -1,11 +1,26 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
--- | FFI bindings to the SWAR/SIMD-optimized C decoding primitives
--- in @cbits/fast_decode.c@.
+-- | FFI bindings to the SWAR\/SIMD-optimized C decoding primitives
+-- in @cbits\/fast_decode.c@.
 --
 -- These supplement the pure-Haskell decoders for hot paths where C
 -- can leverage SWAR (SIMD Within A Register) for batch operations on
 -- packed fields.
+--
+-- C primitives and what they accelerate:
+--
+-- * 'countPackedVarints' \/ 'packedAllSingleByte' — packed repeated field pre-scan
+-- * 'validateUtf8SWAR' — UTF-8 validation (8 bytes at a time)
+-- * 'decodeVarintSWAR' — branchless varint decode (8-byte load + CTZ)
+-- * 'relocatePageBoundary' — safe 8-byte overread padding
+-- * 'encodeLengthDelimitedC' \/ 'encodeVarintFieldC' \/ 'encodeBoolFieldC' — field encode
+-- * 'findNul' \/ 'findNulBS' — NUL byte scanning for BSON cstrings
+-- * 'isAscii' \/ 'isAsciiBS' \/ 'decodeTextFast' — ASCII fast path for text decode
+-- * 'findJsonEscape' \/ 'escapeJSONStringBS' — JSON string escaping
+-- * 'skipWhitespace' \/ 'skipWhitespaceBS' — EDN whitespace skipping
+-- * 'compareBounds' \/ 'compareBoundsBS' — Iceberg partition bounds comparison
+-- * 'validateArrowBuffers' — Arrow IPC buffer offset validation
+-- * @read\/writeBE\/LE@ — endianness conversion helpers
 module Proto.Wire.FFI
   ( -- * Packed varint helpers
     countPackedVarints
