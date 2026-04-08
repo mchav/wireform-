@@ -13,6 +13,7 @@
 -- 'deriveThrift' generates declarations at compile time from a 'ThriftSchema'.
 module Thrift.CodeGen
   ( generateThriftTypes
+  , generateThriftTypesWithRegistry
   , deriveThrift
   ) where
 
@@ -27,6 +28,7 @@ import qualified Data.Vector as V
 import Language.Haskell.TH
 
 import Thrift.Schema
+import Thrift.Registry
 
 
 -- ---------------------------------------------------------------------------
@@ -34,10 +36,17 @@ import Thrift.Schema
 -- ---------------------------------------------------------------------------
 
 -- | Generate Haskell source code (as 'Text') for all types in a 'ThriftSchema'.
+-- Uses 'defaultThriftRegistry'.
 generateThriftTypes :: ThriftSchema -> Text
-generateThriftTypes schema =
+generateThriftTypes = generateThriftTypesWithRegistry defaultThriftRegistry
+
+-- | Generate Haskell source code using a custom 'ThriftRegistry'.
+-- When a field has an annotation matching a handler, the type transformation
+-- is applied and extra code is emitted.
+generateThriftTypesWithRegistry :: ThriftRegistry -> ThriftSchema -> Text
+generateThriftTypesWithRegistry reg schema =
   let enumDecls = map genThriftEnum (tsEnums schema)
-      structDecls = map genThriftStruct (tsStructs schema)
+      structDecls = map (genThriftStructWithRegistry reg) (tsStructs schema)
       serviceDecls = map genThriftService (tsServices schema)
   in T.intercalate "\n\n" (enumDecls <> structDecls <> serviceDecls)
 
@@ -92,16 +101,43 @@ genThriftEnumFromThrift name vals =
 -- ---------------------------------------------------------------------------
 
 genThriftStruct :: ThriftStruct -> Text
-genThriftStruct ts =
+genThriftStruct ts = genThriftStructWithRegistry defaultThriftRegistry ts
+
+genThriftStructWithRegistry :: ThriftRegistry -> ThriftStruct -> Text
+genThriftStructWithRegistry reg ts =
   let name = tsName ts
       fields = tsFields ts
+      structAnns = V.toList (tsAnnotations ts)
+      extraStructCode = concatMap (\(k, v) ->
+        case Map.lookup k (trStructAnnotations reg) of
+          Just handler -> sahExtraCode handler k v
+          Nothing -> []
+        ) structAnns
+      extraDerivs = concatMap (\(k, v) ->
+        case Map.lookup k (trStructAnnotations reg) of
+          Just handler -> sahExtraDerivations handler v
+          Nothing -> []
+        ) structAnns
+      fieldExtraCode = concatMap (\fld ->
+        concatMap (\(k, v) ->
+          case Map.lookup k (trFieldAnnotations reg) of
+            Just handler -> fahExtraCode handler (tfFieldName fld) v
+            Nothing -> []
+          ) (V.toList (tfAnnotations fld))
+        ) fields
   in T.unlines $
-    genStructDataDecl name fields
+    genStructDataDeclWithRegistry reg name fields
+    <> (if null extraDerivs then [] else map ("  deriving " <>) extraDerivs)
     <> genStructToThrift name fields
     <> genStructFromThrift name fields
+    <> extraStructCode
+    <> fieldExtraCode
 
 genStructDataDecl :: Text -> [ThriftField] -> [Text]
-genStructDataDecl name fields =
+genStructDataDecl = genStructDataDeclWithRegistry defaultThriftRegistry
+
+genStructDataDeclWithRegistry :: ThriftRegistry -> Text -> [ThriftField] -> [Text]
+genStructDataDeclWithRegistry reg name fields =
   [ "data " <> name <> " = " <> name ]
   <> case fields of
     [] ->
@@ -109,17 +145,29 @@ genStructDataDecl name fields =
       , "  deriving anyclass NFData"
       ]
     (f:fs) ->
-      [ "  { " <> genThriftFieldDecl name f ]
-      <> map (\fld -> "  , " <> genThriftFieldDecl name fld) fs
+      [ "  { " <> genThriftFieldDeclWithRegistry reg name f ]
+      <> map (\fld -> "  , " <> genThriftFieldDeclWithRegistry reg name fld) fs
       <> [ "  } deriving stock (Show, Eq, Generic)"
          , "    deriving anyclass NFData"
          ]
 
 genThriftFieldDecl :: Text -> ThriftField -> Text
-genThriftFieldDecl recName fld =
+genThriftFieldDecl = genThriftFieldDeclWithRegistry defaultThriftRegistry
+
+genThriftFieldDeclWithRegistry :: ThriftRegistry -> Text -> ThriftField -> Text
+genThriftFieldDeclWithRegistry reg recName fld =
   let accessor = thriftFieldAccessorName recName (tfFieldName fld)
-      hsType = thriftFieldHsType (tfFieldType fld) (tfRequiredness fld)
+      baseType = thriftFieldHsType (tfFieldType fld) (tfRequiredness fld)
+      hsType = applyFieldAnnotationTransforms reg fld baseType
   in accessor <> " :: " <> hsType
+
+applyFieldAnnotationTransforms :: ThriftRegistry -> ThriftField -> Text -> Text
+applyFieldAnnotationTransforms reg fld ty =
+  foldl (\acc (k, _v) ->
+    case Map.lookup k (trFieldAnnotations reg) of
+      Just handler -> fahTransformType handler acc
+      Nothing -> acc
+    ) ty (V.toList (tfAnnotations fld))
 
 thriftFieldAccessorName :: Text -> Text -> Text
 thriftFieldAccessorName recName fieldName =

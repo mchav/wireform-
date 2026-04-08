@@ -56,6 +56,7 @@ import Test.ASN1Parser (asn1ParserTests)
 import Test.CDDLParser (cddlParserTests)
 import Test.ISLParser (islParserTests)
 import Test.AvroIDL (avroIDLTests)
+import Test.Registry (registryTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform"
@@ -113,4 +114,5 @@ main = defaultMain $ testGroup "wireform"
   , cddlParserTests
   , islParserTests
   , avroIDLTests
+  , registryTests
   ]

@@ -158,9 +158,11 @@ library
       Thrift.Message
       Thrift.Parser
       Thrift.CodeGen
+      Thrift.Registry
       Thrift.QQ
       -- Avro code generation
       Avro.CodeGen
+      Avro.Registry
       Avro.QQ
       -- gRPC framing
       Proto.GRPC
@@ -179,6 +181,7 @@ library
       CBOR.CDDLSchema
       CBOR.CDDL
       CBOR.CDDLCodeGen
+      CBOR.TagRegistry
       CBOR.QQ
       -- MessagePack support
       MsgPack.Value
@@ -206,6 +209,7 @@ library
       CapnProto.Schema
       CapnProto.Parser
       CapnProto.CodeGen
+      CapnProto.Registry
       CapnProto.QQ
       -- FlatBuffers support
       FlatBuffers.Value
@@ -214,6 +218,7 @@ library
       FlatBuffers.Schema
       FlatBuffers.Parser
       FlatBuffers.CodeGen
+      FlatBuffers.Registry
       FlatBuffers.QQ
       -- Apache Iceberg table metadata
       Iceberg.Types
@@ -226,6 +231,7 @@ library
       Bond.Schema
       Bond.Parser
       Bond.CodeGen
+      Bond.Registry
       Bond.QQ
       -- ASN.1 BER/DER support
       ASN1.Value
@@ -373,6 +379,7 @@ test-suite wireform-test
       Test.CDDLParser
       Test.ISLParser
       Test.AvroIDL
+      Test.Registry
 
     build-depends:
         base             >= 4.16 && < 5

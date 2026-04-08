@@ -3,6 +3,7 @@
 -- Cap'n Proto schemas.
 module CapnProto.CodeGen
   ( generateCapnProtoTypes
+  , generateCapnProtoTypesWithRegistry
   , deriveCapnProto
   ) where
 
@@ -15,39 +16,63 @@ import qualified Data.Vector as V
 import Data.ByteString (ByteString)
 import Language.Haskell.TH
 
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+
 import CapnProto.Schema
+import CapnProto.Registry
 
 -- ---------------------------------------------------------------------------
 -- Text-based code generation
 -- ---------------------------------------------------------------------------
 
 generateCapnProtoTypes :: CapnProtoSchema -> Text
-generateCapnProtoTypes schema =
-  let decls = concatMap genDecl (V.toList (csDecls schema))
+generateCapnProtoTypes = generateCapnProtoTypesWithRegistry defaultCapnProtoRegistry
+
+-- | Generate Haskell source code using a custom 'CapnProtoRegistry'.
+-- When a field has an annotation matching a registered handler, the handler's
+-- type transformation and extra code generation are applied.
+generateCapnProtoTypesWithRegistry :: CapnProtoRegistry -> CapnProtoSchema -> Text
+generateCapnProtoTypesWithRegistry reg schema =
+  let decls = concatMap (genDeclWithRegistry reg) (V.toList (csDecls schema))
   in T.intercalate "\n\n" decls
 
 genDecl :: Declaration -> [Text]
-genDecl (DStruct s)       = genCapnStruct s
-genDecl (DEnum e)         = genCapnEnum e
-genDecl (DInterface _)    = []
-genDecl (DConst _ _ _)    = []
-genDecl (DAnnotation _ _) = []
+genDecl = genDeclWithRegistry defaultCapnProtoRegistry
+
+genDeclWithRegistry :: CapnProtoRegistry -> Declaration -> [Text]
+genDeclWithRegistry reg (DStruct s) = genCapnStructWithRegistry reg s
+genDeclWithRegistry _reg (DEnum e)  = genCapnEnum e
+genDeclWithRegistry _reg (DInterface _)    = []
+genDeclWithRegistry _reg (DConst _ _ _)    = []
+genDeclWithRegistry _reg (DAnnotation _ _) = []
 
 -- ---------------------------------------------------------------------------
 -- Struct generation (text)
 -- ---------------------------------------------------------------------------
 
 genCapnStruct :: StructDef -> [Text]
-genCapnStruct sd =
+genCapnStruct = genCapnStructWithRegistry defaultCapnProtoRegistry
+
+genCapnStructWithRegistry :: CapnProtoRegistry -> StructDef -> [Text]
+genCapnStructWithRegistry reg sd =
   let name = sdName sd
       fields = V.toList (sdFields sd)
-      nested = concatMap genNestedDecl (V.toList (sdNested sd))
+      nested = concatMap (genDeclWithRegistry reg) (V.toList (sdNested sd))
       unions = concatMap (genUnionDecl name) (V.toList (sdUnions sd))
+      extraCode = concatMap (\fld ->
+        concatMap (\(k, mv) ->
+          case Map.lookup k (crAnnotationHandlers reg) of
+            Just handler -> CapnProto.Registry.hExtraCode handler k mv
+            Nothing -> []
+          ) (V.toList (fdAnnotations fld))
+        ) fields
   in nested <> unions <>
-     [ genStructDataDecl name fields ]
+     [ genStructDataDeclWithRegistry reg name fields ]
+     <> if null extraCode then [] else [T.unlines extraCode]
 
 genNestedDecl :: Declaration -> [Text]
-genNestedDecl = genDecl
+genNestedDecl = genDeclWithRegistry defaultCapnProtoRegistry
 
 genUnionDecl :: Text -> UnionDef -> [Text]
 genUnionDecl parentName ud =
@@ -65,21 +90,36 @@ genUnionDecl parentName ud =
      ]
 
 genStructDataDecl :: Text -> [FieldDef] -> Text
-genStructDataDecl name fields = T.unlines $
+genStructDataDecl = genStructDataDeclWithRegistry defaultCapnProtoRegistry
+
+genStructDataDeclWithRegistry :: CapnProtoRegistry -> Text -> [FieldDef] -> Text
+genStructDataDeclWithRegistry reg name fields = T.unlines $
   [ "data " <> name <> " = " <> name ]
   <> case fields of
     [] ->
       [ "  deriving stock (Show, Eq, Generic)" ]
     (f:fs) ->
-      [ "  { " <> genFieldDecl name f ]
-      <> map (\fld -> "  , " <> genFieldDecl name fld) fs
+      [ "  { " <> genFieldDeclWithRegistry reg name f ]
+      <> map (\fld -> "  , " <> genFieldDeclWithRegistry reg name fld) fs
       <> [ "  } deriving stock (Show, Eq, Generic)" ]
 
 genFieldDecl :: Text -> FieldDef -> Text
-genFieldDecl recName fld =
+genFieldDecl = genFieldDeclWithRegistry defaultCapnProtoRegistry
+
+genFieldDeclWithRegistry :: CapnProtoRegistry -> Text -> FieldDef -> Text
+genFieldDeclWithRegistry reg recName fld =
   let accessor = capnFieldAccessorName recName (fdName fld)
-      hsType = capnStrictHsType (fdType fld)
+      baseType = capnStrictHsType (fdType fld)
+      hsType = applyCapnAnnotationTransforms reg fld baseType
   in accessor <> " :: " <> hsType
+
+applyCapnAnnotationTransforms :: CapnProtoRegistry -> FieldDef -> Text -> Text
+applyCapnAnnotationTransforms reg fld ty =
+  foldl (\acc (k, _mv) ->
+    case Map.lookup k (crAnnotationHandlers reg) of
+      Just handler -> CapnProto.Registry.hTransformType handler acc
+      Nothing -> acc
+    ) ty (V.toList (fdAnnotations fld))
 
 capnFieldAccessorName :: Text -> Text -> Text
 capnFieldAccessorName recName fieldName =

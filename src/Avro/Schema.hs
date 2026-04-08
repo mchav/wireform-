@@ -47,6 +47,8 @@ data LogicalType
     -- ^ @duration@ — annotates a 12-byte @fixed@ (months, days, millis as 3 LE uint32s)
   | UuidLogical
     -- ^ @uuid@ — annotates @string@
+  | CustomLogical !Text
+    -- ^ An unknown\/user-defined logical type, preserved for registry-driven codegen.
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 

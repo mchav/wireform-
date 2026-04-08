@@ -14,6 +14,7 @@
 -- 'deriveAvroFromJSON' parses schema JSON and generates.
 module Avro.CodeGen
   ( generateAvroTypes
+  , generateAvroTypesWithRegistry
   , deriveAvro
   , deriveAvroFromJSON
   ) where
@@ -32,8 +33,10 @@ import Avro.Schema
   ( AvroType(..)
   , AvroSchema(..)
   , AvroField(..)
+  , LogicalType(..)
   )
 import Avro.Schema.Parse (parseAvroSchema)
+import Avro.Registry
 
 
 -- ---------------------------------------------------------------------------
@@ -43,19 +46,30 @@ import Avro.Schema.Parse (parseAvroSchema)
 -- | Generate Haskell source code (as 'Text') for a given 'AvroType'.
 -- Produces data type declarations, ToAvro instances, and FromAvro instances
 -- for records, enums, and nested types.
+-- Uses 'defaultAvroRegistry' for logical type handling.
 generateAvroTypes :: AvroType -> Text
-generateAvroTypes ty = T.intercalate "\n\n" (collectDecls ty)
+generateAvroTypes = generateAvroTypesWithRegistry defaultAvroRegistry
 
-collectDecls :: AvroType -> [Text]
-collectDecls = \case
+-- | Generate Haskell source code using a custom 'AvroRegistry'.
+-- When a field has @AvroLogical@ with a logical type name found in
+-- the registry, the handler's Haskell type is used instead of the base type.
+-- When a field has custom props matching a registered 'PropHandler',
+-- extra code is emitted.
+generateAvroTypesWithRegistry :: AvroRegistry -> AvroType -> Text
+generateAvroTypesWithRegistry reg ty = T.intercalate "\n\n" (collectDecls reg ty)
+
+collectDecls :: AvroRegistry -> AvroType -> [Text]
+collectDecls reg = \case
   AvroRecord{avroRecordName = name, avroRecordFields = fields} ->
     let fieldList = V.toList fields
-        nested = concatMap collectNestedFieldDecls fieldList
+        nested = concatMap (collectNestedFieldDecls reg) fieldList
+        propLines = concatMap (fieldPropLines reg) fieldList
     in nested
-      <> [ genRecordDecl name fieldList
-         , genToAvroRecord name fieldList
-         , genFromAvroRecord name fieldList
+      <> [ genRecordDecl reg name fieldList
+         , genToAvroRecord reg name fieldList
+         , genFromAvroRecord reg name fieldList
          ]
+      <> if null propLines then [] else [T.unlines propLines]
 
   AvroEnum{avroEnumName = name, avroEnumSymbols = syms} ->
     let symList = V.toList syms
@@ -64,56 +78,64 @@ collectDecls = \case
        , genFromAvroEnum name symList
        ]
 
-  AvroArray{avroArrayItems = itemTy} -> collectDecls itemTy
-  AvroMap{avroMapValues = valTy} -> collectDecls valTy
+  AvroArray{avroArrayItems = itemTy} -> collectDecls reg itemTy
+  AvroMap{avroMapValues = valTy} -> collectDecls reg valTy
   AvroUnion{avroUnionBranches = branches} ->
-    concatMap collectDecls (V.toList branches)
+    concatMap (collectDecls reg) (V.toList branches)
   _ -> []
 
-collectNestedFieldDecls :: AvroField -> [Text]
-collectNestedFieldDecls fld = case avroFieldType fld of
-  AvroRecord{} -> collectDecls (avroFieldType fld)
-  AvroEnum{} -> collectDecls (avroFieldType fld)
+fieldPropLines :: AvroRegistry -> AvroField -> [Text]
+fieldPropLines reg fld =
+  concatMap (\(k, v) ->
+    case Map.lookup k (arCustomProps reg) of
+      Just handler -> phCodeGen handler k v
+      Nothing -> []
+  ) (Map.toList (avroFieldProps fld))
+
+collectNestedFieldDecls :: AvroRegistry -> AvroField -> [Text]
+collectNestedFieldDecls reg fld = case avroFieldType fld of
+  AvroRecord{} -> collectDecls reg (avroFieldType fld)
+  AvroEnum{} -> collectDecls reg (avroFieldType fld)
   AvroUnion{avroUnionBranches = branches} ->
-    concatMap collectNestedInUnion (V.toList branches)
-  AvroArray{avroArrayItems = itemTy} -> collectNestedInner itemTy
-  AvroMap{avroMapValues = valTy} -> collectNestedInner valTy
+    concatMap (collectNestedInUnion reg) (V.toList branches)
+  AvroArray{avroArrayItems = itemTy} -> collectNestedInner reg itemTy
+  AvroMap{avroMapValues = valTy} -> collectNestedInner reg valTy
   _ -> []
 
-collectNestedInUnion :: AvroType -> [Text]
-collectNestedInUnion ty = case ty of
-  AvroRecord{} -> collectDecls ty
-  AvroEnum{} -> collectDecls ty
+collectNestedInUnion :: AvroRegistry -> AvroType -> [Text]
+collectNestedInUnion reg ty = case ty of
+  AvroRecord{} -> collectDecls reg ty
+  AvroEnum{} -> collectDecls reg ty
   _ -> []
 
-collectNestedInner :: AvroType -> [Text]
-collectNestedInner ty = case ty of
-  AvroRecord{} -> collectDecls ty
-  AvroEnum{} -> collectDecls ty
+collectNestedInner :: AvroRegistry -> AvroType -> [Text]
+collectNestedInner reg ty = case ty of
+  AvroRecord{} -> collectDecls reg ty
+  AvroEnum{} -> collectDecls reg ty
   _ -> []
 
 -- ---------------------------------------------------------------------------
 -- Record data declaration
 -- ---------------------------------------------------------------------------
 
-genRecordDecl :: Text -> [AvroField] -> Text
-genRecordDecl name fields = T.unlines $
+genRecordDecl :: AvroRegistry -> Text -> [AvroField] -> Text
+genRecordDecl reg name fields = T.unlines $
   [ "data " <> name <> " = " <> name ]
   <> case fields of
     [] -> [ "  deriving stock (Show, Eq, Generic)"
           , "  deriving anyclass NFData"
           ]
     (f:fs) ->
-      [ "  { " <> genFieldDecl name f ]
-      <> map (\fld -> "  , " <> genFieldDecl name fld) fs
+      [ "  { " <> genFieldDecl reg name f ]
+      <> map (\fld -> "  , " <> genFieldDecl reg name fld) fs
       <> [ "  } deriving stock (Show, Eq, Generic)"
          , "    deriving anyclass NFData"
          ]
 
-genFieldDecl :: Text -> AvroField -> Text
-genFieldDecl recName fld =
+genFieldDecl :: AvroRegistry -> Text -> AvroField -> Text
+genFieldDecl reg recName fld =
   let accessor = fieldAccessorName recName (avroFieldName fld)
-      hsType = avroFieldHsType (avroFieldType fld)
+      hsType = avroFieldHsType reg (avroFieldType fld)
   in accessor <> " :: " <> hsType
 
 fieldAccessorName :: Text -> Text -> Text
@@ -121,8 +143,8 @@ fieldAccessorName recName fieldName =
   lowerFirst recName <> upperFirst (snakeToCamel fieldName)
 
 -- | Map an Avro field type to its strict Haskell type annotation.
-avroFieldHsType :: AvroType -> Text
-avroFieldHsType = \case
+avroFieldHsType :: AvroRegistry -> AvroType -> Text
+avroFieldHsType reg = \case
   AvroPrimitive AvroNull -> "()"
   AvroPrimitive AvroBool -> "!Bool"
   AvroPrimitive AvroInt -> "{-# UNPACK #-} !Int32"
@@ -137,22 +159,25 @@ avroFieldHsType = \case
   AvroEnum{avroEnumName = n} -> "!" <> n
 
   AvroArray{avroArrayItems = itemTy} ->
-    "!(Vector " <> avroInnerHsType itemTy <> ")"
+    "!(Vector " <> avroInnerHsType reg itemTy <> ")"
 
   AvroMap{avroMapValues = valTy} ->
-    "!(Map Text " <> avroInnerHsType valTy <> ")"
+    "!(Map Text " <> avroInnerHsType reg valTy <> ")"
 
   AvroUnion{avroUnionBranches = branches} ->
     case isNullableUnion (V.toList branches) of
-      Just inner -> "!(Maybe " <> avroInnerHsType inner <> ")"
+      Just inner -> "!(Maybe " <> avroInnerHsType reg inner <> ")"
       Nothing -> "!Avro.Value.Value"
 
   AvroFixed{} -> "!ByteString"
-  AvroLogical{avroLogicalBase = base} -> avroFieldHsType base
+  AvroLogical{avroLogicalBase = base, avroLogicalType = lt} ->
+    case logicalTypeLookup reg lt of
+      Just handler -> "!" <> lthHaskellType handler
+      Nothing -> avroFieldHsType reg base
 
 -- | The "inner" type without strictness annotations (for containers).
-avroInnerHsType :: AvroType -> Text
-avroInnerHsType = \case
+avroInnerHsType :: AvroRegistry -> AvroType -> Text
+avroInnerHsType reg = \case
   AvroPrimitive AvroNull -> "()"
   AvroPrimitive AvroBool -> "Bool"
   AvroPrimitive AvroInt -> "Int32"
@@ -165,15 +190,32 @@ avroInnerHsType = \case
   AvroRecord{avroRecordName = n} -> n
   AvroEnum{avroEnumName = n} -> n
   AvroArray{avroArrayItems = itemTy} ->
-    "(Vector " <> avroInnerHsType itemTy <> ")"
+    "(Vector " <> avroInnerHsType reg itemTy <> ")"
   AvroMap{avroMapValues = valTy} ->
-    "(Map Text " <> avroInnerHsType valTy <> ")"
+    "(Map Text " <> avroInnerHsType reg valTy <> ")"
   AvroUnion{avroUnionBranches = branches} ->
     case isNullableUnion (V.toList branches) of
-      Just inner -> "(Maybe " <> avroInnerHsType inner <> ")"
+      Just inner -> "(Maybe " <> avroInnerHsType reg inner <> ")"
       Nothing -> "Avro.Value.Value"
   AvroFixed{} -> "ByteString"
-  AvroLogical{avroLogicalBase = base} -> avroInnerHsType base
+  AvroLogical{avroLogicalType = lt, avroLogicalBase = base} ->
+    case logicalTypeLookup reg lt of
+      Just handler -> lthHaskellType handler
+      Nothing -> avroInnerHsType reg base
+
+logicalTypeLookup :: AvroRegistry -> LogicalType -> Maybe LogicalTypeHandler
+logicalTypeLookup reg lt = Map.lookup (logicalTypeToName lt) (arLogicalTypes reg)
+
+logicalTypeToName :: LogicalType -> Text
+logicalTypeToName DateLogical             = "date"
+logicalTypeToName TimeMillisLogical       = "time-millis"
+logicalTypeToName TimeMicrosLogical       = "time-micros"
+logicalTypeToName TimestampMillisLogical  = "timestamp-millis"
+logicalTypeToName TimestampMicrosLogical  = "timestamp-micros"
+logicalTypeToName DurationLogical         = "duration"
+logicalTypeToName UuidLogical             = "uuid"
+logicalTypeToName (DecimalLogical _ _)    = "decimal"
+logicalTypeToName (CustomLogical name)    = name
 
 -- | Check if a union is ["null", T] or [T, "null"] and return T.
 isNullableUnion :: [AvroType] -> Maybe AvroType
@@ -210,24 +252,24 @@ enumConName enumName sym =
 -- ToAvro instances
 -- ---------------------------------------------------------------------------
 
-genToAvroRecord :: Text -> [AvroField] -> Text
-genToAvroRecord name fields = T.unlines $
+genToAvroRecord :: AvroRegistry -> Text -> [AvroField] -> Text
+genToAvroRecord reg name fields = T.unlines $
   [ "instance ToAvro " <> name <> " where"
   , "  toAvro msg = Avro.Value.Record $ V.fromList"
   ] <> case fields of
     [] -> [ "    []" ]
     _  ->
-      [ "    [ " <> toAvroFieldExpr name (head fields) ]
-      <> map (\f -> "    , " <> toAvroFieldExpr name f) (tail fields)
+      [ "    [ " <> toAvroFieldExpr reg name (head fields) ]
+      <> map (\f -> "    , " <> toAvroFieldExpr reg name f) (tail fields)
       <> [ "    ]" ]
 
-toAvroFieldExpr :: Text -> AvroField -> Text
-toAvroFieldExpr recName fld =
+toAvroFieldExpr :: AvroRegistry -> Text -> AvroField -> Text
+toAvroFieldExpr reg recName fld =
   let accessor = "msg." <> fieldAccessorName recName (avroFieldName fld)
-  in toAvroConvert (avroFieldType fld) accessor
+  in toAvroConvert reg (avroFieldType fld) accessor
 
-toAvroConvert :: AvroType -> Text -> Text
-toAvroConvert ty accessor = case ty of
+toAvroConvert :: AvroRegistry -> AvroType -> Text -> Text
+toAvroConvert reg ty accessor = case ty of
   AvroPrimitive AvroNull -> "Avro.Value.Null"
   AvroPrimitive AvroBool -> "Avro.Value.Bool " <> accessor
   AvroPrimitive AvroInt -> "Avro.Value.Int " <> accessor
@@ -246,7 +288,10 @@ toAvroConvert ty accessor = case ty of
       Just _ -> "maybe (Avro.Value.Union 0 Avro.Value.Null) (\\x -> Avro.Value.Union 1 (toAvro x)) " <> accessor
       Nothing -> "toAvro " <> accessor
   AvroFixed{} -> "Avro.Value.Fixed " <> accessor
-  AvroLogical{avroLogicalBase = base} -> toAvroConvert base accessor
+  AvroLogical{avroLogicalBase = base, avroLogicalType = lt} ->
+    case logicalTypeLookup reg lt of
+      Just handler -> lthEncode handler <> " " <> accessor
+      Nothing -> toAvroConvert reg base accessor
 
 genToAvroEnum :: Text -> [Text] -> Text
 genToAvroEnum name syms = T.unlines $
@@ -259,8 +304,8 @@ genToAvroEnum name syms = T.unlines $
 -- FromAvro instances
 -- ---------------------------------------------------------------------------
 
-genFromAvroRecord :: Text -> [AvroField] -> Text
-genFromAvroRecord name fields = T.unlines $
+genFromAvroRecord :: AvroRegistry -> Text -> [AvroField] -> Text
+genFromAvroRecord reg name fields = T.unlines $
   [ "instance FromAvro " <> name <> " where"
   , "  fromAvro (Avro.Value.Record fields') = do"
   ] <> case fields of
@@ -268,7 +313,7 @@ genFromAvroRecord name fields = T.unlines $
     _  ->
       zipWith (\i fld ->
         let accessor = fieldAccessorName name (avroFieldName fld)
-        in "    " <> accessor <> "' <- " <> fromAvroFieldExpr (avroFieldType fld) i
+        in "    " <> accessor <> "' <- " <> fromAvroFieldExpr reg (avroFieldType fld) i
       ) [0 :: Int ..] fields
       <> [ "    pure " <> name
          , "      { " <> T.intercalate "\n      , "
@@ -280,8 +325,8 @@ genFromAvroRecord name fields = T.unlines $
          ]
   <> [ "  fromAvro _ = Left \"FromAvro " <> name <> ": expected Record\"" ]
 
-fromAvroFieldExpr :: AvroType -> Int -> Text
-fromAvroFieldExpr ty idx =
+fromAvroFieldExpr :: AvroRegistry -> AvroType -> Int -> Text
+fromAvroFieldExpr reg ty idx =
   let getExpr = "fields' V.! " <> T.pack (show idx)
   in case ty of
     AvroPrimitive AvroNull -> "pure ()"
@@ -317,8 +362,10 @@ fromAvroFieldExpr ty idx =
           "fromAvro (" <> getExpr <> ")"
     AvroFixed{} ->
       "case " <> getExpr <> " of { Avro.Value.Fixed v -> Right v; Avro.Value.Bytes v -> Right v; _ -> Left \"expected Fixed\" }"
-    AvroLogical{avroLogicalBase = base} ->
-      fromAvroFieldExpr base idx
+    AvroLogical{avroLogicalBase = base, avroLogicalType = lt} ->
+      case logicalTypeLookup reg lt of
+        Just handler -> lthDecode handler <> " (" <> getExpr <> ")"
+        Nothing -> fromAvroFieldExpr reg base idx
 
 genFromAvroEnum :: Text -> [Text] -> Text
 genFromAvroEnum name syms = T.unlines $

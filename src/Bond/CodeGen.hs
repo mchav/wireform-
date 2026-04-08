@@ -3,12 +3,14 @@
 -- ToBond\/FromBond stub instances from Bond schemas.
 module Bond.CodeGen
   ( generateBondTypes
+  , generateBondTypesWithRegistry
   , deriveBond
   ) where
 
 import Data.Char (toLower, toUpper)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -17,49 +19,85 @@ import Data.ByteString (ByteString)
 import Language.Haskell.TH
 
 import Bond.Schema
+import Bond.Registry
 
 -- ---------------------------------------------------------------------------
 -- Text-based code generation
 -- ---------------------------------------------------------------------------
 
 generateBondTypes :: BondSchema -> Text
-generateBondTypes schema =
-  let decls = concatMap genDecl (bondDecls schema)
+generateBondTypes = generateBondTypesWithRegistry defaultBondRegistry
+
+-- | Generate Haskell source code using a custom 'BondRegistry'.
+-- When a field has an attribute matching a registered handler, the handler's
+-- type transformation and extra code generation are applied.
+generateBondTypesWithRegistry :: BondRegistry -> BondSchema -> Text
+generateBondTypesWithRegistry reg schema =
+  let decls = concatMap (genDeclWithRegistry reg) (bondDecls schema)
   in T.intercalate "\n\n" decls
 
 genDecl :: BondDecl -> [Text]
-genDecl (BondDeclStruct s) = genBondStruct s
-genDecl (BondDeclEnum e)   = genBondEnum e
+genDecl = genDeclWithRegistry defaultBondRegistry
+
+genDeclWithRegistry :: BondRegistry -> BondDecl -> [Text]
+genDeclWithRegistry reg (BondDeclStruct s) = genBondStructWithRegistry reg s
+genDeclWithRegistry _reg (BondDeclEnum e) = genBondEnum e
 
 -- ---------------------------------------------------------------------------
 -- Struct generation (text)
 -- ---------------------------------------------------------------------------
 
 genBondStruct :: BondStruct -> [Text]
-genBondStruct bs =
+genBondStruct = genBondStructWithRegistry defaultBondRegistry
+
+genBondStructWithRegistry :: BondRegistry -> BondStruct -> [Text]
+genBondStructWithRegistry reg bs =
   let name = bsName bs
       fields = bsFields bs
-  in [ genStructDataDecl name fields
+      extraCode = concatMap (\fld ->
+        concatMap (\(k, mv) ->
+          case Map.lookup k (brAttributeHandlers reg) of
+            Just handler -> Bond.Registry.hExtraCode handler k mv
+            Nothing -> []
+          ) (V.toList (bfAttributes fld))
+        ) fields
+  in [ genStructDataDeclWithRegistry reg name fields
      , genToBondStruct name fields
      , genFromBondStruct name fields
      ]
+     <> if null extraCode then [] else [T.unlines extraCode]
 
 genStructDataDecl :: Text -> [BondField] -> Text
-genStructDataDecl name fields = T.unlines $
+genStructDataDecl = genStructDataDeclWithRegistry defaultBondRegistry
+
+genStructDataDeclWithRegistry :: BondRegistry -> Text -> [BondField] -> Text
+genStructDataDeclWithRegistry reg name fields = T.unlines $
   [ "data " <> name <> " = " <> name ]
   <> case fields of
     [] ->
       [ "  deriving stock (Show, Eq, Generic)" ]
     (f:fs) ->
-      [ "  { " <> genFieldDecl name f ]
-      <> map (\fld -> "  , " <> genFieldDecl name fld) fs
+      [ "  { " <> genFieldDeclWithRegistry reg name f ]
+      <> map (\fld -> "  , " <> genFieldDeclWithRegistry reg name fld) fs
       <> [ "  } deriving stock (Show, Eq, Generic)" ]
 
 genFieldDecl :: Text -> BondField -> Text
-genFieldDecl recName fld =
+genFieldDecl = genFieldDeclWithRegistry defaultBondRegistry
+
+genFieldDeclWithRegistry :: BondRegistry -> Text -> BondField -> Text
+genFieldDeclWithRegistry reg recName fld =
   let accessor = bondFieldAccessorName recName (bfName fld)
-      hsType = bondFieldHsType (bfType fld) (bfModifier fld)
+      baseType = bondFieldHsType (bfType fld) (bfModifier fld)
+      hsType = applyBondAttributeTransforms reg fld baseType
   in accessor <> " :: " <> hsType
+
+applyBondAttributeTransforms :: BondRegistry -> BondField -> Text -> Text
+applyBondAttributeTransforms reg fld ty =
+  foldl (\acc (k, _mv) ->
+    case Map.lookup k (brAttributeHandlers reg) of
+      Just handler -> Bond.Registry.hTransformType handler acc
+      Nothing -> acc
+    ) ty (V.toList (bfAttributes fld))
 
 bondFieldAccessorName :: Text -> Text -> Text
 bondFieldAccessorName recName fieldName =

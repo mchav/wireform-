@@ -4,6 +4,7 @@
 -- get strict records, enums and unions become sum types.
 module FlatBuffers.CodeGen
   ( generateFlatBuffersTypes
+  , generateFlatBuffersTypesWithRegistry
   , deriveFlatBuffers
   ) where
 
@@ -15,48 +16,84 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Vector as V
 import Language.Haskell.TH
 
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+
 import FlatBuffers.Schema
+import FlatBuffers.Registry
 
 -- ---------------------------------------------------------------------------
 -- Text-based code generation
 -- ---------------------------------------------------------------------------
 
 generateFlatBuffersTypes :: FlatBuffersSchema -> Text
-generateFlatBuffersTypes schema =
-  let decls = concatMap genFBDecl (V.toList (fbsDecls schema))
+generateFlatBuffersTypes = generateFlatBuffersTypesWithRegistry defaultFlatBuffersRegistry
+
+-- | Generate Haskell source code using a custom 'FlatBuffersRegistry'.
+-- When a table field has metadata matching a registered handler, the handler's
+-- type transformation and extra code generation are applied.
+generateFlatBuffersTypesWithRegistry :: FlatBuffersRegistry -> FlatBuffersSchema -> Text
+generateFlatBuffersTypesWithRegistry reg schema =
+  let decls = concatMap (genFBDeclWithRegistry reg) (V.toList (fbsDecls schema))
   in T.intercalate "\n\n" decls
 
 genFBDecl :: FBDeclaration -> [Text]
-genFBDecl (FBTable t)  = [genTableDecl t]
-genFBDecl (FBStruct s) = [genFBStructDecl s]
-genFBDecl (FBEnum e)   = [genFBEnumDecl e]
-genFBDecl (FBUnion u)  = [genFBUnionDecl u]
+genFBDecl = genFBDeclWithRegistry defaultFlatBuffersRegistry
+
+genFBDeclWithRegistry :: FlatBuffersRegistry -> FBDeclaration -> [Text]
+genFBDeclWithRegistry reg (FBTable t) = genTableDeclWithRegistry reg t
+genFBDeclWithRegistry _reg (FBStruct s) = [genFBStructDecl s]
+genFBDeclWithRegistry _reg (FBEnum e)   = [genFBEnumDecl e]
+genFBDeclWithRegistry _reg (FBUnion u)  = [genFBUnionDecl u]
 
 -- ---------------------------------------------------------------------------
 -- Table generation (text) — optional fields get Maybe
 -- ---------------------------------------------------------------------------
 
 genTableDecl :: TableDef -> Text
-genTableDecl td =
+genTableDecl td = head (genTableDeclWithRegistry defaultFlatBuffersRegistry td)
+
+genTableDeclWithRegistry :: FlatBuffersRegistry -> TableDef -> [Text]
+genTableDeclWithRegistry reg td =
   let name = tdName td
       fields = V.toList (tdFields td)
-  in T.unlines $
-    [ "data " <> name <> " = " <> name ]
-    <> case fields of
-      [] ->
-        [ "  deriving stock (Show, Eq, Generic)" ]
-      (f:fs) ->
-        [ "  { " <> genTableFieldDecl name f ]
-        <> map (\fld -> "  , " <> genTableFieldDecl name fld) fs
-        <> [ "  } deriving stock (Show, Eq, Generic)" ]
+      extraCode = concatMap (\fld ->
+        concatMap (\(k, mv) ->
+          case Map.lookup k (frMetadataHandlers reg) of
+            Just handler -> FlatBuffers.Registry.hExtraCode handler k mv
+            Nothing -> []
+          ) (V.toList (tfMetadata fld))
+        ) fields
+      mainDecl = T.unlines $
+        [ "data " <> name <> " = " <> name ]
+        <> case fields of
+          [] ->
+            [ "  deriving stock (Show, Eq, Generic)" ]
+          (f:fs) ->
+            [ "  { " <> genTableFieldDeclWithRegistry reg name f ]
+            <> map (\fld -> "  , " <> genTableFieldDeclWithRegistry reg name fld) fs
+            <> [ "  } deriving stock (Show, Eq, Generic)" ]
+  in [mainDecl] <> if null extraCode then [] else [T.unlines extraCode]
 
 genTableFieldDecl :: Text -> TableField -> Text
-genTableFieldDecl recName fld =
+genTableFieldDecl = genTableFieldDeclWithRegistry defaultFlatBuffersRegistry
+
+genTableFieldDeclWithRegistry :: FlatBuffersRegistry -> Text -> TableField -> Text
+genTableFieldDeclWithRegistry reg recName fld =
   let accessor = fbFieldAccessorName recName (tfName fld)
-      hsType = case tfDefault fld of
+      baseType = case tfDefault fld of
         Nothing -> "!(Maybe " <> fbInnerHsType (tfType fld) <> ")"
         Just _  -> fbStrictHsType (tfType fld)
+      hsType = applyFBMetadataTransforms reg fld baseType
   in accessor <> " :: " <> hsType
+
+applyFBMetadataTransforms :: FlatBuffersRegistry -> TableField -> Text -> Text
+applyFBMetadataTransforms reg fld ty =
+  foldl (\acc (k, _mv) ->
+    case Map.lookup k (frMetadataHandlers reg) of
+      Just handler -> FlatBuffers.Registry.hTransformType handler acc
+      Nothing -> acc
+    ) ty (V.toList (tfMetadata fld))
 
 -- ---------------------------------------------------------------------------
 -- Struct generation (text) — all strict

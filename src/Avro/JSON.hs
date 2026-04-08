@@ -446,7 +446,7 @@ parseLogicalType "timestamp-millis" = Just TimestampMillisLogical
 parseLogicalType "timestamp-micros" = Just TimestampMicrosLogical
 parseLogicalType "duration"         = Just DurationLogical
 parseLogicalType "uuid"             = Just UuidLogical
-parseLogicalType _                  = Nothing
+parseLogicalType other              = Just (CustomLogical other)
 
 logicalTypeName :: LogicalType -> Text
 logicalTypeName DateLogical             = "date"
@@ -457,6 +457,7 @@ logicalTypeName TimestampMicrosLogical  = "timestamp-micros"
 logicalTypeName DurationLogical         = "duration"
 logicalTypeName UuidLogical             = "uuid"
 logicalTypeName (DecimalLogical _ _)    = "decimal"
+logicalTypeName (CustomLogical name)    = name
 
 instance Aeson.ToJSON AV.Value where
   toJSON = valueToJSON
