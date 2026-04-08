@@ -6,9 +6,11 @@
 --
 -- We use a simplified FlatBuffer encoding for the Arrow Message wrapper,
 -- with the schema/record batch serialized into the metadata flatbuffer.
+-- Buffer validation uses SIMD-accelerated checks via 'Proto.Wire.FFI'.
 module Arrow.IPC
   ( encodeIPCMessage
   , decodeIPCMessage
+  , validateRecordBatchBuffers
   ) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
@@ -18,12 +20,15 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Vector as V
+import Foreign.Marshal.Array (allocaArray)
+import Foreign.Storable (pokeElemOff)
+import System.IO.Unsafe (unsafePerformIO)
 
 import Arrow.Types
+import Proto.Wire.FFI (validateArrowBuffers)
 
 encodeIPCMessage :: Message -> ByteString
 encodeIPCMessage msg =
@@ -306,3 +311,19 @@ ensure bs off n
   | off + n > BS.length bs = Left "Arrow.IPC: unexpected end of input"
   | otherwise = Right ()
 {-# INLINE ensure #-}
+
+-- | Validate that all buffer offset/length pairs in a 'RecordBatchDef' are
+-- non-negative, within the given body length, and non-overlapping.
+-- Uses SIMD-accelerated pairwise checks.
+validateRecordBatchBuffers :: RecordBatchDef -> Int64 -> Bool
+validateRecordBatchBuffers rb bodyLen = unsafePerformIO $ do
+  let !bufs = rbBuffers rb
+      !n = V.length bufs
+  if n == 0
+    then pure True
+    else allocaArray (n * 2) $ \ptr -> do
+      V.iforM_ bufs $ \i buf -> do
+        pokeElemOff ptr (i * 2) (bufOffset buf)
+        pokeElemOff ptr (i * 2 + 1) (bufLength buf)
+      pure $! validateArrowBuffers ptr n bodyLen
+{-# INLINE validateRecordBatchBuffers #-}
