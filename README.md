@@ -280,6 +280,68 @@ Parquet.Types / .Footer                 Apache Parquet
 Arrow.Types / .IPC                      Apache Arrow IPC
 ```
 
+## Code Generation
+
+`wireform-gen` is a single CLI that generates Haskell types and instances from
+schema files for all supported IDL formats.
+
+```
+wireform-gen — code generator for multiple serialization formats
+
+Usage: wireform-gen COMMAND [OPTIONS]
+
+Commands:
+  proto     Generate Haskell from .proto files
+  avro      Generate Haskell from .avsc or .avdl files
+  thrift    Generate Haskell from .thrift files
+  bond      Generate Haskell from .bond files
+  capnp     Generate Haskell from .capnp files
+  fbs       Generate Haskell from .fbs files
+  asn1      Generate Haskell from ASN.1 module definitions
+```
+
+### Common options
+
+```
+-i, --input FILE      Input schema file (required)
+-o, --output DIR      Output directory (default: stdout)
+-m, --module PREFIX   Module name prefix
+--help                Show help
+```
+
+### Format-specific options
+
+**proto:**
+
+```
+-I, --include DIR     Proto include path (can repeat)
+```
+
+Proto also has sub-subcommands: `generate` (default), `print`, `summary`.
+
+**avro:**
+
+```
+--format avsc|avdl    Input format (default: auto-detect by extension)
+```
+
+### Examples
+
+```bash
+wireform-gen proto -i proto/person.proto -o gen/
+wireform-gen avro -i schemas/user.avsc -o gen/
+wireform-gen thrift -i service.thrift
+wireform-gen bond -i types.bond -o gen/
+wireform-gen capnp -i schema.capnp -o gen/
+wireform-gen fbs -i game.fbs -o gen/
+wireform-gen asn1 -i module.asn1 -o gen/
+wireform-gen proto print -i proto/person.proto
+wireform-gen proto summary -i proto/person.proto
+```
+
+A separate `protoc-gen-wireform` executable is provided as a protoc plugin
+(invoked by protoc via `--wireform_out`).
+
 ## Building
 
 ```bash

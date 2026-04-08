@@ -1,184 +1,326 @@
 {-# LANGUAGE ApplicativeDo #-}
--- | wireform code generator CLI.
---
--- Usage:
---
--- @
--- wireform-gen [OPTIONS] INPUT.proto [INPUT2.proto ...]
---
---   -I, --include DIR         Add import search directory (repeatable)
---   -o, --out DIR             Output directory for generated files (default: .)
---       --module-prefix PFX   Haskell module prefix (default: Proto.Gen)
---       --lazy-submessages    Enable lazy submessage decoding
---       --print               Print the proto file back (exact print)
---       --summary             Print a structural summary
--- @
 module Main where
 
-import Control.Monad (forM_, forM)
-import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import qualified Data.Vector as V
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
-import System.FilePath ((</>), takeDirectory, (<.>))
+import System.FilePath ((</>), takeDirectory, takeExtension, (<.>))
 import System.IO (hPutStrLn, stderr)
 
 import Options.Applicative
 
 import Proto.Parser.Resolver
 import Proto.CodeGen (generateModuleText, defaultGenerateOpts, GenerateOpts(..),
-                      TypeRegistry, buildTypeRegistry, moduleNameForProto)
+                      buildTypeRegistry, moduleNameForProto)
 import Proto.AST (ProtoFile(..))
 import Proto.Print (printProtoFile)
 import Proto.Inspect (summarize, prettyPrintSummary)
 
-data Cmd
-  = CmdGenerate GenOpts
-  | CmdPrint    PrintOpts
-  | CmdSummary  SummaryOpts
+import Avro.CodeGen (generateAvroTypes)
+import Avro.IDL (parseAvroIDL, AvroIDL(..))
+import Avro.IDLConvert (idlToType)
+import Avro.Schema.Parse (parseAvroSchemaFile)
+
+import Thrift.CodeGen (generateThriftTypes)
+import Thrift.Parser (parseThrift)
+
+import Bond.CodeGen (generateBondTypes)
+import Bond.Parser (parseBond)
+
+import CapnProto.CodeGen (generateCapnProtoTypes)
+import CapnProto.Parser (parseCapnProto)
+
+import FlatBuffers.CodeGen (generateFlatBuffersTypes)
+import FlatBuffers.Parser (parseFlatBuffers)
+
+import ASN1.CodeGen (generateASN1Types)
+import ASN1.Parser (parseASN1Module)
+
+-- Top-level command dispatch
+data Command
+  = CmdProto ProtoCmd
+  | CmdAvro AvroOpts
+  | CmdThrift GenOpts
+  | CmdBond GenOpts
+  | CmdCapnProto GenOpts
+  | CmdFlatBuffers GenOpts
+  | CmdASN1 GenOpts
+
+-- Proto has sub-subcommands to preserve generate/print/summary
+data ProtoCmd
+  = ProtoGenerate ProtoOpts
+  | ProtoPrint ProtoPrintOpts
+  | ProtoSummary ProtoPrintOpts
+
+data ProtoOpts = ProtoOpts
+  { poInput    :: !FilePath
+  , poOutput   :: !(Maybe FilePath)
+  , poModule   :: !(Maybe T.Text)
+  , poIncludes :: ![FilePath]
+  }
+
+data ProtoPrintOpts = ProtoPrintOpts
+  { ppoInput    :: !FilePath
+  , ppoIncludes :: ![FilePath]
+  }
+
+data AvroOpts = AvroOpts
+  { aoInput  :: !FilePath
+  , aoOutput :: !(Maybe FilePath)
+  , aoModule :: !(Maybe T.Text)
+  , aoFormat :: !(Maybe T.Text)
+  }
 
 data GenOpts = GenOpts
-  { goIncludeDirs     :: [FilePath]
-  , goOutputDir       :: FilePath
-  , goModulePrefix    :: String
-  , goLazySubmessages :: Bool
-  , goInputFiles      :: [FilePath]
-  }
-
-data PrintOpts = PrintOpts
-  { poIncludeDirs :: [FilePath]
-  , poInputFile   :: FilePath
-  }
-
-data SummaryOpts = SummaryOpts
-  { soIncludeDirs :: [FilePath]
-  , soInputFile   :: FilePath
+  { goInput  :: !FilePath
+  , goOutput :: !(Maybe FilePath)
+  , goModule :: !(Maybe T.Text)
   }
 
 main :: IO ()
 main = do
   cmd <- execParser opts
   case cmd of
-    CmdGenerate go -> runGenerate go
-    CmdPrint po    -> runPrint po
-    CmdSummary so  -> runSummary so
+    CmdProto pc       -> runProtoCmd pc
+    CmdAvro ao        -> runAvro ao
+    CmdThrift go      -> runThrift go
+    CmdBond go        -> runBond go
+    CmdCapnProto go   -> runCapnProto go
+    CmdFlatBuffers go -> runFlatBuffers go
+    CmdASN1 go        -> runASN1 go
   where
-    opts = info (cmdParser <**> helper)
+    opts = info (commandParser <**> helper)
       ( fullDesc
-     <> header "wireform-gen — Protocol Buffers code generator for Haskell"
-     <> progDesc "Generate Haskell types and instances from .proto files"
+     <> header "wireform-gen — code generator for multiple serialization formats"
+     <> progDesc "Generate Haskell types and instances from schema files"
       )
 
-cmdParser :: Parser Cmd
-cmdParser = subparser
-  ( command "generate" (info (CmdGenerate <$> genOptsParser)
+commandParser :: Parser Command
+commandParser = subparser
+  ( command "proto" (info (CmdProto <$> protoCmdParser <**> helper)
+      (progDesc "Generate Haskell from .proto files"))
+  <> command "avro" (info (CmdAvro <$> avroOptsParser <**> helper)
+      (progDesc "Generate Haskell from .avsc or .avdl files"))
+  <> command "thrift" (info (CmdThrift <$> genOptsParser <**> helper)
+      (progDesc "Generate Haskell from .thrift files"))
+  <> command "bond" (info (CmdBond <$> genOptsParser <**> helper)
+      (progDesc "Generate Haskell from .bond files"))
+  <> command "capnp" (info (CmdCapnProto <$> genOptsParser <**> helper)
+      (progDesc "Generate Haskell from .capnp files"))
+  <> command "fbs" (info (CmdFlatBuffers <$> genOptsParser <**> helper)
+      (progDesc "Generate Haskell from .fbs files"))
+  <> command "asn1" (info (CmdASN1 <$> genOptsParser <**> helper)
+      (progDesc "Generate Haskell from ASN.1 module definitions"))
+  )
+
+-- Shared options for simple formats (thrift, bond, capnp, fbs, asn1)
+genOptsParser :: Parser GenOpts
+genOptsParser = GenOpts
+  <$> strOption
+    ( short 'i' <> long "input" <> metavar "FILE"
+   <> help "Input schema file"
+    )
+  <*> optional (strOption
+    ( short 'o' <> long "output" <> metavar "DIR"
+   <> help "Output directory (default: stdout)"
+    ))
+  <*> optional (strOption
+    ( short 'm' <> long "module" <> metavar "PREFIX"
+   <> help "Module name prefix"
+    ))
+
+-- Proto: sub-subcommands (generate is the default)
+protoCmdParser :: Parser ProtoCmd
+protoCmdParser = subparser
+  ( command "generate" (info (ProtoGenerate <$> protoOptsParser)
       (progDesc "Generate Haskell code from .proto files"))
-  <> command "print" (info (CmdPrint <$> printOptsParser)
+  <> command "print" (info (ProtoPrint <$> protoPrintOptsParser)
       (progDesc "Parse and exact-print a .proto file"))
-  <> command "summary" (info (CmdSummary <$> summaryOptsParser)
+  <> command "summary" (info (ProtoSummary <$> protoPrintOptsParser)
       (progDesc "Print a structural summary of a .proto file"))
   )
-  <|> (CmdGenerate <$> genOptsParser)
+  <|> (ProtoGenerate <$> protoOptsParser)
 
-genOptsParser :: Parser GenOpts
-genOptsParser = do
-  includeDirs <- many $ strOption
-    ( short 'I'
-   <> long "include"
-   <> metavar "DIR"
-   <> help "Add import search directory (repeatable)"
+protoOptsParser :: Parser ProtoOpts
+protoOptsParser = do
+  includes <- many $ strOption
+    ( short 'I' <> long "include" <> metavar "DIR"
+   <> help "Proto include path (can repeat)"
     )
-  outputDir <- strOption
-    ( short 'o'
-   <> long "out"
-   <> metavar "DIR"
-   <> value "."
-   <> showDefault
-   <> help "Output directory for generated Haskell files"
+  input <- strOption
+    ( short 'i' <> long "input" <> metavar "FILE"
+   <> help "Input .proto file"
     )
-  modulePrefix <- strOption
-    ( long "module-prefix"
-   <> metavar "PREFIX"
-   <> value "Proto.Gen"
-   <> showDefault
-   <> help "Haskell module name prefix"
+  output <- optional $ strOption
+    ( short 'o' <> long "output" <> metavar "DIR"
+   <> help "Output directory (default: stdout)"
     )
-  lazySub <- switch
-    ( long "lazy-submessages"
-   <> help "Enable lazy submessage decoding"
+  modPrefix <- optional $ strOption
+    ( short 'm' <> long "module" <> metavar "PREFIX"
+   <> help "Module name prefix (default: Proto.Gen)"
     )
-  inputFiles <- some (argument str (metavar "FILES..." <> help ".proto input files"))
-  pure GenOpts
-    { goIncludeDirs     = includeDirs
-    , goOutputDir       = outputDir
-    , goModulePrefix    = modulePrefix
-    , goLazySubmessages = lazySub
-    , goInputFiles      = inputFiles
+  pure ProtoOpts
+    { poInput    = input
+    , poOutput   = output
+    , poModule   = modPrefix
+    , poIncludes = includes
     }
 
-printOptsParser :: Parser PrintOpts
-printOptsParser = PrintOpts
-  <$> many (strOption (short 'I' <> long "include" <> metavar "DIR"))
-  <*> argument str (metavar "FILE" <> help ".proto file to print")
+protoPrintOptsParser :: Parser ProtoPrintOpts
+protoPrintOptsParser = ProtoPrintOpts
+  <$> strOption
+    ( short 'i' <> long "input" <> metavar "FILE"
+   <> help "Input .proto file"
+    )
+  <*> many (strOption
+    ( short 'I' <> long "include" <> metavar "DIR"
+   <> help "Proto include path (can repeat)"
+    ))
 
-summaryOptsParser :: Parser SummaryOpts
-summaryOptsParser = SummaryOpts
-  <$> many (strOption (short 'I' <> long "include" <> metavar "DIR"))
-  <*> argument str (metavar "FILE" <> help ".proto file to summarize")
+avroOptsParser :: Parser AvroOpts
+avroOptsParser = AvroOpts
+  <$> strOption
+    ( short 'i' <> long "input" <> metavar "FILE"
+   <> help "Input .avsc or .avdl file"
+    )
+  <*> optional (strOption
+    ( short 'o' <> long "output" <> metavar "DIR"
+   <> help "Output directory (default: stdout)"
+    ))
+  <*> optional (strOption
+    ( short 'm' <> long "module" <> metavar "PREFIX"
+   <> help "Module name prefix"
+    ))
+  <*> optional (strOption
+    ( long "format" <> metavar "avsc|avdl"
+   <> help "Input format (default: auto-detect by extension)"
+    ))
 
-runGenerate :: GenOpts -> IO ()
-runGenerate go = do
-  let codegenOpts = defaultGenerateOpts
-        { genModulePrefix    = T.pack (goModulePrefix go)
-        , genLazySubmessages = goLazySubmessages go
-        }
-  -- Phase 1: resolve all proto files and their transitive imports
-  resolvedList <- forM (goInputFiles go) $ \inputFile -> do
-    result <- resolveProtoImports (goIncludeDirs go) inputFile
-    case result of
-      Left err -> do
-        hPutStrLn stderr (showResolveError err)
-        exitFailure
-      Right resolved -> pure (inputFile, resolved)
+------------------------------------------------------------------------
+-- Runners
+------------------------------------------------------------------------
 
-  -- Phase 2: build a global type registry from all resolved files
-  let includeDirs = goIncludeDirs go
-      stripDirs = stripIncludeDirs includeDirs
-      allResolved = concatMap (\(fp, rp) -> (stripDirs fp, rp) : collectTransitiveImports includeDirs rp) resolvedList
-      registry = buildTypeRegistry codegenOpts allResolved
+runProtoCmd :: ProtoCmd -> IO ()
+runProtoCmd (ProtoGenerate po) = runProtoGenerate po
+runProtoCmd (ProtoPrint ppo)   = runProtoPrint ppo
+runProtoCmd (ProtoSummary ppo) = runProtoSummary ppo
 
-  -- Phase 3: generate each input file
-  forM_ resolvedList $ \(inputFile, resolved) -> do
-    let protoRelPath = stripIncludeDirs (goIncludeDirs go) inputFile
-        code = generateModuleText codegenOpts registry protoRelPath (rpFile resolved)
-    if goOutputDir go == "-"
-      then TIO.putStr code
-      else do
-        let modPath = modulePathFromProto codegenOpts protoRelPath (rpFile resolved)
-            outFile = goOutputDir go </> modPath <.> "hs"
-        createDirectoryIfMissing True (takeDirectory outFile)
-        TIO.writeFile outFile code
-        hPutStrLn stderr ("Wrote " <> outFile)
+runProtoGenerate :: ProtoOpts -> IO ()
+runProtoGenerate po = do
+  let prefix = maybe "Proto.Gen" T.unpack (poModule po)
+      codegenOpts = defaultGenerateOpts
+        { genModulePrefix = T.pack prefix }
+  result <- resolveProtoImports (poIncludes po) (poInput po)
+  case result of
+    Left err -> do
+      hPutStrLn stderr (showResolveError err)
+      exitFailure
+    Right resolved -> do
+      let protoRelPath = stripIncludeDirs (poIncludes po) (poInput po)
+          allResolved = (protoRelPath, resolved)
+                      : collectTransitiveImports (poIncludes po) resolved
+          registry = buildTypeRegistry codegenOpts allResolved
+          code = generateModuleText codegenOpts registry protoRelPath (rpFile resolved)
+      case poOutput po of
+        Nothing  -> TIO.putStr code
+        Just dir -> do
+          let modPath = modulePathFromProto codegenOpts protoRelPath (rpFile resolved)
+              outFile = dir </> modPath <.> "hs"
+          createDirectoryIfMissing True (takeDirectory outFile)
+          TIO.writeFile outFile code
+          hPutStrLn stderr ("Wrote " <> outFile)
 
-collectTransitiveImports :: [FilePath] -> ResolvedProto -> [(FilePath, ResolvedProto)]
-collectTransitiveImports dirs rp =
-  concatMap (\(_, imp) -> (stripIncludeDirs dirs (rpPath imp), imp) : collectTransitiveImports dirs imp) (Map.toList (rpImports rp))
-
-runPrint :: PrintOpts -> IO ()
-runPrint po = do
-  result <- resolveProtoImports (poIncludeDirs po) (poInputFile po)
+runProtoPrint :: ProtoPrintOpts -> IO ()
+runProtoPrint ppo = do
+  result <- resolveProtoImports (ppoIncludes ppo) (ppoInput ppo)
   case result of
     Left err -> hPutStrLn stderr (showResolveError err) >> exitFailure
     Right resolved -> TIO.putStr (printProtoFile (rpFile resolved))
 
-runSummary :: SummaryOpts -> IO ()
-runSummary so = do
-  result <- resolveProtoImports (soIncludeDirs so) (soInputFile so)
+runProtoSummary :: ProtoPrintOpts -> IO ()
+runProtoSummary ppo = do
+  result <- resolveProtoImports (ppoIncludes ppo) (ppoInput ppo)
   case result of
     Left err -> hPutStrLn stderr (showResolveError err) >> exitFailure
     Right resolved -> TIO.putStr (prettyPrintSummary (summarize (rpFile resolved)))
+
+runAvro :: AvroOpts -> IO ()
+runAvro ao = do
+  let fmt = case aoFormat ao of
+              Just f  -> T.unpack f
+              Nothing -> case takeExtension (aoInput ao) of
+                           ".avdl" -> "avdl"
+                           _       -> "avsc"
+  code <- case fmt of
+    "avdl" -> do
+      src <- TIO.readFile (aoInput ao)
+      case parseAvroIDL src of
+        Left err -> hPutStrLn stderr err >> exitFailure
+        Right idl ->
+          let types = map idlToType (V.toList (aidlDeclarations idl))
+          in pure (T.intercalate "\n\n" (map generateAvroTypes types))
+    _ -> do
+      result <- parseAvroSchemaFile (aoInput ao)
+      case result of
+        Left err -> hPutStrLn stderr err >> exitFailure
+        Right schema -> pure (generateAvroTypes schema)
+  writeOutput (aoOutput ao) code
+
+runThrift :: GenOpts -> IO ()
+runThrift go = do
+  src <- TIO.readFile (goInput go)
+  case parseThrift src of
+    Left err -> hPutStrLn stderr err >> exitFailure
+    Right schema -> writeOutput (goOutput go) (generateThriftTypes schema)
+
+runBond :: GenOpts -> IO ()
+runBond go = do
+  src <- TIO.readFile (goInput go)
+  case parseBond src of
+    Left err -> hPutStrLn stderr err >> exitFailure
+    Right schema -> writeOutput (goOutput go) (generateBondTypes schema)
+
+runCapnProto :: GenOpts -> IO ()
+runCapnProto go = do
+  src <- TIO.readFile (goInput go)
+  case parseCapnProto src of
+    Left err -> hPutStrLn stderr err >> exitFailure
+    Right schema -> writeOutput (goOutput go) (generateCapnProtoTypes schema)
+
+runFlatBuffers :: GenOpts -> IO ()
+runFlatBuffers go = do
+  src <- TIO.readFile (goInput go)
+  case parseFlatBuffers src of
+    Left err -> hPutStrLn stderr err >> exitFailure
+    Right schema -> writeOutput (goOutput go) (generateFlatBuffersTypes schema)
+
+runASN1 :: GenOpts -> IO ()
+runASN1 go = do
+  src <- TIO.readFile (goInput go)
+  case parseASN1Module src of
+    Left err -> hPutStrLn stderr err >> exitFailure
+    Right modl -> writeOutput (goOutput go) (generateASN1Types modl)
+
+------------------------------------------------------------------------
+-- Helpers
+------------------------------------------------------------------------
+
+writeOutput :: Maybe FilePath -> T.Text -> IO ()
+writeOutput Nothing code = TIO.putStr code
+writeOutput (Just dir) code = do
+  let outFile = dir </> "Generated" <.> "hs"
+  createDirectoryIfMissing True (takeDirectory outFile)
+  TIO.writeFile outFile code
+  hPutStrLn stderr ("Wrote " <> outFile)
+
+collectTransitiveImports :: [FilePath] -> ResolvedProto -> [(FilePath, ResolvedProto)]
+collectTransitiveImports dirs rp =
+  concatMap (\(_, imp) -> (stripIncludeDirs dirs (rpPath imp), imp)
+                        : collectTransitiveImports dirs imp)
+            (Map.toList (rpImports rp))
 
 showResolveError :: ResolveError -> String
 showResolveError (ParseError _path msg) = msg
@@ -191,8 +333,8 @@ showResolveError (CircularImport chain) =
   <> "  import chain: " <> T.unpack (T.intercalate " -> " chain)
 
 modulePathFromProto :: GenerateOpts -> FilePath -> ProtoFile -> FilePath
-modulePathFromProto opts filePath pf =
-  let modName = T.unpack (moduleNameForProto opts filePath pf)
+modulePathFromProto opts_ filePath pf =
+  let modName = T.unpack (moduleNameForProto opts_ filePath pf)
   in fmap dotToSlash modName
   where
     dotToSlash '.' = '/'
