@@ -36,6 +36,7 @@ avroTests = testGroup "Avro Encode/Decode"
   , mapEncodingComplianceTests
   , deconflictComplianceTests
   , propertyRoundtripComplianceTests
+  , avroSpecConformanceVectors
   , testGroup "Primitive roundtrips (property)"
       [ testProperty "null roundtrip" $ property $ do
           let ty = AvroPrimitive AvroNull
@@ -890,3 +891,207 @@ mkRecordTypeWithDefaults name fields = AvroRecord
       | (fname, ftype, dflt) <- fields
       ]
   }
+
+--------------------------------------------------------------------------------
+-- Avro spec conformance vectors (from the Apache Avro specification)
+-- Exact byte-level tests for all primitive types.
+--------------------------------------------------------------------------------
+
+avroSpecConformanceVectors :: TestTree
+avroSpecConformanceVectors = testGroup "Avro spec conformance vectors"
+  [ testGroup "null"
+      [ testCase "null encodes to 0 bytes" $
+          encodeAvro (AvroPrimitive AvroNull) AV.Null @?= BS.empty
+      , testCase "null decodes from 0 bytes" $
+          decodeAvro (AvroPrimitive AvroNull) BS.empty @?= Right AV.Null
+      ]
+
+  , testGroup "boolean"
+      [ testCase "true = [0x01]" $
+          encodeAvro (AvroPrimitive AvroBool) (AV.Bool True) @?= BS.pack [0x01]
+      , testCase "false = [0x00]" $
+          encodeAvro (AvroPrimitive AvroBool) (AV.Bool False) @?= BS.pack [0x00]
+      , testCase "decode true" $
+          decodeAvro (AvroPrimitive AvroBool) (BS.pack [0x01]) @?= Right (AV.Bool True)
+      , testCase "decode false" $
+          decodeAvro (AvroPrimitive AvroBool) (BS.pack [0x00]) @?= Right (AV.Bool False)
+      ]
+
+  , testGroup "int (zigzag)"
+      [ testCase "0 = [0x00]" $
+          encodeAvro (AvroPrimitive AvroInt) (AV.Int 0) @?= BS.pack [0x00]
+      , testCase "-1 = [0x01]" $
+          encodeAvro (AvroPrimitive AvroInt) (AV.Int (-1)) @?= BS.pack [0x01]
+      , testCase "1 = [0x02]" $
+          encodeAvro (AvroPrimitive AvroInt) (AV.Int 1) @?= BS.pack [0x02]
+      , testCase "-2 = [0x03]" $
+          encodeAvro (AvroPrimitive AvroInt) (AV.Int (-2)) @?= BS.pack [0x03]
+      , testCase "2 = [0x04]" $
+          encodeAvro (AvroPrimitive AvroInt) (AV.Int 2) @?= BS.pack [0x04]
+      , testCase "-64 = [0x7f]" $
+          encodeAvro (AvroPrimitive AvroInt) (AV.Int (-64)) @?= BS.pack [0x7f]
+      , testCase "64 = [0x80, 0x01]" $
+          encodeAvro (AvroPrimitive AvroInt) (AV.Int 64) @?= BS.pack [0x80, 0x01]
+      , testCase "max int32 = 5 bytes" $ do
+          let bs = encodeAvro (AvroPrimitive AvroInt) (AV.Int maxBound)
+          BS.length bs @?= 5
+          decodeAvro (AvroPrimitive AvroInt) bs @?= Right (AV.Int maxBound)
+      , testCase "min int32 = 5 bytes" $ do
+          let bs = encodeAvro (AvroPrimitive AvroInt) (AV.Int minBound)
+          BS.length bs @?= 5
+          decodeAvro (AvroPrimitive AvroInt) bs @?= Right (AV.Int minBound)
+      ]
+
+  , testGroup "long (zigzag)"
+      [ testCase "long 0 = [0x00]" $
+          encodeAvro (AvroPrimitive AvroLong) (AV.Long 0) @?= BS.pack [0x00]
+      , testCase "long -1 = [0x01]" $
+          encodeAvro (AvroPrimitive AvroLong) (AV.Long (-1)) @?= BS.pack [0x01]
+      , testCase "long 1 = [0x02]" $
+          encodeAvro (AvroPrimitive AvroLong) (AV.Long 1) @?= BS.pack [0x02]
+      , testCase "long max roundtrip" $ do
+          let ty = AvroPrimitive AvroLong
+              val = AV.Long maxBound
+          decodeAvro ty (encodeAvro ty val) @?= Right val
+      , testCase "long min roundtrip" $ do
+          let ty = AvroPrimitive AvroLong
+              val = AV.Long minBound
+          decodeAvro ty (encodeAvro ty val) @?= Right val
+      , testCase "long 90071992547409917" $
+          encodeAvro (AvroPrimitive AvroLong) (AV.Long 90071992547409917)
+            @?= BS.pack [0xfa, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xbf, 0x02]
+      ]
+
+  , testGroup "float (IEEE 754 LE)"
+      [ testCase "float 0.0 = [0,0,0,0]" $
+          encodeAvro (AvroPrimitive AvroFloat) (AV.Float 0.0)
+            @?= BS.pack [0, 0, 0, 0]
+      , testCase "float 1.0 = [0x00,0x00,0x80,0x3f]" $
+          encodeAvro (AvroPrimitive AvroFloat) (AV.Float 1.0)
+            @?= BS.pack [0x00, 0x00, 0x80, 0x3f]
+      , testCase "float roundtrip -3.14" $ do
+          let ty = AvroPrimitive AvroFloat
+              val = AV.Float (-3.14)
+          decodeAvro ty (encodeAvro ty val) @?= Right val
+      ]
+
+  , testGroup "double (IEEE 754 LE)"
+      [ testCase "double 0.0 = 8 zero bytes" $
+          encodeAvro (AvroPrimitive AvroDouble) (AV.Double 0.0)
+            @?= BS.pack [0,0,0,0,0,0,0,0]
+      , testCase "double 1.0" $
+          encodeAvro (AvroPrimitive AvroDouble) (AV.Double 1.0)
+            @?= BS.pack [0, 0, 0, 0, 0, 0, 240, 63]
+      , testCase "double -2.0" $
+          encodeAvro (AvroPrimitive AvroDouble) (AV.Double (-2.0))
+            @?= BS.pack [0, 0, 0, 0, 0, 0, 0, 192]
+      , testCase "double 0.89" $
+          encodeAvro (AvroPrimitive AvroDouble) (AV.Double 0.89)
+            @?= BS.pack [123, 20, 174, 71, 225, 122, 236, 63]
+      ]
+
+  , testGroup "string"
+      [ testCase "\"foo\" = [0x06, 0x66, 0x6f, 0x6f]" $
+          encodeAvro (AvroPrimitive AvroString) (AV.String "foo")
+            @?= BS.pack [0x06, 0x66, 0x6f, 0x6f]
+      , testCase "empty string = [0x00]" $
+          encodeAvro (AvroPrimitive AvroString) (AV.String "")
+            @?= BS.pack [0x00]
+      , testCase "\"a\" = [0x02, 0x61]" $
+          encodeAvro (AvroPrimitive AvroString) (AV.String "a")
+            @?= BS.pack [0x02, 0x61]
+      ]
+
+  , testGroup "bytes"
+      [ testCase "[0xDE, 0xAD] = [0x04, 0xDE, 0xAD]" $
+          encodeAvro (AvroPrimitive AvroBytes) (AV.Bytes (BS.pack [0xDE, 0xAD]))
+            @?= BS.pack [0x04, 0xDE, 0xAD]
+      , testCase "empty bytes = [0x00]" $
+          encodeAvro (AvroPrimitive AvroBytes) (AV.Bytes BS.empty)
+            @?= BS.pack [0x00]
+      ]
+
+  , testGroup "array block encoding"
+      [ testCase "empty array = [0x00]" $
+          encodeAvro (AvroArray (AvroPrimitive AvroInt)) (AV.Array V.empty)
+            @?= BS.pack [0x00]
+      , testCase "[1,2,3] = [count=6, zz(1)=2, zz(2)=4, zz(3)=6, 0]" $
+          encodeAvro (AvroArray (AvroPrimitive AvroInt))
+            (AV.Array (V.fromList [AV.Int 1, AV.Int 2, AV.Int 3]))
+            @?= BS.pack [0x06, 0x02, 0x04, 0x06, 0x00]
+      , testCase "single element [42]" $ do
+          let ty = AvroArray (AvroPrimitive AvroInt)
+              val = AV.Array (V.fromList [AV.Int 42])
+          decodeAvro ty (encodeAvro ty val) @?= Right val
+      , testCase "many elements [0..99]" $ do
+          let ty = AvroArray (AvroPrimitive AvroInt)
+              val = AV.Array (V.fromList [AV.Int i | i <- [0..99]])
+          decodeAvro ty (encodeAvro ty val) @?= Right val
+      ]
+
+  , testGroup "map block encoding"
+      [ testCase "empty map = [0x00]" $
+          encodeAvro (AvroMap (AvroPrimitive AvroInt)) (AV.Map V.empty)
+            @?= BS.pack [0x00]
+      , testCase "{\"a\": 1} = [0x02, 0x02, 0x61, 0x02, 0x00]" $
+          encodeAvro (AvroMap (AvroPrimitive AvroInt))
+            (AV.Map (V.fromList [("a", AV.Int 1)]))
+            @?= BS.pack [0x02, 0x02, 0x61, 0x02, 0x00]
+      , testCase "single entry roundtrip" $ do
+          let ty = AvroMap (AvroPrimitive AvroString)
+              val = AV.Map (V.fromList [("key", AV.String "value")])
+          decodeAvro ty (encodeAvro ty val) @?= Right val
+      ]
+
+  , testGroup "union index encoding"
+      [ testCase "null first in [null, string] = [0x00]" $ do
+          let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
+          encodeAvro ty (AV.Union 0 AV.Null) @?= BS.pack [0x00]
+      , testCase "string second in [null, string] starts with [0x02]" $ do
+          let ty = AvroUnion (V.fromList [AvroPrimitive AvroNull, AvroPrimitive AvroString])
+              bs = encodeAvro ty (AV.Union 1 (AV.String "hi"))
+          BS.index bs 0 @?= 0x02
+      , testCase "null third in [string, bool, null] = [0x04]" $ do
+          let ty = AvroUnion (V.fromList
+                     [ AvroPrimitive AvroString
+                     , AvroPrimitive AvroBool
+                     , AvroPrimitive AvroNull
+                     ])
+          encodeAvro ty (AV.Union 2 AV.Null) @?= BS.pack [0x04]
+      ]
+
+  , testGroup "fixed encoding"
+      [ testCase "fixed 4 bytes" $ do
+          let ty = AvroFixed "F4" Nothing 4 V.empty
+              val = AV.Fixed (BS.pack [0xDE, 0xAD, 0xBE, 0xEF])
+          encodeAvro ty val @?= BS.pack [0xDE, 0xAD, 0xBE, 0xEF]
+          decodeAvro ty (encodeAvro ty val) @?= Right val
+      , testCase "fixed 0 bytes" $ do
+          let ty = AvroFixed "F0" Nothing 0 V.empty
+              val = AV.Fixed BS.empty
+          encodeAvro ty val @?= BS.empty
+          decodeAvro ty (encodeAvro ty val) @?= Right val
+      ]
+
+  , testGroup "enum encoding"
+      [ testCase "enum ordinal 0 = [0x00]" $ do
+          let syms = V.fromList ["A", "B", "C"]
+              ty = AvroEnum "E" Nothing Nothing V.empty syms Nothing
+          encodeAvro ty (AV.Enum 0) @?= BS.pack [0x00]
+      , testCase "enum ordinal 1 = [0x02]" $ do
+          let syms = V.fromList ["A", "B", "C"]
+              ty = AvroEnum "E" Nothing Nothing V.empty syms Nothing
+          encodeAvro ty (AV.Enum 1) @?= BS.pack [0x02]
+      ]
+
+  , testGroup "nested record"
+      [ testCase "3-level nested record roundtrip" $ do
+          let innerTy = mkRecordType "Inner" [("val", AvroPrimitive AvroInt)]
+              midTy = mkRecordType "Mid" [("inner", innerTy), ("label", AvroPrimitive AvroString)]
+              outerTy = mkRecordType "Outer" [("mid", midTy), ("flag", AvroPrimitive AvroBool)]
+              innerVal = AV.Record (V.fromList [AV.Int 42])
+              midVal = AV.Record (V.fromList [innerVal, AV.String "hello"])
+              outerVal = AV.Record (V.fromList [midVal, AV.Bool True])
+          decodeAvro outerTy (encodeAvro outerTy outerVal) @?= Right outerVal
+      ]
+  ]

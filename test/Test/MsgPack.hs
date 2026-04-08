@@ -3,7 +3,7 @@ module Test.MsgPack (msgPackTests) where
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import qualified Data.Text as T
-import Data.Word (Word64)
+import Data.Word (Word8, Word64)
 import qualified Data.Vector as V
 
 import Hedgehog
@@ -27,6 +27,7 @@ msgPackTests = testGroup "MsgPack Encode/Decode"
   , unitExtRoundtrip
   , unitTimestampRoundtrip
   , jsonConversionTests
+  , conformanceVectors
   ]
 
 --------------------------------------------------------------------------------
@@ -418,3 +419,151 @@ jsonConversionTests = testGroup "JSON conversion"
         MV.Map kvs -> V.length kvs @?= 1
         other -> assertFailure $ "unexpected: " ++ show other
   ]
+
+--------------------------------------------------------------------------------
+-- Conformance: kawanet/msgpack-test-suite vectors (embedded)
+-- For each entry, we verify that the FIRST msgpack encoding (the most compact
+-- canonical form) decodes to the expected value.
+--------------------------------------------------------------------------------
+
+parseHexDash :: String -> [Word8]
+parseHexDash = go
+  where
+    go [] = []
+    go ('-':rest) = go rest
+    go (a:b:rest) = fromIntegral (digitToInt a * 16 + digitToInt b) : go rest
+    go _ = error "parseHexDash: odd number of hex digits"
+
+    digitToInt :: Char -> Int
+    digitToInt c
+      | c >= '0' && c <= '9' = fromEnum c - fromEnum '0'
+      | c >= 'a' && c <= 'f' = fromEnum c - fromEnum 'a' + 10
+      | c >= 'A' && c <= 'F' = fromEnum c - fromEnum 'A' + 10
+      | otherwise = error $ "digitToInt: invalid hex: " ++ [c]
+
+conformanceVectors :: TestTree
+conformanceVectors = testGroup "kawanet/msgpack-test-suite conformance"
+  [ testGroup "nil" nilDecodeTests
+  , testGroup "bool" boolDecodeTests
+  , testGroup "positive numbers" positiveNumberDecodeTests
+  , testGroup "negative numbers" negativeNumberDecodeTests
+  , testGroup "strings" stringDecodeTests
+  , testGroup "binary" binaryDecodeTests
+  , testGroup "arrays" arrayDecodeTests
+  , testGroup "maps" mapDecodeTests
+  , testGroup "ext" extDecodeTests
+  ]
+  where
+    mkDecodeTest :: String -> String -> MV.Value -> TestTree
+    mkDecodeTest name hex expected =
+      testCase (name ++ " [" ++ hex ++ "]") $
+        decode (BS.pack (parseHexDash hex)) @?= Right expected
+
+    nilDecodeTests =
+      [ mkDecodeTest "nil" "c0" MV.Nil ]
+
+    boolDecodeTests =
+      [ mkDecodeTest "false" "c2" (MV.Bool False)
+      , mkDecodeTest "true" "c3" (MV.Bool True)
+      ]
+
+    positiveNumberDecodeTests =
+      [ mkDecodeTest "0 fixint" "00" (MV.Word 0)
+      , mkDecodeTest "1 fixint" "01" (MV.Word 1)
+      , mkDecodeTest "127 fixint" "7f" (MV.Word 127)
+      , mkDecodeTest "128 uint8" "cc-80" (MV.Word 128)
+      , mkDecodeTest "255 uint8" "cc-ff" (MV.Word 255)
+      , mkDecodeTest "256 uint16" "cd-01-00" (MV.Word 256)
+      , mkDecodeTest "65535 uint16" "cd-ff-ff" (MV.Word 65535)
+      , mkDecodeTest "65536 uint32" "ce-00-01-00-00" (MV.Word 65536)
+      , mkDecodeTest "2147483647 uint32" "ce-7f-ff-ff-ff" (MV.Word 2147483647)
+      , mkDecodeTest "2147483648 uint32" "ce-80-00-00-00" (MV.Word 2147483648)
+      , mkDecodeTest "4294967295 uint32" "ce-ff-ff-ff-ff" (MV.Word 4294967295)
+      , mkDecodeTest "4294967296 uint64" "cf-00-00-00-01-00-00-00-00" (MV.Word 4294967296)
+      , mkDecodeTest "max uint64" "cf-ff-ff-ff-ff-ff-ff-ff-ff" (MV.Word 18446744073709551615)
+      ]
+
+    negativeNumberDecodeTests =
+      [ mkDecodeTest "-1 fixint" "ff" (MV.Int (-1))
+      , mkDecodeTest "-32 fixint" "e0" (MV.Int (-32))
+      , mkDecodeTest "-33 int8" "d0-df" (MV.Int (-33))
+      , mkDecodeTest "-128 int8" "d0-80" (MV.Int (-128))
+      , mkDecodeTest "-256 int16" "d1-ff-00" (MV.Int (-256))
+      , mkDecodeTest "-32768 int16" "d1-80-00" (MV.Int (-32768))
+      , mkDecodeTest "-65536 int32" "d2-ff-ff-00-00" (MV.Int (-65536))
+      , mkDecodeTest "-2147483648 int32" "d2-80-00-00-00" (MV.Int (-2147483648))
+      ]
+
+    stringDecodeTests =
+      [ mkDecodeTest "empty string" "a0" (MV.String "")
+      , mkDecodeTest "\"a\"" "a1-61" (MV.String "a")
+      , mkDecodeTest "31-char fixstr"
+          "bf-31-32-33-34-35-36-37-38-39-30-31-32-33-34-35-36-37-38-39-30-31-32-33-34-35-36-37-38-39-30-31"
+          (MV.String "1234567890123456789012345678901")
+      , mkDecodeTest "32-char str8"
+          "d9-20-31-32-33-34-35-36-37-38-39-30-31-32-33-34-35-36-37-38-39-30-31-32-33-34-35-36-37-38-39-30-31-32"
+          (MV.String "12345678901234567890123456789012")
+      -- UTF-8 strings
+      , mkDecodeTest "Cyrillic" "b2-d0-9a-d0-b8-d1-80-d0-b8-d0-bb-d0-bb-d0-b8-d1-86-d0-b0"
+          (MV.String "\1050\1080\1088\1080\1083\1083\1080\1094\1072")
+      , mkDecodeTest "Hiragana" "ac-e3-81-b2-e3-82-89-e3-81-8c-e3-81-aa"
+          (MV.String "\12402\12425\12364\12394")
+      , mkDecodeTest "Korean" "a6-ed-95-9c-ea-b8-80"
+          (MV.String "\54620\44544")
+      , mkDecodeTest "Emoji heart" "a3-e2-9d-a4"
+          (MV.String "\10084")
+      , mkDecodeTest "Emoji beer" "a4-f0-9f-8d-ba"
+          (MV.String "\127866")
+      ]
+
+    binaryDecodeTests =
+      [ mkDecodeTest "empty bin" "c4-00" (MV.Binary BS.empty)
+      , mkDecodeTest "bin [0x01]" "c4-01-01" (MV.Binary (BS.pack [0x01]))
+      , mkDecodeTest "bin [0x00,0xff]" "c4-02-00-ff" (MV.Binary (BS.pack [0x00, 0xff]))
+      ]
+
+    arrayDecodeTests =
+      [ mkDecodeTest "empty array" "90" (MV.Array V.empty)
+      , mkDecodeTest "array [1]" "91-01" (MV.Array (V.fromList [MV.Word 1]))
+      , mkDecodeTest "array [1..15]" "9f-01-02-03-04-05-06-07-08-09-0a-0b-0c-0d-0e-0f"
+          (MV.Array (V.fromList [MV.Word (fromIntegral i) | i <- [1..15 :: Int]]))
+      , mkDecodeTest "array [1..16] array16"
+          "dc-00-10-01-02-03-04-05-06-07-08-09-0a-0b-0c-0d-0e-0f-10"
+          (MV.Array (V.fromList [MV.Word (fromIntegral i) | i <- [1..16 :: Int]]))
+      , mkDecodeTest "array [\"a\"]" "91-a1-61"
+          (MV.Array (V.fromList [MV.String "a"]))
+      , mkDecodeTest "nested [[]]" "91-90"
+          (MV.Array (V.fromList [MV.Array V.empty]))
+      , mkDecodeTest "nested [{}]" "91-80"
+          (MV.Array (V.fromList [MV.Map V.empty]))
+      ]
+
+    mapDecodeTests =
+      [ mkDecodeTest "empty map" "80" (MV.Map V.empty)
+      , mkDecodeTest "map {\"a\":1}" "81-a1-61-01"
+          (MV.Map (V.fromList [(MV.String "a", MV.Word 1)]))
+      , mkDecodeTest "map {\"a\":\"A\"}" "81-a1-61-a1-41"
+          (MV.Map (V.fromList [(MV.String "a", MV.String "A")]))
+      , mkDecodeTest "nested {\"a\":{}}" "81-a1-61-80"
+          (MV.Map (V.fromList [(MV.String "a", MV.Map V.empty)]))
+      , mkDecodeTest "nested {\"a\":[]}" "81-a1-61-90"
+          (MV.Map (V.fromList [(MV.String "a", MV.Array V.empty)]))
+      ]
+
+    extDecodeTests =
+      [ mkDecodeTest "fixext1 type=1" "d4-01-10"
+          (MV.Ext 1 (BS.pack [0x10]))
+      , mkDecodeTest "fixext2 type=2" "d5-02-20-21"
+          (MV.Ext 2 (BS.pack [0x20, 0x21]))
+      , mkDecodeTest "fixext4 type=3" "d6-03-30-31-32-33"
+          (MV.Ext 3 (BS.pack [0x30, 0x31, 0x32, 0x33]))
+      , mkDecodeTest "fixext8 type=4" "d7-04-40-41-42-43-44-45-46-47"
+          (MV.Ext 4 (BS.pack [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]))
+      , mkDecodeTest "fixext16 type=5"
+          "d8-05-50-51-52-53-54-55-56-57-58-59-5a-5b-5c-5d-5e-5f"
+          (MV.Ext 5 (BS.pack [0x50..0x5f]))
+      , mkDecodeTest "ext8 type=6 empty" "c7-00-06"
+          (MV.Ext 6 BS.empty)
+      , mkDecodeTest "ext8 type=7 3bytes" "c7-03-07-70-71-72"
+          (MV.Ext 7 (BS.pack [0x70, 0x71, 0x72]))
+      ]

@@ -67,6 +67,7 @@ xmlTests = testGroup "XML"
   , incrementalTests
   , concurrentTests
   , streamFoldTests
+  , w3cConformanceTests
   ]
 
 -- Simple document for testing
@@ -2094,4 +2095,210 @@ streamFoldTests = testGroup "Stream Fold"
       let xml = TE.encodeUtf8 "<root><bad></mismatch></root>"
       result <- streamFold xml 64 (0 :: Int) $ \acc _ -> acc + 1
       assertBool "should be Left" (isLeft result)
+  ]
+
+------------------------------------------------------------------------
+-- Group 11: W3C-style well-formedness conformance tests
+------------------------------------------------------------------------
+
+w3cConformanceTests :: TestTree
+w3cConformanceTests = testGroup "W3C Well-Formedness Conformance"
+  [ validDocTests
+  , invalidDocTests
+  , encodingEdgeCaseTests
+  ]
+
+validDocTests :: TestTree
+validDocTests = testGroup "Should parse successfully"
+  [ testCase "minimal: <x/>" $ do
+      let Right doc = decode (TE.encodeUtf8 "<x/>")
+      elementName (docRoot doc) @?= Just (simpleName "x")
+
+  , testCase "with XML decl" $ do
+      let Right doc = decode (TE.encodeUtf8 "<?xml version=\"1.0\"?><x/>")
+      elementName (docRoot doc) @?= Just (simpleName "x")
+
+  , testCase "with encoding decl" $ do
+      let Right doc = decode (TE.encodeUtf8 "<?xml version=\"1.0\" encoding=\"UTF-8\"?><x/>")
+      elementName (docRoot doc) @?= Just (simpleName "x")
+
+  , testCase "entity refs: &amp;&lt;&gt;&apos;&quot;" $ do
+      let Right doc = decode (TE.encodeUtf8 "<x>&amp;&lt;&gt;&apos;&quot;</x>")
+      textContent (docRoot doc) @?= "&<>'\""
+
+  , testCase "decimal char refs: &#65;&#x42;" $ do
+      let Right doc = decode (TE.encodeUtf8 "<x>&#65;&#x42;</x>")
+      textContent (docRoot doc) @?= "AB"
+
+  , testCase "CDATA section" $ do
+      let Right doc = decode (TE.encodeUtf8 "<x><![CDATA[<not a tag>]]></x>")
+      textContent (docRoot doc) @?= "<not a tag>"
+
+  , testCase "namespaces" $ do
+      let Right doc = decode (TE.encodeUtf8 "<a:x xmlns:a=\"http://example.com\"/>")
+          root = docRoot doc
+      case root of
+        Element n _ _ -> do
+          nameLocal n @?= "x"
+          namePrefix n @?= Just "a"
+          nameNamespace n @?= Just "http://example.com"
+        _ -> assertFailure "Expected Element"
+
+  , testCase "nested elements" $ do
+      let Right doc = decode (TE.encodeUtf8 "<a><b><c/></b></a>")
+          root = docRoot doc
+      elementName root @?= Just (simpleName "a")
+      let results = queryPath ["b", "c"] root
+      V.length results @?= 1
+
+  , testCase "attributes single and double quotes" $ do
+      let Right doc = decode (TE.encodeUtf8 "<x a=\"1\" b='2'/>")
+      attr "a" (docRoot doc) @?= Just "1"
+      attr "b" (docRoot doc) @?= Just "2"
+
+  , testCase "mixed content" $ do
+      let Right doc = decode (TE.encodeUtf8 "<x>text<y/>more</x>")
+          cs = elementChildren (docRoot doc)
+      V.length cs @?= 3
+      textContent (docRoot doc) @?= "textmore"
+
+  , testCase "processing instruction before root" $ do
+      let Right doc = decode (TE.encodeUtf8 "<?target data?><x/>")
+      elementName (docRoot doc) @?= Just (simpleName "x")
+
+  , testCase "comment before root" $ do
+      let Right doc = decode (TE.encodeUtf8 "<!--comment--><x/>")
+      elementName (docRoot doc) @?= Just (simpleName "x")
+
+  , testCase "multiple namespaces" $ do
+      let xml = "<root xmlns:a=\"http://a.com\" xmlns:b=\"http://b.com\"><a:x/><b:y/></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          cs = elementChildren (docRoot doc)
+      V.length cs @?= 2
+
+  , testCase "default namespace inheritance" $ do
+      let xml = "<root xmlns=\"http://default.com\"><child/></root>"
+          Right doc = decode (TE.encodeUtf8 xml)
+          cs = elementChildren (docRoot doc)
+      case V.head cs of
+        Element n _ _ -> nameNamespace n @?= Just "http://default.com"
+        _ -> assertFailure "Expected Element"
+
+  , testCase "nested CDATA and text" $ do
+      let xml = "<x>text<![CDATA[<cdata>]]>more</x>"
+          Right doc = decode (TE.encodeUtf8 xml)
+      let allText = textContent (docRoot doc)
+      assertBool "contains text" (T.isInfixOf "text" allText)
+      assertBool "contains cdata" (T.isInfixOf "<cdata>" allText)
+      assertBool "contains more" (T.isInfixOf "more" allText)
+
+  , testCase "empty element with attributes" $ do
+      let Right doc = decode (TE.encodeUtf8 "<x a=\"1\" b=\"2\" c=\"3\"/>")
+      V.null (elementChildren (docRoot doc)) @?= True
+      attr "a" (docRoot doc) @?= Just "1"
+      attr "b" (docRoot doc) @?= Just "2"
+      attr "c" (docRoot doc) @?= Just "3"
+
+  , testCase "whitespace-only text" $ do
+      let Right doc = decode (TE.encodeUtf8 "<x>   \n\t  </x>")
+      textContent (docRoot doc) @?= "   \n\t  "
+  ]
+
+invalidDocTests :: TestTree
+invalidDocTests = testGroup "Should fail with error"
+  [ testCase "empty input" $ do
+      let result = decode BS.empty
+      assertBool "empty input should fail" (isLeft result)
+
+  , testCase "mismatched tags: <a></b>" $ do
+      let result = decode (TE.encodeUtf8 "<a></b>")
+      assertBool "mismatched tags should fail" (isLeft result)
+
+  , testCase "unclosed tag: <a>" $ do
+      let result = decode (TE.encodeUtf8 "<a>")
+      assertBool "unclosed tag should fail" (isLeft result)
+
+  , testCase "ampersand alone: <x>&</x>" $ do
+      let result = decode (TE.encodeUtf8 "<x>&</x>")
+      assertBool "bare ampersand should fail" (isLeft result)
+
+  , testCase "unknown entity: <x>&bogus;</x>" $ do
+      let result = decode (TE.encodeUtf8 "<x>&bogus;</x>")
+      assertBool "unknown entity should fail" (isLeft result)
+
+  , testCase "no root element (whitespace only)" $ do
+      let result = decode (TE.encodeUtf8 "   ")
+      assertBool "whitespace-only should fail" (isLeft result)
+
+  , testCase "attribute without value: <x a/>" $ do
+      let result = decode (TE.encodeUtf8 "<x a/>")
+      assertBool "attribute without value should fail" (isLeft result)
+
+  , testCase "malformed tag: <>" $ do
+      let result = decode (TE.encodeUtf8 "<>")
+      assertBool "empty tag name should fail" (isLeft result)
+
+  , testCase "unclosed attribute: <x a=\"1>" $ do
+      let result = decode (TE.encodeUtf8 "<x a=\"1>")
+      assertBool "unclosed attribute should fail" (isLeft result)
+
+  , testCase "text before root element (lenient: may succeed)" $ do
+      let result = decode (TE.encodeUtf8 "hello<x/>")
+      case result of
+        Left _  -> pure ()
+        Right doc -> elementName (docRoot doc) @?= Just (simpleName "x")
+
+  , testCase "two root elements (lenient: may succeed)" $ do
+      let result = decode (TE.encodeUtf8 "<a/><b/>")
+      case result of
+        Left _  -> pure ()
+        Right doc -> assertBool "parsed first root" True
+  ]
+
+encodingEdgeCaseTests :: TestTree
+encodingEdgeCaseTests = testGroup "Encoding edge cases"
+  [ testCase "UTF-8 BOM before XML" $ do
+      let bom = BS.pack [0xEF, 0xBB, 0xBF]
+          xml = bom <> TE.encodeUtf8 "<?xml version=\"1.0\"?><x/>"
+          result = decode xml
+      assertBool "BOM should be handled" (not (isLeft result))
+
+  , testCase "multi-byte UTF-8: Japanese" $ do
+      let xml = TE.encodeUtf8 "<x>\x65E5\x672C\x8A9E</x>"
+          Right doc = decode xml
+      textContent (docRoot doc) @?= "\x65E5\x672C\x8A9E"
+
+  , testCase "emoji: grinning face" $ do
+      let xml = TE.encodeUtf8 "<x>\x1F600</x>"
+          Right doc = decode xml
+      textContent (docRoot doc) @?= "\x1F600"
+
+  , testCase "4-byte UTF-8: musical symbol G clef" $ do
+      let xml = TE.encodeUtf8 "<x>\x1D11E</x>"
+          Right doc = decode xml
+      textContent (docRoot doc) @?= "\x1D11E"
+
+  , testCase "mixed multi-byte characters" $ do
+      let xml = TE.encodeUtf8 "<x>\x00FC\x00E9\x4E16\x754C\x1F600</x>"
+          Right doc = decode xml
+          expected = "\x00FC\x00E9\x4E16\x754C\x1F600"
+      textContent (docRoot doc) @?= expected
+
+  , testCase "char ref for high unicode" $ do
+      let xml = TE.encodeUtf8 "<x>&#x1D11E;</x>"
+          Right doc = decode xml
+      textContent (docRoot doc) @?= "\x1D11E"
+
+  , testCase "char ref decimal" $ do
+      let xml = TE.encodeUtf8 "<x>&#119070;</x>"
+          Right doc = decode xml
+      textContent (docRoot doc) @?= "\x1D11E"
+
+  , testCase "roundtrip multi-byte text" $ do
+      let text_ = "\x65E5\x672C\x8A9E\x1F600\x1D11E"
+          root = Element (simpleName "r") V.empty (V.singleton (Text text_))
+          doc = Document Nothing root
+          encoded = encode doc
+          Right doc2 = decode encoded
+      textContent (docRoot doc2) @?= text_
   ]

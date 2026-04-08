@@ -5,7 +5,7 @@ import qualified Data.ByteString as BS
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Data.Word (Word64)
+import Data.Word (Word8, Word64)
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -21,6 +21,7 @@ import CBOR.JSON (toJSON, fromJSON)
 cborTests :: TestTree
 cborTests = testGroup "CBOR"
   [ rfc8949AppendixA
+  , rfc8949ConformanceVectors
   , propertyRoundtrips
   , edgeCases
   , jsonTests
@@ -191,6 +192,235 @@ rfc8949AppendixA = testGroup "RFC 8949 Appendix A test vectors"
           decode bs @?= Right val
       ]
   ]
+
+-- | RFC 8949 Appendix A conformance vectors (embedded).
+-- Each entry: (description, hex bytes, expected decoded Value, roundtrip?)
+-- We test decode of hex bytes matches expected value, and for roundtrip entries,
+-- re-encoding produces the original bytes.
+rfc8949ConformanceVectors :: TestTree
+rfc8949ConformanceVectors = testGroup "RFC 8949 Appendix A conformance vectors"
+  [ testGroup "Decode conformance" $ map mkDecodeTest decodeVectors
+  , testGroup "Roundtrip conformance" $ map mkRoundtripTest roundtripVectors
+  , testGroup "Decode-only (indefinite-length)" $ map mkDecodeTest indefiniteVectors
+  ]
+  where
+    mkDecodeTest (name, hexBytes, expected) =
+      testCase name $ decode (BS.pack hexBytes) @?= Right expected
+
+    mkRoundtripTest (name, hexBytes, expected) =
+      testCase name $ do
+        let bs = BS.pack hexBytes
+        decode bs @?= Right expected
+        encode expected @?= bs
+
+    -- Vectors where roundtrip==true and we have a decoded value
+    roundtripVectors :: [(String, [Word8], C.Value)]
+    roundtripVectors =
+      -- Unsigned integers
+      [ ("uint 0",         [0x00], C.UInt 0)
+      , ("uint 1",         [0x01], C.UInt 1)
+      , ("uint 10",        [0x0a], C.UInt 10)
+      , ("uint 23",        [0x17], C.UInt 23)
+      , ("uint 24",        [0x18, 0x18], C.UInt 24)
+      , ("uint 25",        [0x18, 0x19], C.UInt 25)
+      , ("uint 100",       [0x18, 0x64], C.UInt 100)
+      , ("uint 1000",      [0x19, 0x03, 0xe8], C.UInt 1000)
+      , ("uint 1000000",   [0x1a, 0x00, 0x0f, 0x42, 0x40], C.UInt 1000000)
+      , ("uint 1000000000000",
+          [0x1b, 0x00, 0x00, 0x00, 0xe8, 0xd4, 0xa5, 0x10, 0x00],
+          C.UInt 1000000000000)
+      , ("uint max64",
+          [0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+          C.UInt 18446744073709551615)
+      -- Negative integers
+      , ("nint -1",        [0x20], C.NInt 0)
+      , ("nint -10",       [0x29], C.NInt 9)
+      , ("nint -100",      [0x38, 0x63], C.NInt 99)
+      , ("nint -1000",     [0x39, 0x03, 0xe7], C.NInt 999)
+      -- Booleans and special
+      , ("false",          [0xf4], C.Bool False)
+      , ("true",           [0xf5], C.Bool True)
+      , ("null",           [0xf6], C.Null)
+      , ("undefined",      [0xf7], C.Undefined)
+      -- Simple values
+      , ("simple(16)",     [0xf0], C.Simple 16)
+      , ("simple(24)",     [0xf8, 0x18], C.Simple 24)
+      , ("simple(255)",    [0xf8, 0xff], C.Simple 255)
+      -- Byte strings
+      , ("bytes empty",    [0x40], C.ByteString BS.empty)
+      , ("bytes 01020304", [0x44, 0x01, 0x02, 0x03, 0x04],
+          C.ByteString (BS.pack [0x01, 0x02, 0x03, 0x04]))
+      -- Text strings
+      , ("text empty",     [0x60], C.TextString "")
+      , ("text \"a\"",     [0x61, 0x61], C.TextString "a")
+      , ("text \"IETF\"",  [0x64, 0x49, 0x45, 0x54, 0x46], C.TextString "IETF")
+      , ("text \"\\\"\\\\\"",
+          [0x62, 0x22, 0x5c], C.TextString "\"\\")
+      , ("text \"\\u00fc\"",
+          [0x62, 0xc3, 0xbc], C.TextString "\252")
+      , ("text \"\\u6c34\"",
+          [0x63, 0xe6, 0xb0, 0xb4], C.TextString "\27700")
+      , ("text \"\\ud800\\udd51\" (U+10151)",
+          [0x64, 0xf0, 0x90, 0x85, 0x91], C.TextString "\x10151")
+      -- Arrays
+      , ("array empty",    [0x80], C.Array V.empty)
+      , ("array [1,2,3]",  [0x83, 0x01, 0x02, 0x03],
+          C.Array (V.fromList [C.UInt 1, C.UInt 2, C.UInt 3]))
+      , ("array [1,[2,3],[4,5]]",
+          [0x83, 0x01, 0x82, 0x02, 0x03, 0x82, 0x04, 0x05],
+          C.Array (V.fromList
+            [ C.UInt 1
+            , C.Array (V.fromList [C.UInt 2, C.UInt 3])
+            , C.Array (V.fromList [C.UInt 4, C.UInt 5])
+            ]))
+      , ("array 25 elements",
+          [0x98, 0x19] ++ [0x01..0x17] ++ [0x18, 0x18, 0x18, 0x19],
+          C.Array (V.fromList [C.UInt (fromIntegral i) | i <- [1..25 :: Int]]))
+      -- Maps
+      , ("map empty",      [0xa0], C.Map V.empty)
+      , ("map {\"a\":1, \"b\":[2,3]}",
+          [0xa2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x82, 0x02, 0x03],
+          C.Map (V.fromList
+            [ (C.TextString "a", C.UInt 1)
+            , (C.TextString "b", C.Array (V.fromList [C.UInt 2, C.UInt 3]))
+            ]))
+      , ("map {\"a\":\"A\",\"b\":\"B\",\"c\":\"C\",\"d\":\"D\",\"e\":\"E\"}",
+          [0xa5, 0x61, 0x61, 0x61, 0x41, 0x61, 0x62, 0x61, 0x42,
+           0x61, 0x63, 0x61, 0x43, 0x61, 0x64, 0x61, 0x44, 0x61, 0x65, 0x61, 0x45],
+          C.Map (V.fromList
+            [ (C.TextString "a", C.TextString "A")
+            , (C.TextString "b", C.TextString "B")
+            , (C.TextString "c", C.TextString "C")
+            , (C.TextString "d", C.TextString "D")
+            , (C.TextString "e", C.TextString "E")
+            ]))
+      -- Tags
+      , ("tag 0 date string",
+          [0xc0, 0x74, 0x32, 0x30, 0x31, 0x33, 0x2d, 0x30, 0x33, 0x2d, 0x32,
+           0x31, 0x54, 0x32, 0x30, 0x3a, 0x30, 0x34, 0x3a, 0x30, 0x30, 0x5a],
+          C.Tag 0 (C.TextString "2013-03-21T20:04:00Z"))
+      , ("tag 1 epoch",
+          [0xc1, 0x1a, 0x51, 0x4b, 0x67, 0xb0],
+          C.Tag 1 (C.UInt 1363896240))
+      , ("tag 23 h'01020304'",
+          [0xd7, 0x44, 0x01, 0x02, 0x03, 0x04],
+          C.Tag 23 (C.ByteString (BS.pack [0x01, 0x02, 0x03, 0x04])))
+      , ("tag 24 h'6449455446'",
+          [0xd8, 0x18, 0x45, 0x64, 0x49, 0x45, 0x54, 0x46],
+          C.Tag 24 (C.ByteString (BS.pack [0x64, 0x49, 0x45, 0x54, 0x46])))
+      , ("tag 32 URI",
+          [0xd8, 0x20, 0x76, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f,
+           0x77, 0x77, 0x77, 0x2e, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c,
+           0x65, 0x2e, 0x63, 0x6f, 0x6d],
+          C.Tag 32 (C.TextString "http://www.example.com"))
+      -- Mixed array+map
+      , ("[\"a\", {\"b\": \"c\"}]",
+          [0x82, 0x61, 0x61, 0xa1, 0x61, 0x62, 0x61, 0x63],
+          C.Array (V.fromList
+            [ C.TextString "a"
+            , C.Map (V.fromList [(C.TextString "b", C.TextString "c")])
+            ]))
+      ]
+
+    -- Decode-only vectors: we verify decoding works, but re-encoding may differ
+    decodeVectors :: [(String, [Word8], C.Value)]
+    decodeVectors =
+      -- Float16 decode tests (half-precision are decoded to Float16)
+      [ ("half 0.0",   [0xf9, 0x00, 0x00], C.Float16 0.0)
+      , ("half -0.0",  [0xf9, 0x80, 0x00], C.Float16 (-0.0))
+      , ("half 1.0",   [0xf9, 0x3c, 0x00], C.Float16 1.0)
+      , ("half 1.5",   [0xf9, 0x3e, 0x00], C.Float16 1.5)
+      , ("half 65504", [0xf9, 0x7b, 0xff], C.Float16 65504.0)
+      , ("half -4.0",  [0xf9, 0xc4, 0x00], C.Float16 (-4.0))
+      -- Float32 decode tests
+      , ("float32 100000.0",
+          [0xfa, 0x47, 0xc3, 0x50, 0x00], C.Float32 100000.0)
+      -- Float64 decode tests
+      , ("float64 1.1",
+          [0xfb, 0x3f, 0xf1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9a],
+          C.Float64 1.1)
+      , ("float64 -4.1",
+          [0xfb, 0xc0, 0x10, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66],
+          C.Float64 (-4.1))
+      , ("float64 1e300",
+          [0xfb, 0x7e, 0x37, 0xe4, 0x3c, 0x88, 0x00, 0x75, 0x9c],
+          C.Float64 1.0e300)
+      -- Bignum tagged (>64-bit) — just verify we can decode the tag
+      , ("bignum 2^64",
+          [0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+          C.Tag 2 (C.ByteString (BS.pack [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])))
+      , ("neg bignum -2^64-1",
+          [0xc3, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+          C.Tag 3 (C.ByteString (BS.pack [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])))
+      -- neg max Word64
+      , ("nint -18446744073709551616",
+          [0x3b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+          C.NInt 18446744073709551615)
+      -- tag 1 with float
+      , ("tag 1 epoch float",
+          [0xc1, 0xfb, 0x41, 0xd4, 0x52, 0xd9, 0xec, 0x20, 0x00, 0x00],
+          C.Tag 1 (C.Float64 1363896240.5))
+      ]
+
+    -- Indefinite-length test vectors
+    indefiniteVectors :: [(String, [Word8], C.Value)]
+    indefiniteVectors =
+      [ ("indef array []",
+          [0x9f, 0xff],
+          C.Array V.empty)
+      , ("indef array [1,[2,3],[4,5]]",
+          [0x9f, 0x01, 0x82, 0x02, 0x03, 0x9f, 0x04, 0x05, 0xff, 0xff],
+          C.Array (V.fromList
+            [ C.UInt 1
+            , C.Array (V.fromList [C.UInt 2, C.UInt 3])
+            , C.Array (V.fromList [C.UInt 4, C.UInt 5])
+            ]))
+      , ("indef [1,[2,3],[4,5]] v2",
+          [0x9f, 0x01, 0x82, 0x02, 0x03, 0x82, 0x04, 0x05, 0xff],
+          C.Array (V.fromList
+            [ C.UInt 1
+            , C.Array (V.fromList [C.UInt 2, C.UInt 3])
+            , C.Array (V.fromList [C.UInt 4, C.UInt 5])
+            ]))
+      , ("mixed def/indef [1,[2,3],indef[4,5]]",
+          [0x83, 0x01, 0x82, 0x02, 0x03, 0x9f, 0x04, 0x05, 0xff],
+          C.Array (V.fromList
+            [ C.UInt 1
+            , C.Array (V.fromList [C.UInt 2, C.UInt 3])
+            , C.Array (V.fromList [C.UInt 4, C.UInt 5])
+            ]))
+      , ("mixed [1,indef[2,3],[4,5]]",
+          [0x83, 0x01, 0x9f, 0x02, 0x03, 0xff, 0x82, 0x04, 0x05],
+          C.Array (V.fromList
+            [ C.UInt 1
+            , C.Array (V.fromList [C.UInt 2, C.UInt 3])
+            , C.Array (V.fromList [C.UInt 4, C.UInt 5])
+            ]))
+      , ("indef 25 elements",
+          [0x9f] ++ [0x01..0x17] ++ [0x18, 0x18, 0x18, 0x19, 0xff],
+          C.Array (V.fromList [C.UInt (fromIntegral i) | i <- [1..25 :: Int]]))
+      , ("indef map {\"a\":1,\"b\":[2,3]}",
+          [0xbf, 0x61, 0x61, 0x01, 0x61, 0x62, 0x9f, 0x02, 0x03, 0xff, 0xff],
+          C.Map (V.fromList
+            [ (C.TextString "a", C.UInt 1)
+            , (C.TextString "b", C.Array (V.fromList [C.UInt 2, C.UInt 3]))
+            ]))
+      , ("[\"a\", indef{\"b\":\"c\"}]",
+          [0x82, 0x61, 0x61, 0xbf, 0x61, 0x62, 0x61, 0x63, 0xff],
+          C.Array (V.fromList
+            [ C.TextString "a"
+            , C.Map (V.fromList [(C.TextString "b", C.TextString "c")])
+            ]))
+      , ("indef {\"Fun\":true,\"Amt\":-2}",
+          [0xbf, 0x63, 0x46, 0x75, 0x6e, 0xf5, 0x63, 0x41, 0x6d, 0x74, 0x21, 0xff],
+          C.Map (V.fromList
+            [ (C.TextString "Fun", C.Bool True)
+            , (C.TextString "Amt", C.NInt 1)
+            ]))
+      , ("indef text \"streaming\"",
+          [0x7f, 0x65, 0x73, 0x74, 0x72, 0x65, 0x61, 0x64, 0x6d, 0x69, 0x6e, 0x67, 0xff],
+          C.TextString "streaming")
+      ]
 
 -- | Property-based roundtrip tests.
 propertyRoundtrips :: TestTree
