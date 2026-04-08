@@ -292,6 +292,7 @@ library
       XML.QQ
       XML.DSL
       XML.FastDOM
+      XML.Incremental
       Wireform.XML
 
     other-modules:    Paths_wireform
@@ -325,6 +326,7 @@ library
       , time              >= 1.9    && < 1.15
       , cryptohash-md5    >= 0.11   && < 0.12
       , zlib              >= 0.6    && < 0.8
+      , stm               >= 2.5    && < 2.6
 
     hs-source-dirs:   src
     default-language: GHC2021
@@ -415,6 +417,7 @@ test-suite wireform-test
       , tasty            >= 1.4  && < 1.6
       , tasty-hedgehog   >= 1.0  && < 1.5
       , tasty-hunit      >= 0.10 && < 0.11
+      , stm
 
     hs-source-dirs:   test
     default-language: GHC2021

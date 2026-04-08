@@ -16,6 +16,10 @@ import Test.Tasty.HUnit
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
+import Data.IORef
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TBQueue (readTBQueue)
+import Control.Concurrent (killThread)
 import XML.Value
 import XML.SAX
 import XML.Decode
@@ -27,6 +31,7 @@ import XML.Class
 import XML.Schema
 import XML.CodeGen
 import qualified XML.FastDOM as FD
+import XML.Incremental
 
 import Hedgehog (Gen, Property, property, forAll, (===))
 import qualified Hedgehog as HH
@@ -59,6 +64,9 @@ xmlTests = testGroup "XML"
   , pathDSLQueryTests
   , propertyTests
   , conformanceTests
+  , incrementalTests
+  , concurrentTests
+  , streamFoldTests
   ]
 
 -- Simple document for testing
@@ -1879,4 +1887,211 @@ conformanceTests = testGroup "Conformance / Real-World XML"
       assertBool "has Hello" (T.isInfixOf "Hello" allText)
       assertBool "has &" (T.isInfixOf "&" allText)
       assertBool "has World" (T.isInfixOf "World" allText)
+  ]
+
+------------------------------------------------------------------------
+-- Group 8: Incremental parser tests
+------------------------------------------------------------------------
+
+incrementalTests :: TestTree
+incrementalTests = testGroup "Incremental Parser"
+  [ testCase "feed small doc in one chunk, get all events" $ do
+      let xml = TE.encodeUtf8 "<root><child>text</child></root>"
+      p <- newParser
+      events1 <- feedChunk p xml
+      Right events2 <- feedEnd p
+      let allEvents = events1 <> events2
+          evList = V.toList allEvents
+      assertBool "has StartElement root" $
+        any (\e -> case e of StartElement n _ -> nameLocal n == "root"; _ -> False) evList
+      assertBool "has Characters text" $
+        any (\e -> case e of Characters t -> t == "text"; _ -> False) evList
+      assertBool "has EndElement root" $
+        any (\e -> case e of EndElement n -> nameLocal n == "root"; _ -> False) evList
+
+  , testCase "feed doc in multiple chunks (split mid-tag), get correct events" $ do
+      let xmlFull = TE.encodeUtf8 "<root><child attr=\"val\">content</child></root>"
+          chunk1 = BS.take 15 xmlFull
+          chunk2 = BS.drop 15 xmlFull
+      p <- newParser
+      ev1 <- feedChunk p chunk1
+      ev2 <- feedChunk p chunk2
+      Right ev3 <- feedEnd p
+      let allEvents = ev1 <> ev2 <> ev3
+          evList = V.toList allEvents
+      assertBool "has StartElement root" $
+        any (\e -> case e of StartElement n _ -> nameLocal n == "root"; _ -> False) evList
+      assertBool "has StartElement child" $
+        any (\e -> case e of StartElement n _ -> nameLocal n == "child"; _ -> False) evList
+      assertBool "has Characters content" $
+        any (\e -> case e of Characters t -> t == "content"; _ -> False) evList
+      assertBool "has EndElement child" $
+        any (\e -> case e of EndElement n -> nameLocal n == "child"; _ -> False) evList
+
+  , testCase "feed doc byte-by-byte, get same events as parseSAX" $ do
+      let xmlFull = TE.encodeUtf8 "<root><a>text</a></root>"
+          Right refEvents = parseSAX xmlFull
+      p <- newParser
+      byteChunks <- mapM (\i -> feedChunk p (BS.singleton (BS.index xmlFull i)))
+                         [0 .. BS.length xmlFull - 1]
+      Right finalEvents <- feedEnd p
+      let allEvents = V.concat (byteChunks ++ [finalEvents])
+      V.toList allEvents @?= V.toList refEvents
+
+  , testCase "unterminated tag across chunk boundary" $ do
+      let chunk1 = TE.encodeUtf8 "<root><child"
+      p <- newParser
+      ev1 <- feedChunk p chunk1
+      -- chunk1 contains complete <root> tag so some events may be emitted
+      let chunk2 = TE.encodeUtf8 ">text</child></root>"
+      ev2 <- feedChunk p chunk2
+      Right ev3 <- feedEnd p
+      let allEvents = ev1 <> ev2 <> ev3
+          evList = V.toList allEvents
+      assertBool "has StartElement child" $
+        any (\e -> case e of StartElement n _ -> nameLocal n == "child"; _ -> False) evList
+      assertBool "has Characters text" $
+        any (\e -> case e of Characters t -> t == "text"; _ -> False) evList
+      assertBool "has EndElement child" $
+        any (\e -> case e of EndElement n -> nameLocal n == "child"; _ -> False) evList
+  ]
+
+------------------------------------------------------------------------
+-- Group 9: Concurrent parser tests
+------------------------------------------------------------------------
+
+concurrentTests :: TestTree
+concurrentTests = testGroup "Concurrent Parser"
+  [ testCase "withConcurrentParse produces same events as parseSAX" $ do
+      let xml = TE.encodeUtf8 "<root><a>text1</a><b>text2</b></root>"
+          Right refEvents = parseSAX xml
+      eventsRef <- newIORef []
+      Right () <- withConcurrentParse xml 256 $ \ev ->
+        modifyIORef' eventsRef (ev :)
+      concEvents <- V.fromList . reverse <$> readIORef eventsRef
+      V.toList concEvents @?= V.toList refEvents
+
+  , testCase "handler processes events in order" $ do
+      let xml = TE.encodeUtf8 "<root><a/><b/><c/></root>"
+      eventsRef <- newIORef ([] :: [SAXEvent])
+      Right () <- withConcurrentParse xml 256 $ \ev ->
+        modifyIORef' eventsRef (ev :)
+      events <- reverse <$> readIORef eventsRef
+      let elemNames = [ nameLocal n | StartElement n _ <- events ]
+      assertBool "root comes first" (head elemNames == "root")
+      assertBool "a before b before c" (elemNames == ["root", "a", "b", "c"])
+
+  , testCase "parse error propagated to consumer" $ do
+      let xml = TE.encodeUtf8 "<root><a></b></root>"
+      result <- withConcurrentParse xml 256 (\_ -> pure ())
+      assertBool "should be Left" (isLeft result)
+
+  , testCase "large document (10K elements) parses correctly" $ do
+      let n = 10000 :: Int
+          items = T.concat [ "<item>" <> T.pack (show i) <> "</item>" | i <- [1..n] ]
+          xml = TE.encodeUtf8 ("<root>" <> items <> "</root>")
+      countRef <- newIORef (0 :: Int)
+      Right () <- withConcurrentParse xml 256 $ \ev ->
+        case ev of
+          StartElement sn _ | nameLocal sn == "item" -> modifyIORef' countRef (+1)
+          _ -> pure ()
+      count <- readIORef countRef
+      count @?= n
+
+  , testCase "concurrent vs sequential: same results for complex document" $ do
+      let xml = TE.encodeUtf8 $ T.concat
+            [ "<?xml version=\"1.0\"?>"
+            , "<catalog>"
+            , "<book id=\"1\"><title>Haskell</title><price>29.99</price></book>"
+            , "<book id=\"2\"><title>Erlang</title><price>39.99</price></book>"
+            , "<!-- comment -->"
+            , "<![CDATA[raw data]]>"
+            , "</catalog>"
+            ]
+          Right refEvents = parseSAX xml
+      concRef <- newIORef []
+      Right () <- withConcurrentParse xml 64 $ \ev ->
+        modifyIORef' concRef (ev :)
+      concEvents <- V.fromList . reverse <$> readIORef concRef
+      V.toList concEvents @?= V.toList refEvents
+
+  , testCase "parseToChan low-level API works" $ do
+      let xml = TE.encodeUtf8 "<root><a>text</a></root>"
+      (chan, tid) <- parseToChan xml 32
+      eventsRef <- newIORef []
+      let loop = do
+            item <- atomically $ readTBQueue chan
+            case item of
+              Nothing -> pure ()
+              Just (Left _) -> pure ()
+              Just (Right ev) -> do
+                modifyIORef' eventsRef (ev :)
+                loop
+      loop
+      killThread tid
+      events <- reverse <$> readIORef eventsRef
+      assertBool "has events" (not (null events))
+      let Right refEvents = parseSAX xml
+      events @?= V.toList refEvents
+
+  , testCase "withConcurrentParseBS with chunked input" $ do
+      let xml = TE.encodeUtf8 "<root><a>hello</a></root>"
+          chunks = [BS.take 10 xml, BS.drop 10 xml]
+          Right refEvents = parseSAX xml
+      eventsRef <- newIORef []
+      Right () <- withConcurrentParseBS chunks 128 $ \ev ->
+        modifyIORef' eventsRef (ev :)
+      concEvents <- V.fromList . reverse <$> readIORef eventsRef
+      V.toList concEvents @?= V.toList refEvents
+  ]
+
+------------------------------------------------------------------------
+-- Group 10: Streaming fold tests
+------------------------------------------------------------------------
+
+streamFoldTests :: TestTree
+streamFoldTests = testGroup "Stream Fold"
+  [ testCase "count elements concurrently" $ do
+      let xml = TE.encodeUtf8 "<root><a/><b/><c/><d/></root>"
+      Right count <- streamFold xml 64 (0 :: Int) $ \acc ev ->
+        case ev of
+          StartElement _ _ -> acc + 1
+          _ -> acc
+      count @?= 5
+
+  , testCase "extract all text content concurrently" $ do
+      let xml = TE.encodeUtf8 "<root>hello <b>world</b> end</root>"
+      Right texts <- streamFold xml 64 ([] :: [Text]) $ \acc ev ->
+        case ev of
+          Characters t -> acc ++ [t]
+          _ -> acc
+      T.concat texts @?= "hello world end"
+
+  , testCase "streamFoldIO: write events to IORef, verify count" $ do
+      let xml = TE.encodeUtf8 "<root><x/><x/><x/></root>"
+      ref <- newIORef (0 :: Int)
+      Right count <- streamFoldIO xml 64 (0 :: Int) $ \acc ev -> do
+        case ev of
+          StartElement _ _ -> do
+            modifyIORef' ref (+1)
+            pure (acc + 1)
+          _ -> pure acc
+      count @?= 4
+      ioCount <- readIORef ref
+      ioCount @?= 4
+
+  , testCase "streamFold on large document" $ do
+      let n = 5000 :: Int
+          items = T.concat [ "<item>" <> T.pack (show i) <> "</item>" | i <- [1..n] ]
+          xml = TE.encodeUtf8 ("<root>" <> items <> "</root>")
+      Right total <- streamFold xml 128 (0 :: Int) $ \acc ev ->
+        case ev of
+          StartElement sn _ | nameLocal sn == "item" -> acc + 1
+          _ -> acc
+      total @?= n
+
+  , testCase "streamFold parse error propagated" $ do
+      let xml = TE.encodeUtf8 "<root><bad></mismatch></root>"
+      result <- streamFold xml 64 (0 :: Int) $ \acc _ -> acc + 1
+      assertBool "should be Left" (isLeft result)
   ]
