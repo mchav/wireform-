@@ -22,10 +22,11 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 import Data.Word (Word8)
 import Foreign.C.Types (CInt(..), CUChar(..))
 import Foreign.Ptr (Ptr, castPtr)
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import XML.Value (Name(..), Attribute(..), XMLDecl(..), simpleName, qualifiedName)
 
@@ -50,7 +51,10 @@ instance NFData SAXEvent where
   rnf (StartDocument md) = rnf md
   rnf EndDocument = ()
 
+------------------------------------------------------------------------
 -- FFI imports for SIMD scanning
+------------------------------------------------------------------------
+
 foreign import ccall unsafe "hs_xml_find_byte"
   c_find_byte :: Ptr Word8 -> CInt -> CInt -> CUChar -> IO CInt
 
@@ -66,67 +70,105 @@ foreign import ccall unsafe "hs_xml_find_comment_end"
 foreign import ccall unsafe "hs_xml_find_attr_end"
   c_find_attr_end :: Ptr Word8 -> CInt -> CInt -> CUChar -> IO CInt
 
-findByte :: ByteString -> Int -> Word8 -> Int
-findByte bs off target = unsafePerformIO $
-  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-    fromIntegral <$> c_find_byte (castPtr ptr) (fromIntegral off) (fromIntegral len) (CUChar target)
+-- hs_xml_find_lt available via findTextEndP (which finds both '<' and '&')
 
-findTextEnd :: ByteString -> Int -> Int
-findTextEnd bs off = unsafePerformIO $
-  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-    fromIntegral <$> c_find_text_end (castPtr ptr) (fromIntegral off) (fromIntegral len)
+------------------------------------------------------------------------
+-- Ptr-based scanner wrappers (no per-call unsafePerformIO)
+------------------------------------------------------------------------
 
-findCDataEnd :: ByteString -> Int -> Int
-findCDataEnd bs off = unsafePerformIO $
-  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-    fromIntegral <$> c_find_cdata_end (castPtr ptr) (fromIntegral off) (fromIntegral len)
+findByteP :: Ptr Word8 -> Int -> Int -> Word8 -> IO Int
+findByteP ptr off len target =
+  fromIntegral <$> c_find_byte ptr (fromIntegral off) (fromIntegral len) (CUChar target)
+{-# INLINE findByteP #-}
 
-findCommentEnd :: ByteString -> Int -> Int
-findCommentEnd bs off = unsafePerformIO $
-  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-    fromIntegral <$> c_find_comment_end (castPtr ptr) (fromIntegral off) (fromIntegral len)
+findTextEndP :: Ptr Word8 -> Int -> Int -> IO Int
+findTextEndP ptr off len =
+  fromIntegral <$> c_find_text_end ptr (fromIntegral off) (fromIntegral len)
+{-# INLINE findTextEndP #-}
 
-findAttrEnd :: ByteString -> Int -> Word8 -> Int
-findAttrEnd bs off q = unsafePerformIO $
-  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-    fromIntegral <$> c_find_attr_end (castPtr ptr) (fromIntegral off) (fromIntegral len) (CUChar q)
+findCDataEndP :: Ptr Word8 -> Int -> Int -> IO Int
+findCDataEndP ptr off len =
+  fromIntegral <$> c_find_cdata_end ptr (fromIntegral off) (fromIntegral len)
+{-# INLINE findCDataEndP #-}
 
--- | Parse XML, emitting SAX events. Uses SIMD for character scanning.
-parseSAX :: ByteString -> Either String (Vector SAXEvent)
-parseSAX bs = unsafePerformIO $ do
-  ref <- newIORef []
-  result <- parseSAXImpl bs (\ev -> modifyIORef' ref (ev:))
-  case result of
-    Left err -> pure (Left err)
-    Right () -> do
-      evs <- readIORef ref
-      pure (Right (V.fromList (reverse evs)))
+findCommentEndP :: Ptr Word8 -> Int -> Int -> IO Int
+findCommentEndP ptr off len =
+  fromIntegral <$> c_find_comment_end ptr (fromIntegral off) (fromIntegral len)
+{-# INLINE findCommentEndP #-}
 
--- | Streaming SAX: process events one at a time with a callback.
-parseSAXStream :: ByteString -> (SAXEvent -> IO ()) -> IO (Either String ())
-parseSAXStream = parseSAXImpl
+findAttrEndP :: Ptr Word8 -> Int -> Int -> Word8 -> IO Int
+findAttrEndP ptr off len q =
+  fromIntegral <$> c_find_attr_end ptr (fromIntegral off) (fromIntegral len) (CUChar q)
+{-# INLINE findAttrEndP #-}
 
--- | Fold over SAX events (pure).
-foldSAX :: (a -> SAXEvent -> a) -> a -> ByteString -> Either String a
-foldSAX f z bs = unsafePerformIO $ do
-  ref <- newIORef z
-  result <- parseSAXImpl bs (\ev -> modifyIORef' ref (\acc -> f acc ev))
-  case result of
-    Left err -> pure (Left err)
-    Right () -> Right <$> readIORef ref
+
+------------------------------------------------------------------------
+-- Parser state — carries the raw Ptr pinned once at parse start
+------------------------------------------------------------------------
 
 data PState = PState
-  { psOffset :: !Int
-  , psInput :: !ByteString
-  , psLength :: !Int
+  { psBS     :: !ByteString
+  , psPtr    :: !(Ptr Word8)
+  , psOffset :: !Int
+  , psLen    :: !Int
   , psNsStack :: ![(Text, Text)]
   }
 
-parseSAXImpl :: ByteString -> (SAXEvent -> IO ()) -> IO (Either String ())
-parseSAXImpl bs emit = do
-  let !len = BS.length bs
-      initState = PState 0 bs len []
-  -- Check for XML declaration first, then emit StartDocument
+------------------------------------------------------------------------
+-- Public entry points
+------------------------------------------------------------------------
+
+-- | Parse XML, emitting SAX events. Uses SIMD for character scanning.
+-- Accumulates events in a growing mutable vector (no list reverse).
+parseSAX :: ByteString -> Either String (Vector SAXEvent)
+parseSAX bs = unsafeDupablePerformIO $
+  BSU.unsafeUseAsCStringLen bs $ \(cstr, len) -> do
+    let !ptr = castPtr cstr :: Ptr Word8
+    mvRef <- newIORef =<< MV.unsafeNew 256
+    nRef  <- newIORef (0 :: Int)
+    let emit !ev = do
+          n  <- readIORef nRef
+          mv <- readIORef mvRef
+          mv' <- if n >= MV.length mv
+                   then MV.grow mv (MV.length mv)
+                   else pure mv
+          MV.unsafeWrite mv' n ev
+          writeIORef mvRef mv'
+          writeIORef nRef (n + 1)
+    result <- parseSAXImpl bs ptr len emit
+    case result of
+      Left err -> pure (Left err)
+      Right () -> do
+        n  <- readIORef nRef
+        mv <- readIORef mvRef
+        v  <- V.unsafeFreeze (MV.unsafeSlice 0 n mv)
+        pure (Right v)
+
+-- | Streaming SAX: process events one at a time with a callback.
+parseSAXStream :: ByteString -> (SAXEvent -> IO ()) -> IO (Either String ())
+parseSAXStream bs emit =
+  BSU.unsafeUseAsCStringLen bs $ \(cstr, len) -> do
+    let !ptr = castPtr cstr :: Ptr Word8
+    parseSAXImpl bs ptr len emit
+
+-- | Fold over SAX events (pure).
+foldSAX :: (a -> SAXEvent -> a) -> a -> ByteString -> Either String a
+foldSAX f z bs = unsafeDupablePerformIO $
+  BSU.unsafeUseAsCStringLen bs $ \(cstr, len) -> do
+    let !ptr = castPtr cstr :: Ptr Word8
+    ref <- newIORef z
+    result <- parseSAXImpl bs ptr len (\ev -> modifyIORef' ref (\acc -> f acc ev))
+    case result of
+      Left err -> pure (Left err)
+      Right () -> Right <$> readIORef ref
+
+------------------------------------------------------------------------
+-- Core parser implementation
+------------------------------------------------------------------------
+
+parseSAXImpl :: ByteString -> Ptr Word8 -> Int -> (SAXEvent -> IO ()) -> IO (Either String ())
+parseSAXImpl bs ptr len emit = do
+  let initState = PState bs ptr 0 len []
   result <- parseProlog initState emit
   case result of
     Left err -> pure (Left err)
@@ -144,8 +186,9 @@ type TagStack = [Name]
 
 parseProlog :: PState -> (SAXEvent -> IO ()) -> IO (Either String (PState, Maybe XMLDecl))
 parseProlog !st emit = do
-  let !bs = psInput st
-      !len = psLength st
+  let !bs = psBS st
+      !ptr = psPtr st
+      !len = psLen st
       !off = skipSpaces bs 0 len
   if off + 5 < len &&
      BSU.unsafeIndex bs off == 0x3C &&
@@ -156,12 +199,14 @@ parseProlog !st emit = do
      isSpaceByte (BSU.unsafeIndex bs (off+5))
     then do
       let !nameEnd = off + 5
-      parseXMLDeclAttrs bs nameEnd len $ \decl endOff -> do
-        emit (StartDocument (Just decl))
-        let !st' = st { psOffset = skipSpaces bs endOff len }
-        -- Skip DOCTYPE if present
-        st'' <- skipDoctypeIfPresent st' emit
-        pure (Right (st'', Just decl))
+      result <- parseXMLDeclAttrs bs ptr nameEnd len
+      case result of
+        Left err -> pure (Left err)
+        Right (decl, endOff) -> do
+          emit (StartDocument (Just decl))
+          let !st' = st { psOffset = skipSpaces bs endOff len }
+          st'' <- skipDoctypeIfPresent st' emit
+          pure (Right (st'', Just decl))
     else do
       emit (StartDocument Nothing)
       let !st' = st { psOffset = off }
@@ -170,8 +215,8 @@ parseProlog !st emit = do
 
 skipDoctypeIfPresent :: PState -> (SAXEvent -> IO ()) -> IO PState
 skipDoctypeIfPresent !st _emit = do
-  let !bs = psInput st
-      !len = psLength st
+  let !bs = psBS st
+      !len = psLen st
       !off = skipSpaces bs (psOffset st) len
   if off + 8 < len &&
      BSU.unsafeIndex bs off == 0x3C &&
@@ -188,17 +233,15 @@ skipDoctypeIfPresent !st _emit = do
       pure (st { psOffset = newOff })
     else pure (st { psOffset = off })
 
-parseXMLDeclAttrs :: ByteString -> Int -> Int
-                  -> (XMLDecl -> Int -> IO (Either String (PState, Maybe XMLDecl)))
-                  -> IO (Either String (PState, Maybe XMLDecl))
-parseXMLDeclAttrs !bs !off !len cont = go off Nothing Nothing Nothing
+parseXMLDeclAttrs :: ByteString -> Ptr Word8 -> Int -> Int -> IO (Either String (XMLDecl, Int))
+parseXMLDeclAttrs !bs !ptr !off !len = go off Nothing Nothing Nothing
   where
     go !i !ver !enc !sa = do
       let !j = skipSpaces bs i len
       if j + 1 < len && BSU.unsafeIndex bs j == 0x3F && BSU.unsafeIndex bs (j+1) == 0x3E
         then do
-          let decl = XMLDecl (maybe "1.0" id ver) enc sa
-          cont decl (j + 2)
+          let !decl = XMLDecl (maybe "1.0" id ver) enc sa
+          pure (Right (decl, j + 2))
         else if j >= len
           then pure (Left "Unterminated XML declaration")
           else do
@@ -217,7 +260,7 @@ parseXMLDeclAttrs !bs !off !len cont = go off Nothing Nothing Nothing
                       then pure (Left "Expected quote in XML declaration")
                       else do
                         let !valStart = afterEq + 1
-                            !valEnd = findAttrEnd bs valStart q
+                        valEnd <- findAttrEndP ptr valStart len q
                         if valEnd < 0
                           then pure (Left "Unterminated attribute in XML declaration")
                           else do
@@ -228,16 +271,19 @@ parseXMLDeclAttrs !bs !off !len cont = go off Nothing Nothing Nothing
                               "standalone" -> go (valEnd + 1) ver enc (Just (val == "yes"))
                               _ -> go (valEnd + 1) ver enc sa
 
+------------------------------------------------------------------------
+-- Content parsing
+------------------------------------------------------------------------
+
 parseContent :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 parseContent !st emit !stack
-  | psOffset st >= psLength st = pure (Right (st, stack))
+  | psOffset st >= psLen st = pure (Right (st, stack))
   | otherwise = do
       let !off = psOffset st
-          !bs = psInput st
-          !len = psLength st
+          !bs = psBS st
       case BSU.unsafeIndex bs off of
-        0x3C -> do -- '<'
-          if off + 1 >= len
+        0x3C -> do
+          if off + 1 >= psLen st
             then pure (Left "Unexpected end of input after '<'")
             else case BSU.unsafeIndex bs (off + 1) of
               0x2F -> parseEndTag st emit stack
@@ -246,12 +292,17 @@ parseContent !st emit !stack
               _    -> parseStartTag st emit stack
         _ -> parseTextContent st emit stack
 
+------------------------------------------------------------------------
+-- Text content with fast path (Fix 5 + Fix 7: hs_xml_find_lt + no-entity fast path)
+------------------------------------------------------------------------
+
 parseTextContent :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 parseTextContent !st emit !stack = do
   let !off = psOffset st
-      !bs = psInput st
-      !len = psLength st
-  result <- collectText bs off len
+      !bs  = psBS st
+      !ptr = psPtr st
+      !len = psLen st
+  result <- collectText bs ptr off len
   case result of
     Left err -> pure (Left err)
     Right (txt, newOff) -> do
@@ -259,17 +310,29 @@ parseTextContent !st emit !stack = do
         emit (Characters txt)
       parseContent (st { psOffset = newOff }) emit stack
 
-collectText :: ByteString -> Int -> Int -> IO (Either String (Text, Int))
-collectText !bs !off !len = go off []
+collectText :: ByteString -> Ptr Word8 -> Int -> Int -> IO (Either String (Text, Int))
+collectText !bs !ptr !off !len
+  | off >= len = pure (Right (T.empty, off))
+  | BSU.unsafeIndex bs off == 0x3C = pure (Right (T.empty, off))
+  | otherwise = do
+      -- findTextEndP finds the first '<' or '&' using SIMD
+      endPos <- findTextEndP ptr off len
+      if endPos >= len || BSU.unsafeIndex bs endPos == 0x3C
+        then do
+          -- Fast path: text run ends at '<' or EOF, no entities
+          let !txt = decodeSlice bs off (endPos - off)
+          pure (Right (txt, endPos))
+        else
+          -- endPos points at '&': slow path with entities
+          goEntities off []
   where
-    go !i !acc
+    goEntities !i !acc
       | i >= len =
           pure (Right (T.concat (reverse acc), i))
       | BSU.unsafeIndex bs i == 0x3C =
           pure (Right (T.concat (reverse acc), i))
       | BSU.unsafeIndex bs i == 0x26 = do
-          -- Entity reference: find ';'
-          let !semicPos = findByte bs (i + 1) 0x3B
+          semicPos <- findByteP ptr (i + 1) len 0x3B
           if semicPos < 0
             then pure (Left "Unterminated entity reference")
             else do
@@ -277,17 +340,21 @@ collectText !bs !off !len = go off []
               case resolveEntity entityName of
                 Nothing -> pure (Left $ "Unknown entity: &" ++ T.unpack entityName ++ ";")
                 Just replacement ->
-                  go (semicPos + 1) (replacement : acc)
+                  goEntities (semicPos + 1) (replacement : acc)
       | otherwise = do
-          let !endPos = findTextEnd bs i
-              !chunk = decodeSlice bs i (endPos - i)
-          go endPos (chunk : acc)
+          endPos <- findTextEndP ptr i len
+          let !chunk = decodeSlice bs i (endPos - i)
+          goEntities endPos (chunk : acc)
+
+------------------------------------------------------------------------
+-- Markup parsing
+------------------------------------------------------------------------
 
 parseBangMarkup :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 parseBangMarkup !st emit !stack = do
   let !off = psOffset st
-      !bs = psInput st
-      !len = psLength st
+      !bs = psBS st
+      !len = psLen st
   if off + 3 >= len
     then pure (Left "Unexpected end of input in markup")
     else if off + 3 < len && matchBytes bs (off + 2) [0x2D, 0x2D]
@@ -301,9 +368,11 @@ parseBangMarkup !st emit !stack = do
 parseCommentTag :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 parseCommentTag !st emit !stack = do
   let !off = psOffset st
-      !bs = psInput st
+      !bs  = psBS st
+      !ptr = psPtr st
+      !len = psLen st
       !startContent = off + 4
-      !endPos = findCommentEnd bs startContent
+  endPos <- findCommentEndP ptr startContent len
   if endPos < 0
     then pure (Left "Unterminated comment")
     else do
@@ -314,9 +383,11 @@ parseCommentTag !st emit !stack = do
 parseCDataTag :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 parseCDataTag !st emit !stack = do
   let !off = psOffset st
-      !bs = psInput st
+      !bs  = psBS st
+      !ptr = psPtr st
+      !len = psLen st
       !startContent = off + 9
-      !endPos = findCDataEnd bs startContent
+  endPos <- findCDataEndP ptr startContent len
   if endPos < 0
     then pure (Left "Unterminated CDATA section")
     else do
@@ -327,8 +398,8 @@ parseCDataTag !st emit !stack = do
 skipDoctypeTag :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 skipDoctypeTag !st emit !stack = do
   let !off = psOffset st
-      !bs = psInput st
-      !len = psLength st
+      !bs = psBS st
+      !len = psLen st
       go !i !depth
         | i >= len = Left "Unterminated DOCTYPE"
         | BSU.unsafeIndex bs i == 0x3E && depth == 0 = Right (i + 1)
@@ -342,8 +413,8 @@ skipDoctypeTag !st emit !stack = do
 parsePITag :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 parsePITag !st emit !stack = do
   let !off = psOffset st
-      !bs = psInput st
-      !len = psLength st
+      !bs = psBS st
+      !len = psLen st
       !nameStart = off + 2
   if nameStart >= len
     then pure (Left "Unexpected end in processing instruction")
@@ -369,35 +440,46 @@ findPIEnd bs off len = go off
       | BSU.unsafeIndex bs i == 0x3F && BSU.unsafeIndex bs (i+1) == 0x3E = Just i
       | otherwise = go (i + 1)
 
+------------------------------------------------------------------------
+-- Start / end tag parsing
+------------------------------------------------------------------------
+
 parseStartTag :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 parseStartTag !st emit !stack = do
   let !off = psOffset st
-      !bs = psInput st
-      !len = psLength st
+      !bs  = psBS st
+      !ptr = psPtr st
+      !len = psLen st
       !nameStart = off + 1
       !nameEnd = skipNameChars bs nameStart len
       !rawName = decodeSlice bs nameStart (nameEnd - nameStart)
-  parseAttributes bs nameEnd len [] $ \attrs endOff selfClose -> do
-    let !nsStack' = foldl addNs (psNsStack st) (V.toList attrs)
-        !st' = st { psOffset = endOff, psNsStack = nsStack' }
-        !resolvedName = resolveNameNs rawName nsStack'
-        !resolvedAttrs = V.map (resolveAttrNs nsStack') attrs
-    emit (StartElement resolvedName resolvedAttrs)
-    if selfClose
-      then do
-        emit (EndElement resolvedName)
-        parseContent st' emit stack
-      else
-        parseContent st' emit (resolvedName : stack)
+  attrResult <- parseAttributes bs ptr nameEnd len
+  case attrResult of
+    Left err -> pure (Left err)
+    Right (attrs, endOff, selfClose) -> do
+      -- Fix 6: V.foldl' directly on Vector, no V.toList
+      let !nsStack' = V.foldl' addNs (psNsStack st) attrs
+          !st' = st { psOffset = endOff, psNsStack = nsStack' }
+          !resolvedName = resolveNameNs rawName nsStack'
+          !resolvedAttrs = V.map (resolveAttrNs nsStack') attrs
+      emit (StartElement resolvedName resolvedAttrs)
+      if selfClose
+        then do
+          emit (EndElement resolvedName)
+          parseContent st' emit stack
+        else
+          parseContent st' emit (resolvedName : stack)
 
 parseEndTag :: PState -> (SAXEvent -> IO ()) -> TagStack -> IO (Either String (PState, TagStack))
 parseEndTag !st emit !stack = do
   let !off = psOffset st
-      !bs = psInput st
+      !bs  = psBS st
+      !ptr = psPtr st
+      !len = psLen st
       !nameStart = off + 2
-      !nameEnd = skipNameChars bs nameStart (psLength st)
+      !nameEnd = skipNameChars bs nameStart len
       !rawName = decodeSlice bs nameStart (nameEnd - nameStart)
-      !gtPos = findByte bs nameEnd 0x3E
+  gtPos <- findByteP ptr nameEnd len 0x3E
   if gtPos < 0
     then pure (Left "Unterminated end tag")
     else do
@@ -414,47 +496,74 @@ parseEndTag !st emit !stack = do
                        T.unpack (nameLocal top) ++ ">, got </" ++
                        T.unpack rawName ++ ">")
 
-parseAttributes :: ByteString -> Int -> Int -> [Attribute]
-               -> (Vector Attribute -> Int -> Bool -> IO (Either String (PState, TagStack)))
-               -> IO (Either String (PState, TagStack))
-parseAttributes !bs !off !len !acc cont = do
-  let !i = skipSpaces bs off len
-  if i >= len
-    then pure (Left "Unterminated start tag")
-    else case BSU.unsafeIndex bs i of
-      0x3E -> cont (V.fromList (reverse acc)) (i + 1) False
-      0x2F | i + 1 < len && BSU.unsafeIndex bs (i+1) == 0x3E ->
-        cont (V.fromList (reverse acc)) (i + 2) True
-      _ -> do
-        let !nameEnd = skipNameChars bs i len
-            !rawAttrName = decodeSlice bs i (nameEnd - i)
-            !eqPos = skipSpaces bs nameEnd len
-        if eqPos >= len || BSU.unsafeIndex bs eqPos /= 0x3D
-          then pure (Left $ "Expected '=' after attribute name '" ++ T.unpack rawAttrName ++ "'")
-          else do
-            let !afterEq = skipSpaces bs (eqPos + 1) len
-            if afterEq >= len
-              then pure (Left "Unterminated attribute value")
+------------------------------------------------------------------------
+-- Attribute parsing with mutable vector (Fix 4)
+------------------------------------------------------------------------
+
+parseAttributes :: ByteString -> Ptr Word8 -> Int -> Int
+                -> IO (Either String (Vector Attribute, Int, Bool))
+parseAttributes !bs !ptr !off !len = do
+  mv0 <- MV.unsafeNew 8
+  go mv0 off 0
+  where
+    go !mv !i !n = do
+      let !j = skipSpaces bs i len
+      if j >= len
+        then pure (Left "Unterminated start tag")
+        else do
+          let !b = BSU.unsafeIndex bs j
+          if b == 0x3E
+            then do
+              v <- V.unsafeFreeze (MV.unsafeSlice 0 n mv)
+              pure (Right (v, j + 1, False))
+            else if b == 0x2F && j + 1 < len && BSU.unsafeIndex bs (j+1) == 0x3E
+              then do
+                v <- V.unsafeFreeze (MV.unsafeSlice 0 n mv)
+                pure (Right (v, j + 2, True))
               else do
-                let !q = BSU.unsafeIndex bs afterEq
-                if q /= 0x22 && q /= 0x27
-                  then pure (Left $ "Expected quote for attribute '" ++ T.unpack rawAttrName ++ "'")
+                let !nameEnd = skipNameChars bs j len
+                    !rawAttrName = decodeSlice bs j (nameEnd - j)
+                    !eqPos = skipSpaces bs nameEnd len
+                if eqPos >= len || BSU.unsafeIndex bs eqPos /= 0x3D
+                  then pure (Left $ "Expected '=' after attribute name '" ++ T.unpack rawAttrName ++ "'")
                   else do
-                    let !valStart = afterEq + 1
-                        !valEnd = findAttrEnd bs valStart q
-                    if valEnd < 0
+                    let !afterEq = skipSpaces bs (eqPos + 1) len
+                    if afterEq >= len
                       then pure (Left "Unterminated attribute value")
                       else do
-                        let !rawVal = sliceBS bs valStart (valEnd - valStart)
-                        valResult <- resolveEntitiesBS rawVal
-                        case valResult of
-                          Left err -> pure (Left err)
-                          Right val -> do
-                            let !attrName = parseAttrName rawAttrName
-                                !attr = Attribute attrName val
-                            parseAttributes bs (valEnd + 1) len (attr : acc) cont
+                        let !q = BSU.unsafeIndex bs afterEq
+                        if q /= 0x22 && q /= 0x27
+                          then pure (Left $ "Expected quote for attribute '" ++ T.unpack rawAttrName ++ "'")
+                          else do
+                            let !valStart = afterEq + 1
+                            valEnd <- findAttrEndP ptr valStart len q
+                            if valEnd < 0
+                              then pure (Left "Unterminated attribute value")
+                              else do
+                                valResult <- resolveAttrValue bs ptr valStart (valEnd - valStart)
+                                case valResult of
+                                  Left err -> pure (Left err)
+                                  Right val -> do
+                                    let !attrName = parseAttrName rawAttrName
+                                        !attr = Attribute attrName val
+                                    mv' <- if n >= MV.length mv
+                                             then MV.grow mv (MV.length mv)
+                                             else pure mv
+                                    MV.unsafeWrite mv' n attr
+                                    go mv' (valEnd + 1) (n + 1)
 
--- Name parsing
+resolveAttrValue :: ByteString -> Ptr Word8 -> Int -> Int -> IO (Either String Text)
+resolveAttrValue !bs !ptr !valStart !valLen = do
+  let !valEnd = valStart + valLen
+  ampPos <- findByteP ptr valStart valEnd 0x26
+  if ampPos < 0
+    then pure (Right (decodeSlice bs valStart valLen))
+    else pure (resolveEntities (decodeSlice bs valStart valLen))
+{-# INLINE resolveAttrValue #-}
+
+------------------------------------------------------------------------
+-- Name parsing and namespace resolution
+------------------------------------------------------------------------
 
 parseAttrName :: Text -> Name
 parseAttrName raw =
@@ -488,58 +597,9 @@ addNs stack (Attribute name val)
       (nameLocal name, val) : stack
   | otherwise = stack
 
--- Low-level utilities
-
-skipSpaces :: ByteString -> Int -> Int -> Int
-skipSpaces !bs !off !len
-  | off >= len = off
-  | otherwise =
-      let !b = BSU.unsafeIndex bs off
-      in if isSpaceByte b
-           then skipSpaces bs (off + 1) len
-           else off
-
-isSpaceByte :: Word8 -> Bool
-isSpaceByte b = b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D
-{-# INLINE isSpaceByte #-}
-
-skipNameChars :: ByteString -> Int -> Int -> Int
-skipNameChars !bs !off !len = go off
-  where
-    go !i
-      | i >= len = i
-      | isNameByte (BSU.unsafeIndex bs i) = go (i + 1)
-      | otherwise = i
-
-isNameByte :: Word8 -> Bool
-isNameByte !b =
-  (b >= 0x61 && b <= 0x7A) ||
-  (b >= 0x41 && b <= 0x5A) ||
-  (b >= 0x30 && b <= 0x39) ||
-  b == 0x3A || b == 0x5F || b == 0x2D || b == 0x2E ||
-  b >= 0x80
-{-# INLINE isNameByte #-}
-
-matchBytes :: ByteString -> Int -> [Word8] -> Bool
-matchBytes bs off expected = go off expected
-  where
-    !len = BS.length bs
-    go !_ [] = True
-    go !i (b:rest)
-      | i >= len = False
-      | BSU.unsafeIndex bs i == b = go (i + 1) rest
-      | otherwise = False
-
-sliceBS :: ByteString -> Int -> Int -> ByteString
-sliceBS bs off count
-  | count <= 0 = BS.empty
-  | otherwise = BS.take count (BS.drop off bs)
-
-decodeSlice :: ByteString -> Int -> Int -> Text
-decodeSlice bs off count = TE.decodeUtf8 (sliceBS bs off count)
-
-resolveEntitiesBS :: ByteString -> IO (Either String Text)
-resolveEntitiesBS bs = pure $ resolveEntities (TE.decodeUtf8 bs)
+------------------------------------------------------------------------
+-- Entity resolution
+------------------------------------------------------------------------
 
 resolveEntities :: Text -> Either String Text
 resolveEntities txt
@@ -586,3 +646,57 @@ resolveEntity t
            else let !n = T.foldl' (\acc c -> acc * 10 + (ord c - ord '0')) 0 dec
                 in if n > 0x10FFFF then Nothing else Just (T.singleton (chr n))
   | otherwise = Nothing
+
+------------------------------------------------------------------------
+-- Low-level utilities
+------------------------------------------------------------------------
+
+skipSpaces :: ByteString -> Int -> Int -> Int
+skipSpaces !bs !off !len
+  | off >= len = off
+  | otherwise =
+      let !b = BSU.unsafeIndex bs off
+      in if isSpaceByte b
+           then skipSpaces bs (off + 1) len
+           else off
+
+isSpaceByte :: Word8 -> Bool
+isSpaceByte b = b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D
+{-# INLINE isSpaceByte #-}
+
+skipNameChars :: ByteString -> Int -> Int -> Int
+skipNameChars !bs !off !len = go off
+  where
+    go !i
+      | i >= len = i
+      | isNameByte (BSU.unsafeIndex bs i) = go (i + 1)
+      | otherwise = i
+
+isNameByte :: Word8 -> Bool
+isNameByte !b =
+  (b >= 0x61 && b <= 0x7A) ||
+  (b >= 0x41 && b <= 0x5A) ||
+  (b >= 0x30 && b <= 0x39) ||
+  b == 0x3A || b == 0x5F || b == 0x2D || b == 0x2E ||
+  b >= 0x80
+{-# INLINE isNameByte #-}
+
+matchBytes :: ByteString -> Int -> [Word8] -> Bool
+matchBytes bs off expected = go off expected
+  where
+    !len = BS.length bs
+    go !_ [] = True
+    go !i (b:rest)
+      | i >= len = False
+      | BSU.unsafeIndex bs i == b = go (i + 1) rest
+      | otherwise = False
+
+sliceBS :: ByteString -> Int -> Int -> ByteString
+sliceBS bs off count
+  | count <= 0 = BS.empty
+  | otherwise = BSU.unsafeTake count (BSU.unsafeDrop off bs)
+{-# INLINE sliceBS #-}
+
+decodeSlice :: ByteString -> Int -> Int -> Text
+decodeSlice bs off count = TE.decodeUtf8 (sliceBS bs off count)
+{-# INLINE decodeSlice #-}
