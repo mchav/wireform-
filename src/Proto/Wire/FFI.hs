@@ -15,7 +15,8 @@
 -- * 'relocatePageBoundary' — safe 8-byte overread padding
 -- * 'encodeLengthDelimitedC' \/ 'encodeVarintFieldC' \/ 'encodeBoolFieldC' — field encode
 -- * 'findNul' \/ 'findNulBS' — NUL byte scanning for BSON cstrings
--- * 'isAscii' \/ 'isAsciiBS' \/ 'decodeTextFast' — ASCII fast path for text decode
+-- * 'isAscii' \/ 'isAsciiBS' — SIMD ASCII check (general purpose)
+-- * 'decodeTextFast' — text decode via @text@'s simdutf
 -- * 'findJsonEscape' \/ 'escapeJSONStringBS' — JSON string escaping
 -- * 'skipWhitespace' \/ 'skipWhitespaceBS' — EDN whitespace skipping
 -- * 'compareBounds' \/ 'compareBoundsBS' — Iceberg partition bounds comparison
@@ -44,9 +45,11 @@ module Proto.Wire.FFI
   , findNul
   , findNulBS
 
-    -- * SIMD ASCII check (for all string decoders)
+    -- * SIMD ASCII check (general purpose)
   , isAscii
   , isAsciiBS
+
+    -- * Text decoding (via text's simdutf)
   , decodeTextFast
 
     -- * SIMD JSON escape scanner (for all JSON output paths)
@@ -253,16 +256,15 @@ isAsciiBS bs = unsafePerformIO $
     pure $! isAscii (castPtr ptr) 0 len
 {-# INLINE isAsciiBS #-}
 
--- | Fast text decoding with SIMD ASCII pre-check.
--- When the input is all ASCII, skip UTF-8 validation entirely.
--- Falls back to 'TE.decodeUtf8'' for non-ASCII, with lenient fallback.
+-- | Fast text decoding via @text >= 2.0@'s simdutf-powered 'TE.decodeUtf8''.
+--
+-- We rely on text's internal simdutf which uses AVX2/NEON for UTF-8
+-- validation and decoding in a single pass — faster than a separate
+-- ASCII pre-check followed by decode.
 decodeTextFast :: ByteString -> Either String Text
-decodeTextFast !bs
-  | BS.null bs = Right mempty
-  | isAsciiBS bs = Right (TE.decodeLatin1 bs)
-  | otherwise = case TE.decodeUtf8' bs of
-      Right t -> Right t
-      Left _  -> Left "invalid UTF-8"
+decodeTextFast bs = case TE.decodeUtf8' bs of
+  Right t -> Right t
+  Left _  -> Left "invalid UTF-8"
 {-# INLINE decodeTextFast #-}
 
 ------------------------------------------------------------------------

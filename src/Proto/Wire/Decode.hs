@@ -317,9 +317,9 @@ getByteString = getLengthDelimited
 
 -- | Decode a text field.
 --
--- On text >= 2.0 (UTF-8 internal representation), uses 'decodeUtf8'' which
--- validates and produces Text in a single pass, avoiding the
--- validate-then-decode double traversal.
+-- We rely on text >= 2.0's simdutf-powered 'decodeUtf8'' for UTF-8
+-- validation and decoding in a single pass. The text library uses
+-- AVX2/NEON internally, which is faster than a separate pre-check + decode.
 getText :: Decoder Text
 getText = Decoder $ \bs off ->
   case runDecoder# getLengthDelimited bs off of
@@ -501,9 +501,12 @@ skipWireType wt = case wt of
 
 -- | Validate UTF-8 without exceptions.
 --
--- Uses the SWAR-accelerated C validator as the primary path: it checks
--- 8 ASCII bytes at a time, only entering the multibyte validator when
--- non-ASCII is found. Falls back to @text@'s validator on older text.
+-- Uses the SWAR-accelerated C validator. Useful for paths that need
+-- validation without decoding (e.g. conformance checks).
+--
+-- Note: 'getText' and 'decodeTextFast' do /not/ use this — they rely on
+-- text >= 2.0's simdutf-powered 'TE.decodeUtf8'' which validates and
+-- decodes in a single pass.
 validateUtf8 :: ByteString -> Bool
 validateUtf8 = validateUtf8SWAR
 {-# INLINE validateUtf8 #-}
