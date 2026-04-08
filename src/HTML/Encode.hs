@@ -32,7 +32,7 @@ buildNode :: HTMLNode -> Builder
 buildNode = \case
   HTMLText t -> escapeText t
   HTMLComment t -> fromText "<!--" <> fromText t <> fromText "-->"
-  HTMLDoctype t -> fromText "<!DOCTYPE " <> fromText t <> singleton '>'
+  HTMLDoctype t _ _ -> fromText "<!DOCTYPE " <> fromText t <> singleton '>'
   HTMLElement tag attrs children
     | isVoidElement tag ->
         singleton '<' <> fromText tag <> buildAttrs attrs <> singleton '>'

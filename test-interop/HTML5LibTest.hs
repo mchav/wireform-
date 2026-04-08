@@ -15,7 +15,7 @@ import System.IO (hFlush, hPutStrLn, stderr)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import HTML.Parse (parseHTML)
+import HTML.Parse (parseHTML, parseHTMLFragment)
 import HTML.Value
 
 -- ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ data ExpNode
   = ExpElement  !Text ![ExpAttr] ![ExpNode]
   | ExpText     !Text
   | ExpComment  !Text
-  | ExpDoctype  !Text
+  | ExpDoctype  !Text !(Maybe Text) !(Maybe Text)
   | ExpTemplate ![ExpNode]
   deriving (Show, Eq)
 
@@ -141,26 +141,26 @@ parseExpectedTree docLines =
       stripped = [(d, n) | Just (d, n) <- parsed]
   in  buildTree stripped
 
--- Lines starting with "| " introduce new nodes; other lines are
--- continuations of the previous node (multi-line text/comments).
 joinContinuationLines :: [String] -> [String]
 joinContinuationLines [] = []
 joinContinuationLines (l:ls)
   | "| " `isPrefixOf` l =
-      let (cont, rest) = span (not . isDocLine) ls
-      in  if null cont
+      let (cont, rest) = span isContinuation ls
+          nonEmpty = filter (not . null) cont
+      in  if null nonEmpty
             then l : joinContinuationLines rest
-            else (l ++ "\n" ++ unlines' cont) : joinContinuationLines rest
+            else (l ++ "\n" ++ unlines' nonEmpty) : joinContinuationLines (dropWhile (\s -> null s || not (isDocLine s)) rest)
   | otherwise = joinContinuationLines ls
   where
     isDocLine s = "| " `isPrefixOf` s
+    isContinuation s = not (isDocLine s) && not (null s)
 
 data RawLine
   = RLElement !Text
   | RLAttr !Text !Text
   | RLText !Text
   | RLComment !Text
-  | RLDoctype !Text
+  | RLDoctype !Text !(Maybe Text) !(Maybe Text)
   | RLTemplateContent
   deriving (Show)
 
@@ -176,10 +176,7 @@ parseLine s
 parseContent :: String -> RawLine
 parseContent s
   | "<!DOCTYPE" `isPrefixOf` s =
-      let rest = drop 9 s
-          name = T.strip $ T.pack $ takeWhile (/= '>') $
-                   dropWhile (== ' ') rest
-      in  RLDoctype name
+      parseDoctypeContent (drop 9 s)
   | "<!-- " `isPrefixOf` s && " -->" `isSuffixOf` s =
       RLComment (T.pack (drop 5 (take (length s - 4) s)))
   | "<!-- " `isPrefixOf` s && "-->" `isSuffixOf` s =
@@ -214,6 +211,29 @@ parseContent s
           RLAttr (T.pack name) (T.pack rest)
         _ -> RLText (T.pack s)
 
+parseDoctypeContent :: String -> RawLine
+parseDoctypeContent s =
+  let trimmed = dropWhile (== ' ') s
+  in case trimmed of
+    ('>':_) -> RLDoctype "" Nothing Nothing
+    [] -> RLDoctype "" Nothing Nothing
+    _ ->
+      let (name, rest1) = span (\c -> c /= '>' && c /= ' ' && c /= '"') trimmed
+          rest2 = dropWhile (== ' ') rest1
+      in case rest2 of
+        ('>':_) -> RLDoctype (T.pack name) Nothing Nothing
+        [] -> RLDoctype (T.pack name) Nothing Nothing
+        ('"':rest3) ->
+          let (pub, rest4) = break (== '"') rest3
+              rest5 = if null rest4 then rest4 else tail rest4
+              rest6 = dropWhile (\c -> c == ' ') rest5
+          in case rest6 of
+            ('"':rest7) ->
+              let (sys, _rest8) = break (== '"') rest7
+              in RLDoctype (T.pack name) (Just (T.pack pub)) (Just (T.pack sys))
+            _ -> RLDoctype (T.pack name) (Just (T.pack pub)) Nothing
+        _ -> RLDoctype (T.pack name) Nothing Nothing
+
 safeHead :: String -> Char
 safeHead [] = '\0'
 safeHead (c:_) = c
@@ -228,13 +248,13 @@ buildTree items = go items
         RLElement tag ->
           let (attrs, afterAttrs) = spanAttrs (d + 1) rest
               (children, afterChildren) = spanChildren (d + 1) afterAttrs
-          in  ExpElement tag attrs children : go afterChildren
+          in  ExpElement tag (sort attrs) children : go afterChildren
         RLText t ->
           ExpText t : go rest
         RLComment t ->
           ExpComment t : go rest
-        RLDoctype name ->
-          ExpDoctype name : go rest
+        RLDoctype name pub sys ->
+          ExpDoctype name pub sys : go rest
         RLTemplateContent ->
           let (children, afterChildren) = spanChildren (d + 1) rest
           in  ExpTemplate children : go afterChildren
@@ -261,58 +281,49 @@ buildTree items = go items
         RLElement tag ->
           let (attrs, afterAttrs) = spanAttrs (d + 1) rest
               (children, afterChildren) = spanChildren (d + 1) afterAttrs
-          in  ([ExpElement tag attrs children], afterChildren)
+          in  ([ExpElement tag (sort attrs) children], afterChildren)
         RLText t -> ([ExpText t], rest)
         RLComment t -> ([ExpComment t], rest)
-        RLDoctype name -> ([ExpDoctype name], rest)
+        RLDoctype name pub sys -> ([ExpDoctype name pub sys], rest)
         RLTemplateContent ->
           let (children, afterChildren) = spanChildren (d + 1) rest
           in  ([ExpTemplate children], afterChildren)
         RLAttr _ _ -> ([], rest)
 
 -- ---------------------------------------------------------------------------
--- Convert parsed HTMLDocument to [ExpNode]
+-- Convert parsed HTMLDocument/[HTMLNode] to [ExpNode]
 -- ---------------------------------------------------------------------------
 
 docToExpNodes :: HTMLDocument -> [ExpNode]
 docToExpNodes (HTMLDocument mdt root) =
   let dtNodes = case mdt of
         Nothing -> []
-        Just (Doctype mname _ _) ->
-          [ExpDoctype (maybe "" id mname)]
+        Just (Doctype mname pub sys) ->
+          [ExpDoctype (maybe "" id mname) pub sys]
   in  dtNodes ++ [nodeToExp root]
 
+nodesToExpNodes :: [HTMLNode] -> [ExpNode]
+nodesToExpNodes = map nodeToExp
+
 nodeToExp :: HTMLNode -> ExpNode
-nodeToExp (HTMLElement tag attrs children) =
-  ExpElement tag
-    (map (\(HTMLAttribute n v) -> ExpAttr n v) (V.toList attrs))
-    (map nodeToExp (V.toList children))
+nodeToExp (HTMLElement tag attrs children)
+  | tag == "template" =
+      let attrList = map (\(HTMLAttribute n v) -> ExpAttr n v) (V.toList attrs)
+      in ExpElement tag (sort attrList) [ExpTemplate (map nodeToExp (V.toList children))]
+  | otherwise =
+      ExpElement tag
+        (sort (map (\(HTMLAttribute n v) -> ExpAttr n v) (V.toList attrs)))
+        (map nodeToExp (V.toList children))
 nodeToExp (HTMLText t) = ExpText t
 nodeToExp (HTMLComment t) = ExpComment t
-nodeToExp (HTMLDoctype t) = ExpDoctype t
+nodeToExp (HTMLDoctype n p s) = ExpDoctype n p s
 
 -- ---------------------------------------------------------------------------
 -- Tree comparison
 -- ---------------------------------------------------------------------------
 
 compareTrees :: [ExpNode] -> [ExpNode] -> Bool
-compareTrees actual expected =
-  compareNodeLists (normalize actual) (normalize expected)
-
-normalize :: [ExpNode] -> [ExpNode]
-normalize = concatMap normNode
-  where
-    normNode (ExpElement tag attrs children) =
-      [ExpElement (T.toLower tag) (sort attrs) (normalize children)]
-    normNode (ExpText t)
-      | isWhitespaceOnly t = []
-      | otherwise = [ExpText t]
-    normNode (ExpComment t) = [ExpComment t]
-    normNode (ExpDoctype t) = [ExpDoctype (T.toLower t)]
-    normNode (ExpTemplate children) = normalize children
-
-isWhitespaceOnly :: Text -> Bool
-isWhitespaceOnly = T.all (\c -> c == ' ' || c == '\n' || c == '\r' || c == '\t')
+compareTrees = compareNodeLists
 
 compareNodeLists :: [ExpNode] -> [ExpNode] -> Bool
 compareNodeLists [] [] = True
@@ -322,11 +333,13 @@ compareNodeLists _ _ = False
 compareNode :: ExpNode -> ExpNode -> Bool
 compareNode (ExpElement aTag aAttrs aChildren) (ExpElement eTag eAttrs eChildren) =
   aTag == eTag
-  && aAttrs == eAttrs
+  && sort aAttrs == sort eAttrs
   && compareNodeLists aChildren eChildren
 compareNode (ExpText aT) (ExpText eT) = aT == eT
 compareNode (ExpComment aT) (ExpComment eT) = aT == eT
-compareNode (ExpDoctype aName) (ExpDoctype eName) = aName == eName
+compareNode (ExpDoctype aName aPub aSys) (ExpDoctype eName ePub eSys) =
+  aName == eName && aPub == ePub && aSys == eSys
+compareNode (ExpTemplate aCh) (ExpTemplate eCh) = compareNodeLists aCh eCh
 compareNode _ _ = False
 
 -- ---------------------------------------------------------------------------
@@ -343,7 +356,10 @@ showExp d (ExpElement tag attrs children) =
   concatMap (showExp (d+1)) children
 showExp d (ExpText t) = [indStr d ++ show (T.unpack t)]
 showExp d (ExpComment t) = [indStr d ++ "<!-- " ++ T.unpack t ++ " -->"]
-showExp d (ExpDoctype name) = [indStr d ++ "<!DOCTYPE " ++ T.unpack name ++ ">"]
+showExp d (ExpDoctype name pub sys) =
+  [indStr d ++ "<!DOCTYPE " ++ T.unpack name
+    ++ maybe "" (\p -> " \"" ++ T.unpack p ++ "\"") pub
+    ++ maybe "" (\s -> " \"" ++ T.unpack s ++ "\"") sys ++ ">"]
 showExp d (ExpTemplate children) =
   (indStr d ++ "content") : concatMap (showExp (d+1)) children
 
@@ -356,21 +372,43 @@ indStr n = replicate (n * 2) ' '
 
 runTest :: TestCase -> TestResult
 runTest tc
-  | Just _ <- tcFragment tc = Skip "fragment parsing"
-  | null (tcDocument tc)    = Skip "no #document section"
+  | null (tcDocument tc) = Skip "no #document section"
   | otherwise =
       let input    = TE.encodeUtf8 (T.pack (tcData tc))
           expected = parseExpectedTree (tcDocument tc)
-          doc      = parseHTML input
-          actual   = docToExpNodes doc
-      in  if compareTrees actual expected
-            then Pass
-            else Fail (treeDiff actual expected)
+      in case tcFragment tc of
+        Nothing ->
+          let doc      = parseHTML input
+              actual   = docToExpNodes doc
+          in  if compareTrees actual expected
+                then Pass
+                else Fail (treeDiff actual expected)
+        Just fragCtx ->
+          let (ctxTag, ctxNs) = parseFragmentContext fragCtx
+              nodes = parseHTMLFragment ctxTag ctxNs input
+              actual = nodesToExpNodes nodes
+          in  if compareTrees actual expected
+                then Pass
+                else Fail (treeDiff actual expected)
+
+parseFragmentContext :: String -> (Text, Maybe Text)
+parseFragmentContext s =
+  case words s of
+    [nsAndTag] ->
+      case break (== ' ') nsAndTag of
+        _ -> (T.pack nsAndTag, Nothing)
+    [ns, tag] ->
+      let nsText = case ns of
+            "svg" -> Just "svg"
+            "math" -> Just "math"
+            _ -> Nothing
+      in (T.pack tag, nsText)
+    _ -> (T.pack s, Nothing)
 
 treeDiff :: [ExpNode] -> [ExpNode] -> String
 treeDiff actual expected =
-  "Expected:\n" ++ showExpNodes (normalize expected)
-  ++ "Actual:\n" ++ showExpNodes (normalize actual)
+  "Expected:\n" ++ showExpNodes expected
+  ++ "Actual:\n" ++ showExpNodes actual
 
 -- ---------------------------------------------------------------------------
 -- Main: Tasty-based with summary reporting
@@ -403,7 +441,10 @@ main = do
           case result of
             Pass   -> modifyIORef' pRef (+1)
             Skip _ -> modifyIORef' sRef (+1)
-            Fail _ -> modifyIORef' fRef (+1)
+            Fail msg -> do
+              f <- readIORef fRef
+              modifyIORef' fRef (+1)
+              pure ()
 
       ellipsis n s
         | length s <= n = s

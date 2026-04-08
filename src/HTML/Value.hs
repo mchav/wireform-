@@ -33,14 +33,14 @@ data HTMLNode
   = HTMLElement !Text !(Vector HTMLAttribute) !(Vector HTMLNode)
   | HTMLText !Text
   | HTMLComment !Text
-  | HTMLDoctype !Text
+  | HTMLDoctype !Text !(Maybe Text) !(Maybe Text)
   deriving stock (Show, Eq, Generic)
 
 instance NFData HTMLNode where
   rnf (HTMLElement t as cs) = rnf t `seq` rnf as `seq` rnf cs
   rnf (HTMLText t) = rnf t
   rnf (HTMLComment t) = rnf t
-  rnf (HTMLDoctype t) = rnf t
+  rnf (HTMLDoctype t p s) = rnf t `seq` rnf p `seq` rnf s
 
 data HTMLAttribute = HTMLAttribute !Text !Text
   deriving stock (Show, Eq, Generic)
@@ -57,7 +57,7 @@ instance NFData Doctype where
 textContent :: HTMLNode -> Text
 textContent (HTMLText t) = t
 textContent (HTMLComment _) = T.empty
-textContent (HTMLDoctype _) = T.empty
+textContent (HTMLDoctype _ _ _) = T.empty
 textContent (HTMLElement _ _ cs) = T.concat (V.toList (V.map textContent cs))
 
 getAttr :: Text -> HTMLNode -> Maybe Text
