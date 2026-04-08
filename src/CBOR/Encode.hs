@@ -3,7 +3,14 @@
 --
 -- Uses canonical encoding: smallest integer form, definite-length
 -- arrays and maps, big-endian multi-byte integers.
--- Built on top of 'Proto.Encode.Direct' for direct buffer writes.
+-- Built on top of 'Proto.Encode.Direct.directEncode' for direct buffer writes.
+--
+-- @
+-- import qualified CBOR.Encode as CE
+-- import qualified CBOR.Value as C
+--
+-- let bytes = CE.encode (C.TextString \"hello\")
+-- @
 module CBOR.Encode
   ( encode
   ) where

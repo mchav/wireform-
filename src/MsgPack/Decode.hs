@@ -3,6 +3,15 @@
 --
 -- Decodes a wire-format 'ByteString' into a 'MsgPack.Value.Value' tree
 -- using pre-allocated mutable vectors instead of list accumulation.
+-- Uses 'Ptr'-based unsafe indexing for performance on validated input.
+--
+-- @
+-- import qualified MsgPack.Decode as MPD
+--
+-- case MPD.decode bytes of
+--   Right val -> print val
+--   Left err  -> putStrLn err
+-- @
 module MsgPack.Decode
   ( decode
   ) where

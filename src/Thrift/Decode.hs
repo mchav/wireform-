@@ -3,6 +3,14 @@
 --
 -- Reads a wire-format 'ByteString' and produces a 'Thrift.Value.Value' tree.
 -- Uses pre-allocated mutable vectors instead of list accumulation + reverse.
+--
+-- @
+-- import Thrift.Decode (decodeBinary, decodeCompact)
+--
+-- case decodeBinary bytes of
+--   Right val -> print val
+--   Left err  -> putStrLn err
+-- @
 module Thrift.Decode
   ( decodeBinary
   , decodeCompact

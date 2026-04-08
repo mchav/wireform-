@@ -1,8 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
 -- | CBOR (RFC 8949) binary decoding.
 --
--- Uses mutable vectors for definite-length arrays/maps and growing
--- vectors for indefinite-length containers.
+-- Uses mutable vectors for definite-length arrays\/maps and growing
+-- vectors for indefinite-length containers. Supports both definite
+-- and indefinite length encodings for all major types.
+--
+-- @
+-- import qualified CBOR.Decode as CD
+--
+-- case CD.decode bytes of
+--   Right val -> print val
+--   Left err  -> putStrLn err
+-- @
 module CBOR.Decode
   ( decode
   ) where

@@ -29,6 +29,7 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
 
+-- | A parsed FlatBuffers schema file.
 data FlatBuffersSchema = FlatBuffersSchema
   { fbsNamespace      :: !(Maybe Text)
   , fbsIncludes       :: !(Vector Text)
@@ -39,6 +40,7 @@ data FlatBuffersSchema = FlatBuffersSchema
   , fbsAttributes     :: !(Vector Text)
   } deriving stock (Show, Eq)
 
+-- | A top-level declaration in a FlatBuffers schema.
 data FBDeclaration
   = FBTable !TableDef
   | FBStruct !FBStructDef
@@ -46,11 +48,13 @@ data FBDeclaration
   | FBUnion !FBUnionDef
   deriving stock (Show, Eq)
 
+-- | A FlatBuffers table definition (variable-size, with optional fields).
 data TableDef = TableDef
   { tdName   :: !Text
   , tdFields :: !(Vector TableField)
   } deriving stock (Show, Eq)
 
+-- | A field within a FlatBuffers table.
 data TableField = TableField
   { tfName       :: !Text
   , tfType       :: !FBType
@@ -59,22 +63,26 @@ data TableField = TableField
   , tfMetadata   :: !(Vector (Text, Maybe Text))
   } deriving stock (Show, Eq)
 
+-- | A FlatBuffers struct definition (fixed-size, inline).
 data FBStructDef = FBStructDef
   { fsdName   :: !Text
   , fsdFields :: !(Vector (Text, FBType))
   } deriving stock (Show, Eq)
 
+-- | A FlatBuffers enum definition.
 data FBEnumDef = FBEnumDef
   { fedName           :: !Text
   , fedUnderlyingType :: !FBType
   , fedValues         :: !(Vector (Text, Maybe Int64))
   } deriving stock (Show, Eq)
 
+-- | A FlatBuffers union definition.
 data FBUnionDef = FBUnionDef
   { fudName    :: !Text
   , fudMembers :: !(Vector Text)
   } deriving stock (Show, Eq)
 
+-- | The FlatBuffers type system: scalars, strings, vectors, and named references.
 data FBType
   = FTBool | FTByte | FTUByte | FTShort | FTUShort | FTInt | FTUInt
   | FTLong | FTULong | FTFloat | FTDouble | FTString

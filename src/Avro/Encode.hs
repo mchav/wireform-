@@ -3,6 +3,14 @@
 --
 -- Encodes an 'Avro.Value.Value' according to an 'AvroType' schema using
 -- direct buffer writes via 'Proto.Encode.Direct.directEncode'.
+--
+-- @
+-- import Avro.Encode (encodeAvro)
+-- import Avro.Schema (AvroType(..), AvroPrimitive(..))
+-- import qualified Avro.Value as A
+--
+-- let bytes = encodeAvro (AvroPrimitive AvroString) (A.String \"hello\")
+-- @
 module Avro.Encode
   ( encodeAvro
   , encodeAvroBuilder

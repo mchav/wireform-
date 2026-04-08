@@ -4,6 +4,16 @@
 -- Converts a 'Thrift.Value.Value' tree into a wire-format 'ByteString'.
 -- Uses direct buffer writes via 'Proto.Encode.Direct.directEncode' to
 -- avoid Builder allocation overhead.
+--
+-- @
+-- import Thrift.Encode (encodeBinary, encodeCompact)
+-- import qualified Thrift.Value as T
+-- import qualified Data.Vector as V
+--
+-- let person = T.Struct (V.fromList [(1, T.String \"Alice\")])
+-- let binBytes = encodeBinary person
+-- let compactBytes = encodeCompact person
+-- @
 module Thrift.Encode
   ( encodeBinary
   , encodeCompact

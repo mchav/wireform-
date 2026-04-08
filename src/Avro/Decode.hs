@@ -3,7 +3,16 @@
 --
 -- Schema-driven: the writer's schema is required to interpret the raw bytes.
 -- Uses the wire primitives from "Avro.Wire".
--- Uses mutable vectors for array/map block decoding.
+-- Uses mutable vectors for array\/map block decoding.
+--
+-- @
+-- import Avro.Decode (decodeAvro)
+-- import Avro.Schema (AvroType(..), AvroPrimitive(..))
+--
+-- case decodeAvro (AvroPrimitive AvroString) bytes of
+--   Right val -> print val
+--   Left err  -> putStrLn err
+-- @
 module Avro.Decode
   ( decodeAvro
   , decodeAvroAt

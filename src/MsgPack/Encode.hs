@@ -3,7 +3,14 @@
 --
 -- Encodes a 'MsgPack.Value.Value' tree into its wire-format 'ByteString'
 -- using a two-pass strategy: compute the exact size, then direct-write into
--- a pre-allocated buffer via 'directEncode'.
+-- a pre-allocated buffer via 'Proto.Encode.Direct.directEncode'.
+--
+-- @
+-- import qualified MsgPack.Encode as MPE
+-- import qualified MsgPack.Value as MP
+--
+-- let bytes = MPE.encode (MP.String \"hello\")
+-- @
 module MsgPack.Encode
   ( encode
   ) where
