@@ -5,20 +5,30 @@
 -- Supports all EDN types including tagged literals, keywords with
 -- namespaces, and special float values (@##NaN@, @##Inf@, @##-Inf@).
 -- Strings are properly escaped per the EDN specification.
+--
+-- String escaping uses the SIMD JSON escape scanner to skip safe regions
+-- in bulk, falling back to per-character escaping only for special chars.
 module EDN.Encode
   ( encode
   , encodeBS
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Unsafe as BSU
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Text.Lazy (toStrict)
-import Data.Text.Lazy.Builder (Builder, toLazyText, fromText, fromString, singleton)
+import Data.Text.Lazy.Builder (Builder, toLazyText, fromText, fromString, singleton, fromLazyText)
+import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Data.Vector as V
+import Data.Word (Word8)
 
 import qualified EDN.Value as E
+import Proto.Wire.FFI (findJsonEscapeBS)
 
 -- | Render an EDN 'E.Value' to 'Text'.
 encode :: E.Value -> Text
@@ -96,14 +106,41 @@ buildPairs ps
       ) mempty ps
 
 escapeString :: Text -> Builder
-escapeString = T.foldl' (\acc c -> acc <> escapeChar c) mempty
+escapeString t =
+  let !bs = TE.encodeUtf8 t
+  in fromLazyText (TLE.decodeUtf8 (BB.toLazyByteString (escapeStringBS bs)))
+
+escapeStringBS :: ByteString -> BB.Builder
+escapeStringBS !bs = go 0
   where
-    escapeChar '"'  = fromText "\\\""
-    escapeChar '\\' = fromText "\\\\"
-    escapeChar '\n' = fromText "\\n"
-    escapeChar '\t' = fromText "\\t"
-    escapeChar '\r' = fromText "\\r"
-    escapeChar c    = singleton c
+    !len = BS.length bs
+    go !pos
+      | pos >= len = mempty
+      | otherwise =
+          let !escPos = findJsonEscapeBS bs pos
+              !safeLen = escPos - pos
+          in (if safeLen > 0
+                then BB.byteString (BSU.unsafeTake safeLen (BSU.unsafeDrop pos bs))
+                else mempty)
+             <> if escPos >= len
+                  then mempty
+                  else let !b = BSU.unsafeIndex bs escPos
+                       in escByte b <> go (escPos + 1)
+
+    escByte :: Word8 -> BB.Builder
+    escByte 0x22 = BB.byteString "\\\""
+    escByte 0x5C = BB.byteString "\\\\"
+    escByte 0x0A = BB.byteString "\\n"
+    escByte 0x09 = BB.byteString "\\t"
+    escByte 0x0D = BB.byteString "\\r"
+    escByte b    = BB.byteString "\\u00"
+                   <> BB.word8 (hexNibble (b `div` 16))
+                   <> BB.word8 (hexNibble (b `mod` 16))
+
+    hexNibble :: Word8 -> Word8
+    hexNibble n
+      | n < 10    = 0x30 + n
+      | otherwise = 0x61 + n - 10
 
 buildChar :: Char -> Builder
 buildChar '\n' = fromText "\\newline"
