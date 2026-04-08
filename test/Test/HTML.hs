@@ -199,13 +199,16 @@ caseInsensitiveTests = testGroup "Case insensitive"
   [ testCase "<DIV> parsed as div" $ do
       let doc = parseHTML "<DIV>content</DIV>"
           root = htmlRoot doc
-      getTagName root @?= Just "div"
+      getTagName root @?= Just "html"
+      assertBool "contains div" (containsTag "div" root)
 
   , testCase "<Div Class=\"x\"> → div class=\"x\"" $ do
       let doc = parseHTML "<Div Class=\"x\">test</Div>"
           root = htmlRoot doc
-      getTagName root @?= Just "div"
-      getAttr "class" root @?= Just "x"
+      assertBool "contains div" (containsTag "div" root)
+      case findTag "div" root of
+        Just n -> getAttr "class" n @?= Just "x"
+        Nothing -> assertFailure "expected div element"
 
   , testCase "mixed case: <P>text</p>" $ do
       let doc = parseHTML "<P>text</p>"
@@ -375,7 +378,7 @@ edgeCaseTests = testGroup "Edge cases"
   , testCase "nested divs" $ do
       let doc = parseHTML "<div><div><div>deep</div></div></div>"
           root = htmlRoot doc
-      assertBool "is div" (getTagName root == Just "div")
+      assertBool "contains div" (containsTag "div" root)
 
   , testCase "multiple root-level elements" $ do
       let doc = parseHTML "<p>one</p><p>two</p>"

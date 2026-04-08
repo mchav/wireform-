@@ -30,7 +30,8 @@ import HTML.Value
 parseHTML :: ByteString -> HTMLDocument
 parseHTML bs =
   let !nodes = parseNodes bs 0
-      (!doctype, !root) = extractDocAndRoot nodes
+      (!doctype, !raw) = extractDocAndRoot nodes
+      !root = ensureHtmlHeadBody raw
   in HTMLDocument doctype root
 
 extractDocAndRoot :: [HTMLNode] -> (Maybe Doctype, HTMLNode)
@@ -47,6 +48,63 @@ extractDocAndRoot nodes =
          in case allContent of
               [] -> (dt, HTMLElement "html" V.empty V.empty)
               _  -> (dt, HTMLElement "html" V.empty (V.fromList allContent))
+
+-- | Ensure the tree has <html><head><body> structure per HTML5 spec.
+ensureHtmlHeadBody :: HTMLNode -> HTMLNode
+ensureHtmlHeadBody node@(HTMLElement tag attrs children)
+  | tag == "html" =
+      let cs = V.toList children
+          (headElems, bodyElems) = partitionHeadBody cs
+          hasHead = any (\n -> isElementNamed "head" n) cs
+          hasBody = any (\n -> isElementNamed "body" n) cs
+      in if hasHead && hasBody then node
+         else if hasHead then
+           let existingHead = head [n | n <- cs, isElementNamed "head" n]
+               rest = filter (not . isElementNamed "head") cs
+           in HTMLElement "html" attrs (V.fromList [existingHead, HTMLElement "body" V.empty (V.fromList rest)])
+         else if hasBody then
+           let existingBody = head [n | n <- cs, isElementNamed "body" n]
+               rest = filter (not . isElementNamed "body") cs
+           in HTMLElement "html" attrs (V.fromList [HTMLElement "head" V.empty (V.fromList (filter isHeadContent rest)), existingBody])
+         else
+           HTMLElement "html" attrs (V.fromList
+             [ HTMLElement "head" V.empty (V.fromList headElems)
+             , HTMLElement "body" V.empty (V.fromList bodyElems)
+             ])
+  | otherwise =
+      -- Not an <html> element — wrap everything
+      let cs = [node]
+          (headElems, bodyElems) = partitionHeadBody cs
+      in HTMLElement "html" V.empty (V.fromList
+           [ HTMLElement "head" V.empty (V.fromList headElems)
+           , HTMLElement "body" V.empty (V.fromList bodyElems)
+           ])
+ensureHtmlHeadBody node =
+  -- Text or other non-element — wrap in html>body
+  HTMLElement "html" V.empty (V.fromList
+    [ HTMLElement "head" V.empty V.empty
+    , HTMLElement "body" V.empty (V.singleton node)
+    ])
+
+-- | Partition nodes into head-appropriate and body-appropriate.
+partitionHeadBody :: [HTMLNode] -> ([HTMLNode], [HTMLNode])
+partitionHeadBody = go [] []
+  where
+    go !hs !bs [] = (reverse hs, reverse bs)
+    go !hs !bs (n:rest)
+      | isHeadContent n = go (n:hs) bs rest
+      | otherwise = go hs (n:bs) rest
+
+isHeadContent :: HTMLNode -> Bool
+isHeadContent (HTMLElement tag _ _) = tag `elem` headElements
+isHeadContent _ = False
+
+headElements :: [Text]
+headElements = ["title", "base", "link", "meta", "style", "script", "noscript", "template"]
+
+isElementNamed :: Text -> HTMLNode -> Bool
+isElementNamed name (HTMLElement tag _ _) = tag == name
+isElementNamed _ _ = False
 
 isDoctypeOrWhitespace :: HTMLNode -> Bool
 isDoctypeOrWhitespace (HTMLDoctype _) = True
