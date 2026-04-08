@@ -28,3 +28,10 @@ main = do
     Left err      -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeMsgPack (encodeMsgPack alice) == Right alice)
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- MsgPack is schema-less, so Generic deriving is the primary approach.
+-- No TH/QQ needed — just derive ToMsgPack/FromMsgPack.

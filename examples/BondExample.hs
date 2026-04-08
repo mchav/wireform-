@@ -30,3 +30,20 @@ main = do
   case BD.decode B.BT_STRUCT bytes of
     Right val -> putStrLn $ "Decoded: " ++ show val
     Left err  -> putStrLn $ "Error: " ++ err
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- Approach 1: Schema-driven API (as shown above)
+
+-- Approach 2: TH from .bond IDL
+--   [bond|
+--     struct Person {
+--       0: string name;
+--       1: int32 age;
+--     }
+--   |]
+
+-- Approach 3: CLI codegen
+--   wireform-gen bond -i schema.bond -o src/Gen/

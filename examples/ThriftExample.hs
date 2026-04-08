@@ -37,3 +37,20 @@ main = do
 
   putStrLn $ "Roundtrip (binary): " ++ show (decodeThriftBinary (encodeThriftBinary entry) == Right entry)
   putStrLn $ "Roundtrip (compact): " ++ show (decodeThriftCompact (encodeThriftCompact entry) == Right entry)
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- Approach 1: Generic deriving (as shown above)
+
+-- Approach 2: TH from .thrift IDL
+--   [thrift|
+--     struct Person {
+--       1: required string name
+--       2: optional i32 age
+--     }
+--   |]
+
+-- Approach 3: CLI codegen
+--   wireform-gen thrift -i service.thrift -o src/Gen/

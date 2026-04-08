@@ -28,3 +28,13 @@ main = do
     Left err      -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeCBOR (encodeCBOR m) == Right m)
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- CBOR is schema-less. Generic deriving is primary.
+-- For schema-driven CBOR, use CDDL:
+--   [cddl|
+--     person = { name: tstr, age: uint }
+--   |]

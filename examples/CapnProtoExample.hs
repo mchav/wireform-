@@ -32,3 +32,20 @@ main = do
   case CPD.decode listBytes of
     Right decoded -> putStrLn $ "List decoded: " ++ show decoded
     Left err      -> putStrLn $ "Error: " ++ err
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- Approach 1: Schema-driven API (as shown above)
+
+-- Approach 2: TH from .capnp IDL
+--   [capnp|
+--     struct Person {
+--       name @0 :Text;
+--       age @1 :UInt32;
+--     }
+--   |]
+
+-- Approach 3: CLI codegen
+--   wireform-gen capnp -i schema.capnp -o src/Gen/

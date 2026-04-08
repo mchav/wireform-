@@ -38,3 +38,22 @@ main = do
   case AD.decode bytes of
     Right val -> putStrLn $ "BER decoded: " ++ show val
     Left err  -> putStrLn $ "Error: " ++ err
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- Approach 1: Schema-driven API (as shown above)
+
+-- Approach 2: TH from ASN.1 module
+--   [asn1|
+--     MyModule DEFINITIONS ::= BEGIN
+--       Person ::= SEQUENCE {
+--         name UTF8String,
+--         age INTEGER
+--       }
+--     END
+--   |]
+
+-- Approach 3: CLI codegen
+--   wireform-gen asn1 -i schema.asn1 -o src/Gen/

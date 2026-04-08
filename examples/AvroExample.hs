@@ -36,3 +36,15 @@ main = do
       putStrLn $ "Decoded: " ++ show decoded
       putStrLn $ "Roundtrip: " ++ show (decoded == val)
     Left err -> putStrLn $ "Error: " ++ err
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- Approach 1: Schema-driven API (as shown above)
+
+-- Approach 2: TH codegen from .avsc file
+--   $(deriveAvroFromJSON [avsc|{"type":"record","name":"Person",...}|])
+
+-- Approach 3: CLI codegen
+--   wireform-gen avro -i person.avsc -o src/Gen/

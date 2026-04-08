@@ -28,3 +28,13 @@ main = do
     Left err      -> putStrLn $ "Error: " ++ err
 
   putStrLn $ "Roundtrip: " ++ show (decodeIon (encodeIon evt) == Right evt)
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- Ion is schema-less. Generic deriving is primary.
+-- For schema-driven Ion, use ISL:
+--   [isl|
+--     type::{ name: person, type: struct, fields: { name: string, age: int } }
+--   |]

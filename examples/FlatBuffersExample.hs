@@ -35,3 +35,20 @@ main = do
   case FBD.decode vecBytes of
     Right decoded -> putStrLn $ "Vector decoded: " ++ show decoded
     Left err      -> putStrLn $ "Error: " ++ err
+
+-- ---------------------------------------------------------------------------
+-- Alternative approaches
+-- ---------------------------------------------------------------------------
+
+-- Approach 1: Schema-driven API (as shown above)
+
+-- Approach 2: TH from .fbs IDL
+--   [fbs|
+--     table Person {
+--       name:string;
+--       age:int;
+--     }
+--   |]
+
+-- Approach 3: CLI codegen
+--   wireform-gen flatbuffers -i schema.fbs -o src/Gen/
