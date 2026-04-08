@@ -13,6 +13,8 @@ import GHC.Generics (Generic)
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import XML.Value
 import XML.SAX
 import XML.Decode
@@ -23,6 +25,7 @@ import qualified XML.DSL as DSL
 import XML.Class
 import XML.Schema
 import XML.CodeGen
+import qualified XML.FastDOM as FD
 
 xmlTests :: TestTree
 xmlTests = testGroup "XML"
@@ -40,6 +43,7 @@ xmlTests = testGroup "XML"
   , genericTests
   , largeDocTests
   , edgeCaseTests
+  , fastDOMTests
   ]
 
 -- Simple document for testing
@@ -600,6 +604,116 @@ dslTests = testGroup "XML DSL"
           results = DSL.select q (docRoot doc)
       V.length results @?= 2
   ]
+
+-- FastDOM zero-copy parser tests
+fastDOMTests :: TestTree
+fastDOMTests = testGroup "FastDOM"
+  [ testCase "parseFast roundtrip: parse then toDocument equals decode" $ do
+      let xml = "<root><child attr=\"value\">text</child><empty/></root>"
+          bs = TE.encodeUtf8 xml
+          Right docFull = decode bs
+          Right fastDoc = FD.parseFast bs
+          docMaterialized = FD.toDocument fastDoc
+      docRoot docMaterialized @?= docRoot docFull
+
+  , testCase "parseFast accessor: nodeTagBS returns correct slice" $ do
+      let bs = BS8.pack "<person><name>John</name></person>"
+          Right fastDoc = FD.parseFast bs
+          root = FD.fdRoot fastDoc
+          src  = FD.fdSource fastDoc
+      FD.nodeTagBS root src @?= "person"
+
+  , testCase "parseFast accessor: attrValueBS returns correct slice" $ do
+      let bs = BS8.pack "<item id=\"42\" class=\"main\"/>"
+          Right fastDoc = FD.parseFast bs
+          root = FD.fdRoot fastDoc
+          src  = FD.fdSource fastDoc
+          attrs = FD.nodeAttrs root
+      V.length attrs @?= 2
+      FD.attrNameBS (attrs V.! 0) src @?= "id"
+      FD.attrValueBS (attrs V.! 0) src @?= "42"
+      FD.attrNameBS (attrs V.! 1) src @?= "class"
+      FD.attrValueBS (attrs V.! 1) src @?= "main"
+
+  , testCase "parseFast large document (100 items)" $ do
+      let header = "<?xml version=\"1.0\"?>\n<catalog>\n"
+          footer = "</catalog>\n"
+          mkItem :: Int -> String
+          mkItem i = concat
+            [ "  <item id=\"", show i, "\">"
+            , "Product ", show i
+            , "</item>\n"
+            ]
+          items = concatMap mkItem [1..100 :: Int]
+          bs = BS8.pack (header ++ items ++ footer)
+          Right fastDoc = FD.parseFast bs
+          root = FD.fdRoot fastDoc
+          children = FD.nodeChildren root
+      -- Remove whitespace text nodes
+      let elems = V.filter isElem children
+      V.length elems @?= 100
+      let firstChild = V.head elems
+          src = FD.fdSource fastDoc
+      FD.nodeTagBS firstChild src @?= "item"
+
+  , testCase "parseFast with CDATA" $ do
+      let bs = BS8.pack "<root><![CDATA[<not>markup & stuff]]></root>"
+          Right fastDoc = FD.parseFast bs
+          children = FD.nodeChildren (FD.fdRoot fastDoc)
+          src = FD.fdSource fastDoc
+      V.length children @?= 1
+      case V.head children of
+        FD.FCData _ -> FD.nodeTextBS (V.head children) src @?= "<not>markup & stuff"
+        other -> assertFailure $ "Expected FCData, got: " ++ show other
+
+  , testCase "parseFast with comment" $ do
+      let bs = BS8.pack "<root><!-- hello world --></root>"
+          Right fastDoc = FD.parseFast bs
+          children = FD.nodeChildren (FD.fdRoot fastDoc)
+      V.length children @?= 1
+      case V.head children of
+        FD.FComment (FD.Span _ _) -> pure ()
+        other -> assertFailure $ "Expected FComment, got: " ++ show other
+
+  , testCase "parseFast with processing instruction" $ do
+      let bs = BS8.pack "<root><?target some data?></root>"
+          Right fastDoc = FD.parseFast bs
+          children = FD.nodeChildren (FD.fdRoot fastDoc)
+          src = FD.fdSource fastDoc
+      V.length children @?= 1
+      case V.head children of
+        FD.FPI tSpan _dSpan ->
+          FD.nodeTag (FD.FElement tSpan V.empty V.empty) src @?= "target"
+        other -> assertFailure $ "Expected FPI, got: " ++ show other
+
+  , testCase "parseFast self-closing elements" $ do
+      let bs = BS8.pack "<root><br/><hr/><img src=\"x.png\"/></root>"
+          Right fastDoc = FD.parseFast bs
+          children = FD.nodeChildren (FD.fdRoot fastDoc)
+          src = FD.fdSource fastDoc
+      V.length children @?= 3
+      FD.nodeTagBS (children V.! 0) src @?= "br"
+      FD.nodeTagBS (children V.! 1) src @?= "hr"
+      FD.nodeTagBS (children V.! 2) src @?= "img"
+      V.length (FD.nodeChildren (children V.! 0)) @?= 0
+      V.length (FD.nodeAttrs (children V.! 2)) @?= 1
+      FD.attrValueBS (V.head (FD.nodeAttrs (children V.! 2))) src @?= "x.png"
+
+  , testCase "parseFast toDocument with entities" $ do
+      let bs = BS8.pack "<root>&amp;&lt;&gt;</root>"
+          Right fastDoc = FD.parseFast bs
+          doc = FD.toDocument fastDoc
+      textContent (docRoot doc) @?= "&<>"
+
+  , testCase "parseFast with XML declaration" $ do
+      let bs = BS8.pack "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root/>"
+          Right fastDoc = FD.parseFast bs
+          src = FD.fdSource fastDoc
+      FD.nodeTagBS (FD.fdRoot fastDoc) src @?= "root"
+  ]
+  where
+    isElem (FD.FElement _ _ _) = True
+    isElem _ = False
 
 -- Helpers
 

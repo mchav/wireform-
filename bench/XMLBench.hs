@@ -14,6 +14,7 @@ import qualified XML.Decode as XD
 import qualified XML.SAX as XS
 import qualified XML.Encode as XE
 import XML.Value (Document(..))
+import qualified XML.FastDOM as FD
 
 -- xml-conduit
 import qualified Text.XML as Conduit
@@ -102,6 +103,10 @@ conduitRender :: Conduit.Document -> BL.ByteString
 conduitRender = Conduit.renderLBS def
 {-# NOINLINE conduitRender #-}
 
+parseFastDoc :: BS.ByteString -> Either String FD.FastDoc
+parseFastDoc = FD.parseFast
+{-# NOINLINE parseFastDoc #-}
+
 hexmlParse :: BS.ByteString -> Either BS.ByteString Hexml.Node
 hexmlParse = Hexml.parse
 {-# NOINLINE hexmlParse #-}
@@ -148,6 +153,9 @@ main = do
   case conduitParse smallXML of
     Left e  -> putStrLn $ "WARNING: xml-conduit failed on small: " ++ show e
     Right _ -> putStrLn "xml-conduit: OK (small)"
+  case parseFastDoc smallXML of
+    Left e  -> putStrLn $ "WARNING: wireform-fast failed on small: " ++ e
+    Right _ -> putStrLn "wireform-fast: OK (small)"
   case hexmlParse smallXML of
     Left e  -> putStrLn $ "WARNING: hexml failed on small: " ++ show e
     Right _ -> putStrLn "hexml: OK (small)"
@@ -161,9 +169,10 @@ main = do
   defaultMain
     [ bgroup "Small XML"
         [ bgroup "DOM parse"
-            [ bench "wireform"    $ nf xmlDecode smallXML
-            , bench "xml-conduit" $ nf conduitParse smallXML
-            , bench "hexml"       $ whnf (hexmlForce . hexmlParse) smallXML
+            [ bench "wireform"      $ nf xmlDecode smallXML
+            , bench "wireform-fast" $ nf parseFastDoc smallXML
+            , bench "xml-conduit"   $ nf conduitParse smallXML
+            , bench "hexml"         $ whnf (hexmlForce . hexmlParse) smallXML
             ]
         , bgroup "SAX parse"
             [ bench "wireform" $ nf xmlSAX smallXML
@@ -176,9 +185,10 @@ main = do
         ]
     , bgroup "Medium XML"
         [ bgroup "DOM parse"
-            [ bench "wireform"    $ nf xmlDecode mediumXML
-            , bench "xml-conduit" $ nf conduitParse mediumXML
-            , bench "hexml"       $ whnf (hexmlForce . hexmlParse) mediumXML
+            [ bench "wireform"      $ nf xmlDecode mediumXML
+            , bench "wireform-fast" $ nf parseFastDoc mediumXML
+            , bench "xml-conduit"   $ nf conduitParse mediumXML
+            , bench "hexml"         $ whnf (hexmlForce . hexmlParse) mediumXML
             ]
         , bgroup "SAX parse"
             [ bench "wireform" $ nf xmlSAX mediumXML

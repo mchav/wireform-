@@ -11,6 +11,7 @@ module Wireform.XML
   , module XML.Path
   , module XML.Class
   , module XML.DSL
+  , module XML.FastDOM
   ) where
 
 import XML.Value
@@ -20,3 +21,4 @@ import XML.Encode
 import XML.Path
 import XML.Class
 import XML.DSL hiding (textContent, textNodes, commentNodes)
+import XML.FastDOM

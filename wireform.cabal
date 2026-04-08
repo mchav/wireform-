@@ -290,6 +290,7 @@ library
       XML.CodeGen
       XML.QQ
       XML.DSL
+      XML.FastDOM
       Wireform.XML
 
     other-modules:    Paths_wireform
