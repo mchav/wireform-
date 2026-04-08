@@ -1118,6 +1118,19 @@ test-suite interop-test
       DerivingStrategies
       OverloadedStrings
 
+test-suite html5lib-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          HTML5LibTest.hs
+    build-depends:
+        base, wireform, bytestring, text, vector,
+        directory, filepath,
+        tasty, tasty-hunit
+    hs-source-dirs:   test-interop
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
 benchmark format-bench
     import:           warnings
     type:             exitcode-stdio-1.0
