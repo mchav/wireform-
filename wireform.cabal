@@ -287,6 +287,7 @@ library
       XML.Class
       XML.Generic
       XML.Schema
+      XML.XSLT
       XML.CodeGen
       XML.QQ
       XML.DSL
