@@ -297,6 +297,39 @@ library
       XML.FastDOM
       XML.Incremental
       Wireform.XML
+      -- Bencode support
+      Bencode.Value
+      Bencode.Encode
+      Bencode.Decode
+      Bencode.Class
+      Wireform.Bencode
+      -- TOML support
+      TOML.Value
+      TOML.Encode
+      TOML.Decode
+      TOML.Class
+      Wireform.TOML
+      -- HTML5 support
+      HTML.Value
+      HTML.Parse
+      HTML.Encode
+      HTML.Query
+      HTML.Class
+      Wireform.HTML
+      -- CSV/TSV support
+      CSV.Value
+      CSV.Decode
+      CSV.Encode
+      CSV.Class
+      Wireform.CSV
+      -- NDJSON (Newline-Delimited JSON) support
+      NDJSON.Decode
+      NDJSON.Encode
+      Wireform.NDJSON
+      -- Apache ORC metadata
+      ORC.Types
+      ORC.Footer
+      Wireform.ORC
 
     other-modules:    Paths_wireform
     autogen-modules:  Paths_wireform
@@ -405,6 +438,12 @@ test-suite wireform-test
       Test.AvroIDL
       Test.Registry
       Test.XML
+      Test.Bencode
+      Test.TOML
+      Test.HTML
+      Test.CSV
+      Test.NDJSON
+      Test.ORC
 
     build-depends:
         base             >= 4.16 && < 5

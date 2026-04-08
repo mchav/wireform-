@@ -57,6 +57,12 @@ import Test.ISLParser (islParserTests)
 import Test.AvroIDL (avroIDLTests)
 import Test.Registry (registryTests)
 import Test.XML (xmlTests)
+import Test.Bencode (bencodeTests)
+import Test.TOML (tomlTests)
+import Test.HTML (htmlTests)
+import Test.CSV (csvTests)
+import Test.NDJSON (ndjsonTests)
+import Test.ORC (orcTests)
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform"
@@ -115,4 +121,10 @@ main = defaultMain $ testGroup "wireform"
   , avroIDLTests
   , registryTests
   , xmlTests
+  , bencodeTests
+  , tomlTests
+  , htmlTests
+  , csvTests
+  , ndjsonTests
+  , orcTests
   ]
