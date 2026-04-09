@@ -113,6 +113,7 @@ data TBNode = TBNode
   , nodeTagId    :: !TagId
   , nodeAttrsRef :: !(IORef [(Text,Text)])
   , nodeNs       :: !(Maybe Text)
+  , nodeIsHTMLNs :: !Bool
   , nodeChildren :: !(IORef [TBNode])
   , nodeParent   :: !(IORef (Maybe TBNode))
   , nodeIsTemplate :: !Bool
@@ -294,12 +295,14 @@ newTBNode tb name attrs ns isTmpl = do
   parentRef <- newIORef Nothing
   tmplRef <- newIORef []
   let !tid = tagIdFromText name
+      !htmlNs = ns == Nothing || ns == Just "" || ns == Just "html"
   pure TBNode
     { nodeId = nid
     , nodeName = name
     , nodeTagId = tid
     , nodeAttrsRef = attrRef
     , nodeNs = ns
+    , nodeIsHTMLNs = htmlNs
     , nodeChildren = childRef
     , nodeParent = parentRef
     , nodeIsTemplate = isTmpl
@@ -664,7 +667,7 @@ hasElementInScopeT !targetTid target terminators checkIntegrationPoints tb = do
     go [] = pure False
     go (node:rest)
       | let !tid = nodeTagId node
-      , isHTMLNs (nodeNs node) =
+      , nodeIsHTMLNs node =
           if (tid /= TagUnknown && tid == targetTid) || (tid == TagUnknown && nodeName node == target)
           then pure True
           else if nodeName node `S.member` terminators
@@ -674,8 +677,6 @@ hasElementInScopeT !targetTid target terminators checkIntegrationPoints tb = do
           isIP <- isForeignScopeTerminator node
           if isIP then pure False else go rest
       | otherwise = go rest
-    {-# INLINE isHTMLNs #-}
-    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
     isForeignScopeTerminator node = do
       let ns = nodeNs node
           name = nodeName node
@@ -711,7 +712,7 @@ hasAnyInScope targets tb = do
   where
     go [] = False
     go (node:rest)
-      | isHTMLNs (nodeNs node) =
+      | nodeIsHTMLNs node =
           let !tid = nodeTagId node
           in if tid /= TagUnknown && nodeName node `S.member` targets
              then True
@@ -720,7 +721,6 @@ hasAnyInScope targets tb = do
              else if nodeName node `S.member` targets then True
              else go rest
       | otherwise = go rest
-    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
 
 ------------------------------------------------------------------------
 -- Stack helpers
@@ -756,12 +756,11 @@ popUntilInclusive target tb = do
   where
     go !tid [] = []
     go !tid (node:rest)
-      | isHTMLNs (nodeNs node) && matchNode tid node = rest
+      | nodeIsHTMLNs node && matchNode tid node = rest
       | otherwise = go tid rest
     matchNode !tid node
       | tid /= TagUnknown = nodeTagId node == tid
       | otherwise = nodeName node == target
-    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
 
 popUntilOneOf :: S.Set Text -> TreeBuilder -> IO ()
 popUntilOneOf targets tb = do
@@ -1265,11 +1264,10 @@ findFurthestBlock fmtNode openElems =
     [] -> Nothing
     _ -> Just (last specialOnes)
   where
-    isSpecial n = isHTMLNs (nodeNs n) && tagIsSpecial n
+    isSpecial n = nodeIsHTMLNs n && tagIsSpecial n
     tagIsSpecial n = let !tid = nodeTagId n
                      in if tid /= TagUnknown then tagIdIsSpecial tid
                         else nodeName n `S.member` specialElements
-    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
 
 removeAtIdx :: Int -> [a] -> [a]
 removeAtIdx _ [] = []
@@ -1377,7 +1375,7 @@ anyOtherEndTag name tb = do
           generateImpliedEndTags (Just name) tb
           elems <- readIORef (tbOpenElements tb)
           writeIORef (tbOpenElements tb) (dropThrough node elems)
-      | isHTMLNs (nodeNs node) && nodeIsSpecial node = pure ()
+      | nodeIsHTMLNs node && nodeIsSpecial node = pure ()
       | otherwise = go ntid rest
     matchesName !ntid node
       | ntid /= TagUnknown = nodeTagId node == ntid
@@ -1385,7 +1383,6 @@ anyOtherEndTag name tb = do
     nodeIsSpecial node = let !tid = nodeTagId node
                          in if tid /= TagUnknown then tagIdIsSpecial tid
                             else nodeName node `S.member` specialElements
-    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
     dropThrough target (x:xs) | x == target = xs
     dropThrough target (_:xs) = dropThrough target xs
     dropThrough _ [] = []
@@ -2056,14 +2053,13 @@ closeDdDtElements tb = do
       , tid == TagDd || tid == TagDt = do
           generateImpliedEndTags (Just (nodeName node)) tb
           popUntilInclusive (nodeName node) tb
-      | isHTMLNs (nodeNs node) && nodeIsSpecialNotAddrDivP node = pure ()
+      | nodeIsHTMLNs node && nodeIsSpecialNotAddrDivP node = pure ()
       | otherwise = go rest
     nodeIsSpecialNotAddrDivP node =
       let !tid = nodeTagId node
       in if tid /= TagUnknown
          then tagIdIsSpecial tid && tid /= TagAddress && tid /= TagDiv && tid /= TagP
          else nodeName node `S.member` specialElements && nodeName node `notElem` ["address","div","p"]
-    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
 
 removeActiveFormattingByName :: Text -> TreeBuilder -> IO ()
 removeActiveFormattingByName name tb =
@@ -2728,10 +2724,9 @@ foreignEndTag name tb = do
           case rest of
             [] -> pure ()
             (nextNode:_)
-              | isHTMLNs (nodeNs nextNode) ->
+              | nodeIsHTMLNs nextNode ->
                   processInMode tb (TEndTag name)
               | otherwise -> go (idx+1) rest
-    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
     dropThrough target (x:xs) | x == target = xs
     dropThrough target (_:xs) = dropThrough target xs
     dropThrough _ [] = []
@@ -2746,7 +2741,7 @@ popUntilHTMLOrIntegrationPoint tb = do
   case elems of
     [] -> pure ()
     (node:_)
-      | isHTMLNs (nodeNs node) -> pure ()
+      | nodeIsHTMLNs node -> pure ()
       | isFragCtxElem node -> pure ()
       | otherwise -> do
           isHIP <- isHTMLIntegrationPoint node
@@ -2757,7 +2752,6 @@ popUntilHTMLOrIntegrationPoint tb = do
             popElement tb
             popUntilHTMLOrIntegrationPoint tb
   where
-    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
     isFragCtxElem node = case tbFragmentContextElement tb of
       Just fce -> node == fce
       Nothing -> False
