@@ -229,15 +229,26 @@ parseDoctypeContent s =
         ('>':_) -> RLDoctype (T.pack name) Nothing Nothing
         [] -> RLDoctype (T.pack name) Nothing Nothing
         ('"':rest3) ->
-          let (pub, rest4) = break (== '"') rest3
-              rest5 = if null rest4 then rest4 else tail rest4
-              rest6 = dropWhile (\c -> c == ' ') rest5
-          in case rest6 of
-            ('"':rest7) ->
-              let (sys, _rest8) = break (== '"') rest7
+          let (pub, rest4) = readQuotedField rest3
+              rest5 = dropWhile (== ' ') rest4
+          in case rest5 of
+            ('"':rest6) ->
+              let (sys, _rest7) = readQuotedField rest6
               in RLDoctype (T.pack name) (Just (T.pack pub)) (Just (T.pack sys))
             _ -> RLDoctype (T.pack name) (Just (T.pack pub)) Nothing
         _ -> RLDoctype (T.pack name) Nothing Nothing
+
+readQuotedField :: String -> (String, String)
+readQuotedField s =
+  let (content, rest) = break (== '"') s
+  in case rest of
+    ('"':' ':r) -> (content, r)
+    ('"':'>':r) -> (content, '>':r)
+    ('"':[])    -> (content, [])
+    ('"':r)     ->
+      let (more, rest2) = readQuotedField r
+      in (content ++ "\"" ++ more, rest2)
+    _ -> (content, rest)
 
 safeHead :: String -> Char
 safeHead [] = '\0'

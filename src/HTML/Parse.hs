@@ -222,16 +222,26 @@ buildAllNodes tb = do
   let rootFromStack = case reverse openElems of
         (root:_) -> Just root
         [] -> Nothing
-  preNodes <- mapM childToHTMLNode (filter (not . isElementChild) docNodes)
-  rootNode <- case rootFromStack of
-    Just root -> do
+  result <- mapM (buildDocChild rootFromStack) docNodes
+  let flatResult = concat result
+  case rootFromStack of
+    Just root | not (any isRootElement docNodes) -> do
       r <- tbNodeToHTMLNode root
-      pure (Just r)
-    Nothing -> pure Nothing
-  pure (preNodes ++ maybe [] (\r -> [r]) rootNode)
+      pure (flatResult ++ [r])
+    _ -> pure flatResult
   where
-    isElementChild (CElement _) = True
-    isElementChild _ = False
+    isRootElement (CElement _) = True
+    isRootElement _ = False
+    buildDocChild mRoot (CElement node) = case mRoot of
+      Just root | node == root -> do
+        r <- tbNodeToHTMLNode root
+        pure [r]
+      _ -> do
+        r <- tbNodeToHTMLNode node
+        pure [r]
+    buildDocChild _ cn = do
+      r <- childToHTMLNode cn
+      pure [r]
 
 buildFragmentResult :: TreeBuilder -> IO [HTMLNode]
 buildFragmentResult tb = do
@@ -1258,8 +1268,22 @@ modeAfterHead tb tok = case tok of
   TStartTag "frameset" attrs _ -> do
     void $ insertElement tb "frameset" attrs Nothing
     writeIORef (tbMode tb) MInFrameset
-  TStartTag name _ _ | name `elem` ["base","basefont","bgsound","link","meta","noframes","script","style","template","title"] ->
-    modeInHead tb tok
+  TStartTag name _ _ | name `elem` ["base","basefont","bgsound","link","meta","noframes","script","style","title"] -> do
+    mHead <- readIORef (tbHeadElement tb)
+    case mHead of
+      Just headNode -> do
+        modifyIORef' (tbOpenElements tb) (headNode:)
+        modeInHead tb tok
+        modifyIORef' (tbOpenElements tb) (filter (/= headNode))
+      Nothing -> modeInHead tb tok
+  TStartTag "template" _ _ -> do
+    mHead <- readIORef (tbHeadElement tb)
+    case mHead of
+      Just headNode -> do
+        modifyIORef' (tbOpenElements tb) (headNode:)
+        writeIORef (tbMode tb) MInHead
+        processInMode tb tok
+      Nothing -> modeInHead tb tok
   TEndTag "template" -> modeInHead tb tok
   TEndTag name | name `elem` ["body","html","br"] -> do
     void $ insertElement tb "body" [] Nothing
@@ -2453,10 +2477,17 @@ tokenizeMarkupDecl rest
   | matchCaseI rest "[cdata[" =
       let rest1 = drop 7 rest
           (content, remaining) = readUntilStr "]]>" rest1
-      in map TChar content ++ tokenizeNormal remaining
+      in TComment (T.pack ("[CDATA[" ++ content ++ "]]")) : tokenizeNormal remaining
   | otherwise =
-      let (comment, remaining) = readUntilStr ">" rest
-      in TComment (T.pack ('!' : comment)) : tokenizeNormal remaining
+      let (comment, remaining) = readBogusComment rest
+      in TComment (T.pack comment) : tokenizeNormal remaining
+
+readBogusComment :: String -> (String, String)
+readBogusComment [] = ("", [])
+readBogusComment ('>':rest) = ("", rest)
+readBogusComment (c:rest) =
+  let (more, remaining) = readBogusComment rest
+  in (c:more, remaining)
 
 readComment :: String -> (String, String)
 readComment ('>':rest) = ("", rest)
@@ -2644,6 +2675,8 @@ tokenizeRawText cs tag
           let rest1 = drop (length tagStr) rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
+      | matchCloseTagEOF rest tagStr =
+          map TChar (reverse acc) ++ [TEndTag tag]
     goRaw acc (c:rest) = goRaw (c:acc) rest
 
 tokenizeScriptData :: String -> [Token]
@@ -2655,6 +2688,8 @@ tokenizeScriptData cs = scriptNormal [] cs
           let rest1 = drop 6 rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
+      | matchCloseTagEOF rest "script" =
+          map TChar (reverse acc) ++ [TEndTag "script"]
     scriptNormal acc ('<':'!':'-':'-':rest) =
       scriptEscaped ('-':'-':'!':'<':acc) rest
     scriptNormal acc (c:rest) = scriptNormal (c:acc) rest
@@ -2667,6 +2702,8 @@ tokenizeScriptData cs = scriptNormal [] cs
           let rest1 = drop 6 rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
+      | matchCloseTagEOF rest "script" =
+          map TChar (reverse acc) ++ [TEndTag "script"]
     scriptEscaped acc ('<':rest) =
       let (tag, rest') = tryMatchScriptStart rest
       in case tag of
@@ -2706,6 +2743,11 @@ tokenizeScriptData cs = scriptNormal [] cs
           -> (True, [c1,c2,c3,c4,c5,c6], rest)
         _ -> (False, [], cs)
 
+matchCloseTagEOF :: String -> String -> Bool
+matchCloseTagEOF cs tag =
+  let (name, rest) = span (\c -> isAlpha c || isDigit c || c == '-') cs
+  in map toLower name == map toLower tag && null rest
+
 tokenizeRCData :: String -> Text -> [Token]
 tokenizeRCData cs tag = go [] cs
   where
@@ -2716,6 +2758,8 @@ tokenizeRCData cs tag = go [] cs
           let rest1 = drop (length tagStr) rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
+      | matchCloseTagEOF rest tagStr =
+          map TChar (reverse acc) ++ [TEndTag tag]
     go acc ('&':rest) =
       let (entity, remaining) = parseEntityRef rest
       in go (reverse entity ++ acc) remaining
