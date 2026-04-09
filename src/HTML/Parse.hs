@@ -2480,15 +2480,15 @@ readDoctypeIds cs
             (q2:rest3) | q2 == '"' || q2 == '\'' ->
               let (sys, rest4) = readQuotedDoc rest3 q2
               in (Just (T.pack pub), Just (T.pack sys), False, skipToGtStr rest4)
-            ('>':rest3) -> (Just (T.pack pub), Nothing, False, rest3)
-            _ -> (Just (T.pack pub), Nothing, False, skipToGtStr rest2)
+            ('>':rest3) -> (Just (T.pack pub), Just (T.pack ""), False, rest3)
+            _ -> (Just (T.pack pub), Just (T.pack ""), False, skipToGtStr rest2)
         _ -> (Nothing, Nothing, True, skipToGtStr cs1)
   | matchCaseI cs "system" =
       let cs1 = dropWhile isWSChar (drop 6 cs)
       in case cs1 of
         (q:rest) | q == '"' || q == '\'' ->
           let (sys, rest1) = readQuotedDoc rest q
-          in (Nothing, Just (T.pack sys), False, skipToGtStr rest1)
+          in (Just (T.pack ""), Just (T.pack sys), False, skipToGtStr rest1)
         _ -> (Nothing, Nothing, True, skipToGtStr cs1)
   | otherwise = (Nothing, Nothing, True, skipToGtStr cs)
   where isWSChar c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C'
