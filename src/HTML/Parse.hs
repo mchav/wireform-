@@ -142,7 +142,7 @@ fragmentTokenize ctx ctxNs txt
   | ctx `elem` ["title", "textarea"] = tokenizeRCData (T.unpack txt) ctx
   | ctx `elem` ["style", "xmp", "iframe", "noembed", "noframes", "noscript", "script"] =
       tokenizeRawText (T.unpack txt) ctx
-  | ctx == "plaintext" = map TChar (T.unpack txt)
+  | ctx == "plaintext" = map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) (T.unpack txt)
   | otherwise = tokenize txt
   where
     isForeignNs = case ctxNs of
@@ -2295,7 +2295,7 @@ processForeignContent tb tok = case tok of
     writeIORef (tbFramesetOk tb) False
   TComment t
     | isCDATA t ->
-        appendTextToCurrentNode tb (cdataContent t)
+        appendTextToCurrentNode tb (T.replace "\0" "\xFFFD" (cdataContent t))
     | otherwise -> insertComment tb t
   TStartTag name attrs sc -> do
     let nameLower = T.toLower name
@@ -2633,7 +2633,7 @@ tokenizeAfterLT (c:rest)
         "title" ->
           if selfClose then tok : tokenizeNormal rest2
           else tok : tokenizeRCData rest2 (T.pack lcName)
-        "plaintext" -> tok : map TChar rest2
+        "plaintext" -> tok : map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) rest2
         _ -> tok : tokenizeNormal rest2
   | otherwise = TChar '<' : tokenizeNormal (c:rest)
 
@@ -2661,7 +2661,7 @@ tokenizeMarkupDecl rest
   | matchCaseI rest "[cdata[" =
       let rest1 = drop 7 rest
           (content, remaining) = readUntilStr "]]>" rest1
-      in TComment (cdataMarker <> T.pack content) : tokenizeNormal remaining
+      in TComment (cdataMarker <> T.pack (normalizeCR content)) : tokenizeNormal remaining
   | otherwise =
       let (comment, remaining) = readBogusComment rest
       in TComment (T.pack comment) : tokenizeNormal remaining
@@ -2682,6 +2682,7 @@ readComment cs = go [] cs
     go acc ('-':'-':'>':rest) = (reverse acc, rest)
     go acc ('-':'-':'!':'>':rest) = (reverse acc, rest)
     go acc ('-':'-':[]) = (reverse acc, [])
+    go acc ('\0':rest) = go ('\xFFFD':acc) rest
     go acc (c:rest) = go (c:acc) rest
 
 tokenizeDoctype :: String -> [Token]
@@ -2861,6 +2862,7 @@ tokenizeRawText cs tag
           let rest1 = drop (length tagStr) rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
+    goRaw acc ('\0':rest) = goRaw ('\xFFFD':acc) rest
     goRaw acc (c:rest) = goRaw (c:acc) rest
 
 tokenizeScriptData :: String -> [Token]
@@ -2874,6 +2876,7 @@ tokenizeScriptData cs = scriptNormal [] cs
           in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
     scriptNormal acc ('<':'!':'-':'-':rest) =
       scriptEscaped ('-':'-':'!':'<':acc) rest
+    scriptNormal acc ('\0':rest) = scriptNormal ('\xFFFD':acc) rest
     scriptNormal acc (c:rest) = scriptNormal (c:acc) rest
 
     scriptEscaped acc [] = map TChar (reverse acc)
@@ -2891,6 +2894,7 @@ tokenizeScriptData cs = scriptNormal [] cs
           scriptDoubleEscaped (reverse suffix ++ '<':acc) rest'
         Nothing ->
           scriptEscaped ('<':acc) rest
+    scriptEscaped acc ('\0':rest) = scriptEscaped ('\xFFFD':acc) rest
     scriptEscaped acc (c:rest) = scriptEscaped (c:acc) rest
 
     scriptDoubleEscaped acc [] = map TChar (reverse acc)
@@ -2901,6 +2905,7 @@ tokenizeScriptData cs = scriptNormal [] cs
       in if isScript
          then scriptEscaped (reverse consumed ++ '/':'<':acc) rest'
          else scriptDoubleEscaped (reverse consumed ++ '/':'<':acc) rest'
+    scriptDoubleEscaped acc ('\0':rest) = scriptDoubleEscaped ('\xFFFD':acc) rest
     scriptDoubleEscaped acc (c:rest) = scriptDoubleEscaped (c:acc) rest
 
     tryMatchScriptStart cs =
@@ -2928,6 +2933,12 @@ matchCloseTagEOF cs tag =
   let (name, rest) = span (\c -> isAlpha c || isDigit c || c == '-') cs
   in map toLower name == map toLower tag && null rest
 
+normalizeCR :: String -> String
+normalizeCR [] = []
+normalizeCR ('\r':'\n':rest) = '\n' : normalizeCR rest
+normalizeCR ('\r':rest) = '\n' : normalizeCR rest
+normalizeCR (c:rest) = c : normalizeCR rest
+
 tokenizeRCData :: String -> Text -> [Token]
 tokenizeRCData cs tag = go [] cs
   where
@@ -2941,6 +2952,7 @@ tokenizeRCData cs tag = go [] cs
     go acc ('&':rest) =
       let (entity, remaining) = parseEntityRef rest
       in go (reverse entity ++ acc) remaining
+    go acc ('\0':rest) = go ('\xFFFD':acc) rest
     go acc ('\r':'\n':rest) = go ('\n':acc) rest
     go acc ('\r':rest) = go ('\n':acc) rest
     go acc (c:rest) = go (c:acc) rest

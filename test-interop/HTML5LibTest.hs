@@ -193,6 +193,22 @@ parseContent s
       RLComment (T.pack (drop 5 s))
   | "<!--" `isPrefixOf` s =
       RLComment (T.pack (drop 4 s))
+  | not (null s) && safeHead s == '<' && '=' `notElem` s =
+      let inner = tail s
+          tag = takeWhile (/= '>') inner
+      in  RLElement (T.pack tag)
+  | not (null s) && safeHead s == '<' && '=' `elem` s && hasEqBeforeGt s =
+      case break (== '=') s of
+        (name, '=':'"':rest) ->
+          let val = if not (null rest) && last rest == '"'
+                    then init rest
+                    else rest
+          in  RLAttr (T.pack name) (T.pack val)
+        (name, '=':rest) ->
+          RLAttr (T.pack name) (T.pack rest)
+        _ -> let inner = tail s
+                 tag = takeWhile (/= '>') inner
+             in  RLElement (T.pack tag)
   | not (null s) && safeHead s == '<' =
       let inner = tail s
           tag = takeWhile (/= '>') inner
@@ -253,6 +269,12 @@ readQuotedField s =
 safeHead :: String -> Char
 safeHead [] = '\0'
 safeHead (c:_) = c
+
+hasEqBeforeGt :: String -> Bool
+hasEqBeforeGt [] = False
+hasEqBeforeGt ('=':_) = True
+hasEqBeforeGt ('>':_) = False
+hasEqBeforeGt (_:rest) = hasEqBeforeGt rest
 
 buildTree :: [(Int, RawLine)] -> [ExpNode]
 buildTree [] = []
