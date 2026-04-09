@@ -2639,12 +2639,13 @@ readTagAttrs = go []
     go acc [] = (reverse acc, False, [])
     go acc ('>':rest) = (reverse acc, False, rest)
     go acc ('/':'>':rest) = (reverse acc, True, rest)
+    go acc ('/':rest) = go acc rest
     go acc (c:rest)
       | isWSChar c = go acc rest
       | otherwise =
           let (name, rest1) = readAttrName (c:rest)
               rest2 = dropWhile isWSChar rest1
-          in if null name then (reverse acc, False, skipToGtStr rest2)
+          in if null name then go acc rest2
              else case rest2 of
                ('=':rest3) ->
                  let rest4 = dropWhile isWSChar rest3
