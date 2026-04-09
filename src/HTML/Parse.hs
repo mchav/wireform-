@@ -2568,6 +2568,20 @@ skipToGtStr [] = []
 skipToGtStr ('>':rest) = rest
 skipToGtStr (_:rest) = skipToGtStr rest
 
+skipToGtWithAttrs :: String -> String
+skipToGtWithAttrs [] = []
+skipToGtWithAttrs ('>':rest) = rest
+skipToGtWithAttrs ('"':rest) = skipToGtWithAttrs (dropWhile (/= '"') rest |> safeDrop1)
+skipToGtWithAttrs ('\'':rest) = skipToGtWithAttrs (dropWhile (/= '\'') rest |> safeDrop1)
+skipToGtWithAttrs (_:rest) = skipToGtWithAttrs rest
+
+(|>) :: a -> (a -> a) -> a
+x |> f = f x
+
+safeDrop1 :: [a] -> [a]
+safeDrop1 [] = []
+safeDrop1 (_:xs) = xs
+
 readUntilStr :: String -> String -> (String, String)
 readUntilStr _ [] = ("", [])
 readUntilStr needle cs@(c:rest)
@@ -2593,7 +2607,7 @@ tokenizeRawText cs tag = go [] cs
     go acc ('<':'/':rest)
       | matchCloseTag rest tagStr =
           let rest1 = drop (length tagStr) rest
-              rest2 = skipToGtStr rest1
+              rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
     go acc (c:rest) = go (c:acc) rest
 
@@ -2605,7 +2619,7 @@ tokenizeRCData cs tag = go [] cs
     go acc ('<':'/':rest)
       | matchCloseTag rest tagStr =
           let rest1 = drop (length tagStr) rest
-              rest2 = skipToGtStr rest1
+              rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
     go acc ('&':rest) =
       let (entity, remaining) = parseEntityRef rest
