@@ -125,7 +125,8 @@ parseHTMLNodes bs = unsafePerformIO $ do
   tb <- newTreeBuilder Nothing
   mapM_ (processToken tb) tokens
   processToken tb TEOF
-  buildAllNodes tb
+  nodes <- buildAllNodes tb
+  pure (map populateSelectedContent nodes)
 
 parseHTMLFragment :: Text -> Maybe Text -> ByteString -> [HTMLNode]
 parseHTMLFragment contextTag contextNs bs = unsafePerformIO $ do
@@ -332,6 +333,58 @@ childToHTMLNode (CText t) = pure (HTMLText t)
 childToHTMLNode (CComment t) = pure (HTMLComment t)
 childToHTMLNode (CDoctype n p s) = pure (HTMLDoctype n p s)
 
+populateSelectedContent :: HTMLNode -> HTMLNode
+populateSelectedContent node@(HTMLElement tag attrs children)
+  | tag == "select" =
+      let children' = V.map populateSelectedContent children
+          mSelectedContent = findSelectedContentInSelect children'
+          options = findOptions children'
+          selectedOpt = case filter hasSelectedAttr (V.toList options) of
+            (opt:_) -> opt
+            [] -> case V.toList options of
+              (opt:_) -> opt
+              [] -> HTMLText ""
+      in case mSelectedContent of
+        Just _ ->
+          let newChildren = V.map (fillSelectedContent (getOptionChildren selectedOpt)) children'
+          in HTMLElement tag attrs newChildren
+        Nothing -> HTMLElement tag attrs children'
+  | otherwise = HTMLElement tag attrs (V.map populateSelectedContent children)
+populateSelectedContent other = other
+
+findSelectedContentInSelect :: Vector HTMLNode -> Maybe HTMLNode
+findSelectedContentInSelect children =
+  let found = V.concatMap findSC children
+  in if V.null found then Nothing else Just (V.head found)
+  where
+    findSC (HTMLElement t _ cs)
+      | t == "selectedcontent" = V.singleton (HTMLElement t V.empty cs)
+      | otherwise = V.concatMap findSC cs
+    findSC _ = V.empty
+
+findOptions :: Vector HTMLNode -> Vector HTMLNode
+findOptions children = V.concatMap findOpt children
+  where
+    findOpt node@(HTMLElement t _ cs)
+      | t == "option" = V.singleton node
+      | otherwise = V.concatMap findOpt cs
+    findOpt _ = V.empty
+
+hasSelectedAttr :: HTMLNode -> Bool
+hasSelectedAttr (HTMLElement _ attrs _) =
+  V.any (\(HTMLAttribute n _) -> n == "selected") attrs
+hasSelectedAttr _ = False
+
+getOptionChildren :: HTMLNode -> Vector HTMLNode
+getOptionChildren (HTMLElement _ _ cs) = cs
+getOptionChildren _ = V.empty
+
+fillSelectedContent :: Vector HTMLNode -> HTMLNode -> HTMLNode
+fillSelectedContent optChildren (HTMLElement tag attrs children)
+  | tag == "selectedcontent" = HTMLElement tag attrs optChildren
+  | otherwise = HTMLElement tag attrs (V.map (fillSelectedContent optChildren) children)
+fillSelectedContent _ other = other
+
 extractDoctype :: [HTMLNode] -> Maybe Doctype
 extractDoctype [] = Nothing
 extractDoctype (HTMLDoctype n p s : _) = Just (Doctype (Just n) p s)
@@ -500,8 +553,8 @@ foreignBreakoutElements = S.fromList
 -- Scope checking
 ------------------------------------------------------------------------
 
-hasElementInScope :: Text -> S.Set Text -> TreeBuilder -> IO Bool
-hasElementInScope target terminators tb = do
+hasElementInScope :: Text -> S.Set Text -> Bool -> TreeBuilder -> IO Bool
+hasElementInScope target terminators checkIntegrationPoints tb = do
   elems <- readIORef (tbOpenElements tb)
   go elems
   where
@@ -510,8 +563,11 @@ hasElementInScope target terminators tb = do
       | nodeName node == target && isHTMLNs (nodeNs node) = pure True
       | isHTMLNs (nodeNs node) && nodeName node `S.member` terminators = pure False
       | not (isHTMLNs (nodeNs node)) = do
-          isIP <- isForeignScopeTerminator node
-          if isIP then pure False else go rest
+          if checkIntegrationPoints
+          then do
+            isIP <- isForeignScopeTerminator node
+            if isIP then pure False else go rest
+          else go rest
       | otherwise = go rest
     isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
     isForeignScopeTerminator node = do
@@ -528,19 +584,19 @@ hasElementInScope target terminators tb = do
         _ -> pure False
 
 hasInScope :: Text -> TreeBuilder -> IO Bool
-hasInScope t = hasElementInScope t defaultScopeTerminators
+hasInScope t = hasElementInScope t defaultScopeTerminators True
 
 hasInButtonScope :: Text -> TreeBuilder -> IO Bool
-hasInButtonScope t = hasElementInScope t buttonScopeTerminators
+hasInButtonScope t = hasElementInScope t buttonScopeTerminators True
 
 hasInListItemScope :: Text -> TreeBuilder -> IO Bool
-hasInListItemScope t = hasElementInScope t listItemScopeTerminators
+hasInListItemScope t = hasElementInScope t listItemScopeTerminators True
 
 hasInDefinitionScope :: Text -> TreeBuilder -> IO Bool
-hasInDefinitionScope t = hasElementInScope t definitionScopeTerminators
+hasInDefinitionScope t = hasElementInScope t definitionScopeTerminators True
 
 hasInTableScope :: Text -> TreeBuilder -> IO Bool
-hasInTableScope t = hasElementInScope t tableScopeTerminators
+hasInTableScope t = hasElementInScope t tableScopeTerminators False
 
 hasAnyInScope :: S.Set Text -> TreeBuilder -> IO Bool
 hasAnyInScope targets tb = do
@@ -582,8 +638,9 @@ popUntilInclusive target tb = do
   where
     go [] = []
     go (node:rest)
-      | nodeName node == target = rest
+      | nodeName node == target && isHTMLNs (nodeNs node) = rest
       | otherwise = go rest
+    isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
 
 popUntilOneOf :: S.Set Text -> TreeBuilder -> IO ()
 popUntilOneOf targets tb = do
@@ -703,8 +760,13 @@ insertDoctype tb name pub sys =
 fosterParentText :: TreeBuilder -> Text -> IO ()
 fosterParentText tb txt = do
   elems <- readIORef (tbOpenElements tb)
-  case findLastTable elems of
-    Just (tableNode, _parentAboveTable) -> do
+  let mLastTable = findLastOnStack "table" elems
+      mLastTemplate = findLastTemplate elems
+  case (mLastTemplate, mLastTable) of
+    (Just (tmplIdx, tmplNode), Just (tblIdx, _))
+      | tmplIdx < tblIdx -> appendTextToNode tb tmplNode txt
+    (Just (_, tmplNode), Nothing) -> appendTextToNode tb tmplNode txt
+    (_, Just (_, tableNode)) -> do
       mPar <- readIORef (nodeParent tableNode)
       case mPar of
         Just parent -> do
@@ -721,7 +783,21 @@ fosterParentText tb txt = do
               insertBefore parent tableNode textNode
         Nothing ->
           appendTextToCurrentNode tb txt
-    Nothing -> appendTextToCurrentNode tb txt
+    (Nothing, Nothing) -> appendTextToCurrentNode tb txt
+
+appendTextToNode :: TreeBuilder -> TBNode -> Text -> IO ()
+appendTextToNode tb target txt = do
+  let childRef = if nodeIsTemplate target then nodeTemplateContents target else nodeChildren target
+  children <- readIORef childRef
+  case children of
+    (lastChild:_) | nodeName lastChild == "#text" -> do
+      lastAttrs <- nodeAttrs lastChild
+      let prevTxt = case lookup "#data" lastAttrs of { Just t -> t; Nothing -> "" }
+      writeIORef (nodeAttrsRef lastChild) [("#data", prevTxt <> txt)]
+    _ -> do
+      textNode <- newTBNode tb "#text" [("#data", txt)] Nothing False
+      writeIORef (nodeParent textNode) (Just target)
+      modifyIORef' childRef (textNode:)
 
 findTextAfter :: TBNode -> [TBNode] -> Maybe TBNode
 findTextAfter ref (x:next:rest)
@@ -732,23 +808,40 @@ findTextAfter _ _ = Nothing
 fosterParentNode :: TreeBuilder -> TBNode -> IO ()
 fosterParentNode tb node = do
   elems <- readIORef (tbOpenElements tb)
-  case findLastTable elems of
-    Just (tableNode, _) -> do
+  let mLastTable = findLastOnStack "table" elems
+      mLastTemplate = findLastTemplate elems
+  case (mLastTemplate, mLastTable) of
+    (Just (tmplIdx, tmplNode), Just (tblIdx, _))
+      | tmplIdx < tblIdx -> appendChild tmplNode node
+    (Just (_, tmplNode), Nothing) -> appendChild tmplNode node
+    (_, Just (_, tableNode)) -> do
       mPar <- readIORef (nodeParent tableNode)
       case mPar of
         Just parent -> insertBefore parent tableNode node
-        Nothing -> case drop 1 elems of
-          (above:_) -> appendChild above node
-          [] -> pure ()
-    Nothing -> case elems of
+        Nothing ->
+          let above = dropWhile (/= tableNode) elems
+          in case drop 1 above of
+            (a:_) -> appendChild a node
+            [] -> pure ()
+    (Nothing, Nothing) -> case elems of
       (current:_) -> appendChild current node
       [] -> pure ()
 
-findLastTable :: [TBNode] -> Maybe (TBNode, Maybe TBNode)
-findLastTable [] = Nothing
-findLastTable (node:rest)
-  | nodeName node == "table" = Just (node, case rest of { (x:_) -> Just x; [] -> Nothing })
-  | otherwise = findLastTable rest
+findLastOnStack :: Text -> [TBNode] -> Maybe (Int, TBNode)
+findLastOnStack name elems = go 0 elems
+  where
+    go _ [] = Nothing
+    go i (n:rest)
+      | nodeName n == name = Just (i, n)
+      | otherwise = go (i+1) rest
+
+findLastTemplate :: [TBNode] -> Maybe (Int, TBNode)
+findLastTemplate elems = go 0 elems
+  where
+    go _ [] = Nothing
+    go i (n:rest)
+      | nodeIsTemplate n = Just (i, n)
+      | otherwise = go (i+1) rest
 
 insertBefore :: TBNode -> TBNode -> TBNode -> IO ()
 insertBefore parent refNode newNode = do
@@ -945,10 +1038,15 @@ adoptionAgency subject tb = do
         Just parent -> removeChild parent lastNode
         Nothing -> pure ()
 
-      if nodeIsTemplate commonAncestor
+      insertFromTable <- readIORef (tbInsertFromTable tb)
+      let shouldFoster = insertFromTable && nodeName commonAncestor `elem` ["table","tbody","tfoot","thead","tr"]
+      if shouldFoster
+      then fosterParentNode tb lastNode
+      else if nodeIsTemplate commonAncestor
       then modifyIORef' (nodeTemplateContents commonAncestor) (lastNode:)
-      else modifyIORef' (nodeChildren commonAncestor) (lastNode:)
-      writeIORef (nodeParent lastNode) (Just commonAncestor)
+      else do
+        modifyIORef' (nodeChildren commonAncestor) (lastNode:)
+        writeIORef (nodeParent lastNode) (Just commonAncestor)
 
       newFmtNode <- newTBNode tb (nodeName fmtNode) fmtAttrs (nodeNs fmtNode) False
 
@@ -2365,18 +2463,25 @@ processForeignContent tb tok = case tok of
 foreignEndTag :: Text -> TreeBuilder -> IO ()
 foreignEndTag name tb = do
   elems <- readIORef (tbOpenElements tb)
-  go elems
+  case elems of
+    [] -> pure ()
+    _ -> go 0 elems
   where
-    go [] = pure ()
-    go (node:rest)
+    go _ [] = pure ()
+    go idx (node:rest)
       | T.toLower (nodeName node) == name = do
           case tbFragmentContextElement tb of
             Just fce | node == fce -> pure ()
             _ -> do
               elems2 <- readIORef (tbOpenElements tb)
               writeIORef (tbOpenElements tb) (dropThrough node elems2)
-      | isHTMLNs (nodeNs node) = processInMode tb (TEndTag name)
-      | otherwise = go rest
+      | otherwise =
+          case rest of
+            [] -> pure ()
+            (nextNode:_)
+              | isHTMLNs (nodeNs nextNode) ->
+                  processInMode tb (TEndTag name)
+              | otherwise -> go (idx+1) rest
     isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
     dropThrough target (x:xs) | x == target = xs
     dropThrough target (_:xs) = dropThrough target xs
@@ -2651,32 +2756,32 @@ lookupDef def key table = case lookup key table of { Just v -> v; Nothing -> def
 ------------------------------------------------------------------------
 
 tokenize :: Text -> [Token]
-tokenize txt = tokenizeCtx 0 (T.unpack txt)
+tokenize txt = tokenizeCtx 0 False (T.unpack txt)
 
-tokenizeCtx :: Int -> String -> [Token]
-tokenizeCtx !svgDepth [] = []
-tokenizeCtx svgDepth ('<':rest) = tokenizeAfterLTCtx svgDepth rest
-tokenizeCtx svgDepth ('&':rest) =
+tokenizeCtx :: Int -> Bool -> String -> [Token]
+tokenizeCtx !svgDepth !svgHIP [] = []
+tokenizeCtx svgDepth svgHIP ('<':rest) = tokenizeAfterLTCtx svgDepth svgHIP rest
+tokenizeCtx svgDepth svgHIP ('&':rest) =
   let (entity, remaining) = parseEntityRef rest
-  in map TChar entity ++ tokenizeCtx svgDepth remaining
-tokenizeCtx svgDepth ('\r':'\n':rest) = TChar '\n' : tokenizeCtx svgDepth rest
-tokenizeCtx svgDepth ('\r':rest) = TChar '\n' : tokenizeCtx svgDepth rest
-tokenizeCtx svgDepth (c:rest) = TChar c : tokenizeCtx svgDepth rest
+  in map TChar entity ++ tokenizeCtx svgDepth svgHIP remaining
+tokenizeCtx svgDepth svgHIP ('\r':'\n':rest) = TChar '\n' : tokenizeCtx svgDepth svgHIP rest
+tokenizeCtx svgDepth svgHIP ('\r':rest) = TChar '\n' : tokenizeCtx svgDepth svgHIP rest
+tokenizeCtx svgDepth svgHIP (c:rest) = TChar c : tokenizeCtx svgDepth svgHIP rest
 
 tokenizeNormal :: String -> [Token]
-tokenizeNormal = tokenizeCtx 0
+tokenizeNormal = tokenizeCtx 0 False
 
 tokenizeAfterLT :: String -> [Token]
-tokenizeAfterLT = tokenizeAfterLTCtx 0
+tokenizeAfterLT = tokenizeAfterLTCtx 0 False
 
-tokenizeAfterLTCtx :: Int -> String -> [Token]
-tokenizeAfterLTCtx _ [] = [TChar '<']
-tokenizeAfterLTCtx svgDepth ('!':rest) = tokenizeMarkupDeclCtx svgDepth rest
-tokenizeAfterLTCtx svgDepth ('/':rest) = tokenizeEndTagCtx svgDepth rest
-tokenizeAfterLTCtx svgDepth ('?':rest) =
+tokenizeAfterLTCtx :: Int -> Bool -> String -> [Token]
+tokenizeAfterLTCtx _ _ [] = [TChar '<']
+tokenizeAfterLTCtx svgDepth svgHIP ('!':rest) = tokenizeMarkupDeclCtx svgDepth svgHIP rest
+tokenizeAfterLTCtx svgDepth svgHIP ('/':rest) = tokenizeEndTagCtx svgDepth svgHIP rest
+tokenizeAfterLTCtx svgDepth svgHIP ('?':rest) =
   let (comment, remaining) = readUntilStr ">" rest
-  in TComment (T.pack ('?' : comment)) : tokenizeCtx svgDepth remaining
-tokenizeAfterLTCtx svgDepth (c:rest)
+  in TComment (T.pack ('?' : comment)) : tokenizeCtx svgDepth svgHIP remaining
+tokenizeAfterLTCtx svgDepth svgHIP (c:rest)
   | isAlpha c =
       let (name, rest1) = span isTagNameChar (c:rest)
           lcName = map toLower name
@@ -2684,6 +2789,10 @@ tokenizeAfterLTCtx svgDepth (c:rest)
           tok = TStartTag (T.pack lcName) attrs selfClose
           newSvgDepth = if lcName == "svg" then svgDepth + 1 else svgDepth
           inSvg = newSvgDepth > 0
+          isSvgHIPTag = lcName `elem` ["foreignobject","desc","title"]
+          newSvgHIP = if inSvg && isSvgHIPTag then True
+                      else if lcName == "svg" then False
+                      else svgHIP
           eofInTag = case rest2 of
             ('\x00':_) -> False
             _ -> True
@@ -2692,19 +2801,20 @@ tokenizeAfterLTCtx svgDepth (c:rest)
          then []
          else case lcName of
            n | n `elem` ["script","style","xmp","iframe","noembed","noframes","noscript"] ->
-             if selfClose then tok : tokenizeCtx newSvgDepth rest2'
+             if selfClose then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
              else tok : tokenizeRawText rest2' (T.pack lcName)
            "textarea" ->
-             if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2'
+             if selfClose || inSvg then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
              else tok : tokenizeRCData rest2' (T.pack lcName)
            "title" ->
-             if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2'
+             if selfClose || inSvg then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
              else tok : tokenizeRCData rest2' (T.pack lcName)
            "plaintext" ->
-             if inSvg then tok : tokenizeCtx newSvgDepth rest2'
+             if inSvg && not newSvgHIP
+             then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
              else tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2'
-           _ -> tok : tokenizeCtx newSvgDepth rest2'
-  | otherwise = TChar '<' : tokenizeCtx svgDepth (c:rest)
+           _ -> tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
+  | otherwise = TChar '<' : tokenizeCtx svgDepth svgHIP (c:rest)
 
 anyGt :: String -> Bool
 anyGt [] = False
@@ -2712,42 +2822,43 @@ anyGt ('>':_) = True
 anyGt (_:rest) = anyGt rest
 
 tokenizeEndTag :: String -> [Token]
-tokenizeEndTag = tokenizeEndTagCtx 0
+tokenizeEndTag = tokenizeEndTagCtx 0 False
 
-tokenizeEndTagCtx :: Int -> String -> [Token]
-tokenizeEndTagCtx _ [] = [TChar '<', TChar '/']
-tokenizeEndTagCtx svgDepth (c:rest)
+tokenizeEndTagCtx :: Int -> Bool -> String -> [Token]
+tokenizeEndTagCtx _ _ [] = [TChar '<', TChar '/']
+tokenizeEndTagCtx svgDepth svgHIP (c:rest)
   | isAlpha c =
       let (name, rest1) = span isTagNameChar (c:rest)
           lcName = map toLower name
           rest2 = skipToGtStr rest1
           newSvgDepth = if lcName == "svg" && svgDepth > 0 then svgDepth - 1 else svgDepth
+          newSvgHIP = if lcName == "svg" && svgDepth > 0 then False else svgHIP
       in if null rest1 && null rest2
          then []
-         else TEndTag (T.pack lcName) : tokenizeCtx newSvgDepth rest2
-  | c == '>' = TComment "" : tokenizeCtx svgDepth rest
+         else TEndTag (T.pack lcName) : tokenizeCtx newSvgDepth newSvgHIP rest2
+  | c == '>' = TComment "" : tokenizeCtx svgDepth svgHIP rest
   | otherwise =
       let (comment, remaining) = readUntilStr ">" (c:rest)
-      in TComment (T.pack comment) : tokenizeCtx svgDepth remaining
+      in TComment (T.pack comment) : tokenizeCtx svgDepth svgHIP remaining
 
 tokenizeMarkupDecl :: String -> [Token]
-tokenizeMarkupDecl = tokenizeMarkupDeclCtx 0
+tokenizeMarkupDecl = tokenizeMarkupDeclCtx 0 False
 
-tokenizeMarkupDeclCtx :: Int -> String -> [Token]
-tokenizeMarkupDeclCtx svgDepth ('-':'-':rest) =
+tokenizeMarkupDeclCtx :: Int -> Bool -> String -> [Token]
+tokenizeMarkupDeclCtx svgDepth svgHIP ('-':'-':rest) =
   let (comment, remaining) = readComment rest
-  in TComment (T.pack comment) : tokenizeCtx svgDepth remaining
-tokenizeMarkupDeclCtx svgDepth rest
+  in TComment (T.pack comment) : tokenizeCtx svgDepth svgHIP remaining
+tokenizeMarkupDeclCtx svgDepth svgHIP rest
   | matchCaseI rest "doctype" =
       let rest1 = drop 7 rest
-      in tokenizeDoctypeCtx svgDepth rest1
+      in tokenizeDoctypeCtx svgDepth svgHIP rest1
   | matchCaseI rest "[cdata[" =
       let rest1 = drop 7 rest
           (content, remaining) = readUntilStr "]]>" rest1
-      in TComment (cdataMarker <> T.pack (normalizeCR content)) : tokenizeCtx svgDepth remaining
+      in TComment (cdataMarker <> T.pack (normalizeCR content)) : tokenizeCtx svgDepth svgHIP remaining
   | otherwise =
       let (comment, remaining) = readBogusComment rest
-      in TComment (T.pack comment) : tokenizeCtx svgDepth remaining
+      in TComment (T.pack comment) : tokenizeCtx svgDepth svgHIP remaining
 
 readBogusComment :: String -> (String, String)
 readBogusComment [] = ("", [])
@@ -2772,15 +2883,15 @@ readComment cs = go [] cs
     go acc (c:rest) = go (c:acc) rest
 
 tokenizeDoctype :: String -> [Token]
-tokenizeDoctype = tokenizeDoctypeCtx 0
+tokenizeDoctype = tokenizeDoctypeCtx 0 False
 
-tokenizeDoctypeCtx :: Int -> String -> [Token]
-tokenizeDoctypeCtx svgDepth cs =
+tokenizeDoctypeCtx :: Int -> Bool -> String -> [Token]
+tokenizeDoctypeCtx svgDepth svgHIP cs =
   let cs1 = dropWhile isSp cs
       (name, cs2) = readDoctypeName cs1
       cs3 = dropWhile isSp cs2
       (pub, sys, fq, cs4) = readDoctypeIds cs3
-  in TDoctype (T.pack name) pub sys fq : tokenizeCtx svgDepth cs4
+  in TDoctype (T.pack name) pub sys fq : tokenizeCtx svgDepth svgHIP cs4
   where isSp c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C'
 
 readDoctypeName :: String -> (String, String)

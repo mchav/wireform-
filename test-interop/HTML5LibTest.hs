@@ -149,15 +149,37 @@ joinContinuationLines :: [String] -> [String]
 joinContinuationLines [] = []
 joinContinuationLines (l:ls)
   | "| " `isPrefixOf` l =
-      let (cont, rest) = span isContinuation ls
-          nonEmpty = filter (not . null) cont
-      in  if null nonEmpty
-            then l : joinContinuationLines rest
-            else (l ++ "\n" ++ unlines' nonEmpty) : joinContinuationLines (dropWhile (\s -> null s || not (isDocLine s)) rest)
+      if isOpenQuoteLine l
+      then
+        let (cont, rest) = spanQuoteContinuation ls
+        in  if null cont
+              then l : joinContinuationLines rest
+              else (l ++ "\n" ++ intercalate "\n" cont) : joinContinuationLines rest
+      else
+        let (cont, rest) = span isContinuation ls
+            nonEmpty = filter (not . null) cont
+        in  if null nonEmpty
+              then l : joinContinuationLines rest
+              else (l ++ "\n" ++ unlines' nonEmpty) : joinContinuationLines (dropWhile (\s -> null s || not (isDocLine s)) rest)
   | otherwise = joinContinuationLines ls
   where
     isDocLine s = "| " `isPrefixOf` s
     isContinuation s = not (isDocLine s) && not (null s)
+    isOpenQuoteLine s =
+      let afterBar = drop 2 s
+          (_spaces, content) = span (== ' ') afterBar
+      in case content of
+           ('"':rest) -> not (isClosedQuote rest)
+           _ -> False
+    isClosedQuote [] = False
+    isClosedQuote s = last s == '"'
+    spanQuoteContinuation [] = ([], [])
+    spanQuoteContinuation (x:xs)
+      | isDocLine x = ([], x:xs)
+      | isClosingQuoteLine x = ([x], xs)
+      | otherwise = let (more, rest) = spanQuoteContinuation xs
+                    in (x : more, rest)
+    isClosingQuoteLine s = not (null s) && last s == '"' && not (isDocLine s)
 
 data RawLine
   = RLElement !Text
