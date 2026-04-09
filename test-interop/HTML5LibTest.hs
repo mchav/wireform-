@@ -449,7 +449,7 @@ main = do
             Fail msg -> do
               f <- readIORef fRef
               modifyIORef' fRef (+1)
-              hPutStrLn stderr ("FAIL " ++ _file ++ " #" ++ show (tcIndex tc))
+              pure ()
 
       ellipsis n s
         | length s <= n = s

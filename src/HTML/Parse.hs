@@ -55,7 +55,7 @@ data InsertionMode
 data TBNode = TBNode
   { nodeId       :: !Int
   , nodeName     :: !Text
-  , nodeAttrs    :: ![(Text,Text)]
+  , nodeAttrsRef :: !(IORef [(Text,Text)])
   , nodeNs       :: !(Maybe Text)
   , nodeChildren :: !(IORef [TBNode])
   , nodeParent   :: !(IORef (Maybe TBNode))
@@ -186,19 +186,23 @@ newTBNode :: TreeBuilder -> Text -> [(Text,Text)] -> Maybe Text -> Bool -> IO TB
 newTBNode tb name attrs ns isTmpl = do
   nid <- readIORef (tbNextId tb)
   writeIORef (tbNextId tb) (nid + 1)
+  attrRef <- newIORef attrs
   childRef <- newIORef []
   parentRef <- newIORef Nothing
   tmplRef <- newIORef []
   pure TBNode
     { nodeId = nid
     , nodeName = name
-    , nodeAttrs = attrs
+    , nodeAttrsRef = attrRef
     , nodeNs = ns
     , nodeChildren = childRef
     , nodeParent = parentRef
     , nodeIsTemplate = isTmpl
     , nodeTemplateContents = tmplRef
     }
+
+nodeAttrs :: TBNode -> IO [(Text,Text)]
+nodeAttrs = readIORef . nodeAttrsRef
 
 ------------------------------------------------------------------------
 -- Build final document
@@ -243,30 +247,34 @@ buildFragmentResult tb = do
 tbNodeToHTMLNode :: TBNode -> IO HTMLNode
 tbNodeToHTMLNode node
   | nodeName node == "#text" = do
-      let txt = case lookup "#data" (nodeAttrs node) of
+      attrs <- nodeAttrs node
+      let txt = case lookup "#data" attrs of
             Just t -> t
             Nothing -> ""
       pure (HTMLText txt)
   | nodeName node == "#comment" = do
-      let txt = case lookup "#data" (nodeAttrs node) of
+      attrs <- nodeAttrs node
+      let txt = case lookup "#data" attrs of
             Just t -> t
             Nothing -> ""
       pure (HTMLComment txt)
   | nodeIsTemplate node = do
       tmplChildren <- readIORef (nodeTemplateContents node)
       children <- readIORef (nodeChildren node)
+      attrs <- nodeAttrs node
       let actualChildren = if null tmplChildren then children else tmplChildren
       childHtml <- mapM tbNodeToHTMLNode (reverse actualChildren)
       let displayName = nameWithNs (nodeName node) (nodeNs node)
       pure $ HTMLElement displayName
-        (V.fromList [HTMLAttribute n v | (n,v) <- nodeAttrs node])
+        (V.fromList [HTMLAttribute n v | (n,v) <- attrs])
         (V.fromList childHtml)
   | otherwise = do
       children <- readIORef (nodeChildren node)
+      attrs <- nodeAttrs node
       childHtml <- mapM tbNodeToHTMLNode (reverse children)
       let displayName = nameWithNs (nodeName node) (nodeNs node)
       pure $ HTMLElement displayName
-        (V.fromList [HTMLAttribute n v | (n,v) <- nodeAttrs node])
+        (V.fromList [HTMLAttribute n v | (n,v) <- attrs])
         (V.fromList childHtml)
 
 childToHTMLNode :: ChildNode -> IO HTMLNode
@@ -334,29 +342,30 @@ shouldUseForeignContent tb tok current = do
       TChar _ -> do
         if isMathMLTIP name nsVal
         then pure False
-        else if isHTMLIP current nsVal
-        then pure False
-        else pure True
+        else do
+          hip <- isHTMLIP current nsVal
+          if hip then pure False else pure True
       TStartTag tname _ _ -> do
         if isMathMLTIP name nsVal && tname /= "mglyph" && tname /= "malignmark"
         then pure False
         else if name == "annotation-xml" && nsVal == "math" && tname == "svg"
         then pure False
-        else if isHTMLIP current nsVal
-        then pure False
-        else pure True
+        else do
+          hip <- isHTMLIP current nsVal
+          if hip then pure False else pure True
       TComment _ -> pure True
       TEndTag _ -> pure True
       _ -> pure True
   where
     isMathMLTIP n ns = ns == "math" && n `elem` ["mi","mo","mn","ms","mtext"]
     isHTMLIP node ns
-      | ns == "math" && nodeName node == "annotation-xml" =
-          case lookup "encoding" (nodeAttrs node) of
+      | ns == "svg" = pure $ nodeName node `elem` ["foreignObject","desc","title"]
+      | ns == "math" && nodeName node == "annotation-xml" = do
+          attrs <- nodeAttrs node
+          pure $ case lookup "encoding" attrs of
             Just enc -> T.toLower enc `elem` ["text/html","application/xhtml+xml"]
             Nothing -> False
-      | ns == "svg" = nodeName node `elem` ["foreignObject","desc","title"]
-      | otherwise = False
+      | otherwise = pure False
 
 processInMode :: TreeBuilder -> Token -> IO ()
 processInMode tb tok = do
@@ -1080,12 +1089,14 @@ resetInsertionMode tb = do
 isWS :: Char -> Bool
 isWS c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C'
 
-addMissingAttrs :: [(Text,Text)] -> TreeBuilder -> IO ()
-addMissingAttrs newAttrs tb = do
-  elems <- readIORef (tbOpenElements tb)
-  case reverse elems of
-    (htmlNode:_) -> pure ()
-    [] -> pure ()
+addMissingAttrs :: TBNode -> [(Text,Text)] -> IO ()
+addMissingAttrs node newAttrs = do
+  existingAttrs <- nodeAttrs node
+  let existingNames = S.fromList [n | (n,_) <- existingAttrs]
+      toAdd = [(n,v) | (n,v) <- newAttrs, not (S.member n existingNames)]
+  if null toAdd
+  then pure ()
+  else writeIORef (nodeAttrsRef node) (existingAttrs ++ toAdd)
 
 modeInitial :: TreeBuilder -> Token -> IO ()
 modeInitial tb tok = case tok of
@@ -1278,14 +1289,19 @@ modeInBody tb tok = case tok of
   TStartTag "html" attrs _ -> do
     tms <- readIORef (tbTemplateModes tb)
     if not (null tms) then pure ()
-    else pure ()
+    else do
+      elems <- readIORef (tbOpenElements tb)
+      case reverse elems of
+        (htmlNode:_) -> addMissingAttrs htmlNode attrs
+        _ -> pure ()
   TStartTag "body" attrs _ -> do
     tms <- readIORef (tbTemplateModes tb)
     if not (null tms) then pure ()
     else do
       elems <- readIORef (tbOpenElements tb)
       case elems of
-        (_:bodyNode:_) | nodeName bodyNode == "body" ->
+        (_:bodyNode:_) | nodeName bodyNode == "body" -> do
+          addMissingAttrs bodyNode attrs
           writeIORef (tbFramesetOk tb) False
         _ -> pure ()
   TStartTag "frameset" attrs _ -> do
@@ -2174,11 +2190,9 @@ appendTextToCurrentNode tb txt = do
           children <- readIORef childRef
           case children of
             (lastChild:_) | nodeName lastChild == "#text" -> do
-              let [("#data", prevTxt)] = nodeAttrs lastChild
-              -- We need mutable text. Use a hack: create new node with combined text.
-              newTextNode <- newTBNode tb "#text" [("#data", prevTxt <> txt)] Nothing False
-              writeIORef (nodeParent newTextNode) (Just current)
-              writeIORef childRef (newTextNode : tail children)
+              lastAttrs <- nodeAttrs lastChild
+              let prevTxt = case lookup "#data" lastAttrs of { Just t -> t; Nothing -> "" }
+              writeIORef (nodeAttrsRef lastChild) [("#data", prevTxt <> txt)]
             _ -> do
               textNode <- newTBNode tb "#text" [("#data", txt)] Nothing False
               writeIORef (nodeParent textNode) (Just current)
