@@ -146,7 +146,7 @@ data TreeBuilder = TreeBuilder
   , tbFormElement    :: !(IORef (Maybe TBNode))
   , tbFramesetOk     :: !(IORef Bool)
   , tbInsertFromTable :: !(IORef Bool)
-  , tbPendingTableText :: !(IORef [Char])
+  , tbPendingTableText :: !(IORef [Text])
   , tbTemplateModes  :: !(IORef [InsertionMode])
   , tbIgnoreLF       :: !(IORef Bool)
   , tbDocument       :: !(IORef [ChildNode])
@@ -214,10 +214,10 @@ fragmentTokenize ctx ctxNs txt
   | isForeignNs = tokenize txt
   | ctx `elem` ["title", "textarea"] = tokenizeRCData (T.unpack txt) ctx
   | ctx `elem` ["style", "xmp", "iframe", "noembed", "noframes", "noscript"] =
-      map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) (T.unpack (normCR txt))
+      tokenizePlaintext (T.unpack (normCR txt))
   | ctx == "script" =
-      map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) (T.unpack (normCR txt))
-  | ctx == "plaintext" = map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) (T.unpack txt)
+      tokenizePlaintext (T.unpack (normCR txt))
+  | ctx == "plaintext" = tokenizePlaintext (T.unpack txt)
   | otherwise = tokenize txt
   where
     isForeignNs = case ctxNs of
@@ -562,10 +562,11 @@ processInMode tb tok = do
   mode <- readIORef (tbMode tb)
   case tok of
     TString _ -> case mode of
-      MInBody -> modeInBody tb tok
-      MText   -> modeText tb tok
-      MInCell -> modeInCell tb tok
-      _       -> expandStringToken tb tok
+      MInBody       -> modeInBody tb tok
+      MText         -> modeText tb tok
+      MInCell       -> modeInCell tb tok
+      MInTableText  -> modeInTableText tb tok
+      _             -> expandStringToken tb tok
     _ -> dispatchToMode mode tb tok
 
 dispatchToMode :: InsertionMode -> TreeBuilder -> Token -> IO ()
@@ -2186,21 +2187,24 @@ modeInTableText :: TreeBuilder -> Token -> IO ()
 modeInTableText tb tok = case tok of
   TChar '\0' -> pure ()
   TChar c ->
-    modifyIORef' (tbPendingTableText tb) (++ [c])
+    modifyIORef' (tbPendingTableText tb) (++ [T.singleton c])
+  TString t ->
+    modifyIORef' (tbPendingTableText tb) (++ [t])
   _ -> do
     pending <- readIORef (tbPendingTableText tb)
     origMode <- readIORef (tbOriginalMode tb)
     writeIORef (tbMode tb) origMode
     writeIORef (tbPendingTableText tb) []
-    if all isWS pending
+    let combined = T.concat pending
+    if T.all isWS combined
     then do
-      mapM_ (\c -> appendTextToCurrentNode tb (T.singleton c)) pending
+      appendTextToCurrentNode tb combined
       processInMode tb tok
     else do
       writeIORef (tbInsertFromTable tb) True
-      mapM_ (\c -> do
+      mapM_ (\chunk -> do
         reconstructActiveFormatting tb
-        appendTextToCurrentNode tb (T.singleton c)
+        appendTextToCurrentNode tb chunk
         writeIORef (tbFramesetOk tb) False) pending
       writeIORef (tbInsertFromTable tb) False
       processInMode tb tok
@@ -3019,13 +3023,18 @@ tokenize txt = tokenizeCtx 0 False (T.unpack txt)
 
 tokenizeCtx :: Int -> Bool -> String -> [Token]
 tokenizeCtx !svgDepth !svgHIP [] = []
-tokenizeCtx svgDepth svgHIP ('<':rest) = tokenizeAfterLTCtx svgDepth svgHIP rest
-tokenizeCtx svgDepth svgHIP ('&':rest) =
-  let (entity, remaining) = parseEntityRef rest
-  in map TChar entity ++ tokenizeCtx svgDepth svgHIP remaining
-tokenizeCtx svgDepth svgHIP ('\r':'\n':rest) = TChar '\n' : tokenizeCtx svgDepth svgHIP rest
-tokenizeCtx svgDepth svgHIP ('\r':rest) = TChar '\n' : tokenizeCtx svgDepth svgHIP rest
-tokenizeCtx svgDepth svgHIP (c:rest) = TChar c : tokenizeCtx svgDepth svgHIP rest
+tokenizeCtx svgDepth svgHIP cs@(c:_)
+  | c /= '<' && c /= '&' && c /= '\0' && c /= '\r' =
+      let (text, rest) = span (\x -> x /= '<' && x /= '&' && x /= '\0' && x /= '\r') cs
+      in TString (T.pack text) : tokenizeCtx svgDepth svgHIP rest
+  | c == '<' = tokenizeAfterLTCtx svgDepth svgHIP (tail cs)
+  | c == '&' = let (entity, remaining) = parseEntityRef (tail cs)
+               in map TChar entity ++ tokenizeCtx svgDepth svgHIP remaining
+  | c == '\0' = TChar '\0' : tokenizeCtx svgDepth svgHIP (tail cs)
+  | c == '\r' = case tail cs of
+      ('\n':rest) -> TChar '\n' : tokenizeCtx svgDepth svgHIP rest
+      rest -> TChar '\n' : tokenizeCtx svgDepth svgHIP rest
+  | otherwise = TChar c : tokenizeCtx svgDepth svgHIP (tail cs)
 
 tokenizeNormal :: String -> [Token]
 tokenizeNormal = tokenizeCtx 0 False
@@ -3071,7 +3080,7 @@ tokenizeAfterLTCtx svgDepth svgHIP (c:rest)
            "plaintext" ->
              if inSvg && not newSvgHIP
              then tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
-             else tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2'
+             else tok : tokenizePlaintext rest2'
            _ -> tok : tokenizeCtx newSvgDepth newSvgHIP rest2'
   | otherwise = TChar '<' : tokenizeCtx svgDepth svgHIP (c:rest)
 
@@ -3401,6 +3410,15 @@ normalizeCR [] = []
 normalizeCR ('\r':'\n':rest) = '\n' : normalizeCR rest
 normalizeCR ('\r':rest) = '\n' : normalizeCR rest
 normalizeCR (c:rest) = c : normalizeCR rest
+
+tokenizePlaintext :: String -> [Token]
+tokenizePlaintext [] = []
+tokenizePlaintext cs =
+  let (text, rest) = span (/= '\0') cs
+  in (if null text then [] else [TString (T.pack text)])
+     ++ case rest of
+          ('\0':rs) -> TChar '\xFFFD' : tokenizePlaintext rs
+          _ -> []
 
 tokenizeRCData :: String -> Text -> [Token]
 tokenizeRCData cs tag = go [] cs
