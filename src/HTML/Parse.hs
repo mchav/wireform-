@@ -243,13 +243,15 @@ tbNodeToHTMLNode node
       children <- readIORef (nodeChildren node)
       let actualChildren = if null tmplChildren then children else tmplChildren
       childHtml <- mapM tbNodeToHTMLNode (reverse actualChildren)
-      pure $ HTMLElement (nodeName node)
+      let displayName = nameWithNs (nodeName node) (nodeNs node)
+      pure $ HTMLElement displayName
         (V.fromList [HTMLAttribute n v | (n,v) <- nodeAttrs node])
         (V.fromList childHtml)
   | otherwise = do
       children <- readIORef (nodeChildren node)
       childHtml <- mapM tbNodeToHTMLNode (reverse children)
-      pure $ HTMLElement (nodeName node)
+      let displayName = nameWithNs (nodeName node) (nodeNs node)
+      pure $ HTMLElement displayName
         (V.fromList [HTMLAttribute n v | (n,v) <- nodeAttrs node])
         (V.fromList childHtml)
 
@@ -2178,6 +2180,12 @@ appendTextToDocChildren txt children =
 ------------------------------------------------------------------------
 -- Helpers
 ------------------------------------------------------------------------
+
+nameWithNs :: Text -> Maybe Text -> Text
+nameWithNs name Nothing = name
+nameWithNs name (Just "") = name
+nameWithNs name (Just "html") = name
+nameWithNs name (Just ns) = ns <> " " <> name
 
 safeTail :: [a] -> [a]
 safeTail [] = []

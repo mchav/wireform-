@@ -190,7 +190,8 @@ parseContent s
   | "<!--" `isPrefixOf` s =
       RLComment (T.pack (drop 4 s))
   | not (null s) && safeHead s == '<' =
-      let tag = takeWhile (\c -> c /= '>' && c /= ' ') (tail s)
+      let inner = tail s
+          tag = takeWhile (/= '>') inner
       in  RLElement (T.pack tag)
   | not (null s) && safeHead s == '"' =
       let inner = drop 1 s
@@ -306,14 +307,13 @@ nodesToExpNodes :: [HTMLNode] -> [ExpNode]
 nodesToExpNodes = map nodeToExp
 
 nodeToExp :: HTMLNode -> ExpNode
-nodeToExp (HTMLElement tag attrs children)
-  | tag == "template" =
-      let attrList = map (\(HTMLAttribute n v) -> ExpAttr n v) (V.toList attrs)
-      in ExpElement tag (sort attrList) [ExpTemplate (map nodeToExp (V.toList children))]
-  | otherwise =
-      ExpElement tag
-        (sort (map (\(HTMLAttribute n v) -> ExpAttr n v) (V.toList attrs)))
-        (map nodeToExp (V.toList children))
+nodeToExp (HTMLElement tag attrs children) =
+  let attrList = sort (map (\(HTMLAttribute n v) -> ExpAttr n v) (V.toList attrs))
+      childExps = map nodeToExp (V.toList children)
+      isTemplate = tag == "template" || T.isSuffixOf " template" tag
+  in if isTemplate
+     then ExpElement tag attrList [ExpTemplate childExps]
+     else ExpElement tag attrList childExps
 nodeToExp (HTMLText t) = ExpText t
 nodeToExp (HTMLComment t) = ExpComment t
 nodeToExp (HTMLDoctype n p s) = ExpDoctype n p s
