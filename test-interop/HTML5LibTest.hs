@@ -77,6 +77,7 @@ isSectionHeader (c:_) = c == '#'
 collectSections :: [String] -> [(String, [String])]
 collectSections [] = []
 collectSections (h:rest)
+  | h == "#data" = []
   | isSectionHeader h =
       let (body, after) = break isSectionHeader rest
       in  (h, body) : collectSections after
@@ -444,7 +445,13 @@ main = do
             Fail msg -> do
               f <- readIORef fRef
               modifyIORef' fRef (+1)
-              pure ()
+              if _file == "template.dat" && tcIndex tc == 1
+                then do
+                  hPutStrLn stderr ("FAIL " ++ _file ++ " #" ++ show (tcIndex tc))
+                  hPutStrLn stderr ("tcData: " ++ show (tcData tc))
+                  hPutStrLn stderr ("tcDocument: " ++ show (tcDocument tc))
+                  hPutStrLn stderr ("tcFragment: " ++ show (tcFragment tc))
+                else pure ()
 
       ellipsis n s
         | length s <= n = s
