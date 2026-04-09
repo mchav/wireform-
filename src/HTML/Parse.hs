@@ -1326,7 +1326,7 @@ modeInBody tb tok = case tok of
     if not (null tms) then pure ()
     else do
       elems <- readIORef (tbOpenElements tb)
-      case elems of
+      case reverse elems of
         (_:bodyNode:_) | nodeName bodyNode == "body" -> do
           addMissingAttrs bodyNode attrs
           writeIORef (tbFramesetOk tb) False
@@ -2162,7 +2162,12 @@ processForeignContent tb tok = case tok of
       else void $ insertElement tb adjustedName adjustedAttrs ns
   TEndTag name -> do
     let nameLower = T.toLower name
-    foreignEndTag nameLower tb
+    if nameLower == "br" || nameLower == "p"
+    then do
+      popUntilHTMLOrIntegrationPoint tb
+      resetInsertionMode tb
+      processInMode tb tok
+    else foreignEndTag nameLower tb
   _ -> pure ()
 
 foreignEndTag :: Text -> TreeBuilder -> IO ()
@@ -2194,10 +2199,24 @@ popUntilHTMLOrIntegrationPoint tb = do
     (node:_)
       | isHTMLNs (nodeNs node) -> pure ()
       | otherwise -> do
-          popElement tb
-          popUntilHTMLOrIntegrationPoint tb
+          isHIP <- isHTMLIntegrationPoint node
+          isMTIP <- isMathMLTIP node
+          if isHIP || isMTIP
+          then pure ()
+          else do
+            popElement tb
+            popUntilHTMLOrIntegrationPoint tb
   where
     isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
+    isMathMLTIP node = pure $ nodeNs node == Just "math" && nodeName node `elem` ["mi","mo","mn","ms","mtext"]
+    isHTMLIntegrationPoint node
+      | nodeNs node == Just "svg" = pure $ nodeName node `elem` ["foreignObject","desc","title"]
+      | nodeNs node == Just "math" && nodeName node == "annotation-xml" = do
+          attrs <- nodeAttrs node
+          pure $ case lookup "encoding" attrs of
+            Just enc -> T.toLower enc `elem` ["text/html","application/xhtml+xml"]
+            Nothing -> False
+      | otherwise = pure False
 
 ------------------------------------------------------------------------
 -- Text node helpers
@@ -2675,8 +2694,6 @@ tokenizeRawText cs tag
           let rest1 = drop (length tagStr) rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
-      | matchCloseTagEOF rest tagStr =
-          map TChar (reverse acc) ++ [TEndTag tag]
     goRaw acc (c:rest) = goRaw (c:acc) rest
 
 tokenizeScriptData :: String -> [Token]
@@ -2688,8 +2705,6 @@ tokenizeScriptData cs = scriptNormal [] cs
           let rest1 = drop 6 rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
-      | matchCloseTagEOF rest "script" =
-          map TChar (reverse acc) ++ [TEndTag "script"]
     scriptNormal acc ('<':'!':'-':'-':rest) =
       scriptEscaped ('-':'-':'!':'<':acc) rest
     scriptNormal acc (c:rest) = scriptNormal (c:acc) rest
@@ -2702,8 +2717,6 @@ tokenizeScriptData cs = scriptNormal [] cs
           let rest1 = drop 6 rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
-      | matchCloseTagEOF rest "script" =
-          map TChar (reverse acc) ++ [TEndTag "script"]
     scriptEscaped acc ('<':rest) =
       let (tag, rest') = tryMatchScriptStart rest
       in case tag of
@@ -2758,8 +2771,6 @@ tokenizeRCData cs tag = go [] cs
           let rest1 = drop (length tagStr) rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
-      | matchCloseTagEOF rest tagStr =
-          map TChar (reverse acc) ++ [TEndTag tag]
     go acc ('&':rest) =
       let (entity, remaining) = parseEntityRef rest
       in go (reverse entity ++ acc) remaining
@@ -2847,31 +2858,11 @@ matchNamedEntity cs =
      else case rest of
        (';':after) -> case lookup allAlpha namedEntities of
          Just rep -> Just (allAlpha, rep, after)
-         Nothing -> tryPrefixes allAlpha (';':after) False
-       _ -> tryPrefixes allAlpha rest False
-  where
-    tryPrefixes name rest _inAttr = go (length name)
-      where
-        go 0 = Nothing
-        go n =
-          let prefix = take n name
-              suffix = drop n name ++ rest
-          in case lookup prefix namedEntities of
-            Just rep -> Just (prefix, rep, suffix)
-            Nothing -> go (n-1)
+         Nothing -> Nothing
+       _ -> tryPrefixesBody allAlpha rest
 
-matchNamedEntityAttr :: String -> Maybe (String, String, String)
-matchNamedEntityAttr cs =
-  let (allAlpha, rest) = span isAlphaNum cs
-  in if null allAlpha then Nothing
-     else case rest of
-       (';':after) -> case lookup allAlpha namedEntities of
-         Just rep -> Just (allAlpha, rep, after)
-         Nothing -> tryAttrPrefixes allAlpha (';':after)
-       _ -> tryAttrPrefixes allAlpha rest
-
-tryAttrPrefixes :: String -> String -> Maybe (String, String, String)
-tryAttrPrefixes name rest = go (length name)
+tryPrefixesBody :: String -> String -> Maybe (String, String, String)
+tryPrefixesBody name rest = go (length name)
   where
     go 0 = Nothing
     go n =
@@ -2881,7 +2872,32 @@ tryAttrPrefixes name rest = go (length name)
         Just rep ->
           let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
           in if nextChar == Just '=' || maybe False isAlphaNum nextChar
-             then go (n-1)
+             then Nothing
+             else Just (prefix, rep, suffix)
+        Nothing -> go (n-1)
+
+matchNamedEntityAttr :: String -> Maybe (String, String, String)
+matchNamedEntityAttr cs =
+  let (allAlpha, rest) = span isAlphaNum cs
+  in if null allAlpha then Nothing
+     else case rest of
+       (';':after) -> case lookup allAlpha namedEntities of
+         Just rep -> Just (allAlpha, rep, after)
+         Nothing -> Nothing
+       _ -> tryAttrPrefixesLegacy allAlpha rest
+
+tryAttrPrefixesLegacy :: String -> String -> Maybe (String, String, String)
+tryAttrPrefixesLegacy name rest = go (length name)
+  where
+    go 0 = Nothing
+    go n =
+      let prefix = take n name
+          suffix = drop n name ++ rest
+      in case lookup prefix namedEntities of
+        Just rep ->
+          let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
+          in if nextChar == Just '=' || maybe False isAlphaNum nextChar
+             then Nothing
              else Just (prefix, rep, suffix)
         Nothing -> go (n-1)
 
@@ -2943,6 +2959,12 @@ namedEntities =
   ,("Yuml","\x0178"),("fnof","\x0192"),("circ","\x02C6"),("tilde","\x02DC")
   ,("ensp","\x2002"),("emsp","\x2003"),("thinsp","\x2009"),("zwnj","\x200C")
   ,("zwj","\x200D"),("lrm","\x200E"),("rlm","\x200F"),("permil","\x2030")
+  ,("lang","\x27E8"),("rang","\x27E9")
+  ,("ImaginaryI","\x2148"),("Kopf","\x1D542"),("notinva","\x2209")
+  ,("NotEqualTilde","\x2242\x0338"),("ThickSpace","\x205F\x200A")
+  ,("NotSubset","\x2282\x20D2"),("Gopf","\x1D53E")
+  ,("AMP","&"),("COPY","\xA9"),("GT",">"),("LT","<"),("QUOT","\""),("REG","\xAE")
+  ,("Tab","\x0009"),("NewLine","\x000A")
   ,("Alpha","\x0391"),("Beta","\x0392"),("Gamma","\x0393"),("Delta","\x0394")
   ,("Epsilon","\x0395"),("Zeta","\x0396"),("Eta","\x0397"),("Theta","\x0398")
   ,("Iota","\x0399"),("Kappa","\x039A"),("Lambda","\x039B"),("Mu","\x039C")
