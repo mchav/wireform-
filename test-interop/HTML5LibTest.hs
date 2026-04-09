@@ -445,13 +445,7 @@ main = do
             Fail msg -> do
               f <- readIORef fRef
               modifyIORef' fRef (+1)
-              if _file == "template.dat" && tcIndex tc == 1
-                then do
-                  hPutStrLn stderr ("FAIL " ++ _file ++ " #" ++ show (tcIndex tc))
-                  hPutStrLn stderr ("tcData: " ++ show (tcData tc))
-                  hPutStrLn stderr ("tcDocument: " ++ show (tcDocument tc))
-                  hPutStrLn stderr ("tcFragment: " ++ show (tcFragment tc))
-                else pure ()
+              hPutStrLn stderr ("FAIL " ++ _file ++ " #" ++ show (tcIndex tc))
 
       ellipsis n s
         | length s <= n = s
