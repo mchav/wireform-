@@ -657,10 +657,10 @@ foreignBreakoutElements = S.fromList
 hasElementInScope :: Text -> S.Set Text -> Bool -> TreeBuilder -> IO Bool
 hasElementInScope target terminators checkIntegrationPoints tb = do
   let !targetTid = tagIdFromText target
-  hasElementInScopeT targetTid target terminators checkIntegrationPoints tb
+  hasElementInScopeT targetTid target tagIdIsDefaultScopeTerminator checkIntegrationPoints tb
 
-hasElementInScopeT :: TagId -> Text -> S.Set Text -> Bool -> TreeBuilder -> IO Bool
-hasElementInScopeT !targetTid target terminators checkIntegrationPoints tb = do
+hasElementInScopeT :: TagId -> Text -> (TagId -> Bool) -> Bool -> TreeBuilder -> IO Bool
+hasElementInScopeT !targetTid target termCheck checkIntegrationPoints tb = do
   elems <- readIORef (tbOpenElements tb)
   go elems
   where
@@ -670,7 +670,7 @@ hasElementInScopeT !targetTid target terminators checkIntegrationPoints tb = do
       , nodeIsHTMLNs node =
           if (tid /= TagUnknown && tid == targetTid) || (tid == TagUnknown && nodeName node == target)
           then pure True
-          else if nodeName node `S.member` terminators
+          else if termCheck tid
           then pure False
           else go rest
       | checkIntegrationPoints = do
@@ -691,19 +691,29 @@ hasElementInScopeT !targetTid target terminators checkIntegrationPoints tb = do
         _ -> pure False
 
 hasInScope :: Text -> TreeBuilder -> IO Bool
-hasInScope t = hasElementInScope t defaultScopeTerminators True
+hasInScope t tb = do
+  let !targetTid = tagIdFromText t
+  hasElementInScopeT targetTid t tagIdIsDefaultScopeTerminator True tb
 
 hasInButtonScope :: Text -> TreeBuilder -> IO Bool
-hasInButtonScope t = hasElementInScope t buttonScopeTerminators True
+hasInButtonScope t tb = do
+  let !targetTid = tagIdFromText t
+  hasElementInScopeT targetTid t tagIdIsButtonScopeTerminator True tb
 
 hasInListItemScope :: Text -> TreeBuilder -> IO Bool
-hasInListItemScope t = hasElementInScope t listItemScopeTerminators True
+hasInListItemScope t tb = do
+  let !targetTid = tagIdFromText t
+  hasElementInScopeT targetTid t tagIdIsListItemScopeTerminator True tb
 
 hasInDefinitionScope :: Text -> TreeBuilder -> IO Bool
-hasInDefinitionScope t = hasElementInScope t definitionScopeTerminators True
+hasInDefinitionScope t tb = do
+  let !targetTid = tagIdFromText t
+  hasElementInScopeT targetTid t (\tid -> tid == TagDl || tagIdIsDefaultScopeTerminator tid) True tb
 
 hasInTableScope :: Text -> TreeBuilder -> IO Bool
-hasInTableScope t = hasElementInScope t tableScopeTerminators False
+hasInTableScope t tb = do
+  let !targetTid = tagIdFromText t
+  hasElementInScopeT targetTid t tagIdIsTableScopeTerminator False tb
 
 hasAnyInScope :: S.Set Text -> TreeBuilder -> IO Bool
 hasAnyInScope targets tb = do
