@@ -9,7 +9,10 @@ module HTML.Parse
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Unsafe as BSU
 import Data.Char (chr, digitToInt, isDigit, isHexDigit, toLower, isAlpha, isAlphaNum)
+import Data.Word (Word8)
 import Data.IORef
 import Data.List (foldl', sortBy)
 import Data.Ord (comparing)
@@ -3019,10 +3022,201 @@ lookupDef def key table = case lookup key table of { Just v -> v; Nothing -> def
 ------------------------------------------------------------------------
 
 tokenize :: Text -> [Token]
-tokenize txt =
-  let !bs = TE.encodeUtf8 txt
-      !s = T.unpack txt
-  in tokenizeCtx 0 False s
+tokenize txt = let !bs = TE.encodeUtf8 txt in tokenizeBS bs 0 (BS.length bs) 0 False
+
+-- ByteString-based hot-path tokenizer
+
+tokenizeBS :: ByteString -> Int -> Int -> Int -> Bool -> [Token]
+tokenizeBS !bs !off !len !svgD !svgH
+  | off >= len = []
+  | otherwise =
+      let !b = BSU.unsafeIndex bs off
+      in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
+         then let !end = scanText bs (off + 1) len
+                  !t = TE.decodeUtf8Lenient (BSU.unsafeTake (end - off) (BSU.unsafeDrop off bs))
+              in TString t : tokenizeBS bs end len svgD svgH
+         else case b of
+           0x3C -> tokenizeTagBS bs (off + 1) len svgD svgH
+           0x26 -> let !windowEnd = min len (off + 65)
+                       !input = toStringFrom bs (off + 1) windowEnd
+                       (ent, rest) = parseEntityRef input
+                       !consumed = length input - length rest
+                   in map TChar ent ++ tokenizeBS bs (off + 1 + consumed) len svgD svgH
+           0x00 -> TChar '\0' : tokenizeBS bs (off + 1) len svgD svgH
+           0x0D -> let !next = off + 1
+                   in TChar '\n' : tokenizeBS bs
+                        (if next < len && BSU.unsafeIndex bs next == 0x0A then next + 1 else next)
+                        len svgD svgH
+           _    -> tokenizeBS bs (off + 1) len svgD svgH
+
+scanText :: ByteString -> Int -> Int -> Int
+scanText !bs !off !len
+  | off >= len = len
+  | otherwise = let !b = BSU.unsafeIndex bs off
+                in if b == 0x3C || b == 0x26 || b == 0x00 || b == 0x0D
+                   then off
+                   else scanText bs (off + 1) len
+
+tokenizeTagBS :: ByteString -> Int -> Int -> Int -> Bool -> [Token]
+tokenizeTagBS !bs !off !len !svgD !svgH
+  | off >= len = [TChar '<']
+  | otherwise = case BSU.unsafeIndex bs off of
+      0x21 -> tokenizeMarkupDeclCtx svgD svgH (toStringFrom bs (off + 1) len)
+      0x2F -> tokenizeEndTagBS bs (off + 1) len svgD svgH
+      0x3F -> let (comment, remaining) = readUntilStr ">" (toStringFrom bs (off + 1) len)
+              in TComment (T.pack ('?' : comment)) : tokenizeCtx svgD svgH remaining
+      b | isAlphaByte b -> tokenizeStartTagBS bs off len svgD svgH
+      _ -> TChar '<' : tokenizeBS bs off len svgD svgH
+
+{-# INLINE isAlphaByte #-}
+isAlphaByte :: Word8 -> Bool
+isAlphaByte b = (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A)
+
+tokenizeStartTagBS :: ByteString -> Int -> Int -> Int -> Bool -> [Token]
+tokenizeStartTagBS !bs !off !len !svgD !svgH =
+  let !nameEnd = scanTagName bs off len
+      !nameBS = BSU.unsafeTake (nameEnd - off) (BSU.unsafeDrop off bs)
+      !lcName = T.toLower (TE.decodeUtf8Lenient nameBS)
+      (!attrs, !selfClose, !afterTag) = readTagAttrsBS bs nameEnd len
+      !tok = TStartTag lcName attrs selfClose
+      !newSvgD = if lcName == "svg" then svgD + 1 else svgD
+      !inSvg = newSvgD > 0
+      !newSvgH = if inSvg && lcName `elem` ["foreignobject","desc","title"] then True
+                 else if lcName == "svg" then False else svgH
+  in if afterTag > len then []
+     else case () of
+       _ | lcName `elem` ["script","style","xmp","iframe","noembed","noframes","noscript"] ->
+             if selfClose then tok : tokenizeBS bs afterTag len newSvgD newSvgH
+             else tok : tokenizeRawText (toStringFrom bs afterTag len) lcName
+         | lcName == "textarea" || lcName == "title" ->
+             if selfClose || inSvg then tok : tokenizeBS bs afterTag len newSvgD newSvgH
+             else tok : tokenizeRCData (toStringFrom bs afterTag len) lcName
+         | lcName == "plaintext" ->
+             if inSvg && not newSvgH then tok : tokenizeBS bs afterTag len newSvgD newSvgH
+             else tok : tokenizePlaintext (toStringFrom bs afterTag len)
+         | otherwise -> tok : tokenizeBS bs afterTag len newSvgD newSvgH
+
+scanTagName :: ByteString -> Int -> Int -> Int
+scanTagName !bs !off !len
+  | off >= len = off
+  | isTagNameByte (BSU.unsafeIndex bs off) = scanTagName bs (off + 1) len
+  | otherwise = off
+
+{-# INLINE isTagNameByte #-}
+isTagNameByte :: Word8 -> Bool
+isTagNameByte b = (b >= 0x61 && b <= 0x7A) || (b >= 0x41 && b <= 0x5A)
+              || (b >= 0x30 && b <= 0x39)
+              || b == 0x2D || b == 0x5F || b == 0x3A || b == 0x2E || b == 0x3C
+
+tokenizeEndTagBS :: ByteString -> Int -> Int -> Int -> Bool -> [Token]
+tokenizeEndTagBS !bs !off !len !svgD !svgH
+  | off >= len = [TChar '<', TChar '/']
+  | isAlphaByte (BSU.unsafeIndex bs off) =
+      let !nameEnd = scanTagName bs off len
+          !nameBS = BSU.unsafeTake (nameEnd - off) (BSU.unsafeDrop off bs)
+          !lcName = T.toLower (TE.decodeUtf8Lenient nameBS)
+          !afterGt = skipToGtBS bs nameEnd len
+          !newSvgD = if lcName == "svg" && svgD > 0 then svgD - 1 else svgD
+          !newSvgH = if lcName == "svg" && svgD > 0 then False else svgH
+      in if nameEnd >= len
+         then []
+         else TEndTag lcName : tokenizeBS bs afterGt len newSvgD newSvgH
+  | BSU.unsafeIndex bs off == 0x3E = TComment "" : tokenizeBS bs (off + 1) len svgD svgH
+  | otherwise =
+      let (comment, remaining) = readUntilStr ">" (toStringFrom bs off len)
+      in TComment (T.pack comment) : tokenizeCtx svgD svgH remaining
+
+skipToGtBS :: ByteString -> Int -> Int -> Int
+skipToGtBS !bs !off !len
+  | off >= len = len
+  | BSU.unsafeIndex bs off == 0x3E = off + 1
+  | otherwise = skipToGtBS bs (off + 1) len
+
+readTagAttrsBS :: ByteString -> Int -> Int -> ([(Text,Text)], Bool, Int)
+readTagAttrsBS !bs !off !len = go off []
+  where
+    go !i !acc
+      | i >= len = (reverse acc, False, len + 1)
+      | otherwise = case BSU.unsafeIndex bs i of
+          0x3E -> (reverse acc, False, i + 1)
+          0x2F -> if i + 1 < len && BSU.unsafeIndex bs (i + 1) == 0x3E
+                  then (reverse acc, True, i + 2)
+                  else go (i + 1) acc
+          b | isWSByte b -> go (i + 1) acc
+          _ -> let (!name, !i2) = scanAttrName i
+                   (!val, !i3) = scanAttrVal i2
+               in if T.null name
+                  then go (max (i + 1) i3) acc
+                  else if any (\(n,_) -> n == name) acc
+                       then go i3 acc
+                       else go i3 ((name, val) : acc)
+
+    scanAttrName !i = sn i []
+      where
+        sn !j !acc
+          | j >= len = (T.toLower (T.pack (reverse acc)), j)
+          | otherwise = case BSU.unsafeIndex bs j of
+              0x3D -> (T.toLower (T.pack (reverse acc)), j)
+              0x3E -> (T.toLower (T.pack (reverse acc)), j)
+              0x2F -> (T.toLower (T.pack (reverse acc)), j)
+              b | isWSByte b -> (T.toLower (T.pack (reverse acc)), j)
+              b -> sn (j + 1) (chr (fromIntegral b) : acc)
+
+    scanAttrVal !i
+      | i >= len = (T.empty, i)
+      | otherwise =
+          let !i1 = skipWS bs i len
+          in if i1 >= len || BSU.unsafeIndex bs i1 /= 0x3D
+             then (T.empty, i1)
+             else let !i2 = skipWS bs (i1 + 1) len
+                  in if i2 >= len then (T.empty, i2)
+                  else case BSU.unsafeIndex bs i2 of
+                    0x22 -> scanQuoted (i2 + 1) 0x22
+                    0x27 -> scanQuoted (i2 + 1) 0x27
+                    _    -> scanUnquoted i2
+
+    scanQuoted !i !q = sq i []
+      where
+        sq !j !acc
+          | j >= len = (T.pack (reverse acc), j)
+          | BSU.unsafeIndex bs j == q = (T.pack (reverse acc), j + 1)
+          | BSU.unsafeIndex bs j == 0x26 =
+              let !windowEnd = min len (j + 65)
+                  !input = toStringFrom bs (j + 1) windowEnd
+                  (ent, rest) = parseEntityRefInAttr input
+                  !consumed = length input - length rest
+              in sq (j + 1 + consumed) (reverse ent ++ acc)
+          | otherwise = sq (j + 1) (chr (fromIntegral (BSU.unsafeIndex bs j)) : acc)
+
+    scanUnquoted !i = su i []
+      where
+        su !j !acc
+          | j >= len = (T.pack (reverse acc), j)
+          | otherwise = case BSU.unsafeIndex bs j of
+              0x3E -> (T.pack (reverse acc), j)
+              b | isWSByte b -> (T.pack (reverse acc), j)
+              0x26 -> let !windowEnd = min len (j + 65)
+                          !input = toStringFrom bs (j + 1) windowEnd
+                          (ent, rest) = parseEntityRefInAttr input
+                          !consumed = length input - length rest
+                      in su (j + 1 + consumed) (reverse ent ++ acc)
+              b -> su (j + 1) (chr (fromIntegral b) : acc)
+
+{-# INLINE isWSByte #-}
+isWSByte :: Word8 -> Bool
+isWSByte b = b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D || b == 0x0C
+
+skipWS :: ByteString -> Int -> Int -> Int
+skipWS !bs !off !len
+  | off >= len = len
+  | isWSByte (BSU.unsafeIndex bs off) = skipWS bs (off + 1) len
+  | otherwise = off
+
+toStringFrom :: ByteString -> Int -> Int -> String
+toStringFrom bsS offS lenS =
+  T.unpack (TE.decodeUtf8Lenient (BSU.unsafeTake (lenS - offS) (BSU.unsafeDrop offS bsS)))
+
+-- String-based tokenizer (bridge path for comments, doctype, raw text, etc.)
 
 tokenizeCtx :: Int -> Bool -> String -> [Token]
 tokenizeCtx !svgDepth !svgHIP [] = []
