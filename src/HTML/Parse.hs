@@ -198,18 +198,22 @@ buildDocument :: TreeBuilder -> IO HTMLDocument
 buildDocument tb = do
   docNodes <- readIORef (tbDocument tb)
   openElems <- readIORef (tbOpenElements tb)
-  -- Close any remaining open elements onto document
-  let topNodes = reverse openElems
-  allChildren <- case topNodes of
-    [] -> mapM childToHTMLNode docNodes
-    (root:_) -> do
-      -- Build from outermost (root) element
-      docHtml <- mapM childToHTMLNode docNodes
-      rootHtml <- tbNodeToHTMLNode root
-      pure (docHtml ++ [rootHtml])
-  let mdt = extractDoctype allChildren
+  let rootFromStack = case reverse openElems of
+        (root:_) -> Just root
+        [] -> Nothing
+  preNodes <- mapM childToHTMLNode (filter (not . isElementChild) docNodes)
+  rootNode <- case rootFromStack of
+    Just root -> do
+      r <- tbNodeToHTMLNode root
+      pure (Just r)
+    Nothing -> pure Nothing
+  let allChildren = preNodes ++ maybe [] (\r -> [r]) rootNode
+      mdt = extractDoctype allChildren
       root = findOrCreateRoot allChildren
   pure (HTMLDocument mdt root)
+  where
+    isElementChild (CElement _) = True
+    isElementChild _ = False
 
 buildFragmentResult :: TreeBuilder -> IO [HTMLNode]
 buildFragmentResult tb = do
@@ -1014,13 +1018,13 @@ anyOtherEndTag name tb = do
 resetInsertionMode :: TreeBuilder -> IO ()
 resetInsertionMode tb = do
   elems <- readIORef (tbOpenElements tb)
-  go (reverse elems) True
+  go elems
   where
-    go [] _ = writeIORef (tbMode tb) MInBody
-    go [node] _ = void (check node True)
-    go (node:rest) _ = do
+    go [] = writeIORef (tbMode tb) MInBody
+    go [node] = void (check node True)
+    go (node:rest) = do
       done <- check node False
-      if done then pure () else go rest False
+      if done then pure () else go rest
     check node isLast = do
       let name = nodeName node
       case name of
@@ -1137,23 +1141,28 @@ modeInHead tb tok = case tok of
     void $ insertVoidElement tb name attrs Nothing
   TStartTag "title" attrs _ -> do
     void $ insertElement tb "title" attrs Nothing
-    writeIORef (tbOriginalMode tb) MInHead
+    curMode <- readIORef (tbMode tb)
+    writeIORef (tbOriginalMode tb) curMode
     writeIORef (tbMode tb) MText
   TStartTag "noscript" attrs _ -> do
     void $ insertElement tb "noscript" attrs Nothing
-    writeIORef (tbOriginalMode tb) MInHead
+    curMode <- readIORef (tbMode tb)
+    writeIORef (tbOriginalMode tb) curMode
     writeIORef (tbMode tb) MText
   TStartTag "noframes" attrs _ -> do
     void $ insertElement tb "noframes" attrs Nothing
-    writeIORef (tbOriginalMode tb) MInHead
+    curMode <- readIORef (tbMode tb)
+    writeIORef (tbOriginalMode tb) curMode
     writeIORef (tbMode tb) MText
   TStartTag "style" attrs _ -> do
     void $ insertElement tb "style" attrs Nothing
-    writeIORef (tbOriginalMode tb) MInHead
+    curMode <- readIORef (tbMode tb)
+    writeIORef (tbOriginalMode tb) curMode
     writeIORef (tbMode tb) MText
   TStartTag "script" attrs _ -> do
     void $ insertElement tb "script" attrs Nothing
-    writeIORef (tbOriginalMode tb) MInHead
+    curMode <- readIORef (tbMode tb)
+    writeIORef (tbOriginalMode tb) curMode
     writeIORef (tbMode tb) MText
   TStartTag "template" attrs _ -> do
     void $ insertElement tb "template" attrs Nothing
@@ -1434,6 +1443,12 @@ modeInBody tb tok = case tok of
         else void $ insertElement tb "svg" fAttrs (Just "svg")
     | name `elem` ["caption","col","colgroup","frame","head","tbody","td","tfoot","th","thead","tr"] ->
         pure ()
+    | name `elem` ["base","basefont","bgsound","link","meta","template","title","noframes","script","style"] ->
+        modeInHead tb tok
+    | name == "noscript" -> do
+        reconstructActiveFormatting tb
+        void $ insertElement tb name attrs Nothing
+        writeIORef (tbFramesetOk tb) False
     | otherwise -> do
         reconstructActiveFormatting tb
         void $ insertElement tb name attrs Nothing
