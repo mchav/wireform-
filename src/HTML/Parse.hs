@@ -2747,6 +2747,9 @@ tokenizeMarkupDeclCtx svgDepth rest
 readBogusComment :: String -> (String, String)
 readBogusComment [] = ("", [])
 readBogusComment ('>':rest) = ("", rest)
+readBogusComment ('\0':rest) =
+  let (more, remaining) = readBogusComment rest
+  in ('\xFFFD':more, remaining)
 readBogusComment (c:rest) =
   let (more, remaining) = readBogusComment rest
   in (c:more, remaining)
