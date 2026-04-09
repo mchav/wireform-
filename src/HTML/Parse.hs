@@ -590,9 +590,18 @@ insertComment tb txt = do
       appendChild current commentNode
     [] -> modifyIORef' (tbDocument tb) (++ [CComment commentText])
 
+cdataMarker :: Text
+cdataMarker = T.pack ['\xFFFE', 'C', 'D']
+
+isCDATA :: Text -> Bool
+isCDATA t = cdataMarker `T.isPrefixOf` t
+
+cdataContent :: Text -> Text
+cdataContent t = T.drop (T.length cdataMarker) t
+
 fixCDATAComment :: Text -> Text
 fixCDATAComment t
-  | "\x01CDATA\x01" `T.isPrefixOf` t = "[CDATA[" <> T.drop 7 t <> "]]"
+  | isCDATA t = "[CDATA[" <> cdataContent t <> "]]"
   | otherwise = t
 
 insertCommentToDocument :: TreeBuilder -> Text -> IO ()
@@ -2153,8 +2162,8 @@ processForeignContent tb tok = case tok of
     appendTextToCurrentNode tb (T.singleton c)
     writeIORef (tbFramesetOk tb) False
   TComment t
-    | "\x01CDATA\x01" `T.isPrefixOf` t ->
-        appendTextToCurrentNode tb (T.drop 7 t)
+    | isCDATA t ->
+        appendTextToCurrentNode tb (cdataContent t)
     | otherwise -> insertComment tb t
   TStartTag name attrs sc -> do
     let nameLower = T.toLower name
@@ -2513,7 +2522,7 @@ tokenizeMarkupDecl rest
   | matchCaseI rest "[cdata[" =
       let rest1 = drop 7 rest
           (content, remaining) = readUntilStr "]]>" rest1
-      in TComment (T.pack ("\x01CDATA\x01" ++ content)) : tokenizeNormal remaining
+      in TComment (cdataMarker <> T.pack content) : tokenizeNormal remaining
   | otherwise =
       let (comment, remaining) = readBogusComment rest
       in TComment (T.pack comment) : tokenizeNormal remaining
