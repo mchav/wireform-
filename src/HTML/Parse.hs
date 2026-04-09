@@ -271,14 +271,10 @@ buildAllNodes tb = do
 
 buildFragmentResult :: TreeBuilder -> IO [HTMLNode]
 buildFragmentResult tb = do
-  openElems <- readIORef (tbOpenElements tb)
-  let htmlElem = case reverse openElems of
-        (h:_) -> Just h
-        [] -> Nothing
-  case htmlElem of
-    Nothing -> do
-      docNodes <- readIORef (tbDocument tb)
-      mapM childToHTMLNode docNodes
+  docNodes <- readIORef (tbDocument tb)
+  let htmlRoot = findHtmlInDoc docNodes
+  case htmlRoot of
+    Nothing -> mapM childToHTMLNode docNodes
     Just root -> do
       case tbFragmentContextElement tb of
         Just ctxElem -> do
@@ -289,6 +285,10 @@ buildFragmentResult tb = do
         Nothing -> do
           children <- readIORef (nodeChildren root)
           mapM tbNodeToHTMLNode (reverse children)
+  where
+    findHtmlInDoc [] = Nothing
+    findHtmlInDoc (CElement node : _) | nodeName node == "html" = Just node
+    findHtmlInDoc (_ : rest) = findHtmlInDoc rest
 
 tbNodeToHTMLNode :: TBNode -> IO HTMLNode
 tbNodeToHTMLNode node
@@ -627,9 +627,20 @@ insertElement tb name attrs ns = do
       | insertFromTable && nodeName current `elem` ["table","tbody","tfoot","thead","tr"] ->
           fosterParentNode tb node
       | otherwise -> appendChild current node
-    [] -> modifyIORef' (tbDocument tb) (++ [CElement node])
+    [] -> insertIntoFragmentOrDoc tb node
   modifyIORef' (tbOpenElements tb) (node:)
   pure node
+
+insertIntoFragmentOrDoc :: TreeBuilder -> TBNode -> IO ()
+insertIntoFragmentOrDoc tb node = do
+  docNodes <- readIORef (tbDocument tb)
+  case findHtmlRoot docNodes of
+    Just htmlRoot -> appendChild htmlRoot node
+    Nothing -> modifyIORef' (tbDocument tb) (++ [CElement node])
+  where
+    findHtmlRoot [] = Nothing
+    findHtmlRoot (CElement n : _) | nodeName n == "html" = Just n
+    findHtmlRoot (_ : rest) = findHtmlRoot rest
 
 insertVoidElement :: TreeBuilder -> Text -> [(Text,Text)] -> Maybe Text -> IO TBNode
 insertVoidElement tb name attrs ns = do
@@ -662,8 +673,21 @@ fixCDATAComment t
   | otherwise = t
 
 insertCommentToDocument :: TreeBuilder -> Text -> IO ()
-insertCommentToDocument tb txt =
-  modifyIORef' (tbDocument tb) (++ [CComment (fixCDATAComment txt)])
+insertCommentToDocument tb txt = case tbFragmentContext tb of
+  Just _ -> do
+    docNodes <- readIORef (tbDocument tb)
+    case findHtmlRootInDoc docNodes of
+      Just htmlRoot -> do
+        commentNode <- newTBNode tb "#comment" [("#data", fixCDATAComment txt)] Nothing False
+        appendChild htmlRoot commentNode
+      Nothing ->
+        modifyIORef' (tbDocument tb) (++ [CComment (fixCDATAComment txt)])
+  Nothing ->
+    modifyIORef' (tbDocument tb) (++ [CComment (fixCDATAComment txt)])
+  where
+    findHtmlRootInDoc [] = Nothing
+    findHtmlRootInDoc (CElement n : _) | nodeName n == "html" = Just n
+    findHtmlRootInDoc (_ : rest) = findHtmlRootInDoc rest
 
 insertDoctype :: TreeBuilder -> Text -> Maybe Text -> Maybe Text -> IO ()
 insertDoctype tb name pub sys =
@@ -2392,7 +2416,26 @@ appendTextToCurrentNode tb txt = do
   insertFromTable <- readIORef (tbInsertFromTable tb)
   elems <- readIORef (tbOpenElements tb)
   case elems of
-    [] -> modifyIORef' (tbDocument tb) (appendTextToDocChildren txt)
+    [] -> do
+      docNodes <- readIORef (tbDocument tb)
+      case findHtmlRootDoc docNodes of
+        Just htmlRoot -> do
+          let childRef = nodeChildren htmlRoot
+          children <- readIORef childRef
+          case children of
+            (lastChild:_) | nodeName lastChild == "#text" -> do
+              lastAttrs <- nodeAttrs lastChild
+              let prevTxt = case lookup "#data" lastAttrs of { Just t -> t; Nothing -> "" }
+              writeIORef (nodeAttrsRef lastChild) [("#data", prevTxt <> txt)]
+            _ -> do
+              textNode <- newTBNode tb "#text" [("#data", txt)] Nothing False
+              writeIORef (nodeParent textNode) (Just htmlRoot)
+              modifyIORef' childRef (textNode:)
+        Nothing -> modifyIORef' (tbDocument tb) (appendTextToDocChildren txt)
+      where
+        findHtmlRootDoc [] = Nothing
+        findHtmlRootDoc (CElement n : _) | nodeName n == "html" = Just n
+        findHtmlRootDoc (_ : rest) = findHtmlRootDoc rest
     (current:_)
       | insertFromTable && nodeName current `elem` ["table","tbody","tfoot","thead","tr"] ->
           fosterParentText tb txt
@@ -3163,7 +3206,7 @@ namedEntities =
   ,("sub","\x2282"),("sup","\x2283"),("nsub","\x2284"),("sube","\x2286")
   ,("supe","\x2287"),("oplus","\x2295"),("otimes","\x2297"),("perp","\x22A5")
   ,("sdot","\x22C5"),("lceil","\x2308"),("rceil","\x2309"),("lfloor","\x230A")
-  ,("rfloor","\x230B"),("lang","\x2329"),("rang","\x232A"),("loz","\x25CA")
+  ,("rfloor","\x230B"),("loz","\x25CA")
   ,("spades","\x2660"),("clubs","\x2663"),("hearts","\x2665"),("diams","\x2666")
   ,("OElig","\x0152"),("oelig","\x0153"),("Scaron","\x0160"),("scaron","\x0161")
   ,("Yuml","\x0178"),("fnof","\x0192"),("circ","\x02C6"),("tilde","\x02DC")
