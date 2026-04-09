@@ -917,9 +917,10 @@ findFormattingElement subject entries = go 0 entries
 findFurthestBlock :: TBNode -> [TBNode] -> Maybe TBNode
 findFurthestBlock fmtNode openElems =
   let afterFmt = takeWhile (/= fmtNode) openElems
-  in case filter isSpecial afterFmt of
-    (fb:_) -> Just fb
+      specialOnes = filter isSpecial afterFmt
+  in case specialOnes of
     [] -> Nothing
+    _ -> Just (last specialOnes)
   where
     isSpecial n = isHTMLNs (nodeNs n) && nodeName n `S.member` specialElements
     isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
