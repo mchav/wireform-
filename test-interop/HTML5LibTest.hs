@@ -350,7 +350,7 @@ nodeToExp (HTMLElement tag attrs children) =
         if isForeign then ExpAttr (adjustForeignAttrName n) v else ExpAttr n v
       attrList = sort (map adjustAttr (V.toList attrs))
       childExps = map nodeToExp (V.toList children)
-      isTemplate = tag == "template" || T.isSuffixOf " template" tag
+      isTemplate = tag == "template"
   in if isTemplate
      then ExpElement tag attrList [ExpTemplate childExps]
      else ExpElement tag attrList childExps

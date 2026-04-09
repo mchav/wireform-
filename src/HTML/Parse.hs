@@ -2132,6 +2132,11 @@ modeInSelect tb tok = case tok of
     processInMode tb tok
   TEndTag "template" -> modeInHead tb tok
   TEOF -> modeInBody tb tok
+  TStartTag name attrs sc -> do
+    reconstructActiveFormatting tb
+    if sc
+    then void $ insertVoidElement tb name attrs Nothing
+    else void $ insertElement tb name attrs Nothing
   _ -> pure ()
 
 selectAdoptionAgency :: Text -> TreeBuilder -> IO ()
