@@ -162,8 +162,15 @@ newTreeBuilder mCtx = do
     Just (ctxTag, ctxNs) -> do
       htmlNode <- newTBNode tb "html" [] Nothing False
       writeIORef openRef [htmlNode]
-      let mode0 = resetInsertionModeForContext ctxTag ctxNs
-      writeIORef modeRef mode0
+      case ctxNs of
+        Just ns | ns == "svg" || ns == "math" -> do
+          ctxNode <- newTBNode tb ctxTag [] ctxNs False
+          appendChild htmlNode ctxNode
+          writeIORef openRef [ctxNode, htmlNode]
+          writeIORef modeRef MInBody
+        _ -> do
+          let mode0 = resetInsertionModeForContext ctxTag ctxNs
+          writeIORef modeRef mode0
       writeIORef frameRef False
       pure tb
 
@@ -246,13 +253,31 @@ buildAllNodes tb = do
 buildFragmentResult :: TreeBuilder -> IO [HTMLNode]
 buildFragmentResult tb = do
   openElems <- readIORef (tbOpenElements tb)
-  case reverse openElems of
-    [] -> do
-      docNodes <- readIORef (tbDocument tb)
-      mapM childToHTMLNode docNodes
-    (htmlElem:_) -> do
-      children <- readIORef (nodeChildren htmlElem)
-      mapM tbNodeToHTMLNode (reverse children)
+  case tbFragmentContext tb of
+    Just (_, Just ns) | ns == "svg" || ns == "math" -> do
+      case reverse openElems of
+        (htmlElem:_) -> do
+          htmlChildren <- readIORef (nodeChildren htmlElem)
+          allNodes <- fmap concat $ mapM getNodeChildren (reverse htmlChildren)
+          mapM tbNodeToHTMLNode allNodes
+        [] -> do
+          docNodes <- readIORef (tbDocument tb)
+          mapM childToHTMLNode docNodes
+    _ -> case reverse openElems of
+      [] -> do
+        docNodes <- readIORef (tbDocument tb)
+        mapM childToHTMLNode docNodes
+      (htmlElem:_) -> do
+        children <- readIORef (nodeChildren htmlElem)
+        mapM tbNodeToHTMLNode (reverse children)
+  where
+    getNodeChildren node = do
+      let ns = nodeNs node
+      case tbFragmentContext tb of
+        Just (ctxTag, Just ctxNs) | nodeName node == ctxTag && ns == Just ctxNs -> do
+          children <- readIORef (nodeChildren node)
+          pure (reverse children)
+        _ -> pure [node]
 
 tbNodeToHTMLNode :: TBNode -> IO HTMLNode
 tbNodeToHTMLNode node
@@ -2810,7 +2835,7 @@ matchCloseTag cs tag =
   let (name, rest) = span (\c -> isAlpha c || isDigit c || c == '-') cs
   in map toLower name == map toLower tag
      && case rest of
-       [] -> True
+       [] -> False
        (c:_) -> c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C' || c == '/'
 
 ------------------------------------------------------------------------
