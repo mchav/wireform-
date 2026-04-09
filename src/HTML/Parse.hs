@@ -494,14 +494,29 @@ foreignBreakoutElements = S.fromList
 hasElementInScope :: Text -> S.Set Text -> TreeBuilder -> IO Bool
 hasElementInScope target terminators tb = do
   elems <- readIORef (tbOpenElements tb)
-  pure (go elems)
+  go elems
   where
-    go [] = False
+    go [] = pure False
     go (node:rest)
-      | nodeName node == target && isHTMLNs (nodeNs node) = True
-      | isHTMLNs (nodeNs node) && nodeName node `S.member` terminators = False
+      | nodeName node == target && isHTMLNs (nodeNs node) = pure True
+      | isHTMLNs (nodeNs node) && nodeName node `S.member` terminators = pure False
+      | not (isHTMLNs (nodeNs node)) = do
+          isIP <- isForeignScopeTerminator node
+          if isIP then pure False else go rest
       | otherwise = go rest
     isHTMLNs ns = ns == Nothing || ns == Just "" || ns == Just "html"
+    isForeignScopeTerminator node = do
+      let ns = nodeNs node
+          name = nodeName node
+      case ns of
+        Just "math" | name `elem` ["mi","mo","mn","ms","mtext"] -> pure True
+        Just "math" | name == "annotation-xml" -> do
+          attrs <- nodeAttrs node
+          pure $ case lookup "encoding" attrs of
+            Just enc -> T.toLower enc `elem` ["text/html","application/xhtml+xml"]
+            Nothing -> False
+        Just "svg" | name `elem` ["foreignObject","desc","title"] -> pure True
+        _ -> pure False
 
 hasInScope :: Text -> TreeBuilder -> IO Bool
 hasInScope t = hasElementInScope t defaultScopeTerminators
