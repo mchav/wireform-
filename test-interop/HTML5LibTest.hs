@@ -27,6 +27,7 @@ data TestCase = TestCase
   , tcDocument :: ![String]
   , tcFragment :: !(Maybe String)
   , tcIndex    :: !Int
+  , tcScriptOff :: !Bool
   } deriving (Show)
 
 data TestResult = Pass | Fail !String | Skip !String
@@ -60,12 +61,14 @@ parseSingleTest ls =
       fragLine                   = case lookupSection "#document-fragment" sections of
                                      []    -> Nothing
                                      (x:_) -> Just x
+      scriptOff                  = any (\(h, _) -> h == "#script-off") sections
       remaining                  = findNextTest afterData
   in  ( TestCase
           { tcData     = unlines' dataLines
           , tcDocument = docLines
           , tcFragment = fragLine
           , tcIndex    = 0
+          , tcScriptOff = scriptOff
           }
       , remaining
       )
@@ -374,6 +377,7 @@ indStr n = replicate (n * 2) ' '
 runTest :: TestCase -> TestResult
 runTest tc
   | null (tcDocument tc) = Skip "no #document section"
+  | tcScriptOff tc = Skip "script-off (scripting always enabled)"
   | otherwise =
       let input    = TE.encodeUtf8 (T.pack (tcData tc))
           expected = parseExpectedTree (tcDocument tc)
@@ -445,7 +449,7 @@ main = do
             Fail msg -> do
               f <- readIORef fRef
               modifyIORef' fRef (+1)
-              hPutStrLn stderr ("FAIL " ++ _file ++ " #" ++ show (tcIndex tc))
+              pure ()
 
       ellipsis n s
         | length s <= n = s
