@@ -323,7 +323,10 @@ nodesToExpNodes = map nodeToExp
 
 nodeToExp :: HTMLNode -> ExpNode
 nodeToExp (HTMLElement tag attrs children) =
-  let attrList = sort (map (\(HTMLAttribute n v) -> ExpAttr n v) (V.toList attrs))
+  let isForeign = T.isPrefixOf "svg " tag || T.isPrefixOf "math " tag
+      adjustAttr (HTMLAttribute n v) =
+        if isForeign then ExpAttr (adjustForeignAttrName n) v else ExpAttr n v
+      attrList = sort (map adjustAttr (V.toList attrs))
       childExps = map nodeToExp (V.toList children)
       isTemplate = tag == "template" || T.isSuffixOf " template" tag
   in if isTemplate
@@ -332,6 +335,13 @@ nodeToExp (HTMLElement tag attrs children) =
 nodeToExp (HTMLText t) = ExpText t
 nodeToExp (HTMLComment t) = ExpComment t
 nodeToExp (HTMLDoctype n p s) = ExpDoctype n p s
+
+adjustForeignAttrName :: Text -> Text
+adjustForeignAttrName n
+  | "xlink:" `T.isPrefixOf` n = "xlink " <> T.drop 6 n
+  | "xml:" `T.isPrefixOf` n = "xml " <> T.drop 4 n
+  | "xmlns:" `T.isPrefixOf` n = "xmlns " <> T.drop 6 n
+  | otherwise = n
 
 -- ---------------------------------------------------------------------------
 -- Tree comparison
