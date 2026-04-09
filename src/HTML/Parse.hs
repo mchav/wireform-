@@ -477,6 +477,9 @@ buttonScopeTerminators = S.insert "button" defaultScopeTerminators
 listItemScopeTerminators :: S.Set Text
 listItemScopeTerminators = S.fromList ["ol","ul"] `S.union` defaultScopeTerminators
 
+definitionScopeTerminators :: S.Set Text
+definitionScopeTerminators = S.insert "dl" defaultScopeTerminators
+
 tableScopeTerminators :: S.Set Text
 tableScopeTerminators = S.fromList ["html","table","template"]
 
@@ -526,6 +529,9 @@ hasInButtonScope t = hasElementInScope t buttonScopeTerminators
 
 hasInListItemScope :: Text -> TreeBuilder -> IO Bool
 hasInListItemScope t = hasElementInScope t listItemScopeTerminators
+
+hasInDefinitionScope :: Text -> TreeBuilder -> IO Bool
+hasInDefinitionScope t = hasElementInScope t definitionScopeTerminators
 
 hasInTableScope :: Text -> TreeBuilder -> IO Bool
 hasInTableScope t = hasElementInScope t tableScopeTerminators
@@ -1633,7 +1639,7 @@ modeInBody tb tok = case tok of
           popUntilInclusive "li" tb
         else pure ()
     | name == "dd" || name == "dt" -> do
-        inScope <- hasInScope name tb
+        inScope <- hasInDefinitionScope name tb
         if inScope then do
           generateImpliedEndTags (Just name) tb
           popUntilInclusive name tb
