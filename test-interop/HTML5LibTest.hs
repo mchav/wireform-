@@ -15,7 +15,7 @@ import System.IO (hFlush, hPutStrLn, stderr)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import HTML.Parse (parseHTML, parseHTMLFragment)
+import HTML.Parse (parseHTML, parseHTMLFragment, parseHTMLNodes)
 import HTML.Value
 
 -- ---------------------------------------------------------------------------
@@ -379,8 +379,8 @@ runTest tc
           expected = parseExpectedTree (tcDocument tc)
       in case tcFragment tc of
         Nothing ->
-          let doc      = parseHTML input
-              actual   = docToExpNodes doc
+          let nodes    = parseHTMLNodes input
+              actual   = nodesToExpNodes nodes
           in  if compareTrees actual expected
                 then Pass
                 else Fail (treeDiff actual expected)

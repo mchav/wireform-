@@ -5,6 +5,7 @@
 module HTML.Parse
   ( parseHTML
   , parseHTMLFragment
+  , parseHTMLNodes
   ) where
 
 import Data.ByteString (ByteString)
@@ -116,6 +117,15 @@ parseHTML bs = unsafePerformIO $ do
   processToken tb TEOF
   buildDocument tb
 
+parseHTMLNodes :: ByteString -> [HTMLNode]
+parseHTMLNodes bs = unsafePerformIO $ do
+  let txt = TE.decodeUtf8Lenient bs
+      tokens = tokenize txt
+  tb <- newTreeBuilder Nothing
+  mapM_ (processToken tb) tokens
+  processToken tb TEOF
+  buildAllNodes tb
+
 parseHTMLFragment :: Text -> Maybe Text -> ByteString -> [HTMLNode]
 parseHTMLFragment contextTag contextNs bs = unsafePerformIO $ do
   let txt = TE.decodeUtf8Lenient bs
@@ -196,6 +206,13 @@ newTBNode tb name attrs ns isTmpl = do
 
 buildDocument :: TreeBuilder -> IO HTMLDocument
 buildDocument tb = do
+  allNodes <- buildAllNodes tb
+  let mdt = extractDoctype allNodes
+      root = findOrCreateRoot allNodes
+  pure (HTMLDocument mdt root)
+
+buildAllNodes :: TreeBuilder -> IO [HTMLNode]
+buildAllNodes tb = do
   docNodes <- readIORef (tbDocument tb)
   openElems <- readIORef (tbOpenElements tb)
   let rootFromStack = case reverse openElems of
@@ -207,10 +224,7 @@ buildDocument tb = do
       r <- tbNodeToHTMLNode root
       pure (Just r)
     Nothing -> pure Nothing
-  let allChildren = preNodes ++ maybe [] (\r -> [r]) rootNode
-      mdt = extractDoctype allChildren
-      root = findOrCreateRoot allChildren
-  pure (HTMLDocument mdt root)
+  pure (preNodes ++ maybe [] (\r -> [r]) rootNode)
   where
     isElementChild (CElement _) = True
     isElementChild _ = False
