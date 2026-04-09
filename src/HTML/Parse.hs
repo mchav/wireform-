@@ -2322,7 +2322,9 @@ processForeignContent tb tok = case tok of
     writeIORef (tbFramesetOk tb) False
   TComment t
     | isCDATA t ->
-        appendTextToCurrentNode tb (T.replace "\0" "\xFFFD" (cdataContent t))
+        let content = T.replace "\0" "\xFFFD" (cdataContent t)
+        in if T.null content then pure ()
+           else appendTextToCurrentNode tb content
     | otherwise -> insertComment tb t
   TStartTag name attrs sc -> do
     let nameLower = T.toLower name
@@ -2694,7 +2696,8 @@ tokenizeAfterLTCtx svgDepth (c:rest)
              if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2'
              else tok : tokenizeRCData rest2' (T.pack lcName)
            "plaintext" ->
-             tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2'
+             if inSvg then tok : tokenizeCtx newSvgDepth rest2'
+             else tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2'
            _ -> tok : tokenizeCtx newSvgDepth rest2'
   | otherwise = TChar '<' : tokenizeCtx svgDepth (c:rest)
 
