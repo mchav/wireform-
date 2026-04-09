@@ -140,14 +140,17 @@ fragmentTokenize :: Text -> Maybe Text -> Text -> [Token]
 fragmentTokenize ctx ctxNs txt
   | isForeignNs = tokenize txt
   | ctx `elem` ["title", "textarea"] = tokenizeRCData (T.unpack txt) ctx
-  | ctx `elem` ["style", "xmp", "iframe", "noembed", "noframes", "noscript", "script"] =
-      tokenizeRawText (T.unpack txt) ctx
+  | ctx `elem` ["style", "xmp", "iframe", "noembed", "noframes", "noscript"] =
+      map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) (T.unpack (normCR txt))
+  | ctx == "script" =
+      map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) (T.unpack (normCR txt))
   | ctx == "plaintext" = map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) (T.unpack txt)
   | otherwise = tokenize txt
   where
     isForeignNs = case ctxNs of
       Just ns -> ns == "svg" || ns == "math"
       Nothing -> False
+    normCR t = T.replace "\r\n" "\n" (T.replace "\r" "\n" t)
 
 ------------------------------------------------------------------------
 -- Initialize tree builder
@@ -2691,8 +2694,7 @@ tokenizeAfterLTCtx svgDepth (c:rest)
              if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2'
              else tok : tokenizeRCData rest2' (T.pack lcName)
            "plaintext" ->
-             if inSvg then tok : tokenizeCtx newSvgDepth rest2'
-             else tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2'
+             tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2'
            _ -> tok : tokenizeCtx newSvgDepth rest2'
   | otherwise = TChar '<' : tokenizeCtx svgDepth (c:rest)
 
