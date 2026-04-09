@@ -2138,7 +2138,7 @@ selectAdoptionAgency name tb = do
       targetIdx = findTargetIdx name elems 0
   case (selectIdx, targetIdx) of
     (Just si, Just ti)
-      | ti < si -> pure ()
+      | ti > si -> pure ()
     _ -> adoptionAgency name tb
   where
     findSelectIdx [] _ = Nothing
@@ -2159,7 +2159,7 @@ selectCloseElement name tb = do
     (_, Nothing) -> pure ()
     (Nothing, Just _) -> popUntilInclusive name tb
     (Just si, Just ti)
-      | ti >= si -> popUntilInclusive name tb
+      | ti <= si -> popUntilInclusive name tb
       | otherwise -> pure ()
   where
     findIdx _ [] _ = Nothing
