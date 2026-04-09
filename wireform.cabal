@@ -315,6 +315,7 @@ library
       HTML.Encode
       HTML.Query
       HTML.Class
+      HTML.TagId
       Wireform.HTML
       -- CSV/TSV support
       CSV.Value
