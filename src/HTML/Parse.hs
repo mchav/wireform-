@@ -2965,11 +2965,9 @@ tryPrefixesNoSemi name rest = go (length name)
           suffix = drop n name ++ rest
       in case lookup prefix namedEntities of
         Just rep ->
-          let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
-              nextIsAlnumOrEq = nextChar == Just '=' || maybe False isAlphaNum nextChar
-          in if nextIsAlnumOrEq && not (prefix `elem` legacyEntities)
-             then go (n-1)
-             else Just (prefix, rep, suffix)
+          if prefix `elem` legacyEntities
+          then Just (prefix, rep, suffix)
+          else go (n-1)
         Nothing -> go (n-1)
 
 legacyEntities :: [String]
@@ -3008,11 +3006,14 @@ tryAttrPrefixesLegacy name rest = go (length name)
           suffix = drop n name ++ rest
       in case lookup prefix namedEntities of
         Just rep ->
-          let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
-              nextIsAlnumOrEq = nextChar == Just '=' || maybe False isAlphaNum nextChar
-          in if nextIsAlnumOrEq
-             then go (n-1)
-             else Just (prefix, rep, suffix)
+          if prefix `elem` legacyEntities
+          then
+            let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
+                nextIsAlnumOrEq = nextChar == Just '=' || maybe False isAlphaNum nextChar
+            in if nextIsAlnumOrEq
+               then go (n-1)
+               else Just (prefix, rep, suffix)
+          else go (n-1)
         Nothing -> go (n-1)
 
 resolveChars :: String -> String
