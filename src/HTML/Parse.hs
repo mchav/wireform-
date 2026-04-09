@@ -582,16 +582,22 @@ insertVoidElement tb name attrs ns = do
 
 insertComment :: TreeBuilder -> Text -> IO ()
 insertComment tb txt = do
+  let commentText = fixCDATAComment txt
   elems <- readIORef (tbOpenElements tb)
   case elems of
     (current:_) -> do
-      commentNode <- newTBNode tb "#comment" [("#data", txt)] Nothing False
+      commentNode <- newTBNode tb "#comment" [("#data", commentText)] Nothing False
       appendChild current commentNode
-    [] -> modifyIORef' (tbDocument tb) (++ [CComment txt])
+    [] -> modifyIORef' (tbDocument tb) (++ [CComment commentText])
+
+fixCDATAComment :: Text -> Text
+fixCDATAComment t
+  | "\x01CDATA\x01" `T.isPrefixOf` t = "[CDATA[" <> T.drop 7 t <> "]]"
+  | otherwise = t
 
 insertCommentToDocument :: TreeBuilder -> Text -> IO ()
 insertCommentToDocument tb txt =
-  modifyIORef' (tbDocument tb) (++ [CComment txt])
+  modifyIORef' (tbDocument tb) (++ [CComment (fixCDATAComment txt)])
 
 insertDoctype :: TreeBuilder -> Text -> Maybe Text -> Maybe Text -> IO ()
 insertDoctype tb name pub sys =
@@ -2146,7 +2152,10 @@ processForeignContent tb tok = case tok of
   TChar c -> do
     appendTextToCurrentNode tb (T.singleton c)
     writeIORef (tbFramesetOk tb) False
-  TComment t -> insertComment tb t
+  TComment t
+    | "\x01CDATA\x01" `T.isPrefixOf` t ->
+        appendTextToCurrentNode tb (T.drop 7 t)
+    | otherwise -> insertComment tb t
   TStartTag name attrs sc -> do
     let nameLower = T.toLower name
     if nameLower `S.member` foreignBreakoutElements
@@ -2504,7 +2513,7 @@ tokenizeMarkupDecl rest
   | matchCaseI rest "[cdata[" =
       let rest1 = drop 7 rest
           (content, remaining) = readUntilStr "]]>" rest1
-      in TComment (T.pack ("[CDATA[" ++ content ++ "]]")) : tokenizeNormal remaining
+      in TComment (T.pack ("\x01CDATA\x01" ++ content)) : tokenizeNormal remaining
   | otherwise =
       let (comment, remaining) = readBogusComment rest
       in TComment (T.pack comment) : tokenizeNormal remaining
@@ -2524,6 +2533,7 @@ readComment cs = go [] cs
     go acc [] = (reverse acc, [])
     go acc ('-':'-':'>':rest) = (reverse acc, rest)
     go acc ('-':'-':'!':'>':rest) = (reverse acc, rest)
+    go acc ('-':'-':[]) = (reverse acc, [])
     go acc (c:rest) = go (c:acc) rest
 
 tokenizeDoctype :: String -> [Token]
@@ -2888,8 +2898,30 @@ tryPrefixesNoSemi name rest = go (length name)
       let prefix = take n name
           suffix = drop n name ++ rest
       in case lookup prefix namedEntities of
-        Just rep -> Just (prefix, rep, suffix)
+        Just rep ->
+          let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
+              nextIsAlnumOrEq = nextChar == Just '=' || maybe False isAlphaNum nextChar
+          in if nextIsAlnumOrEq && not (prefix `elem` legacyEntities)
+             then go (n-1)
+             else Just (prefix, rep, suffix)
         Nothing -> go (n-1)
+
+legacyEntities :: [String]
+legacyEntities =
+  ["amp","lt","gt","quot","apos","AMP","LT","GT","QUOT"
+  ,"Aacute","aacute","Acirc","acirc","acute","AElig","aelig"
+  ,"Agrave","agrave","Aring","aring","Atilde","atilde","Auml","auml"
+  ,"brvbar","Ccedil","ccedil","cedil","cent","copy","COPY","curren"
+  ,"deg","divide","Eacute","eacute","Ecirc","ecirc","Egrave","egrave"
+  ,"ETH","eth","Euml","euml","frac12","frac14","frac34"
+  ,"Iacute","iacute","Icirc","icirc","iexcl","Igrave","igrave"
+  ,"iquest","Iuml","iuml","laquo","macr","micro","middot"
+  ,"nbsp","not","Ntilde","ntilde","Oacute","oacute","Ocirc","ocirc"
+  ,"Ograve","ograve","ordf","ordm","Oslash","oslash","Otilde","otilde"
+  ,"Ouml","ouml","para","plusmn","pound","raquo","REG","reg"
+  ,"sect","shy","sup1","sup2","sup3","szlig"
+  ,"THORN","thorn","times","Uacute","uacute","Ucirc","ucirc"
+  ,"Ugrave","ugrave","uml","Uuml","uuml","Yacute","yacute","yen","yuml"]
 
 matchNamedEntityAttr :: String -> Maybe (String, String, String)
 matchNamedEntityAttr cs =
@@ -2911,8 +2943,9 @@ tryAttrPrefixesLegacy name rest = go (length name)
       in case lookup prefix namedEntities of
         Just rep ->
           let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
-          in if nextChar == Just '=' || maybe False isAlphaNum nextChar
-             then Nothing
+              nextIsAlnumOrEq = nextChar == Just '=' || maybe False isAlphaNum nextChar
+          in if nextIsAlnumOrEq
+             then go (n-1)
              else Just (prefix, rep, suffix)
         Nothing -> go (n-1)
 
