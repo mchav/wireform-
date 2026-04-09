@@ -86,6 +86,7 @@ data Token
   | TStartTag !Text ![(Text,Text)] !Bool
   | TEndTag !Text
   | TChar !Char
+  | TString !Text
   | TComment !Text
   | TEOF
   deriving (Show)
@@ -167,7 +168,7 @@ data AFEntry
 parseHTML :: ByteString -> HTMLDocument
 parseHTML bs = unsafePerformIO $ do
   let txt = TE.decodeUtf8Lenient bs
-      tokens = tokenize txt
+      tokens = coalesceTokens (tokenize txt)
   tb <- newTreeBuilder Nothing
   mapM_ (processToken tb) tokens
   processToken tb TEOF
@@ -176,7 +177,7 @@ parseHTML bs = unsafePerformIO $ do
 parseHTMLNodes :: ByteString -> [HTMLNode]
 parseHTMLNodes bs = unsafePerformIO $ do
   let txt = TE.decodeUtf8Lenient bs
-      tokens = tokenize txt
+      tokens = coalesceTokens (tokenize txt)
   tb <- newTreeBuilder Nothing
   mapM_ (processToken tb) tokens
   processToken tb TEOF
@@ -186,11 +187,22 @@ parseHTMLNodes bs = unsafePerformIO $ do
 parseHTMLFragment :: Text -> Maybe Text -> ByteString -> [HTMLNode]
 parseHTMLFragment contextTag contextNs bs = unsafePerformIO $ do
   let txt = TE.decodeUtf8Lenient bs
-      tokens = fragmentTokenize contextTag contextNs txt
+      tokens = coalesceTokens (fragmentTokenize contextTag contextNs txt)
   tb <- newTreeBuilder (Just (contextTag, contextNs))
   mapM_ (processToken tb) tokens
   processToken tb TEOF
   buildFragmentResult tb
+
+coalesceTokens :: [Token] -> [Token]
+coalesceTokens [] = []
+coalesceTokens (TChar '\0' : rest) = TChar '\0' : coalesceTokens rest
+coalesceTokens (TChar c : rest) = gatherChars [c] rest
+  where
+    gatherChars !acc [] = [TString (T.pack (reverse acc))]
+    gatherChars !acc (TChar '\0' : rs) = TString (T.pack (reverse acc)) : TChar '\0' : coalesceTokens rs
+    gatherChars !acc (TChar c' : rs) = gatherChars (c':acc) rs
+    gatherChars !acc rs = TString (T.pack (reverse acc)) : coalesceTokens rs
+coalesceTokens (t : rest) = t : coalesceTokens rest
 
 fragmentTokenize :: Text -> Maybe Text -> Text -> [Token]
 fragmentTokenize ctx ctxNs txt
@@ -472,6 +484,10 @@ processToken !tb tok = do
     writeIORef (tbIgnoreLF tb) False
     case tok of
       TChar '\n' -> pure ()
+      TString t -> case T.uncons t of
+        Just ('\n', rest) | T.null rest -> pure ()
+        Just ('\n', rest) -> dispatchToken tb (TString rest)
+        _ -> dispatchToken tb tok
       _ -> dispatchToken tb tok
   else dispatchToken tb tok
 
@@ -506,6 +522,12 @@ shouldUseForeignContent tb tok current = do
         else do
           hip <- isHTMLIP current nsVal
           if hip then pure False else pure True
+      TString _ -> do
+        if isMathMLTIP name nsVal
+        then pure False
+        else do
+          hip <- isHTMLIP current nsVal
+          if hip then pure False else pure True
       TStartTag tname _ _ -> do
         if isMathMLTIP name nsVal && tname /= "mglyph" && tname /= "malignmark"
         then pure False
@@ -531,7 +553,16 @@ shouldUseForeignContent tb tok current = do
 processInMode :: TreeBuilder -> Token -> IO ()
 processInMode tb tok = do
   mode <- readIORef (tbMode tb)
-  case mode of
+  case tok of
+    TString _ -> case mode of
+      MInBody -> modeInBody tb tok
+      MText   -> modeText tb tok
+      MInCell -> modeInCell tb tok
+      _       -> expandStringToken tb tok
+    _ -> dispatchToMode mode tb tok
+
+dispatchToMode :: InsertionMode -> TreeBuilder -> Token -> IO ()
+dispatchToMode mode tb tok = case mode of
     MInitial          -> modeInitial tb tok
     MBeforeHtml       -> modeBeforeHtml tb tok
     MBeforeHead       -> modeBeforeHead tb tok
@@ -555,6 +586,10 @@ processInMode tb tok = do
     MAfterFrameset    -> modeAfterFrameset tb tok
     MAfterAfterBody   -> modeAfterAfterBody tb tok
     MAfterAfterFrameset -> modeAfterAfterFrameset tb tok
+
+expandStringToken :: TreeBuilder -> Token -> IO ()
+expandStringToken tb (TString t) = mapM_ (\c -> processToken tb (TChar c)) (T.unpack t)
+expandStringToken _ _ = pure ()
 
 ------------------------------------------------------------------------
 -- Constants
@@ -1595,6 +1630,12 @@ modeInBody tb tok = case tok of
     reconstructActiveFormatting tb
     appendTextToCurrentNode tb (T.singleton c)
     writeIORef (tbFramesetOk tb) False
+  TString t -> do
+    reconstructActiveFormatting tb
+    appendTextToCurrentNode tb t
+    if not (T.all isWS t)
+    then writeIORef (tbFramesetOk tb) False
+    else pure ()
   TComment t -> insertComment tb t
   TDoctype _ _ _ _ -> pure ()
   TEOF -> do
@@ -2037,6 +2078,7 @@ removeNameFromStack name tb =
 modeText :: TreeBuilder -> Token -> IO ()
 modeText tb tok = case tok of
   TChar c -> appendTextToCurrentNode tb (T.singleton c)
+  TString t -> appendTextToCurrentNode tb t
   TEOF -> do
     popElement tb
     origMode <- readIORef (tbOriginalMode tb)
@@ -2623,6 +2665,9 @@ processForeignContent tb tok = case tok of
   TChar c -> do
     appendTextToCurrentNode tb (T.singleton c)
     writeIORef (tbFramesetOk tb) False
+  TString t -> do
+    appendTextToCurrentNode tb t
+    if not (T.all isWS t) then writeIORef (tbFramesetOk tb) False else pure ()
   TComment t
     | isCDATA t ->
         let content = T.replace "\0" "\xFFFD" (cdataContent t)
