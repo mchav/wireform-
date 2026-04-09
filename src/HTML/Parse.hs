@@ -3019,7 +3019,10 @@ lookupDef def key table = case lookup key table of { Just v -> v; Nothing -> def
 ------------------------------------------------------------------------
 
 tokenize :: Text -> [Token]
-tokenize txt = tokenizeCtx 0 False (T.unpack txt)
+tokenize txt =
+  let !bs = TE.encodeUtf8 txt
+      !s = T.unpack txt
+  in tokenizeCtx 0 False s
 
 tokenizeCtx :: Int -> Bool -> String -> [Token]
 tokenizeCtx !svgDepth !svgHIP [] = []
