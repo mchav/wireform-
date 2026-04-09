@@ -2668,7 +2668,7 @@ matchNamedEntity cs =
      else case rest of
        (';':after) -> case lookup allAlpha namedEntities of
          Just rep -> Just (allAlpha, rep, after)
-         Nothing -> Nothing
+         Nothing -> tryPrefixes allAlpha (';':after)
        _ -> tryPrefixes allAlpha rest
   where
     tryPrefixes name rest = go (length name)
