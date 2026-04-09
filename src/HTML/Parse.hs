@@ -1066,7 +1066,12 @@ resetInsertionMode tb = do
     check node isLast = do
       let name = nodeName node
       case name of
-        "select" -> writeIORef (tbMode tb) MInSelect >> pure True
+        "select" -> do
+          allElems <- readIORef (tbOpenElements tb)
+          if any (\n -> nodeName n == "table" || nodeName n == "template") allElems
+          then writeIORef (tbMode tb) MInSelectInTable
+          else writeIORef (tbMode tb) MInSelect
+          pure True
         "td" -> writeIORef (tbMode tb) (if isLast then MInBody else MInCell) >> pure True
         "th" -> writeIORef (tbMode tb) (if isLast then MInBody else MInCell) >> pure True
         "tr" -> writeIORef (tbMode tb) MInRow >> pure True
@@ -1336,13 +1341,16 @@ modeInBody tb tok = case tok of
     if not fo then pure ()
     else do
       elems <- readIORef (tbOpenElements tb)
-      case elems of
-        [_] -> pure ()
-        (_:_) -> do
+      case reverse elems of
+        (htmlNode:bodyNode:_) | nodeName bodyNode == "body" -> do
+          removeChild htmlNode bodyNode
+          writeIORef (tbOpenElements tb) [htmlNode]
+          void $ insertElement tb "frameset" attrs Nothing
+          writeIORef (tbMode tb) MInFrameset
+        _ -> do
           popUntilOneOf (S.singleton "html") tb
           void $ insertElement tb "frameset" attrs Nothing
           writeIORef (tbMode tb) MInFrameset
-        [] -> pure ()
   TStartTag name attrs _sc
     | name `elem` ["address","article","aside","blockquote","center","details","dialog","dir","div","dl","fieldset","figcaption","figure","footer","header","hgroup","main","menu","nav","ol","p","search","section","summary","ul"] -> do
         closePElement tb
@@ -2858,22 +2866,29 @@ matchNamedEntity cs =
      else case rest of
        (';':after) -> case lookup allAlpha namedEntities of
          Just rep -> Just (allAlpha, rep, after)
-         Nothing -> Nothing
-       _ -> tryPrefixesBody allAlpha rest
+         Nothing -> tryPrefixesWithSemi allAlpha (';':after)
+       _ -> tryPrefixesNoSemi allAlpha rest
 
-tryPrefixesBody :: String -> String -> Maybe (String, String, String)
-tryPrefixesBody name rest = go (length name)
+tryPrefixesWithSemi :: String -> String -> Maybe (String, String, String)
+tryPrefixesWithSemi name rest = go (length name)
   where
     go 0 = Nothing
     go n =
       let prefix = take n name
           suffix = drop n name ++ rest
       in case lookup prefix namedEntities of
-        Just rep ->
-          let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
-          in if nextChar == Just '=' || maybe False isAlphaNum nextChar
-             then Nothing
-             else Just (prefix, rep, suffix)
+        Just rep -> Just (prefix, rep, suffix)
+        Nothing -> go (n-1)
+
+tryPrefixesNoSemi :: String -> String -> Maybe (String, String, String)
+tryPrefixesNoSemi name rest = go (length name)
+  where
+    go 0 = Nothing
+    go n =
+      let prefix = take n name
+          suffix = drop n name ++ rest
+      in case lookup prefix namedEntities of
+        Just rep -> Just (prefix, rep, suffix)
         Nothing -> go (n-1)
 
 matchNamedEntityAttr :: String -> Maybe (String, String, String)
