@@ -2030,10 +2030,12 @@ modeInSelect tb tok = case tok of
   TStartTag "select" _ _ -> do
     popUntilInclusive "select" tb
     resetInsertionMode tb
-  TStartTag name _ _ | name `elem` ["input","keygen","textarea"] -> do
+  TStartTag name _ _ | name `elem` ["input","textarea"] -> do
     popUntilInclusive "select" tb
     resetInsertionMode tb
     processInMode tb tok
+  TStartTag "keygen" attrs _ ->
+    void $ insertVoidElement tb "keygen" attrs Nothing
   TStartTag "script" _ _ -> modeInHead tb tok
   TStartTag "template" _ _ -> modeInHead tb tok
   TEndTag "template" -> modeInHead tb tok
