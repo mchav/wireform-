@@ -2,5 +2,8 @@ packages:
   .
   wireform-grpc/
 
+package wireform
+  flags: +snappy +zstd
+
 package grpc-spec
   flags: -snappy

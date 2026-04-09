@@ -15,11 +15,16 @@ module Parquet.Types
   , Compression(..)
   , ConvertedType(..)
   , LogicalType(..)
+  , Statistics(..)
+  , PageLocation(..)
+  , OffsetIndex(..)
+  , ColumnIndex(..)
   , parquetTypeToInt
   , intToParquetType
   ) where
 
 import Control.DeepSeq (NFData)
+import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
@@ -151,6 +156,7 @@ data ColumnMetadata = ColumnMetadata
   , cmTotalUncompressedSize :: !Int64
   , cmTotalCompressedSize   :: !Int64
   , cmDataPageOffset        :: !Int64
+  , cmStatistics            :: !(Maybe Statistics)
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
@@ -174,5 +180,35 @@ data FileMetadata = FileMetadata
   , fmNumRows   :: !Int64
   , fmRowGroups :: !(Vector RowGroup)
   , fmCreatedBy :: !(Maybe Text)
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+data Statistics = Statistics
+  { statMin           :: !(Maybe ByteString)
+  , statMax           :: !(Maybe ByteString)
+  , statNullCount     :: !(Maybe Int64)
+  , statDistinctCount :: !(Maybe Int64)
+  , statMinValue      :: !(Maybe ByteString)
+  , statMaxValue      :: !(Maybe ByteString)
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+data PageLocation = PageLocation
+  { plOffset             :: !Int64
+  , plCompressedPageSize :: !Int32
+  , plFirstRowIndex      :: !Int64
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+data OffsetIndex = OffsetIndex
+  { oiPageLocations :: !(Vector PageLocation)
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+data ColumnIndex = ColumnIndex
+  { ciNullPages  :: !(Vector Bool)
+  , ciMinValues  :: !(Vector ByteString)
+  , ciMaxValues  :: !(Vector ByteString)
+  , ciNullCounts :: !(Maybe (Vector Int64))
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)

@@ -4,6 +4,8 @@ module HTML.TagId
   ( TagId(..)
   , tagIdFromText
   , tagIdFromBS
+  , internTagBS
+  , internAttrNameBS
   , tagIdToText
   , tagIdIsSpecial
   , tagIdIsFormatting
@@ -12,16 +14,19 @@ module HTML.TagId
   , tagIdIsDefaultScopeTerminator
   , tagIdIsButtonScopeTerminator
   , tagIdIsListItemScopeTerminator
+  , tagIdIsDefinitionScopeTerminator
   , tagIdIsTableScopeTerminator
   , tagIdIsForeignBreakout
   , tagIdIsVoid
   , tagIdIsRawText
   ) where
 
+import Data.Word (Word8)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
 
 data TagId
@@ -111,6 +116,62 @@ tagIdFromText !t = case HM.lookup t tagMap of
 {-# INLINE tagIdFromBS #-}
 tagIdFromBS :: ByteString -> TagId
 tagIdFromBS = tagIdFromText . TE.decodeUtf8Lenient
+
+{-# NOINLINE tagMapBS #-}
+tagMapBS :: HM.HashMap ByteString TagId
+tagMapBS = HM.fromList
+  [(TE.encodeUtf8 t, tid) | (t, tid) <- HM.toList tagMap]
+
+{-# INLINE internTagBS #-}
+internTagBS :: ByteString -> (Text, TagId)
+internTagBS !rawName =
+  case HM.lookup rawName tagMapBS of
+    Just !tid -> (tagIdToText tid, tid)
+    Nothing
+      | BS.any (\b -> b >= 0x41 && b <= 0x5A) rawName ->
+          let !lowered = BS.map asciiToLower rawName
+          in case HM.lookup lowered tagMapBS of
+               Just !tid -> (tagIdToText tid, tid)
+               Nothing -> (TE.decodeUtf8Lenient lowered, TagUnknown)
+      | otherwise -> (TE.decodeUtf8Lenient rawName, TagUnknown)
+  where
+    asciiToLower :: Word8 -> Word8
+    asciiToLower b
+      | b >= 0x41, b <= 0x5A = b + 32
+      | otherwise = b
+
+{-# NOINLINE commonAttrMapBS #-}
+commonAttrMapBS :: HM.HashMap ByteString Text
+commonAttrMapBS = HM.fromList
+  [ (n, TE.decodeUtf8Lenient n)
+  | n <- [ "class","id","style","src","href","type","name","value","alt","title"
+         , "width","height","rel","charset","content","lang","dir","action","method"
+         , "for","tabindex","role","target","placeholder","disabled","checked"
+         , "selected","readonly","required","hidden","data","aria-label","aria-hidden"
+         , "autocomplete","autofocus","colspan","rowspan","scope","encoding"
+         , "http-equiv","property","media","sizes","crossorigin","integrity"
+         , "defer","async","nomodule","color","face","size","xmlns","xmlns:xlink"
+         , "xlink:href","xlink:type","xml:lang","xml:space","definitionurl"
+         ]
+  ]
+
+{-# INLINE internAttrNameBS #-}
+internAttrNameBS :: ByteString -> Text
+internAttrNameBS !rawName =
+  case HM.lookup rawName commonAttrMapBS of
+    Just !interned -> interned
+    Nothing
+      | BS.any (\b -> b >= 0x41 && b <= 0x5A) rawName ->
+          let !lowered = BS.map asciiToLower rawName
+          in case HM.lookup lowered commonAttrMapBS of
+               Just !interned -> interned
+               Nothing -> TE.decodeUtf8Lenient lowered
+      | otherwise -> TE.decodeUtf8Lenient rawName
+  where
+    asciiToLower :: Word8 -> Word8
+    asciiToLower b
+      | b >= 0x41, b <= 0x5A = b + 32
+      | otherwise = b
 
 tagIdToText :: TagId -> Text
 tagIdToText TagA = "a"
@@ -298,6 +359,11 @@ tagIdIsListItemScopeTerminator :: TagId -> Bool
 tagIdIsListItemScopeTerminator !tid = case tid of
   TagOl -> True; TagUl -> True
   _ -> tagIdIsDefaultScopeTerminator tid
+
+{-# INLINE tagIdIsDefinitionScopeTerminator #-}
+tagIdIsDefinitionScopeTerminator :: TagId -> Bool
+tagIdIsDefinitionScopeTerminator !tid =
+  tid == TagDl || tagIdIsDefaultScopeTerminator tid
 
 {-# INLINE tagIdIsTableScopeTerminator #-}
 tagIdIsTableScopeTerminator :: TagId -> Bool

@@ -17,6 +17,11 @@ module HTML.Class
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy.Builder as TLB
+import qualified Data.Text.Lazy.Builder.Int as TLB
+import qualified Data.Text.Lazy.Builder.RealFloat as TLB
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Read as TR
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Generics
@@ -51,34 +56,34 @@ instance FromHTML Text where
   fromHTML n = Right (textContent n)
 
 instance ToHTML Int where
-  toHTML = HTMLText . T.pack . show
+  toHTML = HTMLText . TL.toStrict . TLB.toLazyText . TLB.decimal
 
 instance FromHTML Int where
   fromHTML n = do
     t <- fromHTML n
-    case reads (T.unpack (t :: Text)) of
-      [(v, "")] -> Right v
-      _ -> Left $ "FromHTML Int: cannot parse " ++ show t
+    case TR.signed TR.decimal (t :: Text) of
+      Right (v, rest) | T.null rest -> Right v
+      _ -> Left $ "FromHTML Int: cannot parse " <> T.unpack t
 
 instance ToHTML Integer where
-  toHTML = HTMLText . T.pack . show
+  toHTML = HTMLText . TL.toStrict . TLB.toLazyText . TLB.decimal
 
 instance FromHTML Integer where
   fromHTML n = do
     t <- fromHTML n
-    case reads (T.unpack (t :: Text)) of
-      [(v, "")] -> Right v
-      _ -> Left $ "FromHTML Integer: cannot parse " ++ show t
+    case TR.signed TR.decimal (t :: Text) of
+      Right (v, rest) | T.null rest -> Right v
+      _ -> Left $ "FromHTML Integer: cannot parse " <> T.unpack t
 
 instance ToHTML Double where
-  toHTML = HTMLText . T.pack . show
+  toHTML = HTMLText . TL.toStrict . TLB.toLazyText . TLB.realFloat
 
 instance FromHTML Double where
   fromHTML n = do
     t <- fromHTML n
-    case reads (T.unpack (t :: Text)) of
-      [(v, "")] -> Right v
-      _ -> Left $ "FromHTML Double: cannot parse " ++ show t
+    case TR.double (t :: Text) of
+      Right (v, rest) | T.null rest -> Right v
+      _ -> Left $ "FromHTML Double: cannot parse " <> T.unpack t
 
 instance ToHTML Bool where
   toHTML True = HTMLText "true"
@@ -92,7 +97,7 @@ instance FromHTML Bool where
       "1"     -> Right True
       "false" -> Right False
       "0"     -> Right False
-      _ -> Left $ "FromHTML Bool: cannot parse " ++ show t
+      _ -> Left $ "FromHTML Bool: cannot parse " <> T.unpack t
 
 instance ToHTML a => ToHTML (Maybe a) where
   toHTML Nothing = HTMLElement "span" V.empty V.empty
@@ -105,7 +110,7 @@ instance FromHTML a => FromHTML (Maybe a) where
 
 instance ToHTML a => ToHTML [a] where
   toHTML xs = HTMLElement "ul" V.empty
-    (V.fromList [HTMLElement "li" V.empty (V.singleton (toHTML x)) | x <- xs])
+    (V.fromList (map (\x -> HTMLElement "li" V.empty (V.singleton (toHTML x))) xs))
 
 instance FromHTML a => FromHTML [a] where
   fromHTML (HTMLElement _ _ cs) = traverse fromChild (V.toList cs)
@@ -153,8 +158,7 @@ instance GToHTMLFields f => GToHTMLCon (M1 C c f) where
   gToHTMLCon typeName (M1 x) =
     let fields = gToHTMLFields x
         children = V.fromList
-          [ HTMLElement (T.pack k) V.empty (V.singleton v)
-          | (k, v) <- fields ]
+          (map (\(k, v) -> HTMLElement (T.pack k) V.empty (V.singleton v)) fields)
     in HTMLElement (T.pack typeName) V.empty children
 
 instance GFromHTMLFields f => GFromHTMLCon (M1 C c f) where
@@ -193,5 +197,5 @@ instance (Selector s, FromHTML a) => GFromHTMLFields (M1 S s (K1 i a)) where
   gFromHTMLFields lkup =
     let name = T.pack (selName (undefined :: M1 S s (K1 i a) p))
     in case lkup name of
-         Nothing -> Left $ "GFromHTML: missing field " ++ T.unpack name
+         Nothing -> Left $ "GFromHTML: missing field " <> T.unpack name
          Just v  -> M1 . K1 <$> fromHTML v

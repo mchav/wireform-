@@ -1,8 +1,12 @@
 module Test.Arrow (arrowTests) where
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as BL
+import Data.Int (Int32)
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import qualified Data.Vector.Primitive as VP
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -12,6 +16,9 @@ import Test.Tasty.Hedgehog
 
 import Arrow.Types
 import Arrow.IPC
+import Arrow.Column
+import Arrow.Write
+import Arrow.File
 
 arrowTests :: TestTree
 arrowTests = testGroup "Arrow"
@@ -20,6 +27,8 @@ arrowTests = testGroup "Arrow"
   , edgeCases
   , wireFormatTests
   , propertyRoundtrips
+  , columnTests
+  , writeRoundtrips
   ]
 
 schemaRoundtrips :: TestTree
@@ -289,3 +298,152 @@ propertyRoundtrips = testGroup "Property roundtrips"
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
   ]
+
+columnTests :: TestTree
+columnTests = testGroup "Column materialization"
+  [ testCase "Nullable Int32" $ do
+      let schema = Schema
+            { arrowFields = V.singleton Field
+                { fieldName = "x"
+                , fieldNullable = True
+                , fieldType = AInt 32 True
+                , fieldChildren = V.empty
+                }
+            , arrowEndianness = Little
+            }
+          rb = RecordBatchDef
+            { rbLength = 3
+            , rbNodes = V.singleton (FieldNode 3 1)
+            , rbBuffers = V.fromList [Buffer 0 1, Buffer 8 12]
+            }
+          validityByte = BS.pack [0x05]
+          body = validityByte <> BS.replicate 7 0
+              <> leI32 10 <> leI32 0 <> leI32 30
+      case materializeFlatRecordBatch schema rb body of
+        Left e -> assertFailure e
+        Right cols -> V.head cols @?= ColInt32Maybe (V.fromList [Just 10, Nothing, Just 30])
+
+  , testCase "Struct column" $ do
+      let childX = Field "x" False (AInt 32 True) V.empty
+          childY = Field "y" False (AInt 32 True) V.empty
+          schema = Schema
+            { arrowFields = V.singleton Field
+                { fieldName = "point"
+                , fieldNullable = False
+                , fieldType = AStruct
+                , fieldChildren = V.fromList [childX, childY]
+                }
+            , arrowEndianness = Little
+            }
+          rb = RecordBatchDef
+            { rbLength = 2
+            , rbNodes = V.fromList [FieldNode 2 0, FieldNode 2 0, FieldNode 2 0]
+            , rbBuffers = V.fromList [Buffer 0 8, Buffer 8 8]
+            }
+          body = leI32 1 <> leI32 2 <> leI32 3 <> leI32 4
+      case materializeRecordBatch schema rb body of
+        Left e -> assertFailure e
+        Right cols ->
+          V.head cols @?= ColStruct (V.fromList
+            [ ("x", ColInt32 (VP.fromList [1, 2]))
+            , ("y", ColInt32 (VP.fromList [3, 4]))
+            ])
+
+  , testCase "List column" $ do
+      let childField = Field "item" False (AInt 32 True) V.empty
+          schema = Schema
+            { arrowFields = V.singleton Field
+                { fieldName = "vals"
+                , fieldNullable = False
+                , fieldType = AList
+                , fieldChildren = V.singleton childField
+                }
+            , arrowEndianness = Little
+            }
+          rb = RecordBatchDef
+            { rbLength = 2
+            , rbNodes = V.fromList [FieldNode 2 0, FieldNode 5 0]
+            , rbBuffers = V.fromList [Buffer 0 12, Buffer 16 20]
+            }
+          offsets = leI32 0 <> leI32 2 <> leI32 5
+          body = offsets <> BS.replicate 4 0
+              <> leI32 1 <> leI32 2 <> leI32 3 <> leI32 4 <> leI32 5
+      case materializeRecordBatch schema rb body of
+        Left e -> assertFailure e
+        Right cols ->
+          V.head cols @?= ColList
+            (VP.fromList [0, 2, 5])
+            (ColInt32 (VP.fromList [1, 2, 3, 4, 5]))
+  ]
+
+writeRoundtrips :: TestTree
+writeRoundtrips = testGroup "Write round-trips"
+  [ testCase "Int32 encode-decode" $ do
+      let schema = Schema
+            { arrowFields = V.singleton Field
+                { fieldName = "x"
+                , fieldNullable = False
+                , fieldType = AInt 32 True
+                , fieldChildren = V.empty
+                }
+            , arrowEndianness = Little
+            }
+          vals = VP.fromList [1, 2, 3, 4, 5] :: VP.Vector Int32
+          cols = V.singleton (ColInt32 vals)
+          batchBs = buildRecordBatch schema cols
+      case readIPCMessage batchBs 0 of
+        Left e -> assertFailure e
+        Right (msg, body, _) -> case msg of
+          RecordBatch rb ->
+            case materializeRecordBatch schema rb body of
+              Left e2 -> assertFailure e2
+              Right result -> V.head result @?= ColInt32 vals
+          _ -> assertFailure "Expected RecordBatch message"
+
+  , testCase "Arrow stream round-trip" $ do
+      let schema = Schema
+            { arrowFields = V.fromList
+                [ Field "a" False (AInt 32 True) V.empty
+                , Field "b" False ABool V.empty
+                ]
+            , arrowEndianness = Little
+            }
+          batch1 = V.fromList
+            [ ColInt32 (VP.fromList [10, 20, 30])
+            , ColBool (V.fromList [True, False, True])
+            ]
+          streamBs = writeArrowStream schema (V.singleton batch1)
+      case readArrowStream streamBs of
+        Left e -> assertFailure e
+        Right as -> do
+          asSchema as @?= schema
+          V.length (asBatches as) @?= 1
+          let (rb, body) = V.head (asBatches as)
+          case materializeRecordBatch schema rb body of
+            Left e2 -> assertFailure e2
+            Right result -> do
+              result V.! 0 @?= ColInt32 (VP.fromList [10, 20, 30])
+              result V.! 1 @?= ColBool (V.fromList [True, False, True])
+
+  , testCase "Arrow file round-trip" $ do
+      let schema = Schema
+            { arrowFields = V.singleton Field
+                { fieldName = "x"
+                , fieldNullable = False
+                , fieldType = AInt 32 True
+                , fieldChildren = V.empty
+                }
+            , arrowEndianness = Little
+            }
+          batch1 = V.singleton (ColInt32 (VP.fromList [100, 200, 300]))
+          fileBs = writeArrowFile schema (V.singleton batch1)
+      case readArrowFileColumns fileBs of
+        Left e -> assertFailure e
+        Right (readSchema, readBatches) -> do
+          readSchema @?= schema
+          V.length readBatches @?= 1
+          V.head (V.head readBatches) @?= ColInt32 (VP.fromList [100, 200, 300])
+  ]
+
+leI32 :: Int32 -> BS.ByteString
+leI32 = BL.toStrict . B.toLazyByteString . B.int32LE

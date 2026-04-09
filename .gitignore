@@ -10,3 +10,6 @@ cabal.project.local
 cabal.project.local.*
 __pycache__/
 *.pyc
+.direnv/
+result
+result-*

@@ -16,9 +16,9 @@ description:
   * FlatBuffers (zero-copy flat serialization)
   * Microsoft Bond (compact binary)
   * ASN.1 BER/DER (ITU-T X.690)
-  * Apache Parquet (columnar metadata/footer)
-  * Apache Arrow IPC (in-memory columnar)
-  * Apache Iceberg (table metadata/manifests)
+  * Apache Parquet (footer, page headers, PLAIN + hybrid RLE dictionary indices, GZip/Snappy/Zstd)
+  * Apache Arrow IPC (schema framing + flat record batch materialization)
+  * Apache Iceberg (table JSON metadata, Avro manifest / manifest-list readers)
   * EDN (Extensible Data Notation)
 
 license:            BSD-3-Clause
@@ -27,6 +27,9 @@ bug-reports:        https://github.com/iand675/wireform-/issues
 build-type:         Simple
 tested-with:        GHC == 9.6.4, GHC == 9.8.4
 extra-source-files: CHANGELOG.md
+extra-doc-files:
+  docs/README.md
+  docs/getting-started.md
 
 data-files:
   proto/google/protobuf/any.proto
@@ -53,6 +56,16 @@ flag python-interop
 
 flag snappy
   description: Enable snappy compression for Avro containers
+  manual: True
+  default: False
+
+flag zstd
+  description: Enable Zstandard decompression for Parquet column chunks (links libzstd)
+  manual: True
+  default: False
+
+flag lz4
+  description: Enable LZ4 raw block decompression for Parquet column chunks (links liblz4)
   manual: True
   default: False
 
@@ -232,6 +245,9 @@ library
       Iceberg.Types
       Iceberg.JSON
       Iceberg.Manifest
+      Iceberg.Read
+      Iceberg.Snapshot
+      Iceberg.SchemaEvolution
       -- Microsoft Bond support
       Bond.Value
       Bond.Encode
@@ -249,12 +265,19 @@ library
       ASN1.Parser
       ASN1.CodeGen
       ASN1.QQ
-      -- Apache Parquet metadata
+      -- Apache Parquet metadata + column pages
       Parquet.Types
       Parquet.Footer
+      Parquet.Page
+      Parquet.Read
+      Parquet.Levels
+      Parquet.Write
       -- Apache Arrow IPC
       Arrow.Types
       Arrow.IPC
+      Arrow.Column
+      Arrow.Write
+      Arrow.File
       -- EDN (Extensible Data Notation) support
       EDN.Value
       EDN.Encode
@@ -280,6 +303,9 @@ library
       Wireform.Proto
       Wireform.CapnProto
       Wireform.FlatBuffers
+      Wireform.Parquet
+      Wireform.Arrow
+      Wireform.Iceberg
       Wireform.ASN1
       -- XML support
       XML.Value
@@ -330,13 +356,23 @@ library
       -- Apache ORC metadata
       ORC.Types
       ORC.Footer
+      ORC.Stripe
+      ORC.Read
+      ORC.Write
       Wireform.ORC
 
-    other-modules:    Paths_wireform
+    other-modules:
+      Columnar.SIMD
+      ORC.RLE
+      Parquet.RLE
+      Parquet.Delta
+      Paths_wireform
     autogen-modules:  Paths_wireform
 
-    c-sources:        cbits/fast_decode.c
+    c-sources:        cbits/columnar_simd.c
+                      cbits/fast_decode.c
                       cbits/fast_xml.c
+                      cbits/html_scan.c
     include-dirs:     cbits/simde
     cc-options:       -O3 -march=native
 
@@ -368,6 +404,14 @@ library
     if flag(snappy)
       build-depends: snappy >= 0.2 && < 0.3
       cpp-options: -DHAVE_SNAPPY
+
+    if flag(zstd)
+      build-depends: zstd >= 0.1.3 && < 0.2
+      cpp-options: -DHAVE_ZSTD
+
+    if flag(lz4)
+      build-depends: lz4-hs >= 0.1 && < 0.2
+      cpp-options: -DHAVE_LZ4
 
     hs-source-dirs:   src
     default-language: GHC2021
@@ -1097,6 +1141,19 @@ benchmark xml-bench
     hs-source-dirs:   bench
     default-language: GHC2021
     ghc-options: -O2
+
+benchmark quick-prof
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          QuickProf.hs
+    build-depends:
+        base >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , deepseq
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    ghc-options: -O2 -rtsopts
 
 test-suite interop-test
     import:           warnings

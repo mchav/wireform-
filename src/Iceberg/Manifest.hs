@@ -33,6 +33,7 @@ manifestEntrySchema = AvroRecord
       [ mkField "status"          (AvroPrimitive AvroInt) (Just "File status: 0=existing, 1=added, 2=deleted")
       , mkFieldOpt "snapshot_id"  (AvroPrimitive AvroLong) (Just "Snapshot that added the file")
       , mkFieldOpt "sequence_number" (AvroPrimitive AvroLong) (Just "Data sequence number")
+      , mkFieldOpt "file_sequence_number" (AvroPrimitive AvroLong) (Just "File sequence number")
       , mkField "data_file"       dataFileSchema Nothing
       ]
   }

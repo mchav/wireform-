@@ -17,6 +17,8 @@ module HTML.Value
 import Control.DeepSeq (NFData(..))
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import Data.Text.Lazy.Builder (Builder, toLazyText, fromText)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
@@ -55,10 +57,13 @@ instance NFData Doctype where
   rnf (Doctype a b c) = rnf a `seq` rnf b `seq` rnf c
 
 textContent :: HTMLNode -> Text
-textContent (HTMLText t) = t
-textContent (HTMLComment _) = T.empty
-textContent (HTMLDoctype _ _ _) = T.empty
-textContent (HTMLElement _ _ cs) = T.concat (V.toList (V.map textContent cs))
+textContent node = TL.toStrict (toLazyText (go node))
+  where
+    go :: HTMLNode -> Builder
+    go (HTMLText t) = fromText t
+    go (HTMLComment _) = mempty
+    go (HTMLDoctype _ _ _) = mempty
+    go (HTMLElement _ _ cs) = V.foldl' (\acc c -> acc <> go c) mempty cs
 
 getAttr :: Text -> HTMLNode -> Maybe Text
 getAttr name (HTMLElement _ attrs _) = go 0
@@ -70,14 +75,15 @@ getAttr name (HTMLElement _ attrs _) = go 0
       | otherwise = go (i + 1)
 getAttr _ _ = Nothing
 
+{-# INLINE isVoidElement #-}
 isVoidElement :: Text -> Bool
-isVoidElement t = t `elem` voidElements
+isVoidElement t = case t of
+  "area" -> True; "base" -> True; "br" -> True; "col" -> True
+  "embed" -> True; "hr" -> True; "img" -> True; "input" -> True
+  "link" -> True; "meta" -> True; "source" -> True; "track" -> True
+  "wbr" -> True
+  _ -> False
 
-voidElements :: [Text]
-voidElements =
-  [ "area", "base", "br", "col", "embed", "hr", "img", "input"
-  , "link", "meta", "source", "track", "wbr"
-  ]
-
+{-# INLINE isRawTextElement #-}
 isRawTextElement :: Text -> Bool
 isRawTextElement t = t == "script" || t == "style"

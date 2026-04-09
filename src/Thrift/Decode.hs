@@ -14,6 +14,7 @@
 module Thrift.Decode
   ( decodeBinary
   , decodeCompact
+  , decodeCompactFrom
   ) where
 
 import Control.Monad.ST (ST, runST)
@@ -176,6 +177,13 @@ decodeCompact :: ByteString -> Either String TV.Value
 decodeCompact bs = case decodeCompStruct bs 0 of
   Nothing        -> Left "decodeCompact: failed to decode struct"
   Just (v, _off) -> Right v
+
+-- | Decode one Thrift Compact struct starting at an offset; return the value
+-- and the next byte offset after the struct.
+decodeCompactFrom :: ByteString -> Int -> Either String (TV.Value, Int)
+decodeCompactFrom bs off = case decodeCompStruct bs off of
+  Nothing -> Left "decodeCompactFrom: failed to decode struct"
+  Just (v, o) -> Right (v, o)
 
 decodeCompStruct :: ByteString -> Int -> Maybe (TV.Value, Int)
 decodeCompStruct bs off = go off 0 []

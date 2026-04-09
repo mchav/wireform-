@@ -12,7 +12,7 @@ module Iceberg.JSON
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
@@ -40,6 +40,7 @@ metadataToJSON tm = Aeson.Object $ KM.fromList
   , ("default-sort-order-id", Aeson.Number (fromIntegral (tmDefaultSortOrderId tm)))
   , ("properties",           mapToJSON (tmProperties tm))
   , ("snapshot-log",         Aeson.Array (V.map snapshotLogEntryToJSON (tmSnapshotLog tm)))
+  , ("snapshot-refs",        snapshotRefsToJSON (tmSnapshotRefs tm))
   ]
 
 -- | Decode 'TableMetadata' from its JSON representation.
@@ -61,6 +62,7 @@ metadataFromJSON (Aeson.Object obj) = do
   defSort  <- reqInt "default-sort-order-id" obj
   props    <- mapFromJSON "properties" obj
   slog     <- reqArray "snapshot-log" obj >>= V.mapM snapshotLogEntryFromJSON
+  refs     <- snapshotRefsFromJSON obj
   Right TableMetadata
     { tmFormatVersion      = fmtVer
     , tmTableUuid          = uuid
@@ -78,6 +80,7 @@ metadataFromJSON (Aeson.Object obj) = do
     , tmDefaultSortOrderId = defSort
     , tmProperties         = props
     , tmSnapshotLog        = slog
+    , tmSnapshotRefs       = refs
     }
 metadataFromJSON _ = Left "table metadata must be a JSON object"
 
@@ -401,6 +404,49 @@ snapshotLogEntryFromJSON (Aeson.Object obj) = do
 snapshotLogEntryFromJSON _ = Left "snapshot log entry must be a JSON object"
 
 -- ============================================================
+-- SnapshotRef
+-- ============================================================
+
+snapshotRefToJSON :: SnapshotRef -> Aeson.Value
+snapshotRefToJSON sr = Aeson.Object $ KM.fromList $
+  [ ("snapshot-id", Aeson.Number (fromIntegral (srSnapshotId sr)))
+  , ("type",        Aeson.String (srType sr))
+  ] ++ maybe [] (\v -> [("max-ref-age-ms", Aeson.Number (fromIntegral v))]) (srMaxRefAgeMs sr)
+    ++ maybe [] (\v -> [("max-snapshot-age-ms", Aeson.Number (fromIntegral v))]) (srMaxSnapshotAgeMs sr)
+    ++ maybe [] (\v -> [("min-snapshots-to-keep", Aeson.Number (fromIntegral v))]) (srMinSnapshotsToKeep sr)
+
+snapshotRefFromJSON :: Aeson.Value -> Either String SnapshotRef
+snapshotRefFromJSON (Aeson.Object obj) = do
+  sid     <- reqInt64 "snapshot-id" obj
+  typ     <- reqStr "type" obj
+  maxRef  <- optInt64 "max-ref-age-ms" obj
+  maxSnap <- optInt64 "max-snapshot-age-ms" obj
+  minKeep <- optInt32 "min-snapshots-to-keep" obj
+  Right SnapshotRef
+    { srSnapshotId = sid
+    , srType = typ
+    , srMaxRefAgeMs = maxRef
+    , srMaxSnapshotAgeMs = maxSnap
+    , srMinSnapshotsToKeep = minKeep
+    }
+snapshotRefFromJSON _ = Left "snapshot ref must be a JSON object"
+
+snapshotRefsToJSON :: Map.Map Text SnapshotRef -> Aeson.Value
+snapshotRefsToJSON m = Aeson.Object $ KM.fromList $
+  map (\(k, v) -> (Key.fromText k, snapshotRefToJSON v)) (Map.toList m)
+
+snapshotRefsFromJSON :: KM.KeyMap Aeson.Value -> Either String (Map.Map Text SnapshotRef)
+snapshotRefsFromJSON obj = case KM.lookup "snapshot-refs" obj of
+  Just (Aeson.Object m) ->
+    Map.fromList <$> mapM (\(k, v) -> do
+      ref <- snapshotRefFromJSON v
+      Right (Key.toText k, ref)
+    ) (KM.toList m)
+  Just Aeson.Null -> Right Map.empty
+  Nothing         -> Right Map.empty
+  _               -> Left "snapshot-refs must be an object"
+
+-- ============================================================
 -- Helpers
 -- ============================================================
 
@@ -448,6 +494,15 @@ optInt64 k obj = case KM.lookup (Key.fromText k) obj of
   Just (Aeson.Number n) -> case toBoundedInteger n of
     Just i  -> Right (Just i)
     Nothing -> Left $ "field out of Int64 range: " ++ T.unpack k
+  Just Aeson.Null -> Right Nothing
+  Nothing         -> Right Nothing
+  _ -> Left $ "non-numeric field: " ++ T.unpack k
+
+optInt32 :: Text -> KM.KeyMap Aeson.Value -> Either String (Maybe Int32)
+optInt32 k obj = case KM.lookup (Key.fromText k) obj of
+  Just (Aeson.Number n) -> case toBoundedInteger n of
+    Just i  -> Right (Just i)
+    Nothing -> Left $ "field out of Int32 range: " ++ T.unpack k
   Just Aeson.Null -> Right Nothing
   Nothing         -> Right Nothing
   _ -> Left $ "non-numeric field: " ++ T.unpack k

@@ -18,6 +18,7 @@ import qualified XML.FastDOM as FD
 
 -- wireform HTML
 import HTML.Parse (parseHTML)
+import HTML.Encode (encodeHTML)
 import HTML.Value (HTMLDocument)
 
 -- xml-conduit
@@ -163,6 +164,10 @@ parseHTMLBS :: BS.ByteString -> HTMLDocument
 parseHTMLBS = parseHTML
 {-# NOINLINE parseHTMLBS #-}
 
+encodeHTMLDoc :: HTMLDocument -> BS.ByteString
+encodeHTMLDoc = encodeHTML
+{-# NOINLINE encodeHTMLDoc #-}
+
 xenoSAX :: BS.ByteString -> Either String Int
 xenoSAX bs =
   case Xeno.fold
@@ -212,11 +217,11 @@ main = do
     Left e  -> putStrLn $ "WARNING: xeno SAX failed on small: " ++ e
     Right n -> putStrLn $ "xeno SAX: OK (small, " ++ show n ++ " tags)"
 
-  let !_ = force (parseHTMLBS smallHTML)
+  let !smallHTMLDoc = force (parseHTMLBS smallHTML)
   putStrLn "wireform-html: OK (small)"
-  let !_ = force (parseHTMLBS mediumHTML)
+  let !mediumHTMLDoc = force (parseHTMLBS mediumHTML)
   putStrLn "wireform-html: OK (medium)"
-  let !_ = force (parseHTMLBS realHTML)
+  let !realHTMLDoc = force (parseHTMLBS realHTML)
   putStrLn "wireform-html: OK (real)"
 
   let !_ = force smallDoc
@@ -252,12 +257,15 @@ main = do
             ]
         ]
     , bgroup "Small HTML"
-        [ bench "wireform-html" $ nf parseHTMLBS smallHTML
+        [ bench "parse"  $ nf parseHTMLBS smallHTML
+        , bench "encode" $ nf encodeHTMLDoc smallHTMLDoc
         ]
     , bgroup "Medium HTML"
-        [ bench "wireform-html" $ nf parseHTMLBS mediumHTML
+        [ bench "parse"  $ nf parseHTMLBS mediumHTML
+        , bench "encode" $ nf encodeHTMLDoc mediumHTMLDoc
         ]
     , bgroup "Real HTML"
-        [ bench "wireform-html" $ nf parseHTMLBS realHTML
+        [ bench "parse"  $ nf parseHTMLBS realHTML
+        , bench "encode" $ nf encodeHTMLDoc realHTMLDoc
         ]
     ]

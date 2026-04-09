@@ -9,8 +9,10 @@ module ORC.Types
   , ORCType(..)
   , TypeKind(..)
   , ColumnStatistics(..)
+  , CompressionKind(..)
   , typeKindToInt
   , intToTypeKind
+  , compressionFromInt
   ) where
 
 import Control.DeepSeq (NFData)
@@ -84,6 +86,26 @@ intToTypeKind = \case
   16 -> Just TKVarchar
   17 -> Just TKChar
   _  -> Nothing
+
+data CompressionKind
+  = CompressionNone
+  | CompressionZlib
+  | CompressionSnappy
+  | CompressionLZO
+  | CompressionLZ4
+  | CompressionZstd
+  deriving stock (Show, Eq, Enum, Bounded, Ord, Generic)
+  deriving anyclass (NFData)
+
+compressionFromInt :: Word64 -> Maybe CompressionKind
+compressionFromInt = \case
+  0 -> Just CompressionNone
+  1 -> Just CompressionZlib
+  2 -> Just CompressionSnappy
+  3 -> Just CompressionLZO
+  4 -> Just CompressionLZ4
+  5 -> Just CompressionZstd
+  _ -> Nothing
 
 data StripeInformation = StripeInformation
   { siOffset       :: !Word64

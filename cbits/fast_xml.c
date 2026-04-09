@@ -229,6 +229,141 @@ int hs_xml_find_comment_end(const uint8_t *buf, int offset, int len)
 }
 
 /*
+ * HTML text end: scan for '<', '&', '\0', or '\r' in 16-byte chunks.
+ * Returns offset of first match, or len if none found.
+ * Used by the HTML tokenizer for bulk text scanning.
+ */
+int hs_html_find_text_end(const uint8_t *buf, int offset, int len)
+{
+    int i = offset;
+    simde__m128i v_lt  = simde_mm_set1_epi8('<');
+    simde__m128i v_amp = simde_mm_set1_epi8('&');
+    simde__m128i v_nul = simde_mm_set1_epi8('\0');
+    simde__m128i v_cr  = simde_mm_set1_epi8('\r');
+
+    while (i < len && ((uintptr_t)(buf + i) & 15) != 0) {
+        uint8_t b = buf[i];
+        if (b == '<' || b == '&' || b == '\0' || b == '\r') return i;
+        i++;
+    }
+
+    for (; i + 16 <= len; i += 16) {
+        simde__m128i chunk = simde_mm_load_si128((const simde__m128i *)(buf + i));
+        int m1 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_lt));
+        int m2 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_amp));
+        int m3 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_nul));
+        int m4 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_cr));
+        int mask = m1 | m2 | m3 | m4;
+        if (mask != 0) return i + __builtin_ctz(mask);
+    }
+
+    for (; i < len; i++) {
+        uint8_t b = buf[i];
+        if (b == '<' || b == '&' || b == '\0' || b == '\r') return i;
+    }
+    return len;
+}
+
+/*
+ * HTML text escape: scan for '<', '>', '&' only (no quotes).
+ * Returns offset of first match, or len if not found.
+ */
+int hs_html_find_text_escape(const uint8_t *buf, int offset, int len)
+{
+    int i = offset;
+    simde__m128i v_lt  = simde_mm_set1_epi8('<');
+    simde__m128i v_gt  = simde_mm_set1_epi8('>');
+    simde__m128i v_amp = simde_mm_set1_epi8('&');
+
+    while (i < len && ((uintptr_t)(buf + i) & 15) != 0) {
+        uint8_t b = buf[i];
+        if (b == '<' || b == '>' || b == '&') return i;
+        i++;
+    }
+
+    for (; i + 16 <= len; i += 16) {
+        simde__m128i chunk = simde_mm_load_si128((const simde__m128i *)(buf + i));
+        int m1 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_lt));
+        int m2 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_gt));
+        int m3 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_amp));
+        int mask = m1 | m2 | m3;
+        if (mask != 0) return i + __builtin_ctz(mask);
+    }
+
+    for (; i < len; i++) {
+        uint8_t b = buf[i];
+        if (b == '<' || b == '>' || b == '&') return i;
+    }
+    return len;
+}
+
+/*
+ * HTML attr escape: scan for '"', '&', '<', '>' in attribute values.
+ * Returns offset of first match, or len if not found.
+ */
+int hs_html_find_attr_escape(const uint8_t *buf, int offset, int len)
+{
+    int i = offset;
+    simde__m128i v_dq  = simde_mm_set1_epi8('"');
+    simde__m128i v_amp = simde_mm_set1_epi8('&');
+    simde__m128i v_lt  = simde_mm_set1_epi8('<');
+    simde__m128i v_gt  = simde_mm_set1_epi8('>');
+
+    while (i < len && ((uintptr_t)(buf + i) & 15) != 0) {
+        uint8_t b = buf[i];
+        if (b == '"' || b == '&' || b == '<' || b == '>') return i;
+        i++;
+    }
+
+    for (; i + 16 <= len; i += 16) {
+        simde__m128i chunk = simde_mm_load_si128((const simde__m128i *)(buf + i));
+        int m1 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_dq));
+        int m2 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_amp));
+        int m3 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_lt));
+        int m4 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_gt));
+        int mask = m1 | m2 | m3 | m4;
+        if (mask != 0) return i + __builtin_ctz(mask);
+    }
+
+    for (; i < len; i++) {
+        uint8_t b = buf[i];
+        if (b == '"' || b == '&' || b == '<' || b == '>') return i;
+    }
+    return len;
+}
+
+/*
+ * Scan for a quote char or '&' in attribute values (16-byte SIMD).
+ * Returns offset of first match, or len if not found.
+ */
+int hs_html_find_attr_break(const uint8_t *buf, int offset, int len, uint8_t quote_char)
+{
+    int i = offset;
+    simde__m128i v_q   = simde_mm_set1_epi8((char)quote_char);
+    simde__m128i v_amp = simde_mm_set1_epi8('&');
+
+    while (i < len && ((uintptr_t)(buf + i) & 15) != 0) {
+        uint8_t b = buf[i];
+        if (b == quote_char || b == '&') return i;
+        i++;
+    }
+
+    for (; i + 16 <= len; i += 16) {
+        simde__m128i chunk = simde_mm_load_si128((const simde__m128i *)(buf + i));
+        int m1 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_q));
+        int m2 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_amp));
+        int mask = m1 | m2;
+        if (mask != 0) return i + __builtin_ctz(mask);
+    }
+
+    for (; i < len; i++) {
+        uint8_t b = buf[i];
+        if (b == quote_char || b == '&') return i;
+    }
+    return len;
+}
+
+/*
  * Fast scan for bytes that need XML escaping: '<', '>', '&', '"', '\''.
  * Returns offset of first such byte, or offset+scan_len if none found.
  */

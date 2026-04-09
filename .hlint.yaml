@@ -1,4 +1,10 @@
 # ---------------------------------------------------------------------------
+# Project-wide rules
+# ---------------------------------------------------------------------------
+- ignore:
+    name: "Use list comprehension"
+
+# ---------------------------------------------------------------------------
 # Auto-generated modules (Proto.Google.Protobuf.*)
 # ---------------------------------------------------------------------------
 # These files are produced by `cabal run gen-wkt` and must not be hand-edited.
@@ -34,3 +40,12 @@
 # These types use unboxed sums where data (not newtype) is required for
 # the pattern synonym machinery and to preserve semantics.
 - ignore: {name: "Use newtype instead of data", within: [Proto.Wire.Decode, Proto.Internal.Either, Proto.Internal.Maybe]}
+
+# ---------------------------------------------------------------------------
+# Generated / vendored code
+# ---------------------------------------------------------------------------
+# temporal-test: generated from Temporal API protos
+- ignore: {within: [Proto.Temporalio]}
+
+# compare-bench/gen: generated proto-lens comparison types
+- ignore: {within: [Proto.Bench, Proto.Bench_Fields]}

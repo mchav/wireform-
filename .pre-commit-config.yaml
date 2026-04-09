@@ -1,0 +1,38 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: '\.l?hs$|\.proto$|\.cabal$'
+      - id: trailing-whitespace
+        exclude: '\.l?hs$'
+
+  - repo: local
+    hooks:
+      - id: fourmolu
+        name: fourmolu
+        entry: fourmolu --mode inplace
+        language: system
+        files: '\.l?hs(-boot)?$'
+        exclude: >-
+          (?x)^(
+            src/Proto/Google/Protobuf/(Any|Duration|Empty|FieldMask|SourceContext|Struct|Timestamp|Wrappers|Descriptor)\.hs
+            |src/Proto/Google/Protobuf/Compiler/
+            |temporal-test/
+            |compare-bench/gen/
+            |wireform-grpc/
+          )
+
+      - id: hlint
+        name: hlint
+        entry: hlint
+        language: system
+        files: '\.hs$'
+        exclude: >-
+          (?x)^(
+            src/Proto/Google/Protobuf/(Any|Duration|Empty|FieldMask|SourceContext|Struct|Timestamp|Wrappers|Descriptor)\.hs
+            |src/Proto/Google/Protobuf/Compiler/
+            |temporal-test/
+            |compare-bench/gen/
+            |wireform-grpc/
+          )

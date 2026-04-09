@@ -12,6 +12,7 @@
 module ORC.Footer
   ( readORCFooter
   , writeORCFooter
+  , readORCCompression
   , orcMagic
   ) where
 
@@ -55,6 +56,23 @@ readORCFooter bs
                 else do
                   let !footerBytes = BSU.unsafeTake footerLen (BSU.unsafeDrop footerStart bs)
                   decodeFooter footerBytes
+
+-- | Extract the compression kind from the PostScript.
+readORCCompression :: ByteString -> Either String CompressionKind
+readORCCompression bs
+  | BS.length bs < 4 = Left "ORC.Footer: input too short for compression read"
+  | otherwise = do
+      let !totalLen = BS.length bs
+          !psLen = fromIntegral (BSU.unsafeIndex bs (totalLen - 1)) :: Int
+      if psLen <= 0 || psLen >= totalLen - 1
+        then Left "ORC.Footer: invalid postscript length"
+        else do
+          let !psStart = totalLen - 1 - psLen
+              !psBytes = BSU.unsafeTake psLen (BSU.unsafeDrop psStart bs)
+          ps <- decodePostScript psBytes
+          case compressionFromInt (psCompression ps) of
+            Just ck -> Right ck
+            Nothing -> Left $ "ORC.Footer: unknown compression kind " ++ show (psCompression ps)
 
 writeORCFooter :: ORCFooter -> ByteString
 writeORCFooter footer =

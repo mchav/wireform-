@@ -106,7 +106,7 @@ columnChunkToThrift cc = TV.Struct $ V.fromList $
   ++ maybe [] (\cm -> [(3, columnMetadataToThrift cm)]) (ccMetadata cc)
 
 columnMetadataToThrift :: ColumnMetadata -> TV.Value
-columnMetadataToThrift cm = TV.Struct $ V.fromList
+columnMetadataToThrift cm = TV.Struct $ V.fromList $
   [ (1, TV.I32 (parquetTypeToInt (cmType cm)))
   , (2, TV.List TW.TT_I32 (V.map (TV.I32 . encodingToInt) (cmEncodings cm)))
   , (3, TV.List TW.TT_STRING (V.map TV.String (cmPathInSchema cm)))
@@ -115,7 +115,16 @@ columnMetadataToThrift cm = TV.Struct $ V.fromList
   , (6, TV.I64 (cmTotalUncompressedSize cm))
   , (7, TV.I64 (cmTotalCompressedSize cm))
   , (8, TV.I64 (cmDataPageOffset cm))
-  ]
+  ] ++ maybe [] (\s -> [(9, statisticsToThrift s)]) (cmStatistics cm)
+
+statisticsToThrift :: Statistics -> TV.Value
+statisticsToThrift st = TV.Struct $ V.fromList $
+  maybe [] (\v -> [(1, TV.Binary v)]) (statMax st)
+  ++ maybe [] (\v -> [(2, TV.Binary v)]) (statMin st)
+  ++ maybe [] (\v -> [(3, TV.I64 v)]) (statNullCount st)
+  ++ maybe [] (\v -> [(4, TV.I64 v)]) (statDistinctCount st)
+  ++ maybe [] (\v -> [(5, TV.Binary v)]) (statMaxValue st)
+  ++ maybe [] (\v -> [(6, TV.Binary v)]) (statMinValue st)
 
 encodingToInt :: Encoding -> Int32
 encodingToInt = \case
@@ -261,6 +270,11 @@ thriftToColumnMetadata (TV.Struct fields) = do
   uncompSz <- getI64 fm 6 "total_uncompressed_size"
   compSz <- getI64 fm 7 "total_compressed_size"
   dataOff <- getI64 fm 8 "data_page_offset"
+  let stats = case lookupField fm 9 of
+        Just v -> case thriftToStatistics v of
+          Right s -> Just s
+          Left _  -> Nothing
+        Nothing -> Nothing
   Right ColumnMetadata
     { cmType = pt
     , cmEncodings = encodings
@@ -270,8 +284,28 @@ thriftToColumnMetadata (TV.Struct fields) = do
     , cmTotalUncompressedSize = uncompSz
     , cmTotalCompressedSize = compSz
     , cmDataPageOffset = dataOff
+    , cmStatistics = stats
     }
 thriftToColumnMetadata _ = Left "Parquet.Footer: expected struct for ColumnMetadata"
+
+thriftToStatistics :: TV.Value -> Either String Statistics
+thriftToStatistics (TV.Struct fields) = do
+  let fm = V.toList fields
+      getBinary fid = case lookupField fm fid of
+        Just (TV.Binary b) -> Just b
+        _ -> Nothing
+      getOptI64 fid = case lookupField fm fid of
+        Just (TV.I64 v) -> Just v
+        _ -> Nothing
+  Right Statistics
+    { statMax = getBinary 1
+    , statMin = getBinary 2
+    , statNullCount = getOptI64 3
+    , statDistinctCount = getOptI64 4
+    , statMaxValue = getBinary 5
+    , statMinValue = getBinary 6
+    }
+thriftToStatistics _ = Left "Parquet.Footer: expected struct for Statistics"
 
 -- Helpers
 

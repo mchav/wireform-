@@ -24,12 +24,19 @@ module Iceberg.Types
   , FileFormat(..)
   , ManifestFile(..)
   , ManifestContent(..)
+    -- * Delete file types
+  , DeleteFileContent(..)
+  , DeleteFile(..)
+  , PositionDelete(..)
+  , EqualityDeleteSpec(..)
+    -- * Snapshot references
+  , SnapshotRef(..)
     -- * Partition values (re-export)
   , Value
   ) where
 
 import Control.DeepSeq (NFData)
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Data.Vector (Vector)
@@ -57,6 +64,7 @@ data TableMetadata = TableMetadata
   , tmDefaultSortOrderId :: {-# UNPACK #-} !Int
   , tmProperties         :: !(Map Text Text)
   , tmSnapshotLog        :: !(Vector SnapshotLogEntry)
+  , tmSnapshotRefs       :: !(Map Text SnapshotRef)
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
@@ -161,14 +169,15 @@ data SnapshotLogEntry = SnapshotLogEntry
     deriving anyclass (NFData)
 
 data ManifestEntry = ManifestEntry
-  { meStatus         :: !ManifestStatus
-  , meSnapshotId     :: !(Maybe Int64)
-  , meSequenceNumber :: !(Maybe Int64)
-  , meFilePath       :: !Text
-  , meFileFormat     :: !FileFormat
-  , mePartition      :: !(Vector (Maybe Value))
-  , meRecordCount    :: {-# UNPACK #-} !Int64
-  , meFileSizeBytes  :: {-# UNPACK #-} !Int64
+  { meStatus             :: !ManifestStatus
+  , meSnapshotId         :: !(Maybe Int64)
+  , meSequenceNumber     :: !(Maybe Int64)
+  , meFileSequenceNumber :: !(Maybe Int64)
+  , meFilePath           :: !Text
+  , meFileFormat         :: !FileFormat
+  , mePartition          :: !(Vector (Maybe Value))
+  , meRecordCount        :: {-# UNPACK #-} !Int64
+  , meFileSizeBytes      :: {-# UNPACK #-} !Int64
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
@@ -191,9 +200,49 @@ data ManifestFile = ManifestFile
   , mfAddedDataFilesCount    :: !(Maybe Int)
   , mfExistingDataFilesCount :: !(Maybe Int)
   , mfDeletedDataFilesCount  :: !(Maybe Int)
+  , mfAddedRowsCount         :: !(Maybe Int64)
+  , mfExistingRowsCount      :: !(Maybe Int64)
+  , mfDeletedRowsCount       :: !(Maybe Int64)
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
 data ManifestContent = DataContent | DeletesContent
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
+
+data DeleteFileContent = PositionDeletes | EqualityDeletes
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+data DeleteFile = DeleteFile
+  { dfFilePath        :: !Text
+  , dfFileFormat      :: !FileFormat
+  , dfContent         :: !DeleteFileContent
+  , dfRecordCount     :: {-# UNPACK #-} !Int64
+  , dfFileSizeInBytes :: {-# UNPACK #-} !Int64
+  , dfEqualityFieldIds :: !(Vector Int32)
+  , dfPartition       :: !(Map Text Value)
+  , dfSequenceNumber  :: !(Maybe Int64)
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+data PositionDelete = PositionDelete
+  { pdFilePath :: !Text
+  , pdPosition :: {-# UNPACK #-} !Int64
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+data EqualityDeleteSpec = EqualityDeleteSpec
+  { edsFieldIds :: !(Vector Int32)
+  , edsSchema   :: !Schema
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+data SnapshotRef = SnapshotRef
+  { srSnapshotId         :: {-# UNPACK #-} !Int64
+  , srType               :: !Text
+  , srMaxRefAgeMs        :: !(Maybe Int64)
+  , srMaxSnapshotAgeMs   :: !(Maybe Int64)
+  , srMinSnapshotsToKeep :: !(Maybe Int32)
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)

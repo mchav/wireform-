@@ -1,6 +1,7 @@
 module Test.AvroContainer (avroContainerTests) where
 
 import qualified Data.ByteString as BS
+import Data.List (isInfixOf)
 import Data.Int (Int32)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -221,8 +222,8 @@ avroContainerTests = testGroup "Avro Container"
           resolved V.! 0 @?= AV.Record (V.fromList [AV.Int 5, AV.Long 0])
 
   , testCase "unsupported codec returns error" $ do
-      case decompressBlock "snappy" "data" of
-        Left err -> do
-          assertBool "error mentions codec" ("Unsupported codec" `elem` words err || True)
-        Right _ -> assertFailure "expected error for snappy codec"
+      case decompressBlock "wireform-test-unknown-codec" "data" of
+        Left err ->
+          assertBool "error mentions unsupported codec" ("Unsupported codec" `isInfixOf` err)
+        Right _ -> assertFailure "expected error for unknown codec"
   ]
