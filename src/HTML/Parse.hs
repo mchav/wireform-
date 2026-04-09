@@ -595,15 +595,30 @@ fosterParentText :: TreeBuilder -> Text -> IO ()
 fosterParentText tb txt = do
   elems <- readIORef (tbOpenElements tb)
   case findLastTable elems of
-    Just (tableNode, parentAboveTable) -> do
+    Just (tableNode, _parentAboveTable) -> do
       mPar <- readIORef (nodeParent tableNode)
       case mPar of
         Just parent -> do
-          textNode <- newTBNode tb "#text" [("#data", txt)] Nothing False
-          insertBefore parent tableNode textNode
+          let childRef = if nodeIsTemplate parent then nodeTemplateContents parent else nodeChildren parent
+          children <- readIORef childRef
+          case findTextAfter tableNode children of
+            Just textNode -> do
+              prevTxt <- do
+                a <- nodeAttrs textNode
+                pure $ case lookup "#data" a of { Just t -> t; Nothing -> "" }
+              writeIORef (nodeAttrsRef textNode) [("#data", prevTxt <> txt)]
+            Nothing -> do
+              textNode <- newTBNode tb "#text" [("#data", txt)] Nothing False
+              insertBefore parent tableNode textNode
         Nothing ->
           appendTextToCurrentNode tb txt
     Nothing -> appendTextToCurrentNode tb txt
+
+findTextAfter :: TBNode -> [TBNode] -> Maybe TBNode
+findTextAfter ref (x:next:rest)
+  | x == ref && nodeName next == "#text" = Just next
+  | otherwise = findTextAfter ref (next:rest)
+findTextAfter _ _ = Nothing
 
 fosterParentNode :: TreeBuilder -> TBNode -> IO ()
 fosterParentNode tb node = do
@@ -631,14 +646,14 @@ insertBefore parent refNode newNode = do
   writeIORef (nodeParent newNode) (Just parent)
   let childRef = if nodeIsTemplate parent then nodeTemplateContents parent else nodeChildren parent
   children <- readIORef childRef
-  let updated = insertBeforeInList refNode newNode children
+  let updated = insertAfterInList refNode newNode children
   writeIORef childRef updated
 
-insertBeforeInList :: TBNode -> TBNode -> [TBNode] -> [TBNode]
-insertBeforeInList ref new [] = [new]
-insertBeforeInList ref new (x:xs)
-  | x == ref = new : x : xs
-  | otherwise = x : insertBeforeInList ref new xs
+insertAfterInList :: TBNode -> TBNode -> [TBNode] -> [TBNode]
+insertAfterInList ref new [] = [new]
+insertAfterInList ref new (x:xs)
+  | x == ref = x : new : xs
+  | otherwise = x : insertAfterInList ref new xs
 
 ------------------------------------------------------------------------
 -- More helpers
@@ -791,7 +806,6 @@ adoptionAgency subject tb = do
                   let mFb = findFurthestBlock fmtNode openElems
                   case mFb of
                     Nothing -> do
-                      -- Pop everything up to and including the formatting element
                       elems2 <- readIORef (tbOpenElements tb)
                       writeIORef (tbOpenElements tb) (dropThrough' fmtNode elems2)
                       modifyIORef' (tbActiveFormatting tb) (removeAtIdx fmtIdx)
@@ -807,37 +821,29 @@ adoptionAgency subject tb = do
           commonAncestor = if fmtStackIdx + 1 < length openElems
                            then openElems !! (fmtStackIdx + 1)
                            else fmtNode
-      af <- readIORef (tbActiveFormatting tb)
-      let bookmark = fmtIdx
+      let bookmark0 = fmtIdx
 
-      -- Inner loop
       let fbStackIdx = case elemIndex furthestBlock openElems of { Just i -> i; Nothing -> 0 }
-      (lastNode, finalBookmark) <- innerLoop 0 fbStackIdx furthestBlock fmtNode bookmark fmtStackIdx furthestBlock
+      (lastNode, finalBookmark) <- innerLoop 0 furthestBlock fmtNode bookmark0 furthestBlock
 
-      -- Remove lastNode from its current parent
       mp <- readIORef (nodeParent lastNode)
       case mp of
         Just parent -> removeChild parent lastNode
         Nothing -> pure ()
 
-      -- Insert lastNode into common ancestor (or its template content)
       if nodeIsTemplate commonAncestor
       then modifyIORef' (nodeTemplateContents commonAncestor) (lastNode:)
       else modifyIORef' (nodeChildren commonAncestor) (lastNode:)
       writeIORef (nodeParent lastNode) (Just commonAncestor)
 
-      -- Create new formatting element
       newFmtNode <- newTBNode tb (nodeName fmtNode) fmtAttrs (nodeNs fmtNode) False
 
-      -- Move furthestBlock's children to newFmtNode
       fbChildren <- readIORef (nodeChildren furthestBlock)
       writeIORef (nodeChildren furthestBlock) []
-      mapM_ (\child -> do
-        writeIORef (nodeParent child) (Just newFmtNode)) fbChildren
+      mapM_ (\child -> writeIORef (nodeParent child) (Just newFmtNode)) fbChildren
       writeIORef (nodeChildren newFmtNode) fbChildren
       appendChild furthestBlock newFmtNode
 
-      -- Update active formatting list
       af2 <- readIORef (tbActiveFormatting tb)
       let af3 = removeAtIdx fmtIdx af2
           newEntry = AFEntry (nodeName fmtNode) fmtAttrs newFmtNode
@@ -845,7 +851,6 @@ adoptionAgency subject tb = do
           af4 = insertAtIdx insertPos newEntry af3
       writeIORef (tbActiveFormatting tb) af4
 
-      -- Update open elements: remove fmtNode, insert newFmtNode after furthestBlock
       openElems2 <- readIORef (tbOpenElements tb)
       let elems3 = filter (/= fmtNode) openElems2
       case elemIndex furthestBlock elems3 of
@@ -853,32 +858,33 @@ adoptionAgency subject tb = do
           (take idx elems3 ++ [newFmtNode] ++ drop idx elems3)
         Nothing -> writeIORef (tbOpenElements tb) (newFmtNode : elems3)
 
-    innerLoop :: Int -> Int -> TBNode -> TBNode -> Int -> Int -> TBNode -> IO (TBNode, Int)
-    innerLoop !count nodeIdx lastNode fmtNode' bookmark fmtStackIdx fb = do
+    innerLoop :: Int -> TBNode -> TBNode -> Int -> TBNode -> IO (TBNode, Int)
+    innerLoop !count nodeRef fmtNode' bookmark fb = do
       openElems <- readIORef (tbOpenElements tb)
-      let nextIdx = nodeIdx - 1
-      if nextIdx < 0 || nextIdx >= length openElems
-      then pure (lastNode, bookmark)
+      let nodeRefIdx = case elemIndex nodeRef openElems of { Just i -> i; Nothing -> 0 }
+          nextIdx = nodeRefIdx + 1
+      if nextIdx >= length openElems
+      then pure (nodeRef, bookmark)
       else do
         let node = openElems !! nextIdx
             newCount = count + 1
         if node == fmtNode'
-        then pure (lastNode, bookmark)
+        then pure (nodeRef, bookmark)
         else do
           af <- readIORef (tbActiveFormatting tb)
           let mAfIdx = findAFIndex node af
-          if newCount > 3 && mAfIdx /= Nothing
-          then do
-            let Just afIdx = mAfIdx
-            modifyIORef' (tbActiveFormatting tb) (removeAtIdx afIdx)
-            let newBookmark = if afIdx < bookmark then bookmark - 1 else bookmark
-            innerLoopNoAF newCount nextIdx lastNode fmtNode' newBookmark fmtStackIdx fb node
-          else case mAfIdx of
+          case mAfIdx of
+            Just afIdx | newCount > 3 -> do
+              modifyIORef' (tbActiveFormatting tb) (removeAtIdx afIdx)
+              let newBookmark = if afIdx < bookmark then bookmark - 1 else bookmark
+              removeNodeFromStack node tb
+              innerLoop newCount nodeRef fmtNode' newBookmark fb
             Nothing -> do
               removeNodeFromStack node tb
-              innerLoop newCount nextIdx lastNode fmtNode' bookmark fmtStackIdx fb
+              innerLoop newCount nodeRef fmtNode' bookmark fb
             Just afIdx -> do
-              let AFEntry eName eAttrs _ = af !! afIdx
+              af2 <- readIORef (tbActiveFormatting tb)
+              let AFEntry eName eAttrs _ = af2 !! afIdx
               newElem <- newTBNode tb eName eAttrs (nodeNs node) False
               modifyIORef' (tbActiveFormatting tb) (\afs ->
                 take afIdx afs ++ [AFEntry eName eAttrs newElem] ++ drop (afIdx+1) afs)
@@ -886,17 +892,13 @@ adoptionAgency subject tb = do
               let idx2 = case elemIndex node openElems2 of { Just i -> i; Nothing -> nextIdx }
               writeIORef (tbOpenElements tb)
                 (take idx2 openElems2 ++ [newElem] ++ drop (idx2+1) openElems2)
-              let newBookmark = if lastNode == fb then afIdx + 1 else bookmark
-              mpLast <- readIORef (nodeParent lastNode)
+              let newBookmark = if nodeRef == fb then afIdx + 1 else bookmark
+              mpLast <- readIORef (nodeParent nodeRef)
               case mpLast of
-                Just p -> removeChild p lastNode
+                Just p -> removeChild p nodeRef
                 Nothing -> pure ()
-              appendChild newElem lastNode
-              innerLoop newCount nextIdx newElem fmtNode' newBookmark fmtStackIdx fb
-
-    innerLoopNoAF count nodeIdx lastNode fmtNode' bookmark fmtStackIdx fb node = do
-      removeNodeFromStack node tb
-      innerLoop count nodeIdx lastNode fmtNode' bookmark fmtStackIdx fb
+              appendChild newElem nodeRef
+              innerLoop newCount newElem fmtNode' newBookmark fb
 
     dropThrough' :: TBNode -> [TBNode] -> [TBNode]
     dropThrough' target (x:xs) | x == target = xs
@@ -916,8 +918,8 @@ findFormattingElement subject entries = go 0 entries
 
 findFurthestBlock :: TBNode -> [TBNode] -> Maybe TBNode
 findFurthestBlock fmtNode openElems =
-  let afterFmt = takeWhile (/= fmtNode) openElems
-      specialOnes = filter isSpecial afterFmt
+  let aboveFmt = takeWhile (/= fmtNode) openElems
+      specialOnes = filter isSpecial aboveFmt
   in case specialOnes of
     [] -> Nothing
     _ -> Just (last specialOnes)
@@ -2517,7 +2519,6 @@ readQuotedDoc cs q = go [] cs
     go acc [] = (reverse acc, [])
     go acc (c:rest)
       | c == q = (reverse acc, rest)
-      | c == '>' = (reverse acc, rest)
       | otherwise = go (c:acc) rest
 
 readTagAttrs :: String -> ([(Text,Text)], Bool, String)
