@@ -1,12 +1,14 @@
 -- Copyright © 2018 chessai
 -- BSD-3-Clause license (see NOTICE for full text)
---
--- Unpacked Either using unboxed sums for zero-allocation branching.
--- Internal module — public API boundaries convert to standard Either.
 
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedSums     #-}
 
+-- | Unpacked Either using unboxed sums for zero-allocation branching.
+--
+-- Internal module — public API boundaries convert to standard Either.
+-- Uses GHC's @UnboxedSums@ extension so the Left\/Right tag lives on
+-- the stack, not the heap.
 module Proto.Internal.Either
   ( Either(Either, Left, Right)
   , either

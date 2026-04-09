@@ -1,7 +1,7 @@
 -- | Example Setup.hs showing how to use the proto code generation hook.
 --
 -- Put this in your package's Setup.hs, and set build-type: Custom in
--- your .cabal file with a custom-setup stanza depending on hs-proto.
+-- your .cabal file with a custom-setup stanza depending on wireform.
 --
 -- This will automatically find all .proto files in "proto/" and generate
 -- Haskell modules into "gen/" during the pre-build step.
@@ -32,8 +32,8 @@ main = do
   putStrLn "Running proto code generation..."
   generateProtos defaultProtoGenConfig
     { pgcProtoDir    = "example"
-    , pgcOutputDir   = "/tmp/hs-proto-setup-demo"
+    , pgcOutputDir   = "/tmp/wireform-setup-demo"
     , pgcModulePrefix = "Demo.Proto"
     }
   putStrLn ""
-  putStrLn "Done. Check /tmp/hs-proto-setup-demo/ for generated files."
+  putStrLn "Done. Check /tmp/wireform-setup-demo/ for generated files."

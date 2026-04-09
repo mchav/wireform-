@@ -26,7 +26,7 @@ import Proto.Google.Protobuf.Wrappers
 
 main :: IO ()
 main = do
-  putStrLn "hs-proto conformance self-test"
+  putStrLn "wireform conformance self-test"
   putStrLn (replicate 50 '=')
 
   section "Wire format roundtrip"

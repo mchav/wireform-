@@ -18,7 +18,7 @@ import qualified Proto.SizedBuilder as SB
 
 main :: IO ()
 main = do
-  putStrLn "hs-proto benchmarks"
+  putStrLn "wireform benchmarks"
   putStrLn (replicate 60 '=')
 
   benchVarintEncode

@@ -1,0 +1,305 @@
+{-# LANGUAGE BangPatterns #-}
+-- | Read/write Apache Parquet file footer.
+--
+-- Parquet file layout ends with:
+--   [Thrift Compact Protocol encoded FileMetadata] [4-byte LE metadata length] [PAR1 magic]
+--
+-- We use the existing Thrift Compact Protocol encoder/decoder to serialize
+-- the FileMetadata as a Thrift struct.
+module Parquet.Footer
+  ( readFooter
+  , writeFooter
+  , parquetMagic
+  ) where
+
+import Data.Bits (shiftL, shiftR, (.&.), (.|.))
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Unsafe as BSU
+import Data.Int (Int16, Int32, Int64)
+import qualified Data.Text as T
+import Data.Word (Word32)
+import qualified Data.Vector as V
+
+import Parquet.Types
+import qualified Thrift.Value as TV
+import qualified Thrift.Wire as TW
+import Thrift.Encode (encodeCompact)
+import Thrift.Decode (decodeCompact)
+
+parquetMagic :: ByteString
+parquetMagic = BS.pack [0x50, 0x41, 0x52, 0x31]
+
+writeFooter :: FileMetadata -> ByteString
+writeFooter fm =
+  let !thriftVal = fileMetadataToThrift fm
+      !encoded = encodeCompact thriftVal
+      !metaLen = BS.length encoded
+  in BL.toStrict $ B.toLazyByteString $
+       B.byteString encoded
+       <> B.word8 (fromIntegral (metaLen .&. 0xFF))
+       <> B.word8 (fromIntegral ((metaLen `shiftR` 8) .&. 0xFF))
+       <> B.word8 (fromIntegral ((metaLen `shiftR` 16) .&. 0xFF))
+       <> B.word8 (fromIntegral ((metaLen `shiftR` 24) .&. 0xFF))
+       <> B.byteString parquetMagic
+
+readFooter :: ByteString -> Either String FileMetadata
+readFooter bs
+  | BS.length bs < 8 = Left "Parquet.Footer: input too short"
+  | otherwise = do
+      let !totalLen = BS.length bs
+          !magic = BSU.unsafeTake 4 (BSU.unsafeDrop (totalLen - 4) bs)
+      if magic /= parquetMagic
+        then Left "Parquet.Footer: invalid magic (expected PAR1)"
+        else do
+          let !metaLenOff = totalLen - 8
+              !metaLen = fromIntegral (readLE32 bs metaLenOff) :: Int
+          if metaLen < 0 || metaLen > totalLen - 8
+            then Left "Parquet.Footer: invalid metadata length"
+            else do
+              let !metaStart = totalLen - 8 - metaLen
+                  !metaBytes = BSU.unsafeTake metaLen (BSU.unsafeDrop metaStart bs)
+              thriftVal <- decodeCompact metaBytes
+              thriftToFileMetadata thriftVal
+
+readLE32 :: ByteString -> Int -> Word32
+readLE32 bs off =
+  let !b0 = fromIntegral (BSU.unsafeIndex bs off) :: Word32
+      !b1 = fromIntegral (BSU.unsafeIndex bs (off + 1)) :: Word32
+      !b2 = fromIntegral (BSU.unsafeIndex bs (off + 2)) :: Word32
+      !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word32
+  in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+
+-- Thrift field IDs for FileMetadata:
+-- 1: version (i32), 2: schema (list<SchemaElement>), 3: num_rows (i64),
+-- 4: row_groups (list<RowGroup>), 5: created_by (string)
+
+fileMetadataToThrift :: FileMetadata -> TV.Value
+fileMetadataToThrift fm = TV.Struct $ V.fromList $
+  [ (1, TV.I32 (fmVersion fm))
+  , (2, TV.List TW.TT_STRUCT (V.map schemaElementToThrift (fmSchema fm)))
+  , (3, TV.I64 (fmNumRows fm))
+  , (4, TV.List TW.TT_STRUCT (V.map rowGroupToThrift (fmRowGroups fm)))
+  ] ++ maybe [] (\t -> [(5, TV.String t)]) (fmCreatedBy fm)
+
+schemaElementToThrift :: SchemaElement -> TV.Value
+schemaElementToThrift se = TV.Struct $ V.fromList $
+  [ (1, TV.String (seName se)) ]
+  ++ maybe [] (\r -> [(2, TV.I32 (fromIntegral (fromEnum r)))]) (seRepetition se)
+  ++ maybe [] (\t -> [(3, TV.I32 (parquetTypeToInt t))]) (seType se)
+  ++ maybe [] (\n -> [(4, TV.I32 n)]) (seNumChildren se)
+  ++ maybe [] (\c -> [(5, TV.I32 (fromIntegral (fromEnum c)))]) (seConvertedType se)
+
+rowGroupToThrift :: RowGroup -> TV.Value
+rowGroupToThrift rg = TV.Struct $ V.fromList
+  [ (1, TV.List TW.TT_STRUCT (V.map columnChunkToThrift (rgColumns rg)))
+  , (2, TV.I64 (rgTotalByteSize rg))
+  , (3, TV.I64 (rgNumRows rg))
+  ]
+
+columnChunkToThrift :: ColumnChunk -> TV.Value
+columnChunkToThrift cc = TV.Struct $ V.fromList $
+  maybe [] (\fp -> [(1, TV.String fp)]) (ccFilePath cc)
+  ++ [ (2, TV.I64 (ccFileOffset cc)) ]
+  ++ maybe [] (\cm -> [(3, columnMetadataToThrift cm)]) (ccMetadata cc)
+
+columnMetadataToThrift :: ColumnMetadata -> TV.Value
+columnMetadataToThrift cm = TV.Struct $ V.fromList
+  [ (1, TV.I32 (parquetTypeToInt (cmType cm)))
+  , (2, TV.List TW.TT_I32 (V.map (TV.I32 . encodingToInt) (cmEncodings cm)))
+  , (3, TV.List TW.TT_STRING (V.map TV.String (cmPathInSchema cm)))
+  , (4, TV.I32 (compressionToInt (cmCodec cm)))
+  , (5, TV.I64 (cmNumValues cm))
+  , (6, TV.I64 (cmTotalUncompressedSize cm))
+  , (7, TV.I64 (cmTotalCompressedSize cm))
+  , (8, TV.I64 (cmDataPageOffset cm))
+  ]
+
+encodingToInt :: Encoding -> Int32
+encodingToInt = \case
+  Plain               -> 0
+  PlainDictionary     -> 2
+  RLE                 -> 3
+  BitPacked           -> 4
+  DeltaBinaryPacked   -> 5
+  DeltaLengthByteArray -> 6
+  DeltaByteArray      -> 7
+  RLEDictionary       -> 8
+  ByteStreamSplit     -> 9
+
+intToEncoding :: Int32 -> Maybe Encoding
+intToEncoding = \case
+  0 -> Just Plain
+  2 -> Just PlainDictionary
+  3 -> Just RLE
+  4 -> Just BitPacked
+  5 -> Just DeltaBinaryPacked
+  6 -> Just DeltaLengthByteArray
+  7 -> Just DeltaByteArray
+  8 -> Just RLEDictionary
+  9 -> Just ByteStreamSplit
+  _ -> Nothing
+
+compressionToInt :: Compression -> Int32
+compressionToInt = \case
+  Uncompressed -> 0
+  Snappy       -> 1
+  GZip         -> 2
+  LZO          -> 3
+  Brotli       -> 4
+  LZ4          -> 5
+  ZSTD         -> 6
+  LZ4Raw       -> 7
+
+intToCompression :: Int32 -> Maybe Compression
+intToCompression = \case
+  0 -> Just Uncompressed
+  1 -> Just Snappy
+  2 -> Just GZip
+  3 -> Just LZO
+  4 -> Just Brotli
+  5 -> Just LZ4
+  6 -> Just ZSTD
+  7 -> Just LZ4Raw
+  _ -> Nothing
+
+-- Decoding from Thrift value back to our types
+
+thriftToFileMetadata :: TV.Value -> Either String FileMetadata
+thriftToFileMetadata (TV.Struct fields) = do
+  let fm = V.toList fields
+  version <- getI32 fm 1 "version"
+  schema <- getListStruct fm 2 "schema" thriftToSchemaElement
+  numRows <- getI64 fm 3 "num_rows"
+  rowGroups <- getListStruct fm 4 "row_groups" thriftToRowGroup
+  let createdBy = getOptionalString fm 5
+  Right FileMetadata
+    { fmVersion = version
+    , fmSchema = schema
+    , fmNumRows = numRows
+    , fmRowGroups = rowGroups
+    , fmCreatedBy = createdBy
+    }
+thriftToFileMetadata _ = Left "Parquet.Footer: expected struct"
+
+thriftToSchemaElement :: TV.Value -> Either String SchemaElement
+thriftToSchemaElement (TV.Struct fields) = do
+  let fm = V.toList fields
+  name <- getString fm 1 "schema name"
+  let rep = case lookupField fm 2 of
+              Just (TV.I32 r) -> Just (toEnum (fromIntegral r))
+              _ -> Nothing
+      typ = case lookupField fm 3 of
+              Just (TV.I32 t) -> intToParquetType t
+              _ -> Nothing
+      numCh = case lookupField fm 4 of
+                Just (TV.I32 n) -> Just n
+                _ -> Nothing
+      conv = case lookupField fm 5 of
+               Just (TV.I32 c) | c >= 0, c <= 21 -> Just (toEnum (fromIntegral c))
+               _ -> Nothing
+  Right SchemaElement
+    { seName = name
+    , seRepetition = rep
+    , seType = typ
+    , seNumChildren = numCh
+    , seConvertedType = conv
+    , seLogicalType = Nothing
+    }
+thriftToSchemaElement _ = Left "Parquet.Footer: expected struct for SchemaElement"
+
+thriftToRowGroup :: TV.Value -> Either String RowGroup
+thriftToRowGroup (TV.Struct fields) = do
+  let fm = V.toList fields
+  cols <- getListStruct fm 1 "columns" thriftToColumnChunk
+  totalBytes <- getI64 fm 2 "total_byte_size"
+  numRows <- getI64 fm 3 "num_rows"
+  Right RowGroup
+    { rgColumns = cols
+    , rgTotalByteSize = totalBytes
+    , rgNumRows = numRows
+    }
+thriftToRowGroup _ = Left "Parquet.Footer: expected struct for RowGroup"
+
+thriftToColumnChunk :: TV.Value -> Either String ColumnChunk
+thriftToColumnChunk (TV.Struct fields) = do
+  let fm = V.toList fields
+      fp = getOptionalString fm 1
+  fileOff <- getI64 fm 2 "file_offset"
+  let meta = case lookupField fm 3 of
+               Just v -> case thriftToColumnMetadata v of
+                           Right m -> Just m
+                           Left _  -> Nothing
+               Nothing -> Nothing
+  Right ColumnChunk
+    { ccFilePath = fp
+    , ccFileOffset = fileOff
+    , ccMetadata = meta
+    }
+thriftToColumnChunk _ = Left "Parquet.Footer: expected struct for ColumnChunk"
+
+thriftToColumnMetadata :: TV.Value -> Either String ColumnMetadata
+thriftToColumnMetadata (TV.Struct fields) = do
+  let fm = V.toList fields
+  typeVal <- getI32 fm 1 "type"
+  pt <- maybe (Left "Parquet.Footer: invalid parquet type") Right (intToParquetType typeVal)
+  encodings <- case lookupField fm 2 of
+    Just (TV.List _ es) -> V.mapM (\case
+      TV.I32 e -> maybe (Left "Parquet.Footer: invalid encoding") Right (intToEncoding e)
+      _ -> Left "Parquet.Footer: expected i32 in encodings") es
+    _ -> Left "Parquet.Footer: missing encodings"
+  paths <- case lookupField fm 3 of
+    Just (TV.List _ ps) -> V.mapM (\case
+      TV.String t -> Right t
+      _ -> Left "Parquet.Footer: expected string in path") ps
+    _ -> Left "Parquet.Footer: missing path_in_schema"
+  codecVal <- getI32 fm 4 "codec"
+  codec <- maybe (Left "Parquet.Footer: invalid compression") Right (intToCompression codecVal)
+  numVals <- getI64 fm 5 "num_values"
+  uncompSz <- getI64 fm 6 "total_uncompressed_size"
+  compSz <- getI64 fm 7 "total_compressed_size"
+  dataOff <- getI64 fm 8 "data_page_offset"
+  Right ColumnMetadata
+    { cmType = pt
+    , cmEncodings = encodings
+    , cmPathInSchema = paths
+    , cmCodec = codec
+    , cmNumValues = numVals
+    , cmTotalUncompressedSize = uncompSz
+    , cmTotalCompressedSize = compSz
+    , cmDataPageOffset = dataOff
+    }
+thriftToColumnMetadata _ = Left "Parquet.Footer: expected struct for ColumnMetadata"
+
+-- Helpers
+
+lookupField :: [(Int16, TV.Value)] -> Int16 -> Maybe TV.Value
+lookupField fm fid = lookup fid fm
+
+getI32 :: [(Int16, TV.Value)] -> Int16 -> String -> Either String Int32
+getI32 fm fid name = case lookupField fm fid of
+  Just (TV.I32 v) -> Right v
+  _ -> Left $ "Parquet.Footer: missing or invalid field " ++ name
+
+getI64 :: [(Int16, TV.Value)] -> Int16 -> String -> Either String Int64
+getI64 fm fid name = case lookupField fm fid of
+  Just (TV.I64 v) -> Right v
+  _ -> Left $ "Parquet.Footer: missing or invalid field " ++ name
+
+getString :: [(Int16, TV.Value)] -> Int16 -> String -> Either String T.Text
+getString fm fid name = case lookupField fm fid of
+  Just (TV.String t) -> Right t
+  _ -> Left $ "Parquet.Footer: missing or invalid field " ++ name
+
+getOptionalString :: [(Int16, TV.Value)] -> Int16 -> Maybe T.Text
+getOptionalString fm fid = case lookupField fm fid of
+  Just (TV.String t) -> Just t
+  _ -> Nothing
+
+getListStruct :: [(Int16, TV.Value)] -> Int16 -> String
+              -> (TV.Value -> Either String a) -> Either String (V.Vector a)
+getListStruct fm fid name decode = case lookupField fm fid of
+  Just (TV.List _ vs) -> V.mapM decode vs
+  _ -> Left $ "Parquet.Footer: missing or invalid field " ++ name

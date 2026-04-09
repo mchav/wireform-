@@ -21,7 +21,7 @@
 -- build-type: Custom
 --
 -- custom-setup
---   setup-depends: base, hs-proto, Cabal, directory, filepath, text
+--   setup-depends: base, wireform, Cabal, directory, filepath, text
 --
 -- library
 --   hs-source-dirs: src, gen
@@ -113,11 +113,11 @@ generateProtos cfg = do
   let protoDir = pgcProtoDir cfg
   exists <- doesDirectoryExist protoDir
   if not exists
-    then putStrLn $ "[hs-proto] Proto directory not found: " <> protoDir
+    then putStrLn $ "[wireform] Proto directory not found: " <> protoDir
     else do
       protos <- findProtoFiles protoDir
       unless (null protos) $
-        putStrLn $ "[hs-proto] Found " <> show (length protos) <> " .proto file(s) in " <> protoDir
+        putStrLn $ "[wireform] Found " <> show (length protos) <> " .proto file(s) in " <> protoDir
       forM_ protos $ \relPath ->
         generateProtoFile cfg (protoDir </> relPath)
 
@@ -127,7 +127,7 @@ generateProtoFile cfg protoPath = do
   contents <- TIO.readFile protoPath
   case parseProtoFile protoPath contents of
     Left err ->
-      putStrLn $ "[hs-proto] " <> renderParseError err
+      putStrLn $ "[wireform] " <> renderParseError err
     Right pf -> do
       let opts = defaultGenerateOpts
             { genModulePrefix    = pgcModulePrefix cfg
@@ -141,7 +141,7 @@ generateProtoFile cfg protoPath = do
       when needsRegen $ do
         createDirectoryIfMissing True (takeDirectory outPath)
         TIO.writeFile outPath code
-        putStrLn $ "[hs-proto] Generated " <> outPath
+        putStrLn $ "[wireform] Generated " <> outPath
 
 findProtoFiles :: FilePath -> IO [FilePath]
 findProtoFiles root = go ""

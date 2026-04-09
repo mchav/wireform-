@@ -5,7 +5,7 @@ set -euo pipefail
 # upstream Temporal API proto files.
 #
 # Prerequisites:
-#   - hs-proto-gen must be built: cabal build exe:hs-proto-gen
+#   - wireform-gen must be built: cabal build exe:wireform-gen
 #   - git must be available
 #
 # Usage:
@@ -29,7 +29,7 @@ echo "    Found $NUM_FILES proto files"
 
 echo "==> Regenerating temporal-test modules..."
 # shellcheck disable=SC2086
-cabal exec hs-proto-gen -- generate \
+cabal exec wireform-gen -- generate \
   -I "$WORK_DIR/temporal-api" \
   -I "$PROJECT_ROOT/proto" \
   -o "$PROJECT_ROOT/temporal-test" \

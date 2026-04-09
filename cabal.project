@@ -1,0 +1,6 @@
+packages:
+  .
+  wireform-grpc/
+
+package grpc-spec
+  flags: -snappy

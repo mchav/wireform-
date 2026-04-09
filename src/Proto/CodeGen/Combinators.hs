@@ -1,6 +1,6 @@
 -- | Shared helpers for the code-generation pipeline.
 --
--- __THIS MODULE IS INTERNAL TO hs-proto.  DO NOT DEPEND ON IT.__
+-- __THIS MODULE IS INTERNAL TO wireform.  DO NOT DEPEND ON IT.__
 module Proto.CodeGen.Combinators
   ( -- * Text → Doc helpers
     txt

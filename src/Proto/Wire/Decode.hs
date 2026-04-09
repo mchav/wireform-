@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedTuples #-}
@@ -64,6 +63,10 @@ module Proto.Wire.Decode
   , TagResult#
   , withTag
 
+    -- * Monadic CPS tag dispatch (zero Tag allocation, for generated code)
+  , withTagM
+  , skipWireType
+
     -- * Non-throwing UTF-8 validation
   , validateUtf8
   ) where
@@ -71,21 +74,22 @@ module Proto.Wire.Decode
 import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8Lenient)
-#if MIN_VERSION_text(2,0,2)
-import Data.Text.Internal.Encoding (validateUtf8Chunk)
-#else
 import qualified Data.Text.Encoding as TE
-#endif
 import Data.Word (Word32, Word64)
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, plusPtr, castPtr)
+import Foreign.Storable (peek)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Exts (Int#, Int(I#), (+#), (>=#), isTrue#)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 import Control.DeepSeq (NFData(..))
 
 import Proto.Wire (Tag (..), WireType (..), decodeTag)
+import Proto.Wire.FFI (validateUtf8SWAR)
 
 data DecodeError
   = UnexpectedEnd
@@ -168,7 +172,12 @@ bsLen :: ByteString -> Int#
 bsLen bs = case BS.length bs of I# n -> n
 {-# INLINE bsLen #-}
 
--- | Decode a varint. Inline fast path for 1-2 byte varints (most common).
+-- | Decode a varint. Inline fast path for 1-4 byte varints.
+--
+-- Hyperpb insight: most varints are 1-3 bytes (tags, small integers,
+-- enum values). Inlining up to 4 bytes covers field tags up to
+-- field number ~500k and values up to 2^28, hitting the slow path
+-- only for genuinely large values.
 getVarint :: Decoder Word64
 getVarint = Decoder $ \bs off ->
   let len = bsLen bs
@@ -185,7 +194,24 @@ getVarint = Decoder $ \bs off ->
                     let !b1 = fromIntegral (BSU.unsafeIndex bs (I# off1)) :: Word64
                     in if b1 < 0x80
                        then (# (# (b0 .&. 0x7F) .|. (b1 `shiftL` 7), off +# 2# #) | #)
-                       else getVarintSlow bs off
+                       else let off2 = off +# 2#
+                            in if isTrue# (off2 >=# len)
+                               then (# | UnexpectedEnd #)
+                               else
+                                 let !b2 = fromIntegral (BSU.unsafeIndex bs (I# off2)) :: Word64
+                                 in if b2 < 0x80
+                                    then (# (# (b0 .&. 0x7F) .|. ((b1 .&. 0x7F) `shiftL` 7) .|. (b2 `shiftL` 14)
+                                            , off +# 3# #) | #)
+                                    else let off3 = off +# 3#
+                                         in if isTrue# (off3 >=# len)
+                                            then (# | UnexpectedEnd #)
+                                            else
+                                              let !b3 = fromIntegral (BSU.unsafeIndex bs (I# off3)) :: Word64
+                                              in if b3 < 0x80
+                                                 then (# (# (b0 .&. 0x7F) .|. ((b1 .&. 0x7F) `shiftL` 7)
+                                                             .|. ((b2 .&. 0x7F) `shiftL` 14) .|. (b3 `shiftL` 21)
+                                                         , off +# 4# #) | #)
+                                                 else getVarintSlow bs off
 {-# INLINE getVarint #-}
 
 getVarintSlow :: ByteString -> Int# -> (# (# Word64, Int# #) | DecodeError #)
@@ -224,40 +250,43 @@ unZigZag64 :: Word64 -> Int64
 unZigZag64 n = fromIntegral ((n `shiftR` 1) `xor` negate (n .&. 1))
 {-# INLINE unZigZag64 #-}
 
--- | Decode a fixed32 (little-endian).
+-- | Decode a fixed32 (little-endian) via a single aligned/unaligned
+-- word load.  On x86_64 and aarch64-LE this compiles to one MOV.
 getFixed32 :: Decoder Word32
 getFixed32 = Decoder $ \bs off ->
   if I# (off +# 4#) > BS.length bs
   then (# | UnexpectedEnd #)
   else
-    let !i = I# off
-        !b0 = fromIntegral (BSU.unsafeIndex bs i) :: Word32
-        !b1 = fromIntegral (BSU.unsafeIndex bs (i + 1)) :: Word32
-        !b2 = fromIntegral (BSU.unsafeIndex bs (i + 2)) :: Word32
-        !b3 = fromIntegral (BSU.unsafeIndex bs (i + 3)) :: Word32
-        !val = b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+    let !val = readWord32LE bs (I# off)
     in (# (# val, off +# 4# #) | #)
 {-# INLINE getFixed32 #-}
 
--- | Decode a fixed64 (little-endian).
+-- | Decode a fixed64 (little-endian) via a single word load.
 getFixed64 :: Decoder Word64
 getFixed64 = Decoder $ \bs off ->
   if I# (off +# 8#) > BS.length bs
   then (# | UnexpectedEnd #)
   else
-    let !i = I# off
-        !b0 = fromIntegral (BSU.unsafeIndex bs i) :: Word64
-        !b1 = fromIntegral (BSU.unsafeIndex bs (i + 1)) :: Word64
-        !b2 = fromIntegral (BSU.unsafeIndex bs (i + 2)) :: Word64
-        !b3 = fromIntegral (BSU.unsafeIndex bs (i + 3)) :: Word64
-        !b4 = fromIntegral (BSU.unsafeIndex bs (i + 4)) :: Word64
-        !b5 = fromIntegral (BSU.unsafeIndex bs (i + 5)) :: Word64
-        !b6 = fromIntegral (BSU.unsafeIndex bs (i + 6)) :: Word64
-        !b7 = fromIntegral (BSU.unsafeIndex bs (i + 7)) :: Word64
-        !val = b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
-           .|. (b4 `shiftL` 32) .|. (b5 `shiftL` 40) .|. (b6 `shiftL` 48) .|. (b7 `shiftL` 56)
+    let !val = readWord64LE bs (I# off)
     in (# (# val, off +# 8# #) | #)
 {-# INLINE getFixed64 #-}
+
+-- Direct word-sized reads from a ByteString.
+-- On little-endian platforms (all targets we care about: x86_64, aarch64-LE)
+-- this is a single unaligned load instruction, replacing 4 or 8 separate
+-- byte reads + shifts + ORs.
+
+readWord32LE :: ByteString -> Int -> Word32
+readWord32LE (BSI.BS fp _) off = unsafeDupablePerformIO $
+  withForeignPtr fp $ \ptr ->
+    peek (castPtr (ptr `plusPtr` off) :: Ptr Word32)
+{-# INLINE readWord32LE #-}
+
+readWord64LE :: ByteString -> Int -> Word64
+readWord64LE (BSI.BS fp _) off = unsafeDupablePerformIO $
+  withForeignPtr fp $ \ptr ->
+    peek (castPtr (ptr `plusPtr` off) :: Ptr Word64)
+{-# INLINE readWord64LE #-}
 
 getFloat :: Decoder Float
 getFloat = castWord32ToFloat <$> getFixed32
@@ -286,13 +315,18 @@ getByteString :: Decoder ByteString
 getByteString = getLengthDelimited
 {-# INLINE getByteString #-}
 
+-- | Decode a text field.
+--
+-- We rely on text >= 2.0's simdutf-powered 'decodeUtf8'' for UTF-8
+-- validation and decoding in a single pass. The text library uses
+-- AVX2/NEON internally, which is faster than a separate pre-check + decode.
 getText :: Decoder Text
 getText = Decoder $ \bs off ->
   case runDecoder# getLengthDelimited bs off of
     (# (# bytes, off' #) | #) ->
-      if validateUtf8 bytes
-      then (# (# decodeUtf8Lenient bytes, off' #) | #)
-      else (# | InvalidUtf8 #)
+      case TE.decodeUtf8' bytes of
+        Right t -> (# (# t, off' #) | #)
+        Left _  -> (# | InvalidUtf8 #)
     (# | e #) -> (# | e #)
 {-# INLINE getText #-}
 
@@ -425,20 +459,55 @@ decodeTagParts w =
       I# wt# -> (# fn#, wt# #)
 {-# INLINE decodeTagParts #-}
 
+-- | Monadic CPS tag dispatch for generated decoders.
+--
+-- At end-of-input: calls @kEOF@.
+-- On a valid tag: calls @kTag fieldNumber wireType@, where both are
+-- unboxed 'Int' values (no Tag constructor allocated).
+-- On error: propagates the decode error.
+--
+-- This is the monadic counterpart to 'withTag', intended for generated
+-- code. Avoids allocating the 'Tag' record that 'getTagOrU' produces.
+withTagM
+  :: Decoder a                    -- ^ kEOF: continuation at end-of-input
+  -> (Int -> Int -> Decoder a)    -- ^ kTag: continuation with (fieldNumber, wireType)
+  -> Decoder a
+withTagM (Decoder kEOF) kTag = Decoder $ \bs off ->
+  if isTrue# (off >=# bsLen bs)
+  then kEOF bs off
+  else case runDecoder# getVarint bs off of
+    (# (# w, off' #) | #) ->
+      case decodeTagParts w of
+        (# fn#, wt# #) -> runDecoder# (kTag (I# fn#) (I# wt#)) bs off'
+    (# | e #) -> (# | e #)
+{-# INLINE withTagM #-}
+
+-- | Skip a field given its wire type as an 'Int' (for use with 'withTagM').
+skipWireType :: Int -> Decoder ()
+skipWireType wt = case wt of
+  0 -> skipVarint
+  1 -> skip 8
+  2 -> Decoder $ \bs off ->
+    case runDecoder# getVarint bs off of
+      (# (# lenW, off' #) | #) ->
+        let !len = fromIntegral lenW :: Int
+        in if I# off' + len > BS.length bs
+           then (# | UnexpectedEnd #)
+           else (# (# (), case I# off' + len of I# r -> r #) | #)
+      (# | e #) -> (# | e #)
+  5 -> skip 4
+  _ -> Decoder $ \_ _ -> (# | InvalidWireType wt #)
+{-# INLINE skipWireType #-}
+
 -- | Validate UTF-8 without exceptions.
 --
--- On text >= 2.0.2 this uses the internal @validateUtf8Chunk@ for a
--- zero-allocation fast path.  On older text versions it falls back to
--- @decodeUtf8'@ which may allocate but is still correct.
+-- Uses the SWAR-accelerated C validator. Useful for paths that need
+-- validation without decoding (e.g. conformance checks).
+--
+-- Note: 'getText' and 'decodeTextFast' do /not/ use this — they rely on
+-- text >= 2.0's simdutf-powered 'TE.decodeUtf8'' which validates and
+-- decodes in a single pass.
 validateUtf8 :: ByteString -> Bool
-#if MIN_VERSION_text(2,0,2)
-validateUtf8 bs =
-  let (n, _) = validateUtf8Chunk bs
-  in n == BS.length bs
-#else
-validateUtf8 bs = case TE.decodeUtf8' bs of
-  Right _ -> True
-  Left _  -> False
-#endif
+validateUtf8 = validateUtf8SWAR
 {-# INLINE validateUtf8 #-}
 

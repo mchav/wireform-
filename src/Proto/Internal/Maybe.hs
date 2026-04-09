@@ -1,13 +1,15 @@
 -- Copyright © 2016 Kyle McKean
 -- Copyright © 2018 Daniel Cartwright
 -- BSD-3-Clause license (see NOTICE for full text)
---
--- Unpacked Maybe using unboxed sums for zero-allocation optionals.
--- Internal module — public API boundaries convert to standard Maybe.
 
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedTuples   #-}
 
+-- | Unpacked Maybe using unboxed sums for zero-allocation optionals.
+--
+-- Internal module — public API boundaries convert to standard Maybe.
+-- Uses GHC's @UnboxedTuples@ extension so the Just\/Nothing distinction
+-- lives on the stack, not the heap.
 module Proto.Internal.Maybe
   ( Maybe(Maybe, Just, Nothing)
   , maybe

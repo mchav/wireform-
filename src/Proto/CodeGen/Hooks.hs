@@ -7,10 +7,10 @@
 --
 -- = Three integration points
 --
--- There are three ways proto files get turned into Haskell code in hs-proto,
+-- There are three ways proto files get turned into Haskell code in wireform,
 -- and hooks plug into all of them:
 --
--- 1. __Text-based codegen__ (@hs-proto-gen@ CLI, 'Proto.Setup', 'Proto.CodeGen.generateModuleText'):
+-- 1. __Text-based codegen__ (@wireform-gen@ CLI, 'Proto.Setup', 'Proto.CodeGen.generateModuleText'):
 --    set the 'genHooks' field of 'Proto.CodeGen.GenerateOpts'.
 -- 2. __Template Haskell splices__ ('Proto.TH.loadProtoWith'):
 --    set the 'loTHHooks' field of 'Proto.TH.LoadOpts'.
@@ -135,6 +135,11 @@ module Proto.CodeGen.Hooks
   , MessageHookCtx (..)
   , EnumHookCtx (..)
   , ServiceHookCtx (..)
+  , FieldHookCtx (..)
+
+    -- * Wire transform types
+  , OptionValue (..)
+  , WireTransform (..)
 
     -- * Attribute-driven constructors (text codegen)
   , onMessageAttribute
@@ -205,6 +210,28 @@ data ServiceHookCtx = ServiceHookCtx
   , shcOptions    :: ![OptionDef]
   } deriving stock (Show)
 
+-- | Context passed to field-level hooks.
+data FieldHookCtx = FieldHookCtx
+  { fldFieldDef    :: !FieldDef
+  , fldParentMsg   :: !Text
+  , fldHsFieldName :: !Text
+  , fldFieldOptions :: ![OptionDef]
+  } deriving stock (Show)
+
+-- | Wrapper for option values in wire transform hooks.
+data OptionValue
+  = OVBool !Bool
+  | OVInt !Integer
+  | OVFloat !Double
+  | OVString !Text
+  deriving stock (Show, Eq)
+
+-- | Wire transform that can override how a field is encoded or decoded.
+data WireTransform = WireTransform
+  { wtEncodeExpr :: !Text
+  , wtDecodeExpr :: !Text
+  } deriving stock (Show, Eq)
+
 -- ---------------------------------------------------------------------------
 -- Hook record
 -- ---------------------------------------------------------------------------
@@ -220,6 +247,8 @@ data CodeGenHooks = CodeGenHooks
   , onMessageCodeGen :: !(MessageHookCtx -> [Text])
   , onEnumCodeGen    :: !(EnumHookCtx -> [Text])
   , onServiceCodeGen :: !(ServiceHookCtx -> [Text])
+  , onFieldCodeGen   :: !(FieldHookCtx -> [Text])
+  , onCustomOption   :: !(Text -> OptionValue -> Maybe WireTransform)
   }
 
 -- | No-op hooks (produce no extra code).
@@ -229,6 +258,8 @@ defaultCodeGenHooks = CodeGenHooks
   , onMessageCodeGen = const []
   , onEnumCodeGen    = const []
   , onServiceCodeGen = const []
+  , onFieldCodeGen   = const []
+  , onCustomOption   = \_ _ -> Nothing
   }
 
 instance Semigroup CodeGenHooks where
@@ -237,6 +268,10 @@ instance Semigroup CodeGenHooks where
     , onMessageCodeGen = \ctx -> onMessageCodeGen a ctx <> onMessageCodeGen b ctx
     , onEnumCodeGen    = \ctx -> onEnumCodeGen a ctx    <> onEnumCodeGen b ctx
     , onServiceCodeGen = \ctx -> onServiceCodeGen a ctx <> onServiceCodeGen b ctx
+    , onFieldCodeGen   = \ctx -> onFieldCodeGen a ctx   <> onFieldCodeGen b ctx
+    , onCustomOption   = \name val -> case onCustomOption a name val of
+        Just wt -> Just wt
+        Nothing -> onCustomOption b name val
     }
 
 instance Monoid CodeGenHooks where
@@ -255,6 +290,7 @@ data THHooks = THHooks
   { thOnFile    :: !(FileHookCtx -> Q [Dec])
   , thOnMessage :: !(MessageHookCtx -> Q [Dec])
   , thOnEnum    :: !(EnumHookCtx -> Q [Dec])
+  , thOnService :: !(ServiceHookCtx -> Q [Dec])
   }
 
 -- | No-op TH hooks (produce no extra declarations).
@@ -263,6 +299,7 @@ defaultTHHooks = THHooks
   { thOnFile    = const (pure [])
   , thOnMessage = const (pure [])
   , thOnEnum    = const (pure [])
+  , thOnService = const (pure [])
   }
 
 instance Semigroup THHooks where
@@ -270,6 +307,7 @@ instance Semigroup THHooks where
     { thOnFile    = \ctx -> (<>) <$> thOnFile a ctx    <*> thOnFile b ctx
     , thOnMessage = \ctx -> (<>) <$> thOnMessage a ctx <*> thOnMessage b ctx
     , thOnEnum    = \ctx -> (<>) <$> thOnEnum a ctx    <*> thOnEnum b ctx
+    , thOnService = \ctx -> (<>) <$> thOnService a ctx <*> thOnService b ctx
     }
 
 instance Monoid THHooks where

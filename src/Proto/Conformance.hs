@@ -7,7 +7,7 @@
 -- To run:
 --
 -- @
--- conformance-test-runner --enforce_recommended ./hs-proto-conformance
+-- conformance-test-runner --enforce_recommended ./wireform-conformance
 -- @
 module Proto.Conformance
   ( -- * Conformance types

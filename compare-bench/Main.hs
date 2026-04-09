@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
--- | Criterion benchmark: hs-proto vs proto-lens (real generated code).
+-- | Criterion benchmark: wireform vs proto-lens (real generated code).
 --
 -- Run: cabal bench compare-bench
 module Main where
@@ -12,7 +12,6 @@ import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Word (Word64)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Data.ProtoLens (defMessage)
@@ -24,112 +23,128 @@ import qualified Proto.Bench_Fields as F
 
 import qualified Proto.Encode as H
 import qualified Proto.Decode as H
-import HsProtoTypes
+import WireformTypes
+
+encSmallH :: HSmall -> BS.ByteString
+encSmallH = directEncodeSmall
+{-# NOINLINE encSmallH #-}
+
+encMediumH :: HMedium -> BS.ByteString
+encMediumH = directEncodeMedium
+{-# NOINLINE encMediumH #-}
+
+encNestedH :: HWithNested -> BS.ByteString
+encNestedH = directEncodeNested
+{-# NOINLINE encNestedH #-}
+
+encRepH :: HWithRepeated -> BS.ByteString
+encRepH = directEncodeRepeated
+{-# NOINLINE encRepH #-}
 
 main :: IO ()
 main = defaultMain
   [ bgroup "Small"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf H.encodeMessage smallHS
+          [ bench "wireform"   $ nf encSmallH smallHS
           , bench "proto-lens" $ nf PLC.encodeMessage smallPL
           ]
       , bgroup "decode"
-          [ bench "hs-proto"   $ nf decSmallH smallBytes
+          [ bench "wireform"   $ nf decSmallH smallBytes
           , bench "proto-lens" $ nf decSmallP smallBytes
           ]
       , bgroup "roundtrip"
-          [ bench "hs-proto"   $ nf rtSmallH smallHS
+          [ bench "wireform"   $ nf rtSmallH smallHS
           , bench "proto-lens" $ nf rtSmallP smallPL
           ]
       ]
   , bgroup "Medium"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf H.encodeMessage mediumHS
+          [ bench "wireform"   $ nf encMediumH mediumHS
           , bench "proto-lens" $ nf PLC.encodeMessage mediumPL
           ]
       , bgroup "decode"
-          [ bench "hs-proto"   $ nf decMediumH mediumBytes
+          [ bench "wireform"   $ nf decMediumH mediumBytes
           , bench "proto-lens" $ nf decMediumP mediumBytes
           ]
       , bgroup "roundtrip"
-          [ bench "hs-proto"   $ nf rtMediumH mediumHS
+          [ bench "wireform"   $ nf rtMediumH mediumHS
           , bench "proto-lens" $ nf rtMediumP mediumPL
           ]
       ]
   , bgroup "Nested"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf H.encodeMessage nestedHS
+          [ bench "wireform"   $ nf encNestedH nestedHS
           , bench "proto-lens" $ nf PLC.encodeMessage nestedPL
           ]
       , bgroup "decode"
-          [ bench "hs-proto"   $ nf decNestedH nestedBytes
+          [ bench "wireform"   $ nf decNestedH nestedBytes
           , bench "proto-lens" $ nf decNestedP nestedBytes
           ]
       , bgroup "roundtrip"
-          [ bench "hs-proto"   $ nf rtNestedH nestedHS
+          [ bench "wireform"   $ nf rtNestedH nestedHS
           , bench "proto-lens" $ nf rtNestedP nestedPL
           ]
       ]
   , bgroup "Repeated"
       [ bgroup "encode"
-          [ bench "hs-proto"   $ nf H.encodeMessage repeatedHS
+          [ bench "wireform"   $ nf encRepH repeatedHS
           , bench "proto-lens" $ nf PLC.encodeMessage repeatedPL
           ]
       , bgroup "decode"
-          [ bench "hs-proto"   $ nf decRepH repeatedBytes
+          [ bench "wireform"   $ nf decRepH repeatedBytes
           , bench "proto-lens" $ nf decRepP repeatedBytes
           ]
       ]
   ]
 
--- Decode/roundtrip wrappers to avoid ambiguous types
+-- Decode wrappers — using fast Addr#-based decoders
 decSmallH :: BS.ByteString -> Either H.DecodeError HSmall
-decSmallH = H.decodeMessage
+decSmallH = fastDecodeSmall
 {-# NOINLINE decSmallH #-}
 decSmallP :: BS.ByteString -> Either String PL.Small
 decSmallP = PLC.decodeMessage
 {-# NOINLINE decSmallP #-}
 rtSmallH :: HSmall -> Either H.DecodeError HSmall
-rtSmallH m = H.decodeMessage (H.encodeMessage m)
+rtSmallH m = H.decodeMessage (directEncodeSmall m)
 {-# NOINLINE rtSmallH #-}
 rtSmallP :: PL.Small -> Either String PL.Small
 rtSmallP m = PLC.decodeMessage (PLC.encodeMessage m)
 {-# NOINLINE rtSmallP #-}
 
 decMediumH :: BS.ByteString -> Either H.DecodeError HMedium
-decMediumH = H.decodeMessage
+decMediumH = fastDecodeMedium
 {-# NOINLINE decMediumH #-}
 decMediumP :: BS.ByteString -> Either String PL.Medium
 decMediumP = PLC.decodeMessage
 {-# NOINLINE decMediumP #-}
 rtMediumH :: HMedium -> Either H.DecodeError HMedium
-rtMediumH m = H.decodeMessage (H.encodeMessage m)
+rtMediumH m = H.decodeMessage (directEncodeMedium m)
 {-# NOINLINE rtMediumH #-}
 rtMediumP :: PL.Medium -> Either String PL.Medium
 rtMediumP m = PLC.decodeMessage (PLC.encodeMessage m)
 {-# NOINLINE rtMediumP #-}
 
 decNestedH :: BS.ByteString -> Either H.DecodeError HWithNested
-decNestedH = H.decodeMessage
+decNestedH = fastDecodeNested
 {-# NOINLINE decNestedH #-}
 decNestedP :: BS.ByteString -> Either String PL.WithNested
 decNestedP = PLC.decodeMessage
 {-# NOINLINE decNestedP #-}
 rtNestedH :: HWithNested -> Either H.DecodeError HWithNested
-rtNestedH m = H.decodeMessage (H.encodeMessage m)
+rtNestedH m = H.decodeMessage (directEncodeNested m)
 {-# NOINLINE rtNestedH #-}
 rtNestedP :: PL.WithNested -> Either String PL.WithNested
 rtNestedP m = PLC.decodeMessage (PLC.encodeMessage m)
 {-# NOINLINE rtNestedP #-}
 
 decRepH :: BS.ByteString -> Either H.DecodeError HWithRepeated
-decRepH = H.decodeMessage
+decRepH = fastDecodeRepeated
 {-# NOINLINE decRepH #-}
 decRepP :: BS.ByteString -> Either String PL.WithRepeated
 decRepP = PLC.decodeMessage
 {-# NOINLINE decRepP #-}
 
--- hs-proto test values
+-- wireform test values
 
 smallHS :: HSmall
 smallHS = HSmall 42 "hello world" True
@@ -142,7 +157,7 @@ nestedHS = HWithNested 99 (Just (HSmall 1 "inner" True)) "outer label"
 
 repeatedHS :: HWithRepeated
 repeatedHS = HWithRepeated
-  (V.fromList [1..50])
+  (VU.fromList [1..50])
   (V.fromList (fmap (\i -> "tag_" <> T.pack (show i)) [1..20 :: Int]))
   (V.fromList [ HSmall (fromIntegral i) ("item" <> T.pack (show i)) (even i) | i <- [1..10 :: Int] ])
 
@@ -190,7 +205,7 @@ repeatedPL =
 
 -- Pre-encoded bytes
 smallBytes, mediumBytes, nestedBytes, repeatedBytes :: BS.ByteString
-smallBytes = H.encodeMessage smallHS
-mediumBytes = H.encodeMessage mediumHS
-nestedBytes = H.encodeMessage nestedHS
-repeatedBytes = H.encodeMessage repeatedHS
+smallBytes = encSmallH smallHS
+mediumBytes = encMediumH mediumHS
+nestedBytes = encNestedH nestedHS
+repeatedBytes = encRepH repeatedHS

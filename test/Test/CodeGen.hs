@@ -48,6 +48,28 @@ codeGenTests = testGroup "Code Generation"
               assertBool "Should contain name field" (T.isInfixOf "name" code)
               assertBool "Should contain module header" (T.isInfixOf "module" code)
 
+      , testCase "proto3 optional scalar gets Maybe wrapper" $ do
+          let input = unlines'
+                [ "syntax = \"proto3\";"
+                , "package test;"
+                , "message Presence {"
+                , "  int32 required_field = 1;"
+                , "  optional int32 optional_field = 2;"
+                , "  optional string optional_name = 3;"
+                , "}"
+                ]
+          case parseProtoFile "<test>" input of
+            Left e -> assertFailure (show e)
+            Right pf -> do
+              let emptyReg = Map.empty :: TypeRegistry
+                  code = generateModuleText defaultGenerateOpts emptyReg "<test>" pf
+              assertBool "optional int32 should be Maybe Int32"
+                (T.isInfixOf "Maybe Int32" code)
+              assertBool "optional string should be Maybe Text"
+                (T.isInfixOf "Maybe Text" code)
+              assertBool "required int32 should not be Maybe (bare Int32)"
+                (T.isInfixOf "Int32" code)
+
       , testCase "generates enum" $ do
           let input = unlines'
                 [ "syntax = \"proto3\";"

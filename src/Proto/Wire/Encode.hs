@@ -41,25 +41,39 @@ module Proto.Wire.Encode
   , fieldTextSize
   , fieldMessageSize
 
+    -- * Pre-computed tags (for generated code)
+  , precomputeTag
+  , putPrecomputedTag
+
     -- * Helpers
   , zigZag32
   , zigZag64
   ) where
 
-import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor)
+import Data.Bits ((.&.), (.|.), shiftL, shiftR, xor, countLeadingZeros)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word32, Word64)
 
 import Proto.Wire (WireType, fieldTag)
 
--- | Encode a varint (unsigned). Unrolled for values that fit in 1-2 bytes
--- (the common case for field tags and small values).
+-- | Get the UTF-8 byte length of a Text without allocating a ByteString.
+-- On text >= 2.0 (UTF-8 internal representation) this is O(1) since
+-- the internal byte length IS the UTF-8 byte length.
+-- Falls back to encodeUtf8 + BS.length on older versions.
+textUtf8Length :: Text -> Int
+textUtf8Length t = BS.length (TE.encodeUtf8 t)
+{-# INLINE textUtf8Length #-}
+
+-- | Encode a varint (unsigned). Unrolled for values that fit in 1-3 bytes
+-- (covers field tags up to ~250k and values up to 2^21).
 putVarint :: Word64 -> Builder
 putVarint !n
   | n < 0x80 =
@@ -67,6 +81,10 @@ putVarint !n
   | n < 0x4000 =
       B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80) <>
       B.word8 (fromIntegral (n `shiftR` 7))
+  | n < 0x200000 =
+      B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80) <>
+      B.word8 (fromIntegral ((n `shiftR` 7) .&. 0x7F) .|. 0x80) <>
+      B.word8 (fromIntegral (n `shiftR` 14))
   | otherwise = putVarintSlow n
 {-# INLINE putVarint #-}
 
@@ -154,34 +172,57 @@ putByteString = putLengthDelimited
 {-# INLINE putByteString #-}
 
 -- | Encode a string field (UTF-8).
+-- On text >= 2.0, encodeUtf8 is O(1) (no copy, just wraps the internal
+-- ByteArray# in a ByteString ForeignPtr).
 putText :: Text -> Builder
 putText t =
-  let bs = TE.encodeUtf8 t
-  in putLengthDelimited bs
+  let !bs = TE.encodeUtf8 t
+  in putVarint (fromIntegral (BS.length bs)) <> B.byteString bs
 {-# INLINE putText #-}
 
 -- | Encode a field tag (field number + wire type) as a varint.
+--
+-- For field numbers 1-15 (the vast majority in practice), the tag
+-- fits in a single byte. We emit B.word8 directly, avoiding the
+-- putVarint branch chain entirely.
 putTag :: Int -> WireType -> Builder
-putTag fn wt = putVarint (fieldTag fn wt)
+putTag fn wt
+  | tagVal < 0x80 = B.word8 (fromIntegral tagVal)
+  | otherwise = putVarint tagVal
+  where
+    !tagVal = fieldTag fn wt
 {-# INLINE putTag #-}
+
+-- | Pre-compute the tag bytes for a field at definition time.
+-- Returns a strict ByteString containing the varint-encoded tag.
+-- Use with 'B.byteString' in generated code to avoid re-encoding
+-- the tag on every call — the tag bytes are a compile-time constant
+-- baked into the .data section.
+precomputeTag :: Int -> WireType -> ByteString
+precomputeTag fn wt =
+  BL.toStrict $ B.toLazyByteString $ putVarint (fieldTag fn wt)
+
+-- | Emit a pre-computed tag. This is a single memcpy of 1-2 bytes
+-- rather than the varint encoding arithmetic on every encode call.
+putPrecomputedTag :: ByteString -> Builder
+putPrecomputedTag = B.byteString
+{-# INLINE putPrecomputedTag #-}
 
 -- Size calculation functions: compute the encoded size of values without
 -- actually encoding them. Critical for submessage encoding where we need
 -- the size prefix before the payload.
 
 -- | Size of a varint encoding in bytes.
+--
+-- Uses CLZ (count leading zeros) for a branchless computation:
+-- each varint byte encodes 7 bits, so size = ceil((64 - clz(n|1)) / 7).
+-- The (n .|. 1) ensures clz is 63 for n=0 (not undefined).
 varintSize :: Word64 -> Int
-varintSize !n
-  | n < 0x80       = 1
-  | n < 0x4000     = 2
-  | n < 0x200000   = 3
-  | n < 0x10000000 = 4
-  | n < 0x800000000 = 5
-  | n < 0x40000000000 = 6
-  | n < 0x2000000000000 = 7
-  | n < 0x100000000000000 = 8
-  | n < 0x8000000000000000 = 9
-  | otherwise       = 10
+varintSize !n =
+  let !bits = 64 - countLeadingZeros (n .|. 1)
+      -- ceiling division by 7: (bits + 6) / 7
+      !sz = (bits + 6) `quot` 7
+  in sz
 {-# INLINE varintSize #-}
 
 -- | Size of a 32-bit varint encoding in bytes.  Max 5 bytes.
@@ -247,10 +288,10 @@ fieldBytesSize fn bs =
 {-# INLINE fieldBytesSize #-}
 
 -- | Size of a text field (tag + varint length + UTF-8 payload).
+-- Uses textUtf8Length to get the byte count.
 fieldTextSize :: Int -> Text -> Int
 fieldTextSize fn t =
-  let bs = TE.encodeUtf8 t
-      len = BS.length bs
+  let !len = textUtf8Length t
   in tagSize fn + varintSize (fromIntegral len) + len
 {-# INLINE fieldTextSize #-}
 

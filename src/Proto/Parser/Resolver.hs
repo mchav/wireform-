@@ -16,6 +16,7 @@ module Proto.Parser.Resolver
 
     -- * Bundled well-known types
   , bundledIncludeDir
+  , getBundledIncludeDir
   ) where
 
 import Control.Monad (foldM)
@@ -25,10 +26,11 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.Directory (doesFileExist)
-import System.FilePath ((</>), takeDirectory)
+import System.FilePath ((</>), takeDirectory, takeFileName)
 
 import Proto.AST
 import Proto.Parser (parseProtoFile, renderParseError)
+import qualified Paths_wireform
 
 -- | Configuration for proto file resolution.
 data ResolveConfig = ResolveConfig
@@ -60,10 +62,21 @@ data ResolveError
   deriving stock (Show, Eq)
 
 -- | The path to bundled well-known protobuf definitions shipped with this package.
--- This should be set to the data-dir path at install time.
--- For development, it defaults to the proto/ directory in the repo root.
+-- This is a fallback for development; prefer 'getBundledIncludeDir' which uses
+-- 'Paths_wireform' to locate the data-files at install time.
 bundledIncludeDir :: FilePath
 bundledIncludeDir = "proto"
+
+-- | Locate the bundled well-known .proto files using 'Paths_wireform'.
+-- The data-files are installed under the package data-dir; we look up
+-- a known file and derive the root directory.
+getBundledIncludeDir :: IO FilePath
+getBundledIncludeDir = do
+  refFile <- Paths_wireform.getDataFileName "proto/google/protobuf/timestamp.proto"
+  let dir = takeDirectory (takeDirectory (takeDirectory (takeDirectory refFile)))
+              </> "proto"
+  exists <- doesFileExist refFile
+  pure (if exists then dir else bundledIncludeDir)
 
 -- | Resolve a proto file and all its transitive imports.
 resolveProtoFile
@@ -71,13 +84,16 @@ resolveProtoFile
   -> FilePath
   -> IO (Either ResolveError ResolvedProto)
 resolveProtoFile cfg path = do
-  let cfg' = cfg { rcIncludeDirs = takeDirectory path : rcIncludeDirs cfg <> bundledDirs cfg }
+  bundled <- bundledDirs cfg
+  let cfg' = cfg { rcIncludeDirs = takeDirectory path : rcIncludeDirs cfg <> bundled }
   resolve cfg' Map.empty [] path
 
-bundledDirs :: ResolveConfig -> [FilePath]
+bundledDirs :: ResolveConfig -> IO [FilePath]
 bundledDirs cfg = case rcBundledDir cfg of
-  Just d  -> [d]
-  Nothing -> [bundledIncludeDir]
+  Just d  -> pure [d]
+  Nothing -> do
+    dir <- getBundledIncludeDir
+    pure [dir]
 
 resolve
   :: ResolveConfig
