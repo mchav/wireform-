@@ -2637,77 +2637,94 @@ lookupDef def key table = case lookup key table of { Just v -> v; Nothing -> def
 -- (already defined above in the "Build final document" section)
 
 ------------------------------------------------------------------------
--- Tokenizer (same as before)
+-- Tokenizer
 ------------------------------------------------------------------------
 
 tokenize :: Text -> [Token]
-tokenize txt = tokenizeNormal (T.unpack txt)
+tokenize txt = tokenizeCtx 0 (T.unpack txt)
+
+tokenizeCtx :: Int -> String -> [Token]
+tokenizeCtx !svgDepth [] = []
+tokenizeCtx svgDepth ('<':rest) = tokenizeAfterLTCtx svgDepth rest
+tokenizeCtx svgDepth ('&':rest) =
+  let (entity, remaining) = parseEntityRef rest
+  in map TChar entity ++ tokenizeCtx svgDepth remaining
+tokenizeCtx svgDepth ('\r':'\n':rest) = TChar '\n' : tokenizeCtx svgDepth rest
+tokenizeCtx svgDepth ('\r':rest) = TChar '\n' : tokenizeCtx svgDepth rest
+tokenizeCtx svgDepth (c:rest) = TChar c : tokenizeCtx svgDepth rest
 
 tokenizeNormal :: String -> [Token]
-tokenizeNormal [] = []
-tokenizeNormal ('<':rest) = tokenizeAfterLT rest
-tokenizeNormal ('&':rest) =
-  let (entity, remaining) = parseEntityRef rest
-  in map TChar entity ++ tokenizeNormal remaining
-tokenizeNormal ('\r':'\n':rest) = TChar '\n' : tokenizeNormal rest
-tokenizeNormal ('\r':rest) = TChar '\n' : tokenizeNormal rest
-tokenizeNormal (c:rest) = TChar c : tokenizeNormal rest
+tokenizeNormal = tokenizeCtx 0
 
 tokenizeAfterLT :: String -> [Token]
-tokenizeAfterLT [] = [TChar '<']
-tokenizeAfterLT ('!':rest) = tokenizeMarkupDecl rest
-tokenizeAfterLT ('/':rest) = tokenizeEndTag rest
-tokenizeAfterLT ('?':rest) =
+tokenizeAfterLT = tokenizeAfterLTCtx 0
+
+tokenizeAfterLTCtx :: Int -> String -> [Token]
+tokenizeAfterLTCtx _ [] = [TChar '<']
+tokenizeAfterLTCtx svgDepth ('!':rest) = tokenizeMarkupDeclCtx svgDepth rest
+tokenizeAfterLTCtx svgDepth ('/':rest) = tokenizeEndTagCtx svgDepth rest
+tokenizeAfterLTCtx svgDepth ('?':rest) =
   let (comment, remaining) = readUntilStr ">" rest
-  in TComment (T.pack ('?' : comment)) : tokenizeNormal remaining
-tokenizeAfterLT (c:rest)
+  in TComment (T.pack ('?' : comment)) : tokenizeCtx svgDepth remaining
+tokenizeAfterLTCtx svgDepth (c:rest)
   | isAlpha c =
       let (name, rest1) = span isTagNameChar (c:rest)
           lcName = map toLower name
           (attrs, selfClose, rest2) = readTagAttrs rest1
           tok = TStartTag (T.pack lcName) attrs selfClose
+          newSvgDepth = if lcName == "svg" then svgDepth + 1 else svgDepth
+          inSvg = newSvgDepth > 0
       in case lcName of
         n | n `elem` ["script","style","xmp","iframe","noembed","noframes","noscript"] ->
-          if selfClose then tok : tokenizeNormal rest2
+          if selfClose then tok : tokenizeCtx newSvgDepth rest2
           else tok : tokenizeRawText rest2 (T.pack lcName)
         "textarea" ->
-          if selfClose then tok : tokenizeNormal rest2
+          if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2
           else tok : tokenizeRCData rest2 (T.pack lcName)
         "title" ->
-          if selfClose then tok : tokenizeNormal rest2
+          if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2
           else tok : tokenizeRCData rest2 (T.pack lcName)
-        "plaintext" -> tok : map (\c -> TChar (if c == '\0' then '\xFFFD' else c)) rest2
-        _ -> tok : tokenizeNormal rest2
-  | otherwise = TChar '<' : tokenizeNormal (c:rest)
+        "plaintext" ->
+          if inSvg then tok : tokenizeCtx newSvgDepth rest2
+          else tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2
+        _ -> tok : tokenizeCtx newSvgDepth rest2
+  | otherwise = TChar '<' : tokenizeCtx svgDepth (c:rest)
 
 tokenizeEndTag :: String -> [Token]
-tokenizeEndTag [] = [TChar '<', TChar '/']
-tokenizeEndTag (c:rest)
+tokenizeEndTag = tokenizeEndTagCtx 0
+
+tokenizeEndTagCtx :: Int -> String -> [Token]
+tokenizeEndTagCtx _ [] = [TChar '<', TChar '/']
+tokenizeEndTagCtx svgDepth (c:rest)
   | isAlpha c =
       let (name, rest1) = span isTagNameChar (c:rest)
           lcName = map toLower name
           rest2 = skipToGtStr rest1
-      in TEndTag (T.pack lcName) : tokenizeNormal rest2
-  | c == '>' = TComment "" : tokenizeNormal rest
+          newSvgDepth = if lcName == "svg" && svgDepth > 0 then svgDepth - 1 else svgDepth
+      in TEndTag (T.pack lcName) : tokenizeCtx newSvgDepth rest2
+  | c == '>' = TComment "" : tokenizeCtx svgDepth rest
   | otherwise =
       let (comment, remaining) = readUntilStr ">" (c:rest)
-      in TComment (T.pack comment) : tokenizeNormal remaining
+      in TComment (T.pack comment) : tokenizeCtx svgDepth remaining
 
 tokenizeMarkupDecl :: String -> [Token]
-tokenizeMarkupDecl ('-':'-':rest) =
+tokenizeMarkupDecl = tokenizeMarkupDeclCtx 0
+
+tokenizeMarkupDeclCtx :: Int -> String -> [Token]
+tokenizeMarkupDeclCtx svgDepth ('-':'-':rest) =
   let (comment, remaining) = readComment rest
-  in TComment (T.pack comment) : tokenizeNormal remaining
-tokenizeMarkupDecl rest
+  in TComment (T.pack comment) : tokenizeCtx svgDepth remaining
+tokenizeMarkupDeclCtx svgDepth rest
   | matchCaseI rest "doctype" =
       let rest1 = drop 7 rest
-      in tokenizeDoctype rest1
+      in tokenizeDoctypeCtx svgDepth rest1
   | matchCaseI rest "[cdata[" =
       let rest1 = drop 7 rest
           (content, remaining) = readUntilStr "]]>" rest1
-      in TComment (cdataMarker <> T.pack (normalizeCR content)) : tokenizeNormal remaining
+      in TComment (cdataMarker <> T.pack (normalizeCR content)) : tokenizeCtx svgDepth remaining
   | otherwise =
       let (comment, remaining) = readBogusComment rest
-      in TComment (T.pack comment) : tokenizeNormal remaining
+      in TComment (T.pack comment) : tokenizeCtx svgDepth remaining
 
 readBogusComment :: String -> (String, String)
 readBogusComment [] = ("", [])
@@ -2729,12 +2746,15 @@ readComment cs = go [] cs
     go acc (c:rest) = go (c:acc) rest
 
 tokenizeDoctype :: String -> [Token]
-tokenizeDoctype cs =
+tokenizeDoctype = tokenizeDoctypeCtx 0
+
+tokenizeDoctypeCtx :: Int -> String -> [Token]
+tokenizeDoctypeCtx svgDepth cs =
   let cs1 = dropWhile isSp cs
       (name, cs2) = readDoctypeName cs1
       cs3 = dropWhile isSp cs2
       (pub, sys, fq, cs4) = readDoctypeIds cs3
-  in TDoctype (T.pack name) pub sys fq : tokenizeNormal cs4
+  in TDoctype (T.pack name) pub sys fq : tokenizeCtx svgDepth cs4
   where isSp c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C'
 
 readDoctypeName :: String -> (String, String)
