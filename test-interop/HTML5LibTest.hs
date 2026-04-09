@@ -437,7 +437,7 @@ main = do
         testGroup file $
           map (mkTestCase refs file) cases
 
-      mkTestCase (pRef, fRef, sRef, tRef) _file tc =
+      mkTestCase (pRef, fRef, sRef, tRef) file tc =
         testCase ("#" ++ show (tcIndex tc) ++ ": " ++ ellipsis 50 (tcData tc)) $ do
           modifyIORef' tRef (+1)
           result <- (evaluate (runTest tc))
@@ -447,9 +447,8 @@ main = do
             Pass   -> modifyIORef' pRef (+1)
             Skip _ -> modifyIORef' sRef (+1)
             Fail msg -> do
-              f <- readIORef fRef
               modifyIORef' fRef (+1)
-              pure ()
+              assertFailure (file ++ " #" ++ show (tcIndex tc) ++ " input: " ++ ellipsis 80 (tcData tc) ++ "\n" ++ msg)
 
       ellipsis n s
         | length s <= n = s

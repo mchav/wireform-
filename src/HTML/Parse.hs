@@ -2457,10 +2457,13 @@ tokenizeMarkupDecl rest
       in TComment (T.pack ('!' : comment)) : tokenizeNormal remaining
 
 readComment :: String -> (String, String)
-readComment = go []
+readComment ('>':rest) = ("", rest)
+readComment ('-':'>':rest) = ("", rest)
+readComment cs = go [] cs
   where
     go acc [] = (reverse acc, [])
     go acc ('-':'-':'>':rest) = (reverse acc, rest)
+    go acc ('-':'-':'!':'>':rest) = (reverse acc, rest)
     go acc (c:rest) = go (c:acc) rest
 
 tokenizeDoctype :: String -> [Token]
@@ -2555,16 +2558,19 @@ readAttrName = go []
 
 readAttrValue :: String -> (Text, String)
 readAttrValue [] = (T.empty, [])
-readAttrValue ('"':rest) = let (v,r) = readQuotedAttr rest '"' in (resolveEntitiesT v, r)
-readAttrValue ('\'':rest) = let (v,r) = readQuotedAttr rest '\'' in (resolveEntitiesT v, r)
-readAttrValue cs = let (v,r) = readUnquotedAttr cs in (resolveEntitiesT v, r)
+readAttrValue ('"':rest) = readQuotedAttr rest '"'
+readAttrValue ('\'':rest) = readQuotedAttr rest '\''
+readAttrValue cs = readUnquotedAttrVal cs
 
 readQuotedAttr :: String -> Char -> (Text, String)
 readQuotedAttr cs q = go [] cs
   where
     go acc [] = (T.pack (reverse acc), [])
-    go acc (c:rest) | c == q = (T.pack (reverse acc), rest)
-                    | otherwise = go (c:acc) rest
+    go acc (c:rest)
+      | c == q = (T.pack (reverse acc), rest)
+      | c == '&' = let (entity, remaining) = parseEntityRefInAttr rest
+                   in go (reverse entity ++ acc) remaining
+      | otherwise = go (c:acc) rest
 
 readUnquotedAttr :: String -> (Text, String)
 readUnquotedAttr = go []
@@ -2573,6 +2579,17 @@ readUnquotedAttr = go []
     go acc (c:rest)
       | c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C' || c == '>' =
           (T.pack (reverse acc), c:rest)
+      | otherwise = go (c:acc) rest
+
+readUnquotedAttrVal :: String -> (Text, String)
+readUnquotedAttrVal = go []
+  where
+    go acc [] = (T.pack (reverse acc), [])
+    go acc (c:rest)
+      | c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C' || c == '>' =
+          (T.pack (reverse acc), c:rest)
+      | c == '&' = let (entity, remaining) = parseEntityRefInAttr rest
+                   in go (reverse entity ++ acc) remaining
       | otherwise = go (c:acc) rest
 
 isTagNameChar :: Char -> Bool
@@ -2615,16 +2632,78 @@ matchCaseI [] _ = False
 matchCaseI (c:cs) (p:ps) = toLower c == p && matchCaseI cs ps
 
 tokenizeRawText :: String -> Text -> [Token]
-tokenizeRawText cs tag = go [] cs
+tokenizeRawText cs tag
+  | tag == "script" = tokenizeScriptData cs
+  | otherwise = goRaw [] cs
   where
     tagStr = T.unpack tag
-    go acc [] = map TChar (reverse acc)
-    go acc ('<':'/':rest)
+    goRaw acc [] = map TChar (reverse acc)
+    goRaw acc ('<':'/':rest)
       | matchCloseTag rest tagStr =
           let rest1 = drop (length tagStr) rest
               rest2 = skipToGtWithAttrs rest1
           in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
-    go acc (c:rest) = go (c:acc) rest
+    goRaw acc (c:rest) = goRaw (c:acc) rest
+
+tokenizeScriptData :: String -> [Token]
+tokenizeScriptData cs = scriptNormal [] cs
+  where
+    scriptNormal acc [] = map TChar (reverse acc)
+    scriptNormal acc ('<':'/':rest)
+      | matchCloseTag rest "script" =
+          let rest1 = drop 6 rest
+              rest2 = skipToGtWithAttrs rest1
+          in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
+    scriptNormal acc ('<':'!':'-':'-':rest) =
+      scriptEscaped ('-':'-':'!':'<':acc) rest
+    scriptNormal acc (c:rest) = scriptNormal (c:acc) rest
+
+    scriptEscaped acc [] = map TChar (reverse acc)
+    scriptEscaped acc ('-':'-':'>':rest) =
+      scriptNormal ('>':'-':'-':acc) rest
+    scriptEscaped acc ('<':'/':rest)
+      | matchCloseTag rest "script" =
+          let rest1 = drop 6 rest
+              rest2 = skipToGtWithAttrs rest1
+          in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
+    scriptEscaped acc ('<':rest) =
+      let (tag, rest') = tryMatchScriptStart rest
+      in case tag of
+        Just suffix ->
+          scriptDoubleEscaped (reverse suffix ++ '<':acc) rest'
+        Nothing ->
+          scriptEscaped ('<':acc) rest
+    scriptEscaped acc (c:rest) = scriptEscaped (c:acc) rest
+
+    scriptDoubleEscaped acc [] = map TChar (reverse acc)
+    scriptDoubleEscaped acc ('-':'-':'>':rest) =
+      scriptEscaped ('>':'-':'-':acc) rest
+    scriptDoubleEscaped acc ('<':'/':rest) =
+      let (isScript, consumed, rest') = tryMatchScriptEnd rest
+      in if isScript
+         then scriptEscaped (reverse consumed ++ '/':'<':acc) rest'
+         else scriptDoubleEscaped (reverse consumed ++ '/':'<':acc) rest'
+    scriptDoubleEscaped acc (c:rest) = scriptDoubleEscaped (c:acc) rest
+
+    tryMatchScriptStart cs =
+      case cs of
+        (c1:c2:c3:c4:c5:c6:rest)
+          | map toLower [c1,c2,c3,c4,c5,c6] == "script"
+          , case rest of
+              [] -> True
+              (r:_) -> r `elem` (" \t\n\r\x0C/>"::[Char])
+          -> (Just [c1,c2,c3,c4,c5,c6], rest)
+        _ -> (Nothing, cs)
+
+    tryMatchScriptEnd cs =
+      case cs of
+        (c1:c2:c3:c4:c5:c6:rest)
+          | map toLower [c1,c2,c3,c4,c5,c6] == "script"
+          , case rest of
+              [] -> True
+              (r:_) -> r `elem` (" \t\n\r\x0C/>"::[Char])
+          -> (True, [c1,c2,c3,c4,c5,c6], rest)
+        _ -> (False, [], cs)
 
 tokenizeRCData :: String -> Text -> [Token]
 tokenizeRCData cs tag = go [] cs
@@ -2661,17 +2740,30 @@ resolveEntitiesT t
   | otherwise = t
 
 parseEntityRef :: String -> (String, String)
-parseEntityRef ('#':'x':rest) = parseHexEntity rest
-parseEntityRef ('#':'X':rest) = parseHexEntity rest
+parseEntityRef ('#':'x':rest) = parseHexEntity "#x" rest
+parseEntityRef ('#':'X':rest) = parseHexEntity "#X" rest
 parseEntityRef ('#':rest) = parseDecEntity rest
 parseEntityRef rest = case matchNamedEntity rest of
+  Just (name, replacement, remaining) ->
+    if hasSemicolon name rest
+    then (replacement, remaining)
+    else (replacement, remaining)
+  Nothing -> ("&", rest)
+  where
+    hasSemicolon _ _ = True
+
+parseEntityRefInAttr :: String -> (String, String)
+parseEntityRefInAttr ('#':'x':rest) = parseHexEntity "#x" rest
+parseEntityRefInAttr ('#':'X':rest) = parseHexEntity "#X" rest
+parseEntityRefInAttr ('#':rest) = parseDecEntity rest
+parseEntityRefInAttr rest = case matchNamedEntityAttr rest of
   Just (_, replacement, remaining) -> (replacement, remaining)
   Nothing -> ("&", rest)
 
-parseHexEntity :: String -> (String, String)
-parseHexEntity rest =
+parseHexEntity :: String -> String -> (String, String)
+parseHexEntity prefix rest =
   let (hex, after) = span isHexDigit rest
-  in if null hex then ("&#x", rest)
+  in if null hex then ("&" ++ prefix, rest)
      else let val = foldl' (\a d -> a * 16 + digitToInt d) 0 hex
               after1 = case after of { (';':r) -> r; _ -> after }
           in ([safeChar val], after1)
@@ -2688,7 +2780,20 @@ safeChar :: Int -> Char
 safeChar 0 = '\xFFFD'
 safeChar n | n > 0x10FFFF = '\xFFFD'
            | n >= 0xD800 && n <= 0xDFFF = '\xFFFD'
+           | n >= 0x80 && n <= 0x9F = case lookup n windows1252Table of
+               Just c  -> c
+               Nothing -> chr n
            | otherwise = chr n
+
+windows1252Table :: [(Int, Char)]
+windows1252Table =
+  [(0x80, '\x20AC'),(0x82, '\x201A'),(0x83, '\x0192'),(0x84, '\x201E')
+  ,(0x85, '\x2026'),(0x86, '\x2020'),(0x87, '\x2021'),(0x88, '\x02C6')
+  ,(0x89, '\x2030'),(0x8A, '\x0160'),(0x8B, '\x2039'),(0x8C, '\x0152')
+  ,(0x8E, '\x017D'),(0x91, '\x2018'),(0x92, '\x2019'),(0x93, '\x201C')
+  ,(0x94, '\x201D'),(0x95, '\x2022'),(0x96, '\x2013'),(0x97, '\x2014')
+  ,(0x98, '\x02DC'),(0x99, '\x2122'),(0x9A, '\x0161'),(0x9B, '\x203A')
+  ,(0x9C, '\x0153'),(0x9E, '\x017E'),(0x9F, '\x0178')]
 
 matchNamedEntity :: String -> Maybe (String, String, String)
 matchNamedEntity cs =
@@ -2697,10 +2802,10 @@ matchNamedEntity cs =
      else case rest of
        (';':after) -> case lookup allAlpha namedEntities of
          Just rep -> Just (allAlpha, rep, after)
-         Nothing -> tryPrefixes allAlpha (';':after)
-       _ -> tryPrefixes allAlpha rest
+         Nothing -> tryPrefixes allAlpha (';':after) False
+       _ -> tryPrefixes allAlpha rest False
   where
-    tryPrefixes name rest = go (length name)
+    tryPrefixes name rest _inAttr = go (length name)
       where
         go 0 = Nothing
         go n =
@@ -2709,6 +2814,31 @@ matchNamedEntity cs =
           in case lookup prefix namedEntities of
             Just rep -> Just (prefix, rep, suffix)
             Nothing -> go (n-1)
+
+matchNamedEntityAttr :: String -> Maybe (String, String, String)
+matchNamedEntityAttr cs =
+  let (allAlpha, rest) = span isAlphaNum cs
+  in if null allAlpha then Nothing
+     else case rest of
+       (';':after) -> case lookup allAlpha namedEntities of
+         Just rep -> Just (allAlpha, rep, after)
+         Nothing -> tryAttrPrefixes allAlpha (';':after)
+       _ -> tryAttrPrefixes allAlpha rest
+
+tryAttrPrefixes :: String -> String -> Maybe (String, String, String)
+tryAttrPrefixes name rest = go (length name)
+  where
+    go 0 = Nothing
+    go n =
+      let prefix = take n name
+          suffix = drop n name ++ rest
+      in case lookup prefix namedEntities of
+        Just rep ->
+          let nextChar = case suffix of { (c:_) -> Just c; [] -> Nothing }
+          in if nextChar == Just '=' || maybe False isAlphaNum nextChar
+             then go (n-1)
+             else Just (prefix, rep, suffix)
+        Nothing -> go (n-1)
 
 resolveChars :: String -> String
 resolveChars [] = []
