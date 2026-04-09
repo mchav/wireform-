@@ -2698,7 +2698,7 @@ readUnquotedAttrVal = go []
       | otherwise = go (c:acc) rest
 
 isTagNameChar :: Char -> Bool
-isTagNameChar c = isAlphaNum c || c == '-' || c == '_' || c == ':'
+isTagNameChar c = isAlphaNum c || c == '-' || c == '_' || c == ':' || c == '.' || c == '<'
 
 skipToGtStr :: String -> String
 skipToGtStr [] = []
