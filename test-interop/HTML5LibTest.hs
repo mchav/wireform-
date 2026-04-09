@@ -360,9 +360,11 @@ nodeToExp (HTMLDoctype n p s) = ExpDoctype n p s
 
 adjustForeignAttrName :: Text -> Text
 adjustForeignAttrName n
-  | "xlink:" `T.isPrefixOf` n = "xlink " <> T.drop 6 n
-  | "xml:" `T.isPrefixOf` n = "xml " <> T.drop 4 n
-  | "xmlns:" `T.isPrefixOf` n = "xmlns " <> T.drop 6 n
+  | n `elem` ["xlink:actuate","xlink:arcrole","xlink:href","xlink:role","xlink:show","xlink:title","xlink:type"] =
+      "xlink " <> T.drop 6 n
+  | n `elem` ["xml:lang","xml:space"] =
+      "xml " <> T.drop 4 n
+  | n == "xmlns:xlink" = "xmlns xlink"
   | otherwise = n
 
 -- ---------------------------------------------------------------------------

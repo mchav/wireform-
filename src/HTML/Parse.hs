@@ -2674,21 +2674,32 @@ tokenizeAfterLTCtx svgDepth (c:rest)
           tok = TStartTag (T.pack lcName) attrs selfClose
           newSvgDepth = if lcName == "svg" then svgDepth + 1 else svgDepth
           inSvg = newSvgDepth > 0
-      in case lcName of
-        n | n `elem` ["script","style","xmp","iframe","noembed","noframes","noscript"] ->
-          if selfClose then tok : tokenizeCtx newSvgDepth rest2
-          else tok : tokenizeRawText rest2 (T.pack lcName)
-        "textarea" ->
-          if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2
-          else tok : tokenizeRCData rest2 (T.pack lcName)
-        "title" ->
-          if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2
-          else tok : tokenizeRCData rest2 (T.pack lcName)
-        "plaintext" ->
-          if inSvg then tok : tokenizeCtx newSvgDepth rest2
-          else tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2
-        _ -> tok : tokenizeCtx newSvgDepth rest2
+          eofInTag = case rest2 of
+            ('\x00':_) -> False
+            _ -> True
+          rest2' = case rest2 of { ('\x00':r) -> r; _ -> rest2 }
+      in if eofInTag
+         then []
+         else case lcName of
+           n | n `elem` ["script","style","xmp","iframe","noembed","noframes","noscript"] ->
+             if selfClose then tok : tokenizeCtx newSvgDepth rest2'
+             else tok : tokenizeRawText rest2' (T.pack lcName)
+           "textarea" ->
+             if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2'
+             else tok : tokenizeRCData rest2' (T.pack lcName)
+           "title" ->
+             if selfClose || inSvg then tok : tokenizeCtx newSvgDepth rest2'
+             else tok : tokenizeRCData rest2' (T.pack lcName)
+           "plaintext" ->
+             if inSvg then tok : tokenizeCtx newSvgDepth rest2'
+             else tok : map (\ch -> TChar (if ch == '\0' then '\xFFFD' else ch)) rest2'
+           _ -> tok : tokenizeCtx newSvgDepth rest2'
   | otherwise = TChar '<' : tokenizeCtx svgDepth (c:rest)
+
+anyGt :: String -> Bool
+anyGt [] = False
+anyGt ('>':_) = True
+anyGt (_:rest) = anyGt rest
 
 tokenizeEndTag :: String -> [Token]
 tokenizeEndTag = tokenizeEndTagCtx 0
@@ -2701,7 +2712,9 @@ tokenizeEndTagCtx svgDepth (c:rest)
           lcName = map toLower name
           rest2 = skipToGtStr rest1
           newSvgDepth = if lcName == "svg" && svgDepth > 0 then svgDepth - 1 else svgDepth
-      in TEndTag (T.pack lcName) : tokenizeCtx newSvgDepth rest2
+      in if null rest1 && null rest2
+         then []
+         else TEndTag (T.pack lcName) : tokenizeCtx newSvgDepth rest2
   | c == '>' = TComment "" : tokenizeCtx svgDepth rest
   | otherwise =
       let (comment, remaining) = readUntilStr ">" (c:rest)
@@ -2805,8 +2818,8 @@ readTagAttrs :: String -> ([(Text,Text)], Bool, String)
 readTagAttrs = go []
   where
     go acc [] = (reverse acc, False, [])
-    go acc ('>':rest) = (reverse acc, False, rest)
-    go acc ('/':'>':rest) = (reverse acc, True, rest)
+    go acc ('>':rest) = (reverse acc, False, '\x00':rest)
+    go acc ('/':'>':rest) = (reverse acc, True, '\x00':rest)
     go acc ('/':rest) = go acc rest
     go acc (c:rest)
       | isWSChar c = go acc rest
