@@ -201,7 +201,11 @@ coalesceTokens (TChar c : rest) = gatherChars [c] rest
     gatherChars !acc [] = [TString (T.pack (reverse acc))]
     gatherChars !acc (TChar '\0' : rs) = TString (T.pack (reverse acc)) : TChar '\0' : coalesceTokens rs
     gatherChars !acc (TChar c' : rs) = gatherChars (c':acc) rs
+    gatherChars !acc (TString t : rs) = TString (T.pack (reverse acc) <> t) : coalesceTokens rs
     gatherChars !acc rs = TString (T.pack (reverse acc)) : coalesceTokens rs
+coalesceTokens (TString t1 : TString t2 : rest) = coalesceTokens (TString (t1 <> t2) : rest)
+coalesceTokens (TString t1 : TChar '\0' : rest) = TString t1 : TChar '\0' : coalesceTokens rest
+coalesceTokens (TString t1 : TChar c : rest) = coalesceTokens (TString (T.snoc t1 c) : rest)
 coalesceTokens (t : rest) = t : coalesceTokens rest
 
 fragmentTokenize :: Text -> Maybe Text -> Text -> [Token]
@@ -3301,43 +3305,47 @@ matchCaseI _ [] = True
 matchCaseI [] _ = False
 matchCaseI (c:cs) (p:ps) = toLower c == p && matchCaseI cs ps
 
+flushAcc :: [Char] -> [Token]
+flushAcc [] = []
+flushAcc acc = [TString (T.pack (reverse acc))]
+
 tokenizeRawText :: String -> Text -> [Token]
 tokenizeRawText cs tag
   | tag == "script" = tokenizeScriptData cs
   | otherwise = goRaw [] cs
   where
     tagStr = T.unpack tag
-    goRaw acc [] = map TChar (reverse acc)
+    goRaw acc [] = flushAcc acc
     goRaw acc ('<':'/':rest)
       | matchCloseTag rest tagStr =
           let rest1 = drop (length tagStr) rest
               rest2 = skipToGtWithAttrs rest1
-          in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
+          in flushAcc acc ++ [TEndTag tag] ++ tokenizeNormal rest2
     goRaw acc ('\0':rest) = goRaw ('\xFFFD':acc) rest
     goRaw acc (c:rest) = goRaw (c:acc) rest
 
 tokenizeScriptData :: String -> [Token]
 tokenizeScriptData cs = scriptNormal [] cs
   where
-    scriptNormal acc [] = map TChar (reverse acc)
+    scriptNormal acc [] = flushAcc acc
     scriptNormal acc ('<':'/':rest)
       | matchCloseTag rest "script" =
           let rest1 = drop 6 rest
               rest2 = skipToGtWithAttrs rest1
-          in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
+          in flushAcc acc ++ [TEndTag "script"] ++ tokenizeNormal rest2
     scriptNormal acc ('<':'!':'-':'-':rest) =
       scriptEscaped ('-':'-':'!':'<':acc) rest
     scriptNormal acc ('\0':rest) = scriptNormal ('\xFFFD':acc) rest
     scriptNormal acc (c:rest) = scriptNormal (c:acc) rest
 
-    scriptEscaped acc [] = map TChar (reverse acc)
+    scriptEscaped acc [] = flushAcc acc
     scriptEscaped acc ('-':'-':'>':rest) =
       scriptNormal ('>':'-':'-':acc) rest
     scriptEscaped acc ('<':'/':rest)
       | matchCloseTag rest "script" =
           let rest1 = drop 6 rest
               rest2 = skipToGtWithAttrs rest1
-          in map TChar (reverse acc) ++ [TEndTag "script"] ++ tokenizeNormal rest2
+          in flushAcc acc ++ [TEndTag "script"] ++ tokenizeNormal rest2
     scriptEscaped acc ('<':rest) =
       let (tag, rest') = tryMatchScriptStart rest
       in case tag of
@@ -3348,7 +3356,7 @@ tokenizeScriptData cs = scriptNormal [] cs
     scriptEscaped acc ('\0':rest) = scriptEscaped ('\xFFFD':acc) rest
     scriptEscaped acc (c:rest) = scriptEscaped (c:acc) rest
 
-    scriptDoubleEscaped acc [] = map TChar (reverse acc)
+    scriptDoubleEscaped acc [] = flushAcc acc
     scriptDoubleEscaped acc ('-':'-':'>':rest) =
       scriptEscaped ('>':'-':'-':acc) rest
     scriptDoubleEscaped acc ('<':'/':rest) =
@@ -3394,12 +3402,12 @@ tokenizeRCData :: String -> Text -> [Token]
 tokenizeRCData cs tag = go [] cs
   where
     tagStr = T.unpack tag
-    go acc [] = map TChar (reverse acc)
+    go acc [] = flushAcc acc
     go acc ('<':'/':rest)
       | matchCloseTag rest tagStr =
           let rest1 = drop (length tagStr) rest
               rest2 = skipToGtWithAttrs rest1
-          in map TChar (reverse acc) ++ [TEndTag tag] ++ tokenizeNormal rest2
+          in flushAcc acc ++ [TEndTag tag] ++ tokenizeNormal rest2
     go acc ('&':rest) =
       let (entity, remaining) = parseEntityRef rest
       in go (reverse entity ++ acc) remaining
