@@ -129,11 +129,19 @@ parseHTMLNodes bs = unsafePerformIO $ do
 parseHTMLFragment :: Text -> Maybe Text -> ByteString -> [HTMLNode]
 parseHTMLFragment contextTag contextNs bs = unsafePerformIO $ do
   let txt = TE.decodeUtf8Lenient bs
-      tokens = tokenize txt
+      tokens = fragmentTokenize contextTag txt
   tb <- newTreeBuilder (Just (contextTag, contextNs))
   mapM_ (processToken tb) tokens
   processToken tb TEOF
   buildFragmentResult tb
+
+fragmentTokenize :: Text -> Text -> [Token]
+fragmentTokenize ctx txt
+  | ctx `elem` ["title", "textarea"] = tokenizeRCData (T.unpack txt) ctx
+  | ctx `elem` ["style", "xmp", "iframe", "noembed", "noframes", "noscript", "script"] =
+      tokenizeRawText (T.unpack txt) ctx
+  | ctx == "plaintext" = map TChar (T.unpack txt)
+  | otherwise = tokenize txt
 
 ------------------------------------------------------------------------
 -- Initialize tree builder
