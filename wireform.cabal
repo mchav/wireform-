@@ -415,7 +415,7 @@ library
 
     hs-source-dirs:   src
     default-language: GHC2021
-    ghc-options:      -O2
+    ghc-options:      -O2 -fllvm
     default-extensions:
       StrictData
       DerivingStrategies
@@ -1154,6 +1154,7 @@ benchmark quick-prof
       , deepseq
     hs-source-dirs:   bench
     default-language: GHC2021
+    ghc-options:      -rtsopts
     ghc-options: -O2 -rtsopts
 
 test-suite interop-test

@@ -6,6 +6,7 @@ module HTML.TagId
   , tagIdFromBS
   , internTagBS
   , internAttrNameBS
+  , internAttrNameRange
   , tagIdToText
   , tagIdIsSpecial
   , tagIdIsFormatting
@@ -325,6 +326,73 @@ internAttrNameBS !rawName =
     asciiToLower b
       | b >= 0x41, b <= 0x5A = b + 32
       | otherwise = b
+
+{-# NOINLINE internAttrNameRange #-}
+internAttrNameRange :: ByteString -> Int -> Int -> Text
+internAttrNameRange !bs !off !end =
+  let !n = end - off
+      b :: Int -> Word8
+      b i = BSU.unsafeIndex bs (off + i)
+      bl :: Int -> Word8
+      bl i = let !w = BSU.unsafeIndex bs (off + i)
+             in if w >= 0x41 && w <= 0x5A then w + 32 else w
+  in case n of
+    2 | bl 0 == 0x69, bl 1 == 0x64 -> "id"
+    3 | bl 0 == 0x73, bl 1 == 0x72, bl 2 == 0x63 -> "src"
+      | bl 0 == 0x64, bl 1 == 0x69, bl 2 == 0x72 -> "dir"
+      | bl 0 == 0x66, bl 1 == 0x6f, bl 2 == 0x72 -> "for"
+      | bl 0 == 0x61, bl 1 == 0x6c, bl 2 == 0x74 -> "alt"
+      | bl 0 == 0x72, bl 1 == 0x65, bl 2 == 0x6c -> "rel"
+    4 | bl 0 == 0x68, bl 1 == 0x72, bl 2 == 0x65, bl 3 == 0x66 -> "href"
+      | bl 0 == 0x74, bl 1 == 0x79, bl 2 == 0x70, bl 3 == 0x65 -> "type"
+      | bl 0 == 0x6e, bl 1 == 0x61, bl 2 == 0x6d, bl 3 == 0x65 -> "name"
+      | bl 0 == 0x6c, bl 1 == 0x61, bl 2 == 0x6e, bl 3 == 0x67 -> "lang"
+      | bl 0 == 0x72, bl 1 == 0x6f, bl 2 == 0x6c, bl 3 == 0x65 -> "role"
+      | bl 0 == 0x73, bl 1 == 0x69, bl 2 == 0x7a, bl 3 == 0x65 -> "size"
+      | bl 0 == 0x66, bl 1 == 0x61, bl 2 == 0x63, bl 3 == 0x65 -> "face"
+      | bl 0 == 0x64, bl 1 == 0x61, bl 2 == 0x74, bl 3 == 0x61 -> "data"
+    5 | bl 0 == 0x63, bl 1 == 0x6c, bl 2 == 0x61, bl 3 == 0x73, bl 4 == 0x73 -> "class"
+      | bl 0 == 0x73, bl 1 == 0x74, bl 2 == 0x79, bl 3 == 0x6c, bl 4 == 0x65 -> "style"
+      | bl 0 == 0x76, bl 1 == 0x61, bl 2 == 0x6c, bl 3 == 0x75, bl 4 == 0x65 -> "value"
+      | bl 0 == 0x74, bl 1 == 0x69, bl 2 == 0x74, bl 3 == 0x6c, bl 4 == 0x65 -> "title"
+      | bl 0 == 0x77, bl 1 == 0x69, bl 2 == 0x64, bl 3 == 0x74, bl 4 == 0x68 -> "width"
+      | bl 0 == 0x6d, bl 1 == 0x65, bl 2 == 0x64, bl 3 == 0x69, bl 4 == 0x61 -> "media"
+      | bl 0 == 0x73, bl 1 == 0x69, bl 2 == 0x7a, bl 3 == 0x65, bl 4 == 0x73 -> "sizes"
+      | bl 0 == 0x64, bl 1 == 0x65, bl 2 == 0x66, bl 3 == 0x65, bl 4 == 0x72 -> "defer"
+      | bl 0 == 0x61, bl 1 == 0x73, bl 2 == 0x79, bl 3 == 0x6e, bl 4 == 0x63 -> "async"
+      | bl 0 == 0x63, bl 1 == 0x6f, bl 2 == 0x6c, bl 3 == 0x6f, bl 4 == 0x72 -> "color"
+      | bl 0 == 0x73, bl 1 == 0x63, bl 2 == 0x6f, bl 3 == 0x70, bl 4 == 0x65 -> "scope"
+    6 | bl 0 == 0x68, bl 1 == 0x65, bl 2 == 0x69, bl 3 == 0x67, bl 4 == 0x68, bl 5 == 0x74 -> "height"
+      | bl 0 == 0x68, bl 1 == 0x69, bl 2 == 0x64, bl 3 == 0x64, bl 4 == 0x65, bl 5 == 0x6e -> "hidden"
+      | bl 0 == 0x74, bl 1 == 0x61, bl 2 == 0x72, bl 3 == 0x67, bl 4 == 0x65, bl 5 == 0x74 -> "target"
+      | bl 0 == 0x61, bl 1 == 0x63, bl 2 == 0x74, bl 3 == 0x69, bl 4 == 0x6f, bl 5 == 0x6e -> "action"
+      | bl 0 == 0x6d, bl 1 == 0x65, bl 2 == 0x74, bl 3 == 0x68, bl 4 == 0x6f, bl 5 == 0x64 -> "method"
+    7 | bl 0 == 0x63, bl 1 == 0x68, bl 2 == 0x61, bl 3 == 0x72
+      , bl 4 == 0x73, bl 5 == 0x65, bl 6 == 0x74 -> "charset"
+      | bl 0 == 0x63, bl 1 == 0x6f, bl 2 == 0x6e, bl 3 == 0x74
+      , bl 4 == 0x65, bl 5 == 0x6e, bl 6 == 0x74 -> "content"
+      | bl 0 == 0x63, bl 1 == 0x6f, bl 2 == 0x6c, bl 3 == 0x73
+      , bl 4 == 0x70, bl 5 == 0x61, bl 6 == 0x6e -> "colspan"
+      | bl 0 == 0x72, bl 1 == 0x6f, bl 2 == 0x77, bl 3 == 0x73
+      , bl 4 == 0x70, bl 5 == 0x61, bl 6 == 0x6e -> "rowspan"
+      | bl 0 == 0x63, bl 1 == 0x68, bl 2 == 0x65, bl 3 == 0x63
+      , bl 4 == 0x6b, bl 5 == 0x65, bl 6 == 0x64 -> "checked"
+    8 | bl 0 == 0x64, bl 1 == 0x69, bl 2 == 0x73, bl 3 == 0x61
+      , bl 4 == 0x62, bl 5 == 0x6c, bl 6 == 0x65, bl 7 == 0x64 -> "disabled"
+      | bl 0 == 0x73, bl 1 == 0x65, bl 2 == 0x6c, bl 3 == 0x65
+      , bl 4 == 0x63, bl 5 == 0x74, bl 6 == 0x65, bl 7 == 0x64 -> "selected"
+      | bl 0 == 0x72, bl 1 == 0x65, bl 2 == 0x61, bl 3 == 0x64
+      , bl 4 == 0x6f, bl 5 == 0x6e, bl 6 == 0x6c, bl 7 == 0x79 -> "readonly"
+      | bl 0 == 0x72, bl 1 == 0x65, bl 2 == 0x71, bl 3 == 0x75
+      , bl 4 == 0x69, bl 5 == 0x72, bl 6 == 0x65, bl 7 == 0x64 -> "required"
+      | bl 0 == 0x70, bl 1 == 0x72, bl 2 == 0x6f, bl 3 == 0x70
+      , bl 4 == 0x65, bl 5 == 0x72, bl 6 == 0x74, bl 7 == 0x79 -> "property"
+      | bl 0 == 0x74, bl 1 == 0x61, bl 2 == 0x62, bl 3 == 0x69
+      , bl 4 == 0x6e, bl 5 == 0x64, bl 6 == 0x65, bl 7 == 0x78 -> "tabindex"
+      | bl 0 == 0x65, bl 1 == 0x6e, bl 2 == 0x63, bl 3 == 0x6f
+      , bl 4 == 0x64, bl 5 == 0x69, bl 6 == 0x6e, bl 7 == 0x67 -> "encoding"
+    _ | n <= 0 -> ""
+    _ -> internAttrNameBS (BSU.unsafeTake n (BSU.unsafeDrop off bs))
 
 tagIdToText :: TagId -> Text
 tagIdToText TagA = "a"
