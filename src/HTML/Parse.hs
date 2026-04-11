@@ -43,9 +43,10 @@ import Data.Array.Byte (ByteArray(ByteArray))
 import Data.Text.Internal (Text(Text))
 import Data.Primitive.SmallArray
   (SmallArray, SmallMutableArray, newSmallArray, readSmallArray, writeSmallArray,
-   sizeofSmallMutableArray, copySmallMutableArray,
+   sizeofSmallMutableArray, copySmallMutableArray, shrinkSmallMutableArray,
    unsafeFreezeSmallArray, smallArrayFromList, mapSmallArray',
    sizeofSmallArray, indexSmallArray)
+import Unsafe.Coerce (unsafeCoerce)
 import Data.Primitive.ByteArray
   (MutableByteArray, newByteArray, readByteArray, writeByteArray)
 import GHC.Exts (RealWorld)
@@ -963,34 +964,46 @@ tbChildToHTMLNode (TBCElement node) = tbNodeToHTMLNode node
 tbChildToHTMLNode (TBCText t) = pure (HTMLText t)
 tbChildToHTMLNode (TBCComment t) = pure (HTMLComment t)
 
+-- | Convert a mutable TBNode to an immutable HTMLNode.
+--
+-- Uses in-place conversion: TBCText\/TBCComment have identical memory layout
+-- to HTMLText\/HTMLComment (same constructor tag and arity), so they are
+-- reinterpreted via unsafeCoerce without allocation.  TBCElement entries are
+-- recursively converted and overwritten.  The mutable array is then shrunk to
+-- the live count and frozen in place — zero SmallArray body allocation.
 tbNodeToHTMLNode :: TBNode -> IO HTMLNode
 tbNodeToHTMLNode node
   | nodeIsTemplate node = do
       ChildVec tcb tarr <- readIORef (nodeTemplateContents node)
       tn <- readByteArray tcb 0
       if tn > 0
-        then buildElement tarr tn
+        then buildElementInPlace tarr tn
         else do
           ChildVec ccb carr <- readIORef (nodeChildren node)
           cn <- readByteArray ccb 0
-          buildElement carr cn
+          buildElementInPlace carr cn
   | otherwise = do
       ChildVec ccb carr <- readIORef (nodeChildren node)
       cn <- readByteArray ccb 0
-      buildElement carr cn
+      buildElementInPlace carr cn
   where
-    buildElement !carr !cn = do
+    buildElementInPlace !carr !cn = do
       attrVec <- readIORef (nodeAttrs node)
       childArr <- if cn == 0
         then pure mempty
         else do
-          ma <- newSmallArray cn (error "uninit HTMLNode")
+          let !htmlArr = unsafeCoerce carr :: SmallMutableArray RealWorld HTMLNode
           let go !i
-                | i >= cn = unsafeFreezeSmallArray ma
+                | i >= cn = do
+                    shrinkSmallMutableArray htmlArr cn
+                    unsafeFreezeSmallArray htmlArr
                 | otherwise = do
                     child <- readSmallArray carr i
-                    htmlNode <- tbChildToHTMLNode child
-                    writeSmallArray ma i htmlNode
+                    case child of
+                      TBCElement n -> do
+                        h <- tbNodeToHTMLNode n
+                        writeSmallArray htmlArr i h
+                      _ -> pure ()
                     go (i + 1)
           go 0
       let !displayName = if nodeIsHTMLNs node then nodeName node
