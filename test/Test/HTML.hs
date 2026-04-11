@@ -300,7 +300,7 @@ encodeDecodeTests = testGroup "Encode/Decode"
                 [ HTMLElement "p" emptySmallArray (smallArrayFromList [HTMLText "hello"])
                 , HTMLElement "br" emptySmallArray mempty
                 , HTMLElement "p" emptySmallArray (smallArrayFromList [HTMLText "world"])
-                ])))
+                ]))
           encoded = encodeHTML doc
           decoded = parseHTML encoded
           root = htmlRoot decoded
