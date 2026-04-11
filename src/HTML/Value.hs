@@ -15,10 +15,12 @@ module HTML.Value
   ) where
 
 import Control.DeepSeq (NFData(..))
+import Data.Foldable (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import Data.Text.Lazy.Builder (Builder, toLazyText, fromText)
+import Data.Primitive.SmallArray (SmallArray, sizeofSmallArray, indexSmallArray)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
@@ -32,17 +34,24 @@ instance NFData HTMLDocument where
   rnf (HTMLDocument d r) = rnf d `seq` rnf r
 
 data HTMLNode
-  = HTMLElement !Text !(Vector HTMLAttribute) !(Vector HTMLNode)
+  = HTMLElement !Text !(Vector HTMLAttribute) !(SmallArray HTMLNode)
   | HTMLText !Text
   | HTMLComment !Text
   | HTMLDoctype !Text !(Maybe Text) !(Maybe Text)
   deriving stock (Show, Eq, Generic)
 
 instance NFData HTMLNode where
-  rnf (HTMLElement t as cs) = rnf t `seq` rnf as `seq` rnf cs
+  rnf (HTMLElement t as cs) = rnf t `seq` rnf as `seq` rnfSmallArray cs
   rnf (HTMLText t) = rnf t
   rnf (HTMLComment t) = rnf t
   rnf (HTMLDoctype t p s) = rnf t `seq` rnf p `seq` rnf s
+
+rnfSmallArray :: NFData a => SmallArray a -> ()
+rnfSmallArray arr = go 0
+  where
+    !n = sizeofSmallArray arr
+    go !i | i >= n = ()
+          | otherwise = rnf (indexSmallArray arr i) `seq` go (i + 1)
 
 data HTMLAttribute = HTMLAttribute !Text !Text
   deriving stock (Show, Eq, Generic)
@@ -63,7 +72,7 @@ textContent node = TL.toStrict (toLazyText (go node))
     go (HTMLText t) = fromText t
     go (HTMLComment _) = mempty
     go (HTMLDoctype _ _ _) = mempty
-    go (HTMLElement _ _ cs) = V.foldl' (\acc c -> acc <> go c) mempty cs
+    go (HTMLElement _ _ cs) = foldl' (\acc c -> acc <> go c) mempty cs
 
 getAttr :: Text -> HTMLNode -> Maybe Text
 getAttr name (HTMLElement _ attrs _) = go 0

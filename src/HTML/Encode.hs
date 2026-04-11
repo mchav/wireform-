@@ -18,6 +18,8 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Foldable (foldl')
+import Data.Primitive.SmallArray (SmallArray, sizeofSmallArray)
 import qualified Data.Vector as V
 import Data.Word (Word8)
 import Foreign.C.Types (CInt(..))
@@ -53,12 +55,12 @@ buildNode = \case
   HTMLElement tag attrs children
     | isVoidElement tag ->
         BB.char7 '<' <> BB.byteString (TE.encodeUtf8 tag) <> buildAttrs attrs <> BB.char7 '>'
-    | V.null children ->
+    | sizeofSmallArray children == 0 ->
         BB.char7 '<' <> tagBS <> buildAttrs attrs <> BB.char7 '>'
         <> BB.byteString "</" <> tagBS <> BB.char7 '>'
     | otherwise ->
         BB.char7 '<' <> tagBS <> buildAttrs attrs <> BB.char7 '>'
-        <> V.foldl' (\acc c -> acc <> buildNode c) mempty children
+        <> foldl' (\acc c -> acc <> buildNode c) mempty children
         <> BB.byteString "</" <> tagBS <> BB.char7 '>'
     where !tagBS = BB.byteString (TE.encodeUtf8 tag)
 

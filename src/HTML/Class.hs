@@ -15,6 +15,7 @@ module HTML.Class
   ) where
 
 import Data.ByteString (ByteString)
+import Data.Foldable (toList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy.Builder as TLB
@@ -22,6 +23,7 @@ import qualified Data.Text.Lazy.Builder.Int as TLB
 import qualified Data.Text.Lazy.Builder.RealFloat as TLB
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Read as TR
+import Data.Primitive.SmallArray (SmallArray, smallArrayFromList, sizeofSmallArray, indexSmallArray)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Generics
@@ -100,24 +102,24 @@ instance FromHTML Bool where
       _ -> Left $ "FromHTML Bool: cannot parse " <> T.unpack t
 
 instance ToHTML a => ToHTML (Maybe a) where
-  toHTML Nothing = HTMLElement "span" V.empty V.empty
+  toHTML Nothing = HTMLElement "span" V.empty mempty
   toHTML (Just x) = toHTML x
 
 instance FromHTML a => FromHTML (Maybe a) where
   fromHTML (HTMLElement "span" _ cs)
-    | V.null cs = Right Nothing
+    | sizeofSmallArray cs == 0 = Right Nothing
   fromHTML n = Just <$> fromHTML n
 
 instance ToHTML a => ToHTML [a] where
   toHTML xs = HTMLElement "ul" V.empty
-    (V.fromList (map (\x -> HTMLElement "li" V.empty (V.singleton (toHTML x))) xs))
+    (smallArrayFromList (map (\x -> HTMLElement "li" V.empty (smallArrayFromList [toHTML x])) xs))
 
 instance FromHTML a => FromHTML [a] where
-  fromHTML (HTMLElement _ _ cs) = traverse fromChild (V.toList cs)
+  fromHTML (HTMLElement _ _ cs) = traverse fromChild (toList cs)
     where
       fromChild (HTMLElement _ _ innerCs)
-        | V.length innerCs == 1 = fromHTML (V.head innerCs)
-        | V.null innerCs = fromHTML (HTMLText T.empty)
+        | sizeofSmallArray innerCs == 1 = fromHTML (indexSmallArray innerCs 0)
+        | sizeofSmallArray innerCs == 0 = fromHTML (HTMLText T.empty)
         | otherwise = Left "FromHTML [a]: expected single child per item"
       fromChild n = fromHTML n
   fromHTML _ = Left "FromHTML [a]: expected element"
@@ -157,24 +159,24 @@ class GFromHTMLCon f where
 instance GToHTMLFields f => GToHTMLCon (M1 C c f) where
   gToHTMLCon typeName (M1 x) =
     let fields = gToHTMLFields x
-        children = V.fromList
-          (map (\(k, v) -> HTMLElement (T.pack k) V.empty (V.singleton v)) fields)
+        children = smallArrayFromList
+          (map (\(k, v) -> HTMLElement (T.pack k) V.empty (smallArrayFromList [v])) fields)
     in HTMLElement (T.pack typeName) V.empty children
 
 instance GFromHTMLFields f => GFromHTMLCon (M1 C c f) where
   gFromHTMLCon (HTMLElement _ _ cs) = M1 <$> gFromHTMLFields (lookupChild cs)
   gFromHTMLCon _ = Left "GFromHTML: expected HTMLElement for record type"
 
-lookupChild :: Vector HTMLNode -> Text -> Maybe HTMLNode
+lookupChild :: SmallArray HTMLNode -> Text -> Maybe HTMLNode
 lookupChild cs name = go 0
   where
-    !len = V.length cs
+    !len = sizeofSmallArray cs
     go !i
       | i >= len = Nothing
-      | HTMLElement n _ innerCs <- cs V.! i
+      | HTMLElement n _ innerCs <- indexSmallArray cs i
       , n == name =
-          if V.length innerCs == 1
-            then Just (V.head innerCs)
+          if sizeofSmallArray innerCs == 1
+            then Just (indexSmallArray innerCs 0)
             else Just (HTMLElement n V.empty innerCs)
       | otherwise = go (i + 1)
 

@@ -21,6 +21,7 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Char (chr, digitToInt, isDigit, isHexDigit, toLower, isAlpha, isAlphaNum)
 import Data.Word (Word8)
 import Data.IORef
+import Data.Foldable (toList)
 import Data.List (foldl', sortBy)
 import Data.Ord (comparing)
 import Data.Text (Text)
@@ -41,8 +42,10 @@ import GHC.Word (Word8(..))
 import Data.Array.Byte (ByteArray(ByteArray))
 import Data.Text.Internal (Text(Text))
 import Data.Primitive.SmallArray
-  (SmallMutableArray, newSmallArray, readSmallArray, writeSmallArray,
-   sizeofSmallMutableArray, copySmallMutableArray)
+  (SmallArray, SmallMutableArray, newSmallArray, readSmallArray, writeSmallArray,
+   sizeofSmallMutableArray, copySmallMutableArray,
+   unsafeFreezeSmallArray, smallArrayFromList, mapSmallArray',
+   sizeofSmallArray, indexSmallArray)
 import Data.Primitive.ByteArray
   (MutableByteArray, newByteArray, readByteArray, writeByteArray)
 import GHC.Exts (RealWorld)
@@ -978,12 +981,21 @@ tbNodeToHTMLNode node
   where
     buildElement !carr !cn = do
       attrVec <- readIORef (nodeAttrs node)
-      childVec <- case cn of
-        0 -> pure V.empty
-        _ -> V.generateM cn (\i -> readSmallArray carr i >>= tbChildToHTMLNode)
+      childArr <- if cn == 0
+        then pure mempty
+        else do
+          ma <- newSmallArray cn (error "uninit HTMLNode")
+          let go !i
+                | i >= cn = unsafeFreezeSmallArray ma
+                | otherwise = do
+                    child <- readSmallArray carr i
+                    htmlNode <- tbChildToHTMLNode child
+                    writeSmallArray ma i htmlNode
+                    go (i + 1)
+          go 0
       let !displayName = if nodeIsHTMLNs node then nodeName node
                          else nameWithNs (nodeName node) (nodeNs node)
-      pure $! HTMLElement displayName attrVec childVec
+      pure $! HTMLElement displayName attrVec childArr
 
 childToHTMLNode :: ChildNode -> IO HTMLNode
 childToHTMLNode (CElement node) = tbNodeToHTMLNode node
@@ -994,61 +1006,61 @@ childToHTMLNode (CDoctype n p s) = pure (HTMLDoctype n p s)
 populateSelectedContent :: HTMLNode -> HTMLNode
 populateSelectedContent node@(HTMLElement tag attrs children)
   | tag == "select" =
-      let children' = V.map populateSelectedContent children
+      let children' = mapSmallArray' populateSelectedContent children
           mSelectedContent = findSelectedContentInSelect children'
-          options = findOptions children'
-          selectedOpt = case filter hasSelectedAttr (V.toList options) of
+          options = findOptionsList children'
+          selectedOpt = case filter hasSelectedAttr options of
             (opt:_) -> opt
-            [] -> case V.toList options of
+            [] -> case options of
               (opt:_) -> opt
               [] -> HTMLText ""
       in case mSelectedContent of
         Just _ ->
-          let newChildren = V.map (fillSelectedContent (getOptionChildren selectedOpt)) children'
+          let newChildren = mapSmallArray' (fillSelectedContent (getOptionChildren selectedOpt)) children'
           in HTMLElement tag attrs newChildren
         Nothing -> HTMLElement tag attrs children'
-  | V.null children = node
+  | sizeofSmallArray children == 0 = node
   | otherwise =
-      let !children' = V.map populateSelectedContent children
+      let !children' = mapSmallArray' populateSelectedContent children
       in HTMLElement tag attrs children'
 populateSelectedContent other = other
 
 hasSelectElement :: HTMLNode -> Bool
 hasSelectElement (HTMLElement "select" _ _) = True
-hasSelectElement (HTMLElement _ _ cs) = V.any hasSelectElement cs
+hasSelectElement (HTMLElement _ _ cs) = any hasSelectElement cs
 hasSelectElement _ = False
 
-findSelectedContentInSelect :: Vector HTMLNode -> Maybe HTMLNode
+findSelectedContentInSelect :: SmallArray HTMLNode -> Maybe HTMLNode
 findSelectedContentInSelect children =
-  let found = V.concatMap findSC children
-  in if V.null found then Nothing else Just (V.head found)
+  let found = concatMap findSC (toList children)
+  in case found of { [] -> Nothing; (x:_) -> Just x }
   where
     findSC (HTMLElement t _ cs)
-      | t == "selectedcontent" = V.singleton (HTMLElement t V.empty cs)
-      | otherwise = V.concatMap findSC cs
-    findSC _ = V.empty
+      | t == "selectedcontent" = [HTMLElement t V.empty cs]
+      | otherwise = concatMap findSC (toList cs)
+    findSC _ = []
 
-findOptions :: Vector HTMLNode -> Vector HTMLNode
-findOptions children = V.concatMap findOpt children
+findOptionsList :: SmallArray HTMLNode -> [HTMLNode]
+findOptionsList children = concatMap findOpt (toList children)
   where
     findOpt node@(HTMLElement t _ cs)
-      | t == "option" = V.singleton node
-      | otherwise = V.concatMap findOpt cs
-    findOpt _ = V.empty
+      | t == "option" = [node]
+      | otherwise = concatMap findOpt (toList cs)
+    findOpt _ = []
 
 hasSelectedAttr :: HTMLNode -> Bool
 hasSelectedAttr (HTMLElement _ attrs _) =
   V.any (\(HTMLAttribute n _) -> n == "selected") attrs
 hasSelectedAttr _ = False
 
-getOptionChildren :: HTMLNode -> Vector HTMLNode
+getOptionChildren :: HTMLNode -> SmallArray HTMLNode
 getOptionChildren (HTMLElement _ _ cs) = cs
-getOptionChildren _ = V.empty
+getOptionChildren _ = mempty
 
-fillSelectedContent :: Vector HTMLNode -> HTMLNode -> HTMLNode
+fillSelectedContent :: SmallArray HTMLNode -> HTMLNode -> HTMLNode
 fillSelectedContent optChildren (HTMLElement tag attrs children)
   | tag == "selectedcontent" = HTMLElement tag attrs optChildren
-  | otherwise = HTMLElement tag attrs (V.map (fillSelectedContent optChildren) children)
+  | otherwise = HTMLElement tag attrs (mapSmallArray' (fillSelectedContent optChildren) children)
 fillSelectedContent _ other = other
 
 extractDoctype :: [HTMLNode] -> Maybe Doctype
@@ -1059,7 +1071,7 @@ extractDoctype (_:rest) = extractDoctype rest
 findOrCreateRoot :: [HTMLNode] -> HTMLNode
 findOrCreateRoot = go
   where
-    go [] = HTMLElement "html" V.empty V.empty
+    go [] = HTMLElement "html" V.empty mempty
     go (n@(HTMLElement "html" _ _) : _) = n
     go (_ : rest) = go rest
 

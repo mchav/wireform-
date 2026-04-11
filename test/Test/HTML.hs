@@ -4,9 +4,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Test.HTML (htmlTests) where
 
+import Data.Foldable (toList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Primitive.SmallArray (SmallArray, smallArrayFromList, sizeofSmallArray, indexSmallArray)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
@@ -41,7 +43,7 @@ parseTests = testGroup "Parse"
       let doc = parseHTML "<p>hello"
           root = htmlRoot doc
       case root of
-        HTMLElement "p" _ cs -> textContent (V.head cs) @?= "hello"
+        HTMLElement "p" _ cs -> textContent (indexSmallArray cs 0) @?= "hello"
         _ -> assertBool "found p element" (containsTag "p" root)
 
   , testCase "full document" $ do
@@ -87,7 +89,7 @@ voidElementTests = testGroup "Void elements"
       let doc = parseHTML "<br>text after"
           root = htmlRoot doc
       case root of
-        HTMLElement "br" _ cs -> V.null cs @?= True
+        HTMLElement "br" _ cs -> (sizeofSmallArray cs == 0) @?= True
         _ -> pure ()
 
   , testCase "input is void" $ do
@@ -131,8 +133,8 @@ rawTextTests = testGroup "Raw text elements"
           root = htmlRoot doc
       case findTag "script" root of
         Just (HTMLElement _ _ cs)
-          | not (V.null cs) -> do
-              let content = textContent (V.head cs)
+          | sizeofSmallArray cs > 0 -> do
+              let content = textContent (indexSmallArray cs 0)
               assertBool "contains raw content" (T.isInfixOf "<" content)
         _ -> assertFailure "expected script element"
 
@@ -141,8 +143,8 @@ rawTextTests = testGroup "Raw text elements"
           root = htmlRoot doc
       case findTag "style" root of
         Just (HTMLElement _ _ cs)
-          | not (V.null cs) ->
-              assertBool "has style content" (not (T.null (textContent (V.head cs))))
+          | sizeofSmallArray cs > 0 ->
+              assertBool "has style content" (not (T.null (textContent (indexSmallArray cs 0))))
         _ -> assertFailure "expected style element"
   ]
 
@@ -285,7 +287,7 @@ encodeDecodeTests :: TestTree
 encodeDecodeTests = testGroup "Encode/Decode"
   [ testCase "encode void elements without closing tag" $ do
       let doc = HTMLDocument Nothing (HTMLElement "div" V.empty
-            (V.fromList [HTMLElement "br" V.empty V.empty, HTMLElement "hr" V.empty V.empty]))
+            (smallArrayFromList [HTMLElement "br" V.empty mempty, HTMLElement "hr" V.empty mempty]))
           encoded = encodeHTML doc
           decoded = parseHTML encoded
           root = htmlRoot decoded
@@ -295,11 +297,11 @@ encodeDecodeTests = testGroup "Encode/Decode"
   , testCase "encode/parse roundtrip preserves structure" $ do
       let doc = HTMLDocument Nothing
             (HTMLElement "div" (V.singleton (HTMLAttribute "class" "main"))
-              (V.fromList
-                [ HTMLElement "p" V.empty (V.singleton (HTMLText "hello"))
-                , HTMLElement "br" V.empty V.empty
-                , HTMLElement "p" V.empty (V.singleton (HTMLText "world"))
-                ]))
+              (smallArrayFromList
+                [ HTMLElement "p" V.empty (smallArrayFromList [HTMLText "hello"])
+                , HTMLElement "br" V.empty mempty
+                , HTMLElement "p" V.empty (smallArrayFromList [HTMLText "world"])
+                ])))
           encoded = encodeHTML doc
           decoded = parseHTML encoded
           root = htmlRoot decoded
@@ -312,13 +314,13 @@ encodeDecodeTests = testGroup "Encode/Decode"
             (HTMLElement "input" (V.fromList
               [ HTMLAttribute "type" "checkbox"
               , HTMLAttribute "checked" ""
-              ]) V.empty)
+              ]) mempty)
           encoded = TE.decodeUtf8 (encodeHTML doc)
       assertBool "has checked without value" (T.isInfixOf " checked" encoded)
 
   , testCase "encodes entities in text" $ do
       let doc = HTMLDocument Nothing
-            (HTMLElement "p" V.empty (V.singleton (HTMLText "a < b & c > d")))
+            (HTMLElement "p" V.empty (smallArrayFromList [HTMLText "a < b & c > d"]))
           encoded = TE.decodeUtf8 (encodeHTML doc)
       assertBool "has &lt;" (T.isInfixOf "&lt;" encoded)
       assertBool "has &amp;" (T.isInfixOf "&amp;" encoded)
@@ -351,7 +353,7 @@ genericTests = testGroup "Generic deriving"
       let person = PersonHTML "John" 30
           node = toHTML person
       case node of
-        HTMLElement _ _ cs -> V.length cs @?= 2
+        HTMLElement _ _ cs -> sizeofSmallArray cs @?= 2
         _ -> assertFailure "expected HTMLElement"
 
   , testCase "record roundtrip" $ do
@@ -401,23 +403,23 @@ getTagName _ = Nothing
 containsTag :: Text -> HTMLNode -> Bool
 containsTag tag (HTMLElement t _ cs)
   | t == tag = True
-  | otherwise = V.any (containsTag tag) cs
+  | otherwise = any (containsTag tag) cs
 containsTag _ _ = False
 
 findTag :: Text -> HTMLNode -> Maybe HTMLNode
 findTag tag n@(HTMLElement t _ cs)
   | t == tag = Just n
-  | otherwise = V.foldl' (\acc c -> case acc of Just _ -> acc; Nothing -> findTag tag c) Nothing cs
+  | otherwise = foldl (\acc c -> case acc of Just _ -> acc; Nothing -> findTag tag c) Nothing (toList cs)
 findTag _ _ = Nothing
 
 hasComment :: HTMLNode -> Bool
 hasComment (HTMLComment _) = True
-hasComment (HTMLElement _ _ cs) = V.any hasComment cs
+hasComment (HTMLElement _ _ cs) = any hasComment cs
 hasComment _ = False
 
 findComment :: HTMLNode -> Maybe Text
 findComment (HTMLComment t) = Just t
-findComment (HTMLElement _ _ cs) = V.foldl' (\acc c -> case acc of Just _ -> acc; Nothing -> findComment c) Nothing cs
+findComment (HTMLElement _ _ cs) = foldl (\acc c -> case acc of Just _ -> acc; Nothing -> findComment c) Nothing (toList cs)
 findComment _ = Nothing
 
 deepTextContent :: HTMLNode -> Text

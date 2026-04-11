@@ -8,6 +8,7 @@ import Data.List (isSuffixOf, sort, isPrefixOf, intercalate)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Foldable (toList)
 import qualified Data.Vector as V
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
@@ -371,7 +372,7 @@ nodeToExp (HTMLElement tag attrs children) =
       adjustAttr (HTMLAttribute n v) =
         if isForeign then ExpAttr (adjustForeignAttrName n) v else ExpAttr n v
       attrList = sort (map adjustAttr (V.toList attrs))
-      childExps = map nodeToExp (V.toList children)
+      childExps = map nodeToExp (toList children)
       isTemplate = tag == "template"
   in if isTemplate
      then ExpElement tag attrList [ExpTemplate childExps]

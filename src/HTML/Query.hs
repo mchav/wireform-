@@ -10,6 +10,7 @@ module HTML.Query
   , getElementsByTag
   ) where
 
+import Data.Foldable (toList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
@@ -84,13 +85,12 @@ findAttr name attrs = go 0
       | otherwise = go (i + 1)
 
 collectDescendants :: (HTMLNode -> Bool) -> HTMLNode -> Vector HTMLNode
-collectDescendants pred' node = go node
+collectDescendants pred' node = V.fromList (go node [])
   where
-    go n@(HTMLElement _ _ children) =
-      let !self = if pred' n then V.singleton n else V.empty
-          !childResults = V.concatMap go children
-      in self V.++ childResults
-    go _ = V.empty
+    go n@(HTMLElement _ _ children) acc =
+      let acc' = foldr go acc (toList children)
+      in if pred' n then n : acc' else acc'
+    go _ acc = acc
 
 matchDescendantChain :: [SimpleSelector] -> HTMLNode -> Vector HTMLNode
 matchDescendantChain [] _ = V.empty
