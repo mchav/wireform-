@@ -6,8 +6,7 @@ import qualified Data.ByteString as BS
 import Control.Exception (evaluate)
 import GHC.Stats
 import System.Mem (performGC)
-import Data.IORef
-import HTML.Parse (parseHTML)
+import HTML.Parse (parseHTML, tokenizeOnlyIO, treeBuildOnlyIO)
 import HTML.Value (HTMLDocument)
 
 mediumHTML :: BS.ByteString
@@ -32,6 +31,40 @@ parseHTMLIO :: BS.ByteString -> IO HTMLDocument
 parseHTMLIO !bs = evaluate $! parseHTML bs
 {-# NOINLINE parseHTMLIO #-}
 
+tokenizeIO :: BS.ByteString -> IO Int
+tokenizeIO !bs = tokenizeOnlyIO bs
+{-# NOINLINE tokenizeIO #-}
+
+treeBuildIO :: BS.ByteString -> IO ()
+treeBuildIO !bs = treeBuildOnlyIO bs
+{-# NOINLINE treeBuildIO #-}
+
+bench :: String -> Int -> IO a -> IO (Int, Double)
+bench label n act = do
+  performGC
+  s0 <- getRTSStats
+  let !alloc0 = allocated_bytes s0
+      !mut0   = mutator_elapsed_ns s0
+  go n
+  performGC
+  s1 <- getRTSStats
+  let !alloc1 = allocated_bytes s1
+      !mut1   = mutator_elapsed_ns s1
+      !totalAlloc = alloc1 - alloc0
+      !perIter = totalAlloc `div` fromIntegral n
+      !mutNs = mut1 - mut0
+      !mutSec = fromIntegral mutNs / 1e9 :: Double
+      !totalBytes = fromIntegral (BS.length mediumHTML) * fromIntegral n :: Double
+      !mbps = totalBytes / (mutSec * 1e6)
+  putStrLn $ label ++ ":"
+  putStrLn $ "  alloc/iter: " ++ show perIter ++ " bytes"
+  putStrLn $ "  MUT: " ++ show mutSec ++ "s"
+  putStrLn $ "  throughput: " ++ show (round mbps :: Int) ++ " MB/s"
+  pure (fromIntegral perIter, mbps)
+  where
+    go 0 = pure ()
+    go !i = act >> go (i - 1)
+
 main :: IO ()
 main = do
   rtsEnabled <- getRTSStatsEnabled
@@ -39,35 +72,11 @@ main = do
     then putStrLn "Run with +RTS -T to get allocation stats"
     else do
       putStrLn $ "Input: " ++ show (BS.length mediumHTML) ++ " bytes"
-      let n = 10000
-      sink <- newIORef (0 :: Int)
-      performGC
-      s0 <- getRTSStats
-      let !alloc0 = allocated_bytes s0
-          !mut0 = mutator_elapsed_ns s0
-      go sink n
-      performGC
-      s1 <- getRTSStats
-      let !alloc1 = allocated_bytes s1
-          !mut1 = mutator_elapsed_ns s1
-          !totalAlloc = alloc1 - alloc0
-          !perParse = totalAlloc `div` fromIntegral n
-          !mutNs = mut1 - mut0
-          !mutSec = fromIntegral mutNs / 1e9 :: Double
-          !totalBytes = fromIntegral (BS.length mediumHTML) * fromIntegral n :: Double
-          !mbps = totalBytes / (mutSec * 1e6)
-      sinkVal <- readIORef sink
-      putStrLn $ "Sink: " ++ show sinkVal
-      putStrLn $ "Iterations: " ++ show n
-      putStrLn $ "Total allocated: " ++ show totalAlloc ++ " bytes"
-      putStrLn $ "Per parse: " ++ show perParse ++ " bytes"
-      putStrLn $ "Per input byte: " ++ show (fromIntegral perParse / fromIntegral (BS.length mediumHTML) :: Double) ++ "x"
-      putStrLn $ "MUT time: " ++ show mutSec ++ "s"
-      putStrLn $ "Throughput: " ++ show (round mbps :: Int) ++ " MB/s"
-  where
-    go :: IORef Int -> Int -> IO ()
-    go _ 0 = pure ()
-    go !sink !i = do
-      !_ <- parseHTMLIO mediumHTML
-      modifyIORef' sink (+ 1)
-      go sink (i - 1)
+      let n = 5000
+      (tokAlloc, _tokMbps)    <- bench "tokenize-only" n (tokenizeIO mediumHTML)
+      (tbAlloc, _tbMbps)      <- bench "tree-build-only" n (treeBuildIO mediumHTML)
+      (parseAlloc, _parseMbps) <- bench "full-parse" n (parseHTMLIO mediumHTML)
+      putStrLn ""
+      putStrLn "--- breakdown ---"
+      putStrLn $ "tree-build overhead (vs tokenize): " ++ show (tbAlloc - tokAlloc) ++ " bytes/parse"
+      putStrLn $ "doc-build overhead (vs tree-build): " ++ show (parseAlloc - tbAlloc) ++ " bytes/parse"

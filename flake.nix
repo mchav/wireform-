@@ -37,6 +37,7 @@
           pkgs.haskellPackages.fourmolu
           pkgs.hlint
           pkgs.prek
+          pkgs.llvmPackages.llvm
         ];
 
         haskellOverlay = self: super: {

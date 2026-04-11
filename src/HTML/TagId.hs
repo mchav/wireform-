@@ -27,6 +27,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Unsafe as BSU
 import qualified Data.HashMap.Strict as HM
 
 data TagId
@@ -118,20 +119,27 @@ tagIdFromBS :: ByteString -> TagId
 tagIdFromBS = tagIdFromText . TE.decodeUtf8Lenient
 
 {-# NOINLINE tagMapBS #-}
-tagMapBS :: HM.HashMap ByteString TagId
+tagMapBS :: HM.HashMap ByteString (Text, TagId)
 tagMapBS = HM.fromList
-  [(TE.encodeUtf8 t, tid) | (t, tid) <- HM.toList tagMap]
+  [(TE.encodeUtf8 t, (t, tid)) | (t, tid) <- HM.toList tagMap]
 
 {-# INLINE internTagBS #-}
 internTagBS :: ByteString -> (Text, TagId)
 internTagBS !rawName =
+  let !len = BS.length rawName
+  in case fastTagLookup rawName len of
+    Just pair -> pair
+    Nothing -> slowInternTagBS rawName
+
+slowInternTagBS :: ByteString -> (Text, TagId)
+slowInternTagBS !rawName =
   case HM.lookup rawName tagMapBS of
-    Just !tid -> (tagIdToText tid, tid)
+    Just !pair -> pair
     Nothing
       | BS.any (\b -> b >= 0x41 && b <= 0x5A) rawName ->
           let !lowered = BS.map asciiToLower rawName
           in case HM.lookup lowered tagMapBS of
-               Just !tid -> (tagIdToText tid, tid)
+               Just !pair -> pair
                Nothing -> (TE.decodeUtf8Lenient lowered, TagUnknown)
       | otherwise -> (TE.decodeUtf8Lenient rawName, TagUnknown)
   where
@@ -139,6 +147,151 @@ internTagBS !rawName =
     asciiToLower b
       | b >= 0x41, b <= 0x5A = b + 32
       | otherwise = b
+{-# NOINLINE slowInternTagBS #-}
+
+{-# INLINE fastTagLookup #-}
+fastTagLookup :: ByteString -> Int -> Maybe (Text, TagId)
+fastTagLookup !bs !len = case len of
+  1 -> case BSU.unsafeIndex bs 0 of
+    0x70 {- p -} -> Just ("p", TagP)
+    0x61 {- a -} -> Just ("a", TagA)
+    0x62 {- b -} -> Just ("b", TagB)
+    0x69 {- i -} -> Just ("i", TagI)
+    0x73 {- s -} -> Just ("s", TagS)
+    0x75 {- u -} -> Just ("u", TagU)
+    _ -> Nothing
+  2 -> case BSU.unsafeIndex bs 0 of
+    0x62 {- br -} | BSU.unsafeIndex bs 1 == 0x72 -> Just ("br", TagBr)
+    0x64 {- dl/dd/dt -} -> case BSU.unsafeIndex bs 1 of
+      0x6C -> Just ("dl", TagDl); 0x64 -> Just ("dd", TagDd); 0x74 -> Just ("dt", TagDt)
+      _ -> Nothing
+    0x65 {- em -} | BSU.unsafeIndex bs 1 == 0x6D -> Just ("em", TagEm)
+    0x68 {- h1-h6 -} -> case BSU.unsafeIndex bs 1 of
+      0x31 -> Just ("h1", TagH1); 0x32 -> Just ("h2", TagH2); 0x33 -> Just ("h3", TagH3)
+      0x34 -> Just ("h4", TagH4); 0x35 -> Just ("h5", TagH5); 0x36 -> Just ("h6", TagH6)
+      0x72 -> Just ("hr", TagHr)
+      _ -> Nothing
+    0x6C {- li -} | BSU.unsafeIndex bs 1 == 0x69 -> Just ("li", TagLi)
+    0x6F {- ol -} | BSU.unsafeIndex bs 1 == 0x6C -> Just ("ol", TagOl)
+    0x72 {- rb/rp/rt -} -> case BSU.unsafeIndex bs 1 of
+      0x62 -> Just ("rb", TagRb); 0x70 -> Just ("rp", TagRp); 0x74 -> Just ("rt", TagRt)
+      _ -> Nothing
+    0x74 {- td/th/tr/tt -} -> case BSU.unsafeIndex bs 1 of
+      0x64 -> Just ("td", TagTd); 0x68 -> Just ("th", TagTh)
+      0x72 -> Just ("tr", TagTr); 0x74 -> Just ("tt", TagTt)
+      _ -> Nothing
+    0x75 {- ul -} | BSU.unsafeIndex bs 1 == 0x6C -> Just ("ul", TagUl)
+    _ -> Nothing
+  3 -> case BSU.unsafeIndex bs 0 of
+    0x62 {- big -} | BSU.unsafeIndex bs 1 == 0x69 && BSU.unsafeIndex bs 2 == 0x67 -> Just ("big", TagBig)
+    0x63 {- col -} | BSU.unsafeIndex bs 1 == 0x6F && BSU.unsafeIndex bs 2 == 0x6C -> Just ("col", TagCol)
+    0x64 {- div/dir -} -> case BSU.unsafeIndex bs 1 of
+      0x69 -> case BSU.unsafeIndex bs 2 of
+        0x76 -> Just ("div", TagDiv); 0x72 -> Just ("dir", TagDir); _ -> Nothing
+      _ -> Nothing
+    0x69 {- img -} | BSU.unsafeIndex bs 1 == 0x6D && BSU.unsafeIndex bs 2 == 0x67 -> Just ("img", TagImg)
+    0x6E {- nav -} | BSU.unsafeIndex bs 1 == 0x61 && BSU.unsafeIndex bs 2 == 0x76 -> Just ("nav", TagNav)
+    0x70 {- pre -} | BSU.unsafeIndex bs 1 == 0x72 && BSU.unsafeIndex bs 2 == 0x65 -> Just ("pre", TagPre)
+    0x72 {- rtc -} | BSU.unsafeIndex bs 1 == 0x74 && BSU.unsafeIndex bs 2 == 0x63 -> Just ("rtc", TagRtc)
+    0x73 {- sub/sup/svg -} -> case BSU.unsafeIndex bs 1 of
+      0x75 -> case BSU.unsafeIndex bs 2 of
+        0x62 -> Just ("sub", TagSub); 0x70 -> Just ("sup", TagSup)
+        _ -> Nothing
+      0x76 | BSU.unsafeIndex bs 2 == 0x67 -> Just ("svg", TagSvg)
+      _ -> Nothing
+    0x76 {- var -} | BSU.unsafeIndex bs 1 == 0x61 && BSU.unsafeIndex bs 2 == 0x72 -> Just ("var", TagVar)
+    0x77 {- wbr -} | BSU.unsafeIndex bs 1 == 0x62 && BSU.unsafeIndex bs 2 == 0x72 -> Just ("wbr", TagWbr)
+    0x78 {- xmp -} | BSU.unsafeIndex bs 1 == 0x6D && BSU.unsafeIndex bs 2 == 0x70 -> Just ("xmp", TagXmp)
+    _ -> Nothing
+  4 -> case BSU.unsafeIndex bs 0 of
+    0x61 {- area -} | bs4eq bs 0x61 0x72 0x65 0x61 -> Just ("area", TagArea)
+    0x62 {- base/body -} -> case BSU.unsafeIndex bs 1 of
+      0x61 | bs4eq bs 0x62 0x61 0x73 0x65 -> Just ("base", TagBase)
+      0x6F | bs4eq bs 0x62 0x6F 0x64 0x79 -> Just ("body", TagBody)
+      _ -> Nothing
+    0x63 {- code -} | bs4eq bs 0x63 0x6F 0x64 0x65 -> Just ("code", TagCode)
+    0x66 {- font/form -} -> case BSU.unsafeIndex bs 1 of
+      0x6F -> case BSU.unsafeIndex bs 2 of
+        0x6E | BSU.unsafeIndex bs 3 == 0x74 -> Just ("font", TagFont)
+        0x72 | BSU.unsafeIndex bs 3 == 0x6D -> Just ("form", TagForm)
+        _ -> Nothing
+      _ -> Nothing
+    0x68 {- head/html -} -> case BSU.unsafeIndex bs 1 of
+      0x65 | bs4eq bs 0x68 0x65 0x61 0x64 -> Just ("head", TagHead)
+      0x74 | bs4eq bs 0x68 0x74 0x6D 0x6C -> Just ("html", TagHtml)
+      _ -> Nothing
+    0x6C {- link -} | bs4eq bs 0x6C 0x69 0x6E 0x6B -> Just ("link", TagLink)
+    0x6D {- main/math/menu/meta -} -> case BSU.unsafeIndex bs 1 of
+      0x61 -> case BSU.unsafeIndex bs 2 of
+        0x69 | BSU.unsafeIndex bs 3 == 0x6E -> Just ("main", TagMain)
+        0x74 | BSU.unsafeIndex bs 3 == 0x68 -> Just ("math", TagMath)
+        _ -> Nothing
+      0x65 -> case BSU.unsafeIndex bs 2 of
+        0x6E | BSU.unsafeIndex bs 3 == 0x75 -> Just ("menu", TagMenu)
+        0x74 | BSU.unsafeIndex bs 3 == 0x61 -> Just ("meta", TagMeta)
+        _ -> Nothing
+      _ -> Nothing
+    0x6E {- nobr -} | bs4eq bs 0x6E 0x6F 0x62 0x72 -> Just ("nobr", TagNobr)
+    0x72 {- ruby -} | bs4eq bs 0x72 0x75 0x62 0x79 -> Just ("ruby", TagRuby)
+    0x73 {- span -} | bs4eq bs 0x73 0x70 0x61 0x6E -> Just ("span", TagSpan)
+    _ -> Nothing
+  5 -> case BSU.unsafeIndex bs 0 of
+    0x65 {- embed -} | bsEq bs "embed" -> Just ("embed", TagEmbed)
+    0x69 {- image/input -} -> case BSU.unsafeIndex bs 1 of
+      0x6D | bsEq bs "image" -> Just ("image", TagImage)
+      0x6E | bsEq bs "input" -> Just ("input", TagInput)
+      _ -> Nothing
+    0x6C {- label -} | bsEq bs "label" -> Nothing
+    0x73 {- small/style -} -> case BSU.unsafeIndex bs 1 of
+      0x6D | bsEq bs "small" -> Just ("small", TagSmall)
+      0x74 | bsEq bs "style" -> Just ("style", TagStyle)
+      _ -> Nothing
+    0x74 {- table/tbody/tfoot/thead/title/track -} -> case BSU.unsafeIndex bs 1 of
+      0x61 | bsEq bs "table" -> Just ("table", TagTable)
+      0x62 | bsEq bs "tbody" -> Just ("tbody", TagTbody)
+      0x66 | bsEq bs "tfoot" -> Just ("tfoot", TagTfoot)
+      0x68 | bsEq bs "thead" -> Just ("thead", TagThead)
+      0x69 | bsEq bs "title" -> Just ("title", TagTitle)
+      0x72 | bsEq bs "track" -> Just ("track", TagTrack)
+      _ -> Nothing
+    _ -> Nothing
+  6 -> case BSU.unsafeIndex bs 0 of
+    0x62 {- button -} | bsEq bs "button" -> Just ("button", TagButton)
+    0x63 {- center -} | bsEq bs "center" -> Just ("center", TagCenter)
+    0x64 {- dialog -} | bsEq bs "dialog" -> Just ("dialog", TagDialog)
+    0x66 {- figure/footer -} -> case BSU.unsafeIndex bs 1 of
+      0x69 | bsEq bs "figure" -> Just ("figure", TagFigure)
+      0x6F | bsEq bs "footer" -> Just ("footer", TagFooter)
+      _ -> Nothing
+    0x68 {- header/hgroup -} -> case BSU.unsafeIndex bs 1 of
+      0x65 | bsEq bs "header" -> Just ("header", TagHeader)
+      0x67 | bsEq bs "hgroup" -> Just ("hgroup", TagHgroup)
+      _ -> Nothing
+    0x69 {- iframe -} | bsEq bs "iframe" -> Just ("iframe", TagIframe)
+    0x6F {- object/option -} -> case BSU.unsafeIndex bs 1 of
+      0x62 | bsEq bs "object" -> Just ("object", TagObject)
+      0x70 | bsEq bs "option" -> Just ("option", TagOption)
+      _ -> Nothing
+    0x73 {- script/search/select/source/strike/strong -} -> case BSU.unsafeIndex bs 1 of
+      0x63 | bsEq bs "script" -> Just ("script", TagScript)
+      0x65 -> case BSU.unsafeIndex bs 2 of
+        0x61 | bsEq bs "search" -> Just ("search", TagSearch)
+        0x6C | bsEq bs "select" -> Just ("select", TagSelect)
+        _ -> Nothing
+      0x6F | bsEq bs "source" -> Just ("source", TagSource)
+      0x74 -> case BSU.unsafeIndex bs 2 of
+        0x72 | bsEq bs "strike" -> Just ("strike", TagStrike)
+        _ -> Nothing
+      _ -> Nothing
+    _ -> Nothing
+  _ -> Nothing
+  where
+    {-# INLINE bs4eq #-}
+    bs4eq b a0 a1 a2 a3 =
+      BSU.unsafeIndex b 0 == a0 && BSU.unsafeIndex b 1 == a1 &&
+      BSU.unsafeIndex b 2 == a2 && BSU.unsafeIndex b 3 == a3
+    {-# INLINE bsEq #-}
+    bsEq b expected = b == expected
 
 {-# NOINLINE commonAttrMapBS #-}
 commonAttrMapBS :: HM.HashMap ByteString Text
