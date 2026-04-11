@@ -58,6 +58,9 @@ import HTML.TagId
 foreign import ccall unsafe "wireform_scan_text"
   c_scan_text :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
 
+foreign import ccall unsafe "wireform_scan_text_ascii"
+  c_scan_text_ascii :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
+
 foreign import ccall unsafe "wireform_is_all_ascii"
   c_is_all_ascii :: Addr# -> CPtrdiff -> CPtrdiff -> CInt
 
@@ -67,8 +70,14 @@ foreign import ccall unsafe "wireform_scan_tagname"
 foreign import ccall unsafe "wireform_scan_dquote"
   c_scan_dquote :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
 
+foreign import ccall unsafe "wireform_scan_dquote_ascii"
+  c_scan_dquote_ascii :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
+
 foreign import ccall unsafe "wireform_scan_squote"
   c_scan_squote :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
+
+foreign import ccall unsafe "wireform_scan_squote_ascii"
+  c_scan_squote_ascii :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
 
 foreign import ccall unsafe "wireform_skip_to_dquote"
   c_skip_to_dquote :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
@@ -232,6 +241,13 @@ data ChildNode
 uninitChild :: TBChild
 uninitChild = TBCText T.empty
 {-# NOINLINE uninitChild #-}
+
+smallArrayFromListN_Rev :: Int -> [a] -> SmallArray a
+smallArrayFromListN_Rev !n xs = createSmallArray n (error "smallArrayFromListN_Rev") $ \marr ->
+  let fill !_ [] = pure ()
+      fill !i (a:as) = writeSmallArray marr i a >> fill (i - 1) as
+  in fill (n - 1) xs
+{-# INLINE smallArrayFromListN_Rev #-}
 
 newChildVec :: Int -> IO (IORef ChildVec)
 newChildVec cap = do
@@ -426,6 +442,14 @@ tidFromPacked !packed = let !(I# i) = unsafeShiftR packed 1 in tagToEnum# i
 {-# INLINE isHTMLFromPacked #-}
 isHTMLFromPacked :: Int -> Bool
 isHTMLFromPacked !packed = packed .&. 1 == 1
+
+{-# INLINE packedTidIs #-}
+packedTidIs :: Int -> TagId -> Bool
+packedTidIs !packed tid = unsafeShiftR packed 1 == I# (dataToTag# tid)
+
+{-# INLINE packedTidSatisfies #-}
+packedTidSatisfies :: Int -> (TagId -> Bool) -> Bool
+packedTidSatisfies !packed f = f (tidFromPacked packed)
 
 {-# INLINE esReadTid #-}
 esReadTid :: ElementStack -> Int -> IO Int
@@ -1252,8 +1276,8 @@ hasElementInScopeT !targetTid target termCheck checkIntegrationPoints tb = do
       let !tid = tidFromPacked packed
           !isHTML = isHTMLFromPacked packed
       if isHTML
-        then if tid /= TagUnknown
-          then if tid == targetTid then pure True
+        then if not (packedTidIs packed TagUnknown)
+          then if packedTidIs packed targetTid then pure True
                else if termCheck tid then pure False
                else go es (i - 1)
           else do
@@ -1362,15 +1386,14 @@ popUntilInclusiveT !targetTid target tb = do
         n <- readByteArray esCnt 0 :: IO Int
         if n <= 0 then pure () else do
           packed <- readByteArray tidsBuf (n - 1) :: IO Int
-          let !tid = tidFromPacked packed
-              !isHTML = isHTMLFromPacked packed
-          if tid == TagP
+          let !isHTML = isHTMLFromPacked packed
+          if packedTidIs packed TagP
             then do pc <- readScalar (tbScalars tb) sPOnStack
                     writeScalar (tbScalars tb) sPOnStack (max 0 (pc - 1))
             else pure ()
           matches <- if not isHTML then pure False
-                     else if targetTid /= TagUnknown then pure (tid == targetTid)
-                     else if tid /= TagUnknown then pure False
+                     else if targetTid /= TagUnknown then pure (packedTidIs packed targetTid)
+                     else if not (packedTidIs packed TagUnknown) then pure False
                      else do node <- esRead es (n - 1)
                              pure (nodeName node == target)
           writeByteArray esCnt 0 (n - 1 :: Int)
@@ -1623,7 +1646,10 @@ generateImpliedEndTagsT mexclude tb = do
       else do
         packed <- readByteArray tidsBuf (sz - 1) :: IO Int
         let !tid = tidFromPacked packed
-        if tagIdIsImpliedEndTag tid && Just tid /= mexclude
+            !excluded = case mexclude of
+              Nothing -> False
+              Just ex -> packedTidIs packed ex
+        if tagIdIsImpliedEndTag tid && not excluded
         then do writeByteArray esCnt 0 (sz - 1 :: Int)
                 go esCnt tidsBuf
         else pure ()
@@ -3864,8 +3890,10 @@ tokenizeBSIO !bs !off0 !len !svgD0 !svgH0 !tb = go off0 svgD0 svgH0
           let !b = readByteOff addr# off
           in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
              then do
-               let !end = scanTextFast addr# (off + 1) len
-                   !t = decodeTextSlice sharedBA addr# off (end - off) bs
+               let !(ScanTextResult end ascii) = scanTextAscii addr# (off + 1) len
+                   !firstByteAscii = b < 0x80
+                   !allAscii = firstByteAscii && ascii
+                   !t = decodeTextSliceKnown sharedBA off (end - off) bs allAscii
                emitText t b
                go end svgD svgH
              else case b of
@@ -3971,6 +3999,16 @@ scanTextFast addr# !off !end =
   let !(CPtrdiff r) = c_scan_text addr# (fromIntegral off) (fromIntegral end)
   in fromIntegral r
 
+data ScanTextResult = ScanTextResult {-# UNPACK #-} !Int !Bool
+
+{-# INLINE scanTextAscii #-}
+scanTextAscii :: Addr# -> Int -> Int -> ScanTextResult
+scanTextAscii addr# !off !end =
+  let !(CPtrdiff packed) = c_scan_text_ascii addr# (fromIntegral off) (fromIntegral end)
+      !pos = fromIntegral (unsafeShiftR packed 1)
+      !ascii = packed .&. 1 /= 0
+  in ScanTextResult pos ascii
+
 tokenizeTagBS :: ByteString -> Int -> Int -> Int -> Bool -> [Token]
 tokenizeTagBS !bs !off !len !svgD !svgH
   | off >= len = [TChar '<']
@@ -4060,42 +4098,41 @@ skipAttrsBS !bs !off !len =
         !(CPtrdiff packed) = c_skip_attrs addr# (fromIntegral off) (fromIntegral len)
     in fromIntegral (packed `quot` 2)
 
-{-# NOINLINE lazyParseAttrs #-}
-lazyParseAttrs :: ByteArray -> ByteString -> Int -> Int -> SmallArray HTMLAttribute
-lazyParseAttrs ba bs off len =
-  let (v, _, _) = readTagAttrsBS ba bs off len in v
-
 {-# INLINE readTagAttrsBS #-}
 readTagAttrsBS :: ByteArray -> ByteString -> Int -> Int -> (SmallArray HTMLAttribute, Bool, Int)
 readTagAttrsBS !ba !bs !off !len =
-    let !(acc, sc, endOff) = go off []
-    in case acc of
-      [] -> (emptySmallArray, sc, endOff)
-      [a] -> (createSmallArray 1 a (\_ -> pure ()), sc, endOff)
-      _ -> (smallArrayFromList (reverse acc), sc, endOff)
+    let !(acc, !n, sc, endOff) = go off [] 0
+    in case n of
+      0 -> (emptySmallArray, sc, endOff)
+      1 | (a:_) <- acc -> (createSmallArray 1 a (\_ -> pure ()), sc, endOff)
+      _ -> (smallArrayFromListN_Rev n acc, sc, endOff)
   where
     !(BS (ForeignPtr addr# _) _) = bs
-    go !i !acc
-      | i >= len = (acc, False, len + 1)
-      | otherwise = case BSU.unsafeIndex bs i of
-          0x3E -> (acc, False, i + 1)
-          0x2F -> if i + 1 < len && BSU.unsafeIndex bs (i + 1) == 0x3E
-                  then (acc, True, i + 2)
-                  else go (i + 1) acc
-          b | isWSByte b -> go (i + 1) acc
+    rd :: Int -> Word8
+    rd = readByteOff addr#
+    {-# INLINE rd #-}
+
+    go !i !acc !n
+      | i >= len = (acc, n, False, len + 1)
+      | otherwise = case rd i of
+          0x3E -> (acc, n, False, i + 1)
+          0x2F -> if i + 1 < len && rd (i + 1) == 0x3E
+                  then (acc, n, True, i + 2)
+                  else go (i + 1) acc n
+          b | isWSByte b -> go (i + 1) acc n
           _ -> let (!name, !i2) = scanAttrName i
                    (!val, !i3) = scanAttrVal i2
                in if T.null name
-                  then go (max (i + 1) i3) acc
+                  then go (max (i + 1) i3) acc n
                   else if any (\(HTMLAttribute na _) -> na == name) acc
-                       then go i3 acc
-                       else go i3 (HTMLAttribute name val : acc)
+                       then go i3 acc n
+                       else go i3 (HTMLAttribute name val : acc) (n + 1)
 
     scanAttrName !i = sn i
       where
         sn !j
           | j >= len = (internAttrNameRange bs i j, j)
-          | otherwise = case BSU.unsafeIndex bs j of
+          | otherwise = case rd j of
               0x3D -> (internAttrNameRange bs i j, j)
               0x3E -> (internAttrNameRange bs i j, j)
               0x2F -> (internAttrNameRange bs i j, j)
@@ -4105,25 +4142,26 @@ readTagAttrsBS !ba !bs !off !len =
     scanAttrVal !i
       | i >= len = (T.empty, i)
       | otherwise =
-          let !i1 = skipWS bs i len
-          in if i1 >= len || BSU.unsafeIndex bs i1 /= 0x3D
+          let !i1 = skipWSAddr addr# i len
+          in if i1 >= len || rd i1 /= 0x3D
              then (T.empty, i1)
-             else let !i2 = skipWS bs (i1 + 1) len
+             else let !i2 = skipWSAddr addr# (i1 + 1) len
                   in if i2 >= len then (T.empty, i2)
-                  else case BSU.unsafeIndex bs i2 of
+                  else case rd i2 of
                     0x22 -> scanDQuoted (i2 + 1)
                     0x27 -> scanSQuoted (i2 + 1)
                     _    -> scanUnquoted i2
 
     scanDQuoted !i =
-      let !(CPtrdiff hit) = c_scan_dquote addr# (fromIntegral i) (fromIntegral len)
-          !h = fromIntegral hit
+      let !(CPtrdiff packed) = c_scan_dquote_ascii addr# (fromIntegral i) (fromIntegral len)
+          !h = fromIntegral (unsafeShiftR packed 1)
+          !ascii = packed .&. 1 /= 0
       in if h >= len
-         then (decodeTextSlice ba addr# i (h - i) bs, h)
-         else if BSU.unsafeIndex bs h == 0x22
-              then (decodeTextSlice ba addr# i (h - i) bs, h + 1)
+         then (decodeTextSliceKnown ba i (h - i) bs ascii, h)
+         else if rd h == 0x22
+              then (decodeTextSliceKnown ba i (h - i) bs ascii, h + 1)
               else dqEntityLoop h
-                     (if h > i then [decodeTextSlice ba addr# i (h - i) bs] else [])
+                     (if h > i then [decodeTextSliceKnown ba i (h - i) bs ascii] else [])
 
     dqEntityLoop !ampPos !chunks =
       let !windowEnd = min len (ampPos + 65)
@@ -4143,14 +4181,15 @@ readTagAttrsBS !ba !bs !off !len =
               else dqEntityLoop h chunks'
 
     scanSQuoted !i =
-      let !(CPtrdiff hit) = c_scan_squote addr# (fromIntegral i) (fromIntegral len)
-          !h = fromIntegral hit
+      let !(CPtrdiff packed) = c_scan_squote_ascii addr# (fromIntegral i) (fromIntegral len)
+          !h = fromIntegral (unsafeShiftR packed 1)
+          !ascii = packed .&. 1 /= 0
       in if h >= len
-         then (decodeTextSlice ba addr# i (h - i) bs, h)
-         else if BSU.unsafeIndex bs h == 0x27
-              then (decodeTextSlice ba addr# i (h - i) bs, h + 1)
+         then (decodeTextSliceKnown ba i (h - i) bs ascii, h)
+         else if rd h == 0x27
+              then (decodeTextSliceKnown ba i (h - i) bs ascii, h + 1)
               else sqEntityLoop h
-                     (if h > i then [decodeTextSlice ba addr# i (h - i) bs] else [])
+                     (if h > i then [decodeTextSliceKnown ba i (h - i) bs ascii] else [])
 
     sqEntityLoop !ampPos !chunks =
       let !windowEnd = min len (ampPos + 65)
@@ -4218,11 +4257,36 @@ isAllASCII :: Addr# -> Int -> Int -> Bool
 isAllASCII addr# !off !end =
   c_is_all_ascii addr# (fromIntegral off) (fromIntegral end) /= 0
 
+{-# INLINE isAllASCIIFast #-}
+isAllASCIIFast :: Addr# -> Int -> Int -> Bool
+isAllASCIIFast addr# !off !sliceLen
+  | sliceLen <= 0 = True
+  | sliceLen <= 8 =
+    let !(W# w) = W# (indexWordOffAddr# (addr# `plusAddr#` o#) 0#)
+        !(I# o#) = off
+        !mask = unsafeShiftL 1 (unsafeShiftL sliceLen 3) - 1
+    in (W# w) .&. mask .&. 0x8080808080808080 == 0
+  | sliceLen <= 16 =
+    let !(I# o#) = off
+        !w1 = W# (indexWordOffAddr# (addr# `plusAddr#` o#) 0#)
+        !(I# o2#) = off + 8
+        !w2 = W# (indexWordOffAddr# (addr# `plusAddr#` o2#) 0#)
+        !mask2 = unsafeShiftL 1 (unsafeShiftL (sliceLen - 8) 3) - 1
+    in (w1 .|. (w2 .&. mask2)) .&. 0x8080808080808080 == 0
+  | otherwise = isAllASCII addr# off (off + sliceLen)
+
 {-# INLINE decodeTextSlice #-}
 decodeTextSlice :: ByteArray -> Addr# -> Int -> Int -> ByteString -> Text
 decodeTextSlice !ba addr# !off !sliceLen !origBS
   | sliceLen == 0 = T.empty
-  | isAllASCII addr# off (off + sliceLen) = Text ba off sliceLen
+  | isAllASCIIFast addr# off sliceLen = Text ba off sliceLen
+  | otherwise = decodeTextSliceSlow origBS off sliceLen
+
+{-# INLINE decodeTextSliceKnown #-}
+decodeTextSliceKnown :: ByteArray -> Int -> Int -> ByteString -> Bool -> Text
+decodeTextSliceKnown !ba !off !sliceLen !origBS !isAscii
+  | sliceLen == 0 = T.empty
+  | isAscii = Text ba off sliceLen
   | otherwise = decodeTextSliceSlow origBS off sliceLen
 
 {-# NOINLINE decodeTextSliceSlow #-}
@@ -4244,6 +4308,13 @@ skipWS :: ByteString -> Int -> Int -> Int
 skipWS !bs !off !len
   | off >= len = len
   | isWSByte (BSU.unsafeIndex bs off) = skipWS bs (off + 1) len
+  | otherwise = off
+
+{-# INLINE skipWSAddr #-}
+skipWSAddr :: Addr# -> Int -> Int -> Int
+skipWSAddr addr# !off !len
+  | off >= len = len
+  | isWSByte (readByteOff addr# off) = skipWSAddr addr# (off + 1) len
   | otherwise = off
 
 toStringFrom :: ByteString -> Int -> Int -> String
