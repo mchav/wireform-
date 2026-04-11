@@ -853,7 +853,7 @@ resetInsertionModeForContext name _ns =
 newTBNode :: TreeBuilder -> Text -> TagId -> Vector HTMLAttribute -> Maybe Text -> Bool -> IO TBNode
 newTBNode _tb name tid attrs ns isTmpl = do
   attrRef <- newIORef attrs
-  childVecRef <- if tagIdIsVoid tid then pure emptyChildVecRef else newChildVec 4
+  childVecRef <- if tagIdIsVoid tid then pure emptyChildVecRef else newChildVec (initialChildCap tid)
   parentRef <- newIORef Nothing
   tmplRef <- if isTmpl then newChildVec 2 else pure emptyChildVecRef
   let !htmlNs = ns == Nothing || ns == Just "" || ns == Just "html"
@@ -868,6 +868,20 @@ newTBNode _tb name tid attrs ns isTmpl = do
     , nodeParent = parentRef
     , nodeTemplateContents = tmplRef
     }
+
+initialChildCap :: TagId -> Int
+initialChildCap tid = case tid of
+  TagBody -> 32
+  TagHead -> 16
+  TagHtml -> 3
+  TagUl -> 16; TagOl -> 16; TagDl -> 8
+  TagSelect -> 16; TagOptgroup -> 8
+  TagTable -> 8; TagTbody -> 8; TagThead -> 4; TagTfoot -> 4; TagTr -> 8
+  TagDiv -> 8; TagSpan -> 4; TagP -> 4; TagLi -> 4
+  TagNav -> 8; TagMain -> 8; TagSection -> 8; TagArticle -> 8
+  TagForm -> 8; TagFieldset -> 8
+  _ -> 4
+{-# INLINE initialChildCap #-}
 
 {-# INLINE readNodeAttrs #-}
 readNodeAttrs :: TBNode -> IO (Vector HTMLAttribute)
