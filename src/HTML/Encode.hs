@@ -20,7 +20,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Foldable (foldl')
 import Data.Primitive.SmallArray (SmallArray, sizeofSmallArray)
-import qualified Data.Vector as V
 import Data.Word (Word8)
 import Foreign.C.Types (CInt(..))
 import Foreign.Ptr (Ptr, castPtr)
@@ -64,8 +63,8 @@ buildNode = \case
         <> BB.byteString "</" <> tagBS <> BB.char7 '>'
     where !tagBS = BB.byteString (TE.encodeUtf8 tag)
 
-buildAttrs :: V.Vector HTMLAttribute -> BB.Builder
-buildAttrs = V.foldl' (\acc a -> acc <> buildAttr a) mempty
+buildAttrs :: SmallArray HTMLAttribute -> BB.Builder
+buildAttrs = foldl' (\acc a -> acc <> buildAttr a) mempty
 
 buildAttr :: HTMLAttribute -> BB.Builder
 buildAttr (HTMLAttribute name val)

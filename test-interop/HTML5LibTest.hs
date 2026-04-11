@@ -9,7 +9,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Foldable (toList)
-import qualified Data.Vector as V
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
 import System.IO (hFlush, hPutStrLn, stderr)
@@ -371,7 +370,7 @@ nodeToExp (HTMLElement tag attrs children) =
   let isForeign = T.isPrefixOf "svg " tag || T.isPrefixOf "math " tag
       adjustAttr (HTMLAttribute n v) =
         if isForeign then ExpAttr (adjustForeignAttrName n) v else ExpAttr n v
-      attrList = sort (map adjustAttr (V.toList attrs))
+      attrList = sort (map adjustAttr (toList attrs))
       childExps = map nodeToExp (toList children)
       isTemplate = tag == "template"
   in if isTemplate

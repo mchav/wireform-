@@ -11,6 +11,7 @@ module HTML.Query
   ) where
 
 import Data.Foldable (toList)
+import Data.Primitive.SmallArray (SmallArray, indexSmallArray, sizeofSmallArray)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Vector (Vector)
@@ -67,21 +68,21 @@ matchesSelector sel (HTMLElement tag attrs _) = case sel of
   SelAny -> True
 matchesSelector _ _ = False
 
-hasClass :: Text -> Vector HTMLAttribute -> Bool
+hasClass :: Text -> SmallArray HTMLAttribute -> Bool
 hasClass cls attrs = case findAttr "class" attrs of
   Nothing -> False
   Just val -> cls `elem` T.words val
 
-hasId :: Text -> Vector HTMLAttribute -> Bool
+hasId :: Text -> SmallArray HTMLAttribute -> Bool
 hasId i attrs = findAttr "id" attrs == Just i
 
-findAttr :: Text -> Vector HTMLAttribute -> Maybe Text
+findAttr :: Text -> SmallArray HTMLAttribute -> Maybe Text
 findAttr name attrs = go 0
   where
-    !len = V.length attrs
+    !len = sizeofSmallArray attrs
     go !i
       | i >= len = Nothing
-      | HTMLAttribute n v <- attrs V.! i, n == name = Just v
+      | HTMLAttribute n v <- indexSmallArray attrs i, n == name = Just v
       | otherwise = go (i + 1)
 
 collectDescendants :: (HTMLNode -> Bool) -> HTMLNode -> Vector HTMLNode

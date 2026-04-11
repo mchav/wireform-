@@ -27,9 +27,8 @@ import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Vector (Vector)
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as MV
+import Data.Primitive.SmallArray (SmallArray, SmallMutableArray, emptySmallArray, smallArrayFromList,
+                                  sizeofSmallArray, indexSmallArray, createSmallArray)
 import System.IO.Unsafe (unsafePerformIO)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (peekElemOff, pokeElemOff)
@@ -160,7 +159,7 @@ isSvgHtmlIntegPoint !t !name = case t of
 
 data Token
   = TDoctype !Text !(Maybe Text) !(Maybe Text) !Bool
-  | TStartTag !Text !(Vector HTMLAttribute) !Bool !TagId
+  | TStartTag !Text !(SmallArray HTMLAttribute) !Bool !TagId
   | TEndTag !Text !TagId
   | TChar !Char
   | TString !Text
@@ -196,7 +195,7 @@ data ChildVec = ChildVec
 data TBNode = TBNode
   { nodeName     :: !Text
   , nodeTagId    :: !TagId
-  , nodeAttrs    :: {-# UNPACK #-} !(IORef (Vector HTMLAttribute))
+  , nodeAttrs    :: {-# UNPACK #-} !(IORef (SmallArray HTMLAttribute))
   , nodeNs       :: !(Maybe Text)
   , nodeIsHTMLNs :: !Bool
   , nodeIsTemplate :: !Bool
@@ -669,7 +668,7 @@ tbSetHasSelect tb = writeBoolSlot (tbScalars tb) sHasSelect
 
 data AFEntry
   = AFMarker
-  | AFEntry !Text !(Vector HTMLAttribute) !TBNode
+  | AFEntry !Text !(SmallArray HTMLAttribute) !TBNode
   deriving (Eq)
 
 ------------------------------------------------------------------------
@@ -817,13 +816,13 @@ newTreeBuilder mCtx = do
   case mCtx of
     Nothing -> pure tb0
     Just (ctxTag, ctxNs) -> do
-      htmlNode <- newTBNode tb0 "html" TagHtml V.empty Nothing False
+      htmlNode <- newTBNode tb0 "html" TagHtml emptySmallArray Nothing False
       modifyIORef' docRef (++ [CElement htmlNode])
       esPush stack htmlNode
       mCtxElem <- case ctxNs of
         Just ns | ns == "svg" || ns == "math" -> do
           let adjustedName = if ns == "svg" then adjustSVGTagName ctxTag else ctxTag
-          ctxNode <- newTBNode tb0 adjustedName (tagIdFromText adjustedName) V.empty ctxNs False
+          ctxNode <- newTBNode tb0 adjustedName (tagIdFromText adjustedName) emptySmallArray ctxNs False
           appendChild htmlNode ctxNode
           esWriteList stack [ctxNode, htmlNode]
           tbSetMode tb0 MInBody
@@ -854,7 +853,7 @@ resetInsertionModeForContext name _ns =
     _ -> MInBody
 
 {-# INLINE newTBNode #-}
-newTBNode :: TreeBuilder -> Text -> TagId -> Vector HTMLAttribute -> Maybe Text -> Bool -> IO TBNode
+newTBNode :: TreeBuilder -> Text -> TagId -> SmallArray HTMLAttribute -> Maybe Text -> Bool -> IO TBNode
 newTBNode _tb name tid attrs ns isTmpl = do
   attrRef <- newIORef attrs
   childVecRef <- if tagIdIsVoid tid then pure emptyChildVecRef else newChildVec (initialChildCap tid)
@@ -888,23 +887,23 @@ initialChildCap tid = case tid of
 {-# INLINE initialChildCap #-}
 
 {-# INLINE readNodeAttrs #-}
-readNodeAttrs :: TBNode -> IO (Vector HTMLAttribute)
+readNodeAttrs :: TBNode -> IO (SmallArray HTMLAttribute)
 readNodeAttrs node = readIORef (nodeAttrs node)
 
 {-# INLINE attrLookup #-}
-attrLookup :: Text -> Vector HTMLAttribute -> Maybe Text
+attrLookup :: Text -> SmallArray HTMLAttribute -> Maybe Text
 attrLookup name vec = go 0
   where
-    !len = V.length vec
+    !len = sizeofSmallArray vec
     go !i | i >= len = Nothing
-          | otherwise = let !(HTMLAttribute n v) = V.unsafeIndex vec i
+          | otherwise = let !(HTMLAttribute n v) = indexSmallArray vec i
                         in if n == name then Just v else go (i + 1)
 
 {-# INLINE attrsFromList #-}
-attrsFromList :: [(Text,Text)] -> Vector HTMLAttribute
-attrsFromList [] = V.empty
-attrsFromList [(n,v)] = V.singleton (HTMLAttribute n v)
-attrsFromList xs = V.fromListN (length xs) (map (\(n,v) -> HTMLAttribute n v) xs)
+attrsFromList :: [(Text,Text)] -> SmallArray HTMLAttribute
+attrsFromList [] = emptySmallArray
+attrsFromList [(n,v)] = createSmallArray 1 (HTMLAttribute n v) (\_ -> pure ())
+attrsFromList xs = smallArrayFromList (map (\(n,v) -> HTMLAttribute n v) xs)
 
 ------------------------------------------------------------------------
 -- Build final document
@@ -988,7 +987,7 @@ tbNodeToHTMLNode node
       buildElementInPlace carr cn
   where
     buildElementInPlace !carr !cn = do
-      attrVec <- readIORef (nodeAttrs node)
+      attrs <- readIORef (nodeAttrs node)
       childArr <- if cn == 0
         then pure mempty
         else do
@@ -1008,7 +1007,7 @@ tbNodeToHTMLNode node
           go 0
       let !displayName = if nodeIsHTMLNs node then nodeName node
                          else nameWithNs (nodeName node) (nodeNs node)
-      pure $! HTMLElement displayName attrVec childArr
+      pure $! HTMLElement displayName attrs childArr
 
 childToHTMLNode :: ChildNode -> IO HTMLNode
 childToHTMLNode (CElement node) = tbNodeToHTMLNode node
@@ -1049,7 +1048,7 @@ findSelectedContentInSelect children =
   in case found of { [] -> Nothing; (x:_) -> Just x }
   where
     findSC (HTMLElement t _ cs)
-      | t == "selectedcontent" = [HTMLElement t V.empty cs]
+      | t == "selectedcontent" = [HTMLElement t mempty cs]
       | otherwise = concatMap findSC (toList cs)
     findSC _ = []
 
@@ -1063,7 +1062,7 @@ findOptionsList children = concatMap findOpt (toList children)
 
 hasSelectedAttr :: HTMLNode -> Bool
 hasSelectedAttr (HTMLElement _ attrs _) =
-  V.any (\(HTMLAttribute n _) -> n == "selected") attrs
+  any (\(HTMLAttribute n _) -> n == "selected") attrs
 hasSelectedAttr _ = False
 
 getOptionChildren :: HTMLNode -> SmallArray HTMLNode
@@ -1084,7 +1083,7 @@ extractDoctype (_:rest) = extractDoctype rest
 findOrCreateRoot :: [HTMLNode] -> HTMLNode
 findOrCreateRoot = go
   where
-    go [] = HTMLElement "html" V.empty mempty
+    go [] = HTMLElement "html" mempty mempty
     go (n@(HTMLElement "html" _ _) : _) = n
     go (_ : rest) = go rest
 
@@ -1403,7 +1402,7 @@ insertElement :: TreeBuilder -> Text -> [(Text,Text)] -> Maybe Text -> IO TBNode
 insertElement tb name attrs ns = insertElementT tb name (tagIdFromText name) (attrsFromList attrs) ns
 
 {-# INLINE insertElementT #-}
-insertElementT :: TreeBuilder -> Text -> TagId -> Vector HTMLAttribute -> Maybe Text -> IO TBNode
+insertElementT :: TreeBuilder -> Text -> TagId -> SmallArray HTMLAttribute -> Maybe Text -> IO TBNode
 insertElementT tb name tid attrs ns = do
   let isTmpl = tid == TagTemplate && (ns == Nothing || ns == Just "" || ns == Just "html")
   node <- newTBNode tb name tid attrs ns isTmpl
@@ -1441,7 +1440,7 @@ insertVoidElement tb name attrs ns = do
   popElement tb
   pure node
 
-insertVoidElementT :: TreeBuilder -> Text -> TagId -> Vector HTMLAttribute -> Maybe Text -> IO TBNode
+insertVoidElementT :: TreeBuilder -> Text -> TagId -> SmallArray HTMLAttribute -> Maybe Text -> IO TBNode
 insertVoidElementT tb name tid attrs ns = do
   node <- insertElementT tb name tid attrs ns
   popElement tb
@@ -1682,14 +1681,14 @@ pushFormattingMarker tb = do
   modifyIORef' (tbActiveFormatting tb) (AFMarker:)
   writeScalar (tbScalars tb) sHasAF 1
 
-pushFormattingEntry :: Text -> Vector HTMLAttribute -> TBNode -> TreeBuilder -> IO ()
+pushFormattingEntry :: Text -> SmallArray HTMLAttribute -> TBNode -> TreeBuilder -> IO ()
 pushFormattingEntry name attrs node tb = do
   af <- readIORef (tbActiveFormatting tb)
   let cleaned = removeExcess name attrs af
   writeIORef (tbActiveFormatting tb) (AFEntry name attrs node : cleaned)
   writeScalar (tbScalars tb) sHasAF 1
 
-removeExcess :: Text -> Vector HTMLAttribute -> [AFEntry] -> [AFEntry]
+removeExcess :: Text -> SmallArray HTMLAttribute -> [AFEntry] -> [AFEntry]
 removeExcess name attrs entries =
   let (beforeMarker, _) = break isMarker entries
       matching = findMatching 0 beforeMarker
@@ -1704,8 +1703,8 @@ removeExcess name attrs entries =
       | n == name, sameAttrs a attrs = i : findMatching (i+1) rest
       | otherwise = findMatching (i+1) rest
     findMatching !i (AFMarker : rest) = findMatching (i+1) rest
-    sameAttrs a b = V.length a == V.length b && sortedEq (sortAttrs a) (sortAttrs b)
-    sortAttrs v = sortBy (comparing (\(HTMLAttribute n _) -> n)) (V.toList v)
+    sameAttrs a b = sizeofSmallArray a == sizeofSmallArray b && sortedEq (sortAttrs a) (sortAttrs b)
+    sortAttrs v = sortBy (comparing (\(HTMLAttribute n _) -> n)) (toList v)
     sortedEq [] [] = True
     sortedEq (HTMLAttribute n1 v1 : xs) (HTMLAttribute n2 v2 : ys) = n1 == n2 && v1 == v2 && sortedEq xs ys
     sortedEq _ _ = False
@@ -1774,7 +1773,7 @@ adoptionAgency subject tb = do
                       outerLoop (iter+1)
             _ -> pure ()
 
-    doAdoption :: TBNode -> Int -> Vector HTMLAttribute -> TBNode -> IO ()
+    doAdoption :: TBNode -> Int -> SmallArray HTMLAttribute -> TBNode -> IO ()
     doAdoption fmtNode fmtIdx fmtAttrs furthestBlock = do
       openElems <- esReadAll (tbStack tb)
       let fmtStackIdx = case elemIndex fmtNode openElems of { Just i -> i; Nothing -> 0 }
@@ -1894,7 +1893,7 @@ removeAtIdx _ [] = []
 removeAtIdx 0 (_:xs) = xs
 removeAtIdx n (x:xs) = x : removeAtIdx (n-1) xs
 
-runAdoptionInner :: TBNode -> Int -> Vector HTMLAttribute -> TBNode -> TreeBuilder -> IO ()
+runAdoptionInner :: TBNode -> Int -> SmallArray HTMLAttribute -> TBNode -> TreeBuilder -> IO ()
 runAdoptionInner fmtNode fmtIdx fmtAttrs furthestBlock tb = do
   openElems <- esReadAll (tbStack tb)
   let fmtStackIdx = elemIndex fmtNode openElems
@@ -2053,13 +2052,13 @@ resetInsertionMode tb = do
 isWS :: Char -> Bool
 isWS c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C'
 
-addMissingAttrs :: TBNode -> Vector HTMLAttribute -> IO ()
+addMissingAttrs :: TBNode -> SmallArray HTMLAttribute -> IO ()
 addMissingAttrs node newAttrs = do
   existingVec <- readNodeAttrs node
-  let toAdd = V.filter (\(HTMLAttribute n _) -> not (V.any (\(HTMLAttribute en _) -> en == n) existingVec)) newAttrs
-  if V.null toAdd
+  let toAdd = filter (\(HTMLAttribute n _) -> not (any (\(HTMLAttribute en _) -> en == n) existingVec)) (toList newAttrs)
+  if null toAdd
   then pure ()
-  else writeIORef (nodeAttrs node) (existingVec V.++ toAdd)
+  else writeIORef (nodeAttrs node) (smallArrayFromList (toList existingVec ++ toAdd))
 
 modeInitial :: TreeBuilder -> Token -> IO ()
 modeInitial tb tok = case tok of
@@ -2086,14 +2085,14 @@ modeBeforeHtml tb tok = case tok of
     esPush (tbStack tb) node
     tbSetMode tb MBeforeHead
   TEndTag name _ | name `elem` ["head","body","html","br"] -> do
-    node <- newTBNode tb "html" TagHtml V.empty Nothing False
+    node <- newTBNode tb "html" TagHtml emptySmallArray Nothing False
     modifyIORef' (tbDocument tb) (++ [CElement node])
     esPush (tbStack tb) node
     tbSetMode tb MBeforeHead
     processInMode tb tok
   TEndTag _ _ -> pure ()
   _ -> do
-    node <- newTBNode tb "html" TagHtml V.empty Nothing False
+    node <- newTBNode tb "html" TagHtml emptySmallArray Nothing False
     modifyIORef' (tbDocument tb) (++ [CElement node])
     esPush (tbStack tb) node
     tbSetMode tb MBeforeHead
@@ -2110,13 +2109,13 @@ modeBeforeHead tb tok = case tok of
     writeIORef (tbHeadElement tb) (Just node)
     tbSetMode tb MInHead
   TEndTag name _ | name `elem` ["head","body","html","br"] -> do
-    node <- insertElementT tb "head" TagHead V.empty Nothing
+    node <- insertElementT tb "head" TagHead emptySmallArray Nothing
     writeIORef (tbHeadElement tb) (Just node)
     tbSetMode tb MInHead
     modeInHead tb tok
   TEndTag _ _ -> pure ()
   _ -> do
-    node <- insertElementT tb "head" TagHead V.empty Nothing
+    node <- insertElementT tb "head" TagHead emptySmallArray Nothing
     writeIORef (tbHeadElement tb) (Just node)
     tbSetMode tb MInHead
     modeInHead tb tok
@@ -2236,13 +2235,13 @@ modeAfterHead tb tok = case tok of
       Nothing -> modeInHead tb tok
   TEndTag "template" _ -> modeInHead tb tok
   TEndTag name _ | name `elem` ["body","html","br"] -> do
-    void $ insertElementT tb "body" TagBody V.empty Nothing
+    void $ insertElementT tb "body" TagBody emptySmallArray Nothing
     tbSetMode tb MInBody
     processInMode tb tok
   TStartTag "head" _ _ _ -> pure ()
   TEndTag _ _ -> pure ()
   _ -> do
-    void $ insertElementT tb "body" TagBody V.empty Nothing
+    void $ insertElementT tb "body" TagBody emptySmallArray Nothing
     tbSetMode tb MInBody
     processInMode tb tok
 
@@ -2275,8 +2274,8 @@ modeInBody tb tok = case tok of
     modeInBodyEndTag tb name tid
   _ -> pure ()
 
-modeInBodyStartTag :: TreeBuilder -> Text -> Vector HTMLAttribute -> Bool -> TagId -> IO ()
-modeInBodyStartTag !tb !name !attrs !_sc !tid = do
+modeInBodyStartTag :: TreeBuilder -> Text -> SmallArray HTMLAttribute -> Bool -> TagId -> IO ()
+modeInBodyStartTag !tb !name attrs !_sc !tid = do
     case tid of
       TagHtml -> do
         tms <- readIORef (tbTemplateModes tb)
@@ -2663,7 +2662,7 @@ modeInBodyEndTag !tb !name !tid =
           generateImpliedEndTagsT (Just TagP) tb
           popUntilInclusive "p" tb
         else do
-          void $ insertElementT tb "p" TagP V.empty Nothing
+          void $ insertElementT tb "p" TagP emptySmallArray Nothing
           popUntilInclusive "p" tb
       TagLi -> do
         inScope <- hasInListItemScope "li" tb
@@ -2726,7 +2725,7 @@ modeInBodyEndTag !tb !name !tid =
         else pure ()
       TagBr -> do
         reconstructActiveFormatting tb
-        void $ insertVoidElementT tb "br" TagBr V.empty Nothing
+        void $ insertVoidElementT tb "br" TagBr emptySmallArray Nothing
         tbSetFramesetOk tb False
       TagTemplate -> modeInHead tb (TEndTag name tid)
       _ -> anyOtherEndTagT tid name tb
@@ -2849,7 +2848,7 @@ modeInTable tb tok = case tok of
     tbSetMode tb MInColumnGroup
   TStartTag "col" _ _ _ -> do
     clearStackToTableContext tb
-    void $ insertElementT tb "colgroup" TagColgroup V.empty Nothing
+    void $ insertElementT tb "colgroup" TagColgroup emptySmallArray Nothing
     tbSetMode tb MInColumnGroup
     processInMode tb tok
   TStartTag name attrs _ tid | name `elem` ["tbody","tfoot","thead"] -> do
@@ -2858,7 +2857,7 @@ modeInTable tb tok = case tok of
     tbSetMode tb MInTableBody
   TStartTag name _ _ _ | name `elem` ["td","th","tr"] -> do
     clearStackToTableContext tb
-    void $ insertElementT tb "tbody" TagTbody V.empty Nothing
+    void $ insertElementT tb "tbody" TagTbody emptySmallArray Nothing
     tbSetMode tb MInTableBody
     processInMode tb tok
   TStartTag "table" _ _ _ -> do
@@ -2997,7 +2996,7 @@ modeInTableBody tb tok = case tok of
     tbSetMode tb MInRow
   TStartTag name attrs _ _ | name == "th" || name == "td" -> do
     clearStackToTableBodyContext tb
-    void $ insertElementT tb "tr" TagTr V.empty Nothing
+    void $ insertElementT tb "tr" TagTr emptySmallArray Nothing
     tbSetMode tb MInRow
     processInMode tb tok
   TEndTag name _ | name `elem` ["tbody","tfoot","thead"] -> do
@@ -3468,9 +3467,9 @@ foreignEndTag name tb = do
     dropThrough target (_:xs) = dropThrough target xs
     dropThrough _ [] = []
 
-hasFontBreakoutAttr :: Vector HTMLAttribute -> Bool
+hasFontBreakoutAttr :: SmallArray HTMLAttribute -> Bool
 hasFontBreakoutAttr attrs =
-  V.any (\(HTMLAttribute n _) -> let !ln = T.toLower n in ln == "color" || ln == "face" || ln == "size") attrs
+  any (\(HTMLAttribute n _) -> let !ln = T.toLower n in ln == "color" || ln == "face" || ln == "size") attrs
 
 popUntilHTMLOrIntegrationPoint :: TreeBuilder -> IO ()
 popUntilHTMLOrIntegrationPoint tb = do
@@ -3661,8 +3660,8 @@ adjustSVGTagName name = case lookup (T.toLower name) svgTagNameAdjustments of
   Just adj -> adj
   Nothing -> name
 
-adjustSVGAttrs :: Vector HTMLAttribute -> Vector HTMLAttribute
-adjustSVGAttrs = V.map (\(HTMLAttribute n v) -> HTMLAttribute (lookupDef n (T.toLower n) svgAttrAdjustments) v)
+adjustSVGAttrs :: SmallArray HTMLAttribute -> SmallArray HTMLAttribute
+adjustSVGAttrs = fmap (\(HTMLAttribute n v) -> HTMLAttribute (lookupDef n (T.toLower n) svgAttrAdjustments) v)
 
 svgAttrAdjustments :: [(Text,Text)]
 svgAttrAdjustments =
@@ -3693,11 +3692,11 @@ svgAttrAdjustments =
   ,("xchannelselector","xChannelSelector"),("ychannelselector","yChannelSelector")
   ,("zoomandpan","zoomAndPan")]
 
-adjustMathMLAttrs :: Vector HTMLAttribute -> Vector HTMLAttribute
-adjustMathMLAttrs = V.map (\(HTMLAttribute n v) -> HTMLAttribute (lookupDef n (T.toLower n) [("definitionurl","definitionURL")]) v)
+adjustMathMLAttrs :: SmallArray HTMLAttribute -> SmallArray HTMLAttribute
+adjustMathMLAttrs = fmap (\(HTMLAttribute n v) -> HTMLAttribute (lookupDef n (T.toLower n) [("definitionurl","definitionURL")]) v)
 
-adjustForeignAttrs :: Vector HTMLAttribute -> Vector HTMLAttribute
-adjustForeignAttrs = V.map (\(HTMLAttribute n v) -> case lookup (T.toLower n) foreignAttrAdj of
+adjustForeignAttrs :: SmallArray HTMLAttribute -> SmallArray HTMLAttribute
+adjustForeignAttrs = fmap (\(HTMLAttribute n v) -> case lookup (T.toLower n) foreignAttrAdj of
   Just (prefix, local) -> if T.null prefix then HTMLAttribute local v else HTMLAttribute (prefix <> ":" <> local) v
   Nothing -> HTMLAttribute n v)
 
@@ -3790,7 +3789,7 @@ tokenizeBSIO !bs !off0 !len !svgD0 !svgH0 !tb = go off0 svgD0 svgH0
         _ -> emit (TString t)
 
     {-# INLINE emitStartTag #-}
-    emitStartTag !lcName !attrs !selfClose !tid = do
+    emitStartTag !lcName attrs !selfClose !tid = do
       ignoreLF <- readBoolSlot scalars sIgnoreLF
       if ignoreLF then tbSetIgnoreLF tb False else pure ()
       mode <- readMode scalars
@@ -4044,14 +4043,51 @@ skipAttrsBS !bs !off !len = go off
       | BSU.unsafeIndex bs i == q = go (i + 1)
       | otherwise = skipQ (i + 1) q
 
+{-# INLINE scanAttrEnd #-}
+scanAttrEnd :: Addr# -> Int -> Int -> (Bool, Int)
+scanAttrEnd addr# !off !len = go off
+  where
+    go !i
+      | i >= len = (False, len + 1)
+      | otherwise = case readByteOff addr# i of
+          0x3E -> (False, i + 1)
+          0x2F -> if i + 1 < len && readByteOff addr# (i + 1) == 0x3E
+                  then (True, i + 2)
+                  else go (i + 1)
+          0x3D -> goAfterEq (i + 1)
+          _ -> go (i + 1)
+    goAfterEq !i
+      | i >= len = (False, len + 1)
+      | otherwise = case readByteOff addr# i of
+          0x20 -> goAfterEq (i + 1)
+          0x09 -> goAfterEq (i + 1)
+          0x0A -> goAfterEq (i + 1)
+          0x0C -> goAfterEq (i + 1)
+          0x0D -> goAfterEq (i + 1)
+          0x3E -> (False, i + 1)
+          0x22 -> skipPastQuote 0x22 (i + 1)
+          0x27 -> skipPastQuote 0x27 (i + 1)
+          _ -> go (i + 1)
+    skipPastQuote !q !j
+      | j >= len = (False, len + 1)
+      | otherwise =
+          let !b = readByteOff addr# j
+          in if b == q then go (j + 1)
+             else skipPastQuote q (j + 1)
+
+{-# NOINLINE lazyParseAttrs #-}
+lazyParseAttrs :: ByteArray -> ByteString -> Int -> Int -> SmallArray HTMLAttribute
+lazyParseAttrs ba bs off len =
+  let (v, _, _) = readTagAttrsBS ba bs off len in v
+
 {-# INLINE readTagAttrsBS #-}
-readTagAttrsBS :: ByteArray -> ByteString -> Int -> Int -> (Vector HTMLAttribute, Bool, Int)
+readTagAttrsBS :: ByteArray -> ByteString -> Int -> Int -> (SmallArray HTMLAttribute, Bool, Int)
 readTagAttrsBS !ba !bs !off !len =
     let !(acc, sc, endOff) = go off []
     in case acc of
-      [] -> (V.empty, sc, endOff)
-      [a] -> (V.singleton a, sc, endOff)
-      _ -> (V.fromList (reverse acc), sc, endOff)
+      [] -> (emptySmallArray, sc, endOff)
+      [a] -> (createSmallArray 1 a (\_ -> pure ()), sc, endOff)
+      _ -> (smallArrayFromList (reverse acc), sc, endOff)
   where
     !(BS (ForeignPtr addr# _) _) = bs
     go !i !acc
@@ -4387,7 +4423,7 @@ readQuotedDoc cs q = go [] cs
       | c == q = (reverse acc, rest)
       | otherwise = go (c:acc) rest
 
-readTagAttrs :: String -> (Vector HTMLAttribute, Bool, String)
+readTagAttrs :: String -> (SmallArray HTMLAttribute, Bool, String)
 readTagAttrs = (\(acc, sc, rest) -> (attrsFromList (reverse acc), sc, rest)) . go []
   where
     go acc [] = (acc, False, [])

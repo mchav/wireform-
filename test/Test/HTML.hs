@@ -8,8 +8,7 @@ import Data.Foldable (toList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Primitive.SmallArray (SmallArray, smallArrayFromList, sizeofSmallArray, indexSmallArray)
-import Data.Vector (Vector)
+import Data.Primitive.SmallArray (SmallArray, emptySmallArray, smallArrayFromList, sizeofSmallArray, indexSmallArray)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
 import Test.Tasty
@@ -286,8 +285,8 @@ queryTests = testGroup "Query"
 encodeDecodeTests :: TestTree
 encodeDecodeTests = testGroup "Encode/Decode"
   [ testCase "encode void elements without closing tag" $ do
-      let doc = HTMLDocument Nothing (HTMLElement "div" V.empty
-            (smallArrayFromList [HTMLElement "br" V.empty mempty, HTMLElement "hr" V.empty mempty]))
+      let doc = HTMLDocument Nothing (HTMLElement "div" emptySmallArray
+            (smallArrayFromList [HTMLElement "br" emptySmallArray mempty, HTMLElement "hr" emptySmallArray mempty]))
           encoded = encodeHTML doc
           decoded = parseHTML encoded
           root = htmlRoot decoded
@@ -296,11 +295,11 @@ encodeDecodeTests = testGroup "Encode/Decode"
 
   , testCase "encode/parse roundtrip preserves structure" $ do
       let doc = HTMLDocument Nothing
-            (HTMLElement "div" (V.singleton (HTMLAttribute "class" "main"))
+            (HTMLElement "div" (smallArrayFromList [HTMLAttribute "class" "main"])
               (smallArrayFromList
-                [ HTMLElement "p" V.empty (smallArrayFromList [HTMLText "hello"])
-                , HTMLElement "br" V.empty mempty
-                , HTMLElement "p" V.empty (smallArrayFromList [HTMLText "world"])
+                [ HTMLElement "p" emptySmallArray (smallArrayFromList [HTMLText "hello"])
+                , HTMLElement "br" emptySmallArray mempty
+                , HTMLElement "p" emptySmallArray (smallArrayFromList [HTMLText "world"])
                 ])))
           encoded = encodeHTML doc
           decoded = parseHTML encoded
@@ -311,7 +310,7 @@ encodeDecodeTests = testGroup "Encode/Decode"
 
   , testCase "boolean attributes minimized" $ do
       let doc = HTMLDocument Nothing
-            (HTMLElement "input" (V.fromList
+            (HTMLElement "input" (smallArrayFromList
               [ HTMLAttribute "type" "checkbox"
               , HTMLAttribute "checked" ""
               ]) mempty)
@@ -320,7 +319,7 @@ encodeDecodeTests = testGroup "Encode/Decode"
 
   , testCase "encodes entities in text" $ do
       let doc = HTMLDocument Nothing
-            (HTMLElement "p" V.empty (smallArrayFromList [HTMLText "a < b & c > d"]))
+            (HTMLElement "p" emptySmallArray (smallArrayFromList [HTMLText "a < b & c > d"]))
           encoded = TE.decodeUtf8 (encodeHTML doc)
       assertBool "has &lt;" (T.isInfixOf "&lt;" encoded)
       assertBool "has &amp;" (T.isInfixOf "&amp;" encoded)

@@ -102,7 +102,7 @@ instance FromHTML Bool where
       _ -> Left $ "FromHTML Bool: cannot parse " <> T.unpack t
 
 instance ToHTML a => ToHTML (Maybe a) where
-  toHTML Nothing = HTMLElement "span" V.empty mempty
+  toHTML Nothing = HTMLElement "span" mempty mempty
   toHTML (Just x) = toHTML x
 
 instance FromHTML a => FromHTML (Maybe a) where
@@ -111,8 +111,8 @@ instance FromHTML a => FromHTML (Maybe a) where
   fromHTML n = Just <$> fromHTML n
 
 instance ToHTML a => ToHTML [a] where
-  toHTML xs = HTMLElement "ul" V.empty
-    (smallArrayFromList (map (\x -> HTMLElement "li" V.empty (smallArrayFromList [toHTML x])) xs))
+  toHTML xs = HTMLElement "ul" mempty
+    (smallArrayFromList (map (\x -> HTMLElement "li" mempty (smallArrayFromList [toHTML x])) xs))
 
 instance FromHTML a => FromHTML [a] where
   fromHTML (HTMLElement _ _ cs) = traverse fromChild (toList cs)
@@ -160,8 +160,8 @@ instance GToHTMLFields f => GToHTMLCon (M1 C c f) where
   gToHTMLCon typeName (M1 x) =
     let fields = gToHTMLFields x
         children = smallArrayFromList
-          (map (\(k, v) -> HTMLElement (T.pack k) V.empty (smallArrayFromList [v])) fields)
-    in HTMLElement (T.pack typeName) V.empty children
+          (map (\(k, v) -> HTMLElement (T.pack k) mempty (smallArrayFromList [v])) fields)
+    in HTMLElement (T.pack typeName) mempty children
 
 instance GFromHTMLFields f => GFromHTMLCon (M1 C c f) where
   gFromHTMLCon (HTMLElement _ _ cs) = M1 <$> gFromHTMLFields (lookupChild cs)
@@ -177,7 +177,7 @@ lookupChild cs name = go 0
       , n == name =
           if sizeofSmallArray innerCs == 1
             then Just (indexSmallArray innerCs 0)
-            else Just (HTMLElement n V.empty innerCs)
+            else Just (HTMLElement n mempty innerCs)
       | otherwise = go (i + 1)
 
 class GToHTMLFields f where
