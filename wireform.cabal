@@ -1160,6 +1160,22 @@ benchmark quick-prof
     ghc-options:      -rtsopts
     ghc-options: -O2 -rtsopts
 
+benchmark html-bench
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          HTMLBench.hs
+    build-depends:
+        base >= 4.16 && < 5
+      , wireform
+      , bytestring
+      , primitive
+      , text
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+    ghc-options: -O2 -rtsopts
+
 test-suite interop-test
     import:           warnings
     type:             exitcode-stdio-1.0
@@ -1211,8 +1227,9 @@ test-suite html-rewriter-test
     type:             exitcode-stdio-1.0
     main-is:          HTMLRewriterTest.hs
     build-depends:
-        base, wireform, bytestring, text,
-        tasty, tasty-hunit
+        base, wireform, bytestring, text, aeson,
+        tasty, tasty-hunit,
+        directory, filepath
     hs-source-dirs:   test-interop
     default-language: GHC2021
     default-extensions:
