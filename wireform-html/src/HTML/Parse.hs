@@ -11,6 +11,7 @@ module HTML.Parse (
   parseHTMLFragment,
   parseHTMLNodes,
   tokenizeOnlyIO,
+  tokenizeCountChunk,
   treeBuildOnlyIO,
 
   -- * Low-level token API (for rewriter)
@@ -18,6 +19,32 @@ module HTML.Parse (
   tokenizeBS,
   tokenizeCallbackIO,
   tokenizeCallbackIOWith,
+
+  -- * Low-level scanning (direct rewriter)
+  byteStringPinnedByteArray,
+  decodeTextSlice,
+  decodeTextSliceKnown,
+  scanTagNameFast,
+  scanTextFast,
+  scanTextAscii,
+  readTagAttrsBS,
+  scanClassAndSkip,
+  skipTagBS,
+  skipToGtBS,
+  skipAttrsBS,
+  readByteOff,
+  isAlphaByte,
+  isRawTextTag,
+  isRCDataTag,
+  isSvgHtmlIntegPoint,
+  markupDeclRemaining,
+  rawTextRemainingString,
+  utf8AdvanceNChars,
+  tokenizeMarkupDeclCtx,
+  ScanTextResult (..),
+  parseEntityRef,
+  isWSByte,
+  skipWSAddr,
 ) where
 
 import Data.Array.Byte (ByteArray (ByteArray))
@@ -990,6 +1017,50 @@ tokenizeOnlyIO bs = do
                   modifyIORef' countRef (+ 1)
                   go _ba addr# countRef bs (off + 1) len
 {-# NOINLINE tokenizeOnlyIO #-}
+
+
+-- | Count tokens in a chunk without allocating Token objects.
+-- Uses the same fast-scan approach as tokenizeOnlyIO.
+tokenizeCountChunk :: ByteString -> IO Int
+tokenizeCountChunk bs = do
+  let !len = BS.length bs
+      !(BS (ForeignPtr addr# _) _) = bs
+  countRef <- newIORef (0 :: Int)
+  let go !off
+        | off >= len = pure ()
+        | otherwise =
+            let !b = readByteOff addr# off
+            in if b /= 0x3C && b /= 0x26 && b /= 0x00 && b /= 0x0D
+                then do
+                  let !end = scanTextFast addr# (off + 1) len
+                  modifyIORef' countRef (+ 1)
+                  go end
+                else case b of
+                  0x3C
+                    | off + 1 < len ->
+                        let !b2 = readByteOff addr# (off + 1)
+                        in if isAlphaByte b2
+                            then do
+                              let !nameEnd = scanTagName bs (off + 1) len
+                                  !afterTag = skipAttrsBS bs nameEnd len
+                              modifyIORef' countRef (+ 1)
+                              go afterTag
+                            else
+                              if b2 == 0x2F && off + 2 < len && isAlphaByte (readByteOff addr# (off + 2))
+                                then do
+                                  let !nameEnd = scanTagName bs (off + 2) len
+                                      !afterGt = skipToGtBS bs nameEnd len
+                                  modifyIORef' countRef (+ 1)
+                                  go afterGt
+                                else do
+                                  modifyIORef' countRef (+ 1)
+                                  go (off + 1)
+                  _ -> do
+                    modifyIORef' countRef (+ 1)
+                    go (off + 1)
+  go 0
+  readIORef countRef
+{-# NOINLINE tokenizeCountChunk #-}
 
 
 parseHTMLFragment :: Text -> Maybe Text -> ByteString -> [HTMLNode]
@@ -4932,6 +5003,85 @@ skipTagBS addr# = go
       | otherwise = scanPast q (i + 1) len
 
 
+-- | Scan tag attrs, extracting only the class value (as ByteString slice).
+-- Returns (# classOff, classLen, selfClose, afterTag #) where classOff = -1
+-- means no class attribute found.  Zero allocation.
+{-# INLINE scanClassAndSkip #-}
+scanClassAndSkip :: Addr# -> Int -> Int -> (# Int, Int, Bool, Int #)
+scanClassAndSkip addr# !off0 !len = go off0 (-1) 0
+  where
+    rd :: Int -> Word8
+    rd = readByteOff addr#
+    {-# INLINE rd #-}
+
+    go !i !cOff !cLen
+      | i >= len = (# cOff, cLen, False, len + 1 #)
+      | otherwise = case rd i of
+          0x3E -> (# cOff, cLen, False, i + 1 #)
+          0x2F | i + 1 < len, rd (i + 1) == 0x3E -> (# cOff, cLen, True, i + 2 #)
+          b | isWSByte b -> go (i + 1) cOff cLen
+          _ ->
+            let !nameStart = i
+                !nameEnd = scanAttrNameEnd i
+                !nameLen = nameEnd - nameStart
+                !isClass = nameLen == 5
+                         && (rd nameStart .|. 0x20) == 0x63       -- c
+                         && (rd (nameStart+1) .|. 0x20) == 0x6C   -- l
+                         && (rd (nameStart+2) .|. 0x20) == 0x61   -- a
+                         && (rd (nameStart+3) .|. 0x20) == 0x73   -- s
+                         && (rd (nameStart+4) .|. 0x20) == 0x73   -- s
+            in if nameLen == 0
+                then go (max (i + 1) nameEnd) cOff cLen
+                else
+                  let !i2 = skipWSAddr addr# nameEnd len
+                  in if i2 >= len || rd i2 /= 0x3D
+                      then go i2 cOff cLen
+                      else
+                        let !i3 = skipWSAddr addr# (i2 + 1) len
+                        in if i3 >= len
+                            then go i3 cOff cLen
+                            else case rd i3 of
+                              0x22 -> let !vStart = i3 + 1
+                                          !vEnd = scanPastQ 0x22 vStart
+                                          !vLen = max 0 (vEnd - 1 - vStart)
+                                      in if isClass
+                                          then go vEnd vStart vLen
+                                          else go vEnd cOff cLen
+                              0x27 -> let !vStart = i3 + 1
+                                          !vEnd = scanPastQ 0x27 vStart
+                                          !vLen = max 0 (vEnd - 1 - vStart)
+                                      in if isClass
+                                          then go vEnd vStart vLen
+                                          else go vEnd cOff cLen
+                              _ -> let !vEnd = scanUnquotedEnd i3
+                                   in if isClass
+                                       then go vEnd i3 (vEnd - i3)
+                                       else go vEnd cOff cLen
+
+    scanAttrNameEnd !j
+      | j >= len = j
+      | otherwise = case rd j of
+          0x3D -> j
+          0x3E -> j
+          0x2F -> j
+          b | isWSByte b -> j
+          _ -> scanAttrNameEnd (j + 1)
+
+    scanPastQ :: Word8 -> Int -> Int
+    scanPastQ !q !j
+      | j >= len = len
+      | rd j == q = j + 1
+      | otherwise = scanPastQ q (j + 1)
+
+    scanUnquotedEnd :: Int -> Int
+    scanUnquotedEnd !j
+      | j >= len = len
+      | otherwise = case rd j of
+          0x3E -> j
+          b | isWSByte b -> j
+          _ -> scanUnquotedEnd (j + 1)
+
+
 {-# INLINE readTagAttrsBS #-}
 readTagAttrsBS :: ByteArray -> ByteString -> Int -> Int -> (SmallArray HTMLAttribute, Bool, Int)
 readTagAttrsBS !ba !bs !off !len =
@@ -5176,6 +5326,11 @@ bsToByteArray (BS (ForeignPtr addr# _) len) =
     (# _, ba# #) -> ByteArray ba#
   where
     !(I# len#) = len
+
+
+{-# INLINE byteStringPinnedByteArray #-}
+byteStringPinnedByteArray :: ByteString -> ByteArray
+byteStringPinnedByteArray = bsToByteArray
 
 
 skipWS :: ByteString -> Int -> Int -> Int
@@ -5683,6 +5838,122 @@ matchCloseTag cs tag =
       && case rest of
         [] -> False
         (c : _) -> c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C' || c == '/'
+
+
+-- | Remaining input after the first markup declaration when the input is the
+-- substring that follows @\<!\@ (same convention as 'tokenizeMarkupDeclCtx').
+{-# NOINLINE markupDeclRemaining #-}
+markupDeclRemaining :: Int -> Bool -> String -> String
+markupDeclRemaining _ _ = \case
+  ('-':'-':rest) -> snd (readComment rest)
+  rest
+    | matchCaseI rest "doctype" ->
+        let rest1 = drop 7 rest
+            cs1 = dropWhile isSpDoctype rest1
+            (_name, cs2) = readDoctypeName cs1
+            cs3 = dropWhile isSpDoctype cs2
+            (_pub, _sys, _fq, cs4) = readDoctypeIds cs3
+         in cs4
+    | matchCaseI rest "[cdata[" ->
+        let rest1 = drop 7 rest
+         in snd (readUntilStr "]]>" rest1)
+    | otherwise ->
+        snd (readBogusComment rest)
+  where
+    isSpDoctype c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C'
+
+
+-- | Advance a UTF-8 'ByteString' by @n@ Unicode scalar values starting at @off@.
+{-# INLINE utf8CharWidth #-}
+utf8CharWidth :: Word8 -> Int
+utf8CharWidth !w
+  | w .&. 0x80 == 0 = 1
+  | w .&. 0xE0 == 0xC0 = 2
+  | w .&. 0xF0 == 0xE0 = 3
+  | w .&. 0xF8 == 0xF0 = 4
+  | otherwise = 1
+
+
+{-# INLINE utf8AdvanceNChars #-}
+utf8AdvanceNChars :: ByteString -> Int -> Int -> Int
+utf8AdvanceNChars !bs !o !n
+  | n <= 0 = o
+  | o >= BS.length bs = o
+  | otherwise =
+      let !w = utf8CharWidth (BSU.unsafeIndex bs o)
+       in utf8AdvanceNChars bs (o + w) (n - 1)
+
+
+-- | String suffix after a raw-text element's closing tag (after @>@), or the
+-- original string if no closing tag is found.
+{-# NOINLINE rawTextRemainingString #-}
+rawTextRemainingString :: String -> Text -> String
+rawTextRemainingString cs tag
+  | tag == "plaintext" = []
+  | tag == "script" =
+      case scriptDataRemaining cs of
+        Nothing -> []
+        Just r -> r
+  | otherwise = goRaw (T.unpack tag) cs
+  where
+    goRaw !_ [] = []
+    goRaw !tagStr ('<' : '/' : rest)
+      | matchCloseTag rest tagStr =
+          skipToGtWithAttrs (drop (length tagStr) rest)
+    goRaw !tagStr (_ : rest) = goRaw tagStr rest
+
+
+{-# NOINLINE scriptDataRemaining #-}
+scriptDataRemaining :: String -> Maybe String
+scriptDataRemaining cs = scriptNormal cs
+  where
+    scriptNormal [] = Nothing
+    scriptNormal ('<' : '/' : rest)
+      | matchCloseTag rest "script" =
+          Just (skipToGtWithAttrs (drop 6 rest))
+    scriptNormal ('<' : '!' : '-' : '-' : rest) = scriptEscaped rest
+    scriptNormal ('\0' : rest) = scriptNormal rest
+    scriptNormal (_ : rest) = scriptNormal rest
+
+    scriptEscaped [] = Nothing
+    scriptEscaped ('-' : '-' : '>' : rest) = scriptNormal rest
+    scriptEscaped ('<' : '/' : rest)
+      | matchCloseTag rest "script" =
+          Just (skipToGtWithAttrs (drop 6 rest))
+    scriptEscaped ('<' : rest) =
+      case tryMatchScriptStart rest of
+        Just rest' -> scriptDoubleEscaped rest'
+        Nothing -> scriptEscaped rest
+    scriptEscaped ('\0' : rest) = scriptEscaped rest
+    scriptEscaped (_ : rest) = scriptEscaped rest
+
+    scriptDoubleEscaped [] = Nothing
+    scriptDoubleEscaped ('-' : '-' : '>' : rest) = scriptEscaped rest
+    scriptDoubleEscaped ('<' : '/' : rest) =
+      let (isScript, _consumed, rest') = tryMatchScriptEnd rest
+       in if isScript then scriptEscaped rest' else scriptDoubleEscaped rest'
+    scriptDoubleEscaped ('\0' : rest) = scriptDoubleEscaped rest
+    scriptDoubleEscaped (_ : rest) = scriptDoubleEscaped rest
+
+    tryMatchScriptStart ds =
+      case ds of
+        (c1 : c2 : c3 : c4 : c5 : c6 : rest)
+          | map toLower [c1, c2, c3, c4, c5, c6] == "script"
+          , case rest of
+              [] -> True
+              (r : _) -> r `elem` (" \t\n\r\x0C/>" :: [Char]) ->
+              Just rest
+        _ -> Nothing
+
+    tryMatchScriptEnd ds =
+      case ds of
+        (c1 : c2 : c3 : c4 : c5 : c6 : rest)
+          | map toLower [c1, c2, c3, c4, c5, c6] == "script"
+          , case rest of
+              [] -> True
+              (r : _) -> r `elem` (" \t\n\r\x0C/>" :: [Char]) ->
+              (True, [c1, c2, c3, c4, c5, c6], rest)
+        _ -> (False, [], ds)
 
 
 ------------------------------------------------------------------------
