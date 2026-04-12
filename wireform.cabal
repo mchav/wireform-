@@ -3,23 +3,14 @@ name:               wireform
 version:            0.1.0.0
 synopsis:           High-performance multi-format serialization toolkit for Haskell
 description:
-  A comprehensive binary serialization library supporting 15 formats:
+  A comprehensive binary serialization library supporting 25+ formats.
   .
-  * Protocol Buffers (proto2/proto3 with full IDL parser, code generation, JSON mapping)
-  * Apache Avro (schema resolution, JSON conversion, protocol/IPC)
-  * Apache Thrift (binary protocol, schema, JSON)
-  * CBOR (RFC 7049 values, encoding/decoding, JSON bridge)
-  * MessagePack (values, encoding/decoding, JSON bridge)
-  * BSON (MongoDB wire format)
-  * Amazon Ion (binary Ion values)
-  * Cap'n Proto (zero-copy serialization)
-  * FlatBuffers (zero-copy flat serialization)
-  * Microsoft Bond (compact binary)
-  * ASN.1 BER/DER (ITU-T X.690)
-  * Apache Parquet (footer, page headers, PLAIN + hybrid RLE dictionary indices, GZip/Snappy/Zstd)
-  * Apache Arrow IPC (schema framing + flat record batch materialization)
-  * Apache Iceberg (table JSON metadata, Avro manifest / manifest-list readers)
-  * EDN (Extensible Data Notation)
+  This is the umbrella package.  It re-exports the public API of each
+  format through @Wireform.*@ convenience modules and provides the
+  @wireform-gen@ multi-format code-generation CLI.
+  .
+  Individual format packages (e.g. @wireform-proto@, @wireform-html@)
+  can be depended on directly when you only need one format.
 
 license:            BSD-3-Clause
 homepage:           https://github.com/iand675/wireform-
@@ -69,1186 +60,681 @@ flag lz4
   manual: True
   default: False
 
-common warnings
-    ghc-options:
-      -Wall
-      -Wcompat
-      -Widentities
-      -Wincomplete-record-updates
-      -Wincomplete-uni-patterns
-      -Wpartial-fields
-      -Wredundant-constraints
-      -O2
+common defaults
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-language: GHC2021
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
 
 library
-    import:           warnings
-    exposed-modules:
-      Proto.AST
-      Proto.Parser
-      Proto.Parser.Lexer
-      Proto.Parser.Error
-      Proto.Parser.Resolver
-      Proto.Wire
-      Proto.Wire.Encode
-      Proto.Wire.Decode
-      Proto.Encode
-      Proto.Decode
-      Proto.Annotations
-      Proto.CodeGen
-      Proto.CodeGen.Combinators
-      Proto.CodeGen.Types
-      Proto.CodeGen.Encode
-      Proto.CodeGen.Decode
-      Proto.SizedBuilder
-      Proto.Church
-      Proto.VectorBuilder
-      Proto.Message
-      Proto.Schema
-      Proto.Lens
-      Proto.Repr
-      Proto.Compat
-      Proto.Options
-      Proto.Print
-      Proto.Inspect
-      Proto.Setup
-      Proto.TH
-      Proto.QQ
-      Proto.JSON
-      Proto.Merge
-      Proto.FieldPresence
-      -- Well-known types (generated from proto/google/protobuf/*.proto)
-      Proto.Google.Protobuf.Any
-      Proto.Google.Protobuf.Any.Util
-      Proto.Google.Protobuf.Timestamp
-      Proto.Google.Protobuf.Duration
-      Proto.Google.Protobuf.Empty
-      Proto.Google.Protobuf.Wrappers
-      Proto.Google.Protobuf.FieldMask
-      Proto.Google.Protobuf.SourceContext
-      Proto.Google.Protobuf.Struct
-      Proto.Registry
-      Proto.Registry.TH
-      -- New modules
-      Proto.Dynamic
-      Proto.TDP
-      Proto.TextFormat
-      Proto.Conformance
-      Proto.CodeGen.Service
-      Proto.CodeGen.Hooks
-      Proto.JSON.WellKnown
-      Proto.Options.Custom
-      Proto.Google.Protobuf.Descriptor
-      Proto.Google.Protobuf.Compiler.Plugin
-      Proto.Descriptor.Convert
-      Proto.Internal.Maybe
-      Proto.Internal.Either
-      Proto.Wire.Result
-      Proto.Wire.FFI
-      Proto.Decode.Stream
-      Proto.Decode.Streaming
-      Proto.Decode.Fast
-      Proto.Encode.Lazy
-      Proto.Encode.Archetype
-      Proto.Encode.Direct
-      Avro.Wire
-      Avro.Schema
-      Avro.Value
-      Avro.Encode
-      Avro.Decode
-      Avro.JSON
-      Avro.Resolution
-      Avro.Container
-      Avro.Schema.Parse
-      -- Well-known type utilities
-      Proto.Google.Protobuf.Timestamp.Util
-      Proto.Google.Protobuf.Duration.Util
-      Proto.Google.Protobuf.FieldMask.Util
-      Proto.Google.Protobuf.Wrappers.Util
-      Proto.Google.Protobuf.Struct.Util
-      -- Thrift support
-      Thrift.Wire
-      Thrift.Schema
-      Thrift.Value
-      Thrift.Encode
-      Thrift.Decode
-      Thrift.JSON
-      Thrift.Message
-      Thrift.Parser
-      Thrift.CodeGen
-      Thrift.Registry
-      Thrift.QQ
-      -- Avro code generation
-      Avro.CodeGen
-      Avro.Registry
-      Avro.QQ
-      -- gRPC framing
-      Proto.GRPC
-      -- Avro IDL (.avdl) parser and converter
-      Avro.IDL
-      Avro.IDLConvert
-      -- Avro Protocol / IPC
-      Avro.Protocol
-      -- CBOR support
-      CBOR.Value
-      CBOR.Encode
-      CBOR.Decode
-      CBOR.JSON
-      CBOR.Diagnostic
-      CBOR.Stream
-      CBOR.CDDLSchema
-      CBOR.CDDL
-      CBOR.CDDLCodeGen
-      CBOR.TagRegistry
-      CBOR.QQ
-      -- MessagePack support
-      MsgPack.Value
-      MsgPack.Encode
-      MsgPack.Decode
-      MsgPack.JSON
-      MsgPack.RPC
-      MsgPack.Stream
-      -- BSON support
-      BSON.Value
-      BSON.Encode
-      BSON.Decode
-      -- Thrift framed transport
-      Thrift.Transport
-      -- Avro fingerprinting
-      Avro.Fingerprint
-      -- Amazon Ion support
-      Ion.Value
-      Ion.Encode
-      Ion.Decode
-      Ion.ISLSchema
-      Ion.SchemaLang
-      Ion.ISLCodeGen
-      Ion.QQ
-      -- Cap'n Proto support
-      CapnProto.Value
-      CapnProto.Encode
-      CapnProto.Decode
-      CapnProto.Schema
-      CapnProto.Parser
-      CapnProto.CodeGen
-      CapnProto.Registry
-      CapnProto.QQ
-      -- FlatBuffers support
-      FlatBuffers.Value
-      FlatBuffers.Encode
-      FlatBuffers.Decode
-      FlatBuffers.Schema
-      FlatBuffers.Parser
-      FlatBuffers.CodeGen
-      FlatBuffers.Registry
-      FlatBuffers.QQ
-      -- Apache Iceberg table metadata
-      Iceberg.Types
-      Iceberg.JSON
-      Iceberg.Manifest
-      Iceberg.Read
-      Iceberg.Snapshot
-      Iceberg.SchemaEvolution
-      -- Microsoft Bond support
-      Bond.Value
-      Bond.Encode
-      Bond.Decode
-      Bond.Schema
-      Bond.Parser
-      Bond.CodeGen
-      Bond.Registry
-      Bond.QQ
-      -- ASN.1 BER/DER support
-      ASN1.Value
-      ASN1.Encode
-      ASN1.Decode
-      ASN1.Schema
-      ASN1.Parser
-      ASN1.CodeGen
-      ASN1.QQ
-      -- Apache Parquet metadata + column pages
-      Parquet.Types
-      Parquet.Footer
-      Parquet.Page
-      Parquet.Read
-      Parquet.Levels
-      Parquet.Write
-      -- Apache Arrow IPC
-      Arrow.Types
-      Arrow.IPC
-      Arrow.Column
-      Arrow.Write
-      Arrow.File
-      -- EDN (Extensible Data Notation) support
-      EDN.Value
-      EDN.Encode
-      EDN.Decode
-      EDN.JSON
-      -- Typeclass-based encode/decode with Generic deriving
-      MsgPack.Class
-      CBOR.Class
-      BSON.Class
-      EDN.Class
-      Ion.Class
-      Avro.Class
-      Thrift.Class
-      -- Convenience re-export modules
-      Wireform.MsgPack
-      Wireform.CBOR
-      Wireform.Avro
-      Wireform.Thrift
-      Wireform.EDN
-      Wireform.BSON
-      Wireform.Ion
-      Wireform.Bond
-      Wireform.Proto
-      Wireform.CapnProto
-      Wireform.FlatBuffers
-      Wireform.Parquet
-      Wireform.Arrow
-      Wireform.Iceberg
-      Wireform.ASN1
-      -- XML support
-      XML.Value
-      XML.SAX
-      XML.Decode
-      XML.Encode
-      XML.Path
-      XML.Class
-      XML.Generic
-      XML.Schema
-      XML.XSLT
-      XML.CodeGen
-      XML.QQ
-      XML.DSL
-      XML.FastDOM
-      XML.Incremental
-      Wireform.XML
-      -- Bencode support
-      Bencode.Value
-      Bencode.Encode
-      Bencode.Decode
-      Bencode.Class
-      Wireform.Bencode
-      -- TOML support
-      TOML.Value
-      TOML.Encode
-      TOML.Decode
-      TOML.Class
-      Wireform.TOML
-      -- HTML5 support
-      HTML.Value
-      HTML.Parse
-      HTML.Encode
-      HTML.Query
-      HTML.Class
-      HTML.TagId
-      HTML.DOM
-      HTML.Selector
-      HTML.Rewriter
-      Wireform.HTML
-      -- CSV/TSV support
-      CSV.Value
-      CSV.Decode
-      CSV.Encode
-      CSV.Class
-      Wireform.CSV
-      -- NDJSON (Newline-Delimited JSON) support
-      NDJSON.Decode
-      NDJSON.Encode
-      Wireform.NDJSON
-      -- Apache ORC metadata
-      ORC.Types
-      ORC.Footer
-      ORC.Stripe
-      ORC.Read
-      ORC.Write
-      Wireform.ORC
+  import: defaults
+  hs-source-dirs: facade
+  exposed-modules:
+    Wireform.Proto
+    Wireform.Avro
+    Wireform.Thrift
+    Wireform.CBOR
+    Wireform.MsgPack
+    Wireform.BSON
+    Wireform.Ion
+    Wireform.CapnProto
+    Wireform.FlatBuffers
+    Wireform.Bond
+    Wireform.ASN1
+    Wireform.XML
+    Wireform.HTML
+    Wireform.Parquet
+    Wireform.Arrow
+    Wireform.ORC
+    Wireform.Iceberg
+    Wireform.EDN
+    Wireform.Bencode
+    Wireform.TOML
+    Wireform.CSV
+    Wireform.NDJSON
+  other-modules:
+    Paths_wireform
+  autogen-modules: Paths_wireform
+  build-depends:
+      base                >= 4.16 && < 5
+    , wireform-core
+    , wireform-columnar
+    , wireform-proto
+    , wireform-avro
+    , wireform-thrift
+    , wireform-cbor
+    , wireform-msgpack
+    , wireform-bson
+    , wireform-ion
+    , wireform-capnproto
+    , wireform-flatbuffers
+    , wireform-bond
+    , wireform-asn1
+    , wireform-xml
+    , wireform-html
+    , wireform-parquet
+    , wireform-arrow
+    , wireform-orc
+    , wireform-iceberg
+    , wireform-edn
+    , wireform-bencode
+    , wireform-toml
+    , wireform-csv
+    , wireform-ndjson
 
-    other-modules:
-      Columnar.SIMD
-      ORC.RLE
-      Parquet.RLE
-      Parquet.Delta
-      Paths_wireform
-    autogen-modules:  Paths_wireform
+-- Multi-format code generation CLI
+executable wireform-gen
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+      base                   >= 4.16 && < 5
+    , wireform-proto
+    , wireform-avro
+    , wireform-thrift
+    , wireform-bond
+    , wireform-capnproto
+    , wireform-flatbuffers
+    , wireform-asn1
+    , wireform-xml
+    , text
+    , containers
+    , vector
+    , directory
+    , filepath
+    , optparse-applicative   >= 0.17 && < 0.20
 
-    c-sources:        cbits/columnar_simd.c
-                      cbits/fast_decode.c
-                      cbits/fast_xml.c
-                      cbits/html_scan.c
-    include-dirs:     cbits/simde
-    cc-options:       -O3 -march=native
+-- Protobuf conformance test runner
+executable wireform-conformance
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: conformance
+  build-depends:
+      base >= 4.16 && < 5
+    , wireform-proto
 
-    build-depends:
-        base             >= 4.16   && < 5
-      , bytestring       >= 0.11   && < 0.13
-      , containers       >= 0.6    && < 0.8
-      , megaparsec       >= 9.0    && < 10
-      , text             >= 2.0    && < 2.2
-      , vector           >= 0.13   && < 0.14
-      , primitive         >= 0.7    && < 0.10
-      , mtl              >= 2.2    && < 2.4
-      , filepath         >= 1.4    && < 1.6
-      , directory        >= 1.3    && < 1.4
-      , deepseq          >= 1.4    && < 1.6
-      , template-haskell >= 2.18   && < 2.24
-      , prettyprinter    >= 1.7    && < 1.8
-      , base16-bytestring >= 1.0  && < 1.1
-      , base64-bytestring >= 1.2  && < 1.3
-      , aeson             >= 2.1  && < 2.3
-      , scientific        >= 0.3  && < 0.4
-      , hashable          >= 1.3  && < 1.6
-      , unordered-containers >= 0.2.16 && < 0.3
-      , time              >= 1.9    && < 1.15
-      , cryptohash-md5    >= 0.11   && < 0.12
-      , zlib              >= 0.6    && < 0.8
-      , stm               >= 2.5    && < 2.6
+-- protoc plugin
+executable protoc-gen-wireform
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: protoc-plugin
+  build-depends:
+      base >= 4.16 && < 5
+    , wireform-proto
+    , containers
+    , text
+    , vector
 
-    if flag(snappy)
-      build-depends: snappy >= 0.2 && < 0.3
-      cpp-options: -DHAVE_SNAPPY
+-- Well-known type code generator
+executable gen-wkt
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: gen-wkt
+  build-depends:
+      base >= 4.16 && < 5
+    , wireform-proto
+    , containers
+    , text
+    , directory
+    , filepath
 
-    if flag(zstd)
-      build-depends: zstd >= 0.1.3 && < 0.2
-      cpp-options: -DHAVE_ZSTD
+-- Profiling harness
+executable profile
+  import: defaults
+  main-is: Main.hs
+  ghc-options: -O2 -rtsopts
+  hs-source-dirs: profile
+  build-depends:
+      base >= 4.16 && < 5
+    , wireform-proto
+    , bytestring
+    , text
+    , vector
 
-    if flag(lz4)
-      build-depends: lz4-hs >= 0.1 && < 0.2
-      cpp-options: -DHAVE_LZ4
-
-    hs-source-dirs:   src
-    default-language: GHC2021
-    ghc-options:      -O2 -fllvm
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      DeriveGeneric
-      DeriveAnyClass
-      OverloadedStrings
-      LambdaCase
+------------------------------------------------------------------------
+-- Test suites
+------------------------------------------------------------------------
 
 test-suite wireform-test
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          Main.hs
-    other-modules:
-      Test.Parser
-      Test.Wire
-      Test.Roundtrip
-      Test.CodeGen
-      Test.WellKnown
-      Test.WellKnownUtil
-      Test.PrintInspect
-      Test.Compat
-      Test.Schema
-      Test.Options
-      Test.Lens
-      Test.StreamCodec
-      Test.JSON
-      Test.Hooks
-      Test.TDP
-      Test.Thrift
-      Test.Avro
-      Test.GRPC
-      Test.CBOR
-      Test.MsgPack
-      Test.BSON
-      Test.Ion
-      Test.CapnProto
-      Test.FlatBuffers
-      Test.Iceberg
-      Test.Bond
-      Test.ASN1
-      Test.Parquet
-      Test.Arrow
-      Test.EDN
-      Test.MsgPackRPC
-      Test.CBORDiagnostic
-      Test.Streaming
-      Test.Class
-      Test.AvroContainer
-      Test.ThriftParser
-      Test.AvroSchemaParse
-      Test.BondParser
-      Test.AvroCodeGen
-      Test.ThriftCodeGen
-      Test.BondCodeGen
-      Test.CapnProtoCodeGen
-      Test.FlatBuffersCodeGen
-      Test.ASN1CodeGen
-      Test.CDDLCodeGen
-      Test.ISLCodeGen
-      Test.Resolver
-      Test.CapnProtoParser
-      Test.FlatBuffersParser
-      Test.ASN1Parser
-      Test.CDDLParser
-      Test.ISLParser
-      Test.AvroIDL
-      Test.Registry
-      Test.XML
-      Test.Bencode
-      Test.TOML
-      Test.HTML
-      Test.CSV
-      Test.NDJSON
-      Test.ORC
-
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , containers
-      , text
-      , vector
-      , aeson
-      , hashable
-      , unordered-containers
-      , time
-      , filepath
-      , directory
-      , hedgehog         >= 1.0  && < 1.5
-      , tasty            >= 1.4  && < 1.6
-      , tasty-hedgehog   >= 1.0  && < 1.5
-      , tasty-hunit      >= 0.10 && < 0.11
-      , stm
-
-    hs-source-dirs:   test
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      DeriveGeneric
-      DeriveAnyClass
-      OverloadedStrings
-
-executable wireform-gen
-    import:           warnings
-    main-is:          Main.hs
-    build-depends:
-        base                 >= 4.16 && < 5
-      , wireform
-      , text
-      , containers
-      , vector
-      , directory
-      , filepath
-      , optparse-applicative >= 0.17 && < 0.20
-
-    hs-source-dirs:   app
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-basic
-    import:           warnings
-    main-is:          BasicEncodeDecode.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , deepseq
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-any
-    import:           warnings
-    main-is:          AnyExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , deepseq
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-wellknown
-    import:           warnings
-    main-is:          WellKnownTypes.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , containers
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-codegen
-    import:           warnings
-    main-is:          ProtoCodeGen.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , text
-      , containers
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-      LambdaCase
-
-executable example-setup-hook
-    import:           warnings
-    main-is:          ExampleSetup.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-custom-repr
-    import:           warnings
-    main-is:          CustomReprExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , containers
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-th
-    import:           warnings
-    main-is:          THExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-qq
-    import:           warnings
-    main-is:          QQExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-msgpack
-    import:           warnings
-    main-is:          MsgPackExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-cbor
-    import:           warnings
-    main-is:          CBORExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-avro
-    import:           warnings
-    main-is:          AvroExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , containers
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-thrift
-    import:           warnings
-    main-is:          ThriftExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-edn
-    import:           warnings
-    main-is:          EDNExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-bson
-    import:           warnings
-    main-is:          BSONExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-ion
-    import:           warnings
-    main-is:          IonExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-capnproto
-    import:           warnings
-    main-is:          CapnProtoExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-flatbuffers
-    import:           warnings
-    main-is:          FlatBuffersExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-iceberg
-    import:           warnings
-    main-is:          IcebergExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , containers
-      , vector
-      , aeson
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-bond
-    import:           warnings
-    main-is:          BondExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-asn1
-    import:           warnings
-    main-is:          ASN1Example.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-parquet
-    import:           warnings
-    main-is:          ParquetExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-arrow
-    import:           warnings
-    main-is:          ArrowExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , vector
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-protobuf
-    import:           warnings
-    main-is:          ProtobufExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable example-xml
-    import:           warnings
-    main-is:          XMLExample.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-    hs-source-dirs:   examples
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+    Test.Parser
+    Test.Wire
+    Test.Roundtrip
+    Test.CodeGen
+    Test.WellKnown
+    Test.WellKnownUtil
+    Test.PrintInspect
+    Test.Compat
+    Test.Schema
+    Test.Options
+    Test.Lens
+    Test.StreamCodec
+    Test.JSON
+    Test.Hooks
+    Test.TDP
+    Test.Thrift
+    Test.Avro
+    Test.GRPC
+    Test.CBOR
+    Test.MsgPack
+    Test.BSON
+    Test.Ion
+    Test.CapnProto
+    Test.FlatBuffers
+    Test.Iceberg
+    Test.Bond
+    Test.ASN1
+    Test.Parquet
+    Test.Arrow
+    Test.EDN
+    Test.MsgPackRPC
+    Test.CBORDiagnostic
+    Test.Streaming
+    Test.Class
+    Test.AvroContainer
+    Test.ThriftParser
+    Test.AvroSchemaParse
+    Test.BondParser
+    Test.AvroCodeGen
+    Test.ThriftCodeGen
+    Test.BondCodeGen
+    Test.CapnProtoCodeGen
+    Test.FlatBuffersCodeGen
+    Test.ASN1CodeGen
+    Test.CDDLCodeGen
+    Test.ISLCodeGen
+    Test.Resolver
+    Test.CapnProtoParser
+    Test.FlatBuffersParser
+    Test.ASN1Parser
+    Test.CDDLParser
+    Test.ISLParser
+    Test.AvroIDL
+    Test.Registry
+    Test.XML
+    Test.Bencode
+    Test.TOML
+    Test.HTML
+    Test.CSV
+    Test.NDJSON
+    Test.ORC
+  build-depends:
+      base                 >= 4.16 && < 5
+    , wireform
+    , wireform-core
+    , wireform-proto
+    , wireform-avro
+    , wireform-thrift
+    , wireform-cbor
+    , wireform-msgpack
+    , wireform-bson
+    , wireform-ion
+    , wireform-capnproto
+    , wireform-flatbuffers
+    , wireform-bond
+    , wireform-asn1
+    , wireform-xml
+    , wireform-html
+    , wireform-parquet
+    , wireform-arrow
+    , wireform-orc
+    , wireform-iceberg
+    , wireform-edn
+    , wireform-bencode
+    , wireform-toml
+    , wireform-csv
+    , wireform-ndjson
+    , bytestring
+    , containers
+    , text
+    , vector
+    , aeson
+    , hashable
+    , unordered-containers
+    , time
+    , filepath
+    , directory
+    , hedgehog             >= 1.0  && < 1.5
+    , tasty                >= 1.4  && < 1.6
+    , tasty-hedgehog       >= 1.0  && < 1.5
+    , tasty-hunit          >= 0.10 && < 0.11
+    , stm
+  hs-source-dirs: test
 
 test-suite conformance-self-test
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          Main.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , vector
-    hs-source-dirs:   test-conformance
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable bench-grow
-    import:           warnings
-    main-is:          Main.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , vector
-
-    hs-source-dirs:   bench-grow
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-
-executable wireform-conformance
-    import:           warnings
-    main-is:          Main.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-
-    hs-source-dirs:   conformance
-    default-language: GHC2021
-
-executable protoc-gen-wireform
-    import:           warnings
-    main-is:          Main.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , containers
-      , text
-      , vector
-
-    hs-source-dirs:   protoc-plugin
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-benchmark compare-bench
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          Main.hs
-    other-modules:    WireformTypes
-                    , Proto.Bench
-                    , Proto.Bench_Fields
-    build-depends:
-        base               >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , vector
-      , deepseq
-      , criterion          >= 1.5  && < 1.7
-      , proto-lens         >= 0.7  && < 0.8
-      , proto-lens-runtime >= 0.7  && < 0.8
-      , lens-family        >= 2.1  && < 2.2
-
-    hs-source-dirs:   compare-bench
-                    , compare-bench/gen
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      DeriveGeneric
-      DeriveAnyClass
-      OverloadedStrings
-
-executable gen-wkt
-    import:           warnings
-    main-is:          Main.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , containers
-      , text
-      , directory
-      , filepath
-    hs-source-dirs:   gen-wkt
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-
-executable profile
-    import:           warnings
-    main-is:          Main.hs
-    ghc-options:      -O2 -rtsopts
-    build-depends:
-        base >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , vector
-    hs-source-dirs:   profile
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      OverloadedStrings
-      LambdaCase
-
-executable wireform-bench
-    import:           warnings
-    main-is:          Main.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , vector
-
-    hs-source-dirs:   bench
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      OverloadedStrings
-
-executable avro-thrift-bench
-    import:           warnings
-    main-is:          AvroBench.hs
-    ghc-options:      -O2
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , deepseq
-      , vector
-
-    hs-source-dirs:   bench
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      OverloadedStrings
-
-executable all-formats-bench
-    import:           warnings
-    main-is:          AllFormatsBench.hs
-    ghc-options:      -O2
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , vector
-
-    hs-source-dirs:   bench
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      OverloadedStrings
-
-test-suite python-interop
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          Main.hs
-    other-modules:    InteropTypes
-
-    if !flag(python-interop)
-      buildable: False
-
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , vector
-      , containers
-      , deepseq
-      , process          >= 1.6  && < 1.8
-      , hedgehog         >= 1.0  && < 1.5
-      , tasty            >= 1.4  && < 1.6
-      , tasty-hedgehog   >= 1.0  && < 1.5
-      , tasty-hunit      >= 0.10 && < 0.11
-
-    hs-source-dirs:   interop-test
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      OverloadedStrings
-      LambdaCase
-
-test-suite temporal-codegen-test
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          Main.hs
-    other-modules:
-      Proto.Temporalio.Api.Activity.V1.Message
-      Proto.Temporalio.Api.Batch.V1.Message
-      Proto.Temporalio.Api.Command.V1.Message
-      Proto.Temporalio.Api.Common.V1.Message
-      Proto.Temporalio.Api.Deployment.V1.Message
-      Proto.Temporalio.Api.Enums.V1.Activity
-      Proto.Temporalio.Api.Enums.V1.BatchOperation
-      Proto.Temporalio.Api.Enums.V1.CommandType
-      Proto.Temporalio.Api.Enums.V1.Common
-      Proto.Temporalio.Api.Enums.V1.Deployment
-      Proto.Temporalio.Api.Enums.V1.EventType
-      Proto.Temporalio.Api.Enums.V1.FailedCause
-      Proto.Temporalio.Api.Enums.V1.Namespace
-      Proto.Temporalio.Api.Enums.V1.Nexus
-      Proto.Temporalio.Api.Enums.V1.Query
-      Proto.Temporalio.Api.Enums.V1.Reset
-      Proto.Temporalio.Api.Enums.V1.Schedule
-      Proto.Temporalio.Api.Enums.V1.TaskQueue
-      Proto.Temporalio.Api.Enums.V1.Update
-      Proto.Temporalio.Api.Enums.V1.Workflow
-      Proto.Temporalio.Api.ErrorDetails.V1.Message
-      Proto.Temporalio.Api.Export.V1.Message
-      Proto.Temporalio.Api.Failure.V1.Message
-      Proto.Temporalio.Api.Filter.V1.Message
-      Proto.Temporalio.Api.History.V1.Message
-      Proto.Temporalio.Api.Namespace.V1.Message
-      Proto.Temporalio.Api.Nexus.V1.Message
-      Proto.Temporalio.Api.OperatorService.V1.RequestResponse
-      Proto.Temporalio.Api.OperatorService.V1.Service
-      Proto.Temporalio.Api.Protocol.V1.Message
-      Proto.Temporalio.Api.Query.V1.Message
-      Proto.Temporalio.Api.Replication.V1.Message
-      Proto.Temporalio.Api.Rules.V1.Message
-      Proto.Temporalio.Api.Schedule.V1.Message
-      Proto.Temporalio.Api.Sdk.V1.EnhancedStackTrace
-      Proto.Temporalio.Api.Sdk.V1.TaskCompleteMetadata
-      Proto.Temporalio.Api.Sdk.V1.UserMetadata
-      Proto.Temporalio.Api.Sdk.V1.WorkerConfig
-      Proto.Temporalio.Api.Sdk.V1.WorkflowMetadata
-      Proto.Temporalio.Api.TaskQueue.V1.Message
-      Proto.Temporalio.Api.Update.V1.Message
-      Proto.Temporalio.Api.Version.V1.Message
-      Proto.Temporalio.Api.Worker.V1.Message
-      Proto.Temporalio.Api.WorkflowService.V1.RequestResponse
-      Proto.Temporalio.Api.WorkflowService.V1.Service
-      Proto.Temporalio.Api.Workflow.V1.Message
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , aeson
-      , bytestring
-      , containers
-      , deepseq
-      , hashable
-      , text
-      , vector
-    hs-source-dirs:   temporal-test
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      DeriveGeneric
-      DeriveAnyClass
-      OverloadedStrings
-      OverloadedRecordDot
-      LambdaCase
-
-benchmark xml-bench
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          XMLBench.hs
-    build-depends:
-        base
-      , wireform
-      , bytestring
-      , text
-      , vector
-      , deepseq
-      , criterion >= 1.5 && < 1.7
-      , xml-conduit >= 1.9 && < 1.11
-      , xeno >= 0.6 && < 0.7
-      , hexml >= 0.3 && < 0.5
-    hs-source-dirs:   bench
-    default-language: GHC2021
-    ghc-options: -O2
-
-benchmark quick-prof
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          QuickProf.hs
-    build-depends:
-        base >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , deepseq
-    hs-source-dirs:   bench
-    default-language: GHC2021
-    ghc-options:      -rtsopts
-    ghc-options: -O2 -rtsopts
-
-benchmark html-bench
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          HTMLBench.hs
-    build-depends:
-        base >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , primitive
-      , text
-    hs-source-dirs:   bench
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
-    ghc-options: -O2 -rtsopts
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test-conformance
+  build-depends:
+      base >= 4.16 && < 5
+    , wireform-proto
+    , bytestring
+    , vector
 
 test-suite interop-test
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          InteropTest.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , vector
-      , containers
-      , process          >= 1.6  && < 1.8
-      , tasty            >= 1.4  && < 1.6
-      , tasty-hunit      >= 0.10 && < 0.11
-    hs-source-dirs:   test-interop
-    default-language: GHC2021
-    default-extensions:
-      StrictData
-      DerivingStrategies
-      OverloadedStrings
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: InteropTest.hs
+  hs-source-dirs: test-interop
+  build-depends:
+      base             >= 4.16 && < 5
+    , wireform-proto
+    , bytestring
+    , text
+    , vector
+    , containers
+    , process          >= 1.6  && < 1.8
+    , tasty            >= 1.4  && < 1.6
+    , tasty-hunit      >= 0.10 && < 0.11
 
 test-suite html5lib-test
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          HTML5LibTest.hs
-    build-depends:
-        base, wireform, bytestring, text, vector,
-        directory, filepath,
-        tasty, tasty-hunit
-    hs-source-dirs:   test-interop
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: HTML5LibTest.hs
+  hs-source-dirs: test-interop
+  build-depends:
+      base, wireform-html, bytestring, text, vector,
+      directory, filepath, tasty, tasty-hunit
 
 test-suite html-dom-test
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          HTMLDOMTest.hs
-    build-depends:
-        base, wireform, bytestring, text,
-        tasty, tasty-hunit
-    hs-source-dirs:   test-interop
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: HTMLDOMTest.hs
+  hs-source-dirs: test-interop
+  build-depends:
+      base, wireform-html, bytestring, text,
+      tasty, tasty-hunit
 
 test-suite html-rewriter-test
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          HTMLRewriterTest.hs
-    build-depends:
-        base, wireform, bytestring, text, aeson,
-        tasty, tasty-hunit,
-        directory, filepath
-    hs-source-dirs:   test-interop
-    default-language: GHC2021
-    default-extensions:
-      OverloadedStrings
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: HTMLRewriterTest.hs
+  hs-source-dirs: test-interop
+  build-depends:
+      base, wireform-html, bytestring, text, aeson,
+      tasty, tasty-hunit, directory, filepath
+
+test-suite python-interop
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules: InteropTypes
+  if !flag(python-interop)
+    buildable: False
+  build-depends:
+      base             >= 4.16 && < 5
+    , wireform-proto
+    , bytestring
+    , text
+    , vector
+    , containers
+    , deepseq
+    , process          >= 1.6  && < 1.8
+    , hedgehog         >= 1.0  && < 1.5
+    , tasty            >= 1.4  && < 1.6
+    , tasty-hedgehog   >= 1.0  && < 1.5
+    , tasty-hunit      >= 0.10 && < 0.11
+  hs-source-dirs: interop-test
+
+test-suite temporal-codegen-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+    Proto.Temporalio.Api.Activity.V1.Message
+    Proto.Temporalio.Api.Batch.V1.Message
+    Proto.Temporalio.Api.Command.V1.Message
+    Proto.Temporalio.Api.Common.V1.Message
+    Proto.Temporalio.Api.Deployment.V1.Message
+    Proto.Temporalio.Api.Enums.V1.Activity
+    Proto.Temporalio.Api.Enums.V1.BatchOperation
+    Proto.Temporalio.Api.Enums.V1.CommandType
+    Proto.Temporalio.Api.Enums.V1.Common
+    Proto.Temporalio.Api.Enums.V1.Deployment
+    Proto.Temporalio.Api.Enums.V1.EventType
+    Proto.Temporalio.Api.Enums.V1.FailedCause
+    Proto.Temporalio.Api.Enums.V1.Namespace
+    Proto.Temporalio.Api.Enums.V1.Nexus
+    Proto.Temporalio.Api.Enums.V1.Query
+    Proto.Temporalio.Api.Enums.V1.Reset
+    Proto.Temporalio.Api.Enums.V1.Schedule
+    Proto.Temporalio.Api.Enums.V1.TaskQueue
+    Proto.Temporalio.Api.Enums.V1.Update
+    Proto.Temporalio.Api.Enums.V1.Workflow
+    Proto.Temporalio.Api.ErrorDetails.V1.Message
+    Proto.Temporalio.Api.Export.V1.Message
+    Proto.Temporalio.Api.Failure.V1.Message
+    Proto.Temporalio.Api.Filter.V1.Message
+    Proto.Temporalio.Api.History.V1.Message
+    Proto.Temporalio.Api.Namespace.V1.Message
+    Proto.Temporalio.Api.Nexus.V1.Message
+    Proto.Temporalio.Api.OperatorService.V1.RequestResponse
+    Proto.Temporalio.Api.OperatorService.V1.Service
+    Proto.Temporalio.Api.Protocol.V1.Message
+    Proto.Temporalio.Api.Query.V1.Message
+    Proto.Temporalio.Api.Replication.V1.Message
+    Proto.Temporalio.Api.Rules.V1.Message
+    Proto.Temporalio.Api.Schedule.V1.Message
+    Proto.Temporalio.Api.Sdk.V1.EnhancedStackTrace
+    Proto.Temporalio.Api.Sdk.V1.TaskCompleteMetadata
+    Proto.Temporalio.Api.Sdk.V1.UserMetadata
+    Proto.Temporalio.Api.Sdk.V1.WorkerConfig
+    Proto.Temporalio.Api.Sdk.V1.WorkflowMetadata
+    Proto.Temporalio.Api.TaskQueue.V1.Message
+    Proto.Temporalio.Api.Update.V1.Message
+    Proto.Temporalio.Api.Version.V1.Message
+    Proto.Temporalio.Api.Worker.V1.Message
+    Proto.Temporalio.Api.WorkflowService.V1.RequestResponse
+    Proto.Temporalio.Api.WorkflowService.V1.Service
+    Proto.Temporalio.Api.Workflow.V1.Message
+  build-depends:
+      base             >= 4.16 && < 5
+    , wireform-proto
+    , aeson
+    , bytestring
+    , containers
+    , deepseq
+    , hashable
+    , text
+    , vector
+  hs-source-dirs: temporal-test
+
+------------------------------------------------------------------------
+-- Benchmarks
+------------------------------------------------------------------------
+
+benchmark compare-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+    WireformTypes
+    Proto.Bench
+    Proto.Bench_Fields
+  build-depends:
+      base               >= 4.16 && < 5
+    , wireform-proto
+    , bytestring
+    , text
+    , vector
+    , deepseq
+    , criterion          >= 1.5  && < 1.7
+    , proto-lens         >= 0.7  && < 0.8
+    , proto-lens-runtime >= 0.7  && < 0.8
+    , lens-family        >= 2.1  && < 2.2
+  hs-source-dirs: compare-bench, compare-bench/gen
+
+benchmark xml-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: XMLBench.hs
+  build-depends:
+      base
+    , wireform-xml
+    , bytestring
+    , text
+    , vector
+    , deepseq
+    , criterion          >= 1.5 && < 1.7
+    , xml-conduit        >= 1.9 && < 1.11
+    , xeno               >= 0.6 && < 0.7
+    , hexml              >= 0.3 && < 0.5
+  hs-source-dirs: bench
+  ghc-options: -O2
+
+benchmark quick-prof
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: QuickProf.hs
+  build-depends:
+      base >= 4.16 && < 5
+    , wireform-proto
+    , bytestring
+    , deepseq
+  hs-source-dirs: bench
+  ghc-options: -O2 -rtsopts
+
+benchmark html-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: HTMLBench.hs
+  build-depends:
+      base >= 4.16 && < 5
+    , wireform-html
+    , bytestring
+    , primitive
+    , text
+  hs-source-dirs: bench
+  ghc-options: -O2 -rtsopts
 
 benchmark format-bench
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    main-is:          FormatBench.hs
-    build-depends:
-        base             >= 4.16 && < 5
-      , wireform
-      , bytestring
-      , text
-      , vector
-      , deepseq
-      , criterion        >= 1.5  && < 1.7
-      , msgpack          >= 1.0  && < 1.1
-      , cborg            >= 0.2  && < 0.3
-    hs-source-dirs:   bench
-    default-language: GHC2021
-    ghc-options:      -O2
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: FormatBench.hs
+  build-depends:
+      base             >= 4.16 && < 5
+    , wireform-proto
+    , wireform-avro
+    , wireform-thrift
+    , wireform-cbor
+    , wireform-msgpack
+    , wireform-bson
+    , wireform-ion
+    , wireform-edn
+    , wireform-bencode
+    , wireform-toml
+    , bytestring
+    , text
+    , vector
+    , deepseq
+    , criterion        >= 1.5  && < 1.7
+    , msgpack          >= 1.0  && < 1.1
+    , cborg            >= 0.2  && < 0.3
+  hs-source-dirs: bench
+  ghc-options: -O2
+
+------------------------------------------------------------------------
+-- Examples
+------------------------------------------------------------------------
+
+executable example-basic
+  import: defaults
+  main-is: BasicEncodeDecode.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring, text, deepseq
+
+executable example-any
+  import: defaults
+  main-is: AnyExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring, text, deepseq
+
+executable example-wellknown
+  import: defaults
+  main-is: WellKnownTypes.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring, containers, vector
+
+executable example-codegen
+  import: defaults
+  main-is: ProtoCodeGen.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, text, containers
+
+executable example-setup-hook
+  import: defaults
+  main-is: ExampleSetup.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, text
+
+executable example-custom-repr
+  import: defaults
+  main-is: CustomReprExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring, text, containers
+
+executable example-th
+  import: defaults
+  main-is: THExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring, text
+
+executable example-qq
+  import: defaults
+  main-is: QQExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring
+
+executable example-msgpack
+  import: defaults
+  main-is: MsgPackExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-msgpack, bytestring, text
+
+executable example-cbor
+  import: defaults
+  main-is: CBORExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-cbor, bytestring, text
+
+executable example-avro
+  import: defaults
+  main-is: AvroExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-avro, bytestring, containers, vector
+
+executable example-thrift
+  import: defaults
+  main-is: ThriftExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-thrift, bytestring, text
+
+executable example-edn
+  import: defaults
+  main-is: EDNExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-edn, text
+
+executable example-bson
+  import: defaults
+  main-is: BSONExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-bson, bytestring, text
+
+executable example-ion
+  import: defaults
+  main-is: IonExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-ion, bytestring, text
+
+executable example-capnproto
+  import: defaults
+  main-is: CapnProtoExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-capnproto, bytestring, vector
+
+executable example-flatbuffers
+  import: defaults
+  main-is: FlatBuffersExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-flatbuffers, bytestring, vector
+
+executable example-iceberg
+  import: defaults
+  main-is: IcebergExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-iceberg, bytestring, containers, vector, aeson
+
+executable example-bond
+  import: defaults
+  main-is: BondExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-bond, bytestring, vector
+
+executable example-asn1
+  import: defaults
+  main-is: ASN1Example.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-asn1, bytestring, vector
+
+executable example-parquet
+  import: defaults
+  main-is: ParquetExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-parquet, bytestring, vector
+
+executable example-arrow
+  import: defaults
+  main-is: ArrowExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-arrow, bytestring, vector
+
+executable example-protobuf
+  import: defaults
+  main-is: ProtobufExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring
+
+executable example-xml
+  import: defaults
+  main-is: XMLExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-xml, bytestring, text
+
+-- Standalone bench executables
+executable wireform-bench
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: bench
+  build-depends: base, wireform-proto, bytestring, text, vector
+
+executable avro-thrift-bench
+  import: defaults
+  main-is: AvroBench.hs
+  ghc-options: -O2
+  hs-source-dirs: bench
+  build-depends: base, wireform-avro, wireform-thrift, bytestring, text, deepseq, vector
+
+executable all-formats-bench
+  import: defaults
+  main-is: AllFormatsBench.hs
+  ghc-options: -O2
+  hs-source-dirs: bench
+  build-depends:
+      base
+    , wireform-proto
+    , wireform-avro
+    , wireform-thrift
+    , wireform-cbor
+    , wireform-msgpack
+    , wireform-bson
+    , wireform-ion
+    , wireform-edn
+    , wireform-bencode
+    , wireform-toml
+    , bytestring
+    , text
+    , vector
+
+executable bench-grow
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: bench-grow
+  build-depends: base, wireform-proto, vector

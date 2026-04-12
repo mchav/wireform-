@@ -1,5 +1,29 @@
 packages:
   .
+  wireform-core/
+  wireform-columnar/
+  wireform-proto/
+  wireform-avro/
+  wireform-thrift/
+  wireform-cbor/
+  wireform-msgpack/
+  wireform-bson/
+  wireform-ion/
+  wireform-capnproto/
+  wireform-flatbuffers/
+  wireform-bond/
+  wireform-asn1/
+  wireform-xml/
+  wireform-html/
+  wireform-parquet/
+  wireform-orc/
+  wireform-arrow/
+  wireform-iceberg/
+  wireform-edn/
+  wireform-bencode/
+  wireform-toml/
+  wireform-csv/
+  wireform-ndjson/
   wireform-grpc/
 
 package wireform

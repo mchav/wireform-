@@ -1,0 +1,43 @@
+cabal-version: 3.0
+name: wireform-toml
+version: 0.1.0.0
+synopsis: TOML encoding/decoding
+license: BSD-3-Clause
+build-type: Simple
+
+common defaults
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-language: GHC2021
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    TOML.Class
+    TOML.Decode
+    TOML.Encode
+    TOML.Value
+  build-depends:
+    base >= 4.16 && < 5,
+    bytestring >= 0.11 && < 0.13,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14,
+    containers >= 0.6 && < 0.8,
+    megaparsec >= 9.0 && < 10,
+    time >= 1.9 && < 1.15,
+    deepseq >= 1.4 && < 1.6

@@ -1,0 +1,51 @@
+cabal-version: 3.0
+name: wireform-msgpack
+version: 0.1.0.0
+synopsis: MessagePack values, encoding/decoding, JSON bridge, and RPC
+license: BSD-3-Clause
+build-type: Simple
+
+common defaults
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-language: GHC2021
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    MsgPack.Class
+    MsgPack.Decode
+    MsgPack.Encode
+    MsgPack.JSON
+    MsgPack.RPC
+    MsgPack.Stream
+    MsgPack.Value
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-core,
+    bytestring >= 0.11 && < 0.13,
+    base64-bytestring >= 1.2 && < 1.3,
+    containers >= 0.6 && < 0.8,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14,
+    aeson >= 2.1 && < 2.3,
+    scientific >= 0.3 && < 0.4,
+    hashable >= 1.3 && < 1.6,
+    unordered-containers >= 0.2.16 && < 0.3,
+    stm >= 2.5 && < 2.6,
+    deepseq >= 1.4 && < 1.6

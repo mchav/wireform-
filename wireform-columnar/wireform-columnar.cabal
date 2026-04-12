@@ -1,0 +1,38 @@
+cabal-version: 3.0
+name: wireform-columnar
+version: 0.1.0.0
+synopsis: SIMD-accelerated columnar primitives (bit-unpacking, etc.)
+license: BSD-3-Clause
+build-type: Simple
+
+common defaults
+  default-language: GHC2021
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules: Columnar.SIMD
+  c-sources: cbits/columnar_simd.c
+  include-dirs: ../wireform-core/include/simde
+  cc-options: -O3 -march=native
+  build-depends:
+    base >= 4.16 && < 5,
+    bytestring >= 0.11 && < 0.13,
+    vector >= 0.13 && < 0.14,
+    primitive >= 0.7 && < 0.10

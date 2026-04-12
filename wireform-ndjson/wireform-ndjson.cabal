@@ -1,0 +1,40 @@
+cabal-version: 3.0
+name: wireform-ndjson
+version: 0.1.0.0
+synopsis: Newline-Delimited JSON (NDJSON) encoding/decoding
+license: BSD-3-Clause
+build-type: Simple
+
+common defaults
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -O2
+  default-language: GHC2021
+  default-extensions:
+    StrictData
+    DerivingStrategies
+    DeriveGeneric
+    DeriveAnyClass
+    OverloadedStrings
+    LambdaCase
+
+library
+  import: defaults
+  hs-source-dirs: src
+  exposed-modules:
+    NDJSON.Decode
+    NDJSON.Encode
+  build-depends:
+    base >= 4.16 && < 5,
+    bytestring >= 0.11 && < 0.13,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14,
+    aeson >= 2.1 && < 2.3,
+    stm >= 2.5 && < 2.6,
+    deepseq >= 1.4 && < 1.6
