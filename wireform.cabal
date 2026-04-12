@@ -342,6 +342,7 @@ library
       HTML.Query
       HTML.Class
       HTML.TagId
+      HTML.DOM
       Wireform.HTML
       -- CSV/TSV support
       CSV.Value
@@ -1185,6 +1186,18 @@ test-suite html5lib-test
     build-depends:
         base, wireform, bytestring, text, vector,
         directory, filepath,
+        tasty, tasty-hunit
+    hs-source-dirs:   test-interop
+    default-language: GHC2021
+    default-extensions:
+      OverloadedStrings
+
+test-suite html-dom-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          HTMLDOMTest.hs
+    build-depends:
+        base, wireform, bytestring, text,
         tasty, tasty-hunit
     hs-source-dirs:   test-interop
     default-language: GHC2021

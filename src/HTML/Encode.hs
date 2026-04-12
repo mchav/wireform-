@@ -8,6 +8,8 @@
 -- clean byte ranges and only branch on the (rare) escapable bytes.
 module HTML.Encode
   ( encodeHTML
+  , buildNode
+  , buildDocument
   ) where
 
 import Data.ByteString (ByteString)
