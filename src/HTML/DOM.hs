@@ -64,6 +64,7 @@ import qualified Data.Text.Encoding as TE
 
 import HTML.Encode (buildNode, buildDocument)
 import HTML.Parse (parseHTML)
+import qualified HTML.Selector as Sel
 import HTML.Value
   ( HTMLDocument(..), HTMLNode(..), HTMLAttribute(..), Doctype(..)
   )
@@ -303,97 +304,86 @@ outerHTML (Node raw _) =
   TE.decodeUtf8 $! BL.toStrict $! BB.toLazyByteString $! buildNode raw
 
 -- ---------------------------------------------------------------------------
--- CSS selectors
+-- CSS selectors (backed by HTML.Selector)
 -- ---------------------------------------------------------------------------
 
--- | Find the first descendant (or self) matching a simple CSS selector.
+-- | Find the first descendant (or self) matching a CSS selector.
 --
--- Supported: tag name, @.class@, @#id@, @tag.class@, @tag#id@, @*@,
--- and space-separated descendant combinators.
+-- Uses the full CSS selector parser from 'HTML.Selector'.
+-- Returns 'Nothing' if the selector is invalid or no match is found.
 querySelector :: Node -> Text -> Maybe Node
-querySelector root sel =
-  case T.words sel of
-    []  -> Nothing
-    [s] -> findFirst (parseSel s) root
-    ss  -> findFirstChain (map parseSel ss) root
+querySelector root selText =
+  case Sel.parseSelector selText of
+    Left _  -> Nothing
+    Right (Sel.Selector complexSels) ->
+      firstJust (\cs -> findFirstComplex cs root) complexSels
 
--- | Find all descendants (and self) matching a simple CSS selector.
+-- | Find all descendants (and self) matching a CSS selector.
 querySelectorAll :: Node -> Text -> [Node]
-querySelectorAll root sel =
-  case T.words sel of
-    []  -> []
-    [s] -> collectAll (parseSel s) root
-    ss  -> chainAll (map parseSel ss) root
+querySelectorAll root selText =
+  case Sel.parseSelector selText of
+    Left _  -> []
+    Right (Sel.Selector complexSels) ->
+      concatMap (\cs -> collectComplex cs root) complexSels
 
 -- ---------------------------------------------------------------------------
--- Selector internals
+-- Selector matching with zipper context
 -- ---------------------------------------------------------------------------
 
-data Sel
-  = SelTag   !Text
-  | SelClass !Text
-  | SelId    !Text
-  | SelTagClass !Text !Text
-  | SelTagId    !Text !Text
-  | SelAny
+matchesComplex :: Sel.ComplexSelector -> Node -> Bool
+matchesComplex cs node =
+  let (subject, context) = decomposeComplex cs
+  in matchesCompound subject node && matchContext context node
 
-parseSel :: Text -> Sel
-parseSel s
-  | T.null s              = SelAny
-  | T.isPrefixOf "." s    = SelClass (T.drop 1 s)
-  | T.isPrefixOf "#" s    = SelId (T.drop 1 s)
-  | T.isInfixOf "." s     = let (tag, rest) = T.breakOn "." s
-                             in SelTagClass tag (T.drop 1 rest)
-  | T.isInfixOf "#" s     = let (tag, rest) = T.breakOn "#" s
-                             in SelTagId tag (T.drop 1 rest)
-  | s == "*"              = SelAny
-  | otherwise             = SelTag s
+-- | Decompose into (subject_compound, [(combinator, ancestor_compound)])
+-- where the list goes outward from subject towards root.
+decomposeComplex :: Sel.ComplexSelector -> (Sel.CompoundSelector, [(Sel.Combinator, Sel.CompoundSelector)])
+decomposeComplex (Sel.ComplexSelector hd []) = (hd, [])
+decomposeComplex (Sel.ComplexSelector hd tl) =
+  let combs = map fst tl
+      comps = hd : map snd (init tl)
+      subject = snd (last tl)
+  in (subject, zip (reverse combs) (reverse comps))
 
-matchesSel :: Sel -> Node -> Bool
-matchesSel sel (Node raw _) = case raw of
-  HTMLElement tag attrs _ -> case sel of
-    SelTag t       -> tag == t
-    SelClass c     -> attrHasClass c attrs
-    SelId i        -> findAttrVal "id" attrs == Just i
-    SelTagClass t c -> tag == t && attrHasClass c attrs
-    SelTagId t i   -> tag == t && findAttrVal "id" attrs == Just i
-    SelAny         -> True
-  _ -> False
+matchContext :: [(Sel.Combinator, Sel.CompoundSelector)] -> Node -> Bool
+matchContext [] _ = True
+matchContext ((Sel.Descendant, comp) : rest) n =
+  anyAncestor (\anc -> matchesCompound comp anc && matchContext rest anc) n
+matchContext ((Sel.Child, comp) : rest) n =
+  case parentNode n of
+    Just p  -> matchesCompound comp p && matchContext rest p
+    Nothing -> False
+matchContext ((Sel.AdjacentSibling, comp) : rest) n =
+  case prevSibling n of
+    Just ps -> matchesCompound comp ps && matchContext rest ps
+    Nothing -> False
+matchContext ((Sel.GeneralSibling, comp) : rest) n =
+  anyPrevSibling (\sib -> matchesCompound comp sib && matchContext rest sib) n
 
-attrHasClass :: Text -> SmallArray HTMLAttribute -> Bool
-attrHasClass cls attrs = case findAttrVal "class" attrs of
-  Nothing  -> False
-  Just val -> cls `elem` T.words val
+matchesCompound :: Sel.CompoundSelector -> Node -> Bool
+matchesCompound cs (Node raw _) = case raw of
+  HTMLElement tag attrs _ -> Sel.matchCompound cs tag attrs
+  _                       -> False
 
-findAttrVal :: Text -> SmallArray HTMLAttribute -> Maybe Text
-findAttrVal name attrs = go 0
-  where
-    !n = sizeofSmallArray attrs
-    go !i
-      | i >= n = Nothing
-      | HTMLAttribute k v <- indexSmallArray attrs i, k == name = Just v
-      | otherwise = go (i + 1)
+anyAncestor :: (Node -> Bool) -> Node -> Bool
+anyAncestor f n = case parentNode n of
+  Nothing -> False
+  Just p  -> f p || anyAncestor f p
 
-findFirst :: Sel -> Node -> Maybe Node
-findFirst sel node
-  | matchesSel sel node = Just node
-  | otherwise = firstJust (findFirst sel) (childNodes node)
+anyPrevSibling :: (Node -> Bool) -> Node -> Bool
+anyPrevSibling f n = case prevSibling n of
+  Nothing -> False
+  Just s  -> f s || anyPrevSibling f s
 
-collectAll :: Sel -> Node -> [Node]
-collectAll sel node =
-  let self = if matchesSel sel node then (node :) else id
-  in self (concatMap (collectAll sel) (childNodes node))
+findFirstComplex :: Sel.ComplexSelector -> Node -> Maybe Node
+findFirstComplex cs node
+  | matchesComplex cs node = Just node
+  | otherwise = firstJust (findFirstComplex cs) (childNodes node)
 
-findFirstChain :: [Sel] -> Node -> Maybe Node
-findFirstChain [] _ = Nothing
-findFirstChain [s] node = findFirst s node
-findFirstChain (s:ss) node =
-  firstJust (findFirstChain ss) (collectAll s node)
-
-chainAll :: [Sel] -> Node -> [Node]
-chainAll [] _ = []
-chainAll [s] node = collectAll s node
-chainAll (s:ss) node = concatMap (chainAll ss) (collectAll s node)
+collectComplex :: Sel.ComplexSelector -> Node -> [Node]
+collectComplex cs node =
+  let self = if matchesComplex cs node then (node :) else id
+  in self (concatMap (collectComplex cs) (childNodes node))
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust _ [] = Nothing

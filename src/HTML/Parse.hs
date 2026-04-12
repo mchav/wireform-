@@ -11,6 +11,9 @@ module HTML.Parse
   , parseHTMLNodes
   , tokenizeOnlyIO
   , treeBuildOnlyIO
+    -- * Low-level token API (for rewriter)
+  , Token(..)
+  , tokenizeBS
   ) where
 
 import Data.Bits ((.&.), (.|.), complement, unsafeShiftL, unsafeShiftR, xor)
