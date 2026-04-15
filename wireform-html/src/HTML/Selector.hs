@@ -869,13 +869,13 @@ parseNthPseudoOf plainCtor ofCtor p1 = do
   p2 <- expectChar '(' p1
   (a, b, p3) <- parseNthExpr (skipWS p2)
   let !p3' = skipWS p3
-  case peekWord p3' "of" of
-    True -> do
+  if peekWord p3' "of"
+    then do
       let !p4 = skipWS (skipN 2 p3')
       (sels, p5) <- parseForgivingSelectorList p4
       p6 <- expectChar ')' (skipWS p5)
       Right (ofCtor a b (Selector sels), p6)
-    False -> do
+    else do
       p4 <- expectChar ')' p3'
       Right (plainCtor a b, p4)
 
@@ -1102,9 +1102,9 @@ readEscape p@(P t n) = case T.uncons t of
     | c == '\n' || c == '\r' || c == '\f' -> Right (T.singleton c, advance p)
     | otherwise -> Right (T.singleton c, advance p)
   where
-    isHexDigit ch = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+    isHexDigit ch = isDigit ch || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
     hexVal ch
-      | ch >= '0' && ch <= '9' = fromEnum ch - fromEnum '0'
+      | isDigit ch = fromEnum ch - fromEnum '0'
       | ch >= 'a' && ch <= 'f' = fromEnum ch - fromEnum 'a' + 10
       | otherwise = fromEnum ch - fromEnum 'A' + 10
 

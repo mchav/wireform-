@@ -15,7 +15,8 @@ import Data.Primitive.SmallArray (SmallArray, smallArrayFromList, sizeofSmallArr
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Stats
-import HTML.DOM
+import HTML.DOM hiding (SmallArray)
+import HTML.DOM (streamHTMLEventsRaw)
 import HTML.Parse (parseHTML, tokenizeCountChunk, tokenizeOnlyIO, treeBuildOnlyIO)
 import HTML.Rewriter
 import HTML.Selector
@@ -234,6 +235,36 @@ treeBuildIncrementalIO !bs = do
 {-# NOINLINE treeBuildIncrementalIO #-}
 
 
+-- Streaming tree events (one-shot): count events
+streamEventsIO :: BS.ByteString -> IO Int
+streamEventsIO !bs = do
+  arr <- streamHTMLEvents bs
+  pure $! sizeofSmallArray arr
+{-# NOINLINE streamEventsIO #-}
+
+streamEventsRawIO :: BS.ByteString -> IO Int
+streamEventsRawIO !bs = do
+  arr <- streamHTMLEventsRaw bs
+  pure $! sizeofSmallArray arr
+{-# NOINLINE streamEventsRawIO #-}
+
+
+-- Streaming tree events (incremental, 4KB chunks)
+streamEventsIncrementalIO :: BS.ByteString -> IO Int
+streamEventsIncrementalIO !bs = do
+  sp <- newStreamParser
+  let chunks = splitChunks 4096 bs
+  acc <- goChunks sp chunks 0
+  final <- finishStreamEvents sp
+  pure $! acc + sizeofSmallArray final
+  where
+    goChunks _ [] !acc = pure acc
+    goChunks sp (c:cs) !acc = do
+      arr <- feedChunkEvents sp c
+      goChunks sp cs (acc + sizeofSmallArray arr)
+{-# NOINLINE streamEventsIncrementalIO #-}
+
+
 -- Rewriter passthrough: no handlers
 rewriterPassthroughIO :: Rewriter -> BS.ByteString -> IO ()
 rewriterPassthroughIO !rw !bs = do
@@ -385,32 +416,44 @@ runBenchmarks = do
   --   lol-html body rename + after:        541 MiB/s  → 70% = 379 MB/s
 
   r1 <- bench "tokenize (one-shot)" n inputSize (tokenizeIO mediumHTML)
-  printResult r1 620 70000 >>= checkPass
+  printResult r1 900 69000 >>= checkPass
 
   r2 <- bench "tokenize (incremental, 4KB)" n inputSize (tokenizeIncrementalIO mediumHTML)
-  printResult r2 500 90000 >>= checkPass
+  printResult r2 800 50000 >>= checkPass
 
   -- ==================== Tree Builder ====================
   putStrLn ""
   putStrLn "--- Tree Builder ---"
   r3 <- bench "tree-build (one-shot)" n inputSize (treeBuildIO mediumHTML)
-  printResult r3 305 430000 >>= checkPass
+  printResult r3 305 355000 >>= checkPass
 
   r4 <- bench "tree-build (incremental)" n inputSize (treeBuildIncrementalIO mediumHTML)
-  printResult r4 130 1000000 >>= checkPass
+  printResult r4 135 880000 >>= checkPass
+
+  -- ==================== Streaming Events ====================
+  putStrLn ""
+  putStrLn "--- Streaming Tree Events ---"
+  r4a <- bench "stream events (one-shot)" n inputSize (streamEventsIO mediumHTML)
+  printResult r4a 300 335000 >>= checkPass
+
+  r4b <- bench "stream events (incremental, 4KB)" n inputSize (streamEventsIncrementalIO mediumHTML)
+  printResult r4b 300 305000 >>= checkPass
+
+  r4c <- bench "stream events raw (one-shot)" n inputSize (streamEventsRawIO mediumHTML)
+  printResult r4c 510 240000 >>= checkPass
 
   -- ==================== Rewriter ====================
   -- Throughput targets: 70% of lol-html on comparable workloads.
   putStrLn ""
   putStrLn "--- Rewriter ---"
   r5 <- bench "rewriter (passthrough)" n inputSize (rewriterPassthroughIO rwPassthrough mediumHTML)
-  printResult r5 0 100000 >>= checkPass
+  printResult r5 0 300 >>= checkPass
 
   r6 <- bench "rewriter (selector matching)" n inputSize (rewriterSelectorIO rwSelector mediumHTML)
-  printResult r6 127 120000 >>= checkPass
+  printResult r6 190 120000 >>= checkPass
 
   r7 <- bench "rewriter (with mutations)" n inputSize (rewriterMutateIO rwMutate mediumHTML)
-  printResult r7 115 200000 >>= checkPass
+  printResult r7 180 200000 >>= checkPass
 
   -- lol-html-comparable: single body rename + after insertion (1 match in ~600 tags).
   -- lol-html does 541 MiB/s via dual-parser (tag scanner handles 99.8% of content).
@@ -422,7 +465,7 @@ runBenchmarks = do
           setTagName er "body1"
           afterElement er "test" AsText
   r7s <- bench "rewriter (sparse mutation)" n inputSize (rewriterMutateIO rwSparseBody mediumHTML)
-  printResult r7s 160 200000 >>= checkPass
+  printResult r7s 380 82000 >>= checkPass
 
   -- Mutation sub-benchmarks
   let Right rwMutTagOnly = buildRewriter $ do
@@ -468,38 +511,38 @@ runBenchmarks = do
         onElement selSpan $ \_ -> pure ()
         onText selDesc $ \_ -> pure ()
   r6s <- bench "diag: scan only (no tag match)" n inputSize (rewriterSelectorIO rwScanOnly mediumHTML)
-  printResult r6s 0 120000 >>= checkPass
+  printResult r6s 0 48000 >>= checkPass
   r6a <- bench "diag: 1 handler (div.item)" n inputSize (rewriterSelectorIO rwOneHandler mediumHTML)
-  printResult r6a 0 120000 >>= checkPass
+  printResult r6a 0 56000 >>= checkPass
   r6a1s <- bench "diag: 1 handler (span.name)" n inputSize (rewriterSelectorIO rwSpanOnly mediumHTML)
-  printResult r6a1s 0 120000 >>= checkPass
+  printResult r6a1s 0 84000 >>= checkPass
   r6a2 <- bench "diag: 2 elem handlers" n inputSize (rewriterSelectorIO rw2Elem mediumHTML)
-  printResult r6a2 0 120000 >>= checkPass
+  printResult r6a2 0 94000 >>= checkPass
   r6a3 <- bench "diag: 3 elem handlers" n inputSize (rewriterSelectorIO rw3Elem mediumHTML)
-  printResult r6a3 0 120000 >>= checkPass
+  printResult r6a3 0 102000 >>= checkPass
   r6b <- bench "diag: universal (*) handler" n inputSize (rewriterSelectorIO rwUniversal mediumHTML)
-  printResult r6b 0 120000 >>= checkPass
+  printResult r6b 0 88000 >>= checkPass
   r6c <- bench "diag: 4 elem handlers (no text)" n inputSize (rewriterSelectorIO rw4Elem mediumHTML)
-  printResult r6c 0 120000 >>= checkPass
+  printResult r6c 0 105000 >>= checkPass
   r6d <- bench "diag: 1 text handler only" n inputSize (rewriterSelectorIO rwTextOnly mediumHTML)
-  printResult r6d 0 120000 >>= checkPass
+  printResult r6d 0 60000 >>= checkPass
 
   -- Span no-op: same tag filter as setTagName but no mutation
   let Right rwSpanNoop = buildRewriter $ do
         onElement selSpan $ \_ -> pure ()
   r7noop <- bench "diag: span.name no-op handler" n inputSize (rewriterSelectorIO rwSpanNoop mediumHTML)
-  printResult r7noop 0 200000 >>= checkPass
+  printResult r7noop 0 84000 >>= checkPass
 
   r7a <- bench "diag: mut setTagName only" n inputSize (rewriterMutateIO rwMutTagOnly mediumHTML)
-  printResult r7a 0 200000 >>= checkPass
+  printResult r7a 0 135000 >>= checkPass
   r7b <- bench "diag: mut setElemAttr only" n inputSize (rewriterMutateIO rwMutAttrOnly mediumHTML)
-  printResult r7b 0 200000 >>= checkPass
+  printResult r7b 0 115000 >>= checkPass
   r7c <- bench "diag: mut replaceText only" n inputSize (rewriterMutateIO rwMutTextOnly mediumHTML)
-  printResult r7c 0 200000 >>= checkPass
+  printResult r7c 0 125000 >>= checkPass
   r7ci <- bench "diag: mut text identity" n inputSize (rewriterMutateIO rwMutTextIdentity mediumHTML)
-  printResult r7ci 0 200000 >>= checkPass
+  printResult r7ci 0 105000 >>= checkPass
   r7e <- bench "diag: mut elem only (tag+attr)" n inputSize (rewriterMutateIO rwMutElemOnly mediumHTML)
-  printResult r7e 0 200000 >>= checkPass
+  printResult r7e 0 165000 >>= checkPass
 
   -- Read-only handler: getElemAttr forces attrs but doesn't mutate
   let Right rwReadAttr = buildRewriter $ do
@@ -507,9 +550,9 @@ runBenchmarks = do
           _ <- getElemAttr er "class"
           pure ()
   r7ro <- bench "diag: getElemAttr (read only)" n inputSize (rewriterSelectorIO rwReadAttr mediumHTML)
-  printResult r7ro 0 200000 >>= checkPass
+  printResult r7ro 0 65000 >>= checkPass
   r7mn <- bench "diag: mutate selectors, noop" n inputSize (rewriterSelectorIO rwMutateNoop mediumHTML)
-  printResult r7mn 0 200000 >>= checkPass
+  printResult r7mn 0 108000 >>= checkPass
 
   -- ==================== CSS Selectors ====================
   putStrLn ""
@@ -523,7 +566,7 @@ runBenchmarks = do
   let matchN = 200000
   (matchAlloc, matchNs) <- benchSmall "selector-match" matchN $
     evaluate $! countMatchesFlat compound rawRoot
-  printSmallResult "selector match (flat traversal)" matchAlloc matchNs 1000 500000.0 >>= checkPass
+  printSmallResult "selector match (flat traversal)" matchAlloc matchNs 20 100.0 >>= checkPass
 
   -- ==================== DOM querySelector ====================
   -- Reference: JSDOM on same 29KB document (M-series Mac):
@@ -552,35 +595,35 @@ runBenchmarks = do
 
   (qs1a, qs1ns) <- benchSmall "qsa(div)" qsN $
     qsaCountDocIO selDiv2 domDoc
-  printSmallResult "querySelectorAll(\"div\")" qs1a qs1ns 40000 30000.0 >>= checkPass
+  printSmallResult "querySelectorAll(\"div\")" qs1a qs1ns 10500 1200.0 >>= checkPass
 
   (qs2a, qs2ns) <- benchSmall "qsa(.item)" qsN $
     qsaCountDocIO selDivItem domDoc
-  printSmallResult "querySelectorAll(\"div.item\")" qs2a qs2ns 40000 3600.0 >>= checkPass
+  printSmallResult "querySelectorAll(\"div.item\")" qs2a qs2ns 11000 1500.0 >>= checkPass
 
   (qs3a, qs3ns) <- benchSmall "qsa(div.item span.name)" qsN $
     qsaCountDocIO selDescSpan domDoc
-  printSmallResult "querySelectorAll(\"div.item span.name\")" qs3a qs3ns 80000 6800.0 >>= checkPass
+  printSmallResult "querySelectorAll(\"div.item span.name\")" qs3a qs3ns 22000 3500.0 >>= checkPass
 
   (qs4a, qs4ns) <- benchSmall "qsa(div:first-child)" qsN $
     qsaCountDocIO selFirstChild domDoc
-  printSmallResult "querySelectorAll(\"div:first-child\")" qs4a qs4ns 20000 5200.0 >>= checkPass
+  printSmallResult "querySelectorAll(\"div:first-child\")" qs4a qs4ns 3800 1500.0 >>= checkPass
 
   (qs5a, qs5ns) <- benchSmall "qsa(:nth-child(2n+1))" qsN $
     qsaCountDocIO selNthChild domDoc
-  printSmallResult "querySelectorAll(\":nth-child(2n+1)\")" qs5a qs5ns 40000 6600.0 >>= checkPass
+  printSmallResult "querySelectorAll(\":nth-child(2n+1)\")" qs5a qs5ns 9500 3000.0 >>= checkPass
 
   (qs6a, qs6ns) <- benchSmall "qsa(:not(.item))" qsN $
     qsaCountDocIO selNotItem domDoc
-  printSmallResult "querySelectorAll(\":not(.item)\")" qs6a qs6ns 20000 5600.0 >>= checkPass
+  printSmallResult "querySelectorAll(\":not(.item)\")" qs6a qs6ns 8000 5500.0 >>= checkPass
 
   (qs7a, qs7ns) <- benchSmall "qsa([id])" qsN $
     qsaCountDocIO selHasId domDoc
-  printSmallResult "querySelectorAll(\"[id]\")" qs7a qs7ns 80000 34000.0 >>= checkPass
+  printSmallResult "querySelectorAll(\"[id]\")" qs7a qs7ns 30000 10000.0 >>= checkPass
 
   (qs8a, qs8ns) <- benchSmall "qsa(div.catalog > div + div)" qsN $
     qsaCountDocIO selChildSib domDoc
-  printSmallResult "querySelectorAll(\"div.catalog > div + div\")" qs8a qs8ns 80000 8800.0 >>= checkPass
+  printSmallResult "querySelectorAll(\"div.catalog > div + div\")" qs8a qs8ns 22000 8000.0 >>= checkPass
 
   -- ==================== Micro: PrimArray vs IORef ====================
   putStrLn ""

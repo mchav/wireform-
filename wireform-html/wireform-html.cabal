@@ -29,6 +29,13 @@ library
   import: defaults
   ghc-options:
   hs-source-dirs: src
+  other-modules:
+    HTML.DOM.Index
+    HTML.DOM.Zipper
+    HTML.DOM.Selector
+    HTML.Rewriter.StackFrame
+    HTML.Rewriter.Mutations
+    HTML.Rewriter.Config
   exposed-modules:
     HTML.Value
     HTML.Parse

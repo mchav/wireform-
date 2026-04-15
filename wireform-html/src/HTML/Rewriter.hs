@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 {- | Streaming HTML rewriter (lol-html equivalent).
@@ -88,28 +89,26 @@ module HTML.Rewriter (
   finishRewriter,
   feedRewriter',
 ) where
-
-import Control.Exception (Exception, throwIO)
 import Control.Monad (forM_, unless, when)
-import Data.List (foldl')
+import Data.Foldable (for_)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Builder.Extra qualified as BBE
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Unsafe qualified as BSU
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.IORef
 import Data.Primitive.ByteArray (MutableByteArray (..), newPinnedByteArray, copyMutableByteArray, mutableByteArrayContents)
 import Data.Primitive.PrimArray (MutablePrimArray, newPrimArray, readPrimArray, writePrimArray, setPrimArray)
-import Data.Primitive.SmallArray (SmallArray, emptySmallArray, indexSmallArray, sizeofSmallArray, runSmallArray, newSmallArray, writeSmallArray, thawSmallArray, copySmallArray, smallArrayFromList)
+import Data.Primitive.SmallArray (SmallArray, emptySmallArray, indexSmallArray, sizeofSmallArray)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Array.Byte (ByteArray (ByteArray))
 import Data.ByteString.Internal (ByteString (BS))
 import Data.Text.Internal (Text (..))
-import GHC.Exts (Addr#, ByteArray#, Int (..), Int#, RealWorld, copyAddrToByteArray#, copyByteArray#, indexWord8Array#, newByteArray#, plusAddr#, runRW#, unsafeFreezeByteArray#, writeWord8Array#, (+#))
+import GHC.Exts (Addr#, ByteArray#, Int (..), RealWorld, copyAddrToByteArray#, copyByteArray#, newByteArray#, plusAddr#, runRW#, unsafeFreezeByteArray#, writeWord8Array#)
 import GHC.ForeignPtr (ForeignPtr (ForeignPtr), ForeignPtrContents (MallocPtr, PlainPtr))
 import GHC.Ptr (Ptr (..))
 import GHC.IO (IO (..))
@@ -120,7 +119,6 @@ import HTML.Parse
   , decodeTextSlice
   , decodeTextSliceKnown
   , isAlphaByte
-  , isWSByte
   , parseEntityRef
   , readByteOff
   , readTagAttrsBS
@@ -132,428 +130,17 @@ import HTML.Parse
   , tokenizeCallbackIOWith
   )
 import qualified HTML.Parse as P (isRawTextTag)
-import HTML.TagId (TagId (..), internTagAddr, internTagAddrU, fastTagIdAddr, tagIdFromText, tagIdIsVoid)
-import HTML.Selector
+import HTML.TagId (TagId (..), internTagAddrU, fastTagIdAddr, tagIdIsVoid)
+import HTML.Rewriter.Config
+import HTML.Rewriter.Mutations
+import HTML.Rewriter.StackFrame
+import HTML.Selector (Combinator (..), CompoundSelector (..))
 import HTML.Value (HTMLAttribute (..))
-
-
--- ---------------------------------------------------------------------------
--- Content type
--- ---------------------------------------------------------------------------
-
-data ContentType = AsText | AsHTML
-  deriving (Show, Eq)
-
-
--- ---------------------------------------------------------------------------
--- Mutations – intrusive sum, no extra Maybe box
--- ---------------------------------------------------------------------------
-
--- | Shared mutation state for before/after/replace/remove.
--- 'MutNone' is the unmodified state; checking is a single pattern match.
-data Mutations
-  = MutNone
-  | Mut !BB.Builder !BB.Builder !(Maybe BB.Builder) !Bool
-  -- ^ before, after, replacement (builder), removed
-  | MutText !(Maybe BB.Builder) !(Maybe BB.Builder) !Text !ContentType !Bool
-  -- ^ before, after, replacement text, content type, removed
-
--- | Apply f to the before/after/repl/removed fields. Allocates on first use.
-withMut :: IORef Mutations -> (BB.Builder -> BB.Builder -> Maybe BB.Builder -> Bool -> Mutations) -> IO ()
-withMut ref f = do
-  m <- readIORef ref
-  case m of
-    MutNone -> writeIORef ref (f mempty mempty Nothing False)
-    Mut b a r d -> writeIORef ref (f b a r d)
-    MutText mb ma _ _ d -> writeIORef ref (f (maybe mempty id mb) (maybe mempty id ma) Nothing d)
-{-# INLINE withMut #-}
-
-
--- ---------------------------------------------------------------------------
--- Mutable handles
--- ---------------------------------------------------------------------------
-
--- | Element-specific mutations beyond base before/after/replace/remove.
-data ElemMut = ElemMut
-  { emTag :: !(Maybe Text)
-  , emAttrs :: !(Maybe (SmallArray HTMLAttribute))
-  , emNewAttrs :: ![(Text, Text)]
-  , emPrepend :: !(Maybe BB.Builder)
-  , emAppend :: !(Maybe BB.Builder)
-  , emRmChildren :: !Bool
-  , emInnerContent :: !(Maybe BB.Builder)
-  , emEndTagHandler :: !(Maybe (EndTagRef -> IO ()))
-  }
-
-emptyElemMut :: ElemMut
-emptyElemMut = ElemMut Nothing Nothing [] Nothing Nothing False Nothing Nothing
-{-# INLINE emptyElemMut #-}
-
--- | Compact representation of element modifications.
--- Common cases (tag rename, new attrs) avoid the 72-byte ElemMut allocation.
-data ElemMod
-  = EMNone
-  | EMTag !Text
-  | EMNewAttrs ![(Text, Text)]
-  | EMTagAndAttrs !Text ![(Text, Text)]
-  | EMFull !ElemMut
-
-elemModToMut :: ElemMod -> Maybe ElemMut
-elemModToMut EMNone = Nothing
-elemModToMut (EMTag t) = Just (emptyElemMut {emTag = Just t})
-elemModToMut (EMNewAttrs as) = Just (emptyElemMut {emNewAttrs = as})
-elemModToMut (EMTagAndAttrs t as) = Just (emptyElemMut {emTag = Just t, emNewAttrs = as})
-elemModToMut (EMFull m) = Just m
-{-# INLINE elemModToMut #-}
-
-elemModTag :: ElemMod -> Maybe Text
-elemModTag (EMTag t) = Just t
-elemModTag (EMTagAndAttrs t _) = Just t
-elemModTag (EMFull m) = emTag m
-elemModTag _ = Nothing
-{-# INLINE elemModTag #-}
-
-modifyElemMut :: ElementRef -> (ElemMut -> ElemMut) -> IO ()
-modifyElemMut er f = do
-  m <- readIORef (_erElem er)
-  let !base = case m of
-        EMNone -> emptyElemMut
-        EMTag t -> emptyElemMut {emTag = Just t}
-        EMNewAttrs as -> emptyElemMut {emNewAttrs = as}
-        EMTagAndAttrs t as -> emptyElemMut {emTag = Just t, emNewAttrs = as}
-        EMFull em -> em
-  writeIORef (_erElem er) $! EMFull $! f base
-{-# INLINE modifyElemMut #-}
-
-data ElementRef = ElementRef
-  { _erOrigTag :: !(IORef Text)
-  , _erOrigAttrs :: !(IORef (SmallArray HTMLAttribute))
-  , _erSelfClose :: !Bool
-  , _erMut :: !(IORef Mutations)
-  , _erElem :: !(IORef ElemMod)
-  , _erInts :: !(MutablePrimArray RealWorld Int)
-    -- ^ slot 0 = valid (0/1), slot 1 = attrOff, slot 2 = srcLen
-  , _erSharedBA :: !(IORef ByteArray)
-  , _erSrcBS :: !(IORef ByteString)
-  }
-
-
-data TextChunkRef = TextChunkRef
-  { _trContent :: !(IORef Text)
-  , _trMut :: !(IORef Mutations)
-  , _trIsLast :: !Bool
-  , _trValid :: !(IORef Bool)
-  }
-
-
-data CommentRef = CommentRef
-  { _crText :: !(IORef Text)
-  , _crMut :: !(IORef Mutations)
-  , _crValid :: !(IORef Bool)
-  }
-
-
-data DoctypeRef = DoctypeRef
-  { _drName :: !Text
-  , _drPubId :: !(Maybe Text)
-  , _drSysId :: !(Maybe Text)
-  , _drValid :: !(IORef Bool)
-  }
-
-
-data EndTagRef = EndTagRef
-  { _etrTag :: !(IORef Text)
-  , _etrMut :: !(IORef Mutations)
-  , _etrValid :: !(IORef Bool)
-  }
-
-
-data ExpiredRefError = ExpiredRefError !Text
-  deriving (Show)
-
-
-instance Exception ExpiredRefError
-
-
-checkValidER :: ElementRef -> IO ()
-checkValidER er = do
-  v <- readPrimArray (_erInts er) 0
-  when ((v :: Int) == 0) $ throwIO (ExpiredRefError ("ElementRef used outside its callback scope"))
-{-# INLINE checkValidER #-}
-
-checkValid :: IORef Bool -> Text -> IO ()
-checkValid ref what = do
-  v <- readIORef ref
-  when (not v) $ throwIO (ExpiredRefError (what <> " used outside its callback scope"))
-{-# INLINE checkValid #-}
-
-
--- ---------------------------------------------------------------------------
--- Builder DSL
--- ---------------------------------------------------------------------------
-
-data HandlerEntry
-  = HElement !Selector !(ElementRef -> IO ())
-  | HText !Selector !(TextChunkRef -> IO ())
-  | HEndTag !Selector !(EndTagRef -> IO ())
-
-
-data GlobalHandlers = GlobalHandlers
-  { ghComment :: ![CommentRef -> IO ()]
-  , ghDoctype :: ![DoctypeRef -> IO ()]
-  }
-
-
-data RewriterConfig = RewriterConfig
-  { rcHandlers :: ![HandlerEntry]
-  , rcGlobal :: !GlobalHandlers
-  }
-
-
-newtype RewriterBuilder a = RewriterBuilder
-  {unRB :: RewriterConfig -> (a, RewriterConfig)}
-
-
-instance Functor RewriterBuilder where
-  fmap f (RewriterBuilder g) = RewriterBuilder $ \c ->
-    let (a, c') = g c in (f a, c')
-
-
-instance Applicative RewriterBuilder where
-  pure a = RewriterBuilder $ \c -> (a, c)
-  RewriterBuilder f <*> RewriterBuilder g = RewriterBuilder $ \c ->
-    let (fab, c1) = f c
-        (a, c2) = g c1
-    in (fab a, c2)
-
-
-instance Monad RewriterBuilder where
-  RewriterBuilder m >>= k = RewriterBuilder $ \c ->
-    let (a, c1) = m c
-    in unRB (k a) c1
-
-
-onElement :: Selector -> (ElementRef -> IO ()) -> RewriterBuilder ()
-onElement sel handler = RewriterBuilder $ \c ->
-  ((), c {rcHandlers = rcHandlers c ++ [HElement sel handler]})
-
-
-onText :: Selector -> (TextChunkRef -> IO ()) -> RewriterBuilder ()
-onText sel handler = RewriterBuilder $ \c ->
-  ((), c {rcHandlers = rcHandlers c ++ [HText sel handler]})
-
-
-onComment :: (CommentRef -> IO ()) -> RewriterBuilder ()
-onComment handler = RewriterBuilder $ \c ->
-  let g = rcGlobal c
-  in ((), c {rcGlobal = g {ghComment = ghComment g ++ [handler]}})
-
-
-onDoctype :: (DoctypeRef -> IO ()) -> RewriterBuilder ()
-onDoctype handler = RewriterBuilder $ \c ->
-  let g = rcGlobal c
-  in ((), c {rcGlobal = g {ghDoctype = ghDoctype g ++ [handler]}})
-
-
-onEndTag :: Selector -> (EndTagRef -> IO ()) -> RewriterBuilder ()
-onEndTag sel handler = RewriterBuilder $ \c ->
-  ((), c {rcHandlers = rcHandlers c ++ [HEndTag sel handler]})
-
-
--- ---------------------------------------------------------------------------
--- Rewriter (compiled configuration)
--- ---------------------------------------------------------------------------
-
--- | Pre-decomposed selector: subject + ancestor context chain.
--- Computed once at build time to avoid per-match allocation.
-data DecomposedSel = DecomposedSel
-  { dsSubject :: !CompoundSelector
-  , dsContext :: ![(Combinator, CompoundSelector)]
-  }
-
-
-data CompiledHandler
-  = CHElement !(SmallArray DecomposedSel) !(ElementRef -> IO ())
-  | CHText !(SmallArray DecomposedSel) !(TextChunkRef -> IO ())
-  | CHEndTag !(SmallArray DecomposedSel) !(EndTagRef -> IO ())
-
-
-data Rewriter = Rewriter
-  { rwHandlers :: !(SmallArray CompiledHandler)
-  , rwComment :: !(SmallArray (CommentRef -> IO ()))
-  , rwDoctype :: !(SmallArray (DoctypeRef -> IO ()))
-  , rwHasText :: !Bool
-  , rwHasElement :: !Bool
-  , rwHasEndTag :: !Bool
-  , rwTagFilter :: !(TagId -> Bool)
-  , rwContextNeedsAttrs :: !Bool
-  , rwNeedsStack :: !Bool
-  , rwNeedsContextStack :: !Bool
-  , rwTextSelectors :: !(SmallArray DecomposedSel)
-  , rwClassOnly :: !Bool
-  }
-
-
-isNoopRewriter :: Rewriter -> Bool
-isNoopRewriter rw = sizeofSmallArray (rwHandlers rw) == 0
-                 && sizeofSmallArray (rwComment rw) == 0
-                 && sizeofSmallArray (rwDoctype rw) == 0
-{-# INLINE isNoopRewriter #-}
-
-
-hasTextHandlers :: Rewriter -> Bool
-hasTextHandlers = rwHasText
-{-# INLINE hasTextHandlers #-}
-
-
-hasElementHandlers :: Rewriter -> Bool
-hasElementHandlers = rwHasElement
-{-# INLINE hasElementHandlers #-}
-
-
-buildRewriter :: RewriterBuilder () -> Either SelectorError Rewriter
-buildRewriter builder =
-  let emptyConfig = RewriterConfig [] (GlobalHandlers [] [])
-      ((), cfg) = unRB builder emptyConfig
-  in compileConfig cfg
-
-
-compileConfig :: RewriterConfig -> Either SelectorError Rewriter
-compileConfig cfg = do
-  handlersList <- mapM compileHandler (rcHandlers cfg)
-  let !handlers = smallArrayFromList handlersList
-      !hasUniversal = anyHasUniversal handlersList
-      !tagTids = collectTagIds handlersList
-      !tagFilter = if hasUniversal then const True
-                   else if null tagTids then const False
-                   else \tid -> tid `elem` tagTids
-      !ctxAttrs = contextNeedsAttrs handlersList
-      !hasText = any isTextHandler handlersList
-      !hasEndTag = any isEndTagHandler handlersList
-      !hasContext = any handlerHasContext handlersList
-      !needsStack = hasText || hasContext || hasEndTag
-      !textSels = concatTextSelectors handlersList
-  Right
-    Rewriter
-      { rwHandlers = handlers
-      , rwComment = smallArrayFromList (ghComment (rcGlobal cfg))
-      , rwDoctype = smallArrayFromList (ghDoctype (rcGlobal cfg))
-      , rwHasText = hasText
-      , rwHasElement = any isElementHandler handlersList
-      , rwHasEndTag = hasEndTag
-      , rwTagFilter = tagFilter
-      , rwContextNeedsAttrs = ctxAttrs
-      , rwNeedsStack = needsStack
-      , rwNeedsContextStack = hasContext || hasEndTag
-      , rwTextSelectors = textSels
-      , rwClassOnly = allClassOnly handlersList textSels && not ctxAttrs
-      }
-  where
-    isTextHandler (CHText _ _) = True
-    isTextHandler _ = False
-    isElementHandler (CHElement _ _) = True
-    isElementHandler _ = False
-    isEndTagHandler (CHEndTag _ _) = True
-    isEndTagHandler _ = False
-    compileHandler (HElement sel@(Selector cs) handler) = do
-      validateRewriter sel
-      Right (CHElement (smallArrayFromList (map decomposeComplex cs)) handler)
-    compileHandler (HText sel@(Selector cs) handler) = do
-      validateRewriter sel
-      Right (CHText (smallArrayFromList (map decomposeComplex cs)) handler)
-    compileHandler (HEndTag sel@(Selector cs) handler) = do
-      validateRewriter sel
-      Right (CHEndTag (smallArrayFromList (map decomposeComplex cs)) handler)
-
-    allClassOnly :: [CompiledHandler] -> SmallArray DecomposedSel -> Bool
-    allClassOnly hs textSelsArr =
-      all handlerClassOnly hs && allDecomposedClassOnly textSelsArr
-      where
-        handlerClassOnly (CHElement ds _) = allDecomposedClassOnly ds
-        handlerClassOnly (CHText ds _) = allDecomposedClassOnly ds
-        handlerClassOnly (CHEndTag _ _) = False
-        allDecomposedClassOnly :: SmallArray DecomposedSel -> Bool
-        allDecomposedClassOnly ds = go2 0
-          where
-            !n = sizeofSmallArray ds
-            go2 !i
-              | i >= n = True
-              | DecomposedSel subj ctx <- indexSmallArray ds i =
-                  isClassOnlyCompound subj && null ctx && go2 (i + 1)
-
-    anyHasUniversal :: [CompiledHandler] -> Bool
-    anyHasUniversal = any handlerUniversal
-      where
-        handlerUniversal (CHElement ds _) = any decomposedUniversal ds
-        handlerUniversal (CHText ds _) = any decomposedUniversal ds
-        handlerUniversal (CHEndTag ds _) = any decomposedUniversal ds
-        decomposedUniversal (DecomposedSel subj _) = compoundUniversal subj
-        compoundUniversal (CompoundSelector Nothing _) = True
-        compoundUniversal (CompoundSelector (Just TypeUniversal) _) = True
-        compoundUniversal _ = False
-
-    collectTagIds :: [CompiledHandler] -> [TagId]
-    collectTagIds = concatMap handlerTagIds
-      where
-        handlerTagIds (CHElement ds _) = concatMap decomposedTids ds
-        handlerTagIds (CHText ds _) = concatMap decomposedTids ds
-        handlerTagIds (CHEndTag ds _) = concatMap decomposedTids ds
-        decomposedTids (DecomposedSel subj ctx) =
-          compoundTids subj ++ concatMap (compoundTids . snd) ctx
-        compoundTids (CompoundSelector (Just (TypeTag t)) _) =
-          [tagIdFromText t]
-        compoundTids _ = []
-
-    contextNeedsAttrs :: [CompiledHandler] -> Bool
-    contextNeedsAttrs = any handlerCtxAttrs
-      where
-        handlerCtxAttrs (CHElement ds _) = any dsCtxAttrs ds
-        handlerCtxAttrs (CHText ds _) = any dsCtxAttrs ds
-        handlerCtxAttrs (CHEndTag ds _) = any dsCtxAttrs ds
-        dsCtxAttrs (DecomposedSel _ ctx) = any (compoundHasSubs . snd) ctx
-        compoundHasSubs (CompoundSelector _ subs) = not (null subs)
-
-    handlerHasContext :: CompiledHandler -> Bool
-    handlerHasContext (CHElement ds _) = any dsHasCtx ds
-    handlerHasContext (CHText ds _) = any dsHasCtx ds
-    handlerHasContext (CHEndTag ds _) = any dsHasCtx ds
-
-    dsHasCtx :: DecomposedSel -> Bool
-    dsHasCtx (DecomposedSel _ ctx) = not (null ctx)
-
-    concatTextSelectors :: [CompiledHandler] -> SmallArray DecomposedSel
-    concatTextSelectors hs =
-      let !totalLen = foldl' (\n h -> case h of CHText ds _ -> n + sizeofSmallArray ds; _ -> n) 0 hs
-      in if totalLen == 0
-        then emptySmallArray
-        else runSmallArray $ do
-          ma <- newSmallArray totalLen (error "unreachable")
-          let fill !_ [] = pure ()
-              fill !off (CHText ds _ : rest) = do
-                let !dsLen = sizeofSmallArray ds
-                copySmallArray ma off ds 0 dsLen
-                fill (off + dsLen) rest
-              fill !off (_ : rest) = fill off rest
-          fill 0 hs
-          pure ma
-
-    validateRewriter sel =
-      if isRewriterCompatible sel
-        then Right ()
-        else Left (UnsupportedSelector "selector uses DOM-only features (pseudo-classes or sibling combinators)")
 
 
 -- ---------------------------------------------------------------------------
 -- Selector automaton state
 -- ---------------------------------------------------------------------------
-
-data StackFrame = StackFrame
-  { sfTag :: !Text
-  , sfAttrs :: !(SmallArray HTMLAttribute)
-  , sfDepth :: {-# UNPACK #-} !Int
-  , sfTextMatch :: !Bool
-  }
-
 
 data PartialMatch = PartialMatch
   { pmSteps :: ![(Combinator, CompoundSelector)]
@@ -634,7 +221,7 @@ newAutoState = do
 
 {-# INLINE readTextMask #-}
 readTextMask :: AutoState -> Int -> IO Int
-readTextMask st d = readPrimArray (asTextMask st) d
+readTextMask st = readPrimArray (asTextMask st)
 
 {-# INLINE writeTextMask #-}
 writeTextMask :: AutoState -> Int -> Int -> IO ()
@@ -646,342 +233,6 @@ textMaskActive st d
   | d <= 0 = pure False
   | otherwise = do m <- readPrimArray (asTextMask st) (d - 1); pure (m /= 0)
 
-
-
-{- | Check if a complex selector matches at the current position.
-The parser stores selectors left-to-right: "div > span" becomes
-@ComplexSelector div [(Child, span)]@. CSS matching is right-to-left:
-the subject (rightmost compound) must match the current element, then
-ancestors are checked working backwards through the chain.
--}
-matchAtPosition :: DecomposedSel -> [StackFrame] -> Text -> SmallArray HTMLAttribute -> Bool
-matchAtPosition ds stack tag attrs =
-  matchCompound (dsSubject ds) tag attrs && matchContext (dsContext ds) stack
-{-# INLINE matchAtPosition #-}
-
-
-{- | Extract the subject (rightmost compound) and the ancestor chain.
-"div > span" → DecomposedSel span [(Child, div)]
-"a b > c" → DecomposedSel c [(Child, b), (Descendant, a)]
-Computed once at build time.
--}
-decomposeComplex :: ComplexSelector -> DecomposedSel
-decomposeComplex (ComplexSelector hd []) = DecomposedSel hd []
-decomposeComplex (ComplexSelector hd tl) =
-  let subject = snd (last tl)
-      allCompounds = hd : map snd (init tl)
-      allCombs = map fst tl
-      context = reverse (zip allCombs allCompounds)
-  in DecomposedSel subject context
-
-
--- | Walk the ancestor chain against the element stack.
-matchContext :: [(Combinator, CompoundSelector)] -> [StackFrame] -> Bool
-matchContext [] _ = True
-matchContext ((Child, comp) : rest) frames =
-  case frames of
-    (StackFrame t a _ _ : frames') ->
-      matchCompound comp t a && matchContext rest frames'
-    [] -> False
-matchContext ((Descendant, comp) : rest) frames =
-  scanAncestors frames
-  where
-    scanAncestors [] = False
-    scanAncestors (StackFrame t a _ _ : frames') =
-      (matchCompound comp t a && matchContext rest frames') || scanAncestors frames'
-matchContext ((AdjacentSibling, _) : _) _ = False
-matchContext ((GeneralSibling, _) : _) _ = False
-
-
--- ---------------------------------------------------------------------------
--- Element mutation API
--- ---------------------------------------------------------------------------
-
-getTagName :: ElementRef -> IO Text
-getTagName er = do
-  checkValidER er
-  em <- readIORef (_erElem er)
-  case elemModTag em of
-    Just t -> pure t
-    Nothing -> readIORef (_erOrigTag er)
-
-
-setTagName :: ElementRef -> Text -> IO ()
-setTagName er t = do
-  checkValidER er
-  em <- readIORef (_erElem er)
-  writeIORef (_erElem er) $! case em of
-    EMNone -> EMTag t
-    EMTag _ -> EMTag t
-    EMNewAttrs as -> EMTagAndAttrs t as
-    EMTagAndAttrs _ as -> EMTagAndAttrs t as
-    EMFull m -> EMFull (m {emTag = Just t})
-
-
-getElemAttr :: ElementRef -> Text -> IO (Maybe Text)
-getElemAttr er name = do
-  checkValidER er
-  em <- readIORef (_erElem er)
-  case em of
-    EMNewAttrs pending
-      | Just v <- lookupPending name pending -> pure (Just v)
-    EMTagAndAttrs _ pending
-      | Just v <- lookupPending name pending -> pure (Just v)
-    EMFull (ElemMut {emNewAttrs = pending})
-      | Just v <- lookupPending name pending -> pure (Just v)
-    EMFull (ElemMut {emAttrs = Just attrs}) -> pure $ lookupAttrArr name attrs
-    _ -> do
-      attrs <- forceAttrs er
-      pure $ lookupAttrArr name attrs
-
-
-setElemAttr :: ElementRef -> Text -> Text -> IO ()
-setElemAttr er name val = do
-  checkValidER er
-  em <- readIORef (_erElem er)
-  case em of
-    EMFull e@(ElemMut {emAttrs = Just attrs}) ->
-      writeIORef (_erElem er) $! EMFull $! e {emAttrs = Just (setAttrArr name val attrs)}
-    EMFull e@(ElemMut {emNewAttrs = pending}) | not (null pending) ->
-      writeIORef (_erElem er) $! EMFull $! e {emNewAttrs = (name, val) : pending}
-    _ -> do
-      attrOff <- readPrimArray (_erInts er) 1
-      if (attrOff :: Int) >= 0
-        then do
-          srcBS <- readIORef (_erSrcBS er)
-          srcLen <- readPrimArray (_erInts er) 2
-          if hasAttrNameInTag srcBS attrOff (srcLen :: Int) name
-            then do
-              origArr <- forceAttrs er
-              modifyElemMut er (\e -> e {emAttrs = Just (setAttrArr name val origArr)})
-            else do
-              writeIORef (_erElem er) $! case em of
-                EMNone -> EMNewAttrs [(name, val)]
-                EMTag t -> EMTagAndAttrs t [(name, val)]
-                EMNewAttrs as -> EMNewAttrs ((name, val) : as)
-                EMTagAndAttrs t as -> EMTagAndAttrs t ((name, val) : as)
-                EMFull m -> EMFull (m {emNewAttrs = (name, val) : emNewAttrs m})
-        else do
-          origArr <- forceAttrs er
-          modifyElemMut er (\e -> e {emAttrs = Just (setAttrArr name val origArr)})
-
-
-removeElemAttr :: ElementRef -> Text -> IO ()
-removeElemAttr er name = do
-  checkValidER er
-  em <- readIORef (_erElem er)
-  case em of
-    EMFull e@(ElemMut {emAttrs = Just attrs}) ->
-      writeIORef (_erElem er) $! EMFull $! e {emAttrs = Just (removeAttrArr name attrs)}
-    _ -> do
-      origArr <- forceAttrs er
-      modifyElemMut er (\e -> e {emAttrs = Just (removeAttrArr name origArr)})
-
-
-hasElemAttr :: ElementRef -> Text -> IO Bool
-hasElemAttr er name = do
-  checkValidER er
-  em <- readIORef (_erElem er)
-  case em of
-    EMNewAttrs pending | any (\(n, _) -> n == name) pending -> pure True
-    EMTagAndAttrs _ pending | any (\(n, _) -> n == name) pending -> pure True
-    EMFull (ElemMut {emNewAttrs = pending}) | any (\(n, _) -> n == name) pending -> pure True
-    EMFull (ElemMut {emAttrs = Just attrs}) -> pure $ hasAttrArr name attrs
-    _ -> do
-      origArr <- forceAttrs er
-      pure $ hasAttrArr name origArr
-
-
-getElemAttrs :: ElementRef -> IO [(Text, Text)]
-getElemAttrs er = do
-  checkValidER er
-  em <- readIORef (_erElem er)
-  case em of
-    EMFull (ElemMut {emAttrs = Just a}) -> pure $
-      let !sz = sizeofSmallArray a
-          go !i acc
-            | i < 0 = acc
-            | otherwise = let !(HTMLAttribute n v) = indexSmallArray a i in go (i - 1) ((n, v) : acc)
-      in go (sz - 1) []
-    _ -> do
-      origArr <- forceAttrs er
-      let !sz = sizeofSmallArray origArr
-          go2 !i acc
-            | i < 0 = acc
-            | otherwise = let !(HTMLAttribute n v) = indexSmallArray origArr i in go2 (i - 1) ((n, v) : acc)
-      pure $ go2 (sz - 1) []
-
-
-beforeElement :: ElementRef -> Text -> ContentType -> IO ()
-beforeElement er content ct = do
-  checkValidER er
-  withMut (_erMut er) (\b a r d -> Mut (b <> encodeContent content ct) a r d)
-
-
-prependToElement :: ElementRef -> Text -> ContentType -> IO ()
-prependToElement er content ct = do
-  checkValidER er
-  let !b = encodeContent content ct
-  modifyElemMut er (\em -> em {emPrepend = Just $ maybe b (<> b) (emPrepend em)})
-
-
-appendToElement :: ElementRef -> Text -> ContentType -> IO ()
-appendToElement er content ct = do
-  checkValidER er
-  let !b = encodeContent content ct
-  modifyElemMut er (\em -> em {emAppend = Just $ maybe b (<> b) (emAppend em)})
-
-
-afterElement :: ElementRef -> Text -> ContentType -> IO ()
-afterElement er content ct = do
-  checkValidER er
-  withMut (_erMut er) (\b a r d -> Mut b (a <> encodeContent content ct) r d)
-
-
-replaceElement :: ElementRef -> Text -> ContentType -> IO ()
-replaceElement er content ct = do
-  checkValidER er
-  withMut (_erMut er) (\b a _ _ -> Mut b a (Just (encodeContent content ct)) True)
-
-
-removeElement :: ElementRef -> IO ()
-removeElement er = do
-  checkValidER er
-  withMut (_erMut er) (\b a r _ -> Mut b a r True)
-
-
-removeChildren :: ElementRef -> IO ()
-removeChildren er = do
-  checkValidER er
-  modifyElemMut er (\em -> em {emRmChildren = True})
-
-
-setInnerContent :: ElementRef -> Text -> ContentType -> IO ()
-setInnerContent er content ct = do
-  checkValidER er
-  modifyElemMut er (\em -> em {emInnerContent = Just (encodeContent content ct)})
-
-
-onElementEndTag :: ElementRef -> (EndTagRef -> IO ()) -> IO ()
-onElementEndTag er handler = do
-  checkValidER er
-  modifyElemMut er (\em -> em {emEndTagHandler = Just handler})
-
-
--- ---------------------------------------------------------------------------
--- Text chunk mutation API
--- ---------------------------------------------------------------------------
-
-getTextContent :: TextChunkRef -> IO Text
-getTextContent tr = checkValid (_trValid tr) "TextChunkRef" >> readIORef (_trContent tr)
-
-
-replaceTextChunk :: TextChunkRef -> Text -> ContentType -> IO ()
-replaceTextChunk tr content ct = do
-  checkValid (_trValid tr) "TextChunkRef"
-  m <- readIORef (_trMut tr)
-  case m of
-    MutNone -> writeIORef (_trMut tr) $! MutText Nothing Nothing content ct True
-    Mut b a _ _ -> writeIORef (_trMut tr) $! MutText (Just b) (Just a) content ct True
-    MutText b a _ _ _ -> writeIORef (_trMut tr) $! MutText b a content ct True
-
-
-beforeTextChunk :: TextChunkRef -> Text -> ContentType -> IO ()
-beforeTextChunk tr content ct = do
-  checkValid (_trValid tr) "TextChunkRef"
-  withMut (_trMut tr) (\b a r d -> Mut (b <> encodeContent content ct) a r d)
-
-
-afterTextChunk :: TextChunkRef -> Text -> ContentType -> IO ()
-afterTextChunk tr content ct = do
-  checkValid (_trValid tr) "TextChunkRef"
-  withMut (_trMut tr) (\b a r d -> Mut b (a <> encodeContent content ct) r d)
-
-
-removeTextChunk :: TextChunkRef -> IO ()
-removeTextChunk tr = do
-  checkValid (_trValid tr) "TextChunkRef"
-  withMut (_trMut tr) (\b a r _ -> Mut b a r True)
-
-
-isLastInTextNode :: TextChunkRef -> IO Bool
-isLastInTextNode tr = checkValid (_trValid tr) "TextChunkRef" >> pure (_trIsLast tr)
-
-
--- ---------------------------------------------------------------------------
--- Comment mutation API
--- ---------------------------------------------------------------------------
-
-getCommentText :: CommentRef -> IO Text
-getCommentText cr = checkValid (_crValid cr) "CommentRef" >> readIORef (_crText cr)
-
-
-setCommentText :: CommentRef -> Text -> IO ()
-setCommentText cr t = checkValid (_crValid cr) "CommentRef" >> writeIORef (_crText cr) t
-
-
-replaceComment :: CommentRef -> Text -> ContentType -> IO ()
-replaceComment cr content ct = do
-  checkValid (_crValid cr) "CommentRef"
-  withMut (_crMut cr) (\b a _ _ -> Mut b a (Just (encodeContent content ct)) True)
-
-
-beforeComment :: CommentRef -> Text -> ContentType -> IO ()
-beforeComment cr content ct = do
-  checkValid (_crValid cr) "CommentRef"
-  withMut (_crMut cr) (\b a r d -> Mut (b <> encodeContent content ct) a r d)
-
-
-afterComment :: CommentRef -> Text -> ContentType -> IO ()
-afterComment cr content ct = do
-  checkValid (_crValid cr) "CommentRef"
-  withMut (_crMut cr) (\b a r d -> Mut b (a <> encodeContent content ct) r d)
-
-
-removeComment :: CommentRef -> IO ()
-removeComment cr = do
-  checkValid (_crValid cr) "CommentRef"
-  withMut (_crMut cr) (\b a r _ -> Mut b a r True)
-
-
--- ---------------------------------------------------------------------------
--- Doctype access
--- ---------------------------------------------------------------------------
-
-getDoctypeName :: DoctypeRef -> IO Text
-getDoctypeName dr = checkValid (_drValid dr) "DoctypeRef" >> pure (_drName dr)
-
-
-getDoctypePublicId :: DoctypeRef -> IO (Maybe Text)
-getDoctypePublicId dr = checkValid (_drValid dr) "DoctypeRef" >> pure (_drPubId dr)
-
-
-getDoctypeSystemId :: DoctypeRef -> IO (Maybe Text)
-getDoctypeSystemId dr = checkValid (_drValid dr) "DoctypeRef" >> pure (_drSysId dr)
-
-
--- ---------------------------------------------------------------------------
--- End tag mutation
--- ---------------------------------------------------------------------------
-
-getEndTagName :: EndTagRef -> IO Text
-getEndTagName etr = checkValid (_etrValid etr) "EndTagRef" >> readIORef (_etrTag etr)
-
-
-setEndTagName :: EndTagRef -> Text -> IO ()
-setEndTagName etr t = checkValid (_etrValid etr) "EndTagRef" >> writeIORef (_etrTag etr) t
-
-
-beforeEndTag :: EndTagRef -> Text -> ContentType -> IO ()
-beforeEndTag etr content ct = do
-  checkValid (_etrValid etr) "EndTagRef"
-  withMut (_etrMut etr) (\b a r d -> Mut (b <> encodeContent content ct) a r d)
-
-
-afterEndTag :: EndTagRef -> Text -> ContentType -> IO ()
-afterEndTag etr content ct = do
-  checkValid (_etrValid etr) "EndTagRef"
-  withMut (_etrMut etr) (\b a r d -> Mut b (a <> encodeContent content ct) r d)
 
 
 -- ---------------------------------------------------------------------------
@@ -1271,10 +522,6 @@ cowEscapeText cow (Text (ByteArray ba#) off len) = go off off
             _    -> go segStart (i + 1)
 {-# INLINE cowEscapeText #-}
 
-indexBA :: ByteArray# -> Int -> Word8
-indexBA ba# (I# i#) = W8# (indexWord8Array# ba# i#)
-{-# INLINE indexBA #-}
-
 cowFlushTo :: CowOutput -> ByteString -> Int -> IO ()
 cowFlushTo cow src off = do
   flushed <- cowReadFlushed cow
@@ -1393,7 +640,7 @@ rewrite rw bs
                               goCharToken off entEnd c
                               goScan entEnd
                             _ -> do
-                              mapM_ (\c -> goCharToken off entEnd c) ent
+                              mapM_ (goCharToken off entEnd) ent
                               goScan entEnd
                       0x00 -> do
                         suppressed0 <- if canSuppress
@@ -1472,19 +719,17 @@ rewrite rw bs
                         when (afterTag <= len) $ do
                           when (not selfClose && not isVoid) $ do
                             d0 <- readDepth st
-                            if needsStack
-                              then do
-                                let !(# lcName, _ #) = internTagAddrU addr# off tagLen bs
-                                if needsContextStack
-                                  then do
-                                    stk0 <- readIORef (asStack st)
-                                    let !parentTM = case stk0 of (sf : _) -> sfTextMatch sf; [] -> False
-                                        !frame = StackFrame lcName emptySmallArray d0 parentTM
-                                    writeIORef (asStack st) (frame : stk0)
-                                  else do
-                                    pm <- if d0 > 0 then readTextMask st (d0 - 1) else pure 0
-                                    writeTextMask st d0 pm
-                              else pure ()
+                            when needsStack $ do
+                              let !(# lcName, _ #) = internTagAddrU addr# off tagLen bs
+                              if needsContextStack
+                                then do
+                                  stk0 <- readIORef (asStack st)
+                                  let !parentTM = case stk0 of (sf : _) -> sfTextMatch sf; [] -> False
+                                      !frame = StackFrame lcName emptySmallArray d0 parentTM
+                                  writeIORef (asStack st) (frame : stk0)
+                                else do
+                                  pm <- if d0 > 0 then readTextMask st (d0 - 1) else pure 0
+                                  writeTextMask st d0 pm
                             writeDepth st (d0 + 1)
                           if P.isRawTextTag tid && not selfClose
                             then do
@@ -1756,24 +1001,21 @@ rewrite rw bs
             suppressedCT <- checkSuppressed canSuppress st
             if suppressedCT
               then pure ()
-              else
-                if needsText
-                      then do
-                        d <- readDepth st
-                        hasMatch <- if needsContextStack
-                          then do stk <- readIORef (asStack st); pure (anyTextAncestorMatches stk)
-                          else textMaskActive st d
-                        when hasMatch $ do
-                          let !text = T.singleton c
-                          tr <- resetTextChunkRef tPool text True
-                          anyMatched <- if needsContextStack
-                            then do stk <- readIORef (asStack st); runTextHandlers rw stk tr
-                            else runTextHandlersAll rw tr
-                          writeIORef (_trValid tr) False
-                          when anyMatched $ do
-                            stk <- if needsContextStack then readIORef (asStack st) else pure []
-                            emitTextResult cow bs startOff endOff tr stk
-                      else pure ()
+              else when needsText $ do
+                d <- readDepth st
+                hasMatch <- if needsContextStack
+                  then do stk <- readIORef (asStack st); pure (anyTextAncestorMatches stk)
+                  else textMaskActive st d
+                when hasMatch $ do
+                  let !text = T.singleton c
+                  tr <- resetTextChunkRef tPool text True
+                  anyMatched <- if needsContextStack
+                    then do stk <- readIORef (asStack st); runTextHandlers rw stk tr
+                    else runTextHandlersAll rw tr
+                  writeIORef (_trValid tr) False
+                  when anyMatched $ do
+                    stk <- if needsContextStack then readIORef (asStack st) else pure []
+                    emitTextResult cow bs startOff endOff tr stk
 
           goMarkupDecl !off !ltOff
             | off >= len = pure ()
@@ -1803,31 +1045,29 @@ rewrite rw bs
                 !commentEnd = endPos + 3
                 !text = decodeTextSlice sharedBA addr# off (endPos - off) bs
             suppressedCM <- checkSuppressed canSuppress st
-            if suppressedCM
+            if suppressedCM || sizeofSmallArray (rwComment rw) == 0
               then goScan (min commentEnd len)
-              else if sizeofSmallArray (rwComment rw) == 0
-                      then goScan (min commentEnd len)
-                      else do
-                        resetCommentRef cPool text
-                        forM_ (rwComment rw) $ \handler -> handler cPool
-                        writeIORef (_crValid cPool) False
-                        mut <- readIORef (_crMut cPool)
-                        t <- readIORef (_crText cPool)
-                        case mut of
-                          MutNone
-                            | t /= text ->
-                                cowEmitMod cow bs ltOff (min commentEnd len)
-                                  (BB.byteString "<!--" <> BB.byteString (TE.encodeUtf8 t) <> BB.byteString "-->")
-                            | otherwise -> pure ()
-                          Mut bef aft mRepl removed
-                            | Just repl <- mRepl ->
-                                cowEmitMod cow bs ltOff (min commentEnd len) (bef <> repl <> aft)
-                            | removed ->
-                                cowEmitMod cow bs ltOff (min commentEnd len) mempty
-                            | otherwise ->
-                                cowEmitMod cow bs ltOff (min commentEnd len)
-                                  (bef <> BB.byteString "<!--" <> BB.byteString (TE.encodeUtf8 t) <> BB.byteString "-->" <> aft)
-                        goScan (min commentEnd len)
+              else do
+                resetCommentRef cPool text
+                forM_ (rwComment rw) $ \handler -> handler cPool
+                writeIORef (_crValid cPool) False
+                mut <- readIORef (_crMut cPool)
+                t <- readIORef (_crText cPool)
+                case mut of
+                  MutNone
+                    | t /= text ->
+                        cowEmitMod cow bs ltOff (min commentEnd len)
+                          (BB.byteString "<!--" <> BB.byteString (TE.encodeUtf8 t) <> BB.byteString "-->")
+                    | otherwise -> pure ()
+                  Mut bef aft mRepl removed
+                    | Just repl <- mRepl ->
+                        cowEmitMod cow bs ltOff (min commentEnd len) (bef <> repl <> aft)
+                    | removed ->
+                        cowEmitMod cow bs ltOff (min commentEnd len) mempty
+                    | otherwise ->
+                        cowEmitMod cow bs ltOff (min commentEnd len)
+                          (bef <> BB.byteString "<!--" <> BB.byteString (TE.encodeUtf8 t) <> BB.byteString "-->" <> aft)
+                goScan (min commentEnd len)
 
           goPI !off !_ltOff = do
             let !endPos = scanPIEnd addr# off len
@@ -1836,23 +1076,21 @@ rewrite rw bs
 
           goRawText !tagName !off = do
             let !endPos = scanRawTextEnd addr# off len tagName bs
-            if needsText
-              then do
-                d <- readDepth st
-                hasMatch <- if needsContextStack
-                  then do stk <- readIORef (asStack st); pure (anyTextAncestorMatches stk)
-                  else textMaskActive st d
-                when (hasMatch && endPos > off) $ do
-                  let !text = decodeTextSlice sharedBA addr# off (endPos - off) bs
-                  tr <- resetTextChunkRef tPool text True
-                  anyMatched <- if needsContextStack
-                    then do stk <- readIORef (asStack st); runTextHandlers rw stk tr
-                    else runTextHandlersAll rw tr
-                  writeIORef (_trValid tr) False
-                  when anyMatched $ do
-                    stk <- if needsContextStack then readIORef (asStack st) else pure []
-                    emitTextResult cow bs off endPos tr stk
-              else pure ()
+            when needsText $ do
+              d <- readDepth st
+              hasMatch <- if needsContextStack
+                then do stk <- readIORef (asStack st); pure (anyTextAncestorMatches stk)
+                else textMaskActive st d
+              when (hasMatch && endPos > off) $ do
+                let !text = decodeTextSlice sharedBA addr# off (endPos - off) bs
+                tr <- resetTextChunkRef tPool text True
+                anyMatched <- if needsContextStack
+                  then do stk <- readIORef (asStack st); runTextHandlers rw stk tr
+                  else runTextHandlersAll rw tr
+                writeIORef (_trValid tr) False
+                when anyMatched $ do
+                  stk <- if needsContextStack then readIORef (asStack st) else pure []
+                  emitTextResult cow bs off endPos tr stk
             let !closeEnd = skipToGtBS bs (endPos + 2) len
             runEndTagFull cow bs st rw etPool tagName endPos closeEnd
             goScan closeEnd
@@ -1884,7 +1122,7 @@ emitModifiedStartTag cow src rw _ePool lcName attrs selfClose isVoid ltOff after
         writeDepth st (depth + 1)
     _ -> do
       let !mFull = elemModToMut mElem
-          tag' = maybe lcName id (elemModTag mElem)
+          tag' = fromMaybe lcName (elemModTag mElem)
           modAttrs = mFull >>= emAttrs
           rmChildren = maybe False emRmChildren mFull
           innerContent = mFull >>= emInnerContent
@@ -1938,13 +1176,7 @@ emitModifiedStartTag cow src rw _ePool lcName attrs selfClose isVoid ltOff after
                         MutNone -> Mut bldBef bldAft Nothing False
                         Mut b0 a0 r0 d0 -> Mut (b0 <> bldBef) (a0 <> bldAft) r0 d0
                         MutText mb0 ma0 _ _ d0 -> Mut (maybe bldBef (<> bldBef) mb0) (maybe bldAft (<> bldAft) ma0) Nothing d0
-                      bldBef = case innerContent of
-                        Just ic -> case mAppnd of
-                          Just ap -> ic <> ap
-                          Nothing -> ic
-                        Nothing -> case mAppnd of
-                          Just ap -> ap
-                          Nothing -> mempty
+                      bldBef = maybe (fromMaybe mempty mAppnd) (\ic -> ic <> fromMaybe mempty mAppnd) innerContent
                       bldAft = aft
                   writeIORef (_etrMut etr) bld
                 case userEndHandler of
@@ -2031,11 +1263,11 @@ emitTextResult cow src startOff endOff tr stk = do
     MutNone -> pure ()
     MutText mbef maft content ct _removed -> do
       cowFlushTo cow src startOff
-      case mbef of Just bef -> cowWriteBuilder cow bef; Nothing -> pure ()
+      for_ mbef (cowWriteBuilder cow)
       case ct of
         AsText -> cowEscapeText cow content
         AsHTML -> cowWriteTextBytes cow content
-      case maft of Just aft -> cowWriteBuilder cow aft; Nothing -> pure ()
+      for_ maft (cowWriteBuilder cow)
       cowWriteFlushed cow endOff
       cowSetDirty cow
     Mut bef aft mRepl removed
@@ -2189,7 +1421,7 @@ feedRewriter' :: RewriterState -> ByteString -> (ByteString -> IO ()) -> IO ()
 feedRewriter' rs chunk sink = do
   out <- feedRewriter rs chunk
   let !bs = BL.toStrict (BB.toLazyByteString out)
-  when (not (BS.null bs)) $ sink bs
+  unless (BS.null bs) $ sink bs
 
 
 {- | Find the byte offset where it's safe to break for tokenization.
@@ -2339,8 +1571,8 @@ handleStartTag rw st emit src ePool name attrs selfClose tid startOff endOff = d
                 writeDepth st (d + 1)
             _ -> do
               let !mFull = elemModToMut mElem
-                  tag' = maybe name id (elemModTag mElem)
-                  attrs' = maybe attrs id (mFull >>= emAttrs)
+                  tag' = fromMaybe name (elemModTag mElem)
+                  attrs' = fromMaybe attrs (mFull >>= emAttrs)
                   mPrep = mFull >>= emPrepend
                   mAppnd = mFull >>= emAppend
                   rmChildren = maybe False emRmChildren mFull
@@ -2349,9 +1581,7 @@ handleStartTag rw st emit src ePool name attrs selfClose tid startOff endOff = d
 
               emit bef
               emit (emitStartTagFromArr tag' attrs' selfClose)
-              case mPrep of
-                Just p -> emit p
-                Nothing -> pure ()
+              for_ mPrep emit
 
               if selfClose || isVoid
                 then emit aft
@@ -2375,13 +1605,7 @@ handleStartTag rw st emit src ePool name attrs selfClose tid startOff endOff = d
                                 MutNone -> Mut bldBef bldAft Nothing False
                                 Mut b0 a0 r0 d0 -> Mut (b0 <> bldBef) (a0 <> bldAft) r0 d0
                                 MutText mb0 ma0 _ _ d0 -> Mut (maybe bldBef (<> bldBef) mb0) (maybe bldAft (<> bldAft) ma0) Nothing d0
-                              bldBef = case innerContent of
-                                Just ic -> case mAppnd of
-                                  Just ap -> ic <> ap
-                                  Nothing -> ic
-                                Nothing -> case mAppnd of
-                                  Just ap -> ap
-                                  Nothing -> mempty
+                              bldBef = maybe (fromMaybe mempty mAppnd) (\ic -> ic <> fromMaybe mempty mAppnd) innerContent
                               bldAft = aft
                           writeIORef (_etrMut etr) bld
                         case userEndHandler of
@@ -2459,9 +1683,9 @@ handleText rw st emit tPool text isLast = do
       case mut of
         MutNone -> emit (emitText content)
         MutText mbef maft replContent ct _ -> do
-          case mbef of Just bef -> emit bef; Nothing -> pure ()
+          for_ mbef emit
           emit (encodeContent replContent ct)
-          case maft of Just aft2 -> emit aft2; Nothing -> pure ()
+          for_ maft emit
         Mut bef aft mRepl removed
           | Just repl <- mRepl -> emit bef >> emit repl >> emit aft
           | removed -> pure ()
@@ -2502,164 +1726,6 @@ handleDoctype rw _st emit name pub sys = do
       forM_ (rwDoctype rw) $ \handler -> handler dr
       writeIORef (_drValid dr) False
       emit (emitDoctypeRaw name)
-
-
--- ---------------------------------------------------------------------------
--- Selector matching against element stack
--- ---------------------------------------------------------------------------
-
--- | Single-pass: run all matching element handlers, return True if any matched.
-runElementHandlers :: Rewriter -> [StackFrame] -> Text -> SmallArray HTMLAttribute -> ElementRef -> IO Bool
-runElementHandlers rw stack tag attrs er = go False 0
-  where
-    !handlers = rwHandlers rw
-    !hLen = sizeofSmallArray handlers
-    go !matched !i
-      | i >= hLen = pure matched
-      | otherwise = case indexSmallArray handlers i of
-          CHElement decomposed handler ->
-            if matchAnyDecomposed decomposed stack tag attrs
-              then handler er >> go True (i + 1)
-              else go matched (i + 1)
-          _ -> go matched (i + 1)
-{-# INLINE runElementHandlers #-}
-
-
--- | Single-pass: run all matching end-tag handlers, return True if any matched.
-runEndTagHandlers :: Rewriter -> [StackFrame] -> Text -> EndTagRef -> IO Bool
-runEndTagHandlers rw stack name etr = go False 0
-  where
-    !handlers = rwHandlers rw
-    !hLen = sizeofSmallArray handlers
-    go !matched !i
-      | i >= hLen = pure matched
-      | otherwise = case indexSmallArray handlers i of
-          CHEndTag decomposed handler ->
-            if matchAnyEndTag decomposed stack name
-              then handler etr >> go True (i + 1)
-              else go matched (i + 1)
-          _ -> go matched (i + 1)
-{-# INLINE runEndTagHandlers #-}
-
-
--- | O(1) check: does any text handler have an ancestor match at the current stack?
--- Uses the cached sfTextMatch flag computed when each frame was pushed.
-anyTextAncestorMatches :: [StackFrame] -> Bool
-anyTextAncestorMatches [] = False
-anyTextAncestorMatches (sf : _) = sfTextMatch sf
-{-# INLINE anyTextAncestorMatches #-}
-
-
--- | Single-pass: run all matching text handlers, return True if any matched.
--- Walks the ancestor stack to determine which text handlers apply.
-runTextHandlers :: Rewriter -> [StackFrame] -> TextChunkRef -> IO Bool
-runTextHandlers rw stack tr = go False 0
-  where
-    !handlers = rwHandlers rw
-    !hLen = sizeofSmallArray handlers
-    go !matched !i
-      | i >= hLen = pure matched
-      | otherwise = case indexSmallArray handlers i of
-          CHText decomposed handler ->
-            if anyAncestorMatches decomposed stack
-              then handler tr >> go True (i + 1)
-              else go matched (i + 1)
-          _ -> go matched (i + 1)
-
-    anyAncestorMatches _ [] = False
-    anyAncestorMatches !sels (StackFrame tag attrs _ _ : frames) =
-      matchAnyDecomposed sels frames tag attrs || anyAncestorMatches sels frames
-{-# INLINE runTextHandlers #-}
-
--- | Fire all text handlers unconditionally. Used when
--- rwNeedsContextStack=False and the depth-indexed text mask already
--- confirmed that a matching ancestor exists.
-runTextHandlersAll :: Rewriter -> TextChunkRef -> IO Bool
-runTextHandlersAll rw tr = go False 0
-  where
-    !handlers = rwHandlers rw
-    !hLen = sizeofSmallArray handlers
-    go !matched !i
-      | i >= hLen = pure matched
-      | otherwise = case indexSmallArray handlers i of
-          CHText _ handler -> handler tr >> go True (i + 1)
-          _ -> go matched (i + 1)
-{-# INLINE runTextHandlersAll #-}
-
-
-matchAnyDecomposed :: SmallArray DecomposedSel -> [StackFrame] -> Text -> SmallArray HTMLAttribute -> Bool
-matchAnyDecomposed !arr stack tag attrs = go 0
-  where
-    !n = sizeofSmallArray arr
-    go !i
-      | i >= n = False
-      | matchAtPosition (indexSmallArray arr i) stack tag attrs = True
-      | otherwise = go (i + 1)
-{-# INLINE matchAnyDecomposed #-}
-
-
--- | Run element handlers using class-only byte matching (no SmallArray attrs).
-runElementHandlersClass :: Rewriter -> Text -> Addr# -> Int -> Int -> ElementRef -> IO Bool
-runElementHandlersClass rw tag addr# classOff classLen er = go False 0
-  where
-    !handlers = rwHandlers rw
-    !hLen = sizeofSmallArray handlers
-    go !matched !i
-      | i >= hLen = pure matched
-      | otherwise = case indexSmallArray handlers i of
-          CHElement decomposed handler ->
-            if matchAnyDecomposedClass decomposed tag addr# classOff classLen
-              then handler er >> go True (i + 1)
-              else go matched (i + 1)
-          _ -> go matched (i + 1)
-{-# INLINE runElementHandlersClass #-}
-
-
-
-
--- | Class-only decomposed selector matching at byte level.
-matchAnyDecomposedClass :: SmallArray DecomposedSel -> Text -> Addr# -> Int -> Int -> Bool
-matchAnyDecomposedClass !arr tag addr# classOff classLen = go 0
-  where
-    !n = sizeofSmallArray arr
-    go !i
-      | i >= n = False
-      | matchDecomposedClass (indexSmallArray arr i) = True
-      | otherwise = go (i + 1)
-    matchDecomposedClass (DecomposedSel (CompoundSelector mtype subs) _ctx) =
-      matchType mtype tag && allSubsClass subs
-    allSubsClass [] = True
-    allSubsClass (SelClass c : rest) = hasClassWord c addr# classOff classLen && allSubsClass rest
-    allSubsClass _ = False
-{-# INLINE matchAnyDecomposedClass #-}
-
-
-matchAnyEndTag :: SmallArray DecomposedSel -> [StackFrame] -> Text -> Bool
-matchAnyEndTag !arr stack name = go 0
-  where
-    !n = sizeofSmallArray arr
-    go !i
-      | i >= n = False
-      | matchEndPositionD (indexSmallArray arr i) stack name = True
-      | otherwise = go (i + 1)
-{-# INLINE matchAnyEndTag #-}
-
-
-matchEndPositionD :: DecomposedSel -> [StackFrame] -> Text -> Bool
-matchEndPositionD ds stack name =
-  let currentAttrs = case stack of
-        (StackFrame _ a _ _ : _) -> a
-        [] -> mempty
-  in matchCompoundForEnd (dsSubject ds) name currentAttrs && matchContext (dsContext ds) stack
-
-
-matchCompoundForEnd :: CompoundSelector -> Text -> SmallArray HTMLAttribute -> Bool
-matchCompoundForEnd (CompoundSelector mtype _subs) name _attrs =
-  case mtype of
-    Nothing -> True
-    Just TypeUniversal -> True
-    Just (TypeTag t) -> t == name
-
 
 -- ---------------------------------------------------------------------------
 -- Ref constructors
@@ -2710,107 +1776,6 @@ resetElementRefDeferred er tag _selfClose !nameEnd = do
   writePrimArray ints 0 (1 :: Int)     -- valid
   writePrimArray ints 1 nameEnd        -- attrOff
 {-# INLINE resetElementRefDeferred #-}
-
-forceAttrs :: ElementRef -> IO (SmallArray HTMLAttribute)
-forceAttrs er = do
-  let !ints = _erInts er
-  off <- readPrimArray ints 1
-  if (off :: Int) < 0
-    then readIORef (_erOrigAttrs er)
-    else do
-      ba <- readIORef (_erSharedBA er)
-      srcBS <- readIORef (_erSrcBS er)
-      srcLen <- readPrimArray ints 2
-      let (!attrs, !_, !_) = readTagAttrsBS ba srcBS off (srcLen :: Int)
-      writeIORef (_erOrigAttrs er) attrs
-      writePrimArray ints 1 (-1 :: Int)
-      pure attrs
-{-# INLINE forceAttrs #-}
-
-
-lookupPending :: Text -> [(Text, Text)] -> Maybe Text
-lookupPending _ [] = Nothing
-lookupPending name ((n, v) : rest)
-  | n == name = Just v
-  | otherwise = lookupPending name rest
-{-# INLINE lookupPending #-}
-
-
-hasAttrNameInTag :: ByteString -> Int -> Int -> Text -> Bool
-hasAttrNameInTag (BS (ForeignPtr addr# _) _) !off !end name = go off
-  where
-    !(Text (ByteArray nameBA#) nameOff nameLen) = name
-    rd :: Int -> Word8
-    rd i = readByteOff addr# i
-    {-# INLINE rd #-}
-
-    go !i
-      | i >= end = False
-      | otherwise = case rd i of
-          0x3E -> False
-          0x2F | i + 1 < end, rd (i + 1) == 0x3E -> False
-          b | isWSByte b -> go (i + 1)
-          _ -> checkName i
-
-    checkName !nameStart =
-      let !nameEnd' = scanToDelim nameStart
-          !attrNameLen = nameEnd' - nameStart
-      in if attrNameLen == nameLen && matchBytes nameStart
-           then True
-           else skipValue nameEnd'
-
-    scanToDelim !j
-      | j >= end = j
-      | otherwise = case rd j of
-          0x3D -> j
-          0x3E -> j
-          0x2F -> j
-          b | isWSByte b -> j
-          _ -> scanToDelim (j + 1)
-
-    matchBytes !start = matchLoop 0
-      where
-        matchLoop !k
-          | k >= nameLen = True
-          | otherwise =
-              let !a = toLowerByte (rd (start + k))
-                  !b = indexBA nameBA# (nameOff + k)
-              in a == b && matchLoop (k + 1)
-
-    toLowerByte :: Word8 -> Word8
-    toLowerByte w = if w >= 0x41 && w <= 0x5A then w + 32 else w
-
-    skipValue !j
-      | j >= end = go j
-      | otherwise =
-          let !j1 = skipWS j
-          in if j1 >= end || rd j1 /= 0x3D
-               then go j1
-               else
-                 let !j2 = skipWS (j1 + 1)
-                 in if j2 >= end then go j2
-                    else case rd j2 of
-                      0x22 -> go (scanPast 0x22 (j2 + 1))
-                      0x27 -> go (scanPast 0x27 (j2 + 1))
-                      _    -> go (scanUnq j2)
-
-    scanPast !delim !j
-      | j >= end = j
-      | rd j == delim = j + 1
-      | otherwise = scanPast delim (j + 1)
-
-    scanUnq !j
-      | j >= end = j
-      | isWSByte (rd j) || rd j == 0x3E = j
-      | otherwise = scanUnq (j + 1)
-
-    skipWS !j
-      | j >= end = j
-      | isWSByte (rd j) = skipWS (j + 1)
-      | otherwise = j
-{-# INLINE hasAttrNameInTag #-}
-
-
 cowWriteOneAttr :: CowOutput -> Text -> Text -> IO ()
 cowWriteOneAttr cow name val = do
   let !(Text (ByteArray nameBA#) nameOff nameLen) = name
@@ -2880,49 +1845,6 @@ resetEndTagRef etr tag = do
   writeIORef (_etrMut etr) MutNone
   writeIORef (_etrValid etr) True
 {-# INLINE resetEndTagRef #-}
-
-
--- ---------------------------------------------------------------------------
--- Output helpers
--- ---------------------------------------------------------------------------
-
-encodeContent :: Text -> ContentType -> BB.Builder
-encodeContent text AsHTML = BB.byteString (TE.encodeUtf8 text)
-encodeContent text AsText = escapeTextBuilder text
-
-
-escapeTextBuilder :: Text -> BB.Builder
-escapeTextBuilder t =
-  let !bs = TE.encodeUtf8 t
-  in escapeBS bs 0 (BS.length bs)
-  where
-    escapeBS !bs !off !len
-      | off >= len = mempty
-      | otherwise =
-          let !b = BS.index bs off
-          in case b of
-              0x3C -> BB.byteString (BS.take (off - 0) BS.empty) <> BB.byteString "&lt;" <> escapeBS bs (off + 1) len
-              _ -> scanClean bs off off len
-
-    scanClean !bs !start !off !len
-      | off >= len = BB.byteString (BS.take (off - start) (BS.drop start bs))
-      | otherwise =
-          let !b = BS.index bs off
-          in case b of
-              0x3C ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&lt;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              0x3E ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&gt;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              0x26 ->
-                BB.byteString (BS.take (off - start) (BS.drop start bs))
-                  <> BB.byteString "&amp;"
-                  <> scanClean bs (off + 1) (off + 1) len
-              _ -> scanClean bs start (off + 1) len
-
 
 escapeAttrBuilder :: Text -> BB.Builder
 escapeAttrBuilder t =
@@ -3022,71 +1944,6 @@ lookupAttrList _ [] = Nothing
 lookupAttrList name (HTMLAttribute n v : rest)
   | n == name = Just v
   | otherwise = lookupAttrList name rest
-
-
-lookupAttrArr :: Text -> SmallArray HTMLAttribute -> Maybe Text
-lookupAttrArr name arr = go 0
-  where
-    !n = sizeofSmallArray arr
-    go !i
-      | i >= n = Nothing
-      | otherwise =
-          let !(HTMLAttribute k v) = indexSmallArray arr i
-          in if k == name then Just v else go (i + 1)
-{-# INLINE lookupAttrArr #-}
-
-
-hasAttrArr :: Text -> SmallArray HTMLAttribute -> Bool
-hasAttrArr name arr = go 0
-  where
-    !n = sizeofSmallArray arr
-    go !i
-      | i >= n = False
-      | otherwise =
-          let !(HTMLAttribute k _) = indexSmallArray arr i
-          in k == name || go (i + 1)
-{-# INLINE hasAttrArr #-}
-
-
-setAttrArr :: Text -> Text -> SmallArray HTMLAttribute -> SmallArray HTMLAttribute
-setAttrArr name val arr =
-  let !n = sizeofSmallArray arr
-      !idx = findAttrIdx name arr
-  in if idx >= 0
-    then runSmallArray $ do
-      ma <- thawSmallArray arr 0 n
-      writeSmallArray ma idx (HTMLAttribute name val)
-      pure ma
-    else runSmallArray $ do
-      ma <- newSmallArray (n + 1) (HTMLAttribute name val)
-      copySmallArray ma 0 arr 0 n
-      pure ma
-{-# INLINE setAttrArr #-}
-
-
-removeAttrArr :: Text -> SmallArray HTMLAttribute -> SmallArray HTMLAttribute
-removeAttrArr name arr =
-  let !n = sizeofSmallArray arr
-      !idx = findAttrIdx name arr
-  in if idx < 0
-    then arr
-    else runSmallArray $ do
-      ma <- newSmallArray (n - 1) (HTMLAttribute "" "")
-      copySmallArray ma 0 arr 0 idx
-      copySmallArray ma idx arr (idx + 1) (n - idx - 1)
-      pure ma
-{-# INLINE removeAttrArr #-}
-
-
-findAttrIdx :: Text -> SmallArray HTMLAttribute -> Int
-findAttrIdx name arr = go 0
-  where
-    !n = sizeofSmallArray arr
-    go !i
-      | i >= n = -1
-      | otherwise = let !(HTMLAttribute k _) = indexSmallArray arr i
-                    in if k == name then i else go (i + 1)
-{-# INLINE findAttrIdx #-}
 
 
 -- ---------------------------------------------------------------------------

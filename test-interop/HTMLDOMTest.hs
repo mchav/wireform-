@@ -13,7 +13,7 @@ import Test.Tasty.HUnit
 
 import HTML.DOM
 import qualified HTML.Selector as Sel
-import HTML.Value (HTMLNode(..), HTMLAttribute(..), Doctype(..))
+import HTML.Value (HTMLNode(..), HTMLAttribute(..), Doctype(..), TreeEvent(..))
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -53,6 +53,7 @@ main = defaultMain $ testGroup "HTML.DOM"
   , testGroup "CSS selectors" selectorTests
   , testGroup "CSS selectors (extended)" extendedSelectorTests
   , testGroup "Incremental parser" incrementalTests
+  , testGroup "Streaming tree events" streamingTests
   ]
 
 parsingTests :: [TestTree]
@@ -591,3 +592,91 @@ incrementalTests =
       doc <- finishParser p
       textContent (documentElement doc) @?= textContent (documentElement oneShot)
   ]
+
+
+-- ---------------------------------------------------------------------------
+-- Streaming tree event tests
+-- ---------------------------------------------------------------------------
+
+collectEvents :: IO (Step TreeEvent) -> IO [TreeEvent]
+collectEvents act = do
+  s <- act
+  pure (stepToList s)
+  where
+    stepToList Done = []
+    stepToList (Yield evt rest) = evt : stepToList rest
+
+streamingTests :: [TestTree]
+streamingTests =
+  [ testCase "streamHTML emits open/close for simple doc" $ do
+      evts <- collectEvents (streamHTML "<p>hi</p>")
+      let opens = [t | TreeOpen t _ <- evts]
+          closes = [t | TreeClose t <- evts]
+          texts = [t | TreeText t <- evts]
+      assertBool "has <html>" ("html" `elem` opens)
+      assertBool "has <head>" ("head" `elem` opens)
+      assertBool "has <body>" ("body" `elem` opens)
+      assertBool "has <p>" ("p" `elem` opens)
+      assertBool "closes <html>" ("html" `elem` closes)
+      assertBool "closes <p>" ("p" `elem` closes)
+      assertBool "has text 'hi'" ("hi" `elem` texts)
+
+  , testCase "streamHTML emits doctype" $ do
+      evts <- collectEvents (streamHTML "<!DOCTYPE html><html><body></body></html>")
+      let doctypes = [n | TreeDoctype n _ _ <- evts]
+      assertBool "has doctype" (not (null doctypes))
+
+  , testCase "streamHTML events have correct nesting order" $ do
+      evts <- collectEvents (streamHTML "<div><span>x</span></div>")
+      let relevant = filter isStructural evts
+      case dropWhile (not . isOpenTag "div") relevant of
+        (TreeOpen "div" _ : rest) ->
+          case dropWhile (not . isOpenTag "span") rest of
+            (TreeOpen "span" _ : rest2) -> do
+              assertBool "text before span close" (any isText (takeWhile (not . isCloseTag "span") rest2))
+              let afterSpan = dropWhile (not . isCloseTag "span") rest2
+              assertBool "span closes" (not (null afterSpan))
+              let afterSpanClose = drop 1 afterSpan
+              assertBool "div closes after span" (any (isCloseTag "div") afterSpanClose)
+            _ -> assertFailure "no span open after div"
+        _ -> assertFailure "no div open"
+
+  , testCase "streamHTML with void element emits open+close" $ do
+      evts <- collectEvents (streamHTML "<div><br></div>")
+      let opens = [t | TreeOpen t _ <- evts]
+          closes = [t | TreeClose t <- evts]
+      assertBool "br opens" ("br" `elem` opens)
+      assertBool "br closes" ("br" `elem` closes)
+
+  , testCase "streamHTML preserves attributes" $ do
+      evts <- collectEvents (streamHTML "<div class=\"foo\" id=\"bar\">x</div>")
+      let divOpens = [() | TreeOpen "div" _ <- evts]
+      assertBool "has div open event" (not (null divOpens))
+
+  , testCase "incremental streaming matches one-shot" $ do
+      let html = "<html><body><div><p>hello</p><p>world</p></div></body></html>"
+      oneShotEvts <- collectEvents (streamHTML html)
+      sp <- newStreamParser
+      evts1 <- collectEvents (feedChunk sp "<html><body><div>")
+      evts2 <- collectEvents (feedChunk sp "<p>hello</p><p>world</p>")
+      evts3 <- collectEvents (feedChunk sp "</div></body></html>")
+      evtsFinal <- collectEvents (finishStream sp)
+      let incrEvts = evts1 ++ evts2 ++ evts3 ++ evtsFinal
+      length (filter isOpen incrEvts) @?= length (filter isOpen oneShotEvts)
+      length (filter isClose incrEvts) @?= length (filter isClose oneShotEvts)
+  ]
+  where
+    isStructural (TreeOpen _ _) = True
+    isStructural (TreeClose _) = True
+    isStructural (TreeText _) = True
+    isStructural _ = False
+    isOpenTag n (TreeOpen t _) = t == n
+    isOpenTag _ _ = False
+    isCloseTag n (TreeClose t) = t == n
+    isCloseTag _ _ = False
+    isText (TreeText _) = True
+    isText _ = False
+    isOpen (TreeOpen _ _) = True
+    isOpen _ = False
+    isClose (TreeClose _) = True
+    isClose _ = False
