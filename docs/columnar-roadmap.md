@@ -72,8 +72,8 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | C.2 | Integer RLE v1/v2 + present stream + boolean RLE | — | **Done** |
 | C.3 | Column decoders (int, bool, string, float, double) + compression | — | **Done** |
 | C.4 | End-to-end `readColumn` | — | **Done** |
-| C.5 | Remaining types (timestamp, date, decimal) + RLE v2 Patched Base | — | Planned |
-| C.6 | Writer + ORC file assembly | Writer | Planned |
+| C.5 | Remaining types (timestamp, date, decimal) + RLE v2 Patched Base | — | **Done** (`decodeTimestampColumn`, `decodeDateColumn`, `decodeDecimalColumn`, `decodeShortColumn`, `decodeTinyIntColumn`, `decodeBinaryColumn`, RLE v2 Patched Base) |
+| C.6 | Writer + ORC file assembly | Writer | **Partial** (`buildORCFile`, integer/string/float/double/bool encoders; timestamp / decimal / date writers planned) |
 
 ---
 
@@ -83,7 +83,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 |-----------|--------|--------|
 | D.1 | Manifest / manifest-list Avro; path helpers | **Done** |
 | D.2 | Snapshot selection, schema evolution, partition specs, scan planning | **Done** |
-| D.3 | Delete files (position / equality), sequence numbers | Planned |
+| D.3 | Delete files (position / equality), sequence numbers | **Done** (`PositionDelete`, `applyPositionDeletes`, `planScanWithDeletes`, sequence/file-sequence numbers) |
 | D.4 | REST catalog client (optional) | Planned |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.

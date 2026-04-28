@@ -383,6 +383,25 @@ let Right meta = readFooter parquetBytes
     rowGroups = fmRowGroups meta
 ```
 
+### Parquet predicate pushdown — page index + bloom filter
+
+```haskell
+import Parquet.Read (loadParquetFile)
+import Parquet.PageIndex (readOffsetIndex, readColumnIndex)
+import Parquet.BloomFilter
+  (decodeBloomFilter, sbbfCheck, newSbbf, sbbfInsert, encodeBloomFilter)
+
+let Right pf  = loadParquetFile parquetBytes
+Right mOI <- pure (readOffsetIndex pf 0 0)         -- per-page byte offsets
+Right mCI <- pure (readColumnIndex pf 0 0)         -- per-page min/max + nulls
+
+-- Build a bloom filter and check membership
+let sbbf = foldr (sbbfInsert . encodeUtf8) (newSbbf 1024) keys
+    bs   = encodeBloomFilter sbbf
+Right (_, sbbf') <- pure (decodeBloomFilter bs)
+print (sbbfCheck (encodeUtf8 "needle") sbbf')      -- True / False
+```
+
 ### Iceberg table metadata
 
 ```haskell
