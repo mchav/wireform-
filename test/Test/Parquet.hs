@@ -12,6 +12,17 @@ import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog
 
+import qualified Data.ByteString.Char8 as BSC
+import Numeric (showHex)
+import Parquet.BloomFilter
+  ( decodeBloomFilter
+  , encodeBloomFilter
+  , newSbbf
+  , optimalNumBytes
+  , sbbfCheck
+  , sbbfInsert
+  , sbbfNumBytes
+  )
 import Parquet.Levels
   ( materializePlainBoolOptional
   , materializePlainByteArrayOptional
@@ -21,10 +32,17 @@ import Parquet.Levels
   , parseDataPageV1Levels
   )
 import Parquet.Page
+import Parquet.PageIndex
+  ( decodeColumnIndex
+  , decodeOffsetIndex
+  , encodeColumnIndex
+  , encodeOffsetIndex
+  )
 import Parquet.Types
 import Parquet.Footer
 import Parquet.Read
 import Parquet.Write
+import Parquet.XXH64 (xxh64)
 import Thrift.Encode (encodeCompact)
 import qualified Thrift.Value as TV
 
@@ -41,6 +59,9 @@ parquetTests = testGroup "Parquet"
   , deltaBinaryPackedTests
   , dataPageV2Tests
   , writerRoundtripTests
+  , pageIndexTests
+  , xxh64Tests
+  , bloomFilterTests
   ]
 
 plainDecoderTests :: TestTree
@@ -166,8 +187,8 @@ footerRoundtrips = testGroup "Footer roundtrips"
       readFooter (writeFooter fm) @?= Right fm
   , testCase "File metadata with row group" $ do
       let cm = ColumnMetadata PTInt64 (V.fromList [Plain, RLE])
-                 (V.fromList ["value"]) Snappy 1000 8000 4000 4 Nothing
-          cc = ColumnChunk Nothing 4 (Just cm)
+                 (V.fromList ["value"]) Snappy 1000 8000 4000 4 Nothing Nothing Nothing
+          cc = ColumnChunk Nothing 4 (Just cm) Nothing Nothing Nothing Nothing
           rg = RowGroup (V.singleton cc) 4000 1000
           fm = FileMetadata 2
                  (V.fromList
@@ -217,8 +238,8 @@ edgeCases = testGroup "Edge cases"
   , testCase "All encodings round-trip" $ do
       let encs = [Plain, PlainDictionary, RLE, BitPacked, DeltaBinaryPacked,
                   DeltaLengthByteArray, DeltaByteArray, RLEDictionary, ByteStreamSplit]
-          cm = ColumnMetadata PTInt32 (V.fromList encs) (V.singleton "x") Uncompressed 0 0 0 0 Nothing
-          cc = ColumnChunk Nothing 0 (Just cm)
+          cm = ColumnMetadata PTInt32 (V.fromList encs) (V.singleton "x") Uncompressed 0 0 0 0 Nothing Nothing Nothing
+          cc = ColumnChunk Nothing 0 (Just cm) Nothing Nothing Nothing Nothing
           rg = RowGroup (V.singleton cc) 0 0
           fm = FileMetadata 2 V.empty 0 (V.singleton rg) Nothing
       readFooter (writeFooter fm) @?= Right fm
@@ -454,4 +475,170 @@ writerRoundtripTests = testGroup "Writer round-trips"
             Just dph -> do
               dphNumValues dph @?= 25
               dphEncoding dph @?= 0
+  ]
+
+pageIndexTests :: TestTree
+pageIndexTests = testGroup "Page index (OffsetIndex / ColumnIndex)"
+  [ testCase "OffsetIndex round-trip with page locations" $ do
+      let oi = OffsetIndex
+            { oiPageLocations = V.fromList
+                [ PageLocation 100 200 0
+                , PageLocation 300 250 50
+                , PageLocation 550 175 105
+                ]
+            , oiUnencodedByteArrayDataBytes = Nothing
+            }
+      decodeOffsetIndex (encodeOffsetIndex oi) @?= Right oi
+  , testCase "OffsetIndex round-trip with unencoded byte counts" $ do
+      let oi = OffsetIndex
+            { oiPageLocations = V.fromList
+                [ PageLocation 0 50 0, PageLocation 50 60 25 ]
+            , oiUnencodedByteArrayDataBytes = Just (V.fromList [200, 240])
+            }
+      decodeOffsetIndex (encodeOffsetIndex oi) @?= Right oi
+  , testCase "ColumnIndex round-trip with min/max + null counts" $ do
+      let ci = ColumnIndex
+            { ciNullPages = V.fromList [False, False, True]
+            , ciMinValues = V.fromList [BS.pack [0,0,0,0], BS.pack [10,0,0,0], BS.empty]
+            , ciMaxValues = V.fromList [BS.pack [9,0,0,0], BS.pack [99,0,0,0], BS.empty]
+            , ciBoundaryOrder = OrderAscending
+            , ciNullCounts = Just (V.fromList [0, 0, 100])
+            , ciRepetitionLevelHistograms = Nothing
+            , ciDefinitionLevelHistograms = Nothing
+            }
+      decodeColumnIndex (encodeColumnIndex ci) @?= Right ci
+  , testCase "ColumnIndex round-trip with level histograms" $ do
+      let ci = ColumnIndex
+            { ciNullPages = V.fromList [False, False]
+            , ciMinValues = V.fromList [BS.pack [1], BS.pack [2]]
+            , ciMaxValues = V.fromList [BS.pack [3], BS.pack [4]]
+            , ciBoundaryOrder = OrderUnordered
+            , ciNullCounts = Just (V.fromList [1, 2])
+            , ciRepetitionLevelHistograms = Just (V.fromList [10, 5, 20, 7])
+            , ciDefinitionLevelHistograms = Just (V.fromList [3, 8, 9, 0])
+            }
+      decodeColumnIndex (encodeColumnIndex ci) @?= Right ci
+  , testCase "BoundaryOrder values match parquet.thrift" $ do
+      boundaryOrderToInt OrderUnordered @?= 0
+      boundaryOrderToInt OrderAscending @?= 1
+      boundaryOrderToInt OrderDescending @?= 2
+      intToBoundaryOrder 0 @?= Just OrderUnordered
+      intToBoundaryOrder 1 @?= Just OrderAscending
+      intToBoundaryOrder 2 @?= Just OrderDescending
+      intToBoundaryOrder 3 @?= Nothing
+  , testProperty "OffsetIndex round-trip property" $ property $ do
+      n <- forAll $ Gen.int (Range.linear 0 16)
+      pls <- forAll $ traverse (\_ -> do
+          off <- Gen.int64 (Range.linear 0 100000)
+          sz  <- Gen.int32 (Range.linear 1 10000)
+          fri <- Gen.int64 (Range.linear 0 1000000)
+          pure (PageLocation off sz fri)
+        ) [1..n]
+      let oi = OffsetIndex (V.fromList pls) Nothing
+      decodeOffsetIndex (encodeOffsetIndex oi) === Right oi
+  , testProperty "ColumnIndex round-trip property" $ property $ do
+      n <- forAll $ Gen.int (Range.linear 0 8)
+      bos <- forAll $ Gen.element [OrderUnordered, OrderAscending, OrderDescending]
+      pages <- forAll $ traverse (\_ -> do
+          isNull <- Gen.bool
+          mn <- Gen.bytes (Range.linear 0 16)
+          mx <- Gen.bytes (Range.linear 0 16)
+          nc <- Gen.int64 (Range.linear 0 1000)
+          pure (isNull, mn, mx, nc)
+        ) [1..n]
+      let nulls = V.fromList (map (\(a,_,_,_) -> a) pages)
+          mins  = V.fromList (map (\(_,b,_,_) -> b) pages)
+          maxs  = V.fromList (map (\(_,_,c,_) -> c) pages)
+          ncs   = V.fromList (map (\(_,_,_,d) -> d) pages)
+          ci = ColumnIndex nulls mins maxs bos (Just ncs) Nothing Nothing
+      decodeColumnIndex (encodeColumnIndex ci) === Right ci
+  , testCase "ColumnChunk carries page-index and bloom offsets" $ do
+      let cm = ColumnMetadata PTInt32 (V.singleton Plain)
+                 (V.singleton "x") Uncompressed 100 1000 1000 4
+                 Nothing (Just 5000) (Just 256)
+          cc = ColumnChunk Nothing 4 (Just cm)
+                 (Just 6000) (Just 80) (Just 6080) (Just 200)
+          rg = RowGroup (V.singleton cc) 1000 100
+          fm = FileMetadata 2
+                 (V.fromList
+                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
+                   , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+                   ])
+                 100 (V.singleton rg) Nothing
+      readFooter (writeFooter fm) @?= Right fm
+  ]
+
+xxh64Tests :: TestTree
+xxh64Tests = testGroup "XXH64 (xxHash 0.1.1)"
+  -- Reference vectors from
+  -- https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md
+  [ testCase "empty string" $
+      hex (xxh64 (BSC.pack "")) @?= "ef46db3751d8e999"
+  , testCase "abc" $
+      hex (xxh64 (BSC.pack "abc")) @?= "44bc2cf5ad770999"
+  , testCase "spammish repetition (long input)" $
+      hex (xxh64 (BSC.pack "Nobody inspects the spammish repetition"))
+        @?= "fbcea83c8a378bf1"
+  , testCase "32-byte boundary input" $
+      -- 32 bytes triggers exactly one stripe in the bulk phase.
+      hex (xxh64 (BS.replicate 32 0x61)) @?= "cdb40dec1a8b1eb6"
+  , testProperty "different inputs produce different hashes (with high probability)" $
+      property $ do
+        a <- forAll $ Gen.bytes (Range.linear 1 64)
+        b <- forAll $ Gen.bytes (Range.linear 1 64)
+        if a == b then pure () else assert (xxh64 a /= xxh64 b)
+  ]
+  where
+    hex w = let s = showHex w ""
+            in replicate (16 - length s) '0' ++ s
+
+bloomFilterTests :: TestTree
+bloomFilterTests = testGroup "BloomFilter (split-block, XXH64)"
+  [ testCase "newSbbf rounds up to block" $ do
+      sbbfNumBytes (newSbbf 1) @?= 32
+      sbbfNumBytes (newSbbf 32) @?= 32
+      sbbfNumBytes (newSbbf 33) @?= 64
+      sbbfNumBytes (newSbbf 64) @?= 64
+  , testCase "every inserted value reports present" $ do
+      let sbbf0 = newSbbf 1024
+          values = ["alpha", "beta", "gamma", "delta", "epsilon"]
+          sbbf  = foldr (sbbfInsert . BSC.pack) sbbf0 values
+      mapM_ (\v -> assertBool (v ++ " missing") (sbbfCheck (BSC.pack v) sbbf)) values
+  , testCase "non-inserted values mostly absent at sensible FPP" $ do
+      -- 1024 bytes / 256 distinct items at SBBF density ~ ~0.1% FPP.
+      -- We use 2048 bytes to stay well under 1% over a 256-key probe set.
+      let sbbf0 = newSbbf 2048
+          inserted = map (BSC.pack . ("inserted-" <>) . show) [(0 :: Int) .. 255]
+          probes   = map (BSC.pack . ("probe-" <>) . show)   [(0 :: Int) .. 255]
+          sbbf = foldr sbbfInsert sbbf0 inserted
+          fp = length (filter (`sbbfCheck` sbbf) probes)
+      assertBool ("too many false positives: " ++ show fp) (fp <= 8)
+  , testCase "encode/decode round-trip preserves membership" $ do
+      let sbbf0 = newSbbf 256
+          xs = ["a", "ab", "abc", "abcd", "abcde", "abcdef"]
+          sbbf  = foldr (sbbfInsert . BSC.pack) sbbf0 xs
+          bs = encodeBloomFilter sbbf
+      case decodeBloomFilter bs of
+        Left e -> assertFailure e
+        Right (_hdr, sbbf') -> do
+          sbbfNumBytes sbbf' @?= sbbfNumBytes sbbf
+          mapM_ (\x -> assertBool ("after decode " ++ x ++ " missing")
+                   (sbbfCheck (BSC.pack x) sbbf')) xs
+  , testCase "optimalNumBytes returns block-aligned positive value" $ do
+      let nb1 = optimalNumBytes 1000 0.01
+          nb2 = optimalNumBytes 100000 0.001
+      nb1 `mod` 32 @?= 0
+      nb2 `mod` 32 @?= 0
+      assertBool "optimalNumBytes >= 32" (nb1 >= 32 && nb2 >= 32)
+      assertBool "fewer items -> smaller filter" (nb1 < nb2)
+  , testProperty "round-trip preserves all inserted values" $
+      property $ do
+        nb <- forAll $ Gen.int (Range.linear 32 4096)
+        xs <- forAll $ Gen.list (Range.linear 0 32) (Gen.bytes (Range.linear 0 32))
+        let sbbf = foldr sbbfInsert (newSbbf nb) xs
+            bs   = encodeBloomFilter sbbf
+        case decodeBloomFilter bs of
+          Left e -> annotate e >> failure
+          Right (_, sbbf') -> mapM_ (\x ->
+            assert (sbbfCheck x sbbf')) xs
   ]

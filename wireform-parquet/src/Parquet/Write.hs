@@ -205,6 +205,12 @@ buildParquetFile schema rowGroupVecs =
                 , cmTotalCompressedSize = fromIntegral sz
                 , cmDataPageOffset = fromIntegral cOff
                 , cmStatistics = Nothing
+                , cmBloomFilterOffset = Nothing
+                , cmBloomFilterLength = Nothing
                 }
+            , ccOffsetIndexOffset = Nothing
+            , ccOffsetIndexLength = Nothing
+            , ccColumnIndexOffset = Nothing
+            , ccColumnIndexLength = Nothing
             }
       in (V.snoc cs cc, cOff + sz)
