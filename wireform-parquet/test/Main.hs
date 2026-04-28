@@ -55,6 +55,19 @@ main = do
   mapM_ (\v -> expect ("bloom contains " ++ v)
                  (sbbfCheck (BSC.pack v) sbbf)) values
 
+  -- Golden vector from arrow-rs / parquet-mr: a 32-byte bitset produced
+  -- by parquet-mr for the strings "a0".."a9" must report all of them
+  -- present.  This proves byte-compatibility of our XXH64 + block layout
+  -- with the reference writer.
+  let goldenBits = BS.pack
+        [ 200, 1, 80, 20, 64, 68, 8, 109, 6, 37, 4, 67, 144, 80, 96, 32
+        , 8, 132, 43, 33, 0, 5, 99, 65, 2, 0, 224, 44, 64, 78, 96, 4 ]
+      goldenSbbf = newSbbfFromBytes goldenBits
+  mapM_ (\i -> let v = "a" <> show i in
+                 expect ("golden contains " ++ v)
+                   (sbbfCheck (BSC.pack v) goldenSbbf))
+        [(0 :: Int) .. 9]
+
   -- Bloom filter false-positive sanity.
   let sbbfBig0 = newSbbf 2048
       inserted = map (BSC.pack . ("inserted-" <>) . show) [0 .. 255 :: Int]

@@ -20,6 +20,24 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 
 ## Phase A — Parquet
 
+### Page index + bloom filter (A.7) details
+
+* `Parquet.PageIndex` round-trips `OffsetIndex` (page locations + optional
+  unencoded byte-array sizes) and `ColumnIndex` (null pages, min/max,
+  `BoundaryOrder`, optional null-counts and rep/def histograms) through the
+  Thrift Compact codec used by `Parquet.Footer`.
+* `Parquet.BloomFilter` implements parquet-format 2.10 split-block bloom
+  filters (BLOCK + XXHASH + UNCOMPRESSED). The bitset is an unboxed
+  `Vector Word64` and the inner kernels do not allocate `Maybe`/`Either`
+  per insert/check.
+* `Parquet.XXH64` is a from-scratch xxHash 0.1.1 implementation, byte-exact
+  against `xxhsum -H1`. Used by the bloom filter and exposed for callers
+  that want to hash column values directly.
+* `Parquet.Types.ColumnChunk` and `ColumnMetadata` now carry the page-index
+  and bloom-filter offset/length pointers from the parquet.thrift spec
+  (fields 4-7 on `ColumnChunk`, fields 14-15 on `ColumnMetaData`).
+
+
 | Milestone | Reader | Writer | Status |
 |-----------|--------|--------|--------|
 | A.1 | Footer + Thrift metadata (done) | Footer round-trip (done) | Done |
@@ -28,9 +46,9 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | A.4 | DATA_PAGE v2 + DELTA_BINARY_PACKED encoding | — | **Done** |
 | A.5 | All compression codecs used in the wild (incl. LZ4 / LZ4_RAW) | — | Partial (LZ4 pending) |
 | A.6 | Column writer + file assembly + reference-file tests | Writer | **Done** |
-| A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | Planned |
-| A.8 | Remaining encodings (DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE_DICTIONARY) | — | Planned |
-| A.9 | Repetition level semantics for repeated/nested columns | — | Planned |
+| A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | **Partial** (page index + bloom filter Done; encryption Planned) |
+| A.8 | Remaining encodings (DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE_DICTIONARY) | — | **Done** |
+| A.9 | Repetition level semantics for repeated/nested columns | — | **Partial** (`materializeRepeated*`) |
 
 ---
 

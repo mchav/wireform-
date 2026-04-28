@@ -32,6 +32,7 @@ module Parquet.BloomFilter
     Sbbf
   , newSbbf
   , newSbbfBytes
+  , newSbbfFromBytes
   , sbbfNumBytes
   , sbbfInsert
   , sbbfCheck
@@ -115,6 +116,15 @@ newSbbfBytes nb ws
            , sbbfBlocks = blocks
            , sbbfData = ws
            }
+
+-- | Build a filter from an already-serialised bitset (without the
+-- 'BloomFilterHeader' prefix). Useful for golden tests that exercise
+-- the SBBF check path against bytes produced by parquet-mr / arrow-rs.
+newSbbfFromBytes :: ByteString -> Sbbf
+newSbbfFromBytes bs =
+  let !nb = BS.length bs - (BS.length bs `rem` blockBytes)
+      !ws = parseBitset (BS.take nb bs)
+  in newSbbfBytes nb ws
 
 roundUpBlock :: Int -> Int
 roundUpBlock n =
