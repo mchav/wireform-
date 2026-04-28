@@ -1,0 +1,152 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - 'haddock-fixture/**'
+      - '.github/workflows/docs.yml'
+      - '**.cabal'
+      - '**/src/**.hs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs
+  cancel-in-progress: true
+
+jobs:
+  haddock:
+    # Build per-package Haddock HTML.  We let this fail without taking down
+    # the deploy: when no Haddocks land, the ingester falls back to the
+    # in-tree fixture so the site still ships.
+    name: Build Haddocks
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    outputs:
+      have-haddock: ${{ steps.collect.outputs.have-haddock }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: '9.6.4'
+          cabal-version: 'latest'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ runner.os }}-haddock-ghc-9.6.4-${{ hashFiles('**/*.cabal', 'cabal.project') }}
+          restore-keys: |
+            ${{ runner.os }}-haddock-ghc-9.6.4-
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - name: Configure
+        run: cabal configure --enable-documentation
+
+      - name: Build dependencies first
+        run: cabal build all --only-dependencies
+
+      - name: Generate Haddock HTML for all packages
+        run: |
+          cabal v2-haddock all \
+            --haddock-html \
+            --haddock-hyperlink-source \
+            --haddock-quickjump
+
+      - name: Collect Haddock output into a single tree
+        id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p haddock-out
+          # cabal puts each package's HTML under
+          #   dist-newstyle/build/<arch>/<ghc>/<pkg-version>/doc/html/<pkg>/
+          # Flatten that into haddock-out/<pkg>/.
+          shopt -s nullglob
+          found=0
+          for d in dist-newstyle/build/*/ghc-*/*/doc/html/*; do
+            [ -d "$d" ] || continue
+            pkg="$(basename "$d")"
+            cp -r "$d" "haddock-out/$pkg"
+            echo "  collected $pkg"
+            found=1
+          done
+          if [ "$found" -eq 1 ]; then
+            echo "have-haddock=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have-haddock=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Haddock artifact
+        if: steps.collect.outputs.have-haddock == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: haddock-html
+          path: haddock-out
+          retention-days: 7
+
+  build-and-deploy:
+    name: Build & Deploy site
+    runs-on: ubuntu-latest
+    needs: [haddock]
+    if: ${{ always() }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website deps
+        working-directory: website
+        run: npm ci || npm install
+
+      - name: Download Haddock artifact (if present)
+        if: ${{ needs.haddock.outputs.have-haddock == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: haddock-html
+          path: haddock-out
+
+      - name: Ingest Haddocks
+        working-directory: website
+        run: |
+          if [ -d ../haddock-out ] && [ -n "$(ls -A ../haddock-out 2>/dev/null)" ]; then
+            inputs=()
+            for d in ../haddock-out/*/; do
+              inputs+=(--input "$d")
+            done
+            echo "Ingesting real Haddocks: ${inputs[*]}"
+            node scripts/ingest-haddock.mjs "${inputs[@]}"
+          else
+            echo "No Haddocks; falling back to in-tree fixture."
+            node scripts/ingest-haddock.mjs --fallback-fixture
+          fi
+
+      - name: Build Astro site
+        working-directory: website
+        run: npm run build
+
+      - name: Disable Jekyll on Pages
+        run: touch website/dist/.nojekyll
+
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./website/dist
+          publish_branch: gh-pages
+          force_orphan: true
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          commit_message: 'docs: deploy ${{ github.sha }}'
