@@ -1,0 +1,462 @@
+/*
+ * Fumadocs-inspired theme overlay for Starlight.
+ * Goals:
+ *  - tighter typography (Inter / JetBrains Mono)
+ *  - softer surfaces, generous radii, subtle hover treatments
+ *  - cleaner sidebar with grouped sections and indent guides
+ *  - first-class look for Haddock-style API pages: type signatures, kinds,
+ *    constructor lists, and "Source" links.
+ */
+
+@import url('https://rsms.me/inter/inter.css');
+
+:root {
+  --sl-font: 'Inter var', 'Inter', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+  --sl-font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+
+  --wf-radius-sm: 0.375rem;
+  --wf-radius: 0.5rem;
+  --wf-radius-lg: 0.75rem;
+}
+
+:root[data-theme='dark'] {
+  --sl-color-bg: #0b0b0d;
+  --sl-color-bg-nav: #0b0b0d;
+  --sl-color-bg-sidebar: #0b0b0d;
+  --sl-color-bg-inline-code: #1a1a1f;
+  --sl-color-hairline: #1f1f24;
+  --sl-color-hairline-light: #2a2a30;
+  --sl-color-hairline-shade: #16161a;
+  --sl-color-text: #e6e6ea;
+  --sl-color-text-accent: #a78bfa;
+  --sl-color-accent: #8b5cf6;
+  --sl-color-accent-high: #c4b5fd;
+  --sl-color-accent-low: #4c1d95;
+  --wf-surface: #111114;
+  --wf-surface-2: #16161b;
+  --wf-source-link: #a3a3ae;
+}
+
+:root[data-theme='light'] {
+  --sl-color-bg: #ffffff;
+  --sl-color-bg-nav: #ffffff;
+  --sl-color-bg-sidebar: #fafafa;
+  --sl-color-bg-inline-code: #f4f4f5;
+  --sl-color-hairline: #e4e4e7;
+  --sl-color-hairline-light: #d4d4d8;
+  --sl-color-hairline-shade: #f4f4f5;
+  --sl-color-text: #18181b;
+  --sl-color-text-accent: #6d28d9;
+  --sl-color-accent: #7c3aed;
+  --sl-color-accent-high: #4c1d95;
+  --sl-color-accent-low: #ede9fe;
+  --wf-surface: #fafafa;
+  --wf-surface-2: #f4f4f5;
+  --wf-source-link: #6b7280;
+}
+
+html {
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+body {
+  font-family: var(--sl-font);
+  letter-spacing: -0.005em;
+}
+
+/* --- Header -------------------------------------------------------- */
+
+.header {
+  border-bottom: 1px solid var(--sl-color-hairline);
+  backdrop-filter: saturate(140%) blur(12px);
+  background-color: color-mix(in srgb, var(--sl-color-bg) 80%, transparent);
+}
+
+/* --- Sidebar ------------------------------------------------------- */
+
+starlight-sidebar-state-persist,
+.sidebar-pane {
+  border-right: 1px solid var(--sl-color-hairline);
+}
+
+.sidebar-content ul ul {
+  border-left: 1px solid var(--sl-color-hairline);
+  margin-left: 0.5rem;
+  padding-left: 0.5rem;
+}
+
+.sidebar-content a {
+  border-radius: var(--wf-radius-sm);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.5rem;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.sidebar-content a:hover {
+  background-color: var(--wf-surface-2);
+}
+
+.sidebar-content a[aria-current='page'] {
+  background-color: color-mix(
+    in srgb,
+    var(--sl-color-accent) 18%,
+    transparent
+  );
+  color: var(--sl-color-text-accent);
+  font-weight: 500;
+}
+
+.sidebar-content summary {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.78;
+}
+
+/* --- Content ------------------------------------------------------- */
+
+.content-panel {
+  padding-block: 2rem;
+}
+
+.sl-markdown-content {
+  --sl-text-h1: 2rem;
+  --sl-text-h2: 1.45rem;
+  --sl-text-h3: 1.15rem;
+  font-size: 0.97rem;
+  line-height: 1.7;
+}
+
+.sl-markdown-content :is(h2, h3) {
+  scroll-margin-top: 6rem;
+}
+
+.sl-markdown-content :not(a) > code {
+  background: var(--sl-color-bg-inline-code);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: var(--wf-radius-sm);
+  padding: 0.05rem 0.35rem;
+  font-size: 0.85em;
+}
+
+.sl-markdown-content blockquote {
+  border-left: 2px solid var(--sl-color-accent);
+  background: color-mix(in srgb, var(--sl-color-accent) 6%, transparent);
+  border-radius: 0 var(--wf-radius) var(--wf-radius) 0;
+}
+
+/* --- Cards (used on the home page) -------------------------------- */
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+  gap: 0.85rem;
+  margin-block: 1.25rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1rem 1.1rem;
+  background: var(--wf-surface);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: var(--wf-radius);
+  transition: border-color 120ms ease, transform 120ms ease,
+    background-color 120ms ease;
+}
+
+.card:hover {
+  border-color: var(--sl-color-text-accent);
+  background: var(--wf-surface-2);
+  transform: translateY(-1px);
+}
+
+.card a {
+  text-decoration: none;
+}
+
+.card .title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.card .desc {
+  color: var(--sl-color-text);
+  opacity: 0.78;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* --- Haddock-style API page ------------------------------------- */
+
+.haddock-module {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.haddock-module .module-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  font-family: var(--sl-font-mono);
+  font-size: 0.78rem;
+  color: var(--sl-color-text);
+  opacity: 0.7;
+}
+
+.haddock-module .module-meta strong {
+  color: var(--sl-color-text-accent);
+  font-weight: 500;
+  margin-right: 0.4em;
+}
+
+.decl {
+  margin-block: 1.25rem;
+  padding: 0.9rem 1rem;
+  background: var(--wf-surface);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: var(--wf-radius);
+}
+
+.decl > .decl-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+  font-family: var(--sl-font-mono);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.decl > .decl-header .keyword {
+  color: var(--sl-color-text-accent);
+  font-weight: 500;
+}
+
+.decl > .decl-header .name {
+  font-weight: 600;
+}
+
+.decl > .decl-header a.source {
+  margin-left: auto;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--wf-source-link);
+  text-decoration: none;
+  border: 1px solid var(--sl-color-hairline);
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--wf-radius-sm);
+}
+
+.decl > .decl-header a.source:hover {
+  color: var(--sl-color-text-accent);
+  border-color: var(--sl-color-text-accent);
+}
+
+.decl .decl-body {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--sl-color-hairline);
+  font-size: 0.9rem;
+}
+
+.decl .constructors,
+.decl .fields,
+.decl .methods {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--sl-color-bg);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: var(--wf-radius-sm);
+}
+
+.decl .constructors h4,
+.decl .fields h4,
+.decl .methods h4 {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sl-color-text);
+  opacity: 0.65;
+}
+
+.decl .constructor,
+.decl .field,
+.decl .method {
+  font-family: var(--sl-font-mono);
+  font-size: 0.85rem;
+}
+
+.decl .field .name,
+.decl .method .name,
+.decl .constructor .name {
+  font-weight: 600;
+}
+
+.decl .doc {
+  color: var(--sl-color-text);
+  opacity: 0.85;
+  font-family: var(--sl-font);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.decl .doc :is(p, ul, ol):first-child {
+  margin-top: 0;
+}
+
+/* "Synopsis" callout at the top of every API page */
+.synopsis {
+  margin-block: 1rem 1.5rem;
+  padding: 0.85rem 1rem;
+  background: var(--wf-surface);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: var(--wf-radius);
+  font-family: var(--sl-font-mono);
+  font-size: 0.83rem;
+  line-height: 1.7;
+}
+
+.synopsis h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--sl-font);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sl-color-text);
+  opacity: 0.7;
+}
+
+.synopsis ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.synopsis a {
+  color: var(--sl-color-text);
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+}
+
+.synopsis a:hover {
+  color: var(--sl-color-text-accent);
+  border-bottom-color: currentColor;
+}
+
+/* Module index grid */
+.module-index {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: 0.75rem;
+  margin-block: 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.module-index li {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: var(--wf-radius);
+  padding: 0.7rem 0.9rem;
+  background: var(--wf-surface);
+  transition: border-color 120ms ease;
+}
+
+.module-index li:hover {
+  border-color: var(--sl-color-text-accent);
+}
+
+.module-index a {
+  font-family: var(--sl-font-mono);
+  font-size: 0.85rem;
+  color: var(--sl-color-text);
+  text-decoration: none;
+}
+
+.module-index .desc {
+  font-size: 0.78rem;
+  color: var(--sl-color-text);
+  opacity: 0.7;
+  margin-top: 0.25rem;
+}
+
+/* --- Hero ---------------------------------------------------------- */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 2rem 0 1rem;
+  border-bottom: 1px solid var(--sl-color-hairline);
+  margin-bottom: 1rem;
+}
+
+.hero .eyebrow {
+  font-family: var(--sl-font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sl-color-text-accent);
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 4vw, 2.75rem) !important;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.hero p.lede {
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--sl-color-text);
+  opacity: 0.85;
+  max-width: 60ch;
+}
+
+.hero .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.hero .actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--wf-radius-sm);
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: 1px solid var(--sl-color-hairline);
+  background: var(--wf-surface);
+  color: var(--sl-color-text);
+  text-decoration: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.hero .actions a.primary {
+  background: var(--sl-color-text-accent);
+  color: var(--sl-color-bg);
+  border-color: var(--sl-color-text-accent);
+}
+
+.hero .actions a:hover {
+  border-color: var(--sl-color-text-accent);
+}
