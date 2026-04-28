@@ -8,9 +8,19 @@ import qualified Data.Vector as V
 import Numeric (showHex)
 import System.Exit (exitFailure)
 
+import qualified Data.Vector.Primitive as VP
+import Data.Int (Int32, Int64)
+
 import Parquet.BloomFilter
 import Parquet.PageIndex
+import Parquet.Read (loadParquetFile, pfFooter)
 import Parquet.Types
+import Parquet.Write
+  ( buildParquetFile
+  , statisticsForByteArray
+  , statisticsForInt32
+  , statisticsForInt64
+  )
 import Parquet.XXH64
 
 main :: IO ()
@@ -85,7 +95,51 @@ main = do
       mapM_ (\v -> expect ("decoded contains " ++ v)
                      (sbbfCheck (BSC.pack v) sbbf')) values
 
-  putStrLn "All Parquet page-index / bloom-filter tests passed."
+  -- Statistics
+  let s32 = statisticsForInt32 (VP.fromList [3, -1, 7, 0, 4 :: Int32])
+  expect "Int32 stats min"
+    (statMinValue s32 == Just (BS.pack [0xFF, 0xFF, 0xFF, 0xFF]))   -- -1 LE
+  expect "Int32 stats max"
+    (statMaxValue s32 == Just (BS.pack [0x07, 0x00, 0x00, 0x00]))
+  expect "Int32 stats nullCount"
+    (statNullCount s32 == Just 0)
+  let s64 = statisticsForInt64 (VP.fromList [10, 5, -3, 100 :: Int64])
+  expect "Int64 stats min/max present"
+    (statMinValue s64 /= Nothing && statMaxValue s64 /= Nothing)
+  let sBA = statisticsForByteArray
+              (V.fromList [BSC.pack "banana", BSC.pack "apple", BSC.pack "cherry"])
+  expect "ByteArray stats min == 'apple'"
+    (statMinValue sBA == Just (BSC.pack "apple"))
+  expect "ByteArray stats max == 'cherry'"
+    (statMaxValue sBA == Just (BSC.pack "cherry"))
+  let sEmpty = statisticsForInt32 VP.empty
+  expect "empty Int32 stats has no min/max"
+    (statMinValue sEmpty == Nothing && statMaxValue sEmpty == Nothing)
+
+  -- Writer attaches statistics that round-trip through readFooter.
+  let schema = V.fromList
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
+        , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+        ]
+      vs   = VP.fromList [(3 :: Int32), -1, 7, 0, 4]
+      fbs  = buildParquetFile schema (V.singleton (V.singleton vs))
+  case loadParquetFile fbs of
+    Left e -> failTest ("loadParquetFile: " ++ e)
+    Right pf -> do
+      let !rgs = fmRowGroups (pfFooter pf)
+          !cm = ccMetadata
+                  (V.unsafeIndex (rgColumns (V.unsafeIndex rgs 0)) 0)
+      case cm of
+        Nothing -> failTest "expected ColumnMetadata"
+        Just m -> case cmStatistics m of
+          Nothing -> failTest "writer omitted statistics"
+          Just st -> do
+            expect "writer min == -1"
+              (statMinValue st == Just (BS.pack [0xFF, 0xFF, 0xFF, 0xFF]))
+            expect "writer max == 7"
+              (statMaxValue st == Just (BS.pack [0x07, 0x00, 0x00, 0x00]))
+
+  putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
 expectHash :: String -> String -> IO ()
 expectHash s expected = expectHashBs (BSC.pack s) expected

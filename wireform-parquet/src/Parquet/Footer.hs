@@ -20,6 +20,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int16, Int32, Int64)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding
 import Data.Word (Word32)
 import qualified Data.Vector as V
 
@@ -320,8 +321,13 @@ thriftToColumnMetadata _ = Left "Parquet.Footer: expected struct for ColumnMetad
 thriftToStatistics :: TV.Value -> Either String Statistics
 thriftToStatistics (TV.Struct fields) = do
   let fm = V.toList fields
+      -- Thrift Compact stores both binary and UTF-8 strings under
+      -- TT_STRING; the decoder surfaces TV.String when the bytes
+      -- happen to parse as UTF-8.  Stats values are arbitrary bytes
+      -- (PLAIN-encoded primitives) so accept either shape.
       getBinary fid = case lookupField fm fid of
         Just (TV.Binary b) -> Just b
+        Just (TV.String t) -> Just (Data.Text.Encoding.encodeUtf8 t)
         _ -> Nothing
       getOptI64 fid = case lookupField fm fid of
         Just (TV.I64 v) -> Just v

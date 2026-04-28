@@ -24,6 +24,10 @@ module Parquet.Write
   , encodePageHeader
   , assembleColumnChunk
   , buildParquetFile
+    -- * Statistics
+  , statisticsForInt32
+  , statisticsForInt64
+  , statisticsForByteArray
   ) where
 
 import Data.ByteString (ByteString)
@@ -52,6 +56,7 @@ import Parquet.Types
   , ParquetType (..)
   , RowGroup (..)
   , SchemaElement (..)
+  , Statistics (..)
   )
 import Thrift.Encode (encodeCompact)
 import qualified Thrift.Value as TV
@@ -204,7 +209,7 @@ buildParquetFile schema rowGroupVecs =
                 , cmTotalUncompressedSize = fromIntegral sz
                 , cmTotalCompressedSize = fromIntegral sz
                 , cmDataPageOffset = fromIntegral cOff
-                , cmStatistics = Nothing
+                , cmStatistics = Just (statisticsForInt32 colVec)
                 , cmBloomFilterOffset = Nothing
                 , cmBloomFilterLength = Nothing
                 }
@@ -214,3 +219,78 @@ buildParquetFile schema rowGroupVecs =
             , ccColumnIndexLength = Nothing
             }
       in (V.snoc cs cc, cOff + sz)
+
+-- ============================================================
+-- Page / column statistics
+-- ============================================================
+
+-- | Compute Parquet 'Statistics' for an @INT32@ column.
+--
+-- Encodes @min_value@ / @max_value@ as little-endian @INT32@ per the
+-- spec (PLAIN encoding for variable-length types is the same except
+-- for byte arrays).  Both legacy @min@/@max@ and the modern
+-- @min_value@/@max_value@ slots are populated.
+statisticsForInt32 :: VP.Vector Int32 -> Statistics
+statisticsForInt32 vs
+  | VP.null vs = emptyStats
+  | otherwise =
+      let !mn = VP.foldl1' min vs
+          !mx = VP.foldl1' max vs
+          encMin = i32LE mn
+          encMax = i32LE mx
+      in Statistics
+           { statMin = Just encMin
+           , statMax = Just encMax
+           , statNullCount = Just 0
+           , statDistinctCount = Nothing
+           , statMinValue = Just encMin
+           , statMaxValue = Just encMax
+           }
+
+-- | Compute Parquet 'Statistics' for an @INT64@ column (LE i64 min/max).
+statisticsForInt64 :: VP.Vector Int64 -> Statistics
+statisticsForInt64 vs
+  | VP.null vs = emptyStats
+  | otherwise =
+      let !mn = VP.foldl1' min vs
+          !mx = VP.foldl1' max vs
+          encMin = i64LE mn
+          encMax = i64LE mx
+      in Statistics
+           { statMin = Just encMin
+           , statMax = Just encMax
+           , statNullCount = Just 0
+           , statDistinctCount = Nothing
+           , statMinValue = Just encMin
+           , statMaxValue = Just encMax
+           }
+
+-- | Compute Parquet 'Statistics' for a @BYTE_ARRAY@ column. Values are
+-- compared lexicographically (unsigned byte-by-byte).  The min/max
+-- bytes are stored without their PLAIN length prefix per the spec.
+statisticsForByteArray :: V.Vector ByteString -> Statistics
+statisticsForByteArray vs
+  | V.null vs = emptyStats
+  | otherwise =
+      let !mn = V.foldl1' minBS vs
+          !mx = V.foldl1' maxBS vs
+      in Statistics
+           { statMin = Just mn
+           , statMax = Just mx
+           , statNullCount = Just 0
+           , statDistinctCount = Nothing
+           , statMinValue = Just mn
+           , statMaxValue = Just mx
+           }
+  where
+    minBS a b = if a <= b then a else b
+    maxBS a b = if a >= b then a else b
+
+emptyStats :: Statistics
+emptyStats = Statistics Nothing Nothing (Just 0) Nothing Nothing Nothing
+
+i32LE :: Int32 -> ByteString
+i32LE v = BL.toStrict (B.toLazyByteString (B.int32LE v))
+
+i64LE :: Int64 -> ByteString
+i64LE v = BL.toStrict (B.toLazyByteString (B.int64LE v))
