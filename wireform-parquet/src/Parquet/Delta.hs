@@ -10,7 +10,7 @@ module Parquet.Delta
   , decodeDeltaByteArray
   ) where
 
-import Control.Monad.ST (runST)
+import Control.Monad.ST (ST, runST)
 import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -89,7 +89,7 @@ decodeAllBlocks ::
   ByteString -> Int -> Int -> Int -> Int ->
   Either String (VP.Vector Int64, Int)
 decodeAllBlocks bs off0 numDeltas nMini miniblockSize = runST $ do
-  mv <- MVP.new (max numDeltas 0)
+  mv <- MVP.new (max numDeltas 0) :: ST s (MVP.MVector s Int64)
   result <- goBlock off0 0 mv
   case result of
     Left e -> pure (Left e)
@@ -97,6 +97,7 @@ decodeAllBlocks bs off0 numDeltas nMini miniblockSize = runST $ do
       v <- VP.unsafeFreeze mv
       pure (Right (v, finalOff))
   where
+    goBlock :: Int -> Int -> MVP.MVector s Int64 -> ST s (Either String Int)
     goBlock !off !written mv
       | written >= numDeltas = pure (Right off)
       | otherwise =
@@ -112,6 +113,7 @@ decodeAllBlocks bs off0 numDeltas nMini miniblockSize = runST $ do
                     Left e -> pure (Left e)
                     Right (off3, written3) -> goBlock off3 written3 mv
 
+    goMini :: Int -> Int -> Int -> Int64 -> Int -> MVP.MVector s Int64 -> ST s (Either String (Int, Int))
     goMini !off !miniIdx !written !minDelta !bwOff mv
       | miniIdx >= nMini = pure (Right (off, written))
       | written >= numDeltas = pure (Right (off, written))
