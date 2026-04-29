@@ -19,8 +19,11 @@ module Parquet.Types
   , PageLocation(..)
   , OffsetIndex(..)
   , ColumnIndex(..)
+  , BoundaryOrder(..)
   , parquetTypeToInt
   , intToParquetType
+  , boundaryOrderToInt
+  , intToBoundaryOrder
   ) where
 
 import Control.DeepSeq (NFData)
@@ -157,13 +160,29 @@ data ColumnMetadata = ColumnMetadata
   , cmTotalCompressedSize   :: !Int64
   , cmDataPageOffset        :: !Int64
   , cmStatistics            :: !(Maybe Statistics)
+  -- | Byte offset from beginning of file to the bloom filter for this
+  -- column chunk, if a bloom filter is written. Field 14.
+  , cmBloomFilterOffset     :: !(Maybe Int64)
+  -- | Length of the bloom filter (header + bitset) in bytes. Field 15
+  -- (added in parquet-format 2.10).
+  , cmBloomFilterLength     :: !(Maybe Int32)
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
 data ColumnChunk = ColumnChunk
-  { ccFilePath   :: !(Maybe Text)
-  , ccFileOffset :: !Int64
-  , ccMetadata   :: !(Maybe ColumnMetadata)
+  { ccFilePath          :: !(Maybe Text)
+  , ccFileOffset        :: !Int64
+  , ccMetadata          :: !(Maybe ColumnMetadata)
+  -- | Byte offset of this column chunk's 'OffsetIndex' (Thrift Compact),
+  -- relative to the start of the file. Page-index spec, field 7.
+  , ccOffsetIndexOffset :: !(Maybe Int64)
+  -- | Length in bytes of the serialized 'OffsetIndex'. Field 8.
+  , ccOffsetIndexLength :: !(Maybe Int32)
+  -- | Byte offset of this column chunk's 'ColumnIndex' (Thrift Compact),
+  -- relative to the start of the file. Field 9.
+  , ccColumnIndexOffset :: !(Maybe Int64)
+  -- | Length in bytes of the serialized 'ColumnIndex'. Field 10.
+  , ccColumnIndexLength :: !(Maybe Int32)
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
@@ -201,14 +220,47 @@ data PageLocation = PageLocation
     deriving anyclass (NFData)
 
 data OffsetIndex = OffsetIndex
-  { oiPageLocations :: !(Vector PageLocation)
+  { oiPageLocations              :: !(Vector PageLocation)
+  -- | Per-page unencoded byte counts for BYTE_ARRAY columns (parquet-format
+  -- 2.11+). Same length as 'oiPageLocations' when present; @Nothing@ for
+  -- non-BYTE_ARRAY columns or older writers.
+  , oiUnencodedByteArrayDataBytes :: !(Maybe (Vector Int64))
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
+-- | Page-level boundary ordering for a column index's @min_values@ and
+-- @max_values@. See @parquet.thrift@ enum @BoundaryOrder@.
+data BoundaryOrder
+  = OrderUnordered
+  | OrderAscending
+  | OrderDescending
+  deriving stock (Show, Eq, Enum, Bounded, Generic)
+  deriving anyclass (NFData)
+
+boundaryOrderToInt :: BoundaryOrder -> Int32
+boundaryOrderToInt = \case
+  OrderUnordered -> 0
+  OrderAscending -> 1
+  OrderDescending -> 2
+
+intToBoundaryOrder :: Int32 -> Maybe BoundaryOrder
+intToBoundaryOrder = \case
+  0 -> Just OrderUnordered
+  1 -> Just OrderAscending
+  2 -> Just OrderDescending
+  _ -> Nothing
+
 data ColumnIndex = ColumnIndex
-  { ciNullPages  :: !(Vector Bool)
-  , ciMinValues  :: !(Vector ByteString)
-  , ciMaxValues  :: !(Vector ByteString)
-  , ciNullCounts :: !(Maybe (Vector Int64))
+  { ciNullPages       :: !(Vector Bool)
+  , ciMinValues       :: !(Vector ByteString)
+  , ciMaxValues       :: !(Vector ByteString)
+  , ciBoundaryOrder   :: !BoundaryOrder
+  , ciNullCounts      :: !(Maybe (Vector Int64))
+  -- | Per-page repetition level histograms (flattened: @max_rep + 1@ values
+  -- per page). Optional, parquet-format 2.11+.
+  , ciRepetitionLevelHistograms :: !(Maybe (Vector Int64))
+  -- | Per-page definition level histograms (flattened: @max_def + 1@ values
+  -- per page). Optional, parquet-format 2.11+.
+  , ciDefinitionLevelHistograms :: !(Maybe (Vector Int64))
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)

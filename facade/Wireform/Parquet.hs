@@ -7,14 +7,20 @@ module Wireform.Parquet
   ( module Parquet.Types
   , module Parquet.Footer
   , module Parquet.Page
+  , module Parquet.PageIndex
   , module Parquet.Read
   , module Parquet.Levels
   , module Parquet.Write
+  , module Parquet.BloomFilter
+  , module Parquet.XXH64
   ) where
 
+import Parquet.BloomFilter
 import Parquet.Footer
 import Parquet.Levels
 import Parquet.Page
+import Parquet.PageIndex
 import Parquet.Read
 import Parquet.Types
 import Parquet.Write
+import Parquet.XXH64

@@ -21,6 +21,21 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 
 ## Phase A — Parquet
 
+### Page index + bloom filter (A.7) details
+
+- `Parquet.PageIndex` round-trips `OffsetIndex` (page locations + optional
+  unencoded byte-array sizes) and `ColumnIndex` (null pages, min/max,
+  `BoundaryOrder`, optional null-counts and rep/def histograms) through
+  the same Thrift Compact codec used by `Parquet.Footer`.
+- `Parquet.BloomFilter` implements parquet-format 2.10 split-block bloom
+  filters (BLOCK + XXHASH + UNCOMPRESSED). The bitset is an unboxed
+  `Vector Word64` and the inner kernels do not allocate per insert/check.
+- `Parquet.XXH64` is a from-scratch xxHash 0.1.1 implementation, byte-exact
+  against `xxhsum -H1`.
+- `Parquet.Types.ColumnChunk` and `ColumnMetadata` now carry the page-index
+  and bloom-filter offset/length pointers from the parquet.thrift spec.
+
+
 | Milestone | Reader | Writer | Status |
 |-----------|--------|--------|--------|
 | A.1 | Footer + Thrift metadata (done) | Footer round-trip (done) | Done |
@@ -29,9 +44,9 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | A.4 | DATA_PAGE v2 + DELTA_BINARY_PACKED encoding | — | **Done** |
 | A.5 | All compression codecs used in the wild (incl. LZ4 / LZ4_RAW) | — | Partial (LZ4 pending) |
 | A.6 | Column writer + file assembly + reference-file tests | Writer | **Done** |
-| A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | Planned |
-| A.8 | Remaining encodings (DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE_DICTIONARY) | — | Planned |
-| A.9 | Repetition level semantics for repeated/nested columns | — | Planned |
+| A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | **Partial** (page index + bloom filter Done; encryption Planned) |
+| A.8 | Remaining encodings (DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE_DICTIONARY) | — | **Done** |
+| A.9 | Repetition level semantics for repeated/nested columns | — | **Partial** (`materializeRepeated*`) |
 
 ## Phase B — Apache Arrow IPC
 
@@ -51,8 +66,8 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | C.2 | Integer RLE v1/v2 + present stream + boolean RLE | — | **Done** |
 | C.3 | Column decoders (int, bool, string, float, double) + compression | — | **Done** |
 | C.4 | End-to-end `readColumn` | — | **Done** |
-| C.5 | Remaining types (timestamp, date, decimal) + RLE v2 Patched Base | — | Planned |
-| C.6 | Writer + ORC file assembly | Writer | Planned |
+| C.5 | Remaining types (timestamp, date, decimal) + RLE v2 Patched Base | — | **Done** (`decodeTimestampColumn`, `decodeDateColumn`, `decodeDecimalColumn`, `decodeShortColumn`, `decodeTinyIntColumn`, `decodeBinaryColumn`, RLE v2 Patched Base) |
+| C.6 | Writer + ORC file assembly | Writer | **Partial** (`buildORCFile`, integer/string/float/double/bool encoders; timestamp / decimal / date writers planned) |
 
 ## Phase D — Apache Iceberg
 
@@ -60,7 +75,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 |-----------|--------|--------|
 | D.1 | Manifest / manifest-list Avro; path helpers | **Done** |
 | D.2 | Snapshot selection, schema evolution, partition specs, scan planning | **Done** |
-| D.3 | Delete files (position / equality), sequence numbers | Planned |
+| D.3 | Delete files (position / equality), sequence numbers | **Done** (`PositionDelete`, `applyPositionDeletes`, `planScanWithDeletes`, sequence/file-sequence numbers) |
 | D.4 | REST catalog client (optional) | Planned |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.

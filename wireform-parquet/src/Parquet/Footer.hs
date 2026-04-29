@@ -20,6 +20,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int16, Int32, Int64)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding
 import Data.Word (Word32)
 import qualified Data.Vector as V
 
@@ -104,6 +105,19 @@ columnChunkToThrift cc = TV.Struct $ V.fromList $
   maybe [] (\fp -> [(1, TV.String fp)]) (ccFilePath cc)
   ++ [ (2, TV.I64 (ccFileOffset cc)) ]
   ++ maybe [] (\cm -> [(3, columnMetadataToThrift cm)]) (ccMetadata cc)
+  -- field 4 (offset_index_offset) - 6 are reserved by parquet.thrift for
+  -- offset_index_length / column_index_offset / column_index_length when
+  -- carried inline. We mirror the upstream layout:
+  --   4: optional i64 offset_index_offset
+  --   5: optional i32 offset_index_length
+  --   6: optional i64 column_index_offset
+  --   7: optional i32 column_index_length
+  -- Older wireform writers omitted these fields entirely, which decoders
+  -- treat as @Nothing@.
+  ++ maybe [] (\v -> [(4, TV.I64 v)]) (ccOffsetIndexOffset cc)
+  ++ maybe [] (\v -> [(5, TV.I32 v)]) (ccOffsetIndexLength cc)
+  ++ maybe [] (\v -> [(6, TV.I64 v)]) (ccColumnIndexOffset cc)
+  ++ maybe [] (\v -> [(7, TV.I32 v)]) (ccColumnIndexLength cc)
 
 columnMetadataToThrift :: ColumnMetadata -> TV.Value
 columnMetadataToThrift cm = TV.Struct $ V.fromList $
@@ -116,6 +130,10 @@ columnMetadataToThrift cm = TV.Struct $ V.fromList $
   , (7, TV.I64 (cmTotalCompressedSize cm))
   , (8, TV.I64 (cmDataPageOffset cm))
   ] ++ maybe [] (\s -> [(9, statisticsToThrift s)]) (cmStatistics cm)
+  -- Fields 10–13 (index_page_offset, dictionary_page_offset, key_value_metadata,
+  -- encoding_stats) are not yet round-tripped by wireform.
+  ++ maybe [] (\v -> [(14, TV.I64 v)]) (cmBloomFilterOffset cm)
+  ++ maybe [] (\v -> [(15, TV.I32 v)]) (cmBloomFilterLength cm)
 
 statisticsToThrift :: Statistics -> TV.Value
 statisticsToThrift st = TV.Struct $ V.fromList $
@@ -242,10 +260,18 @@ thriftToColumnChunk (TV.Struct fields) = do
                            Right m -> Just m
                            Left _  -> Nothing
                Nothing -> Nothing
+      oio = getOptionalI64 fm 4
+      oil = getOptionalI32 fm 5
+      cio = getOptionalI64 fm 6
+      cil = getOptionalI32 fm 7
   Right ColumnChunk
     { ccFilePath = fp
     , ccFileOffset = fileOff
     , ccMetadata = meta
+    , ccOffsetIndexOffset = oio
+    , ccOffsetIndexLength = oil
+    , ccColumnIndexOffset = cio
+    , ccColumnIndexLength = cil
     }
 thriftToColumnChunk _ = Left "Parquet.Footer: expected struct for ColumnChunk"
 
@@ -275,6 +301,8 @@ thriftToColumnMetadata (TV.Struct fields) = do
           Right s -> Just s
           Left _  -> Nothing
         Nothing -> Nothing
+      bfo = getOptionalI64 fm 14
+      bfl = getOptionalI32 fm 15
   Right ColumnMetadata
     { cmType = pt
     , cmEncodings = encodings
@@ -285,14 +313,21 @@ thriftToColumnMetadata (TV.Struct fields) = do
     , cmTotalCompressedSize = compSz
     , cmDataPageOffset = dataOff
     , cmStatistics = stats
+    , cmBloomFilterOffset = bfo
+    , cmBloomFilterLength = bfl
     }
 thriftToColumnMetadata _ = Left "Parquet.Footer: expected struct for ColumnMetadata"
 
 thriftToStatistics :: TV.Value -> Either String Statistics
 thriftToStatistics (TV.Struct fields) = do
   let fm = V.toList fields
+      -- Thrift Compact stores both binary and UTF-8 strings under
+      -- TT_STRING; the decoder surfaces TV.String when the bytes
+      -- happen to parse as UTF-8.  Stats values are arbitrary bytes
+      -- (PLAIN-encoded primitives) so accept either shape.
       getBinary fid = case lookupField fm fid of
         Just (TV.Binary b) -> Just b
+        Just (TV.String t) -> Just (Data.Text.Encoding.encodeUtf8 t)
         _ -> Nothing
       getOptI64 fid = case lookupField fm fid of
         Just (TV.I64 v) -> Just v
@@ -330,6 +365,16 @@ getString fm fid name = case lookupField fm fid of
 getOptionalString :: [(Int16, TV.Value)] -> Int16 -> Maybe T.Text
 getOptionalString fm fid = case lookupField fm fid of
   Just (TV.String t) -> Just t
+  _ -> Nothing
+
+getOptionalI32 :: [(Int16, TV.Value)] -> Int16 -> Maybe Int32
+getOptionalI32 fm fid = case lookupField fm fid of
+  Just (TV.I32 v) -> Just v
+  _ -> Nothing
+
+getOptionalI64 :: [(Int16, TV.Value)] -> Int16 -> Maybe Int64
+getOptionalI64 fm fid = case lookupField fm fid of
+  Just (TV.I64 v) -> Just v
   _ -> Nothing
 
 getListStruct :: [(Int16, TV.Value)] -> Int16 -> String

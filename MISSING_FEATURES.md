@@ -80,3 +80,27 @@ All originally-identified feature gaps have been closed, including:
 
 **8. Streaming/Incremental Decode** — Implemented in `Proto.Decode.Stream`
 (incremental/resumable decoder) and `Proto.Encode.Lazy` (push-based encoder).
+
+## Columnar / lake-format gap closures
+
+These items were tracked in [`docs/columnar-roadmap.md`](docs/columnar-roadmap.md):
+
+| # | Feature | Module(s) |
+|---|---------|-----------|
+| P-A.7a | Parquet page index (`OffsetIndex` / `ColumnIndex`) | `Parquet.PageIndex` |
+| P-A.7b | Parquet bloom filter (split-block, XXH64) | `Parquet.BloomFilter`, `Parquet.XXH64` |
+| P-A.8  | DELTA_LENGTH_BYTE_ARRAY / DELTA_BYTE_ARRAY / BYTE_STREAM_SPLIT / RLE_DICTIONARY decoders | `Parquet.Delta`, `Parquet.Read` |
+
+Page-index pointers (offset, length) and bloom-filter pointers
+(`bloom_filter_offset`, `bloom_filter_length`) are round-tripped through
+`ColumnChunk` / `ColumnMetadata` so existing Parquet files written by
+arrow-cpp, parquet-mr, and pyarrow are recognised on read.
+
+### Still planned
+
+- Parquet encryption (modular encryption, footer key wrapping).
+- Parquet writer integration that emits page-index + bloom-filter footers
+  alongside row groups (the encoders are in place; the writer will be
+  wired in a follow-up so existing benchmarks remain stable).
+- ORC writer (C.6) and timestamp/decimal/date column write path (C.5).
+- Iceberg REST catalog client (D.4).
