@@ -28,16 +28,22 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    Iceberg.Catalog.REST
+    Iceberg.DeletionVector
     Iceberg.Expression
     Iceberg.JSON
     Iceberg.Manifest
     Iceberg.Murmur3
+    Iceberg.Puffin
     Iceberg.Read
     Iceberg.SchemaEvolution
     Iceberg.SingleValue
     Iceberg.Snapshot
     Iceberg.Transform
     Iceberg.Types
+    Iceberg.Update
+    Iceberg.View
+    Iceberg.Write
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
@@ -52,4 +58,35 @@ library
     unordered-containers >= 0.2.16 && < 0.3,
     time >= 1.9 && < 1.15,
     deepseq >= 1.4 && < 1.6
+
+test-suite iceberg-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  ghc-options: -Wall -O0
+  other-modules:
+    Test.Iceberg.DeletionVector
+    Test.Iceberg.Expression
+    Test.Iceberg.Murmur3
+    Test.Iceberg.NameMapping
+    Test.Iceberg.Puffin
+    Test.Iceberg.RESTCatalog
+    Test.Iceberg.SingleValue
+    Test.Iceberg.Transform
+    Test.Iceberg.Update
+    Test.Iceberg.View
+    Test.Iceberg.Write
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-iceberg,
+    wireform-avro,
+    wireform-core,
+    bytestring,
+    text,
+    vector,
+    containers,
+    aeson,
+    tasty            >= 1.4  && < 1.6,
+    tasty-hunit      >= 0.10 && < 0.11
 

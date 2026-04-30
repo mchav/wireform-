@@ -102,7 +102,7 @@ encodeDecimal n
        in finalBs
   where
     unrollPositive :: Integer -> ByteString
-    unrollPositive = BS.pack . reverse . go []
+    unrollPositive = BS.pack . go []
       where
         go acc 0 = acc
         go acc x = go (fromIntegral (x .&. 0xFF) : acc) (x `shiftR` 8)
