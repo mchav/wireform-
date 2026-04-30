@@ -129,8 +129,11 @@ test-suite iceberg-test
     Test.Iceberg.Transform
     Test.Iceberg.Update
     Test.Iceberg.Validate
+    Test.Iceberg.EncryptionProperty
+    Test.Iceberg.NestedProperty
     Test.Iceberg.Variant
     Test.Iceberg.VariantParquet
+    Test.Iceberg.VariantProperty
     Test.Iceberg.View
     Test.Iceberg.Write
   build-depends:
@@ -145,7 +148,9 @@ test-suite iceberg-test
     containers,
     aeson,
     process          >= 1.6  && < 1.7,
+    hedgehog         >= 1.0  && < 1.5,
     tasty            >= 1.4  && < 1.6,
+    tasty-hedgehog   >= 1.0  && < 1.5,
     tasty-hunit      >= 0.10 && < 0.11
 
 executable iceberg

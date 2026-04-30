@@ -31,8 +31,11 @@ import qualified Test.Iceberg.Sort
 import qualified Test.Iceberg.Transform
 import qualified Test.Iceberg.Update
 import qualified Test.Iceberg.Validate
+import qualified Test.Iceberg.EncryptionProperty
+import qualified Test.Iceberg.NestedProperty
 import qualified Test.Iceberg.Variant
 import qualified Test.Iceberg.VariantParquet
+import qualified Test.Iceberg.VariantProperty
 import qualified Test.Iceberg.View
 import qualified Test.Iceberg.Write
 
@@ -69,6 +72,9 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.Hash.tests
   , Test.Iceberg.SchemaCompat.tests
   , Test.Iceberg.Validate.tests
+  , Test.Iceberg.EncryptionProperty.tests
+  , Test.Iceberg.NestedProperty.tests
   , Test.Iceberg.Variant.tests
   , Test.Iceberg.VariantParquet.tests
+  , Test.Iceberg.VariantProperty.tests
   ]
