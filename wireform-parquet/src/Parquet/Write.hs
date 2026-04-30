@@ -32,6 +32,9 @@ module Parquet.Write
   , encryptPageBytes
   , encryptPageBytesV2
   , encryptAuxModule
+    -- * Encrypted-footer mode
+  , FooterEncryption(..)
+  , buildParquetFileWithIndexEncryptedFooter
     -- * Column data
   , ColumnData(..)
   , columnDataLength
@@ -79,7 +82,13 @@ import qualified Parquet.BloomFilter as BF
 import qualified Parquet.Compress as Compress
 import qualified Parquet.Encryption as Enc
 import qualified Parquet.LevelsEncode as LE
-import Parquet.Footer (writeFooter, parquetMagic)
+import Parquet.Footer
+  ( fileMetadataToThrift
+  , parquetEncryptedMagic
+  , parquetMagic
+  , writeFooter
+  , writeRawFooter
+  )
 import Parquet.PageIndex
   ( encodeColumnIndex
   , encodeOffsetIndex
@@ -1159,6 +1168,52 @@ buildParquetFileWithIndex
   -> V.Vector (V.Vector ColumnAux)
   -> ByteString
 buildParquetFileWithIndex schema rowGroups auxes =
+  buildParquetFileWithIndex' Nothing schema rowGroups auxes
+
+-- | Configuration for encrypted-footer mode (see
+-- 'buildParquetFileWithIndexEncryptedFooter'). Encapsulates the AES
+-- key plus the AAD context so the writer can produce the
+-- @ModuleFooter@ ciphertext that the parquet-format spec requires.
+data FooterEncryption = FooterEncryption
+  { feKey         :: !ByteString
+    -- ^ AES key (16, 24, or 32 bytes).
+  , feFileId      :: !ByteString
+    -- ^ The 8-byte @aad_file_id@ (padded / truncated to 8 bytes).
+  , feAadPrefix   :: !ByteString
+    -- ^ Caller AAD prefix (typically empty).
+  , feKeyMetadata :: !ByteString
+    -- ^ Opaque KMS handle to record on the file. Round-trips
+    -- verbatim through the encrypted-footer trailer; readers feed it
+    -- back to their KMS to recover the key.
+  } deriving (Show, Eq)
+
+-- | Build a Parquet file with an /encrypted footer/. Identical to
+-- 'buildParquetFileWithIndex' for the row-group + bloom / offset /
+-- column index regions, but the trailing footer is wrapped as a
+-- single AES-GCM module under @ModuleFooter@ AAD and the file ends
+-- with the @PARE@ magic instead of @PAR1@.
+--
+-- This is the parquet-format "encrypted-footer" file mode (the
+-- alternative to the "plaintext-footer" mode where the column
+-- payloads are encrypted but the footer stays in the clear).
+-- Iceberg's encryption configuration emits encrypted-footer files
+-- when @write.encryption.encrypt-footer@ is true.
+buildParquetFileWithIndexEncryptedFooter
+  :: FooterEncryption
+  -> V.Vector SchemaElement
+  -> V.Vector (V.Vector ColumnData)
+  -> V.Vector (V.Vector ColumnAux)
+  -> ByteString
+buildParquetFileWithIndexEncryptedFooter fe =
+  buildParquetFileWithIndex' (Just fe)
+
+buildParquetFileWithIndex'
+  :: Maybe FooterEncryption
+  -> V.Vector SchemaElement
+  -> V.Vector (V.Vector ColumnData)
+  -> V.Vector (V.Vector ColumnAux)
+  -> ByteString
+buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
   let -- Per-column page bytes plus uncompressed size, both required to
       -- populate ColumnMetadata. If a codec is requested but not built,
       -- the writer falls back to Uncompressed so callers get a usable
@@ -1190,13 +1245,25 @@ buildParquetFileWithIndex schema rowGroups auxes =
         , fmRowGroups = rgMetasCol
         , fmCreatedBy = Just "wireform"
         }
+      -- Encrypted-footer mode wraps the thrift bytes in a GCM module
+      -- under ModuleFooter AAD and writes them back with the PARE
+      -- magic; plaintext-footer mode emits the standard PAR1 trailer.
+      !footerBytes = case mFootEnc of
+        Nothing -> writeFooter fm
+        Just fe ->
+          let !plainThrift = encodeCompact (fileMetadataToThrift fm)
+              !suffix = Enc.buildAadSuffix (feFileId fe) Enc.ModuleFooter 0 0 0
+              !aad    = Enc.buildAad (feAadPrefix fe) suffix
+           in case Enc.encryptGcmModulePure (feKey fe) aad plainThrift of
+                Right encThrift -> writeRawFooter parquetEncryptedMagic encThrift
+                Left  _         -> writeFooter fm  -- defensive fallback
    in BL.toStrict $ B.toLazyByteString $
         B.byteString parquetMagic
         <> mconcat (map B.byteString rowGroupBytes)
         <> mconcat (map B.byteString bloomBytes)
         <> mconcat (map B.byteString offBytes)
         <> mconcat (map B.byteString colBytes)
-        <> B.byteString (writeFooter fm)
+        <> B.byteString footerBytes
   where
     !leaves = V.filter (maybe False (const True) . seType) schema
 

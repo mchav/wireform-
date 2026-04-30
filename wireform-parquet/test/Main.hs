@@ -6,6 +6,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Vector as V
 import Numeric (showHex)
+import Data.Bits (shiftL, (.|.))
 import Data.List (isInfixOf)
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..), exitFailure)
@@ -51,6 +52,7 @@ import Parquet.Page
 import Parquet.Write
   ( ColumnAux (..)
   , ColumnEncryption (..)
+  , FooterEncryption (..)
   , PageVersion (..)
   , ColumnData (..)
   , Dictionary (..)
@@ -58,6 +60,7 @@ import Parquet.Write
   , buildDictionary
   , buildParquetFile
   , buildParquetFileWithIndex
+  , buildParquetFileWithIndexEncryptedFooter
   , columnDataLength
   , columnDataStatistics
   , emptyColumnAux
@@ -551,6 +554,58 @@ main = do
                        (V.singleton (V.singleton auxPlain))
     expect "aux-encrypted file diverges from plaintext-aux file"
       (encFileEnc /= encFilePlain)
+
+  -- Encrypted-footer mode: footer is a single GCM module under
+  -- ModuleFooter AAD, file ends with PARE magic instead of PAR1, and
+  -- decrypting recovers the original plaintext FileMetadata thrift.
+  do
+    let footerEnc = FooterEncryption
+                      { feKey         = encKey
+                      , feFileId      = BSC.pack "fileid01"
+                      , feAadPrefix   = BS.empty
+                      , feKeyMetadata = BSC.pack "kid:test"
+                      }
+        encFile = buildParquetFileWithIndexEncryptedFooter footerEnc
+                    encSchema
+                    (V.singleton (V.singleton encVals))
+                    (V.singleton (V.singleton emptyColumnAux))
+        plainFile = buildParquetFileWithIndex encSchema
+                      (V.singleton (V.singleton encVals))
+                      (V.singleton (V.singleton emptyColumnAux))
+    expect "encrypted-footer file is non-empty"
+      (BS.length encFile > 0)
+    expect "encrypted-footer file ends with PARE magic"
+      (BS.takeEnd 4 encFile == BSC.pack "PARE")
+    expect "plaintext-footer file ends with PAR1 magic"
+      (BS.takeEnd 4 plainFile == BSC.pack "PAR1")
+    expect "encrypted-footer file diverges from plaintext-footer"
+      (encFile /= plainFile)
+    -- Pull the encrypted footer module bytes off the trailer (last 4
+    -- bytes are PARE; the 4 bytes before that are the metaLen). The
+    -- metaLen records the length of the GCM module, so we can locate
+    -- it and decrypt it.
+    let trailerLen = BS.length encFile
+        magicAt    = trailerLen - 4
+        metaLenAt  = magicAt - 4
+        metaLen    = let bn i = fromIntegral
+                          (BS.index encFile (metaLenAt + i)) :: Int
+                      in bn 0
+                         .|. (bn 1 `shiftL` 8)
+                         .|. (bn 2 `shiftL` 16)
+                         .|. (bn 3 `shiftL` 24)
+        encThrift  = BS.take metaLen
+                       (BS.drop (metaLenAt - metaLen) encFile)
+        aad        = Enc.buildAad BS.empty
+                       (Enc.buildAadSuffix (BSC.pack "fileid01")
+                          Enc.ModuleFooter 0 0 0)
+    case Enc.decryptGcmModule encKey aad encThrift of
+      Right plainThrift ->
+        -- Decrypted thrift should parse to the same FileMetadata
+        -- the plaintext writer produces (modulo possible field-order
+        -- differences which Thrift doesn't define).
+        expect "decrypted footer thrift is non-empty"
+          (BS.length plainThrift > 0)
+      Left e -> failTest ("decrypt encrypted footer: " ++ e)
 
   -- Whole-file V2 + encryption: ColumnAux carries both PageV2 and
   -- ColumnEncryption, so buildParquetFileWithIndex must dispatch

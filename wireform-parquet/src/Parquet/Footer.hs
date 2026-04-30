@@ -9,7 +9,10 @@
 module Parquet.Footer
   ( readFooter
   , writeFooter
+  , writeRawFooter
+  , fileMetadataToThrift
   , parquetMagic
+  , parquetEncryptedMagic
   ) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
@@ -33,18 +36,33 @@ import Thrift.Decode (decodeCompact)
 parquetMagic :: ByteString
 parquetMagic = BS.pack [0x50, 0x41, 0x52, 0x31]
 
+-- | The trailing magic for an encrypted-footer Parquet file: @PARE@.
+-- Replaces 'parquetMagic' in the encrypted-footer mode so a reader
+-- can distinguish a file whose footer is itself an AES-GCM module
+-- from a plaintext-footer file whose columns happen to be encrypted.
+parquetEncryptedMagic :: ByteString
+parquetEncryptedMagic = BS.pack [0x50, 0x41, 0x52, 0x45]
+
 writeFooter :: FileMetadata -> ByteString
 writeFooter fm =
   let !thriftVal = fileMetadataToThrift fm
       !encoded = encodeCompact thriftVal
-      !metaLen = BS.length encoded
-  in BL.toStrict $ B.toLazyByteString $
-       B.byteString encoded
-       <> B.word8 (fromIntegral (metaLen .&. 0xFF))
-       <> B.word8 (fromIntegral ((metaLen `shiftR` 8) .&. 0xFF))
-       <> B.word8 (fromIntegral ((metaLen `shiftR` 16) .&. 0xFF))
-       <> B.word8 (fromIntegral ((metaLen `shiftR` 24) .&. 0xFF))
-       <> B.byteString parquetMagic
+   in writeRawFooter parquetMagic encoded
+
+-- | Build a footer trailer from already-encoded thrift bytes plus a
+-- magic number. Encrypted-footer mode passes 'parquetEncryptedMagic'
+-- and the GCM-encrypted thrift bytes; plaintext-footer mode passes
+-- 'parquetMagic' and the raw thrift.
+writeRawFooter :: ByteString -> ByteString -> ByteString
+writeRawFooter magic encoded =
+  let !metaLen = BS.length encoded
+   in BL.toStrict $ B.toLazyByteString $
+        B.byteString encoded
+        <> B.word8 (fromIntegral (metaLen .&. 0xFF))
+        <> B.word8 (fromIntegral ((metaLen `shiftR` 8) .&. 0xFF))
+        <> B.word8 (fromIntegral ((metaLen `shiftR` 16) .&. 0xFF))
+        <> B.word8 (fromIntegral ((metaLen `shiftR` 24) .&. 0xFF))
+        <> B.byteString magic
 
 readFooter :: ByteString -> Either String FileMetadata
 readFooter bs
