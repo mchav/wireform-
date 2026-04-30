@@ -5,6 +5,7 @@ import Test.Tasty
 import qualified Test.Iceberg.BoundTrunc
 import qualified Test.Iceberg.DeletionVector
 import qualified Test.Iceberg.Expression
+import qualified Test.Iceberg.ManifestMerge
 import qualified Test.Iceberg.MetricsConfig
 import qualified Test.Iceberg.Murmur3
 import qualified Test.Iceberg.NameMapping
@@ -43,6 +44,7 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.SnapshotSummary.tests
   , Test.Iceberg.Partition.tests
   , Test.Iceberg.Sort.tests
+  , Test.Iceberg.ManifestMerge.tests
   , Test.Iceberg.MetricsConfig.tests
   , Test.Iceberg.BoundTrunc.tests
   , Test.Iceberg.SchemaCompat.tests

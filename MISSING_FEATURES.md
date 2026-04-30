@@ -135,3 +135,4 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | Identifier-field-ids validation; v1/v2/v3 table-metadata constraint validation | full | `Iceberg.Validate` |
 | REST catalog request/response shapes and JSON + exception type | full | `Iceberg.Catalog.REST` |
 | `WRITE_METADATA_COMPRESSION` (gzip metadata.json.gz) | full | `Iceberg.Write` (`encodeTableMetadataCompressed`) |
+| Fast-append / merge-append / rewrite-manifests planner (bin-packed by `commit.manifest.target-size-bytes` / `min-count-to-merge`) | full | `Iceberg.ManifestMerge` |

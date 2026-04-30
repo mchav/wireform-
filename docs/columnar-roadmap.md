@@ -109,6 +109,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.26 | gzip metadata.json compression | **Done** (`Iceberg.Write.encodeTableMetadataCompressed`) |
 | D.27 | REST catalog convenience helpers (LoadTableResult builder, exception type) | **Done** (`Iceberg.Catalog.REST`) |
 | D.28 | Manifest-list partition summary aggregation | **Done** (`Iceberg.Write.buildManifestSummary`) |
+| D.29 | Fast-append / merge-append / rewrite-manifests commit planner | **Done** (`Iceberg.ManifestMerge`) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 

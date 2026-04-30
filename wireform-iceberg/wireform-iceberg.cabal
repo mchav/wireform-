@@ -34,6 +34,7 @@ library
     Iceberg.Expression
     Iceberg.JSON
     Iceberg.Manifest
+    Iceberg.ManifestMerge
     Iceberg.MetricsConfig
     Iceberg.Murmur3
     Iceberg.Partition
@@ -76,6 +77,7 @@ test-suite iceberg-test
     Test.Iceberg.BoundTrunc
     Test.Iceberg.DeletionVector
     Test.Iceberg.Expression
+    Test.Iceberg.ManifestMerge
     Test.Iceberg.MetricsConfig
     Test.Iceberg.Murmur3
     Test.Iceberg.NameMapping
