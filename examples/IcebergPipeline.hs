@@ -84,6 +84,11 @@ main = do
 
   putStrLn $ "Parquet file: " ++ show (BS.length parquetBytes) ++ " bytes"
 
+  -- Drop the parquet bytes to a temp file so external readers
+  -- (pyarrow, parquet-tools, ...) can validate byte-compatibility.
+  BS.writeFile "/tmp/wf-pipeline.parquet" parquetBytes
+  putStrLn "wrote /tmp/wf-pipeline.parquet"
+
   -- 3. Decode the footer + project onto a populated Iceberg DataFile.
   parquetFooter <- case PR.loadParquetFile parquetBytes of
     Right pf -> pure (PR.pfFooter pf)

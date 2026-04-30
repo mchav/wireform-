@@ -6,6 +6,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Vector as V
 import Numeric (showHex)
+import System.Directory (doesFileExist)
 import System.Exit (exitFailure)
 
 import qualified Data.Vector.Primitive as VP
@@ -370,6 +371,20 @@ main = do
   expect "AAD suffix length"
     (BS.length (Enc.buildAadSuffix "x" Enc.ModuleFooter 0 0 0) == 15)
 
+  -- Golden parquet fixtures from pyarrow (only when present).
+  goldenExist <- and <$> mapM doesFileExist
+    [ "test/fixtures/simple_int.parquet"
+    , "test/fixtures/mixed_types.parquet"
+    , "test/fixtures/bloom_and_index.parquet"
+    ]
+  if goldenExist
+    then do
+      goldenSimpleInt
+      goldenMixedTypes
+      goldenBloomIndex
+      putStrLn "OK: pyarrow golden round-trip"
+    else putStrLn "SKIP: pyarrow golden fixtures not present"
+
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
 expectHash :: String -> String -> IO ()
@@ -395,3 +410,60 @@ failTest :: String -> IO ()
 failTest msg = do
   putStrLn ("FAIL: " ++ msg)
   exitFailure
+
+-- ============================================================
+-- Golden pyarrow fixtures
+-- ============================================================
+
+goldenSimpleInt :: IO ()
+goldenSimpleInt = do
+  bs <- BS.readFile "test/fixtures/simple_int.parquet"
+  case loadParquetFile bs of
+    Left e -> failTest ("golden simple_int: " ++ e)
+    Right pf -> do
+      let !rgs = fmRowGroups (pfFooter pf)
+          !rg  = V.unsafeIndex rgs 0
+          !cc  = V.unsafeIndex (rgColumns rg) 0
+      expect "golden simple_int: 5 rows" (rgNumRows rg == 5)
+      case ccMetadata cc of
+        Just m -> do
+          expect "golden simple_int: column type INT64"
+            (cmType m == PTInt64)
+          expect "golden simple_int: numValues == 5"
+            (cmNumValues m == 5)
+        Nothing -> failTest "golden simple_int: no metadata"
+
+goldenMixedTypes :: IO ()
+goldenMixedTypes = do
+  bs <- BS.readFile "test/fixtures/mixed_types.parquet"
+  case loadParquetFile bs of
+    Left e -> failTest ("golden mixed_types: " ++ e)
+    Right pf -> do
+      let !rgs = fmRowGroups (pfFooter pf)
+          !rg  = V.unsafeIndex rgs 0
+          !cols = rgColumns rg
+      expect "golden mixed_types: 3 columns" (V.length cols == 3)
+      let typeAt i = case ccMetadata (V.unsafeIndex cols i) of
+            Just m  -> Just (cmType m)
+            Nothing -> Nothing
+      expect "golden mixed_types: id is INT64"   (typeAt 0 == Just PTInt64)
+      expect "golden mixed_types: name is BYTE_ARRAY" (typeAt 1 == Just PTByteArray)
+      expect "golden mixed_types: val is DOUBLE" (typeAt 2 == Just PTDouble)
+      let codecAt i = case ccMetadata (V.unsafeIndex cols i) of
+            Just m  -> Just (cmCodec m)
+            Nothing -> Nothing
+      expect "golden mixed_types: gzip codec on every column"
+        (all (== Just GZip) (map codecAt [0, 1, 2]))
+
+goldenBloomIndex :: IO ()
+goldenBloomIndex = do
+  bs <- BS.readFile "test/fixtures/bloom_and_index.parquet"
+  case loadParquetFile bs of
+    Left e -> failTest ("golden bloom_and_index: " ++ e)
+    Right pf -> do
+      let !rgs = fmRowGroups (pfFooter pf)
+          !rg  = V.unsafeIndex rgs 0
+          !cc  = V.unsafeIndex (rgColumns rg) 0
+      expect "golden bloom_and_index: 100 rows" (rgNumRows rg == 100)
+      expect "golden bloom_and_index: page index offsets present"
+        (ccOffsetIndexOffset cc /= Nothing && ccColumnIndexOffset cc /= Nothing)

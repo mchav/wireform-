@@ -85,13 +85,21 @@ fileMetadataToThrift fm = TV.Struct $ V.fromList $
   , (4, TV.List TW.TT_STRUCT (V.map rowGroupToThrift (fmRowGroups fm)))
   ] ++ maybe [] (\t -> [(5, TV.String t)]) (fmCreatedBy fm)
 
+-- | Encode a SchemaElement matching parquet.thrift exactly:
+--
+--   1: optional Type            type
+--   2: optional i32             type_length
+--   3: optional FieldRepetitionType repetition_type
+--   4: required string          name
+--   5: optional i32             num_children
+--   6: optional ConvertedType   converted_type
 schemaElementToThrift :: SchemaElement -> TV.Value
 schemaElementToThrift se = TV.Struct $ V.fromList $
-  [ (1, TV.String (seName se)) ]
-  ++ maybe [] (\r -> [(2, TV.I32 (fromIntegral (fromEnum r)))]) (seRepetition se)
-  ++ maybe [] (\t -> [(3, TV.I32 (parquetTypeToInt t))]) (seType se)
-  ++ maybe [] (\n -> [(4, TV.I32 n)]) (seNumChildren se)
-  ++ maybe [] (\c -> [(5, TV.I32 (fromIntegral (fromEnum c)))]) (seConvertedType se)
+  maybe [] (\t -> [(1, TV.I32 (parquetTypeToInt t))]) (seType se)
+  ++ maybe [] (\r -> [(3, TV.I32 (fromIntegral (fromEnum r)))]) (seRepetition se)
+  ++ [(4, TV.String (seName se))]
+  ++ maybe [] (\n -> [(5, TV.I32 n)]) (seNumChildren se)
+  ++ maybe [] (\c -> [(6, TV.I32 (fromIntegral (fromEnum c)))]) (seConvertedType se)
 
 rowGroupToThrift :: RowGroup -> TV.Value
 rowGroupToThrift rg = TV.Struct $ V.fromList
@@ -119,6 +127,14 @@ columnChunkToThrift cc = TV.Struct $ V.fromList $
   ++ maybe [] (\v -> [(6, TV.I64 v)]) (ccColumnIndexOffset cc)
   ++ maybe [] (\v -> [(7, TV.I32 v)]) (ccColumnIndexLength cc)
 
+-- | Encode ColumnMetaData per parquet.thrift field numbers:
+--
+--   1 type, 2 encodings, 3 path_in_schema, 4 codec, 5 num_values,
+--   6 total_uncompressed_size, 7 total_compressed_size,
+--   8 key_value_metadata (skipped), 9 data_page_offset,
+--   10 index_page_offset, 11 dictionary_page_offset,
+--   12 statistics, 13 encoding_stats (skipped),
+--   14 bloom_filter_offset, 15 bloom_filter_length.
 columnMetadataToThrift :: ColumnMetadata -> TV.Value
 columnMetadataToThrift cm = TV.Struct $ V.fromList $
   [ (1, TV.I32 (parquetTypeToInt (cmType cm)))
@@ -128,10 +144,8 @@ columnMetadataToThrift cm = TV.Struct $ V.fromList $
   , (5, TV.I64 (cmNumValues cm))
   , (6, TV.I64 (cmTotalUncompressedSize cm))
   , (7, TV.I64 (cmTotalCompressedSize cm))
-  , (8, TV.I64 (cmDataPageOffset cm))
-  ] ++ maybe [] (\s -> [(9, statisticsToThrift s)]) (cmStatistics cm)
-  -- Fields 10–13 (index_page_offset, dictionary_page_offset, key_value_metadata,
-  -- encoding_stats) are not yet round-tripped by wireform.
+  , (9, TV.I64 (cmDataPageOffset cm))
+  ] ++ maybe [] (\s -> [(12, statisticsToThrift s)]) (cmStatistics cm)
   ++ maybe [] (\v -> [(14, TV.I64 v)]) (cmBloomFilterOffset cm)
   ++ maybe [] (\v -> [(15, TV.I32 v)]) (cmBloomFilterLength cm)
 
@@ -214,17 +228,17 @@ thriftToFileMetadata _ = Left "Parquet.Footer: expected struct"
 thriftToSchemaElement :: TV.Value -> Either String SchemaElement
 thriftToSchemaElement (TV.Struct fields) = do
   let fm = V.toList fields
-  name <- getString fm 1 "schema name"
-  let rep = case lookupField fm 2 of
-              Just (TV.I32 r) -> Just (toEnum (fromIntegral r))
-              _ -> Nothing
-      typ = case lookupField fm 3 of
+  name <- getString fm 4 "schema name"
+  let typ = case lookupField fm 1 of
               Just (TV.I32 t) -> intToParquetType t
               _ -> Nothing
-      numCh = case lookupField fm 4 of
+      rep = case lookupField fm 3 of
+              Just (TV.I32 r) -> Just (toEnum (fromIntegral r))
+              _ -> Nothing
+      numCh = case lookupField fm 5 of
                 Just (TV.I32 n) -> Just n
                 _ -> Nothing
-      conv = case lookupField fm 5 of
+      conv = case lookupField fm 6 of
                Just (TV.I32 c) | c >= 0, c <= 21 -> Just (toEnum (fromIntegral c))
                _ -> Nothing
   Right SchemaElement
@@ -255,12 +269,10 @@ thriftToColumnChunk (TV.Struct fields) = do
   let fm = V.toList fields
       fp = getOptionalString fm 1
   fileOff <- getI64 fm 2 "file_offset"
-  let meta = case lookupField fm 3 of
-               Just v -> case thriftToColumnMetadata v of
-                           Right m -> Just m
-                           Left _  -> Nothing
-               Nothing -> Nothing
-      oio = getOptionalI64 fm 4
+  meta <- case lookupField fm 3 of
+            Just v  -> Just <$> thriftToColumnMetadata v
+            Nothing -> Right Nothing
+  let oio = getOptionalI64 fm 4
       oil = getOptionalI32 fm 5
       cio = getOptionalI64 fm 6
       cil = getOptionalI32 fm 7
@@ -295,8 +307,11 @@ thriftToColumnMetadata (TV.Struct fields) = do
   numVals <- getI64 fm 5 "num_values"
   uncompSz <- getI64 fm 6 "total_uncompressed_size"
   compSz <- getI64 fm 7 "total_compressed_size"
-  dataOff <- getI64 fm 8 "data_page_offset"
-  let stats = case lookupField fm 9 of
+  -- field 8 = key_value_metadata (optional, ignored)
+  dataOff <- getI64 fm 9 "data_page_offset"
+  -- field 10 = index_page_offset (optional, ignored)
+  -- field 11 = dictionary_page_offset (optional, ignored)
+  let stats = case lookupField fm 12 of
         Just v -> case thriftToStatistics v of
           Right s -> Just s
           Left _  -> Nothing
