@@ -133,6 +133,25 @@ test-suite iceberg-test
     tasty            >= 1.4  && < 1.6,
     tasty-hunit      >= 0.10 && < 0.11
 
+executable iceberg
+  import: defaults
+  hs-source-dirs: app
+  main-is: Main.hs
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-iceberg,
+    bytestring,
+    text,
+    vector,
+    containers,
+    aeson,
+    aeson-pretty >= 0.8 && < 0.9
+  if flag(rest-client)
+    cpp-options: -DHAVE_REST_CLIENT
+    -- The CLI conditionally exposes the REST commands when the library
+    -- was built with -frest-client. The 'rest' subcommands print a
+    -- helpful error when the flag is off.
+
 benchmark iceberg-bench
   import: defaults
   type: exitcode-stdio-1.0
