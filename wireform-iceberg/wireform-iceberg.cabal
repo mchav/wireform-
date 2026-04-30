@@ -35,6 +35,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Iceberg.BoundTrunc
+    Iceberg.Catalog.Hadoop
     Iceberg.Catalog.REST
     Iceberg.Delete
     Iceberg.DeletionVector
@@ -76,6 +77,8 @@ library
     unordered-containers >= 0.2.16 && < 0.3,
     time >= 1.9 && < 1.15,
     deepseq >= 1.4 && < 1.6,
+    directory >= 1.3 && < 1.4,
+    filepath >= 1.4 && < 1.6,
     zlib >= 0.6 && < 0.8
 
   if flag(rest-client)
@@ -105,6 +108,7 @@ test-suite iceberg-test
     Test.Iceberg.Parquet
     Test.Iceberg.Partition
     Test.Iceberg.Puffin
+    Test.Iceberg.CatalogHadoop
     Test.Iceberg.RESTCatalog
     Test.Iceberg.RESTClient
     Test.Iceberg.ScanPlan
