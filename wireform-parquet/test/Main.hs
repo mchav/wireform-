@@ -15,12 +15,29 @@ import Data.Int (Int32, Int64)
 import qualified Crypto.Random as RNG
 
 import Parquet.BloomFilter
-import Parquet.Delta (decodeDeltaBinaryPackedInt64)
-import Parquet.DeltaEncode (encodeDeltaBinaryPackedInt64)
+import Parquet.ByteStreamSplit
+  ( encodeByteStreamSplitDouble
+  , encodeByteStreamSplitFloat
+  )
+import Parquet.Delta
+  ( decodeDeltaBinaryPackedInt64
+  , decodeDeltaByteArray
+  , decodeDeltaLengthByteArray
+  )
+import Parquet.DeltaEncode
+  ( encodeDeltaBinaryPackedInt64
+  , encodeDeltaByteArray
+  , encodeDeltaLengthByteArray
+  )
 import qualified Parquet.NullPagesBitmap as NPB
 import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
-import Parquet.Read (loadParquetFile, pfFooter)
+import Parquet.Read
+  ( decodeByteStreamSplitDouble
+  , decodeByteStreamSplitFloat
+  , loadParquetFile
+  , pfFooter
+  )
 import Parquet.Types
 import Parquet.Page
   ( DataPageHeaderV2 (..)
@@ -406,6 +423,59 @@ main = do
   -- AAD suffix wire format: 8 file-id bytes + 1 module byte + 3*2 ordinals
   expect "AAD suffix length"
     (BS.length (Enc.buildAadSuffix "x" Enc.ModuleFooter 0 0 0) == 15)
+
+  -- BYTE_STREAM_SPLIT round-trips for FLOAT and DOUBLE.
+  let bssFloats  = VP.fromList [1.5, -2.25, 3.14159, 0, 1e9, -1e-9 :: Float]
+      bssDoubles = VP.fromList [1.5, -2.25, 3.14159, 0, 1e9, -1e-9 :: Double]
+      bssFloatBs  = encodeByteStreamSplitFloat bssFloats
+      bssDoubleBs = encodeByteStreamSplitDouble bssDoubles
+  expect "BYTE_STREAM_SPLIT FLOAT byte length == 4 * n"
+    (BS.length bssFloatBs == 4 * VP.length bssFloats)
+  expect "BYTE_STREAM_SPLIT DOUBLE byte length == 8 * n"
+    (BS.length bssDoubleBs == 8 * VP.length bssDoubles)
+  case decodeByteStreamSplitFloat (VP.length bssFloats) bssFloatBs of
+    Right xs -> expect "BYTE_STREAM_SPLIT FLOAT round-trip" (xs == bssFloats)
+    Left  e  -> failTest ("BYTE_STREAM_SPLIT FLOAT decode: " ++ e)
+  case decodeByteStreamSplitDouble (VP.length bssDoubles) bssDoubleBs of
+    Right xs -> expect "BYTE_STREAM_SPLIT DOUBLE round-trip" (xs == bssDoubles)
+    Left  e  -> failTest ("BYTE_STREAM_SPLIT DOUBLE decode: " ++ e)
+
+  -- DELTA_LENGTH_BYTE_ARRAY round-trip (encoder <-> decoder).
+  let dlbaInputs =
+        [ V.empty
+        , V.singleton (BSC.pack "alpha")
+        , V.fromList (map BSC.pack ["", "a", "ab", "abc", "abcd"])
+        , V.fromList (map BSC.pack
+            ["one", "tw", "three", "", "five-five-five", "6"])
+        ]
+  mapM_
+    (\inp ->
+       let bs = encodeDeltaLengthByteArray inp
+        in case decodeDeltaLengthByteArray (V.length inp) bs of
+             Right xs -> expect "DELTA_LENGTH_BYTE_ARRAY round-trip" (xs == inp)
+             Left  e  -> failTest ("DELTA_LENGTH_BYTE_ARRAY decode: " ++ e))
+    dlbaInputs
+
+  -- DELTA_BYTE_ARRAY round-trip with shared prefixes (front compression).
+  let dbaInputs =
+        [ V.empty
+        , V.singleton (BSC.pack "abc")
+        , V.fromList (map BSC.pack ["", "a", "ab", "abc", "abcd", "abcde"])
+        , V.fromList (map BSC.pack
+            [ "iceberg/ns/tableA"
+            , "iceberg/ns/tableB"
+            , "iceberg/ns/tableC"
+            , "iceberg/ns/zzz/last"
+            , "other/ns/tableA"
+            ])
+        ]
+  mapM_
+    (\inp ->
+       let bs = encodeDeltaByteArray inp
+        in case decodeDeltaByteArray (V.length inp) bs of
+             Right xs -> expect "DELTA_BYTE_ARRAY round-trip" (xs == inp)
+             Left  e  -> failTest ("DELTA_BYTE_ARRAY decode: " ++ e))
+    dbaInputs
 
   -- Golden parquet fixtures from pyarrow (only when present).
   goldenExist <- and <$> mapM doesFileExist

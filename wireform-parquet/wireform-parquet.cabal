@@ -46,6 +46,7 @@ library
     Parquet.BloomFilter
     Parquet.Compress
     Parquet.Delta
+    Parquet.ByteStreamSplit
     Parquet.DeltaEncode
     Parquet.Encryption
     Parquet.Footer

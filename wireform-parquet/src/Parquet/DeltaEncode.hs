@@ -23,6 +23,8 @@ module Parquet.DeltaEncode
   ( encodeDeltaBinaryPackedInt32
   , encodeDeltaBinaryPackedInt64
   , encodeDeltaBinaryPackedRaw
+  , encodeDeltaLengthByteArray
+  , encodeDeltaByteArray
   ) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
@@ -31,6 +33,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
+import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 import Data.Word (Word32, Word64, Word8)
 
@@ -177,11 +180,87 @@ encodeZigzagLeb v =
                     else fromIntegral (negate v `shiftL` 1 - 1)
    in encodeULeb u
 
--- Suppress unused-import warning when 'BS' isn't referenced directly
--- (we keep it imported for future raw-byte fallbacks).
-_unusedBS :: ByteString
-_unusedBS = BS.empty
+-- ============================================================
+-- DELTA_LENGTH_BYTE_ARRAY
+-- ============================================================
 
--- Suppress -Widentities for the deliberate Word32 round-trip below.
+-- | Encode a vector of byte arrays as @DELTA_LENGTH_BYTE_ARRAY@ (Parquet
+-- encoding 6).
+--
+-- Layout:
+--
+-- @
+--   <DELTA_BINARY_PACKED of all lengths (Int32)>
+--   <concatenated value bytes>
+-- @
+--
+-- The total length / value count of the lengths block matches the input
+-- vector's length, and value bytes are written in input order with no
+-- separators or length prefixes (the lengths block is the index).
+encodeDeltaLengthByteArray :: V.Vector ByteString -> ByteString
+encodeDeltaLengthByteArray vs =
+  let !lens = VP.fromList [fromIntegral (BS.length b) :: Int32 | b <- V.toList vs]
+      !lengthsEncoded = encodeDeltaBinaryPackedInt32 lens
+      !concatenated   = BL.toStrict
+                          (B.toLazyByteString
+                            (V.foldl' (\acc b -> acc <> B.byteString b) mempty vs))
+   in lengthsEncoded <> concatenated
+
+-- ============================================================
+-- DELTA_BYTE_ARRAY (incremental encoding)
+-- ============================================================
+
+-- | Encode a vector of byte arrays as @DELTA_BYTE_ARRAY@ (Parquet
+-- encoding 7), aka /incremental encoding/.
+--
+-- Layout:
+--
+-- @
+--   <DELTA_BINARY_PACKED of prefix lengths (Int32)>
+--   <DELTA_BINARY_PACKED of suffix lengths (Int32)>
+--   <concatenated suffix bytes>
+-- @
+--
+-- The /prefix length/ is the number of leading bytes shared with the
+-- previous element (always 0 for the first element); the /suffix/ is
+-- the trailing bytes that differ. Reassembly is
+-- @value[i] = value[i-1][:prefix[i]] <> suffix[i]@.
+--
+-- This is the encoding parquet-mr uses for sorted string columns.
+encodeDeltaByteArray :: V.Vector ByteString -> ByteString
+encodeDeltaByteArray vs =
+  let (prefixLens, suffixes) = computePrefixesSuffixes vs
+      !prefixVec = VP.fromList prefixLens
+      !suffixLensVec = VP.fromList [fromIntegral (BS.length s) :: Int32 | s <- suffixes]
+      !prefixesEncoded = encodeDeltaBinaryPackedInt32 prefixVec
+      !suffixLensEncoded = encodeDeltaBinaryPackedInt32 suffixLensVec
+      !suffixBytes = BL.toStrict
+                       (B.toLazyByteString
+                         (foldMap B.byteString suffixes))
+   in prefixesEncoded <> suffixLensEncoded <> suffixBytes
+
+-- | Walk the input vector once computing each (prefixLen, suffix) pair.
+computePrefixesSuffixes :: V.Vector ByteString -> ([Int32], [ByteString])
+computePrefixesSuffixes vs = go 0 BS.empty [] []
+  where
+    n = V.length vs
+    go !i !prev accLens accSufs
+      | i >= n = (reverse accLens, reverse accSufs)
+      | otherwise =
+          let !cur = V.unsafeIndex vs i
+              !pfx = commonPrefixLen prev cur
+              !suf = BS.drop pfx cur
+           in go (i + 1) cur (fromIntegral pfx : accLens) (suf : accSufs)
+
+commonPrefixLen :: ByteString -> ByteString -> Int
+commonPrefixLen a b =
+  let !maxN = min (BS.length a) (BS.length b)
+      go !i
+        | i >= maxN = i
+        | BS.index a i /= BS.index b i = i
+        | otherwise = go (i + 1)
+   in go 0
+
+-- Suppress unused-import warning if 'Word32' isn't referenced directly.
 _unusedW32 :: Word32 -> Word32
 _unusedW32 = id
