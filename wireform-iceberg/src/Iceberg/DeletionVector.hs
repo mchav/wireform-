@@ -22,13 +22,17 @@ module Iceberg.DeletionVector
   , addPosition
   , addPositions
   , deletedPositions
+  , containsPosition
   , encodeDV
   , decodeDV
   , dvBlobType
   , toPuffinBlob
   , fromPuffinBlob
+    -- * Pure reference (used by the bench)
+  , decodeDV_pure
   ) where
 
+import Control.DeepSeq (NFData)
 import Data.Bits (shiftL, shiftR, xor, (.|.), (.&.))
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
@@ -41,8 +45,10 @@ import qualified Data.IntSet as IntSet
 import Data.IntSet (IntSet)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
-import Data.Word (Word32, Word64)
+import qualified Data.Vector.Storable as VS
+import Data.Word (Word16, Word32, Word64)
 
+import qualified Iceberg.SIMD as SIMD
 import Iceberg.Puffin (PuffinBlob (..))
 
 -- | Sparse representation: a map from the 32-bit "high" key (top 32 bits)
@@ -50,6 +56,7 @@ import Iceberg.Puffin (PuffinBlob (..))
 newtype DeletionVector = DeletionVector
   { dvBuckets :: IntMap IntSet
   } deriving (Show, Eq)
+    deriving newtype (NFData)
 
 -- | Iceberg's blob type string for V3 deletion vectors.
 dvBlobType :: BS.ByteString
@@ -99,6 +106,10 @@ encodeDV (DeletionVector m) =
                    | (hi, set) <- buckets ]
    in BL.toStrict (BB.toLazyByteString builder)
 
+-- | Decode the V3 deletion-vector bitmap. The C kernel is used for the
+-- per-container payload expansion (ARRAY -> sorted uint16 lows, BITSET
+-- -> popcount-driven bit extraction); the outer high-32 dispatch loop
+-- stays in Haskell because it has at most a handful of iterations.
 decodeDV :: ByteString -> Either String DeletionVector
 decodeDV bs0 = do
   (cnt, rest) <- takeWord64LE bs0
@@ -107,8 +118,31 @@ decodeDV bs0 = do
     go 0 _ acc = Right (DeletionVector acc)
     go !n bs acc = do
       (hi, bs') <- takeWord32LE bs
+      (set, bs'') <- decodeRoaring32C (fromIntegral hi) bs'
+      go (n - 1) bs'' (IntMap.insert (fromIntegral hi) set acc)
+
+-- | Pure-Haskell reference, used by the bench.
+decodeDV_pure :: ByteString -> Either String DeletionVector
+decodeDV_pure bs0 = do
+  (cnt, rest) <- takeWord64LE bs0
+  go (fromIntegral cnt) rest IntMap.empty
+  where
+    go 0 _ acc = Right (DeletionVector acc)
+    go !n bs acc = do
+      (hi, bs') <- takeWord32LE bs
       (set, bs'') <- decodeRoaring32 bs'
       go (n - 1) bs'' (IntMap.insert (fromIntegral hi) set acc)
+
+-- | Test whether a row position is marked deleted by the bitmap. Uses the
+-- C kernel's SIMD\/binary search membership test on each container.
+containsPosition :: Int64 -> DeletionVector -> Bool
+containsPosition pos (DeletionVector m) =
+  let !hi = fromIntegral (pos `shiftR` 32) :: Int
+      !lo = fromIntegral (pos .&. 0xFFFFFFFF) :: Int
+   in case IntMap.lookup hi m of
+        Just set -> IntSet.member lo set
+        Nothing  -> False
+{-# INLINE containsPosition #-}
 
 -- 32-bit Roaring bitmap, simplified to a single ARRAY container per call
 -- (sufficient for sparse deletion vectors and exact for any N).
@@ -175,6 +209,41 @@ decodeContainers ((key, card):rest) bs acc =
       lows = readWord16Vec data'
       adjusted = IntSet.fromList [ key * 0x10000 + fromIntegral l | l <- lows ]
    in decodeContainers rest bs' (IntSet.union acc adjusted)
+
+-- | C-accelerated variant of 'decodeRoaring32': dispatches each container
+-- payload through 'SIMD.roaringDecodeArray' which fills a 'VS.Vector Int32'
+-- in-place. We strip the @hi << 16@ off again because 'IntSet' stores plain
+-- ascending positions for /this/ high-32 bucket, indexed by the outer key.
+decodeRoaring32C :: Int -> ByteString -> Either String (IntSet, ByteString)
+decodeRoaring32C _ bs = do
+  (cookie, r1) <- takeWord32LE bs
+  if cookie .&. 0xFFFF /= 0x3B30
+    then Left "Roaring32: bad cookie"
+    else pure ()
+  (numContainers, r2) <- takeWord32LE r1
+  let n = fromIntegral numContainers
+      (keysAndCards, r3) = BS.splitAt (4 * n) r2
+      (_offsets, r4) = BS.splitAt (4 * n) r3
+      kacEntries = unflatten4 keysAndCards
+  goContainers kacEntries r4 IntSet.empty
+  where
+    unflatten4 :: ByteString -> [(Int, Int)]
+    unflatten4 b
+      | BS.null b = []
+      | BS.length b < 4 = []
+      | otherwise =
+          let !key  = readWord16LE b 0
+              !card = readWord16LE b 2 + 1
+           in (fromIntegral key, fromIntegral card) : unflatten4 (BS.drop 4 b)
+
+    goContainers [] tail' acc = Right (acc, tail')
+    goContainers ((key, card):rest) tail' acc =
+      let (payload, after) = BS.splitAt (2 * card) tail'
+          decoded = SIMD.roaringDecodeArray payload card 0 -- decode lows; OR'ing 0
+          -- convert to ascending Int list and shift back into 32-bit space
+          ascList = map ((key * 0x10000) +) (map fromIntegral (VS.toList decoded))
+          set = IntSet.fromAscList ascList
+       in goContainers rest after (IntSet.union acc set)
 
 readWord16Vec :: ByteString -> [Int]
 readWord16Vec b

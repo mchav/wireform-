@@ -136,3 +136,4 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | REST catalog request/response shapes and JSON + exception type | full | `Iceberg.Catalog.REST` |
 | `WRITE_METADATA_COMPRESSION` (gzip metadata.json.gz) | full | `Iceberg.Write` (`encodeTableMetadataCompressed`) |
 | Fast-append / merge-append / rewrite-manifests planner (bin-packed by `commit.manifest.target-size-bytes` / `min-count-to-merge`) | full | `Iceberg.ManifestMerge` |
+| C/SIMDe kernels for hot paths (Murmur3-32 / `bucket[N]`, XXH64, Roaring 32-bit decode/encode/contains, V3 deletion-vector membership) | 3×–53× faster than the pure references on the bench (`bench/RESULTS.md`) | `Iceberg.SIMD`, `cbits/iceberg_simd.c` |
