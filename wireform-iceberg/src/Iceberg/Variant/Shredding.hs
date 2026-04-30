@@ -26,15 +26,26 @@ module Iceberg.Variant.Shredding
   , routeRow
     -- * Convenience: shredded Parquet column builder
   , buildShreddedVariantParquetFile
-    -- * Reading shredded Variants back
+    -- * Reading primitive-shredded Variants back
   , ShreddedColumn (..)
   , reconstructVariant
   , typedValueToVariant
+    -- * Object shredding (recursive case)
+  , ObjectShreddingSchema (..)
+  , ShreddedField (..)
+  , ObjectShreddedRow (..)
+  , routeObjectRow
+  , reconstructObjectVariant
+    -- * Array shredding (recursive case)
+  , ArrayShreddedRow (..)
+  , routeArrayRow
+  , reconstructArrayVariant
   ) where
 
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Vector as V
 
@@ -283,6 +294,273 @@ typedValueToVariant = \case
   TVDouble d -> IV.VDouble d
   TVBool   b -> IV.VBool   b
   TVString s -> IV.VString s
+
+-- ============================================================
+-- Internal helpers (writer side)
+-- ============================================================
+
+-- ============================================================
+-- Object shredding (recursive case)
+-- ============================================================
+--
+-- The spec lets an entire object be shredded into a Parquet group
+-- of per-field shredded columns. Each named field is itself a
+-- (value, typed_value) pair; typed_value can be a primitive (the
+-- common case) or recursively a group of further shredded fields.
+--
+-- Per the spec table (§Objects):
+--
+--   value        typed_value       Meaning
+--   null         non-null          Fully shredded object
+--   non-null     non-null          Partially-shredded object
+--                                    (value has non-shredded fields only)
+--   null         null              Object value is null (Variant null)
+--   non-null     null              Not an object (any other Variant)
+--
+-- Per-field rules:
+--
+--   value        typed_value       Meaning
+--   null         null              Field is missing from the object
+--   non-null     null              Field present, may be any type
+--   null         non-null          Field present, the shredded type
+--   both         null              -- INVALID, see spec
+--
+
+-- | Schema for one shredded field: its name plus the
+-- 'ShreddedType' (currently only primitive types; recursive group
+-- shredding is left as a follow-up).
+data ShreddedField = ShreddedField
+  { sfName :: !Text
+  , sfType :: !ShreddedType
+  } deriving (Show, Eq)
+
+-- | Schema for an object-shredded Variant column: an ordered list
+-- of fields the writer is going to extract into typed sub-columns.
+-- Fields not listed here remain in the unshredded @value@ column.
+newtype ObjectShreddingSchema = ObjectShreddingSchema
+  { ossFields :: [ShreddedField]
+  } deriving (Show, Eq)
+
+-- | One row's object-shredding decision. Mirrors the writer-side
+-- shape per the spec:
+--
+-- * 'ObjFullyShredded': the variant /is/ an object whose fields are
+--   /exactly/ the shredded fields (no extras). 'value' is null.
+-- * 'ObjPartiallyShredded': the variant is an object with extra
+--   non-shredded fields. 'value' carries those extras as a
+--   re-encoded Variant object (only the non-shredded fields);
+--   'typed_value' carries the shredded ones.
+-- * 'ObjNotAnObject': the variant isn't an object; falls through
+--   to 'value' wholesale and 'typed_value' is null.
+-- * 'ObjVariantNull': the variant value is null (canonical Variant
+--   null encoded in 'value', 'typed_value' null).
+-- * 'ObjMissing': missing row (both null).
+data ObjectShreddedRow = ObjectShreddedRow
+  { osrValue       :: !(Maybe ByteString)
+    -- ^ Bytes of the unshredded fallback (re-encoded Variant); may
+    --   be the canonical Variant-null encoding @0x00@.
+  , osrTypedFields :: !(Maybe [(Text, ShreddedRow)])
+    -- ^ When the variant was an object (fully or partially
+    --   shredded), one entry per shredded field in
+    --   'ossFields' order. When the variant wasn't an object,
+    --   'Nothing'.
+  } deriving (Show, Eq)
+
+-- | Route a Variant value into an 'ObjectShreddedRow' per the spec
+-- semantics. The variant's metadata is needed when re-encoding the
+-- non-shredded subset for partial shredding.
+routeObjectRow
+  :: ObjectShreddingSchema
+  -> Maybe IV.Variant
+  -> ObjectShreddedRow
+routeObjectRow _   Nothing         = ObjectShreddedRow Nothing Nothing
+routeObjectRow _   (Just IV.VNull) =
+  ObjectShreddedRow (Just (BS.pack [0x00])) Nothing
+routeObjectRow oss (Just (IV.VObject m)) =
+  let !shreddedNames = map sfName (ossFields oss)
+      !shreddedSet   = foldr (\(ShreddedField n _) acc ->
+                                Map.insert n () acc)
+                              Map.empty (ossFields oss)
+      !typedFields = map
+        (\(ShreddedField n ty) ->
+            ( n
+            , routeRow ty (Map.lookup n m)
+            ))
+        (ossFields oss)
+      !nonShredded = Map.filterWithKey
+        (\k _ -> not (Map.member k shreddedSet)) m
+      !valueBytes
+        | Map.null nonShredded = Nothing
+        | otherwise =
+            -- Re-encode the non-shredded subset as a Variant object.
+            -- The metadata is a fresh empty-dictionary value plus
+            -- the keys; encodeVariant constructs that for us.
+            let (_meta, vBytes) = IV.encodeVariant (IV.VObject nonShredded)
+             in Just vBytes
+      _shredded = shreddedNames -- silence unused
+   in ObjectShreddedRow valueBytes (Just typedFields)
+routeObjectRow _ (Just other) =
+  -- Not an object: typed_value must be null per the spec, and
+  -- value carries the entire variant.
+  let (_, vBytes) = IV.encodeVariant other
+   in ObjectShreddedRow (Just vBytes) Nothing
+
+-- | Reconstruct a Variant from its object-shredded representation.
+-- Per the spec's @construct_variant@ algorithm:
+--
+-- * If 'osrTypedFields' is 'Just', the result is an object whose
+--   fields are the union of the shredded typed fields and the
+--   non-shredded fields decoded from 'osrValue' (when present).
+-- * If 'osrTypedFields' is 'Nothing' and 'osrValue' is 'Just',
+--   we decode the value bytes against the metadata.
+-- * Otherwise the value is missing/null.
+reconstructObjectVariant
+  :: ByteString                -- ^ shared metadata bytes
+  -> ObjectShreddedRow
+  -> Either String (Maybe IV.Variant)
+reconstructObjectVariant meta osr = case (osrValue osr, osrTypedFields osr) of
+  (Nothing, Nothing) ->
+    Right Nothing
+  (Just vBytes, Nothing) ->
+    -- Whole value lives in the unshredded column; could be Variant
+    -- null (the canonical 0x00) or any other type.
+    case IV.decodeVariant meta vBytes of
+      Right v -> Right (Just v)
+      Left  e -> Left ("reconstructObjectVariant: " ++ e)
+  (Nothing, Just typed) -> do
+    -- Fully shredded object.
+    fields <- reconstructTypedFields meta typed
+    Right (Just (IV.VObject (Map.fromList fields)))
+  (Just vBytes, Just typed) -> do
+    -- Partially-shredded object: union the shredded fields with the
+    -- decoded non-shredded subset.
+    shreddedFields <- reconstructTypedFields meta typed
+    decoded <- case IV.decodeVariant meta vBytes of
+      Right (IV.VObject m) -> Right m
+      Right other ->
+        Left ("reconstructObjectVariant: partially-shredded value "
+                ++ "must be an object, got " ++ show other)
+      Left e -> Left ("reconstructObjectVariant: " ++ e)
+    -- Spec requires shredded keys be disjoint from non-shredded;
+    -- enforce.
+    let !shreddedNames = foldr (\(n, _) acc -> Map.insert n () acc)
+                                Map.empty shreddedFields
+        !overlap = Map.intersectionWith (\_ _ -> ()) shreddedNames decoded
+    if not (Map.null overlap)
+      then Left ("reconstructObjectVariant: shredded and non-shredded "
+                  ++ "keys must be disjoint; overlap on "
+                  ++ show (Map.keys overlap))
+      else
+        let !merged = Map.union (Map.fromList shreddedFields) decoded
+         in Right (Just (IV.VObject merged))
+
+-- | Walk the shredded-field list, reconstructing each field's
+-- Variant via 'reconstructVariant', and skip fields that are
+-- missing per the spec ('ShreddedColumn Nothing Nothing' on the
+-- field).
+reconstructTypedFields
+  :: ByteString
+  -> [(Text, ShreddedRow)]
+  -> Either String [(Text, IV.Variant)]
+reconstructTypedFields meta = go
+  where
+    go [] = Right []
+    go ((name, row) : rest) = do
+      mv <- case row of
+        ShredAsTyped tv ->
+          reconstructVariant meta
+            (ShreddedColumn Nothing (Just tv))
+        ShredAsValue bs ->
+          reconstructVariant meta
+            (ShreddedColumn (Just bs) Nothing)
+        ShredVariantNull ->
+          reconstructVariant meta
+            (ShreddedColumn (Just (BS.pack [0x00])) Nothing)
+        ShredMissing ->
+          reconstructVariant meta
+            (ShreddedColumn Nothing Nothing)
+      rest' <- go rest
+      case mv of
+        Just v  -> Right ((name, v) : rest')
+        Nothing -> Right rest'  -- field missing; drop from result
+
+-- ============================================================
+-- Array shredding
+-- ============================================================
+--
+-- An array column is shredded as a Parquet 3-level list where
+-- each 'element' is a (value, typed_value) pair. Per the spec
+-- table:
+--
+--   value    typed_value      Meaning
+--   null     null             Variant null
+--   null     non-null (list)  Array; elements live in typed_value
+--   non-null null             Not an array; falls through to value
+--   non-null non-null         INVALID (writers must not emit)
+--
+-- Array elements have their own (value, typed_value) per-element
+-- pair with the spec's per-element rule: exactly one of value /
+-- typed_value must be non-null (no missing elements; null elements
+-- use the 0x00 variant-null encoding in 'value').
+
+-- | One row of an array-shredded column.
+data ArrayShreddedRow = ArrayShreddedRow
+  { asrValue          :: !(Maybe ByteString)
+    -- ^ Unshredded fallback: the canonical Variant null bytes
+    --   when the row is null, the re-encoded non-array variant
+    --   when the row isn't an array, or 'Nothing' when the row
+    --   is an array (in which case 'asrTypedElements' is set).
+  , asrTypedElements  :: !(Maybe [ShreddedRow])
+    -- ^ One ShreddedRow per array element when the row is an
+    --   array; 'Nothing' otherwise.
+  } deriving (Show, Eq)
+
+-- | Route a Variant value into an 'ArrayShreddedRow'. The element
+-- shred type tells us how to route each element (e.g. 'ShredString'
+-- means string elements go to typed_value, others fall through).
+routeArrayRow :: ShreddedType -> Maybe IV.Variant -> ArrayShreddedRow
+routeArrayRow _ Nothing                = ArrayShreddedRow Nothing Nothing
+routeArrayRow _ (Just IV.VNull) =
+  ArrayShreddedRow (Just (BS.pack [0x00])) Nothing
+routeArrayRow elemTy (Just (IV.VArray xs)) =
+  let !elements = map (\e -> routeRow elemTy (Just e)) (V.toList xs)
+   in ArrayShreddedRow Nothing (Just elements)
+routeArrayRow _ (Just other) =
+  let (_, vBytes) = IV.encodeVariant other
+   in ArrayShreddedRow (Just vBytes) Nothing
+
+-- | Reconstruct a Variant array from its shredded representation.
+reconstructArrayVariant
+  :: ByteString
+  -> ArrayShreddedRow
+  -> Either String (Maybe IV.Variant)
+reconstructArrayVariant meta asr =
+  case (asrValue asr, asrTypedElements asr) of
+    (Nothing, Nothing) ->
+      Right Nothing
+    (Just bs, Nothing) -> case IV.decodeVariant meta bs of
+      Right v -> Right (Just v)
+      Left  e -> Left ("reconstructArrayVariant: " ++ e)
+    (Nothing, Just elems) -> do
+      vs <- mapM (reconstructElement meta) elems
+      Right (Just (IV.VArray (V.fromList vs)))
+    (Just _, Just _) ->
+      Left "reconstructArrayVariant: invalid encoding (both value \
+           \and typed_value non-null)"
+  where
+    reconstructElement m row = case row of
+      ShredAsTyped tv     -> Right (typedValueToVariant tv)
+      ShredAsValue bs     -> case IV.decodeVariant m bs of
+        Right v -> Right v
+        Left  e -> Left ("reconstructArrayVariant: element decode: " ++ e)
+      ShredVariantNull    -> Right IV.VNull
+      ShredMissing        ->
+        -- Per the spec, array elements must be present; this is
+        -- a malformed input. The closest valid interpretation is
+        -- a Variant null element, but we surface the error so
+        -- callers can detect it.
+        Left "reconstructArrayVariant: missing element \
+             \(arrays must not contain missing entries)"
 
 -- ============================================================
 -- Internal helpers (writer side)

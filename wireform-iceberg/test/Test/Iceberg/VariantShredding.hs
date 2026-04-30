@@ -4,6 +4,8 @@ module Test.Iceberg.VariantShredding (tests) where
 
 import qualified Data.ByteString as BS
 import Data.List (isInfixOf)
+import qualified Data.Map.Strict as Map
+import qualified Data.Vector as V
 import qualified Data.Vector as V
 import qualified System.Process as Proc
 import System.Exit (ExitCode (..))
@@ -114,6 +116,150 @@ tests = testGroup "Iceberg.Variant.Shredding"
                 ("shred->reconstruct mismatch for " ++ show v
                    ++ ": " ++ show other)
 
+  , testGroup "object shredding"
+    [ testCase "fully-shredded object: all fields routed to typed_value" $ do
+        let oss = Shred.ObjectShreddingSchema
+                    [ Shred.ShreddedField "event_type" Shred.ShredString
+                    , Shred.ShreddedField "event_ts"   Shred.ShredInt64
+                    ]
+            v = IV.VObject (Map.fromList
+                  [ ("event_type", IV.VString "noop")
+                  , ("event_ts",   IV.VInt64 1729794114937)
+                  ])
+            row = Shred.routeObjectRow oss (Just v)
+        Shred.osrValue row @?= Nothing
+        case Shred.osrTypedFields row of
+          Just fs -> do
+            map fst fs @?= ["event_type", "event_ts"]
+            -- Both fields routed to typed_value (ShredAsTyped).
+            map (isShredAsTyped . snd) fs @?= [True, True]
+          Nothing -> assertFailure "expected typed fields"
+
+    , testCase "partially-shredded object: extras flow to value" $ do
+        let oss = Shred.ObjectShreddingSchema
+                    [ Shred.ShreddedField "event_type" Shred.ShredString
+                    , Shred.ShreddedField "event_ts"   Shred.ShredInt64
+                    ]
+            v = IV.VObject (Map.fromList
+                  [ ("event_type", IV.VString "login")
+                  , ("event_ts",   IV.VInt64 1729794146402)
+                  , ("email",      IV.VString "user@example.com")
+                  ])
+            row = Shred.routeObjectRow oss (Just v)
+        case Shred.osrValue row of
+          Just bs -> assertBool "non-empty fallback bytes" (BS.length bs > 0)
+          Nothing -> assertFailure "expected value bytes for partial shred"
+        case Shred.osrTypedFields row of
+          Just fs ->
+            map (isShredAsTyped . snd) fs @?= [True, True]
+          Nothing -> assertFailure "expected typed fields"
+
+    , testCase "missing shredded field surfaces as ShredMissing" $ do
+        let oss = Shred.ObjectShreddingSchema
+                    [ Shred.ShreddedField "event_type" Shred.ShredString
+                    , Shred.ShreddedField "event_ts"   Shred.ShredInt64
+                    ]
+            v = IV.VObject (Map.singleton "event_type" (IV.VString "click"))
+            row = Shred.routeObjectRow oss (Just v)
+        case Shred.osrTypedFields row of
+          Just [(_, t1), (_, t2)] -> do
+            isShredAsTyped t1 @?= True   -- event_type present
+            t2 @?= Shred.ShredVariantNull  -- event_ts missing -> Nothing -> spec says VariantNull
+          other -> assertFailure ("unexpected typed fields: " ++ show other)
+
+    , testCase "non-object input: typed_value null, value carries the variant" $ do
+        let oss = Shred.ObjectShreddingSchema
+                    [ Shred.ShreddedField "x" Shred.ShredInt32 ]
+            row = Shred.routeObjectRow oss (Just (IV.VString "scalar"))
+        Shred.osrTypedFields row @?= Nothing
+        case Shred.osrValue row of
+          Just bs -> assertBool "non-empty value bytes" (BS.length bs > 0)
+          Nothing -> assertFailure "expected value bytes"
+
+    , testCase "round-trip: fully-shredded object" $ do
+        let meta = BS.pack [0x11, 0x00, 0x00]
+            oss = Shred.ObjectShreddingSchema
+                    [ Shred.ShreddedField "event_type" Shred.ShredString ]
+            v = IV.VObject (Map.singleton "event_type" (IV.VString "noop"))
+            row = Shred.routeObjectRow oss (Just v)
+        case Shred.reconstructObjectVariant meta row of
+          Right (Just v') -> v' @?= v
+          other -> assertFailure ("round-trip mismatch: " ++ show other)
+
+    , testCase "round-trip: variant null" $ do
+        let meta = BS.pack [0x11, 0x00, 0x00]
+            oss = Shred.ObjectShreddingSchema [ Shred.ShreddedField "x" Shred.ShredInt32 ]
+            row = Shred.routeObjectRow oss (Just IV.VNull)
+        case Shred.reconstructObjectVariant meta row of
+          Right (Just IV.VNull) -> pure ()
+          other -> assertFailure ("expected VNull, got " ++ show other)
+
+    , testCase "round-trip: missing row" $ do
+        let meta = BS.pack [0x11, 0x00, 0x00]
+            oss = Shred.ObjectShreddingSchema [ Shred.ShreddedField "x" Shred.ShredInt32 ]
+            row = Shred.routeObjectRow oss Nothing
+        case Shred.reconstructObjectVariant meta row of
+          Right Nothing -> pure ()
+          other -> assertFailure ("expected Nothing, got " ++ show other)
+    ]
+
+  , testGroup "array shredding"
+    [ testCase "array of strings: all elements typed" $ do
+        let v = IV.VArray (V.fromList
+                  [ IV.VString "comedy", IV.VString "drama" ])
+            row = Shred.routeArrayRow Shred.ShredString (Just v)
+        Shred.asrValue row @?= Nothing
+        case Shred.asrTypedElements row of
+          Just elems -> do
+            length elems @?= 2
+            map isShredAsTyped elems @?= [True, True]
+          Nothing -> assertFailure "expected typed elements"
+
+    , testCase "array of mixed types: typed for matches, value for others" $ do
+        let v = IV.VArray (V.fromList
+                  [ IV.VString "horror", IV.VNull ])
+            row = Shred.routeArrayRow Shred.ShredString (Just v)
+        case Shred.asrTypedElements row of
+          Just [e0, e1] -> do
+            isShredAsTyped e0 @?= True
+            -- VNull -> ShredVariantNull
+            e1 @?= Shred.ShredVariantNull
+          other -> assertFailure ("unexpected: " ++ show other)
+
+    , testCase "non-array input: fall through to value" $ do
+        let row = Shred.routeArrayRow Shred.ShredString
+                    (Just (IV.VString "scalar"))
+        Shred.asrTypedElements row @?= Nothing
+        case Shred.asrValue row of
+          Just bs -> assertBool "value bytes" (BS.length bs > 0)
+          Nothing -> assertFailure "expected value bytes"
+
+    , testCase "round-trip: array of strings" $ do
+        let meta = BS.pack [0x11, 0x00, 0x00]
+            v = IV.VArray (V.fromList
+                  [ IV.VString "alpha", IV.VString "beta" ])
+            row = Shred.routeArrayRow Shred.ShredString (Just v)
+        case Shred.reconstructArrayVariant meta row of
+          Right (Just v') -> v' @?= v
+          other -> assertFailure ("round-trip mismatch: " ++ show other)
+
+    , testCase "round-trip: array with null elements" $ do
+        let meta = BS.pack [0x11, 0x00, 0x00]
+            v = IV.VArray (V.fromList
+                  [ IV.VString "a", IV.VNull, IV.VString "c" ])
+            row = Shred.routeArrayRow Shred.ShredString (Just v)
+        case Shred.reconstructArrayVariant meta row of
+          Right (Just v') -> v' @?= v
+          other -> assertFailure ("round-trip mismatch: " ++ show other)
+
+    , testCase "round-trip: variant null" $ do
+        let meta = BS.pack [0x11, 0x00, 0x00]
+            row = Shred.routeArrayRow Shred.ShredString (Just IV.VNull)
+        case Shred.reconstructArrayVariant meta row of
+          Right (Just IV.VNull) -> pure ()
+          other -> assertFailure ("expected VNull, got " ++ show other)
+    ]
+
   , testCase "pyarrow can read shredded file as 3 columns" $ do
       pyOk <- pyarrowAvailable
       if not pyOk
@@ -156,6 +302,8 @@ tests = testGroup "Iceberg.Variant.Shredding"
   where
     isTyped (Shred.ShredAsTyped _) = True
     isTyped _                      = False
+    isShredAsTyped (Shred.ShredAsTyped _) = True
+    isShredAsTyped _                      = False
 
 pyarrowAvailable :: IO Bool
 pyarrowAvailable = do
