@@ -38,6 +38,7 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -48,19 +49,24 @@ import Data.Scientific (Scientific, floatingOrInteger)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Time.Calendar as TC
+import qualified Data.Time.Clock as TC
+import qualified Data.Time.Clock.POSIX as TC
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 import Data.Word (Word8, Word32, Word64)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble)
+import Text.Printf (printf)
 
 -- ============================================================
 -- Variant value
 -- ============================================================
 
--- | Self-describing variant value. Mirrors the JSON-equivalent
--- subset of the Spark Variant spec. Decimal / temporal / UUID
--- primitives surface through 'VUnsupportedPrimitive' so a reader can
--- still report the type even when the writer doesn't emit it yet.
+-- | Self-describing variant value. Covers the entire Spark Variant
+-- primitive set (all 21 type IDs), plus the two compound types
+-- (object, array). 'VUnsupportedPrimitive' is now reserved purely as
+-- a forward-compat escape hatch for type IDs added in a future spec
+-- revision.
 data Variant
   = VNull
   | VBool   !Bool
@@ -70,15 +76,34 @@ data Variant
   | VInt64  !Int64
   | VFloat  !Float
   | VDouble !Double
+  | VDecimal4  !Word8 !Int32      -- ^ scale, unscaled int32 (precision <= 9)
+  | VDecimal8  !Word8 !Int64      -- ^ scale, unscaled int64 (precision <= 18)
+  | VDecimal16 !Word8 !Integer
+    -- ^ scale, unscaled int128 (precision <= 38). Stored as 'Integer'
+    --   so callers don't have to manage two-words by hand; the
+    --   encoder packs it as 16 little-endian bytes (two's complement).
+  | VDate !Int32
+    -- ^ days since 1970-01-01.
+  | VTime !Int64
+    -- ^ time of day, microseconds since midnight (no time zone).
+  | VTimestamp !Int64
+    -- ^ adjusted to UTC, microseconds since 1970-01-01T00:00:00Z.
+  | VTimestampNtz !Int64
+    -- ^ no time zone, microseconds since 1970-01-01T00:00:00.
+  | VTimestampNanos !Int64
+    -- ^ adjusted to UTC, nanoseconds since 1970-01-01T00:00:00Z.
+  | VTimestampNtzNanos !Int64
+    -- ^ no time zone, nanoseconds since 1970-01-01T00:00:00.
+  | VUuid !ByteString
+    -- ^ 16 big-endian bytes.
   | VString !Text
   | VBinary !ByteString
   | VArray  !(Vector Variant)
   | VObject !(Map Text Variant)
   | VUnsupportedPrimitive !Word8 !ByteString
-    -- ^ Caught when the decoder sees a primitive type ID this version
-    --   doesn't model (decimals, dates, timestamps, time, uuid). The
-    --   raw payload bytes are preserved so callers can hand them off
-    --   downstream.
+    -- ^ Forward-compat: any primitive type ID this version doesn't
+    --   model. Now only used for tags >= 21 (which the spec hasn't
+    --   assigned yet).
   deriving (Show, Eq)
 
 -- ============================================================
@@ -153,6 +178,19 @@ encodeValue dict = BL.toStrict . B.toLazyByteString . goB
       VInt64 v    -> primHeader 6 <> B.int64LE v
       VDouble v   -> primHeader 7 <> B.word64LE (castDoubleToWord64 v)
       VFloat v    -> primHeader 14 <> B.word32LE (castFloatToWord32 v)
+      VDecimal4 sc u  -> primHeader 8  <> B.word8 sc <> B.int32LE u
+      VDecimal8 sc u  -> primHeader 9  <> B.word8 sc <> B.int64LE u
+      VDecimal16 sc u -> primHeader 10 <> B.word8 sc
+                                       <> B.byteString (encodeInt128LE u)
+      VDate v          -> primHeader 11 <> B.int32LE v
+      VTimestamp v     -> primHeader 12 <> B.int64LE v
+      VTimestampNtz v  -> primHeader 13 <> B.int64LE v
+      VTime v          -> primHeader 17 <> B.int64LE v
+      VTimestampNanos v    -> primHeader 18 <> B.int64LE v
+      VTimestampNtzNanos v -> primHeader 19 <> B.int64LE v
+      VUuid bs       -> primHeader 20 <> B.byteString
+                                          (BS.take 16 (BS.append bs
+                                            (BS.replicate 16 0)))
       VString t   ->
         let !bs = TE.encodeUtf8 t
             !n  = BS.length bs
@@ -176,6 +214,38 @@ encodeValue dict = BL.toStrict . B.toLazyByteString . goB
 
 primHeader :: Int -> B.Builder
 primHeader p = B.word8 (fromIntegral ((p `shiftL` 2) .|. 0))
+
+-- | Encode an 'Integer' as 16 little-endian bytes (two's complement).
+-- Magnitudes outside @[-2^127, 2^127 - 1]@ are silently masked into
+-- the low 128 bits, matching Java's 'BigInteger.toByteArray' on
+-- 16-byte buffers; callers that want to detect overflow should bound
+-- their value before encoding.
+encodeInt128LE :: Integer -> ByteString
+encodeInt128LE !v0 =
+  let !mask128 = (1 `shiftL` 128) - 1 :: Integer
+      !uns = if v0 < 0 then ((1 `shiftL` 128) + v0) .&. mask128
+                       else v0 .&. mask128
+   in BS.pack
+        (map (\i -> fromIntegral
+                      ((uns `shiftR` (i * 8)) .&. 0xFF) :: Word8)
+             [0 .. 15])
+
+-- | Decode 16 little-endian bytes as a signed two's-complement
+-- 'Integer'.
+decodeInt128LE :: ByteString -> Integer
+decodeInt128LE bs =
+  let !uns = goLE 0 0
+      !signed = if BS.index bs 15 .&. 0x80 == 0
+                  then uns
+                  else uns - (1 `shiftL` 128)
+   in signed
+  where
+    goLE :: Int -> Integer -> Integer
+    goLE !i !acc
+      | i >= 16 = acc
+      | otherwise =
+          let !b = fromIntegral (BS.index bs i) :: Integer
+           in goLE (i + 1) (acc .|. (b `shiftL` (i * 8)))
 
 -- | Encode an array. We always use 1-byte field offsets if the
 -- payload fits in 255 bytes, else 4-byte. Likewise @is_large@ for the
@@ -294,12 +364,24 @@ decodePrimitive ph bs off = case ph of
   0  -> Right (VNull, off)
   1  -> Right (VBool True, off)
   2  -> Right (VBool False, off)
-  3  -> readBytes 1 bs off >>= \(v, n) -> Right (VInt8  (fromIntegral (BS.head v) :: Int8), n)
+  3  -> readBytes 1 bs off >>= \(v, n) ->
+          Right (VInt8 (fromIntegral (BS.head v) :: Int8), n)
   4  -> readLE 2 bs off >>= \(v, n) -> Right (VInt16 (fromIntegral v), n)
   5  -> readLE 4 bs off >>= \(v, n) -> Right (VInt32 (fromIntegral v), n)
   6  -> readLE 8 bs off >>= \(v, n) -> Right (VInt64 (fromIntegral v), n)
   7  -> readLE 8 bs off >>= \(v, n) ->
           Right (VDouble (castWord64ToDouble (fromIntegral v)), n)
+  8  -> readScaledLE 4 bs off >>= \(sc, w, n) ->
+          Right (VDecimal4 sc (fromIntegral (fromIntegral w :: Int32)), n)
+  9  -> readScaledLE 8 bs off >>= \(sc, w, n) ->
+          Right (VDecimal8 sc (fromIntegral (fromIntegral w :: Int64)), n)
+  10 -> readScaled128 bs off >>= \(sc, i, n) ->
+          Right (VDecimal16 sc i, n)
+  11 -> readLE 4 bs off >>= \(v, n) -> Right (VDate (fromIntegral v), n)
+  12 -> readLE 8 bs off >>= \(v, n) ->
+          Right (VTimestamp (fromIntegral v), n)
+  13 -> readLE 8 bs off >>= \(v, n) ->
+          Right (VTimestampNtz (fromIntegral v), n)
   14 -> readLE 4 bs off >>= \(v, n) ->
           Right (VFloat (castWord32ToFloat (fromIntegral v)), n)
   15 -> readBlob bs off >>= \(payload, n) -> Right (VBinary payload, n)
@@ -307,6 +389,12 @@ decodePrimitive ph bs off = case ph of
           case TE.decodeUtf8' payload of
             Right t -> Right (VString t, n)
             Left  e -> Left ("Iceberg.Variant: long-string UTF-8: " ++ show e)
+  17 -> readLE 8 bs off >>= \(v, n) -> Right (VTime (fromIntegral v), n)
+  18 -> readLE 8 bs off >>= \(v, n) ->
+          Right (VTimestampNanos (fromIntegral v), n)
+  19 -> readLE 8 bs off >>= \(v, n) ->
+          Right (VTimestampNtzNanos (fromIntegral v), n)
+  20 -> readBytes 16 bs off >>= \(payload, n) -> Right (VUuid payload, n)
   other ->
     -- Forward-compat: keep raw bytes for unknown primitives so the
     -- caller can pass them through. We don't know the length so we
@@ -321,6 +409,14 @@ decodePrimitive ph bs off = case ph of
     readBlob bs' o = do
       (sz, o1) <- readLE 4 bs' o
       readBytes (fromIntegral sz) bs' o1
+    readScaledLE n bs' o = do
+      (scaleByte, _) <- readBytes 1 bs' o
+      (w, o2)        <- readLE n bs' (o + 1)
+      Right (BS.head scaleByte, w, o2)
+    readScaled128 bs' o = do
+      (scaleByte, _) <- readBytes 1 bs' o
+      (payload, o2)  <- readBytes 16 bs' (o + 1)
+      Right (BS.head scaleByte, decodeInt128LE payload, o2)
 
 decodeObjectAt
   :: Vector Text -> Int -> ByteString -> Int
@@ -414,9 +510,23 @@ variantToJSON = \case
   VInt64 v    -> Aeson.toJSON v
   VFloat v    -> Aeson.toJSON v
   VDouble v   -> Aeson.toJSON v
+  -- JSON-equivalent encoding for the V3 primitive set. Dates and
+  -- timestamps go to ISO-8601 strings (the format pyiceberg /
+  -- iceberg-python emit); decimals to JSON numbers when the unscaled
+  -- value fits in IEEE 754, else to a "<unscaled>e-<scale>" string;
+  -- UUIDs to the canonical hyphenated lowercase hex form.
+  VDecimal4 sc u  -> Aeson.toJSON (formatDecimal sc (toInteger u))
+  VDecimal8 sc u  -> Aeson.toJSON (formatDecimal sc (toInteger u))
+  VDecimal16 sc u -> Aeson.toJSON (formatDecimal sc u)
+  VDate days      -> Aeson.toJSON (formatDate days)
+  VTime micros    -> Aeson.toJSON (formatTime micros)
+  VTimestamp micros        -> Aeson.toJSON (formatTimestamp micros True False)
+  VTimestampNtz micros     -> Aeson.toJSON (formatTimestamp micros False False)
+  VTimestampNanos nanos    -> Aeson.toJSON (formatTimestamp nanos True True)
+  VTimestampNtzNanos nanos -> Aeson.toJSON (formatTimestamp nanos False True)
+  VUuid bs    -> Aeson.toJSON (formatUuid bs)
   VString t   -> Aeson.String t
-  VBinary bs  -> Aeson.String (TE.decodeUtf8 (BS.takeWhile (const True) bs))
-                 -- best-effort; binary in JSON is fundamentally lossy.
+  VBinary bs  -> Aeson.toJSON (formatBase64 bs)
   VArray xs   -> Aeson.Array (V.map variantToJSON xs)
   VObject m   ->
     Aeson.Object (KM.fromList
@@ -428,6 +538,94 @@ variantToJSON = \case
 -- ============================================================
 -- Helpers
 -- ============================================================
+
+-- ============================================================
+-- JSON formatters for the V3 primitive set
+-- ============================================================
+
+-- | Format a decimal as @<sign><integer-part>.<frac-part>@ (or just
+-- @<integer>@ when scale=0). Matches the canonical text form
+-- iceberg-python and Spark's 'CAST(decimal AS string)' produce.
+formatDecimal :: Word8 -> Integer -> Text
+formatDecimal sc unscaled =
+  let !scI = fromIntegral sc :: Int
+      !sign = if unscaled < 0 then T.singleton '-' else T.empty
+      !abs' = abs unscaled
+      !s    = T.pack (show abs')
+   in if scI == 0
+        then sign <> s
+        else
+          let !padLen = max 0 (scI + 1 - T.length s)
+              !padded = T.replicate padLen (T.singleton '0') <> s
+              (intP, fracP) = T.splitAt (T.length padded - scI) padded
+           in sign <> intP <> T.singleton '.' <> fracP
+
+-- | Format a date (days since 1970-01-01) as ISO-8601 (@YYYY-MM-DD@).
+-- Uses the proleptic Gregorian calendar, identical to Spark / Java.
+formatDate :: Int32 -> Text
+formatDate days =
+  let !d = TC.addDays (fromIntegral days) (TC.fromGregorian 1970 1 1)
+      (y, m, dd) = TC.toGregorian d
+   in T.pack
+        (printf "%04d-%02d-%02d" y m dd)
+
+-- | Format microseconds-since-midnight as ISO-8601
+-- @HH:MM:SS[.ffffff]@.
+formatTime :: Int64 -> Text
+formatTime micros =
+  let !abs' = abs micros
+      !secs    = abs' `div` 1000000
+      !rem'    = abs' `mod` 1000000
+      !hh      = secs `div` 3600
+      !mm      = (secs `div` 60) `mod` 60
+      !ss      = secs `mod` 60
+      !sign    = if micros < 0 then "-" else "" :: String
+      !base    = printf "%s%02d:%02d:%02d" sign hh mm ss :: String
+   in T.pack
+        (if rem' == 0
+           then base
+           else base ++ printf ".%06d" rem')
+
+-- | Format an integer-microsecond / -nanosecond timestamp as ISO-8601
+-- in UTC. The 'Bool's tell us whether the timestamp is zone-adjusted
+-- (suffix 'Z') and whether the unit is nanos rather than micros.
+formatTimestamp :: Int64 -> Bool -> Bool -> Text
+formatTimestamp value adjustedToUtc isNanos =
+  let !divisor = if isNanos then 1000000000 else 1000000 :: Int64
+      !secsTotal = value `div` divisor
+      !subSecs   = value `mod` divisor
+      !utc = TC.posixSecondsToUTCTime (fromIntegral secsTotal)
+      !day = TC.utctDay utc
+      (y, m, dd) = TC.toGregorian day
+      !todSecs = floor (toRational (TC.utctDayTime utc)) :: Int
+      !hh = todSecs `div` 3600
+      !mm = (todSecs `div` 60) `mod` 60
+      !ss = todSecs `mod` 60
+      !suffix
+        | subSecs == 0 = ""
+        | isNanos      = printf ".%09d" subSecs
+        | otherwise    = printf ".%06d" subSecs
+      !zone = if adjustedToUtc then "Z" else ""
+   in T.pack
+        (printf "%04d-%02d-%02dT%02d:%02d:%02d%s%s"
+                y m dd hh mm ss (suffix :: String) (zone :: String))
+
+-- | Format 16 raw bytes as the canonical UUID string @8-4-4-4-12@
+-- (lowercase hex). Pads / truncates to exactly 16 bytes if the caller
+-- passed something else.
+formatUuid :: ByteString -> Text
+formatUuid raw =
+  let !padded = BS.take 16 (BS.append raw (BS.replicate 16 0))
+      !hex16  = concatMap (printf "%02x") (BS.unpack padded)
+      seg lo hi = take (hi - lo) (drop lo hex16)
+   in T.pack
+        (seg 0 8 ++ "-" ++ seg 8 12 ++ "-" ++ seg 12 16
+          ++ "-" ++ seg 16 20 ++ "-" ++ seg 20 32)
+
+-- | Format a binary blob as a base64 string. Mirrors the
+-- canonical iceberg-python 'binary' JSON form.
+formatBase64 :: ByteString -> Text
+formatBase64 = TE.decodeUtf8 . B64.encode
 
 -- | Lookup a name's index in the dictionary. Errors out of band with
 -- 'error' because 'collectFieldNames' constructed the dictionary
