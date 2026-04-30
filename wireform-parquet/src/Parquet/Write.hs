@@ -20,14 +20,28 @@ module Parquet.Write
   ( writeParquetFile
   , encodePlainInt32Page
   , encodePlainInt64Page
+  , encodePlainFloatPage
+  , encodePlainDoublePage
+  , encodePlainBooleanPage
   , encodePlainByteArrayPage
   , encodePageHeader
   , assembleColumnChunk
   , buildParquetFile
   , buildParquetFileWithIndex
+  , buildParquetFileTyped
+  , buildParquetFileTypedWithIndex
+    -- * Heterogeneous column data
+  , ColumnData(..)
+  , columnDataLength
+  , encodeColumnDataPage
+  , columnDataParquetType
+  , columnDataStatistics
     -- * Statistics
   , statisticsForInt32
   , statisticsForInt64
+  , statisticsForFloat
+  , statisticsForDouble
+  , statisticsForBool
   , statisticsForByteArray
     -- * Per-column auxiliary metadata for the indexed writer
   , ColumnAux(..)
@@ -42,9 +56,11 @@ import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
+import GHC.Float (castDoubleToWord64, castFloatToWord32)
 
 import Parquet.BloomFilter (Sbbf, encodeBloomFilter, sbbfNumBytes)
 import qualified Parquet.BloomFilter as BF
+import qualified Parquet.Compress as Compress
 import Parquet.Footer (writeFooter, parquetMagic)
 import Parquet.PageIndex
   ( encodeColumnIndex
@@ -118,6 +134,57 @@ encodePlainByteArrayPage vals =
       !n = V.length vals
       !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
   in encodePageHeader hdr <> body
+
+-- | Encode a vector of @FLOAT@ values as a single uncompressed @PLAIN@
+-- @DATA_PAGE@ (4-byte little-endian IEEE 754 per value).
+encodePlainFloatPage :: VP.Vector Float -> ByteString
+encodePlainFloatPage vals =
+  let !n = VP.length vals
+      !bodySize = n * 4
+      !body = BL.toStrict $ B.toLazyByteString $
+        VP.foldl' (\b v -> b <> writeFloatLE v) mempty vals
+      !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
+  in encodePageHeader hdr <> body
+
+-- | Encode a vector of @DOUBLE@ values as a single uncompressed @PLAIN@
+-- @DATA_PAGE@ (8-byte little-endian IEEE 754 per value).
+encodePlainDoublePage :: VP.Vector Double -> ByteString
+encodePlainDoublePage vals =
+  let !n = VP.length vals
+      !bodySize = n * 8
+      !body = BL.toStrict $ B.toLazyByteString $
+        VP.foldl' (\b v -> b <> writeDoubleLE v) mempty vals
+      !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
+  in encodePageHeader hdr <> body
+
+-- | Encode a vector of @BOOLEAN@ values as a single uncompressed @PLAIN@
+-- @DATA_PAGE@ (1 bit per value, LSB-first packed bytes per the spec).
+encodePlainBooleanPage :: V.Vector Bool -> ByteString
+encodePlainBooleanPage vals =
+  let !n = V.length vals
+      !numBytes = (n + 7) `quot` 8
+      !body = BL.toStrict $ B.toLazyByteString $
+        flip foldMap [0 .. numBytes - 1] $ \byteIdx ->
+          let buildByte !bit !acc
+                | bit >= 8                = acc
+                | byteIdx * 8 + bit >= n  = acc
+                | otherwise =
+                    let !v = V.unsafeIndex vals (byteIdx * 8 + bit)
+                        !flag = if v then (1 :: Int) `shiftL'` bit else 0
+                     in buildByte (bit + 1) (acc + flag)
+          in B.word8 (fromIntegral (buildByte 0 0))
+      !bodySize = numBytes
+      !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
+  in encodePageHeader hdr <> body
+  where
+    shiftL' :: Int -> Int -> Int
+    shiftL' x i = x * (2 ^ i)
+
+writeFloatLE :: Float -> B.Builder
+writeFloatLE = B.word32LE . castFloatToWord32
+
+writeDoubleLE :: Double -> B.Builder
+writeDoubleLE = B.word64LE . castDoubleToWord64
 
 mkPlainDataPageHeader :: Int32 -> Int32 -> PageHeader
 mkPlainDataPageHeader numValues bodySize = PageHeader
@@ -309,6 +376,107 @@ i32LE v = BL.toStrict (B.toLazyByteString (B.int32LE v))
 i64LE :: Int64 -> ByteString
 i64LE v = BL.toStrict (B.toLazyByteString (B.int64LE v))
 
+-- | Compute Parquet 'Statistics' for a @FLOAT@ column. Min/max are
+-- compared as IEEE 754 floats then encoded as 4-byte little-endian.
+statisticsForFloat :: VP.Vector Float -> Statistics
+statisticsForFloat vs
+  | VP.null vs = emptyStats
+  | otherwise =
+      let !mn = VP.foldl1' min vs
+          !mx = VP.foldl1' max vs
+          encMin = fLE mn
+          encMax = fLE mx
+      in Statistics (Just encMin) (Just encMax) (Just 0) Nothing
+                   (Just encMin) (Just encMax)
+
+-- | Compute Parquet 'Statistics' for a @DOUBLE@ column.
+statisticsForDouble :: VP.Vector Double -> Statistics
+statisticsForDouble vs
+  | VP.null vs = emptyStats
+  | otherwise =
+      let !mn = VP.foldl1' min vs
+          !mx = VP.foldl1' max vs
+          encMin = dLE mn
+          encMax = dLE mx
+      in Statistics (Just encMin) (Just encMax) (Just 0) Nothing
+                   (Just encMin) (Just encMax)
+
+-- | Compute Parquet 'Statistics' for a @BOOLEAN@ column. Min is the
+-- first @False@ that appears (otherwise @True@); max is the first @True@.
+-- Encoded as a single byte (0 or 1) per the PLAIN spec.
+statisticsForBool :: V.Vector Bool -> Statistics
+statisticsForBool vs
+  | V.null vs = emptyStats
+  | otherwise =
+      let hasFalse = V.any not vs
+          hasTrue  = V.any id vs
+          encMin = if hasFalse then BS.singleton 0 else BS.singleton 1
+          encMax = if hasTrue  then BS.singleton 1 else BS.singleton 0
+      in Statistics (Just encMin) (Just encMax) (Just 0) Nothing
+                   (Just encMin) (Just encMax)
+
+fLE :: Float -> ByteString
+fLE v = BL.toStrict (B.toLazyByteString (B.word32LE (castFloatToWord32 v)))
+
+dLE :: Double -> ByteString
+dLE v = BL.toStrict (B.toLazyByteString (B.word64LE (castDoubleToWord64 v)))
+
+-- ============================================================
+-- Heterogeneous column data
+-- ============================================================
+
+-- | A single column's worth of values, tagged with its physical type.
+-- Used by 'buildParquetFileTyped' / 'buildParquetFileTypedWithIndex' so
+-- writers can emit any primitive type from one entry point.
+data ColumnData
+  = ColInt32     !(VP.Vector Int32)
+  | ColInt64     !(VP.Vector Int64)
+  | ColFloat     !(VP.Vector Float)
+  | ColDouble    !(VP.Vector Double)
+  | ColBool      !(V.Vector  Bool)
+  | ColByteArray !(V.Vector ByteString)
+  deriving (Show, Eq)
+
+-- | Number of values in the column.
+columnDataLength :: ColumnData -> Int
+columnDataLength = \case
+  ColInt32 v     -> VP.length v
+  ColInt64 v     -> VP.length v
+  ColFloat v     -> VP.length v
+  ColDouble v    -> VP.length v
+  ColBool v      -> V.length v
+  ColByteArray v -> V.length v
+
+-- | The Parquet physical type the column data should be written as.
+columnDataParquetType :: ColumnData -> ParquetType
+columnDataParquetType = \case
+  ColInt32{}     -> PTInt32
+  ColInt64{}     -> PTInt64
+  ColFloat{}     -> PTFloat
+  ColDouble{}    -> PTDouble
+  ColBool{}      -> PTBoolean
+  ColByteArray{} -> PTByteArray
+
+-- | Encode the column as a single uncompressed @PLAIN@ @DATA_PAGE@.
+encodeColumnDataPage :: ColumnData -> ByteString
+encodeColumnDataPage = \case
+  ColInt32 v     -> encodePlainInt32Page v
+  ColInt64 v     -> encodePlainInt64Page v
+  ColFloat v     -> encodePlainFloatPage v
+  ColDouble v    -> encodePlainDoublePage v
+  ColBool v      -> encodePlainBooleanPage v
+  ColByteArray v -> encodePlainByteArrayPage v
+
+-- | Compute Parquet 'Statistics' for the column.
+columnDataStatistics :: ColumnData -> Statistics
+columnDataStatistics = \case
+  ColInt32 v     -> statisticsForInt32 v
+  ColInt64 v     -> statisticsForInt64 v
+  ColFloat v     -> statisticsForFloat v
+  ColDouble v    -> statisticsForDouble v
+  ColBool v      -> statisticsForBool v
+  ColByteArray v -> statisticsForByteArray v
+
 -- ============================================================
 -- Indexed writer: bloom filter + page index footers
 -- ============================================================
@@ -327,10 +495,13 @@ data ColumnAux = ColumnAux
     -- it points at the actual page-bytes location in the assembled file.
   , caColumnIndex  :: !(Maybe ColumnIndex)
     -- ^ Per-page null/min/max statistics. Written verbatim.
+  , caCodec        :: !Compression
+    -- ^ Compression codec for the column-chunk page bytes. Default
+    -- 'Uncompressed'; use any codec listed in 'Parquet.Compress.compressPageBytes'.
   } deriving (Show, Eq)
 
 emptyColumnAux :: ColumnAux
-emptyColumnAux = ColumnAux Nothing Nothing Nothing
+emptyColumnAux = ColumnAux Nothing Nothing Nothing Uncompressed
 
 -- | Like 'buildParquetFile' but also emits a bloom-filter region, an
 -- offset-index region, and a column-index region between the row-group
@@ -561,3 +732,139 @@ layoutColumnIndex rgs auxes start = go 0 start [] V.empty
 -- referenced directly in the writer (they are part of the public API).
 _unusedBF :: Sbbf -> Int
 _unusedBF = BF.sbbfNumBytes
+
+fst3 :: (a, b, c) -> a
+fst3 (x, _, _) = x
+
+-- ============================================================
+-- Heterogeneous typed builders
+-- ============================================================
+
+-- | Like 'buildParquetFile' but accepts any combination of primitive
+-- column types per row group via 'ColumnData'. Each leaf in the schema
+-- (i.e. each entry whose 'seType' is @Just@) must have a matching column
+-- in the row group, in the same order.
+buildParquetFileTyped
+  :: V.Vector SchemaElement
+  -> V.Vector (V.Vector ColumnData)
+  -> ByteString
+buildParquetFileTyped schema rowGroups =
+  buildParquetFileTypedWithIndex schema rowGroups
+    (V.map (V.map (const emptyColumnAux)) rowGroups)
+
+-- | Combined heterogeneous + indexed writer. This is the most general
+-- entry point: any primitive type, optional bloom filter / page index /
+-- column index per column.
+buildParquetFileTypedWithIndex
+  :: V.Vector SchemaElement
+  -> V.Vector (V.Vector ColumnData)
+  -> V.Vector (V.Vector ColumnAux)
+  -> ByteString
+buildParquetFileTypedWithIndex schema rowGroups auxes =
+  let -- Per-column page bytes plus uncompressed size, both required to
+      -- populate ColumnMetadata. If a codec is requested but not built,
+      -- the writer falls back to Uncompressed so callers get a usable
+      -- file rather than a runtime crash.
+      !encodedRGs = V.imap encodeRG rowGroups
+      pageBytesOnly = V.map fst3
+      !rowGroupBytes = concatMap (V.toList . pageBytesOnly) (V.toList encodedRGs)
+      !rgBytesLen = sum (map BS.length rowGroupBytes)
+      !startOfData = 4 :: Int
+      !startOfBloom = startOfData + rgBytesLen
+
+      (!rgMetasBase, _) = V.ifoldl' buildRG (V.empty, startOfData) encodedRGs
+
+      (!rgMetasBloom, !bloomBytes, !endOfBloom) =
+        layoutBlooms rgMetasBase auxes startOfBloom
+
+      (!rgMetasOff, !offBytes, !endOfOff) =
+        layoutOffsetIndex rgMetasBloom auxes endOfBloom
+          (V.map pageBytesOnly encodedRGs)
+
+      (!rgMetasCol, !colBytes, _endOfCol) =
+        layoutColumnIndex rgMetasOff auxes endOfOff
+
+      !totalRows = V.foldl' (\a rg -> a + rgNumRows rg) 0 rgMetasCol
+      !fm = FileMetadata
+        { fmVersion = 1
+        , fmSchema = schema
+        , fmNumRows = totalRows
+        , fmRowGroups = rgMetasCol
+        , fmCreatedBy = Just "wireform"
+        }
+   in BL.toStrict $ B.toLazyByteString $
+        B.byteString parquetMagic
+        <> mconcat (map B.byteString rowGroupBytes)
+        <> mconcat (map B.byteString bloomBytes)
+        <> mconcat (map B.byteString offBytes)
+        <> mconcat (map B.byteString colBytes)
+        <> B.byteString (writeFooter fm)
+  where
+    !leaves = V.filter (maybe False (const True) . seType) schema
+
+    -- Encode each column's page, then compress it with the codec the
+    -- caller requested via the matching ColumnAux. Returns the *final*
+    -- bytes that go into the file plus the uncompressed size.
+    encodeRG :: Int -> V.Vector ColumnData -> V.Vector (ByteString, Int, Compression)
+    encodeRG rgIdx colsData =
+      let !aux = if rgIdx < V.length auxes then V.unsafeIndex auxes rgIdx else V.empty
+       in V.imap (encodeOne aux) colsData
+
+    encodeOne
+      :: V.Vector ColumnAux -> Int -> ColumnData -> (ByteString, Int, Compression)
+    encodeOne aux cIdx cd =
+      let !raw = encodeColumnDataPage cd
+          !codecRequested = case cIdx < V.length aux of
+            True  -> caCodec (V.unsafeIndex aux cIdx)
+            False -> Uncompressed
+          (compressed, codecActual) = case Compress.compressPageBytes codecRequested raw of
+            Right cb -> (cb, codecRequested)
+            Left _   -> (raw, Uncompressed)  -- graceful fallback
+       in (compressed, BS.length raw, codecActual)
+
+    buildRG
+      :: (V.Vector RowGroup, Int) -> Int -> V.Vector (ByteString, Int, Compression)
+      -> (V.Vector RowGroup, Int)
+    buildRG (!rgs, !off) rgIdx encodedCols =
+      let !colsData = V.unsafeIndex rowGroups rgIdx
+          (!cols, !off2) = V.ifoldl' (buildCol colsData) (V.empty, off) encodedCols
+          !nRows = if V.null colsData
+                     then 0
+                     else fromIntegral (columnDataLength (V.unsafeIndex colsData 0))
+          !rg = RowGroup
+            { rgColumns = cols
+            , rgTotalByteSize = fromIntegral (off2 - off)
+            , rgNumRows = nRows
+            }
+      in (V.snoc rgs rg, off2)
+
+    buildCol
+      :: V.Vector ColumnData
+      -> (V.Vector ColumnChunk, Int) -> Int -> (ByteString, Int, Compression)
+      -> (V.Vector ColumnChunk, Int)
+    buildCol colsData (!cs, !cOff) colIdx (pageBs, uncompSize, codec) =
+      let !cd = V.unsafeIndex colsData colIdx
+          !leaf = V.unsafeIndex leaves colIdx
+          !sz = BS.length pageBs
+          !cc = ColumnChunk
+            { ccFilePath = Nothing
+            , ccFileOffset = fromIntegral cOff
+            , ccMetadata = Just ColumnMetadata
+                { cmType = fromMaybe (columnDataParquetType cd) (seType leaf)
+                , cmEncodings = V.singleton Plain
+                , cmPathInSchema = V.singleton (seName leaf)
+                , cmCodec = codec
+                , cmNumValues = fromIntegral (columnDataLength cd)
+                , cmTotalUncompressedSize = fromIntegral uncompSize
+                , cmTotalCompressedSize = fromIntegral sz
+                , cmDataPageOffset = fromIntegral cOff
+                , cmStatistics = Just (columnDataStatistics cd)
+                , cmBloomFilterOffset = Nothing
+                , cmBloomFilterLength = Nothing
+                }
+            , ccOffsetIndexOffset = Nothing
+            , ccOffsetIndexLength = Nothing
+            , ccColumnIndexOffset = Nothing
+            , ccColumnIndexLength = Nothing
+            }
+      in (V.snoc cs cc, cOff + sz)

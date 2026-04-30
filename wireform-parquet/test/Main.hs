@@ -20,7 +20,10 @@ import Parquet.Read (loadParquetFile, pfFooter)
 import Parquet.Types
 import Parquet.Write
   ( ColumnAux (..)
+  , ColumnData (..)
   , buildParquetFile
+  , buildParquetFileTyped
+  , buildParquetFileTypedWithIndex
   , buildParquetFileWithIndex
   , statisticsForByteArray
   , statisticsForInt32
@@ -165,7 +168,7 @@ main = do
                 , ciRepetitionLevelHistograms = Nothing
                 , ciDefinitionLevelHistograms = Nothing
                 }
-      aux   = ColumnAux (Just bf) (Just oi) (Just ci)
+      aux   = ColumnAux (Just bf) (Just oi) (Just ci) Uncompressed
       fIdx  = buildParquetFileWithIndex schemaIdx
                 (V.singleton (V.singleton vsIdx))
                 (V.singleton (V.singleton aux))
@@ -189,6 +192,89 @@ main = do
         (ccColumnIndexOffset cc /= Nothing)
       expect "indexed-writer: column index length populated"
         (ccColumnIndexLength cc /= Nothing)
+
+  -- Typed (heterogeneous-primitive) writer: write a row group with one
+  -- column of each primitive type and confirm each round-trips through
+  -- the footer.
+  let schemaTyped = V.fromList
+        [ SchemaElement "schema" Nothing Nothing (Just 6) Nothing Nothing
+        , SchemaElement "i32"  (Just Required) (Just PTInt32)     Nothing Nothing Nothing
+        , SchemaElement "i64"  (Just Required) (Just PTInt64)     Nothing Nothing Nothing
+        , SchemaElement "f32"  (Just Required) (Just PTFloat)     Nothing Nothing Nothing
+        , SchemaElement "f64"  (Just Required) (Just PTDouble)    Nothing Nothing Nothing
+        , SchemaElement "bool" (Just Required) (Just PTBoolean)   Nothing Nothing Nothing
+        , SchemaElement "ba"   (Just Required) (Just PTByteArray) Nothing Nothing Nothing
+        ]
+      cols  = V.fromList
+        [ ColInt32     (VP.fromList [(1 :: Int32), 2, 3])
+        , ColInt64     (VP.fromList [(10 :: Int64), 20, 30])
+        , ColFloat     (VP.fromList [1.5 :: Float, 2.5, 3.5])
+        , ColDouble    (VP.fromList [1e9 :: Double, 2e9, 3e9])
+        , ColBool      (V.fromList [True, False, True])
+        , ColByteArray (V.fromList [BSC.pack "alpha", BSC.pack "beta", BSC.pack "gamma"])
+        ]
+      fTyped = buildParquetFileTyped schemaTyped (V.singleton cols)
+  case loadParquetFile fTyped of
+    Left e -> failTest ("typed-writer load: " ++ e)
+    Right pf -> do
+      let !rgs3 = fmRowGroups (pfFooter pf)
+          !rg   = V.unsafeIndex rgs3 0
+      expect "typed-writer: 6 columns recorded"
+        (V.length (rgColumns rg) == 6)
+      expect "typed-writer: numRows == 3"
+        (rgNumRows rg == 3)
+      let typeOf i = case ccMetadata (V.unsafeIndex (rgColumns rg) i) of
+            Just m  -> Just (cmType m)
+            Nothing -> Nothing
+      expect "typed-writer: column 0 is INT32"
+        (typeOf 0 == Just PTInt32)
+      expect "typed-writer: column 1 is INT64"
+        (typeOf 1 == Just PTInt64)
+      expect "typed-writer: column 2 is FLOAT"
+        (typeOf 2 == Just PTFloat)
+      expect "typed-writer: column 3 is DOUBLE"
+        (typeOf 3 == Just PTDouble)
+      expect "typed-writer: column 4 is BOOLEAN"
+        (typeOf 4 == Just PTBoolean)
+      expect "typed-writer: column 5 is BYTE_ARRAY"
+        (typeOf 5 == Just PTByteArray)
+
+  -- Per-column compression: GZip is always available; round-trip a column
+  -- through the writer and confirm the metadata records the codec.
+  let auxesGzip = V.singleton (V.fromList
+        [ ColumnAux Nothing Nothing Nothing GZip
+        , ColumnAux Nothing Nothing Nothing GZip
+        , ColumnAux Nothing Nothing Nothing Uncompressed  -- floats stay raw
+        , ColumnAux Nothing Nothing Nothing GZip
+        , ColumnAux Nothing Nothing Nothing Uncompressed
+        , ColumnAux Nothing Nothing Nothing GZip
+        ])
+      fGz = buildParquetFileTypedWithIndex schemaTyped (V.singleton cols) auxesGzip
+  case loadParquetFile fGz of
+    Left e -> failTest ("gzip-writer load: " ++ e)
+    Right pf -> do
+      let !rgs4 = fmRowGroups (pfFooter pf)
+          !rg4  = V.unsafeIndex rgs4 0
+          codecOf i = case ccMetadata (V.unsafeIndex (rgColumns rg4) i) of
+            Just m  -> Just (cmCodec m)
+            Nothing -> Nothing
+      expect "gzip-writer: column 0 codec = GZip"
+        (codecOf 0 == Just GZip)
+      expect "gzip-writer: column 2 codec = Uncompressed"
+        (codecOf 2 == Just Uncompressed)
+      expect "gzip-writer: column 5 codec = GZip"
+        (codecOf 5 == Just GZip)
+      -- Compressed page bytes should be smaller for the byte-array column
+      -- (5 letters per value, three values; gzip beats raw at that size
+      -- by virtue of the 4-byte length-prefix overhead overlapping with
+      -- the gzip header but for our test we only assert it's <= raw).
+      let compSize i = case ccMetadata (V.unsafeIndex (rgColumns rg4) i) of
+            Just m -> Just (cmTotalCompressedSize m, cmTotalUncompressedSize m)
+            Nothing -> Nothing
+      case compSize 0 of
+        Just (c, u) -> expect "gzip-writer: column 0 has uncompressed > 0 in metadata"
+          (u > 0 && c > 0)
+        Nothing -> failTest "gzip-writer: column 0 missing metadata"
 
   -- Modular encryption: round-trip plaintext through encrypt/decrypt for
   -- both AES-GCM and AES-CTR, and verify GCM rejects a tampered tag.

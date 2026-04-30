@@ -29,6 +29,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Parquet.BloomFilter
+    Parquet.Compress
     Parquet.Encryption
     Parquet.Footer
     Parquet.Levels
