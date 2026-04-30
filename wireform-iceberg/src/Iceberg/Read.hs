@@ -29,6 +29,12 @@ module Iceberg.Read
     -- * Sequence-number inheritance
   , inheritSequenceNumbers
   , readManifestEntriesWithInheritance
+    -- * Incremental scans (CDC / append-only)
+  , IncrementalScanPlan(..)
+  , planIncrementalAppend
+  , planIncrementalChangelog
+  , ChangelogTask(..)
+  , ChangelogOp(..)
   ) where
 
 import Control.DeepSeq (NFData)
@@ -727,3 +733,128 @@ applicableDeleteEntries dataEntry =
   V.filter $ \del -> case (meSequenceNumber dataEntry, meSequenceNumber del) of
     (Just dataSeq, Just delSeq) -> delSeq <= dataSeq
     _                           -> True
+
+-- ============================================================
+-- Incremental scans: CDC / append-only deltas between snapshots
+-- ============================================================
+
+-- | Result of an incremental scan: every data file added between two
+-- snapshots, optionally with the delete files that apply to them.
+data IncrementalScanPlan = IncrementalScanPlan
+  { ispFromSnapshot :: !(Maybe Int64)   -- ^ Exclusive lower bound; @Nothing@ = from beginning of history.
+  , ispToSnapshot   :: !Int64            -- ^ Inclusive upper bound (the latest snapshot to include).
+  , ispAddedFiles   :: !(V.Vector FileScanTask)
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+-- | "What was newly /appended/ between snapshots @from@ (exclusive) and
+-- @to@ (inclusive)?" - mirrors Java's @IncrementalAppendScan@.
+--
+-- The implementation walks the ancestor chain from @to@ back to @from@,
+-- collecting only data files whose @snapshot_id@ is in the set of
+-- snapshots in that range and whose status was @ADDED@.
+planIncrementalAppend
+  :: TableMetadata
+  -> Maybe Int64                                 -- ^ @from@: exclusive lower bound.
+  -> Int64                                       -- ^ @to@:   inclusive upper bound.
+  -> (Text -> Either String ByteString)          -- ^ Manifest list reader.
+  -> (Text -> Either String ByteString)          -- ^ Manifest entry reader.
+  -> Either String IncrementalScanPlan
+planIncrementalAppend tm fromSid toSid readMlByPath readManifestByPath = do
+  toSnap <- maybe (Left $ "planIncrementalAppend: no snapshot " ++ show toSid) Right
+              (Iceberg.Snapshot.snapshotById tm toSid)
+  let snapsInRange = collectSnapsBetween tm fromSid toSnap
+      snapIds = IntSet.fromList (map (fromIntegral . snapId) snapsInRange)
+      taskFor snap = do
+        bs <- readMlByPath (snapManifestList snap)
+        (_, mfs) <- readManifestList bs
+        let dataMfs = V.filter (\mf -> mfContent mf == DataContent) mfs
+        entryVecs <- V.mapM (readAndInherit readManifestByPath) dataMfs
+        let entries = V.concat (V.toList entryVecs)
+            keep me = case meSnapshotId me of
+              Just s  -> meStatus me == Added && IntSet.member (fromIntegral s) snapIds
+              Nothing -> False
+        Right (V.filter keep entries)
+  perSnap <- mapM taskFor snapsInRange
+  let tasks = V.concat perSnap
+      result = V.map (\me -> FileScanTask
+                       { fstDataFile    = me
+                       , fstDeleteFiles = V.empty
+                       , fstSpecId      = 0
+                       }) tasks
+  Right IncrementalScanPlan
+    { ispFromSnapshot = fromSid
+    , ispToSnapshot   = toSid
+    , ispAddedFiles   = result
+    }
+  where
+    readAndInherit readMf manifest = do
+      bs <- readMf (mfPath manifest)
+      (_, entries) <- readManifestEntries bs
+      Right (V.map (inheritSequenceNumbers manifest) entries)
+
+-- | Collect the snapshots whose ancestry sits in (@from@, @to@] - i.e.
+-- the snapshots /strictly after/ @from@ and up to and including @to@.
+-- @from = Nothing@ means "every ancestor of @to@".
+collectSnapsBetween :: TableMetadata -> Maybe Int64 -> Snapshot -> [Snapshot]
+collectSnapsBetween tm fromSid to0 = go to0
+  where
+    go s
+      | maybe False (== snapId s) fromSid = []
+      | otherwise = s : case snapParentId s >>= Iceberg.Snapshot.snapshotById tm of
+          Just parent -> go parent
+          Nothing     -> []
+
+-- | A row-level changelog operation type. Mirrors the @_change_type@
+-- reserved column the Iceberg spec uses for CDC scans.
+data ChangelogOp = OpInsert | OpDelete | OpUpdateBefore | OpUpdateAfter
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+-- | A single change-row task: the @ManifestEntry@ that produced the
+-- change plus its operation type.
+data ChangelogTask = ChangelogTask
+  { ctEntry     :: !ManifestEntry
+  , ctOperation :: !ChangelogOp
+  , ctSnapshot  :: !Snapshot
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+-- | Mirror of Java's @IncrementalChangelogScan@: emit one
+-- ChangelogTask per row-level change (insert / delete / update) in
+-- the snapshot range.
+--
+-- This is a /metadata/-level changelog: the operation type comes from
+-- the manifest entry's status (Added => Insert / UpdateAfter,
+-- Deleted => Delete / UpdateBefore). Resolving update pairs needs the
+-- engine's row-level diff which is out of scope here; we surface the
+-- raw insert + delete tasks so a downstream operator can pair them.
+planIncrementalChangelog
+  :: TableMetadata
+  -> Maybe Int64
+  -> Int64
+  -> (Text -> Either String ByteString)
+  -> (Text -> Either String ByteString)
+  -> Either String (V.Vector ChangelogTask)
+planIncrementalChangelog tm fromSid toSid readMlByPath readManifestByPath = do
+  toSnap <- maybe (Left $ "planIncrementalChangelog: no snapshot " ++ show toSid) Right
+              (Iceberg.Snapshot.snapshotById tm toSid)
+  let snapsInRange = collectSnapsBetween tm fromSid toSnap
+      taskFor snap = do
+        bs <- readMlByPath (snapManifestList snap)
+        (_, mfs) <- readManifestList bs
+        entryVecs <- V.mapM (readAndInherit readManifestByPath) mfs
+        let entries = V.concat (V.toList entryVecs)
+            mkTask me = case meStatus me of
+              Added   -> Just (ChangelogTask me OpInsert snap)
+              Deleted -> Just (ChangelogTask me OpDelete snap)
+              Existing -> Nothing
+        Right (V.fromList (V.toList (V.mapMaybe mkTask entries)))
+  vs <- mapM taskFor snapsInRange
+  Right (V.concat vs)
+  where
+    readAndInherit readMf manifest = do
+      bs <- readMf (mfPath manifest)
+      (_, entries) <- readManifestEntries bs
+      Right (V.map (inheritSequenceNumbers manifest) entries)
+

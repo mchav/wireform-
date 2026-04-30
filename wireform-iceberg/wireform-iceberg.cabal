@@ -94,6 +94,7 @@ test-suite iceberg-test
     Test.Iceberg.BoundTrunc
     Test.Iceberg.DeletionVector
     Test.Iceberg.Expression
+    Test.Iceberg.Incremental
     Test.Iceberg.ManifestMerge
     Test.Iceberg.MetricsConfig
     Test.Iceberg.Murmur3
