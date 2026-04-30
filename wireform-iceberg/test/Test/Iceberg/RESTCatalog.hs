@@ -50,4 +50,42 @@ tests = testGroup "Iceberg.Catalog.REST"
       case Aeson.eitherDecode (Aeson.encode err) of
         Right e' -> e' @?= err
         Left e   -> assertFailure e
+
+  , testCase "RenameTableRequest JSON round-trip" $ do
+      let req = RenameTableRequest
+            { rtSource      = TableIdentifier (V.singleton "ns") "old"
+            , rtDestination = TableIdentifier (V.singleton "ns") "new"
+            }
+      case Aeson.eitherDecode (Aeson.encode req) of
+        Right (req' :: RenameTableRequest) -> req' @?= req
+        Left e -> assertFailure e
+
+  , testCase "RegisterTableRequest JSON round-trip" $ do
+      let req = RegisterTableRequest
+            { rgrName             = "orders"
+            , rgrMetadataLocation = "s3://b/m/v3.metadata.json"
+            , rgrOverwrite        = False
+            }
+      case Aeson.eitherDecode (Aeson.encode req) of
+        Right (req' :: RegisterTableRequest) -> req' @?= req
+        Left e -> assertFailure e
+
+  , testCase "UpdateNamespacePropertiesRequest JSON round-trip" $ do
+      let req = UpdateNamespacePropertiesRequest
+            { unprRemovals = V.fromList ["k1"]
+            , unprUpdates  = Map.fromList [("k2", "v2")]
+            }
+      case Aeson.eitherDecode (Aeson.encode req) of
+        Right (req' :: UpdateNamespacePropertiesRequest) -> req' @?= req
+        Left e -> assertFailure e
+
+  , testCase "UpdateNamespacePropertiesResponse JSON round-trip" $ do
+      let resp = UpdateNamespacePropertiesResponse
+            { unprspUpdated = V.fromList ["k1"]
+            , unprspRemoved = V.fromList ["k2"]
+            , unprspMissing = V.fromList ["k3"]
+            }
+      case Aeson.eitherDecode (Aeson.encode resp) of
+        Right (resp' :: UpdateNamespacePropertiesResponse) -> resp' @?= resp
+        Left e -> assertFailure e
   ]

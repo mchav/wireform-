@@ -36,14 +36,21 @@ module Iceberg.Catalog.REST.Client
   , createNamespace
   , loadNamespace
   , dropNamespace
+    -- * Namespace property updates
+  , updateNamespaceProperties
     -- * Tables
   , listTables
   , createTable
   , loadTable
   , commitTable
   , dropTable
+  , renameTable
+  , registerTable
     -- * Views
   , listViews
+  , loadView
+  , createView
+  , dropView
     -- * Errors
   , CatalogClientError(..)
   ) where
@@ -74,13 +81,19 @@ import Iceberg.Catalog.REST
   , CreateNamespaceRequest
   , CreateNamespaceResponse
   , CreateTableRequest
+  , CreateViewRequest
   , GetNamespaceResponse
   , ListNamespacesResponse (..)
   , ListTablesResponse
   , ListViewsResponse
   , LoadTableResult
+  , LoadViewResult
   , Namespace
+  , RegisterTableRequest
+  , RenameTableRequest (..)
   , TableIdentifier (..)
+  , UpdateNamespacePropertiesRequest
+  , UpdateNamespacePropertiesResponse
   )
 
 -- ============================================================
@@ -205,6 +218,57 @@ listViews cc ns =
   doRequest cc HT.methodGet
     (catalogPath cc ("/namespaces/" <> namespaceSegment ns <> "/views"))
     Nothing
+
+-- | @POST /v1/{prefix}/tables/rename@
+renameTable :: CatalogClient -> RenameTableRequest -> IO ()
+renameTable cc req =
+  doRequest_ cc HT.methodPost
+    (catalogPath cc "/tables/rename")
+    (Just (Aeson.encode req))
+
+-- | @POST /v1/{prefix}/namespaces/{ns}/register@. Registers an existing
+-- on-disk metadata file as a new logical table without rewriting any data.
+registerTable
+  :: CatalogClient -> Namespace -> RegisterTableRequest -> IO LoadTableResult
+registerTable cc ns req =
+  doRequest cc HT.methodPost
+    (catalogPath cc ("/namespaces/" <> namespaceSegment ns <> "/register"))
+    (Just (Aeson.encode req))
+
+-- | @POST /v1/{prefix}/namespaces/{ns}/properties@.
+updateNamespaceProperties
+  :: CatalogClient
+  -> Namespace
+  -> UpdateNamespacePropertiesRequest
+  -> IO UpdateNamespacePropertiesResponse
+updateNamespaceProperties cc ns req =
+  doRequest cc HT.methodPost
+    (catalogPath cc ("/namespaces/" <> namespaceSegment ns <> "/properties"))
+    (Just (Aeson.encode req))
+
+-- | @GET /v1/{prefix}/namespaces/{ns}/views/{name}@.
+loadView :: CatalogClient -> TableIdentifier -> IO LoadViewResult
+loadView cc ti =
+  doRequest cc HT.methodGet (viewPath cc ti) Nothing
+
+-- | @POST /v1/{prefix}/namespaces/{ns}/views@.
+createView
+  :: CatalogClient -> Namespace -> CreateViewRequest -> IO LoadViewResult
+createView cc ns req =
+  doRequest cc HT.methodPost
+    (catalogPath cc ("/namespaces/" <> namespaceSegment ns <> "/views"))
+    (Just (Aeson.encode req))
+
+-- | @DELETE /v1/{prefix}/namespaces/{ns}/views/{name}@.
+dropView :: CatalogClient -> TableIdentifier -> IO ()
+dropView cc ti =
+  doRequest_ cc HT.methodDelete (viewPath cc ti) Nothing
+
+viewPath :: CatalogClient -> TableIdentifier -> ByteString
+viewPath cc ti =
+  catalogPath cc
+    ( "/namespaces/" <> namespaceSegment (REST.tiNamespace ti)
+        <> "/views/" <> TE.encodeUtf8 (REST.tiName ti) )
 
 -- ============================================================
 -- Internals

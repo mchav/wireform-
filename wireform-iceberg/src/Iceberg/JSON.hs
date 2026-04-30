@@ -15,6 +15,8 @@ module Iceberg.JSON
     -- * View metadata
   , viewMetadataToJSON
   , viewMetadataFromJSON
+  , viewVersionToJSON
+  , viewVersionFromJSON
     -- * Schema fragments
   , schemaToJSON
   , schemaFromJSON

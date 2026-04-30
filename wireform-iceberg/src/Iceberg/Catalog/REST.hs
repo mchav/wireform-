@@ -34,9 +34,16 @@ module Iceberg.Catalog.REST
   , LoadTableResult(..)
   , CommitTableRequest(..)
   , CommitTableResponse(..)
+    -- * Table - rename / register
+  , RenameTableRequest(..)
+  , RegisterTableRequest(..)
+    -- * Namespace properties
+  , UpdateNamespacePropertiesRequest(..)
+  , UpdateNamespacePropertiesResponse(..)
     -- * View
   , ListViewsResponse(..)
   , LoadViewResult(..)
+  , CreateViewRequest(..)
     -- * Updates and requirements
   , TableUpdate(..)
   , TableRequirement(..)
@@ -69,6 +76,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 
+import qualified Iceberg.JSON
 import Iceberg.JSON (metadataToJSON, metadataFromJSON, schemaToJSON, schemaFromJSON)
 import Iceberg.Types
 
@@ -159,6 +167,44 @@ data ListViewsResponse = ListViewsResponse
 data LoadViewResult = LoadViewResult
   { lvMetadataLocation :: !(Maybe Text)
   , lvMetadata         :: !ViewMetadata
+  } deriving (Show, Eq)
+
+-- | Body of @POST /v1/{prefix}/tables/rename@.
+data RenameTableRequest = RenameTableRequest
+  { rtSource      :: !TableIdentifier
+  , rtDestination :: !TableIdentifier
+  } deriving (Show, Eq)
+
+-- | Body of @POST /v1/{prefix}/namespaces/{ns}/register@.
+-- Registers an existing on-disk metadata file as a new logical table
+-- without rewriting any data.
+data RegisterTableRequest = RegisterTableRequest
+  { rgrName            :: !Text
+  , rgrMetadataLocation :: !Text
+  , rgrOverwrite       :: !Bool
+  } deriving (Show, Eq)
+
+-- | Body of @POST /v1/{prefix}/namespaces/{ns}/properties@.
+-- Atomically applies a set of property edits.
+data UpdateNamespacePropertiesRequest = UpdateNamespacePropertiesRequest
+  { unprRemovals :: !(Vector Text)
+  , unprUpdates  :: !(Map Text Text)
+  } deriving (Show, Eq)
+
+-- | Returned by @POST /v1/{prefix}/namespaces/{ns}/properties@.
+data UpdateNamespacePropertiesResponse = UpdateNamespacePropertiesResponse
+  { unprspUpdated :: !(Vector Text)
+  , unprspRemoved :: !(Vector Text)
+  , unprspMissing :: !(Vector Text)
+  } deriving (Show, Eq)
+
+-- | Body of @POST /v1/{prefix}/namespaces/{ns}/views@.
+data CreateViewRequest = CreateViewRequest
+  { cvrName        :: !Text
+  , cvrLocation    :: !(Maybe Text)
+  , cvrSchema      :: !Schema
+  , cvrViewVersion :: !ViewVersion
+  , cvrProperties  :: !(Map Text Text)
   } deriving (Show, Eq)
 
 -- ============================================================
@@ -494,6 +540,98 @@ instance Aeson.ToJSON ListViewsResponse where
 instance Aeson.FromJSON ListViewsResponse where
   parseJSON = Aeson.withObject "ListViewsResponse" $ \o ->
     ListViewsResponse <$> (V.fromList <$> o Aeson..: "identifiers")
+
+instance Aeson.ToJSON LoadViewResult where
+  toJSON r = Aeson.object $
+    [ "metadata" Aeson..= viewMetadataToJSON' (lvMetadata r) ]
+    ++ maybe [] (\m -> [ "metadata-location" Aeson..= m ]) (lvMetadataLocation r)
+    where
+      viewMetadataToJSON' = Iceberg.JSON.viewMetadataToJSON
+
+instance Aeson.FromJSON LoadViewResult where
+  parseJSON = Aeson.withObject "LoadViewResult" $ \o -> do
+    loc <- o Aeson..:? "metadata-location"
+    md  <- o Aeson..: "metadata"
+    case Iceberg.JSON.viewMetadataFromJSON md of
+      Right vm -> pure (LoadViewResult loc vm)
+      Left e   -> fail e
+
+instance Aeson.ToJSON RenameTableRequest where
+  toJSON r = Aeson.object
+    [ "source"      Aeson..= rtSource r
+    , "destination" Aeson..= rtDestination r
+    ]
+
+instance Aeson.FromJSON RenameTableRequest where
+  parseJSON = Aeson.withObject "RenameTableRequest" $ \o ->
+    RenameTableRequest <$> o Aeson..: "source" <*> o Aeson..: "destination"
+
+instance Aeson.ToJSON RegisterTableRequest where
+  toJSON r = Aeson.object
+    [ "name"              Aeson..= rgrName r
+    , "metadata-location" Aeson..= rgrMetadataLocation r
+    , "overwrite"         Aeson..= rgrOverwrite r
+    ]
+
+instance Aeson.FromJSON RegisterTableRequest where
+  parseJSON = Aeson.withObject "RegisterTableRequest" $ \o ->
+    RegisterTableRequest
+      <$> o Aeson..: "name"
+      <*> o Aeson..: "metadata-location"
+      <*> o Aeson..:? "overwrite" Aeson..!= False
+
+instance Aeson.ToJSON UpdateNamespacePropertiesRequest where
+  toJSON r = Aeson.object
+    [ "removals" Aeson..= V.toList (unprRemovals r)
+    , "updates"  Aeson..= mapToJSON (unprUpdates r)
+    ]
+
+instance Aeson.FromJSON UpdateNamespacePropertiesRequest where
+  parseJSON = Aeson.withObject "UpdateNamespacePropertiesRequest" $ \o -> do
+    removes <- o Aeson..:? "removals" Aeson..!= []
+    updates <- o Aeson..:? "updates" Aeson..!= Aeson.Null >>= mapFromJSON
+    pure (UpdateNamespacePropertiesRequest (V.fromList removes) updates)
+
+instance Aeson.ToJSON UpdateNamespacePropertiesResponse where
+  toJSON r = Aeson.object
+    [ "updated" Aeson..= V.toList (unprspUpdated r)
+    , "removed" Aeson..= V.toList (unprspRemoved r)
+    , "missing" Aeson..= V.toList (unprspMissing r)
+    ]
+
+instance Aeson.FromJSON UpdateNamespacePropertiesResponse where
+  parseJSON = Aeson.withObject "UpdateNamespacePropertiesResponse" $ \o -> do
+    upd <- o Aeson..:? "updated" Aeson..!= []
+    rem' <- o Aeson..:? "removed" Aeson..!= []
+    mis <- o Aeson..:? "missing" Aeson..!= []
+    pure $ UpdateNamespacePropertiesResponse
+      (V.fromList upd) (V.fromList rem') (V.fromList mis)
+
+instance Aeson.ToJSON CreateViewRequest where
+  toJSON r = Aeson.object $
+    [ "name"         Aeson..= cvrName r
+    , "schema"       Aeson..= schemaToJSON (cvrSchema r)
+    , "view-version" Aeson..= viewVersionToJSON (cvrViewVersion r)
+    , "properties"   Aeson..= mapToJSON (cvrProperties r)
+    ]
+    ++ maybe [] (\l -> [ "location" Aeson..= l ]) (cvrLocation r)
+    where
+      viewVersionToJSON = Iceberg.JSON.viewVersionToJSON
+
+instance Aeson.FromJSON CreateViewRequest where
+  parseJSON = Aeson.withObject "CreateViewRequest" $ \o -> do
+    name <- o Aeson..: "name"
+    loc  <- o Aeson..:? "location"
+    schemaJson <- o Aeson..: "schema"
+    schema <- case schemaFromJSON schemaJson of
+      Right s -> pure s
+      Left e  -> fail e
+    vvJson <- o Aeson..: "view-version"
+    vv <- case Iceberg.JSON.viewVersionFromJSON vvJson of
+      Right v -> pure v
+      Left e  -> fail e
+    props <- o Aeson..:? "properties" Aeson..!= Aeson.Null >>= mapFromJSON
+    pure $ CreateViewRequest name loc schema vv props
 
 -- ============================================================
 -- Helpers
