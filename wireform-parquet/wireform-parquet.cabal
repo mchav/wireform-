@@ -36,6 +36,7 @@ library
     Parquet.Footer
     Parquet.Levels
     Parquet.LevelsEncode
+    Parquet.NullPagesBitmap
     Parquet.Page
     Parquet.PageIndex
     Parquet.Read

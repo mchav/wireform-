@@ -16,6 +16,7 @@ import qualified Crypto.Random as RNG
 import Parquet.BloomFilter
 import Parquet.Delta (decodeDeltaBinaryPackedInt64)
 import Parquet.DeltaEncode (encodeDeltaBinaryPackedInt64)
+import qualified Parquet.NullPagesBitmap as NPB
 import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
 import Parquet.Read (loadParquetFile, pfFooter)
@@ -313,6 +314,17 @@ main = do
     (BS.length dictPage > 4)
   expect "dictionary data page is non-empty"
     (BS.length dataPage > 4)
+
+  -- NullPagesBitmap: pack a Vector Bool into an LSB-first bitmap,
+  -- count null pages via SIMD popcount, list non-null page indices.
+  let nullPages = V.fromList [True, False, True, False, False, True, True, False, True]
+      packed = NPB.packNullPages nullPages
+  expect "nullPagesBitmap round-trip"
+    (NPB.unpackNullPages (V.length nullPages) packed == nullPages)
+  expect "nullPagesBitmap popcount"
+    (NPB.nullPageCount packed == 5)
+  expect "nullPagesBitmap nonNullPages == [1,3,4,7]"
+    (V.toList (NPB.nonNullPages (V.length nullPages) packed) == [1, 3, 4, 7])
 
   -- DELTA_BINARY_PACKED writer round-trips through the reader for a few
   -- shapes (constant deltas, mixed deltas, negative deltas, single value).
