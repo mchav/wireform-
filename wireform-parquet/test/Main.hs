@@ -67,6 +67,7 @@ import Parquet.Write
   , encodeDictDataPage
   , encodeDictPage
   , encodeOptionalColumnPage
+  , encryptAuxModule
   , encryptPageBytes
   , encryptPageBytesV2
   , optionalColumnLength
@@ -489,6 +490,67 @@ main = do
             Right plain -> expect "V2 CTR values round-trip"
                                   (plain == valsV2)
             Left e -> failTest ("V2 CTR decrypt values: " ++ e)
+
+  -- Encrypted aux modules: bloom filter / offset index / column
+  -- index payloads are wrapped as separate GCM modules under their
+  -- spec-assigned ModuleType AAD when caEncryption is set on the
+  -- column. We exercise this by feeding the resulting bytes back
+  -- through Enc.decryptGcmModule under the matching AAD.
+  do
+    let bfx = sbbfInsertHash 0xdeadbeef (newSbbf (optimalNumBytes 1024 0.01))
+        oix = OffsetIndex
+                { oiPageLocations = V.singleton (PageLocation 0 16 0)
+                , oiUnencodedByteArrayDataBytes = Nothing
+                }
+        cix = ColumnIndex
+                { ciNullPages = V.singleton False
+                , ciMinValues = V.singleton (BS.pack [0x01, 0, 0, 0])
+                , ciMaxValues = V.singleton (BS.pack [0x04, 0, 0, 0])
+                , ciBoundaryOrder = OrderAscending
+                , ciNullCounts = Nothing
+                , ciRepetitionLevelHistograms = Nothing
+                , ciDefinitionLevelHistograms = Nothing
+                }
+        rawBloom = encodeBloomFilter bfx
+        rawOff   = encodeOffsetIndex oix
+        rawCol   = encodeColumnIndex cix
+        encOf mt = encryptAuxModule
+                    (Just (ce Enc.AesGcmV1)) mt 0
+        aadOf mt = Enc.buildAad BS.empty
+                    (Enc.buildAadSuffix (BSC.pack "fileid01") mt 0 0 0)
+    case Enc.decryptGcmModule encKey
+           (aadOf Enc.ModuleBloomFilterBitset)
+           (encOf Enc.ModuleBloomFilterBitset rawBloom) of
+      Right p -> expect "encrypted bloom filter module round-trips"
+                        (p == rawBloom)
+      Left e  -> failTest ("decrypt bloom filter module: " ++ e)
+    case Enc.decryptGcmModule encKey
+           (aadOf Enc.ModuleOffsetIndex)
+           (encOf Enc.ModuleOffsetIndex rawOff) of
+      Right p -> expect "encrypted offset-index module round-trips"
+                        (p == rawOff)
+      Left e  -> failTest ("decrypt offset-index module: " ++ e)
+    case Enc.decryptGcmModule encKey
+           (aadOf Enc.ModuleColumnIndex)
+           (encOf Enc.ModuleColumnIndex rawCol) of
+      Right p -> expect "encrypted column-index module round-trips"
+                        (p == rawCol)
+      Left e  -> failTest ("decrypt column-index module: " ++ e)
+    -- A whole-file build with caEncryption + bloom/offset/column
+    -- index aux must produce a different file from the same build
+    -- without the encryption (i.e. the auxes really got encrypted).
+    let auxEnc = ColumnAux (Just bfx) (Just oix) (Just cix)
+                           Uncompressed PageV1 (Just (ce Enc.AesGcmV1))
+        auxPlain = ColumnAux (Just bfx) (Just oix) (Just cix)
+                             Uncompressed PageV1 Nothing
+        encFileEnc = buildParquetFileWithIndex encSchema
+                       (V.singleton (V.singleton encVals))
+                       (V.singleton (V.singleton auxEnc))
+        encFilePlain = buildParquetFileWithIndex encSchema
+                       (V.singleton (V.singleton encVals))
+                       (V.singleton (V.singleton auxPlain))
+    expect "aux-encrypted file diverges from plaintext-aux file"
+      (encFileEnc /= encFilePlain)
 
   -- Whole-file V2 + encryption: ColumnAux carries both PageV2 and
   -- ColumnEncryption, so buildParquetFileWithIndex must dispatch

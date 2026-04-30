@@ -31,6 +31,7 @@ module Parquet.Write
   , columnEncryptionFor
   , encryptPageBytes
   , encryptPageBytesV2
+  , encryptAuxModule
     -- * Column data
   , ColumnData(..)
   , columnDataLength
@@ -953,6 +954,26 @@ encryptPageBytesV2 ce rgOrd pageOrd hdrBytes repBytes defBytes valBytes = do
     Enc.AesGcmCtrV1 -> Enc.encryptCtrModulePure (ceKey ce) valBytes
   Right (BS.concat [encHdr, repBytes, defBytes, encVals])
 
+-- | Encrypt a single auxiliary module (bloom filter, offset index,
+-- column index) with the column's GCM key under the module's AAD,
+-- when 'caEncryption' is set. Returns the original payload unchanged
+-- otherwise. CTR isn't used for these modules even on
+-- 'AesGcmCtrV1' columns: the spec mandates GCM for everything except
+-- data\/dictionary page bodies, so the algorithm flag is irrelevant
+-- here.
+encryptAuxModule
+  :: Maybe ColumnEncryption -> Enc.ModuleType -> Int -> ByteString -> ByteString
+encryptAuxModule mEnc mt rgOrd payload = case mEnc of
+  Nothing -> payload
+  Just ce ->
+    let !suffix = Enc.buildAadSuffix
+                    (ceFileId ce) mt
+                    (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) 0
+        !aad    = Enc.buildAad (ceAadPrefix ce) suffix
+     in case Enc.encryptGcmModulePure (ceKey ce) aad payload of
+          Right enc -> enc
+          Left  _   -> payload
+
 layoutBlooms
   :: V.Vector RowGroup
   -> V.Vector (V.Vector ColumnAux)
@@ -967,21 +988,30 @@ layoutBlooms rgs auxes start = go 0 start [] V.empty
               !cols = rgColumns rg
               !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
               (!cols', !off', !payloads') =
-                V.ifoldl' (rewriteCol aux) (V.empty, off, payloads) cols
+                V.ifoldl' (rewriteCol i aux) (V.empty, off, payloads) cols
               !rg' = rg { rgColumns = cols' }
            in go (i + 1) off' payloads' (V.snoc acc rg')
 
     rewriteCol
-      :: V.Vector ColumnAux
+      :: Int                       -- row-group ordinal
+      -> V.Vector ColumnAux
       -> (V.Vector ColumnChunk, Int, [ByteString])
       -> Int -> ColumnChunk
       -> (V.Vector ColumnChunk, Int, [ByteString])
-    rewriteCol aux (!ccs, !off, !payloads) cIdx cc =
+    rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
       let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
        in case mAux >>= caBloomFilter of
             Nothing -> (V.snoc ccs cc, off, payloads)
             Just bf ->
-              let !bs = encodeBloomFilter bf
+              let !raw = encodeBloomFilter bf
+                  -- Encrypt the bloom filter bitset module if the
+                  -- column's encrypted. We treat the encoded bloom
+                  -- filter (which already includes the
+                  -- length-delimited header) as a single
+                  -- 'ModuleBloomFilterBitset' module per the spec's
+                  -- "modular encryption" framing.
+                  !bs  = encryptAuxModule (mAux >>= caEncryption)
+                           Enc.ModuleBloomFilterBitset rgOrd raw
                   !bsLen = BS.length bs
                   !cm0 = fromMaybe defaultMetadata (ccMetadata cc)
                   !cm' = cm0
@@ -1014,21 +1044,24 @@ layoutOffsetIndex rgs auxes start _ = go 0 start [] V.empty
               !cols = rgColumns rg
               !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
               (!cols', !off', !payloads') =
-                V.ifoldl' (rewriteCol aux) (V.empty, off, payloads) cols
+                V.ifoldl' (rewriteCol i aux) (V.empty, off, payloads) cols
               !rg' = rg { rgColumns = cols' }
            in go (i + 1) off' payloads' (V.snoc acc rg')
 
     rewriteCol
-      :: V.Vector ColumnAux
+      :: Int
+      -> V.Vector ColumnAux
       -> (V.Vector ColumnChunk, Int, [ByteString])
       -> Int -> ColumnChunk
       -> (V.Vector ColumnChunk, Int, [ByteString])
-    rewriteCol aux (!ccs, !off, !payloads) cIdx cc =
+    rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
       let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
        in case mAux >>= caOffsetIndex of
             Nothing -> (V.snoc ccs cc, off, payloads)
             Just oi ->
-              let !bs = encodeOffsetIndex oi
+              let !raw = encodeOffsetIndex oi
+                  !bs  = encryptAuxModule (mAux >>= caEncryption)
+                           Enc.ModuleOffsetIndex rgOrd raw
                   !bsLen = BS.length bs
                   !cc' = cc
                     { ccOffsetIndexOffset = Just (fromIntegral off)
@@ -1050,21 +1083,24 @@ layoutColumnIndex rgs auxes start = go 0 start [] V.empty
               !cols = rgColumns rg
               !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
               (!cols', !off', !payloads') =
-                V.ifoldl' (rewriteCol aux) (V.empty, off, payloads) cols
+                V.ifoldl' (rewriteCol i aux) (V.empty, off, payloads) cols
               !rg' = rg { rgColumns = cols' }
            in go (i + 1) off' payloads' (V.snoc acc rg')
 
     rewriteCol
-      :: V.Vector ColumnAux
+      :: Int
+      -> V.Vector ColumnAux
       -> (V.Vector ColumnChunk, Int, [ByteString])
       -> Int -> ColumnChunk
       -> (V.Vector ColumnChunk, Int, [ByteString])
-    rewriteCol aux (!ccs, !off, !payloads) cIdx cc =
+    rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
       let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
        in case mAux >>= caColumnIndex of
             Nothing -> (V.snoc ccs cc, off, payloads)
             Just ci ->
-              let !bs = encodeColumnIndex ci
+              let !raw = encodeColumnIndex ci
+                  !bs  = encryptAuxModule (mAux >>= caEncryption)
+                           Enc.ModuleColumnIndex rgOrd raw
                   !bsLen = BS.length bs
                   !cc' = cc
                     { ccColumnIndexOffset = Just (fromIntegral off)
