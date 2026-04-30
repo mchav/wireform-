@@ -54,7 +54,7 @@ HS_INLINE uint32_t hs_rotl32(uint32_t x, int r) {
     return (x << r) | (x >> ((32 - r) & 31));
 }
 
-int32_t hs_iceberg_murmur3_32(const uint8_t *buf, int32_t len)
+int32_t hs_wf_murmur3_32(const uint8_t *buf, int32_t len)
 {
     const uint32_t c1 = MURMUR_C1;
     const uint32_t c2 = MURMUR_C2;
@@ -112,7 +112,7 @@ int32_t hs_iceberg_murmur3_32(const uint8_t *buf, int32_t len)
 }
 
 /* Inline 8-byte (long) bucket: avoid a tiny memcpy + function call. */
-int32_t hs_iceberg_bucket_long(int64_t value, int32_t buckets)
+int32_t hs_wf_bucket_long(int64_t value, int32_t buckets)
 {
     uint8_t buf[8];
     uint64_t u = (uint64_t)value;
@@ -124,7 +124,7 @@ int32_t hs_iceberg_bucket_long(int64_t value, int32_t buckets)
     buf[5] = (uint8_t)(u >> 40);
     buf[6] = (uint8_t)(u >> 48);
     buf[7] = (uint8_t)(u >> 56);
-    int32_t h = hs_iceberg_murmur3_32(buf, 8);
+    int32_t h = hs_wf_murmur3_32(buf, 8);
     uint32_t pos = (uint32_t)h & 0x7fffffffu;
     return (int32_t)(pos % (uint32_t)buckets);
 }
@@ -160,7 +160,7 @@ HS_INLINE uint64_t xxh_merge(uint64_t acc, uint64_t val) {
     return acc;
 }
 
-uint64_t hs_iceberg_xxh64(const uint8_t *buf, int64_t len, uint64_t seed)
+uint64_t hs_wf_xxh64(const uint8_t *buf, int64_t len, uint64_t seed)
 {
     const uint8_t *p   = buf;
     const uint8_t *end = buf + len;
@@ -237,7 +237,7 @@ uint64_t hs_iceberg_xxh64(const uint8_t *buf, int64_t len, uint64_t seed)
 /* Decode an ARRAY container of @cardinality@ uint16 values starting at
  * @src@ and write them, OR'd with @hi << 16@, into @dst[0..cardinality)@.
  * Returns the number of bytes consumed (always cardinality * 2). */
-int32_t hs_iceberg_roaring_decode_array(
+int32_t hs_wf_roaring_decode_array(
     const uint8_t *src,
     int32_t cardinality,
     uint32_t hi,
@@ -277,7 +277,7 @@ int32_t hs_iceberg_roaring_decode_array(
  * __builtin_ctzll to find the next set bit, which beats SIMD here on x86-64
  * because of the BMI1 BLSR instruction.
  */
-int32_t hs_iceberg_roaring_decode_bitset(
+int32_t hs_wf_roaring_decode_bitset(
     const uint8_t *src,
     uint32_t hi,
     int32_t *dst)
@@ -303,7 +303,7 @@ int32_t hs_iceberg_roaring_decode_bitset(
  *
  * @value16 is the 16-bit low half of the position to test. Returns 1 if
  * present, 0 otherwise. */
-int32_t hs_iceberg_roaring_contains(
+int32_t hs_wf_roaring_contains(
     int32_t kind,
     const uint8_t *src,
     int32_t cardinality,
@@ -352,7 +352,7 @@ int32_t hs_iceberg_roaring_contains(
 /* Bulk encode a sorted uint16 vector into an ARRAY container. The caller
  * already determined cardinality; we just unpack into the buffer. SIMDe
  * memcpy lanes give it a small boost over scalar. Returns bytes written. */
-int32_t hs_iceberg_roaring_encode_array(
+int32_t hs_wf_roaring_encode_array(
     const uint16_t *src,
     int32_t cardinality,
     uint8_t *dst)
@@ -363,7 +363,7 @@ int32_t hs_iceberg_roaring_encode_array(
 }
 
 /* Encode a sorted uint16 vector into a BITSET container (8192 bytes). */
-void hs_iceberg_roaring_encode_bitset(
+void hs_wf_roaring_encode_bitset(
     const uint16_t *src,
     int32_t cardinality,
     uint8_t *dst)
@@ -381,4 +381,4 @@ void hs_iceberg_roaring_encode_bitset(
     }
 }
 
-HS_UNUSED static const char *hs_iceberg_simd_version = "1";
+HS_UNUSED static const char *hs_wf_simd_version = "1";

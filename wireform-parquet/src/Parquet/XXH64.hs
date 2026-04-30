@@ -10,6 +10,9 @@
 module Parquet.XXH64
   ( xxh64
   , xxh64Seed
+    -- * Pure reference implementation (benchmark companion)
+  , xxh64_pure
+  , xxh64Seed_pure
   ) where
 
 import Data.Bits (rotateL, shiftR, unsafeShiftL, xor, (.|.))
@@ -18,6 +21,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Word (Word32, Word64)
 
+import qualified Wireform.Hash as WH
+
 prime1, prime2, prime3, prime4, prime5 :: Word64
 prime1 = 0x9E3779B185EBCA87
 prime2 = 0xC2B2AE3D27D4EB4F
@@ -25,14 +30,27 @@ prime3 = 0x165667B19E3779F9
 prime4 = 0x85EBCA77C2B2AE63
 prime5 = 0x27D4EB2F165667C5
 
--- | XXH64 with the default Parquet seed of @0@.
+-- | XXH64 with the default Parquet seed of @0@. Backed by the C/SIMDe
+-- kernel in @wireform-core@ (~3-50x faster than the pure reference
+-- depending on input length; see @wireform-iceberg/bench/RESULTS.md@).
 {-# INLINE xxh64 #-}
 xxh64 :: ByteString -> Word64
-xxh64 = xxh64Seed 0
+xxh64 = WH.xxh64 0
 
--- | XXH64 with an explicit seed.
+-- | XXH64 with an explicit seed. Same C kernel.
 xxh64Seed :: Word64 -> ByteString -> Word64
-xxh64Seed seed bs =
+xxh64Seed = WH.xxh64
+{-# INLINE xxh64Seed #-}
+
+-- | Pure-Haskell XXH64 reference. Equivalent to 'xxh64' but compiled by
+-- GHC without any C calls; used by the parquet bench to measure speedup.
+{-# INLINE xxh64_pure #-}
+xxh64_pure :: ByteString -> Word64
+xxh64_pure = xxh64Seed_pure 0
+
+-- | Pure-Haskell XXH64 reference with an explicit seed.
+xxh64Seed_pure :: Word64 -> ByteString -> Word64
+xxh64Seed_pure seed bs =
   let !len = BS.length bs
       !nStripes = len `shiftR` 5
       !tailOff = nStripes `unsafeShiftL` 5

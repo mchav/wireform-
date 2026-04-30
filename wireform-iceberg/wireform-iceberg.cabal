@@ -67,9 +67,6 @@ library
     time >= 1.9 && < 1.15,
     deepseq >= 1.4 && < 1.6,
     zlib >= 0.6 && < 0.8
-  c-sources: cbits/iceberg_simd.c
-  include-dirs: ../wireform-core/include/simde
-  cc-options: -O3 -march=native -Wall
 
 test-suite iceberg-test
   import: defaults

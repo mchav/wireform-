@@ -65,3 +65,15 @@ test-suite wireform-parquet-test
     bytestring >= 0.11 && < 0.13,
     vector >= 0.13 && < 0.14,
     primitive >= 0.7 && < 0.10
+
+benchmark parquet-bench
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  main-is: Bench.hs
+  ghc-options: -O2
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-parquet,
+    bytestring >= 0.11 && < 0.13,
+    criterion >= 1.5 && < 1.7
