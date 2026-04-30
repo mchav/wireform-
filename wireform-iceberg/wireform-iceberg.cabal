@@ -28,11 +28,15 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    Iceberg.Expression
     Iceberg.JSON
     Iceberg.Manifest
+    Iceberg.Murmur3
     Iceberg.Read
     Iceberg.SchemaEvolution
+    Iceberg.SingleValue
     Iceberg.Snapshot
+    Iceberg.Transform
     Iceberg.Types
   build-depends:
     base >= 4.16 && < 5,
@@ -48,3 +52,4 @@ library
     unordered-containers >= 0.2.16 && < 0.3,
     time >= 1.9 && < 1.15,
     deepseq >= 1.4 && < 1.6
+

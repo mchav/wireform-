@@ -27,6 +27,7 @@ import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
 import qualified Data.IntSet as IntSet
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Vector as V
@@ -39,7 +40,9 @@ import qualified Avro.Value as AV
 import Iceberg.SchemaEvolution (currentSchema)
 import Iceberg.Snapshot (applicableDeletes, currentSnapshot)
 import Iceberg.Types
-  ( FileFormat (..)
+  ( DataFile (..)
+  , FieldSummary (..)
+  , FileFormat (..)
   , ManifestContent (..)
   , ManifestEntry (..)
   , ManifestFile (..)
@@ -102,18 +105,19 @@ manifestEntryFromAvro ty val = do
   fileSeqNo <- lookupFieldOptional fields vals "file_sequence_number" optionalLong
   dfVal <- lookupField fields vals "data_file"
   dfTy <- fieldTypeByName fields "data_file"
-  (path, fmt, part, recCount, fileSz) <- dataFileFromAvro dfTy dfVal
+  df <- dataFileFromAvro dfTy dfVal
   Right
     ManifestEntry
       { meStatus = status
       , meSnapshotId = snapId
       , meSequenceNumber = seqNo
       , meFileSequenceNumber = fileSeqNo
-      , meFilePath = path
-      , meFileFormat = fmt
-      , mePartition = part
-      , meRecordCount = recCount
-      , meFileSizeBytes = fileSz
+      , meFilePath = dataFileFilePath df
+      , meFileFormat = dataFileFileFormat df
+      , mePartition = dataFilePartition df
+      , meRecordCount = dataFileRecordCount df
+      , meFileSizeBytes = dataFileFileSize df
+      , meDataFile = Just df
       }
 
 manifestFileFromAvro :: AvroType -> AV.Value -> Either String ManifestFile
@@ -134,6 +138,9 @@ manifestFileFromAvro ty val = do
   addRows <- lookupField fields vals "added_rows_count" >>= optionalInt64
   exRows <- lookupField fields vals "existing_rows_count" >>= optionalInt64
   delRows <- lookupField fields vals "deleted_rows_count" >>= optionalInt64
+  parts <- lookupFieldOptional fields vals "partitions" optionalFieldSummaryArray
+  keyMd <- lookupFieldOptional fields vals "key_metadata" optionalBytes
+  firstRow <- lookupFieldOptional fields vals "first_row_id" optionalLong
   Right
     ManifestFile
       { mfPath = path
@@ -149,15 +156,23 @@ manifestFileFromAvro ty val = do
       , mfAddedRowsCount = addRows
       , mfExistingRowsCount = exRows
       , mfDeletedRowsCount = delRows
+      , mfPartitions = maybe V.empty id parts
+      , mfKeyMetadata = keyMd
+      , mfFirstRowId = firstRow
       }
 
 -- * data_file
 
-dataFileFromAvro :: AvroType -> AV.Value -> Either String (Text, FileFormat, V.Vector (Maybe AV.Value), Int64, Int64)
+dataFileFromAvro :: AvroType -> AV.Value -> Either String DataFile
 dataFileFromAvro ty val = do
   fields <- recordFields ty
   vals <- asRecord val
   whenMismatch (V.length fields) (V.length vals)
+  contentInt <- lookupFieldOptional fields vals "content" optionalInt
+  let content = case contentInt of
+        Just 0 -> DataContent
+        Just _ -> DeletesContent
+        Nothing -> DataContent
   path <- lookupField fields vals "file_path" >>= asText
   fmtStr <- lookupField fields vals "file_format" >>= asText
   fmt <- parseFileFormat fmtStr
@@ -166,7 +181,42 @@ dataFileFromAvro ty val = do
   part <- partitionVector partTy partVal
   recCount <- lookupField fields vals "record_count" >>= asInt64
   fileSz <- lookupField fields vals "file_size_in_bytes" >>= asInt64
-  Right (path, fmt, part, recCount, fileSz)
+  colSizes  <- lookupFieldOptional fields vals "column_sizes" optionalIntInt64Map
+  valCounts <- lookupFieldOptional fields vals "value_counts" optionalIntInt64Map
+  nullCounts <- lookupFieldOptional fields vals "null_value_counts" optionalIntInt64Map
+  nanCounts  <- lookupFieldOptional fields vals "nan_value_counts" optionalIntInt64Map
+  lower <- lookupFieldOptional fields vals "lower_bounds" optionalIntBytesMap
+  upper <- lookupFieldOptional fields vals "upper_bounds" optionalIntBytesMap
+  keyMd <- lookupFieldOptional fields vals "key_metadata" optionalBytes
+  splitOff <- lookupFieldOptional fields vals "split_offsets" optionalLongArray
+  eqIds <- lookupFieldOptional fields vals "equality_ids" optionalIntArray
+  sortId <- lookupFieldOptional fields vals "sort_order_id" optionalInt
+  firstRow <- lookupFieldOptional fields vals "first_row_id" optionalLong
+  refData <- lookupFieldOptional fields vals "referenced_data_file" optionalText
+  cOff <- lookupFieldOptional fields vals "content_offset" optionalLong
+  cSz  <- lookupFieldOptional fields vals "content_size_in_bytes" optionalLong
+  Right DataFile
+    { dataFileContent = content
+    , dataFileFilePath = path
+    , dataFileFileFormat = fmt
+    , dataFilePartition = part
+    , dataFileRecordCount = recCount
+    , dataFileFileSize = fileSz
+    , dataFileColumnSizes = maybe Map.empty id colSizes
+    , dataFileValueCounts = maybe Map.empty id valCounts
+    , dataFileNullValueCounts = maybe Map.empty id nullCounts
+    , dataFileNanValueCounts = maybe Map.empty id nanCounts
+    , dataFileLowerBounds = maybe Map.empty id lower
+    , dataFileUpperBounds = maybe Map.empty id upper
+    , dataFileKeyMetadata = keyMd
+    , dataFileSplitOffsets = maybe V.empty id splitOff
+    , dataFileEqualityIds = maybe V.empty id eqIds
+    , dataFileSortOrderId = sortId
+    , dataFileFirstRowId = firstRow
+    , dataFileReferencedDataFile = refData
+    , dataFileContentOffset = cOff
+    , dataFileContentSize = cSz
+    }
 
 partitionVector :: AvroType -> AV.Value -> Either String (V.Vector (Maybe AV.Value))
 partitionVector partTy partVal = do
@@ -259,6 +309,104 @@ optionalInt64 v = optionalWith v $ \v' -> case v' of
 
 optionalLong :: AV.Value -> Either String (Maybe Int64)
 optionalLong = optionalInt64
+
+optionalBytes :: AV.Value -> Either String (Maybe ByteString)
+optionalBytes v = optionalWith v $ \v' -> case v' of
+  AV.Bytes bs -> Right bs
+  AV.Fixed bs -> Right bs
+  _           -> Left "Iceberg.Read: expected bytes in optional"
+
+optionalText :: AV.Value -> Either String (Maybe Text)
+optionalText v = optionalWith v $ \v' -> case v' of
+  AV.String s -> Right s
+  _           -> Left "Iceberg.Read: expected string in optional"
+
+-- | Iceberg manifest maps from int -> X are encoded as Avro arrays of
+-- @key_value@ records (the standard "logical map" trick).
+optionalIntInt64Map :: AV.Value -> Either String (Maybe (Map.Map Int Int64))
+optionalIntInt64Map v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  Map.fromList <$> mapM intInt64KV (V.toList arr)
+  where
+    intInt64KV (AV.Record vs) | V.length vs == 2 = do
+      k <- asInt32 (V.unsafeIndex vs 0)
+      n <- asInt64 (V.unsafeIndex vs 1)
+      Right (fromIntegral k, n)
+    intInt64KV _ = Left "Iceberg.Read: expected key_value record"
+
+optionalIntBytesMap :: AV.Value -> Either String (Maybe (Map.Map Int ByteString))
+optionalIntBytesMap v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  Map.fromList <$> mapM intBytesKV (V.toList arr)
+  where
+    intBytesKV (AV.Record vs) | V.length vs == 2 = do
+      k <- asInt32 (V.unsafeIndex vs 0)
+      bs <- asBytesLike (V.unsafeIndex vs 1)
+      Right (fromIntegral k, bs)
+    intBytesKV _ = Left "Iceberg.Read: expected key_value record"
+
+optionalLongArray :: AV.Value -> Either String (Maybe (V.Vector Int64))
+optionalLongArray v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  V.mapM asInt64 arr
+
+optionalIntArray :: AV.Value -> Either String (Maybe (V.Vector Int))
+optionalIntArray v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  V.mapM (\x -> fromIntegral <$> asInt32 x) arr
+
+optionalFieldSummaryArray :: AV.Value -> Either String (Maybe (V.Vector FieldSummary))
+optionalFieldSummaryArray v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  V.mapM fieldSummaryFromAvro arr
+
+fieldSummaryFromAvro :: AV.Value -> Either String FieldSummary
+fieldSummaryFromAvro (AV.Record vs)
+  | V.length vs >= 1 = do
+      cn <- asBool (V.unsafeIndex vs 0)
+      let nan = case lookupAt vs 1 of
+                  Just x  -> case unionInner x of
+                    Just (AV.Bool b) -> Just b
+                    _                -> Nothing
+                  Nothing -> Nothing
+          lo  = optionalBytesPure (lookupAt vs 2)
+          hi  = optionalBytesPure (lookupAt vs 3)
+      Right FieldSummary
+        { fsContainsNull = cn
+        , fsContainsNan = nan
+        , fsLowerBound = lo
+        , fsUpperBound = hi
+        }
+fieldSummaryFromAvro _ = Left "Iceberg.Read: expected field_summary record"
+
+asBool :: AV.Value -> Either String Bool
+asBool (AV.Bool b) = Right b
+asBool _ = Left "Iceberg.Read: expected Avro bool"
+
+asBytesLike :: AV.Value -> Either String ByteString
+asBytesLike (AV.Bytes b) = Right b
+asBytesLike (AV.Fixed b) = Right b
+asBytesLike _ = Left "Iceberg.Read: expected Avro bytes/fixed"
+
+avroArray :: AV.Value -> Either String (V.Vector AV.Value)
+avroArray (AV.Array xs) = Right xs
+avroArray _ = Left "Iceberg.Read: expected Avro array"
+
+lookupAt :: V.Vector a -> Int -> Maybe a
+lookupAt vs i
+  | i < V.length vs = Just (V.unsafeIndex vs i)
+  | otherwise       = Nothing
+
+unionInner :: AV.Value -> Maybe AV.Value
+unionInner (AV.Union 0 AV.Null) = Nothing
+unionInner (AV.Union _ inner)   = Just inner
+unionInner v                    = Just v
+
+optionalBytesPure :: Maybe AV.Value -> Maybe ByteString
+optionalBytesPure mv = case mv >>= unionInner of
+  Just (AV.Bytes b) -> Just b
+  Just (AV.Fixed b) -> Just b
+  _                 -> Nothing
 
 optionalWith :: AV.Value -> (AV.Value -> Either String a) -> Either String (Maybe a)
 optionalWith (AV.Union 0 AV.Null) _ = Right Nothing
