@@ -54,6 +54,10 @@ module Parquet.Encryption
   , encryptCtrModulePure
   , decryptGcmModule
   , decryptCtrModule
+    -- * Wire framing (4-byte length prefix per the spec, section 5.1)
+  , encryptGcmModuleFramed
+  , encryptCtrModuleFramed
+  , readFramedModule
     -- * Key configuration
   , EncryptionKeys(..)
   , EncryptionConfig(..)
@@ -313,6 +317,68 @@ decryptGcmModule = decryptModule
 -- | Decrypt an @nonce || ciphertext@ blob.
 decryptCtrModule :: ByteString -> ByteString -> Either String ByteString
 decryptCtrModule = decryptModuleCtr
+
+-- ============================================================
+-- Spec-compliant wire framing (length-prefixed)
+-- ============================================================
+--
+-- Per parquet-format Encryption.md §5.1, every encrypted module on
+-- the wire has a 4-byte little-endian length prefix giving the
+-- length of the @nonce || ct || (tag)@ blob. The previous helpers
+-- emit the raw blob; the *Framed wrappers add the length prefix so
+-- the writer stays byte-compatible with parquet-mr / arrow-rs.
+
+-- | Encrypt a module with deterministic-nonce GCM, framed per the
+-- spec: @<length: i32 LE> nonce(12) || ciphertext || tag(16)@.
+encryptGcmModuleFramed
+  :: ByteString  -- ^ key
+  -> ByteString  -- ^ aad
+  -> ByteString  -- ^ plaintext
+  -> Either String ByteString
+encryptGcmModuleFramed key aad plain = do
+  raw <- encryptGcmModulePure key aad plain
+  Right (frameModule raw)
+
+-- | Encrypt a module with deterministic-nonce CTR, framed per the
+-- spec: @<length: i32 LE> nonce(12) || ciphertext@.
+encryptCtrModuleFramed
+  :: ByteString
+  -> ByteString
+  -> Either String ByteString
+encryptCtrModuleFramed key plain = do
+  raw <- encryptCtrModulePure key plain
+  Right (frameModule raw)
+
+-- | Read one length-prefixed encrypted module from @bs@ starting at
+-- @off@. Returns the raw module bytes (nonce || ct || (tag)) plus
+-- the byte offset just past the module. Caller decrypts via
+-- 'decryptGcmModule' / 'decryptCtrModule'.
+readFramedModule :: ByteString -> Int -> Either String (ByteString, Int)
+readFramedModule bs off
+  | off + 4 > BS.length bs =
+      Left "Parquet.Encryption: short buffer reading framed module length"
+  | otherwise =
+      let !len = readLE32 bs off
+       in if off + 4 + len > BS.length bs
+            then Left "Parquet.Encryption: framed module runs past end of buffer"
+            else Right (BS.take len (BS.drop (off + 4) bs), off + 4 + len)
+
+-- | Prepend a 4-byte little-endian length to the module bytes.
+frameModule :: ByteString -> ByteString
+frameModule bs =
+  let !len = BS.length bs
+   in BL.toStrict $ B.toLazyByteString $
+        B.word32LE (fromIntegral len)
+        <> B.byteString bs
+
+-- | Read a 32-bit little-endian length from @bs@ at @off@.
+readLE32 :: ByteString -> Int -> Int
+readLE32 bs off =
+  let !b0 = fromIntegral (BS.index bs off)        :: Int
+      !b1 = fromIntegral (BS.index bs (off + 1)) :: Int
+      !b2 = fromIntegral (BS.index bs (off + 2)) :: Int
+      !b3 = fromIntegral (BS.index bs (off + 3)) :: Int
+   in b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
 
 -- ============================================================
 -- Internals

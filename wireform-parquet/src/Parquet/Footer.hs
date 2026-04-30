@@ -8,11 +8,16 @@
 -- the FileMetadata as a Thrift struct.
 module Parquet.Footer
   ( readFooter
+  , readFooterRaw
   , writeFooter
   , writeRawFooter
   , fileMetadataToThrift
+  , thriftToFileMetadata
   , parquetMagic
   , parquetEncryptedMagic
+    -- * Trailer parsing
+  , FooterTrailer (..)
+  , readFooterTrailer
   ) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
@@ -64,24 +69,55 @@ writeRawFooter magic encoded =
         <> B.word8 (fromIntegral ((metaLen `shiftR` 24) .&. 0xFF))
         <> B.byteString magic
 
-readFooter :: ByteString -> Either String FileMetadata
-readFooter bs
+-- | The bytes the footer trailer points at, plus which magic ended
+-- the file. For a plaintext-footer file (@PAR1@) the bytes are the
+-- compact-encoded 'FileMetadata' thrift; for an encrypted-footer
+-- file (@PARE@) they are the AES-GCM module the caller must
+-- decrypt before parsing the same thrift.
+data FooterTrailer = FooterTrailer
+  { ftMagic    :: !ByteString
+    -- ^ Either 'parquetMagic' or 'parquetEncryptedMagic'.
+  , ftBytes    :: !ByteString
+    -- ^ Footer bytes (raw thrift for plaintext, GCM module for
+    --   encrypted).
+  } deriving (Show, Eq)
+
+-- | Parse the trailing 8 bytes (length + magic) and slice out the
+-- footer module bytes. Doesn't decode them - that's the caller's
+-- decision based on which magic appeared.
+readFooterTrailer :: ByteString -> Either String FooterTrailer
+readFooterTrailer bs
   | BS.length bs < 8 = Left "Parquet.Footer: input too short"
-  | otherwise = do
+  | otherwise =
       let !totalLen = BS.length bs
           !magic = BSU.unsafeTake 4 (BSU.unsafeDrop (totalLen - 4) bs)
-      if magic /= parquetMagic
-        then Left "Parquet.Footer: invalid magic (expected PAR1)"
-        else do
-          let !metaLenOff = totalLen - 8
-              !metaLen = fromIntegral (readLE32 bs metaLenOff) :: Int
-          if metaLen < 0 || metaLen > totalLen - 8
-            then Left "Parquet.Footer: invalid metadata length"
-            else do
-              let !metaStart = totalLen - 8 - metaLen
-                  !metaBytes = BSU.unsafeTake metaLen (BSU.unsafeDrop metaStart bs)
-              thriftVal <- decodeCompact metaBytes
-              thriftToFileMetadata thriftVal
+       in if magic /= parquetMagic && magic /= parquetEncryptedMagic
+            then Left "Parquet.Footer: invalid magic (expected PAR1 or PARE)"
+            else
+              let !metaLenOff = totalLen - 8
+                  !metaLen    = fromIntegral (readLE32 bs metaLenOff) :: Int
+               in if metaLen < 0 || metaLen > totalLen - 8
+                    then Left "Parquet.Footer: invalid metadata length"
+                    else
+                      let !metaStart = totalLen - 8 - metaLen
+                          !metaBytes = BSU.unsafeTake metaLen
+                                        (BSU.unsafeDrop metaStart bs)
+                       in Right (FooterTrailer magic metaBytes)
+
+-- | Parse the plaintext-thrift bytes of a footer (i.e. what
+-- 'readFooterTrailer' returns for a @PAR1@ file or what the caller
+-- got after decrypting a @PARE@ footer module).
+readFooterRaw :: ByteString -> Either String FileMetadata
+readFooterRaw thriftBytes = do
+  thriftVal <- decodeCompact thriftBytes
+  thriftToFileMetadata thriftVal
+
+readFooter :: ByteString -> Either String FileMetadata
+readFooter bs = do
+  trailer <- readFooterTrailer bs
+  if ftMagic trailer == parquetEncryptedMagic
+    then Left "Parquet.Footer: file has encrypted footer (PARE); use loadParquetFileEncrypted"
+    else readFooterRaw (ftBytes trailer)
 
 readLE32 :: ByteString -> Int -> Word32
 readLE32 bs off =

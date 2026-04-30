@@ -916,10 +916,10 @@ encryptPageBytes ce bodyModule rgOrd pageOrd hdrBytes bodyBytes = do
                      (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
       !aadHdr  = Enc.buildAad (ceAadPrefix ce) suffixHdr
       !aadBody = Enc.buildAad (ceAadPrefix ce) suffixBody
-  encHdr <- Enc.encryptGcmModulePure (ceKey ce) aadHdr hdrBytes
+  encHdr <- Enc.encryptGcmModuleFramed (ceKey ce) aadHdr hdrBytes
   encBody <- case ceAlgorithm ce of
-    Enc.AesGcmV1    -> Enc.encryptGcmModulePure (ceKey ce) aadBody bodyBytes
-    Enc.AesGcmCtrV1 -> Enc.encryptCtrModulePure (ceKey ce) bodyBytes
+    Enc.AesGcmV1    -> Enc.encryptGcmModuleFramed (ceKey ce) aadBody bodyBytes
+    Enc.AesGcmCtrV1 -> Enc.encryptCtrModuleFramed (ceKey ce) bodyBytes
   Right (BS.append encHdr encBody)
 
 -- | Encrypt a DATA_PAGE_V2 page, given the four parts produced by
@@ -957,10 +957,10 @@ encryptPageBytesV2 ce rgOrd pageOrd hdrBytes repBytes defBytes valBytes = do
                      (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
       !aadHdr  = Enc.buildAad (ceAadPrefix ce) suffixHdr
       !aadBody = Enc.buildAad (ceAadPrefix ce) suffixBody
-  encHdr  <- Enc.encryptGcmModulePure (ceKey ce) aadHdr hdrBytes
+  encHdr  <- Enc.encryptGcmModuleFramed (ceKey ce) aadHdr hdrBytes
   encVals <- case ceAlgorithm ce of
-    Enc.AesGcmV1    -> Enc.encryptGcmModulePure (ceKey ce) aadBody valBytes
-    Enc.AesGcmCtrV1 -> Enc.encryptCtrModulePure (ceKey ce) valBytes
+    Enc.AesGcmV1    -> Enc.encryptGcmModuleFramed (ceKey ce) aadBody valBytes
+    Enc.AesGcmCtrV1 -> Enc.encryptCtrModuleFramed (ceKey ce) valBytes
   Right (BS.concat [encHdr, repBytes, defBytes, encVals])
 
 -- | Encrypt a single auxiliary module (bloom filter, offset index,
@@ -979,7 +979,7 @@ encryptAuxModule mEnc mt rgOrd payload = case mEnc of
                     (ceFileId ce) mt
                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) 0
         !aad    = Enc.buildAad (ceAadPrefix ce) suffix
-     in case Enc.encryptGcmModulePure (ceKey ce) aad payload of
+     in case Enc.encryptGcmModuleFramed (ceKey ce) aad payload of
           Right enc -> enc
           Left  _   -> payload
 
@@ -1187,6 +1187,35 @@ data FooterEncryption = FooterEncryption
     -- back to their KMS to recover the key.
   } deriving (Show, Eq)
 
+-- | Encode a 'FooterEncryption' as the @FileCryptoMetaData@ thrift
+-- struct the encrypted-footer mode prepends to the encrypted footer
+-- (parquet-format Encryption.md §5.2). Only the algorithm + key
+-- metadata + AAD prefix are emitted; the encryption itself is in the
+-- module that follows this struct.
+fileCryptoMetaDataToThrift :: FooterEncryption -> TV.Value
+fileCryptoMetaDataToThrift fe = TV.Struct $ V.fromList
+  [ (1, encryptionAlgorithmToThrift fe)
+  , (2, TV.Binary (feKeyMetadata fe))
+  ]
+
+encryptionAlgorithmToThrift :: FooterEncryption -> TV.Value
+encryptionAlgorithmToThrift fe = TV.Struct $ V.fromList
+  -- We always emit AesGcmV1 here for the file-level algorithm: the
+  -- column-level CTR variant is signalled per-column via
+  -- ColumnCryptoMetaData and doesn't change the footer module.
+  [ (1, aesGcmV1ToThrift fe) ]
+
+aesGcmV1ToThrift :: FooterEncryption -> TV.Value
+aesGcmV1ToThrift fe = TV.Struct $ V.fromList $
+  prefix ++ fileIdent
+  where
+    prefix
+      | BS.null (feAadPrefix fe) = []
+      | otherwise = [(1, TV.Binary (feAadPrefix fe))]
+    fileIdent
+      | BS.null (feFileId fe) = []
+      | otherwise = [(2, TV.Binary (feFileId fe))]
+
 -- | Build a Parquet file with an /encrypted footer/. Identical to
 -- 'buildParquetFileWithIndex' for the row-group + bloom / offset /
 -- column index regions, but the trailing footer is wrapped as a
@@ -1245,18 +1274,29 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
         , fmRowGroups = rgMetasCol
         , fmCreatedBy = Just "wireform"
         }
-      -- Encrypted-footer mode wraps the thrift bytes in a GCM module
-      -- under ModuleFooter AAD and writes them back with the PARE
-      -- magic; plaintext-footer mode emits the standard PAR1 trailer.
+      -- Encrypted-footer mode (parquet-format Encryption.md §5.4):
+      --
+      --   <FileCryptoMetaData thrift>
+      --   <encrypted footer module: nonce || ct || tag>
+      --   <combined-length: i32 LE>     -- of the two blobs above
+      --   PARE
+      --
+      -- The encrypted footer module here is /unframed/ (no per-module
+      -- §5.1 length prefix); the combined-length serves that role.
+      -- Page / aux modules elsewhere in the file still use §5.1
+      -- framing (encryptGcmModuleFramed).
       !footerBytes = case mFootEnc of
         Nothing -> writeFooter fm
         Just fe ->
           let !plainThrift = encodeCompact (fileMetadataToThrift fm)
               !suffix = Enc.buildAadSuffix (feFileId fe) Enc.ModuleFooter 0 0 0
               !aad    = Enc.buildAad (feAadPrefix fe) suffix
+              !cryptoMeta = encodeCompact (fileCryptoMetaDataToThrift fe)
            in case Enc.encryptGcmModulePure (feKey fe) aad plainThrift of
-                Right encThrift -> writeRawFooter parquetEncryptedMagic encThrift
-                Left  _         -> writeFooter fm  -- defensive fallback
+                Right encModule ->
+                  writeRawFooter parquetEncryptedMagic
+                    (cryptoMeta <> encModule)
+                Left _ -> writeFooter fm
    in BL.toStrict $ B.toLazyByteString $
         B.byteString parquetMagic
         <> mconcat (map B.byteString rowGroupBytes)

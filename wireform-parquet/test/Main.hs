@@ -37,6 +37,7 @@ import qualified Parquet.Nested as Nested
 import qualified Parquet.NullPagesBitmap as NPB
 import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
+import qualified Parquet.Read
 import Parquet.Read
   ( decodeByteStreamSplitDouble
   , decodeByteStreamSplitFloat
@@ -418,6 +419,10 @@ main = do
 
   -- Round-trip the page through encryptPageBytes / decryptGcmModule
   -- directly so we know our AAD framing matches what the reader needs.
+  -- Per parquet-format Encryption.md §5.1 each module on the wire is
+  -- prefixed with a 4-byte little-endian length, so the framing is
+  -- '<len4 || nonce(12) || ct || tag(16)>' for header followed by
+  -- '<len4 || nonce(12) || ct || tag(16)>' for body.
   let (rawHdr, rawBody) = encodeColumnDataPageParts encVals
   case encryptPageBytes (ce Enc.AesGcmV1) Enc.ModuleDataPage 0 0 rawHdr rawBody of
     Left e -> failTest ("encryptPageBytes: " ++ e)
@@ -428,30 +433,39 @@ main = do
           aadBody = Enc.buildAad BS.empty
                      (Enc.buildAadSuffix (BSC.pack "fileid01")
                         Enc.ModuleDataPage 0 0 0)
-          -- nonce(12) || ct || tag(16); the encrypted-header module
-          -- has |hdr| + 28 bytes, the rest is the encrypted body.
-          encHdrLen = BS.length rawHdr + 28
-          (encHdr, encBody) = BS.splitAt encHdrLen encBytes
-      case Enc.decryptGcmModule encKey aadHdr encHdr of
-        Right plain -> expect "encrypted page header round-trips"
-                              (plain == rawHdr)
-        Left e -> failTest ("decrypt page header: " ++ e)
-      case Enc.decryptGcmModule encKey aadBody encBody of
-        Right plain -> expect "encrypted page body round-trips"
-                              (plain == rawBody)
-        Left e -> failTest ("decrypt page body: " ++ e)
+      case Enc.readFramedModule encBytes 0 of
+        Left e -> failTest ("read framed page header: " ++ e)
+        Right (encHdr, after1) -> do
+          case Enc.decryptGcmModule encKey aadHdr encHdr of
+            Right plain -> expect "encrypted page header round-trips"
+                                  (plain == rawHdr)
+            Left e -> failTest ("decrypt page header: " ++ e)
+          case Enc.readFramedModule encBytes after1 of
+            Left e -> failTest ("read framed page body: " ++ e)
+            Right (encBody, _) ->
+              case Enc.decryptGcmModule encKey aadBody encBody of
+                Right plain -> expect "encrypted page body round-trips"
+                                      (plain == rawBody)
+                Left e -> failTest ("decrypt page body: " ++ e)
       -- Tampering with one byte of the body must invalidate the GCM tag.
       let tampered = BS.snoc (BS.init encBytes) 0xff
-          (tHdr, _tBody) = BS.splitAt encHdrLen tampered
-      case Enc.decryptGcmModule encKey aadHdr tHdr of
-        Right _ -> case Enc.decryptGcmModule encKey aadBody (BS.drop encHdrLen tampered) of
-          Right _ -> failTest "tampered ciphertext decrypted (BAD)"
-          Left  _ -> expect "tampered body fails GCM auth" True
-        Left  _ -> expect "tampered header fails GCM auth" True
+      case Enc.readFramedModule tampered 0 of
+        Left _ -> expect "tampered framing rejected" True
+        Right (encHdr, after1) -> do
+          case Enc.decryptGcmModule encKey aadHdr encHdr of
+            Left _  -> expect "tampered header fails GCM auth" True
+            Right _ ->
+              case Enc.readFramedModule tampered after1 of
+                Left _ -> expect "tampered body framing rejected" True
+                Right (encBody, _) ->
+                  case Enc.decryptGcmModule encKey aadBody encBody of
+                    Right _ -> failTest "tampered ciphertext decrypted (BAD)"
+                    Left _  -> expect "tampered body fails GCM auth" True
 
   -- DATA_PAGE_V2 + encryption round-trip. The wire shape is
-  -- '<encHdr> <> <repBytes> <> <defBytes> <> <encValues>' so we
-  -- decrypt with the matching AAD-per-module to recover the parts.
+  -- '<framed encHdr> <> <repBytes> <> <defBytes> <> <framed encValues>'
+  -- with §5.1 length prefixes on the encrypted modules and the
+  -- rep/def level segments in plaintext between them.
   case encodeColumnDataPageV2Parts Uncompressed encVals of
     Left e -> failTest ("encodeColumnDataPageV2Parts: " ++ e)
     Right (rawHdrV2, repV2, defV2, valsV2) ->
@@ -464,19 +478,23 @@ main = do
               aadBody = Enc.buildAad BS.empty
                          (Enc.buildAadSuffix (BSC.pack "fileid01")
                             Enc.ModuleDataPage 0 0 0)
-              encHdrLen = BS.length rawHdrV2 + 28
-              (encHdr, rest) = BS.splitAt encHdrLen encBytesV2
-              (rd, encVals') = BS.splitAt (BS.length repV2 + BS.length defV2) rest
-          case Enc.decryptGcmModule encKey aadHdr encHdr of
-            Right plain -> expect "V2 encrypted page header round-trips"
-                                  (plain == rawHdrV2)
-            Left e -> failTest ("V2 decrypt page header: " ++ e)
-          expect "V2 encryption preserves rep/def levels in plaintext"
-            (rd == BS.append repV2 defV2)
-          case Enc.decryptGcmModule encKey aadBody encVals' of
-            Right plain -> expect "V2 (GCM) encrypted values round-trip"
-                                  (plain == valsV2)
-            Left e -> failTest ("V2 decrypt values: " ++ e)
+              levelLen = BS.length repV2 + BS.length defV2
+          case Enc.readFramedModule encBytesV2 0 of
+            Left e -> failTest ("read framed V2 hdr: " ++ e)
+            Right (encHdr, after1) -> do
+              case Enc.decryptGcmModule encKey aadHdr encHdr of
+                Right plain -> expect "V2 encrypted page header round-trips"
+                                      (plain == rawHdrV2)
+                Left e -> failTest ("V2 decrypt page header: " ++ e)
+              expect "V2 encryption preserves rep/def levels in plaintext"
+                (BS.take levelLen (BS.drop after1 encBytesV2) == BS.append repV2 defV2)
+              case Enc.readFramedModule encBytesV2 (after1 + levelLen) of
+                Left e -> failTest ("read framed V2 values: " ++ e)
+                Right (encV, _) ->
+                  case Enc.decryptGcmModule encKey aadBody encV of
+                    Right plain -> expect "V2 (GCM) encrypted values round-trip"
+                                          (plain == valsV2)
+                    Left e -> failTest ("V2 decrypt values: " ++ e)
       -- Same for AES-GCM-CTR-V1: values are CTR-encrypted (no auth).
       >> case encryptPageBytesV2 (ce Enc.AesGcmCtrV1) 0 0 rawHdrV2 repV2 defV2 valsV2 of
         Left e -> failTest ("encryptPageBytesV2 CTR: " ++ e)
@@ -484,16 +502,20 @@ main = do
           let aadHdr = Enc.buildAad BS.empty
                          (Enc.buildAadSuffix (BSC.pack "fileid01")
                             Enc.ModuleDataPageHeader 0 0 0)
-              encHdrLen = BS.length rawHdrV2 + 28
-              (encHdr, rest) = BS.splitAt encHdrLen encBytesCtr
-              (_rd, encVals') = BS.splitAt (BS.length repV2 + BS.length defV2) rest
-          case Enc.decryptGcmModule encKey aadHdr encHdr of
-            Right _ -> expect "V2 CTR header decrypts (GCM-authenticated)" True
-            Left e  -> failTest ("V2 CTR header decrypt: " ++ e)
-          case Enc.decryptCtrModule encKey encVals' of
-            Right plain -> expect "V2 CTR values round-trip"
-                                  (plain == valsV2)
-            Left e -> failTest ("V2 CTR decrypt values: " ++ e)
+              levelLen = BS.length repV2 + BS.length defV2
+          case Enc.readFramedModule encBytesCtr 0 of
+            Left e -> failTest ("read framed V2 CTR hdr: " ++ e)
+            Right (encHdr, after1) -> do
+              case Enc.decryptGcmModule encKey aadHdr encHdr of
+                Right _ -> expect "V2 CTR header decrypts (GCM-authenticated)" True
+                Left e  -> failTest ("V2 CTR header decrypt: " ++ e)
+              case Enc.readFramedModule encBytesCtr (after1 + levelLen) of
+                Left e -> failTest ("read framed V2 CTR values: " ++ e)
+                Right (encV, _) ->
+                  case Enc.decryptCtrModule encKey encV of
+                    Right plain -> expect "V2 CTR values round-trip"
+                                          (plain == valsV2)
+                    Left e -> failTest ("V2 CTR decrypt values: " ++ e)
 
   -- Encrypted aux modules: bloom filter / offset index / column
   -- index payloads are wrapped as separate GCM modules under their
@@ -522,21 +544,25 @@ main = do
                     (Just (ce Enc.AesGcmV1)) mt 0
         aadOf mt = Enc.buildAad BS.empty
                     (Enc.buildAadSuffix (BSC.pack "fileid01") mt 0 0 0)
+    let unframed mt raw = case Enc.readFramedModule
+                                  (encOf mt raw) 0 of
+          Right (m, _) -> m
+          Left _ -> BS.empty
     case Enc.decryptGcmModule encKey
            (aadOf Enc.ModuleBloomFilterBitset)
-           (encOf Enc.ModuleBloomFilterBitset rawBloom) of
+           (unframed Enc.ModuleBloomFilterBitset rawBloom) of
       Right p -> expect "encrypted bloom filter module round-trips"
                         (p == rawBloom)
       Left e  -> failTest ("decrypt bloom filter module: " ++ e)
     case Enc.decryptGcmModule encKey
            (aadOf Enc.ModuleOffsetIndex)
-           (encOf Enc.ModuleOffsetIndex rawOff) of
+           (unframed Enc.ModuleOffsetIndex rawOff) of
       Right p -> expect "encrypted offset-index module round-trips"
                         (p == rawOff)
       Left e  -> failTest ("decrypt offset-index module: " ++ e)
     case Enc.decryptGcmModule encKey
            (aadOf Enc.ModuleColumnIndex)
-           (encOf Enc.ModuleColumnIndex rawCol) of
+           (unframed Enc.ModuleColumnIndex rawCol) of
       Right p -> expect "encrypted column-index module round-trips"
                         (p == rawCol)
       Left e  -> failTest ("decrypt column-index module: " ++ e)
@@ -581,32 +607,29 @@ main = do
       (BS.takeEnd 4 plainFile == BSC.pack "PAR1")
     expect "encrypted-footer file diverges from plaintext-footer"
       (encFile /= plainFile)
-    -- Pull the encrypted footer module bytes off the trailer (last 4
-    -- bytes are PARE; the 4 bytes before that are the metaLen). The
-    -- metaLen records the length of the GCM module, so we can locate
-    -- it and decrypt it.
-    let trailerLen = BS.length encFile
-        magicAt    = trailerLen - 4
-        metaLenAt  = magicAt - 4
-        metaLen    = let bn i = fromIntegral
-                          (BS.index encFile (metaLenAt + i)) :: Int
-                      in bn 0
-                         .|. (bn 1 `shiftL` 8)
-                         .|. (bn 2 `shiftL` 16)
-                         .|. (bn 3 `shiftL` 24)
-        encThrift  = BS.take metaLen
-                       (BS.drop (metaLenAt - metaLen) encFile)
-        aad        = Enc.buildAad BS.empty
-                       (Enc.buildAadSuffix (BSC.pack "fileid01")
-                          Enc.ModuleFooter 0 0 0)
-    case Enc.decryptGcmModule encKey aad encThrift of
-      Right plainThrift ->
-        -- Decrypted thrift should parse to the same FileMetadata
-        -- the plaintext writer produces (modulo possible field-order
-        -- differences which Thrift doesn't define).
-        expect "decrypted footer thrift is non-empty"
-          (BS.length plainThrift > 0)
-      Left e -> failTest ("decrypt encrypted footer: " ++ e)
+    -- Use the public encrypted-reader API to round-trip via the
+    -- ModuleFooter AAD. Per parquet-format §5.4 the bytes between
+    -- the leading PAR1 magic and the trailing PARE magic are
+    -- '<FileCryptoMetaData thrift> <encrypted footer module>',
+    -- and the writer + reader handle the layout symmetrically.
+    let fdec = Parquet.Read.FooterDecryption
+                 { Parquet.Read.fdKey       = encKey
+                 , Parquet.Read.fdFileId    = BSC.pack "fileid01"
+                 , Parquet.Read.fdAadPrefix = BS.empty
+                 }
+    case Parquet.Read.loadParquetFileEncrypted fdec encFile of
+      Left e -> failTest ("loadParquetFileEncrypted: " ++ e)
+      Right pf' -> do
+        let fmDecrypted = Parquet.Read.pfFooter pf'
+        expect "encrypted-footer round-trips through reader"
+          (V.length (fmSchema fmDecrypted) > 0)
+        expect "encrypted-footer reader recovers row-group count"
+          (V.length (fmRowGroups fmDecrypted) == 1)
+    -- Wrong key must fail GCM auth.
+    let wrongFd = fdec { Parquet.Read.fdKey = BS.replicate 16 0 }
+    case Parquet.Read.loadParquetFileEncrypted wrongFd encFile of
+      Left _  -> expect "wrong key rejected by GCM auth" True
+      Right _ -> failTest "encrypted footer decrypted with wrong key (BAD)"
 
   -- Whole-file V2 + encryption: ColumnAux carries both PageV2 and
   -- ColumnEncryption, so buildParquetFileWithIndex must dispatch

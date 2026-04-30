@@ -18,6 +18,8 @@
 module Parquet.Read
   ( ParquetFile (..)
   , loadParquetFile
+  , loadParquetFileEncrypted
+  , FooterDecryption (..)
   , columnChunkSlice
   , readPlainInt32FirstPage
   , readPlainInt32ColumnChunk
@@ -93,7 +95,10 @@ import qualified Codec.Compression.Snappy as Snappy
 import qualified Codec.Compression.LZ4 as LZ4
 #endif
 
+import qualified Parquet.Encryption as Enc
 import Parquet.Footer (readFooter)
+import qualified Parquet.Footer as F
+import qualified Thrift.Decode as TC
 import Parquet.Levels
   ( levelBitWidth
   , materializePlainBoolOptional
@@ -127,10 +132,65 @@ data ParquetFile = ParquetFile
   } deriving stock (Show, Eq)
 
 -- | Parse the footer from the tail of a complete @PAR1@ file.
+-- Refuses encrypted-footer files with a clear error pointing to
+-- 'loadParquetFileEncrypted'.
 loadParquetFile :: ByteString -> Either String ParquetFile
 loadParquetFile bs = do
   fm <- readFooter bs
   Right ParquetFile {pfBytes = bs, pfFooter = fm}
+
+-- | Footer-decryption configuration. Mirrors
+-- 'Parquet.Write.FooterEncryption' but on the read side: the AAD
+-- prefix and file id must match what the writer used or GCM auth
+-- will reject the trailing module.
+data FooterDecryption = FooterDecryption
+  { fdKey       :: !ByteString
+  , fdFileId    :: !ByteString
+  , fdAadPrefix :: !ByteString
+  } deriving (Show, Eq)
+
+-- | Parse a Parquet file whose trailing magic is either @PAR1@
+-- (plaintext footer) or @PARE@ (encrypted footer). For @PARE@ files
+-- the supplied 'FooterDecryption' is used to decrypt the footer
+-- module under @ModuleFooter@ AAD. For @PAR1@ files the
+-- 'FooterDecryption' is ignored; this is convenient for callers that
+-- want a single entry point for "files that may or may not have an
+-- encrypted footer".
+--
+-- For @PARE@ files the bytes between the leading @PAR1@ magic and
+-- the trailing @PARE@ magic match the parquet-format §5.4 layout:
+-- @<FileCryptoMetaData thrift> <encrypted footer module>@. We
+-- skip the FileCryptoMetaData (the caller supplies the key
+-- separately) and decrypt the footer module under ModuleFooter AAD.
+loadParquetFileEncrypted :: FooterDecryption -> ByteString -> Either String ParquetFile
+loadParquetFileEncrypted fd bs = do
+  trailer <- F.readFooterTrailer bs
+  thriftBytes <- if F.ftMagic trailer == F.parquetEncryptedMagic
+    then do
+      -- Skip past the FileCryptoMetaData thrift; what remains is
+      -- the encrypted footer blob (nonce || ct || tag).
+      (_, encStart) <- skipFileCryptoMetaData (F.ftBytes trailer)
+      let !encModule = BS.drop encStart (F.ftBytes trailer)
+          !suffix    = Enc.buildAadSuffix
+                        (fdFileId fd) Enc.ModuleFooter 0 0 0
+          !aad       = Enc.buildAad (fdAadPrefix fd) suffix
+      Enc.decryptGcmModule (fdKey fd) aad encModule
+    else
+      Right (F.ftBytes trailer)
+  fm <- F.readFooterRaw thriftBytes
+  Right ParquetFile {pfBytes = bs, pfFooter = fm}
+
+-- | Walk past a Thrift compact-encoded @FileCryptoMetaData@ struct
+-- and report the byte offset just past it. We only need the offset;
+-- the parsed value is discarded because the caller already has the
+-- key + AAD context.
+skipFileCryptoMetaData :: ByteString -> Either String ((), Int)
+skipFileCryptoMetaData bs = do
+  -- The thrift compact codec we use already supports streaming
+  -- offsets via decodeCompactFrom; this pattern mirrors what the
+  -- page header reader does.
+  (_, off) <- TC.decodeCompactFrom bs 0
+  Right ((), off)
 
 -- | Raw bytes for one column chunk (from @data_page_offset@ through compressed size).
 columnChunkSlice :: ParquetFile -> Int -> Int -> Either String ByteString
