@@ -36,6 +36,17 @@ module Parquet.Write
   , encodeColumnDataPage
   , columnDataParquetType
   , columnDataStatistics
+    -- * Nullable columns (definition levels)
+  , encodeOptionalColumnPage
+  , OptionalColumn(..)
+  , optionalColumnLength
+  , optionalColumnNullCount
+  , optionalColumnPresentValues
+    -- * Dictionary encoding
+  , encodeDictPage
+  , encodeDictDataPage
+  , buildDictionary
+  , Dictionary(..)
     -- * Statistics
   , statisticsForInt32
   , statisticsForInt64
@@ -61,6 +72,7 @@ import GHC.Float (castDoubleToWord64, castFloatToWord32)
 import Parquet.BloomFilter (Sbbf, encodeBloomFilter, sbbfNumBytes)
 import qualified Parquet.BloomFilter as BF
 import qualified Parquet.Compress as Compress
+import qualified Parquet.LevelsEncode as LE
 import Parquet.Footer (writeFooter, parquetMagic)
 import Parquet.PageIndex
   ( encodeColumnIndex
@@ -476,6 +488,211 @@ columnDataStatistics = \case
   ColDouble v    -> statisticsForDouble v
   ColBool v      -> statisticsForBool v
   ColByteArray v -> statisticsForByteArray v
+
+-- ============================================================
+-- Nullable columns: definition levels + PLAIN values
+-- ============================================================
+
+-- | A column with optional values. Internally we store the present-flag
+-- vector alongside the present-only values; readers reconstruct the
+-- @Maybe@ shape via 'Parquet.Levels.materializePlainInt32Optional' and
+-- friends.
+data OptionalColumn
+  = OptInt32     !(V.Vector (Maybe Int32))
+  | OptInt64     !(V.Vector (Maybe Int64))
+  | OptFloat     !(V.Vector (Maybe Float))
+  | OptDouble    !(V.Vector (Maybe Double))
+  | OptBool      !(V.Vector (Maybe Bool))
+  | OptByteArray !(V.Vector (Maybe ByteString))
+  deriving (Show, Eq)
+
+optionalColumnLength :: OptionalColumn -> Int
+optionalColumnLength = \case
+  OptInt32 v     -> V.length v
+  OptInt64 v     -> V.length v
+  OptFloat v     -> V.length v
+  OptDouble v    -> V.length v
+  OptBool v      -> V.length v
+  OptByteArray v -> V.length v
+
+optionalColumnNullCount :: OptionalColumn -> Int
+optionalColumnNullCount = \case
+  OptInt32 v     -> V.length (V.filter (== Nothing) v)
+  OptInt64 v     -> V.length (V.filter (== Nothing) v)
+  OptFloat v     -> V.length (V.filter (== Nothing) v)
+  OptDouble v    -> V.length (V.filter (== Nothing) v)
+  OptBool v      -> V.length (V.filter (== Nothing) v)
+  OptByteArray v -> V.length (V.filter (== Nothing) v)
+
+-- | Strip nulls and return only the present values as a 'ColumnData'.
+optionalColumnPresentValues :: OptionalColumn -> ColumnData
+optionalColumnPresentValues = \case
+  OptInt32 v     -> ColInt32     (VP.fromList [x | Just x <- V.toList v])
+  OptInt64 v     -> ColInt64     (VP.fromList [x | Just x <- V.toList v])
+  OptFloat v     -> ColFloat     (VP.fromList [x | Just x <- V.toList v])
+  OptDouble v    -> ColDouble    (VP.fromList [x | Just x <- V.toList v])
+  OptBool v      -> ColBool      (V.fromList  [x | Just x <- V.toList v])
+  OptByteArray v -> ColByteArray (V.fromList  [x | Just x <- V.toList v])
+
+-- | Encode an 'OptionalColumn' as a single uncompressed @PLAIN@
+-- @DATA_PAGE@ V1 carrying the definition-level stream + present-only
+-- PLAIN values.
+encodeOptionalColumnPage :: OptionalColumn -> ByteString
+encodeOptionalColumnPage oc =
+  let !defs = VP.fromList
+        [ if isPresent v then 1 else 0
+        | v <- presenceList oc
+        ]
+      !defStream = LE.encodeLengthPrefixedHybrid 1 defs
+      !valuesBs = encodeColumnDataPagePayload (optionalColumnPresentValues oc)
+      !body = defStream <> valuesBs
+      !bodySize = BS.length body
+      !n = optionalColumnLength oc
+      !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
+   in encodePageHeader hdr <> body
+  where
+    isPresent (Just _) = True
+    isPresent Nothing  = False
+
+    presenceList :: OptionalColumn -> [Maybe ()]
+    presenceList = \case
+      OptInt32 v     -> map void (V.toList v)
+      OptInt64 v     -> map void (V.toList v)
+      OptFloat v     -> map void (V.toList v)
+      OptDouble v    -> map void (V.toList v)
+      OptBool v      -> map void (V.toList v)
+      OptByteArray v -> map void (V.toList v)
+
+    void Nothing  = Nothing
+    void (Just _) = Just ()
+
+-- | Encode just the PLAIN-values portion (no page header). Used inside
+-- 'encodeOptionalColumnPage' so we can prepend the definition-level
+-- stream and write a single page header.
+encodeColumnDataPagePayload :: ColumnData -> ByteString
+encodeColumnDataPagePayload = \case
+  ColInt32 v     -> BL.toStrict $ B.toLazyByteString $
+                     VP.foldl' (\b x -> b <> B.int32LE x) mempty v
+  ColInt64 v     -> BL.toStrict $ B.toLazyByteString $
+                     VP.foldl' (\b x -> b <> B.int64LE x) mempty v
+  ColFloat v     -> BL.toStrict $ B.toLazyByteString $
+                     VP.foldl' (\b x -> b <> writeFloatLE x) mempty v
+  ColDouble v    -> BL.toStrict $ B.toLazyByteString $
+                     VP.foldl' (\b x -> b <> writeDoubleLE x) mempty v
+  ColBool v      ->
+      let !n = V.length v
+          !numBytes = (n + 7) `quot` 8
+       in BL.toStrict $ B.toLazyByteString $
+            flip foldMap [0 .. numBytes - 1] $ \byteIdx ->
+              let goBit !bit !acc
+                    | bit >= 8                = acc
+                    | byteIdx * 8 + bit >= n  = acc
+                    | otherwise =
+                        let !x = V.unsafeIndex v (byteIdx * 8 + bit)
+                            !flag = if x then (1 :: Int) * (2 ^ bit) else 0
+                         in goBit (bit + 1) (acc + flag)
+              in B.word8 (fromIntegral (goBit 0 0))
+  ColByteArray v -> BL.toStrict $ B.toLazyByteString $
+                     V.foldl' (\b x ->
+                       b <> B.word32LE (fromIntegral (BS.length x))
+                         <> B.byteString x
+                     ) mempty v
+
+-- ============================================================
+-- Dictionary encoding (PLAIN_DICTIONARY / RLE_DICTIONARY)
+-- ============================================================
+
+-- | A computed dictionary for a single column chunk. 'dictUniques' holds
+-- the column values in dictionary order; 'dictIndices' maps each row's
+-- value to its dictionary index (0-based).
+data Dictionary = Dictionary
+  { dictUniques :: !ColumnData
+  , dictIndices :: !(VP.Vector Int32)
+  } deriving (Show, Eq)
+
+-- | Compute a dictionary for a 'ColumnData' by deduplicating the input.
+-- Order of unique values follows their first appearance.
+buildDictionary :: ColumnData -> Dictionary
+buildDictionary = \case
+  ColInt32 v     -> generic (V.fromList (VP.toList v)) (\xs -> ColInt32 (VP.fromList xs))
+  ColInt64 v     -> generic (V.fromList (VP.toList v)) (\xs -> ColInt64 (VP.fromList xs))
+  ColFloat v     -> generic (V.fromList (VP.toList v)) (\xs -> ColFloat (VP.fromList xs))
+  ColDouble v    -> generic (V.fromList (VP.toList v)) (\xs -> ColDouble (VP.fromList xs))
+  ColBool v      -> generic (V.fromList (V.toList v))  (\xs -> ColBool  (V.fromList xs))
+  ColByteArray v -> generic v                          (\xs -> ColByteArray (V.fromList xs))
+  where
+    generic
+      :: (Eq a)
+      => V.Vector a
+      -> ([a] -> ColumnData)
+      -> Dictionary
+    generic xs reify =
+      let !uniques = V.toList (V.uniq (V.fromList (V.toList (orderedUniq xs))))
+          !lookupIdx = \x ->
+            case lookup x (zip uniques [0 ..]) of
+              Just i  -> fromIntegral (i :: Int) :: Int32
+              Nothing -> 0
+          !indices = VP.fromList (map lookupIdx (V.toList xs))
+       in Dictionary { dictUniques = reify uniques, dictIndices = indices }
+
+    -- Stable order-of-first-appearance unique extraction.
+    orderedUniq :: Eq a => V.Vector a -> V.Vector a
+    orderedUniq xs0 = V.fromList (go (V.toList xs0) [])
+      where
+        go [] acc = reverse acc
+        go (x:xs) acc
+          | x `elem` acc = go xs acc
+          | otherwise    = go xs (x : acc)
+
+-- | Encode a 'Dictionary' as a @DICTIONARY_PAGE@.
+encodeDictPage :: Dictionary -> ByteString
+encodeDictPage d =
+  let !payload = encodeColumnDataPagePayload (dictUniques d)
+      !numEntries = columnDataLength (dictUniques d)
+      !hdr = PageHeader
+        { phType = pageTypeDictionaryPage
+        , phUncompressedPageSize = Just (fromIntegral (BS.length payload))
+        , phCompressedPageSize   = Just (fromIntegral (BS.length payload))
+        , phDataPage = Nothing
+        , phDictionaryPage = Just DictionaryPageHeader
+            { dictNumValues = fromIntegral numEntries
+            , dictEncoding  = parquetEncodingPlainDictionary
+            }
+        , phDataPageV2 = Nothing
+        }
+   in encodePageHeader hdr <> payload
+
+-- | Encode the 'DATA_PAGE' that consumes a dictionary (RLE-hybrid index
+-- stream prefixed by a single byte recording the bit width).
+encodeDictDataPage :: Dictionary -> ByteString
+encodeDictDataPage d =
+  let !indices = dictIndices d
+      !numIndices = VP.length indices
+      !uniqueCount = columnDataLength (dictUniques d)
+      !bw = LE.bitWidthFor (max 0 (uniqueCount - 1))
+      !indexStream = LE.encodeRLEHybrid bw indices
+      !body = BS.singleton (fromIntegral bw) <> indexStream
+      !hdr = PageHeader
+        { phType = pageTypeDataPage
+        , phUncompressedPageSize = Just (fromIntegral (BS.length body))
+        , phCompressedPageSize   = Just (fromIntegral (BS.length body))
+        , phDataPage = Just DataPageHeader
+            { dphNumValues = fromIntegral numIndices
+            , dphEncoding  = parquetEncodingRleDictionary
+            }
+        , phDictionaryPage = Nothing
+        , phDataPageV2 = Nothing
+        }
+   in encodePageHeader hdr <> body
+
+parquetEncodingPlainDictionary :: Int32
+parquetEncodingPlainDictionary = 2
+
+parquetEncodingRleDictionary :: Int32
+parquetEncodingRleDictionary = 8
+
+pageTypeDictionaryPage :: Int32
+pageTypeDictionaryPage = 2
 
 -- ============================================================
 -- Indexed writer: bloom filter + page index footers

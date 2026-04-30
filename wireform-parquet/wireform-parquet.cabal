@@ -33,6 +33,7 @@ library
     Parquet.Encryption
     Parquet.Footer
     Parquet.Levels
+    Parquet.LevelsEncode
     Parquet.Page
     Parquet.PageIndex
     Parquet.Read

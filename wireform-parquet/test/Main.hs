@@ -21,10 +21,19 @@ import Parquet.Types
 import Parquet.Write
   ( ColumnAux (..)
   , ColumnData (..)
+  , Dictionary (..)
+  , OptionalColumn (..)
+  , buildDictionary
   , buildParquetFile
   , buildParquetFileTyped
   , buildParquetFileTypedWithIndex
   , buildParquetFileWithIndex
+  , columnDataLength
+  , encodeDictDataPage
+  , encodeDictPage
+  , encodeOptionalColumnPage
+  , optionalColumnLength
+  , optionalColumnNullCount
   , statisticsForByteArray
   , statisticsForInt32
   , statisticsForInt64
@@ -275,6 +284,33 @@ main = do
         Just (c, u) -> expect "gzip-writer: column 0 has uncompressed > 0 in metadata"
           (u > 0 && c > 0)
         Nothing -> failTest "gzip-writer: column 0 missing metadata"
+
+  -- Optional column page: definition levels + present-only PLAIN values.
+  let optCol = OptInt32 (V.fromList [Just 1, Nothing, Just 3, Nothing, Just 5])
+      pageBs = encodeOptionalColumnPage optCol
+  expect "optional-column-page produces a non-empty body"
+    (BS.length pageBs > 4)
+  expect "optionalColumnLength counts all rows"
+    (optionalColumnLength optCol == 5)
+  expect "optionalColumnNullCount counts nulls"
+    (optionalColumnNullCount optCol == 2)
+
+  -- Dictionary encoding: build a dictionary, encode dictionary + data
+  -- pages, and confirm the dictionary captured the unique values.
+  let dictInput = ColByteArray (V.fromList
+        [BSC.pack "alpha", BSC.pack "beta", BSC.pack "alpha"
+        ,BSC.pack "gamma", BSC.pack "beta", BSC.pack "alpha"])
+      dict = buildDictionary dictInput
+      dictPage = encodeDictPage dict
+      dataPage = encodeDictDataPage dict
+  expect "dictionary unique count == 3"
+    (columnDataLength (dictUniques dict) == 3)
+  expect "dictionary index vector has one entry per row"
+    (VP.length (dictIndices dict) == 6)
+  expect "dictionary page header is non-empty"
+    (BS.length dictPage > 4)
+  expect "dictionary data page is non-empty"
+    (BS.length dataPage > 4)
 
   -- Modular encryption: round-trip plaintext through encrypt/decrypt for
   -- both AES-GCM and AES-CTR, and verify GCM rejects a tampered tag.
