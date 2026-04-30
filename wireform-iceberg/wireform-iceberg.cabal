@@ -37,6 +37,7 @@ library
     Iceberg.ManifestMerge
     Iceberg.MetricsConfig
     Iceberg.Murmur3
+    Iceberg.Parquet
     Iceberg.Partition
     Iceberg.Puffin
     Iceberg.Read
@@ -56,6 +57,7 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-avro,
+    wireform-parquet,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
@@ -82,6 +84,7 @@ test-suite iceberg-test
     Test.Iceberg.MetricsConfig
     Test.Iceberg.Murmur3
     Test.Iceberg.NameMapping
+    Test.Iceberg.Parquet
     Test.Iceberg.Partition
     Test.Iceberg.Puffin
     Test.Iceberg.RESTCatalog
@@ -103,6 +106,7 @@ test-suite iceberg-test
     wireform-iceberg,
     wireform-avro,
     wireform-core,
+    wireform-parquet,
     bytestring,
     text,
     vector,

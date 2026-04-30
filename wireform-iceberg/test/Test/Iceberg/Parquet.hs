@@ -1,0 +1,170 @@
+{-# LANGUAGE OverloadedStrings #-}
+-- | Tests for the @Iceberg.Parquet@ bridge: deriving a populated 'DataFile'
+-- from a 'P.FileMetadata' and computing page overlap with a deletion vector.
+module Test.Iceberg.Parquet (tests) where
+
+import qualified Data.ByteString as BS
+import qualified Data.Map.Strict as Map
+import qualified Data.Vector as V
+import Test.Tasty
+import Test.Tasty.HUnit
+
+import qualified Iceberg.DeletionVector as DV
+import qualified Iceberg.Parquet as IP
+import Iceberg.Types
+
+import qualified Parquet.Types as P
+
+-- A two-column schema: id (long) and name (string).
+schema :: Schema
+schema = Schema
+  { schemaId = 0
+  , schemaFields = V.fromList
+      [ StructField 1 "id"   True TLong   Nothing Nothing Nothing
+      , StructField 2 "name" True TString Nothing Nothing Nothing
+      ]
+  , schemaIdentifierFieldIds = V.empty
+  }
+
+-- A single-row-group Parquet metadata covering the same schema, with min/max
+-- statistics on each column and 100 rows total.
+mkParquetFm :: P.FileMetadata
+mkParquetFm = P.FileMetadata
+  { P.fmVersion = 2
+  , P.fmSchema = V.empty   -- root + children would normally live here; the
+                            -- bridge doesn't consult fmSchema.
+  , P.fmNumRows = 100
+  , P.fmRowGroups = V.singleton (P.RowGroup
+      { P.rgColumns = V.fromList [ idChunk, nameChunk ]
+      , P.rgTotalByteSize = 4096
+      , P.rgNumRows = 100
+      })
+  , P.fmCreatedBy = Just "wireform-parquet test"
+  }
+  where
+    idChunk = P.ColumnChunk
+      { P.ccFilePath = Nothing
+      , P.ccFileOffset = 0
+      , P.ccMetadata = Just (P.ColumnMetadata
+          { P.cmType = P.PTInt64
+          , P.cmEncodings = V.empty
+          , P.cmPathInSchema = V.singleton "id"
+          , P.cmCodec = P.Uncompressed
+          , P.cmNumValues = 100
+          , P.cmTotalUncompressedSize = 1024
+          , P.cmTotalCompressedSize = 800
+          , P.cmDataPageOffset = 4
+          , P.cmStatistics = Just (P.Statistics
+              { P.statMin = Nothing
+              , P.statMax = Nothing
+              , P.statNullCount = Just 1
+              , P.statDistinctCount = Nothing
+              , P.statMinValue = Just (BS.pack [1,0,0,0,0,0,0,0])  -- 1
+              , P.statMaxValue = Just (BS.pack [99,0,0,0,0,0,0,0]) -- 99
+              })
+          , P.cmBloomFilterOffset = Nothing
+          , P.cmBloomFilterLength = Nothing
+          })
+      , P.ccOffsetIndexOffset = Nothing
+      , P.ccOffsetIndexLength = Nothing
+      , P.ccColumnIndexOffset = Nothing
+      , P.ccColumnIndexLength = Nothing
+      }
+    nameChunk = P.ColumnChunk
+      { P.ccFilePath = Nothing
+      , P.ccFileOffset = 1024
+      , P.ccMetadata = Just (P.ColumnMetadata
+          { P.cmType = P.PTByteArray
+          , P.cmEncodings = V.empty
+          , P.cmPathInSchema = V.singleton "name"
+          , P.cmCodec = P.Uncompressed
+          , P.cmNumValues = 100
+          , P.cmTotalUncompressedSize = 2048
+          , P.cmTotalCompressedSize = 1500
+          , P.cmDataPageOffset = 1024
+          , P.cmStatistics = Just (P.Statistics
+              { P.statMin = Nothing
+              , P.statMax = Nothing
+              , P.statNullCount = Just 0
+              , P.statDistinctCount = Nothing
+              , P.statMinValue = Just "alpha"
+              , P.statMaxValue = Just "zulu"
+              })
+          , P.cmBloomFilterOffset = Nothing
+          , P.cmBloomFilterLength = Nothing
+          })
+      , P.ccOffsetIndexOffset = Nothing
+      , P.ccOffsetIndexLength = Nothing
+      , P.ccColumnIndexOffset = Nothing
+      , P.ccColumnIndexLength = Nothing
+      }
+
+mkOffsetIndex :: P.OffsetIndex
+mkOffsetIndex = P.OffsetIndex
+  { P.oiPageLocations = V.fromList
+      [ P.PageLocation { P.plOffset = 0,    P.plCompressedPageSize = 256, P.plFirstRowIndex = 0 }
+      , P.PageLocation { P.plOffset = 256,  P.plCompressedPageSize = 256, P.plFirstRowIndex = 50 }
+      , P.PageLocation { P.plOffset = 512,  P.plCompressedPageSize = 256, P.plFirstRowIndex = 75 }
+      ]
+  , P.oiUnencodedByteArrayDataBytes = Nothing
+  }
+
+tests :: TestTree
+tests = testGroup "Iceberg.Parquet bridge"
+  [ testCase "dataFileFromParquet records column sizes by Iceberg field id" $ do
+      let df = IP.dataFileFromParquet mkParquetFm schema Map.empty
+                 "s3://b/data.parquet" 4096 V.empty Nothing
+      Map.lookup 1 (dataFileColumnSizes df) @?= Just 800
+      Map.lookup 2 (dataFileColumnSizes df) @?= Just 1500
+      dataFileRecordCount df @?= 100
+      dataFileFileSize df    @?= 4096
+
+  , testCase "dataFileFromParquet records value/null counts" $ do
+      let df = IP.dataFileFromParquet mkParquetFm schema Map.empty
+                 "s3://b/data.parquet" 4096 V.empty Nothing
+      Map.lookup 1 (dataFileValueCounts df) @?= Just 100
+      Map.lookup 2 (dataFileValueCounts df) @?= Just 100
+      Map.lookup 1 (dataFileNullValueCounts df) @?= Just 1
+      Map.lookup 2 (dataFileNullValueCounts df) @?= Just 0
+
+  , testCase "dataFileFromParquet records min/max bounds (truncated)" $ do
+      let df = IP.dataFileFromParquet mkParquetFm schema Map.empty
+                 "s3://b/data.parquet" 4096 V.empty Nothing
+      -- id column: 8-byte little-endian 1 / 99 - shorter than truncation
+      -- threshold so they pass through.
+      Map.lookup 1 (dataFileLowerBounds df) @?= Just (BS.pack [1,0,0,0,0,0,0,0])
+      Map.lookup 1 (dataFileUpperBounds df) @?= Just (BS.pack [99,0,0,0,0,0,0,0])
+      -- name column: bound truncation rounds the upper bound up.
+      Map.lookup 2 (dataFileLowerBounds df) @?= Just "alpha"
+      case Map.lookup 2 (dataFileUpperBounds df) of
+        Just b  -> (b >= "zulu") @?= True
+        Nothing -> assertFailure "expected upper bound for column 2"
+
+  , testCase "dataFileFromParquet records split offsets per row group" $ do
+      let df = IP.dataFileFromParquet mkParquetFm schema Map.empty
+                 "s3://b/data.parquet" 4096 V.empty Nothing
+      V.toList (dataFileSplitOffsets df) @?= [4, 1024]
+
+  , testCase "metrics-mode 'none' suppresses stats for that column" $ do
+      let props = Map.singleton "write.metadata.metrics.column.id" "none"
+          df = IP.dataFileFromParquet mkParquetFm schema props
+                 "s3://b/data.parquet" 4096 V.empty Nothing
+      Map.lookup 1 (dataFileColumnSizes df) @?= Nothing
+      Map.lookup 2 (dataFileColumnSizes df) @?= Just 1500
+
+  , testCase "pagesOverlappingDeletes: deletes inside one page" $ do
+      let dv = DV.addPositions [25, 60] DV.emptyDV
+          hits = IP.pagesOverlappingDeletes dv mkOffsetIndex
+      -- Row 25 is in page 0 (rows 0..49); row 60 is in page 1 (rows 50..74).
+      V.toList hits @?= [0, 1]
+
+  , testCase "pagesOverlappingDeletes: empty deletion vector returns no pages" $ do
+      let hits = IP.pagesOverlappingDeletes DV.emptyDV mkOffsetIndex
+      V.toList hits @?= []
+
+  , testCase "filterDeletedPages drops fully-deleted pages" $ do
+      -- Delete every row in page 1 (rows 50..74).
+      let dv = DV.addPositions [fromIntegral i | i <- [50 .. 74 :: Int]] DV.emptyDV
+          surviving = IP.filterDeletedPages dv mkOffsetIndex 100
+      V.toList surviving @?= [0, 2]
+  ]
