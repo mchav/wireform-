@@ -6,6 +6,7 @@ import qualified Test.Iceberg.BoundTrunc
 import qualified Test.Iceberg.DeletionVector
 import qualified Test.Iceberg.Expression
 import qualified Test.Iceberg.Incremental
+import qualified Test.Iceberg.Maintenance
 import qualified Test.Iceberg.ManifestMerge
 import qualified Test.Iceberg.MetricsConfig
 import qualified Test.Iceberg.Murmur3
@@ -36,6 +37,7 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.Transform.tests
   , Test.Iceberg.Expression.tests
   , Test.Iceberg.Incremental.tests
+  , Test.Iceberg.Maintenance.tests
   , Test.Iceberg.Write.tests
   , Test.Iceberg.Update.tests
   , Test.Iceberg.View.tests
