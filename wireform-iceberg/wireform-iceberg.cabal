@@ -72,6 +72,7 @@ test-suite iceberg-test
     Test.Iceberg.NameMapping
     Test.Iceberg.Puffin
     Test.Iceberg.RESTCatalog
+    Test.Iceberg.ScanPlan
     Test.Iceberg.SingleValue
     Test.Iceberg.Transform
     Test.Iceberg.Update

@@ -84,7 +84,17 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.1 | Manifest / manifest-list Avro; path helpers | **Done** |
 | D.2 | Snapshot selection, schema evolution, partition specs, scan planning | **Done** |
 | D.3 | Delete files (position / equality), sequence numbers | **Done** (`PositionDelete`, `applyPositionDeletes`, `planScanWithDeletes`, sequence/file-sequence numbers) |
-| D.4 | REST catalog client (optional) | Planned |
+| D.4 | REST catalog client | **Done** (`Iceberg.Catalog.REST` request/response types + JSON) |
+| D.5 | Bucket / Truncate / Year / Month / Day / Hour transforms (Murmur3) | **Done** (`Iceberg.Murmur3`, `Iceberg.Transform`) |
+| D.6 | Predicate AST + manifest pruning (inclusive + strict) | **Done** (`Iceberg.Expression`, `planScanWithFilter`) |
+| D.7 | Manifest / manifest-list / table-metadata writers | **Done** (`Iceberg.Write`) |
+| D.8 | Table commit operations (Append, Overwrite, RowDelta, branches, tags) | **Done** (`Iceberg.Update`) |
+| D.9 | Iceberg View spec | **Done** (types + JSON + `Iceberg.View` updates) |
+| D.10 | Statistics / partition-statistics file references | **Done** |
+| D.11 | V3 deletion vectors (Puffin Roaring64) | **Done** (`Iceberg.Puffin`, `Iceberg.DeletionVector`) |
+| D.12 | V3 type extensions (nanos, unknown, variant, geometry, geography) | **Done** (types + JSON) |
+| D.13 | V3 default values, row lineage, encryption keys | **Done** (types + JSON) |
+| D.14 | Schema name mapping (`schema.name-mapping.default`) | **Done** |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 

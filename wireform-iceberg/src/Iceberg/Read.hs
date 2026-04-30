@@ -19,8 +19,11 @@ module Iceberg.Read
   , positionDeletesFromColumns
   , applyPositionDeletes
   , ScanPlan(..)
+  , FileScanTask(..)
   , planScan
   , planScanWithDeletes
+  , planScanWithFilter
+  , fileMetricsFromEntry
   ) where
 
 import Control.DeepSeq (NFData)
@@ -37,6 +40,7 @@ import Avro.Container (readContainer)
 import Avro.Schema (AvroField (..), AvroSchema (..), AvroType (..))
 import qualified Avro.Value as AV
 
+import qualified Iceberg.Expression as Expr
 import Iceberg.SchemaEvolution (currentSchema)
 import Iceberg.Snapshot (applicableDeletes, currentSnapshot)
 import Iceberg.Types
@@ -523,6 +527,31 @@ planScan tm manifestListBytes readManifestByPath = do
       (_, entries) <- readManifestEntries bs
       Right entries
 
+-- | A single scannable data file together with the delete files that apply
+-- to it. Mirrors Java's @FileScanTask@.
+data FileScanTask = FileScanTask
+  { fstDataFile      :: !ManifestEntry
+  , fstDeleteFiles   :: !(V.Vector ManifestEntry)
+  , fstSpecId        :: !Int
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+-- | Project a 'ManifestEntry' to the 'Expr.FileMetrics' record used by the
+-- pruning evaluators. Statistics that aren't present on the manifest entry
+-- are returned as 'Nothing' (i.e. unknown), which 'Expression' treats
+-- conservatively.
+fileMetricsFromEntry :: ManifestEntry -> Expr.FileMetrics
+fileMetricsFromEntry me = case meDataFile me of
+  Just df -> Expr.FileMetrics
+    { Expr.fmRecordCount = meRecordCount me
+    , Expr.fmValueCounts = dataFileValueCounts df
+    , Expr.fmNullCounts  = dataFileNullValueCounts df
+    , Expr.fmNanCounts   = dataFileNanValueCounts df
+    , Expr.fmLowerBounds = dataFileLowerBounds df
+    , Expr.fmUpperBounds = dataFileUpperBounds df
+    }
+  Nothing -> Expr.emptyFileMetrics (meRecordCount me)
+
 -- | Like 'planScan' but also collects delete file paths from delete manifests.
 planScanWithDeletes
   :: TableMetadata
@@ -555,3 +584,52 @@ planScanWithDeletes tm manifestListBytes readManifestByPath = do
       bs <- readManifestByPath path
       (_, entries) <- readManifestEntries bs
       Right entries
+
+-- | Like 'planScanWithDeletes' but additionally evaluates a row-level
+-- predicate against the column statistics of each data file, dropping
+-- files that cannot match. The result is one 'FileScanTask' per surviving
+-- data file with its applicable delete files attached.
+planScanWithFilter
+  :: TableMetadata
+  -> ByteString
+  -> (Text -> Either String ByteString)
+  -> Expr.Expression
+  -> Either String (V.Vector FileScanTask, Snapshot, Schema)
+planScanWithFilter tm manifestListBytes readManifestByPath expr = do
+  snap   <- maybe (Left "planScanWithFilter: no current snapshot") Right
+              (currentSnapshot tm)
+  schema <- maybe (Left "planScanWithFilter: no current schema") Right
+              (currentSchema tm)
+  (_, manifestFiles) <- readManifestList manifestListBytes
+  let dataPaths = dataManifestPaths manifestFiles
+      delMfs    = applicableDeletes snap manifestFiles
+      delPaths  = V.map mfPath delMfs
+  dataEntryVecs <- V.mapM (readAndParse readManifestByPath) dataPaths
+  delEntryVecs  <- V.mapM (readAndParse readManifestByPath) delPaths
+  let allDataEntries = V.concat (V.toList dataEntryVecs)
+      allDelEntries  = V.concat (V.toList delEntryVecs)
+      keep me = Expr.evaluateInclusive schema (fileMetricsFromEntry me) expr
+      surviving = V.filter keep allDataEntries
+      tasks = V.map (\me -> FileScanTask
+                       { fstDataFile    = me
+                       , fstDeleteFiles = applicableDeleteEntries me allDelEntries
+                       , fstSpecId      = 0
+                       }) surviving
+  Right (tasks, snap, schema)
+  where
+    readAndParse readMf path = do
+      bs <- readMf path
+      (_, entries) <- readManifestEntries bs
+      Right entries
+
+-- | Find delete-manifest entries that are applicable to a given data-file
+-- entry. The Iceberg spec says a delete file applies when its sequence
+-- number is at most that of the data file.
+applicableDeleteEntries
+  :: ManifestEntry
+  -> V.Vector ManifestEntry
+  -> V.Vector ManifestEntry
+applicableDeleteEntries dataEntry =
+  V.filter $ \del -> case (meSequenceNumber dataEntry, meSequenceNumber del) of
+    (Just dataSeq, Just delSeq) -> delSeq <= dataSeq
+    _                           -> True

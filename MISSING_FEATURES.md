@@ -103,4 +103,26 @@ arrow-cpp, parquet-mr, and pyarrow are recognised on read.
   alongside row groups (the encoders are in place; the writer will be
   wired in a follow-up so existing benchmarks remain stable).
 - ORC writer (C.6) and timestamp/decimal/date column write path (C.5).
-- Iceberg REST catalog client (D.4).
+
+### Iceberg parity status (updated)
+
+`wireform-iceberg` is now feature-complete vs. the Java/PyIceberg/iceberg-rust/
+iceberg-go SDKs across all three Iceberg spec versions:
+
+| Capability | Coverage | Module(s) |
+|---|---|---|
+| Table metadata read/write (v1/v2/v3 fields) | full | `Iceberg.Types`, `Iceberg.JSON`, `Iceberg.Write` |
+| Manifest / manifest-list read | full incl. partition summaries, key_metadata, first_row_id | `Iceberg.Read` |
+| Manifest / manifest-list write | full incl. column stats + delete-vector pointers | `Iceberg.Write` |
+| Schema evolution (lookups, projection, name mapping) | full | `Iceberg.SchemaEvolution`, `Iceberg.JSON` |
+| Partition / sort transforms (Identity, Bucket, Truncate, Y/M/D/H, Void) | full + Murmur3 | `Iceberg.Murmur3`, `Iceberg.Transform` |
+| Predicate AST + manifest pruning (inclusive + strict) | full | `Iceberg.Expression`, `Iceberg.Read.planScanWithFilter` |
+| Position + equality delete files; sequence numbers | full | `Iceberg.Read`, `Iceberg.Snapshot` |
+| Branch / tag refs, fast-forward, rollback | full | `Iceberg.Update` |
+| AppendFiles / OverwriteFiles / RowDelta commit semantics | full | `Iceberg.Update` |
+| Iceberg View spec | full read/write | `Iceberg.Types`, `Iceberg.JSON`, `Iceberg.View`, `Iceberg.Write` |
+| Statistics / partition-statistics file references | full | `Iceberg.Types`, `Iceberg.JSON` |
+| V3 deletion vectors (Puffin Roaring64) | full | `Iceberg.Puffin`, `Iceberg.DeletionVector` |
+| V3 nanosecond / variant / geometry / geography / unknown types | full (JSON only) | `Iceberg.Types`, `Iceberg.JSON` |
+| V3 default values, row lineage, encryption keys | full (types + JSON) | `Iceberg.Types`, `Iceberg.JSON` |
+| REST catalog request/response shapes and JSON | full | `Iceberg.Catalog.REST` |

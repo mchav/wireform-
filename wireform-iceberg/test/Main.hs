@@ -13,6 +13,7 @@ import qualified Test.Iceberg.Puffin
 import qualified Test.Iceberg.DeletionVector
 import qualified Test.Iceberg.RESTCatalog
 import qualified Test.Iceberg.NameMapping
+import qualified Test.Iceberg.ScanPlan
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform-iceberg"
@@ -27,4 +28,5 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.DeletionVector.tests
   , Test.Iceberg.RESTCatalog.tests
   , Test.Iceberg.NameMapping.tests
+  , Test.Iceberg.ScanPlan.tests
   ]
