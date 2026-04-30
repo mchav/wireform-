@@ -30,6 +30,7 @@ module Parquet.Write
   , ColumnEncryption(..)
   , columnEncryptionFor
   , encryptPageBytes
+  , encryptPageBytesV2
     -- * Column data
   , ColumnData(..)
   , columnDataLength
@@ -51,7 +52,9 @@ module Parquet.Write
     -- * Data page version (V1 vs V2)
   , PageVersion(..)
   , encodeColumnDataPageV2
+  , encodeColumnDataPageV2Parts
   , encodeOptionalColumnPageV2
+  , encodeOptionalColumnPageV2Parts
     -- * Page / footer building blocks (used by composite writers)
   , writeParquetFile
   , encodePageHeader
@@ -278,6 +281,18 @@ assembleColumnChunk _codec pages = mconcat pages
 -- @is_compressed@ flag.
 encodeOptionalColumnPageV2 :: Compression -> OptionalColumn -> Either String ByteString
 encodeOptionalColumnPageV2 codec oc = do
+  parts <- encodeOptionalColumnPageV2Parts codec oc
+  Right (concatV2Parts parts)
+
+-- | Like 'encodeOptionalColumnPageV2' but returns the four byte
+-- segments separately so callers (in particular the encrypted writer
+-- path) can apply per-module ciphers. The tuple is
+-- @(pageHeader, repLevels, defLevels, values)@.
+encodeOptionalColumnPageV2Parts
+  :: Compression
+  -> OptionalColumn
+  -> Either String (ByteString, ByteString, ByteString, ByteString)
+encodeOptionalColumnPageV2Parts codec oc = do
   let !defs = VP.fromList
         [ if isJust v then 1 else 0
         | v <- presenceList oc
@@ -296,7 +311,7 @@ encodeOptionalColumnPageV2 codec oc = do
       !nRows = nVals  -- non-repeated => num_rows == num_values
       !uncompPageSize = repLen + defLen + uncompValuesLen
       !compPageSize   = repLen + defLen + BS.length valuesBs
-      !hdr = PageHeader
+      !hdrBytes = encodePageHeader PageHeader
         { phType = PtDataPageV2 DataPageHeaderV2
             { dph2NumValues    = fromIntegral nVals
             , dph2NumNulls     = fromIntegral nNulls
@@ -309,7 +324,7 @@ encodeOptionalColumnPageV2 codec oc = do
         , phUncompressedPageSize = Just (fromIntegral uncompPageSize)
         , phCompressedPageSize   = Just (fromIntegral compPageSize)
         }
-  Right (encodePageHeader hdr <> repStream <> defStream <> valuesBs)
+  Right (hdrBytes, repStream, defStream, valuesBs)
   where
     isJust (Just _) = True
     isJust Nothing  = False
@@ -326,11 +341,26 @@ encodeOptionalColumnPageV2 codec oc = do
     void' Nothing  = Nothing
     void' (Just _) = Just ()
 
+-- | Concatenate a @V2 parts tuple@ in spec order.
+concatV2Parts :: (ByteString, ByteString, ByteString, ByteString) -> ByteString
+concatV2Parts (h, r, d, v) = BS.concat [h, r, d, v]
+
 -- | Encode a required (non-null) 'ColumnData' as a single
 -- @DATA_PAGE_V2@. No def/rep level streams are emitted; only the values
 -- segment, compressed if the caller requested it.
 encodeColumnDataPageV2 :: Compression -> ColumnData -> Either String ByteString
 encodeColumnDataPageV2 codec cd = do
+  parts <- encodeColumnDataPageV2Parts codec cd
+  Right (concatV2Parts parts)
+
+-- | Like 'encodeColumnDataPageV2' but returns the four parts
+-- separately. For required columns the rep / def segments are empty
+-- so this is just @(pageHeader, "", "", values)@.
+encodeColumnDataPageV2Parts
+  :: Compression
+  -> ColumnData
+  -> Either String (ByteString, ByteString, ByteString, ByteString)
+encodeColumnDataPageV2Parts codec cd = do
   let !valuesRaw = encodeColumnDataPagePayload cd
       !uncompValuesLen = BS.length valuesRaw
   (valuesBs, codecActual) <- case Compress.compressPageBytes codec valuesRaw of
@@ -339,7 +369,7 @@ encodeColumnDataPageV2 codec cd = do
   let !nVals = columnDataLength cd
       !uncompPageSize = uncompValuesLen
       !compPageSize   = BS.length valuesBs
-      !hdr = PageHeader
+      !hdrBytes = encodePageHeader PageHeader
         { phType = PtDataPageV2 DataPageHeaderV2
             { dph2NumValues    = fromIntegral nVals
             , dph2NumNulls     = 0
@@ -352,7 +382,7 @@ encodeColumnDataPageV2 codec cd = do
         , phUncompressedPageSize = Just (fromIntegral uncompPageSize)
         , phCompressedPageSize   = Just (fromIntegral compPageSize)
         }
-  Right (encodePageHeader hdr <> valuesBs)
+  Right (hdrBytes, BS.empty, BS.empty, valuesBs)
 
 -- ============================================================
 -- Page / column statistics
@@ -882,6 +912,47 @@ encryptPageBytes ce bodyModule rgOrd pageOrd hdrBytes bodyBytes = do
     Enc.AesGcmCtrV1 -> Enc.encryptCtrModulePure (ceKey ce) bodyBytes
   Right (BS.append encHdr encBody)
 
+-- | Encrypt a DATA_PAGE_V2 page, given the four parts produced by
+-- 'encodeColumnDataPageV2Parts' / 'encodeOptionalColumnPageV2Parts'.
+--
+-- Per the Parquet modular-encryption spec for V2:
+--
+-- * The page header is GCM-encrypted under the
+--   'Enc.ModuleDataPageHeader' AAD (always, regardless of which
+--   algorithm the column uses for the body).
+-- * The repetition and definition level segments are written
+--   /unencrypted and uncompressed/, exactly as a plaintext V2 page
+--   would emit them. Levels are page-internal scaffolding the
+--   reader needs even before the body cipher is keyed up.
+-- * The values segment is encrypted with GCM (for AesGcmV1) or CTR
+--   (for AesGcmCtrV1) under the 'Enc.ModuleDataPage' AAD, matching
+--   what we already do for V1.
+--
+-- Result: @<encrypted-header> <> <rep> <> <def> <> <encrypted-values>@.
+encryptPageBytesV2
+  :: ColumnEncryption
+  -> Int             -- ^ row-group ordinal
+  -> Int             -- ^ page ordinal within the column chunk
+  -> ByteString      -- ^ pageHeader bytes (plaintext)
+  -> ByteString      -- ^ repetition-levels segment
+  -> ByteString      -- ^ definition-levels segment
+  -> ByteString      -- ^ values segment (post-compression)
+  -> Either String ByteString
+encryptPageBytesV2 ce rgOrd pageOrd hdrBytes repBytes defBytes valBytes = do
+  let !suffixHdr  = Enc.buildAadSuffix
+                     (ceFileId ce) Enc.ModuleDataPageHeader
+                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
+      !suffixBody = Enc.buildAadSuffix
+                     (ceFileId ce) Enc.ModuleDataPage
+                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
+      !aadHdr  = Enc.buildAad (ceAadPrefix ce) suffixHdr
+      !aadBody = Enc.buildAad (ceAadPrefix ce) suffixBody
+  encHdr  <- Enc.encryptGcmModulePure (ceKey ce) aadHdr hdrBytes
+  encVals <- case ceAlgorithm ce of
+    Enc.AesGcmV1    -> Enc.encryptGcmModulePure (ceKey ce) aadBody valBytes
+    Enc.AesGcmCtrV1 -> Enc.encryptCtrModulePure (ceKey ce) valBytes
+  Right (BS.concat [encHdr, repBytes, defBytes, encVals])
+
 layoutBlooms
   :: V.Vector RowGroup
   -> V.Vector (V.Vector ColumnAux)
@@ -1138,22 +1209,31 @@ buildParquetFileWithIndex schema rowGroups auxes =
                         Right encBytes -> (encBytes, uncompSz, cActual)
                         Left  _        -> (BS.append hdr' compBody, uncompSz, cActual)
             PageV2 ->
-              -- V2 encryption is intentionally not implemented yet; if
-              -- the caller asked for both, we silently fall back to
-              -- plaintext (the on-disk file is still spec-correct V2,
-              -- just unencrypted). This keeps the writer total while
-              -- making the limitation visible at the type level.
-              let !raw      = encodeColumnDataPage cd
-                  uncompSz  = BS.length raw
-                  encoded   = case encodeColumnDataPageV2 codecRequested cd of
-                    Right bs -> bs
-                    Left  _  -> case encodeColumnDataPageV2 Uncompressed cd of
-                                  Right bs -> bs
-                                  Left  _  -> raw  -- defensive fallback
+              -- For V2 the codec is applied only to the values segment,
+              -- but we account for the *full* page bytes (header +
+              -- segments) when recording sizes on the column metadata so
+              -- that ccTotalCompressedSize / ccTotalUncompressedSize
+              -- reflect on-disk reality.
+              let !raw     = encodeColumnDataPage cd
+                  uncompSz = BS.length raw
+                  partsResult = encodeColumnDataPageV2Parts codecRequested cd
+                  parts = case partsResult of
+                    Right p  -> p
+                    Left  _  -> case encodeColumnDataPageV2Parts Uncompressed cd of
+                                  Right p  -> p
+                                  Left  _  -> (raw, BS.empty, BS.empty, BS.empty)
                   codecActual = if codecRequested == Uncompressed
                                   then Uncompressed
                                   else codecRequested
-               in (encoded, uncompSz, codecActual)
+                  finalBytes = case mEnc of
+                    Nothing -> concatV2Parts parts
+                    Just ce ->
+                      case parts of
+                        (h, r, d, v) ->
+                          case encryptPageBytesV2 ce 0 0 h r d v of
+                            Right enc -> enc
+                            Left  _   -> concatV2Parts parts
+               in (finalBytes, uncompSz, codecActual)
 
     buildRG
       :: (V.Vector RowGroup, Int) -> Int -> V.Vector (ByteString, Int, Compression)

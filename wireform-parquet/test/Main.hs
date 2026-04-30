@@ -63,10 +63,12 @@ import Parquet.Write
   , emptyColumnAux
   , encodeColumnDataPageParts
   , encodeColumnDataPageV2
+  , encodeColumnDataPageV2Parts
   , encodeDictDataPage
   , encodeDictPage
   , encodeOptionalColumnPage
   , encryptPageBytes
+  , encryptPageBytesV2
   , optionalColumnLength
   , optionalColumnNullCount
   )
@@ -441,6 +443,70 @@ main = do
           Right _ -> failTest "tampered ciphertext decrypted (BAD)"
           Left  _ -> expect "tampered body fails GCM auth" True
         Left  _ -> expect "tampered header fails GCM auth" True
+
+  -- DATA_PAGE_V2 + encryption round-trip. The wire shape is
+  -- '<encHdr> <> <repBytes> <> <defBytes> <> <encValues>' so we
+  -- decrypt with the matching AAD-per-module to recover the parts.
+  case encodeColumnDataPageV2Parts Uncompressed encVals of
+    Left e -> failTest ("encodeColumnDataPageV2Parts: " ++ e)
+    Right (rawHdrV2, repV2, defV2, valsV2) ->
+      case encryptPageBytesV2 (ce Enc.AesGcmV1) 0 0 rawHdrV2 repV2 defV2 valsV2 of
+        Left e -> failTest ("encryptPageBytesV2 GCM: " ++ e)
+        Right encBytesV2 -> do
+          let aadHdr = Enc.buildAad BS.empty
+                         (Enc.buildAadSuffix (BSC.pack "fileid01")
+                            Enc.ModuleDataPageHeader 0 0 0)
+              aadBody = Enc.buildAad BS.empty
+                         (Enc.buildAadSuffix (BSC.pack "fileid01")
+                            Enc.ModuleDataPage 0 0 0)
+              encHdrLen = BS.length rawHdrV2 + 28
+              (encHdr, rest) = BS.splitAt encHdrLen encBytesV2
+              (rd, encVals') = BS.splitAt (BS.length repV2 + BS.length defV2) rest
+          case Enc.decryptGcmModule encKey aadHdr encHdr of
+            Right plain -> expect "V2 encrypted page header round-trips"
+                                  (plain == rawHdrV2)
+            Left e -> failTest ("V2 decrypt page header: " ++ e)
+          expect "V2 encryption preserves rep/def levels in plaintext"
+            (rd == BS.append repV2 defV2)
+          case Enc.decryptGcmModule encKey aadBody encVals' of
+            Right plain -> expect "V2 (GCM) encrypted values round-trip"
+                                  (plain == valsV2)
+            Left e -> failTest ("V2 decrypt values: " ++ e)
+      -- Same for AES-GCM-CTR-V1: values are CTR-encrypted (no auth).
+      >> case encryptPageBytesV2 (ce Enc.AesGcmCtrV1) 0 0 rawHdrV2 repV2 defV2 valsV2 of
+        Left e -> failTest ("encryptPageBytesV2 CTR: " ++ e)
+        Right encBytesCtr -> do
+          let aadHdr = Enc.buildAad BS.empty
+                         (Enc.buildAadSuffix (BSC.pack "fileid01")
+                            Enc.ModuleDataPageHeader 0 0 0)
+              encHdrLen = BS.length rawHdrV2 + 28
+              (encHdr, rest) = BS.splitAt encHdrLen encBytesCtr
+              (_rd, encVals') = BS.splitAt (BS.length repV2 + BS.length defV2) rest
+          case Enc.decryptGcmModule encKey aadHdr encHdr of
+            Right _ -> expect "V2 CTR header decrypts (GCM-authenticated)" True
+            Left e  -> failTest ("V2 CTR header decrypt: " ++ e)
+          case Enc.decryptCtrModule encKey encVals' of
+            Right plain -> expect "V2 CTR values round-trip"
+                                  (plain == valsV2)
+            Left e -> failTest ("V2 CTR decrypt values: " ++ e)
+
+  -- Whole-file V2 + encryption: ColumnAux carries both PageV2 and
+  -- ColumnEncryption, so buildParquetFileWithIndex must dispatch
+  -- through encryptPageBytesV2 internally.
+  let v2EncAux alg = ColumnAux Nothing Nothing Nothing Uncompressed PageV2 (Just (ce alg))
+      v2EncFile alg = buildParquetFileWithIndex encSchema
+                        (V.singleton (V.singleton encVals))
+                        (V.singleton (V.singleton (v2EncAux alg)))
+  expect "V2 + AES-GCM-V1 whole-file write is non-empty"
+    (BS.length (v2EncFile Enc.AesGcmV1) > 0)
+  expect "V2 + AES-GCM-CTR-V1 whole-file write is non-empty"
+    (BS.length (v2EncFile Enc.AesGcmCtrV1) > 0)
+  expect "V2 + encryption differs from V2 plaintext file"
+    (v2EncFile Enc.AesGcmV1
+       /= buildParquetFileWithIndex encSchema
+            (V.singleton (V.singleton encVals))
+            (V.singleton (V.singleton
+              (ColumnAux Nothing Nothing Nothing Uncompressed PageV2 Nothing))))
 
   -- Optional column page: definition levels + present-only PLAIN values.
   let optCol = OptInt32 (V.fromList [Just 1, Nothing, Just 3, Nothing, Just 5])
