@@ -12,6 +12,7 @@ module Iceberg.Types
   , Snapshot(..)
   , PartitionSpec(..)
   , PartitionField(..)
+  , pfPrimarySourceId
   , Transform(..)
   , SortOrder(..)
   , SortField(..)
@@ -57,6 +58,7 @@ import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 import GHC.Generics (Generic)
 
 import qualified Avro.Value as Avro
@@ -181,12 +183,27 @@ data PartitionSpec = PartitionSpec
     deriving anyclass (NFData)
 
 data PartitionField = PartitionField
-  { pfSourceId  :: {-# UNPACK #-} !Int
+  { pfSourceIds :: !(Vector Int)
+    -- ^ The source columns the transform consumes. In the V1 / V2
+    -- spec exactly one source column is allowed and it's encoded in
+    -- the metadata as @source-id@; in V3 the multi-arg variants of
+    -- @bucket[N]@ and @truncate[W]@ accept several source columns and
+    -- it's encoded as @source-ids@. This single field models both.
   , pfFieldId   :: {-# UNPACK #-} !Int
   , pfName      :: !Text
   , pfTransform :: !Transform
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
+
+-- | The first source id of a partition field. This is the unique
+-- source column for V1/V2 fields and the first source column for V3
+-- multi-arg fields (which is the column most projection / pruning
+-- machinery still keys off of).
+pfPrimarySourceId :: PartitionField -> Int
+pfPrimarySourceId pf = case V.length (pfSourceIds pf) of
+  0 -> error "Iceberg.Types.pfPrimarySourceId: empty pfSourceIds"
+  _ -> V.unsafeIndex (pfSourceIds pf) 0
+{-# INLINE pfPrimarySourceId #-}
 
 data Transform
   = Identity

@@ -8,6 +8,7 @@ import Test.Tasty.HUnit
 
 import qualified Avro.Value as AV
 import qualified Iceberg.Expression as E
+import qualified Iceberg.JSON as J
 import Iceberg.Partition
 import Iceberg.Types
 
@@ -26,12 +27,12 @@ schema = Schema
 
 specBucket8 :: PartitionSpec
 specBucket8 = PartitionSpec 0 (V.singleton
-  (PartitionField { pfSourceId = 1, pfFieldId = 1000, pfName = "id_bucket"
+  (PartitionField { pfSourceIds = V.singleton 1, pfFieldId = 1000, pfName = "id_bucket"
                   , pfTransform = Bucket 8 }))
 
 specIdentity :: PartitionSpec
 specIdentity = PartitionSpec 0 (V.singleton
-  (PartitionField { pfSourceId = 1, pfFieldId = 1000, pfName = "id_part"
+  (PartitionField { pfSourceIds = V.singleton 1, pfFieldId = 1000, pfName = "id_part"
                   , pfTransform = Identity }))
 
 tests :: TestTree
@@ -67,4 +68,29 @@ tests = testGroup "Iceberg.Partition"
         E.EAnd _ (E.EPredicate p) -> E.predField p @?= "id_bucket"
         E.EPredicate p             -> E.predField p @?= "id_bucket"
         other -> assertFailure ("expected bucket predicate, got: " ++ show other)
+
+  -- V3 multi-arg transforms: a partition field with two source columns.
+  , testCase "V3: PartitionField round-trips through JSON with source-ids" $ do
+      let pf = PartitionField
+            { pfSourceIds = V.fromList [1, 2]
+            , pfFieldId   = 1000
+            , pfName      = "joint_bucket"
+            , pfTransform = Bucket 16
+            }
+          j = J.partitionFieldToJSON pf
+      case J.partitionFieldFromJSON j of
+        Right pf' -> pf' @?= pf
+        Left e    -> assertFailure ("V3 multi-source-ids round-trip: " ++ e)
+
+  , testCase "V2: PartitionField round-trips through JSON with source-id" $ do
+      let pf = PartitionField
+            { pfSourceIds = V.singleton 1
+            , pfFieldId   = 1000
+            , pfName      = "id_bucket"
+            , pfTransform = Bucket 16
+            }
+          j = J.partitionFieldToJSON pf
+      case J.partitionFieldFromJSON j of
+        Right pf' -> pf' @?= pf
+        Left e    -> assertFailure ("V2 single source-id round-trip: " ++ e)
   ]

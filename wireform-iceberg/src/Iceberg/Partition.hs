@@ -44,9 +44,9 @@ buildPartition
   -> (Int -> Maybe AV.Value)
   -> Either Tr.TransformError PartitionTuple
 buildPartition spec schema lookupSrc = do
-  let mkSlot pf = case lookupSrc (pfSourceId pf) of
+  let mkSlot pf = case lookupSrc (pfPrimarySourceId pf) of
         Nothing -> Right Nothing
-        Just v  -> case sourceTypeOf schema (pfSourceId pf) of
+        Just v  -> case sourceTypeOf schema (pfPrimarySourceId pf) of
           Just srcTy -> case Tr.applyTransform (pfTransform pf) srcTy v of
             Right out -> Right (Just out)
             Left  e   -> Left e
@@ -85,7 +85,7 @@ projectPredicate :: Schema -> PartitionSpec -> E.Predicate -> Maybe E.Expression
 projectPredicate schema spec p = do
   fid    <- lookupFieldId schema (E.predField p)
   srcTy  <- sourceTypeOf schema fid
-  let matching = V.filter (\pf -> pfSourceId pf == fid) (psFields spec)
+  let matching = V.filter (\pf -> V.elem fid (pfSourceIds pf)) (psFields spec)
   if V.null matching
     then Nothing
     else Just $ V.foldl' E.and_ E.ETrue

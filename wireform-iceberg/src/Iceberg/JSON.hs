@@ -22,6 +22,11 @@ module Iceberg.JSON
   , icebergTypeFromJSON
   , transformToJSON
   , transformFromJSON
+    -- * Partition spec
+  , partitionSpecToJSON
+  , partitionSpecFromJSON
+  , partitionFieldToJSON
+  , partitionFieldFromJSON
     -- * Name mapping
   , nameMappingToJSON
   , nameMappingFromJSON
@@ -428,22 +433,39 @@ partitionSpecFromJSON (Aeson.Object obj) = do
 partitionSpecFromJSON _ = Left "partition spec must be a JSON object"
 
 partitionFieldToJSON :: PartitionField -> Aeson.Value
-partitionFieldToJSON pf = Aeson.Object $ KM.fromList
-  [ ("source-id",  Aeson.Number (fromIntegral (pfSourceId pf)))
-  , ("field-id",   Aeson.Number (fromIntegral (pfFieldId pf)))
+partitionFieldToJSON pf = Aeson.Object $ KM.fromList $
+  -- Spec compatibility: emit @source-id@ for the V1/V2 single-source
+  -- case (the universal case before V3) and @source-ids@ when the
+  -- transform is a V3 multi-source bucket/truncate. Java / Python /
+  -- Rust readers older than V3 only accept @source-id@.
+  case V.toList (pfSourceIds pf) of
+    [s] -> [ ("source-id",  Aeson.Number (fromIntegral s)) ]
+    ss  -> [ ("source-ids",
+              Aeson.Array
+                (V.fromList (map (Aeson.Number . fromIntegral) ss))) ]
+  ++
+  [ ("field-id",   Aeson.Number (fromIntegral (pfFieldId pf)))
   , ("name",       Aeson.String (pfName pf))
   , ("transform",  transformToJSON (pfTransform pf))
   ]
 
 partitionFieldFromJSON :: Aeson.Value -> Either String PartitionField
 partitionFieldFromJSON (Aeson.Object obj) = do
-  sid  <- reqInt "source-id" obj
+  sids <- case KM.lookup "source-ids" obj of
+            Just (Aeson.Array xs) ->
+              V.mapM (\x -> case x of
+                              Aeson.Number n -> Right (truncate (toRational n))
+                              _ -> Left "partition field 'source-ids' entry not a number") xs
+            Just _  -> Left "partition field 'source-ids' must be an array"
+            Nothing -> do
+              sid <- reqInt "source-id" obj
+              Right (V.singleton sid)
   fid  <- reqInt "field-id" obj
   name <- reqStr "name" obj
   tr   <- case KM.lookup "transform" obj of
             Just v  -> transformFromJSON v
             Nothing -> Left "partition field missing 'transform'"
-  Right PartitionField { pfSourceId = sid, pfFieldId = fid, pfName = name, pfTransform = tr }
+  Right PartitionField { pfSourceIds = sids, pfFieldId = fid, pfName = name, pfTransform = tr }
 partitionFieldFromJSON _ = Left "partition field must be a JSON object"
 
 -- ============================================================

@@ -151,7 +151,7 @@ evaluatePartitionFilter spec schema predicate =
       | otherwise =
           let pf = V.unsafeIndex partFlds i
               mv = V.unsafeIndex vals i
-              fieldName = lookupFieldName (pfSourceId pf)
+              fieldName = lookupFieldName (pfPrimarySourceId pf)
               valText = mv >>= avroValueToText
           in predicate fieldName valText && checkAll (i + 1) n vals
 
