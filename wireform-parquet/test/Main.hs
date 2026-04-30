@@ -8,6 +8,7 @@ import qualified Data.Vector as V
 import Numeric (showHex)
 import Data.Bits (shiftL, (.|.))
 import Data.List (isInfixOf)
+import qualified Data.Text as T
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..), exitFailure)
 import qualified System.Process as Proc
@@ -778,8 +779,12 @@ main = do
   -- pyarrow if pyarrow is available on PATH; otherwise skip.
   pyarrowOk <- pyarrowAvailable
   if pyarrowOk
-    then validateNestedAgainstPyarrow
-    else putStrLn "SKIP: pyarrow not available, nested-list cross-language check skipped"
+    then do
+      validateNestedAgainstPyarrow
+      validateListStructAgainstPyarrow
+      validateListListAgainstPyarrow
+      validateMapAgainstPyarrow
+    else putStrLn "SKIP: pyarrow not available, nested cross-language checks skipped"
 
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
@@ -828,23 +833,145 @@ validateNestedAgainstPyarrow = do
       bytes = Nested.buildOptionalListFile PTInt32 leaf 3
       filePath = "/tmp/wireform-nested-list.parquet"
   BS.writeFile filePath bytes
+  pyarrowAssert "nested optional-list<optional INT32> reads back via pyarrow"
+    [ "t = pq.read_table('" ++ filePath ++ "').to_pylist()"
+    , "exp = [{'xs': [1, None, 3]}, {'xs': []}, {'xs': None}]"
+    , "assert t == exp, f'roundtrip mismatch: {t!r}'"
+    ]
+
+-- | Run a python snippet under pyarrow and assert that it prints
+-- 'PYARROW_OK'. Snippet header (importing pyarrow.parquet as pq) is
+-- prepended automatically.
+pyarrowAssert :: String -> [String] -> IO ()
+pyarrowAssert label snippet = do
   (code, out, err) <- Proc.readProcessWithExitCode "python3"
     [ "-c"
     , unlines
-        [ "import pyarrow.parquet as pq"
-        , "t = pq.read_table('" ++ filePath ++ "').to_pylist()"
-        , "exp = [{'xs': [1, None, 3]}, {'xs': []}, {'xs': None}]"
-        , "assert t == exp, f'roundtrip mismatch: {t!r}'"
-        , "print('PYARROW_OK')"
-        ]
+        ( "import pyarrow.parquet as pq"
+        : snippet
+       ++ ["print('PYARROW_OK')"]
+        )
     ] ""
   case code of
     ExitSuccess
       | "PYARROW_OK" `isInfixOf` out ->
-          expect "nested optional-list<optional INT32> reads back via pyarrow" True
-      | otherwise -> failTest ("pyarrow validation: unexpected output: " ++ out)
+          expect label True
+      | otherwise -> failTest ("pyarrow: unexpected output: " ++ out)
     _ -> failTest ("pyarrow rejected our nested file:\nstdout=" ++ out
                     ++ "\nstderr=" ++ err)
+
+validateListStructAgainstPyarrow :: IO ()
+validateListStructAgainstPyarrow = do
+  -- Schema: optional list<optional struct<a: int32, b: string>>
+  let schema = Nested.NSOptional
+                 (Nested.NSList
+                   (Nested.NSOptional
+                     (Nested.NSStruct (V.fromList
+                       [ ("a", Nested.NSOptional (Nested.NSPrimitive Nested.LtInt32))
+                       , ("b", Nested.NSOptional (Nested.NSPrimitive Nested.LtString))
+                       ]))))
+      mkRec :: Maybe (Int32, T.Text) -> Nested.NestedRow
+      mkRec Nothing = Nested.NRNull
+      mkRec (Just (i, s)) = Nested.NRStruct (V.fromList
+        [ Nested.NRLeaf (Nested.LvInt32 i)
+        , Nested.NRLeaf (Nested.LvString s)
+        ])
+      rows = V.fromList
+        [ Nested.NRList (V.fromList
+            [ mkRec (Just (1, "x"))
+            , mkRec Nothing
+            , mkRec (Just (2, "y"))
+            ])
+        , Nested.NRList V.empty
+        , Nested.NRNull
+        , Nested.NRList (V.singleton (mkRec (Just (3, "z"))))
+        ]
+  case Nested.buildNestedFile (V.singleton ("xs", schema))
+                              (V.singleton rows) of
+    Left e -> failTest ("buildNestedFile (list<struct>): " ++ e)
+    Right bytes -> do
+      let filePath = "/tmp/wireform-list-struct.parquet"
+      BS.writeFile filePath bytes
+      pyarrowAssert "nested list<struct<a:int32,b:string>> reads back via pyarrow"
+        [ "t = pq.read_table('" ++ filePath ++ "').to_pylist()"
+        , "exp = [{'xs': [{'a': 1, 'b': 'x'}, None, {'a': 2, 'b': 'y'}]},"
+        , "       {'xs': []},"
+        , "       {'xs': None},"
+        , "       {'xs': [{'a': 3, 'b': 'z'}]}]"
+        , "assert t == exp, f'roundtrip mismatch: {t!r}'"
+        ]
+
+validateListListAgainstPyarrow :: IO ()
+validateListListAgainstPyarrow = do
+  -- Schema: optional list<optional list<optional int32>>
+  let schema = Nested.NSOptional
+                 (Nested.NSList
+                   (Nested.NSOptional
+                     (Nested.NSList
+                       (Nested.NSOptional
+                         (Nested.NSPrimitive Nested.LtInt32)))))
+      lit :: Int32 -> Nested.NestedRow
+      lit = Nested.NRLeaf . Nested.LvInt32
+      inner :: [Int32] -> Nested.NestedRow
+      inner xs = Nested.NRList (V.fromList (map lit xs))
+      rows = V.fromList
+        [ Nested.NRList (V.fromList [inner [1, 2], inner [3]])
+        , Nested.NRList (V.singleton (Nested.NRList V.empty))
+        , Nested.NRNull
+        , Nested.NRList (V.singleton (inner [4, 5, 6]))
+        ]
+  case Nested.buildNestedFile (V.singleton ("xs", schema))
+                              (V.singleton rows) of
+    Left e -> failTest ("buildNestedFile (list<list>): " ++ e)
+    Right bytes -> do
+      let filePath = "/tmp/wireform-list-list.parquet"
+      BS.writeFile filePath bytes
+      pyarrowAssert "nested list<list<int32>> reads back via pyarrow"
+        [ "t = pq.read_table('" ++ filePath ++ "').to_pylist()"
+        , "exp = [{'xs': [[1, 2], [3]]},"
+        , "       {'xs': [[]]},"
+        , "       {'xs': None},"
+        , "       {'xs': [[4, 5, 6]]}]"
+        , "assert t == exp, f'roundtrip mismatch: {t!r}'"
+        ]
+
+validateMapAgainstPyarrow :: IO ()
+validateMapAgainstPyarrow = do
+  -- Schema: optional map<string, int32> with optional value.
+  let schema = Nested.NSOptional
+                 (Nested.NSMap
+                   (Nested.NSRequired (Nested.NSPrimitive Nested.LtString))
+                   (Nested.NSOptional (Nested.NSPrimitive Nested.LtInt32)))
+      pair :: T.Text -> Maybe Int32 -> (Nested.NestedRow, Nested.NestedRow)
+      pair k mv =
+        ( Nested.NRLeaf (Nested.LvString k)
+        , maybe Nested.NRNull (Nested.NRLeaf . Nested.LvInt32) mv
+        )
+      rows = V.fromList
+        [ Nested.NRMapEntries (V.fromList
+            [ pair "k1" (Just 10)
+            , pair "k2" (Just 20)
+            ])
+        , Nested.NRMapEntries V.empty
+        , Nested.NRNull
+        , Nested.NRMapEntries (V.singleton (pair "k3" (Just 30)))
+        ]
+  case Nested.buildNestedFile (V.singleton ("xs", schema))
+                              (V.singleton rows) of
+    Left e -> failTest ("buildNestedFile (map): " ++ e)
+    Right bytes -> do
+      let filePath = "/tmp/wireform-map.parquet"
+      BS.writeFile filePath bytes
+      -- pyarrow reads MAP columns as a list of (key, value) tuples;
+      -- the dict ordering is preserved.
+      pyarrowAssert "nested map<string, int32> reads back via pyarrow"
+        [ "t = pq.read_table('" ++ filePath ++ "').to_pylist()"
+        , "exp = [{'xs': [('k1', 10), ('k2', 20)]},"
+        , "       {'xs': []},"
+        , "       {'xs': None},"
+        , "       {'xs': [('k3', 30)]}]"
+        , "assert t == exp, f'roundtrip mismatch: {t!r}'"
+        ]
 
 -- ============================================================
 -- Golden pyarrow fixtures

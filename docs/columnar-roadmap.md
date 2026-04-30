@@ -143,8 +143,10 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.43 | Hadoop file-based catalog (FS-agnostic via `FileSystem` record; optimistic concurrency on `version-hint.text`) | **Done** (`Iceberg.Catalog.Hadoop`) |
 | D.44 | SQL ("JDBC") catalog (backend-agnostic via `SqlBackend` record; CAS-on-`metadata_location` commits) | **Done** (`Iceberg.Catalog.Sql`) |
 | D.45 | V3 Variant binary encoding + Variant ↔ JSON bridge | **Done** (`Iceberg.Variant`) |
-| D.46 | Parquet writer: per-column modular encryption (AES-GCM-V1 + AES-GCM-CTR-V1, deterministic-nonce GCM) | **Done** for V1 data pages (`Parquet.Write.ColumnEncryption`, `encryptPageBytes`); V2 + footer/index encryption pending |
-| D.47 | Parquet writer: nested column shred for `optional list<optional T>`, pyarrow round-trip verified | **Done** (`Parquet.Nested`) |
+| D.46 | Parquet writer: per-column modular encryption (AES-GCM-V1 + AES-GCM-CTR-V1, deterministic-nonce GCM, V1 + V2 + aux modules) | **Done** (`Parquet.Write.ColumnEncryption`, `encryptPageBytes`, `encryptPageBytesV2`, `encryptAuxModule`) |
+| D.47 | Parquet writer: encrypted-footer mode (PARE trailing magic) | **Done** (`Parquet.Write.FooterEncryption`, `buildParquetFileWithIndexEncryptedFooter`) |
+| D.48 | Parquet writer: arbitrary nested shredding (struct / list / map / list-of-struct / list-of-list); pyarrow byte-compat | **Done** (`Parquet.Nested.shred`, `buildNestedFile`) |
+| D.49 | Iceberg V3 Variant: full primitive type set (decimal / date / time / timestamp variants / uuid) | **Done** (`Iceberg.Variant`) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 
