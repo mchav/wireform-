@@ -151,7 +151,7 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | Parquet modular encryption (AES-GCM-V1 + AES-GCM-CTR-V1, full AAD framing) | full | `Parquet.Encryption` |
 | Iceberg `tmEncryptionKeys` -> Parquet `EncryptionConfig` wiring | full | `Iceberg.Parquet.encryptionConfigFromTable` / `withEncryptionKeyMetadata` |
 | ORC date / timestamp / decimal writers | full | `ORC.Write.encodeDateColumn` / `encodeTimestampColumn` / `encodeDecimalColumn` / `encodeDecimalRawColumn` |
-| Parquet writer: all primitive types (Int32 / Int64 / Float / Double / Bool / ByteArray) | full | `Parquet.Write.buildParquetFileTyped` + `ColumnData` |
+| Parquet writer: all primitive types (Int32 / Int64 / Float / Double / Bool / ByteArray) | full | `Parquet.Write.buildParquetFile` + `ColumnData` |
 | Parquet writer: per-column compression (Uncompressed / GZip / Snappy / ZSTD / LZ4_RAW) | full | `Parquet.Compress`, `ColumnAux.caCodec` |
 | Parquet writer: nullable columns via definition levels | full | `Parquet.LevelsEncode`, `OptionalColumn`, `encodeOptionalColumnPage` |
 | Parquet writer: dictionary encoding (PLAIN_DICTIONARY + RLE_DICTIONARY) | full | `Parquet.Write.buildDictionary` / `encodeDictPage` / `encodeDictDataPage` |

@@ -57,7 +57,6 @@ library
     Parquet.Read
     Parquet.Types
     Parquet.Write
-    Parquet.XXH64
   other-modules:
     Parquet.RLE
   build-depends:
@@ -93,6 +92,7 @@ test-suite wireform-parquet-test
   hs-source-dirs: test
   build-depends:
     base >= 4.16 && < 5,
+    wireform-core,
     wireform-parquet,
     bytestring >= 0.11 && < 0.13,
     vector >= 0.13 && < 0.14,
@@ -105,9 +105,11 @@ benchmark parquet-bench
   type: exitcode-stdio-1.0
   hs-source-dirs: bench
   main-is: Bench.hs
+  other-modules: XXH64Pure
   ghc-options: -O2
   build-depends:
     base >= 4.16 && < 5,
+    wireform-core,
     wireform-parquet,
     bytestring >= 0.11 && < 0.13,
     criterion >= 1.5 && < 1.7

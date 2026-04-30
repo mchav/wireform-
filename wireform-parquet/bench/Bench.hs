@@ -1,7 +1,6 @@
 -- | Microbenchmark comparing the Parquet bloom filter's XXH64 hot path
--- between the C/SIMDe kernel (via @Wireform.Hash.xxh64@, exported as
--- @Parquet.XXH64.xxh64@) and the pure Haskell reference
--- (@Parquet.XXH64.xxh64_pure@).
+-- between the C/SIMDe kernel ("Wireform.Hash") and the pure Haskell
+-- reference ("XXH64Pure"). Pure version lives in the bench tree only.
 --
 -- Run with:
 --
@@ -17,12 +16,13 @@ import Data.Word (Word64)
 import Criterion.Main (bench, bgroup, defaultMain, env, whnf)
 
 import qualified Parquet.BloomFilter as BF
-import qualified Parquet.XXH64 as XXH
+import qualified Wireform.Hash as Hash
+
+import qualified XXH64Pure as Pure
 
 deterministic :: Int -> BS.ByteString
 deterministic n = BS.pack (take n (cycle [0..255]))
 
--- | Build a 1024-entry bloom filter sized for 1% FP rate.
 filledFilter :: BF.Sbbf
 filledFilter =
   let !bf0 = BF.newSbbf (BF.optimalNumBytes 1024 0.01)
@@ -32,26 +32,11 @@ filledFilter =
 main :: IO ()
 main = defaultMain
   [ bgroup "Parquet XXH64"
-      [ env (pure (deterministic 8))    $ \bs -> bgroup "8 B"
-          [ bench "C"    $ whnf XXH.xxh64       bs
-          , bench "pure" $ whnf XXH.xxh64_pure  bs
-          ]
-      , env (pure (deterministic 64))   $ \bs -> bgroup "64 B"
-          [ bench "C"    $ whnf XXH.xxh64       bs
-          , bench "pure" $ whnf XXH.xxh64_pure  bs
-          ]
-      , env (pure (deterministic 1024)) $ \bs -> bgroup "1 KiB"
-          [ bench "C"    $ whnf XXH.xxh64       bs
-          , bench "pure" $ whnf XXH.xxh64_pure  bs
-          ]
-      , env (pure (deterministic 65536)) $ \bs -> bgroup "64 KiB"
-          [ bench "C"    $ whnf XXH.xxh64       bs
-          , bench "pure" $ whnf XXH.xxh64_pure  bs
-          ]
+      [ env (pure (deterministic 8))     $ \bs -> bgroup "8 B"     (xs bs)
+      , env (pure (deterministic 64))    $ \bs -> bgroup "64 B"    (xs bs)
+      , env (pure (deterministic 1024))  $ \bs -> bgroup "1 KiB"   (xs bs)
+      , env (pure (deterministic 65536)) $ \bs -> bgroup "64 KiB"  (xs bs)
       ]
-
-  -- Bloom-filter end-to-end: insert / check share the same XXH64 path
-  -- and the C kernel speedup compounds (one hash per call).
   , bgroup "Parquet bloom filter"
       [ bench "sbbfInsert (8 B value)"
           $ whnf (\bs -> BF.sbbfInsert bs (BF.newSbbf 1024)) (deterministic 8)
@@ -59,8 +44,10 @@ main = defaultMain
           $ whnf (\h -> BF.sbbfCheckHash h filledFilter) (1 :: Word64)
       , bench "sbbfCheck miss"
           $ whnf (\h -> BF.sbbfCheckHash h filledFilter) (0xdeadbeef :: Word64)
-      , bench "sbbfInsert pure-hash equivalent"
-          $ whnf (\bs -> BF.sbbfInsertHash (XXH.xxh64_pure bs) (BF.newSbbf 1024))
-                 (deterministic 8)
       ]
   ]
+  where
+    xs bs =
+      [ bench "C"    $ whnf (Hash.xxh64 0)   bs
+      , bench "pure" $ whnf Pure.xxh64_pure  bs
+      ]

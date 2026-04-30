@@ -28,8 +28,6 @@ module Iceberg.DeletionVector
   , dvBlobType
   , toPuffinBlob
   , fromPuffinBlob
-    -- * Pure reference (used by the bench)
-  , decodeDV_pure
   ) where
 
 import Control.DeepSeq (NFData)
@@ -48,7 +46,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import Data.Word (Word16, Word32, Word64)
 
-import qualified Iceberg.SIMD as SIMD
+import qualified Wireform.Hash as Hash
 import Iceberg.Puffin (PuffinBlob (..))
 
 -- | Sparse representation: a map from the 32-bit "high" key (top 32 bits)
@@ -121,18 +119,6 @@ decodeDV bs0 = do
       (set, bs'') <- decodeRoaring32C (fromIntegral hi) bs'
       go (n - 1) bs'' (IntMap.insert (fromIntegral hi) set acc)
 
--- | Pure-Haskell reference, used by the bench.
-decodeDV_pure :: ByteString -> Either String DeletionVector
-decodeDV_pure bs0 = do
-  (cnt, rest) <- takeWord64LE bs0
-  go (fromIntegral cnt) rest IntMap.empty
-  where
-    go 0 _ acc = Right (DeletionVector acc)
-    go !n bs acc = do
-      (hi, bs') <- takeWord32LE bs
-      (set, bs'') <- decodeRoaring32 bs'
-      go (n - 1) bs'' (IntMap.insert (fromIntegral hi) set acc)
-
 -- | Test whether a row position is marked deleted by the bitmap. Uses the
 -- C kernel's SIMD\/binary search membership test on each container.
 containsPosition :: Int64 -> DeletionVector -> Bool
@@ -178,40 +164,8 @@ computeOffsets n grouped =
       go !o ((_, lows):rest) = fromIntegral o : go (o + 2 * length lows) rest
    in go offsetsHeaderSize grouped
 
-decodeRoaring32 :: ByteString -> Either String (IntSet, ByteString)
-decodeRoaring32 bs = do
-  (cookie, r1) <- takeWord32LE bs
-  if cookie .&. 0xFFFF /= 0x3B30
-    then Left "Roaring32: bad cookie"
-    else pure ()
-  (numContainers, r2) <- takeWord32LE r1
-  let n = fromIntegral numContainers
-      (keysAndCards, r3) = BS.splitAt (4 * n) r2
-      (_offsets, r4) = BS.splitAt (4 * n) r3
-  -- Decode containers in order.
-  let kacEntries = unflatten4 keysAndCards
-  (set, after) <- decodeContainers kacEntries r4 IntSet.empty
-  Right (set, after)
-  where
-    unflatten4 :: ByteString -> [(Int, Int)]
-    unflatten4 b
-      | BS.null b = []
-      | BS.length b < 4 = []
-      | otherwise =
-          let key = readWord16LE b 0
-              card = readWord16LE b 2 + 1
-           in (fromIntegral key, fromIntegral card) : unflatten4 (BS.drop 4 b)
-
-decodeContainers :: [(Int, Int)] -> ByteString -> IntSet -> Either String (IntSet, ByteString)
-decodeContainers [] bs acc = Right (acc, bs)
-decodeContainers ((key, card):rest) bs acc =
-  let (data', bs') = BS.splitAt (2 * card) bs
-      lows = readWord16Vec data'
-      adjusted = IntSet.fromList [ key * 0x10000 + fromIntegral l | l <- lows ]
-   in decodeContainers rest bs' (IntSet.union acc adjusted)
-
--- | C-accelerated variant of 'decodeRoaring32': dispatches each container
--- payload through 'SIMD.roaringDecodeArray' which fills a 'VS.Vector Int32'
+-- | C-accelerated Roaring 32-bit decoder: dispatches each container
+-- payload through 'Hash.roaringDecodeArray' which fills a 'VS.Vector Int32'
 -- in-place. We strip the @hi << 16@ off again because 'IntSet' stores plain
 -- ascending positions for /this/ high-32 bucket, indexed by the outer key.
 decodeRoaring32C :: Int -> ByteString -> Either String (IntSet, ByteString)
@@ -239,17 +193,11 @@ decodeRoaring32C _ bs = do
     goContainers [] tail' acc = Right (acc, tail')
     goContainers ((key, card):rest) tail' acc =
       let (payload, after) = BS.splitAt (2 * card) tail'
-          decoded = SIMD.roaringDecodeArray payload card 0 -- decode lows; OR'ing 0
+          decoded = Hash.roaringDecodeArray payload card 0 -- decode lows; OR'ing 0
           -- convert to ascending Int list and shift back into 32-bit space
           ascList = map ((key * 0x10000) +) (map fromIntegral (VS.toList decoded))
           set = IntSet.fromAscList ascList
        in goContainers rest after (IntSet.union acc set)
-
-readWord16Vec :: ByteString -> [Int]
-readWord16Vec b
-  | BS.null b = []
-  | BS.length b < 2 = []
-  | otherwise = readWord16LE b 0 : readWord16Vec (BS.drop 2 b)
 
 readWord16LE :: ByteString -> Int -> Int
 readWord16LE bs off =

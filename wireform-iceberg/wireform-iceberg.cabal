@@ -50,7 +50,6 @@ library
     Iceberg.Read
     Iceberg.SchemaCompat
     Iceberg.SchemaEvolution
-    Iceberg.SIMD
     Iceberg.SingleValue
     Iceberg.Snapshot
     Iceberg.Sort
@@ -107,9 +106,9 @@ test-suite iceberg-test
     Test.Iceberg.RESTCatalog
     Test.Iceberg.RESTClient
     Test.Iceberg.ScanPlan
+    Test.Iceberg.Hash
     Test.Iceberg.SchemaCompat
     Test.Iceberg.SequenceInheritance
-    Test.Iceberg.SIMD
     Test.Iceberg.SingleValue
     Test.Iceberg.SnapshotHistory
     Test.Iceberg.SnapshotSummary
@@ -157,11 +156,14 @@ benchmark iceberg-bench
   type: exitcode-stdio-1.0
   hs-source-dirs: bench
   main-is: Bench.hs
+  other-modules: PureRef
   ghc-options: -O2
   build-depends:
     base >= 4.16 && < 5,
     wireform-iceberg,
+    wireform-core,
     bytestring,
     vector,
+    containers,
     criterion >= 1.5 && < 1.7
 

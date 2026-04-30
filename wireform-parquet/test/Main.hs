@@ -29,8 +29,6 @@ import Parquet.Write
   , OptionalColumn (..)
   , buildDictionary
   , buildParquetFile
-  , buildParquetFileTyped
-  , buildParquetFileTypedWithIndex
   , buildParquetFileWithIndex
   , columnDataLength
   , encodeDictDataPage
@@ -42,7 +40,7 @@ import Parquet.Write
   , statisticsForInt32
   , statisticsForInt64
   )
-import Parquet.XXH64
+import qualified Wireform.Hash as Hash
 
 main :: IO ()
 main = do
@@ -143,7 +141,7 @@ main = do
         , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
         ]
       vs   = VP.fromList [(3 :: Int32), -1, 7, 0, 4]
-      fbs  = buildParquetFile schema (V.singleton (V.singleton vs))
+      fbs  = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vs)))
   case loadParquetFile fbs of
     Left e -> failTest ("loadParquetFile: " ++ e)
     Right pf -> do
@@ -166,7 +164,7 @@ main = do
         [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
         , SchemaElement "y" (Just Required) (Just PTInt32) Nothing Nothing Nothing
         ]
-      vsIdx = VP.fromList [(1 :: Int32), 2, 3, 4]
+      vsIdx = ColInt32 (VP.fromList [(1 :: Int32), 2, 3, 4])
       bf    = sbbfInsertHash 0xdeadbeef (newSbbf (optimalNumBytes 1024 0.01))
       oi    = OffsetIndex
                 { oiPageLocations = V.singleton (PageLocation 0 16 0)
@@ -185,6 +183,7 @@ main = do
       fIdx  = buildParquetFileWithIndex schemaIdx
                 (V.singleton (V.singleton vsIdx))
                 (V.singleton (V.singleton aux))
+      _ = vsIdx :: ColumnData
   case loadParquetFile fIdx of
     Left e -> failTest ("indexed-writer load: " ++ e)
     Right pf -> do
@@ -226,7 +225,7 @@ main = do
         , ColBool      (V.fromList [True, False, True])
         , ColByteArray (V.fromList [BSC.pack "alpha", BSC.pack "beta", BSC.pack "gamma"])
         ]
-      fTyped = buildParquetFileTyped schemaTyped (V.singleton cols)
+      fTyped = buildParquetFile schemaTyped (V.singleton cols)
   case loadParquetFile fTyped of
     Left e -> failTest ("typed-writer load: " ++ e)
     Right pf -> do
@@ -262,7 +261,7 @@ main = do
         , ColumnAux Nothing Nothing Nothing Uncompressed
         , ColumnAux Nothing Nothing Nothing GZip
         ])
-      fGz = buildParquetFileTypedWithIndex schemaTyped (V.singleton cols) auxesGzip
+      fGz = buildParquetFileWithIndex schemaTyped (V.singleton cols) auxesGzip
   case loadParquetFile fGz of
     Left e -> failTest ("gzip-writer load: " ++ e)
     Right pf -> do
@@ -392,7 +391,7 @@ expectHash s expected = expectHashBs (BSC.pack s) expected
 
 expectHashBs :: BS.ByteString -> String -> IO ()
 expectHashBs bs expected =
-  let actual = pad16 (showHex (xxh64 bs) "")
+  let actual = pad16 (showHex (Hash.xxh64 0 bs) "")
   in unless (actual == expected) $
        failTest ("xxh64 " ++ show bs ++ " expected " ++ expected
                   ++ " got " ++ actual)

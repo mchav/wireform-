@@ -42,7 +42,7 @@ import Parquet.Types
 import Parquet.Footer
 import Parquet.Read
 import Parquet.Write
-import Parquet.XXH64 (xxh64)
+import qualified Wireform.Hash as Hash
 import Thrift.Encode (encodeCompact)
 import qualified Thrift.Value as TV
 
@@ -425,7 +425,7 @@ writerRoundtripTests = testGroup "Writer round-trips"
             , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
             ]
           vals = VP.fromList [1, 2, 3, 4, 5 :: Int32]
-          fileBytes = buildParquetFile schema (V.singleton (V.singleton vals))
+          fileBytes = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
       case loadParquetFile fileBytes of
         Left e -> assertFailure e
         Right pf -> case columnChunkSlice pf 0 0 of
@@ -440,7 +440,8 @@ writerRoundtripTests = testGroup "Writer round-trips"
             ]
           colA = VP.fromList [10, 20, 30 :: Int32]
           colB = VP.fromList [100, 200, 300 :: Int32]
-          fileBytes = buildParquetFile schema (V.singleton (V.fromList [colA, colB]))
+          fileBytes = buildParquetFile schema
+            (V.singleton (V.fromList [ColInt32 colA, ColInt32 colB]))
       case loadParquetFile fileBytes of
         Left e -> assertFailure e
         Right pf -> do
@@ -454,7 +455,7 @@ writerRoundtripTests = testGroup "Writer round-trips"
             , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
             ]
           vals = VP.empty :: VP.Vector Int32
-          fileBytes = buildParquetFile schema (V.singleton (V.singleton vals))
+          fileBytes = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
       case loadParquetFile fileBytes of
         Left e -> assertFailure e
         Right pf -> case columnChunkSlice pf 0 0 of
@@ -573,20 +574,20 @@ xxh64Tests = testGroup "XXH64 (xxHash 0.1.1)"
   -- Reference vectors from
   -- https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md
   [ testCase "empty string" $
-      hex (xxh64 (BSC.pack "")) @?= "ef46db3751d8e999"
+      hex (Hash.xxh64 0 (BSC.pack "")) @?= "ef46db3751d8e999"
   , testCase "abc" $
-      hex (xxh64 (BSC.pack "abc")) @?= "44bc2cf5ad770999"
+      hex (Hash.xxh64 0 (BSC.pack "abc")) @?= "44bc2cf5ad770999"
   , testCase "spammish repetition (long input)" $
-      hex (xxh64 (BSC.pack "Nobody inspects the spammish repetition"))
+      hex (Hash.xxh64 0 (BSC.pack "Nobody inspects the spammish repetition"))
         @?= "fbcea83c8a378bf1"
   , testCase "32-byte boundary input" $
       -- 32 bytes triggers exactly one stripe in the bulk phase.
-      hex (xxh64 (BS.replicate 32 0x61)) @?= "cdb40dec1a8b1eb6"
+      hex (Hash.xxh64 0 (BS.replicate 32 0x61)) @?= "cdb40dec1a8b1eb6"
   , testProperty "different inputs produce different hashes (with high probability)" $
       property $ do
         a <- forAll $ Gen.bytes (Range.linear 1 64)
         b <- forAll $ Gen.bytes (Range.linear 1 64)
-        if a == b then pure () else assert (xxh64 a /= xxh64 b)
+        if a == b then pure () else assert (Hash.xxh64 0 a /= Hash.xxh64 0 b)
   ]
   where
     hex w = let s = showHex w ""

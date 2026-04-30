@@ -39,8 +39,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import qualified Avro.Value as AV
-import Iceberg.Murmur3 (bucketBytes, bucketIndex, murmur3_32)
-import qualified Iceberg.SingleValue as SV
+import Iceberg.Murmur3 (bucketBytes, bucketInt, bucketLong, bucketString)
 import Iceberg.Types
 
 -- | What type does the partition\/sort transform produce when applied to a
@@ -97,14 +96,14 @@ applyTransform Identity   _  v = Right v
 applyTransform Void       _  _ = Right AV.Null
 applyTransform (UnknownTransform n) _ _ = Left (TEUnknownTransform n)
 applyTransform (Bucket n) src v = case src of
-  TInt          -> withInt   v $ \x -> AV.Int (fromIntegral (bucketHashedInt n (fromIntegral x)))
-  TDate         -> withInt   v $ \x -> AV.Int (fromIntegral (bucketHashedInt n (fromIntegral x)))
-  TLong         -> withLong  v $ \x -> AV.Int (fromIntegral (bucketHashedLong n x))
-  TTimestamp    -> withLong  v $ \x -> AV.Int (fromIntegral (bucketHashedLong n x))
-  TTimestampTz  -> withLong  v $ \x -> AV.Int (fromIntegral (bucketHashedLong n x))
-  TTimestampNs  -> withLong  v $ \x -> AV.Int (fromIntegral (bucketHashedLong n x))
-  TTimestampTzNs -> withLong v $ \x -> AV.Int (fromIntegral (bucketHashedLong n x))
-  TString       -> withText  v $ \t -> AV.Int (fromIntegral (bucketIndex (murmur3_32 (SV.encodeString t)) n))
+  TInt          -> withInt   v $ \x -> AV.Int (fromIntegral (bucketInt n x))
+  TDate         -> withInt   v $ \x -> AV.Int (fromIntegral (bucketInt n x))
+  TLong         -> withLong  v $ \x -> AV.Int (fromIntegral (bucketLong n x))
+  TTimestamp    -> withLong  v $ \x -> AV.Int (fromIntegral (bucketLong n x))
+  TTimestampTz  -> withLong  v $ \x -> AV.Int (fromIntegral (bucketLong n x))
+  TTimestampNs  -> withLong  v $ \x -> AV.Int (fromIntegral (bucketLong n x))
+  TTimestampTzNs -> withLong v $ \x -> AV.Int (fromIntegral (bucketLong n x))
+  TString       -> withText  v $ \t -> AV.Int (fromIntegral (bucketString n t))
   TBinary       -> withBytes v $ \bs -> AV.Int (fromIntegral (bucketBytes n bs))
   TFixed _      -> withBytes v $ \bs -> AV.Int (fromIntegral (bucketBytes n bs))
   TUuid         -> withBytes v $ \bs -> AV.Int (fromIntegral (bucketBytes n bs))
@@ -148,13 +147,6 @@ applyTransform Hour src v = case src of
 -- ============================================================
 -- Numeric helpers
 -- ============================================================
-
-bucketHashedInt :: Int -> Int32 -> Int
-bucketHashedInt n v =
-  bucketIndex (murmur3_32 (SV.encodeInt64 (fromIntegral v))) n
-
-bucketHashedLong :: Int -> Int64 -> Int
-bucketHashedLong n v = bucketIndex (murmur3_32 (SV.encodeInt64 v)) n
 
 truncateInt32 :: Int -> Int32 -> Int32
 truncateInt32 w x = x - mod32 x (fromIntegral w)

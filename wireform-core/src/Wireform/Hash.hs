@@ -20,6 +20,7 @@ module Wireform.Hash
   ( -- * Murmur3 32-bit (Iceberg @BucketUtil@)
     murmur3_32
   , bucketLong
+  , bucketBytes
     -- * XXH64
   , xxh64
     -- * Roaring 32-bit container
@@ -31,6 +32,7 @@ module Wireform.Hash
   , RoaringContainerKind(..)
   ) where
 
+import Data.Bits ((.&.))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
@@ -89,6 +91,18 @@ bucketLong n v
   | n <= 0    = 0
   | otherwise = fromIntegral (c_bucket_long v (fromIntegral n))
 {-# INLINE bucketLong #-}
+
+-- | Iceberg @bucket[N]@ on raw bytes (binary / fixed / uuid / decimal /
+-- string columns once UTF-8-encoded). Hash is murmur3-32 over the bytes
+-- with seed 0, then @(hash & Integer.MAX_VALUE) % N@.
+bucketBytes :: Int -> BS.ByteString -> Int
+bucketBytes n bs
+  | n <= 0    = 0
+  | otherwise =
+      let !h  = murmur3_32 bs
+          !hu = fromIntegral h .&. (0x7FFFFFFF :: Word32)
+       in fromIntegral hu `mod` n
+{-# INLINE bucketBytes #-}
 
 -- | XXH64 with caller-supplied seed.
 xxh64 :: Word64 -> BS.ByteString -> Word64

@@ -79,7 +79,7 @@ main = do
         [ PW.emptyColumnAux  -- id: no compression / no bloom in this demo
         , PW.emptyColumnAux { PW.caCodec = P.GZip }
         ])
-      parquetBytes = PW.buildParquetFileTypedWithIndex parquetSchema
+      parquetBytes = PW.buildParquetFileWithIndex parquetSchema
                        (V.singleton cols) auxes
 
   putStrLn $ "Parquet file: " ++ show (BS.length parquetBytes) ++ " bytes"

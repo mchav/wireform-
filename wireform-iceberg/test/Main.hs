@@ -17,9 +17,9 @@ import qualified Test.Iceberg.Puffin
 import qualified Test.Iceberg.RESTCatalog
 import qualified Test.Iceberg.RESTClient
 import qualified Test.Iceberg.ScanPlan
+import qualified Test.Iceberg.Hash
 import qualified Test.Iceberg.SchemaCompat
 import qualified Test.Iceberg.SequenceInheritance
-import qualified Test.Iceberg.SIMD
 import qualified Test.Iceberg.SingleValue
 import qualified Test.Iceberg.SnapshotHistory
 import qualified Test.Iceberg.SnapshotSummary
@@ -56,7 +56,7 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.ManifestMerge.tests
   , Test.Iceberg.MetricsConfig.tests
   , Test.Iceberg.BoundTrunc.tests
+  , Test.Iceberg.Hash.tests
   , Test.Iceberg.SchemaCompat.tests
-  , Test.Iceberg.SIMD.tests
   , Test.Iceberg.Validate.tests
   ]

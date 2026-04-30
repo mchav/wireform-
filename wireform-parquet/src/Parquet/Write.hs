@@ -2,6 +2,9 @@
 -- | Write Parquet files.
 --
 -- Provides page-level encoding, column chunk assembly, and whole-file builders.
+-- The user-facing entry point is 'buildParquetFile' (or
+-- 'buildParquetFileWithIndex' when emitting bloom filter / page index
+-- regions). Both accept heterogeneous primitive columns via 'ColumnData'.
 --
 -- @
 -- import qualified Data.Vector.Primitive as VP
@@ -14,7 +17,7 @@
 --       , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
 --       ]
 --     vals = VP.fromList [1, 2, 3 :: Int32]
---     bs = buildParquetFile schema (V.singleton (V.singleton vals))
+--     bs = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
 -- @
 module Parquet.Write
   ( writeParquetFile
@@ -28,8 +31,6 @@ module Parquet.Write
   , assembleColumnChunk
   , buildParquetFile
   , buildParquetFileWithIndex
-  , buildParquetFileTyped
-  , buildParquetFileTypedWithIndex
     -- * Heterogeneous column data
   , ColumnData(..)
   , columnDataLength
@@ -252,66 +253,6 @@ dataPageHeaderV2ToThrift v2 = TV.Struct $ V.fromList
 -- their headers.
 assembleColumnChunk :: Compression -> [ByteString] -> ByteString
 assembleColumnChunk _codec pages = mconcat pages
-
--- | Build a complete Parquet file from a schema and row groups of @INT32@
--- column vectors. Produces @PAR1@ magic, uncompressed @PLAIN@ pages, footer,
--- and trailing magic.
-buildParquetFile :: V.Vector SchemaElement -> V.Vector (V.Vector (VP.Vector Int32)) -> ByteString
-buildParquetFile schema rowGroupVecs =
-  let !encodedRGs = V.map (V.map encodePlainInt32Page) rowGroupVecs
-      (!rgMetas, !_) = V.ifoldl' buildRG (V.empty, 4) encodedRGs
-      !totalRows = V.foldl' (\a rg -> a + rgNumRows rg) 0 rgMetas
-      !fm = FileMetadata
-        { fmVersion = 1
-        , fmSchema = schema
-        , fmNumRows = totalRows
-        , fmRowGroups = rgMetas
-        , fmCreatedBy = Just "wireform"
-        }
-  in writeParquetFile fm encodedRGs
-  where
-    leaves :: V.Vector SchemaElement
-    !leaves = V.filter (maybe False (const True) . seType) schema
-
-    buildRG :: (V.Vector RowGroup, Int) -> Int -> V.Vector ByteString -> (V.Vector RowGroup, Int)
-    buildRG (!rgs, !off) rgIdx encodedCols =
-      let !colVecs = V.unsafeIndex rowGroupVecs rgIdx
-          (!cols, !off2) = V.ifoldl' (buildCol colVecs) (V.empty, off) encodedCols
-          !nRows = if V.null colVecs then 0 else fromIntegral (VP.length (V.unsafeIndex colVecs 0))
-          !rg = RowGroup
-            { rgColumns = cols
-            , rgTotalByteSize = fromIntegral (off2 - off)
-            , rgNumRows = nRows
-            }
-      in (V.snoc rgs rg, off2)
-
-    buildCol :: V.Vector (VP.Vector Int32) -> (V.Vector ColumnChunk, Int) -> Int -> ByteString -> (V.Vector ColumnChunk, Int)
-    buildCol colVecs (!cs, !cOff) colIdx pageBs =
-      let !colVec = V.unsafeIndex colVecs colIdx
-          !leaf = V.unsafeIndex leaves colIdx
-          !sz = BS.length pageBs
-          !cc = ColumnChunk
-            { ccFilePath = Nothing
-            , ccFileOffset = fromIntegral cOff
-            , ccMetadata = Just ColumnMetadata
-                { cmType = fromMaybe PTInt32 (seType leaf)
-                , cmEncodings = V.singleton Plain
-                , cmPathInSchema = V.singleton (seName leaf)
-                , cmCodec = Uncompressed
-                , cmNumValues = fromIntegral (VP.length colVec)
-                , cmTotalUncompressedSize = fromIntegral sz
-                , cmTotalCompressedSize = fromIntegral sz
-                , cmDataPageOffset = fromIntegral cOff
-                , cmStatistics = Just (statisticsForInt32 colVec)
-                , cmBloomFilterOffset = Nothing
-                , cmBloomFilterLength = Nothing
-                }
-            , ccOffsetIndexOffset = Nothing
-            , ccOffsetIndexLength = Nothing
-            , ccColumnIndexOffset = Nothing
-            , ccColumnIndexLength = Nothing
-            }
-      in (V.snoc cs cc, cOff + sz)
 
 -- ============================================================
 -- Page / column statistics
@@ -720,112 +661,6 @@ data ColumnAux = ColumnAux
 emptyColumnAux :: ColumnAux
 emptyColumnAux = ColumnAux Nothing Nothing Nothing Uncompressed
 
--- | Like 'buildParquetFile' but also emits a bloom-filter region, an
--- offset-index region, and a column-index region between the row-group
--- bytes and the file footer. Each column chunk's @ColumnMetadata@ is
--- updated with the resulting offsets and lengths so the resulting file
--- is byte-compatible with what parquet-mr / arrow-rs produce.
---
--- File layout:
---
--- @
--- PAR1                         -- 4 bytes
--- <row group bytes ...>        -- as before
--- <bloom filter bitsets ...>   -- one per column with caBloomFilter = Just
--- <offset index thrifts ...>   -- one per column with caOffsetIndex = Just
--- <column index thrifts ...>   -- one per column with caColumnIndex = Just
--- <footer>                     -- Thrift-encoded FileMetadata
--- <footer length: int32 LE>
--- PAR1
--- @
-buildParquetFileWithIndex
-  :: V.Vector SchemaElement
-  -> V.Vector (V.Vector (VP.Vector Int32))   -- ^ Row groups; each is a vector of int32 columns.
-  -> V.Vector (V.Vector ColumnAux)            -- ^ One @ColumnAux@ per (row group, column).
-  -> ByteString
-buildParquetFileWithIndex schema rowGroupVecs auxes =
-  let !encodedRGs = V.map (V.map encodePlainInt32Page) rowGroupVecs
-      !rowGroupBytes = concatMap V.toList (V.toList encodedRGs)
-      !rgBytesLen = sum (map BS.length rowGroupBytes)
-      !startOfData = 4 :: Int  -- "PAR1"
-      !startOfBloom = startOfData + rgBytesLen
-
-      -- Phase 1: lay out row group metadata with absolute page offsets.
-      (!rgMetasBase, _) = V.ifoldl' buildRG (V.empty, startOfData) encodedRGs
-
-      -- Phase 2: lay out the bloom-filter region. For each (rg, col) we
-      -- decide whether a bloom filter exists and reserve its bytes.
-      (!rgMetasBloom, !bloomBytes, !endOfBloom) =
-        layoutBlooms rgMetasBase auxes startOfBloom
-
-      -- Phase 3: offset-index region.
-      (!rgMetasOff, !offBytes, !endOfOff) =
-        layoutOffsetIndex rgMetasBloom auxes endOfBloom encodedRGs
-
-      -- Phase 4: column-index region.
-      (!rgMetasCol, !colBytes, _endOfCol) =
-        layoutColumnIndex rgMetasOff auxes endOfOff
-
-      !totalRows = V.foldl' (\a rg -> a + rgNumRows rg) 0 rgMetasCol
-      !fm = FileMetadata
-        { fmVersion = 1
-        , fmSchema = schema
-        , fmNumRows = totalRows
-        , fmRowGroups = rgMetasCol
-        , fmCreatedBy = Just "wireform"
-        }
-   in BL.toStrict $ B.toLazyByteString $
-        B.byteString parquetMagic
-        <> mconcat (map B.byteString rowGroupBytes)
-        <> mconcat (map B.byteString bloomBytes)
-        <> mconcat (map B.byteString offBytes)
-        <> mconcat (map B.byteString colBytes)
-        <> B.byteString (writeFooter fm)
-  where
-    leaves :: V.Vector SchemaElement
-    !leaves = V.filter (maybe False (const True) . seType) schema
-
-    -- Identical to buildParquetFile's layout phase.
-    buildRG :: (V.Vector RowGroup, Int) -> Int -> V.Vector ByteString -> (V.Vector RowGroup, Int)
-    buildRG (!rgs, !off) rgIdx encodedCols =
-      let !colVecs = V.unsafeIndex rowGroupVecs rgIdx
-          (!cols, !off2) = V.ifoldl' (buildCol colVecs) (V.empty, off) encodedCols
-          !nRows = if V.null colVecs then 0 else fromIntegral (VP.length (V.unsafeIndex colVecs 0))
-          !rg = RowGroup
-            { rgColumns = cols
-            , rgTotalByteSize = fromIntegral (off2 - off)
-            , rgNumRows = nRows
-            }
-      in (V.snoc rgs rg, off2)
-
-    buildCol :: V.Vector (VP.Vector Int32) -> (V.Vector ColumnChunk, Int) -> Int -> ByteString -> (V.Vector ColumnChunk, Int)
-    buildCol colVecs (!cs, !cOff) colIdx pageBs =
-      let !colVec = V.unsafeIndex colVecs colIdx
-          !leaf = V.unsafeIndex leaves colIdx
-          !sz = BS.length pageBs
-          !cc = ColumnChunk
-            { ccFilePath = Nothing
-            , ccFileOffset = fromIntegral cOff
-            , ccMetadata = Just ColumnMetadata
-                { cmType = fromMaybe PTInt32 (seType leaf)
-                , cmEncodings = V.singleton Plain
-                , cmPathInSchema = V.singleton (seName leaf)
-                , cmCodec = Uncompressed
-                , cmNumValues = fromIntegral (VP.length colVec)
-                , cmTotalUncompressedSize = fromIntegral sz
-                , cmTotalCompressedSize = fromIntegral sz
-                , cmDataPageOffset = fromIntegral cOff
-                , cmStatistics = Just (statisticsForInt32 colVec)
-                , cmBloomFilterOffset = Nothing
-                , cmBloomFilterLength = Nothing
-                }
-            , ccOffsetIndexOffset = Nothing
-            , ccOffsetIndexLength = Nothing
-            , ccColumnIndexOffset = Nothing
-            , ccColumnIndexLength = Nothing
-            }
-      in (V.snoc cs cc, cOff + sz)
-
 layoutBlooms
   :: V.Vector RowGroup
   -> V.Vector (V.Vector ColumnAux)
@@ -957,27 +792,45 @@ fst3 (x, _, _) = x
 -- Heterogeneous typed builders
 -- ============================================================
 
--- | Like 'buildParquetFile' but accepts any combination of primitive
--- column types per row group via 'ColumnData'. Each leaf in the schema
--- (i.e. each entry whose 'seType' is @Just@) must have a matching column
--- in the row group, in the same order.
-buildParquetFileTyped
+-- | Build a complete Parquet file from a schema and one or more row
+-- groups of typed column data. Each leaf in the schema (i.e. each
+-- entry whose 'seType' is @Just@) must have a matching 'ColumnData'
+-- column in every row group, in the same order. Produces @PAR1@
+-- magic, uncompressed @PLAIN@ pages, footer, and trailing magic.
+--
+-- Use 'buildParquetFileWithIndex' to additionally emit bloom filter,
+-- offset index, and column index regions.
+buildParquetFile
   :: V.Vector SchemaElement
   -> V.Vector (V.Vector ColumnData)
   -> ByteString
-buildParquetFileTyped schema rowGroups =
-  buildParquetFileTypedWithIndex schema rowGroups
+buildParquetFile schema rowGroups =
+  buildParquetFileWithIndex schema rowGroups
     (V.map (V.map (const emptyColumnAux)) rowGroups)
 
--- | Combined heterogeneous + indexed writer. This is the most general
--- entry point: any primitive type, optional bloom filter / page index /
--- column index per column.
-buildParquetFileTypedWithIndex
+-- | Build a Parquet file with optional bloom filter, offset index,
+-- column index, and per-column compression. The 'ColumnAux' parallel
+-- array specifies what to emit for each column; 'emptyColumnAux'
+-- omits all extras.
+--
+-- File layout:
+--
+-- @
+-- PAR1                         -- 4 bytes
+-- <row group bytes ...>        -- compressed PLAIN data pages
+-- <bloom filter bitsets ...>   -- one per column with caBloomFilter = Just
+-- <offset index thrifts ...>   -- one per column with caOffsetIndex = Just
+-- <column index thrifts ...>   -- one per column with caColumnIndex = Just
+-- <footer>                     -- Thrift-encoded FileMetadata
+-- <footer length: int32 LE>
+-- PAR1
+-- @
+buildParquetFileWithIndex
   :: V.Vector SchemaElement
   -> V.Vector (V.Vector ColumnData)
   -> V.Vector (V.Vector ColumnAux)
   -> ByteString
-buildParquetFileTypedWithIndex schema rowGroups auxes =
+buildParquetFileWithIndex schema rowGroups auxes =
   let -- Per-column page bytes plus uncompressed size, both required to
       -- populate ColumnMetadata. If a codec is requested but not built,
       -- the writer falls back to Uncompressed so callers get a usable
