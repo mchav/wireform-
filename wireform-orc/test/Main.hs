@@ -10,6 +10,7 @@ import qualified Data.Vector.Primitive as VP
 import System.Exit (exitFailure)
 
 import qualified ORC.BloomFilter as BF
+import qualified ORC.Encryption as Enc
 import qualified ORC.Read
 import qualified ORC.RowIndex as RI
 import qualified ORC.Write
@@ -99,6 +100,48 @@ main = do
     Right vs -> expect "DECIMAL128 round-trip (incl. >Int64 magnitudes)"
                        (vs == d128Vals)
     Left  e  -> failTest ("decodeDecimal128Stream: " ++ e)
+
+  -- Encryption: AES-CTR encrypt/decrypt round-trip + per-stripe key
+  -- derivation + protobuf encoders for the footer Encryption field.
+  let key128 = BS.replicate 16 0x42
+      stripeId = 7
+      streamOff = 1024
+      iv = Enc.deriveStreamIv stripeId streamOff
+      plain = BS.pack [0..63]
+  case Enc.aesCtrXor key128 iv plain of
+    Left e -> failTest ("AES-CTR encrypt: " ++ e)
+    Right ct -> do
+      expect "AES-CTR ciphertext length matches plaintext"
+        (BS.length ct == BS.length plain)
+      expect "AES-CTR ciphertext differs from plaintext"
+        (ct /= plain)
+      case Enc.aesCtrXor key128 iv ct of
+        Right pt -> expect "AES-CTR round-trip" (pt == plain)
+        Left e   -> failTest ("AES-CTR decrypt: " ++ e)
+
+  case Enc.encryptStripeKey key128 stripeId of
+    Left e -> failTest ("encryptStripeKey: " ++ e)
+    Right sk -> expect "encryptStripeKey returns a key the same size as the local key"
+                       (BS.length sk == BS.length key128)
+
+  -- Protobuf encoders: just check they produce non-empty byte
+  -- strings starting with the right field tag for the first
+  -- present field. Full byte-compat against orc-java is exercised
+  -- by the round-trip writer; here we just ensure the messages
+  -- serialize.
+  let dm = Enc.DataMask "redact" ["full"] [3, 4, 5]
+      ek = Enc.EncryptionKey "kms-master" 1 Enc.AES_CTR_128
+      ev = Enc.EncryptionVariant 3 0 (BS.pack [1, 2, 3, 4])
+      enc = Enc.Encryption [dm] [ek] [ev] Enc.ProviderHadoop
+      encBs = Enc.encodeEncryption enc
+  expect "encodeEncryption produces non-empty bytes"
+    (BS.length encBs > 0)
+  expect "encodeDataMask first byte is field-1 length-delimited"
+    (BS.head (Enc.encodeDataMask dm) == 0x0A)
+  expect "encodeEncryptionKey first field is name (tag 1)"
+    (BS.head (Enc.encodeEncryptionKey ek) == 0x0A)
+  expect "encodeEncryptionVariant first field is root (tag 1, varint)"
+    (BS.head (Enc.encodeEncryptionVariant ev) == 0x08)
 
   putStrLn "All ORC writer tests passed."
 
