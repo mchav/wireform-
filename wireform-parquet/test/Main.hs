@@ -14,6 +14,8 @@ import Data.Int (Int32, Int64)
 import qualified Crypto.Random as RNG
 
 import Parquet.BloomFilter
+import Parquet.Delta (decodeDeltaBinaryPackedInt64)
+import Parquet.DeltaEncode (encodeDeltaBinaryPackedInt64)
 import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
 import Parquet.Read (loadParquetFile, pfFooter)
@@ -311,6 +313,23 @@ main = do
     (BS.length dictPage > 4)
   expect "dictionary data page is non-empty"
     (BS.length dataPage > 4)
+
+  -- DELTA_BINARY_PACKED writer round-trips through the reader for a few
+  -- shapes (constant deltas, mixed deltas, negative deltas, single value).
+  let testCases =
+        [ ("ascending integers", VP.fromList [1, 2, 3, 4, 5, 6, 7, 8, 9, 10 :: Int64])
+        , ("constant",           VP.fromList (replicate 12 (42 :: Int64)))
+        , ("descending negatives", VP.fromList [10, 5, 0, -5, -10, -50, -1000 :: Int64])
+        , ("singleton",          VP.fromList [12345 :: Int64])
+        , ("empty",              VP.empty :: VP.Vector Int64)
+        , ("128 mixed",          VP.fromList [let i64 = fromIntegral i :: Int64 in i64 * 7 - i64 `mod` 13 | i <- [(0 :: Int) .. 127]])
+        ]
+  flip mapM_ testCases $ \(name, vs) ->
+    case decodeDeltaBinaryPackedInt64 (VP.length vs) (encodeDeltaBinaryPackedInt64 vs) of
+      Right out ->
+        expect ("DELTA_BINARY_PACKED round-trip: " ++ name)
+          (VP.toList out == VP.toList vs)
+      Left e -> failTest ("DELTA_BINARY_PACKED " ++ name ++ ": " ++ e)
 
   -- Modular encryption: round-trip plaintext through encrypt/decrypt for
   -- both AES-GCM and AES-CTR, and verify GCM rejects a tampered tag.

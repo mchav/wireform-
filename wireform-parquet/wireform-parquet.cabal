@@ -30,6 +30,8 @@ library
   exposed-modules:
     Parquet.BloomFilter
     Parquet.Compress
+    Parquet.Delta
+    Parquet.DeltaEncode
     Parquet.Encryption
     Parquet.Footer
     Parquet.Levels
@@ -41,7 +43,6 @@ library
     Parquet.Write
     Parquet.XXH64
   other-modules:
-    Parquet.Delta
     Parquet.RLE
   build-depends:
     base >= 4.16 && < 5,
