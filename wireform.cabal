@@ -683,6 +683,19 @@ executable example-iceberg
   hs-source-dirs: examples
   build-depends: base, wireform-iceberg, bytestring, containers, vector, aeson
 
+executable example-iceberg-pipeline
+  import: defaults
+  main-is: IcebergPipeline.hs
+  hs-source-dirs: examples
+  build-depends:
+      base
+    , wireform-iceberg
+    , wireform-parquet
+    , wireform-avro
+    , bytestring
+    , containers
+    , vector
+
 executable example-bond
   import: defaults
   main-is: BondExample.hs
