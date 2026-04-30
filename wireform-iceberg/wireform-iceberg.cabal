@@ -63,6 +63,7 @@ library
     Iceberg.Validate
     Iceberg.Variant
     Iceberg.Variant.Parquet
+    Iceberg.Variant.Shredding
     Iceberg.View
     Iceberg.Write
   build-depends:
@@ -134,6 +135,7 @@ test-suite iceberg-test
     Test.Iceberg.Variant
     Test.Iceberg.VariantParquet
     Test.Iceberg.VariantProperty
+    Test.Iceberg.VariantShredding
     Test.Iceberg.View
     Test.Iceberg.Write
   build-depends:

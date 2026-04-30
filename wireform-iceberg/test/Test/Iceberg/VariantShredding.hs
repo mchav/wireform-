@@ -1,0 +1,119 @@
+{-# LANGUAGE OverloadedStrings #-}
+-- | Unit + pyarrow round-trip tests for "Iceberg.Variant.Shredding".
+module Test.Iceberg.VariantShredding (tests) where
+
+import qualified Data.ByteString as BS
+import Data.List (isInfixOf)
+import qualified Data.Vector as V
+import qualified System.Process as Proc
+import System.Exit (ExitCode (..))
+import Test.Tasty
+import Test.Tasty.HUnit
+
+import qualified Iceberg.Variant as IV
+import qualified Iceberg.Variant.Shredding as Shred
+
+tests :: TestTree
+tests = testGroup "Iceberg.Variant.Shredding"
+  [ testCase "routeRow: matched primitives go to typed_value" $ do
+      isTyped (Shred.routeRow Shred.ShredInt32 (Just (IV.VInt32 42))) @?= True
+      isTyped (Shred.routeRow Shred.ShredString (Just (IV.VString "hi"))) @?= True
+      isTyped (Shred.routeRow Shred.ShredBool (Just (IV.VBool True))) @?= True
+
+  , testCase "routeRow: unmatched primitives fall through to value" $ do
+      case Shred.routeRow Shred.ShredInt32 (Just (IV.VString "n/a")) of
+        Shred.ShredAsValue bs ->
+          assertBool "non-empty Variant value bytes" (BS.length bs > 0)
+        other -> assertFailure ("expected ShredAsValue, got " ++ show other)
+
+  , testCase "routeRow: Nothing -> ShredVariantNull" $ do
+      Shred.routeRow Shred.ShredInt32 Nothing @?= Shred.ShredVariantNull
+
+  , testCase "routeRow: VNull -> ShredVariantNull" $ do
+      Shred.routeRow Shred.ShredInt32 (Just IV.VNull)
+        @?= Shred.ShredVariantNull
+
+  , testCase "routeRow: integer widening" $ do
+      isTyped (Shred.routeRow Shred.ShredInt32 (Just (IV.VInt8 7))) @?= True
+      isTyped (Shred.routeRow Shred.ShredInt64 (Just (IV.VInt32 42))) @?= True
+      isTyped (Shred.routeRow Shred.ShredInt64 (Just (IV.VInt16 (-3)))) @?= True
+
+  , testCase "buildShreddedVariantParquetFile: Int64 routing" $ do
+      let -- shared metadata: empty dictionary (the spec's smallest)
+          meta = BS.pack [0x01, 0x00]
+          rows = V.fromList
+            [ Just (IV.VInt64 100)
+            , Just (IV.VString "n/a")  -- falls through
+            , Nothing                   -- variant null
+            , Just (IV.VInt64 200)
+            ]
+      case Shred.buildShreddedVariantParquetFile "measurement" meta
+             Shred.ShredInt64 rows of
+        Left e -> assertFailure e
+        Right bytes ->
+          assertBool "produced non-empty file" (BS.length bytes > 0)
+
+  , testCase "pyarrow can read shredded file as 3 columns" $ do
+      pyOk <- pyarrowAvailable
+      if not pyOk
+        then pure ()
+        else do
+          let meta = BS.pack [0x01, 0x00]
+              rows = V.fromList
+                [ Just (IV.VInt64 100)
+                , Just (IV.VString "n/a")
+                , Nothing
+                , Just (IV.VInt64 200)
+                ]
+          case Shred.buildShreddedVariantParquetFile "m" meta
+                 Shred.ShredInt64 rows of
+            Left e -> assertFailure e
+            Right bytes -> do
+              let path = "/tmp/wireform-shredded-variant.parquet"
+              BS.writeFile path bytes
+              pyarrowAssert "shredded Variant file exposes the 3 columns"
+                [ "t = pq.read_table('" ++ path ++ "').to_pylist()"
+                , "assert len(t) == 4, f'wrong row count: {len(t)}'"
+                , "names = list(t[0].keys())"
+                , "assert 'm.metadata'    in names, f'missing metadata: {names!r}'"
+                , "assert 'm.value'       in names, f'missing value: {names!r}'"
+                , "assert 'm.typed_value' in names, f'missing typed_value: {names!r}'"
+                -- Row 0: matched -> typed_value=100, value=null
+                , "r0 = t[0]"
+                , "assert r0['m.typed_value'] == 100, f'r0 typed: {r0!r}'"
+                , "assert r0['m.value']       is None, f'r0 value: {r0!r}'"
+                -- Row 1: fallthrough -> typed_value=null, value=non-null
+                , "r1 = t[1]"
+                , "assert r1['m.typed_value'] is None, f'r1 typed: {r1!r}'"
+                , "assert r1['m.value']       is not None, f'r1 value: {r1!r}'"
+                -- Row 2: variant-null -> typed_value=null, value=0x00
+                , "r2 = t[2]"
+                , "assert r2['m.typed_value'] is None, f'r2 typed: {r2!r}'"
+                , "assert r2['m.value']       == bytes([0x00]), f'r2 value: {r2!r}'"
+                ]
+  ]
+  where
+    isTyped (Shred.ShredAsTyped _) = True
+    isTyped _                      = False
+
+pyarrowAvailable :: IO Bool
+pyarrowAvailable = do
+  (code, _, _) <- Proc.readProcessWithExitCode
+                    "python3" ["-c", "import pyarrow.parquet"] ""
+  pure (code == ExitSuccess)
+
+pyarrowAssert :: String -> [String] -> IO ()
+pyarrowAssert label snippet = do
+  (code, out, err) <- Proc.readProcessWithExitCode "python3"
+    [ "-c"
+    , unlines
+        ( "import pyarrow.parquet as pq"
+        : snippet
+       ++ ["print('PYARROW_OK')"]
+        )
+    ] ""
+  case code of
+    ExitSuccess
+      | "PYARROW_OK" `isInfixOf` out -> pure ()
+      | otherwise -> assertFailure (label ++ ": pyarrow output: " ++ out)
+    _ -> assertFailure (label ++ ":\nstdout=" ++ out ++ "\nstderr=" ++ err)
