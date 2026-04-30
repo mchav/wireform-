@@ -49,6 +49,13 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | **Done** (page index + bloom filter + AES-GCM/CTR modular encryption) |
 | A.8 | Remaining encodings (DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE_DICTIONARY) | — | **Done** |
 | A.9 | Repetition level semantics for repeated/nested columns | — | **Partial** (`materializeRepeated*`) |
+| A.10 | Heterogeneous-primitive Parquet writer (all primitive types via `ColumnData`) | Writer | **Done** (`buildParquetFileTyped` / `buildParquetFileTypedWithIndex`) |
+| A.11 | Per-column compression on the writer (Uncompressed / GZip / Snappy / ZSTD / LZ4_RAW) | Writer | **Done** (`Parquet.Compress`, `ColumnAux.caCodec`) |
+| A.12 | Writer-side definition levels + nullable PLAIN data pages | Writer | **Done** (`Parquet.LevelsEncode`, `OptionalColumn`) |
+| A.13 | Writer-side dictionary encoding | Writer | **Done** (`buildDictionary`, `encodeDictPage`, `encodeDictDataPage`) |
+| A.14 | Writer-side DELTA_BINARY_PACKED | Writer | **Done** (`Parquet.DeltaEncode`) |
+| A.15 | Spec-correct field IDs in footer Thrift (verified via pyarrow golden round-trip) | Read+Write | **Done** |
+| A.16 | SIMD-backed `null_pages` bitmap helpers | — | **Done** (`Parquet.NullPagesBitmap`) |
 
 ---
 
@@ -114,6 +121,11 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.31 | Iceberg ↔ Parquet bridge (`DataFile` derived from Parquet footer; `OffsetIndex` × `DeletionVector` page selection) | **Done** (`Iceberg.Parquet`) |
 | D.32 | Iceberg REST catalog HTTP client | **Done** (`Iceberg.Catalog.REST.Client`, behind `-frest-client`) |
 | D.33 | Iceberg encryption-keys wiring to Parquet `EncryptionConfig` | **Done** (`Iceberg.Parquet.encryptionConfigFromTable`, `withEncryptionKeyMetadata`) |
+| D.34 | Incremental scans (`planIncrementalAppend`, `planIncrementalChangelog`) | **Done** (`Iceberg.Read`) |
+| D.35 | Snapshot expiration + orphan-file detection | **Done** (`Iceberg.Maintenance`) |
+| D.36 | End-to-end Iceberg + Parquet pipeline example | **Done** (`examples/IcebergPipeline.hs`) |
+| D.37 | `iceberg` CLI (metadata-show / manifest-show / expire / orphans / REST) | **Done** (`wireform-iceberg/app/Main.hs`) |
+| D.38 | pyarrow golden round-trip (proves byte-compat with arrow-cpp) | **Done** (`wireform-parquet/test/fixtures`) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 
