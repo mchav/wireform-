@@ -25,6 +25,7 @@ import Test.Tasty
 import Test.Tasty.Hedgehog (testProperty)
 
 import Iceberg.Variant
+import qualified Iceberg.Variant.Shredding as Shred
 
 tests :: TestTree
 tests = testGroup "Iceberg.Variant property tests"
@@ -38,6 +39,8 @@ tests = testGroup "Iceberg.Variant property tests"
       propDecimal16Range
   , testProperty "object lex-sorted keys: encode is canonical"
       propObjectSortedCanonical
+  , testProperty "shred -> reconstruct round-trip on JSON-equivalent inputs"
+      propShredReconstructRoundTrip
   ]
 
 -- ============================================================
@@ -164,6 +167,95 @@ propDecimal16Range = property $ do
   case decodeVariant m x of
     Left  e -> footnote ("decode failed: " ++ e) >> failure
     Right v' -> v' === v
+
+-- The shred -> reconstruct round-trip property: for any
+-- JSON-equivalent Variant and any ShreddedType, routing the
+-- Variant through 'routeRow' and reconstructing it via
+-- 'reconstructVariant' yields a value that's at least equivalent
+-- to the original under widening/decode semantics. We canonicalise
+-- both sides before comparing so the integer-widening rule (Int8
+-- shredded as Int32 comes back as VInt32) doesn't trip the equality.
+propShredReconstructRoundTrip :: Property
+propShredReconstructRoundTrip = property $ do
+  v <- forAll genShredInput
+  st <- forAll (Gen.element
+    [ Shred.ShredInt32, Shred.ShredInt64
+    , Shred.ShredFloat, Shred.ShredDouble
+    , Shred.ShredBool,  Shred.ShredString ])
+  let meta = canonicalEmptyMeta
+      row  = Shred.routeRow st (Just v)
+      -- Mirror what the writer puts on disk per the spec:
+      -- ShredAsTyped     -> (value=null,    typed=set)
+      -- ShredAsValue bs  -> (value=bs,      typed=null)
+      -- ShredVariantNull -> (value=0x00,    typed=null)
+      -- ShredMissing     -> (value=null,    typed=null)
+      sc = case row of
+        Shred.ShredAsTyped tv ->
+          Shred.ShreddedColumn Nothing (Just tv)
+        Shred.ShredAsValue bs ->
+          Shred.ShreddedColumn (Just bs) Nothing
+        Shred.ShredVariantNull ->
+          Shred.ShreddedColumn (Just (BS.pack [0x00])) Nothing
+        Shred.ShredMissing ->
+          Shred.ShreddedColumn Nothing Nothing
+  case Shred.reconstructVariant meta sc of
+    Right (Just v') ->
+      asValueClass v' === asValueClass v
+    Right Nothing ->
+      -- Acceptable iff input was null and shredded as a non-bool
+      -- type (which routes to ShredVariantNull -> value=0x00 ->
+      -- decodes back to VNull, surfacing as Right (Just VNull));
+      -- so this branch shouldn't normally happen for VNull.
+      footnote ("expected Just reconstruction (input=" ++ show v ++ ")")
+        >> failure
+    Left e ->
+      footnote ("reconstruct failed: " ++ e) >> failure
+  where
+    -- The canonical empty-dictionary metadata: header 0x11
+    -- (version 1, sorted_strings 1, offset_size 1), dict_size 0,
+    -- one zero offset.
+    canonicalEmptyMeta = BS.pack [0x11, 0x00, 0x00]
+    -- Restrict to inputs whose value bytes are interpretable
+    -- against an empty dictionary: any Variant with no object
+    -- fields.
+    genShredInput = Gen.choice
+      [ pure VNull
+      , VBool   <$> Gen.bool
+      , VInt8   <$> Gen.int8 Range.linearBounded
+      , VInt16  <$> Gen.int16 Range.linearBounded
+      , VInt32  <$> Gen.int32 Range.linearBounded
+      , VInt64  <$> Gen.int64 Range.linearBounded
+      , VFloat  <$> Gen.float (Range.exponentialFloatFrom 0 (-1e6) 1e6)
+      , VString <$> Gen.text (Range.linear 0 12) Gen.alphaNum
+      ]
+
+-- Collapse the integer-Variant family to one tag-class so the
+-- shred-widening test doesn't fail just because Int8 came back as
+-- Int32. Float / Double are already distinct classes.
+data VariantClass
+  = VCNull
+  | VCBool   !Bool
+  | VCInt    !Integer
+  | VCDouble !Double
+  | VCString !T.Text
+  | VCOther  !Variant
+  deriving (Show, Eq)
+
+-- Collapse the integer family to one Integer and the float family
+-- to one Double so the shred-widening-by-design (Int8 -> Int32,
+-- Float -> Double) doesn't trip the equality.
+asValueClass :: Variant -> VariantClass
+asValueClass = \case
+  VNull       -> VCNull
+  VBool b     -> VCBool b
+  VInt8  i    -> VCInt (toInteger i)
+  VInt16 i    -> VCInt (toInteger i)
+  VInt32 i    -> VCInt (toInteger i)
+  VInt64 i    -> VCInt (toInteger i)
+  VFloat f    -> VCDouble (realToFrac f)
+  VDouble d   -> VCDouble d
+  VString s   -> VCString s
+  other       -> VCOther other
 
 -- The spec requires that object field-id lists are emitted in
 -- lexicographic order of the corresponding field names. We assert

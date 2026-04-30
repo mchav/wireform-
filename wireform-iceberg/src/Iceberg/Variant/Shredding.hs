@@ -22,9 +22,14 @@ module Iceberg.Variant.Shredding
   ( -- * Shredding decision
     ShreddedType (..)
   , ShreddedRow (..)
+  , TypedValue (..)
   , routeRow
     -- * Convenience: shredded Parquet column builder
   , buildShreddedVariantParquetFile
+    -- * Reading shredded Variants back
+  , ShreddedColumn (..)
+  , reconstructVariant
+  , typedValueToVariant
   ) where
 
 import qualified Data.ByteString as BS
@@ -195,6 +200,93 @@ typedFor st row = case row of
   ShredAsTyped (TVString s)
     | st == ShredString -> PN.NRLeaf (PN.LvString s)
   _ -> PN.NRNull
+
+-- ============================================================
+-- Reader: reconstruct a Variant from its shredded representation
+-- ============================================================
+
+-- | One row of a shredded Variant column as the spec defines it. The
+-- @value@ and @typed_value@ slots are independent 'Maybe's because
+-- the spec's value/typed_value matrix gives different semantics for
+-- each combination (see 'ShreddedRow' for the encoder side).
+--
+-- Mirrors the Python @construct_variant@ algorithm's input.
+data ShreddedColumn = ShreddedColumn
+  { sc_value      :: !(Maybe ByteString)
+    -- ^ The unshredded fallback. When non-null, holds the
+    --   re-encoded Variant value bytes for the row.
+  , sc_typedValue :: !(Maybe TypedValue)
+    -- ^ The typed sub-column. When non-null, the row matched the
+    --   shredded type.
+  } deriving (Show, Eq)
+
+-- | Reconstruct one Variant row from its shredded
+-- @(value, typed_value)@ pair, per the spec's @construct_variant@
+-- algorithm.
+--
+-- Per the spec table:
+--
+-- @
+-- value     typed_value   Meaning
+-- null      null          Missing (returns Nothing; only valid for
+--                         shredded /object fields/, not top-level
+--                         Variant columns - top-level callers
+--                         should treat Nothing as Variant null).
+-- non-null  null          Present, any type (returned via
+--                         decodeVariant on the value bytes).
+-- null      non-null      Present, the shredded type (returned by
+--                         lifting the typed sub-column to a
+--                         Variant via 'typedValueToVariant').
+-- non-null  non-null      Partially shredded object (not yet
+--                         supported in this primitive-shredding
+--                         implementation; we return @Left@).
+-- @
+--
+-- For top-level Variant columns, where the spec says missing rows
+-- should be returned as Variant null, this function returns
+-- @Right Nothing@ for the missing case so the caller can decide
+-- between 'IV.VNull' and 'Nothing' depending on context.
+reconstructVariant
+  :: ByteString
+    -- ^ Shared metadata bytes (the 'metadata' column of the
+    --   shredded group, the same for every row).
+  -> ShreddedColumn
+  -> Either String (Maybe IV.Variant)
+reconstructVariant meta sc = case (sc_value sc, sc_typedValue sc) of
+  (Nothing, Nothing) ->
+    Right Nothing
+  (Just bs, Nothing) ->
+    -- Unshredded fallback: decode the Variant value bytes against
+    -- the shared metadata dictionary.
+    case IV.decodeVariant meta bs of
+      Right v -> Right (Just v)
+      Left  e -> Left ("reconstructVariant: " ++ e)
+  (Nothing, Just tv) ->
+    Right (Just (typedValueToVariant tv))
+  (Just _, Just _) ->
+    -- Partially-shredded object case (spec §Objects). The typed
+    -- sub-column would be a Parquet group of further shredded
+    -- fields; this primitive-shredding module doesn't model that
+    -- shape, so we surface the situation explicitly.
+    Left "reconstructVariant: partially-shredded object \
+         \(both value and typed_value present); object \
+         \shredding is implemented in a separate code path"
+
+-- | Lift a 'TypedValue' (the typed sub-column's payload) to a
+-- 'Variant'. The shredded type uniquely determines which Variant
+-- constructor to use.
+typedValueToVariant :: TypedValue -> IV.Variant
+typedValueToVariant = \case
+  TVInt32  i -> IV.VInt32  i
+  TVInt64  i -> IV.VInt64  i
+  TVFloat  f -> IV.VFloat  f
+  TVDouble d -> IV.VDouble d
+  TVBool   b -> IV.VBool   b
+  TVString s -> IV.VString s
+
+-- ============================================================
+-- Internal helpers (writer side)
+-- ============================================================
 
 typedLeafType :: ShreddedType -> PN.LeafType
 typedLeafType = \case

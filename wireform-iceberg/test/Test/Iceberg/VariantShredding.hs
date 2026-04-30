@@ -53,6 +53,67 @@ tests = testGroup "Iceberg.Variant.Shredding"
         Right bytes ->
           assertBool "produced non-empty file" (BS.length bytes > 0)
 
+  , testCase "reconstructVariant: typed sub-column lifts to Variant" $ do
+      let meta = BS.pack [0x01, 0x00]
+      Shred.reconstructVariant meta
+        (Shred.ShreddedColumn Nothing (Just (Shred.TVInt64 100)))
+        @?= Right (Just (IV.VInt64 100))
+
+  , testCase "reconstructVariant: unshredded value is decoded with shared metadata" $ do
+      let v = IV.VString "fallback"
+          (m, valBytes) = IV.encodeVariant v
+      Shred.reconstructVariant m
+        (Shred.ShreddedColumn (Just valBytes) Nothing)
+        @?= Right (Just v)
+
+  , testCase "reconstructVariant: missing row -> Right Nothing" $ do
+      let meta = BS.pack [0x01, 0x00]
+      Shred.reconstructVariant meta
+        (Shred.ShreddedColumn Nothing Nothing)
+        @?= Right Nothing
+
+  , testCase "reconstructVariant: partially-shredded object surfaces as Left" $ do
+      let v = IV.VString "x"
+          (m, valBytes) = IV.encodeVariant v
+      case Shred.reconstructVariant m
+             (Shred.ShreddedColumn (Just valBytes)
+                (Just (Shred.TVInt32 7))) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "expected Left for partial shred"
+
+  , testCase "shred -> reconstruct round-trip preserves the Variant" $ do
+      -- Build a shredded column row from the encoder side and
+      -- reconstruct it from the decoder side; the result should
+      -- equal the original Variant. The shared metadata is the
+      -- canonical empty-dictionary value (header 0x11, size 0,
+      -- one zero offset).
+      let meta = BS.pack [0x11, 0x00, 0x00]
+          -- Tuples are (input, ShreddedType, expected post-roundtrip).
+          -- Integer inputs that widen on the encoder side come back
+          -- as the wider Variant type; the type-mismatch fallthrough
+          -- decodes the re-encoded value bytes back to the original.
+          cases =
+            [ (IV.VInt64 42,             Shred.ShredInt64,  IV.VInt64 42)
+            , (IV.VString "hello",       Shred.ShredString, IV.VString "hello")
+            , (IV.VBool True,            Shred.ShredBool,   IV.VBool True)
+            , (IV.VInt8 7,               Shred.ShredInt32,  IV.VInt32 7)
+            , (IV.VString "type-mismatch", Shred.ShredInt64,
+                                                            IV.VString "type-mismatch")
+            ]
+      flip mapM_ cases $ \(v, st, expected) ->
+        let row = Shred.routeRow st (Just v)
+            sc = case row of
+              Shred.ShredAsTyped tv ->
+                Shred.ShreddedColumn Nothing (Just tv)
+              Shred.ShredAsValue bs ->
+                Shred.ShreddedColumn (Just bs) Nothing
+              _ -> Shred.ShreddedColumn Nothing Nothing
+         in case Shred.reconstructVariant meta sc of
+              Right (Just v') -> v' @?= expected
+              other -> assertFailure
+                ("shred->reconstruct mismatch for " ++ show v
+                   ++ ": " ++ show other)
+
   , testCase "pyarrow can read shredded file as 3 columns" $ do
       pyOk <- pyarrowAvailable
       if not pyOk
