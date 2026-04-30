@@ -143,8 +143,8 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | REST catalog request/response shapes and JSON + exception type | full | `Iceberg.Catalog.REST` |
 | `WRITE_METADATA_COMPRESSION` (gzip metadata.json.gz) | full | `Iceberg.Write` (`encodeTableMetadataCompressed`) |
 | Fast-append / merge-append / rewrite-manifests planner (bin-packed by `commit.manifest.target-size-bytes` / `min-count-to-merge`) | full | `Iceberg.ManifestMerge` |
-| C/SIMDe kernels for hot paths (Murmur3-32 / `bucket[N]`, XXH64, Roaring 32-bit decode/encode/contains, V3 deletion-vector membership) | 3×–53× faster than the pure references on the bench (`bench/RESULTS.md`) | `Wireform.Hash` (shared), `Iceberg.SIMD` (re-export), `wireform-core/cbits/wireform_hash_simd.c` |
-| Parquet bloom filter on the SIMD XXH64 | 2.6×–7.1× faster than the pure path on 64 B–64 KiB inputs (`wireform-parquet/bench`) | `Parquet.XXH64` (delegates), `Parquet.BloomFilter` |
+| C/SIMDe kernels for hot paths (Murmur3-32 / `bucket[N]`, XXH64, Roaring 32-bit decode/encode/contains, V3 deletion-vector membership) | 3×–53× faster than the pure references on the bench (`bench/RESULTS.md`) | `Wireform.Hash` (single canonical home), `wireform-core/cbits/wireform_hash_simd.c` |
+| Parquet bloom filter on the SIMD XXH64 | 2.6×–7.1× faster than the pure path on 64 B–64 KiB inputs (`wireform-parquet/bench`) | `Parquet.BloomFilter` (uses `Wireform.Hash.xxh64` directly) |
 | Iceberg ↔ Parquet bridge (writer + scan side) | full | `Iceberg.Parquet` |
 | Iceberg REST catalog HTTP client | full (behind `-frest-client` flag) | `Iceberg.Catalog.REST.Client` |
 | Parquet writer with page-index + bloom-filter + column-index footers | full | `Parquet.Write.buildParquetFileWithIndex` + `ColumnAux` |
@@ -156,6 +156,20 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | Parquet writer: nullable columns via definition levels | full | `Parquet.LevelsEncode`, `OptionalColumn`, `encodeOptionalColumnPage` |
 | Parquet writer: dictionary encoding (PLAIN_DICTIONARY + RLE_DICTIONARY) | full | `Parquet.Write.buildDictionary` / `encodeDictPage` / `encodeDictDataPage` |
 | Parquet writer: DELTA_BINARY_PACKED | full | `Parquet.DeltaEncode` |
+| Parquet writer: DELTA_LENGTH_BYTE_ARRAY (encoding 6) | full | `Parquet.DeltaEncode.encodeDeltaLengthByteArray` |
+| Parquet writer: DELTA_BYTE_ARRAY / incremental string encoding (encoding 7) | full | `Parquet.DeltaEncode.encodeDeltaByteArray` |
+| Parquet writer: BYTE_STREAM_SPLIT (encoding 9, FLOAT + DOUBLE) | full | `Parquet.ByteStreamSplit` |
+| Parquet writer: DATA_PAGE_V2 (separate def/rep/data sections, header-only compression flag) | full | `Parquet.Write.encodeColumnDataPageV2` / `encodeOptionalColumnPageV2`, `ColumnAux.caPageVersion` |
+| Parquet writer: SchemaElement.field_id (Iceberg leaf identification) | full | `Parquet.Types.seFieldId`, footer encode/decode |
+| Iceberg position-delete file writer (fixed `file_path` + `pos` columns with reserved field-ids) | full | `Iceberg.Delete.writePositionDeleteFile` |
+| Iceberg equality-delete file writer (one column per equality-id) | full | `Iceberg.Delete.writeEqualityDeleteFile` |
+| Iceberg V3 multi-source-ids partition fields (multi-arg `bucket[N]` / `truncate[W]`) | full | `Iceberg.Types.PartitionField.pfSourceIds` (V1/V2 single + V3 multi unified) |
+| Iceberg V3 geometry / geography column bounds (WKB POINT, 21 bytes) | full | `Iceberg.Geometry` |
+| REST catalog write-side: rename, register, view CRUD, namespace property updates | full | `Iceberg.Catalog.REST.Client.renameTable` / `registerTable` / `loadView` / `createView` / `dropView` / `updateNamespaceProperties` |
+| Iceberg Hadoop file-based catalog (FS-agnostic via `FileSystem` record; optimistic concurrency on `version-hint.text`) | full | `Iceberg.Catalog.Hadoop` |
+| ORC writer: per-stripe bloom filter (`BLOOM_FILTER_UTF8` stream) | full | `ORC.BloomFilter` |
+| ORC writer: per-stripe row index (`ROW_INDEX` stream) | full | `ORC.RowIndex` |
+| ORC reader: DECIMAL128 stream (LEB128 zig-zag, full Integer precision) | full | `ORC.Read.decodeDecimal128Stream` |
 | Iceberg incremental scans (CDC / append) | full | `Iceberg.Read.planIncrementalAppend`, `planIncrementalChangelog` |
 | Iceberg snapshot expiration + orphan file detection | full | `Iceberg.Maintenance.expireSnapshots` / `orphanFileCandidates` |
 | End-to-end Iceberg + Parquet pipeline example | available | `examples/IcebergPipeline.hs` |

@@ -30,9 +30,10 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
   filters (BLOCK + XXHASH + UNCOMPRESSED). The bitset is an unboxed
   `Vector Word64` and the inner kernels do not allocate `Maybe`/`Either`
   per insert/check.
-* `Parquet.XXH64` is a from-scratch xxHash 0.1.1 implementation, byte-exact
-  against `xxhsum -H1`. Used by the bloom filter and exposed for callers
-  that want to hash column values directly.
+* `Wireform.Hash.xxh64` is the single canonical XXH64 entry point —
+  C/SIMDe-backed and byte-exact against `xxhsum -H1`. The Parquet bloom
+  filter calls it directly; the legacy `Parquet.XXH64` wrapper module
+  has been removed.
 * `Parquet.Types.ColumnChunk` and `ColumnMetadata` now carry the page-index
   and bloom-filter offset/length pointers from the parquet.thrift spec
   (fields 4-7 on `ColumnChunk`, fields 14-15 on `ColumnMetaData`).
@@ -56,6 +57,12 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | A.14 | Writer-side DELTA_BINARY_PACKED | Writer | **Done** (`Parquet.DeltaEncode`) |
 | A.15 | Spec-correct field IDs in footer Thrift (verified via pyarrow golden round-trip) | Read+Write | **Done** |
 | A.16 | SIMD-backed `null_pages` bitmap helpers | — | **Done** (`Parquet.NullPagesBitmap`) |
+| A.17 | DATA_PAGE_V2 writer (separate def/rep/data, header-only compression flag) | Writer | **Done** (`encodeColumnDataPageV2` / `encodeOptionalColumnPageV2`, `ColumnAux.caPageVersion`) |
+| A.18 | DELTA_LENGTH_BYTE_ARRAY writer | Writer | **Done** (`Parquet.DeltaEncode.encodeDeltaLengthByteArray`) |
+| A.19 | DELTA_BYTE_ARRAY writer (incremental string encoding) | Writer | **Done** (`Parquet.DeltaEncode.encodeDeltaByteArray`) |
+| A.20 | BYTE_STREAM_SPLIT writer (FLOAT + DOUBLE) | Writer | **Done** (`Parquet.ByteStreamSplit`) |
+| A.21 | SchemaElement.field_id (Iceberg leaf identification) | Read+Write | **Done** (`seFieldId`) |
+| A.22 | PageType discriminated-union refactor (one sum, no parallel `Maybe`s) | Internal | **Done** (`Parquet.Page.PageType`) |
 
 ---
 
@@ -81,6 +88,9 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | C.4 | End-to-end `readColumn` | — | **Done** |
 | C.5 | Remaining types (timestamp, date, decimal) + RLE v2 Patched Base | — | **Done** (`decodeTimestampColumn`, `decodeDateColumn`, `decodeDecimalColumn`, `decodeShortColumn`, `decodeTinyIntColumn`, `decodeBinaryColumn`, RLE v2 Patched Base) |
 | C.6 | Writer + ORC file assembly | Writer | **Done** (`buildORCFile`, integer/string/float/double/bool/date/timestamp/decimal encoders) |
+| C.7 | Per-stripe bloom filter (`BLOOM_FILTER_UTF8`) | Writer | **Done** (`ORC.BloomFilter`) |
+| C.8 | Per-stripe row index (`ROW_INDEX`) | Writer | **Done** (`ORC.RowIndex`) |
+| C.9 | DECIMAL128 stream decoder (LEB128 zig-zag, full Integer precision) | Reader | **Done** (`ORC.Read.decodeDecimal128Stream`) |
 
 ---
 
@@ -117,7 +127,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.27 | REST catalog convenience helpers (LoadTableResult builder, exception type) | **Done** (`Iceberg.Catalog.REST`) |
 | D.28 | Manifest-list partition summary aggregation | **Done** (`Iceberg.Write.buildManifestSummary`) |
 | D.29 | Fast-append / merge-append / rewrite-manifests commit planner | **Done** (`Iceberg.ManifestMerge`) |
-| D.30 | C/SIMDe kernels for Murmur3, `bucket[N]`, XXH64, Roaring 32-bit, deletion-vector membership | **Done** (`Wireform.Hash` shared, `Iceberg.SIMD` re-export, benchmarks in `wireform-iceberg/bench/RESULTS.md`) |
+| D.30 | C/SIMDe kernels for Murmur3, `bucket[N]`, XXH64, Roaring 32-bit, deletion-vector membership | **Done** (`Wireform.Hash` is the single canonical home; benchmarks in `wireform-iceberg/bench/RESULTS.md`) |
 | D.31 | Iceberg ↔ Parquet bridge (`DataFile` derived from Parquet footer; `OffsetIndex` × `DeletionVector` page selection) | **Done** (`Iceberg.Parquet`) |
 | D.32 | Iceberg REST catalog HTTP client | **Done** (`Iceberg.Catalog.REST.Client`, behind `-frest-client`) |
 | D.33 | Iceberg encryption-keys wiring to Parquet `EncryptionConfig` | **Done** (`Iceberg.Parquet.encryptionConfigFromTable`, `withEncryptionKeyMetadata`) |
@@ -126,6 +136,11 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.36 | End-to-end Iceberg + Parquet pipeline example | **Done** (`examples/IcebergPipeline.hs`) |
 | D.37 | `iceberg` CLI (metadata-show / manifest-show / expire / orphans / REST) | **Done** (`wireform-iceberg/app/Main.hs`) |
 | D.38 | pyarrow golden round-trip (proves byte-compat with arrow-cpp) | **Done** (`wireform-parquet/test/fixtures`) |
+| D.39 | Iceberg position-delete + equality-delete file writers (compose Parquet writer + Iceberg.Parquet bridge) | **Done** (`Iceberg.Delete`) |
+| D.40 | REST catalog write-side: rename / register / view CRUD / namespace property updates | **Done** (`Iceberg.Catalog.REST.Client`) |
+| D.41 | V3 multi-source-ids partition fields (multi-arg `bucket[N]` / `truncate[W]`) | **Done** (`PartitionField.pfSourceIds`, V1/V2 single + V3 multi unified) |
+| D.42 | V3 geometry / geography column bounds: WKB POINT codec | **Done** (`Iceberg.Geometry`) |
+| D.43 | Hadoop file-based catalog (FS-agnostic via `FileSystem` record; optimistic concurrency on `version-hint.text`) | **Done** (`Iceberg.Catalog.Hadoop`) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 
