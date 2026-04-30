@@ -13,6 +13,7 @@ import qualified Test.Iceberg.Parquet
 import qualified Test.Iceberg.Partition
 import qualified Test.Iceberg.Puffin
 import qualified Test.Iceberg.RESTCatalog
+import qualified Test.Iceberg.RESTClient
 import qualified Test.Iceberg.ScanPlan
 import qualified Test.Iceberg.SchemaCompat
 import qualified Test.Iceberg.SequenceInheritance
@@ -39,6 +40,7 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.Puffin.tests
   , Test.Iceberg.DeletionVector.tests
   , Test.Iceberg.RESTCatalog.tests
+  , Test.Iceberg.RESTClient.tests
   , Test.Iceberg.NameMapping.tests
   , Test.Iceberg.Parquet.tests
   , Test.Iceberg.ScanPlan.tests

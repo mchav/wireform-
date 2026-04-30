@@ -5,6 +5,12 @@ synopsis: Apache Iceberg table metadata, manifest, and schema evolution
 license: BSD-3-Clause
 build-type: Simple
 
+flag rest-client
+  description: Build the Iceberg.Catalog.REST.Client HTTP client (pulls in
+               http-client, http-client-tls, http-types, case-insensitive).
+  default: True
+  manual: True
+
 common defaults
   ghc-options:
     -Wall
@@ -70,6 +76,14 @@ library
     deepseq >= 1.4 && < 1.6,
     zlib >= 0.6 && < 0.8
 
+  if flag(rest-client)
+    exposed-modules: Iceberg.Catalog.REST.Client
+    build-depends:
+      http-client       >= 0.7  && < 0.8,
+      http-client-tls   >= 0.3  && < 0.4,
+      http-types        >= 0.12 && < 0.13,
+      case-insensitive  >= 1.2  && < 1.3
+
 test-suite iceberg-test
   import: defaults
   type: exitcode-stdio-1.0
@@ -88,6 +102,7 @@ test-suite iceberg-test
     Test.Iceberg.Partition
     Test.Iceberg.Puffin
     Test.Iceberg.RESTCatalog
+    Test.Iceberg.RESTClient
     Test.Iceberg.ScanPlan
     Test.Iceberg.SchemaCompat
     Test.Iceberg.SequenceInheritance
