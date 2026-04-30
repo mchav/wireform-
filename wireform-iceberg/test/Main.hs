@@ -5,6 +5,7 @@ import Test.Tasty
 import qualified Test.Iceberg.BoundTrunc
 import qualified Test.Iceberg.Delete
 import qualified Test.Iceberg.DeletionVector
+import qualified Test.Iceberg.Geometry
 import qualified Test.Iceberg.Expression
 import qualified Test.Iceberg.Incremental
 import qualified Test.Iceberg.Maintenance
@@ -58,6 +59,7 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.MetricsConfig.tests
   , Test.Iceberg.BoundTrunc.tests
   , Test.Iceberg.Delete.tests
+  , Test.Iceberg.Geometry.tests
   , Test.Iceberg.Hash.tests
   , Test.Iceberg.SchemaCompat.tests
   , Test.Iceberg.Validate.tests

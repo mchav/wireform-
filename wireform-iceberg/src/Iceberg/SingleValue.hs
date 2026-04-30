@@ -18,6 +18,9 @@
 -- - @uuid@\/@fixed@      -> raw bytes
 -- - @binary@             -> raw bytes
 -- - @decimal(P,S)@       -> minimum two's-complement big-endian unscaled
+--
+-- The V3 @geometry@ and @geography@ types use a different encoding
+-- (WKB POINT, 21 bytes) - see "Iceberg.Geometry".
 module Iceberg.SingleValue
   ( -- * Encoders
     encodeBool

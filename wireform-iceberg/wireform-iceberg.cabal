@@ -39,6 +39,7 @@ library
     Iceberg.Delete
     Iceberg.DeletionVector
     Iceberg.Expression
+    Iceberg.Geometry
     Iceberg.JSON
     Iceberg.Maintenance
     Iceberg.Manifest
@@ -108,6 +109,7 @@ test-suite iceberg-test
     Test.Iceberg.RESTClient
     Test.Iceberg.ScanPlan
     Test.Iceberg.Delete
+    Test.Iceberg.Geometry
     Test.Iceberg.Hash
     Test.Iceberg.SchemaCompat
     Test.Iceberg.SequenceInheritance
