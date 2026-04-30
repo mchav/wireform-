@@ -34,6 +34,7 @@ module ORC.Read
   , ORCTimestamp (..)
   , decodeDateColumn
   , decodeDecimalColumn
+  , decodeDecimal128Stream
   , decodeBinaryColumn
   , decodeShortColumn
   , decodeTinyIntColumn
@@ -372,6 +373,48 @@ decodeDecimalColumn numRows _scale dataBs mPresentBs = do
   case mPresent of
     Nothing -> Right $! V.map Just ints
     Just present -> Right $! interleaveWith present ints
+
+-- | Decode the @DATA@ stream of a DECIMAL128 column - a sequence of
+-- LEB128 zig-zag signed varints, one per row group entry. Pair this
+-- with the column's RLE-v2 @SECONDARY@ stream (the per-row scale) and
+-- optional @PRESENT@ stream to materialise full decimal values.
+--
+-- Inverse of 'ORC.Write.encodeDecimalRawColumn' for the data half.
+decodeDecimal128Stream
+  :: Int        -- ^ expected number of present values
+  -> ByteString -- ^ DATA stream bytes
+  -> Either String (V.Vector Integer)
+decodeDecimal128Stream n bs = go 0 0 V.empty
+  where
+    !len = BS.length bs
+    go !i !off !acc
+      | i >= n = if off /= len
+                   then Left "ORC.Read.decodeDecimal128Stream: trailing bytes"
+                   else Right $! acc
+      | otherwise = do
+          (v, off') <- readVarSigned bs off
+          go (i + 1) off' (V.snoc acc v)
+
+readVarSigned :: ByteString -> Int -> Either String (Integer, Int)
+readVarSigned bs off0 = do
+  (u, off') <- readVarUnsigned bs off0
+  -- zig-zag decode
+  let !v = if u `mod` 2 == 0 then u `div` 2 else negate (u `div` 2 + 1)
+  Right (v, off')
+
+readVarUnsigned :: ByteString -> Int -> Either String (Integer, Int)
+readVarUnsigned bs = go 0 0
+  where
+    !len = BS.length bs
+    go !shift !acc !off
+      | off >= len = Left "ORC.Read.readVarUnsigned: truncated varint"
+      | otherwise =
+          let !b = BS.index bs off
+              !chunk = fromIntegral (b .&. 0x7F) :: Integer
+              !acc' = acc .|. (chunk `shiftL` shift)
+           in if b .&. 0x80 == 0
+                then Right (acc', off + 1)
+                else go (shift + 7) acc' (off + 1)
 
 -- | Decode a DICTIONARY_V2-encoded string column.
 --

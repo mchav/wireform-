@@ -28,8 +28,10 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    ORC.BloomFilter
     ORC.Footer
     ORC.Read
+    ORC.RowIndex
     ORC.Stripe
     ORC.Types
     ORC.Write
