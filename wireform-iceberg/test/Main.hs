@@ -32,6 +32,7 @@ import qualified Test.Iceberg.Transform
 import qualified Test.Iceberg.Update
 import qualified Test.Iceberg.Validate
 import qualified Test.Iceberg.Variant
+import qualified Test.Iceberg.VariantParquet
 import qualified Test.Iceberg.View
 import qualified Test.Iceberg.Write
 
@@ -69,4 +70,5 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.SchemaCompat.tests
   , Test.Iceberg.Validate.tests
   , Test.Iceberg.Variant.tests
+  , Test.Iceberg.VariantParquet.tests
   ]

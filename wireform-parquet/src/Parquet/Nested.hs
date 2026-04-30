@@ -86,7 +86,10 @@ import qualified Parquet.Write as PW
 -- | Description of one column tree, mirroring the user's logical
 -- type. 'NSOptional' / 'NSRequired' wrap a child to set the leaf or
 -- group's repetition (Optional / Required); 'NSList' / 'NSMap' /
--- 'NSStruct' name the compound types.
+-- 'NSStruct' name the compound types; 'NSVariant' emits the
+-- Iceberg V3 / Spark Variant 2-leaf binary group
+-- (@{required metadata: BINARY, required value: BINARY}@) annotated
+-- with the @VARIANT(1)@ logical type.
 data NestedSchema
   = NSPrimitive !LeafType
   | NSOptional  !NestedSchema
@@ -94,6 +97,7 @@ data NestedSchema
   | NSList      !NestedSchema
   | NSMap       !NestedSchema !NestedSchema   -- key, value
   | NSStruct    !(V.Vector (Text, NestedSchema))
+  | NSVariant
   deriving (Show, Eq)
 
 -- | Leaf primitive type and its Parquet physical encoding.
@@ -139,6 +143,10 @@ data NestedRow
   | NRStruct !(V.Vector NestedRow)   -- ^ struct fields, indexed in NSStruct order
   | NRMapEntries !(V.Vector (NestedRow, NestedRow))
     -- ^ a map, as a vector of (key, value) pairs
+  | NRVariantBytes !ByteString !ByteString
+    -- ^ Pre-encoded Variant @(metadataBytes, valueBytes)@, matching
+    --   the two binary leaves an 'NSVariant' schema emits. Use
+    --   'encodeVariant' from "Iceberg.Variant" to obtain the bytes.
   deriving (Show, Eq)
 
 -- | Concrete value carried by an 'NRLeaf'.
@@ -198,6 +206,15 @@ flattenSchema rootName ns = V.fromList (go (V.singleton rootName) 0 0 ns)
       NSStruct children ->
         concatMap (\(name, child) -> go (V.snoc path name) d r child)
                   (V.toList children)
+      NSVariant ->
+        -- Variant is a 2-leaf binary group. Both leaves are
+        -- @required binary@ so descending into them doesn't bump d
+        -- or r; the group's own repetition is set by an enclosing
+        -- NSOptional / NSRequired (typical Iceberg usage:
+        -- @optional NSVariant@).
+        [ LeafDescriptor (V.snoc path "metadata") LtBinary d r
+        , LeafDescriptor (V.snoc path "value")    LtBinary d r
+        ]
 
 -- | Per-leaf metadata used both by the shredder and by
 -- 'buildOptionalListFile' to populate the column chunks.
@@ -385,6 +402,22 @@ descendThrough schema !cursor !accs row !d !r !absRep = case (schema, row) of
              Left  e          -> Left e
   (NSMap _ _, _) -> Left "Parquet.Nested: row shape doesn't match NSMap"
 
+  (NSVariant, NRVariantBytes metaBs valBs) ->
+    -- Push two binary leaves: the metadata and value byte-strings.
+    -- Both are 'required binary' so they emit at the current
+    -- definition level. Calling code typically wraps NSVariant in
+    -- NSOptional, in which case the row is either NRNull (handled
+    -- above) or NRVariantBytes for a present Variant.
+    let acc1  = V.unsafeIndex accs cursor
+        acc1' = pushLeaf acc1 d r (LvBinary metaBs)
+        accs1 = V.unsafeUpd accs [(cursor, acc1')]
+        acc2  = V.unsafeIndex accs1 (cursor + 1)
+        acc2' = pushLeaf acc2 d r (LvBinary valBs)
+        accs2 = V.unsafeUpd accs1 [(cursor + 1, acc2')]
+     in Right (accs2, cursor + 2)
+  (NSVariant, _) ->
+    Left "Parquet.Nested: row shape doesn't match NSVariant (expected NRVariantBytes or NRNull)"
+
   (NSStruct fields, NRStruct values)
     | V.length fields /= V.length values ->
         Left "Parquet.Nested: NSStruct / NRStruct field count mismatch"
@@ -408,6 +441,7 @@ leafCount = \case
   NSList s        -> leafCount s
   NSMap k v       -> leafCount k + leafCount v
   NSStruct fields -> sum (map (leafCount . snd) (V.toList fields))
+  NSVariant       -> 2
 
 -- | Push one (def, rep) event for /every/ leaf in a subtree, with
 -- no value. Used for null-list and null-optional events.
@@ -746,6 +780,44 @@ emitColumn outerName outerSchema = goTop outerName outerSchema
          in groupHead
               : concatMap (\(fname, fch) -> goNamed fname (Just Required) fch)
                           (V.toList fields)
+      NSVariant ->
+        -- The Iceberg V3 / Spark Variant unshredded shape is:
+        --   <rep> group <name> {
+        --     required binary metadata;
+        --     required binary value;
+        --   }
+        -- The 'VARIANT(1)' annotation is a LogicalType the writer
+        -- side doesn't currently emit to the footer thrift (see
+        -- comment in Parquet.Footer); the physical layout is what
+        -- pyarrow / Spark match against and that's what we ensure.
+        let !groupHead = SchemaElement
+              { seName          = name
+              , seRepetition    = rep
+              , seType          = Nothing
+              , seNumChildren   = Just 2
+              , seConvertedType = Nothing
+              , seLogicalType   = Nothing
+              , seFieldId       = Nothing
+              }
+            !metadataLeaf = SchemaElement
+              { seName          = "metadata"
+              , seRepetition    = Just Required
+              , seType          = Just PTByteArray
+              , seNumChildren   = Nothing
+              , seConvertedType = Nothing
+              , seLogicalType   = Nothing
+              , seFieldId       = Nothing
+              }
+            !valueLeaf = SchemaElement
+              { seName          = "value"
+              , seRepetition    = Just Required
+              , seType          = Just PTByteArray
+              , seNumChildren   = Nothing
+              , seConvertedType = Nothing
+              , seLogicalType   = Nothing
+              , seFieldId       = Nothing
+              }
+         in [groupHead, metadataLeaf, valueLeaf]
 
 -- ============================================================
 -- Whole-file builder for arbitrary nested schemas
@@ -899,6 +971,10 @@ buildNestedFile columns rowsPerColumn
            in case V.find (\(n, _) -> n == h) fields of
                 Just (_, child) -> walkSchema child t
                 Nothing         -> Nothing
+    walkSchema NSVariant p
+      | V.length p == 1 && (V.unsafeIndex p 0 == "metadata"
+                             || V.unsafeIndex p 0 == "value") = Just LtBinary
+      | otherwise = Nothing
 
 -- | Encode one shredded leaf as a single uncompressed DATA_PAGE_V2.
 encodeNestedLeafAsV2Page :: NestedLeaf -> ByteString

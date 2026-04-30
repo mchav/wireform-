@@ -807,6 +807,9 @@ main = do
       validateListStructAgainstPyarrow
       validateListListAgainstPyarrow
       validateMapAgainstPyarrow
+      -- Variant + Parquet pyarrow round-trip lives in
+      -- wireform-iceberg's test suite (Iceberg.Variant imports
+      -- wireform-iceberg, which already depends on wireform-parquet).
     else putStrLn "SKIP: pyarrow not available, nested cross-language checks skipped"
 
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
