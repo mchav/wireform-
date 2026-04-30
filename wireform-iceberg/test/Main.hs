@@ -4,6 +4,7 @@ import Test.Tasty
 
 import qualified Test.Iceberg.BoundTrunc
 import qualified Test.Iceberg.CatalogHadoop
+import qualified Test.Iceberg.CatalogSql
 import qualified Test.Iceberg.Delete
 import qualified Test.Iceberg.DeletionVector
 import qualified Test.Iceberg.Geometry
@@ -60,6 +61,7 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.MetricsConfig.tests
   , Test.Iceberg.BoundTrunc.tests
   , Test.Iceberg.CatalogHadoop.tests
+  , Test.Iceberg.CatalogSql.tests
   , Test.Iceberg.Delete.tests
   , Test.Iceberg.Geometry.tests
   , Test.Iceberg.Hash.tests

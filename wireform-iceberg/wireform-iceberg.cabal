@@ -37,6 +37,7 @@ library
     Iceberg.BoundTrunc
     Iceberg.Catalog.Hadoop
     Iceberg.Catalog.REST
+    Iceberg.Catalog.Sql
     Iceberg.Delete
     Iceberg.DeletionVector
     Iceberg.Expression
@@ -109,6 +110,7 @@ test-suite iceberg-test
     Test.Iceberg.Partition
     Test.Iceberg.Puffin
     Test.Iceberg.CatalogHadoop
+    Test.Iceberg.CatalogSql
     Test.Iceberg.RESTCatalog
     Test.Iceberg.RESTClient
     Test.Iceberg.ScanPlan
