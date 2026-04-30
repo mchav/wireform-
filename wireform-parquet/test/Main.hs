@@ -47,6 +47,7 @@ import Parquet.Page
   )
 import Parquet.Write
   ( ColumnAux (..)
+  , ColumnEncryption (..)
   , PageVersion (..)
   , ColumnData (..)
   , Dictionary (..)
@@ -56,10 +57,13 @@ import Parquet.Write
   , buildParquetFileWithIndex
   , columnDataLength
   , columnDataStatistics
+  , emptyColumnAux
+  , encodeColumnDataPageParts
   , encodeColumnDataPageV2
   , encodeDictDataPage
   , encodeDictPage
   , encodeOptionalColumnPage
+  , encryptPageBytes
   , optionalColumnLength
   , optionalColumnNullCount
   )
@@ -202,7 +206,7 @@ main = do
                 , ciRepetitionLevelHistograms = Nothing
                 , ciDefinitionLevelHistograms = Nothing
                 }
-      aux   = ColumnAux (Just bf) (Just oi) (Just ci) Uncompressed PageV1
+      aux   = ColumnAux (Just bf) (Just oi) (Just ci) Uncompressed PageV1 Nothing
       fIdx  = buildParquetFileWithIndex schemaIdx
                 (V.singleton (V.singleton vsIdx))
                 (V.singleton (V.singleton aux))
@@ -277,12 +281,12 @@ main = do
   -- Per-column compression: GZip is always available; round-trip a column
   -- through the writer and confirm the metadata records the codec.
   let auxesGzip = V.singleton (V.fromList
-        [ ColumnAux Nothing Nothing Nothing GZip PageV1
-        , ColumnAux Nothing Nothing Nothing GZip PageV1
-        , ColumnAux Nothing Nothing Nothing Uncompressed PageV1  -- floats stay raw
-        , ColumnAux Nothing Nothing Nothing GZip PageV1
-        , ColumnAux Nothing Nothing Nothing Uncompressed PageV1
-        , ColumnAux Nothing Nothing Nothing GZip PageV1
+        [ ColumnAux Nothing Nothing Nothing GZip PageV1 Nothing
+        , ColumnAux Nothing Nothing Nothing GZip PageV1 Nothing
+        , ColumnAux Nothing Nothing Nothing Uncompressed PageV1 Nothing  -- floats stay raw
+        , ColumnAux Nothing Nothing Nothing GZip PageV1 Nothing
+        , ColumnAux Nothing Nothing Nothing Uncompressed PageV1 Nothing
+        , ColumnAux Nothing Nothing Nothing GZip PageV1 Nothing
         ])
       fGz = buildParquetFileWithIndex schemaTyped (V.singleton cols) auxesGzip
   case loadParquetFile fGz of
@@ -320,7 +324,7 @@ main = do
         , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
         ]
       v2Vals = ColInt32 (VP.fromList [(11 :: Int32), 22, 33, 44])
-      v2Aux  = ColumnAux Nothing Nothing Nothing Uncompressed PageV2
+      v2Aux  = ColumnAux Nothing Nothing Nothing Uncompressed PageV2 Nothing
       v2File = buildParquetFileWithIndex v2Schema
                  (V.singleton (V.singleton v2Vals))
                  (V.singleton (V.singleton v2Aux))
@@ -341,6 +345,72 @@ main = do
           expect "V2 header reports 0 nulls"  (dph2NumNulls v2 == 0)
           expect "V2 header reports 4 rows"   (dph2NumRows v2 == 4)
         _ -> failTest "V2 encoder did not produce PtDataPageV2"
+
+  -- Modular encryption round-trip: encrypted column-chunk page-bytes
+  -- must round-trip through encryptPageBytes with the matching AAD.
+  --
+  -- We exercise both algorithms (AES-GCM-V1 and AES-GCM-CTR-V1) and
+  -- assert that flipping one bit of the ciphertext breaks GCM auth.
+  let encKey  = BS.replicate 16 0x42
+      ce alg  = ColumnEncryption
+                  { ceAlgorithm     = alg
+                  , ceKey           = encKey
+                  , ceFileId        = BSC.pack "fileid01"
+                  , ceAadPrefix     = BS.empty
+                  , ceKeyMetadata   = BSC.pack "kid:test"
+                  , ceColumnOrdinal = 0
+                  }
+      encVals = ColInt32 (VP.fromList [(7 :: Int32), 8, 9])
+      encSchema = V.fromList
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+        , SchemaElement "v" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
+        ]
+      encAux alg = ColumnAux Nothing Nothing Nothing Uncompressed PageV1 (Just (ce alg))
+      encFile alg = buildParquetFileWithIndex encSchema
+                      (V.singleton (V.singleton encVals))
+                      (V.singleton (V.singleton (encAux alg)))
+  expect "encrypted file (AES-GCM-V1) is non-empty"
+    (BS.length (encFile Enc.AesGcmV1) > 0)
+  expect "encrypted file (AES-GCM-CTR-V1) is non-empty"
+    (BS.length (encFile Enc.AesGcmCtrV1) > 0)
+  expect "encrypted file differs from plaintext output"
+    (encFile Enc.AesGcmV1
+       /= buildParquetFileWithIndex encSchema
+            (V.singleton (V.singleton encVals))
+            (V.singleton (V.singleton emptyColumnAux)))
+
+  -- Round-trip the page through encryptPageBytes / decryptGcmModule
+  -- directly so we know our AAD framing matches what the reader needs.
+  let (rawHdr, rawBody) = encodeColumnDataPageParts encVals
+  case encryptPageBytes (ce Enc.AesGcmV1) Enc.ModuleDataPage 0 0 rawHdr rawBody of
+    Left e -> failTest ("encryptPageBytes: " ++ e)
+    Right encBytes -> do
+      let aadHdr = Enc.buildAad BS.empty
+                     (Enc.buildAadSuffix (BSC.pack "fileid01")
+                        Enc.ModuleDataPageHeader 0 0 0)
+          aadBody = Enc.buildAad BS.empty
+                     (Enc.buildAadSuffix (BSC.pack "fileid01")
+                        Enc.ModuleDataPage 0 0 0)
+          -- nonce(12) || ct || tag(16); the encrypted-header module
+          -- has |hdr| + 28 bytes, the rest is the encrypted body.
+          encHdrLen = BS.length rawHdr + 28
+          (encHdr, encBody) = BS.splitAt encHdrLen encBytes
+      case Enc.decryptGcmModule encKey aadHdr encHdr of
+        Right plain -> expect "encrypted page header round-trips"
+                              (plain == rawHdr)
+        Left e -> failTest ("decrypt page header: " ++ e)
+      case Enc.decryptGcmModule encKey aadBody encBody of
+        Right plain -> expect "encrypted page body round-trips"
+                              (plain == rawBody)
+        Left e -> failTest ("decrypt page body: " ++ e)
+      -- Tampering with one byte of the body must invalidate the GCM tag.
+      let tampered = BS.snoc (BS.init encBytes) 0xff
+          (tHdr, _tBody) = BS.splitAt encHdrLen tampered
+      case Enc.decryptGcmModule encKey aadHdr tHdr of
+        Right _ -> case Enc.decryptGcmModule encKey aadBody (BS.drop encHdrLen tampered) of
+          Right _ -> failTest "tampered ciphertext decrypted (BAD)"
+          Left  _ -> expect "tampered body fails GCM auth" True
+        Left  _ -> expect "tampered header fails GCM auth" True
 
   -- Optional column page: definition levels + present-only PLAIN values.
   let optCol = OptInt32 (V.fromList [Just 1, Nothing, Just 3, Nothing, Just 5])

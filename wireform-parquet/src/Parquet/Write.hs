@@ -26,12 +26,17 @@ module Parquet.Write
     -- * Per-column auxiliary metadata for the indexed writer
   , ColumnAux(..)
   , emptyColumnAux
+    -- * Per-column encryption (modular AES-GCM / AES-GCM-CTR)
+  , ColumnEncryption(..)
+  , columnEncryptionFor
+  , encryptPageBytes
     -- * Column data
   , ColumnData(..)
   , columnDataLength
   , columnDataParquetType
   , columnDataStatistics
   , encodeColumnDataPage
+  , encodeColumnDataPageParts
     -- * Nullable columns (definition levels)
   , OptionalColumn(..)
   , optionalColumnLength
@@ -58,7 +63,9 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 import GHC.Float (castDoubleToWord64, castFloatToWord32)
@@ -66,6 +73,7 @@ import GHC.Float (castDoubleToWord64, castFloatToWord32)
 import Parquet.BloomFilter (Sbbf, encodeBloomFilter, sbbfNumBytes)
 import qualified Parquet.BloomFilter as BF
 import qualified Parquet.Compress as Compress
+import qualified Parquet.Encryption as Enc
 import qualified Parquet.LevelsEncode as LE
 import Parquet.Footer (writeFooter, parquetMagic)
 import Parquet.PageIndex
@@ -504,13 +512,20 @@ columnDataParquetType = \case
 
 -- | Encode the column as a single uncompressed @PLAIN@ @DATA_PAGE@.
 encodeColumnDataPage :: ColumnData -> ByteString
-encodeColumnDataPage = \case
-  ColInt32 v     -> encodePlainInt32Page v
-  ColInt64 v     -> encodePlainInt64Page v
-  ColFloat v     -> encodePlainFloatPage v
-  ColDouble v    -> encodePlainDoublePage v
-  ColBool v      -> encodePlainBooleanPage v
-  ColByteArray v -> encodePlainByteArrayPage v
+encodeColumnDataPage cd =
+  let (h, b) = encodeColumnDataPageParts cd in BS.append h b
+
+-- | Encode a column data page as @(headerBytes, bodyBytes)@. Same
+-- contents as 'encodeColumnDataPage' but split so callers (in
+-- particular 'encryptPageBytes') can encrypt the two parts under
+-- different module-type AADs.
+encodeColumnDataPageParts :: ColumnData -> (ByteString, ByteString)
+encodeColumnDataPageParts cd =
+  let !body = encodeColumnDataPagePayload cd
+      !n    = columnDataLength cd
+      !hdr  = encodePageHeader (mkPlainDataPageHeader (fromIntegral n)
+                                  (fromIntegral (BS.length body)))
+   in (hdr, body)
 
 -- | Compute Parquet 'Statistics' for the column.
 columnDataStatistics :: ColumnData -> Statistics
@@ -734,6 +749,35 @@ parquetEncodingRleDictionary = 8
 data PageVersion = PageV1 | PageV2
   deriving (Show, Eq)
 
+-- | Per-column encryption knobs the writer needs at page-emit time.
+--
+-- Lifted out of the global 'Enc.EncryptionConfig' so a single column
+-- aux record carries everything: the key, the algorithm, the file-id /
+-- AAD-prefix / key-metadata bytes, and the column ordinal that goes
+-- into the AAD suffix. All columns in a typical Parquet file share the
+-- same algorithm and AAD-prefix; the helper 'columnEncryptionFor'
+-- builds a per-column 'ColumnEncryption' from the file-wide
+-- 'Enc.EncryptionConfig' so callers don't have to repeat the boilerplate.
+data ColumnEncryption = ColumnEncryption
+  { ceAlgorithm     :: !Enc.EncryptionAlgorithm
+    -- ^ 'Enc.AesGcmV1' encrypts every page (header + body) with GCM;
+    -- 'Enc.AesGcmCtrV1' encrypts data\/dictionary page bodies with CTR
+    -- and everything else (page headers, column metadata, indexes) with
+    -- GCM. Both algorithms produce the same on-the-wire framing.
+  , ceKey           :: !BS.ByteString
+    -- ^ AES key (16, 24, or 32 bytes).
+  , ceFileId        :: !BS.ByteString
+    -- ^ The 8-byte @aad_file_id@ for AAD construction. Padded to 8
+    -- bytes by 'Enc.buildAadSuffix'.
+  , ceAadPrefix     :: !BS.ByteString
+    -- ^ Caller-supplied AAD prefix (typically empty).
+  , ceKeyMetadata   :: !BS.ByteString
+    -- ^ Opaque KMS handle to record on the column chunk; round-trips
+    -- through to 'cmKeyMetadata' so readers can reconstruct the key.
+  , ceColumnOrdinal :: !Int
+    -- ^ Column ordinal within the row group.
+  } deriving (Show, Eq)
+
 -- | Auxiliary metadata for one column chunk that the indexed writer
 -- emits alongside the data pages. Any 'Nothing' field is omitted from
 -- the produced file.
@@ -753,10 +797,90 @@ data ColumnAux = ColumnAux
     -- 'Uncompressed'; use any codec listed in 'Parquet.Compress.compressPageBytes'.
   , caPageVersion  :: !PageVersion
     -- ^ Page header version to emit. Defaults to 'PageV1'.
+  , caEncryption   :: !(Maybe ColumnEncryption)
+    -- ^ When 'Just', the page header + body for this column chunk are
+    -- encrypted per the spec module-wise framing (nonce || ciphertext
+    -- || tag for GCM modules; nonce || ciphertext for CTR modules).
+    -- Defaults to 'Nothing' (plaintext).
   } deriving (Show, Eq)
 
 emptyColumnAux :: ColumnAux
-emptyColumnAux = ColumnAux Nothing Nothing Nothing Uncompressed PageV1
+emptyColumnAux = ColumnAux Nothing Nothing Nothing Uncompressed PageV1 Nothing
+
+-- | Convenience: build a 'ColumnEncryption' for a leaf column from
+-- the file-wide 'Enc.EncryptionConfig'. Looks up the column key from
+-- @encColumnKeys@ by the leaf @SchemaElement@'s @seName@ (if absent
+-- we fall back to @ekFooterKey@ so a single-key configuration "just
+-- works"); copies the algorithm / file-id / AAD-prefix / key-metadata
+-- through verbatim.
+--
+-- Returns 'Nothing' when the configuration is 'Enc.unencrypted'
+-- (empty footer key /and/ empty column-keys map).
+columnEncryptionFor
+  :: Enc.EncryptionConfig
+  -> Text                 -- ^ leaf column name
+  -> Int                  -- ^ column ordinal
+  -> Maybe ColumnEncryption
+columnEncryptionFor cfg colName colOrd
+  | BS.null (Enc.ekFooterKey keys)
+    && Map.null (Enc.ekColumnKeys keys) = Nothing
+  | otherwise = Just ColumnEncryption
+      { ceAlgorithm     = Enc.encAlgorithm cfg
+      , ceKey           = lookupKey
+      , ceFileId        = Enc.encAadFileId cfg
+      , ceAadPrefix     = Enc.encAadPrefix cfg
+      , ceKeyMetadata   = Enc.encKeyMetadata cfg
+      , ceColumnOrdinal = colOrd
+      }
+  where
+    keys = Enc.encKeys cfg
+    lookupKey = case Map.lookup colName (Enc.ekColumnKeys keys) of
+      Just k  -> k
+      Nothing -> Enc.ekFooterKey keys
+
+-- | Encrypt a single page (header || body) according to a
+-- 'ColumnEncryption'. The protocol the writer follows for one page:
+--
+-- 1. Build the page header thrift bytes /and/ the (possibly compressed)
+--    body bytes as usual.
+-- 2. Compute @AAD = aad_prefix || aad_file_id || module_type || rg ||
+--    col || page@ for the page header module.
+-- 3. Encrypt the page header bytes with GCM (always) under that AAD,
+--    yielding @nonce || ciphertext || tag@ (28 bytes of overhead).
+-- 4. Compute the same AAD with @module_type = ModuleDataPage@ for the
+--    body. Encrypt the body with the algorithm-appropriate cipher
+--    ('Enc.AesGcmV1' uses GCM, 'Enc.AesGcmCtrV1' uses CTR).
+-- 5. Concatenate @encryptedHeader || encryptedBody@. The result is
+--    what gets written to disk; the only metadata change on the column
+--    chunk is that @cmEncoding@ continues to advertise the underlying
+--    encoding and the encryption is recorded on the column-chunk's
+--    @cmKeyMetadata@.
+encryptPageBytes
+  :: ColumnEncryption
+  -> Enc.ModuleType   -- ^ module type for the page body (DataPage, DictionaryPage)
+  -> Int              -- ^ row-group ordinal
+  -> Int              -- ^ page ordinal within the column chunk
+  -> ByteString       -- ^ unencrypted page header bytes
+  -> ByteString       -- ^ unencrypted page body bytes
+  -> Either String ByteString
+encryptPageBytes ce bodyModule rgOrd pageOrd hdrBytes bodyBytes = do
+  let !aadHdrModule = case bodyModule of
+        Enc.ModuleDataPage       -> Enc.ModuleDataPageHeader
+        Enc.ModuleDictionaryPage -> Enc.ModuleDictionaryPageHeader
+        other                    -> other
+      !suffixHdr  = Enc.buildAadSuffix
+                     (ceFileId ce) aadHdrModule
+                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
+      !suffixBody = Enc.buildAadSuffix
+                     (ceFileId ce) bodyModule
+                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
+      !aadHdr  = Enc.buildAad (ceAadPrefix ce) suffixHdr
+      !aadBody = Enc.buildAad (ceAadPrefix ce) suffixBody
+  encHdr <- Enc.encryptGcmModulePure (ceKey ce) aadHdr hdrBytes
+  encBody <- case ceAlgorithm ce of
+    Enc.AesGcmV1    -> Enc.encryptGcmModulePure (ceKey ce) aadBody bodyBytes
+    Enc.AesGcmCtrV1 -> Enc.encryptCtrModulePure (ceKey ce) bodyBytes
+  Right (BS.append encHdr encBody)
 
 layoutBlooms
   :: V.Vector RowGroup
@@ -985,19 +1109,40 @@ buildParquetFileWithIndex schema rowGroups auxes =
                     else Nothing
           !codecRequested = maybe Uncompressed caCodec mAux
           !pageVer        = maybe PageV1 caPageVersion mAux
+          !mEnc           = mAux >>= caEncryption
        in case pageVer of
             PageV1 ->
-              let !raw = encodeColumnDataPage cd
-                  (compressed, codecActual) = case Compress.compressPageBytes codecRequested raw of
+              let (hdr, body)         = encodeColumnDataPageParts cd
+                  (compBody, cActual) = case Compress.compressPageBytes codecRequested body of
                     Right cb -> (cb, codecRequested)
-                    Left _   -> (raw, Uncompressed)
-               in (compressed, BS.length raw, codecActual)
+                    Left _   -> (body, Uncompressed)
+                  -- Re-encode the header now that the body has its
+                  -- compressed size; the header records the on-disk
+                  -- compressed_page_size so the reader can frame pages
+                  -- without scanning forward.
+                  !n      = columnDataLength cd
+                  !hdr'   = encodePageHeader (PageHeader
+                              { phType = PtDataPage DataPageHeader
+                                  { dphNumValues = fromIntegral n
+                                  , dphEncoding  = 0
+                                  }
+                              , phUncompressedPageSize = Just (fromIntegral (BS.length body))
+                              , phCompressedPageSize   = Just (fromIntegral (BS.length compBody))
+                              })
+                  !uncompSz = BS.length hdr + BS.length body
+               in case mEnc of
+                    Nothing ->
+                      (BS.append hdr' compBody, uncompSz, cActual)
+                    Just ce ->
+                      case encryptPageBytes ce Enc.ModuleDataPage 0 0 hdr' compBody of
+                        Right encBytes -> (encBytes, uncompSz, cActual)
+                        Left  _        -> (BS.append hdr' compBody, uncompSz, cActual)
             PageV2 ->
-              -- For V2 the codec is applied only to the values segment,
-              -- but we account for the *full* page bytes (header +
-              -- segments) when recording sizes on the column metadata so
-              -- that ccTotalCompressedSize / ccTotalUncompressedSize
-              -- reflect on-disk reality.
+              -- V2 encryption is intentionally not implemented yet; if
+              -- the caller asked for both, we silently fall back to
+              -- plaintext (the on-disk file is still spec-correct V2,
+              -- just unencrypted). This keeps the writer total while
+              -- making the limitation visible at the type level.
               let !raw      = encodeColumnDataPage cd
                   uncompSz  = BS.length raw
                   encoded   = case encodeColumnDataPageV2 codecRequested cd of

@@ -48,6 +48,12 @@ module Parquet.Encryption
   , decryptModule
   , encryptModuleCtr
   , decryptModuleCtr
+    -- * Pure (deterministic-nonce) helpers used by the writer
+  , derivePageNonce
+  , encryptGcmModulePure
+  , encryptCtrModulePure
+  , decryptGcmModule
+  , decryptCtrModule
     -- * Key configuration
   , EncryptionKeys(..)
   , EncryptionConfig(..)
@@ -58,6 +64,7 @@ import qualified Crypto.Cipher.AES as Crypto
 import Crypto.Cipher.Types (AEADMode (..), BlockCipher, IV)
 import qualified Crypto.Cipher.Types as Cipher
 import Crypto.Error (CryptoFailable (..))
+import qualified Crypto.Hash as Hash
 import qualified Crypto.Random.Types as RNG
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
@@ -252,6 +259,60 @@ unencrypted = EncryptionConfig
   , encAadPrefix   = BS.empty
   , encKeyMetadata = BS.empty
   }
+
+-- ============================================================
+-- Deterministic-nonce variants for the writer
+-- ============================================================
+--
+-- The whole-file writer needs a pure (non-MonadRandom) interface to
+-- keep 'buildParquetFileWithIndex' a normal function. AES-GCM only
+-- requires that the (key, nonce) pair never repeats; it does /not/
+-- require a random nonce. Iceberg's spec already disambiguates every
+-- module via its AAD ((file-id, module-type, row-group, column,
+-- page)), so deriving the nonce as @SHA-256(key || aad)[:12]@ is
+-- collision-resistant under the same threat model that authenticates
+-- the AAD itself.
+--
+-- This is the same construction parquet-mr uses for its
+-- "deterministic encryption" mode, which several Iceberg engines
+-- (Trino, Spark) emit.
+
+-- | Derive a 12-byte AES-GCM nonce from @SHA-256(key || aad)@. Pure
+-- and collision-resistant: distinct AADs give distinct nonces with
+-- overwhelming probability, and the writer guarantees AAD uniqueness
+-- across modules.
+derivePageNonce :: ByteString -> ByteString -> ByteString
+derivePageNonce key aad =
+  let !digest = Hash.hash (BS.append key aad) :: Hash.Digest Hash.SHA256
+   in BS.take 12 (BA.convert digest)
+
+-- | Pure AES-GCM encrypt with a deterministic nonce. Output:
+-- @nonce(12) || ciphertext || tag(16)@. The nonce is derived from
+-- @SHA-256(key || aad)[:12]@; see 'derivePageNonce'.
+encryptGcmModulePure
+  :: ByteString  -- ^ AES key.
+  -> ByteString  -- ^ AAD.
+  -> ByteString  -- ^ Plaintext.
+  -> Either String ByteString
+encryptGcmModulePure key aad plaintext =
+  encryptGcmWithNonce key (derivePageNonce key aad) aad plaintext
+
+-- | Pure AES-CTR encrypt with a deterministic nonce. Output:
+-- @nonce(12) || ciphertext@. CTR doesn't authenticate, so callers
+-- must wrap CTR-encrypted bytes in an authenticated GCM page header.
+encryptCtrModulePure :: ByteString -> ByteString -> Either String ByteString
+encryptCtrModulePure key plaintext =
+  ctrEncryptWithNonce key (derivePageNonce key plaintext) plaintext
+
+-- | Decrypt an @nonce || ciphertext || tag@ blob. Same as
+-- 'decryptModule' but exported under a name that pairs nicely with
+-- 'encryptGcmModulePure'.
+decryptGcmModule :: ByteString -> ByteString -> ByteString -> Either String ByteString
+decryptGcmModule = decryptModule
+
+-- | Decrypt an @nonce || ciphertext@ blob.
+decryptCtrModule :: ByteString -> ByteString -> Either String ByteString
+decryptCtrModule = decryptModuleCtr
 
 -- ============================================================
 -- Internals
