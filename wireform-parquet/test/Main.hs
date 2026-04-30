@@ -160,8 +160,8 @@ main = do
 
   -- Writer attaches statistics that round-trip through readFooter.
   let schema = V.fromList
-        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-        , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+        , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
         ]
       vs   = VP.fromList [(3 :: Int32), -1, 7, 0, 4]
       fbs  = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vs)))
@@ -184,8 +184,8 @@ main = do
   -- buildParquetFileWithIndex: bloom filter + page index + column index
   -- offsets are populated on the round-tripped column metadata.
   let schemaIdx = V.fromList
-        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-        , SchemaElement "y" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+        , SchemaElement "y" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
         ]
       vsIdx = ColInt32 (VP.fromList [(1 :: Int32), 2, 3, 4])
       bf    = sbbfInsertHash 0xdeadbeef (newSbbf (optimalNumBytes 1024 0.01))
@@ -232,13 +232,13 @@ main = do
   -- column of each primitive type and confirm each round-trips through
   -- the footer.
   let schemaTyped = V.fromList
-        [ SchemaElement "schema" Nothing Nothing (Just 6) Nothing Nothing
-        , SchemaElement "i32"  (Just Required) (Just PTInt32)     Nothing Nothing Nothing
-        , SchemaElement "i64"  (Just Required) (Just PTInt64)     Nothing Nothing Nothing
-        , SchemaElement "f32"  (Just Required) (Just PTFloat)     Nothing Nothing Nothing
-        , SchemaElement "f64"  (Just Required) (Just PTDouble)    Nothing Nothing Nothing
-        , SchemaElement "bool" (Just Required) (Just PTBoolean)   Nothing Nothing Nothing
-        , SchemaElement "ba"   (Just Required) (Just PTByteArray) Nothing Nothing Nothing
+        [ SchemaElement "schema" Nothing Nothing (Just 6) Nothing Nothing Nothing
+        , SchemaElement "i32"  (Just Required) (Just PTInt32)     Nothing Nothing Nothing Nothing
+        , SchemaElement "i64"  (Just Required) (Just PTInt64)     Nothing Nothing Nothing Nothing
+        , SchemaElement "f32"  (Just Required) (Just PTFloat)     Nothing Nothing Nothing Nothing
+        , SchemaElement "f64"  (Just Required) (Just PTDouble)    Nothing Nothing Nothing Nothing
+        , SchemaElement "bool" (Just Required) (Just PTBoolean)   Nothing Nothing Nothing Nothing
+        , SchemaElement "ba"   (Just Required) (Just PTByteArray) Nothing Nothing Nothing Nothing
         ]
       cols  = V.fromList
         [ ColInt32     (VP.fromList [(1 :: Int32), 2, 3])
@@ -316,8 +316,8 @@ main = do
   -- decode through the V1 PLAIN reader (the value bytes are PLAIN; only the
   -- header / level layout differ).
   let v2Schema = V.fromList
-        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-        , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+        , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
         ]
       v2Vals = ColInt32 (VP.fromList [(11 :: Int32), 22, 33, 44])
       v2Aux  = ColumnAux Nothing Nothing Nothing Uncompressed PageV2

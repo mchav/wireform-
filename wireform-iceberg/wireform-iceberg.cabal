@@ -36,6 +36,7 @@ library
   exposed-modules:
     Iceberg.BoundTrunc
     Iceberg.Catalog.REST
+    Iceberg.Delete
     Iceberg.DeletionVector
     Iceberg.Expression
     Iceberg.JSON
@@ -106,6 +107,7 @@ test-suite iceberg-test
     Test.Iceberg.RESTCatalog
     Test.Iceberg.RESTClient
     Test.Iceberg.ScanPlan
+    Test.Iceberg.Delete
     Test.Iceberg.Hash
     Test.Iceberg.SchemaCompat
     Test.Iceberg.SequenceInheritance

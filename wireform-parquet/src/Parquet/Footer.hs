@@ -87,12 +87,14 @@ fileMetadataToThrift fm = TV.Struct $ V.fromList $
 
 -- | Encode a SchemaElement matching parquet.thrift exactly:
 --
---   1: optional Type            type
---   2: optional i32             type_length
---   3: optional FieldRepetitionType repetition_type
---   4: required string          name
---   5: optional i32             num_children
---   6: optional ConvertedType   converted_type
+--   1: optional Type                    type
+--   2: optional i32                     type_length
+--   3: optional FieldRepetitionType     repetition_type
+--   4: required string                  name
+--   5: optional i32                     num_children
+--   6: optional ConvertedType           converted_type
+--   7: optional i32                     scale
+--   8: optional i32                     field_id
 schemaElementToThrift :: SchemaElement -> TV.Value
 schemaElementToThrift se = TV.Struct $ V.fromList $
   maybe [] (\t -> [(1, TV.I32 (parquetTypeToInt t))]) (seType se)
@@ -100,6 +102,7 @@ schemaElementToThrift se = TV.Struct $ V.fromList $
   ++ [(4, TV.String (seName se))]
   ++ maybe [] (\n -> [(5, TV.I32 n)]) (seNumChildren se)
   ++ maybe [] (\c -> [(6, TV.I32 (fromIntegral (fromEnum c)))]) (seConvertedType se)
+  ++ maybe [] (\fid -> [(8, TV.I32 fid)]) (seFieldId se)
 
 rowGroupToThrift :: RowGroup -> TV.Value
 rowGroupToThrift rg = TV.Struct $ V.fromList
@@ -241,6 +244,9 @@ thriftToSchemaElement (TV.Struct fields) = do
       conv = case lookupField fm 6 of
                Just (TV.I32 c) | c >= 0, c <= 21 -> Just (toEnum (fromIntegral c))
                _ -> Nothing
+      fid = case lookupField fm 8 of
+              Just (TV.I32 v) -> Just v
+              _ -> Nothing
   Right SchemaElement
     { seName = name
     , seRepetition = rep
@@ -248,6 +254,7 @@ thriftToSchemaElement (TV.Struct fields) = do
     , seNumChildren = numCh
     , seConvertedType = conv
     , seLogicalType = Nothing
+    , seFieldId = fid
     }
 thriftToSchemaElement _ = Left "Parquet.Footer: expected struct for SchemaElement"
 

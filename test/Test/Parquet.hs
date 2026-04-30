@@ -121,13 +121,13 @@ levelsAndSchemaTests = testGroup "Levels + schema max levels"
   [ testCase "maxLevels optional and required leaves" $ do
       let schOpt =
             V.fromList
-              [ SchemaElement (T.pack "schema") Nothing Nothing (Just 1) Nothing Nothing
-              , SchemaElement (T.pack "x") (Just Optional) (Just PTInt32) Nothing Nothing Nothing
+              [ SchemaElement (T.pack "schema") Nothing Nothing (Just 1) Nothing Nothing Nothing
+              , SchemaElement (T.pack "x") (Just Optional) (Just PTInt32) Nothing Nothing Nothing Nothing
               ]
           schReq =
             V.fromList
-              [ SchemaElement (T.pack "schema") Nothing Nothing (Just 1) Nothing Nothing
-              , SchemaElement (T.pack "y") (Just Required) (Just PTInt32) Nothing Nothing Nothing
+              [ SchemaElement (T.pack "schema") Nothing Nothing (Just 1) Nothing Nothing Nothing
+              , SchemaElement (T.pack "y") (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
               ]
       maxLevelsForColumnPath schOpt (V.singleton (T.pack "x")) @?= Right (0, 1)
       maxLevelsForColumnPath schReq (V.singleton (T.pack "y")) @?= Right (0, 0)
@@ -177,8 +177,8 @@ footerRoundtrips = testGroup "Footer roundtrips"
       let fm = FileMetadata
             { fmVersion = 2
             , fmSchema = V.fromList
-                [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-                , SchemaElement "value" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+                [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+                , SchemaElement "value" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
                 ]
             , fmNumRows = 100
             , fmRowGroups = V.empty
@@ -192,8 +192,8 @@ footerRoundtrips = testGroup "Footer roundtrips"
           rg = RowGroup (V.singleton cc) 4000 1000
           fm = FileMetadata 2
                  (V.fromList
-                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-                   , SchemaElement "value" (Just Optional) (Just PTInt64) Nothing Nothing Nothing
+                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+                   , SchemaElement "value" (Just Optional) (Just PTInt64) Nothing Nothing Nothing Nothing
                    ])
                  1000 (V.singleton rg) Nothing
       readFooter (writeFooter fm) @?= Right fm
@@ -205,7 +205,7 @@ footerRoundtrips = testGroup "Footer roundtrips"
       readFooter (writeFooter fm) @?= Right fm
   , testCase "All parquet types" $ do
       let types = [PTBoolean, PTInt32, PTInt64, PTInt96, PTFloat, PTDouble, PTByteArray, PTFixedLenByteArray]
-          mkSchema t = SchemaElement (T.pack (show t)) (Just Required) (Just t) Nothing Nothing Nothing
+          mkSchema t = SchemaElement (T.pack (show t)) (Just Required) (Just t) Nothing Nothing Nothing Nothing
           fm = FileMetadata 2 (V.fromList (map mkSchema types)) 0 V.empty Nothing
       readFooter (writeFooter fm) @?= Right fm
   ]
@@ -406,8 +406,8 @@ writerRoundtripTests :: TestTree
 writerRoundtripTests = testGroup "Writer round-trips"
   [ testCase "buildParquetFile -> loadParquetFile -> readPlainInt32ColumnChunk" $ do
       let schema = V.fromList
-            [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-            , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+            [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+            , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
             ]
           vals = VP.fromList [1, 2, 3, 4, 5 :: Int32]
           fileBytes = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
@@ -419,9 +419,9 @@ writerRoundtripTests = testGroup "Writer round-trips"
             readPlainInt32ColumnChunk Uncompressed chunkData @?= Right vals
   , testCase "multiple columns round-trip" $ do
       let schema = V.fromList
-            [ SchemaElement "schema" Nothing Nothing (Just 2) Nothing Nothing
-            , SchemaElement "a" (Just Required) (Just PTInt32) Nothing Nothing Nothing
-            , SchemaElement "b" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+            [ SchemaElement "schema" Nothing Nothing (Just 2) Nothing Nothing Nothing
+            , SchemaElement "a" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
+            , SchemaElement "b" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
             ]
           colA = VP.fromList [10, 20, 30 :: Int32]
           colB = VP.fromList [100, 200, 300 :: Int32]
@@ -436,8 +436,8 @@ writerRoundtripTests = testGroup "Writer round-trips"
           readPlainInt32ColumnChunk Uncompressed rB @?= Right colB
   , testCase "empty column round-trip" $ do
       let schema = V.fromList
-            [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-            , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+            [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+            , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
             ]
           vals = VP.empty :: VP.Vector Int32
           fileBytes = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
@@ -546,8 +546,8 @@ pageIndexTests = testGroup "Page index (OffsetIndex / ColumnIndex)"
           rg = RowGroup (V.singleton cc) 1000 100
           fm = FileMetadata 2
                  (V.fromList
-                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-                   , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+                   , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
                    ])
                  100 (V.singleton rg) Nothing
       readFooter (writeFooter fm) @?= Right fm

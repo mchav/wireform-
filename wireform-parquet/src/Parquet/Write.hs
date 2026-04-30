@@ -13,8 +13,8 @@
 -- import Parquet.Types
 --
 -- let schema = V.fromList
---       [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
---       , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+--       [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+--       , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
 --       ]
 --     vals = VP.fromList [1, 2, 3 :: Int32]
 --     bs = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
