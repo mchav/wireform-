@@ -15,13 +15,19 @@ module Iceberg.Parquet
   ( -- * Writer side
     fromParquetMetadata
   , dataFileFromParquet
+  , withEncryptionKeyMetadata
     -- * Reader side
   , pagesOverlappingDeletes
   , filterDeletedPages
+    -- * Encryption
+  , encryptionConfigFromTable
     -- * Helpers
   , columnPathFieldIdLookup
   ) where
 
+import qualified Parquet.Encryption as Enc
+
+import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.Foldable (foldl')
 import Data.Int (Int64)
@@ -29,6 +35,7 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 
@@ -38,6 +45,46 @@ import qualified Iceberg.MetricsConfig as MC
 import Iceberg.Types
 
 import qualified Parquet.Types as P
+
+-- ============================================================
+-- Encryption wiring
+-- ============================================================
+
+-- | Build a Parquet 'Enc.EncryptionConfig' from an Iceberg
+-- 'TableMetadata' encryption-keys map plus an explicit footer key. The
+-- caller supplies the actual key bytes (Iceberg only stores the @key-id@
+-- references in 'tmEncryptionKeys'); this helper assembles the
+-- 'Enc.EncryptionKeys' record and copies the @key-id@ string into the
+-- @encKeyMetadata@ field that ends up on every encrypted column.
+encryptionConfigFromTable
+  :: TableMetadata
+  -> Text                       -- ^ key-id reference name (must exist in tmEncryptionKeys).
+  -> ByteString                 -- ^ Resolved footer key bytes (16/24/32).
+  -> Map Text ByteString        -- ^ Resolved per-column keys, by Iceberg field name.
+  -> ByteString                 -- ^ aad_file_id (8 bytes).
+  -> Enc.EncryptionConfig
+encryptionConfigFromTable tm keyId footerKey colKeys fileId =
+  let keyMd = case Map.lookup keyId (tmEncryptionKeys tm) of
+        Just txt -> TE.encodeUtf8 txt
+        Nothing  -> TE.encodeUtf8 keyId
+   in Enc.EncryptionConfig
+        { Enc.encAlgorithm   = Enc.AesGcmV1
+        , Enc.encKeys        = Enc.EncryptionKeys footerKey colKeys
+        , Enc.encAadFileId   = fileId
+        , Enc.encAadPrefix   = mempty
+        , Enc.encKeyMetadata = keyMd
+        }
+
+-- | Stamp an Iceberg 'DataFile' with the @key_metadata@ from a Parquet
+-- 'Enc.EncryptionConfig' (so the manifest entry records which key id was
+-- used to encrypt the data file).
+withEncryptionKeyMetadata :: Enc.EncryptionConfig -> DataFile -> DataFile
+withEncryptionKeyMetadata cfg df = df
+  { dataFileKeyMetadata =
+      if BS.null (Enc.encKeyMetadata cfg)
+        then dataFileKeyMetadata df
+        else Just (Enc.encKeyMetadata cfg)
+  }
 
 -- ============================================================
 -- Writer side

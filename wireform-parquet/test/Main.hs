@@ -11,7 +11,10 @@ import System.Exit (exitFailure)
 import qualified Data.Vector.Primitive as VP
 import Data.Int (Int32, Int64)
 
+import qualified Crypto.Random as RNG
+
 import Parquet.BloomFilter
+import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
 import Parquet.Read (loadParquetFile, pfFooter)
 import Parquet.Types
@@ -186,6 +189,33 @@ main = do
         (ccColumnIndexOffset cc /= Nothing)
       expect "indexed-writer: column index length populated"
         (ccColumnIndexLength cc /= Nothing)
+
+  -- Modular encryption: round-trip plaintext through encrypt/decrypt for
+  -- both AES-GCM and AES-CTR, and verify GCM rejects a tampered tag.
+  let key128 = BS.replicate 16 0x42
+      aad    = Enc.buildAad "" (Enc.buildAadSuffix "fileid01" Enc.ModuleColumnMetaData 0 0 0)
+      plain  = BSC.pack "Hello, Iceberg + Parquet!"
+  drg0 <- RNG.drgNew
+  let (eGcm, _) = RNG.withDRG drg0 (Enc.encryptModule key128 aad plain)
+  case eGcm of
+    Left e -> failTest ("GCM encrypt: " ++ e)
+    Right ct -> do
+      expect "GCM round-trip"
+        (Enc.decryptModule key128 aad ct == Right plain)
+      expect "GCM rejects tampered ciphertext"
+        (case Enc.decryptModule key128 aad (BS.snoc (BS.init ct) 0xff) of
+            Right _ -> False
+            Left _  -> True)
+  drg1 <- RNG.drgNew
+  let (eCtr, _) = RNG.withDRG drg1 (Enc.encryptModuleCtr key128 plain)
+  case eCtr of
+    Left e -> failTest ("CTR encrypt: " ++ e)
+    Right ct ->
+      expect "CTR round-trip"
+        (Enc.decryptModuleCtr key128 ct == Right plain)
+  -- AAD suffix wire format: 8 file-id bytes + 1 module byte + 3*2 ordinals
+  expect "AAD suffix length"
+    (BS.length (Enc.buildAadSuffix "x" Enc.ModuleFooter 0 0 0) == 15)
 
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 

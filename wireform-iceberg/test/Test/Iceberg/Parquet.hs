@@ -13,6 +13,7 @@ import qualified Iceberg.DeletionVector as DV
 import qualified Iceberg.Parquet as IP
 import Iceberg.Types
 
+import qualified Parquet.Encryption as Enc
 import qualified Parquet.Types as P
 
 -- A two-column schema: id (long) and name (string).
@@ -167,4 +168,28 @@ tests = testGroup "Iceberg.Parquet bridge"
       let dv = DV.addPositions [fromIntegral i | i <- [50 .. 74 :: Int]] DV.emptyDV
           surviving = IP.filterDeletedPages dv mkOffsetIndex 100
       V.toList surviving @?= [0, 2]
+
+  , testCase "encryptionConfigFromTable copies keyId into encKeyMetadata" $ do
+      let baseTable = TableMetadata
+            { tmFormatVersion = 3, tmTableUuid = "u", tmLocation = "s3://b"
+            , tmLastSequenceNumber = 0, tmLastUpdatedMs = 0, tmLastColumnId = 0
+            , tmCurrentSchemaId = 0, tmSchemas = V.singleton schema
+            , tmCurrentSnapshotId = Nothing, tmSnapshots = V.empty
+            , tmPartitionSpecs = V.singleton (PartitionSpec 0 V.empty)
+            , tmDefaultSpecId = 0, tmLastPartitionId = 0
+            , tmSortOrders = V.singleton (SortOrder 0 V.empty)
+            , tmDefaultSortOrderId = 0, tmProperties = Map.empty
+            , tmSnapshotLog = V.empty, tmMetadataLog = V.empty
+            , tmSnapshotRefs = Map.empty, tmStatistics = V.empty
+            , tmPartitionStatistics = V.empty, tmNextRowId = Nothing
+            , tmEncryptionKeys = Map.singleton "kek-1" "arn:aws:kms:::alias/iceberg"
+            }
+          cfg = IP.encryptionConfigFromTable baseTable "kek-1"
+                  (BS.replicate 16 0x01) Map.empty (BS.replicate 8 0x02)
+      Enc.encKeyMetadata cfg @?= "arn:aws:kms:::alias/iceberg"
+      let df = (DataFile DataContent "s3://b/data.parquet" ParquetFormat V.empty 0 0
+                 Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+                 Nothing V.empty V.empty Nothing Nothing Nothing Nothing Nothing)
+          stamped = IP.withEncryptionKeyMetadata cfg df
+      dataFileKeyMetadata stamped @?= Just "arn:aws:kms:::alias/iceberg"
   ]
