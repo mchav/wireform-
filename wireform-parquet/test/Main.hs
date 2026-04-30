@@ -22,8 +22,15 @@ import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
 import Parquet.Read (loadParquetFile, pfFooter)
 import Parquet.Types
+import Parquet.Page
+  ( DataPageHeaderV2 (..)
+  , PageHeader (..)
+  , PageType (..)
+  , readPageHeaderAt
+  )
 import Parquet.Write
   ( ColumnAux (..)
+  , PageVersion (..)
   , ColumnData (..)
   , Dictionary (..)
   , OptionalColumn (..)
@@ -31,14 +38,13 @@ import Parquet.Write
   , buildParquetFile
   , buildParquetFileWithIndex
   , columnDataLength
+  , columnDataStatistics
+  , encodeColumnDataPageV2
   , encodeDictDataPage
   , encodeDictPage
   , encodeOptionalColumnPage
   , optionalColumnLength
   , optionalColumnNullCount
-  , statisticsForByteArray
-  , statisticsForInt32
-  , statisticsForInt64
   )
 import qualified Wireform.Hash as Hash
 
@@ -114,24 +120,24 @@ main = do
       mapM_ (\v -> expect ("decoded contains " ++ v)
                      (sbbfCheck (BSC.pack v) sbbf')) values
 
-  -- Statistics
-  let s32 = statisticsForInt32 (VP.fromList [3, -1, 7, 0, 4 :: Int32])
+  -- Statistics (via columnDataStatistics, the public column-typed API).
+  let s32 = columnDataStatistics (ColInt32 (VP.fromList [3, -1, 7, 0, 4 :: Int32]))
   expect "Int32 stats min"
     (statMinValue s32 == Just (BS.pack [0xFF, 0xFF, 0xFF, 0xFF]))   -- -1 LE
   expect "Int32 stats max"
     (statMaxValue s32 == Just (BS.pack [0x07, 0x00, 0x00, 0x00]))
   expect "Int32 stats nullCount"
     (statNullCount s32 == Just 0)
-  let s64 = statisticsForInt64 (VP.fromList [10, 5, -3, 100 :: Int64])
+  let s64 = columnDataStatistics (ColInt64 (VP.fromList [10, 5, -3, 100 :: Int64]))
   expect "Int64 stats min/max present"
     (statMinValue s64 /= Nothing && statMaxValue s64 /= Nothing)
-  let sBA = statisticsForByteArray
-              (V.fromList [BSC.pack "banana", BSC.pack "apple", BSC.pack "cherry"])
+  let sBA = columnDataStatistics
+              (ColByteArray (V.fromList [BSC.pack "banana", BSC.pack "apple", BSC.pack "cherry"]))
   expect "ByteArray stats min == 'apple'"
     (statMinValue sBA == Just (BSC.pack "apple"))
   expect "ByteArray stats max == 'cherry'"
     (statMaxValue sBA == Just (BSC.pack "cherry"))
-  let sEmpty = statisticsForInt32 VP.empty
+  let sEmpty = columnDataStatistics (ColInt32 VP.empty)
   expect "empty Int32 stats has no min/max"
     (statMinValue sEmpty == Nothing && statMaxValue sEmpty == Nothing)
 
@@ -179,7 +185,7 @@ main = do
                 , ciRepetitionLevelHistograms = Nothing
                 , ciDefinitionLevelHistograms = Nothing
                 }
-      aux   = ColumnAux (Just bf) (Just oi) (Just ci) Uncompressed
+      aux   = ColumnAux (Just bf) (Just oi) (Just ci) Uncompressed PageV1
       fIdx  = buildParquetFileWithIndex schemaIdx
                 (V.singleton (V.singleton vsIdx))
                 (V.singleton (V.singleton aux))
@@ -254,12 +260,12 @@ main = do
   -- Per-column compression: GZip is always available; round-trip a column
   -- through the writer and confirm the metadata records the codec.
   let auxesGzip = V.singleton (V.fromList
-        [ ColumnAux Nothing Nothing Nothing GZip
-        , ColumnAux Nothing Nothing Nothing GZip
-        , ColumnAux Nothing Nothing Nothing Uncompressed  -- floats stay raw
-        , ColumnAux Nothing Nothing Nothing GZip
-        , ColumnAux Nothing Nothing Nothing Uncompressed
-        , ColumnAux Nothing Nothing Nothing GZip
+        [ ColumnAux Nothing Nothing Nothing GZip PageV1
+        , ColumnAux Nothing Nothing Nothing GZip PageV1
+        , ColumnAux Nothing Nothing Nothing Uncompressed PageV1  -- floats stay raw
+        , ColumnAux Nothing Nothing Nothing GZip PageV1
+        , ColumnAux Nothing Nothing Nothing Uncompressed PageV1
+        , ColumnAux Nothing Nothing Nothing GZip PageV1
         ])
       fGz = buildParquetFileWithIndex schemaTyped (V.singleton cols) auxesGzip
   case loadParquetFile fGz of
@@ -287,6 +293,37 @@ main = do
         Just (c, u) -> expect "gzip-writer: column 0 has uncompressed > 0 in metadata"
           (u > 0 && c > 0)
         Nothing -> failTest "gzip-writer: column 0 missing metadata"
+
+  -- DATA_PAGE_V2 file round-trip (uncompressed) through buildParquetFileWithIndex.
+  -- We confirm the page header type changes accordingly and the values still
+  -- decode through the V1 PLAIN reader (the value bytes are PLAIN; only the
+  -- header / level layout differ).
+  let v2Schema = V.fromList
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
+        , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+        ]
+      v2Vals = ColInt32 (VP.fromList [(11 :: Int32), 22, 33, 44])
+      v2Aux  = ColumnAux Nothing Nothing Nothing Uncompressed PageV2
+      v2File = buildParquetFileWithIndex v2Schema
+                 (V.singleton (V.singleton v2Vals))
+                 (V.singleton (V.singleton v2Aux))
+  case loadParquetFile v2File of
+    Left e -> failTest ("DATA_PAGE_V2 round-trip load: " ++ e)
+    Right pf -> do
+      let !rgsV2 = fmRowGroups (pfFooter pf)
+      expect "DATA_PAGE_V2: numRows == 4"
+        (rgNumRows (V.unsafeIndex rgsV2 0) == 4)
+  -- Direct page-level V2 encoders must produce DATA_PAGE_V2 headers.
+  case encodeColumnDataPageV2 Uncompressed v2Vals of
+    Left e   -> failTest ("encodeColumnDataPageV2: " ++ e)
+    Right bs -> case readPageHeaderAt bs 0 of
+      Left e -> failTest ("V2 page header parse: " ++ e)
+      Right (hdr, _) -> case phType hdr of
+        PtDataPageV2 v2 -> do
+          expect "V2 header reports 4 values" (dph2NumValues v2 == 4)
+          expect "V2 header reports 0 nulls"  (dph2NumNulls v2 == 0)
+          expect "V2 header reports 4 rows"   (dph2NumRows v2 == 4)
+        _ -> failTest "V2 encoder did not produce PtDataPageV2"
 
   -- Optional column page: definition levels + present-only PLAIN values.
   let optCol = OptInt32 (V.fromList [Just 1, Nothing, Just 3, Nothing, Just 5])

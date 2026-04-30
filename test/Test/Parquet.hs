@@ -283,23 +283,17 @@ dictionaryOptionalTests = testGroup "Dictionary optional columns"
             , 0x1E, 0x00, 0x00, 0x00
             ]
           dictHdr = encodePageHeader PageHeader
-            { phType = pageTypeDictionaryPage
+            { phType = PtDictionaryPage (DictionaryPageHeader 3 0)
             , phUncompressedPageSize = Just 12
             , phCompressedPageSize = Just 12
-            , phDataPage = Nothing
-            , phDictionaryPage = Just (DictionaryPageHeader 3 0)
-            , phDataPageV2 = Nothing
             }
           defLevels = BS.pack [0x02, 0x00, 0x00, 0x00, 0x03, 0x05]
           dictIndices = BS.pack [0x02, 0x03, 0x08, 0x00]
           dataBody = defLevels <> dictIndices
           dataHdr = encodePageHeader PageHeader
-            { phType = pageTypeDataPage
+            { phType = PtDataPage (DataPageHeader 3 2)
             , phUncompressedPageSize = Just (fromIntegral (BS.length dataBody))
             , phCompressedPageSize = Just (fromIntegral (BS.length dataBody))
-            , phDataPage = Just (DataPageHeader 3 2)
-            , phDictionaryPage = Nothing
-            , phDataPageV2 = Nothing
             }
           chunk = dictHdr <> dictBody <> dataHdr <> dataBody
           lookupInt32 v idx =
@@ -312,23 +306,17 @@ dictionaryOptionalTests = testGroup "Dictionary optional columns"
   , testCase "all-null optional dictionary column" $ do
       let dictBody = BS.pack [0x07, 0x00, 0x00, 0x00]
           dictHdr = encodePageHeader PageHeader
-            { phType = pageTypeDictionaryPage
+            { phType = PtDictionaryPage (DictionaryPageHeader 1 0)
             , phUncompressedPageSize = Just 4
             , phCompressedPageSize = Just 4
-            , phDataPage = Nothing
-            , phDictionaryPage = Just (DictionaryPageHeader 1 0)
-            , phDataPageV2 = Nothing
             }
           defLevels = BS.pack [0x02, 0x00, 0x00, 0x00, 0x03, 0x00]
           dictIndices = BS.pack [0x00]
           dataBody = defLevels <> dictIndices
           dataHdr = encodePageHeader PageHeader
-            { phType = pageTypeDataPage
+            { phType = PtDataPage (DataPageHeader 2 2)
             , phUncompressedPageSize = Just (fromIntegral (BS.length dataBody))
             , phCompressedPageSize = Just (fromIntegral (BS.length dataBody))
-            , phDataPage = Just (DataPageHeader 2 2)
-            , phDictionaryPage = Nothing
-            , phDataPageV2 = Nothing
             }
           chunk = dictHdr <> dictBody <> dataHdr <> dataBody
           lookupInt32 v idx =
@@ -378,18 +366,16 @@ dataPageV2Tests = testGroup "DATA_PAGE_V2"
           bs = encodeCompact pageHdrStruct
       case readPageHeaderAt bs 0 of
         Left e -> assertFailure e
-        Right (hdr, _) -> do
-          phType hdr @?= pageTypeDataPageV2
-          case phDataPageV2 hdr of
-            Nothing -> assertFailure "expected DataPageHeaderV2"
-            Just v2 -> do
-              dph2NumValues v2 @?= 1000
-              dph2NumNulls v2 @?= 100
-              dph2NumRows v2 @?= 1000
-              dph2Encoding v2 @?= 0
-              dph2DefLevelsLen v2 @?= 50
-              dph2RepLevelsLen v2 @?= 25
-              dph2IsCompressed v2 @?= True
+        Right (hdr, _) -> case phType hdr of
+          PtDataPageV2 v2 -> do
+            dph2NumValues v2 @?= 1000
+            dph2NumNulls v2 @?= 100
+            dph2NumRows v2 @?= 1000
+            dph2Encoding v2 @?= 0
+            dph2DefLevelsLen v2 @?= 50
+            dph2RepLevelsLen v2 @?= 25
+            dph2IsCompressed v2 @?= True
+          _ -> assertFailure "expected PtDataPageV2"
   , testCase "is_compressed defaults to True when absent" $ do
       let v2Struct = TV.Struct $ V.fromList
             [ (1, TV.I32 5), (2, TV.I32 0), (3, TV.I32 5)
@@ -398,23 +384,22 @@ dataPageV2Tests = testGroup "DATA_PAGE_V2"
             [ (1, TV.I32 3), (2, TV.I32 40), (3, TV.I32 40), (8, v2Struct) ]
       case readPageHeaderAt bs 0 of
         Left e -> assertFailure e
-        Right (hdr, _) -> case phDataPageV2 hdr of
-          Nothing -> assertFailure "expected DataPageHeaderV2"
-          Just v2 -> dph2IsCompressed v2 @?= True
+        Right (hdr, _) -> case phType hdr of
+          PtDataPageV2 v2 -> dph2IsCompressed v2 @?= True
+          _               -> assertFailure "expected PtDataPageV2"
   , testCase "page header round-trip through encode/parse" $ do
-      let hdr = PageHeader pageTypeDataPageV2 (Just 500) (Just 400) Nothing Nothing
-                  (Just (DataPageHeaderV2 200 50 200 0 30 20 False))
+      let hdr = PageHeader
+                  (PtDataPageV2 (DataPageHeaderV2 200 50 200 0 30 20 False))
+                  (Just 500) (Just 400)
           bs = encodePageHeader hdr
       case readPageHeaderAt bs 0 of
         Left e -> assertFailure e
-        Right (hdr', _) -> do
-          phType hdr' @?= pageTypeDataPageV2
-          case phDataPageV2 hdr' of
-            Nothing -> assertFailure "round-trip lost DataPageHeaderV2"
-            Just v2 -> do
-              dph2NumValues v2 @?= 200
-              dph2NumNulls v2 @?= 50
-              dph2IsCompressed v2 @?= False
+        Right (hdr', _) -> case phType hdr' of
+          PtDataPageV2 v2 -> do
+            dph2NumValues v2 @?= 200
+            dph2NumNulls v2 @?= 50
+            dph2IsCompressed v2 @?= False
+          _ -> assertFailure "round-trip lost PtDataPageV2"
   ]
 
 writerRoundtripTests :: TestTree
@@ -463,19 +448,18 @@ writerRoundtripTests = testGroup "Writer round-trips"
           Right chunkData ->
             readPlainInt32ColumnChunk Uncompressed chunkData @?= Right vals
   , testCase "page header encode/decode round-trip" $ do
-      let hdr = PageHeader pageTypeDataPage (Just 100) (Just 100)
-                  (Just (DataPageHeader 25 0)) Nothing Nothing
+      let hdr = PageHeader (PtDataPage (DataPageHeader 25 0))
+                           (Just 100) (Just 100)
           bs = encodePageHeader hdr
       case readPageHeaderAt bs 0 of
         Left e -> assertFailure e
         Right (hdr', _) -> do
-          phType hdr' @?= pageTypeDataPage
           phCompressedPageSize hdr' @?= Just 100
-          case phDataPage hdr' of
-            Nothing -> assertFailure "expected DataPageHeader"
-            Just dph -> do
+          case phType hdr' of
+            PtDataPage dph -> do
               dphNumValues dph @?= 25
               dphEncoding dph @?= 0
+            _ -> assertFailure "expected PtDataPage"
   ]
 
 pageIndexTests :: TestTree

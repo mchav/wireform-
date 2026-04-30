@@ -20,44 +20,37 @@
 --     bs = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
 -- @
 module Parquet.Write
-  ( writeParquetFile
-  , encodePlainInt32Page
-  , encodePlainInt64Page
-  , encodePlainFloatPage
-  , encodePlainDoublePage
-  , encodePlainBooleanPage
-  , encodePlainByteArrayPage
-  , encodePageHeader
-  , assembleColumnChunk
-  , buildParquetFile
+  ( -- * Whole-file builders (preferred entry points)
+    buildParquetFile
   , buildParquetFileWithIndex
-    -- * Heterogeneous column data
+    -- * Per-column auxiliary metadata for the indexed writer
+  , ColumnAux(..)
+  , emptyColumnAux
+    -- * Column data
   , ColumnData(..)
   , columnDataLength
-  , encodeColumnDataPage
   , columnDataParquetType
   , columnDataStatistics
+  , encodeColumnDataPage
     -- * Nullable columns (definition levels)
-  , encodeOptionalColumnPage
   , OptionalColumn(..)
   , optionalColumnLength
   , optionalColumnNullCount
   , optionalColumnPresentValues
+  , encodeOptionalColumnPage
     -- * Dictionary encoding
+  , Dictionary(..)
+  , buildDictionary
   , encodeDictPage
   , encodeDictDataPage
-  , buildDictionary
-  , Dictionary(..)
-    -- * Statistics
-  , statisticsForInt32
-  , statisticsForInt64
-  , statisticsForFloat
-  , statisticsForDouble
-  , statisticsForBool
-  , statisticsForByteArray
-    -- * Per-column auxiliary metadata for the indexed writer
-  , ColumnAux(..)
-  , emptyColumnAux
+    -- * Data page version (V1 vs V2)
+  , PageVersion(..)
+  , encodeColumnDataPageV2
+  , encodeOptionalColumnPageV2
+    -- * Page / footer building blocks (used by composite writers)
+  , writeParquetFile
+  , encodePageHeader
+  , assembleColumnChunk
   ) where
 
 import Data.ByteString (ByteString)
@@ -88,7 +81,8 @@ import Parquet.Page
   , DataPageHeaderV2 (..)
   , DictionaryPageHeader (..)
   , PageHeader (..)
-  , pageTypeDataPage
+  , PageType (..)
+  , pageTypeTag
   )
 import Parquet.Types
   ( ColumnChunk (..)
@@ -201,15 +195,12 @@ writeDoubleLE = B.word64LE . castDoubleToWord64
 
 mkPlainDataPageHeader :: Int32 -> Int32 -> PageHeader
 mkPlainDataPageHeader numValues bodySize = PageHeader
-  { phType = pageTypeDataPage
-  , phUncompressedPageSize = Just bodySize
-  , phCompressedPageSize = Just bodySize
-  , phDataPage = Just DataPageHeader
+  { phType = PtDataPage DataPageHeader
       { dphNumValues = numValues
       , dphEncoding = 0
       }
-  , phDictionaryPage = Nothing
-  , phDataPageV2 = Nothing
+  , phUncompressedPageSize = Just bodySize
+  , phCompressedPageSize = Just bodySize
   }
 
 -- | Thrift compact-encode a 'PageHeader'.
@@ -218,12 +209,14 @@ encodePageHeader hdr = encodeCompact (pageHeaderToThrift hdr)
 
 pageHeaderToThrift :: PageHeader -> TV.Value
 pageHeaderToThrift hdr = TV.Struct $ V.fromList $
-  [(1, TV.I32 (phType hdr))]
+  [(1, TV.I32 (pageTypeTag (phType hdr)))]
   ++ maybe [] (\s -> [(2, TV.I32 s)]) (phUncompressedPageSize hdr)
   ++ maybe [] (\s -> [(3, TV.I32 s)]) (phCompressedPageSize hdr)
-  ++ maybe [] (\dph -> [(5, dataPageHeaderToThrift dph)]) (phDataPage hdr)
-  ++ maybe [] (\dk -> [(7, dictPageHeaderToThrift dk)]) (phDictionaryPage hdr)
-  ++ maybe [] (\v2 -> [(8, dataPageHeaderV2ToThrift v2)]) (phDataPageV2 hdr)
+  ++ case phType hdr of
+       PtDataPage dph        -> [(5, dataPageHeaderToThrift dph)]
+       PtDictionaryPage dk   -> [(7, dictPageHeaderToThrift dk)]
+       PtDataPageV2 v2       -> [(8, dataPageHeaderV2ToThrift v2)]
+       PtIndexPage           -> []
 
 dataPageHeaderToThrift :: DataPageHeader -> TV.Value
 dataPageHeaderToThrift dph = TV.Struct $ V.fromList
@@ -253,6 +246,105 @@ dataPageHeaderV2ToThrift v2 = TV.Struct $ V.fromList
 -- their headers.
 assembleColumnChunk :: Compression -> [ByteString] -> ByteString
 assembleColumnChunk _codec pages = mconcat pages
+
+-- ============================================================
+-- DATA_PAGE_V2
+-- ============================================================
+
+-- | Encode an 'OptionalColumn' as a single @DATA_PAGE_V2@.
+--
+-- Layout (per the Parquet spec):
+--
+-- @
+-- <repetition_levels>   -- length given by header.repetition_levels_byte_length
+--                       -- always uncompressed; we emit zero bytes for
+--                       -- non-repeated columns.
+-- <definition_levels>   -- length given by header.definition_levels_byte_length
+--                       -- always uncompressed; max def-level is 1 for
+--                       -- optional columns.
+-- <values>              -- compressed iff codec /= Uncompressed; PLAIN encoded.
+-- @
+--
+-- The level segments are RLE-hybrid encoded *without* the 4-byte length
+-- prefix that V1 uses. The header records both segment lengths and an
+-- @is_compressed@ flag.
+encodeOptionalColumnPageV2 :: Compression -> OptionalColumn -> Either String ByteString
+encodeOptionalColumnPageV2 codec oc = do
+  let !defs = VP.fromList
+        [ if isJust v then 1 else 0
+        | v <- presenceList oc
+        ]
+      !defStream = LE.encodeRLEHybrid 1 defs
+      !defLen = BS.length defStream
+      !repStream = BS.empty
+      !repLen = 0 :: Int
+      !valuesRaw = encodeColumnDataPagePayload (optionalColumnPresentValues oc)
+      !uncompValuesLen = BS.length valuesRaw
+  (valuesBs, codecActual) <- case Compress.compressPageBytes codec valuesRaw of
+        Right cb -> Right (cb, codec)
+        Left  e  -> Left e
+  let !nVals = optionalColumnLength oc
+      !nNulls = sum (map (\v -> if isJust v then 0 else 1) (presenceList oc)) :: Int
+      !nRows = nVals  -- non-repeated => num_rows == num_values
+      !uncompPageSize = repLen + defLen + uncompValuesLen
+      !compPageSize   = repLen + defLen + BS.length valuesBs
+      !hdr = PageHeader
+        { phType = PtDataPageV2 DataPageHeaderV2
+            { dph2NumValues    = fromIntegral nVals
+            , dph2NumNulls     = fromIntegral nNulls
+            , dph2NumRows      = fromIntegral nRows
+            , dph2Encoding     = 0 -- PLAIN
+            , dph2DefLevelsLen = fromIntegral defLen
+            , dph2RepLevelsLen = fromIntegral repLen
+            , dph2IsCompressed = codecActual /= Uncompressed
+            }
+        , phUncompressedPageSize = Just (fromIntegral uncompPageSize)
+        , phCompressedPageSize   = Just (fromIntegral compPageSize)
+        }
+  Right (encodePageHeader hdr <> repStream <> defStream <> valuesBs)
+  where
+    isJust (Just _) = True
+    isJust Nothing  = False
+
+    presenceList :: OptionalColumn -> [Maybe ()]
+    presenceList = \case
+      OptInt32 v     -> map void' (V.toList v)
+      OptInt64 v     -> map void' (V.toList v)
+      OptFloat v     -> map void' (V.toList v)
+      OptDouble v    -> map void' (V.toList v)
+      OptBool v      -> map void' (V.toList v)
+      OptByteArray v -> map void' (V.toList v)
+
+    void' Nothing  = Nothing
+    void' (Just _) = Just ()
+
+-- | Encode a required (non-null) 'ColumnData' as a single
+-- @DATA_PAGE_V2@. No def/rep level streams are emitted; only the values
+-- segment, compressed if the caller requested it.
+encodeColumnDataPageV2 :: Compression -> ColumnData -> Either String ByteString
+encodeColumnDataPageV2 codec cd = do
+  let !valuesRaw = encodeColumnDataPagePayload cd
+      !uncompValuesLen = BS.length valuesRaw
+  (valuesBs, codecActual) <- case Compress.compressPageBytes codec valuesRaw of
+        Right cb -> Right (cb, codec)
+        Left  e  -> Left e
+  let !nVals = columnDataLength cd
+      !uncompPageSize = uncompValuesLen
+      !compPageSize   = BS.length valuesBs
+      !hdr = PageHeader
+        { phType = PtDataPageV2 DataPageHeaderV2
+            { dph2NumValues    = fromIntegral nVals
+            , dph2NumNulls     = 0
+            , dph2NumRows      = fromIntegral nVals
+            , dph2Encoding     = 0
+            , dph2DefLevelsLen = 0
+            , dph2RepLevelsLen = 0
+            , dph2IsCompressed = codecActual /= Uncompressed
+            }
+        , phUncompressedPageSize = Just (fromIntegral uncompPageSize)
+        , phCompressedPageSize   = Just (fromIntegral compPageSize)
+        }
+  Right (encodePageHeader hdr <> valuesBs)
 
 -- ============================================================
 -- Page / column statistics
@@ -591,15 +683,12 @@ encodeDictPage d =
   let !payload = encodeColumnDataPagePayload (dictUniques d)
       !numEntries = columnDataLength (dictUniques d)
       !hdr = PageHeader
-        { phType = pageTypeDictionaryPage
-        , phUncompressedPageSize = Just (fromIntegral (BS.length payload))
-        , phCompressedPageSize   = Just (fromIntegral (BS.length payload))
-        , phDataPage = Nothing
-        , phDictionaryPage = Just DictionaryPageHeader
+        { phType = PtDictionaryPage DictionaryPageHeader
             { dictNumValues = fromIntegral numEntries
             , dictEncoding  = parquetEncodingPlainDictionary
             }
-        , phDataPageV2 = Nothing
+        , phUncompressedPageSize = Just (fromIntegral (BS.length payload))
+        , phCompressedPageSize   = Just (fromIntegral (BS.length payload))
         }
    in encodePageHeader hdr <> payload
 
@@ -614,15 +703,12 @@ encodeDictDataPage d =
       !indexStream = LE.encodeRLEHybrid bw indices
       !body = BS.singleton (fromIntegral bw) <> indexStream
       !hdr = PageHeader
-        { phType = pageTypeDataPage
-        , phUncompressedPageSize = Just (fromIntegral (BS.length body))
-        , phCompressedPageSize   = Just (fromIntegral (BS.length body))
-        , phDataPage = Just DataPageHeader
+        { phType = PtDataPage DataPageHeader
             { dphNumValues = fromIntegral numIndices
             , dphEncoding  = parquetEncodingRleDictionary
             }
-        , phDictionaryPage = Nothing
-        , phDataPageV2 = Nothing
+        , phUncompressedPageSize = Just (fromIntegral (BS.length body))
+        , phCompressedPageSize   = Just (fromIntegral (BS.length body))
         }
    in encodePageHeader hdr <> body
 
@@ -632,12 +718,21 @@ parquetEncodingPlainDictionary = 2
 parquetEncodingRleDictionary :: Int32
 parquetEncodingRleDictionary = 8
 
-pageTypeDictionaryPage :: Int32
-pageTypeDictionaryPage = 2
-
 -- ============================================================
 -- Indexed writer: bloom filter + page index footers
 -- ============================================================
+
+-- | Which Parquet data page header to emit for a column chunk.
+--
+-- - 'PageV1': @DATA_PAGE@ (legacy). Definition + repetition levels are
+--   length-prefixed RLE-hybrid streams concatenated with the values
+--   inside the (optionally compressed) page body.
+-- - 'PageV2': @DATA_PAGE_V2@. Definition and repetition levels are NOT
+--   length-prefixed and are NOT compressed. Only the values segment is
+--   compressed, and the level segment lengths are recorded in the page
+--   header so readers can skip directly to the data.
+data PageVersion = PageV1 | PageV2
+  deriving (Show, Eq)
 
 -- | Auxiliary metadata for one column chunk that the indexed writer
 -- emits alongside the data pages. Any 'Nothing' field is omitted from
@@ -656,10 +751,12 @@ data ColumnAux = ColumnAux
   , caCodec        :: !Compression
     -- ^ Compression codec for the column-chunk page bytes. Default
     -- 'Uncompressed'; use any codec listed in 'Parquet.Compress.compressPageBytes'.
+  , caPageVersion  :: !PageVersion
+    -- ^ Page header version to emit. Defaults to 'PageV1'.
   } deriving (Show, Eq)
 
 emptyColumnAux :: ColumnAux
-emptyColumnAux = ColumnAux Nothing Nothing Nothing Uncompressed
+emptyColumnAux = ColumnAux Nothing Nothing Nothing Uncompressed PageV1
 
 layoutBlooms
   :: V.Vector RowGroup
@@ -883,14 +980,35 @@ buildParquetFileWithIndex schema rowGroups auxes =
     encodeOne
       :: V.Vector ColumnAux -> Int -> ColumnData -> (ByteString, Int, Compression)
     encodeOne aux cIdx cd =
-      let !raw = encodeColumnDataPage cd
-          !codecRequested = case cIdx < V.length aux of
-            True  -> caCodec (V.unsafeIndex aux cIdx)
-            False -> Uncompressed
-          (compressed, codecActual) = case Compress.compressPageBytes codecRequested raw of
-            Right cb -> (cb, codecRequested)
-            Left _   -> (raw, Uncompressed)  -- graceful fallback
-       in (compressed, BS.length raw, codecActual)
+      let !mAux = if cIdx < V.length aux
+                    then Just (V.unsafeIndex aux cIdx)
+                    else Nothing
+          !codecRequested = maybe Uncompressed caCodec mAux
+          !pageVer        = maybe PageV1 caPageVersion mAux
+       in case pageVer of
+            PageV1 ->
+              let !raw = encodeColumnDataPage cd
+                  (compressed, codecActual) = case Compress.compressPageBytes codecRequested raw of
+                    Right cb -> (cb, codecRequested)
+                    Left _   -> (raw, Uncompressed)
+               in (compressed, BS.length raw, codecActual)
+            PageV2 ->
+              -- For V2 the codec is applied only to the values segment,
+              -- but we account for the *full* page bytes (header +
+              -- segments) when recording sizes on the column metadata so
+              -- that ccTotalCompressedSize / ccTotalUncompressedSize
+              -- reflect on-disk reality.
+              let !raw      = encodeColumnDataPage cd
+                  uncompSz  = BS.length raw
+                  encoded   = case encodeColumnDataPageV2 codecRequested cd of
+                    Right bs -> bs
+                    Left  _  -> case encodeColumnDataPageV2 Uncompressed cd of
+                                  Right bs -> bs
+                                  Left  _  -> raw  -- defensive fallback
+                  codecActual = if codecRequested == Uncompressed
+                                  then Uncompressed
+                                  else codecRequested
+               in (encoded, uncompSz, codecActual)
 
     buildRG
       :: (V.Vector RowGroup, Int) -> Int -> V.Vector (ByteString, Int, Compression)
