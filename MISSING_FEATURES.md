@@ -173,6 +173,12 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | Parquet writer: encrypted-footer mode (PARE trailing magic; Footer module encrypted under ModuleFooter AAD) | full | `Parquet.Write.FooterEncryption`, `buildParquetFileWithIndexEncryptedFooter` |
 | Parquet writer: arbitrary nested column shredding (struct / list / map / list-of-struct / list-of-list); Dremel rep+def encoding with `NestedSchema` + `NestedRow` | full; pyarrow byte-compat verified for `list<int>`, `list<struct>`, `list<list>`, `map<string,int>` | `Parquet.Nested` |
 | Iceberg.Variant: full V3 primitive type set (decimal4/8/16, date, time, timestamp(Ntz)(Nanos), uuid) | full encode/decode + canonical JSON projection | `Iceberg.Variant` |
+| Parquet encrypted-file reader (PARE detection + decrypt + spec §5.1 framing) | full | `Parquet.Read.loadParquetFileEncrypted`, `Parquet.Encryption.{encryptGcmModuleFramed,readFramedModule}` |
+| Variant column in Parquet writer (`{metadata, value}` 2-leaf group; pyarrow-verified) | full | `Parquet.Nested.NSVariant`, `Iceberg.Variant.Parquet.buildVariantParquetFile` |
+| Iceberg V3 Variant shredding (primitive case) | spec §"Primitive Types" | `Iceberg.Variant.Shredding.{routeRow,buildShreddedVariantParquetFile}` |
+| Iceberg AWS Glue catalog dialect (backend-agnostic via `GlueBackend`; CAS commits) | full | `Iceberg.Catalog.Glue` |
+| ORC column encryption building blocks (AES-CTR stream cipher + per-stripe key + protobuf encoders) | building blocks; whole-file integration is composable | `ORC.Encryption` |
+| Hedgehog property tests (Variant codec / Parquet encryption AAD / nested shredder invariants) | full | `Test.Iceberg.{VariantProperty,EncryptionProperty,NestedProperty}` |
 | ORC writer: per-stripe bloom filter (`BLOOM_FILTER_UTF8` stream) | full | `ORC.BloomFilter` |
 | ORC writer: per-stripe row index (`ROW_INDEX` stream) | full | `ORC.RowIndex` |
 | ORC reader: DECIMAL128 stream (LEB128 zig-zag, full Integer precision) | full | `ORC.Read.decodeDecimal128Stream` |

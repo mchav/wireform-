@@ -35,6 +35,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Iceberg.BoundTrunc
+    Iceberg.Catalog.Glue
     Iceberg.Catalog.Hadoop
     Iceberg.Catalog.REST
     Iceberg.Catalog.Sql
@@ -113,6 +114,7 @@ test-suite iceberg-test
     Test.Iceberg.Parquet
     Test.Iceberg.Partition
     Test.Iceberg.Puffin
+    Test.Iceberg.CatalogGlue
     Test.Iceberg.CatalogHadoop
     Test.Iceberg.CatalogSql
     Test.Iceberg.RESTCatalog

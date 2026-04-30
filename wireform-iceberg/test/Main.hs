@@ -3,6 +3,7 @@ module Main (main) where
 import Test.Tasty
 
 import qualified Test.Iceberg.BoundTrunc
+import qualified Test.Iceberg.CatalogGlue
 import qualified Test.Iceberg.CatalogHadoop
 import qualified Test.Iceberg.CatalogSql
 import qualified Test.Iceberg.Delete
@@ -66,6 +67,7 @@ main = defaultMain $ testGroup "wireform-iceberg"
   , Test.Iceberg.ManifestMerge.tests
   , Test.Iceberg.MetricsConfig.tests
   , Test.Iceberg.BoundTrunc.tests
+  , Test.Iceberg.CatalogGlue.tests
   , Test.Iceberg.CatalogHadoop.tests
   , Test.Iceberg.CatalogSql.tests
   , Test.Iceberg.Delete.tests

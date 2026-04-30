@@ -147,6 +147,12 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.47 | Parquet writer: encrypted-footer mode (PARE trailing magic) | **Done** (`Parquet.Write.FooterEncryption`, `buildParquetFileWithIndexEncryptedFooter`) |
 | D.48 | Parquet writer: arbitrary nested shredding (struct / list / map / list-of-struct / list-of-list); pyarrow byte-compat | **Done** (`Parquet.Nested.shred`, `buildNestedFile`) |
 | D.49 | Iceberg V3 Variant: full primitive type set (decimal / date / time / timestamp variants / uuid) | **Done** (`Iceberg.Variant`) |
+| D.50 | Parquet encrypted-file reader (PARE detection + Footer module decryption + spec-compliant §5.1 length-prefixed module framing) | **Done** (`Parquet.Read.loadParquetFileEncrypted`, `Parquet.Encryption.{encryptGcmModuleFramed,readFramedModule}`) |
+| D.51 | Variant column in Parquet writer (NSVariant + Iceberg.Variant.Parquet, pyarrow-verified 2-leaf binary group) | **Done** (`Iceberg.Variant.Parquet`) |
+| D.52 | Iceberg V3 Variant shredding (primitive case): `routeRow` + `buildShreddedVariantParquetFile` | **Done** (`Iceberg.Variant.Shredding`) |
+| D.53 | Iceberg AWS Glue catalog dialect (backend-agnostic via `GlueBackend` record; CAS-on-`metadata_location` commits via Glue UpdateTable VersionId) | **Done** (`Iceberg.Catalog.Glue`) |
+| D.54 | ORC column encryption building blocks (AES-CTR stream cipher + per-stripe key derivation + protobuf encoders for `Encryption`/`EncryptionKey`/`EncryptionVariant`/`DataMask`) | **Done** (`ORC.Encryption`) |
+| D.55 | Hedgehog property tests (Variant codec / Parquet encryption AAD framing / Dremel shredder invariants) | **Done** (`Test.Iceberg.{VariantProperty,EncryptionProperty,NestedProperty}`) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 
