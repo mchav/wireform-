@@ -98,11 +98,18 @@ arrow-cpp, parquet-mr, and pyarrow are recognised on read.
 
 ### Still planned
 
-- Parquet encryption (modular encryption, footer key wrapping).
-- Parquet writer integration that emits page-index + bloom-filter footers
-  alongside row groups (the encoders are in place; the writer will be
-  wired in a follow-up so existing benchmarks remain stable).
-- ORC writer (C.6) and timestamp/decimal/date column write path (C.5).
+(Nothing on the original gap list - all entries below now have working
+implementations.)
+
+- ~~Parquet encryption (modular encryption, footer key wrapping).~~ **Done**
+  (`Parquet.Encryption` AES-GCM-V1 + AES-GCM-CTR-V1 with full AAD framing;
+  Iceberg `tmEncryptionKeys` wires through `Iceberg.Parquet.encryptionConfigFromTable`).
+- ~~Parquet writer integration that emits page-index + bloom-filter footers
+  alongside row groups.~~ **Done** (`buildParquetFileWithIndex` +
+  `ColumnAux`).
+- ~~ORC writer (C.6) and timestamp/decimal/date column write path (C.5).~~
+  **Done** (`encodeDateColumn` / `encodeTimestampColumn` /
+  `encodeDecimalColumn` / `encodeDecimalRawColumn`).
 
 ### Iceberg parity status (updated)
 
@@ -136,4 +143,11 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | REST catalog request/response shapes and JSON + exception type | full | `Iceberg.Catalog.REST` |
 | `WRITE_METADATA_COMPRESSION` (gzip metadata.json.gz) | full | `Iceberg.Write` (`encodeTableMetadataCompressed`) |
 | Fast-append / merge-append / rewrite-manifests planner (bin-packed by `commit.manifest.target-size-bytes` / `min-count-to-merge`) | full | `Iceberg.ManifestMerge` |
-| C/SIMDe kernels for hot paths (Murmur3-32 / `bucket[N]`, XXH64, Roaring 32-bit decode/encode/contains, V3 deletion-vector membership) | 3×–53× faster than the pure references on the bench (`bench/RESULTS.md`) | `Iceberg.SIMD`, `cbits/iceberg_simd.c` |
+| C/SIMDe kernels for hot paths (Murmur3-32 / `bucket[N]`, XXH64, Roaring 32-bit decode/encode/contains, V3 deletion-vector membership) | 3×–53× faster than the pure references on the bench (`bench/RESULTS.md`) | `Wireform.Hash` (shared), `Iceberg.SIMD` (re-export), `wireform-core/cbits/wireform_hash_simd.c` |
+| Parquet bloom filter on the SIMD XXH64 | 2.6×–7.1× faster than the pure path on 64 B–64 KiB inputs (`wireform-parquet/bench`) | `Parquet.XXH64` (delegates), `Parquet.BloomFilter` |
+| Iceberg ↔ Parquet bridge (writer + scan side) | full | `Iceberg.Parquet` |
+| Iceberg REST catalog HTTP client | full (behind `-frest-client` flag) | `Iceberg.Catalog.REST.Client` |
+| Parquet writer with page-index + bloom-filter + column-index footers | full | `Parquet.Write.buildParquetFileWithIndex` + `ColumnAux` |
+| Parquet modular encryption (AES-GCM-V1 + AES-GCM-CTR-V1, full AAD framing) | full | `Parquet.Encryption` |
+| Iceberg `tmEncryptionKeys` -> Parquet `EncryptionConfig` wiring | full | `Iceberg.Parquet.encryptionConfigFromTable` / `withEncryptionKeyMetadata` |
+| ORC date / timestamp / decimal writers | full | `ORC.Write.encodeDateColumn` / `encodeTimestampColumn` / `encodeDecimalColumn` / `encodeDecimalRawColumn` |

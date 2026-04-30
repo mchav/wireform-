@@ -46,7 +46,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | A.4 | DATA_PAGE v2 + DELTA_BINARY_PACKED encoding | — | **Done** |
 | A.5 | All compression codecs used in the wild (incl. LZ4 / LZ4_RAW) | — | Partial (LZ4 pending) |
 | A.6 | Column writer + file assembly + reference-file tests | Writer | **Done** |
-| A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | **Partial** (page index + bloom filter Done; encryption Planned) |
+| A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | **Done** (page index + bloom filter + AES-GCM/CTR modular encryption) |
 | A.8 | Remaining encodings (DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE_DICTIONARY) | — | **Done** |
 | A.9 | Repetition level semantics for repeated/nested columns | — | **Partial** (`materializeRepeated*`) |
 
@@ -73,7 +73,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | C.3 | Column decoders (int, bool, string, float, double) + compression | — | **Done** |
 | C.4 | End-to-end `readColumn` | — | **Done** |
 | C.5 | Remaining types (timestamp, date, decimal) + RLE v2 Patched Base | — | **Done** (`decodeTimestampColumn`, `decodeDateColumn`, `decodeDecimalColumn`, `decodeShortColumn`, `decodeTinyIntColumn`, `decodeBinaryColumn`, RLE v2 Patched Base) |
-| C.6 | Writer + ORC file assembly | Writer | **Partial** (`buildORCFile`, integer/string/float/double/bool encoders; timestamp / decimal / date writers planned) |
+| C.6 | Writer + ORC file assembly | Writer | **Done** (`buildORCFile`, integer/string/float/double/bool/date/timestamp/decimal encoders) |
 
 ---
 
@@ -110,7 +110,10 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.27 | REST catalog convenience helpers (LoadTableResult builder, exception type) | **Done** (`Iceberg.Catalog.REST`) |
 | D.28 | Manifest-list partition summary aggregation | **Done** (`Iceberg.Write.buildManifestSummary`) |
 | D.29 | Fast-append / merge-append / rewrite-manifests commit planner | **Done** (`Iceberg.ManifestMerge`) |
-| D.30 | C/SIMDe kernels for Murmur3, `bucket[N]`, XXH64, Roaring 32-bit, deletion-vector membership | **Done** (`Iceberg.SIMD`, benchmarks in `wireform-iceberg/bench/RESULTS.md`) |
+| D.30 | C/SIMDe kernels for Murmur3, `bucket[N]`, XXH64, Roaring 32-bit, deletion-vector membership | **Done** (`Wireform.Hash` shared, `Iceberg.SIMD` re-export, benchmarks in `wireform-iceberg/bench/RESULTS.md`) |
+| D.31 | Iceberg ↔ Parquet bridge (`DataFile` derived from Parquet footer; `OffsetIndex` × `DeletionVector` page selection) | **Done** (`Iceberg.Parquet`) |
+| D.32 | Iceberg REST catalog HTTP client | **Done** (`Iceberg.Catalog.REST.Client`, behind `-frest-client`) |
+| D.33 | Iceberg encryption-keys wiring to Parquet `EncryptionConfig` | **Done** (`Iceberg.Parquet.encryptionConfigFromTable`, `withEncryptionKeyMetadata`) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 
