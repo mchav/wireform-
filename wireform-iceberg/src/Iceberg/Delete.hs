@@ -25,6 +25,7 @@ module Iceberg.Delete
   ( -- * Position deletes
     PositionDeleteRow (..)
   , writePositionDeleteFile
+  , readPositionDeleteFile
   , positionDeleteFilePathFieldId
   , positionDeletePosFieldId
     -- * Equality deletes
@@ -47,6 +48,7 @@ import Iceberg.Types
   , FileFormat (..)
   )
 
+import qualified Parquet.Read as PR
 import qualified Parquet.Types as P
 import qualified Parquet.Write as PW
 
@@ -113,6 +115,57 @@ writePositionDeleteFile outputPath rows =
         , dfSequenceNumber  = Nothing
         }
    in (fileBytes, df)
+
+-- | Decode a position-delete Parquet file produced by
+-- 'writePositionDeleteFile' (or any spec-compliant writer) into a
+-- vector of 'PositionDeleteRow's.
+--
+-- Reads both columns of the file in column order: leaf 0 is the
+-- @file_path@ string (BYTE_ARRAY + UTF-8) and leaf 1 is the
+-- @pos@ INT64. Both must have the same row count; the function
+-- zips them into the row record.
+--
+-- The output is /not/ sorted; it preserves the file's row order.
+-- Pair this with 'Iceberg.Read.applyPositionDeletes' to filter a
+-- data file's rows.
+readPositionDeleteFile :: ByteString -> Either String (V.Vector PositionDeleteRow)
+readPositionDeleteFile bs = do
+  pf <- PR.loadParquetFile bs
+  -- The schema as we wrote it puts file_path as column 0 and pos
+  -- as column 1, both in row group 0. Other writers may emit them
+  -- in a different order; we look up by leaf seFieldId so the
+  -- decoder is portable.
+  let !leaves = V.filter (maybe False (const True) . P.seType)
+                  (P.fmSchema (PR.pfFooter pf))
+      mFilePathIdx = V.findIndex
+        (\se -> P.seFieldId se == Just positionDeleteFilePathFieldId)
+        leaves
+      mPosIdx = V.findIndex
+        (\se -> P.seFieldId se == Just positionDeletePosFieldId)
+        leaves
+  case (mFilePathIdx, mPosIdx) of
+    (Nothing, _) -> Left
+      "Iceberg.Delete.readPositionDeleteFile: missing file_path leaf \
+      \(field_id 2147483546)"
+    (_, Nothing) -> Left
+      "Iceberg.Delete.readPositionDeleteFile: missing pos leaf \
+      \(field_id 2147483545)"
+    (Just fpIdx, Just posIdx) -> do
+      -- Read each column chunk's bytes for row group 0 and decode
+      -- it as a PLAIN required column.
+      filePathChunk <- PR.columnChunkSlice pf 0 fpIdx
+      posChunk      <- PR.columnChunkSlice pf 0 posIdx
+      paths    <- PR.readPlainByteArrayColumnChunk P.Uncompressed filePathChunk
+      positions <- PR.readPlainInt64ColumnChunk P.Uncompressed posChunk
+      if VP.length positions /= V.length paths
+        then Left
+          ("Iceberg.Delete.readPositionDeleteFile: column row count "
+            ++ "mismatch (file_path=" ++ show (V.length paths)
+            ++ ", pos=" ++ show (VP.length positions) ++ ")")
+        else
+          let !paths'     = V.map TE.decodeUtf8 paths
+              !positions' = V.fromList (VP.toList positions)
+           in Right (V.zipWith PositionDeleteRow paths' positions')
 
 -- ============================================================
 -- Equality deletes

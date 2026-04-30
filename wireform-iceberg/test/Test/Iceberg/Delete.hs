@@ -8,6 +8,8 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Iceberg.Delete as ID
+import qualified Iceberg.Read
+import qualified Iceberg.Types
 import Iceberg.Types (DeleteFile (..), DeleteFileContent (..), FileFormat (..))
 
 import qualified Parquet.Read as PR
@@ -89,4 +91,44 @@ tests = testGroup "Iceberg.Delete"
       case ID.writeEqualityDeleteFile "x" [] V.empty of
         Left _ -> pure ()
         Right _ -> assertFailure "expected empty schema error"
+
+  , testCase "writePositionDeleteFile -> readPositionDeleteFile round-trip" $ do
+      let rows = V.fromList
+            [ ID.PositionDeleteRow "s3://b/data/00.parquet" 0
+            , ID.PositionDeleteRow "s3://b/data/00.parquet" 7
+            , ID.PositionDeleteRow "s3://b/data/00.parquet" 15
+            , ID.PositionDeleteRow "s3://b/data/01.parquet" 3
+            ]
+          (bytes, _) = ID.writePositionDeleteFile "out" rows
+      case ID.readPositionDeleteFile bytes of
+        Left e -> assertFailure ("read: " ++ e)
+        Right rows' -> rows' @?= rows
+
+  , testCase "end-to-end: write deletes -> read deletes -> apply to data rows" $ do
+      -- 10-row data file. Position deletes drop rows 1, 4, 8 from
+      -- the target path (rows 1, 4 from another path are
+      -- ignored).
+      let dataFilePath = "s3://b/data/users.parquet"
+          deletes = V.fromList
+            [ ID.PositionDeleteRow dataFilePath 1
+            , ID.PositionDeleteRow dataFilePath 4
+            , ID.PositionDeleteRow dataFilePath 8
+            , ID.PositionDeleteRow "s3://b/data/orders.parquet" 0
+            ]
+          (deleteBytes, _) = ID.writePositionDeleteFile "deletes/0.parquet" deletes
+      case ID.readPositionDeleteFile deleteBytes of
+        Left e -> assertFailure ("read: " ++ e)
+        Right deletes' -> do
+          deletes' @?= deletes
+          -- Apply to the data rows. We use the existing
+          -- Iceberg.Read.applyPositionDeletes which expects a
+          -- different PositionDelete record shape (Iceberg.Types
+          -- carries 'pdFilePath' / 'pdPosition'), so we adapt.
+          let dataRows  = V.fromList ([0..9] :: [Int])
+              icebergDs = V.map
+                (\(ID.PositionDeleteRow p pos) ->
+                    Iceberg.Types.PositionDelete p pos) deletes'
+              kept = Iceberg.Read.applyPositionDeletes
+                       icebergDs dataFilePath dataRows
+          V.toList kept @?= [0, 2, 3, 5, 6, 7, 9]
   ]
