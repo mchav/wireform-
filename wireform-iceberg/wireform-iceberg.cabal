@@ -28,20 +28,26 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    Iceberg.BoundTrunc
     Iceberg.Catalog.REST
     Iceberg.DeletionVector
     Iceberg.Expression
     Iceberg.JSON
     Iceberg.Manifest
+    Iceberg.MetricsConfig
     Iceberg.Murmur3
+    Iceberg.Partition
     Iceberg.Puffin
     Iceberg.Read
+    Iceberg.SchemaCompat
     Iceberg.SchemaEvolution
     Iceberg.SingleValue
     Iceberg.Snapshot
+    Iceberg.Sort
     Iceberg.Transform
     Iceberg.Types
     Iceberg.Update
+    Iceberg.Validate
     Iceberg.View
     Iceberg.Write
   build-depends:
@@ -57,7 +63,8 @@ library
     hashable >= 1.3 && < 1.6,
     unordered-containers >= 0.2.16 && < 0.3,
     time >= 1.9 && < 1.15,
-    deepseq >= 1.4 && < 1.6
+    deepseq >= 1.4 && < 1.6,
+    zlib >= 0.6 && < 0.8
 
 test-suite iceberg-test
   import: defaults
@@ -66,16 +73,25 @@ test-suite iceberg-test
   main-is: Main.hs
   ghc-options: -Wall -O0
   other-modules:
+    Test.Iceberg.BoundTrunc
     Test.Iceberg.DeletionVector
     Test.Iceberg.Expression
+    Test.Iceberg.MetricsConfig
     Test.Iceberg.Murmur3
     Test.Iceberg.NameMapping
+    Test.Iceberg.Partition
     Test.Iceberg.Puffin
     Test.Iceberg.RESTCatalog
     Test.Iceberg.ScanPlan
+    Test.Iceberg.SchemaCompat
+    Test.Iceberg.SequenceInheritance
     Test.Iceberg.SingleValue
+    Test.Iceberg.SnapshotHistory
+    Test.Iceberg.SnapshotSummary
+    Test.Iceberg.Sort
     Test.Iceberg.Transform
     Test.Iceberg.Update
+    Test.Iceberg.Validate
     Test.Iceberg.View
     Test.Iceberg.Write
   build-depends:

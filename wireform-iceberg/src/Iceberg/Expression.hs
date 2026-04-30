@@ -28,6 +28,10 @@ module Iceberg.Expression
   , notNull
   , isNan
   , notNan
+  , inSet
+  , notInSet
+  , startsWith
+  , notStartsWith
   , true
   , false
   , and_
@@ -73,6 +77,7 @@ data Operation
   | OpIn
   | OpNotIn
   | OpStartsWith
+  | OpNotStartsWith
   deriving (Show, Eq)
 
 data Literal
@@ -122,6 +127,14 @@ isNull f  = EPredicate (Predicate OpIsNull f V.empty)
 notNull f = EPredicate (Predicate OpNotNull f V.empty)
 isNan f   = EPredicate (Predicate OpIsNan f V.empty)
 notNan f  = EPredicate (Predicate OpNotNan f V.empty)
+
+inSet, notInSet :: Text -> Vector Literal -> Expression
+inSet    f xs = EPredicate (Predicate OpIn    f xs)
+notInSet f xs = EPredicate (Predicate OpNotIn f xs)
+
+startsWith, notStartsWith :: Text -> Text -> Expression
+startsWith    f t = EPredicate (Predicate OpStartsWith    f (V.singleton (LString t)))
+notStartsWith f t = EPredicate (Predicate OpNotStartsWith f (V.singleton (LString t)))
 
 true, false :: Expression
 true  = ETrue
@@ -213,8 +226,10 @@ inclusivePredicate schema fm p = case lookupField schema (predField p) of
     OpLtEq     -> withLit p $ \lit -> rangeStartsBefore ty fm fid lit True
     OpGt       -> withLit p $ \lit -> rangeEndsAfter   ty fm fid lit False
     OpGtEq     -> withLit p $ \lit -> rangeEndsAfter   ty fm fid lit True
-    OpStartsWith -> True
-    OpIn       -> True
+    OpStartsWith    -> withLit p $ \lit -> rangeMatchesPrefix ty fm fid lit
+    OpNotStartsWith -> True
+    OpIn       -> any (\lit -> rangeCovers ty fm fid lit lit) (V.toList (predLits p))
+                  || V.null (predLits p)
     OpNotIn    -> True
 
 strictPredicate :: Schema -> FileMetrics -> Predicate -> Bool
@@ -228,6 +243,7 @@ strictPredicate schema fm p = case lookupField schema (predField p) of
     OpLtEq     -> withLitFalse p $ \lit -> rangeStrictlyBelow ty fm fid lit True
     OpGt       -> withLitFalse p $ \lit -> rangeStrictlyAbove ty fm fid lit False
     OpGtEq     -> withLitFalse p $ \lit -> rangeStrictlyAbove ty fm fid lit True
+    OpStartsWith -> withLitFalse p $ \lit -> rangeAlwaysHasPrefix ty fm fid lit
     _          -> False
 
 withLit :: Predicate -> (Literal -> Bool) -> Bool
@@ -343,6 +359,35 @@ rangeStrictlyAbove ty fm fid lit inclusive = fromMaybeFalse $ do
   lb <- mlb
   let c = compareTy ty lb litB
   Just $ if inclusive then c /= LT else c == GT
+
+-- | The file's range overlaps the half-open prefix range
+-- @[prefix, prefix + 1)@. Used for inclusive @startsWith@: returns 'True'
+-- when the lower bound is &le; (prefix + max-byte) and upper bound is &ge;
+-- prefix.
+rangeMatchesPrefix :: IcebergType -> FileMetrics -> Int -> Literal -> Bool
+rangeMatchesPrefix _ fm fid lit = fromMaybeTrue $ do
+  let (mlb, mub) = bounds fm fid
+  prefix <- literalRawBytes lit
+  case (mlb, mub) of
+    (Just lb, Just ub) -> Just $
+      let lbPrefix = BS.take (BS.length prefix) lb
+          ubPrefix = BS.take (BS.length prefix) ub
+       in lbPrefix <= prefix && prefix <= ubPrefix
+    _ -> Just True
+
+-- | Both bounds start with the prefix &rArr; every row in the file does.
+rangeAlwaysHasPrefix :: IcebergType -> FileMetrics -> Int -> Literal -> Bool
+rangeAlwaysHasPrefix _ fm fid lit = fromMaybeFalse $ do
+  let (mlb, mub) = bounds fm fid
+  prefix <- literalRawBytes lit
+  lb <- mlb
+  ub <- mub
+  Just $ BS.isPrefixOf prefix lb && BS.isPrefixOf prefix ub
+
+literalRawBytes :: Literal -> Maybe ByteString
+literalRawBytes (LString t) = Just (TE.encodeUtf8 t)
+literalRawBytes (LBytes b)  = Just b
+literalRawBytes _           = Nothing
 
 compareTy :: IcebergType -> ByteString -> ByteString -> Ordering
 compareTy ty a b = case compareSingleValueBy ty a b of

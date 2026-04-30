@@ -21,6 +21,7 @@ import Data.Scientific (fromFloatDigits, toBoundedInteger, toRealFloat)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 
 import Avro.Schema (AvroType(..), AvroSchema(..), AvroField(..), SortOrder(..), LogicalType(..))
@@ -352,7 +353,7 @@ fieldToJSON :: AvroField -> Aeson.Value
 fieldToJSON f = Aeson.Object $ KM.fromList $
   [ ("name", Aeson.String (avroFieldName f))
   , ("type", avroSchemaToJSON (avroFieldType f))
-  ] ++ dfltPair ++ orderPair ++ aliasesPair (avroFieldAliases f) ++ docPair
+  ] ++ dfltPair ++ orderPair ++ aliasesPair (avroFieldAliases f) ++ docPair ++ propsPairs
   where
     dfltPair = case avroFieldDefault f of
       Just s  -> [("default", defaultSchemaToJSON s)]
@@ -365,6 +366,18 @@ fieldToJSON f = Aeson.Object $ KM.fromList $
     docPair = case avroFieldDoc f of
       Just d  -> [("doc", Aeson.String d)]
       Nothing -> []
+    -- Custom field properties (e.g. Iceberg's @field-id@) are serialised as
+    -- top-level JSON entries on the field. The values are textual; numeric
+    -- values such as @field-id@ are written as raw numbers when they parse
+    -- as integers so that engines validating the canonical Iceberg schema
+    -- shape recognise them.
+    propsPairs =
+      [ (Key.fromText k, encodeProp v)
+      | (k, v) <- Map.toAscList (avroFieldProps f)
+      ]
+    encodeProp v = case TR.signed TR.decimal v of
+      Right (n :: Integer, rest) | T.null rest -> Aeson.Number (fromInteger n)
+      _ -> Aeson.String v
 
 defaultSchemaToJSON :: AvroSchema -> Aeson.Value
 defaultSchemaToJSON AvroNull   = Aeson.Null

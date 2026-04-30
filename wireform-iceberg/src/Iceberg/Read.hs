@@ -23,7 +23,12 @@ module Iceberg.Read
   , planScan
   , planScanWithDeletes
   , planScanWithFilter
+  , planScanAtSnapshot
+  , planScanAsOfTime
   , fileMetricsFromEntry
+    -- * Sequence-number inheritance
+  , inheritSequenceNumbers
+  , readManifestEntriesWithInheritance
   ) where
 
 import Control.DeepSeq (NFData)
@@ -41,7 +46,9 @@ import Avro.Schema (AvroField (..), AvroSchema (..), AvroType (..))
 import qualified Avro.Value as AV
 
 import qualified Iceberg.Expression as Expr
+import qualified Iceberg.SchemaEvolution
 import Iceberg.SchemaEvolution (currentSchema)
+import qualified Iceberg.Snapshot
 import Iceberg.Snapshot (applicableDeletes, currentSnapshot)
 import Iceberg.Types
   ( DataFile (..)
@@ -90,6 +97,33 @@ readManifestEntries bs = do
 readDeleteManifestEntries :: ByteString -> Either String (AvroType, V.Vector ManifestEntry)
 readDeleteManifestEntries = readManifestEntries
 
+-- | Read a manifest file and inherit sequence numbers from the parent
+-- manifest list entry (per spec: \"new data and metadata file entries are
+-- written with @null@ in place of a sequence number, which is replaced
+-- with the manifest's sequence number at read time\"). The @file_sequence_number@
+-- is inherited unconditionally for entries with status @ADDED@ that do not
+-- carry one.
+readManifestEntriesWithInheritance
+  :: ManifestFile  -- ^ Owning manifest list entry, providing the inherited seq.
+  -> ByteString
+  -> Either String (AvroType, V.Vector ManifestEntry)
+readManifestEntriesWithInheritance owner bs = do
+  (writerTy, entries) <- readManifestEntries bs
+  Right (writerTy, V.map (inheritSequenceNumbers owner) entries)
+
+-- | Apply the sequence-number inheritance rule to a single manifest entry.
+inheritSequenceNumbers :: ManifestFile -> ManifestEntry -> ManifestEntry
+inheritSequenceNumbers owner me =
+  let inheritedSeq = mfSequenceNumber owner
+      seqNo' = case meSequenceNumber me of
+        Nothing | meStatus me == Added -> Just inheritedSeq
+        Just _  -> meSequenceNumber me
+        Nothing -> meSequenceNumber me
+      fileSeqNo' = case meFileSequenceNumber me of
+        Nothing | meStatus me == Added -> Just inheritedSeq
+        other   -> other
+   in me { meSequenceNumber = seqNo', meFileSequenceNumber = fileSeqNo' }
+
 -- | Read an Iceberg manifest-list Avro file (sequence of @manifest_file@ records).
 readManifestList :: ByteString -> Either String (AvroType, V.Vector ManifestFile)
 readManifestList bs = do
@@ -132,9 +166,27 @@ manifestFileFromAvro ty val = do
   path <- lookupField fields vals "manifest_path" >>= asText
   len <- lookupField fields vals "manifest_length" >>= asInt64
   specId <- lookupField fields vals "partition_spec_id" >>= asInt32
-  content <- lookupField fields vals "content" >>= asInt32 >>= manifestContentFromInt
-  seqN <- lookupField fields vals "sequence_number" >>= asInt64
-  minSeq <- lookupField fields vals "min_sequence_number" >>= asInt64
+  -- @content@, @sequence_number@, and @min_sequence_number@ are required in
+  -- v2 but the writer schema treats them as optional (with default null) so
+  -- that v1 readers can ignore them. Decode either form.
+  contentRaw <- lookupField fields vals "content"
+  content <- case contentRaw of
+    AV.Int n             -> manifestContentFromInt n
+    AV.Union _ (AV.Int n) -> manifestContentFromInt n
+    AV.Union _ AV.Null   -> Right DataContent
+    _                    -> Left "Iceberg.Read: expected int for manifest content"
+  seqRaw <- lookupField fields vals "sequence_number"
+  seqN <- case seqRaw of
+    AV.Long n             -> Right n
+    AV.Union _ (AV.Long n) -> Right n
+    AV.Union _ AV.Null    -> Right 0
+    _                     -> Left "Iceberg.Read: expected long for sequence_number"
+  minSeqRaw <- lookupField fields vals "min_sequence_number"
+  minSeq <- case minSeqRaw of
+    AV.Long n             -> Right n
+    AV.Union _ (AV.Long n) -> Right n
+    AV.Union _ AV.Null    -> Right 0
+    _                     -> Left "Iceberg.Read: expected long for min_sequence_number"
   addSnap <- lookupField fields vals "added_snapshot_id" >>= asInt64
   addFiles <- lookupField fields vals "added_data_files_count" >>= optionalInt
   exFiles <- lookupField fields vals "existing_data_files_count" >>= optionalInt
@@ -600,12 +652,54 @@ planScanWithFilter tm manifestListBytes readManifestByPath expr = do
               (currentSnapshot tm)
   schema <- maybe (Left "planScanWithFilter: no current schema") Right
               (currentSchema tm)
+  planScanWithFilterAt snap schema manifestListBytes readManifestByPath expr
+
+-- | Like 'planScanWithFilter' but driven by an explicit snapshot id rather
+-- than the table's current snapshot pointer. Useful for time-travel reads.
+planScanAtSnapshot
+  :: TableMetadata
+  -> Int64
+  -> ByteString
+  -> (Text -> Either String ByteString)
+  -> Expr.Expression
+  -> Either String (V.Vector FileScanTask, Snapshot, Schema)
+planScanAtSnapshot tm sid manifestListBytes readManifestByPath expr = do
+  snap <- case Iceberg.Snapshot.snapshotById tm sid of
+            Just s  -> Right s
+            Nothing -> Left $ "planScanAtSnapshot: no such snapshot " ++ show sid
+  let schemaForSnap = case snapSchemaId snap >>= Iceberg.SchemaEvolution.schemaById tm of
+        Just s -> Just s
+        Nothing -> Iceberg.SchemaEvolution.currentSchema tm
+  schema <- maybe (Left "planScanAtSnapshot: no schema available") Right schemaForSnap
+  planScanWithFilterAt snap schema manifestListBytes readManifestByPath expr
+
+-- | Resolve the snapshot whose @timestamp_ms@ is the largest value not
+-- exceeding the supplied target, then plan a filtered scan at that snapshot.
+planScanAsOfTime
+  :: TableMetadata
+  -> Int64
+  -> ByteString
+  -> (Text -> Either String ByteString)
+  -> Expr.Expression
+  -> Either String (V.Vector FileScanTask, Snapshot, Schema)
+planScanAsOfTime tm targetMs manifestListBytes readManifestByPath expr =
+  case Iceberg.Snapshot.snapshotAsOfTime tm targetMs of
+    Just s -> planScanAtSnapshot tm (snapId s) manifestListBytes readManifestByPath expr
+    Nothing -> Left $ "planScanAsOfTime: no snapshot at or before " ++ show targetMs
+
+planScanWithFilterAt
+  :: Snapshot
+  -> Schema
+  -> ByteString
+  -> (Text -> Either String ByteString)
+  -> Expr.Expression
+  -> Either String (V.Vector FileScanTask, Snapshot, Schema)
+planScanWithFilterAt snap schema manifestListBytes readManifestByPath expr = do
   (_, manifestFiles) <- readManifestList manifestListBytes
-  let dataPaths = dataManifestPaths manifestFiles
+  let dataMfs   = V.filter (\mf -> mfContent mf == DataContent) manifestFiles
       delMfs    = applicableDeletes snap manifestFiles
-      delPaths  = V.map mfPath delMfs
-  dataEntryVecs <- V.mapM (readAndParse readManifestByPath) dataPaths
-  delEntryVecs  <- V.mapM (readAndParse readManifestByPath) delPaths
+  dataEntryVecs <- V.mapM (readAndInherit readManifestByPath) dataMfs
+  delEntryVecs  <- V.mapM (readAndInherit readManifestByPath) delMfs
   let allDataEntries = V.concat (V.toList dataEntryVecs)
       allDelEntries  = V.concat (V.toList delEntryVecs)
       keep me = Expr.evaluateInclusive schema (fileMetricsFromEntry me) expr
@@ -617,10 +711,10 @@ planScanWithFilter tm manifestListBytes readManifestByPath expr = do
                        }) surviving
   Right (tasks, snap, schema)
   where
-    readAndParse readMf path = do
-      bs <- readMf path
+    readAndInherit readMf manifest = do
+      bs <- readMf (mfPath manifest)
       (_, entries) <- readManifestEntries bs
-      Right entries
+      Right (V.map (inheritSequenceNumbers manifest) entries)
 
 -- | Find delete-manifest entries that are applicable to a given data-file
 -- entry. The Iceberg spec says a delete file applies when its sequence

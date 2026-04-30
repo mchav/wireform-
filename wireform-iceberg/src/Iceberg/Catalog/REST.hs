@@ -42,10 +42,18 @@ module Iceberg.Catalog.REST
   , TableRequirement(..)
     -- * Errors
   , CatalogError(..)
+  , CatalogException(..)
+  , throwCatalogError
+    -- * Convenience builders
+  , loadTableResult
+  , commitTableResponse
+  , defaultRequirements
     -- * JSON helpers re-export
   , aesonEncode
   , aesonDecode
   ) where
+
+import Control.Exception (Exception, throwIO)
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
@@ -523,3 +531,52 @@ aesonEncode = BL.toStrict . Aeson.encode
 
 aesonDecode :: Aeson.FromJSON a => ByteString -> Either String a
 aesonDecode = Aeson.eitherDecodeStrict
+
+-- ============================================================
+-- Convenience builders
+-- ============================================================
+
+-- | Build a 'LoadTableResult' from the table metadata, an optional metadata
+-- file location, and an empty config map. Mirrors PyIceberg's
+-- @TableLoad.from_metadata@.
+loadTableResult :: Maybe Text -> TableMetadata -> LoadTableResult
+loadTableResult loc tm = LoadTableResult
+  { ltrMetadataLocation = loc
+  , ltrMetadata         = tm
+  , ltrConfig           = Map.empty
+  }
+
+-- | Build a 'CommitTableResponse' echoing the metadata location written
+-- and the resulting table state.
+commitTableResponse :: Text -> TableMetadata -> CommitTableResponse
+commitTableResponse loc tm = CommitTableResponse
+  { ctRespMetadataLocation = loc
+  , ctRespMetadata         = tm
+  }
+
+-- | The minimal commit requirements every Iceberg writer should send for a
+-- non-create operation: assert that the table exists and that its UUID
+-- matches what the client read.
+defaultRequirements :: TableMetadata -> Vector TableRequirement
+defaultRequirements tm = V.fromList
+  [ AssertTableUUID (tmTableUuid tm)
+  , AssertCurrentSchemaId (tmCurrentSchemaId tm)
+  , AssertDefaultSpecId (tmDefaultSpecId tm)
+  , AssertDefaultSortOrderId (tmDefaultSortOrderId tm)
+  ]
+
+-- ============================================================
+-- Exceptions
+-- ============================================================
+
+-- | A 'CatalogError' wrapped as a Haskell exception so that REST clients
+-- can short-circuit on 4xx/5xx responses. The 'Show' instance contains the
+-- catalog-supplied message.
+newtype CatalogException = CatalogException CatalogError
+  deriving (Show)
+
+instance Exception CatalogException
+
+-- | Throw a 'CatalogError' as a 'CatalogException' in 'IO'.
+throwCatalogError :: CatalogError -> IO a
+throwCatalogError = throwIO . CatalogException

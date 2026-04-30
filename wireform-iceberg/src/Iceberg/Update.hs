@@ -8,7 +8,7 @@
 -- pointer at the catalog. This matches the semantics of the Java
 -- @TableOperations.commit@ contract.
 module Iceberg.Update
-  ( -- * Snapshot creation
+  (     -- * Snapshot creation
     AppendFiles(..)
   , appendFiles
   , OverwriteFiles(..)
@@ -16,12 +16,18 @@ module Iceberg.Update
   , RowDelta(..)
   , rowDelta
   , addSnapshot
+    -- * Snapshot summary helpers
+  , autoSummary
+  , SnapshotStats(..)
+  , emptySnapshotStats
+  , statsFromManifestEntry
     -- * Branch / tag management
   , createBranch
   , createTag
   , removeRef
   , fastForwardBranch
   , setCurrentSnapshot
+  , rollbackToSnapshot
     -- * Schema / partition / sort updates
   , addSchema
   , addPartitionSpec
@@ -38,19 +44,109 @@ import qualified Data.Text as T
 import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 
-import Iceberg.Snapshot (snapshotById)
+import Iceberg.Snapshot (isAncestor, snapshotById)
 import Iceberg.Types
+
+-- ============================================================
+-- Snapshot summary
+-- ============================================================
+--
+-- The Iceberg spec defines well-known summary keys (added-data-files,
+-- added-records, total-data-files, total-records, ...). Java/PyIceberg
+-- compute these automatically when committing. 'SnapshotStats' is a small
+-- accumulator that callers populate from the manifest entries they are
+-- about to commit; 'autoSummary' converts a stats record into the
+-- canonical text-keyed map.
+
+data SnapshotStats = SnapshotStats
+  { ssAddedDataFiles      :: !Int
+  , ssAddedRecords        :: !Int64
+  , ssAddedFilesSize      :: !Int64
+  , ssRemovedDataFiles    :: !Int
+  , ssRemovedRecords      :: !Int64
+  , ssRemovedFilesSize    :: !Int64
+  , ssAddedDeleteFiles    :: !Int
+  , ssAddedPositionDeletes :: !Int64
+  , ssAddedEqualityDeletes :: !Int64
+  , ssTotalDataFiles      :: !Int
+  , ssTotalRecords        :: !Int64
+  , ssTotalFilesSize      :: !Int64
+  , ssTotalDeleteFiles    :: !Int
+  , ssTotalPositionDeletes :: !Int64
+  , ssTotalEqualityDeletes :: !Int64
+  } deriving (Show, Eq)
+
+emptySnapshotStats :: SnapshotStats
+emptySnapshotStats = SnapshotStats 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+-- | Summarise a single manifest entry's contribution to the new-files side
+-- of a snapshot. Intended to be 'mappend'ed into a 'SnapshotStats' fold.
+statsFromManifestEntry :: ManifestEntry -> SnapshotStats
+statsFromManifestEntry me =
+  let isDelete = case meDataFile me of
+        Just df -> dataFileContent df /= DataContent
+        Nothing -> False
+      eq = case meDataFile me of
+        Just df | dataFileContent df == DeletesContent ->
+          if V.null (dataFileEqualityIds df) then False else True
+        _ -> False
+      pos = isDelete && not eq
+   in emptySnapshotStats
+        { ssAddedDataFiles      = if isDelete then 0 else 1
+        , ssAddedRecords        = if isDelete then 0 else meRecordCount me
+        , ssAddedFilesSize      = meFileSizeBytes me
+        , ssAddedDeleteFiles    = if isDelete then 1 else 0
+        , ssAddedPositionDeletes = if pos then meRecordCount me else 0
+        , ssAddedEqualityDeletes = if eq  then meRecordCount me else 0
+        }
+
+-- | Canonical Iceberg summary keys. Zero-valued counts are omitted.
+autoSummary :: SnapshotStats -> Map.Map Text Text
+autoSummary s = Map.fromList $
+  textPair "added-data-files"        (ssAddedDataFiles s)
+  ++ textPair64 "added-records"      (ssAddedRecords s)
+  ++ textPair64 "added-files-size"   (ssAddedFilesSize s)
+  ++ textPair "removed-data-files"   (ssRemovedDataFiles s)
+  ++ textPair64 "removed-records"    (ssRemovedRecords s)
+  ++ textPair64 "removed-files-size" (ssRemovedFilesSize s)
+  ++ textPair "added-delete-files"   (ssAddedDeleteFiles s)
+  ++ textPair64 "added-position-deletes" (ssAddedPositionDeletes s)
+  ++ textPair64 "added-equality-deletes" (ssAddedEqualityDeletes s)
+  ++ textPair "total-data-files"     (ssTotalDataFiles s)
+  ++ textPair64 "total-records"      (ssTotalRecords s)
+  ++ textPair64 "total-files-size"   (ssTotalFilesSize s)
+  ++ textPair "total-delete-files"   (ssTotalDeleteFiles s)
+  ++ textPair64 "total-position-deletes" (ssTotalPositionDeletes s)
+  ++ textPair64 "total-equality-deletes" (ssTotalEqualityDeletes s)
+
+textPair :: Text -> Int -> [(Text, Text)]
+textPair k v
+  | v == 0 = []
+  | otherwise = [(k, T.pack (show v))]
+
+textPair64 :: Text -> Int64 -> [(Text, Text)]
+textPair64 k v
+  | v == 0 = []
+  | otherwise = [(k, T.pack (show v))]
 
 -- ============================================================
 -- Append / overwrite
 -- ============================================================
 
--- | Description of an append operation.
+-- | Description of an append operation. Callers can either supply the full
+-- summary they want recorded ('apfSummary') or supply a 'SnapshotStats'
+-- record via 'apfStats' which 'appendFiles' will turn into the canonical
+-- summary keys (added-data-files, added-records, ...).
 data AppendFiles = AppendFiles
   { apfNewManifestList :: !Text
     -- ^ Location of the manifest list file just written for this snapshot.
   , apfTimestampMs     :: !Int64
   , apfSummary         :: !(Map.Map Text Text)
+    -- ^ Free-form summary entries supplied by the caller (e.g. dictionary
+    -- of engine name, write hints, etc).
+  , apfStats           :: !(Maybe SnapshotStats)
+    -- ^ When set, populates the canonical Iceberg summary keys via
+    -- 'autoSummary' before merging with 'apfSummary'.
   , apfSchemaId        :: !(Maybe Int)
   } deriving (Show, Eq)
 
@@ -59,6 +155,7 @@ data OverwriteFiles = OverwriteFiles
   { ovfNewManifestList :: !Text
   , ovfTimestampMs     :: !Int64
   , ovfSummary         :: !(Map.Map Text Text)
+  , ovfStats           :: !(Maybe SnapshotStats)
   , ovfSchemaId        :: !(Maybe Int)
   } deriving (Show, Eq)
 
@@ -67,23 +164,33 @@ data RowDelta = RowDelta
   { rdNewManifestList :: !Text
   , rdTimestampMs     :: !Int64
   , rdSummary         :: !(Map.Map Text Text)
+  , rdStats           :: !(Maybe SnapshotStats)
   , rdSchemaId        :: !(Maybe Int)
   } deriving (Show, Eq)
 
 -- | Append snapshot. Increments the table's sequence number and pushes the
 -- new snapshot onto the @snapshots@ list, snapshot log, and the @main@
--- branch ref.
+-- branch ref. When 'apfStats' is provided, the canonical Iceberg summary
+-- keys are added first so that user-supplied entries in 'apfSummary' can
+-- override them.
 appendFiles :: TableMetadata -> AppendFiles -> TableMetadata
 appendFiles tm AppendFiles{..} = addSnapshot tm
-  apfTimestampMs apfNewManifestList apfSummary apfSchemaId "append"
+  apfTimestampMs apfNewManifestList (mergeSummary apfStats apfSummary) apfSchemaId "append"
 
 overwriteFiles :: TableMetadata -> OverwriteFiles -> TableMetadata
 overwriteFiles tm OverwriteFiles{..} = addSnapshot tm
-  ovfTimestampMs ovfNewManifestList ovfSummary ovfSchemaId "overwrite"
+  ovfTimestampMs ovfNewManifestList (mergeSummary ovfStats ovfSummary) ovfSchemaId "overwrite"
 
 rowDelta :: TableMetadata -> RowDelta -> TableMetadata
 rowDelta tm RowDelta{..} = addSnapshot tm
-  rdTimestampMs rdNewManifestList rdSummary rdSchemaId "delete"
+  rdTimestampMs rdNewManifestList (mergeSummary rdStats rdSummary) rdSchemaId "delete"
+
+-- | Combine an optional 'SnapshotStats' with caller-supplied summary
+-- entries. Auto-derived keys come first; explicit user entries take
+-- precedence on conflicts.
+mergeSummary :: Maybe SnapshotStats -> Map.Map Text Text -> Map.Map Text Text
+mergeSummary Nothing user = user
+mergeSummary (Just s) user = Map.union user (autoSummary s)
 
 -- | Lower-level helper: record a new snapshot with the given operation summary
 -- entry, pointing it at @manifestListPath@. The new snapshot is placed at
@@ -209,6 +316,23 @@ setCurrentSnapshot sid tm = case snapshotById tm sid of
         { tmCurrentSnapshotId = Just sid
         , tmSnapshotRefs      = Map.insert "main" mainRef (tmSnapshotRefs tm)
         }
+
+-- | Iceberg's "rollback" semantics: only succeeds if @sid@ is an ancestor
+-- of the current snapshot. Mirrors @ManageSnapshots#rollbackTo@.
+--
+-- Returns @Left@ explaining the violation (snapshot missing or not an
+-- ancestor) without mutating @tm@; otherwise returns the new metadata.
+rollbackToSnapshot :: Int64 -> TableMetadata -> Either String TableMetadata
+rollbackToSnapshot sid tm = case tmCurrentSnapshotId tm of
+  Nothing -> Left "rollbackToSnapshot: table has no current snapshot"
+  Just curSid
+    | sid == curSid -> Right tm
+    | not (isAncestor tm sid curSid) ->
+        Left $ "rollbackToSnapshot: snapshot " ++ show sid
+            ++ " is not an ancestor of the current snapshot " ++ show curSid
+    | otherwise -> case snapshotById tm sid of
+        Nothing -> Left $ "rollbackToSnapshot: no such snapshot " ++ show sid
+        Just _  -> Right (setCurrentSnapshot sid tm)
 
 -- ============================================================
 -- Schema / partition / sort updates

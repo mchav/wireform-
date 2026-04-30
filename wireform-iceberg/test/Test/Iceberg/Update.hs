@@ -42,6 +42,8 @@ tests = testGroup "Iceberg.Update"
             { apfNewManifestList = "s3://b/ml1.avro"
             , apfTimestampMs     = 1700000001000
             , apfSummary         = Map.empty
+            , apfStats        = Nothing
+
             , apfSchemaId        = Just 0
             }
       tmLastSequenceNumber after @?= 1
@@ -54,6 +56,8 @@ tests = testGroup "Iceberg.Update"
                  { apfNewManifestList = "s3://b/ml.avro"
                  , apfTimestampMs = 1
                  , apfSummary = Map.empty
+                 , apfStats        = Nothing
+
                  , apfSchemaId = Just 0
                  }
           Just sid = tmCurrentSnapshotId s1
@@ -69,6 +73,8 @@ tests = testGroup "Iceberg.Update"
                  { apfNewManifestList = "s3://b/ml.avro"
                  , apfTimestampMs = 1
                  , apfSummary = Map.empty
+                 , apfStats        = Nothing
+
                  , apfSchemaId = Just 0
                  }
       Map.lookup "main" (tmSnapshotRefs (removeRef "main" s1)) /= Nothing @?= True
@@ -78,12 +84,16 @@ tests = testGroup "Iceberg.Update"
                  { apfNewManifestList = "ml1.avro"
                  , apfTimestampMs = 1
                  , apfSummary = Map.empty
+                 , apfStats        = Nothing
+
                  , apfSchemaId = Just 0
                  }
           s2 = appendFiles s1 AppendFiles
                  { apfNewManifestList = "ml2.avro"
                  , apfTimestampMs = 2
                  , apfSummary = Map.empty
+                 , apfStats        = Nothing
+
                  , apfSchemaId = Just 0
                  }
           Just sid2 = tmCurrentSnapshotId s2

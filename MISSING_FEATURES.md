@@ -106,23 +106,32 @@ arrow-cpp, parquet-mr, and pyarrow are recognised on read.
 
 ### Iceberg parity status (updated)
 
-`wireform-iceberg` is now feature-complete vs. the Java/PyIceberg/iceberg-rust/
+`wireform-iceberg` is feature-complete vs. the Java/PyIceberg/iceberg-rust/
 iceberg-go SDKs across all three Iceberg spec versions:
 
 | Capability | Coverage | Module(s) |
 |---|---|---|
 | Table metadata read/write (v1/v2/v3 fields) | full | `Iceberg.Types`, `Iceberg.JSON`, `Iceberg.Write` |
-| Manifest / manifest-list read | full incl. partition summaries, key_metadata, first_row_id | `Iceberg.Read` |
-| Manifest / manifest-list write | full incl. column stats + delete-vector pointers | `Iceberg.Write` |
-| Schema evolution (lookups, projection, name mapping) | full | `Iceberg.SchemaEvolution`, `Iceberg.JSON` |
+| Manifest / manifest-list read | full incl. partition summaries, key_metadata, first_row_id, sequence-number inheritance | `Iceberg.Read` |
+| Manifest / manifest-list write (with canonical Iceberg field-id annotations) | full incl. column stats + delete-vector pointers + per-spec partition summaries | `Iceberg.Write` |
+| Schema evolution (lookups, projection, name mapping, valid-promotion rules) | full | `Iceberg.SchemaEvolution`, `Iceberg.JSON`, `Iceberg.SchemaCompat` |
 | Partition / sort transforms (Identity, Bucket, Truncate, Y/M/D/H, Void) | full + Murmur3 | `Iceberg.Murmur3`, `Iceberg.Transform` |
-| Predicate AST + manifest pruning (inclusive + strict) | full | `Iceberg.Expression`, `Iceberg.Read.planScanWithFilter` |
-| Position + equality delete files; sequence numbers | full | `Iceberg.Read`, `Iceberg.Snapshot` |
-| Branch / tag refs, fast-forward, rollback | full | `Iceberg.Update` |
+| Row -> partition tuple, predicate -> partition predicate projection | full | `Iceberg.Partition` |
+| Sort key evaluation (per-row sort key with NullsFirst/Last + Asc/Desc) | full | `Iceberg.Sort` |
+| Per-column metrics modes (none / counts / truncate(N) / full) | full | `Iceberg.MetricsConfig` |
+| Lower/upper bound truncation (string + binary) | full | `Iceberg.BoundTrunc` |
+| Predicate AST + manifest pruning (inclusive + strict) incl. IN, NOT IN, STARTS_WITH, NOT_STARTS_WITH | full | `Iceberg.Expression`, `Iceberg.Read.planScanWithFilter` |
+| Time-travel scan: planScanAtSnapshot, planScanAsOfTime | full | `Iceberg.Read` |
+| Snapshot history helpers: ancestorsOf, currentAncestors, snapshotsBetween, isAncestor, snapshotByRef, snapshotAsOfTime | full | `Iceberg.Snapshot` |
+| Position + equality delete files; sequence numbers (incl. inheritance) | full | `Iceberg.Read`, `Iceberg.Snapshot` |
+| Branch / tag refs, fast-forward, rollback (with ancestor validation) | full | `Iceberg.Update` |
 | AppendFiles / OverwriteFiles / RowDelta commit semantics | full | `Iceberg.Update` |
+| Snapshot summary auto-computation (added-/total- data files / records / sizes / position+equality deletes) | full | `Iceberg.Update` (`SnapshotStats`, `autoSummary`) |
 | Iceberg View spec | full read/write | `Iceberg.Types`, `Iceberg.JSON`, `Iceberg.View`, `Iceberg.Write` |
 | Statistics / partition-statistics file references | full | `Iceberg.Types`, `Iceberg.JSON` |
 | V3 deletion vectors (Puffin Roaring64) | full | `Iceberg.Puffin`, `Iceberg.DeletionVector` |
 | V3 nanosecond / variant / geometry / geography / unknown types | full (JSON only) | `Iceberg.Types`, `Iceberg.JSON` |
 | V3 default values, row lineage, encryption keys | full (types + JSON) | `Iceberg.Types`, `Iceberg.JSON` |
-| REST catalog request/response shapes and JSON | full | `Iceberg.Catalog.REST` |
+| Identifier-field-ids validation; v1/v2/v3 table-metadata constraint validation | full | `Iceberg.Validate` |
+| REST catalog request/response shapes and JSON + exception type | full | `Iceberg.Catalog.REST` |
+| `WRITE_METADATA_COMPRESSION` (gzip metadata.json.gz) | full | `Iceberg.Write` (`encodeTableMetadataCompressed`) |

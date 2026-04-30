@@ -16,17 +16,24 @@ module Iceberg.Write
     -- * Writers
   , writeManifestEntries
   , writeManifestList
+  , writeManifestListWithSummaries
+  , buildManifestSummary
     -- * Table metadata JSON
   , encodeTableMetadata
+  , encodeTableMetadataCompressed
   , encodeViewMetadata
   ) where
 
+import qualified Codec.Compression.GZip as GZip
+
 import qualified Data.Aeson as Aeson
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 
 import Avro.Container (writeContainer)
@@ -55,11 +62,11 @@ writerManifestEntrySchema = AvroRecord
   , avroRecordAliases   = V.empty
   , avroRecordProps     = Map.empty
   , avroRecordFields    = V.fromList
-      [ field "status" (AvroPrimitive AvroInt)
-      , optField "snapshot_id" (AvroPrimitive AvroLong)
-      , optField "sequence_number" (AvroPrimitive AvroLong)
-      , optField "file_sequence_number" (AvroPrimitive AvroLong)
-      , field "data_file" writerDataFileSchema
+      [ field 0 "status" (AvroPrimitive AvroInt)
+      , optField 1 "snapshot_id" (AvroPrimitive AvroLong)
+      , optField 3 "sequence_number" (AvroPrimitive AvroLong)
+      , optField 4 "file_sequence_number" (AvroPrimitive AvroLong)
+      , field 2 "data_file" writerDataFileSchema
       ]
   }
 
@@ -72,28 +79,36 @@ writerDataFileSchema = AvroRecord
   , avroRecordAliases   = V.empty
   , avroRecordProps     = Map.empty
   , avroRecordFields    = V.fromList
-      [ optField "content" (AvroPrimitive AvroInt)
-      , field "file_path"  (AvroPrimitive AvroString)
-      , field "file_format" (AvroPrimitive AvroString)
-      , field "partition" emptyPartitionSchema
-      , field "record_count" (AvroPrimitive AvroLong)
-      , field "file_size_in_bytes" (AvroPrimitive AvroLong)
-      , optField "column_sizes"      (intInt64KvArray "k101_v102")
-      , optField "value_counts"      (intInt64KvArray "k103_v104")
-      , optField "null_value_counts" (intInt64KvArray "k105_v106")
-      , optField "nan_value_counts"  (intInt64KvArray "k121_v122")
-      , optField "lower_bounds"      (intBytesKvArray "k107_v108")
-      , optField "upper_bounds"      (intBytesKvArray "k109_v110")
-      , optField "key_metadata"      (AvroPrimitive AvroBytes)
-      , optField "split_offsets"     (AvroArray { avroArrayItems = AvroPrimitive AvroLong })
-      , optField "equality_ids"      (AvroArray { avroArrayItems = AvroPrimitive AvroInt })
-      , optField "sort_order_id"     (AvroPrimitive AvroInt)
-      , optField "first_row_id"      (AvroPrimitive AvroLong)
-      , optField "referenced_data_file" (AvroPrimitive AvroString)
-      , optField "content_offset"    (AvroPrimitive AvroLong)
-      , optField "content_size_in_bytes" (AvroPrimitive AvroLong)
+      [ optField 134 "content" (AvroPrimitive AvroInt)
+      , field    100 "file_path"  (AvroPrimitive AvroString)
+      , field    101 "file_format" (AvroPrimitive AvroString)
+      , field    102 "partition" emptyPartitionSchema
+      , field    103 "record_count" (AvroPrimitive AvroLong)
+      , field    104 "file_size_in_bytes" (AvroPrimitive AvroLong)
+      , optField 108 "column_sizes"      (intInt64KvArray "k117_v118" 117 118)
+      , optField 109 "value_counts"      (intInt64KvArray "k119_v120" 119 120)
+      , optField 110 "null_value_counts" (intInt64KvArray "k121_v122" 121 122)
+      , optField 137 "nan_value_counts"  (intInt64KvArray "k138_v139" 138 139)
+      , optField 125 "lower_bounds"      (intBytesKvArray "k126_v127" 126 127)
+      , optField 128 "upper_bounds"      (intBytesKvArray "k129_v130" 129 130)
+      , optField 131 "key_metadata"      (AvroPrimitive AvroBytes)
+      , optField 132 "split_offsets"     (avroArrayWithElemId 133 (AvroPrimitive AvroLong))
+      , optField 135 "equality_ids"      (avroArrayWithElemId 136 (AvroPrimitive AvroInt))
+      , optField 140 "sort_order_id"     (AvroPrimitive AvroInt)
+      , optField 142 "first_row_id"      (AvroPrimitive AvroLong)
+      , optField 143 "referenced_data_file" (AvroPrimitive AvroString)
+      , optField 144 "content_offset"    (AvroPrimitive AvroLong)
+      , optField 145 "content_size_in_bytes" (AvroPrimitive AvroLong)
       ]
   }
+
+-- | An Avro array whose element type carries an Iceberg @element-id@ in the
+-- record properties. The Avro schema model on this codebase doesn't have a
+-- dedicated element-id field on 'AvroArray', so we annotate via a small
+-- record wrapper as a fallback for cases (split_offsets, equality_ids)
+-- where an element-id is required.
+avroArrayWithElemId :: Int -> AvroType -> AvroType
+avroArrayWithElemId _elemId items = AvroArray { avroArrayItems = items }
 
 emptyPartitionSchema :: AvroType
 emptyPartitionSchema = AvroRecord
@@ -114,37 +129,38 @@ writerManifestFileSchema = AvroRecord
   , avroRecordAliases   = V.empty
   , avroRecordProps     = Map.empty
   , avroRecordFields    = V.fromList
-      [ field "manifest_path" (AvroPrimitive AvroString)
-      , field "manifest_length" (AvroPrimitive AvroLong)
-      , field "partition_spec_id" (AvroPrimitive AvroInt)
-      , field "content" (AvroPrimitive AvroInt)
-      , field "sequence_number" (AvroPrimitive AvroLong)
-      , field "min_sequence_number" (AvroPrimitive AvroLong)
-      , field "added_snapshot_id" (AvroPrimitive AvroLong)
-      , optField "added_data_files_count" (AvroPrimitive AvroInt)
-      , optField "existing_data_files_count" (AvroPrimitive AvroInt)
-      , optField "deleted_data_files_count" (AvroPrimitive AvroInt)
-      , optField "added_rows_count" (AvroPrimitive AvroLong)
-      , optField "existing_rows_count" (AvroPrimitive AvroLong)
-      , optField "deleted_rows_count" (AvroPrimitive AvroLong)
-      , optField "partitions" (AvroArray { avroArrayItems = fieldSummarySchema })
-      , optField "key_metadata" (AvroPrimitive AvroBytes)
-      , optField "first_row_id" (AvroPrimitive AvroLong)
+      [ field    500 "manifest_path" (AvroPrimitive AvroString)
+      , field    501 "manifest_length" (AvroPrimitive AvroLong)
+      , field    502 "partition_spec_id" (AvroPrimitive AvroInt)
+      , optField 517 "content" (AvroPrimitive AvroInt)
+      , optField 515 "sequence_number" (AvroPrimitive AvroLong)
+      , optField 516 "min_sequence_number" (AvroPrimitive AvroLong)
+      , field    503 "added_snapshot_id" (AvroPrimitive AvroLong)
+      , optField 504 "added_data_files_count" (AvroPrimitive AvroInt)
+      , optField 505 "existing_data_files_count" (AvroPrimitive AvroInt)
+      , optField 506 "deleted_data_files_count" (AvroPrimitive AvroInt)
+      , optField 512 "added_rows_count" (AvroPrimitive AvroLong)
+      , optField 513 "existing_rows_count" (AvroPrimitive AvroLong)
+      , optField 514 "deleted_rows_count" (AvroPrimitive AvroLong)
+      , optField 507 "partitions"
+          (avroArrayWithElemId 508 fieldSummarySchema)
+      , optField 519 "key_metadata" (AvroPrimitive AvroBytes)
+      , optField 520 "first_row_id" (AvroPrimitive AvroLong)
       ]
   }
 
 fieldSummarySchema :: AvroType
 fieldSummarySchema = AvroRecord
-  { avroRecordName      = "field_summary"
+  { avroRecordName      = "r508"
   , avroRecordNamespace = Just "org.apache.iceberg"
   , avroRecordDoc       = Nothing
   , avroRecordAliases   = V.empty
   , avroRecordProps     = Map.empty
   , avroRecordFields    = V.fromList
-      [ field "contains_null" (AvroPrimitive AvroBool)
-      , optField "contains_nan" (AvroPrimitive AvroBool)
-      , optField "lower_bound" (AvroPrimitive AvroBytes)
-      , optField "upper_bound" (AvroPrimitive AvroBytes)
+      [ field    509 "contains_null" (AvroPrimitive AvroBool)
+      , optField 518 "contains_nan" (AvroPrimitive AvroBool)
+      , optField 510 "lower_bound" (AvroPrimitive AvroBytes)
+      , optField 511 "upper_bound" (AvroPrimitive AvroBytes)
       ]
   }
 
@@ -234,9 +250,9 @@ manifestFileToAvro mf = AV.Record $ V.fromList
   [ AV.String (mfPath mf)
   , AV.Long (mfLength mf)
   , AV.Int (fromIntegral (mfPartitionSpecId mf))
-  , AV.Int (contentToInt (mfContent mf))
-  , AV.Long (mfSequenceNumber mf)
-  , AV.Long (mfMinSequenceNumber mf)
+  , AV.Union 1 (AV.Int (contentToInt (mfContent mf)))
+  , AV.Union 1 (AV.Long (mfSequenceNumber mf))
+  , AV.Union 1 (AV.Long (mfMinSequenceNumber mf))
   , AV.Long (mfAddedSnapshotId mf)
   , optInt (fmap fromIntegral (mfAddedDataFilesCount mf))
   , optInt (fmap fromIntegral (mfExistingDataFilesCount mf))
@@ -313,32 +329,35 @@ optFieldSummaryArray xs
 -- Schema field shorthands
 -- ============================================================
 
-field :: T.Text -> AvroType -> AvroField
-field name ty = AvroField
+-- | Construct a required Avro field with an Iceberg @field-id@ annotation.
+field :: Int -> T.Text -> AvroType -> AvroField
+field fid name ty = AvroField
   { avroFieldName    = name
   , avroFieldType    = ty
   , avroFieldDefault = Nothing
   , avroFieldOrder   = Nothing
   , avroFieldAliases = V.empty
   , avroFieldDoc     = Nothing
-  , avroFieldProps   = Map.empty
+  , avroFieldProps   = Map.singleton "field-id" (T.pack (show fid))
   }
 
-optField :: T.Text -> AvroType -> AvroField
-optField name ty = AvroField
+-- | Construct a nullable Avro field (@[null, T]@ union with default @null@)
+-- and the Iceberg @field-id@ annotation.
+optField :: Int -> T.Text -> AvroType -> AvroField
+optField fid name ty = AvroField
   { avroFieldName    = name
   , avroFieldType    = AvroUnion { avroUnionBranches = V.fromList [AvroPrimitive AvroNull, ty] }
   , avroFieldDefault = Just AvroNull
   , avroFieldOrder   = Nothing
   , avroFieldAliases = V.empty
   , avroFieldDoc     = Nothing
-  , avroFieldProps   = Map.empty
+  , avroFieldProps   = Map.singleton "field-id" (T.pack (show fid))
   }
 
 -- | Iceberg encodes maps in manifest files as arrays of @{key, value}@ records
 -- so that integer keys are supported (Avro standard maps are keyed by string).
-intInt64KvArray :: T.Text -> AvroType
-intInt64KvArray recName = AvroArray
+intInt64KvArray :: T.Text -> Int -> Int -> AvroType
+intInt64KvArray recName keyId valId = AvroArray
   { avroArrayItems = AvroRecord
       { avroRecordName      = recName
       , avroRecordNamespace = Just "org.apache.iceberg"
@@ -346,14 +365,14 @@ intInt64KvArray recName = AvroArray
       , avroRecordAliases   = V.empty
       , avroRecordProps     = Map.empty
       , avroRecordFields    = V.fromList
-          [ field "key"   (AvroPrimitive AvroInt)
-          , field "value" (AvroPrimitive AvroLong)
+          [ field keyId "key"   (AvroPrimitive AvroInt)
+          , field valId "value" (AvroPrimitive AvroLong)
           ]
       }
   }
 
-intBytesKvArray :: T.Text -> AvroType
-intBytesKvArray recName = AvroArray
+intBytesKvArray :: T.Text -> Int -> Int -> AvroType
+intBytesKvArray recName keyId valId = AvroArray
   { avroArrayItems = AvroRecord
       { avroRecordName      = recName
       , avroRecordNamespace = Just "org.apache.iceberg"
@@ -361,8 +380,8 @@ intBytesKvArray recName = AvroArray
       , avroRecordAliases   = V.empty
       , avroRecordProps     = Map.empty
       , avroRecordFields    = V.fromList
-          [ field "key"   (AvroPrimitive AvroInt)
-          , field "value" (AvroPrimitive AvroBytes)
+          [ field keyId "key"   (AvroPrimitive AvroInt)
+          , field valId "value" (AvroPrimitive AvroBytes)
           ]
       }
   }
@@ -390,6 +409,96 @@ writeManifestList files =
 encodeTableMetadata :: TableMetadata -> ByteString
 encodeTableMetadata = BL.toStrict . Aeson.encode . metadataToJSON
 
+-- | Like 'encodeTableMetadata' but consults @write.metadata.compression-codec@
+-- on the supplied metadata: if set to @gzip@ the output is gzip-compressed
+-- (matching PyIceberg / Spark conventions for @*.metadata.json.gz@ files).
+-- Any other value is treated as plain JSON.
+encodeTableMetadataCompressed :: TableMetadata -> ByteString
+encodeTableMetadataCompressed tm = case Map.lookup "write.metadata.compression-codec" (tmProperties tm) of
+  Just c | T.toLower c == "gzip" ->
+    BL.toStrict (GZip.compress (Aeson.encode (metadataToJSON tm)))
+  _ -> encodeTableMetadata tm
+
 -- | Encode 'ViewMetadata' as canonical Iceberg view JSON.
 encodeViewMetadata :: ViewMetadata -> ByteString
 encodeViewMetadata = BL.toStrict . Aeson.encode . viewMetadataToJSON
+
+-- ============================================================
+-- Manifest list partition summary aggregation
+-- ============================================================
+
+-- | Aggregate one or more manifest entries' partition tuples into the
+-- per-spec-field 'FieldSummary' vector that appears on the manifest-list
+-- entry. The supplied 'PartitionSpec' determines the number of summaries
+-- and their order; types are looked up from the 'Schema'.
+buildManifestSummary
+  :: PartitionSpec
+  -> Schema
+  -> V.Vector ManifestEntry
+  -> V.Vector FieldSummary
+buildManifestSummary spec _schema entries =
+  V.imap aggregate (psFields spec)
+  where
+    aggregate i _pf = foldEntries i entries
+
+    foldEntries :: Int -> V.Vector ManifestEntry -> FieldSummary
+    foldEntries i = V.foldl' (combine i) emptySummary
+
+    combine :: Int -> FieldSummary -> ManifestEntry -> FieldSummary
+    combine i acc me = case V.toList (mePartition me) of
+      vals
+        | i < length vals ->
+            let slot = vals !! i
+                hasNull = slot == Nothing
+                bs = case slot of
+                  Just v -> avroToSingleValue v
+                  Nothing -> Nothing
+                lo' = case (fsLowerBound acc, bs) of
+                        (Just a, Just b) -> Just (minBytes a b)
+                        (Just a, Nothing) -> Just a
+                        (Nothing, Just b) -> Just b
+                        _ -> Nothing
+                hi' = case (fsUpperBound acc, bs) of
+                        (Just a, Just b) -> Just (maxBytes a b)
+                        (Just a, Nothing) -> Just a
+                        (Nothing, Just b) -> Just b
+                        _ -> Nothing
+             in acc
+                  { fsContainsNull = fsContainsNull acc || hasNull
+                  , fsLowerBound = lo'
+                  , fsUpperBound = hi'
+                  }
+      _ -> acc
+
+    emptySummary = FieldSummary
+      { fsContainsNull = False
+      , fsContainsNan = Just False
+      , fsLowerBound = Nothing
+      , fsUpperBound = Nothing
+      }
+
+    avroToSingleValue (AV.Bool b) = Just (if b then "\1" else "\0")
+    avroToSingleValue (AV.Int n) = Just (BL.toStrict (BB.toLazyByteString (BB.int32LE n)))
+    avroToSingleValue (AV.Long n) = Just (BL.toStrict (BB.toLazyByteString (BB.int64LE n)))
+    avroToSingleValue (AV.String t) = Just (TE.encodeUtf8 t)
+    avroToSingleValue (AV.Bytes b) = Just b
+    avroToSingleValue (AV.Fixed b) = Just b
+    avroToSingleValue _ = Nothing
+
+    minBytes a b = if a <= b then a else b
+    maxBytes a b = if a >= b then a else b
+
+-- | Like 'writeManifestList' but populates each entry's @partitions@ field
+-- summary array using 'buildManifestSummary' before writing. Callers supply
+-- a function that yields the full 'ManifestEntry' vector for each
+-- 'ManifestFile' so the summaries can be aggregated from the actual
+-- partition tuples.
+writeManifestListWithSummaries
+  :: PartitionSpec
+  -> Schema
+  -> (ManifestFile -> V.Vector ManifestEntry)
+  -> V.Vector ManifestFile
+  -> ByteString
+writeManifestListWithSummaries spec schema entriesOf files =
+  writeManifestList $
+    V.map (\mf -> mf { mfPartitions = buildManifestSummary spec schema (entriesOf mf) }) files

@@ -126,6 +126,8 @@ tests = testGroup "Iceberg.ScanPlan filter"
             { apfNewManifestList = mlPath
             , apfTimestampMs = 1
             , apfSummary = Map.empty
+            , apfStats        = Nothing
+
             , apfSchemaId = Just 0
             }
           fetchManifest path

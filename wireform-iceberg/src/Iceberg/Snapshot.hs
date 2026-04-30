@@ -8,8 +8,15 @@ module Iceberg.Snapshot
   ( -- * Snapshot operations
     currentSnapshot
   , snapshotById
+  , snapshotByRef
   , snapshotParentChain
   , snapshotManifestListPath
+  , snapshotAsOfTime
+    -- * Snapshot history
+  , ancestorsOf
+  , currentAncestors
+  , snapshotsBetween
+  , isAncestor
     -- * Partition spec operations
   , currentPartitionSpec
   , partitionSpecById
@@ -20,6 +27,7 @@ module Iceberg.Snapshot
   ) where
 
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -41,6 +49,24 @@ currentSnapshot tm = do
 snapshotById :: TableMetadata -> Int64 -> Maybe Snapshot
 snapshotById tm sid = V.find (\s -> snapId s == sid) (tmSnapshots tm)
 
+-- | Resolve a named branch or tag to its target 'Snapshot'.
+snapshotByRef :: TableMetadata -> Text -> Maybe Snapshot
+snapshotByRef tm name =
+  case Map.lookup name (tmSnapshotRefs tm) of
+    Just r  -> snapshotById tm (srSnapshotId r)
+    Nothing -> Nothing
+
+-- | The most recent snapshot whose @timestamp_ms@ does not exceed the
+-- supplied target; @Nothing@ if there is no such snapshot.
+snapshotAsOfTime :: TableMetadata -> Int64 -> Maybe Snapshot
+snapshotAsOfTime tm target =
+  let candidates = V.filter (\s -> snapTimestampMs s <= target) (tmSnapshots tm)
+   in if V.null candidates
+        then Nothing
+        else Just $ V.maximumBy
+               (\a b -> compare (snapTimestampMs a) (snapTimestampMs b))
+               candidates
+
 -- | Walk 'snapParentId' backwards to produce the snapshot history chain
 -- (excluding the given snapshot itself). Stops when no parent is found
 -- or the parent ID doesn't match any snapshot.
@@ -50,6 +76,35 @@ snapshotParentChain tm = go
     go snap = case snapParentId snap >>= snapshotById tm of
       Nothing     -> []
       Just parent -> parent : go parent
+
+-- | The given snapshot followed by its ancestors, oldest-last. Mirrors
+-- Java's @SnapshotUtil.ancestorsOf@.
+ancestorsOf :: TableMetadata -> Int64 -> [Snapshot]
+ancestorsOf tm sid = case snapshotById tm sid of
+  Nothing -> []
+  Just s  -> s : snapshotParentChain tm s
+
+-- | The current snapshot's ancestor chain, oldest-last.
+currentAncestors :: TableMetadata -> [Snapshot]
+currentAncestors tm = case currentSnapshot tm of
+  Nothing -> []
+  Just s  -> ancestorsOf tm (snapId s)
+
+-- | All snapshots between two ids on the same ancestry, exclusive at @from@,
+-- inclusive at @to@. Returns 'Nothing' if @to@ is not a descendant of @from@
+-- (or if either id does not exist).
+snapshotsBetween :: TableMetadata -> Int64 -> Int64 -> Maybe [Snapshot]
+snapshotsBetween tm fromId toId = case snapshotById tm toId of
+  Nothing -> Nothing
+  Just toS ->
+    let chain = toS : snapshotParentChain tm toS
+        (before, atFrom) = break (\s -> snapId s == fromId) chain
+     in if null atFrom then Nothing else Just (reverse before)
+
+-- | True if @ancestor@ appears in @descendant@'s parent chain (or is the
+-- snapshot itself).
+isAncestor :: TableMetadata -> Int64 {- ancestor -} -> Int64 {- descendant -} -> Bool
+isAncestor tm ancestor descendant = any (\s -> snapId s == ancestor) (ancestorsOf tm descendant)
 
 -- | Extract the manifest-list path from a snapshot. Returns 'Nothing'
 -- only if the path is empty (shouldn't happen for valid snapshots).

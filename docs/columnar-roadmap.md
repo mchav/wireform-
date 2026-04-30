@@ -95,6 +95,20 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.12 | V3 type extensions (nanos, unknown, variant, geometry, geography) | **Done** (types + JSON) |
 | D.13 | V3 default values, row lineage, encryption keys | **Done** (types + JSON) |
 | D.14 | Schema name mapping (`schema.name-mapping.default`) | **Done** |
+| D.15 | Canonical Iceberg field-id annotations on writer Avro schemas | **Done** (`Iceberg.Write`) |
+| D.16 | Sequence-number inheritance on manifest read | **Done** (`Iceberg.Read.inheritSequenceNumbers`) |
+| D.17 | Snapshot history helpers + rollback ancestor validation | **Done** (`Iceberg.Snapshot`, `Iceberg.Update`) |
+| D.18 | Auto-computed snapshot summary keys | **Done** (`Iceberg.Update` `SnapshotStats` / `autoSummary`) |
+| D.19 | Time-travel scans (`planScanAtSnapshot` / `planScanAsOfTime`) | **Done** (`Iceberg.Read`) |
+| D.20 | Predicate IN / NOT_IN / STARTS_WITH / NOT_STARTS_WITH evaluators | **Done** (`Iceberg.Expression`) |
+| D.21 | Row -> partition tuple + predicate-through-partition projection | **Done** (`Iceberg.Partition`) |
+| D.22 | Sort key evaluation | **Done** (`Iceberg.Sort`) |
+| D.23 | Per-column MetricsConfig + bound truncation | **Done** (`Iceberg.MetricsConfig`, `Iceberg.BoundTrunc`) |
+| D.24 | Schema evolution rule validator | **Done** (`Iceberg.SchemaCompat`) |
+| D.25 | Table-metadata structural validation | **Done** (`Iceberg.Validate`) |
+| D.26 | gzip metadata.json compression | **Done** (`Iceberg.Write.encodeTableMetadataCompressed`) |
+| D.27 | REST catalog convenience helpers (LoadTableResult builder, exception type) | **Done** (`Iceberg.Catalog.REST`) |
+| D.28 | Manifest-list partition summary aggregation | **Done** (`Iceberg.Write.buildManifestSummary`) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 
