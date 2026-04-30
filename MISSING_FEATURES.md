@@ -167,6 +167,10 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | Iceberg V3 geometry / geography column bounds (WKB POINT, 21 bytes) | full | `Iceberg.Geometry` |
 | REST catalog write-side: rename, register, view CRUD, namespace property updates | full | `Iceberg.Catalog.REST.Client.renameTable` / `registerTable` / `loadView` / `createView` / `dropView` / `updateNamespaceProperties` |
 | Iceberg Hadoop file-based catalog (FS-agnostic via `FileSystem` record; optimistic concurrency on `version-hint.text`) | full | `Iceberg.Catalog.Hadoop` |
+| Iceberg SQL ("JDBC") catalog (backend-agnostic via `SqlBackend` record; CAS-on-`metadata_location` commits; standard `iceberg_tables` / `iceberg_namespace_properties` schema) | full | `Iceberg.Catalog.Sql` |
+| Iceberg V3 Variant binary encoding (header + dictionary + value tree) + Variant ↔ JSON bridge | full (JSON-equivalent type set; decimal / temporal / UUID surface as `VUnsupportedPrimitive`) | `Iceberg.Variant` |
+| Parquet writer: per-column modular encryption (AES-GCM-V1 + AES-GCM-CTR-V1 with deterministic-nonce GCM, AAD per page module) | full for V1 data pages; V2 + footer/index encryption pending | `Parquet.Write.ColumnEncryption`, `columnEncryptionFor`, `encryptPageBytes` |
+| Parquet writer: nested column shred for `optional list<optional T>` | full (Iceberg V3 default-value arrays); pyarrow round-trip verified | `Parquet.Nested` |
 | ORC writer: per-stripe bloom filter (`BLOOM_FILTER_UTF8` stream) | full | `ORC.BloomFilter` |
 | ORC writer: per-stripe row index (`ROW_INDEX` stream) | full | `ORC.RowIndex` |
 | ORC reader: DECIMAL128 stream (LEB128 zig-zag, full Integer precision) | full | `ORC.Read.decodeDecimal128Stream` |

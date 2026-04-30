@@ -141,6 +141,10 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.41 | V3 multi-source-ids partition fields (multi-arg `bucket[N]` / `truncate[W]`) | **Done** (`PartitionField.pfSourceIds`, V1/V2 single + V3 multi unified) |
 | D.42 | V3 geometry / geography column bounds: WKB POINT codec | **Done** (`Iceberg.Geometry`) |
 | D.43 | Hadoop file-based catalog (FS-agnostic via `FileSystem` record; optimistic concurrency on `version-hint.text`) | **Done** (`Iceberg.Catalog.Hadoop`) |
+| D.44 | SQL ("JDBC") catalog (backend-agnostic via `SqlBackend` record; CAS-on-`metadata_location` commits) | **Done** (`Iceberg.Catalog.Sql`) |
+| D.45 | V3 Variant binary encoding + Variant ↔ JSON bridge | **Done** (`Iceberg.Variant`) |
+| D.46 | Parquet writer: per-column modular encryption (AES-GCM-V1 + AES-GCM-CTR-V1, deterministic-nonce GCM) | **Done** for V1 data pages (`Parquet.Write.ColumnEncryption`, `encryptPageBytes`); V2 + footer/index encryption pending |
+| D.47 | Parquet writer: nested column shred for `optional list<optional T>`, pyarrow round-trip verified | **Done** (`Parquet.Nested`) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 

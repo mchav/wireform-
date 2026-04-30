@@ -61,6 +61,7 @@ library
     Iceberg.Types
     Iceberg.Update
     Iceberg.Validate
+    Iceberg.Variant
     Iceberg.View
     Iceberg.Write
   build-depends:
@@ -126,6 +127,7 @@ test-suite iceberg-test
     Test.Iceberg.Transform
     Test.Iceberg.Update
     Test.Iceberg.Validate
+    Test.Iceberg.Variant
     Test.Iceberg.View
     Test.Iceberg.Write
   build-depends:
