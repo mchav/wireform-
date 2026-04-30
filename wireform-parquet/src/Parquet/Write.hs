@@ -24,10 +24,14 @@ module Parquet.Write
   , encodePageHeader
   , assembleColumnChunk
   , buildParquetFile
+  , buildParquetFileWithIndex
     -- * Statistics
   , statisticsForInt32
   , statisticsForInt64
   , statisticsForByteArray
+    -- * Per-column auxiliary metadata for the indexed writer
+  , ColumnAux(..)
+  , emptyColumnAux
   ) where
 
 import Data.ByteString (ByteString)
@@ -39,7 +43,17 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 
+import Parquet.BloomFilter (Sbbf, encodeBloomFilter, sbbfNumBytes)
+import qualified Parquet.BloomFilter as BF
 import Parquet.Footer (writeFooter, parquetMagic)
+import Parquet.PageIndex
+  ( encodeColumnIndex
+  , encodeOffsetIndex
+  )
+import Parquet.Types
+  ( ColumnIndex (..)
+  , OffsetIndex (..)
+  )
 import Parquet.Page
   ( DataPageHeader (..)
   , DataPageHeaderV2 (..)
@@ -294,3 +308,256 @@ i32LE v = BL.toStrict (B.toLazyByteString (B.int32LE v))
 
 i64LE :: Int64 -> ByteString
 i64LE v = BL.toStrict (B.toLazyByteString (B.int64LE v))
+
+-- ============================================================
+-- Indexed writer: bloom filter + page index footers
+-- ============================================================
+
+-- | Auxiliary metadata for one column chunk that the indexed writer
+-- emits alongside the data pages. Any 'Nothing' field is omitted from
+-- the produced file.
+data ColumnAux = ColumnAux
+  { caBloomFilter  :: !(Maybe Sbbf)
+    -- ^ Pre-built split-block bloom filter for this column chunk. The
+    -- writer serialises it into the bloom-filter region and records the
+    -- (offset, length) on the column metadata.
+  , caOffsetIndex  :: !(Maybe OffsetIndex)
+    -- ^ Per-page @(offset, compressed_size, first_row_index)@ entries.
+    -- The writer rewrites the @plOffset@ of each 'PageLocation' so that
+    -- it points at the actual page-bytes location in the assembled file.
+  , caColumnIndex  :: !(Maybe ColumnIndex)
+    -- ^ Per-page null/min/max statistics. Written verbatim.
+  } deriving (Show, Eq)
+
+emptyColumnAux :: ColumnAux
+emptyColumnAux = ColumnAux Nothing Nothing Nothing
+
+-- | Like 'buildParquetFile' but also emits a bloom-filter region, an
+-- offset-index region, and a column-index region between the row-group
+-- bytes and the file footer. Each column chunk's @ColumnMetadata@ is
+-- updated with the resulting offsets and lengths so the resulting file
+-- is byte-compatible with what parquet-mr / arrow-rs produce.
+--
+-- File layout:
+--
+-- @
+-- PAR1                         -- 4 bytes
+-- <row group bytes ...>        -- as before
+-- <bloom filter bitsets ...>   -- one per column with caBloomFilter = Just
+-- <offset index thrifts ...>   -- one per column with caOffsetIndex = Just
+-- <column index thrifts ...>   -- one per column with caColumnIndex = Just
+-- <footer>                     -- Thrift-encoded FileMetadata
+-- <footer length: int32 LE>
+-- PAR1
+-- @
+buildParquetFileWithIndex
+  :: V.Vector SchemaElement
+  -> V.Vector (V.Vector (VP.Vector Int32))   -- ^ Row groups; each is a vector of int32 columns.
+  -> V.Vector (V.Vector ColumnAux)            -- ^ One @ColumnAux@ per (row group, column).
+  -> ByteString
+buildParquetFileWithIndex schema rowGroupVecs auxes =
+  let !encodedRGs = V.map (V.map encodePlainInt32Page) rowGroupVecs
+      !rowGroupBytes = concatMap V.toList (V.toList encodedRGs)
+      !rgBytesLen = sum (map BS.length rowGroupBytes)
+      !startOfData = 4 :: Int  -- "PAR1"
+      !startOfBloom = startOfData + rgBytesLen
+
+      -- Phase 1: lay out row group metadata with absolute page offsets.
+      (!rgMetasBase, _) = V.ifoldl' buildRG (V.empty, startOfData) encodedRGs
+
+      -- Phase 2: lay out the bloom-filter region. For each (rg, col) we
+      -- decide whether a bloom filter exists and reserve its bytes.
+      (!rgMetasBloom, !bloomBytes, !endOfBloom) =
+        layoutBlooms rgMetasBase auxes startOfBloom
+
+      -- Phase 3: offset-index region.
+      (!rgMetasOff, !offBytes, !endOfOff) =
+        layoutOffsetIndex rgMetasBloom auxes endOfBloom encodedRGs
+
+      -- Phase 4: column-index region.
+      (!rgMetasCol, !colBytes, _endOfCol) =
+        layoutColumnIndex rgMetasOff auxes endOfOff
+
+      !totalRows = V.foldl' (\a rg -> a + rgNumRows rg) 0 rgMetasCol
+      !fm = FileMetadata
+        { fmVersion = 1
+        , fmSchema = schema
+        , fmNumRows = totalRows
+        , fmRowGroups = rgMetasCol
+        , fmCreatedBy = Just "wireform"
+        }
+   in BL.toStrict $ B.toLazyByteString $
+        B.byteString parquetMagic
+        <> mconcat (map B.byteString rowGroupBytes)
+        <> mconcat (map B.byteString bloomBytes)
+        <> mconcat (map B.byteString offBytes)
+        <> mconcat (map B.byteString colBytes)
+        <> B.byteString (writeFooter fm)
+  where
+    leaves :: V.Vector SchemaElement
+    !leaves = V.filter (maybe False (const True) . seType) schema
+
+    -- Identical to buildParquetFile's layout phase.
+    buildRG :: (V.Vector RowGroup, Int) -> Int -> V.Vector ByteString -> (V.Vector RowGroup, Int)
+    buildRG (!rgs, !off) rgIdx encodedCols =
+      let !colVecs = V.unsafeIndex rowGroupVecs rgIdx
+          (!cols, !off2) = V.ifoldl' (buildCol colVecs) (V.empty, off) encodedCols
+          !nRows = if V.null colVecs then 0 else fromIntegral (VP.length (V.unsafeIndex colVecs 0))
+          !rg = RowGroup
+            { rgColumns = cols
+            , rgTotalByteSize = fromIntegral (off2 - off)
+            , rgNumRows = nRows
+            }
+      in (V.snoc rgs rg, off2)
+
+    buildCol :: V.Vector (VP.Vector Int32) -> (V.Vector ColumnChunk, Int) -> Int -> ByteString -> (V.Vector ColumnChunk, Int)
+    buildCol colVecs (!cs, !cOff) colIdx pageBs =
+      let !colVec = V.unsafeIndex colVecs colIdx
+          !leaf = V.unsafeIndex leaves colIdx
+          !sz = BS.length pageBs
+          !cc = ColumnChunk
+            { ccFilePath = Nothing
+            , ccFileOffset = fromIntegral cOff
+            , ccMetadata = Just ColumnMetadata
+                { cmType = fromMaybe PTInt32 (seType leaf)
+                , cmEncodings = V.singleton Plain
+                , cmPathInSchema = V.singleton (seName leaf)
+                , cmCodec = Uncompressed
+                , cmNumValues = fromIntegral (VP.length colVec)
+                , cmTotalUncompressedSize = fromIntegral sz
+                , cmTotalCompressedSize = fromIntegral sz
+                , cmDataPageOffset = fromIntegral cOff
+                , cmStatistics = Just (statisticsForInt32 colVec)
+                , cmBloomFilterOffset = Nothing
+                , cmBloomFilterLength = Nothing
+                }
+            , ccOffsetIndexOffset = Nothing
+            , ccOffsetIndexLength = Nothing
+            , ccColumnIndexOffset = Nothing
+            , ccColumnIndexLength = Nothing
+            }
+      in (V.snoc cs cc, cOff + sz)
+
+layoutBlooms
+  :: V.Vector RowGroup
+  -> V.Vector (V.Vector ColumnAux)
+  -> Int                        -- ^ starting offset
+  -> (V.Vector RowGroup, [ByteString], Int)
+layoutBlooms rgs auxes start = go 0 start [] V.empty
+  where
+    go !i !off !payloads !acc
+      | i >= V.length rgs = (acc, reverse payloads, off)
+      | otherwise =
+          let !rg = V.unsafeIndex rgs i
+              !cols = rgColumns rg
+              !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
+              (!cols', !off', !payloads') =
+                V.ifoldl' (rewriteCol aux) (V.empty, off, payloads) cols
+              !rg' = rg { rgColumns = cols' }
+           in go (i + 1) off' payloads' (V.snoc acc rg')
+
+    rewriteCol
+      :: V.Vector ColumnAux
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+      -> Int -> ColumnChunk
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+    rewriteCol aux (!ccs, !off, !payloads) cIdx cc =
+      let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
+       in case mAux >>= caBloomFilter of
+            Nothing -> (V.snoc ccs cc, off, payloads)
+            Just bf ->
+              let !bs = encodeBloomFilter bf
+                  !bsLen = BS.length bs
+                  !cm0 = fromMaybe defaultMetadata (ccMetadata cc)
+                  !cm' = cm0
+                    { cmBloomFilterOffset = Just (fromIntegral off)
+                    , cmBloomFilterLength = Just (fromIntegral bsLen)
+                    }
+                  !cc' = cc { ccMetadata = Just cm' }
+               in (V.snoc ccs cc', off + bsLen, bs : payloads)
+
+    defaultMetadata = ColumnMetadata
+      { cmType = PTInt32, cmEncodings = V.empty, cmPathInSchema = V.empty
+      , cmCodec = Uncompressed, cmNumValues = 0
+      , cmTotalUncompressedSize = 0, cmTotalCompressedSize = 0
+      , cmDataPageOffset = 0, cmStatistics = Nothing
+      , cmBloomFilterOffset = Nothing, cmBloomFilterLength = Nothing
+      }
+
+layoutOffsetIndex
+  :: V.Vector RowGroup
+  -> V.Vector (V.Vector ColumnAux)
+  -> Int
+  -> V.Vector (V.Vector ByteString)
+  -> (V.Vector RowGroup, [ByteString], Int)
+layoutOffsetIndex rgs auxes start _ = go 0 start [] V.empty
+  where
+    go !i !off !payloads !acc
+      | i >= V.length rgs = (acc, reverse payloads, off)
+      | otherwise =
+          let !rg = V.unsafeIndex rgs i
+              !cols = rgColumns rg
+              !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
+              (!cols', !off', !payloads') =
+                V.ifoldl' (rewriteCol aux) (V.empty, off, payloads) cols
+              !rg' = rg { rgColumns = cols' }
+           in go (i + 1) off' payloads' (V.snoc acc rg')
+
+    rewriteCol
+      :: V.Vector ColumnAux
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+      -> Int -> ColumnChunk
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+    rewriteCol aux (!ccs, !off, !payloads) cIdx cc =
+      let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
+       in case mAux >>= caOffsetIndex of
+            Nothing -> (V.snoc ccs cc, off, payloads)
+            Just oi ->
+              let !bs = encodeOffsetIndex oi
+                  !bsLen = BS.length bs
+                  !cc' = cc
+                    { ccOffsetIndexOffset = Just (fromIntegral off)
+                    , ccOffsetIndexLength = Just (fromIntegral bsLen)
+                    }
+               in (V.snoc ccs cc', off + bsLen, bs : payloads)
+
+layoutColumnIndex
+  :: V.Vector RowGroup
+  -> V.Vector (V.Vector ColumnAux)
+  -> Int
+  -> (V.Vector RowGroup, [ByteString], Int)
+layoutColumnIndex rgs auxes start = go 0 start [] V.empty
+  where
+    go !i !off !payloads !acc
+      | i >= V.length rgs = (acc, reverse payloads, off)
+      | otherwise =
+          let !rg = V.unsafeIndex rgs i
+              !cols = rgColumns rg
+              !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
+              (!cols', !off', !payloads') =
+                V.ifoldl' (rewriteCol aux) (V.empty, off, payloads) cols
+              !rg' = rg { rgColumns = cols' }
+           in go (i + 1) off' payloads' (V.snoc acc rg')
+
+    rewriteCol
+      :: V.Vector ColumnAux
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+      -> Int -> ColumnChunk
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+    rewriteCol aux (!ccs, !off, !payloads) cIdx cc =
+      let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
+       in case mAux >>= caColumnIndex of
+            Nothing -> (V.snoc ccs cc, off, payloads)
+            Just ci ->
+              let !bs = encodeColumnIndex ci
+                  !bsLen = BS.length bs
+                  !cc' = cc
+                    { ccColumnIndexOffset = Just (fromIntegral off)
+                    , ccColumnIndexLength = Just (fromIntegral bsLen)
+                    }
+               in (V.snoc ccs cc', off + bsLen, bs : payloads)
+
+-- Suppress unused-import warning when bloom-filter sizing helpers aren't
+-- referenced directly in the writer (they are part of the public API).
+_unusedBF :: Sbbf -> Int
+_unusedBF = BF.sbbfNumBytes

@@ -16,7 +16,9 @@ import Parquet.PageIndex
 import Parquet.Read (loadParquetFile, pfFooter)
 import Parquet.Types
 import Parquet.Write
-  ( buildParquetFile
+  ( ColumnAux (..)
+  , buildParquetFile
+  , buildParquetFileWithIndex
   , statisticsForByteArray
   , statisticsForInt32
   , statisticsForInt64
@@ -138,6 +140,52 @@ main = do
               (statMinValue st == Just (BS.pack [0xFF, 0xFF, 0xFF, 0xFF]))
             expect "writer max == 7"
               (statMaxValue st == Just (BS.pack [0x07, 0x00, 0x00, 0x00]))
+
+  -- buildParquetFileWithIndex: bloom filter + page index + column index
+  -- offsets are populated on the round-tripped column metadata.
+  let schemaIdx = V.fromList
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
+        , SchemaElement "y" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+        ]
+      vsIdx = VP.fromList [(1 :: Int32), 2, 3, 4]
+      bf    = sbbfInsertHash 0xdeadbeef (newSbbf (optimalNumBytes 1024 0.01))
+      oi    = OffsetIndex
+                { oiPageLocations = V.singleton (PageLocation 0 16 0)
+                , oiUnencodedByteArrayDataBytes = Nothing
+                }
+      ci    = ColumnIndex
+                { ciNullPages = V.singleton False
+                , ciMinValues = V.singleton (BS.pack [0x01, 0, 0, 0])
+                , ciMaxValues = V.singleton (BS.pack [0x04, 0, 0, 0])
+                , ciBoundaryOrder = OrderAscending
+                , ciNullCounts = Nothing
+                , ciRepetitionLevelHistograms = Nothing
+                , ciDefinitionLevelHistograms = Nothing
+                }
+      aux   = ColumnAux (Just bf) (Just oi) (Just ci)
+      fIdx  = buildParquetFileWithIndex schemaIdx
+                (V.singleton (V.singleton vsIdx))
+                (V.singleton (V.singleton aux))
+  case loadParquetFile fIdx of
+    Left e -> failTest ("indexed-writer load: " ++ e)
+    Right pf -> do
+      let !rgs2 = fmRowGroups (pfFooter pf)
+          !cc   = V.unsafeIndex (rgColumns (V.unsafeIndex rgs2 0)) 0
+      case ccMetadata cc of
+        Nothing -> failTest "indexed-writer: missing metadata"
+        Just m -> do
+          expect "indexed-writer: bloom filter offset populated"
+            (cmBloomFilterOffset m /= Nothing)
+          expect "indexed-writer: bloom filter length populated"
+            (cmBloomFilterLength m /= Nothing)
+      expect "indexed-writer: offset index offset populated"
+        (ccOffsetIndexOffset cc /= Nothing)
+      expect "indexed-writer: offset index length populated"
+        (ccOffsetIndexLength cc /= Nothing)
+      expect "indexed-writer: column index offset populated"
+        (ccColumnIndexOffset cc /= Nothing)
+      expect "indexed-writer: column index length populated"
+        (ccColumnIndexLength cc /= Nothing)
 
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
