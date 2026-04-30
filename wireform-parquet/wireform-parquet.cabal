@@ -52,6 +52,7 @@ library
     Parquet.Footer
     Parquet.Levels
     Parquet.LevelsEncode
+    Parquet.Nested
     Parquet.NullPagesBitmap
     Parquet.Page
     Parquet.PageIndex
@@ -99,7 +100,8 @@ test-suite wireform-parquet-test
     vector >= 0.13 && < 0.14,
     primitive >= 0.7 && < 0.10,
     crypton >= 1.0 && < 1.1,
-    directory >= 1.3 && < 1.4
+    directory >= 1.3 && < 1.4,
+    process >= 1.6 && < 1.7
 
 benchmark parquet-bench
   import: defaults

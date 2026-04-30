@@ -6,8 +6,10 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Vector as V
 import Numeric (showHex)
+import Data.List (isInfixOf)
 import System.Directory (doesFileExist)
-import System.Exit (exitFailure)
+import System.Exit (ExitCode (..), exitFailure)
+import qualified System.Process as Proc
 
 import qualified Data.Vector.Primitive as VP
 import Data.Int (Int32, Int64)
@@ -29,6 +31,7 @@ import Parquet.DeltaEncode
   , encodeDeltaByteArray
   , encodeDeltaLengthByteArray
   )
+import qualified Parquet.Nested as Nested
 import qualified Parquet.NullPagesBitmap as NPB
 import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
@@ -346,6 +349,33 @@ main = do
           expect "V2 header reports 4 rows"   (dph2NumRows v2 == 4)
         _ -> failTest "V2 encoder did not produce PtDataPageV2"
 
+  -- Nested column shred: optional list of optional INT32, the
+  -- 'list<int?>?' shape every Iceberg V3 default-value array uses.
+  -- For [[Just 1, Nothing, Just 3], [], Nothing] the spec says:
+  --   maxDef=3, maxRep=1
+  --   events:  (d=3,r=0,v=1), (d=2,r=1,v=null), (d=3,r=1,v=3),
+  --            (d=1,r=0,v=null) (empty list),
+  --            (d=0,r=0,v=null) (null list)
+  let nestedRows = V.fromList
+        [ Just (V.fromList [Just (1 :: Int32), Nothing, Just 3])
+        , Just V.empty
+        , Nothing
+        ]
+      nLeaf = Nested.encodeOptionalListOptionalI32 "xs" nestedRows
+  expect "nested leaf maxDef == 3" (Nested.nlMaxDef nLeaf == 3)
+  expect "nested leaf maxRep == 1" (Nested.nlMaxRep nLeaf == 1)
+  expect "nested leaf def levels match Dremel"
+    (VP.toList (Nested.nlDefLevels nLeaf) == [3, 2, 3, 1, 0])
+  expect "nested leaf rep levels match Dremel"
+    (VP.toList (Nested.nlRepLevels nLeaf) == [0, 1, 1, 0, 0])
+  expect "nested leaf present-value count == 2"
+    (Nested.nlValueCount nLeaf == 2)
+  expect "nested leaf PLAIN bytes are LE [1, 3]"
+    (Nested.nlValueBytes nLeaf
+       == BS.pack [0x01,0,0,0, 0x03,0,0,0])
+  expect "nested leaf path is xs.list.element"
+    (V.toList (Nested.nlPath nLeaf) == ["xs", "list", "element"])
+
   -- Modular encryption round-trip: encrypted column-chunk page-bytes
   -- must round-trip through encryptPageBytes with the matching AAD.
   --
@@ -561,6 +591,13 @@ main = do
       putStrLn "OK: pyarrow golden round-trip"
     else putStrLn "SKIP: pyarrow golden fixtures not present"
 
+  -- Validate the nested optional-list-of-optional-int writer against
+  -- pyarrow if pyarrow is available on PATH; otherwise skip.
+  pyarrowOk <- pyarrowAvailable
+  if pyarrowOk
+    then validateNestedAgainstPyarrow
+    else putStrLn "SKIP: pyarrow not available, nested-list cross-language check skipped"
+
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
 expectHash :: String -> String -> IO ()
@@ -586,6 +623,45 @@ failTest :: String -> IO ()
 failTest msg = do
   putStrLn ("FAIL: " ++ msg)
   exitFailure
+
+-- ============================================================
+-- Pyarrow availability + nested-list cross-language check
+-- ============================================================
+
+pyarrowAvailable :: IO Bool
+pyarrowAvailable = do
+  (code, _, _) <- Proc.readProcessWithExitCode
+                    "python3" ["-c", "import pyarrow.parquet"] ""
+  pure (code == ExitSuccess)
+
+validateNestedAgainstPyarrow :: IO ()
+validateNestedAgainstPyarrow = do
+  let rows = V.fromList
+        [ Just (V.fromList [Just (1 :: Int32), Nothing, Just 3])
+        , Just V.empty
+        , Nothing
+        ]
+      leaf = Nested.encodeOptionalListOptionalI32 "xs" rows
+      bytes = Nested.buildOptionalListFile PTInt32 leaf 3
+      filePath = "/tmp/wireform-nested-list.parquet"
+  BS.writeFile filePath bytes
+  (code, out, err) <- Proc.readProcessWithExitCode "python3"
+    [ "-c"
+    , unlines
+        [ "import pyarrow.parquet as pq"
+        , "t = pq.read_table('" ++ filePath ++ "').to_pylist()"
+        , "exp = [{'xs': [1, None, 3]}, {'xs': []}, {'xs': None}]"
+        , "assert t == exp, f'roundtrip mismatch: {t!r}'"
+        , "print('PYARROW_OK')"
+        ]
+    ] ""
+  case code of
+    ExitSuccess
+      | "PYARROW_OK" `isInfixOf` out ->
+          expect "nested optional-list<optional INT32> reads back via pyarrow" True
+      | otherwise -> failTest ("pyarrow validation: unexpected output: " ++ out)
+    _ -> failTest ("pyarrow rejected our nested file:\nstdout=" ++ out
+                    ++ "\nstderr=" ++ err)
 
 -- ============================================================
 -- Golden pyarrow fixtures
