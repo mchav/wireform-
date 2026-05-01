@@ -522,6 +522,7 @@ genImports externalModules = vsep $
   , txt "import Proto.Message (IsMessage(..))"
   , txt "import Proto.Schema (ProtoMessage(..), SomeFieldDescriptor(..), FieldDescriptor(..), FieldTypeDescriptor(..), ScalarFieldType(..), FieldLabel'(..))"
   , txt "import qualified Proto.Registry"
+  , txt "import qualified Proto.Extension"
   , txt "import Proto.Wire (Tag(..), WireType(..))"
   , txt "import Proto.Wire.Encode (putTag, putVarint, putFixed32, putFixed64,"
   , txt "  putFloat, putDouble, putText, putByteString, putLengthDelimited,"
@@ -601,12 +602,7 @@ genTopLevel ctx scope = \case
   TLMessage msg -> genMessage ctx scope msg
   TLEnum ed     -> genEnum ctx scope ed
   TLService svc -> genServiceTopLevel ctx scope svc
-  TLExtend extName _fields ->
-    [ txt "-- WARNING: extension block 'extend " <> pretty extName <>
-      txt "' was skipped during code generation."
-    , txt "-- Proto2 extensions are not yet supported by wireform codegen."
-    , txt "-- To access extension fields, use dynamic message APIs."
-    ]
+  TLExtend extName fields -> genExtensionBlock ctx scope extName fields
   TLOption _    -> []
 
 genMessage :: GenCtx -> [Text] -> MessageDef -> [Doc ann]
@@ -645,6 +641,8 @@ genMessage ctx scope msg =
         , genFromJSONInstance ctx scope' msg
         , mempty
         , genHashableInstance ctx scope' msg
+        , mempty
+        , genHasExtensionsInstance scope' msg
         ]
      <> case hookDocs of
           [] -> []
@@ -1486,6 +1484,24 @@ genHashableInstance ctx scope msg =
         _  -> txt "hashWithSalt salt msg = " <> genHashExpr fields
     ]
 
+-- | Emit the per-message 'Proto.Extension.HasExtensions' instance so
+-- that generated messages with @extensions@ declarations (or any
+-- @extend@ block targeting them) support the typed extension
+-- accessors from "Proto.Extension". The instance is always safe to
+-- emit because every generated message type already carries an
+-- unknown-fields list; messages without extension ranges will just
+-- never have callers that use the instance.
+genHasExtensionsInstance :: [Text] -> MessageDef -> Doc ann
+genHasExtensionsInstance scope _msg =
+  let tyN = scopedTypeName scope
+      acc = unknownFieldAccessor scope
+  in vsep
+    [ txt "instance Proto.Extension.HasExtensions " <> pretty tyN <> txt " where"
+    , indent 2 $ txt "messageUnknownFields = " <> pretty acc
+    , indent 2 $ txt "setMessageUnknownFields !ufs msg = msg { " <>
+        pretty acc <> txt " = ufs }"
+    ]
+
 genHashExpr :: [FieldInfoFull] -> Doc ann
 genHashExpr = go (txt "salt")
   where
@@ -1687,6 +1703,106 @@ genServiceTopLevel ctx scope svc =
      <> case hookDocs of
           [] -> []
           ds -> [mempty, vsep ds]
+
+-- ---------------------------------------------------------------------------
+-- Proto2 extension blocks (@extend Foo { optional int32 bar = 123; }@)
+-- ---------------------------------------------------------------------------
+
+-- | Emit one top-level 'Proto.Extension.Extension' binding per field
+-- in an @extend@ block. Callers of the generated module use
+-- 'Proto.Extension.getExtension' / 'setExtension' / 'clearExtension'
+-- to interact with the extension through the message's
+-- unknown-fields list; the owning message type automatically
+-- satisfies 'Proto.Extension.HasExtensions' via the
+-- per-message instance emitted by 'genHasExtensionsInstance'.
+--
+-- Repeated and message-group extensions are not yet modelled; we
+-- fall through to a @-- WARNING@ comment for unsupported fields so
+-- that the rest of the generated module still compiles.
+genExtensionBlock
+  :: GenCtx -> [Text] -> Text -> [FieldDef] -> [Doc ann]
+genExtensionBlock ctx scope extOwnerName fields =
+  let pkg          = fromMaybe "" (gcPkg ctx)
+      ownerHsType  = qualifyExtendedType ctx pkg extOwnerName
+      ownerProtoShort = lastDot extOwnerName
+      ownerPrefix = lowerFirst (hsTypeName ownerProtoShort)
+  in concatMap (genOneExtension ctx scope ownerHsType ownerPrefix) fields
+
+-- Generate one @Extension <owner> <payload>@ binding.
+genOneExtension
+  :: GenCtx -> [Text] -> Text -> Text -> FieldDef -> [Doc ann]
+genOneExtension ctx _scope ownerHsType ownerPrefix fd =
+  let fieldNameHs = escapeReserved
+        (ownerPrefix <> upperFirst (snakeToCamel (fieldName fd)))
+      num = unFieldNumber (fieldNumber fd)
+  in case extensionPayload (fieldLabel fd) (fieldType fd) of
+       Nothing ->
+         [ mempty
+         , txt "-- WARNING: extension '" <> pretty (fieldName fd) <>
+           txt "' uses an unsupported shape (repeated or group) and"
+         , txt "-- was skipped. Use dynamic decode + Proto.Extension.Extension"
+         , txt "-- manually if you need it."
+         ]
+       Just (haskellType, extTag) ->
+         [ mempty
+         , txt fieldNameHs <> txt " :: Proto.Extension.Extension " <>
+           pretty ownerHsType <> txt " " <> haskellType
+         , txt fieldNameHs <> txt " = Proto.Extension.Extension"
+         , indent 2 $ txt "{ Proto.Extension.extNumber = " <> pretty (tshow num)
+         , indent 2 $ txt ", Proto.Extension.extType   = Proto.Extension." <>
+           pretty extTag
+         , indent 2 $ txt "}"
+         ]
+
+-- | Project a proto 'FieldType' (+ label) onto the pair @(Haskell
+-- type, 'ExtensionType' constructor name)@ that the
+-- 'Proto.Extension.ExtensionType' GADT expects. Returns 'Nothing'
+-- for unsupported shapes (repeated, group, named enums) so the
+-- caller can emit a warning without crashing.
+extensionPayload
+  :: Maybe FieldLabel -> FieldType -> Maybe (Doc ann, Text)
+extensionPayload (Just Repeated) _ = Nothing
+extensionPayload _ (FTScalar s)   = case s of
+  SDouble   -> Just (txt "Double",    "ExtDouble")
+  SFloat    -> Just (txt "Float",     "ExtFloat")
+  SInt32    -> Just (txt "Int32",     "ExtInt32")
+  SInt64    -> Just (txt "Int64",     "ExtInt64")
+  SUInt32   -> Just (txt "Word32",    "ExtUInt32")
+  SUInt64   -> Just (txt "Word64",    "ExtUInt64")
+  SSInt32   -> Just (txt "Int32",     "ExtSInt32")
+  SSInt64   -> Just (txt "Int64",     "ExtSInt64")
+  SFixed32  -> Just (txt "Word32",    "ExtFixed32")
+  SFixed64  -> Just (txt "Word64",    "ExtFixed64")
+  SSFixed32 -> Just (txt "Int32",     "ExtSFixed32")
+  SSFixed64 -> Just (txt "Int64",     "ExtSFixed64")
+  SBool     -> Just (txt "Bool",      "ExtBool")
+  SString   -> Just (txt "Text",      "ExtString")
+  SBytes    -> Just (txt "ByteString", "ExtBytes")
+-- Message-typed extensions carry the sub-message's raw length-
+-- delimited bytes. Callers use Proto.Decode.decodeMessage to
+-- re-project when they want the typed sub-message back.
+extensionPayload _ (FTNamed _) = Just (txt "ByteString", "ExtMessage")
+
+-- Resolve an extended type name to its Haskell module-qualified
+-- form. Same logic as 'qualifyRpcType' in 'genServiceTopLevel'.
+qualifyExtendedType :: GenCtx -> Text -> Text -> Text
+qualifyExtendedType ctx pkg name =
+  let candidates = [name, pkg <> "." <> name]
+      go [] = Nothing
+      go (c:cs) = case Map.lookup c (gcRegistry ctx) of
+        Just ti -> Just ti
+        Nothing -> go cs
+  in case go candidates of
+       Just ti
+         | tiModule ti /= gcThisMod ctx ->
+             moduleAlias (tiModule ti) <> "." <> tiHsName ti
+         | otherwise -> tiHsName ti
+       Nothing -> hsTypeName (lastDot name)
+
+lastDot :: Text -> Text
+lastDot t = case T.splitOn "." t of
+  []    -> t
+  parts -> last parts
 
 -- ---------------------------------------------------------------------------
 -- Enum generation

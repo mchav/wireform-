@@ -624,6 +624,12 @@ executable example-custom-repr
   hs-source-dirs: examples
   build-depends: base, wireform-proto, bytestring, text, containers
 
+executable example-extensions
+  import: defaults
+  main-is: ExtensionExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring, text
+
 executable example-th
   import: defaults
   main-is: THExample.hs

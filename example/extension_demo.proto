@@ -1,0 +1,14 @@
+// Proto2 file demonstrating typed extensions.
+syntax = "proto2";
+
+message Account {
+  optional string name = 1;
+  extensions 100 to max;
+}
+
+extend Account {
+  optional int32  level    = 123;
+  optional string tag      = 124;
+  optional bool   disabled = 125;
+  optional bytes  opaque   = 126;
+}
