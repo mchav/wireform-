@@ -886,14 +886,14 @@ buildRecordBatchBytes sch cols =
   let !acc = W.encodeColumns (arrowFields sch) cols W.emptyBuildAcc
       !rawNodes = V.fromList (reverse (W.baNodes acc))
       !rawBufs  = V.fromList (reverse (W.baBufs acc))
-      !(!nodes, !bufs) = normaliseBuffers (arrowFields sch) cols rawNodes rawBufs
+      !rawVar          = V.fromList (reverse (W.baVariadic acc))
+      !(!nodes, !bufs) = normaliseBuffers (arrowFields sch) cols rawNodes rawBufs rawVar
       !numRows = if V.null cols then 0 else columnLength (V.head cols)
       !rb = RecordBatchDef
               { rbLength  = fromIntegral numRows
               , rbNodes   = nodes
               , rbBuffers = bufs
-              , rbVariadicBufferCounts =
-                  V.fromList (reverse (W.baVariadic acc))
+              , rbVariadicBufferCounts = rawVar
               }
       !body = BL.toStrict (B.toLazyByteString (W.baBody acc))
   in (rb, body)
@@ -918,129 +918,138 @@ normaliseBuffers
   -> V.Vector ColumnArray
   -> V.Vector FieldNode
   -> V.Vector Buffer
+  -> V.Vector Int64    -- ^ baVariadic: per-view-column variadic count
+                       --   in DFS pre-order, as recorded by the
+                       --   writer; consumed left-to-right.
   -> (V.Vector FieldNode, V.Vector Buffer)
-normaliseBuffers _fields cols nodes rawBufs =
-  let (_, !revBufs) = V.foldl' step (0 :: Int, []) cols
-      step (!bIdx, acc) col =
-        let (!consumed, !emitted) = injectColumn col rawBufs bIdx
-        in  (bIdx + consumed, reverse emitted ++ acc)
+normaliseBuffers _fields cols nodes rawBufs varCounts =
+  let (_, _, !revBufs) = V.foldl' step (0 :: Int, 0 :: Int, []) cols
+      step (!bIdx, !vIdx, acc) col =
+        let (!consumed, !varConsumed, !emitted) =
+              injectColumn col rawBufs bIdx varCounts vIdx
+        in  ( bIdx + consumed
+            , vIdx + varConsumed
+            , reverse emitted ++ acc
+            )
   in  (nodes, V.fromList (reverse revBufs))
 
 -- | Recursively inject empty validity buffers at every layout
 -- position that has a validity slot but where the writer omitted
 -- it (non-nullable column).  Returns @(#source buffers consumed,
--- spec-compliant output buffers in emission order)@.
+-- #variadic-count entries consumed, spec-compliant output buffers
+-- in emission order)@.
 injectColumn
-  :: ColumnArray -> V.Vector Buffer -> Int -> (Int, [Buffer])
-injectColumn col bufs bIdx0 = case col of
-  -- Flat primitives: layout = [validity, data]. Nullable supplies
-  -- 2 buffers; non-nullable supplies 1 (data only) and we prepend
-  -- an empty validity.
+  :: ColumnArray
+  -> V.Vector Buffer
+  -> Int
+  -> V.Vector Int64
+  -> Int
+  -> (Int, Int, [Buffer])
+injectColumn col bufs bIdx0 varCounts vIdx0 = case col of
   _ | isFlatPrim col ->
       let (vBuf, bIdx1) = takeValidity (isNullable col) bufs bIdx0
           dataBuf       = bufs V.! bIdx1
-      in  (bIdx1 + 1 - bIdx0, [vBuf, dataBuf])
+      in  (bIdx1 + 1 - bIdx0, 0, [vBuf, dataBuf])
   _ | isVarLen col ->
       let (vBuf, bIdx1) = takeValidity (isNullable col) bufs bIdx0
           offsetsBuf    = bufs V.! bIdx1
           dataBuf       = bufs V.! (bIdx1 + 1)
-      in  (bIdx1 + 2 - bIdx0, [vBuf, offsetsBuf, dataBuf])
+      in  (bIdx1 + 2 - bIdx0, 0, [vBuf, offsetsBuf, dataBuf])
 
-  ColStruct children          -> goStruct False (V.toList (V.map snd children)) bIdx0
-  ColStructMaybe _ children   -> goStruct True  (V.toList (V.map snd children)) bIdx0
+  ColStruct children          -> goStruct False (V.toList (V.map snd children)) bIdx0 vIdx0
+  ColStructMaybe _ children   -> goStruct True  (V.toList (V.map snd children)) bIdx0 vIdx0
 
-  ColList _ child             -> goList False child bIdx0
-  ColListMaybe _ _ child      -> goList True  child bIdx0
-  ColLargeList _ child        -> goList False child bIdx0
-  ColLargeListMaybe _ _ child -> goList True  child bIdx0
+  ColList _ child             -> goList False child bIdx0 vIdx0
+  ColListMaybe _ _ child      -> goList True  child bIdx0 vIdx0
+  ColLargeList _ child        -> goList False child bIdx0 vIdx0
+  ColLargeListMaybe _ _ child -> goList True  child bIdx0 vIdx0
 
-  ColFixedSizeList _ child       -> goFixedSizeList False child bIdx0
-  ColFixedSizeListMaybe _ _ child -> goFixedSizeList True  child bIdx0
+  ColFixedSizeList _ child       -> goFixedSizeList False child bIdx0 vIdx0
+  ColFixedSizeListMaybe _ _ child -> goFixedSizeList True  child bIdx0 vIdx0
 
-  ColMap _ k v                -> goMap False k v bIdx0
-  ColMapMaybe _ _ k v         -> goMap True  k v bIdx0
+  ColMap _ k v                -> goMap False k v bIdx0 vIdx0
+  ColMapMaybe _ _ k v         -> goMap True  k v bIdx0 vIdx0
 
   ColDenseUnion _ _ children ->
       let typeIds = bufs V.! bIdx0
           offsets = bufs V.! (bIdx0 + 1)
-          (cc, cb) = goSiblings (V.toList children) (bIdx0 + 2)
-      in  (cc + 2, typeIds : offsets : cb)
+          (cc, cv, cb) = goSiblings (V.toList children) (bIdx0 + 2) vIdx0
+      in  (cc + 2, cv, typeIds : offsets : cb)
   ColSparseUnion _ children ->
       let typeIds = bufs V.! bIdx0
-          (cc, cb) = goSiblings (V.toList children) (bIdx0 + 1)
-      in  (cc + 1, typeIds : cb)
+          (cc, cv, cb) = goSiblings (V.toList children) (bIdx0 + 1) vIdx0
+      in  (cc + 1, cv, typeIds : cb)
 
   ColRunEndEncoded re vals ->
-      -- REE parent has zero buffers, then run_ends + values.
-      let (cre, bre) = injectColumn re bufs bIdx0
-          (cv,  bv)  = injectColumn vals bufs (bIdx0 + cre)
-      in  (cre + cv, bre ++ bv)
+      let (cre, crv, bre) = injectColumn re bufs bIdx0 varCounts vIdx0
+          (cv,  cvv, bv)  = injectColumn vals bufs (bIdx0 + cre) varCounts (vIdx0 + crv)
+      in  (cre + cv, crv + cvv, bre ++ bv)
 
-  ColListView _ _ child            -> goListView False child bIdx0
-  ColListViewMaybe _ _ _ child     -> goListView True  child bIdx0
-  ColLargeListView _ _ child       -> goListView False child bIdx0
-  ColLargeListViewMaybe _ _ _ child -> goListView True  child bIdx0
+  ColListView _ _ child            -> goListView False child bIdx0 vIdx0
+  ColListViewMaybe _ _ _ child     -> goListView True  child bIdx0 vIdx0
+  ColLargeListView _ _ child       -> goListView False child bIdx0 vIdx0
+  ColLargeListViewMaybe _ _ _ child -> goListView True  child bIdx0 vIdx0
 
-  ColUtf8View {}        -> goView col bIdx0
-  ColUtf8ViewMaybe {}   -> goView col bIdx0
-  ColBinaryView {}      -> goView col bIdx0
-  ColBinaryViewMaybe {} -> goView col bIdx0
+  ColUtf8View {}        -> goView bIdx0
+  ColUtf8ViewMaybe {}   -> goView bIdx0
+  ColBinaryView {}      -> goView bIdx0
+  ColBinaryViewMaybe {} -> goView bIdx0
 
   ColDictionary _ _ _ ->
       let (vBuf, bIdx1) = takeValidity (isNullable col) bufs bIdx0
           indices       = bufs V.! bIdx1
-      in  (bIdx1 + 1 - bIdx0, [vBuf, indices])
+      in  (bIdx1 + 1 - bIdx0, 0, [vBuf, indices])
 
-  _ -> (0, [])
+  _ -> (0, 0, [])
   where
-    goStruct nullable children bIdx =
+    goStruct nullable children bIdx vIdx =
       let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
-          (cc, cb) = goSiblings children bIdx1
-      in  (bIdx1 + cc - bIdx, vBuf : cb)
-    goList nullable child bIdx =
-      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
-          offsetsBuf    = bufs V.! bIdx1
-          (cc, cb)      = injectColumn child bufs (bIdx1 + 1)
-      in  (bIdx1 + 1 + cc - bIdx, vBuf : offsetsBuf : cb)
-    goFixedSizeList nullable child bIdx =
-      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
-          (cc, cb)      = injectColumn child bufs bIdx1
-      in  (bIdx1 + cc - bIdx, vBuf : cb)
-    goMap nullable k v bIdx =
-      -- Map's child is a (key, value) struct; the writer skips
-      -- emitting a struct buffer (no validity) — its FieldNode
-      -- exists but contributes 0 buffers. So our spec output has
-      -- [validity, offsets, struct-validity (empty), key bufs..., value bufs...].
+          (cc, cv, cb) = goSiblings children bIdx1 vIdx
+      in  (bIdx1 + cc - bIdx, cv, vBuf : cb)
+    goList nullable child bIdx vIdx =
       let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
           offsetsBuf    = bufs V.! bIdx1
-          (ck, kb) = injectColumn k bufs (bIdx1 + 1)
-          (cv, kv) = injectColumn v bufs (bIdx1 + 1 + ck)
+          (cc, cv, cb)  = injectColumn child bufs (bIdx1 + 1) varCounts vIdx
+      in  (bIdx1 + 1 + cc - bIdx, cv, vBuf : offsetsBuf : cb)
+    goFixedSizeList nullable child bIdx vIdx =
+      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
+          (cc, cv, cb)  = injectColumn child bufs bIdx1 varCounts vIdx
+      in  (bIdx1 + cc - bIdx, cv, vBuf : cb)
+    goMap nullable k v bIdx vIdx =
+      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
+          offsetsBuf    = bufs V.! bIdx1
+          (ck, ckv, kb) = injectColumn k bufs (bIdx1 + 1) varCounts vIdx
+          (cv, cvv, kv) = injectColumn v bufs (bIdx1 + 1 + ck) varCounts (vIdx + ckv)
       in  ( bIdx1 + 1 + ck + cv - bIdx
+          , ckv + cvv
           , vBuf : offsetsBuf : emptyValidityBuffer : kb ++ kv
           )
-    goListView nullable child bIdx =
+    goListView nullable child bIdx vIdx =
       let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
           offsetsBuf    = bufs V.! bIdx1
           sizesBuf      = bufs V.! (bIdx1 + 1)
-          (cc, cb)      = injectColumn child bufs (bIdx1 + 2)
-      in  (bIdx1 + 2 + cc - bIdx, vBuf : offsetsBuf : sizesBuf : cb)
-    goView c bIdx =
-      let (vBuf, bIdx1) = takeValidity (isNullable c) bufs bIdx
+          (cc, cv, cb)  = injectColumn child bufs (bIdx1 + 2) varCounts vIdx
+      in  (bIdx1 + 2 + cc - bIdx, cv, vBuf : offsetsBuf : sizesBuf : cb)
+    goView bIdx =
+      -- Variadic count comes from the writer's per-view tally
+      -- (recorded in baVariadic and passed through here as
+      -- @varCounts@). Far cheaper than re-encoding the column.
+      let (vBuf, bIdx1) = takeValidity (isNullable col) bufs bIdx
           viewBuf       = bufs V.! bIdx1
-          !varCount = case c of
-            ColUtf8View vs        -> viewVariadic (V.map (Just . TE.encodeUtf8) vs)
-            ColUtf8ViewMaybe vs   -> viewVariadic (V.map (fmap TE.encodeUtf8) vs)
-            ColBinaryView vs      -> viewVariadic (V.map Just vs)
-            ColBinaryViewMaybe vs -> viewVariadic vs
-            _                     -> 0
+          !varCount = case varCounts V.!? vIdx0 of
+            Just c  -> fromIntegral c :: Int
+            Nothing -> 0
           variadics = [ bufs V.! (bIdx1 + 1 + i) | i <- [0 .. varCount - 1] ]
-      in  (bIdx1 + 1 + varCount - bIdx, vBuf : viewBuf : variadics)
-    goSiblings :: [ColumnArray] -> Int -> (Int, [Buffer])
-    goSiblings [] _ = (0, [])
-    goSiblings (c:cs) bIdx =
-      let (cc, cb) = injectColumn c bufs bIdx
-          (rc, rb) = goSiblings cs (bIdx + cc)
-      in  (cc + rc, cb ++ rb)
+      in  ( bIdx1 + 1 + varCount - bIdx
+          , 1
+          , vBuf : viewBuf : variadics
+          )
+    goSiblings :: [ColumnArray] -> Int -> Int -> (Int, Int, [Buffer])
+    goSiblings []     _    _   = (0, 0, [])
+    goSiblings (c:cs) bIdx vIdx =
+      let (cc, cv, cb) = injectColumn c bufs bIdx varCounts vIdx
+          (rc, rv, rb) = goSiblings cs (bIdx + cc) (vIdx + cv)
+      in  (cc + rc, cv + rv, cb ++ rb)
 
 -- | Take a validity buffer (or substitute an empty one) and step
 -- the source-buffer cursor accordingly.
@@ -1105,16 +1114,6 @@ isNullable = \case
   ColListViewMaybe {} -> True; ColLargeListViewMaybe {} -> True
   ColUtf8ViewMaybe {} -> True; ColBinaryViewMaybe {} -> True
   _ -> False
-
--- | 1 if any non-null payload in the view column exceeds 12 bytes,
--- 0 otherwise.
-viewVariadic :: V.Vector (Maybe BS.ByteString) -> Int
-viewVariadic vs
-  | V.any tooLong vs = 1
-  | otherwise        = 0
-  where
-    tooLong (Just b) = BS.length b > 12
-    tooLong Nothing  = False
 
 -- ============================================================
 -- Inverse: spec-format → simplified-format
