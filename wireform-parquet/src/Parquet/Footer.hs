@@ -148,7 +148,9 @@ fileMetadataToThrift fm = TV.Struct $ V.fromList $
 --   5: optional i32                     num_children
 --   6: optional ConvertedType           converted_type
 --   7: optional i32                     scale
---   8: optional i32                     field_id
+--   8: optional i32                     precision
+--   9: optional i32                     field_id
+--  10: optional LogicalType             logicalType
 schemaElementToThrift :: SchemaElement -> TV.Value
 schemaElementToThrift se = TV.Struct $ V.fromList $
   maybe [] (\t -> [(1, TV.I32 (parquetTypeToInt t))]) (seType se)
@@ -156,7 +158,7 @@ schemaElementToThrift se = TV.Struct $ V.fromList $
   ++ [(4, TV.String (seName se))]
   ++ maybe [] (\n -> [(5, TV.I32 n)]) (seNumChildren se)
   ++ maybe [] (\c -> [(6, TV.I32 (fromIntegral (fromEnum c)))]) (seConvertedType se)
-  ++ maybe [] (\fid -> [(8, TV.I32 fid)]) (seFieldId se)
+  ++ maybe [] (\fid -> [(9, TV.I32 fid)]) (seFieldId se)
 
 rowGroupToThrift :: RowGroup -> TV.Value
 rowGroupToThrift rg = TV.Struct $ V.fromList
@@ -298,7 +300,7 @@ thriftToSchemaElement (TV.Struct fields) = do
       conv = case lookupField fm 6 of
                Just (TV.I32 c) | c >= 0, c <= 21 -> Just (toEnum (fromIntegral c))
                _ -> Nothing
-      fid = case lookupField fm 8 of
+      fid = case lookupField fm 9 of
               Just (TV.I32 v) -> Just v
               _ -> Nothing
   Right SchemaElement
