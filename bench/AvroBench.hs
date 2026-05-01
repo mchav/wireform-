@@ -2,6 +2,7 @@
 module Main where
 
 import qualified Data.ByteString as BS
+import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import System.CPUTime
 
@@ -38,11 +39,12 @@ personSchema = AvroRecord
   , avroRecordDoc       = Nothing
   , avroRecordAliases   = V.empty
   , avroRecordFields    = V.fromList
-      [ AvroField "name"  (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
-      , AvroField "age"   (AvroPrimitive AvroInt)    Nothing Nothing V.empty Nothing
-      , AvroField "email" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing
-      , AvroField "score" (AvroPrimitive AvroDouble) Nothing Nothing V.empty Nothing
+      [ AvroField "name"  (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
+      , AvroField "age"   (AvroPrimitive AvroInt)    Nothing Nothing V.empty Nothing Map.empty
+      , AvroField "email" (AvroPrimitive AvroString) Nothing Nothing V.empty Nothing Map.empty
+      , AvroField "score" (AvroPrimitive AvroDouble) Nothing Nothing V.empty Nothing Map.empty
       ]
+  , avroRecordProps     = Map.empty
   }
 
 personAvro :: AV.Value

@@ -744,7 +744,7 @@ executable avro-thrift-bench
   main-is: AvroBench.hs
   ghc-options: -O2
   hs-source-dirs: bench
-  build-depends: base, wireform-avro, wireform-thrift, bytestring, text, deepseq, vector
+  build-depends: base, wireform-avro, wireform-thrift, bytestring, containers, text, deepseq, vector
 
 executable all-formats-bench
   import: defaults
@@ -764,6 +764,7 @@ executable all-formats-bench
     , wireform-bencode
     , wireform-toml
     , bytestring
+    , containers
     , text
     , vector
 

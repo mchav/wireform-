@@ -89,8 +89,14 @@ import Proto.Wire (Tag(..))
 import qualified Proto.Wire.Encode as WE
 import Proto.Repr
 
+-- | Produce a Haskell-valid record-field name from a proto field.
+-- The proto-side name is snake_cased (@file_path@, @num_rows@); we
+-- convert to camelCase and escape reserved keywords with a
+-- trailing prime (@data@ → @data'@, @type@ → @type'@, …). Without
+-- the escape, TH splices produce @data :: Foo -> Bar@ which is a
+-- parse error.
 hsFieldName :: Text -> Text
-hsFieldName = snakeToCamel
+hsFieldName = escapeReserved . snakeToCamel
 
 hsEnumCon :: Text -> Text -> Text
 hsEnumCon _enumName = snakeToPascal
@@ -300,14 +306,22 @@ mkDataDec tyName fields = do
 
 fieldTypeToTH :: Maybe FieldLabel -> FieldType -> FieldRep -> Q Type
 fieldTypeToTH lbl ft rep = case lbl of
-  Just Repeated -> repeatedTypeQ (frRepeated rep) (fieldTypeInnerQ ft)
-  Just Optional -> optionalTypeQ (frOptional rep) (fieldTypeInnerQ ft)
-  _             -> fieldTypeInnerQ ft
+  Just Repeated -> repeatedTypeQ (frRepeated rep) (fieldTypeInnerQWithRep rep ft)
+  Just Optional -> optionalTypeQ (frOptional rep) (fieldTypeInnerQWithRep rep ft)
+  _             -> fieldTypeInnerQWithRep rep ft
 
+-- | 'fieldTypeInnerQ' ignores the per-field 'FieldRep'; used for map
+-- keys/values where we haven't threaded a rep config through yet.
+-- Prefer 'fieldTypeInnerQWithRep' for message fields so that
+-- custom bytes/string representations (@frBytes@ / @frString@)
+-- actually materialize in the generated Haskell type.
 fieldTypeInnerQ :: FieldType -> Q Type
-fieldTypeInnerQ = \case
-  FTScalar SString -> conT ''Text
-  FTScalar SBytes  -> conT ''ByteString
+fieldTypeInnerQ = fieldTypeInnerQWithRep defaultFieldRep
+
+fieldTypeInnerQWithRep :: FieldRep -> FieldType -> Q Type
+fieldTypeInnerQWithRep rep = \case
+  FTScalar SString -> stringTypeQ (frString rep)
+  FTScalar SBytes  -> bytesTypeQ (frBytes rep)
   FTScalar s       -> scalarToTH s
   FTNamed n        -> conT (mkName (T.unpack (hsTypeName n)))
 
@@ -439,9 +453,15 @@ foldRepeatedQ = \case
 
 encodeFnQ :: FieldType -> FieldRep -> Q Exp
 encodeFnQ ft rep = case ft of
-  FTScalar s -> encodeScalarFnQ s
-  FTNamed _  -> varE 'Encode.encodeFieldMessage
+  FTScalar SString -> encodeStringFnQ (frString rep)
+  FTScalar SBytes  -> encodeBytesFnQ  (frBytes  rep)
+  FTScalar s       -> encodeScalarFnQ s
+  FTNamed _        -> varE 'Encode.encodeFieldMessage
 
+-- | Encoder dispatch for non-string / non-bytes scalars. String and
+-- bytes dispatch through 'encodeStringFnQ' / 'encodeBytesFnQ' in
+-- 'encodeFnQ' because their Haskell-side representation is
+-- configurable per-field ('frString' / 'frBytes').
 encodeScalarFnQ :: ScalarType -> Q Exp
 encodeScalarFnQ = \case
   SDouble  -> varE 'Encode.encodeFieldDouble
@@ -557,12 +577,12 @@ snocRepeatedQ rep accQ = case rep of
   SeqRep    -> [| $accQ Seq.|> v |]
 
 decodeFnQ :: FieldType -> FieldRep -> Q Exp
-decodeFnQ ft _rep = case ft of
+decodeFnQ ft rep = case ft of
   FTScalar SDouble -> varE 'Decode.decodeFieldDouble
   FTScalar SFloat  -> varE 'Decode.decodeFieldFloat
   FTScalar SBool   -> varE 'Decode.decodeFieldBool
-  FTScalar SString -> varE 'Decode.decodeFieldString
-  FTScalar SBytes  -> varE 'Decode.decodeFieldBytes
+  FTScalar SString -> decodeStringFnQ (frString rep)
+  FTScalar SBytes  -> decodeBytesFnQ  (frBytes  rep)
   FTScalar SUInt64 -> varE 'Decode.decodeFieldVarint
   FTScalar _       -> [| fromIntegral <$> Decode.decodeFieldVarint |]
   FTNamed _        -> varE 'Decode.decodeFieldMessage
@@ -598,11 +618,11 @@ mkFieldSize msgVar (FSField name num lbl ft rep) = do
   let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
       fn = litE (integerL (fromIntegral num))
   case lbl of
-    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated rep)) ($(sizeFnQ ft) $fn) $accessor |]
-    Just Optional -> [| maybe 0 ($(sizeFnQ ft) $fn) $accessor |]
+    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated rep)) ($(sizeFnQ ft rep) $fn) $accessor |]
+    Just Optional -> [| maybe 0 ($(sizeFnQ ft rep) $fn) $accessor |]
     _ -> [| if $(defaultCheckQ ft rep accessor)
             then 0
-            else $(sizeFnQ ft) $fn $accessor |]
+            else $(sizeFnQ ft rep) $fn $accessor |]
 mkFieldSize msgVar (FSMap name num _ _) = do
   let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
   [| if Map.null $accessor then 0 else Map.size $accessor * 10 |]
@@ -610,13 +630,13 @@ mkFieldSize msgVar (FSOneof name _) = do
   let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
   [| maybe 0 Encode.messageSize $accessor |]
 
-sizeFnQ :: FieldType -> Q Exp
-sizeFnQ = \case
+sizeFnQ :: FieldType -> FieldRep -> Q Exp
+sizeFnQ ft rep = case ft of
   FTScalar SDouble -> [| \fn _ -> WE.fieldDoubleSize fn |]
   FTScalar SFloat  -> [| \fn _ -> WE.fieldFloatSize fn |]
   FTScalar SBool   -> [| \fn _ -> WE.fieldBoolSize fn |]
-  FTScalar SString -> varE 'WE.fieldTextSize
-  FTScalar SBytes  -> varE 'WE.fieldBytesSize
+  FTScalar SString -> sizeStringFnQ (frString rep)
+  FTScalar SBytes  -> sizeBytesFnQ  (frBytes  rep)
   FTScalar SUInt64 -> varE 'WE.fieldVarintSize
   FTScalar _       -> [| \fn val -> WE.fieldVarintSize fn (fromIntegral val) |]
   FTNamed _        -> [| \fn val -> WE.fieldMessageSize fn (Encode.messageSize val) |]

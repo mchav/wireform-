@@ -68,7 +68,7 @@ main = do
   let anyTs = packAny ts
   putStrLn "--- Packing a Timestamp ---"
   putStrLn $ "Timestamp:   " <> show ts
-  putStrLn $ "Any typeUrl: " <> show (anyTypeurl anyTs)
+  putStrLn $ "Any typeUrl: " <> show (anyTypeUrl anyTs)
   putStrLn $ "Any value:   " <> show (BS.length (anyValue anyTs)) <> " bytes"
 
   putStrLn "\n--- Type-safe unpack ---"
@@ -89,11 +89,11 @@ main = do
   let messages =
         [ packAny ts
         , packAny (defaultDuration { durationSeconds = 60 })
-        , packAny Empty
+        , packAny defaultEmpty
         ]
 
   mapM_ (\a -> do
-    putStr $ "  " <> show (anyTypeurl a) <> " -> "
+    putStr $ "  " <> show (anyTypeUrl a) <> " -> "
     case unpackAnyDynamic registry a of
       Just (Right (DynamicMessage msg)) -> putStrLn (show msg)
       Just (Left err) -> putStrLn $ "error: " <> show err
