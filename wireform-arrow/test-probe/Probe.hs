@@ -148,4 +148,16 @@ writeMode outDir = do
   BS.writeFile (outDir <> "/ours_int32_batch.arrow")
     (encodeArrowFile intSchema [intBatch])
 
+  -- File format with a dictionary-encoded column. Exercises the
+  -- footer's @dictionaries: [Block]@ slot.
+  let dictSchema = Schema
+        { arrowFields = V.singleton (dField "d" True AUtf8 0)
+        , arrowEndianness = Little
+        }
+      dictBatch = V.singleton (ColDictionary 0
+        (VP.fromList ([0,1,0,2,1] :: [Int32]))
+        (ColUtf8 (V.fromList ["a","b","c"])))
+  BS.writeFile (outDir <> "/ours_dict.arrow")
+    (encodeArrowFile dictSchema [dictBatch])
+
   putStrLn ("wrote probe outputs to " ++ outDir)

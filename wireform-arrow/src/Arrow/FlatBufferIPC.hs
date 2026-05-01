@@ -35,12 +35,14 @@ module Arrow.FlatBufferIPC
     -- * Stream / file writers
   , writeArrowStreamFB
   , writeArrowFileFB
+  , writeArrowFileFBWithDicts
     -- * Column-based convenience writer
   , buildRecordBatchBytes
   , writeArrowStreamFBFromColumns
     -- * Reader (parses pyarrow / arrow-cpp output)
   , readArrowStreamFB
   , readArrowFileFB
+  , readArrowFileFBWithDicts
   , decodeSchemaMessage
   , decodeRecordBatchMessage
   , decodeDictionaryBatchMessage
@@ -1351,40 +1353,66 @@ writeArrowStreamFBFromColumns sch batches =
 -- continuation marker that begins the encapsulated message. We emit
 -- the EOS marker too so the file simultaneously parses as a stream.
 writeArrowFileFB :: Schema -> [(RecordBatchDef, ByteString)] -> ByteString
-writeArrowFileFB sch batches =
+writeArrowFileFB sch batches = writeArrowFileFBWithDicts sch [] batches
+
+-- | File format with dictionary batches indexed in the 'Footer'.
+-- Identical layout to 'writeArrowFileFB' except dict batches are
+-- emitted between the schema and the first record batch, and the
+-- footer's @dictionaries: [Block]@ slot points to them.
+writeArrowFileFBWithDicts
+  :: Schema
+  -> [DictBatch]
+  -> [(RecordBatchDef, ByteString)]
+  -> ByteString
+writeArrowFileFBWithDicts sch dicts batches =
   let !magic       = "ARROW1"
       !magicPad    = BS.pack [0, 0]
       !headerLen   = BS.length magic + BS.length magicPad   -- 8 bytes
       !schemaMsg   = encapsulateMessage (buildSchemaMessage sch) BS.empty
-      -- Per-batch encapsulated bytes plus the Block we'll record
-      -- in the footer. metaDataLength includes the 8-byte
-      -- continuation+length prefix and all metadata padding (per
-      -- arrow-cpp's @WriteRecordBatchMessage@ which advertises
-      -- the prefix-inclusive length so the reader can seek past
-      -- the metadata in one read).
-      step (revBlocks, !off, accBytes) (rb, body) =
+
+      -- Walk a list of frames, computing one Block per frame and
+      -- accumulating the encapsulated bytes alongside.
+      stepDict (revBlocks, !off, accBytes) db =
+        let !msgBytes = encapsulateMessage
+              (buildDictionaryBatchMessage db) (dbBody db)
+            !msgLen     = BS.length msgBytes
+            !bodyLen    = BS.length (dbBody db)
+            !paddedBody = alignUp8FB bodyLen
+            !metaLen    = msgLen - paddedBody
+            !blk = ArrowBlock
+                     { abOffset  = fromIntegral off
+                     , abMetaLen = fromIntegral metaLen
+                     , abBodyLen = fromIntegral paddedBody
+                     }
+        in  (blk : revBlocks, off + msgLen, accBytes ++ [msgBytes])
+      stepBatch (revBlocks, !off, accBytes) (rb, body) =
         let !msgBytes = encapsulateMessage
               (buildRecordBatchMessage rb (fromIntegral (BS.length body)))
               body
             !msgLen   = BS.length msgBytes
             !bodyLen  = BS.length body
             !paddedBody = alignUp8FB bodyLen
-            !metaLen  = msgLen - paddedBody  -- 8-byte prefix + padded metadata
+            !metaLen  = msgLen - paddedBody
             !blk = ArrowBlock
                      { abOffset    = fromIntegral off
                      , abMetaLen   = fromIntegral metaLen
                      , abBodyLen   = fromIntegral paddedBody
                      }
         in  (blk : revBlocks, off + msgLen, accBytes ++ [msgBytes])
-      (revBlocks, _eosOff, msgBs) =
-        foldl step ([], headerLen + BS.length schemaMsg, []) batches
-      !blocks = reverse revBlocks
+
+      (revDictBlocks, !afterDicts, dictBs) =
+        foldl stepDict
+              ([], headerLen + BS.length schemaMsg, [])
+              dicts
+      (revRbBlocks, _eosOff, msgBs) =
+        foldl stepBatch ([], afterDicts, []) batches
+
+      !dictBlocks = reverse revDictBlocks
+      !rbBlocks   = reverse revRbBlocks
       !eos = BL.toStrict $ B.toLazyByteString $
                B.word32LE 0xFFFFFFFF <> B.int32LE 0
-      !streamBytes = BS.concat (schemaMsg : msgBs ++ [eos])
-      !footer = buildFileFooter sch blocks
-      -- The footer body must be 8-aligned before the trailing
-      -- length+magic, per arrow-cpp.
+      !streamBytes = BS.concat (schemaMsg : dictBs ++ msgBs ++ [eos])
+      !footer = buildFileFooter sch dictBlocks rbBlocks
       !footerPad =
         let raw = BS.length footer
         in  BS.replicate (alignUp8FB raw - raw) 0
@@ -1427,17 +1455,20 @@ data ArrowBlock = ArrowBlock
 -- 8-aligned, so each Block occupies 24 bytes (8 + 4 + 4 padding +
 -- 8). FlatBuffers structs are compiler-generated, but we hand-roll
 -- the same layout here.
-buildFileFooter :: Schema -> [ArrowBlock] -> ByteString
-buildFileFooter sch blocks = unsafePerformIO $ do
+buildFileFooter :: Schema -> [ArrowBlock] -> [ArrowBlock] -> ByteString
+buildFileFooter sch dictBlocks rbBlocks = unsafePerformIO $ do
   b <- newBuilder
   schUOff <- writeSchema b sch
-  blocksVec <- writeVectorOfStructs b 24 8
-                 (map writeBlockStruct blocks)
+  rbVec   <- writeVectorOfStructs b 24 8 (map writeBlockStruct rbBlocks)
+  dictVec <- if null dictBlocks
+               then pure Nothing
+               else Just <$> writeVectorOfStructs b 24 8
+                                (map writeBlockStruct dictBlocks)
   msgUOff <- writeTable b
     [ Just (scalar 2 (\bb -> prependI16 bb metadataVersionV5))
     , Just (voff schUOff)
-    , Nothing                        -- dictionaries (always empty for now)
-    , Just (voff blocksVec)
+    , case dictVec of { Nothing -> Nothing; Just uo -> Just (voff uo) }
+    , Just (voff rbVec)
     , Nothing                        -- custom_metadata
     ]
   finish b msgUOff
@@ -2009,13 +2040,22 @@ readArrowFileFB
   :: ByteString
   -> Either String (Schema, [(RecordBatchDef, ByteString)])
 readArrowFileFB bs = do
-  when' (BS.length bs < 14) $   -- minimum: header + EOS + trailer
+  (sch, _, batches) <- readArrowFileFBWithDicts bs
+  Right (sch, batches)
+
+-- | Like 'readArrowFileFB' but also returns any 'DictBatch'
+-- frames the file contains.
+readArrowFileFBWithDicts
+  :: ByteString
+  -> Either String (Schema, [DictBatch], [(RecordBatchDef, ByteString)])
+readArrowFileFBWithDicts bs = do
+  when' (BS.length bs < 14) $
     Left "Arrow.FlatBufferIPC: input too small to be an Arrow file"
   when' (BS.take 6 bs /= "ARROW1") $
     Left "Arrow.FlatBufferIPC: missing leading ARROW1 magic"
   when' (BS.takeEnd 6 bs /= "ARROW1") $
     Left "Arrow.FlatBufferIPC: missing trailing ARROW1 magic"
-  readArrowStreamFB (BS.drop 8 bs)
+  readArrowStreamFBWithDicts (BS.drop 8 bs)
 
 -- | Strip one encapsulated-message frame:
 --

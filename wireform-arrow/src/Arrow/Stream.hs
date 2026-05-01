@@ -45,7 +45,6 @@ module Arrow.Stream
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -59,9 +58,9 @@ import Arrow.FlatBufferIPC
   ( DictBatch (..)
   , buildRecordBatchBytes
   , denormaliseBuffers
-  , readArrowFileFB
+  , readArrowFileFBWithDicts
   , readArrowStreamFBWithDicts
-  , writeArrowFileFB
+  , writeArrowFileFBWithDicts
   , writeArrowStreamFBWithDicts
   )
 import Arrow.Types
@@ -125,23 +124,7 @@ encodeArrowFile
   -> ByteString
 encodeArrowFile sch batches =
   let !(dicts, batchPairs) = compileBatches sch batches
-  in  if null dicts
-        then writeArrowFileFB sch batchPairs
-        else
-          -- The file-format Footer doesn't yet model dictionary
-          -- blocks; rather than silently corrupt the index, wrap
-          -- the dict-aware stream in the @ARROW1@ envelope. Most
-          -- readers (incl. pyarrow) accept this form because the
-          -- inner stream is self-terminating; the missing footer
-          -- only blocks random-access by batch index. Use
-          -- 'encodeArrowStream' if you want a guaranteed
-          -- round-trip with dictionaries.
-          BS.concat
-            [ "ARROW1"
-            , "\0\0"
-            , writeArrowStreamFBWithDicts sch dicts batchPairs
-            , "ARROW1"
-            ]
+  in  writeArrowFileFBWithDicts sch dicts batchPairs
 
 -- | Decode an Arrow IPC file. Dictionary-resolved 'ColumnArray'
 -- values are returned just like 'decodeArrowStream'.
@@ -149,14 +132,8 @@ decodeArrowFile
   :: ByteString
   -> Either String (Schema, [V.Vector ColumnArray])
 decodeArrowFile bs = do
-  (sch, frames) <- readArrowFileFB bs
-  -- 'readArrowFileFB' currently doesn't surface dict batches; if
-  -- a file contains them it'll be visible here as a parse error
-  -- because the dict-batch frame won't decode as a record-batch.
-  -- The high-level path always rounds through
-  -- 'encodeArrowStream' shape for dict-bearing inputs (see
-  -- 'encodeArrowFile' note), so symmetric reads stay clean.
-  decodeBatches sch [] frames
+  (sch, dicts, frames) <- readArrowFileFBWithDicts bs
+  decodeBatches sch dicts frames
 
 -- ============================================================
 -- Internal: compile + decode shared between stream / file paths.
