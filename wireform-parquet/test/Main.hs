@@ -82,6 +82,11 @@ import Parquet.Write
   )
 import qualified Wireform.Hash as Hash
 
+import qualified Arrow.Column      as AC
+import qualified Arrow.Types       as AT
+import qualified Parquet.Arrow     as PArrow
+import qualified Parquet.HighLevel as PHL
+
 main :: IO ()
 main = do
   -- XXH64 reference vectors.
@@ -846,7 +851,43 @@ main = do
       -- wireform-iceberg, which already depends on wireform-parquet).
     else putStrLn "SKIP: pyarrow not available, nested cross-language checks skipped"
 
+  -- Arrow ↔ Parquet bridge round-trip.
+  arrowParquetBridge
+
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
+
+arrowParquetBridge :: IO ()
+arrowParquetBridge = do
+  let !arrowSchema = AT.Schema
+        { AT.arrowFields = V.fromList
+            [ AT.Field "i" False (AT.AInt 32 True) V.empty Nothing
+            , AT.Field "s" False AT.AUtf8           V.empty Nothing
+            ]
+        , AT.arrowEndianness = AT.Little
+        }
+      !batch = V.fromList
+        [ AC.ColInt32 (VP.fromList ([10, 20, 30] :: [Int32]))
+        , AC.ColUtf8  (V.fromList ["alpha", "beta", "gamma"])
+        ]
+  case PArrow.arrowToParquet arrowSchema [batch] of
+    Left  e  -> failTest $ "arrowToParquet: " ++ e
+    Right (psSchema, rgs) -> do
+      let !opts = PHL.defaultWriteOptions
+                    { PHL.writePageVersion = PageV1
+                    , PHL.writeCompression = Uncompressed
+                    }
+          !bytes = PHL.encodeParquet opts psSchema rgs
+      case PHL.decodeParquet bytes of
+        Left  e -> failTest $ "decodeParquet (bridge): " ++ e
+        Right pf ->
+          case PArrow.parquetRowGroupToArrow arrowSchema pf 0 of
+            Left  e    -> failTest $ "parquetRowGroupToArrow: " ++ e
+            Right cols ->
+              if cols == batch
+                then putStrLn "OK: Arrow ↔ Parquet bridge round-trip"
+                else failTest $ "bridge round-trip mismatch:\n got "
+                                 ++ show (V.toList cols)
+                                 ++ "\n exp " ++ show (V.toList batch)
 
 expectHash :: String -> String -> IO ()
 expectHash s expected = expectHashBs (BSC.pack s) expected

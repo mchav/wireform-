@@ -55,6 +55,7 @@ library
     Parquet.DeltaEncode
     Parquet.Encryption
     Parquet.Footer
+    Parquet.Arrow
     Parquet.HighLevel
     Parquet.Levels
     Parquet.LevelsEncode
@@ -72,6 +73,7 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-columnar,
+    wireform-arrow,
     wireform-proto,
     wireform-thrift,
     bytestring >= 0.11 && < 0.13,
@@ -105,6 +107,7 @@ test-suite wireform-parquet-test
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
+    wireform-arrow,
     wireform-parquet,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
