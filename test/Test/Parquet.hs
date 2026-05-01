@@ -28,6 +28,10 @@ import Parquet.Levels
   , materializePlainByteArrayOptional
   , materializePlainInt32Optional
   , materializePlainInt64Optional
+  , materializeRepeatedDouble
+  , materializeRepeatedFloat
+  , materializeRepeatedInt32
+  , materializeRepeatedInt64
   , maxLevelsForColumnPath
   , parseDataPageV1Levels
   )
@@ -169,6 +173,50 @@ levelsAndSchemaTests = testGroup "Levels + schema max levels"
           plain = BS.pack [0x02, 0x00, 0x00, 0x00, 0x61, 0x62]
       materializePlainByteArrayOptional defs 1 plain
         @?= Right (V.fromList [Just (BS.pack [0x61, 0x62]), Nothing])
+  , testCase "materializeRepeatedInt32 two lists of ints" $ do
+      -- row 0 = [10, 20], row 1 = [30]
+      let reps = VP.fromList [(0 :: Int32), 1, 0]
+          defs = VP.replicate 3 (1 :: Int32)   -- all present, maxDef=1
+          plain = BS.pack
+            [ 0x0A, 0x00, 0x00, 0x00  -- 10
+            , 0x14, 0x00, 0x00, 0x00  -- 20
+            , 0x1E, 0x00, 0x00, 0x00  -- 30
+            ]
+      materializeRepeatedInt32 reps defs 1 plain
+        @?= Right (V.fromList
+              [ V.fromList [Just 10, Just 20]
+              , V.fromList [Just 30]
+              ])
+  , testCase "materializeRepeatedInt64 with null element" $ do
+      let reps = VP.fromList [(0 :: Int32), 1, 0]
+          defs = VP.fromList [(1 :: Int32), 0, 1]
+          plain = BS.pack
+            [ 0xE8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  -- 1000
+            , 0xD0, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  -- 2000
+            ]
+      materializeRepeatedInt64 reps defs 1 plain
+        @?= Right (V.fromList
+              [ V.fromList [Just 1000, Nothing]
+              , V.fromList [Just 2000]
+              ])
+  , testCase "materializeRepeatedFloat single row" $ do
+      let reps = VP.fromList [(0 :: Int32), 1]
+          defs = VP.replicate 2 (1 :: Int32)
+          -- 1.0 = 0x3F800000, 2.0 = 0x40000000
+          plain = BS.pack
+            [ 0x00, 0x00, 0x80, 0x3F
+            , 0x00, 0x00, 0x00, 0x40
+            ]
+      materializeRepeatedFloat reps defs 1 plain
+        @?= Right (V.singleton (V.fromList [Just 1.0, Just 2.0]))
+  , testCase "materializeRepeatedDouble single row" $ do
+      let reps = VP.fromList [(0 :: Int32)]
+          defs = VP.replicate 1 (1 :: Int32)
+          -- 1.5 as little-endian double: 0x3FF8000000000000
+          plain = BS.pack
+            [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x3F ]
+      materializeRepeatedDouble reps defs 1 plain
+        @?= Right (V.singleton (V.singleton (Just 1.5)))
   ]
 
 footerRoundtrips :: TestTree

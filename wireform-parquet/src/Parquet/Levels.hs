@@ -18,7 +18,11 @@ module Parquet.Levels
   , materializePlainBoolOptional
   , materializePlainByteArrayOptional
   , materializeRepeatedInt32
+  , materializeRepeatedInt64
+  , materializeRepeatedFloat
+  , materializeRepeatedDouble
   , materializeRepeatedByteArray
+  , materializeRepeatedByNested
   ) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
@@ -563,3 +567,177 @@ materializeRepeatedByteArray reps defs maxDef plain
                              else let !val = BS.take len (BS.drop off2 plain)
                                   in goRepBA rows' (Just val : row') (i + 1) (off2 + len)
                else goRepBA rows' (Nothing : row') (i + 1) off
+
+-- | Materialize a repeated @INT64@ column using repetition and definition levels.
+materializeRepeatedInt64 ::
+  VP.Vector Int32 ->
+  VP.Vector Int32 ->
+  Int ->
+  ByteString ->
+  Either String (V.Vector (V.Vector (Maybe Int64)))
+materializeRepeatedInt64 =
+  materializeFixedWidth 8 decodeI64
+  where
+    decodeI64 !bs !off = fromIntegral (readLE64 bs off) :: Int64
+
+-- | Materialize a repeated @FLOAT@ column using repetition and definition levels.
+materializeRepeatedFloat ::
+  VP.Vector Int32 ->
+  VP.Vector Int32 ->
+  Int ->
+  ByteString ->
+  Either String (V.Vector (V.Vector (Maybe Float)))
+materializeRepeatedFloat =
+  materializeFixedWidth 4 (\bs off -> castWord32ToFloat (readLE32 bs off))
+
+-- | Materialize a repeated @DOUBLE@ column using repetition and definition levels.
+materializeRepeatedDouble ::
+  VP.Vector Int32 ->
+  VP.Vector Int32 ->
+  Int ->
+  ByteString ->
+  Either String (V.Vector (V.Vector (Maybe Double)))
+materializeRepeatedDouble =
+  materializeFixedWidth 8 (\bs off -> castWord64ToDouble (readLE64 bs off))
+
+-- | Fixed-width primitive repeated materialiser. Walks rep/def
+-- levels row-grouped and lifts the fixed-size on-disk slice at
+-- @off@ via @decode bs off@ when @d == maxDef@.
+materializeFixedWidth
+  :: Int
+  -> (ByteString -> Int -> a)
+  -> VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe a)))
+materializeFixedWidth !w decode reps defs maxDef plain
+  | VP.length reps /= VP.length defs =
+      Left "Parquet.Levels: rep/def level count mismatch"
+  | otherwise = case go [] [] 0 0 of
+      Left e -> Left e
+      Right (rows, _) ->
+        Right $! V.fromList (reverse (map (V.fromList . reverse) rows))
+  where
+    !n = VP.length reps
+    !maxD = fromIntegral maxDef :: Int32
+
+    go !rows !curRow !i !off
+      | i >= n =
+          let !finalRows = if null curRow then rows else curRow : rows
+          in Right (finalRows, off)
+      | otherwise =
+          let !r = VP.unsafeIndex reps i
+              !d = VP.unsafeIndex defs i
+              !rows' = if r == 0
+                         then if null curRow then rows else curRow : rows
+                         else rows
+              !row' = if r == 0 then [] else curRow
+          in if d == maxD
+               then
+                 if off + w > BS.length plain
+                   then Left "Parquet.Levels: PLAIN buffer too small for repeated column"
+                   else let !v = decode plain off
+                        in go rows' (Just v : row') (i + 1) (off + w)
+               else go rows' (Nothing : row') (i + 1) off
+
+-- | Decode a @repeated@ column whose @maxRepetitionLevel@ may be
+-- greater than 1 — i.e. nested @LIST<LIST<T>>@ (or deeper). Returns
+-- a 'NestedRow' tree: the outer 'V.Vector' is one entry per
+-- top-level row; each row is an 'NVList' of child nodes; each child
+-- is recursively an 'NVList' for nested lists or an 'NVLeaf' for
+-- the final value.
+--
+-- The parameter @maxRep@ is the repetition level at which list
+-- boundaries exist; deeper repetitions indicate inner-list
+-- boundaries. The caller supplies a per-leaf decoder that lifts
+-- one on-disk value to an @'NVLeaf' a@ and returns the advanced
+-- offset.
+--
+-- @
+--   repetition levels: 0 1 2 0 1 0
+--   → row 0 = [[v0], [v1, v2], [v3]]
+-- @
+--
+-- This generalises 'materializeRepeatedInt32' (which assumes
+-- @maxRep == 1@) to support list-of-list shredding produced by
+-- @Parquet.Nested.shred@.
+materializeRepeatedByNested
+  :: VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int                             -- ^ maxDef
+  -> Int                             -- ^ maxRep
+  -> ByteString
+  -> (ByteString -> Int -> Either String (a, Int))
+                                      -- ^ per-leaf decoder
+  -> Either String (V.Vector (NestedRow a))
+materializeRepeatedByNested reps defs maxDef maxRep plain leafDecode
+  | VP.length reps /= VP.length defs =
+      Left "Parquet.Levels: rep/def level count mismatch"
+  | VP.null reps = Right V.empty
+  | otherwise = do
+      let !n = VP.length reps
+          !maxD = fromIntegral maxDef :: Int32
+          !maxR = fromIntegral maxRep :: Int32
+          goRow !off !cursor
+            | cursor >= n = Right ([], off, cursor)
+            | otherwise = do
+                (val, off', cursor') <- consumeOne off cursor
+                if cursor' < n && VP.unsafeIndex reps cursor' > 0
+                  then do
+                    (rest, off'', cursor'') <- goRow off' cursor'
+                    Right (val : rest, off'', cursor'')
+                  else Right ([val], off', cursor')
+          -- Consume one leaf-or-nested entry starting at cursor.
+          -- When maxRep == 1, each entry is a leaf. When maxRep > 1,
+          -- entries at rep-level < maxR denote nested list boundaries.
+          consumeOne !off !cursor = do
+            let !d = VP.unsafeIndex defs cursor
+            if maxR <= 1
+              then do
+                leaf <- leafAt off d
+                case leaf of
+                  (m, off') -> Right (NVLeaf m, off', cursor + 1)
+              else
+                -- For deeper nesting we collect elements until we
+                -- see a boundary matching our current list depth.
+                -- This implementation supports only the two-level
+                -- case; deeper nesting returns a flat inner list.
+                -- A fully general reader needs per-depth cursors
+                -- (out of scope for A.9 reader).
+                collectInnerList off cursor
+          leafAt !off !d
+            | d == maxD = do
+                (v, off') <- leafDecode plain off
+                Right (Just v, off')
+            | otherwise = Right (Nothing, off)
+          collectInnerList !off !cursor = do
+            (m, off') <- leafAt off (VP.unsafeIndex defs cursor)
+            let !cursor' = cursor + 1
+            if cursor' < n && VP.unsafeIndex reps cursor' > 1
+              then do
+                -- keep pulling while inner-list continues
+                (rest, off'', cursor'') <- collectInnerList off' cursor'
+                case rest of
+                  NVList xs -> Right (NVList (NVLeaf m : xs), off'', cursor'')
+                  NVLeaf _  -> Right (NVList [NVLeaf m, rest], off'', cursor'')
+              else Right (NVList [NVLeaf m], off', cursor')
+          loopTop !off !cursor
+            | cursor >= n = Right []
+            | otherwise = do
+                (vals, off', cursor') <- goRow off cursor
+                rest <- loopTop off' cursor'
+                Right (NRRow vals : rest)
+      rows <- loopTop 0 0
+      Right (V.fromList rows)
+
+-- | One row of the nested reader's output. Each row is a list of
+-- top-level children; each child can itself be a nested 'NVList'
+-- or a leaf.
+newtype NestedRow a = NRRow [NestedValue a]
+  deriving stock (Show, Eq)
+
+data NestedValue a
+  = NVLeaf !(Maybe a)
+  | NVList ![NestedValue a]
+  deriving stock (Show, Eq)

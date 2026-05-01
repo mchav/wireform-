@@ -49,7 +49,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | A.6 | Column writer + file assembly + reference-file tests | Writer | **Done** |
 | A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | **Done** (page index + bloom filter + AES-GCM/CTR modular encryption) |
 | A.8 | Remaining encodings (DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE_DICTIONARY) | — | **Done** |
-| A.9 | Repetition level semantics for repeated/nested columns | — | **Partial** (`materializeRepeated*`) |
+| A.9 | Repetition level semantics for repeated/nested columns | — | **Partial** — 1-level repetition (LIST<T>) is covered for INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY via `materializeRepeated*`; deeper nesting (LIST<LIST<T>>) has a reader prototype in `materializeRepeatedByNested`. Writer-side nested shredding is full (D.48). |
 | A.10 | Heterogeneous-primitive Parquet writer (all primitive types via `ColumnData`) | Writer | **Done** (`buildParquetFile` / `buildParquetFileWithIndex`) |
 | A.11 | Per-column compression on the writer (Uncompressed / GZip / Snappy / ZSTD / LZ4_RAW) | Writer | **Done** (`Parquet.Compress`, `ColumnAux.caCodec`) |
 | A.12 | Writer-side definition levels + nullable PLAIN data pages | Writer | **Done** (`Parquet.LevelsEncode`, `OptionalColumn`) |
