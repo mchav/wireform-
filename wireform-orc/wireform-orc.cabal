@@ -31,6 +31,7 @@ library
     ORC.BloomFilter
     ORC.Encryption
     ORC.Footer
+    ORC.HighLevel
     ORC.Proto.Schema
     ORC.Read
     ORC.RowIndex
