@@ -32,6 +32,7 @@ library
     Arrow.File
     Arrow.FlatBufferIPC
     Arrow.IPC
+    Arrow.Stream
     Arrow.Types
     Arrow.Write
   build-depends:

@@ -28,12 +28,13 @@ import Arrow.Column
   , materializeRecordBatch
   )
 import Arrow.File (asBatches, asSchema, readArrowStream)
+import Arrow.Stream
+  ( decodeArrowStream
+  , encodeArrowStream
+  )
 import Arrow.FlatBufferIPC
   ( buildSchemaMessage
   , decodeSchemaMessage
-  , materializeRecordBatchFB
-  , readArrowStreamFB
-  , writeArrowStreamFBFromColumns
   )
 import Arrow.Types
 import Arrow.Write (writeArrowStream)
@@ -299,84 +300,85 @@ flatBufSchemaSelfCheck = do
 
 flatBufRoundTrip :: IO ()
 flatBufRoundTrip = do
-  let sch = Schema
-        { arrowFields = V.fromList
-            [ plainField "i" False (AInt 32 True)
-            , plainField "s" True  AUtf8
-            ]
-        , arrowEndianness = Little
-        }
-      cols = V.fromList
-        [ ColInt32      (VP.fromList ([1, 2, 3] :: [Int32]))
-        , ColUtf8Maybe  (V.fromList [Just "x", Nothing, Just "z"])
-        ]
-      bytes = writeArrowStreamFBFromColumns sch (V.singleton cols)
-  case readArrowStreamFB bytes of
-    Left e ->
-      failTest $ "FlatBuffers stream parse failed: " ++ e
-    Right (sch', batches)
-      | sch' /= sch ->
-          failTest $ "FB roundtrip schema mismatch:\n got " ++ show sch'
-                    ++ "\n exp " ++ show sch
-      | length batches /= 1 ->
-          failTest $ "FB roundtrip expected 1 batch, got "
-                    ++ show (length batches)
-      | otherwise -> do
-          let (rb, _body) = head batches
-          if rbLength rb == 3
-            then putStrLn "OK: FlatBuffers stream writer/reader round-trip"
-            else failTest $ "FB roundtrip rbLength: " ++ show (rbLength rb)
+  -- Multi-column round-trip exercising the high-level API in
+  -- "Arrow.Stream": Schema + batches go in, bytes come out, and
+  -- the inverse recovers the same shape.
+  highLevelRoundTrip "Multi-column"
+    (Schema
+       { arrowFields = V.fromList
+           [ plainField "i" False (AInt 32 True)
+           , plainField "s" True  AUtf8
+           ]
+       , arrowEndianness = Little
+       })
+    (V.fromList
+       [ ColInt32      (VP.fromList ([1, 2, 3] :: [Int32]))
+       , ColUtf8Maybe  (V.fromList [Just "x", Nothing, Just "z"])
+       ])
 
-  -- Post-V5 column round-trips. We materialise the columns back
-  -- via 'materializeRecordBatch' to confirm the writer + reader
-  -- are byte-compatible end to end.
-  flatBufColumnRoundTrip "ColUtf8ViewMaybe"
-    (plainField "v" True AUtf8View)
-    (ColUtf8ViewMaybe (V.fromList
+  -- Post-V5 columns: writer + reader byte-compatible end to end.
+  highLevelRoundTrip "Utf8View"
+    (Schema (V.singleton (plainField "v" True AUtf8View)) Little)
+    (V.singleton (ColUtf8ViewMaybe (V.fromList
        [ Just "short"
        , Nothing
        , Just "this string is definitely longer than twelve bytes"
-       ]))
+       ])))
 
-  flatBufColumnRoundTrip "ColListView<int32>"
-    (nestedField "lv" False AListView (V.singleton
-       (plainField "item" False (AInt 32 True))))
-    (ColListView
+  highLevelRoundTrip "ListView<int32>"
+    (Schema
+       (V.singleton
+          (nestedField "lv" False AListView (V.singleton
+             (plainField "item" False (AInt 32 True)))))
+       Little)
+    (V.singleton (ColListView
        (VP.fromList ([0, 2, 5] :: [Int32]))
        (VP.fromList ([2, 3, 1] :: [Int32]))
-       (ColInt32 (VP.fromList ([10,20,30,40,50,60] :: [Int32]))))
+       (ColInt32 (VP.fromList ([10,20,30,40,50,60] :: [Int32])))))
 
-  flatBufColumnRoundTrip "ColRunEndEncoded(int32, int64?)"
-    (nestedField "ree" True ARunEndEncoded $ V.fromList
-       [ plainField "run_ends" False (AInt 32 True)
-       , plainField "values"   True  (AInt 64 True)
-       ])
-    (ColRunEndEncoded
+  highLevelRoundTrip "RunEndEncoded(int32, int64?)"
+    (Schema
+       (V.singleton
+          (nestedField "ree" True ARunEndEncoded $ V.fromList
+             [ plainField "run_ends" False (AInt 32 True)
+             , plainField "values"   True  (AInt 64 True)
+             ]))
+       Little)
+    (V.singleton (ColRunEndEncoded
        (ColInt32 (VP.fromList ([3, 5, 8] :: [Int32])))
-       (ColInt64Maybe (V.fromList [Just 100, Nothing, Just 300])))
+       (ColInt64Maybe (V.fromList [Just 100, Nothing, Just 300]))))
 
-flatBufColumnRoundTrip :: String -> Field -> ColumnArray -> IO ()
-flatBufColumnRoundTrip label field col = do
-  let sch = Schema (V.singleton field) Little
-      bytes = writeArrowStreamFBFromColumns sch (V.singleton (V.singleton col))
-  case readArrowStreamFB bytes of
-    Left e -> failTest $ label ++ ": parse failed: " ++ e
+  -- Dictionary-encoded utf8 — the high-level API auto-extracts
+  -- the dictionary batch and auto-resolves on read.
+  let dictField = Field "d" True AUtf8 V.empty
+                    (Just (DictionaryEncoding 0 (AInt 32 True) False))
+  highLevelRoundTrip "Dictionary<utf8>"
+    (Schema (V.singleton dictField) Little)
+    (V.singleton (ColDictionary 0
+        (VP.fromList ([0, 1, 0, 2, 1] :: [Int32]))
+        (ColUtf8 (V.fromList ["a", "b", "c"]))))
+
+-- | Generic single-batch round-trip helper for the high-level
+-- 'encodeArrowStream' / 'decodeArrowStream' API.
+highLevelRoundTrip :: String -> Schema -> V.Vector ColumnArray -> IO ()
+highLevelRoundTrip label sch cols = do
+  let bytes = encodeArrowStream sch [cols]
+  case decodeArrowStream bytes of
+    Left e -> failTest $ label ++ ": decodeArrowStream: " ++ e
     Right (sch', batches)
+      | length batches /= 1 ->
+          failTest $ label ++ ": expected 1 batch, got "
+                            ++ show (length batches)
       | sch' /= sch ->
           failTest $ label ++ ": schema mismatch"
-      | length batches /= 1 ->
-          failTest $ label ++ ": expected 1 batch"
-      | otherwise -> do
-          let (rb, body) = head batches
-          case materializeRecordBatchFB sch' rb body of
-            Left e   -> failTest $ label ++ ": materialize failed: " ++ e
-            Right cs ->
-              if V.length cs == 1 && V.unsafeIndex cs 0 == col
-                then putStrLn $ "OK: FB column round-trip " ++ label
+      | otherwise ->
+          let !got = head batches
+          in  if got == cols
+                then putStrLn $ "OK: high-level round-trip " ++ label
                 else failTest $ label
                                  ++ ": column mismatch\n got: "
-                                 ++ show (V.toList cs)
-                                 ++ "\n exp: " ++ show col
+                                 ++ show (V.toList got)
+                                 ++ "\n exp: " ++ show (V.toList cols)
 
 -- | Build a simple leaf field with no children.
 plainField :: Text -> Bool -> ArrowType -> Field
