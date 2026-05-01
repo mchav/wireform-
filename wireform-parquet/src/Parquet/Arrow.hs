@@ -35,6 +35,9 @@ module Parquet.Arrow
     -- * Parquet → Arrow
   , parquetRowGroupToArrow
   , readParquetColumn
+    -- * Streaming reader (one row group at a time)
+  , streamRowGroups
+  , numRowGroups
   ) where
 
 import Data.ByteString (ByteString)
@@ -258,3 +261,35 @@ decodeUtf8Lossy :: ByteString -> T.Text
 decodeUtf8Lossy bs = case TE.decodeUtf8' bs of
   Right t -> t
   Left  _ -> TE.decodeUtf8With TE.lenientDecode bs
+
+-- ============================================================
+-- Streaming reader
+-- ============================================================
+
+-- | Number of row groups in the file. Useful as a loop bound for
+-- 'parquetRowGroupToArrow' / 'streamRowGroups'.
+numRowGroups :: PR.ParquetFile -> Int
+numRowGroups pf =
+  V.length (P.fmRowGroups (PR.pfFooter pf))
+
+-- | Lazily project every row group of a Parquet file into Arrow
+-- columns, mirroring pyarrow's @ParquetFile.iter_batches()@. The
+-- resulting list defers the per-row-group decode until the
+-- consumer pulls the corresponding @Either@; failed row groups
+-- surface their parse error in the @Left@ slot without aborting
+-- the rest of the stream.
+--
+-- @
+-- pf <- 'Parquet.HighLevel.decodeParquet' bytes
+-- forM_ ('streamRowGroups' arrowSchema pf) $ \\rg -> case rg of
+--   Right cols -> consume cols
+--   Left  err  -> log err
+-- @
+streamRowGroups
+  :: AT.Schema
+  -> PR.ParquetFile
+  -> [Either String (V.Vector AC.ColumnArray)]
+streamRowGroups sch pf =
+  [ parquetRowGroupToArrow sch pf i
+  | i <- [0 .. numRowGroups pf - 1]
+  ]

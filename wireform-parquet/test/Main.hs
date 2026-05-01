@@ -889,6 +889,30 @@ arrowParquetBridge = do
                                  ++ show (V.toList cols)
                                  ++ "\n exp " ++ show (V.toList batch)
 
+  -- streamRowGroups: drain the same single-row-group file as a
+  -- list and assert every row group materialises correctly.
+  case PArrow.arrowToParquet arrowSchema [batch] of
+    Left  e -> failTest $ "arrowToParquet (stream): " ++ e
+    Right (psSchema, rgs) -> do
+      let !opts = PHL.defaultWriteOptions
+                    { PHL.writePageVersion = PageV1
+                    , PHL.writeCompression = Uncompressed
+                    }
+          !bytes = PHL.encodeParquet opts psSchema rgs
+      case PHL.decodeParquet bytes of
+        Left  e -> failTest $ "decodeParquet (stream): " ++ e
+        Right pf -> do
+          let results = PArrow.streamRowGroups arrowSchema pf
+          if length results /= 1
+            then failTest $ "streamRowGroups: expected 1 row group, got "
+                              ++ show (length results)
+            else case head results of
+              Left  e    -> failTest $ "streamRowGroups (rg 0): " ++ e
+              Right cols ->
+                if cols == batch
+                  then putStrLn "OK: streamRowGroups iterates row groups"
+                  else failTest $ "streamRowGroups mismatch"
+
 expectHash :: String -> String -> IO ()
 expectHash s expected = expectHashBs (BSC.pack s) expected
 
