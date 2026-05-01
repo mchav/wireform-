@@ -337,6 +337,13 @@ test-suite interop-test
   build-depends:
       base             >= 4.16 && < 5
     , wireform-proto
+    , wireform-avro
+    , wireform-bson
+    , wireform-cbor
+    , wireform-ion
+    , wireform-msgpack
+    , wireform-thrift
+    , wireform-xml
     , bytestring
     , text
     , vector
