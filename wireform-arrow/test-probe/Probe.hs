@@ -14,7 +14,10 @@ import System.Exit (exitFailure)
 import Arrow.Column (ColumnArray (..))
 import Arrow.Types
 import Arrow.FlatBufferIPC
-  ( readArrowStreamFB
+  ( buildRecordBatchBytes
+  , readArrowFileFB
+  , readArrowStreamFB
+  , writeArrowFileFB
   , writeArrowStreamFB
   , writeArrowStreamFBFromColumns
   )
@@ -23,13 +26,14 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ("--read" : path : _) -> readMode path
-    _                     -> writeMode (case args of { (d:_) -> d; [] -> "/tmp" })
+    ("--read" : path : _)      -> readMode readArrowStreamFB path
+    ("--read-file" : path : _) -> readMode readArrowFileFB   path
+    _                          -> writeMode (case args of { (d:_) -> d; [] -> "/tmp" })
 
-readMode :: FilePath -> IO ()
-readMode path = do
+readMode :: (BS.ByteString -> Either String (Schema, [(RecordBatchDef, BS.ByteString)])) -> FilePath -> IO ()
+readMode reader path = do
   bs <- BS.readFile path
-  case readArrowStreamFB bs of
+  case reader bs of
     Left e -> do
       putStrLn ("read error: " ++ e)
       exitFailure
@@ -74,5 +78,12 @@ writeMode outDir = do
         ]
   BS.writeFile (outDir <> "/ours_mixed_batch.arrows")
     (writeArrowStreamFBFromColumns schemaMix (V.singleton mixCols))
+
+  -- Arrow file format (with proper Footer + Block index): same
+  -- payload as the int32 stream above, exercised through
+  -- writeArrowFileFB.
+  let intBatchPair = buildRecordBatchBytes schemaInt batch
+  BS.writeFile (outDir <> "/ours_int32_batch.arrow")
+    (writeArrowFileFB schemaInt [intBatchPair])
 
   putStrLn ("wrote probe outputs to " ++ outDir)

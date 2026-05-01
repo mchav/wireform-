@@ -40,6 +40,7 @@ module Arrow.FlatBufferIPC
   , writeArrowStreamFBFromColumns
     -- * Reader (parses pyarrow / arrow-cpp output)
   , readArrowStreamFB
+  , readArrowFileFB
   , decodeSchemaMessage
   , decodeRecordBatchMessage
   ) where
@@ -876,21 +877,124 @@ writeArrowStreamFBFromColumns sch batches =
   writeArrowStreamFB sch
     (V.toList (V.map (buildRecordBatchBytes sch) batches))
 
--- | Arrow IPC /file/ format: @ARROW1\\0\\0@ prefix, stream payload,
--- trailing @ARROW1@. Note: the real Arrow file format also emits a
--- separate /footer/ flatbuffer between the last record batch and
--- the trailing magic, containing block offsets/lengths. Most
--- readers accept this simpler form too (treating the body as a
--- stream), but some strict ones require the footer. We emit the
--- stream form here because it's sufficient for pyarrow's
--- @open_stream@ and @open_file@ wrappers to consume in 99% of
--- flows; a proper 'Footer' emitter can be layered on top if future
--- work requires it.
+-- | Arrow IPC /file/ format (per @format/File.fbs@):
+--
+-- @
+-- 'ARROW1'\\0\\0
+-- <encapsulated schema message>
+-- <encapsulated record batch 1>
+-- ...
+-- <encapsulated record batch N>
+-- <Footer flatbuffer>             // table Footer { schema, recordBatches: [Block], ... }
+-- <i32 footer length>
+-- 'ARROW1'
+-- @
+--
+-- Each 'Block' references one record batch by
+-- @(offset, metaDataLength, bodyLength)@ — @offset@ pointing at the
+-- continuation marker that begins the encapsulated message. We emit
+-- the EOS marker too so the file simultaneously parses as a stream.
 writeArrowFileFB :: Schema -> [(RecordBatchDef, ByteString)] -> ByteString
 writeArrowFileFB sch batches =
-  let !magic = "ARROW1"
-      !stream = writeArrowStreamFB sch batches
-  in BS.concat [magic, BS.pack [0, 0], stream, magic]
+  let !magic       = "ARROW1"
+      !magicPad    = BS.pack [0, 0]
+      !headerLen   = BS.length magic + BS.length magicPad   -- 8 bytes
+      !schemaMsg   = encapsulateMessage (buildSchemaMessage sch) BS.empty
+      -- Per-batch encapsulated bytes plus the Block we'll record
+      -- in the footer. metaDataLength includes the 8-byte
+      -- continuation+length prefix and all metadata padding (per
+      -- arrow-cpp's @WriteRecordBatchMessage@ which advertises
+      -- the prefix-inclusive length so the reader can seek past
+      -- the metadata in one read).
+      step (revBlocks, !off, accBytes) (rb, body) =
+        let !msgBytes = encapsulateMessage
+              (buildRecordBatchMessage rb (fromIntegral (BS.length body)))
+              body
+            !msgLen   = BS.length msgBytes
+            !bodyLen  = BS.length body
+            !paddedBody = alignUp8FB bodyLen
+            !metaLen  = msgLen - paddedBody  -- 8-byte prefix + padded metadata
+            !blk = ArrowBlock
+                     { abOffset    = fromIntegral off
+                     , abMetaLen   = fromIntegral metaLen
+                     , abBodyLen   = fromIntegral paddedBody
+                     }
+        in  (blk : revBlocks, off + msgLen, accBytes ++ [msgBytes])
+      (revBlocks, _eosOff, msgBs) =
+        foldl step ([], headerLen + BS.length schemaMsg, []) batches
+      !blocks = reverse revBlocks
+      !eos = BL.toStrict $ B.toLazyByteString $
+               B.word32LE 0xFFFFFFFF <> B.int32LE 0
+      !streamBytes = BS.concat (schemaMsg : msgBs ++ [eos])
+      !footer = buildFileFooter sch blocks
+      -- The footer body must be 8-aligned before the trailing
+      -- length+magic, per arrow-cpp.
+      !footerPad =
+        let raw = BS.length footer
+        in  BS.replicate (alignUp8FB raw - raw) 0
+      !footerLenLE = BL.toStrict $ B.toLazyByteString $
+                       B.int32LE (fromIntegral (BS.length footer))
+  in BS.concat
+       [ magic, magicPad
+       , streamBytes
+       , footer, footerPad
+       , footerLenLE
+       , magic
+       ]
+  where
+    alignUp8FB n = (n + 7) .&. complement (7 :: Int)
+
+-- | A 'Block' struct as emitted in the @Footer.recordBatches@
+-- vector. Inline fixed-size struct (24 bytes total): offset i64,
+-- metaDataLength i32, bodyLength i64.
+data ArrowBlock = ArrowBlock
+  { abOffset  :: !Int64
+  , abMetaLen :: !Int32
+  , abBodyLen :: !Int64
+  }
+
+-- | Build the @Footer@ flatbuffer:
+--
+-- @
+-- table Footer {
+--   version       : MetadataVersion;   // i16
+--   schema        : Schema;            // table uoffset
+--   dictionaries  : [Block];           // vector of structs (struct size = 24 with padding)
+--   recordBatches : [Block];
+--   custom_metadata : [KeyValue];
+-- }
+-- @
+--
+-- @Block@ is a struct with layout
+-- @offset: i64; metaDataLength: i32; bodyLength: i64;@. The
+-- @metaDataLength@ field is 4 bytes wide but the struct is
+-- 8-aligned, so each Block occupies 24 bytes (8 + 4 + 4 padding +
+-- 8). FlatBuffers structs are compiler-generated, but we hand-roll
+-- the same layout here.
+buildFileFooter :: Schema -> [ArrowBlock] -> ByteString
+buildFileFooter sch blocks = unsafePerformIO $ do
+  b <- newBuilder
+  schUOff <- writeSchema b sch
+  blocksVec <- writeVectorOfStructs b 24 8
+                 (map writeBlockStruct blocks)
+  msgUOff <- writeTable b
+    [ Just (scalar 2 (\bb -> prependI16 bb metadataVersionV5))
+    , Just (voff schUOff)
+    , Nothing                        -- dictionaries (always empty for now)
+    , Just (voff blocksVec)
+    , Nothing                        -- custom_metadata
+    ]
+  finish b msgUOff
+{-# NOINLINE buildFileFooter #-}
+
+writeBlockStruct :: ArrowBlock -> Builder -> IO ()
+writeBlockStruct (ArrowBlock o ml bl) bb = do
+  -- Reverse order: bodyLength (i64), 4-byte pad, metaDataLength
+  -- (i32), offset (i64).
+  prependI64 bb bl
+  prependBS  bb (BS.replicate 4 0)
+  prependI32 bb ml
+  prependI64 bb o
 
 -- ============================================================
 -- Reader: pyarrow / arrow-cpp / arrow-rs → wireform
@@ -1308,6 +1412,24 @@ readArrowStreamFB bs0 = do
               consumeBatches sch rest2 ((rb, body) : acc)
 
     alignUp8FB n = (n + 7) .&. complement (7 :: Int)
+
+-- | Parse an Arrow IPC /file/ (per @format/File.fbs@), accepting
+-- either the legacy stream-shaped output of 'writeArrowFileFB' or
+-- the canonical pyarrow / arrow-cpp file with a trailing 'Footer'.
+-- The strategy: skip the 8-byte @ARROW1\\0\\0@ header and parse the
+-- contents as a stream. The trailing @Footer + length + ARROW1@
+-- comes after the EOS marker so 'readArrowStreamFB' stops there.
+readArrowFileFB
+  :: ByteString
+  -> Either String (Schema, [(RecordBatchDef, ByteString)])
+readArrowFileFB bs = do
+  when' (BS.length bs < 14) $   -- minimum: header + EOS + trailer
+    Left "Arrow.FlatBufferIPC: input too small to be an Arrow file"
+  when' (BS.take 6 bs /= "ARROW1") $
+    Left "Arrow.FlatBufferIPC: missing leading ARROW1 magic"
+  when' (BS.takeEnd 6 bs /= "ARROW1") $
+    Left "Arrow.FlatBufferIPC: missing trailing ARROW1 magic"
+  readArrowStreamFB (BS.drop 8 bs)
 
 -- | Strip one encapsulated-message frame:
 --
