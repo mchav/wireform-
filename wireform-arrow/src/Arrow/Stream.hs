@@ -38,9 +38,11 @@
 module Arrow.Stream
   ( -- * Streams (eager)
     encodeArrowStream
+  , encodeArrowStreamWith
   , decodeArrowStream
     -- * Files (eager)
   , encodeArrowFile
+  , encodeArrowFileWith
   , decodeArrowFile
     -- * Streams (incremental / iterator)
   , StreamReader
@@ -48,6 +50,10 @@ module Arrow.Stream
   , streamReaderSchema
   , streamReaderNext
   , streamReaderToList
+    -- * Write options
+  , WriteOptions (..)
+  , defaultWriteOptions
+  , BodyCompressionCodec (..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -63,6 +69,8 @@ import Arrow.Column
 import Arrow.FlatBufferIPC
   ( DictBatch (..)
   , buildRecordBatchBytes
+  , buildRecordBatchBytesWith
+  , decompressBody
   , denormaliseBuffers
   , readArrowFileFBWithDicts
   , readArrowStreamFBWithDicts
@@ -71,6 +79,7 @@ import Arrow.FlatBufferIPC
   )
 import Arrow.Types
   ( ArrowType (..)
+  , BodyCompressionCodec (..)
   , DictionaryEncoding (..)
   , Endianness (..)
   , Field (..)
@@ -78,6 +87,26 @@ import Arrow.Types
   , RecordBatchDef (..)
   , Schema (..)
   )
+
+-- ============================================================
+-- Write options
+-- ============================================================
+
+-- | Arrow IPC writer configuration. Construct one with
+-- 'defaultWriteOptions' and override the fields you care about.
+data WriteOptions = WriteOptions
+  { writeBodyCompression :: !(Maybe BodyCompressionCodec)
+    -- ^ When 'Just', body buffers are compressed per Arrow's
+    -- 'BodyCompression' table (typically 'BodyZstd'). 'Nothing'
+    -- (the default) leaves buffers uncompressed.
+  } deriving (Show, Eq)
+
+-- | Defaults: no body compression. PyArrow leaves IPC streams
+-- uncompressed by default; we follow suit.
+defaultWriteOptions :: WriteOptions
+defaultWriteOptions = WriteOptions
+  { writeBodyCompression = Nothing
+  }
 
 -- ============================================================
 -- Streams
@@ -100,8 +129,16 @@ encodeArrowStream
   :: Schema
   -> [V.Vector ColumnArray]
   -> ByteString
-encodeArrowStream sch batches =
-  let !(dicts, batchPairs) = compileBatches sch batches
+encodeArrowStream = encodeArrowStreamWith defaultWriteOptions
+
+-- | 'encodeArrowStream' with explicit 'WriteOptions'.
+encodeArrowStreamWith
+  :: WriteOptions
+  -> Schema
+  -> [V.Vector ColumnArray]
+  -> ByteString
+encodeArrowStreamWith opts sch batches =
+  let !(dicts, batchPairs) = compileBatchesWith opts sch batches
   in  writeArrowStreamFBWithDicts sch dicts batchPairs
 
 -- | Decode an Arrow IPC stream back into 'Schema' + record-batch
@@ -128,8 +165,16 @@ encodeArrowFile
   :: Schema
   -> [V.Vector ColumnArray]
   -> ByteString
-encodeArrowFile sch batches =
-  let !(dicts, batchPairs) = compileBatches sch batches
+encodeArrowFile = encodeArrowFileWith defaultWriteOptions
+
+-- | 'encodeArrowFile' with explicit 'WriteOptions'.
+encodeArrowFileWith
+  :: WriteOptions
+  -> Schema
+  -> [V.Vector ColumnArray]
+  -> ByteString
+encodeArrowFileWith opts sch batches =
+  let !(dicts, batchPairs) = compileBatchesWith opts sch batches
   in  writeArrowFileFBWithDicts sch dicts batchPairs
 
 -- | Decode an Arrow IPC file. Dictionary-resolved 'ColumnArray'
@@ -155,10 +200,18 @@ compileBatches
   :: Schema
   -> [V.Vector ColumnArray]
   -> ([DictBatch], [(RecordBatchDef, ByteString)])
-compileBatches sch batches =
+compileBatches = compileBatchesWith defaultWriteOptions
+
+compileBatchesWith
+  :: WriteOptions
+  -> Schema
+  -> [V.Vector ColumnArray]
+  -> ([DictBatch], [(RecordBatchDef, ByteString)])
+compileBatchesWith opts sch batches =
   let !dictMap = collectDictionaries batches
       !dicts   = map (uncurry buildDictBatch) (Map.toAscList dictMap)
-      !pairs   = map (buildRecordBatchBytes sch) batches
+      !mCodec  = writeBodyCompression opts
+      !pairs   = map (buildRecordBatchBytesWith mCodec sch) batches
   in  (dicts, pairs)
 
 -- | Build a 'DictBatch' carrying one logical column of dictionary
@@ -231,8 +284,25 @@ decodeBatches sch dicts frames = do
   Right (sch, resolved)
   where
     decodeOneBatch s m (rb, body) = do
-      cols <- materializeRecordBatch s (denormaliseBuffers s rb) body
+      (rb', body') <- maybeDecompressBatch rb body
+      cols <- materializeRecordBatch s (denormaliseBuffers s rb') body'
       Right (V.map (resolveDictionaryColumn (`Map.lookup` m)) cols)
+
+-- | If the record batch advertises body compression, run the
+-- per-buffer decompressor and rewrite the buffer offsets to
+-- point at the uncompressed layout (suitable for
+-- 'denormaliseBuffers' / 'materializeRecordBatch').
+maybeDecompressBatch
+  :: RecordBatchDef -> ByteString -> Either String (RecordBatchDef, ByteString)
+maybeDecompressBatch rb body = case rbBodyCompression rb of
+  Nothing    -> Right (rb, body)
+  Just codec -> do
+    (newBufs, newBody) <- decompressBody codec (rbBuffers rb) body
+    Right ( rb { rbBuffers         = newBufs
+               , rbBodyCompression = Nothing
+               }
+          , newBody
+          )
 
 -- | Materialise the values column inside a 'DictBatch'. The
 -- inner record-batch always has exactly one field; we fabricate

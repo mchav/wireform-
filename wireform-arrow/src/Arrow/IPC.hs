@@ -264,6 +264,7 @@ decodeRecordBatch bs = do
     , rbNodes = nodes
     , rbBuffers = bufs
     , rbVariadicBufferCounts = V.empty
+    , rbBodyCompression = Nothing
     }
 
 -- Primitives

@@ -173,6 +173,7 @@ recordBatchRoundtrips = testGroup "RecordBatch roundtrips"
             , rbNodes = V.empty
             , rbBuffers = V.empty
             , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -190,6 +191,7 @@ recordBatchRoundtrips = testGroup "RecordBatch roundtrips"
                 , Buffer 8256 8000
                 ]
             , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
   ]
@@ -308,6 +310,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
             , rbNodes = V.fromList nodes
             , rbBuffers = V.fromList bufs
             , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
   ]
@@ -330,6 +333,7 @@ columnTests = testGroup "Column materialization"
             , rbNodes = V.singleton (FieldNode 3 1)
             , rbBuffers = V.fromList [Buffer 0 1, Buffer 8 12]
             , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
           validityByte = BS.pack [0x05]
           body = validityByte <> BS.replicate 7 0
@@ -356,6 +360,7 @@ columnTests = testGroup "Column materialization"
             , rbNodes = V.fromList [FieldNode 2 0, FieldNode 2 0, FieldNode 2 0]
             , rbBuffers = V.fromList [Buffer 0 8, Buffer 8 8]
             , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
           body = leI32 1 <> leI32 2 <> leI32 3 <> leI32 4
       case materializeRecordBatch schema rb body of
@@ -383,6 +388,7 @@ columnTests = testGroup "Column materialization"
             , rbNodes = V.fromList [FieldNode 2 0, FieldNode 5 0]
             , rbBuffers = V.fromList [Buffer 0 12, Buffer 16 20]
             , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
           offsets = leI32 0 <> leI32 2 <> leI32 5
           body = offsets <> BS.replicate 4 0

@@ -279,6 +279,7 @@ buildRecordBatch schema cols =
         , rbNodes = nodes
         , rbBuffers = bufs
         , rbVariadicBufferCounts = V.fromList (reverse (baVariadic acc))
+        , rbBodyCompression = Nothing
         }
       !bodyLen = baOffset acc
       !metaBs = encodeRecordBatchMeta rb bodyLen

@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
 -- | Real Apache Arrow IPC framing — binary-compatible with the
@@ -38,7 +39,11 @@ module Arrow.FlatBufferIPC
   , writeArrowFileFBWithDicts
     -- * Column-based convenience writer
   , buildRecordBatchBytes
+  , buildRecordBatchBytesWith
   , writeArrowStreamFBFromColumns
+    -- * Body compression helpers
+  , compressBody
+  , decompressBody
     -- * Reader (parses pyarrow / arrow-cpp output)
   , readArrowStreamFB
   , readArrowFileFB
@@ -74,6 +79,10 @@ import Data.IORef (IORef, newIORef, readIORef, modifyIORef')
 import Arrow.Column (ColumnArray (..), columnLength, materializeRecordBatch)
 import Arrow.Types
 import qualified Arrow.Write as W
+
+#ifdef HAVE_ZSTD
+import qualified Codec.Compression.Zstd as Zstd
+#endif
 
 -- ============================================================
 -- Low-level builder
@@ -715,11 +724,22 @@ writeRecordBatch b rb = do
                   [ writeBufferStruct buf | buf <- V.toList (rbBuffers rb) ]
   nodesVec   <- writeVectorOfStructs b 16 8
                   [ writeFieldNodeStruct fn | fn <- V.toList (rbNodes rb) ]
+  -- BodyCompression (slot 3): table { codec: i8 (default 0), method: i8 (default 0) }.
+  bodyCompVec <- case rbBodyCompression rb of
+    Nothing -> pure Nothing
+    Just codec -> do
+      uo <- writeTable b
+              [ Just (scalar 1 (\bb -> prependU8 bb (case codec of
+                                                       LZ4Frame -> 0
+                                                       BodyZstd -> 1)))
+              , Nothing  -- method = BUFFER (default)
+              ]
+      pure (Just uo)
   writeTable b
     [ Just (scalar 8 (\bb -> prependI64 bb (rbLength rb)))
     , Just (voff nodesVec)
     , Just (voff buffersVec)
-    , Nothing
+    , case bodyCompVec of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     , case variadicVec of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     ]
 
@@ -884,21 +904,211 @@ buildRecordBatchBytes
   :: Schema
   -> V.Vector ColumnArray
   -> (RecordBatchDef, ByteString)
-buildRecordBatchBytes sch cols =
+buildRecordBatchBytes = buildRecordBatchBytesWith Nothing
+
+-- | 'buildRecordBatchBytes' with an optional 'BodyCompressionCodec'.
+-- When 'Just', each buffer in the body is compressed independently
+-- (per Arrow's @BodyCompression@ semantics) and the buffer offsets
+-- in the returned 'RecordBatchDef' point into the /compressed/
+-- body. The corresponding 'rbBodyCompression' field is populated
+-- so readers can dispatch decompression.
+buildRecordBatchBytesWith
+  :: Maybe BodyCompressionCodec
+  -> Schema
+  -> V.Vector ColumnArray
+  -> (RecordBatchDef, ByteString)
+buildRecordBatchBytesWith mCodec sch cols =
   let !acc = W.encodeColumns (arrowFields sch) cols W.emptyBuildAcc
       !rawNodes = V.fromList (reverse (W.baNodes acc))
       !rawBufs  = V.fromList (reverse (W.baBufs acc))
       !rawVar          = V.fromList (reverse (W.baVariadic acc))
-      !(!nodes, !bufs) = normaliseBuffers (arrowFields sch) cols rawNodes rawBufs rawVar
+      !(!nodes, !bufs0) = normaliseBuffers (arrowFields sch) cols rawNodes rawBufs rawVar
+      !rawBody = BL.toStrict (B.toLazyByteString (W.baBody acc))
       !numRows = if V.null cols then 0 else columnLength (V.head cols)
+      !(!bufs, !body) = case mCodec of
+        Nothing    -> (bufs0, rawBody)
+        Just codec ->
+          let !cb = compressBody codec bufs0 rawBody
+          in  cb
       !rb = RecordBatchDef
               { rbLength  = fromIntegral numRows
               , rbNodes   = nodes
               , rbBuffers = bufs
               , rbVariadicBufferCounts = rawVar
+              , rbBodyCompression = mCodec
               }
-      !body = BL.toStrict (B.toLazyByteString (W.baBody acc))
   in (rb, body)
+
+-- | Apply Arrow's @BodyCompression = BUFFER@ scheme: each
+-- @Buffer { offset, length }@ slice in the body is replaced with
+-- @<i64 LE uncompressedLength><compressedBytes>@, with the
+-- buffer offsets rewritten to point at the new layout (8-aligned
+-- between buffers, like the uncompressed body). Returns the new
+-- buffer list + the rewritten body.
+compressBody
+  :: BodyCompressionCodec
+  -> V.Vector Buffer
+  -> ByteString
+  -> (V.Vector Buffer, ByteString)
+compressBody codec bufs body0 =
+  let !chunks = V.imap rewrite bufs
+      rewrite _ buf =
+        let !off  = fromIntegral (bufOffset buf) :: Int
+            !len  = fromIntegral (bufLength buf) :: Int
+            !raw  = BS.take len (BS.drop off body0)
+            !envelope = compressBufferEnvelope codec raw
+        in  envelope
+      step (!off, !revBufs, !revChunks) chunk =
+        let !len    = BS.length chunk
+            !padded = alignUp len 8
+            !pad    = padded - len
+            !newBuf = Buffer { bufOffset = fromIntegral off
+                             , bufLength = fromIntegral len
+                             }
+        in  ( off + padded
+            , newBuf : revBufs
+            , (chunk <> BS.replicate pad 0) : revChunks
+            )
+      (_, revBufs, revChunks) =
+        V.foldl' step (0 :: Int, [], []) chunks
+  in  ( V.fromList (reverse revBufs)
+      , BS.concat (reverse revChunks)
+      )
+
+-- | Wrap a single buffer's bytes per Arrow's @BUFFER@ method: an
+-- 8-byte little-endian uncompressed length followed by the
+-- compressed payload. When compression doesn't shrink the bytes
+-- (rare but possible for tiny / already-random inputs) we set
+-- @uncompressedLength = -1@ and emit the raw bytes inline, which
+-- is the spec-mandated escape hatch.
+compressBufferEnvelope :: BodyCompressionCodec -> ByteString -> ByteString
+compressBufferEnvelope codec raw
+  | BS.null raw = raw
+  | otherwise =
+      let !compressed = compressBuffer codec raw
+          !rawLen     = BS.length raw
+          !compLen    = BS.length compressed
+      in  if compLen >= rawLen
+            then  -- spec escape hatch: -1 length, raw bytes inline
+              encodeBodyLen (-1 :: Int64) <> raw
+            else encodeBodyLen (fromIntegral rawLen) <> compressed
+
+encodeBodyLen :: Int64 -> ByteString
+encodeBodyLen n = BL.toStrict $ B.toLazyByteString $
+  B.int64LE n
+
+-- | Decompress one buffer envelope per the @BUFFER@ method.
+decompressBufferEnvelope
+  :: BodyCompressionCodec -> ByteString -> Either String ByteString
+decompressBufferEnvelope codec env
+  | BS.null env = Right env
+  | BS.length env < 8 =
+      Left "Arrow.FlatBufferIPC: buffer envelope shorter than 8 bytes"
+  | otherwise =
+      let !rawLen = decodeBodyLen env
+          !payload = BS.drop 8 env
+      in  if rawLen < 0
+            then Right payload   -- spec escape: stored uncompressed
+            else decompressBuffer codec rawLen payload
+
+decodeBodyLen :: ByteString -> Int64
+decodeBodyLen bs =
+  let !b0 = fromIntegral (BS.index bs 0) :: Int64
+      !b1 = fromIntegral (BS.index bs 1) :: Int64
+      !b2 = fromIntegral (BS.index bs 2) :: Int64
+      !b3 = fromIntegral (BS.index bs 3) :: Int64
+      !b4 = fromIntegral (BS.index bs 4) :: Int64
+      !b5 = fromIntegral (BS.index bs 5) :: Int64
+      !b6 = fromIntegral (BS.index bs 6) :: Int64
+      !b7 = fromIntegral (BS.index bs 7) :: Int64
+  in   b0
+    .|. (b1 `shiftL` 8)
+    .|. (b2 `shiftL` 16)
+    .|. (b3 `shiftL` 24)
+    .|. (b4 `shiftL` 32)
+    .|. (b5 `shiftL` 40)
+    .|. (b6 `shiftL` 48)
+    .|. (b7 `shiftL` 56)
+
+-- | Compress a single buffer's bytes. Routes to the right codec
+-- backend; @-fzstd@ / @-flz4@ Cabal flags select availability.
+compressBuffer :: BodyCompressionCodec -> ByteString -> ByteString
+compressBuffer codec bs = case codec of
+#ifdef HAVE_ZSTD
+  BodyZstd ->
+    Zstd.compress 3 bs   -- level 3 matches arrow-cpp's default
+#else
+  BodyZstd -> error "Arrow.FlatBufferIPC: ZSTD body compression requires building wireform-arrow with -fzstd"
+#endif
+#ifdef HAVE_LZ4
+  LZ4Frame ->
+    -- The LZ4 Haskell binding doesn't ship a frame-format
+    -- compressor; we emit the raw block format instead and
+    -- accept that pyarrow won't decode this until we wire up a
+    -- real frame compressor (separate item). For now this code
+    -- path is gated behind -flz4 and falls through to the
+    -- "not implemented" error.
+    error "Arrow.FlatBufferIPC: LZ4_FRAME body compression not yet wired up; use BodyZstd for now"
+#else
+  LZ4Frame -> error "Arrow.FlatBufferIPC: LZ4 body compression requires building wireform-arrow with -flz4"
+#endif
+
+decompressBuffer
+  :: BodyCompressionCodec -> Int64 -> ByteString -> Either String ByteString
+decompressBuffer codec rawLen comp = case codec of
+#ifdef HAVE_ZSTD
+  BodyZstd ->
+    case Zstd.decompress comp of
+      Zstd.Decompress out -> Right out
+      Zstd.Skip           -> Left "Arrow.FlatBufferIPC: ZSTD decompress: skipped frame"
+      Zstd.Error msg      -> Left ("Arrow.FlatBufferIPC: ZSTD decompress: " ++ msg)
+#else
+  BodyZstd -> Left "Arrow.FlatBufferIPC: ZSTD body compression requires building wireform-arrow with -fzstd"
+#endif
+#ifdef HAVE_LZ4
+  LZ4Frame -> Left ("Arrow.FlatBufferIPC: LZ4_FRAME decompression not yet wired up; "
+                     ++ show rawLen ++ " uncompressed bytes expected")
+#else
+  LZ4Frame -> Left "Arrow.FlatBufferIPC: LZ4 body compression requires building wireform-arrow with -flz4"
+#endif
+  where
+    _ = rawLen   -- reserved for future use (validation against spec)
+
+-- | Decode a body that was written with body compression. Walks
+-- each buffer in the supplied list (with offsets pointing into
+-- the compressed body), unwraps the per-buffer envelope, and
+-- returns @(newBuffers, decompressedBody)@ where the new
+-- buffers' offsets point into the uncompressed body — suitable
+-- for the standard 'materializeRecordBatch' path.
+decompressBody
+  :: BodyCompressionCodec
+  -> V.Vector Buffer
+  -> ByteString
+  -> Either String (V.Vector Buffer, ByteString)
+decompressBody codec bufs body0 = do
+  payloads <- V.mapM
+    (\buf ->
+        let !off = fromIntegral (bufOffset buf) :: Int
+            !len = fromIntegral (bufLength buf) :: Int
+            !env = BS.take len (BS.drop off body0)
+        in  decompressBufferEnvelope codec env)
+    bufs
+  let step (!off, !revBufs, !revChunks) decoded =
+        let !len    = BS.length decoded
+            !padded = alignUp len 8
+            !pad    = padded - len
+            !newBuf = Buffer { bufOffset = fromIntegral off
+                             , bufLength = fromIntegral len
+                             }
+        in  ( off + padded
+            , newBuf : revBufs
+            , (decoded <> BS.replicate pad 0) : revChunks
+            )
+      (_, revBufs, revChunks) =
+        V.foldl' step (0 :: Int, [], []) payloads
+  Right ( V.fromList (reverse revBufs)
+        , BS.concat (reverse revChunks)
+        )
 
 -- | Walk every TOP-LEVEL column in the batch and inject an empty
 -- 'Buffer' (offset=0, length=0) for the validity slot of any
@@ -1860,11 +2070,28 @@ readRecordBatchTable bs rbPos = do
       vecPos <- followUOffset bs b
       n <- peekU32 bs vecPos
       V.generateM (fromIntegral n) $ \i -> peekI64 bs (vecPos + 4 + 8 * i)
+  -- Slot 3 is BodyCompression (a table). When present we read
+  -- the codec discriminator and translate to our enum.
+  bodyComp <- case s 3 of
+    Nothing -> Right Nothing
+    Just b  -> do
+      bcPos <- followUOffset bs b
+      bcSlot <- resolveTable bs bcPos
+      codec <- case bcSlot 0 of
+        Nothing -> Right (0 :: Int)
+        Just p  -> do
+          v <- peekU8 bs p
+          Right (fromIntegral v)
+      case codec of
+        0 -> Right (Just LZ4Frame)
+        1 -> Right (Just BodyZstd)
+        n -> Left $ "Arrow.FlatBufferIPC: unknown BodyCompression codec " ++ show n
   Right RecordBatchDef
     { rbLength  = len
     , rbNodes   = nodes
     , rbBuffers = bufs
     , rbVariadicBufferCounts = variadic
+    , rbBodyCompression = bodyComp
     }
 
 -- | Decode a Schema-typed @Message@ flatbuffer (just the metadata

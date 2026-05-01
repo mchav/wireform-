@@ -15,9 +15,13 @@ import System.Exit (exitFailure)
 import Arrow.Column (ColumnArray (..))
 import Arrow.Types
 import Arrow.Stream
-  ( decodeArrowStream
+  ( BodyCompressionCodec (..)
+  , WriteOptions (..)
+  , decodeArrowStream
+  , defaultWriteOptions
   , encodeArrowFile
   , encodeArrowStream
+  , encodeArrowStreamWith
   )
 
 main :: IO ()
@@ -138,6 +142,15 @@ writeMode outDir = do
     [V.singleton (ColDictionary 0
         (VP.fromList ([0,1,0,2,1] :: [Int32]))
         (ColUtf8 (V.fromList ["a","b","c"])))]
+
+  -- ZSTD body compression: a 500-row int64 column compressed
+  -- per Arrow's BodyCompression spec.
+  let zstdOpts    = defaultWriteOptions { writeBodyCompression = Just BodyZstd }
+      zstdSchema  = Schema
+        (V.singleton (pField "n" False (AInt 64 True) V.empty)) Little
+      zstdBatch   = V.singleton (ColInt64 (VP.fromList ([1..500] :: [Int64])))
+  BS.writeFile (outDir <> "/ours_zstd_compressed.arrows")
+    (encodeArrowStreamWith zstdOpts zstdSchema [zstdBatch])
 
   -- File format with the same data as the int32 stream.
   let intSchema = Schema

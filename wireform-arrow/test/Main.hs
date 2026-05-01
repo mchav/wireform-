@@ -29,8 +29,12 @@ import Arrow.Column
   )
 import Arrow.File (asBatches, asSchema, readArrowStream)
 import Arrow.Stream
-  ( decodeArrowStream
+  ( BodyCompressionCodec (..)
+  , WriteOptions (..)
+  , decodeArrowStream
+  , defaultWriteOptions
   , encodeArrowStream
+  , encodeArrowStreamWith
   , openStreamReader
   , streamReaderNext
   , streamReaderSchema
@@ -369,6 +373,34 @@ flatBufRoundTrip = do
     , V.singleton (ColInt32 (VP.fromList ([3] :: [Int32])))
     , V.singleton (ColInt32 (VP.fromList ([4, 5, 6, 7] :: [Int32])))
     ]
+
+  -- ZSTD body compression (writer + reader): exercises
+  -- BodyCompression on a multi-column batch, asserting the
+  -- decoded values match the source.
+  bodyCompressionRoundTrip BodyZstd
+    (Schema (V.fromList
+       [ plainField "n" False (AInt 64 True)
+       , plainField "s" False AUtf8
+       ]) Little)
+    (V.fromList
+       [ ColInt64 (VP.fromList
+            ([1..1000] :: [Int64]))   -- enough bytes that ZSTD shrinks
+       , ColUtf8 (V.replicate 1000 "highly-compressible-payload")
+       ])
+
+bodyCompressionRoundTrip :: BodyCompressionCodec -> Schema -> V.Vector ColumnArray -> IO ()
+bodyCompressionRoundTrip codec sch cols = do
+  let !opts  = defaultWriteOptions { writeBodyCompression = Just codec }
+      !bytes = encodeArrowStreamWith opts sch [cols]
+  case decodeArrowStream bytes of
+    Left e -> failTest $ "body-compression round-trip: " ++ e
+    Right (_sch', batches)
+      | [got] <- batches, got == cols ->
+          putStrLn $ "OK: body compression " ++ show codec
+                       ++ " (" ++ show (BS.length bytes) ++ " bytes)"
+      | otherwise ->
+          failTest $ "body-compression mismatch: got "
+                       ++ show batches
 
 streamingRoundTrip :: Schema -> [V.Vector ColumnArray] -> IO ()
 streamingRoundTrip sch batches = do

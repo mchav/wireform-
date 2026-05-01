@@ -15,6 +15,7 @@ module Arrow.Types
   , UnionMode(..)
   , Message(..)
   , RecordBatchDef(..)
+  , BodyCompressionCodec(..)
   , FieldNode(..)
   , Buffer(..)
   ) where
@@ -151,8 +152,27 @@ data RecordBatchDef = RecordBatchDef
     -- string payloads. The vector lists, in pre-order schema
     -- traversal order, the number of variadic data buffers per
     -- view column. Empty for schemas without view types.
+  , rbBodyCompression :: !(Maybe BodyCompressionCodec)
+    -- ^ Per Arrow @format/Message.fbs@'s 'BodyCompression' table.
+    -- When 'Just', each buffer in the body is wrapped in an
+    -- @<i64 uncompressedLength><compressed bytes>@ envelope using
+    -- the named codec; readers see the original layout once
+    -- decompressed. 'Nothing' = uncompressed buffers (the wire
+    -- default).
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
+
+-- | Body-compression codecs supported by Arrow IPC's
+-- 'BodyCompression' table (per @format/Message.fbs@).
+data BodyCompressionCodec
+  = LZ4Frame
+    -- ^ LZ4 frame format (@CompressionType = LZ4_FRAME = 0@).
+    -- Most widely supported; the default for pyarrow when
+    -- compression is enabled.
+  | BodyZstd
+    -- ^ Zstandard (@CompressionType = ZSTD = 1@).
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
 
 data Message
   = SchemaMessage !Schema
