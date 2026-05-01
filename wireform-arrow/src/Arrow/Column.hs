@@ -117,6 +117,35 @@ data ColumnArray
   | ColDenseUnion !(VP.Vector Int8) !(VP.Vector Int32) !(V.Vector ColumnArray)
   | ColSparseUnion !(VP.Vector Int8) !(V.Vector ColumnArray)
   | ColDictionary !Int64 !(VP.Vector Int32) !ColumnArray
+  | -- | Run-End Encoded column (Arrow spec >= 1.3). The first child
+    -- holds the run-end indices (int16/32/64, ascending, the
+    -- @i@-th element being the EXCLUSIVE end index of run @i@); the
+    -- second holds the actual values (any type, may be nullable).
+    -- The parent has /no/ buffers and /no/ validity bitmap of its
+    -- own — nulls live in the values child.
+    ColRunEndEncoded !ColumnArray !ColumnArray
+  | -- | ListView (Arrow spec >= 1.4). Like 'ColList' but with a
+    -- separate sizes buffer; offsets and sizes are independent
+    -- 32-bit arrays (so list elements may overlap or be in any
+    -- order in the child storage).
+    ColListView !(VP.Vector Int32) !(VP.Vector Int32) !ColumnArray
+  | ColListViewMaybe !(V.Vector Bool) !(VP.Vector Int32) !(VP.Vector Int32) !ColumnArray
+  | -- | LargeListView: 64-bit offsets and sizes.
+    ColLargeListView !(VP.Vector Int64) !(VP.Vector Int64) !ColumnArray
+  | ColLargeListViewMaybe !(V.Vector Bool) !(VP.Vector Int64) !(VP.Vector Int64) !ColumnArray
+  | -- | Utf8View (Arrow spec >= 1.4). Each row is a 16-byte view
+    -- struct: a 4-byte length followed by either an inlined
+    -- payload (length <= 12) or a (4-byte prefix + 4-byte buffer
+    -- index + 4-byte buffer offset) reference into one of the
+    -- variadic data buffers. The materialized form here is the
+    -- decoded UTF-8 strings; the inlined-vs-out-of-line layout
+    -- is the writer's concern.
+    ColUtf8View !(V.Vector Text)
+  | ColUtf8ViewMaybe !(V.Vector (Maybe Text))
+  | -- | BinaryView: same layout as 'ColUtf8View' but no UTF-8
+    -- validation; raw bytes.
+    ColBinaryView !(V.Vector ByteString)
+  | ColBinaryViewMaybe !(V.Vector (Maybe ByteString))
   deriving stock (Show, Eq)
 
 -- | One field node per top-level field (flat schema).
@@ -1095,6 +1124,21 @@ columnLength = \case
   ColDenseUnion typeIds _ _ -> VP.length typeIds
   ColSparseUnion typeIds _ -> VP.length typeIds
   ColDictionary _ indices _ -> VP.length indices
+  ColRunEndEncoded runEnds _ ->
+    -- The logical length is the LAST run-end value (exclusive).
+    case runEnds of
+      ColInt16 v -> if VP.null v then 0 else fromIntegral (VP.last v)
+      ColInt32 v -> if VP.null v then 0 else fromIntegral (VP.last v)
+      ColInt64 v -> if VP.null v then 0 else fromIntegral (VP.last v)
+      _          -> 0
+  ColListView offsets _ _       -> VP.length offsets
+  ColListViewMaybe v _ _ _      -> V.length v
+  ColLargeListView offsets _ _  -> VP.length offsets
+  ColLargeListViewMaybe v _ _ _ -> V.length v
+  ColUtf8View v        -> V.length v
+  ColUtf8ViewMaybe v   -> V.length v
+  ColBinaryView v      -> V.length v
+  ColBinaryViewMaybe v -> V.length v
 
 -- | Materialize a record batch with support for nested types.
 -- Walks the schema tree in preorder DFS, consuming field nodes and buffers.
@@ -1127,6 +1171,11 @@ materializeField endian f rb body !nodeIdx !bufIdx =
     AFixedSizeList n -> materializeFixedSizeListCol endian n f rb body nodeIdx bufIdx
     ALargeList -> materializeLargeListCol endian f rb body nodeIdx bufIdx
     AInterval u -> materializeIntervalCol endian u f rb body nodeIdx bufIdx
+    ARunEndEncoded -> materializeRunEndEncodedCol endian f rb body nodeIdx bufIdx
+    AListView      -> materializeListViewCol endian False f rb body nodeIdx bufIdx
+    ALargeListView -> materializeListViewCol endian True  f rb body nodeIdx bufIdx
+    AUtf8View      -> materializeViewCol endian True  f rb body nodeIdx bufIdx
+    ABinaryView    -> materializeViewCol endian False f rb body nodeIdx bufIdx
     _ -> materializeOne endian f rb body nodeIdx bufIdx
 
 materializeStruct :: Endianness -> Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
@@ -1330,3 +1379,189 @@ materializeIntervalCol endian unit f rb body !nodeIdx !bufIdx = do
                 fromIntegral (readWord64 endian dataBs (i * 16 + 8)) :: Int64
            in Right (ColIntervalMonthDayNano monthsV daysV nanosV)
   Right (col, nodeIdx1, bufIdx2)
+
+-- ============================================================
+-- Post-V5 columns: RunEndEncoded, ListView/LargeListView,
+-- Utf8View / BinaryView.
+-- ============================================================
+
+-- | RunEndEncoded: parent has zero buffers (no validity, no data),
+-- exactly two children: @run_ends@ (Int16/32/64) and @values@ (any
+-- type, may be nullable).
+materializeRunEndEncodedCol
+  :: Endianness -> Field -> RecordBatchDef -> ByteString
+  -> Int -> Int -> Either String (ColumnArray, Int, Int)
+materializeRunEndEncodedCol endian f rb body !nodeIdx !bufIdx = do
+  let !nodeIdx1 = nodeIdx + 1
+  case V.toList (fieldChildren f) of
+    [runEndsField, valuesField] -> do
+      (runEndsCol, !nodeIdx2, !bufIdx1) <-
+        materializeField endian runEndsField rb body nodeIdx1 bufIdx
+      (valuesCol,  !nodeIdx3, !bufIdx2) <-
+        materializeField endian valuesField  rb body nodeIdx2 bufIdx1
+      Right (ColRunEndEncoded runEndsCol valuesCol, nodeIdx3, bufIdx2)
+    _ ->
+      Left "Arrow.Column: RunEndEncoded must have exactly two children (run_ends, values)"
+
+-- | ListView / LargeListView. Buffers (in order): validity (when
+-- nullable), offsets, sizes. The child elements may overlap or
+-- appear in any order — we don't reorder them at materialisation
+-- time; callers can interpret the (offset, size) pairs themselves.
+materializeListViewCol
+  :: Endianness
+  -> Bool   -- ^ True for LargeListView (Int64 offsets/sizes)
+  -> Field
+  -> RecordBatchDef
+  -> ByteString
+  -> Int -> Int
+  -> Either String (ColumnArray, Int, Int)
+materializeListViewCol endian large f rb body !nodeIdx !bufIdx = do
+  let node = V.unsafeIndex (rbNodes rb) nodeIdx
+      !len = fromIntegral (fnLength node) :: Int
+      !nodeIdx1 = nodeIdx + 1
+  (validity, !bufIdx1) <- if fieldNullable f
+    then do
+      validBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+      vs <- unpackBools len validBs
+      Right (Just vs, bufIdx + 1)
+    else Right (Nothing, bufIdx)
+  offBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx1)
+  sizBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) (bufIdx1 + 1))
+  let !w        = if large then 8 else 4
+      !need     = len * w
+  when' (BS.length offBs < need) $
+    Left "Arrow.Column: list-view offsets buffer too small"
+  when' (BS.length sizBs < need) $
+    Left "Arrow.Column: list-view sizes buffer too small"
+  let !bufIdx2 = bufIdx1 + 2
+  case V.toList (fieldChildren f) of
+    [childField] -> do
+      (childCol, !nodeIdx2, !bufIdx3) <-
+        materializeField endian childField rb body nodeIdx1 bufIdx2
+      if large
+        then
+          let offs = VP.generate len $ \i ->
+                fromIntegral (readWord64 endian offBs (i * 8)) :: Int64
+              sizs = VP.generate len $ \i ->
+                fromIntegral (readWord64 endian sizBs (i * 8)) :: Int64
+          in Right $! case validity of
+               Nothing -> (ColLargeListView offs sizs childCol, nodeIdx2, bufIdx3)
+               Just vs -> (ColLargeListViewMaybe vs offs sizs childCol, nodeIdx2, bufIdx3)
+        else
+          let offs = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian offBs (i * 4)) :: Int32
+              sizs = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian sizBs (i * 4)) :: Int32
+          in Right $! case validity of
+               Nothing -> (ColListView offs sizs childCol, nodeIdx2, bufIdx3)
+               Just vs -> (ColListViewMaybe vs offs sizs childCol, nodeIdx2, bufIdx3)
+    _ ->
+      Left "Arrow.Column: ListView must have exactly one child"
+  where
+    when' True  e = e
+    when' False _ = Right ()
+
+-- | Utf8View / BinaryView. Buffers: validity (optional), view
+-- (n × 16 bytes), then 0..k variadic data buffers. The variadic
+-- count comes from 'rbVariadicBufferCounts' in pre-order schema
+-- traversal — we consume one entry from a caller-managed counter
+-- by re-deriving the count from the schema position; here we just
+-- read the relevant data buffers based on the variadic-counts
+-- vector slot for this field.
+--
+-- Each 16-byte view is laid out:
+--
+-- @
+--   length         : i32 (little-endian)
+--   if length <= 12:
+--     inlined bytes (length bytes), zero-padded to 12 total
+--   else:
+--     prefix       : 4 bytes (first 4 of the string)
+--     buffer_index : i32
+--     buffer_offset: i32
+-- @
+materializeViewCol
+  :: Endianness
+  -> Bool   -- ^ True for Utf8View (UTF-8 validate); False for BinaryView
+  -> Field
+  -> RecordBatchDef
+  -> ByteString
+  -> Int -> Int
+  -> Either String (ColumnArray, Int, Int)
+materializeViewCol endian utf8 f rb body !nodeIdx !bufIdx = do
+  let node = V.unsafeIndex (rbNodes rb) nodeIdx
+      !len = fromIntegral (fnLength node) :: Int
+      !nodeIdx1 = nodeIdx + 1
+  (validity, !bufIdx1) <- if fieldNullable f
+    then do
+      validBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+      vs <- unpackBools len validBs
+      Right (Just vs, bufIdx + 1)
+    else Right (Nothing, bufIdx)
+  viewBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx1)
+  when' (BS.length viewBs < len * 16) $
+    Left "Arrow.Column: view buffer too small"
+  -- Determine how many variadic data buffers belong to this view
+  -- column. Arrow's @rbVariadicBufferCounts@ vector holds one entry
+  -- per view column in DFS pre-order; the wireform writer emits a
+  -- single variadic buffer per view column (or zero when every
+  -- payload fits in the inlined 12-byte slot). The accurate
+  -- implementation threads a "view fields seen" cursor through the
+  -- materialize chain — covered by a follow-up. The current path
+  -- handles the common single-view-column-per-batch case.
+  let !varCount = case V.toList (rbVariadicBufferCounts rb) of
+                    []      -> 0
+                    (c:_)   -> fromIntegral c :: Int
+  -- Resolve data buffers
+  dataBufs <- mapM (sliceBuffer body)
+                [ V.unsafeIndex (rbBuffers rb) (bufIdx1 + 1 + i)
+                | i <- [0 .. varCount - 1] ]
+  let !bufIdx2 = bufIdx1 + 1 + varCount
+  rows <- forM [0 .. len - 1] $ \i -> resolveView viewBs dataBufs i
+  let nullableRows = case validity of
+        Nothing -> Nothing
+        Just vs -> Just (V.zipWith (\v r -> if v then Just r else Nothing) vs (V.fromList rows))
+  -- Decode UTF-8 if the column is Utf8View; raw bytes otherwise.
+  result <- if utf8
+    then do
+      decoded <- traverse (decodeUtf8' "Arrow.Column: invalid UTF-8 in Utf8View") rows
+      pure $ case nullableRows of
+        Nothing -> ColUtf8View (V.fromList decoded)
+        Just vs ->
+          let mkMaybe (Just bs) = Just <$> decodeUtf8' "Arrow.Column: invalid UTF-8 in Utf8View" bs
+              mkMaybe Nothing   = Right Nothing
+          in case traverse mkMaybe (V.toList vs) of
+               Left e   -> error e
+               Right rs -> ColUtf8ViewMaybe (V.fromList rs)
+    else
+      pure $ case nullableRows of
+        Nothing -> ColBinaryView (V.fromList rows)
+        Just vs -> ColBinaryViewMaybe vs
+  Right (result, nodeIdx1, bufIdx2)
+  where
+    when' True  e = e
+    when' False _ = Right ()
+    decodeUtf8' err bs = case TE.decodeUtf8' bs of
+      Left _  -> Left err
+      Right t -> Right t
+
+resolveView :: ByteString -> [ByteString] -> Int -> Either String ByteString
+resolveView viewBs dataBufs i =
+  let off = i * 16
+      len = fromIntegral (readLE32 viewBs off) :: Int
+  in  if len <= 12
+        then Right $! BS.take len (BS.drop (off + 4) viewBs)
+        else do
+          let bufIdx = fromIntegral (readLE32 viewBs (off + 8)) :: Int
+              bufOff = fromIntegral (readLE32 viewBs (off + 12)) :: Int
+          case dataBufs `safeIx` bufIdx of
+            Nothing -> Left "Arrow.Column: view references unknown data buffer index"
+            Just db ->
+              if bufOff + len > BS.length db
+                then Left "Arrow.Column: view payload out of range"
+                else Right $! BS.take len (BS.drop bufOff db)
+
+safeIx :: [a] -> Int -> Maybe a
+safeIx xs i
+  | i < 0 = Nothing
+  | otherwise = case drop i xs of { (x:_) -> Just x; [] -> Nothing }

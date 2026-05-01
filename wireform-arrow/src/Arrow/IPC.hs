@@ -259,7 +259,12 @@ decodeRecordBatch bs = do
   let !bufs = V.generate nBufs (\i ->
         let !o = off2 + 4 + i * 16
         in Buffer (fromIntegral (readLE64 bs o)) (fromIntegral (readLE64 bs (o + 8))))
-  Right RecordBatchDef { rbLength = len, rbNodes = nodes, rbBuffers = bufs }
+  Right RecordBatchDef
+    { rbLength = len
+    , rbNodes = nodes
+    , rbBuffers = bufs
+    , rbVariadicBufferCounts = V.empty
+    }
 
 -- Primitives
 

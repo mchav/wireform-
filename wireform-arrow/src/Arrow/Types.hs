@@ -122,6 +122,13 @@ data RecordBatchDef = RecordBatchDef
   { rbLength  :: !Int64
   , rbNodes   :: !(Vector FieldNode)
   , rbBuffers :: !(Vector Buffer)
+  , rbVariadicBufferCounts :: !(Vector Int64)
+    -- ^ Per Arrow @format/Message.fbs@: when the schema contains
+    -- @Utf8View@ or @BinaryView@ fields each such field has a
+    -- variable number of additional data buffers for out-of-line
+    -- string payloads. The vector lists, in pre-order schema
+    -- traversal order, the number of variadic data buffers per
+    -- view column. Empty for schemas without view types.
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 

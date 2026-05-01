@@ -61,7 +61,7 @@ import Foreign.Storable (pokeByteOff)
 import System.IO.Unsafe (unsafePerformIO)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef')
 
-import Arrow.Column (ColumnArray, columnLength)
+import Arrow.Column (ColumnArray (..), columnLength)
 import Arrow.Types
 import qualified Arrow.Write as W
 
@@ -672,6 +672,11 @@ writeBufferStruct bf b = do
 
 writeRecordBatch :: Builder -> RecordBatchDef -> IO Int
 writeRecordBatch b rb = do
+  variadicVec <- if V.null (rbVariadicBufferCounts rb)
+    then pure Nothing
+    else do
+      uo <- writeVectorInt64 b (V.toList (rbVariadicBufferCounts rb))
+      pure (Just uo)
   buffersVec <- writeVectorOfStructs b 16 8
                   [ writeBufferStruct buf | buf <- V.toList (rbBuffers rb) ]
   nodesVec   <- writeVectorOfStructs b 16 8
@@ -681,8 +686,17 @@ writeRecordBatch b rb = do
     , Just (voff nodesVec)
     , Just (voff buffersVec)
     , Nothing
-    , Nothing
+    , case variadicVec of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     ]
+
+-- | Vector of @int64@ scalars (used by @variadicBufferCounts@).
+writeVectorInt64 :: Builder -> [Int64] -> IO Int
+writeVectorInt64 b xs = do
+  let !n = length xs
+  prepForObject b (4 + 8 * n) 8
+  mapM_ (prependI64 b) (reverse xs)
+  prependU32 b (fromIntegral n)
+  currentUOff b
 
 -- ============================================================
 -- Message envelope
@@ -777,12 +791,14 @@ writeArrowStreamFB sch batches =
 -- | Build @(RecordBatchDef, body bytes)@ from a 'Schema' + columns.
 -- Delegates to 'Arrow.Write.encodeColumns' for the physical body
 -- layout (validity bitmaps, typed buffers, 8-byte aligned), then
--- normalises the 'Buffer' list so every field has the Arrow-spec
--- buffer count — which for non-nullable primitives means
+-- normalises the 'Buffer' list so every top-level non-nullable
+-- /primitive/ field has the Arrow-spec buffer count — which means
 -- prepending a zero-length validity buffer (the simplified internal
--- encoder in "Arrow.Write" omits the slot for non-nullable fields
--- because its own reader does too; the spec requires the slot to
--- exist even when empty).
+-- encoder in "Arrow.Write" omits the slot for non-nullable
+-- primitives because its own reader does too; the spec requires
+-- the slot to exist even when empty). Nested / view / REE columns
+-- are emitted with their canonical buffer layout by 'encodeCol'
+-- already, and pass through unchanged.
 buildRecordBatchBytes
   :: Schema
   -> V.Vector ColumnArray
@@ -791,80 +807,184 @@ buildRecordBatchBytes sch cols =
   let !acc = W.encodeColumns (arrowFields sch) cols W.emptyBuildAcc
       !rawNodes = V.fromList (reverse (W.baNodes acc))
       !rawBufs  = V.fromList (reverse (W.baBufs acc))
-      !(!nodes, !bufs) = normaliseBuffers (arrowFields sch) rawNodes rawBufs
+      !(!nodes, !bufs) = normaliseBuffers (arrowFields sch) cols rawNodes rawBufs
       !numRows = if V.null cols then 0 else columnLength (V.head cols)
       !rb = RecordBatchDef
               { rbLength  = fromIntegral numRows
               , rbNodes   = nodes
               , rbBuffers = bufs
+              , rbVariadicBufferCounts =
+                  V.fromList (reverse (W.baVariadic acc))
               }
       !body = BL.toStrict (B.toLazyByteString (W.baBody acc))
   in (rb, body)
 
--- | Walk the schema and insert an empty 'Buffer' (offset=0, len=0)
--- in the validity slot of every non-nullable primitive field, so the
--- resulting 'RecordBatchDef' conforms to the Arrow spec's
--- @n_buffers_per_layout@ rule. Leaves nullable and variable-length
--- columns alone — those already emit their validity slot.
+-- | Walk the schema + columns side by side and insert an empty
+-- 'Buffer' (offset=0, len=0) in the validity slot of every top-
+-- level non-nullable /primitive/ field. Nested / view / REE
+-- columns are emitted with their canonical buffer layout by
+-- 'encodeCol' already and pass through unchanged.
 normaliseBuffers
   :: V.Vector Field
+  -> V.Vector ColumnArray
   -> V.Vector FieldNode
   -> V.Vector Buffer
   -> (V.Vector FieldNode, V.Vector Buffer)
-normaliseBuffers fields nodes bufs =
-  let !(_nIdx', _bIdx', outNodes, outBufs) =
-        V.foldl' step (0 :: Int, 0 :: Int, [], []) fields
-      step (!nIdx, !bIdx, !nAcc, !bAcc) f =
-        let (!nConsumed, !bConsumed, !emittedBufs) =
-              normaliseField f nodes bufs nIdx bIdx
+normaliseBuffers fields cols nodes bufs =
+  let (_, _, outNodes, outBufs) =
+        V.ifoldl' step (0 :: Int, 0 :: Int, [], []) fields
+      step (!nIdx, !bIdx, !nAcc, !bAcc) i f =
+        let !col           = V.unsafeIndex cols i
+            (!nConsumed, !bConsumed, !emittedBufs) =
+              normaliseField f col bufs nIdx bIdx
+            !nodesSlice =
+              [ nodes V.! j | j <- [nIdx .. nIdx + nConsumed - 1] ]
         in  ( nIdx + nConsumed
             , bIdx + bConsumed
-            , [ nodes V.! i | i <- [nIdx .. nIdx + nConsumed - 1] ] ++ nAcc
+            , reverse nodesSlice ++ nAcc
             , reverse emittedBufs ++ bAcc
             )
   in  (V.fromList (reverse outNodes), V.fromList (reverse outBufs))
 
--- | For a single top-level field, return @(#fieldNodes consumed,
--- #source buffers consumed, output buffers in emission order)@.
--- The output buffer list is what the RecordBatch should advertise
--- after normalisation.
+-- | For one top-level @(field, column)@ pair, return
+-- @(#fieldNodes consumed, #source buffers consumed, output buffers
+-- in emission order)@. Only flat-primitive non-nullable fields get
+-- an empty validity buffer prepended; everything else passes
+-- through unchanged.
 normaliseField
   :: Field
-  -> V.Vector FieldNode
+  -> ColumnArray
   -> V.Vector Buffer
   -> Int
   -> Int
   -> (Int, Int, [Buffer])
-normaliseField f _nodes bufs _nIdx bIdx =
-  -- For now we handle only flat fields (no children). The
-  -- upstream encoder rejects nested children anyway so this stays
-  -- consistent. The per-type buffer counts match the
-  -- 'buffersPerField' table in "Arrow.Column" but /always/
-  -- prepend a validity slot for non-nullable fields.
-  let nulls = V.null (fieldChildren f)
-      nInputBufs = case fieldType f of
-        AInt {}            -> 1
-        ABool              -> 1
-        AFloatingPoint _   -> 1
-        AUtf8              -> 2
-        ABinary            -> 2
-        ALargeUtf8         -> 2
-        ALargeBinary       -> 2
-        AFixedSizeBinary _ -> 1
-        ADate _            -> 1
-        ATime _ _          -> 1
-        ATimestamp _ _     -> 1
-        ADuration _        -> 1
-        ADecimal _ _       -> 1
-        ADecimal256 _ _    -> 1
-        AInterval _        -> 1
-        _                  -> 1  -- conservative fallback
-      inputCount  = (if fieldNullable f then 1 else 0) + nInputBufs
-      srcBufs     = [ bufs V.! i | i <- [bIdx .. bIdx + inputCount - 1] ]
-      outBufs     = if fieldNullable f || not nulls
-                      then srcBufs
-                      else emptyValidityBuffer : srcBufs
-  in  (1, inputCount, outBufs)
+normaliseField f col bufs _nIdx bIdx =
+  let !flatPrim = case fieldType f of
+        AInt {}            -> True
+        ABool              -> True
+        AFloatingPoint _   -> True
+        AFixedSizeBinary _ -> True
+        ADate _            -> True
+        ATime _ _          -> True
+        ATimestamp _ _     -> True
+        ADuration _        -> True
+        ADecimal _ _       -> True
+        ADecimal256 _ _    -> True
+        AInterval _        -> True
+        AUtf8              -> True
+        ABinary            -> True
+        ALargeUtf8         -> True
+        ALargeBinary       -> True
+        _                  -> False
+      !nodesEmitted = countFieldNodesEmitted col
+      !bufsEmitted  = countBuffersEmitted col
+  in  if flatPrim
+        then
+          let inputCount = bufsEmitted
+              srcBufs    = [ bufs V.! i | i <- [bIdx .. bIdx + inputCount - 1] ]
+              outBufs    = if fieldNullable f
+                             then srcBufs
+                             else emptyValidityBuffer : srcBufs
+          in  (nodesEmitted, inputCount, outBufs)
+        else
+          -- Pass-through: nested/view/REE columns emit the canonical
+          -- buffer set already.
+          let inputCount = bufsEmitted
+              srcBufs    = [ bufs V.! i | i <- [bIdx .. bIdx + inputCount - 1] ]
+          in  (nodesEmitted, inputCount, srcBufs)
+
+-- | How many 'FieldNode' entries does this column contribute?
+-- Used by 'normaliseBuffers' to step the per-column cursor.
+countFieldNodesEmitted :: ColumnArray -> Int
+countFieldNodesEmitted = \case
+  ColStruct children            -> 1 + sum (map (countFieldNodesEmitted . snd) (V.toList children))
+  ColStructMaybe _ children     -> 1 + sum (map (countFieldNodesEmitted . snd) (V.toList children))
+  ColList _ child               -> 1 + countFieldNodesEmitted child
+  ColListMaybe _ _ child        -> 1 + countFieldNodesEmitted child
+  ColLargeList _ child          -> 1 + countFieldNodesEmitted child
+  ColLargeListMaybe _ _ child   -> 1 + countFieldNodesEmitted child
+  ColFixedSizeList _ child      -> 1 + countFieldNodesEmitted child
+  ColFixedSizeListMaybe _ _ child -> 1 + countFieldNodesEmitted child
+  ColMap _ k v                  -> 2 + countFieldNodesEmitted k + countFieldNodesEmitted v
+  ColMapMaybe _ _ k v           -> 2 + countFieldNodesEmitted k + countFieldNodesEmitted v
+  ColDenseUnion _ _ children    -> 1 + sum (map countFieldNodesEmitted (V.toList children))
+  ColSparseUnion _ children     -> 1 + sum (map countFieldNodesEmitted (V.toList children))
+  ColRunEndEncoded re vals      -> 1 + countFieldNodesEmitted re + countFieldNodesEmitted vals
+  ColListView _ _ child         -> 1 + countFieldNodesEmitted child
+  ColListViewMaybe _ _ _ child  -> 1 + countFieldNodesEmitted child
+  ColLargeListView _ _ child    -> 1 + countFieldNodesEmitted child
+  ColLargeListViewMaybe _ _ _ child -> 1 + countFieldNodesEmitted child
+  _                             -> 1
+
+-- | How many body buffers does this column contribute (counting
+-- recursively for nested types)?
+countBuffersEmitted :: ColumnArray -> Int
+countBuffersEmitted = \case
+  -- Non-nullable primitives: 1 buffer (data only — the validity
+  -- slot is added by the outer normaliser).
+  ColInt8 _    -> 1; ColInt16 _ -> 1; ColInt32 _ -> 1; ColInt64 _ -> 1
+  ColUInt8 _   -> 1; ColUInt16 _ -> 1; ColUInt32 _ -> 1; ColUInt64 _ -> 1
+  ColFloat16 _ -> 1; ColFloat _ -> 1; ColDouble _ -> 1
+  ColBool _ -> 1
+  ColDate32 _ -> 1; ColDate64 _ -> 1
+  ColTime32 _ -> 1; ColTime64 _ -> 1
+  ColTimestamp _ -> 1; ColDuration _ -> 1
+  ColDecimal128 _ _ _ -> 1; ColDecimal256 _ _ _ -> 1
+  ColFixedSizeBinary _ _ -> 1
+  ColIntervalYearMonth _ -> 1
+  ColIntervalDayTime _ _ -> 1
+  ColIntervalMonthDayNano _ _ _ -> 1
+  -- Variable-length non-nullable: 2 buffers (offsets + data).
+  ColUtf8 _   -> 2; ColBinary _ -> 2
+  ColLargeUtf8 _ -> 2; ColLargeBinary _ -> 2
+  -- Nullable primitives: validity + data.
+  ColInt8Maybe _    -> 2; ColInt16Maybe _ -> 2; ColInt32Maybe _ -> 2; ColInt64Maybe _ -> 2
+  ColUInt8Maybe _   -> 2; ColUInt16Maybe _ -> 2; ColUInt32Maybe _ -> 2; ColUInt64Maybe _ -> 2
+  ColFloat16Maybe _ -> 2; ColFloatMaybe _ -> 2; ColDoubleMaybe _ -> 2
+  ColBoolMaybe _ -> 2
+  ColDate32Maybe _ -> 2; ColDate64Maybe _ -> 2
+  ColTime32Maybe _ -> 2; ColTime64Maybe _ -> 2
+  ColTimestampMaybe _ -> 2; ColDurationMaybe _ -> 2
+  ColFixedSizeBinaryMaybe _ _ -> 2
+  ColUtf8Maybe _ -> 3; ColBinaryMaybe _ -> 3
+  ColLargeUtf8Maybe _ -> 3; ColLargeBinaryMaybe _ -> 3
+  -- Nested types.
+  ColStruct children -> 0 + sum (map (countBuffersEmitted . snd) (V.toList children))
+  ColStructMaybe _ children -> 1 + sum (map (countBuffersEmitted . snd) (V.toList children))
+  ColList _ child -> 1 + countBuffersEmitted child
+  ColListMaybe _ _ child -> 2 + countBuffersEmitted child
+  ColLargeList _ child -> 1 + countBuffersEmitted child
+  ColLargeListMaybe _ _ child -> 2 + countBuffersEmitted child
+  ColFixedSizeList _ child -> 0 + countBuffersEmitted child
+  ColFixedSizeListMaybe _ _ child -> 1 + countBuffersEmitted child
+  ColMap _ k v -> 1 + countBuffersEmitted k + countBuffersEmitted v
+  ColMapMaybe _ _ k v -> 2 + countBuffersEmitted k + countBuffersEmitted v
+  ColDenseUnion _ _ children -> 2 + sum (map countBuffersEmitted (V.toList children))
+  ColSparseUnion _ children  -> 1 + sum (map countBuffersEmitted (V.toList children))
+  ColDictionary _ _ _ -> 1
+  -- Post-V5.
+  ColRunEndEncoded re vals -> 0 + countBuffersEmitted re + countBuffersEmitted vals
+  ColListView _ _ child -> 2 + countBuffersEmitted child
+  ColListViewMaybe _ _ _ child -> 3 + countBuffersEmitted child
+  ColLargeListView _ _ child -> 2 + countBuffersEmitted child
+  ColLargeListViewMaybe _ _ _ child -> 3 + countBuffersEmitted child
+  -- Views: validity? + view + (optional) variadic. The writer
+  -- emits a single variadic buffer iff any payload exceeded the
+  -- 12-byte inline budget.
+  ColUtf8View vs        -> 1 + viewVariadic (V.map (Just . TE.encodeUtf8) vs)
+  ColUtf8ViewMaybe vs   -> 2 + viewVariadic (V.map (fmap TE.encodeUtf8) vs)
+  ColBinaryView vs      -> 1 + viewVariadic (V.map Just vs)
+  ColBinaryViewMaybe vs -> 2 + viewVariadic vs
+
+-- | 1 if any non-null payload in the view column exceeds 12 bytes,
+-- 0 otherwise.
+viewVariadic :: V.Vector (Maybe BS.ByteString) -> Int
+viewVariadic vs
+  | V.any tooLong vs = 1
+  | otherwise        = 0
+  where
+    tooLong (Just b) = BS.length b > 12
+    tooLong Nothing  = False
 
 -- | Placeholder validity buffer: offset 0, length 0. Readers treat
 -- a zero-length validity buffer as "all values valid".
@@ -1338,10 +1458,17 @@ readRecordBatchTable bs rbPos = do
                 o <- peekI64 bs ep
                 l <- peekI64 bs (ep + 8)
                 Right (Buffer o l)) elems
+  variadic <- case s 4 of
+    Nothing -> Right V.empty
+    Just b  -> do
+      vecPos <- followUOffset bs b
+      n <- peekU32 bs vecPos
+      V.generateM (fromIntegral n) $ \i -> peekI64 bs (vecPos + 4 + 8 * i)
   Right RecordBatchDef
     { rbLength  = len
     , rbNodes   = nodes
     , rbBuffers = bufs
+    , rbVariadicBufferCounts = variadic
     }
 
 -- | Decode a Schema-typed @Message@ flatbuffer (just the metadata

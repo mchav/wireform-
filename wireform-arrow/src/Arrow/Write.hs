@@ -225,17 +225,22 @@ alignUp8 n = (n + 7) .&. complement 7
 -- * Record batch builder accumulator
 
 data BuildAcc = BuildAcc
-  { baOffset :: !Int64
-  , baNodes  :: ![FieldNode]
-  , baBufs   :: ![Buffer]
-  , baBody   :: !B.Builder
+  { baOffset    :: !Int64
+  , baNodes     :: ![FieldNode]
+  , baBufs      :: ![Buffer]
+  , baBody      :: !B.Builder
+  , baVariadic  :: ![Int64]
+    -- ^ For each Utf8View / BinaryView field encountered (in
+    -- pre-order DFS), the number of variadic data buffers emitted.
+    -- The Arrow @RecordBatch.variadicBufferCounts@ vector is the
+    -- reverse of this list at the end of encoding.
   }
 
 emptyBuildAcc :: BuildAcc
-emptyBuildAcc = BuildAcc 0 [] [] mempty
+emptyBuildAcc = BuildAcc 0 [] [] mempty []
 
 addBufData :: ByteString -> BuildAcc -> BuildAcc
-addBufData bs (BuildAcc off ns bufs body) =
+addBufData bs (BuildAcc off ns bufs body var) =
   let !rawLen = BS.length bs
       !padded = alignUp8 rawLen
       !pad = padded - rawLen
@@ -244,10 +249,18 @@ addBufData bs (BuildAcc off ns bufs body) =
       ns
       (Buffer off (fromIntegral rawLen) : bufs)
       (body <> B.byteString bs <> B.byteString (BS.replicate pad 0))
+      var
 
 addFieldNode :: Int64 -> Int64 -> BuildAcc -> BuildAcc
-addFieldNode len nc (BuildAcc off ns bufs body) =
-  BuildAcc off (FieldNode len nc : ns) bufs body
+addFieldNode len nc (BuildAcc off ns bufs body var) =
+  BuildAcc off (FieldNode len nc : ns) bufs body var
+
+-- | Record one entry in the variadic-buffer-counts vector for the
+-- /current/ view column. Called exactly once per ColUtf8View /
+-- ColBinaryView encoded.
+addVariadicCount :: Int64 -> BuildAcc -> BuildAcc
+addVariadicCount c (BuildAcc off ns bufs body var) =
+  BuildAcc off ns bufs body (c : var)
 
 countNulls :: V.Vector (Maybe a) -> Int
 countNulls = V.foldl' (\c x -> case x of Nothing -> c + 1; Just _ -> c) 0
@@ -265,6 +278,7 @@ buildRecordBatch schema cols =
         { rbLength = fromIntegral numRows
         , rbNodes = nodes
         , rbBuffers = bufs
+        , rbVariadicBufferCounts = V.fromList (reverse (baVariadic acc))
         }
       !bodyLen = baOffset acc
       !metaBs = encodeRecordBatchMeta rb bodyLen
@@ -515,6 +529,65 @@ encodeCol f col acc = case col of
   ColDictionary _dictId indices _dictValues ->
     primFlat (encodePlainInt32Column indices) (VP.length indices) acc
 
+  -- RunEndEncoded: parent emits ZERO buffers (no validity, no data)
+  -- and one FieldNode for itself; the run_ends and values children
+  -- carry their own buffers and field nodes via recursive encodeCol.
+  ColRunEndEncoded runEnds values ->
+    let !logicalLen = fromIntegral (columnLength (ColRunEndEncoded runEnds values)) :: Int64
+        acc1 = addFieldNode logicalLen 0 acc
+        runEndsField = childFieldAt f 0
+        valuesField  = childFieldAt f 1
+        acc2 = encodeCol runEndsField runEnds acc1
+    in encodeCol valuesField values acc2
+
+  -- ListView: validity (when nullable), offsets (i32), sizes (i32),
+  -- then the child column.
+  ColListView offsets sizes child ->
+    let !n = fromIntegral (VP.length offsets) :: Int64
+        acc1 = addBufData (encodePlainInt32Column sizes)
+             $ addBufData (encodePlainInt32Column offsets)
+             $ addFieldNode n 0 acc
+        childField = childFieldAt f 0
+    in encodeCol childField child acc1
+  ColListViewMaybe validity offsets sizes child ->
+    let !n  = fromIntegral (V.length validity) :: Int64
+        !nc = validityNullCount validity
+        acc1 = addBufData (encodePlainInt32Column sizes)
+             $ addBufData (encodePlainInt32Column offsets)
+             $ addBufData (encodeNullBitmap validity)
+             $ addFieldNode n nc acc
+        childField = childFieldAt f 0
+    in encodeCol childField child acc1
+  ColLargeListView offsets sizes child ->
+    let !n = fromIntegral (VP.length offsets) :: Int64
+        acc1 = addBufData (encodePlainInt64Offsets sizes)
+             $ addBufData (encodePlainInt64Offsets offsets)
+             $ addFieldNode n 0 acc
+        childField = childFieldAt f 0
+    in encodeCol childField child acc1
+  ColLargeListViewMaybe validity offsets sizes child ->
+    let !n  = fromIntegral (V.length validity) :: Int64
+        !nc = validityNullCount validity
+        acc1 = addBufData (encodePlainInt64Offsets sizes)
+             $ addBufData (encodePlainInt64Offsets offsets)
+             $ addBufData (encodeNullBitmap validity)
+             $ addFieldNode n nc acc
+        childField = childFieldAt f 0
+    in encodeCol childField child acc1
+
+  -- Utf8View / BinaryView: 2 buffers (validity + view) plus zero
+  -- variadic data buffers. We INLINE every payload — if any value
+  -- exceeds 12 bytes we fall back to using one variadic buffer
+  -- holding all out-of-line payloads concatenated.
+  ColUtf8View vs ->
+    encodeViewColumn (V.map (Just . TE.encodeUtf8) vs) False acc
+  ColUtf8ViewMaybe vs ->
+    encodeViewColumn (V.map (fmap TE.encodeUtf8) vs) True  acc
+  ColBinaryView vs ->
+    encodeViewColumn (V.map Just vs) False acc
+  ColBinaryViewMaybe vs ->
+    encodeViewColumn vs True acc
+
 -- ============================================================
 -- Helpers
 -- ============================================================
@@ -530,6 +603,97 @@ childFieldAt f i =
 primFlat :: ByteString -> Int -> BuildAcc -> BuildAcc
 primFlat bs n acc =
   addBufData bs (addFieldNode (fromIntegral n) 0 acc)
+
+-- | Encode one Utf8View / BinaryView column. Each row is laid out
+-- as a 16-byte view struct; payloads <= 12 bytes are stored
+-- inline, longer payloads are pooled into a single variadic data
+-- buffer.
+--
+-- Buffers emitted (in order, append-to-acc semantics): variadic
+-- data buffer (only when needed), view buffer, validity bitmap
+-- (when @nullable@). 'addBufData' prepends to the buffer list, so
+-- we add validity LAST to match the spec order
+-- @[validity, view, ...variadic]@.
+encodeViewColumn :: V.Vector (Maybe ByteString) -> Bool -> BuildAcc -> BuildAcc
+encodeViewColumn vs nullable acc =
+  let !n = V.length vs
+      -- Decide which payloads need to be in the variadic buffer.
+      payloads :: V.Vector ByteString
+      payloads = V.map (BS.take 0 . maybe BS.empty id . Just . fromMaybe BS.empty) vs
+      _ = payloads  -- unused; we re-derive offsets below
+      -- Concatenate every >12-byte payload into a single buffer,
+      -- recording (length, prefix, bufferIndex=0, offsetInBuffer)
+      -- for each row.
+      (variadicLen, viewBytes) = buildViews vs
+      hasVariadic = variadicLen > 0
+      viewBuf = viewBytes
+      validity = V.map (maybe False (const True)) vs
+      !nc = if nullable
+              then fromIntegral (V.foldl' (\c m -> if isJust m then c else c + 1) (0 :: Int) vs) :: Int64
+              else 0
+      -- 1) Add the variadic data buffer (when present).
+      acc1 = if hasVariadic
+               then addBufData (variadicPayload vs) acc
+               else acc
+      -- 2) Add the view buffer.
+      acc2 = addBufData viewBuf acc1
+      -- 3) Validity (if nullable).
+      acc3 = if nullable
+               then addBufData (encodeNullBitmap validity) acc2
+               else acc2
+      acc4 = addFieldNode (fromIntegral n) nc acc3
+  in addVariadicCount (fromIntegral (if hasVariadic then 1 else 0 :: Int)) acc4
+
+-- | Pack each row into its 16-byte view struct + collect the
+-- variadic-buffer payload.  Returns @(variadicTotalLen, viewBytes)@
+-- where @viewBytes@ has length @n*16@.
+buildViews :: V.Vector (Maybe ByteString) -> (Int, ByteString)
+buildViews vs =
+  let !n = V.length vs
+      -- First pass: compute variadic offsets.
+      offsets :: V.Vector Int
+      offsets = V.unfoldrExactN n step (0 :: Int)
+        where
+          step !off
+            | off >= 0 =
+                let i = (V.length vs - 1) - (V.length vs - V.length vs)
+                in (off, off)
+            | otherwise = (off, off)
+      _ = offsets   -- unused; computed inline below
+      -- Allocate output bytestring builder.
+      go (!off, accB) (Just bs)
+        | BS.length bs <= 12 =
+            let !len = BS.length bs
+                !padded = bs <> BS.replicate (12 - len) 0
+                !rec = BL.toStrict (B.toLazyByteString $
+                         B.int32LE (fromIntegral len) <> B.byteString padded)
+            in (off, accB <> B.byteString rec)
+        | otherwise =
+            let !len = BS.length bs
+                !prefix = BS.take 4 bs
+                !padPrefix = prefix <> BS.replicate (4 - BS.length prefix) 0
+                !rec = BL.toStrict (B.toLazyByteString $
+                         B.int32LE (fromIntegral len)
+                         <> B.byteString padPrefix
+                         <> B.int32LE 0          -- buffer index
+                         <> B.int32LE (fromIntegral off))
+            in (off + len, accB <> B.byteString rec)
+      go (!off, accB) Nothing =
+        -- Null view: 16 zero bytes.
+        (off, accB <> B.byteString (BS.replicate 16 0))
+      (variadicLen, builder) = V.foldl' go (0 :: Int, mempty) vs
+  in  ( variadicLen
+      , BL.toStrict (B.toLazyByteString builder)
+      )
+
+-- | Concatenated variadic-buffer payload for the rows that need
+-- out-of-line storage.
+variadicPayload :: V.Vector (Maybe ByteString) -> ByteString
+variadicPayload vs = BL.toStrict $ B.toLazyByteString $ V.foldl'
+  (\acc m -> case m of
+     Just bs | BS.length bs > 12 -> acc <> B.byteString bs
+     _                           -> acc)
+  mempty vs
 
 varFlat :: ByteString -> ByteString -> Int -> BuildAcc -> BuildAcc
 varFlat offBs datBs n acc =
