@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | Write Parquet files.
 --
 -- Provides page-level encoding, column chunk assembly, and whole-file builders.
@@ -69,7 +70,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
-import Data.Int (Int32, Int64)
+import Data.Int (Int16, Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -105,6 +106,7 @@ import Parquet.Page
   , PageType (..)
   , pageTypeTag
   )
+import Parquet.Thrift.Schema
 import Parquet.Types
   ( ColumnChunk (..)
   , ColumnMetadata (..)
@@ -229,37 +231,41 @@ encodePageHeader :: PageHeader -> ByteString
 encodePageHeader hdr = encodeCompact (pageHeaderToThrift hdr)
 
 pageHeaderToThrift :: PageHeader -> TV.Value
-pageHeaderToThrift hdr = TV.Struct $ V.fromList $
-  [(1, TV.I32 (pageTypeTag (phType hdr)))]
-  ++ maybe [] (\s -> [(2, TV.I32 s)]) (phUncompressedPageSize hdr)
-  ++ maybe [] (\s -> [(3, TV.I32 s)]) (phCompressedPageSize hdr)
-  ++ case phType hdr of
-       PtDataPage dph        -> [(5, dataPageHeaderToThrift dph)]
-       PtDictionaryPage dk   -> [(7, dictPageHeaderToThrift dk)]
-       PtDataPageV2 v2       -> [(8, dataPageHeaderV2ToThrift v2)]
-       PtIndexPage           -> []
-
-dataPageHeaderToThrift :: DataPageHeader -> TV.Value
-dataPageHeaderToThrift dph = TV.Struct $ V.fromList
-  [ (1, TV.I32 (dphNumValues dph))
-  , (2, TV.I32 (dphEncoding dph))
+pageHeaderToThrift hdr = TV.Struct $ V.fromList $ concat
+  [ [ PageHeader_Type (pageTypeTag (phType hdr)) ]
+  , optField (phUncompressedPageSize hdr) PageHeader_UncompressedSize
+  , optField (phCompressedPageSize hdr)   PageHeader_CompressedSize
+  , case phType hdr of
+      PtDataPage dph      -> [ PageHeader_DataPageHeader
+                                 (dataPageHeaderFields dph) ]
+      PtDictionaryPage dk -> [ PageHeader_DictionaryPageHeader
+                                 (dictPageHeaderFields dk) ]
+      PtDataPageV2 v2     -> [ PageHeader_DataPageHeaderV2
+                                 (dataPageHeaderV2Fields v2) ]
+      PtIndexPage         -> []
   ]
 
-dictPageHeaderToThrift :: DictionaryPageHeader -> TV.Value
-dictPageHeaderToThrift dk = TV.Struct $ V.fromList
-  [ (1, TV.I32 (dictNumValues dk))
-  , (2, TV.I32 (dictEncoding dk))
+dataPageHeaderFields :: DataPageHeader -> V.Vector (Int16, TV.Value)
+dataPageHeaderFields dph = V.fromList
+  [ DataPageHeader_NumValues (dphNumValues dph)
+  , DataPageHeader_Encoding  (dphEncoding  dph)
   ]
 
-dataPageHeaderV2ToThrift :: DataPageHeaderV2 -> TV.Value
-dataPageHeaderV2ToThrift v2 = TV.Struct $ V.fromList
-  [ (1, TV.I32 (dph2NumValues v2))
-  , (2, TV.I32 (dph2NumNulls v2))
-  , (3, TV.I32 (dph2NumRows v2))
-  , (4, TV.I32 (dph2Encoding v2))
-  , (5, TV.I32 (dph2DefLevelsLen v2))
-  , (6, TV.I32 (dph2RepLevelsLen v2))
-  , (7, TV.Bool (dph2IsCompressed v2))
+dictPageHeaderFields :: DictionaryPageHeader -> V.Vector (Int16, TV.Value)
+dictPageHeaderFields dk = V.fromList
+  [ DictionaryPageHeader_NumValues (dictNumValues dk)
+  , DictionaryPageHeader_Encoding  (dictEncoding  dk)
+  ]
+
+dataPageHeaderV2Fields :: DataPageHeaderV2 -> V.Vector (Int16, TV.Value)
+dataPageHeaderV2Fields v2 = V.fromList
+  [ DataPageHeaderV2_NumValues (dph2NumValues v2)
+  , DataPageHeaderV2_NumNulls  (dph2NumNulls  v2)
+  , DataPageHeaderV2_NumRows   (dph2NumRows   v2)
+  , DataPageHeaderV2_Encoding  (dph2Encoding  v2)
+  , DataPageHeaderV2_DefinitionLevelsByteLength (dph2DefLevelsLen v2)
+  , DataPageHeaderV2_RepetitionLevelsByteLength (dph2RepLevelsLen v2)
+  , DataPageHeaderV2_IsCompressed (dph2IsCompressed v2)
   ]
 
 -- | Concatenate pre-encoded pages into a single column chunk. Currently only
@@ -1194,27 +1200,26 @@ data FooterEncryption = FooterEncryption
 -- module that follows this struct.
 fileCryptoMetaDataToThrift :: FooterEncryption -> TV.Value
 fileCryptoMetaDataToThrift fe = TV.Struct $ V.fromList
-  [ (1, encryptionAlgorithmToThrift fe)
-  , (2, TV.Binary (feKeyMetadata fe))
+  [ FileCryptoMetaData_EncryptionAlgorithm (encryptionAlgorithmFields fe)
+  , FileCryptoMetaData_KeyMetadata         (feKeyMetadata fe)
   ]
 
-encryptionAlgorithmToThrift :: FooterEncryption -> TV.Value
-encryptionAlgorithmToThrift fe = TV.Struct $ V.fromList
-  -- We always emit AesGcmV1 here for the file-level algorithm: the
-  -- column-level CTR variant is signalled per-column via
-  -- ColumnCryptoMetaData and doesn't change the footer module.
-  [ (1, aesGcmV1ToThrift fe) ]
+-- We always emit AesGcmV1 here for the file-level algorithm: the
+-- column-level CTR variant is signalled per-column via
+-- ColumnCryptoMetaData and doesn't change the footer module.
+encryptionAlgorithmFields :: FooterEncryption -> V.Vector (Int16, TV.Value)
+encryptionAlgorithmFields fe = V.singleton
+  (EncryptionAlgorithm_AesGcmV1 (aesGcmV1Fields fe))
 
-aesGcmV1ToThrift :: FooterEncryption -> TV.Value
-aesGcmV1ToThrift fe = TV.Struct $ V.fromList $
-  prefix ++ fileIdent
+aesGcmV1Fields :: FooterEncryption -> V.Vector (Int16, TV.Value)
+aesGcmV1Fields fe = V.fromList $ concat
+  [ optNonEmpty (feAadPrefix fe) AesGcmV1_AadPrefix
+  , optNonEmpty (feFileId    fe) AesGcmV1_AadFileUnique
+  ]
   where
-    prefix
-      | BS.null (feAadPrefix fe) = []
-      | otherwise = [(1, TV.Binary (feAadPrefix fe))]
-    fileIdent
-      | BS.null (feFileId fe) = []
-      | otherwise = [(2, TV.Binary (feFileId fe))]
+    optNonEmpty bs mk
+      | BS.null bs = []
+      | otherwise  = [mk bs]
 
 -- | Build a Parquet file with an /encrypted footer/. Identical to
 -- 'buildParquetFileWithIndex' for the row-group + bloom / offset /

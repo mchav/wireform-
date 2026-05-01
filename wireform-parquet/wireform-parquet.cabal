@@ -57,6 +57,7 @@ library
     Parquet.Page
     Parquet.PageIndex
     Parquet.Read
+    Parquet.Thrift.Schema
     Parquet.Types
     Parquet.Write
   other-modules:

@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | Apache Parquet page index: 'OffsetIndex' + 'ColumnIndex' (Thrift).
 --
 -- The page index tier (added in parquet-format 2.5) lets readers skip
@@ -35,6 +36,7 @@ import qualified Data.Text.Encoding
 import qualified Data.Vector as V
 
 import Parquet.Read (ParquetFile (..))
+import Parquet.Thrift.Schema
 import Parquet.Types
   ( ColumnChunk (..)
   , ColumnIndex (..)
@@ -46,7 +48,6 @@ import Parquet.Types
   , intToBoundaryOrder
   )
 import qualified Thrift.Value as TV
-import qualified Thrift.Wire as TW
 import Thrift.Encode (encodeCompact)
 import Thrift.Decode (decodeCompact)
 
@@ -128,32 +129,32 @@ columnChunkColumnIndexSlice pf rgIdx colIdx = do
 -- ============================================================
 
 offsetIndexToThrift :: OffsetIndex -> TV.Value
-offsetIndexToThrift oi =
-  TV.Struct $ V.fromList $
-    (1, TV.List TW.TT_STRUCT (V.map pageLocationToThrift (oiPageLocations oi)))
-    : maybeUnencoded
-  where
-    maybeUnencoded = case oiUnencodedByteArrayDataBytes oi of
-      Nothing -> []
-      Just v  -> [(2, TV.List TW.TT_I64 (V.map TV.I64 v))]
+offsetIndexToThrift oi = TV.Struct $ V.fromList $ concat
+  [ [ OffsetIndex_PageLocations (V.map pageLocationToThrift (oiPageLocations oi)) ]
+  , optField (oiUnencodedByteArrayDataBytes oi)
+      (OffsetIndex_UnencodedByteArrayDataBytes . V.map TV.I64)
+  ]
 
 pageLocationToThrift :: PageLocation -> TV.Value
 pageLocationToThrift pl = TV.Struct $ V.fromList
-  [ (1, TV.I64 (plOffset pl))
-  , (2, TV.I32 (plCompressedPageSize pl))
-  , (3, TV.I64 (plFirstRowIndex pl))
+  [ PageLocation_Offset (plOffset pl)
+  , PageLocation_CompressedPageSize (plCompressedPageSize pl)
+  , PageLocation_FirstRowIndex (plFirstRowIndex pl)
   ]
 
 thriftToOffsetIndex :: TV.Value -> Either String OffsetIndex
 thriftToOffsetIndex (TV.Struct fields) = do
   let fm = V.toList fields
-  pages <- case lookupField fm 1 of
-    Just (TV.List _ vs) -> V.mapM thriftToPageLocation vs
-    _ -> Left "Parquet.PageIndex: missing page_locations"
-  let unenc = case lookupField fm 2 of
-        Just (TV.List _ vs) -> Just <$> V.mapM expectI64 vs
-        _                   -> Right Nothing
-  unencV <- unenc
+  pages <- case findField fm (\case
+             OffsetIndex_PageLocations xs -> Just xs
+             _                            -> Nothing) of
+    Just vs -> V.mapM thriftToPageLocation vs
+    Nothing -> Left "Parquet.PageIndex: missing page_locations"
+  unencV <- case findField fm (\case
+              OffsetIndex_UnencodedByteArrayDataBytes xs -> Just xs
+              _                                          -> Nothing) of
+    Just vs -> Just <$> V.mapM expectI64 vs
+    Nothing -> Right Nothing
   Right OffsetIndex
     { oiPageLocations = pages
     , oiUnencodedByteArrayDataBytes = unencV
@@ -163,9 +164,15 @@ thriftToOffsetIndex _ = Left "Parquet.PageIndex: expected struct for OffsetIndex
 thriftToPageLocation :: TV.Value -> Either String PageLocation
 thriftToPageLocation (TV.Struct fields) = do
   let fm = V.toList fields
-  off <- expectI64Field fm 1 "page_location.offset"
-  csz <- expectI32Field fm 2 "page_location.compressed_page_size"
-  fri <- expectI64Field fm 3 "page_location.first_row_index"
+  off <- requireField fm "page_location.offset" $ \case
+    PageLocation_Offset v -> Just v
+    _                     -> Nothing
+  csz <- requireField fm "page_location.compressed_page_size" $ \case
+    PageLocation_CompressedPageSize v -> Just v
+    _                                 -> Nothing
+  fri <- requireField fm "page_location.first_row_index" $ \case
+    PageLocation_FirstRowIndex v -> Just v
+    _                            -> Nothing
   Right PageLocation
     { plOffset = off
     , plCompressedPageSize = csz
@@ -175,52 +182,54 @@ thriftToPageLocation _ =
   Left "Parquet.PageIndex: expected struct for PageLocation"
 
 columnIndexToThrift :: ColumnIndex -> TV.Value
-columnIndexToThrift ci =
-  TV.Struct $ V.fromList $
-    [ (1, TV.List TW.TT_BOOL   (V.map TV.Bool   (ciNullPages ci)))
-    , (2, TV.List TW.TT_STRING (V.map TV.Binary (ciMinValues ci)))
-    , (3, TV.List TW.TT_STRING (V.map TV.Binary (ciMaxValues ci)))
-    , (4, TV.I32 (boundaryOrderToInt (ciBoundaryOrder ci)))
+columnIndexToThrift ci = TV.Struct $ V.fromList $ concat
+  [ [ ColumnIndex_NullPages (V.map TV.Bool (ciNullPages ci))
+    , ColumnIndex_MinValues (V.map TV.Binary (ciMinValues ci))
+    , ColumnIndex_MaxValues (V.map TV.Binary (ciMaxValues ci))
+    , ColumnIndex_BoundaryOrder (boundaryOrderToInt (ciBoundaryOrder ci))
     ]
-    ++ optList 5 (ciNullCounts ci)
-    ++ optList 6 (ciRepetitionLevelHistograms ci)
-    ++ optList 7 (ciDefinitionLevelHistograms ci)
-  where
-    optList :: Int16 -> Maybe (V.Vector Int64) -> [(Int16, TV.Value)]
-    optList _ Nothing  = []
-    optList fid (Just v) =
-      [(fid, TV.List TW.TT_I64 (V.map TV.I64 v))]
+  , optField (ciNullCounts ci)
+      (ColumnIndex_NullCounts . V.map TV.I64)
+  , optField (ciRepetitionLevelHistograms ci)
+      (ColumnIndex_RepetitionLevelHistograms . V.map TV.I64)
+  , optField (ciDefinitionLevelHistograms ci)
+      (ColumnIndex_DefinitionLevelHistograms . V.map TV.I64)
+  ]
 
 thriftToColumnIndex :: TV.Value -> Either String ColumnIndex
 thriftToColumnIndex (TV.Struct fields) = do
   let fm = V.toList fields
-  nullPages <- case lookupField fm 1 of
-    Just (TV.List _ vs) -> V.mapM expectBool vs
-    _ -> Left "Parquet.PageIndex: missing null_pages"
-  mins <- case lookupField fm 2 of
-    Just (TV.List _ vs) -> V.mapM expectBinary vs
-    _ -> Left "Parquet.PageIndex: missing min_values"
-  maxs <- case lookupField fm 3 of
-    Just (TV.List _ vs) -> V.mapM expectBinary vs
-    _ -> Left "Parquet.PageIndex: missing max_values"
-  bo <- case lookupField fm 4 of
-    Just (TV.I32 i) -> case intToBoundaryOrder i of
-      Just b  -> Right b
-      Nothing -> Left $
-        "Parquet.PageIndex: invalid boundary_order " ++ show i
-    _ -> Left "Parquet.PageIndex: missing boundary_order"
-  let nc = case lookupField fm 5 of
-        Just (TV.List _ vs) -> Just <$> V.mapM expectI64 vs
-        _                   -> Right Nothing
-  ncv <- nc
-  let rep = case lookupField fm 6 of
-        Just (TV.List _ vs) -> Just <$> V.mapM expectI64 vs
-        _                   -> Right Nothing
-  repv <- rep
-  let def = case lookupField fm 7 of
-        Just (TV.List _ vs) -> Just <$> V.mapM expectI64 vs
-        _                   -> Right Nothing
-  defv <- def
+  nullPages <- case findField fm (\case
+                 ColumnIndex_NullPages xs -> Just xs
+                 _                        -> Nothing) of
+    Just vs -> V.mapM expectBool vs
+    Nothing -> Left "Parquet.PageIndex: missing null_pages"
+  mins <- case findField fm (\case
+            ColumnIndex_MinValues xs -> Just xs
+            _                        -> Nothing) of
+    Just vs -> V.mapM expectBinary vs
+    Nothing -> Left "Parquet.PageIndex: missing min_values"
+  maxs <- case findField fm (\case
+            ColumnIndex_MaxValues xs -> Just xs
+            _                        -> Nothing) of
+    Just vs -> V.mapM expectBinary vs
+    Nothing -> Left "Parquet.PageIndex: missing max_values"
+  boInt <- requireField fm "boundary_order" $ \case
+    ColumnIndex_BoundaryOrder v -> Just v
+    _                           -> Nothing
+  bo <- maybe
+    (Left $ "Parquet.PageIndex: invalid boundary_order " ++ show boInt)
+    Right
+    (intToBoundaryOrder boInt)
+  ncv <- optListI64 fm $ \case
+    ColumnIndex_NullCounts xs -> Just xs
+    _                         -> Nothing
+  repv <- optListI64 fm $ \case
+    ColumnIndex_RepetitionLevelHistograms xs -> Just xs
+    _                                        -> Nothing
+  defv <- optListI64 fm $ \case
+    ColumnIndex_DefinitionLevelHistograms xs -> Just xs
+    _                                        -> Nothing
   Right ColumnIndex
     { ciNullPages = nullPages
     , ciMinValues = mins
@@ -232,6 +241,14 @@ thriftToColumnIndex (TV.Struct fields) = do
     }
 thriftToColumnIndex _ =
   Left "Parquet.PageIndex: expected struct for ColumnIndex"
+
+optListI64
+  :: [(Int16, TV.Value)]
+  -> ((Int16, TV.Value) -> Maybe (V.Vector TV.Value))
+  -> Either String (Maybe (V.Vector Int64))
+optListI64 fm probe = case findField fm probe of
+  Just vs -> Just <$> V.mapM expectI64 vs
+  Nothing -> Right Nothing
 
 -- ============================================================
 -- Helpers
@@ -260,13 +277,13 @@ sliceFile pf off len what =
        then Left $ "Parquet.PageIndex: " ++ what ++ " slice out of bounds"
        else Right $! BS.take l (BS.drop o bs)
 
-lookupField :: [(Int16, TV.Value)] -> Int16 -> Maybe TV.Value
-lookupField fm fid = lookup fid fm
-
-expectI32 :: TV.Value -> Either String Int32
-expectI32 (TV.I32 v) = Right v
-expectI32 v = Left $
-  "Parquet.PageIndex: expected i32 but got " ++ show v
+requireField
+  :: [(Int16, TV.Value)] -> String
+  -> ((Int16, TV.Value) -> Maybe a)
+  -> Either String a
+requireField fm name probe = case findField fm probe of
+  Just v  -> Right v
+  Nothing -> Left $ "Parquet.PageIndex: missing or invalid field " ++ name
 
 expectI64 :: TV.Value -> Either String Int64
 expectI64 (TV.I64 v) = Right v
@@ -286,13 +303,3 @@ expectBinary (TV.String t) =
   Right $! Data.Text.Encoding.encodeUtf8 t
 expectBinary v = Left $
   "Parquet.PageIndex: expected binary but got " ++ show v
-
-expectI32Field :: [(Int16, TV.Value)] -> Int16 -> String -> Either String Int32
-expectI32Field fm fid name = case lookupField fm fid of
-  Just v -> expectI32 v
-  Nothing -> Left $ "Parquet.PageIndex: missing field " ++ name
-
-expectI64Field :: [(Int16, TV.Value)] -> Int16 -> String -> Either String Int64
-expectI64Field fm fid name = case lookupField fm fid of
-  Just v -> expectI64 v
-  Nothing -> Left $ "Parquet.PageIndex: missing field " ++ name

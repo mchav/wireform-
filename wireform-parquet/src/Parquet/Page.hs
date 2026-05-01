@@ -1,9 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | Parquet page headers (Thrift compact protocol).
 --
 -- See @parquet.thrift@ (@PageHeader@, @DataPageHeader@, @DictionaryPageHeader@,
--- @DataPageHeaderV2@).
+-- @DataPageHeaderV2@). Thrift field placement is mediated by the
+-- pattern synonyms in "Parquet.Thrift.Schema".
 module Parquet.Page
   ( PageHeader (..)
   , PageType (..)
@@ -21,6 +23,7 @@ import Data.ByteString (ByteString)
 import Data.Int (Int16, Int32)
 import qualified Data.Vector as V
 
+import Parquet.Thrift.Schema
 import qualified Thrift.Value as TV
 import Thrift.Decode (decodeCompactFrom)
 
@@ -95,21 +98,36 @@ readPageHeaderAt bs off = do
 
 pageHeaderFromThrift :: TV.Value -> Either String PageHeader
 pageHeaderFromThrift (TV.Struct fields) = do
-  let fm = assocList fields
-  ty <- getI32 fm 1 "PageHeader.type"
-  let unc = getOptionalI32 fm 2
-      comp = getOptionalI32 fm 3
+  let fm = V.toList fields
+  ty <- requireI32 fm "PageHeader.type" $ \case
+    PageHeader_Type v -> Just v
+    _                 -> Nothing
+  let unc = findField fm $ \case
+        PageHeader_UncompressedSize v -> Just v
+        _                             -> Nothing
+      comp = findField fm $ \case
+        PageHeader_CompressedSize v -> Just v
+        _                           -> Nothing
   pageType <- case ty of
-    0 -> case lookupField fm 5 of
-      Just v  -> PtDataPage <$> dataPageHeaderFromThrift v
-      Nothing -> Left "Parquet.Page: DATA_PAGE without DataPageHeader (field 5)"
+    0 -> case findField fm (\case
+           PageHeader_DataPageHeader fs -> Just fs
+           _                            -> Nothing) of
+      Just fs -> PtDataPage <$> dataPageHeaderFromThrift (TV.Struct fs)
+      Nothing -> Left
+        "Parquet.Page: DATA_PAGE without DataPageHeader (field 5)"
     1 -> Right PtIndexPage
-    2 -> case lookupField fm 7 of
-      Just v  -> PtDictionaryPage <$> dictionaryPageHeaderFromThrift v
-      Nothing -> Left "Parquet.Page: DICTIONARY_PAGE without DictionaryPageHeader (field 7)"
-    3 -> case lookupField fm 8 of
-      Just v  -> PtDataPageV2 <$> dataPageHeaderV2FromThrift v
-      Nothing -> Left "Parquet.Page: DATA_PAGE_V2 without DataPageHeaderV2 (field 8)"
+    2 -> case findField fm (\case
+           PageHeader_DictionaryPageHeader fs -> Just fs
+           _                                  -> Nothing) of
+      Just fs -> PtDictionaryPage <$> dictionaryPageHeaderFromThrift (TV.Struct fs)
+      Nothing -> Left
+        "Parquet.Page: DICTIONARY_PAGE without DictionaryPageHeader (field 7)"
+    3 -> case findField fm (\case
+           PageHeader_DataPageHeaderV2 fs -> Just fs
+           _                              -> Nothing) of
+      Just fs -> PtDataPageV2 <$> dataPageHeaderV2FromThrift (TV.Struct fs)
+      Nothing -> Left
+        "Parquet.Page: DATA_PAGE_V2 without DataPageHeaderV2 (field 8)"
     _ -> Left ("Parquet.Page: unknown PageType tag " ++ show ty)
   pure PageHeader
     { phType = pageType
@@ -120,38 +138,54 @@ pageHeaderFromThrift _ = Left "Parquet.Page: expected PageHeader struct"
 
 dataPageHeaderFromThrift :: TV.Value -> Either String DataPageHeader
 dataPageHeaderFromThrift (TV.Struct fields) = do
-  let fm = assocList fields
-  n <- getI32 fm 1 "DataPageHeader.num_values"
-  enc <- case lookupField fm 2 of
-    Just (TV.I32 e) -> Right e
-    Nothing -> Right 0
-    _ -> Left "Parquet.Page: DataPageHeader.encoding invalid"
+  let fm = V.toList fields
+  n <- requireI32 fm "DataPageHeader.num_values" $ \case
+    DataPageHeader_NumValues v -> Just v
+    _                          -> Nothing
+  -- encoding defaults to 0 (PLAIN) when absent, per historic writers.
+  let enc = maybe 0 id $ findField fm $ \case
+        DataPageHeader_Encoding v -> Just v
+        _                         -> Nothing
   pure DataPageHeader {dphNumValues = n, dphEncoding = enc}
 dataPageHeaderFromThrift _ = Left "Parquet.Page: expected DataPageHeader struct"
 
 dictionaryPageHeaderFromThrift :: TV.Value -> Either String DictionaryPageHeader
 dictionaryPageHeaderFromThrift (TV.Struct fields) = do
-  let fm = assocList fields
-  n <- getI32 fm 1 "DictionaryPageHeader.num_values"
-  enc <- case lookupField fm 2 of
-    Just (TV.I32 e) -> Right e
-    Nothing -> Right 0
-    _ -> Left "Parquet.Page: DictionaryPageHeader.encoding invalid"
+  let fm = V.toList fields
+  n <- requireI32 fm "DictionaryPageHeader.num_values" $ \case
+    DictionaryPageHeader_NumValues v -> Just v
+    _                                -> Nothing
+  let enc = maybe 0 id $ findField fm $ \case
+        DictionaryPageHeader_Encoding v -> Just v
+        _                               -> Nothing
   pure DictionaryPageHeader {dictNumValues = n, dictEncoding = enc}
 dictionaryPageHeaderFromThrift _ = Left "Parquet.Page: expected DictionaryPageHeader struct"
 
 dataPageHeaderV2FromThrift :: TV.Value -> Either String DataPageHeaderV2
 dataPageHeaderV2FromThrift (TV.Struct fields) = do
-  let fm = assocList fields
-  nv <- getI32 fm 1 "DataPageHeaderV2.num_values"
-  nn <- getI32 fm 2 "DataPageHeaderV2.num_nulls"
-  nr <- getI32 fm 3 "DataPageHeaderV2.num_rows"
-  enc <- getI32 fm 4 "DataPageHeaderV2.encoding"
-  dl <- getI32 fm 5 "DataPageHeaderV2.definition_levels_byte_length"
-  rl <- getI32 fm 6 "DataPageHeaderV2.repetition_levels_byte_length"
-  let isComp = case lookupField fm 7 of
-        Just (TV.Bool b) -> b
-        _ -> True
+  let fm = V.toList fields
+  nv <- requireI32 fm "DataPageHeaderV2.num_values" $ \case
+    DataPageHeaderV2_NumValues v -> Just v
+    _                            -> Nothing
+  nn <- requireI32 fm "DataPageHeaderV2.num_nulls" $ \case
+    DataPageHeaderV2_NumNulls v -> Just v
+    _                           -> Nothing
+  nr <- requireI32 fm "DataPageHeaderV2.num_rows" $ \case
+    DataPageHeaderV2_NumRows v -> Just v
+    _                          -> Nothing
+  enc <- requireI32 fm "DataPageHeaderV2.encoding" $ \case
+    DataPageHeaderV2_Encoding v -> Just v
+    _                           -> Nothing
+  dl <- requireI32 fm "DataPageHeaderV2.definition_levels_byte_length" $ \case
+    DataPageHeaderV2_DefinitionLevelsByteLength v -> Just v
+    _                                             -> Nothing
+  rl <- requireI32 fm "DataPageHeaderV2.repetition_levels_byte_length" $ \case
+    DataPageHeaderV2_RepetitionLevelsByteLength v -> Just v
+    _                                             -> Nothing
+  -- is_compressed is optional; spec default is true.
+  let isComp = maybe True id $ findField fm $ \case
+        DataPageHeaderV2_IsCompressed b -> Just b
+        _                               -> Nothing
   pure DataPageHeaderV2
     { dph2NumValues    = nv
     , dph2NumNulls     = nn
@@ -163,18 +197,11 @@ dataPageHeaderV2FromThrift (TV.Struct fields) = do
     }
 dataPageHeaderV2FromThrift _ = Left "Parquet.Page: expected DataPageHeaderV2 struct"
 
-assocList :: V.Vector (Int16, TV.Value) -> [(Int16, TV.Value)]
-assocList = V.toList
-
-lookupField :: [(Int16, TV.Value)] -> Int16 -> Maybe TV.Value
-lookupField fm fid = lookup fid fm
-
-getI32 :: [(Int16, TV.Value)] -> Int16 -> String -> Either String Int32
-getI32 fm fid name = case lookupField fm fid of
-  Just (TV.I32 v) -> Right v
-  _ -> Left $ "Parquet.Page: missing or invalid field " ++ name
-
-getOptionalI32 :: [(Int16, TV.Value)] -> Int16 -> Maybe Int32
-getOptionalI32 fm fid = case lookupField fm fid of
-  Just (TV.I32 v) -> Just v
-  _ -> Nothing
+-- | Specialised @require@ for @Int32@ fields, producing a
+-- @Parquet.Page@-flavoured error message.
+requireI32
+  :: [(Int16, TV.Value)] -> String
+  -> ((Int16, TV.Value) -> Maybe Int32) -> Either String Int32
+requireI32 fm name probe = case findField fm probe of
+  Just v  -> Right v
+  Nothing -> Left $ "Parquet.Page: missing or invalid field " ++ name

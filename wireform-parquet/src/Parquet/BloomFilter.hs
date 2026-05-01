@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | Apache Parquet split-block bloom filter (SBBF), parquet-format 2.10+.
 --
 -- See <https://parquet.apache.org/docs/file-format/bloomfilter/> for the
@@ -61,6 +62,7 @@ import Data.Word (Word32, Word64)
 
 import qualified Wireform.Hash as Hash
 
+import Parquet.Thrift.Schema
 import qualified Thrift.Value as TV
 import Thrift.Decode (decodeCompact)
 import Thrift.Encode (encodeCompact)
@@ -292,33 +294,39 @@ splitHeader bs = go 8
 
 bloomFilterHeaderToThrift :: BloomFilterHeader -> TV.Value
 bloomFilterHeaderToThrift hdr = TV.Struct $ V.fromList
-  [ (1, TV.I32 (bfhNumBytes hdr))
-  , (2, TV.Struct (V.singleton (1 :: Int16, TV.Struct V.empty)))   -- BLOCK
-  , (3, TV.Struct (V.singleton (1 :: Int16, TV.Struct V.empty)))   -- XXHASH
-  , (4, TV.Struct (V.singleton (1 :: Int16, TV.Struct V.empty)))   -- UNCOMPRESSED
+  [ BloomFilterHeader_NumBytes    (bfhNumBytes hdr)
+  , BloomFilterHeader_Algorithm   (unionVariant1)   -- BLOCK
+  , BloomFilterHeader_Hash        (unionVariant1)   -- XXHASH
+  , BloomFilterHeader_Compression (unionVariant1)   -- UNCOMPRESSED
   ]
+  where
+    -- Parquet's three bloom-filter enums are each encoded as a Thrift
+    -- union; we only support the first variant of each (BLOCK /
+    -- XXHASH / UNCOMPRESSED), so the nested struct always has field 1
+    -- set to an empty struct.
+    unionVariant1 :: V.Vector (Int16, TV.Value)
+    unionVariant1 = V.singleton (1, TV.Struct V.empty)
 
 thriftToBloomFilterHeader :: TV.Value -> Either String BloomFilterHeader
 thriftToBloomFilterHeader (TV.Struct fields) = do
   let fm = V.toList fields
-  nb <- case lookup (1 :: Int16) fm of
-    Just (TV.I32 v) -> Right v
-    _ -> Left "Parquet.BloomFilter: missing numBytes"
-  alg <- case lookup (2 :: Int16) fm of
-    Just (TV.Struct branches) -> case V.toList branches of
-      [(1, _)] -> Right AlgBlock
-      _ -> Left "Parquet.BloomFilter: unsupported BloomFilterAlgorithm union variant"
-    _ -> Left "Parquet.BloomFilter: missing algorithm"
-  hsh <- case lookup (3 :: Int16) fm of
-    Just (TV.Struct branches) -> case V.toList branches of
-      [(1, _)] -> Right HashXxh64
-      _ -> Left "Parquet.BloomFilter: unsupported BloomFilterHash union variant"
-    _ -> Left "Parquet.BloomFilter: missing hash"
-  cmp <- case lookup (4 :: Int16) fm of
-    Just (TV.Struct branches) -> case V.toList branches of
-      [(1, _)] -> Right CompUncompressed
-      _ -> Left "Parquet.BloomFilter: unsupported BloomFilterCompression union variant"
-    _ -> Left "Parquet.BloomFilter: missing compression"
+  nb <- case findField fm (\case
+          BloomFilterHeader_NumBytes v -> Just v
+          _                            -> Nothing) of
+    Just v  -> Right v
+    Nothing -> Left "Parquet.BloomFilter: missing numBytes"
+  alg <- requireUnionVariant1 fm "algorithm"
+    (\case BloomFilterHeader_Algorithm fs -> Just fs; _ -> Nothing)
+    AlgBlock
+    "BloomFilterAlgorithm"
+  hsh <- requireUnionVariant1 fm "hash"
+    (\case BloomFilterHeader_Hash fs -> Just fs; _ -> Nothing)
+    HashXxh64
+    "BloomFilterHash"
+  cmp <- requireUnionVariant1 fm "compression"
+    (\case BloomFilterHeader_Compression fs -> Just fs; _ -> Nothing)
+    CompUncompressed
+    "BloomFilterCompression"
   Right BloomFilterHeader
     { bfhNumBytes = nb
     , bfhAlgorithm = alg
@@ -327,6 +335,24 @@ thriftToBloomFilterHeader (TV.Struct fields) = do
     }
 thriftToBloomFilterHeader _ =
   Left "Parquet.BloomFilter: expected struct for BloomFilterHeader"
+
+-- | Match a nested union struct that carries exactly one field with id
+-- @1@, return the corresponding Haskell enum value, and produce a
+-- uniform error for missing or unsupported variants.
+requireUnionVariant1
+  :: [(Int16, TV.Value)]
+  -> String
+  -> ((Int16, TV.Value) -> Maybe (V.Vector (Int16, TV.Value)))
+  -> a
+  -> String
+  -> Either String a
+requireUnionVariant1 fm missingLabel probe variant unionName =
+  case findField fm probe of
+    Just branches -> case V.toList branches of
+      [(1, _)] -> Right variant
+      _        -> Left $ "Parquet.BloomFilter: unsupported "
+                      ++ unionName ++ " union variant"
+    Nothing -> Left $ "Parquet.BloomFilter: missing " ++ missingLabel
 
 serializeBitset :: VU.Vector Word64 -> Int -> ByteString
 serializeBitset ws nb =
