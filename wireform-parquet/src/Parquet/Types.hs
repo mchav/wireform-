@@ -147,6 +147,11 @@ data SchemaElement = SchemaElement
   , seNumChildren :: !(Maybe Int32)
   , seConvertedType :: !(Maybe ConvertedType)
   , seLogicalType :: !(Maybe LogicalType)
+  , seFieldId     :: !(Maybe Int32)
+    -- ^ Iceberg's identifier for this leaf column. Required for any
+    -- Parquet file that participates in an Iceberg table — readers
+    -- match @field_id@, not @name@. Encoded into Thrift field 8 of
+    -- @parquet.thrift::SchemaElement@.
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 

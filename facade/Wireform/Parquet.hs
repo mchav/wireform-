@@ -12,7 +12,6 @@ module Wireform.Parquet
   , module Parquet.Levels
   , module Parquet.Write
   , module Parquet.BloomFilter
-  , module Parquet.XXH64
   ) where
 
 import Parquet.BloomFilter
@@ -23,4 +22,3 @@ import Parquet.PageIndex
 import Parquet.Read
 import Parquet.Types
 import Parquet.Write
-import Parquet.XXH64

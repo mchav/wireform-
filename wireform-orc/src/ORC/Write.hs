@@ -13,6 +13,12 @@ module ORC.Write
   , encodeStringDirectColumn
   , encodeFloatColumn
   , encodeDoubleColumn
+    -- * Date / timestamp / decimal column encoders
+  , encodeDateColumn
+  , encodeTimestampColumn
+  , encodeDecimalColumn
+  , encodeDecimalRawColumn
+  , encodeORCNano
     -- * File assembly
   , buildStripe
   , buildORCFile
@@ -23,7 +29,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -157,6 +163,95 @@ writeDoubleLE !d =
      <> B.word8 (fromIntegral ((w `shiftR` 40) .&. 0xFF))
      <> B.word8 (fromIntegral ((w `shiftR` 48) .&. 0xFF))
      <> B.word8 (fromIntegral ((w `shiftR` 56) .&. 0xFF))
+
+------------------------------------------------------------------------
+-- Date / timestamp / decimal column encoders
+------------------------------------------------------------------------
+
+-- | Encode an ORC @DATE@ column (signed days since 1970-01-01) as a single
+-- DATA stream using RLE v2. The reader's 'decodeDateColumn' takes the
+-- output of this function unchanged.
+encodeDateColumn :: VP.Vector Int32 -> ByteString
+encodeDateColumn vals =
+  encodeRLEv2Direct (VP.map fromIntegral vals) True
+
+-- | Encode an ORC @TIMESTAMP@ column. Returns two streams: the @DATA@
+-- stream (signed seconds since 1970-01-01) and the @SECONDARY@ stream
+-- (unsigned encoded nanoseconds where the bottom 3 bits hold the
+-- trailing-zero scale). Mirrors @decodeTimestampColumn@.
+--
+-- Each input is @(seconds, nanoValue)@ - the nanos part is the literal
+-- nanosecond value (e.g. @123_000_000@ for half a second + 123 ms);
+-- 'encodeORCNano' compresses trailing-zero runs into the spec's 3-bit
+-- scale field.
+encodeTimestampColumn :: VP.Vector Int64 -> VP.Vector Int64 -> (ByteString, ByteString)
+encodeTimestampColumn secs nanos =
+  let !secStream  = encodeRLEv2Direct secs True
+      !nanoVals   = VP.map encodeORCNano nanos
+      !nanoStream = encodeRLEv2Direct nanoVals False
+   in (secStream, nanoStream)
+
+-- | Compress a nanosecond value into ORC's @nanos@ wire encoding: the
+-- bottom 3 bits store the trailing-zero scale (0..7) and the upper bits
+-- store the un-scaled nanosecond value. So @123_000_000@ becomes
+-- @123 \`shiftL\` 3 .|. 6@ (six trailing zeros).
+encodeORCNano :: Int64 -> Int64
+encodeORCNano !n
+  | n == 0    = 0
+  | otherwise =
+      let !zeros = countTrailingZeros10 n 0
+          !base  = n `quot` (pow10w zeros)
+       in (base `shiftL` 3) .|. fromIntegral zeros
+  where
+    countTrailingZeros10 !v !acc
+      | acc >= 7        = acc
+      | v `rem` 10 == 0 = countTrailingZeros10 (v `quot` 10) (acc + 1)
+      | otherwise       = acc
+
+    pow10w :: Int -> Int64
+    pow10w k = case k of
+      0 -> 1; 1 -> 10; 2 -> 100; 3 -> 1000; 4 -> 10000
+      5 -> 100000; 6 -> 1000000; 7 -> 10000000
+      _ -> 100000000
+
+-- | Encode a DECIMAL64 column (precision &le; 18) as a DATA stream of
+-- signed unscaled values via RLE v2. The scale is fixed per-column and
+-- is recorded on the schema's 'ORCType', not in the data stream. Mirrors
+-- 'decodeDecimalColumn'. For DECIMAL128 columns use
+-- 'encodeDecimalRawColumn' and the @SECONDARY@ scale stream.
+encodeDecimalColumn :: VP.Vector Int64 -> ByteString
+encodeDecimalColumn vals = encodeRLEv2Direct vals True
+
+-- | Encode a variable-byte (LEB128-style) DECIMAL128 stream and a
+-- corresponding RLE-v2 @SECONDARY@ scale stream. Useful when the writer
+-- needs the full DECIMAL spec; the simpler 'encodeDecimalColumn' covers
+-- the DECIMAL64 fast path the reader uses today.
+encodeDecimalRawColumn
+  :: V.Vector Integer  -- ^ Unscaled values.
+  -> Int               -- ^ Column scale (constant per column).
+  -> (ByteString, ByteString)
+encodeDecimalRawColumn vals scale =
+  let !dataBs = BL.toStrict $ B.toLazyByteString $
+                  V.foldl' (\acc v -> acc <> writeVarSigned v) mempty vals
+      !scaleStream =
+        encodeRLEv2Direct (VP.replicate (V.length vals) (fromIntegral scale)) False
+   in (dataBs, scaleStream)
+
+-- | LEB128-style signed varint used by ORC's @decimal128@ DATA stream.
+-- Zig-zag encode then write 7 bits per byte with the MSB as a
+-- continuation flag.
+writeVarSigned :: Integer -> B.Builder
+writeVarSigned !x =
+  let !u = if x >= 0 then x `shiftL` 1 else (negate x `shiftL` 1) - 1
+   in goVar u
+  where
+    goVar 0 = B.word8 0
+    goVar n = goLoop n
+    goLoop !n
+      | n < 0x80  = B.word8 (fromIntegral n)
+      | otherwise =
+          let !low = fromIntegral (n .&. 0x7F) .|. 0x80 :: Word8
+           in B.word8 low <> goLoop (n `shiftR` 7)
 
 ------------------------------------------------------------------------
 -- File assembly

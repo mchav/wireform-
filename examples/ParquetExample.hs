@@ -15,9 +15,9 @@ import qualified Parquet.Footer as PF
 main :: IO ()
 main = do
   let schema = V.fromList
-        [ P.SchemaElement "schema" Nothing Nothing (Just 2) Nothing Nothing
-        , P.SchemaElement "id"   (Just P.Required) (Just P.PTInt64)  Nothing Nothing Nothing
-        , P.SchemaElement "name" (Just P.Optional) (Just P.PTByteArray) Nothing Nothing Nothing
+        [ P.SchemaElement "schema" Nothing Nothing (Just 2) Nothing Nothing Nothing
+        , P.SchemaElement "id"   (Just P.Required) (Just P.PTInt64)  Nothing Nothing Nothing Nothing
+        , P.SchemaElement "name" (Just P.Optional) (Just P.PTByteArray) Nothing Nothing Nothing Nothing
         ]
 
   let metadata = P.FileMetadata

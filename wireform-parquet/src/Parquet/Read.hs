@@ -18,6 +18,8 @@
 module Parquet.Read
   ( ParquetFile (..)
   , loadParquetFile
+  , loadParquetFileEncrypted
+  , FooterDecryption (..)
   , columnChunkSlice
   , readPlainInt32FirstPage
   , readPlainInt32ColumnChunk
@@ -93,7 +95,10 @@ import qualified Codec.Compression.Snappy as Snappy
 import qualified Codec.Compression.LZ4 as LZ4
 #endif
 
+import qualified Parquet.Encryption as Enc
 import Parquet.Footer (readFooter)
+import qualified Parquet.Footer as F
+import qualified Thrift.Decode as TC
 import Parquet.Levels
   ( levelBitWidth
   , materializePlainBoolOptional
@@ -109,10 +114,8 @@ import Parquet.Page
   , DataPageHeaderV2 (..)
   , DictionaryPageHeader (..)
   , PageHeader (..)
+  , PageType (..)
   , readPageHeaderAt
-  , pageTypeDataPage
-  , pageTypeDictionaryPage
-  , pageTypeDataPageV2
   )
 import Parquet.Types
   ( ColumnChunk (..)
@@ -129,10 +132,65 @@ data ParquetFile = ParquetFile
   } deriving stock (Show, Eq)
 
 -- | Parse the footer from the tail of a complete @PAR1@ file.
+-- Refuses encrypted-footer files with a clear error pointing to
+-- 'loadParquetFileEncrypted'.
 loadParquetFile :: ByteString -> Either String ParquetFile
 loadParquetFile bs = do
   fm <- readFooter bs
   Right ParquetFile {pfBytes = bs, pfFooter = fm}
+
+-- | Footer-decryption configuration. Mirrors
+-- 'Parquet.Write.FooterEncryption' but on the read side: the AAD
+-- prefix and file id must match what the writer used or GCM auth
+-- will reject the trailing module.
+data FooterDecryption = FooterDecryption
+  { fdKey       :: !ByteString
+  , fdFileId    :: !ByteString
+  , fdAadPrefix :: !ByteString
+  } deriving (Show, Eq)
+
+-- | Parse a Parquet file whose trailing magic is either @PAR1@
+-- (plaintext footer) or @PARE@ (encrypted footer). For @PARE@ files
+-- the supplied 'FooterDecryption' is used to decrypt the footer
+-- module under @ModuleFooter@ AAD. For @PAR1@ files the
+-- 'FooterDecryption' is ignored; this is convenient for callers that
+-- want a single entry point for "files that may or may not have an
+-- encrypted footer".
+--
+-- For @PARE@ files the bytes between the leading @PAR1@ magic and
+-- the trailing @PARE@ magic match the parquet-format §5.4 layout:
+-- @<FileCryptoMetaData thrift> <encrypted footer module>@. We
+-- skip the FileCryptoMetaData (the caller supplies the key
+-- separately) and decrypt the footer module under ModuleFooter AAD.
+loadParquetFileEncrypted :: FooterDecryption -> ByteString -> Either String ParquetFile
+loadParquetFileEncrypted fd bs = do
+  trailer <- F.readFooterTrailer bs
+  thriftBytes <- if F.ftMagic trailer == F.parquetEncryptedMagic
+    then do
+      -- Skip past the FileCryptoMetaData thrift; what remains is
+      -- the encrypted footer blob (nonce || ct || tag).
+      (_, encStart) <- skipFileCryptoMetaData (F.ftBytes trailer)
+      let !encModule = BS.drop encStart (F.ftBytes trailer)
+          !suffix    = Enc.buildAadSuffix
+                        (fdFileId fd) Enc.ModuleFooter 0 0 0
+          !aad       = Enc.buildAad (fdAadPrefix fd) suffix
+      Enc.decryptGcmModule (fdKey fd) aad encModule
+    else
+      Right (F.ftBytes trailer)
+  fm <- F.readFooterRaw thriftBytes
+  Right ParquetFile {pfBytes = bs, pfFooter = fm}
+
+-- | Walk past a Thrift compact-encoded @FileCryptoMetaData@ struct
+-- and report the byte offset just past it. We only need the offset;
+-- the parsed value is discarded because the caller already has the
+-- key + AAD context.
+skipFileCryptoMetaData :: ByteString -> Either String ((), Int)
+skipFileCryptoMetaData bs = do
+  -- The thrift compact codec we use already supports streaming
+  -- offsets via decodeCompactFrom; this pattern mirrors what the
+  -- page header reader does.
+  (_, off) <- TC.decodeCompactFrom bs 0
+  Right ((), off)
 
 -- | Raw bytes for one column chunk (from @data_page_offset@ through compressed size).
 columnChunkSlice :: ParquetFile -> Int -> Int -> Either String ByteString
@@ -182,15 +240,13 @@ decompressDataPageBody ::
   Either String (PageHeader, DataPageHeader, ByteString, Int)
 decompressDataPageBody codec chunk off = do
   (hdr, afterHdr) <- readPageHeaderAt chunk off
-  if phType hdr /= pageTypeDataPage
-    then Left "Parquet.Read: expected DATA_PAGE"
-    else do
+  dph <- case phType hdr of
+    PtDataPage d -> Right d
+    _            -> Left "Parquet.Read: expected DATA_PAGE"
+  do
       compSz <- case phCompressedPageSize hdr of
         Nothing -> Left "Parquet.Read: missing compressed_page_size"
         Just s -> Right (fromIntegral s :: Int)
-      dph <- case phDataPage hdr of
-        Nothing -> Left "Parquet.Read: missing data_page_header"
-        Just d -> Right d
       let !bodyStart = afterHdr
       if bodyStart + compSz > BS.length chunk
         then Left "Parquet.Read: truncated page body"
@@ -423,56 +479,47 @@ readPlainDictionaryInt32ColumnChunk codec chunk = go 0 Nothing VP.empty
               !raw <- decompressPageData codec (phUncompressedPageSize hdr) compBody
               let !nextOff = bodyStart + compSz
               case phType hdr of
-                t
-                  | t == pageTypeDictionaryPage -> do
-                      dk <- case phDictionaryPage hdr of
-                        Nothing -> Left "Parquet.Read: missing dictionary_page_header"
-                        Just d -> Right d
-                      if dictEncoding dk /= encPlain
-                        then Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
-                        else do
-                          let !nDict = fromIntegral (dictNumValues dk) :: Int
-                          dict <- decodePlainInt32 nDict raw
-                          go nextOff (Just dict) acc
-                t
-                  | t == pageTypeDataPage -> do
-                      dph <- case phDataPage hdr of
-                        Nothing -> Left "Parquet.Read: missing data_page_header"
-                        Just d -> Right d
-                      case dphEncoding dph of
-                        e
-                          | e == encPlain -> do
-                              let !n = fromIntegral (dphNumValues dph) :: Int
-                              pageVec <- decodePlainInt32 n raw
-                              go nextOff mDict (acc VP.++ pageVec)
-                          | isDictionaryEncoding e -> do
-                              dict0 <- case mDict of
-                                Nothing ->
-                                  Left "Parquet.Read: PLAIN_DICTIONARY data page before dictionary page"
-                                Just d -> Right d
-                              let !n = fromIntegral (dphNumValues dph) :: Int
-                              ix <- decodeDictionaryIndices n raw
-                              let !nD = VP.length dict0
-                                  ok =
-                                    VP.foldl'
-                                      ( \a k ->
-                                          a
-                                            && ( let !j = fromIntegral k :: Int
-                                                 in j >= 0 && j < nD
-                                               )
-                                      )
-                                      True
-                                      ix
-                              if not ok
-                                then Left "Parquet.Read: dictionary index out of range"
-                                else do
-                                  let pageVec = VP.map (\k -> dict0 VP.! fromIntegral k) ix
-                                  go nextOff mDict (acc VP.++ pageVec)
-                        e ->
-                          Left $
-                            "Parquet.Read: unsupported data page encoding "
-                              ++ show e
-                              ++ " (expected PLAIN, PLAIN_DICTIONARY, or RLE_DICTIONARY)"
+                PtDictionaryPage dk
+                  | dictEncoding dk /= encPlain ->
+                      Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                  | otherwise -> do
+                      let !nDict = fromIntegral (dictNumValues dk) :: Int
+                      dict <- decodePlainInt32 nDict raw
+                      go nextOff (Just dict) acc
+                PtDataPage dph -> case dphEncoding dph of
+                  e
+                    | e == encPlain -> do
+                        let !n = fromIntegral (dphNumValues dph) :: Int
+                        pageVec <- decodePlainInt32 n raw
+                        go nextOff mDict (acc VP.++ pageVec)
+                    | isDictionaryEncoding e -> do
+                        dict0 <- case mDict of
+                          Nothing ->
+                            Left "Parquet.Read: PLAIN_DICTIONARY data page before dictionary page"
+                          Just d -> Right d
+                        let !n = fromIntegral (dphNumValues dph) :: Int
+                        ix <- decodeDictionaryIndices n raw
+                        let !nD = VP.length dict0
+                            ok =
+                              VP.foldl'
+                                ( \a k ->
+                                    a
+                                      && ( let !j = fromIntegral k :: Int
+                                           in j >= 0 && j < nD
+                                         )
+                                )
+                                True
+                                ix
+                        if not ok
+                          then Left "Parquet.Read: dictionary index out of range"
+                          else do
+                            let pageVec = VP.map (\k -> dict0 VP.! fromIntegral k) ix
+                            go nextOff mDict (acc VP.++ pageVec)
+                  e ->
+                    Left $
+                      "Parquet.Read: unsupported data page encoding "
+                        ++ show e
+                        ++ " (expected PLAIN, PLAIN_DICTIONARY, or RLE_DICTIONARY)"
                 _ -> Left "Parquet.Read: expected DICTIONARY_PAGE or DATA_PAGE"
 
 decompressChunk :: Compression -> ByteString -> Either String ByteString
@@ -658,36 +705,28 @@ readDictionaryOptionalColumnChunk decodeDictValues lookupDict codec maxRep maxDe
               !raw <- decompressPageData codec (phUncompressedPageSize hdr) compBody
               let !nextOff = bodyStart + compSz
               case phType hdr of
-                t
-                  | t == pageTypeDictionaryPage -> do
-                      dk <- case phDictionaryPage hdr of
-                        Nothing -> Left "Parquet.Read: missing dictionary_page_header"
+                PtDictionaryPage dk
+                  | dictEncoding dk /= encPlain ->
+                      Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                  | otherwise -> do
+                      let !nDict = fromIntegral (dictNumValues dk) :: Int
+                      dict <- decodeDictValues nDict raw
+                      go nextOff (Just dict) acc
+                PtDataPage dph
+                  | not (isDictionaryEncoding (dphEncoding dph)) ->
+                      Left "Parquet.Read: expected PLAIN_DICTIONARY or RLE_DICTIONARY encoding for dictionary optional column"
+                  | otherwise -> do
+                      dict0 <- case mDict of
+                        Nothing ->
+                          Left "Parquet.Read: PLAIN_DICTIONARY data page before dictionary page"
                         Just d -> Right d
-                      if dictEncoding dk /= encPlain
-                        then Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
-                        else do
-                          let !nDict = fromIntegral (dictNumValues dk) :: Int
-                          dict <- decodeDictValues nDict raw
-                          go nextOff (Just dict) acc
-                t
-                  | t == pageTypeDataPage -> do
-                      dph <- case phDataPage hdr of
-                        Nothing -> Left "Parquet.Read: missing data_page_header"
-                        Just d -> Right d
-                      if not (isDictionaryEncoding (dphEncoding dph))
-                        then Left "Parquet.Read: expected PLAIN_DICTIONARY or RLE_DICTIONARY encoding for dictionary optional column"
-                        else do
-                          dict0 <- case mDict of
-                            Nothing ->
-                              Left "Parquet.Read: PLAIN_DICTIONARY data page before dictionary page"
-                            Just d -> Right d
-                          let !n = fromIntegral (dphNumValues dph) :: Int
-                          (_rep, def, rest) <- parseDataPageV1Levels maxRep maxDef n raw
-                          let !maxD = fromIntegral maxDef :: Int32
-                              !nDefined = VP.foldl' (\a d -> if d == maxD then a + 1 else a) 0 def
-                          ix <- decodeDictionaryIndices nDefined rest
-                          page <- materializeDictOptional def maxDef ix dict0 lookupDict
-                          go nextOff mDict (acc V.++ page)
+                      let !n = fromIntegral (dphNumValues dph) :: Int
+                      (_rep, def, rest) <- parseDataPageV1Levels maxRep maxDef n raw
+                      let !maxD = fromIntegral maxDef :: Int32
+                          !nDefined = VP.foldl' (\a d -> if d == maxD then a + 1 else a) 0 def
+                      ix <- decodeDictionaryIndices nDefined rest
+                      page <- materializeDictOptional def maxDef ix dict0 lookupDict
+                      go nextOff mDict (acc V.++ page)
                 _ -> Left "Parquet.Read: expected DICTIONARY_PAGE or DATA_PAGE"
 
 materializeDictOptional ::
@@ -746,15 +785,13 @@ decompressDataPageV2Body ::
   Either String (PageHeader, DataPageHeaderV2, VP.Vector Int32, VP.Vector Int32, ByteString, Int)
 decompressDataPageV2Body codec maxRep maxDef chunk off = do
   (hdr, afterHdr) <- readPageHeaderAt chunk off
-  if phType hdr /= pageTypeDataPageV2
-    then Left "Parquet.Read: expected DATA_PAGE_V2"
-    else do
+  dph2 <- case phType hdr of
+    PtDataPageV2 d -> Right d
+    _              -> Left "Parquet.Read: expected DATA_PAGE_V2"
+  do
       compSz <- case phCompressedPageSize hdr of
         Nothing -> Left "Parquet.Read: missing compressed_page_size"
         Just s -> Right (fromIntegral s :: Int)
-      dph2 <- case phDataPageV2 hdr of
-        Nothing -> Left "Parquet.Read: missing data_page_header_v2"
-        Just d -> Right d
       let !bodyStart = afterHdr
       if bodyStart + compSz > BS.length chunk
         then Left "Parquet.Read: truncated page v2 body"

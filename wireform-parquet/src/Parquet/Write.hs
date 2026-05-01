@@ -2,6 +2,9 @@
 -- | Write Parquet files.
 --
 -- Provides page-level encoding, column chunk assembly, and whole-file builders.
+-- The user-facing entry point is 'buildParquetFile' (or
+-- 'buildParquetFileWithIndex' when emitting bloom filter / page index
+-- regions). Both accept heterogeneous primitive columns via 'ColumnData'.
 --
 -- @
 -- import qualified Data.Vector.Primitive as VP
@@ -10,24 +13,56 @@
 -- import Parquet.Types
 --
 -- let schema = V.fromList
---       [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
---       , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+--       [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+--       , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
 --       ]
 --     vals = VP.fromList [1, 2, 3 :: Int32]
---     bs = buildParquetFile schema (V.singleton (V.singleton vals))
+--     bs = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
 -- @
 module Parquet.Write
-  ( writeParquetFile
-  , encodePlainInt32Page
-  , encodePlainInt64Page
-  , encodePlainByteArrayPage
+  ( -- * Whole-file builders (preferred entry points)
+    buildParquetFile
+  , buildParquetFileWithIndex
+    -- * Per-column auxiliary metadata for the indexed writer
+  , ColumnAux(..)
+  , emptyColumnAux
+    -- * Per-column encryption (modular AES-GCM / AES-GCM-CTR)
+  , ColumnEncryption(..)
+  , columnEncryptionFor
+  , encryptPageBytes
+  , encryptPageBytesV2
+  , encryptAuxModule
+    -- * Encrypted-footer mode
+  , FooterEncryption(..)
+  , buildParquetFileWithIndexEncryptedFooter
+    -- * Column data
+  , ColumnData(..)
+  , columnDataLength
+  , columnDataParquetType
+  , columnDataStatistics
+  , encodeColumnDataPage
+  , encodeColumnDataPageParts
+    -- * Nullable columns (definition levels)
+  , OptionalColumn(..)
+  , optionalColumnLength
+  , optionalColumnNullCount
+  , optionalColumnPresentValues
+  , encodeOptionalColumnPage
+    -- * Dictionary encoding
+  , Dictionary(..)
+  , buildDictionary
+  , encodeDictPage
+  , encodeDictDataPage
+    -- * Data page version (V1 vs V2)
+  , PageVersion(..)
+  , encodeColumnDataPageV2
+  , encodeColumnDataPageV2Parts
+  , encodeOptionalColumnPageV2
+  , encodeOptionalColumnPageV2Parts
+    -- * Page / footer building blocks (used by composite writers)
+  , writeParquetFile
   , encodePageHeader
   , assembleColumnChunk
-  , buildParquetFile
-    -- * Statistics
-  , statisticsForInt32
-  , statisticsForInt64
-  , statisticsForByteArray
   ) where
 
 import Data.ByteString (ByteString)
@@ -35,17 +70,40 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
+import GHC.Float (castDoubleToWord64, castFloatToWord32)
 
-import Parquet.Footer (writeFooter, parquetMagic)
+import Parquet.BloomFilter (Sbbf, encodeBloomFilter, sbbfNumBytes)
+import qualified Parquet.BloomFilter as BF
+import qualified Parquet.Compress as Compress
+import qualified Parquet.Encryption as Enc
+import qualified Parquet.LevelsEncode as LE
+import Parquet.Footer
+  ( fileMetadataToThrift
+  , parquetEncryptedMagic
+  , parquetMagic
+  , writeFooter
+  , writeRawFooter
+  )
+import Parquet.PageIndex
+  ( encodeColumnIndex
+  , encodeOffsetIndex
+  )
+import Parquet.Types
+  ( ColumnIndex (..)
+  , OffsetIndex (..)
+  )
 import Parquet.Page
   ( DataPageHeader (..)
   , DataPageHeaderV2 (..)
   , DictionaryPageHeader (..)
   , PageHeader (..)
-  , pageTypeDataPage
+  , PageType (..)
+  , pageTypeTag
   )
 import Parquet.Types
   ( ColumnChunk (..)
@@ -105,17 +163,65 @@ encodePlainByteArrayPage vals =
       !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
   in encodePageHeader hdr <> body
 
+-- | Encode a vector of @FLOAT@ values as a single uncompressed @PLAIN@
+-- @DATA_PAGE@ (4-byte little-endian IEEE 754 per value).
+encodePlainFloatPage :: VP.Vector Float -> ByteString
+encodePlainFloatPage vals =
+  let !n = VP.length vals
+      !bodySize = n * 4
+      !body = BL.toStrict $ B.toLazyByteString $
+        VP.foldl' (\b v -> b <> writeFloatLE v) mempty vals
+      !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
+  in encodePageHeader hdr <> body
+
+-- | Encode a vector of @DOUBLE@ values as a single uncompressed @PLAIN@
+-- @DATA_PAGE@ (8-byte little-endian IEEE 754 per value).
+encodePlainDoublePage :: VP.Vector Double -> ByteString
+encodePlainDoublePage vals =
+  let !n = VP.length vals
+      !bodySize = n * 8
+      !body = BL.toStrict $ B.toLazyByteString $
+        VP.foldl' (\b v -> b <> writeDoubleLE v) mempty vals
+      !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
+  in encodePageHeader hdr <> body
+
+-- | Encode a vector of @BOOLEAN@ values as a single uncompressed @PLAIN@
+-- @DATA_PAGE@ (1 bit per value, LSB-first packed bytes per the spec).
+encodePlainBooleanPage :: V.Vector Bool -> ByteString
+encodePlainBooleanPage vals =
+  let !n = V.length vals
+      !numBytes = (n + 7) `quot` 8
+      !body = BL.toStrict $ B.toLazyByteString $
+        flip foldMap [0 .. numBytes - 1] $ \byteIdx ->
+          let buildByte !bit !acc
+                | bit >= 8                = acc
+                | byteIdx * 8 + bit >= n  = acc
+                | otherwise =
+                    let !v = V.unsafeIndex vals (byteIdx * 8 + bit)
+                        !flag = if v then (1 :: Int) `shiftL'` bit else 0
+                     in buildByte (bit + 1) (acc + flag)
+          in B.word8 (fromIntegral (buildByte 0 0))
+      !bodySize = numBytes
+      !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
+  in encodePageHeader hdr <> body
+  where
+    shiftL' :: Int -> Int -> Int
+    shiftL' x i = x * (2 ^ i)
+
+writeFloatLE :: Float -> B.Builder
+writeFloatLE = B.word32LE . castFloatToWord32
+
+writeDoubleLE :: Double -> B.Builder
+writeDoubleLE = B.word64LE . castDoubleToWord64
+
 mkPlainDataPageHeader :: Int32 -> Int32 -> PageHeader
 mkPlainDataPageHeader numValues bodySize = PageHeader
-  { phType = pageTypeDataPage
-  , phUncompressedPageSize = Just bodySize
-  , phCompressedPageSize = Just bodySize
-  , phDataPage = Just DataPageHeader
+  { phType = PtDataPage DataPageHeader
       { dphNumValues = numValues
       , dphEncoding = 0
       }
-  , phDictionaryPage = Nothing
-  , phDataPageV2 = Nothing
+  , phUncompressedPageSize = Just bodySize
+  , phCompressedPageSize = Just bodySize
   }
 
 -- | Thrift compact-encode a 'PageHeader'.
@@ -124,12 +230,14 @@ encodePageHeader hdr = encodeCompact (pageHeaderToThrift hdr)
 
 pageHeaderToThrift :: PageHeader -> TV.Value
 pageHeaderToThrift hdr = TV.Struct $ V.fromList $
-  [(1, TV.I32 (phType hdr))]
+  [(1, TV.I32 (pageTypeTag (phType hdr)))]
   ++ maybe [] (\s -> [(2, TV.I32 s)]) (phUncompressedPageSize hdr)
   ++ maybe [] (\s -> [(3, TV.I32 s)]) (phCompressedPageSize hdr)
-  ++ maybe [] (\dph -> [(5, dataPageHeaderToThrift dph)]) (phDataPage hdr)
-  ++ maybe [] (\dk -> [(7, dictPageHeaderToThrift dk)]) (phDictionaryPage hdr)
-  ++ maybe [] (\v2 -> [(8, dataPageHeaderV2ToThrift v2)]) (phDataPageV2 hdr)
+  ++ case phType hdr of
+       PtDataPage dph        -> [(5, dataPageHeaderToThrift dph)]
+       PtDictionaryPage dk   -> [(7, dictPageHeaderToThrift dk)]
+       PtDataPageV2 v2       -> [(8, dataPageHeaderV2ToThrift v2)]
+       PtIndexPage           -> []
 
 dataPageHeaderToThrift :: DataPageHeader -> TV.Value
 dataPageHeaderToThrift dph = TV.Struct $ V.fromList
@@ -160,65 +268,131 @@ dataPageHeaderV2ToThrift v2 = TV.Struct $ V.fromList
 assembleColumnChunk :: Compression -> [ByteString] -> ByteString
 assembleColumnChunk _codec pages = mconcat pages
 
--- | Build a complete Parquet file from a schema and row groups of @INT32@
--- column vectors. Produces @PAR1@ magic, uncompressed @PLAIN@ pages, footer,
--- and trailing magic.
-buildParquetFile :: V.Vector SchemaElement -> V.Vector (V.Vector (VP.Vector Int32)) -> ByteString
-buildParquetFile schema rowGroupVecs =
-  let !encodedRGs = V.map (V.map encodePlainInt32Page) rowGroupVecs
-      (!rgMetas, !_) = V.ifoldl' buildRG (V.empty, 4) encodedRGs
-      !totalRows = V.foldl' (\a rg -> a + rgNumRows rg) 0 rgMetas
-      !fm = FileMetadata
-        { fmVersion = 1
-        , fmSchema = schema
-        , fmNumRows = totalRows
-        , fmRowGroups = rgMetas
-        , fmCreatedBy = Just "wireform"
+-- ============================================================
+-- DATA_PAGE_V2
+-- ============================================================
+
+-- | Encode an 'OptionalColumn' as a single @DATA_PAGE_V2@.
+--
+-- Layout (per the Parquet spec):
+--
+-- @
+-- <repetition_levels>   -- length given by header.repetition_levels_byte_length
+--                       -- always uncompressed; we emit zero bytes for
+--                       -- non-repeated columns.
+-- <definition_levels>   -- length given by header.definition_levels_byte_length
+--                       -- always uncompressed; max def-level is 1 for
+--                       -- optional columns.
+-- <values>              -- compressed iff codec /= Uncompressed; PLAIN encoded.
+-- @
+--
+-- The level segments are RLE-hybrid encoded *without* the 4-byte length
+-- prefix that V1 uses. The header records both segment lengths and an
+-- @is_compressed@ flag.
+encodeOptionalColumnPageV2 :: Compression -> OptionalColumn -> Either String ByteString
+encodeOptionalColumnPageV2 codec oc = do
+  parts <- encodeOptionalColumnPageV2Parts codec oc
+  Right (concatV2Parts parts)
+
+-- | Like 'encodeOptionalColumnPageV2' but returns the four byte
+-- segments separately so callers (in particular the encrypted writer
+-- path) can apply per-module ciphers. The tuple is
+-- @(pageHeader, repLevels, defLevels, values)@.
+encodeOptionalColumnPageV2Parts
+  :: Compression
+  -> OptionalColumn
+  -> Either String (ByteString, ByteString, ByteString, ByteString)
+encodeOptionalColumnPageV2Parts codec oc = do
+  let !defs = VP.fromList
+        [ if isJust v then 1 else 0
+        | v <- presenceList oc
+        ]
+      !defStream = LE.encodeRLEHybrid 1 defs
+      !defLen = BS.length defStream
+      !repStream = BS.empty
+      !repLen = 0 :: Int
+      !valuesRaw = encodeColumnDataPagePayload (optionalColumnPresentValues oc)
+      !uncompValuesLen = BS.length valuesRaw
+  (valuesBs, codecActual) <- case Compress.compressPageBytes codec valuesRaw of
+        Right cb -> Right (cb, codec)
+        Left  e  -> Left e
+  let !nVals = optionalColumnLength oc
+      !nNulls = sum (map (\v -> if isJust v then 0 else 1) (presenceList oc)) :: Int
+      !nRows = nVals  -- non-repeated => num_rows == num_values
+      !uncompPageSize = repLen + defLen + uncompValuesLen
+      !compPageSize   = repLen + defLen + BS.length valuesBs
+      !hdrBytes = encodePageHeader PageHeader
+        { phType = PtDataPageV2 DataPageHeaderV2
+            { dph2NumValues    = fromIntegral nVals
+            , dph2NumNulls     = fromIntegral nNulls
+            , dph2NumRows      = fromIntegral nRows
+            , dph2Encoding     = 0 -- PLAIN
+            , dph2DefLevelsLen = fromIntegral defLen
+            , dph2RepLevelsLen = fromIntegral repLen
+            , dph2IsCompressed = codecActual /= Uncompressed
+            }
+        , phUncompressedPageSize = Just (fromIntegral uncompPageSize)
+        , phCompressedPageSize   = Just (fromIntegral compPageSize)
         }
-  in writeParquetFile fm encodedRGs
+  Right (hdrBytes, repStream, defStream, valuesBs)
   where
-    leaves :: V.Vector SchemaElement
-    !leaves = V.filter (maybe False (const True) . seType) schema
+    isJust (Just _) = True
+    isJust Nothing  = False
 
-    buildRG :: (V.Vector RowGroup, Int) -> Int -> V.Vector ByteString -> (V.Vector RowGroup, Int)
-    buildRG (!rgs, !off) rgIdx encodedCols =
-      let !colVecs = V.unsafeIndex rowGroupVecs rgIdx
-          (!cols, !off2) = V.ifoldl' (buildCol colVecs) (V.empty, off) encodedCols
-          !nRows = if V.null colVecs then 0 else fromIntegral (VP.length (V.unsafeIndex colVecs 0))
-          !rg = RowGroup
-            { rgColumns = cols
-            , rgTotalByteSize = fromIntegral (off2 - off)
-            , rgNumRows = nRows
-            }
-      in (V.snoc rgs rg, off2)
+    presenceList :: OptionalColumn -> [Maybe ()]
+    presenceList = \case
+      OptInt32 v     -> map void' (V.toList v)
+      OptInt64 v     -> map void' (V.toList v)
+      OptFloat v     -> map void' (V.toList v)
+      OptDouble v    -> map void' (V.toList v)
+      OptBool v      -> map void' (V.toList v)
+      OptByteArray v -> map void' (V.toList v)
 
-    buildCol :: V.Vector (VP.Vector Int32) -> (V.Vector ColumnChunk, Int) -> Int -> ByteString -> (V.Vector ColumnChunk, Int)
-    buildCol colVecs (!cs, !cOff) colIdx pageBs =
-      let !colVec = V.unsafeIndex colVecs colIdx
-          !leaf = V.unsafeIndex leaves colIdx
-          !sz = BS.length pageBs
-          !cc = ColumnChunk
-            { ccFilePath = Nothing
-            , ccFileOffset = fromIntegral cOff
-            , ccMetadata = Just ColumnMetadata
-                { cmType = fromMaybe PTInt32 (seType leaf)
-                , cmEncodings = V.singleton Plain
-                , cmPathInSchema = V.singleton (seName leaf)
-                , cmCodec = Uncompressed
-                , cmNumValues = fromIntegral (VP.length colVec)
-                , cmTotalUncompressedSize = fromIntegral sz
-                , cmTotalCompressedSize = fromIntegral sz
-                , cmDataPageOffset = fromIntegral cOff
-                , cmStatistics = Just (statisticsForInt32 colVec)
-                , cmBloomFilterOffset = Nothing
-                , cmBloomFilterLength = Nothing
-                }
-            , ccOffsetIndexOffset = Nothing
-            , ccOffsetIndexLength = Nothing
-            , ccColumnIndexOffset = Nothing
-            , ccColumnIndexLength = Nothing
+    void' Nothing  = Nothing
+    void' (Just _) = Just ()
+
+-- | Concatenate a @V2 parts tuple@ in spec order.
+concatV2Parts :: (ByteString, ByteString, ByteString, ByteString) -> ByteString
+concatV2Parts (h, r, d, v) = BS.concat [h, r, d, v]
+
+-- | Encode a required (non-null) 'ColumnData' as a single
+-- @DATA_PAGE_V2@. No def/rep level streams are emitted; only the values
+-- segment, compressed if the caller requested it.
+encodeColumnDataPageV2 :: Compression -> ColumnData -> Either String ByteString
+encodeColumnDataPageV2 codec cd = do
+  parts <- encodeColumnDataPageV2Parts codec cd
+  Right (concatV2Parts parts)
+
+-- | Like 'encodeColumnDataPageV2' but returns the four parts
+-- separately. For required columns the rep / def segments are empty
+-- so this is just @(pageHeader, "", "", values)@.
+encodeColumnDataPageV2Parts
+  :: Compression
+  -> ColumnData
+  -> Either String (ByteString, ByteString, ByteString, ByteString)
+encodeColumnDataPageV2Parts codec cd = do
+  let !valuesRaw = encodeColumnDataPagePayload cd
+      !uncompValuesLen = BS.length valuesRaw
+  (valuesBs, codecActual) <- case Compress.compressPageBytes codec valuesRaw of
+        Right cb -> Right (cb, codec)
+        Left  e  -> Left e
+  let !nVals = columnDataLength cd
+      !uncompPageSize = uncompValuesLen
+      !compPageSize   = BS.length valuesBs
+      !hdrBytes = encodePageHeader PageHeader
+        { phType = PtDataPageV2 DataPageHeaderV2
+            { dph2NumValues    = fromIntegral nVals
+            , dph2NumNulls     = 0
+            , dph2NumRows      = fromIntegral nVals
+            , dph2Encoding     = 0
+            , dph2DefLevelsLen = 0
+            , dph2RepLevelsLen = 0
+            , dph2IsCompressed = codecActual /= Uncompressed
             }
-      in (V.snoc cs cc, cOff + sz)
+        , phUncompressedPageSize = Just (fromIntegral uncompPageSize)
+        , phCompressedPageSize   = Just (fromIntegral compPageSize)
+        }
+  Right (hdrBytes, BS.empty, BS.empty, valuesBs)
 
 -- ============================================================
 -- Page / column statistics
@@ -294,3 +468,959 @@ i32LE v = BL.toStrict (B.toLazyByteString (B.int32LE v))
 
 i64LE :: Int64 -> ByteString
 i64LE v = BL.toStrict (B.toLazyByteString (B.int64LE v))
+
+-- | Compute Parquet 'Statistics' for a @FLOAT@ column. Min/max are
+-- compared as IEEE 754 floats then encoded as 4-byte little-endian.
+statisticsForFloat :: VP.Vector Float -> Statistics
+statisticsForFloat vs
+  | VP.null vs = emptyStats
+  | otherwise =
+      let !mn = VP.foldl1' min vs
+          !mx = VP.foldl1' max vs
+          encMin = fLE mn
+          encMax = fLE mx
+      in Statistics (Just encMin) (Just encMax) (Just 0) Nothing
+                   (Just encMin) (Just encMax)
+
+-- | Compute Parquet 'Statistics' for a @DOUBLE@ column.
+statisticsForDouble :: VP.Vector Double -> Statistics
+statisticsForDouble vs
+  | VP.null vs = emptyStats
+  | otherwise =
+      let !mn = VP.foldl1' min vs
+          !mx = VP.foldl1' max vs
+          encMin = dLE mn
+          encMax = dLE mx
+      in Statistics (Just encMin) (Just encMax) (Just 0) Nothing
+                   (Just encMin) (Just encMax)
+
+-- | Compute Parquet 'Statistics' for a @BOOLEAN@ column. Min is the
+-- first @False@ that appears (otherwise @True@); max is the first @True@.
+-- Encoded as a single byte (0 or 1) per the PLAIN spec.
+statisticsForBool :: V.Vector Bool -> Statistics
+statisticsForBool vs
+  | V.null vs = emptyStats
+  | otherwise =
+      let hasFalse = V.any not vs
+          hasTrue  = V.any id vs
+          encMin = if hasFalse then BS.singleton 0 else BS.singleton 1
+          encMax = if hasTrue  then BS.singleton 1 else BS.singleton 0
+      in Statistics (Just encMin) (Just encMax) (Just 0) Nothing
+                   (Just encMin) (Just encMax)
+
+fLE :: Float -> ByteString
+fLE v = BL.toStrict (B.toLazyByteString (B.word32LE (castFloatToWord32 v)))
+
+dLE :: Double -> ByteString
+dLE v = BL.toStrict (B.toLazyByteString (B.word64LE (castDoubleToWord64 v)))
+
+-- ============================================================
+-- Heterogeneous column data
+-- ============================================================
+
+-- | A single column's worth of values, tagged with its physical type.
+-- Used by 'buildParquetFileTyped' / 'buildParquetFileTypedWithIndex' so
+-- writers can emit any primitive type from one entry point.
+data ColumnData
+  = ColInt32     !(VP.Vector Int32)
+  | ColInt64     !(VP.Vector Int64)
+  | ColFloat     !(VP.Vector Float)
+  | ColDouble    !(VP.Vector Double)
+  | ColBool      !(V.Vector  Bool)
+  | ColByteArray !(V.Vector ByteString)
+  deriving (Show, Eq)
+
+-- | Number of values in the column.
+columnDataLength :: ColumnData -> Int
+columnDataLength = \case
+  ColInt32 v     -> VP.length v
+  ColInt64 v     -> VP.length v
+  ColFloat v     -> VP.length v
+  ColDouble v    -> VP.length v
+  ColBool v      -> V.length v
+  ColByteArray v -> V.length v
+
+-- | The Parquet physical type the column data should be written as.
+columnDataParquetType :: ColumnData -> ParquetType
+columnDataParquetType = \case
+  ColInt32{}     -> PTInt32
+  ColInt64{}     -> PTInt64
+  ColFloat{}     -> PTFloat
+  ColDouble{}    -> PTDouble
+  ColBool{}      -> PTBoolean
+  ColByteArray{} -> PTByteArray
+
+-- | Encode the column as a single uncompressed @PLAIN@ @DATA_PAGE@.
+encodeColumnDataPage :: ColumnData -> ByteString
+encodeColumnDataPage cd =
+  let (h, b) = encodeColumnDataPageParts cd in BS.append h b
+
+-- | Encode a column data page as @(headerBytes, bodyBytes)@. Same
+-- contents as 'encodeColumnDataPage' but split so callers (in
+-- particular 'encryptPageBytes') can encrypt the two parts under
+-- different module-type AADs.
+encodeColumnDataPageParts :: ColumnData -> (ByteString, ByteString)
+encodeColumnDataPageParts cd =
+  let !body = encodeColumnDataPagePayload cd
+      !n    = columnDataLength cd
+      !hdr  = encodePageHeader (mkPlainDataPageHeader (fromIntegral n)
+                                  (fromIntegral (BS.length body)))
+   in (hdr, body)
+
+-- | Compute Parquet 'Statistics' for the column.
+columnDataStatistics :: ColumnData -> Statistics
+columnDataStatistics = \case
+  ColInt32 v     -> statisticsForInt32 v
+  ColInt64 v     -> statisticsForInt64 v
+  ColFloat v     -> statisticsForFloat v
+  ColDouble v    -> statisticsForDouble v
+  ColBool v      -> statisticsForBool v
+  ColByteArray v -> statisticsForByteArray v
+
+-- ============================================================
+-- Nullable columns: definition levels + PLAIN values
+-- ============================================================
+
+-- | A column with optional values. Internally we store the present-flag
+-- vector alongside the present-only values; readers reconstruct the
+-- @Maybe@ shape via 'Parquet.Levels.materializePlainInt32Optional' and
+-- friends.
+data OptionalColumn
+  = OptInt32     !(V.Vector (Maybe Int32))
+  | OptInt64     !(V.Vector (Maybe Int64))
+  | OptFloat     !(V.Vector (Maybe Float))
+  | OptDouble    !(V.Vector (Maybe Double))
+  | OptBool      !(V.Vector (Maybe Bool))
+  | OptByteArray !(V.Vector (Maybe ByteString))
+  deriving (Show, Eq)
+
+optionalColumnLength :: OptionalColumn -> Int
+optionalColumnLength = \case
+  OptInt32 v     -> V.length v
+  OptInt64 v     -> V.length v
+  OptFloat v     -> V.length v
+  OptDouble v    -> V.length v
+  OptBool v      -> V.length v
+  OptByteArray v -> V.length v
+
+optionalColumnNullCount :: OptionalColumn -> Int
+optionalColumnNullCount = \case
+  OptInt32 v     -> V.length (V.filter (== Nothing) v)
+  OptInt64 v     -> V.length (V.filter (== Nothing) v)
+  OptFloat v     -> V.length (V.filter (== Nothing) v)
+  OptDouble v    -> V.length (V.filter (== Nothing) v)
+  OptBool v      -> V.length (V.filter (== Nothing) v)
+  OptByteArray v -> V.length (V.filter (== Nothing) v)
+
+-- | Strip nulls and return only the present values as a 'ColumnData'.
+optionalColumnPresentValues :: OptionalColumn -> ColumnData
+optionalColumnPresentValues = \case
+  OptInt32 v     -> ColInt32     (VP.fromList [x | Just x <- V.toList v])
+  OptInt64 v     -> ColInt64     (VP.fromList [x | Just x <- V.toList v])
+  OptFloat v     -> ColFloat     (VP.fromList [x | Just x <- V.toList v])
+  OptDouble v    -> ColDouble    (VP.fromList [x | Just x <- V.toList v])
+  OptBool v      -> ColBool      (V.fromList  [x | Just x <- V.toList v])
+  OptByteArray v -> ColByteArray (V.fromList  [x | Just x <- V.toList v])
+
+-- | Encode an 'OptionalColumn' as a single uncompressed @PLAIN@
+-- @DATA_PAGE@ V1 carrying the definition-level stream + present-only
+-- PLAIN values.
+encodeOptionalColumnPage :: OptionalColumn -> ByteString
+encodeOptionalColumnPage oc =
+  let !defs = VP.fromList
+        [ if isPresent v then 1 else 0
+        | v <- presenceList oc
+        ]
+      !defStream = LE.encodeLengthPrefixedHybrid 1 defs
+      !valuesBs = encodeColumnDataPagePayload (optionalColumnPresentValues oc)
+      !body = defStream <> valuesBs
+      !bodySize = BS.length body
+      !n = optionalColumnLength oc
+      !hdr = mkPlainDataPageHeader (fromIntegral n) (fromIntegral bodySize)
+   in encodePageHeader hdr <> body
+  where
+    isPresent (Just _) = True
+    isPresent Nothing  = False
+
+    presenceList :: OptionalColumn -> [Maybe ()]
+    presenceList = \case
+      OptInt32 v     -> map void (V.toList v)
+      OptInt64 v     -> map void (V.toList v)
+      OptFloat v     -> map void (V.toList v)
+      OptDouble v    -> map void (V.toList v)
+      OptBool v      -> map void (V.toList v)
+      OptByteArray v -> map void (V.toList v)
+
+    void Nothing  = Nothing
+    void (Just _) = Just ()
+
+-- | Encode just the PLAIN-values portion (no page header). Used inside
+-- 'encodeOptionalColumnPage' so we can prepend the definition-level
+-- stream and write a single page header.
+encodeColumnDataPagePayload :: ColumnData -> ByteString
+encodeColumnDataPagePayload = \case
+  ColInt32 v     -> BL.toStrict $ B.toLazyByteString $
+                     VP.foldl' (\b x -> b <> B.int32LE x) mempty v
+  ColInt64 v     -> BL.toStrict $ B.toLazyByteString $
+                     VP.foldl' (\b x -> b <> B.int64LE x) mempty v
+  ColFloat v     -> BL.toStrict $ B.toLazyByteString $
+                     VP.foldl' (\b x -> b <> writeFloatLE x) mempty v
+  ColDouble v    -> BL.toStrict $ B.toLazyByteString $
+                     VP.foldl' (\b x -> b <> writeDoubleLE x) mempty v
+  ColBool v      ->
+      let !n = V.length v
+          !numBytes = (n + 7) `quot` 8
+       in BL.toStrict $ B.toLazyByteString $
+            flip foldMap [0 .. numBytes - 1] $ \byteIdx ->
+              let goBit !bit !acc
+                    | bit >= 8                = acc
+                    | byteIdx * 8 + bit >= n  = acc
+                    | otherwise =
+                        let !x = V.unsafeIndex v (byteIdx * 8 + bit)
+                            !flag = if x then (1 :: Int) * (2 ^ bit) else 0
+                         in goBit (bit + 1) (acc + flag)
+              in B.word8 (fromIntegral (goBit 0 0))
+  ColByteArray v -> BL.toStrict $ B.toLazyByteString $
+                     V.foldl' (\b x ->
+                       b <> B.word32LE (fromIntegral (BS.length x))
+                         <> B.byteString x
+                     ) mempty v
+
+-- ============================================================
+-- Dictionary encoding (PLAIN_DICTIONARY / RLE_DICTIONARY)
+-- ============================================================
+
+-- | A computed dictionary for a single column chunk. 'dictUniques' holds
+-- the column values in dictionary order; 'dictIndices' maps each row's
+-- value to its dictionary index (0-based).
+data Dictionary = Dictionary
+  { dictUniques :: !ColumnData
+  , dictIndices :: !(VP.Vector Int32)
+  } deriving (Show, Eq)
+
+-- | Compute a dictionary for a 'ColumnData' by deduplicating the input.
+-- Order of unique values follows their first appearance.
+buildDictionary :: ColumnData -> Dictionary
+buildDictionary = \case
+  ColInt32 v     -> generic (V.fromList (VP.toList v)) (\xs -> ColInt32 (VP.fromList xs))
+  ColInt64 v     -> generic (V.fromList (VP.toList v)) (\xs -> ColInt64 (VP.fromList xs))
+  ColFloat v     -> generic (V.fromList (VP.toList v)) (\xs -> ColFloat (VP.fromList xs))
+  ColDouble v    -> generic (V.fromList (VP.toList v)) (\xs -> ColDouble (VP.fromList xs))
+  ColBool v      -> generic (V.fromList (V.toList v))  (\xs -> ColBool  (V.fromList xs))
+  ColByteArray v -> generic v                          (\xs -> ColByteArray (V.fromList xs))
+  where
+    generic
+      :: (Eq a)
+      => V.Vector a
+      -> ([a] -> ColumnData)
+      -> Dictionary
+    generic xs reify =
+      let !uniques = V.toList (V.uniq (V.fromList (V.toList (orderedUniq xs))))
+          !lookupIdx = \x ->
+            case lookup x (zip uniques [0 ..]) of
+              Just i  -> fromIntegral (i :: Int) :: Int32
+              Nothing -> 0
+          !indices = VP.fromList (map lookupIdx (V.toList xs))
+       in Dictionary { dictUniques = reify uniques, dictIndices = indices }
+
+    -- Stable order-of-first-appearance unique extraction.
+    orderedUniq :: Eq a => V.Vector a -> V.Vector a
+    orderedUniq xs0 = V.fromList (go (V.toList xs0) [])
+      where
+        go [] acc = reverse acc
+        go (x:xs) acc
+          | x `elem` acc = go xs acc
+          | otherwise    = go xs (x : acc)
+
+-- | Encode a 'Dictionary' as a @DICTIONARY_PAGE@.
+encodeDictPage :: Dictionary -> ByteString
+encodeDictPage d =
+  let !payload = encodeColumnDataPagePayload (dictUniques d)
+      !numEntries = columnDataLength (dictUniques d)
+      !hdr = PageHeader
+        { phType = PtDictionaryPage DictionaryPageHeader
+            { dictNumValues = fromIntegral numEntries
+            , dictEncoding  = parquetEncodingPlainDictionary
+            }
+        , phUncompressedPageSize = Just (fromIntegral (BS.length payload))
+        , phCompressedPageSize   = Just (fromIntegral (BS.length payload))
+        }
+   in encodePageHeader hdr <> payload
+
+-- | Encode the 'DATA_PAGE' that consumes a dictionary (RLE-hybrid index
+-- stream prefixed by a single byte recording the bit width).
+encodeDictDataPage :: Dictionary -> ByteString
+encodeDictDataPage d =
+  let !indices = dictIndices d
+      !numIndices = VP.length indices
+      !uniqueCount = columnDataLength (dictUniques d)
+      !bw = LE.bitWidthFor (max 0 (uniqueCount - 1))
+      !indexStream = LE.encodeRLEHybrid bw indices
+      !body = BS.singleton (fromIntegral bw) <> indexStream
+      !hdr = PageHeader
+        { phType = PtDataPage DataPageHeader
+            { dphNumValues = fromIntegral numIndices
+            , dphEncoding  = parquetEncodingRleDictionary
+            }
+        , phUncompressedPageSize = Just (fromIntegral (BS.length body))
+        , phCompressedPageSize   = Just (fromIntegral (BS.length body))
+        }
+   in encodePageHeader hdr <> body
+
+parquetEncodingPlainDictionary :: Int32
+parquetEncodingPlainDictionary = 2
+
+parquetEncodingRleDictionary :: Int32
+parquetEncodingRleDictionary = 8
+
+-- ============================================================
+-- Indexed writer: bloom filter + page index footers
+-- ============================================================
+
+-- | Which Parquet data page header to emit for a column chunk.
+--
+-- - 'PageV1': @DATA_PAGE@ (legacy). Definition + repetition levels are
+--   length-prefixed RLE-hybrid streams concatenated with the values
+--   inside the (optionally compressed) page body.
+-- - 'PageV2': @DATA_PAGE_V2@. Definition and repetition levels are NOT
+--   length-prefixed and are NOT compressed. Only the values segment is
+--   compressed, and the level segment lengths are recorded in the page
+--   header so readers can skip directly to the data.
+data PageVersion = PageV1 | PageV2
+  deriving (Show, Eq)
+
+-- | Per-column encryption knobs the writer needs at page-emit time.
+--
+-- Lifted out of the global 'Enc.EncryptionConfig' so a single column
+-- aux record carries everything: the key, the algorithm, the file-id /
+-- AAD-prefix / key-metadata bytes, and the column ordinal that goes
+-- into the AAD suffix. All columns in a typical Parquet file share the
+-- same algorithm and AAD-prefix; the helper 'columnEncryptionFor'
+-- builds a per-column 'ColumnEncryption' from the file-wide
+-- 'Enc.EncryptionConfig' so callers don't have to repeat the boilerplate.
+data ColumnEncryption = ColumnEncryption
+  { ceAlgorithm     :: !Enc.EncryptionAlgorithm
+    -- ^ 'Enc.AesGcmV1' encrypts every page (header + body) with GCM;
+    -- 'Enc.AesGcmCtrV1' encrypts data\/dictionary page bodies with CTR
+    -- and everything else (page headers, column metadata, indexes) with
+    -- GCM. Both algorithms produce the same on-the-wire framing.
+  , ceKey           :: !BS.ByteString
+    -- ^ AES key (16, 24, or 32 bytes).
+  , ceFileId        :: !BS.ByteString
+    -- ^ The 8-byte @aad_file_id@ for AAD construction. Padded to 8
+    -- bytes by 'Enc.buildAadSuffix'.
+  , ceAadPrefix     :: !BS.ByteString
+    -- ^ Caller-supplied AAD prefix (typically empty).
+  , ceKeyMetadata   :: !BS.ByteString
+    -- ^ Opaque KMS handle to record on the column chunk; round-trips
+    -- through to 'cmKeyMetadata' so readers can reconstruct the key.
+  , ceColumnOrdinal :: !Int
+    -- ^ Column ordinal within the row group.
+  } deriving (Show, Eq)
+
+-- | Auxiliary metadata for one column chunk that the indexed writer
+-- emits alongside the data pages. Any 'Nothing' field is omitted from
+-- the produced file.
+data ColumnAux = ColumnAux
+  { caBloomFilter  :: !(Maybe Sbbf)
+    -- ^ Pre-built split-block bloom filter for this column chunk. The
+    -- writer serialises it into the bloom-filter region and records the
+    -- (offset, length) on the column metadata.
+  , caOffsetIndex  :: !(Maybe OffsetIndex)
+    -- ^ Per-page @(offset, compressed_size, first_row_index)@ entries.
+    -- The writer rewrites the @plOffset@ of each 'PageLocation' so that
+    -- it points at the actual page-bytes location in the assembled file.
+  , caColumnIndex  :: !(Maybe ColumnIndex)
+    -- ^ Per-page null/min/max statistics. Written verbatim.
+  , caCodec        :: !Compression
+    -- ^ Compression codec for the column-chunk page bytes. Default
+    -- 'Uncompressed'; use any codec listed in 'Parquet.Compress.compressPageBytes'.
+  , caPageVersion  :: !PageVersion
+    -- ^ Page header version to emit. Defaults to 'PageV1'.
+  , caEncryption   :: !(Maybe ColumnEncryption)
+    -- ^ When 'Just', the page header + body for this column chunk are
+    -- encrypted per the spec module-wise framing (nonce || ciphertext
+    -- || tag for GCM modules; nonce || ciphertext for CTR modules).
+    -- Defaults to 'Nothing' (plaintext).
+  } deriving (Show, Eq)
+
+emptyColumnAux :: ColumnAux
+emptyColumnAux = ColumnAux Nothing Nothing Nothing Uncompressed PageV1 Nothing
+
+-- | Convenience: build a 'ColumnEncryption' for a leaf column from
+-- the file-wide 'Enc.EncryptionConfig'. Looks up the column key from
+-- @encColumnKeys@ by the leaf @SchemaElement@'s @seName@ (if absent
+-- we fall back to @ekFooterKey@ so a single-key configuration "just
+-- works"); copies the algorithm / file-id / AAD-prefix / key-metadata
+-- through verbatim.
+--
+-- Returns 'Nothing' when the configuration is 'Enc.unencrypted'
+-- (empty footer key /and/ empty column-keys map).
+columnEncryptionFor
+  :: Enc.EncryptionConfig
+  -> Text                 -- ^ leaf column name
+  -> Int                  -- ^ column ordinal
+  -> Maybe ColumnEncryption
+columnEncryptionFor cfg colName colOrd
+  | BS.null (Enc.ekFooterKey keys)
+    && Map.null (Enc.ekColumnKeys keys) = Nothing
+  | otherwise = Just ColumnEncryption
+      { ceAlgorithm     = Enc.encAlgorithm cfg
+      , ceKey           = lookupKey
+      , ceFileId        = Enc.encAadFileId cfg
+      , ceAadPrefix     = Enc.encAadPrefix cfg
+      , ceKeyMetadata   = Enc.encKeyMetadata cfg
+      , ceColumnOrdinal = colOrd
+      }
+  where
+    keys = Enc.encKeys cfg
+    lookupKey = case Map.lookup colName (Enc.ekColumnKeys keys) of
+      Just k  -> k
+      Nothing -> Enc.ekFooterKey keys
+
+-- | Encrypt a single page (header || body) according to a
+-- 'ColumnEncryption'. The protocol the writer follows for one page:
+--
+-- 1. Build the page header thrift bytes /and/ the (possibly compressed)
+--    body bytes as usual.
+-- 2. Compute @AAD = aad_prefix || aad_file_id || module_type || rg ||
+--    col || page@ for the page header module.
+-- 3. Encrypt the page header bytes with GCM (always) under that AAD,
+--    yielding @nonce || ciphertext || tag@ (28 bytes of overhead).
+-- 4. Compute the same AAD with @module_type = ModuleDataPage@ for the
+--    body. Encrypt the body with the algorithm-appropriate cipher
+--    ('Enc.AesGcmV1' uses GCM, 'Enc.AesGcmCtrV1' uses CTR).
+-- 5. Concatenate @encryptedHeader || encryptedBody@. The result is
+--    what gets written to disk; the only metadata change on the column
+--    chunk is that @cmEncoding@ continues to advertise the underlying
+--    encoding and the encryption is recorded on the column-chunk's
+--    @cmKeyMetadata@.
+encryptPageBytes
+  :: ColumnEncryption
+  -> Enc.ModuleType   -- ^ module type for the page body (DataPage, DictionaryPage)
+  -> Int              -- ^ row-group ordinal
+  -> Int              -- ^ page ordinal within the column chunk
+  -> ByteString       -- ^ unencrypted page header bytes
+  -> ByteString       -- ^ unencrypted page body bytes
+  -> Either String ByteString
+encryptPageBytes ce bodyModule rgOrd pageOrd hdrBytes bodyBytes = do
+  let !aadHdrModule = case bodyModule of
+        Enc.ModuleDataPage       -> Enc.ModuleDataPageHeader
+        Enc.ModuleDictionaryPage -> Enc.ModuleDictionaryPageHeader
+        other                    -> other
+      !suffixHdr  = Enc.buildAadSuffix
+                     (ceFileId ce) aadHdrModule
+                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
+      !suffixBody = Enc.buildAadSuffix
+                     (ceFileId ce) bodyModule
+                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
+      !aadHdr  = Enc.buildAad (ceAadPrefix ce) suffixHdr
+      !aadBody = Enc.buildAad (ceAadPrefix ce) suffixBody
+  encHdr <- Enc.encryptGcmModuleFramed (ceKey ce) aadHdr hdrBytes
+  encBody <- case ceAlgorithm ce of
+    Enc.AesGcmV1    -> Enc.encryptGcmModuleFramed (ceKey ce) aadBody bodyBytes
+    Enc.AesGcmCtrV1 -> Enc.encryptCtrModuleFramed (ceKey ce) bodyBytes
+  Right (BS.append encHdr encBody)
+
+-- | Encrypt a DATA_PAGE_V2 page, given the four parts produced by
+-- 'encodeColumnDataPageV2Parts' / 'encodeOptionalColumnPageV2Parts'.
+--
+-- Per the Parquet modular-encryption spec for V2:
+--
+-- * The page header is GCM-encrypted under the
+--   'Enc.ModuleDataPageHeader' AAD (always, regardless of which
+--   algorithm the column uses for the body).
+-- * The repetition and definition level segments are written
+--   /unencrypted and uncompressed/, exactly as a plaintext V2 page
+--   would emit them. Levels are page-internal scaffolding the
+--   reader needs even before the body cipher is keyed up.
+-- * The values segment is encrypted with GCM (for AesGcmV1) or CTR
+--   (for AesGcmCtrV1) under the 'Enc.ModuleDataPage' AAD, matching
+--   what we already do for V1.
+--
+-- Result: @<encrypted-header> <> <rep> <> <def> <> <encrypted-values>@.
+encryptPageBytesV2
+  :: ColumnEncryption
+  -> Int             -- ^ row-group ordinal
+  -> Int             -- ^ page ordinal within the column chunk
+  -> ByteString      -- ^ pageHeader bytes (plaintext)
+  -> ByteString      -- ^ repetition-levels segment
+  -> ByteString      -- ^ definition-levels segment
+  -> ByteString      -- ^ values segment (post-compression)
+  -> Either String ByteString
+encryptPageBytesV2 ce rgOrd pageOrd hdrBytes repBytes defBytes valBytes = do
+  let !suffixHdr  = Enc.buildAadSuffix
+                     (ceFileId ce) Enc.ModuleDataPageHeader
+                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
+      !suffixBody = Enc.buildAadSuffix
+                     (ceFileId ce) Enc.ModuleDataPage
+                     (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) (fromIntegral pageOrd)
+      !aadHdr  = Enc.buildAad (ceAadPrefix ce) suffixHdr
+      !aadBody = Enc.buildAad (ceAadPrefix ce) suffixBody
+  encHdr  <- Enc.encryptGcmModuleFramed (ceKey ce) aadHdr hdrBytes
+  encVals <- case ceAlgorithm ce of
+    Enc.AesGcmV1    -> Enc.encryptGcmModuleFramed (ceKey ce) aadBody valBytes
+    Enc.AesGcmCtrV1 -> Enc.encryptCtrModuleFramed (ceKey ce) valBytes
+  Right (BS.concat [encHdr, repBytes, defBytes, encVals])
+
+-- | Encrypt a single auxiliary module (bloom filter, offset index,
+-- column index) with the column's GCM key under the module's AAD,
+-- when 'caEncryption' is set. Returns the original payload unchanged
+-- otherwise. CTR isn't used for these modules even on
+-- 'AesGcmCtrV1' columns: the spec mandates GCM for everything except
+-- data\/dictionary page bodies, so the algorithm flag is irrelevant
+-- here.
+encryptAuxModule
+  :: Maybe ColumnEncryption -> Enc.ModuleType -> Int -> ByteString -> ByteString
+encryptAuxModule mEnc mt rgOrd payload = case mEnc of
+  Nothing -> payload
+  Just ce ->
+    let !suffix = Enc.buildAadSuffix
+                    (ceFileId ce) mt
+                    (fromIntegral rgOrd) (fromIntegral (ceColumnOrdinal ce)) 0
+        !aad    = Enc.buildAad (ceAadPrefix ce) suffix
+     in case Enc.encryptGcmModuleFramed (ceKey ce) aad payload of
+          Right enc -> enc
+          Left  _   -> payload
+
+layoutBlooms
+  :: V.Vector RowGroup
+  -> V.Vector (V.Vector ColumnAux)
+  -> Int                        -- ^ starting offset
+  -> (V.Vector RowGroup, [ByteString], Int)
+layoutBlooms rgs auxes start = go 0 start [] V.empty
+  where
+    go !i !off !payloads !acc
+      | i >= V.length rgs = (acc, reverse payloads, off)
+      | otherwise =
+          let !rg = V.unsafeIndex rgs i
+              !cols = rgColumns rg
+              !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
+              (!cols', !off', !payloads') =
+                V.ifoldl' (rewriteCol i aux) (V.empty, off, payloads) cols
+              !rg' = rg { rgColumns = cols' }
+           in go (i + 1) off' payloads' (V.snoc acc rg')
+
+    rewriteCol
+      :: Int                       -- row-group ordinal
+      -> V.Vector ColumnAux
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+      -> Int -> ColumnChunk
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+    rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
+      let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
+       in case mAux >>= caBloomFilter of
+            Nothing -> (V.snoc ccs cc, off, payloads)
+            Just bf ->
+              let !raw = encodeBloomFilter bf
+                  -- Encrypt the bloom filter bitset module if the
+                  -- column's encrypted. We treat the encoded bloom
+                  -- filter (which already includes the
+                  -- length-delimited header) as a single
+                  -- 'ModuleBloomFilterBitset' module per the spec's
+                  -- "modular encryption" framing.
+                  !bs  = encryptAuxModule (mAux >>= caEncryption)
+                           Enc.ModuleBloomFilterBitset rgOrd raw
+                  !bsLen = BS.length bs
+                  !cm0 = fromMaybe defaultMetadata (ccMetadata cc)
+                  !cm' = cm0
+                    { cmBloomFilterOffset = Just (fromIntegral off)
+                    , cmBloomFilterLength = Just (fromIntegral bsLen)
+                    }
+                  !cc' = cc { ccMetadata = Just cm' }
+               in (V.snoc ccs cc', off + bsLen, bs : payloads)
+
+    defaultMetadata = ColumnMetadata
+      { cmType = PTInt32, cmEncodings = V.empty, cmPathInSchema = V.empty
+      , cmCodec = Uncompressed, cmNumValues = 0
+      , cmTotalUncompressedSize = 0, cmTotalCompressedSize = 0
+      , cmDataPageOffset = 0, cmStatistics = Nothing
+      , cmBloomFilterOffset = Nothing, cmBloomFilterLength = Nothing
+      }
+
+layoutOffsetIndex
+  :: V.Vector RowGroup
+  -> V.Vector (V.Vector ColumnAux)
+  -> Int
+  -> V.Vector (V.Vector ByteString)
+  -> (V.Vector RowGroup, [ByteString], Int)
+layoutOffsetIndex rgs auxes start _ = go 0 start [] V.empty
+  where
+    go !i !off !payloads !acc
+      | i >= V.length rgs = (acc, reverse payloads, off)
+      | otherwise =
+          let !rg = V.unsafeIndex rgs i
+              !cols = rgColumns rg
+              !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
+              (!cols', !off', !payloads') =
+                V.ifoldl' (rewriteCol i aux) (V.empty, off, payloads) cols
+              !rg' = rg { rgColumns = cols' }
+           in go (i + 1) off' payloads' (V.snoc acc rg')
+
+    rewriteCol
+      :: Int
+      -> V.Vector ColumnAux
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+      -> Int -> ColumnChunk
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+    rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
+      let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
+       in case mAux >>= caOffsetIndex of
+            Nothing -> (V.snoc ccs cc, off, payloads)
+            Just oi ->
+              let !raw = encodeOffsetIndex oi
+                  !bs  = encryptAuxModule (mAux >>= caEncryption)
+                           Enc.ModuleOffsetIndex rgOrd raw
+                  !bsLen = BS.length bs
+                  !cc' = cc
+                    { ccOffsetIndexOffset = Just (fromIntegral off)
+                    , ccOffsetIndexLength = Just (fromIntegral bsLen)
+                    }
+               in (V.snoc ccs cc', off + bsLen, bs : payloads)
+
+layoutColumnIndex
+  :: V.Vector RowGroup
+  -> V.Vector (V.Vector ColumnAux)
+  -> Int
+  -> (V.Vector RowGroup, [ByteString], Int)
+layoutColumnIndex rgs auxes start = go 0 start [] V.empty
+  where
+    go !i !off !payloads !acc
+      | i >= V.length rgs = (acc, reverse payloads, off)
+      | otherwise =
+          let !rg = V.unsafeIndex rgs i
+              !cols = rgColumns rg
+              !aux  = if i < V.length auxes then V.unsafeIndex auxes i else V.empty
+              (!cols', !off', !payloads') =
+                V.ifoldl' (rewriteCol i aux) (V.empty, off, payloads) cols
+              !rg' = rg { rgColumns = cols' }
+           in go (i + 1) off' payloads' (V.snoc acc rg')
+
+    rewriteCol
+      :: Int
+      -> V.Vector ColumnAux
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+      -> Int -> ColumnChunk
+      -> (V.Vector ColumnChunk, Int, [ByteString])
+    rewriteCol rgOrd aux (!ccs, !off, !payloads) cIdx cc =
+      let mAux = if cIdx < V.length aux then Just (V.unsafeIndex aux cIdx) else Nothing
+       in case mAux >>= caColumnIndex of
+            Nothing -> (V.snoc ccs cc, off, payloads)
+            Just ci ->
+              let !raw = encodeColumnIndex ci
+                  !bs  = encryptAuxModule (mAux >>= caEncryption)
+                           Enc.ModuleColumnIndex rgOrd raw
+                  !bsLen = BS.length bs
+                  !cc' = cc
+                    { ccColumnIndexOffset = Just (fromIntegral off)
+                    , ccColumnIndexLength = Just (fromIntegral bsLen)
+                    }
+               in (V.snoc ccs cc', off + bsLen, bs : payloads)
+
+-- Suppress unused-import warning when bloom-filter sizing helpers aren't
+-- referenced directly in the writer (they are part of the public API).
+_unusedBF :: Sbbf -> Int
+_unusedBF = BF.sbbfNumBytes
+
+fst3 :: (a, b, c) -> a
+fst3 (x, _, _) = x
+
+-- ============================================================
+-- Heterogeneous typed builders
+-- ============================================================
+
+-- | Build a complete Parquet file from a schema and one or more row
+-- groups of typed column data. Each leaf in the schema (i.e. each
+-- entry whose 'seType' is @Just@) must have a matching 'ColumnData'
+-- column in every row group, in the same order. Produces @PAR1@
+-- magic, uncompressed @PLAIN@ pages, footer, and trailing magic.
+--
+-- Use 'buildParquetFileWithIndex' to additionally emit bloom filter,
+-- offset index, and column index regions.
+buildParquetFile
+  :: V.Vector SchemaElement
+  -> V.Vector (V.Vector ColumnData)
+  -> ByteString
+buildParquetFile schema rowGroups =
+  buildParquetFileWithIndex schema rowGroups
+    (V.map (V.map (const emptyColumnAux)) rowGroups)
+
+-- | Build a Parquet file with optional bloom filter, offset index,
+-- column index, and per-column compression. The 'ColumnAux' parallel
+-- array specifies what to emit for each column; 'emptyColumnAux'
+-- omits all extras.
+--
+-- File layout:
+--
+-- @
+-- PAR1                         -- 4 bytes
+-- <row group bytes ...>        -- compressed PLAIN data pages
+-- <bloom filter bitsets ...>   -- one per column with caBloomFilter = Just
+-- <offset index thrifts ...>   -- one per column with caOffsetIndex = Just
+-- <column index thrifts ...>   -- one per column with caColumnIndex = Just
+-- <footer>                     -- Thrift-encoded FileMetadata
+-- <footer length: int32 LE>
+-- PAR1
+-- @
+buildParquetFileWithIndex
+  :: V.Vector SchemaElement
+  -> V.Vector (V.Vector ColumnData)
+  -> V.Vector (V.Vector ColumnAux)
+  -> ByteString
+buildParquetFileWithIndex schema rowGroups auxes =
+  buildParquetFileWithIndex' Nothing schema rowGroups auxes
+
+-- | Configuration for encrypted-footer mode (see
+-- 'buildParquetFileWithIndexEncryptedFooter'). Encapsulates the AES
+-- key plus the AAD context so the writer can produce the
+-- @ModuleFooter@ ciphertext that the parquet-format spec requires.
+data FooterEncryption = FooterEncryption
+  { feKey         :: !ByteString
+    -- ^ AES key (16, 24, or 32 bytes).
+  , feFileId      :: !ByteString
+    -- ^ The 8-byte @aad_file_id@ (padded / truncated to 8 bytes).
+  , feAadPrefix   :: !ByteString
+    -- ^ Caller AAD prefix (typically empty).
+  , feKeyMetadata :: !ByteString
+    -- ^ Opaque KMS handle to record on the file. Round-trips
+    -- verbatim through the encrypted-footer trailer; readers feed it
+    -- back to their KMS to recover the key.
+  } deriving (Show, Eq)
+
+-- | Encode a 'FooterEncryption' as the @FileCryptoMetaData@ thrift
+-- struct the encrypted-footer mode prepends to the encrypted footer
+-- (parquet-format Encryption.md §5.2). Only the algorithm + key
+-- metadata + AAD prefix are emitted; the encryption itself is in the
+-- module that follows this struct.
+fileCryptoMetaDataToThrift :: FooterEncryption -> TV.Value
+fileCryptoMetaDataToThrift fe = TV.Struct $ V.fromList
+  [ (1, encryptionAlgorithmToThrift fe)
+  , (2, TV.Binary (feKeyMetadata fe))
+  ]
+
+encryptionAlgorithmToThrift :: FooterEncryption -> TV.Value
+encryptionAlgorithmToThrift fe = TV.Struct $ V.fromList
+  -- We always emit AesGcmV1 here for the file-level algorithm: the
+  -- column-level CTR variant is signalled per-column via
+  -- ColumnCryptoMetaData and doesn't change the footer module.
+  [ (1, aesGcmV1ToThrift fe) ]
+
+aesGcmV1ToThrift :: FooterEncryption -> TV.Value
+aesGcmV1ToThrift fe = TV.Struct $ V.fromList $
+  prefix ++ fileIdent
+  where
+    prefix
+      | BS.null (feAadPrefix fe) = []
+      | otherwise = [(1, TV.Binary (feAadPrefix fe))]
+    fileIdent
+      | BS.null (feFileId fe) = []
+      | otherwise = [(2, TV.Binary (feFileId fe))]
+
+-- | Build a Parquet file with an /encrypted footer/. Identical to
+-- 'buildParquetFileWithIndex' for the row-group + bloom / offset /
+-- column index regions, but the trailing footer is wrapped as a
+-- single AES-GCM module under @ModuleFooter@ AAD and the file ends
+-- with the @PARE@ magic instead of @PAR1@.
+--
+-- This is the parquet-format "encrypted-footer" file mode (the
+-- alternative to the "plaintext-footer" mode where the column
+-- payloads are encrypted but the footer stays in the clear).
+-- Iceberg's encryption configuration emits encrypted-footer files
+-- when @write.encryption.encrypt-footer@ is true.
+buildParquetFileWithIndexEncryptedFooter
+  :: FooterEncryption
+  -> V.Vector SchemaElement
+  -> V.Vector (V.Vector ColumnData)
+  -> V.Vector (V.Vector ColumnAux)
+  -> ByteString
+buildParquetFileWithIndexEncryptedFooter fe =
+  buildParquetFileWithIndex' (Just fe)
+
+buildParquetFileWithIndex'
+  :: Maybe FooterEncryption
+  -> V.Vector SchemaElement
+  -> V.Vector (V.Vector ColumnData)
+  -> V.Vector (V.Vector ColumnAux)
+  -> ByteString
+buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
+  let -- Per-column page bytes plus uncompressed size, both required to
+      -- populate ColumnMetadata. If a codec is requested but not built,
+      -- the writer falls back to Uncompressed so callers get a usable
+      -- file rather than a runtime crash.
+      !encodedRGs = V.imap encodeRG rowGroups
+      pageBytesOnly = V.map fst3
+      !rowGroupBytes = concatMap (V.toList . pageBytesOnly) (V.toList encodedRGs)
+      !rgBytesLen = sum (map BS.length rowGroupBytes)
+      !startOfData = 4 :: Int
+      !startOfBloom = startOfData + rgBytesLen
+
+      (!rgMetasBase, _) = V.ifoldl' buildRG (V.empty, startOfData) encodedRGs
+
+      (!rgMetasBloom, !bloomBytes, !endOfBloom) =
+        layoutBlooms rgMetasBase auxes startOfBloom
+
+      (!rgMetasOff, !offBytes, !endOfOff) =
+        layoutOffsetIndex rgMetasBloom auxes endOfBloom
+          (V.map pageBytesOnly encodedRGs)
+
+      (!rgMetasCol, !colBytes, _endOfCol) =
+        layoutColumnIndex rgMetasOff auxes endOfOff
+
+      !totalRows = V.foldl' (\a rg -> a + rgNumRows rg) 0 rgMetasCol
+      !fm = FileMetadata
+        { fmVersion = 1
+        , fmSchema = schema
+        , fmNumRows = totalRows
+        , fmRowGroups = rgMetasCol
+        , fmCreatedBy = Just "wireform"
+        }
+      -- Encrypted-footer mode (parquet-format Encryption.md §5.4):
+      --
+      --   <FileCryptoMetaData thrift>
+      --   <encrypted footer module: nonce || ct || tag>
+      --   <combined-length: i32 LE>     -- of the two blobs above
+      --   PARE
+      --
+      -- The encrypted footer module here is /unframed/ (no per-module
+      -- §5.1 length prefix); the combined-length serves that role.
+      -- Page / aux modules elsewhere in the file still use §5.1
+      -- framing (encryptGcmModuleFramed).
+      !footerBytes = case mFootEnc of
+        Nothing -> writeFooter fm
+        Just fe ->
+          let !plainThrift = encodeCompact (fileMetadataToThrift fm)
+              !suffix = Enc.buildAadSuffix (feFileId fe) Enc.ModuleFooter 0 0 0
+              !aad    = Enc.buildAad (feAadPrefix fe) suffix
+              !cryptoMeta = encodeCompact (fileCryptoMetaDataToThrift fe)
+           in case Enc.encryptGcmModulePure (feKey fe) aad plainThrift of
+                Right encModule ->
+                  writeRawFooter parquetEncryptedMagic
+                    (cryptoMeta <> encModule)
+                Left _ -> writeFooter fm
+   in BL.toStrict $ B.toLazyByteString $
+        B.byteString parquetMagic
+        <> mconcat (map B.byteString rowGroupBytes)
+        <> mconcat (map B.byteString bloomBytes)
+        <> mconcat (map B.byteString offBytes)
+        <> mconcat (map B.byteString colBytes)
+        <> B.byteString footerBytes
+  where
+    !leaves = V.filter (maybe False (const True) . seType) schema
+
+    -- Encode each column's page, then compress it with the codec the
+    -- caller requested via the matching ColumnAux. Returns the *final*
+    -- bytes that go into the file plus the uncompressed size.
+    encodeRG :: Int -> V.Vector ColumnData -> V.Vector (ByteString, Int, Compression)
+    encodeRG rgIdx colsData =
+      let !aux = if rgIdx < V.length auxes then V.unsafeIndex auxes rgIdx else V.empty
+       in V.imap (encodeOne aux) colsData
+
+    encodeOne
+      :: V.Vector ColumnAux -> Int -> ColumnData -> (ByteString, Int, Compression)
+    encodeOne aux cIdx cd =
+      let !mAux = if cIdx < V.length aux
+                    then Just (V.unsafeIndex aux cIdx)
+                    else Nothing
+          !codecRequested = maybe Uncompressed caCodec mAux
+          !pageVer        = maybe PageV1 caPageVersion mAux
+          !mEnc           = mAux >>= caEncryption
+       in case pageVer of
+            PageV1 ->
+              let (hdr, body)         = encodeColumnDataPageParts cd
+                  (compBody, cActual) = case Compress.compressPageBytes codecRequested body of
+                    Right cb -> (cb, codecRequested)
+                    Left _   -> (body, Uncompressed)
+                  -- Re-encode the header now that the body has its
+                  -- compressed size; the header records the on-disk
+                  -- compressed_page_size so the reader can frame pages
+                  -- without scanning forward.
+                  !n      = columnDataLength cd
+                  !hdr'   = encodePageHeader (PageHeader
+                              { phType = PtDataPage DataPageHeader
+                                  { dphNumValues = fromIntegral n
+                                  , dphEncoding  = 0
+                                  }
+                              , phUncompressedPageSize = Just (fromIntegral (BS.length body))
+                              , phCompressedPageSize   = Just (fromIntegral (BS.length compBody))
+                              })
+                  !uncompSz = BS.length hdr + BS.length body
+               in case mEnc of
+                    Nothing ->
+                      (BS.append hdr' compBody, uncompSz, cActual)
+                    Just ce ->
+                      case encryptPageBytes ce Enc.ModuleDataPage 0 0 hdr' compBody of
+                        Right encBytes -> (encBytes, uncompSz, cActual)
+                        Left  _        -> (BS.append hdr' compBody, uncompSz, cActual)
+            PageV2 ->
+              -- For V2 the codec is applied only to the values segment,
+              -- but we account for the *full* page bytes (header +
+              -- segments) when recording sizes on the column metadata so
+              -- that ccTotalCompressedSize / ccTotalUncompressedSize
+              -- reflect on-disk reality.
+              let !raw     = encodeColumnDataPage cd
+                  uncompSz = BS.length raw
+                  partsResult = encodeColumnDataPageV2Parts codecRequested cd
+                  parts = case partsResult of
+                    Right p  -> p
+                    Left  _  -> case encodeColumnDataPageV2Parts Uncompressed cd of
+                                  Right p  -> p
+                                  Left  _  -> (raw, BS.empty, BS.empty, BS.empty)
+                  codecActual = if codecRequested == Uncompressed
+                                  then Uncompressed
+                                  else codecRequested
+                  finalBytes = case mEnc of
+                    Nothing -> concatV2Parts parts
+                    Just ce ->
+                      case parts of
+                        (h, r, d, v) ->
+                          case encryptPageBytesV2 ce 0 0 h r d v of
+                            Right enc -> enc
+                            Left  _   -> concatV2Parts parts
+               in (finalBytes, uncompSz, codecActual)
+
+    buildRG
+      :: (V.Vector RowGroup, Int) -> Int -> V.Vector (ByteString, Int, Compression)
+      -> (V.Vector RowGroup, Int)
+    buildRG (!rgs, !off) rgIdx encodedCols =
+      let !colsData = V.unsafeIndex rowGroups rgIdx
+          (!cols, !off2) = V.ifoldl' (buildCol colsData) (V.empty, off) encodedCols
+          !nRows = if V.null colsData
+                     then 0
+                     else fromIntegral (columnDataLength (V.unsafeIndex colsData 0))
+          !rg = RowGroup
+            { rgColumns = cols
+            , rgTotalByteSize = fromIntegral (off2 - off)
+            , rgNumRows = nRows
+            }
+      in (V.snoc rgs rg, off2)
+
+    buildCol
+      :: V.Vector ColumnData
+      -> (V.Vector ColumnChunk, Int) -> Int -> (ByteString, Int, Compression)
+      -> (V.Vector ColumnChunk, Int)
+    buildCol colsData (!cs, !cOff) colIdx (pageBs, uncompSize, codec) =
+      let !cd = V.unsafeIndex colsData colIdx
+          !leaf = V.unsafeIndex leaves colIdx
+          !sz = BS.length pageBs
+          !cc = ColumnChunk
+            { ccFilePath = Nothing
+            , ccFileOffset = fromIntegral cOff
+            , ccMetadata = Just ColumnMetadata
+                { cmType = fromMaybe (columnDataParquetType cd) (seType leaf)
+                , cmEncodings = V.singleton Plain
+                , cmPathInSchema = V.singleton (seName leaf)
+                , cmCodec = codec
+                , cmNumValues = fromIntegral (columnDataLength cd)
+                , cmTotalUncompressedSize = fromIntegral uncompSize
+                , cmTotalCompressedSize = fromIntegral sz
+                , cmDataPageOffset = fromIntegral cOff
+                , cmStatistics = Just (columnDataStatistics cd)
+                , cmBloomFilterOffset = Nothing
+                , cmBloomFilterLength = Nothing
+                }
+            , ccOffsetIndexOffset = Nothing
+            , ccOffsetIndexLength = Nothing
+            , ccColumnIndexOffset = Nothing
+            , ccColumnIndexLength = Nothing
+            }
+      in (V.snoc cs cc, cOff + sz)

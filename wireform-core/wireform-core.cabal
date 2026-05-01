@@ -30,10 +30,13 @@ library
   exposed-modules:
     Wireform.FFI
     Wireform.Encode.Direct
+    Wireform.Hash
   c-sources: cbits/fast_decode.c
+             cbits/wireform_hash_simd.c
   include-dirs: include/simde
   cc-options: -O3
   build-depends:
     base >= 4.16 && < 5,
     bytestring >= 0.11 && < 0.13,
-    text >= 2.0 && < 2.2
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14

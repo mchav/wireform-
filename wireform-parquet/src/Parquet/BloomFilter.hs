@@ -4,7 +4,7 @@
 -- See <https://parquet.apache.org/docs/file-format/bloomfilter/> for the
 -- spec. SBBF stores a bit array as a sequence of 256-bit blocks, each of
 -- which contains 8 32-bit words. Hashing uses XXH64 with seed 0 over the
--- value's PLAIN encoding ("Parquet.XXH64").
+-- value's PLAIN encoding ("Wireform.Hash"'s seed-zero @xxh64@).
 --
 -- The on-disk layout is:
 --
@@ -59,10 +59,16 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Unboxed.Mutable as MVU
 import Data.Word (Word32, Word64)
 
-import Parquet.XXH64 (xxh64)
+import qualified Wireform.Hash as Hash
+
 import qualified Thrift.Value as TV
 import Thrift.Decode (decodeCompact)
 import Thrift.Encode (encodeCompact)
+
+-- | XXH64 with the Parquet bloom-filter default seed (@0@).
+xxh64 :: ByteString -> Word64
+xxh64 = Hash.xxh64 0
+{-# INLINE xxh64 #-}
 
 -- | Eight 32-bit "salt" multipliers from the Parquet SBBF spec. Each
 -- salt is an odd 32-bit integer chosen to spread set bits well across

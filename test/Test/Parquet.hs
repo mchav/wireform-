@@ -42,7 +42,7 @@ import Parquet.Types
 import Parquet.Footer
 import Parquet.Read
 import Parquet.Write
-import Parquet.XXH64 (xxh64)
+import qualified Wireform.Hash as Hash
 import Thrift.Encode (encodeCompact)
 import qualified Thrift.Value as TV
 
@@ -121,13 +121,13 @@ levelsAndSchemaTests = testGroup "Levels + schema max levels"
   [ testCase "maxLevels optional and required leaves" $ do
       let schOpt =
             V.fromList
-              [ SchemaElement (T.pack "schema") Nothing Nothing (Just 1) Nothing Nothing
-              , SchemaElement (T.pack "x") (Just Optional) (Just PTInt32) Nothing Nothing Nothing
+              [ SchemaElement (T.pack "schema") Nothing Nothing (Just 1) Nothing Nothing Nothing
+              , SchemaElement (T.pack "x") (Just Optional) (Just PTInt32) Nothing Nothing Nothing Nothing
               ]
           schReq =
             V.fromList
-              [ SchemaElement (T.pack "schema") Nothing Nothing (Just 1) Nothing Nothing
-              , SchemaElement (T.pack "y") (Just Required) (Just PTInt32) Nothing Nothing Nothing
+              [ SchemaElement (T.pack "schema") Nothing Nothing (Just 1) Nothing Nothing Nothing
+              , SchemaElement (T.pack "y") (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
               ]
       maxLevelsForColumnPath schOpt (V.singleton (T.pack "x")) @?= Right (0, 1)
       maxLevelsForColumnPath schReq (V.singleton (T.pack "y")) @?= Right (0, 0)
@@ -177,8 +177,8 @@ footerRoundtrips = testGroup "Footer roundtrips"
       let fm = FileMetadata
             { fmVersion = 2
             , fmSchema = V.fromList
-                [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-                , SchemaElement "value" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+                [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+                , SchemaElement "value" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
                 ]
             , fmNumRows = 100
             , fmRowGroups = V.empty
@@ -192,8 +192,8 @@ footerRoundtrips = testGroup "Footer roundtrips"
           rg = RowGroup (V.singleton cc) 4000 1000
           fm = FileMetadata 2
                  (V.fromList
-                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-                   , SchemaElement "value" (Just Optional) (Just PTInt64) Nothing Nothing Nothing
+                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+                   , SchemaElement "value" (Just Optional) (Just PTInt64) Nothing Nothing Nothing Nothing
                    ])
                  1000 (V.singleton rg) Nothing
       readFooter (writeFooter fm) @?= Right fm
@@ -205,7 +205,7 @@ footerRoundtrips = testGroup "Footer roundtrips"
       readFooter (writeFooter fm) @?= Right fm
   , testCase "All parquet types" $ do
       let types = [PTBoolean, PTInt32, PTInt64, PTInt96, PTFloat, PTDouble, PTByteArray, PTFixedLenByteArray]
-          mkSchema t = SchemaElement (T.pack (show t)) (Just Required) (Just t) Nothing Nothing Nothing
+          mkSchema t = SchemaElement (T.pack (show t)) (Just Required) (Just t) Nothing Nothing Nothing Nothing
           fm = FileMetadata 2 (V.fromList (map mkSchema types)) 0 V.empty Nothing
       readFooter (writeFooter fm) @?= Right fm
   ]
@@ -283,23 +283,17 @@ dictionaryOptionalTests = testGroup "Dictionary optional columns"
             , 0x1E, 0x00, 0x00, 0x00
             ]
           dictHdr = encodePageHeader PageHeader
-            { phType = pageTypeDictionaryPage
+            { phType = PtDictionaryPage (DictionaryPageHeader 3 0)
             , phUncompressedPageSize = Just 12
             , phCompressedPageSize = Just 12
-            , phDataPage = Nothing
-            , phDictionaryPage = Just (DictionaryPageHeader 3 0)
-            , phDataPageV2 = Nothing
             }
           defLevels = BS.pack [0x02, 0x00, 0x00, 0x00, 0x03, 0x05]
           dictIndices = BS.pack [0x02, 0x03, 0x08, 0x00]
           dataBody = defLevels <> dictIndices
           dataHdr = encodePageHeader PageHeader
-            { phType = pageTypeDataPage
+            { phType = PtDataPage (DataPageHeader 3 2)
             , phUncompressedPageSize = Just (fromIntegral (BS.length dataBody))
             , phCompressedPageSize = Just (fromIntegral (BS.length dataBody))
-            , phDataPage = Just (DataPageHeader 3 2)
-            , phDictionaryPage = Nothing
-            , phDataPageV2 = Nothing
             }
           chunk = dictHdr <> dictBody <> dataHdr <> dataBody
           lookupInt32 v idx =
@@ -312,23 +306,17 @@ dictionaryOptionalTests = testGroup "Dictionary optional columns"
   , testCase "all-null optional dictionary column" $ do
       let dictBody = BS.pack [0x07, 0x00, 0x00, 0x00]
           dictHdr = encodePageHeader PageHeader
-            { phType = pageTypeDictionaryPage
+            { phType = PtDictionaryPage (DictionaryPageHeader 1 0)
             , phUncompressedPageSize = Just 4
             , phCompressedPageSize = Just 4
-            , phDataPage = Nothing
-            , phDictionaryPage = Just (DictionaryPageHeader 1 0)
-            , phDataPageV2 = Nothing
             }
           defLevels = BS.pack [0x02, 0x00, 0x00, 0x00, 0x03, 0x00]
           dictIndices = BS.pack [0x00]
           dataBody = defLevels <> dictIndices
           dataHdr = encodePageHeader PageHeader
-            { phType = pageTypeDataPage
+            { phType = PtDataPage (DataPageHeader 2 2)
             , phUncompressedPageSize = Just (fromIntegral (BS.length dataBody))
             , phCompressedPageSize = Just (fromIntegral (BS.length dataBody))
-            , phDataPage = Just (DataPageHeader 2 2)
-            , phDictionaryPage = Nothing
-            , phDataPageV2 = Nothing
             }
           chunk = dictHdr <> dictBody <> dataHdr <> dataBody
           lookupInt32 v idx =
@@ -378,18 +366,16 @@ dataPageV2Tests = testGroup "DATA_PAGE_V2"
           bs = encodeCompact pageHdrStruct
       case readPageHeaderAt bs 0 of
         Left e -> assertFailure e
-        Right (hdr, _) -> do
-          phType hdr @?= pageTypeDataPageV2
-          case phDataPageV2 hdr of
-            Nothing -> assertFailure "expected DataPageHeaderV2"
-            Just v2 -> do
-              dph2NumValues v2 @?= 1000
-              dph2NumNulls v2 @?= 100
-              dph2NumRows v2 @?= 1000
-              dph2Encoding v2 @?= 0
-              dph2DefLevelsLen v2 @?= 50
-              dph2RepLevelsLen v2 @?= 25
-              dph2IsCompressed v2 @?= True
+        Right (hdr, _) -> case phType hdr of
+          PtDataPageV2 v2 -> do
+            dph2NumValues v2 @?= 1000
+            dph2NumNulls v2 @?= 100
+            dph2NumRows v2 @?= 1000
+            dph2Encoding v2 @?= 0
+            dph2DefLevelsLen v2 @?= 50
+            dph2RepLevelsLen v2 @?= 25
+            dph2IsCompressed v2 @?= True
+          _ -> assertFailure "expected PtDataPageV2"
   , testCase "is_compressed defaults to True when absent" $ do
       let v2Struct = TV.Struct $ V.fromList
             [ (1, TV.I32 5), (2, TV.I32 0), (3, TV.I32 5)
@@ -398,34 +384,33 @@ dataPageV2Tests = testGroup "DATA_PAGE_V2"
             [ (1, TV.I32 3), (2, TV.I32 40), (3, TV.I32 40), (8, v2Struct) ]
       case readPageHeaderAt bs 0 of
         Left e -> assertFailure e
-        Right (hdr, _) -> case phDataPageV2 hdr of
-          Nothing -> assertFailure "expected DataPageHeaderV2"
-          Just v2 -> dph2IsCompressed v2 @?= True
+        Right (hdr, _) -> case phType hdr of
+          PtDataPageV2 v2 -> dph2IsCompressed v2 @?= True
+          _               -> assertFailure "expected PtDataPageV2"
   , testCase "page header round-trip through encode/parse" $ do
-      let hdr = PageHeader pageTypeDataPageV2 (Just 500) (Just 400) Nothing Nothing
-                  (Just (DataPageHeaderV2 200 50 200 0 30 20 False))
+      let hdr = PageHeader
+                  (PtDataPageV2 (DataPageHeaderV2 200 50 200 0 30 20 False))
+                  (Just 500) (Just 400)
           bs = encodePageHeader hdr
       case readPageHeaderAt bs 0 of
         Left e -> assertFailure e
-        Right (hdr', _) -> do
-          phType hdr' @?= pageTypeDataPageV2
-          case phDataPageV2 hdr' of
-            Nothing -> assertFailure "round-trip lost DataPageHeaderV2"
-            Just v2 -> do
-              dph2NumValues v2 @?= 200
-              dph2NumNulls v2 @?= 50
-              dph2IsCompressed v2 @?= False
+        Right (hdr', _) -> case phType hdr' of
+          PtDataPageV2 v2 -> do
+            dph2NumValues v2 @?= 200
+            dph2NumNulls v2 @?= 50
+            dph2IsCompressed v2 @?= False
+          _ -> assertFailure "round-trip lost PtDataPageV2"
   ]
 
 writerRoundtripTests :: TestTree
 writerRoundtripTests = testGroup "Writer round-trips"
   [ testCase "buildParquetFile -> loadParquetFile -> readPlainInt32ColumnChunk" $ do
       let schema = V.fromList
-            [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-            , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+            [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+            , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
             ]
           vals = VP.fromList [1, 2, 3, 4, 5 :: Int32]
-          fileBytes = buildParquetFile schema (V.singleton (V.singleton vals))
+          fileBytes = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
       case loadParquetFile fileBytes of
         Left e -> assertFailure e
         Right pf -> case columnChunkSlice pf 0 0 of
@@ -434,13 +419,14 @@ writerRoundtripTests = testGroup "Writer round-trips"
             readPlainInt32ColumnChunk Uncompressed chunkData @?= Right vals
   , testCase "multiple columns round-trip" $ do
       let schema = V.fromList
-            [ SchemaElement "schema" Nothing Nothing (Just 2) Nothing Nothing
-            , SchemaElement "a" (Just Required) (Just PTInt32) Nothing Nothing Nothing
-            , SchemaElement "b" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+            [ SchemaElement "schema" Nothing Nothing (Just 2) Nothing Nothing Nothing
+            , SchemaElement "a" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
+            , SchemaElement "b" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
             ]
           colA = VP.fromList [10, 20, 30 :: Int32]
           colB = VP.fromList [100, 200, 300 :: Int32]
-          fileBytes = buildParquetFile schema (V.singleton (V.fromList [colA, colB]))
+          fileBytes = buildParquetFile schema
+            (V.singleton (V.fromList [ColInt32 colA, ColInt32 colB]))
       case loadParquetFile fileBytes of
         Left e -> assertFailure e
         Right pf -> do
@@ -450,11 +436,11 @@ writerRoundtripTests = testGroup "Writer round-trips"
           readPlainInt32ColumnChunk Uncompressed rB @?= Right colB
   , testCase "empty column round-trip" $ do
       let schema = V.fromList
-            [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-            , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+            [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+            , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
             ]
           vals = VP.empty :: VP.Vector Int32
-          fileBytes = buildParquetFile schema (V.singleton (V.singleton vals))
+          fileBytes = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vals)))
       case loadParquetFile fileBytes of
         Left e -> assertFailure e
         Right pf -> case columnChunkSlice pf 0 0 of
@@ -462,19 +448,18 @@ writerRoundtripTests = testGroup "Writer round-trips"
           Right chunkData ->
             readPlainInt32ColumnChunk Uncompressed chunkData @?= Right vals
   , testCase "page header encode/decode round-trip" $ do
-      let hdr = PageHeader pageTypeDataPage (Just 100) (Just 100)
-                  (Just (DataPageHeader 25 0)) Nothing Nothing
+      let hdr = PageHeader (PtDataPage (DataPageHeader 25 0))
+                           (Just 100) (Just 100)
           bs = encodePageHeader hdr
       case readPageHeaderAt bs 0 of
         Left e -> assertFailure e
         Right (hdr', _) -> do
-          phType hdr' @?= pageTypeDataPage
           phCompressedPageSize hdr' @?= Just 100
-          case phDataPage hdr' of
-            Nothing -> assertFailure "expected DataPageHeader"
-            Just dph -> do
+          case phType hdr' of
+            PtDataPage dph -> do
               dphNumValues dph @?= 25
               dphEncoding dph @?= 0
+            _ -> assertFailure "expected PtDataPage"
   ]
 
 pageIndexTests :: TestTree
@@ -561,8 +546,8 @@ pageIndexTests = testGroup "Page index (OffsetIndex / ColumnIndex)"
           rg = RowGroup (V.singleton cc) 1000 100
           fm = FileMetadata 2
                  (V.fromList
-                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing
-                   , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing
+                   [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+                   , SchemaElement "x" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
                    ])
                  100 (V.singleton rg) Nothing
       readFooter (writeFooter fm) @?= Right fm
@@ -573,20 +558,20 @@ xxh64Tests = testGroup "XXH64 (xxHash 0.1.1)"
   -- Reference vectors from
   -- https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md
   [ testCase "empty string" $
-      hex (xxh64 (BSC.pack "")) @?= "ef46db3751d8e999"
+      hex (Hash.xxh64 0 (BSC.pack "")) @?= "ef46db3751d8e999"
   , testCase "abc" $
-      hex (xxh64 (BSC.pack "abc")) @?= "44bc2cf5ad770999"
+      hex (Hash.xxh64 0 (BSC.pack "abc")) @?= "44bc2cf5ad770999"
   , testCase "spammish repetition (long input)" $
-      hex (xxh64 (BSC.pack "Nobody inspects the spammish repetition"))
+      hex (Hash.xxh64 0 (BSC.pack "Nobody inspects the spammish repetition"))
         @?= "fbcea83c8a378bf1"
   , testCase "32-byte boundary input" $
       -- 32 bytes triggers exactly one stripe in the bulk phase.
-      hex (xxh64 (BS.replicate 32 0x61)) @?= "cdb40dec1a8b1eb6"
+      hex (Hash.xxh64 0 (BS.replicate 32 0x61)) @?= "cdb40dec1a8b1eb6"
   , testProperty "different inputs produce different hashes (with high probability)" $
       property $ do
         a <- forAll $ Gen.bytes (Range.linear 1 64)
         b <- forAll $ Gen.bytes (Range.linear 1 64)
-        if a == b then pure () else assert (xxh64 a /= xxh64 b)
+        if a == b then pure () else assert (Hash.xxh64 0 a /= Hash.xxh64 0 b)
   ]
   where
     hex w = let s = showHex w ""

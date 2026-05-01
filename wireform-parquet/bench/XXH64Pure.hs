@@ -1,16 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
--- | XXH64 (xxHash) — the hash function used by Parquet's split-block bloom filter.
---
--- Implements the xxHash 0.1.1 algorithm (Yann Collet, 2014):
--- <https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md>.
---
--- Parquet's 'Parquet.BloomFilter' uses 'xxh64' with seed @0@ on a value's
--- @PLAIN@ encoding. The function is byte-exact with reference C / Rust /
--- Java implementations and produces the same digests.
-module Parquet.XXH64
-  ( xxh64
-  , xxh64Seed
-  ) where
+-- | Pure-Haskell XXH64 reference implementation, used /only/ by the
+-- criterion benchmark suite to measure the speedup of the C/SIMDe
+-- kernel in "Wireform.Hash". Not a public API.
+module XXH64Pure (xxh64_pure, xxh64Seed_pure) where
 
 import Data.Bits (rotateL, shiftR, unsafeShiftL, xor, (.|.))
 import Data.ByteString (ByteString)
@@ -25,14 +17,11 @@ prime3 = 0x165667B19E3779F9
 prime4 = 0x85EBCA77C2B2AE63
 prime5 = 0x27D4EB2F165667C5
 
--- | XXH64 with the default Parquet seed of @0@.
-{-# INLINE xxh64 #-}
-xxh64 :: ByteString -> Word64
-xxh64 = xxh64Seed 0
+xxh64_pure :: ByteString -> Word64
+xxh64_pure = xxh64Seed_pure 0
 
--- | XXH64 with an explicit seed.
-xxh64Seed :: Word64 -> ByteString -> Word64
-xxh64Seed seed bs =
+xxh64Seed_pure :: Word64 -> ByteString -> Word64
+xxh64Seed_pure seed bs =
   let !len = BS.length bs
       !nStripes = len `shiftR` 5
       !tailOff = nStripes `unsafeShiftL` 5
@@ -87,8 +76,6 @@ finalize !h0 !startOff bs !len = avalanche (go h0 startOff)
           in go h' (off + 1)
       | otherwise = h
 
--- | Final mixing step ("avalanche") after the tail loop.
-{-# INLINE avalanche #-}
 avalanche :: Word64 -> Word64
 avalanche !h0 =
   let !h1 = h0 `xor` (h0 `shiftR` 33)
@@ -98,17 +85,14 @@ avalanche !h0 =
       !h5 = h4 `xor` (h4 `shiftR` 32)
   in h5
 
-{-# INLINE round_ #-}
 round_ :: Word64 -> Word64 -> Word64
 round_ !acc !w = rotateL (acc + w * prime2) 31 * prime1
 
-{-# INLINE mergeAccumulator #-}
 mergeAccumulator :: Word64 -> Word64 -> Word64
 mergeAccumulator !merged !v =
   let !v' = round_ 0 v
   in (merged `xor` v') * prime1 + prime4
 
-{-# INLINE readLE64 #-}
 readLE64 :: ByteString -> Int -> Word64
 readLE64 bs !off =
   let rd i = fromIntegral (BSU.unsafeIndex bs (off + i)) :: Word64
@@ -121,7 +105,6 @@ readLE64 bs !off =
    .|. (rd 6 `unsafeShiftL` 48)
    .|. (rd 7 `unsafeShiftL` 56)
 
-{-# INLINE readLE32 #-}
 readLE32 :: ByteString -> Int -> Word32
 readLE32 bs !off =
   let rd i = fromIntegral (BSU.unsafeIndex bs (off + i)) :: Word32

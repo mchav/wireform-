@@ -19,14 +19,29 @@ module Iceberg.Read
   , positionDeletesFromColumns
   , applyPositionDeletes
   , ScanPlan(..)
+  , FileScanTask(..)
   , planScan
   , planScanWithDeletes
+  , planScanWithFilter
+  , planScanAtSnapshot
+  , planScanAsOfTime
+  , fileMetricsFromEntry
+    -- * Sequence-number inheritance
+  , inheritSequenceNumbers
+  , readManifestEntriesWithInheritance
+    -- * Incremental scans (CDC / append-only)
+  , IncrementalScanPlan(..)
+  , planIncrementalAppend
+  , planIncrementalChangelog
+  , ChangelogTask(..)
+  , ChangelogOp(..)
   ) where
 
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
 import qualified Data.IntSet as IntSet
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Vector as V
@@ -36,10 +51,15 @@ import Avro.Container (readContainer)
 import Avro.Schema (AvroField (..), AvroSchema (..), AvroType (..))
 import qualified Avro.Value as AV
 
+import qualified Iceberg.Expression as Expr
+import qualified Iceberg.SchemaEvolution
 import Iceberg.SchemaEvolution (currentSchema)
+import qualified Iceberg.Snapshot
 import Iceberg.Snapshot (applicableDeletes, currentSnapshot)
 import Iceberg.Types
-  ( FileFormat (..)
+  ( DataFile (..)
+  , FieldSummary (..)
+  , FileFormat (..)
   , ManifestContent (..)
   , ManifestEntry (..)
   , ManifestFile (..)
@@ -83,6 +103,33 @@ readManifestEntries bs = do
 readDeleteManifestEntries :: ByteString -> Either String (AvroType, V.Vector ManifestEntry)
 readDeleteManifestEntries = readManifestEntries
 
+-- | Read a manifest file and inherit sequence numbers from the parent
+-- manifest list entry (per spec: \"new data and metadata file entries are
+-- written with @null@ in place of a sequence number, which is replaced
+-- with the manifest's sequence number at read time\"). The @file_sequence_number@
+-- is inherited unconditionally for entries with status @ADDED@ that do not
+-- carry one.
+readManifestEntriesWithInheritance
+  :: ManifestFile  -- ^ Owning manifest list entry, providing the inherited seq.
+  -> ByteString
+  -> Either String (AvroType, V.Vector ManifestEntry)
+readManifestEntriesWithInheritance owner bs = do
+  (writerTy, entries) <- readManifestEntries bs
+  Right (writerTy, V.map (inheritSequenceNumbers owner) entries)
+
+-- | Apply the sequence-number inheritance rule to a single manifest entry.
+inheritSequenceNumbers :: ManifestFile -> ManifestEntry -> ManifestEntry
+inheritSequenceNumbers owner me =
+  let inheritedSeq = mfSequenceNumber owner
+      seqNo' = case meSequenceNumber me of
+        Nothing | meStatus me == Added -> Just inheritedSeq
+        Just _  -> meSequenceNumber me
+        Nothing -> meSequenceNumber me
+      fileSeqNo' = case meFileSequenceNumber me of
+        Nothing | meStatus me == Added -> Just inheritedSeq
+        other   -> other
+   in me { meSequenceNumber = seqNo', meFileSequenceNumber = fileSeqNo' }
+
 -- | Read an Iceberg manifest-list Avro file (sequence of @manifest_file@ records).
 readManifestList :: ByteString -> Either String (AvroType, V.Vector ManifestFile)
 readManifestList bs = do
@@ -102,18 +149,19 @@ manifestEntryFromAvro ty val = do
   fileSeqNo <- lookupFieldOptional fields vals "file_sequence_number" optionalLong
   dfVal <- lookupField fields vals "data_file"
   dfTy <- fieldTypeByName fields "data_file"
-  (path, fmt, part, recCount, fileSz) <- dataFileFromAvro dfTy dfVal
+  df <- dataFileFromAvro dfTy dfVal
   Right
     ManifestEntry
       { meStatus = status
       , meSnapshotId = snapId
       , meSequenceNumber = seqNo
       , meFileSequenceNumber = fileSeqNo
-      , meFilePath = path
-      , meFileFormat = fmt
-      , mePartition = part
-      , meRecordCount = recCount
-      , meFileSizeBytes = fileSz
+      , meFilePath = dataFileFilePath df
+      , meFileFormat = dataFileFileFormat df
+      , mePartition = dataFilePartition df
+      , meRecordCount = dataFileRecordCount df
+      , meFileSizeBytes = dataFileFileSize df
+      , meDataFile = Just df
       }
 
 manifestFileFromAvro :: AvroType -> AV.Value -> Either String ManifestFile
@@ -124,9 +172,27 @@ manifestFileFromAvro ty val = do
   path <- lookupField fields vals "manifest_path" >>= asText
   len <- lookupField fields vals "manifest_length" >>= asInt64
   specId <- lookupField fields vals "partition_spec_id" >>= asInt32
-  content <- lookupField fields vals "content" >>= asInt32 >>= manifestContentFromInt
-  seqN <- lookupField fields vals "sequence_number" >>= asInt64
-  minSeq <- lookupField fields vals "min_sequence_number" >>= asInt64
+  -- @content@, @sequence_number@, and @min_sequence_number@ are required in
+  -- v2 but the writer schema treats them as optional (with default null) so
+  -- that v1 readers can ignore them. Decode either form.
+  contentRaw <- lookupField fields vals "content"
+  content <- case contentRaw of
+    AV.Int n             -> manifestContentFromInt n
+    AV.Union _ (AV.Int n) -> manifestContentFromInt n
+    AV.Union _ AV.Null   -> Right DataContent
+    _                    -> Left "Iceberg.Read: expected int for manifest content"
+  seqRaw <- lookupField fields vals "sequence_number"
+  seqN <- case seqRaw of
+    AV.Long n             -> Right n
+    AV.Union _ (AV.Long n) -> Right n
+    AV.Union _ AV.Null    -> Right 0
+    _                     -> Left "Iceberg.Read: expected long for sequence_number"
+  minSeqRaw <- lookupField fields vals "min_sequence_number"
+  minSeq <- case minSeqRaw of
+    AV.Long n             -> Right n
+    AV.Union _ (AV.Long n) -> Right n
+    AV.Union _ AV.Null    -> Right 0
+    _                     -> Left "Iceberg.Read: expected long for min_sequence_number"
   addSnap <- lookupField fields vals "added_snapshot_id" >>= asInt64
   addFiles <- lookupField fields vals "added_data_files_count" >>= optionalInt
   exFiles <- lookupField fields vals "existing_data_files_count" >>= optionalInt
@@ -134,6 +200,9 @@ manifestFileFromAvro ty val = do
   addRows <- lookupField fields vals "added_rows_count" >>= optionalInt64
   exRows <- lookupField fields vals "existing_rows_count" >>= optionalInt64
   delRows <- lookupField fields vals "deleted_rows_count" >>= optionalInt64
+  parts <- lookupFieldOptional fields vals "partitions" optionalFieldSummaryArray
+  keyMd <- lookupFieldOptional fields vals "key_metadata" optionalBytes
+  firstRow <- lookupFieldOptional fields vals "first_row_id" optionalLong
   Right
     ManifestFile
       { mfPath = path
@@ -149,15 +218,23 @@ manifestFileFromAvro ty val = do
       , mfAddedRowsCount = addRows
       , mfExistingRowsCount = exRows
       , mfDeletedRowsCount = delRows
+      , mfPartitions = maybe V.empty id parts
+      , mfKeyMetadata = keyMd
+      , mfFirstRowId = firstRow
       }
 
 -- * data_file
 
-dataFileFromAvro :: AvroType -> AV.Value -> Either String (Text, FileFormat, V.Vector (Maybe AV.Value), Int64, Int64)
+dataFileFromAvro :: AvroType -> AV.Value -> Either String DataFile
 dataFileFromAvro ty val = do
   fields <- recordFields ty
   vals <- asRecord val
   whenMismatch (V.length fields) (V.length vals)
+  contentInt <- lookupFieldOptional fields vals "content" optionalInt
+  let content = case contentInt of
+        Just 0 -> DataContent
+        Just _ -> DeletesContent
+        Nothing -> DataContent
   path <- lookupField fields vals "file_path" >>= asText
   fmtStr <- lookupField fields vals "file_format" >>= asText
   fmt <- parseFileFormat fmtStr
@@ -166,7 +243,42 @@ dataFileFromAvro ty val = do
   part <- partitionVector partTy partVal
   recCount <- lookupField fields vals "record_count" >>= asInt64
   fileSz <- lookupField fields vals "file_size_in_bytes" >>= asInt64
-  Right (path, fmt, part, recCount, fileSz)
+  colSizes  <- lookupFieldOptional fields vals "column_sizes" optionalIntInt64Map
+  valCounts <- lookupFieldOptional fields vals "value_counts" optionalIntInt64Map
+  nullCounts <- lookupFieldOptional fields vals "null_value_counts" optionalIntInt64Map
+  nanCounts  <- lookupFieldOptional fields vals "nan_value_counts" optionalIntInt64Map
+  lower <- lookupFieldOptional fields vals "lower_bounds" optionalIntBytesMap
+  upper <- lookupFieldOptional fields vals "upper_bounds" optionalIntBytesMap
+  keyMd <- lookupFieldOptional fields vals "key_metadata" optionalBytes
+  splitOff <- lookupFieldOptional fields vals "split_offsets" optionalLongArray
+  eqIds <- lookupFieldOptional fields vals "equality_ids" optionalIntArray
+  sortId <- lookupFieldOptional fields vals "sort_order_id" optionalInt
+  firstRow <- lookupFieldOptional fields vals "first_row_id" optionalLong
+  refData <- lookupFieldOptional fields vals "referenced_data_file" optionalText
+  cOff <- lookupFieldOptional fields vals "content_offset" optionalLong
+  cSz  <- lookupFieldOptional fields vals "content_size_in_bytes" optionalLong
+  Right DataFile
+    { dataFileContent = content
+    , dataFileFilePath = path
+    , dataFileFileFormat = fmt
+    , dataFilePartition = part
+    , dataFileRecordCount = recCount
+    , dataFileFileSize = fileSz
+    , dataFileColumnSizes = maybe Map.empty id colSizes
+    , dataFileValueCounts = maybe Map.empty id valCounts
+    , dataFileNullValueCounts = maybe Map.empty id nullCounts
+    , dataFileNanValueCounts = maybe Map.empty id nanCounts
+    , dataFileLowerBounds = maybe Map.empty id lower
+    , dataFileUpperBounds = maybe Map.empty id upper
+    , dataFileKeyMetadata = keyMd
+    , dataFileSplitOffsets = maybe V.empty id splitOff
+    , dataFileEqualityIds = maybe V.empty id eqIds
+    , dataFileSortOrderId = sortId
+    , dataFileFirstRowId = firstRow
+    , dataFileReferencedDataFile = refData
+    , dataFileContentOffset = cOff
+    , dataFileContentSize = cSz
+    }
 
 partitionVector :: AvroType -> AV.Value -> Either String (V.Vector (Maybe AV.Value))
 partitionVector partTy partVal = do
@@ -259,6 +371,104 @@ optionalInt64 v = optionalWith v $ \v' -> case v' of
 
 optionalLong :: AV.Value -> Either String (Maybe Int64)
 optionalLong = optionalInt64
+
+optionalBytes :: AV.Value -> Either String (Maybe ByteString)
+optionalBytes v = optionalWith v $ \v' -> case v' of
+  AV.Bytes bs -> Right bs
+  AV.Fixed bs -> Right bs
+  _           -> Left "Iceberg.Read: expected bytes in optional"
+
+optionalText :: AV.Value -> Either String (Maybe Text)
+optionalText v = optionalWith v $ \v' -> case v' of
+  AV.String s -> Right s
+  _           -> Left "Iceberg.Read: expected string in optional"
+
+-- | Iceberg manifest maps from int -> X are encoded as Avro arrays of
+-- @key_value@ records (the standard "logical map" trick).
+optionalIntInt64Map :: AV.Value -> Either String (Maybe (Map.Map Int Int64))
+optionalIntInt64Map v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  Map.fromList <$> mapM intInt64KV (V.toList arr)
+  where
+    intInt64KV (AV.Record vs) | V.length vs == 2 = do
+      k <- asInt32 (V.unsafeIndex vs 0)
+      n <- asInt64 (V.unsafeIndex vs 1)
+      Right (fromIntegral k, n)
+    intInt64KV _ = Left "Iceberg.Read: expected key_value record"
+
+optionalIntBytesMap :: AV.Value -> Either String (Maybe (Map.Map Int ByteString))
+optionalIntBytesMap v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  Map.fromList <$> mapM intBytesKV (V.toList arr)
+  where
+    intBytesKV (AV.Record vs) | V.length vs == 2 = do
+      k <- asInt32 (V.unsafeIndex vs 0)
+      bs <- asBytesLike (V.unsafeIndex vs 1)
+      Right (fromIntegral k, bs)
+    intBytesKV _ = Left "Iceberg.Read: expected key_value record"
+
+optionalLongArray :: AV.Value -> Either String (Maybe (V.Vector Int64))
+optionalLongArray v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  V.mapM asInt64 arr
+
+optionalIntArray :: AV.Value -> Either String (Maybe (V.Vector Int))
+optionalIntArray v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  V.mapM (\x -> fromIntegral <$> asInt32 x) arr
+
+optionalFieldSummaryArray :: AV.Value -> Either String (Maybe (V.Vector FieldSummary))
+optionalFieldSummaryArray v = optionalWith v $ \v' -> do
+  arr <- avroArray v'
+  V.mapM fieldSummaryFromAvro arr
+
+fieldSummaryFromAvro :: AV.Value -> Either String FieldSummary
+fieldSummaryFromAvro (AV.Record vs)
+  | V.length vs >= 1 = do
+      cn <- asBool (V.unsafeIndex vs 0)
+      let nan = case lookupAt vs 1 of
+                  Just x  -> case unionInner x of
+                    Just (AV.Bool b) -> Just b
+                    _                -> Nothing
+                  Nothing -> Nothing
+          lo  = optionalBytesPure (lookupAt vs 2)
+          hi  = optionalBytesPure (lookupAt vs 3)
+      Right FieldSummary
+        { fsContainsNull = cn
+        , fsContainsNan = nan
+        , fsLowerBound = lo
+        , fsUpperBound = hi
+        }
+fieldSummaryFromAvro _ = Left "Iceberg.Read: expected field_summary record"
+
+asBool :: AV.Value -> Either String Bool
+asBool (AV.Bool b) = Right b
+asBool _ = Left "Iceberg.Read: expected Avro bool"
+
+asBytesLike :: AV.Value -> Either String ByteString
+asBytesLike (AV.Bytes b) = Right b
+asBytesLike (AV.Fixed b) = Right b
+asBytesLike _ = Left "Iceberg.Read: expected Avro bytes/fixed"
+
+avroArray :: AV.Value -> Either String (V.Vector AV.Value)
+avroArray (AV.Array xs) = Right xs
+avroArray _ = Left "Iceberg.Read: expected Avro array"
+
+lookupAt :: V.Vector a -> Int -> Maybe a
+lookupAt vs i
+  | i < V.length vs = Just (V.unsafeIndex vs i)
+  | otherwise       = Nothing
+
+unionInner :: AV.Value -> Maybe AV.Value
+unionInner (AV.Union 0 AV.Null) = Nothing
+unionInner (AV.Union _ inner)   = Just inner
+unionInner v                    = Just v
+
+optionalBytesPure :: Maybe AV.Value -> Maybe ByteString
+optionalBytesPure mv = case mv >>= unionInner of
+  Just (AV.Bytes b) -> Just b
+  Just (AV.Fixed b) -> Just b
+  _                 -> Nothing
 
 optionalWith :: AV.Value -> (AV.Value -> Either String a) -> Either String (Maybe a)
 optionalWith (AV.Union 0 AV.Null) _ = Right Nothing
@@ -375,6 +585,31 @@ planScan tm manifestListBytes readManifestByPath = do
       (_, entries) <- readManifestEntries bs
       Right entries
 
+-- | A single scannable data file together with the delete files that apply
+-- to it. Mirrors Java's @FileScanTask@.
+data FileScanTask = FileScanTask
+  { fstDataFile      :: !ManifestEntry
+  , fstDeleteFiles   :: !(V.Vector ManifestEntry)
+  , fstSpecId        :: !Int
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+-- | Project a 'ManifestEntry' to the 'Expr.FileMetrics' record used by the
+-- pruning evaluators. Statistics that aren't present on the manifest entry
+-- are returned as 'Nothing' (i.e. unknown), which 'Expression' treats
+-- conservatively.
+fileMetricsFromEntry :: ManifestEntry -> Expr.FileMetrics
+fileMetricsFromEntry me = case meDataFile me of
+  Just df -> Expr.FileMetrics
+    { Expr.fmRecordCount = meRecordCount me
+    , Expr.fmValueCounts = dataFileValueCounts df
+    , Expr.fmNullCounts  = dataFileNullValueCounts df
+    , Expr.fmNanCounts   = dataFileNanValueCounts df
+    , Expr.fmLowerBounds = dataFileLowerBounds df
+    , Expr.fmUpperBounds = dataFileUpperBounds df
+    }
+  Nothing -> Expr.emptyFileMetrics (meRecordCount me)
+
 -- | Like 'planScan' but also collects delete file paths from delete manifests.
 planScanWithDeletes
   :: TableMetadata
@@ -407,3 +642,219 @@ planScanWithDeletes tm manifestListBytes readManifestByPath = do
       bs <- readManifestByPath path
       (_, entries) <- readManifestEntries bs
       Right entries
+
+-- | Like 'planScanWithDeletes' but additionally evaluates a row-level
+-- predicate against the column statistics of each data file, dropping
+-- files that cannot match. The result is one 'FileScanTask' per surviving
+-- data file with its applicable delete files attached.
+planScanWithFilter
+  :: TableMetadata
+  -> ByteString
+  -> (Text -> Either String ByteString)
+  -> Expr.Expression
+  -> Either String (V.Vector FileScanTask, Snapshot, Schema)
+planScanWithFilter tm manifestListBytes readManifestByPath expr = do
+  snap   <- maybe (Left "planScanWithFilter: no current snapshot") Right
+              (currentSnapshot tm)
+  schema <- maybe (Left "planScanWithFilter: no current schema") Right
+              (currentSchema tm)
+  planScanWithFilterAt snap schema manifestListBytes readManifestByPath expr
+
+-- | Like 'planScanWithFilter' but driven by an explicit snapshot id rather
+-- than the table's current snapshot pointer. Useful for time-travel reads.
+planScanAtSnapshot
+  :: TableMetadata
+  -> Int64
+  -> ByteString
+  -> (Text -> Either String ByteString)
+  -> Expr.Expression
+  -> Either String (V.Vector FileScanTask, Snapshot, Schema)
+planScanAtSnapshot tm sid manifestListBytes readManifestByPath expr = do
+  snap <- case Iceberg.Snapshot.snapshotById tm sid of
+            Just s  -> Right s
+            Nothing -> Left $ "planScanAtSnapshot: no such snapshot " ++ show sid
+  let schemaForSnap = case snapSchemaId snap >>= Iceberg.SchemaEvolution.schemaById tm of
+        Just s -> Just s
+        Nothing -> Iceberg.SchemaEvolution.currentSchema tm
+  schema <- maybe (Left "planScanAtSnapshot: no schema available") Right schemaForSnap
+  planScanWithFilterAt snap schema manifestListBytes readManifestByPath expr
+
+-- | Resolve the snapshot whose @timestamp_ms@ is the largest value not
+-- exceeding the supplied target, then plan a filtered scan at that snapshot.
+planScanAsOfTime
+  :: TableMetadata
+  -> Int64
+  -> ByteString
+  -> (Text -> Either String ByteString)
+  -> Expr.Expression
+  -> Either String (V.Vector FileScanTask, Snapshot, Schema)
+planScanAsOfTime tm targetMs manifestListBytes readManifestByPath expr =
+  case Iceberg.Snapshot.snapshotAsOfTime tm targetMs of
+    Just s -> planScanAtSnapshot tm (snapId s) manifestListBytes readManifestByPath expr
+    Nothing -> Left $ "planScanAsOfTime: no snapshot at or before " ++ show targetMs
+
+planScanWithFilterAt
+  :: Snapshot
+  -> Schema
+  -> ByteString
+  -> (Text -> Either String ByteString)
+  -> Expr.Expression
+  -> Either String (V.Vector FileScanTask, Snapshot, Schema)
+planScanWithFilterAt snap schema manifestListBytes readManifestByPath expr = do
+  (_, manifestFiles) <- readManifestList manifestListBytes
+  let dataMfs   = V.filter (\mf -> mfContent mf == DataContent) manifestFiles
+      delMfs    = applicableDeletes snap manifestFiles
+  dataEntryVecs <- V.mapM (readAndInherit readManifestByPath) dataMfs
+  delEntryVecs  <- V.mapM (readAndInherit readManifestByPath) delMfs
+  let allDataEntries = V.concat (V.toList dataEntryVecs)
+      allDelEntries  = V.concat (V.toList delEntryVecs)
+      keep me = Expr.evaluateInclusive schema (fileMetricsFromEntry me) expr
+      surviving = V.filter keep allDataEntries
+      tasks = V.map (\me -> FileScanTask
+                       { fstDataFile    = me
+                       , fstDeleteFiles = applicableDeleteEntries me allDelEntries
+                       , fstSpecId      = 0
+                       }) surviving
+  Right (tasks, snap, schema)
+  where
+    readAndInherit readMf manifest = do
+      bs <- readMf (mfPath manifest)
+      (_, entries) <- readManifestEntries bs
+      Right (V.map (inheritSequenceNumbers manifest) entries)
+
+-- | Find delete-manifest entries that are applicable to a given data-file
+-- entry. The Iceberg spec says a delete file applies when its sequence
+-- number is at most that of the data file.
+applicableDeleteEntries
+  :: ManifestEntry
+  -> V.Vector ManifestEntry
+  -> V.Vector ManifestEntry
+applicableDeleteEntries dataEntry =
+  V.filter $ \del -> case (meSequenceNumber dataEntry, meSequenceNumber del) of
+    (Just dataSeq, Just delSeq) -> delSeq <= dataSeq
+    _                           -> True
+
+-- ============================================================
+-- Incremental scans: CDC / append-only deltas between snapshots
+-- ============================================================
+
+-- | Result of an incremental scan: every data file added between two
+-- snapshots, optionally with the delete files that apply to them.
+data IncrementalScanPlan = IncrementalScanPlan
+  { ispFromSnapshot :: !(Maybe Int64)   -- ^ Exclusive lower bound; @Nothing@ = from beginning of history.
+  , ispToSnapshot   :: !Int64            -- ^ Inclusive upper bound (the latest snapshot to include).
+  , ispAddedFiles   :: !(V.Vector FileScanTask)
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+-- | "What was newly /appended/ between snapshots @from@ (exclusive) and
+-- @to@ (inclusive)?" - mirrors Java's @IncrementalAppendScan@.
+--
+-- The implementation walks the ancestor chain from @to@ back to @from@,
+-- collecting only data files whose @snapshot_id@ is in the set of
+-- snapshots in that range and whose status was @ADDED@.
+planIncrementalAppend
+  :: TableMetadata
+  -> Maybe Int64                                 -- ^ @from@: exclusive lower bound.
+  -> Int64                                       -- ^ @to@:   inclusive upper bound.
+  -> (Text -> Either String ByteString)          -- ^ Manifest list reader.
+  -> (Text -> Either String ByteString)          -- ^ Manifest entry reader.
+  -> Either String IncrementalScanPlan
+planIncrementalAppend tm fromSid toSid readMlByPath readManifestByPath = do
+  toSnap <- maybe (Left $ "planIncrementalAppend: no snapshot " ++ show toSid) Right
+              (Iceberg.Snapshot.snapshotById tm toSid)
+  let snapsInRange = collectSnapsBetween tm fromSid toSnap
+      snapIds = IntSet.fromList (map (fromIntegral . snapId) snapsInRange)
+      taskFor snap = do
+        bs <- readMlByPath (snapManifestList snap)
+        (_, mfs) <- readManifestList bs
+        let dataMfs = V.filter (\mf -> mfContent mf == DataContent) mfs
+        entryVecs <- V.mapM (readAndInherit readManifestByPath) dataMfs
+        let entries = V.concat (V.toList entryVecs)
+            keep me = case meSnapshotId me of
+              Just s  -> meStatus me == Added && IntSet.member (fromIntegral s) snapIds
+              Nothing -> False
+        Right (V.filter keep entries)
+  perSnap <- mapM taskFor snapsInRange
+  let tasks = V.concat perSnap
+      result = V.map (\me -> FileScanTask
+                       { fstDataFile    = me
+                       , fstDeleteFiles = V.empty
+                       , fstSpecId      = 0
+                       }) tasks
+  Right IncrementalScanPlan
+    { ispFromSnapshot = fromSid
+    , ispToSnapshot   = toSid
+    , ispAddedFiles   = result
+    }
+  where
+    readAndInherit readMf manifest = do
+      bs <- readMf (mfPath manifest)
+      (_, entries) <- readManifestEntries bs
+      Right (V.map (inheritSequenceNumbers manifest) entries)
+
+-- | Collect the snapshots whose ancestry sits in (@from@, @to@] - i.e.
+-- the snapshots /strictly after/ @from@ and up to and including @to@.
+-- @from = Nothing@ means "every ancestor of @to@".
+collectSnapsBetween :: TableMetadata -> Maybe Int64 -> Snapshot -> [Snapshot]
+collectSnapsBetween tm fromSid to0 = go to0
+  where
+    go s
+      | maybe False (== snapId s) fromSid = []
+      | otherwise = s : case snapParentId s >>= Iceberg.Snapshot.snapshotById tm of
+          Just parent -> go parent
+          Nothing     -> []
+
+-- | A row-level changelog operation type. Mirrors the @_change_type@
+-- reserved column the Iceberg spec uses for CDC scans.
+data ChangelogOp = OpInsert | OpDelete | OpUpdateBefore | OpUpdateAfter
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (NFData)
+
+-- | A single change-row task: the @ManifestEntry@ that produced the
+-- change plus its operation type.
+data ChangelogTask = ChangelogTask
+  { ctEntry     :: !ManifestEntry
+  , ctOperation :: !ChangelogOp
+  , ctSnapshot  :: !Snapshot
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+-- | Mirror of Java's @IncrementalChangelogScan@: emit one
+-- ChangelogTask per row-level change (insert / delete / update) in
+-- the snapshot range.
+--
+-- This is a /metadata/-level changelog: the operation type comes from
+-- the manifest entry's status (Added => Insert / UpdateAfter,
+-- Deleted => Delete / UpdateBefore). Resolving update pairs needs the
+-- engine's row-level diff which is out of scope here; we surface the
+-- raw insert + delete tasks so a downstream operator can pair them.
+planIncrementalChangelog
+  :: TableMetadata
+  -> Maybe Int64
+  -> Int64
+  -> (Text -> Either String ByteString)
+  -> (Text -> Either String ByteString)
+  -> Either String (V.Vector ChangelogTask)
+planIncrementalChangelog tm fromSid toSid readMlByPath readManifestByPath = do
+  toSnap <- maybe (Left $ "planIncrementalChangelog: no snapshot " ++ show toSid) Right
+              (Iceberg.Snapshot.snapshotById tm toSid)
+  let snapsInRange = collectSnapsBetween tm fromSid toSnap
+      taskFor snap = do
+        bs <- readMlByPath (snapManifestList snap)
+        (_, mfs) <- readManifestList bs
+        entryVecs <- V.mapM (readAndInherit readManifestByPath) mfs
+        let entries = V.concat (V.toList entryVecs)
+            mkTask me = case meStatus me of
+              Added   -> Just (ChangelogTask me OpInsert snap)
+              Deleted -> Just (ChangelogTask me OpDelete snap)
+              Existing -> Nothing
+        Right (V.fromList (V.toList (V.mapMaybe mkTask entries)))
+  vs <- mapM taskFor snapsInRange
+  Right (V.concat vs)
+  where
+    readAndInherit readMf manifest = do
+      bs <- readMf (mfPath manifest)
+      (_, entries) <- readManifestEntries bs
+      Right (V.map (inheritSequenceNumbers manifest) entries)
+

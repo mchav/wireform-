@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Test.Iceberg (icebergTests) where
 
 import Data.Int (Int32, Int64)
@@ -34,6 +35,24 @@ import Iceberg.Snapshot
   )
 import Iceberg.Types
 
+-- | Smart constructor matching the legacy positional StructField shape.
+mkSF :: Int -> Text -> Bool -> IcebergType -> Maybe Text -> StructField
+mkSF i n r t d = StructField
+  { sfId = i, sfName = n, sfRequired = r, sfType = t, sfDoc = d
+  , sfInitialDefault = Nothing, sfWriteDefault = Nothing
+  }
+
+mkSchema :: Int -> V.Vector StructField -> Schema
+mkSchema sid fs = Schema { schemaId = sid, schemaFields = fs, schemaIdentifierFieldIds = V.empty }
+
+mkSnap
+  :: Int64 -> Maybe Int64 -> Int64 -> Int64 -> Text -> Map.Map Text Text -> Snapshot
+mkSnap sid pid sn ts ml summ = Snapshot
+  { snapId = sid, snapParentId = pid, snapSequenceNumber = sn
+  , snapTimestampMs = ts, snapManifestList = ml, snapSummary = summ
+  , snapSchemaId = Nothing, snapFirstRowId = Nothing, snapKeyId = Nothing
+  }
+
 icebergTests :: TestTree
 icebergTests = testGroup "Iceberg"
   [ jsonRoundtripTests
@@ -63,14 +82,9 @@ jsonRoundtripTests = testGroup "JSON roundtrip"
       metadataFromJSON json @?= Right tm
 
   , testCase "Table metadata with snapshots" $ do
-      let snap = Snapshot
-            { snapId = 100
-            , snapParentId = Nothing
-            , snapSequenceNumber = 1
-            , snapTimestampMs = 1672531200000
-            , snapManifestList = "s3://bucket/manifest-list.avro"
-            , snapSummary = Map.fromList [("operation", "append")]
-            }
+      let snap = (mkSnap 100 Nothing 1 1672531200000
+                         "s3://bucket/manifest-list.avro"
+                         (Map.fromList [("operation", "append")]))
           tm = minimalMetadata
             { tmCurrentSnapshotId = Just 100
             , tmSnapshots = V.singleton snap
@@ -80,14 +94,9 @@ jsonRoundtripTests = testGroup "JSON roundtrip"
       metadataFromJSON json @?= Right tm
 
   , testCase "Table metadata with snapshot parent" $ do
-      let snap = Snapshot
-            { snapId = 200
-            , snapParentId = Just 100
-            , snapSequenceNumber = 2
-            , snapTimestampMs = 1672531300000
-            , snapManifestList = "s3://bucket/manifest-list-2.avro"
-            , snapSummary = Map.fromList [("operation", "overwrite")]
-            }
+      let snap = (mkSnap 200 (Just 100) 2 1672531300000
+                         "s3://bucket/manifest-list-2.avro"
+                         (Map.fromList [("operation", "overwrite")]))
           tm = minimalMetadata
             { tmCurrentSnapshotId = Just 200
             , tmSnapshots = V.singleton snap
@@ -114,69 +123,69 @@ schemaTypeTests :: TestTree
 schemaTypeTests = testGroup "Schema types"
   [ testCase "Primitive types roundtrip" $ do
       let fields = V.fromList
-            [ StructField 1 "bool_col" True TBoolean Nothing
-            , StructField 2 "int_col" True TInt Nothing
-            , StructField 3 "long_col" True TLong Nothing
-            , StructField 4 "float_col" True TFloat Nothing
-            , StructField 5 "double_col" True TDouble Nothing
-            , StructField 6 "string_col" True TString Nothing
-            , StructField 7 "binary_col" True TBinary Nothing
-            , StructField 8 "uuid_col" False TUuid (Just "A UUID column")
+            [ mkSF 1 "bool_col" True TBoolean Nothing
+            , mkSF 2 "int_col" True TInt Nothing
+            , mkSF 3 "long_col" True TLong Nothing
+            , mkSF 4 "float_col" True TFloat Nothing
+            , mkSF 5 "double_col" True TDouble Nothing
+            , mkSF 6 "string_col" True TString Nothing
+            , mkSF 7 "binary_col" True TBinary Nothing
+            , mkSF 8 "uuid_col" False TUuid (Just "A UUID column")
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "Date/time types roundtrip" $ do
       let fields = V.fromList
-            [ StructField 1 "date_col" True TDate Nothing
-            , StructField 2 "time_col" True TTime Nothing
-            , StructField 3 "ts_col" True TTimestamp Nothing
-            , StructField 4 "tstz_col" True TTimestampTz Nothing
+            [ mkSF 1 "date_col" True TDate Nothing
+            , mkSF 2 "time_col" True TTime Nothing
+            , mkSF 3 "ts_col" True TTimestamp Nothing
+            , mkSF 4 "tstz_col" True TTimestampTz Nothing
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "Fixed and Decimal types roundtrip" $ do
       let fields = V.fromList
-            [ StructField 1 "fixed_col" True (TFixed 16) Nothing
-            , StructField 2 "dec_col" True (TDecimal 10 2) Nothing
+            [ mkSF 1 "fixed_col" True (TFixed 16) Nothing
+            , mkSF 2 "dec_col" True (TDecimal 10 2) Nothing
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "Nested struct type roundtrip" $ do
       let innerFields = V.fromList
-            [ StructField 10 "x" True TInt Nothing
-            , StructField 11 "y" True TInt Nothing
+            [ mkSF 10 "x" True TInt Nothing
+            , mkSF 11 "y" True TInt Nothing
             ]
           fields = V.fromList
-            [ StructField 1 "point" True (TStruct innerFields) Nothing
+            [ mkSF 1 "point" True (TStruct innerFields) Nothing
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "List type roundtrip" $ do
       let fields = V.fromList
-            [ StructField 1 "tags" True (TList 100 TString) Nothing
+            [ mkSF 1 "tags" True (TList 100 TString) Nothing
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "Map type roundtrip" $ do
       let fields = V.fromList
-            [ StructField 1 "attrs" True (TMap 100 TString 101 TLong) Nothing
+            [ mkSF 1 "attrs" True (TMap 100 TString 101 TLong) Nothing
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
           tm = minimalMetadata { tmSchemas = V.singleton schema }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
@@ -363,6 +372,9 @@ snapshotTests = testGroup "Snapshot operations"
             , snapTimestampMs = 1000
             , snapManifestList = "s3://bucket/ml.avro"
             , snapSummary = Map.singleton "operation" "append"
+            , snapSchemaId = Nothing
+            , snapFirstRowId = Nothing
+            , snapKeyId = Nothing
             }
           tm = minimalMetadata
             { tmCurrentSnapshotId = Just 42
@@ -375,7 +387,7 @@ snapshotTests = testGroup "Snapshot operations"
       currentSnapshot tm @?= Nothing
 
   , testCase "currentSnapshot returns Nothing for missing ID" $ do
-      let snap = Snapshot 1 Nothing 1 1000 "ml.avro" Map.empty
+      let snap = mkSnap 1 Nothing 1 1000 "ml.avro" Map.empty
           tm = minimalMetadata
             { tmCurrentSnapshotId = Just 999
             , tmSnapshots = V.singleton snap
@@ -383,17 +395,17 @@ snapshotTests = testGroup "Snapshot operations"
       currentSnapshot tm @?= Nothing
 
   , testCase "snapshotById finds the right snapshot" $ do
-      let s1 = Snapshot 10 Nothing 1 1000 "ml1.avro" Map.empty
-          s2 = Snapshot 20 (Just 10) 2 2000 "ml2.avro" Map.empty
+      let s1 = mkSnap 10 Nothing 1 1000 "ml1.avro" Map.empty
+          s2 = mkSnap 20 (Just 10) 2 2000 "ml2.avro" Map.empty
           tm = minimalMetadata { tmSnapshots = V.fromList [s1, s2] }
       snapshotById tm 20 @?= Just s2
       snapshotById tm 10 @?= Just s1
       snapshotById tm 99 @?= Nothing
 
   , testCase "snapshotParentChain with 3 snapshots" $ do
-      let s1 = Snapshot 1 Nothing   1 1000 "ml1.avro" Map.empty
-          s2 = Snapshot 2 (Just 1)  2 2000 "ml2.avro" Map.empty
-          s3 = Snapshot 3 (Just 2)  3 3000 "ml3.avro" Map.empty
+      let s1 = mkSnap 1 Nothing   1 1000 "ml1.avro" Map.empty
+          s2 = mkSnap 2 (Just 1)  2 2000 "ml2.avro" Map.empty
+          s3 = mkSnap 3 (Just 2)  3 3000 "ml3.avro" Map.empty
           tm = minimalMetadata
             { tmSnapshots = V.fromList [s1, s2, s3] }
           chain = snapshotParentChain tm s3
@@ -404,7 +416,7 @@ snapshotTests = testGroup "Snapshot operations"
         _ -> assertFailure ("expected 2-element chain, got " ++ show (length chain))
 
   , testCase "snapshotParentChain stops at root" $ do
-      let s1 = Snapshot 1 Nothing 1 1000 "ml1.avro" Map.empty
+      let s1 = mkSnap 1 Nothing 1 1000 "ml1.avro" Map.empty
           tm = minimalMetadata { tmSnapshots = V.singleton s1 }
       snapshotParentChain tm s1 @?= []
 
@@ -431,16 +443,16 @@ snapshotTests = testGroup "Snapshot operations"
 schemaEvolutionTests :: TestTree
 schemaEvolutionTests = testGroup "Schema evolution"
   [ testCase "schemaById lookup" $ do
-      let s0 = Schema 0 V.empty
-          s1 = Schema 1 (V.singleton (StructField 1 "x" True TInt Nothing))
+      let s0 = mkSchema 0 V.empty
+          s1 = mkSchema 1 (V.singleton (mkSF 1 "x" True TInt Nothing))
           tm = minimalMetadata { tmSchemas = V.fromList [s0, s1] }
       schemaById tm 1 @?= Just s1
       schemaById tm 0 @?= Just s0
       schemaById tm 99 @?= Nothing
 
   , testCase "currentSchema matches tmCurrentSchemaId" $ do
-      let s0 = Schema 0 V.empty
-          s1 = Schema 1 (V.singleton (StructField 1 "x" True TLong Nothing))
+      let s0 = mkSchema 0 V.empty
+          s1 = mkSchema 1 (V.singleton (mkSF 1 "x" True TLong Nothing))
           tm = minimalMetadata
             { tmSchemas = V.fromList [s0, s1]
             , tmCurrentSchemaId = 1
@@ -449,54 +461,54 @@ schemaEvolutionTests = testGroup "Schema evolution"
 
   , testCase "findFieldById at top level" $ do
       let fields = V.fromList
-            [ StructField 1 "a" True TInt Nothing
-            , StructField 2 "b" True TString Nothing
+            [ mkSF 1 "a" True TInt Nothing
+            , mkSF 2 "b" True TString Nothing
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
       fmap sfName (findFieldById schema 2) @?= Just "b"
       findFieldById schema 99 @?= Nothing
 
   , testCase "findFieldById in nested struct" $ do
       let inner = V.fromList
-            [ StructField 10 "x" True TInt Nothing
-            , StructField 11 "y" True TInt Nothing
+            [ mkSF 10 "x" True TInt Nothing
+            , mkSF 11 "y" True TInt Nothing
             ]
           fields = V.fromList
-            [ StructField 1 "id" True TLong Nothing
-            , StructField 2 "point" True (TStruct inner) Nothing
+            [ mkSF 1 "id" True TLong Nothing
+            , mkSF 2 "point" True (TStruct inner) Nothing
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
       fmap sfName (findFieldById schema 11) @?= Just "y"
       fmap sfName (findFieldById schema 10) @?= Just "x"
       fmap sfName (findFieldById schema 1) @?= Just "id"
 
   , testCase "findFieldById in list element struct" $ do
       let elemFields = V.fromList
-            [ StructField 20 "name" True TString Nothing
-            , StructField 21 "val" True TDouble Nothing
+            [ mkSF 20 "name" True TString Nothing
+            , mkSF 21 "val" True TDouble Nothing
             ]
           fields = V.singleton
-            (StructField 1 "items" True (TList 100 (TStruct elemFields)) Nothing)
-          schema = Schema 0 fields
+            (mkSF 1 "items" True (TList 100 (TStruct elemFields)) Nothing)
+          schema = mkSchema 0 fields
       fmap sfName (findFieldById schema 20) @?= Just "name"
       fmap sfName (findFieldById schema 21) @?= Just "val"
 
   , testCase "findFieldById in map value struct" $ do
-      let valFields = V.singleton (StructField 30 "score" True TFloat Nothing)
+      let valFields = V.singleton (mkSF 30 "score" True TFloat Nothing)
           fields = V.singleton
-            (StructField 1 "scores" True
+            (mkSF 1 "scores" True
               (TMap 100 TString 101 (TStruct valFields)) Nothing)
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
       fmap sfName (findFieldById schema 30) @?= Just "score"
 
   , testCase "projectSchema keeping subset of fields" $ do
       let fields = V.fromList
-            [ StructField 1 "a" True TInt Nothing
-            , StructField 2 "b" True TString Nothing
-            , StructField 3 "c" True TLong Nothing
-            , StructField 4 "d" False TDouble Nothing
+            [ mkSF 1 "a" True TInt Nothing
+            , mkSF 2 "b" True TString Nothing
+            , mkSF 3 "c" True TLong Nothing
+            , mkSF 4 "d" False TDouble Nothing
             ]
-          schema = Schema 0 fields
+          schema = mkSchema 0 fields
       case projectSchema schema [2, 4] of
         Left e -> assertFailure e
         Right projected -> do
@@ -505,26 +517,26 @@ schemaEvolutionTests = testGroup "Schema evolution"
           sfName (V.unsafeIndex (schemaFields projected) 1) @?= "d"
 
   , testCase "projectSchema with empty field list" $ do
-      let schema = Schema 0 (V.singleton (StructField 1 "a" True TInt Nothing))
+      let schema = mkSchema 0 (V.singleton (mkSF 1 "a" True TInt Nothing))
       case projectSchema schema [] of
         Left _  -> assertFailure "empty field list should succeed"
         Right s -> V.length (schemaFields s) @?= 0
 
   , testCase "projectSchema with no matching IDs fails" $ do
-      let schema = Schema 0 (V.singleton (StructField 1 "a" True TInt Nothing))
+      let schema = mkSchema 0 (V.singleton (mkSF 1 "a" True TInt Nothing))
       case projectSchema schema [99, 100] of
         Left _  -> pure ()
         Right _ -> assertFailure "expected Left for no matching IDs"
 
   , testCase "JSON roundtrip -> currentSnapshot -> verify" $ do
-      let snap1 = Snapshot 10 Nothing  1 1000 "s3://b/ml1.avro"
+      let snap1 = mkSnap 10 Nothing  1 1000 "s3://b/ml1.avro"
                     (Map.singleton "operation" "append")
-          snap2 = Snapshot 20 (Just 10) 2 2000 "s3://b/ml2.avro"
+          snap2 = mkSnap 20 (Just 10) 2 2000 "s3://b/ml2.avro"
                     (Map.singleton "operation" "overwrite")
-          s0 = Schema 0 (V.singleton (StructField 1 "id" True TLong Nothing))
-          s1 = Schema 1 (V.fromList
-                 [ StructField 1 "id" True TLong Nothing
-                 , StructField 2 "name" True TString Nothing
+          s0 = mkSchema 0 (V.singleton (mkSF 1 "id" True TLong Nothing))
+          s1 = mkSchema 1 (V.fromList
+                 [ mkSF 1 "id" True TLong Nothing
+                 , mkSF 2 "name" True TString Nothing
                  ])
           tm = minimalMetadata
             { tmCurrentSnapshotId = Just 20
@@ -666,7 +678,7 @@ sequenceNumberTests = testGroup "Sequence number filtering"
       V.map meFilePath result @?= V.fromList ["f1.parquet", "f2.parquet", "f4.parquet"]
 
   , testCase "applicableDeletes filters delete manifests by sequence number" $ do
-      let snap = Snapshot 1 Nothing 5 1000 "ml.avro" Map.empty
+      let snap = mkSnap 1 Nothing 5 1000 "ml.avro" Map.empty
           mfs = V.fromList
             [ mkManifestFile "d1.avro" DeletesContent 3
             , mkManifestFile "d2.avro" DeletesContent 7
@@ -685,11 +697,11 @@ sequenceNumberTests = testGroup "Sequence number filtering"
 scanPlanDeleteTests :: TestTree
 scanPlanDeleteTests = testGroup "ScanPlan with deletes"
   [ testCase "planScan sets empty delete file paths" $ do
-      let snap = Snapshot 1 Nothing 1 1000 "s3://b/ml.avro" (Map.singleton "operation" "append")
+      let snap = mkSnap 1 Nothing 1 1000 "s3://b/ml.avro" (Map.singleton "operation" "append")
           tm = minimalMetadata
             { tmCurrentSnapshotId = Just 1
             , tmSnapshots = V.singleton snap
-            , tmSchemas = V.singleton (Schema 0 V.empty)
+            , tmSchemas = V.singleton (mkSchema 0 V.empty)
             }
           u0 = AV.Union 0 AV.Null
           dataFile = AV.Record $ V.fromList
@@ -744,7 +756,7 @@ snapshotRefTests = testGroup "SnapshotRef"
             , srMaxSnapshotAgeMs = Just 172800000
             , srMinSnapshotsToKeep = Nothing
             }
-          snap = Snapshot 200 Nothing 10 2000 "s3://b/ml.avro" Map.empty
+          snap = mkSnap 200 Nothing 10 2000 "s3://b/ml.avro" Map.empty
           tm = minimalMetadata
             { tmFormatVersion = 2
             , tmLastSequenceNumber = 10
@@ -778,6 +790,9 @@ mkManifestFile path content seqNum = ManifestFile
   , mfAddedRowsCount = Nothing
   , mfExistingRowsCount = Nothing
   , mfDeletedRowsCount = Nothing
+  , mfPartitions = V.empty
+  , mfKeyMetadata = Nothing
+  , mfFirstRowId = Nothing
   }
 
 mkEntry :: Maybe Int64 -> Text -> ManifestEntry
@@ -791,25 +806,32 @@ mkEntry seqNo path = ManifestEntry
   , mePartition = V.empty
   , meRecordCount = 100
   , meFileSizeBytes = 4096
+  , meDataFile = Nothing
   }
 
 minimalMetadata :: TableMetadata
 minimalMetadata = TableMetadata
-  { tmFormatVersion      = 2
-  , tmTableUuid          = "550e8400-e29b-41d4-a716-446655440000"
-  , tmLocation           = "s3://bucket/table"
-  , tmLastSequenceNumber = 0
-  , tmLastUpdatedMs      = 1672531200000
-  , tmLastColumnId       = 0
-  , tmCurrentSchemaId    = 0
-  , tmSchemas            = V.singleton (Schema 0 V.empty)
-  , tmCurrentSnapshotId  = Nothing
-  , tmSnapshots          = V.empty
-  , tmPartitionSpecs     = V.singleton (PartitionSpec 0 V.empty)
-  , tmDefaultSpecId      = 0
-  , tmSortOrders         = V.singleton (SortOrder 0 V.empty)
-  , tmDefaultSortOrderId = 0
-  , tmProperties         = Map.empty
-  , tmSnapshotLog        = V.empty
-  , tmSnapshotRefs       = Map.empty
+  { tmFormatVersion       = 2
+  , tmTableUuid           = "550e8400-e29b-41d4-a716-446655440000"
+  , tmLocation            = "s3://bucket/table"
+  , tmLastSequenceNumber  = 0
+  , tmLastUpdatedMs       = 1672531200000
+  , tmLastColumnId        = 0
+  , tmCurrentSchemaId     = 0
+  , tmSchemas             = V.singleton (mkSchema 0 V.empty)
+  , tmCurrentSnapshotId   = Nothing
+  , tmSnapshots           = V.empty
+  , tmPartitionSpecs      = V.singleton (PartitionSpec 0 V.empty)
+  , tmDefaultSpecId       = 0
+  , tmLastPartitionId     = 0
+  , tmSortOrders          = V.singleton (SortOrder 0 V.empty)
+  , tmDefaultSortOrderId  = 0
+  , tmProperties          = Map.empty
+  , tmSnapshotLog         = V.empty
+  , tmMetadataLog         = V.empty
+  , tmSnapshotRefs        = Map.empty
+  , tmStatistics          = V.empty
+  , tmPartitionStatistics = V.empty
+  , tmNextRowId           = Nothing
+  , tmEncryptionKeys      = Map.empty
   }
