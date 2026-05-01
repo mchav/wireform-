@@ -11,6 +11,11 @@ module Arrow.Write
   , buildRecordBatch
   , writeArrowStream
   , writeArrowFile
+    -- * Re-exported internals for alternative metadata framings
+    -- (see "Arrow.FlatBufferIPC").
+  , encodeColumns
+  , emptyBuildAcc
+  , BuildAcc (..)
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL, complement)

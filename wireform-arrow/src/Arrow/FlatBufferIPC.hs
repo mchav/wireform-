@@ -35,9 +35,11 @@ module Arrow.FlatBufferIPC
     -- * Stream / file writers
   , writeArrowStreamFB
   , writeArrowFileFB
+    -- * Column-based convenience writer
+  , buildRecordBatchBytes
+  , writeArrowStreamFBFromColumns
   ) where
 
-import Control.Monad.ST (ST, runST)
 import Data.Bits ((.&.), complement)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -49,18 +51,14 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
-import Data.Vector (Vector)
 import Data.Word (Word8, Word16, Word32, Word64)
-import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef, modifySTRef')
-import qualified Data.ByteString.Builder.Internal as BI
-import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
-import Foreign.Ptr (Ptr, plusPtr)
 import Foreign.Storable (pokeByteOff)
-import GHC.Float (castFloatToWord32, castDoubleToWord64)
 import System.IO.Unsafe (unsafePerformIO)
-import Data.IORef (IORef, newIORef, readIORef, writeIORef, modifyIORef')
+import Data.IORef (IORef, newIORef, readIORef, modifyIORef')
 
+import Arrow.Column (ColumnArray, columnLength)
 import Arrow.Types
+import qualified Arrow.Write as W
 
 -- ============================================================
 -- Low-level builder
@@ -125,15 +123,6 @@ prependBS :: Builder -> BS.ByteString -> IO ()
 prependBS b bs = do
   modifyIORef' (bufPayload b) (bs :)
   modifyIORef' (bufSize b) (+ BS.length bs)
-
--- | Pad so that after writing @n@ more bytes, the total size would be
--- aligned to @align@.
-prependPadding :: Builder -> Int -> Int -> IO ()
-prependPadding b nExtra align = do
-  !cur <- readIORef (bufSize b)
-  let !after = cur + nExtra
-      !pad   = (negate after) .&. (align - 1)
-  prependBS b (BS.replicate pad 0)
 
 -- | Prepend one little-endian primitive.
 prependU8  :: Builder -> Word8  -> IO ()
@@ -277,9 +266,16 @@ writeTable b slots = do
   --    forward byte position that the NEXT-emitted (= next in
   --    reverse-declaration-order, i.e. earlier-declared) field
   --    should END at. Starts at rawEnd (tail pad already emitted).
-  let emit !_expectedEnd [] = pure ()
+  -- 
+  -- When all slots have been emitted the cursor is at the /inline
+  -- offset of the first-declared present slot/ (or rawEnd if no
+  -- slots present). The gap between there and the end of the
+  -- soffset_t (4) must also be zero-padded.
+  let emit !nextExpect [] = prependBS b (BS.replicate (nextExpect - 4) 0)
       emit !expectedEnd ((idx, fs) : rest) = do
-        let (Just off) = lookup idx inlineOffs
+        let !off = case lookup idx inlineOffs of
+                     Just o  -> o
+                     Nothing -> error "Arrow.FlatBufferIPC: internal error (missing inlineOff for present slot)"
             !fieldEnd   = off + fsAlign fs
             !padAfter   = expectedEnd - fieldEnd
         prependBS b (BS.replicate padAfter 0)
@@ -767,6 +763,114 @@ writeArrowStreamFB sch batches =
       !eos = BL.toStrict $ B.toLazyByteString $
                B.word32LE 0xFFFFFFFF <> B.int32LE 0
   in schemaMsg <> batchBytes <> eos
+
+-- | Build @(RecordBatchDef, body bytes)@ from a 'Schema' + columns.
+-- Delegates to 'Arrow.Write.encodeColumns' for the physical body
+-- layout (validity bitmaps, typed buffers, 8-byte aligned), then
+-- normalises the 'Buffer' list so every field has the Arrow-spec
+-- buffer count — which for non-nullable primitives means
+-- prepending a zero-length validity buffer (the simplified internal
+-- encoder in "Arrow.Write" omits the slot for non-nullable fields
+-- because its own reader does too; the spec requires the slot to
+-- exist even when empty).
+buildRecordBatchBytes
+  :: Schema
+  -> V.Vector ColumnArray
+  -> (RecordBatchDef, ByteString)
+buildRecordBatchBytes sch cols =
+  let !acc = W.encodeColumns (arrowFields sch) cols W.emptyBuildAcc
+      !rawNodes = V.fromList (reverse (W.baNodes acc))
+      !rawBufs  = V.fromList (reverse (W.baBufs acc))
+      !(!nodes, !bufs) = normaliseBuffers (arrowFields sch) rawNodes rawBufs
+      !numRows = if V.null cols then 0 else columnLength (V.head cols)
+      !rb = RecordBatchDef
+              { rbLength  = fromIntegral numRows
+              , rbNodes   = nodes
+              , rbBuffers = bufs
+              }
+      !body = BL.toStrict (B.toLazyByteString (W.baBody acc))
+  in (rb, body)
+
+-- | Walk the schema and insert an empty 'Buffer' (offset=0, len=0)
+-- in the validity slot of every non-nullable primitive field, so the
+-- resulting 'RecordBatchDef' conforms to the Arrow spec's
+-- @n_buffers_per_layout@ rule. Leaves nullable and variable-length
+-- columns alone — those already emit their validity slot.
+normaliseBuffers
+  :: V.Vector Field
+  -> V.Vector FieldNode
+  -> V.Vector Buffer
+  -> (V.Vector FieldNode, V.Vector Buffer)
+normaliseBuffers fields nodes bufs =
+  let !(_nIdx', _bIdx', outNodes, outBufs) =
+        V.foldl' step (0 :: Int, 0 :: Int, [], []) fields
+      step (!nIdx, !bIdx, !nAcc, !bAcc) f =
+        let (!nConsumed, !bConsumed, !emittedBufs) =
+              normaliseField f nodes bufs nIdx bIdx
+        in  ( nIdx + nConsumed
+            , bIdx + bConsumed
+            , [ nodes V.! i | i <- [nIdx .. nIdx + nConsumed - 1] ] ++ nAcc
+            , reverse emittedBufs ++ bAcc
+            )
+  in  (V.fromList (reverse outNodes), V.fromList (reverse outBufs))
+
+-- | For a single top-level field, return @(#fieldNodes consumed,
+-- #source buffers consumed, output buffers in emission order)@.
+-- The output buffer list is what the RecordBatch should advertise
+-- after normalisation.
+normaliseField
+  :: Field
+  -> V.Vector FieldNode
+  -> V.Vector Buffer
+  -> Int
+  -> Int
+  -> (Int, Int, [Buffer])
+normaliseField f _nodes bufs _nIdx bIdx =
+  -- For now we handle only flat fields (no children). The
+  -- upstream encoder rejects nested children anyway so this stays
+  -- consistent. The per-type buffer counts match the
+  -- 'buffersPerField' table in "Arrow.Column" but /always/
+  -- prepend a validity slot for non-nullable fields.
+  let nulls = V.null (fieldChildren f)
+      nInputBufs = case fieldType f of
+        AInt {}            -> 1
+        ABool              -> 1
+        AFloatingPoint _   -> 1
+        AUtf8              -> 2
+        ABinary            -> 2
+        ALargeUtf8         -> 2
+        ALargeBinary       -> 2
+        AFixedSizeBinary _ -> 1
+        ADate _            -> 1
+        ATime _ _          -> 1
+        ATimestamp _ _     -> 1
+        ADuration _        -> 1
+        ADecimal _ _       -> 1
+        ADecimal256 _ _    -> 1
+        AInterval _        -> 1
+        _                  -> 1  -- conservative fallback
+      inputCount  = (if fieldNullable f then 1 else 0) + nInputBufs
+      srcBufs     = [ bufs V.! i | i <- [bIdx .. bIdx + inputCount - 1] ]
+      outBufs     = if fieldNullable f || not nulls
+                      then srcBufs
+                      else emptyValidityBuffer : srcBufs
+  in  (1, inputCount, outBufs)
+
+-- | Placeholder validity buffer: offset 0, length 0. Readers treat
+-- a zero-length validity buffer as "all values valid".
+emptyValidityBuffer :: Buffer
+emptyValidityBuffer = Buffer 0 0
+
+-- | Convenience: pyarrow-compatible Arrow IPC stream from columnar
+-- data. Calls 'buildRecordBatchBytes' per batch and wraps each in
+-- the encapsulated framing.
+writeArrowStreamFBFromColumns
+  :: Schema
+  -> V.Vector (V.Vector ColumnArray)
+  -> ByteString
+writeArrowStreamFBFromColumns sch batches =
+  writeArrowStreamFB sch
+    (V.toList (V.map (buildRecordBatchBytes sch) batches))
 
 -- | Arrow IPC /file/ format: @ARROW1\\0\\0@ prefix, stream payload,
 -- trailing @ARROW1@. Note: the real Arrow file format also emits a

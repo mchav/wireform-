@@ -73,7 +73,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | B.1 | Flat record batch materialization | — | **Done** |
 | B.2 | Nested types (struct, list), dictionaries | Symmetric | **Done** |
 | B.3 | Stream + file IPC + writer | Writer | **Done** (writer covers every `ColumnArray` constructor) |
-| B.4 | Golden IPC interop with pyarrow | Planned | Deferred (Arrow.IPC uses a simplified flatbuffer-shaped encoding; pyarrow interop requires a real FlatBuffers serializer) |
+| B.4 | Golden IPC interop with pyarrow | Symmetric | **Done** — `Arrow.FlatBufferIPC` emits standards-compliant FlatBuffers metadata; `writeArrowStreamFBFromColumns` produces bytes that `pyarrow.ipc.open_stream` decodes end-to-end (schema + record batches, primitive + variable-length + nullable columns) |
 | B.5 | f16, unsigned ints, unions, map, large binary/utf8, interval, fixed-size list, dictionary | Read + Write | **Done** (`Arrow.Column` materializers + `Arrow.Write.encodeCol` cover every `ArrowType`; `ADecimal256` is distinct from `ADecimal` to round-trip both widths) |
 | B.6 | wireform-arrow internal round-trip test suite | — | **Done** (`wireform-arrow/test/Main.hs`: every `ColumnArray` constructor survives a `writeArrowStream` + `readArrowStream` + `materializeRecordBatch` cycle) |
 

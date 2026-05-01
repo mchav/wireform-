@@ -9,6 +9,7 @@ module Wireform.Arrow
   , module Arrow.Types
   , module Arrow.File
   , module Arrow.Write
+  , module Arrow.FlatBufferIPC
   ) where
 
 import Arrow.Column
@@ -16,3 +17,4 @@ import Arrow.IPC
 import Arrow.Types
 import Arrow.File
 import Arrow.Write
+import Arrow.FlatBufferIPC
