@@ -37,10 +37,18 @@ module Proto.Extension
   , getExtension
   , setExtension
   , clearExtension
+    -- * Repeated extensions
+  , RepeatedExtension (..)
+  , getRepeatedExtension
+  , setRepeatedExtension
+  , appendRepeatedExtension
+  , clearRepeatedExtension
   ) where
 
-import Data.Bits (shiftL, shiftR, xor, (.&.))
+import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -208,6 +216,233 @@ encodeExtensionValue fn ty value = case ty of
   ExtString   -> UnknownLenDelim fn (TE.encodeUtf8 value)
   ExtBytes    -> UnknownLenDelim fn value
   ExtMessage  -> UnknownLenDelim fn value
+
+-- ============================================================
+-- Repeated extensions
+-- ============================================================
+
+-- | A typed repeated-extension descriptor. The 'reIsPacked' flag
+-- selects between protobuf's two repeated-on-the-wire encodings:
+--
+--   * 'False' (the proto2 default): one wire entry per element,
+--     all sharing the same field number.
+--   * 'True' (the proto3 default for fixed-width scalars; opt-in
+--     in proto2 via @[packed = true]@): a single
+--     length-delimited entry whose payload is the concatenation
+--     of every element. Only valid for fixed-width scalar types
+--     (varint integers, fixed32/64, float/double, bool); strings,
+--     bytes, and submessages always use the unpacked encoding.
+data RepeatedExtension msg a = RepeatedExtension
+  { reNumber   :: !Int
+  , reType     :: !(ExtensionType a)
+  , reIsPacked :: !Bool
+  }
+
+deriving stock instance Show (ExtensionType a) => Show (RepeatedExtension msg a)
+
+-- | Read every value associated with a repeated extension, in
+-- wire order (which matches the order the user wrote them). Both
+-- packed and unpacked encodings are accepted regardless of
+-- 'reIsPacked'; protobuf parsers must honour either form on read.
+getRepeatedExtension
+  :: HasExtensions msg => RepeatedExtension msg a -> msg -> [a]
+getRepeatedExtension ext msg =
+  concatMap decodeOne
+    [ uf
+    | uf <- messageUnknownFields msg
+    , unknownFieldNumber uf == reNumber ext
+    ]
+  where
+    decodeOne uf = case (reType ext, uf) of
+      -- Packed scalars can show up as a single UnknownLenDelim.
+      (ty, UnknownLenDelim _ payload)
+        | not (isLenDelimNative ty) -> decodePacked ty payload
+      -- Otherwise, decode as a single unpacked entry.
+      (ty, _) ->
+        case decodeExtensionValue ty uf of
+          Just v  -> [v]
+          Nothing -> []
+
+-- | Replace every occurrence of the extension with the given list,
+-- in order. Uses packed or unpacked encoding per 'reIsPacked' (the
+-- former requires fixed-width scalar types).
+setRepeatedExtension
+  :: HasExtensions msg => RepeatedExtension msg a -> [a] -> msg -> msg
+setRepeatedExtension ext values msg =
+  let !rest = filter (\uf -> unknownFieldNumber uf /= reNumber ext)
+                     (messageUnknownFields msg)
+      !fresh =
+        if reIsPacked ext && isPackable (reType ext)
+          then [packRepeated (reNumber ext) (reType ext) values]
+          else map (encodeExtensionValue (reNumber ext) (reType ext)) values
+  in setMessageUnknownFields (rest ++ fresh) msg
+
+-- | Append one element to a repeated extension. Always produces an
+-- unpacked entry; combine with 'setRepeatedExtension' to repack.
+appendRepeatedExtension
+  :: HasExtensions msg => RepeatedExtension msg a -> a -> msg -> msg
+appendRepeatedExtension ext value msg =
+  let !uf = encodeExtensionValue (reNumber ext) (reType ext) value
+  in  setMessageUnknownFields
+        (messageUnknownFields msg ++ [uf])
+        msg
+
+-- | Drop every entry for this repeated extension.
+clearRepeatedExtension
+  :: HasExtensions msg => RepeatedExtension msg a -> msg -> msg
+clearRepeatedExtension ext msg =
+  setMessageUnknownFields
+    (filter (\uf -> unknownFieldNumber uf /= reNumber ext)
+            (messageUnknownFields msg))
+    msg
+
+-- | Whether the given type's wire form is itself
+-- length-delimited. Only @string@, @bytes@, and @message@ are.
+isLenDelimNative :: ExtensionType a -> Bool
+isLenDelimNative = \case
+  ExtString  -> True
+  ExtBytes   -> True
+  ExtMessage -> True
+  _          -> False
+
+-- | Whether a packed encoding is permitted for this type. Per the
+-- protobuf spec only fixed-width scalars and varint integers are
+-- packable.
+isPackable :: ExtensionType a -> Bool
+isPackable ty = not (isLenDelimNative ty)
+
+-- | Decode the body of a packed-format @UnknownLenDelim@ entry
+-- into a list of values.
+decodePacked :: ExtensionType a -> ByteString -> [a]
+decodePacked ty bs = case ty of
+  ExtInt32    -> map fromIntegral (varintList bs)
+  ExtInt64    -> map fromIntegral (varintList bs)
+  ExtUInt32   -> map fromIntegral (varintList bs)
+  ExtUInt64   -> varintList bs
+  ExtSInt32   -> map zigzagDecode32 (varintList bs)
+  ExtSInt64   -> map zigzagDecode64 (varintList bs)
+  ExtBool     -> map (/= 0) (varintList bs)
+  ExtFixed32  -> chunked 4 readU32 bs
+  ExtSFixed32 -> map fromIntegral (chunked 4 readU32 bs)
+  ExtFloat    -> map castWord32ToFloat (chunked 4 readU32 bs)
+  ExtFixed64  -> chunked 8 readU64 bs
+  ExtSFixed64 -> map fromIntegral (chunked 8 readU64 bs)
+  ExtDouble   -> map castWord64ToDouble (chunked 8 readU64 bs)
+  -- LEN-delimited types can't be packed; treat the whole payload
+  -- as one unpacked element.
+  ExtString   -> case TE.decodeUtf8' bs of
+    Right t -> [t]; Left _ -> []
+  ExtBytes    -> [bs]
+  ExtMessage  -> [bs]
+
+-- | Pack a list of values into a single 'UnknownLenDelim' entry.
+packRepeated :: Int -> ExtensionType a -> [a] -> UnknownField
+packRepeated fn ty values =
+  let !payload = packedPayload ty values
+  in  UnknownLenDelim fn payload
+
+packedPayload :: ExtensionType a -> [a] -> ByteString
+packedPayload ty values =
+  BS8.concat $ map encodeOne values
+  where
+    encodeOne v = case ty of
+      ExtInt32    -> encodeVarint (fromIntegral v)
+      ExtInt64    -> encodeVarint (fromIntegral v)
+      ExtUInt32   -> encodeVarint (fromIntegral v)
+      ExtUInt64   -> encodeVarint v
+      ExtSInt32   -> encodeVarint (zigzagEncode32 v)
+      ExtSInt64   -> encodeVarint (zigzagEncode64 v)
+      ExtBool     -> encodeVarint (if v then 1 else 0)
+      ExtFixed32  -> writeU32 v
+      ExtSFixed32 -> writeU32 (fromIntegral v)
+      ExtFloat    -> writeU32 (castFloatToWord32 v)
+      ExtFixed64  -> writeU64 v
+      ExtSFixed64 -> writeU64 (fromIntegral v)
+      ExtDouble   -> writeU64 (castDoubleToWord64 v)
+      _ -> BS.empty   -- shouldn't be reachable: isPackable guards
+
+varintList :: ByteString -> [Word64]
+varintList bs0 = go bs0
+  where
+    go bs
+      | BS.null bs = []
+      | otherwise  = case readVarint bs of
+          Nothing      -> []
+          Just (v, rest) -> v : go rest
+
+readVarint :: ByteString -> Maybe (Word64, ByteString)
+readVarint bs0 = step 0 0 bs0
+  where
+    step !acc !shift bs
+      | BS.null bs = Nothing
+      | otherwise =
+          let b   = BS.head bs
+              acc' = acc + (fromIntegral (b .&. 0x7F) `shiftL` shift)
+          in  if b < 0x80
+                then Just (acc', BS.tail bs)
+                else step acc' (shift + 7) (BS.tail bs)
+
+encodeVarint :: Word64 -> ByteString
+encodeVarint n0 = BS.pack (go n0)
+  where
+    go n
+      | n < 0x80  = [fromIntegral n]
+      | otherwise = (fromIntegral (n .&. 0x7F) .|. 0x80) : go (n `shiftR` 7)
+
+writeU32 :: Word32 -> ByteString
+writeU32 w = BS.pack
+  [ fromIntegral w
+  , fromIntegral (w `shiftR` 8)
+  , fromIntegral (w `shiftR` 16)
+  , fromIntegral (w `shiftR` 24)
+  ]
+
+writeU64 :: Word64 -> ByteString
+writeU64 w = BS.pack
+  [ fromIntegral w
+  , fromIntegral (w `shiftR` 8)
+  , fromIntegral (w `shiftR` 16)
+  , fromIntegral (w `shiftR` 24)
+  , fromIntegral (w `shiftR` 32)
+  , fromIntegral (w `shiftR` 40)
+  , fromIntegral (w `shiftR` 48)
+  , fromIntegral (w `shiftR` 56)
+  ]
+
+readU32 :: ByteString -> Word32
+readU32 bs =
+  let b0 = fromIntegral (BS.index bs 0) :: Word32
+      b1 = fromIntegral (BS.index bs 1) :: Word32
+      b2 = fromIntegral (BS.index bs 2) :: Word32
+      b3 = fromIntegral (BS.index bs 3) :: Word32
+  in  b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
+
+readU64 :: ByteString -> Word64
+readU64 bs =
+  let b0 = fromIntegral (BS.index bs 0) :: Word64
+      b1 = fromIntegral (BS.index bs 1) :: Word64
+      b2 = fromIntegral (BS.index bs 2) :: Word64
+      b3 = fromIntegral (BS.index bs 3) :: Word64
+      b4 = fromIntegral (BS.index bs 4) :: Word64
+      b5 = fromIntegral (BS.index bs 5) :: Word64
+      b6 = fromIntegral (BS.index bs 6) :: Word64
+      b7 = fromIntegral (BS.index bs 7) :: Word64
+  in  b0
+    .|. (b1 `shiftL` 8)
+    .|. (b2 `shiftL` 16)
+    .|. (b3 `shiftL` 24)
+    .|. (b4 `shiftL` 32)
+    .|. (b5 `shiftL` 40)
+    .|. (b6 `shiftL` 48)
+    .|. (b7 `shiftL` 56)
+
+chunked :: Int -> (ByteString -> a) -> ByteString -> [a]
+chunked n decode bs0 = go bs0
+  where
+    go bs
+      | BS.length bs < n = []
+      | otherwise =
+          decode (BS.take n bs) : go (BS.drop n bs)
 
 -- Zig-zag encodings per the protobuf spec.
 zigzagEncode32 :: Int32 -> Word64

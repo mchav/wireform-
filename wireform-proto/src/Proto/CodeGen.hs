@@ -1728,41 +1728,56 @@ genExtensionBlock ctx scope extOwnerName fields =
       ownerPrefix = lowerFirst (hsTypeName ownerProtoShort)
   in concatMap (genOneExtension ctx scope ownerHsType ownerPrefix) fields
 
--- Generate one @Extension <owner> <payload>@ binding.
+-- Generate one @Extension <owner> <payload>@ (or
+-- @RepeatedExtension <owner> <payload>@) binding.
 genOneExtension
   :: GenCtx -> [Text] -> Text -> Text -> FieldDef -> [Doc ann]
-genOneExtension ctx _scope ownerHsType ownerPrefix fd =
+genOneExtension _ctx _scope ownerHsType ownerPrefix fd =
   let fieldNameHs = escapeReserved
         (ownerPrefix <> upperFirst (snakeToCamel (fieldName fd)))
       num = unFieldNumber (fieldNumber fd)
-  in case extensionPayload (fieldLabel fd) (fieldType fd) of
+      repeated = fieldLabel fd == Just Repeated
+      packed = repeated && case fieldType fd of
+        FTScalar s -> packableScalar s
+        _          -> False
+      payload = extensionPayloadCore (fieldType fd)
+  in case payload of
        Nothing ->
          [ mempty
          , txt "-- WARNING: extension '" <> pretty (fieldName fd) <>
-           txt "' uses an unsupported shape (repeated or group) and"
-         , txt "-- was skipped. Use dynamic decode + Proto.Extension.Extension"
-         , txt "-- manually if you need it."
+           txt "' uses an unsupported shape and was skipped."
          ]
        Just (haskellType, extTag) ->
-         [ mempty
-         , txt fieldNameHs <> txt " :: Proto.Extension.Extension " <>
-           pretty ownerHsType <> txt " " <> haskellType
-         , txt fieldNameHs <> txt " = Proto.Extension.Extension"
-         , indent 2 $ txt "{ Proto.Extension.extNumber = " <> pretty (tshow num)
-         , indent 2 $ txt ", Proto.Extension.extType   = Proto.Extension." <>
-           pretty extTag
-         , indent 2 $ txt "}"
-         ]
+         if repeated
+           then
+             [ mempty
+             , txt fieldNameHs <> txt " :: Proto.Extension.RepeatedExtension " <>
+               pretty ownerHsType <> txt " " <> haskellType
+             , txt fieldNameHs <> txt " = Proto.Extension.RepeatedExtension"
+             , indent 2 $ txt "{ Proto.Extension.reNumber   = " <> pretty (tshow num)
+             , indent 2 $ txt ", Proto.Extension.reType     = Proto.Extension." <>
+               pretty extTag
+             , indent 2 $ txt ", Proto.Extension.reIsPacked = " <>
+               (if packed then txt "True" else txt "False")
+             , indent 2 $ txt "}"
+             ]
+           else
+             [ mempty
+             , txt fieldNameHs <> txt " :: Proto.Extension.Extension " <>
+               pretty ownerHsType <> txt " " <> haskellType
+             , txt fieldNameHs <> txt " = Proto.Extension.Extension"
+             , indent 2 $ txt "{ Proto.Extension.extNumber = " <> pretty (tshow num)
+             , indent 2 $ txt ", Proto.Extension.extType   = Proto.Extension." <>
+               pretty extTag
+             , indent 2 $ txt "}"
+             ]
 
--- | Project a proto 'FieldType' (+ label) onto the pair @(Haskell
--- type, 'ExtensionType' constructor name)@ that the
--- 'Proto.Extension.ExtensionType' GADT expects. Returns 'Nothing'
--- for unsupported shapes (repeated, group, named enums) so the
--- caller can emit a warning without crashing.
-extensionPayload
-  :: Maybe FieldLabel -> FieldType -> Maybe (Doc ann, Text)
-extensionPayload (Just Repeated) _ = Nothing
-extensionPayload _ (FTScalar s)   = case s of
+-- | Project a proto 'FieldType' onto @(Haskell type,
+-- 'ExtensionType' constructor name)@. The label-aware split is now
+-- the caller's job: 'genOneExtension' picks Extension vs.
+-- RepeatedExtension based on @fieldLabel@.
+extensionPayloadCore :: FieldType -> Maybe (Doc ann, Text)
+extensionPayloadCore (FTScalar s) = case s of
   SDouble   -> Just (txt "Double",    "ExtDouble")
   SFloat    -> Just (txt "Float",     "ExtFloat")
   SInt32    -> Just (txt "Int32",     "ExtInt32")
@@ -1778,10 +1793,17 @@ extensionPayload _ (FTScalar s)   = case s of
   SBool     -> Just (txt "Bool",      "ExtBool")
   SString   -> Just (txt "Text",      "ExtString")
   SBytes    -> Just (txt "ByteString", "ExtBytes")
--- Message-typed extensions carry the sub-message's raw length-
--- delimited bytes. Callers use Proto.Decode.decodeMessage to
--- re-project when they want the typed sub-message back.
-extensionPayload _ (FTNamed _) = Just (txt "ByteString", "ExtMessage")
+extensionPayloadCore (FTNamed _) =
+  Just (txt "ByteString", "ExtMessage")
+extensionPayloadCore _ = Nothing
+
+-- | Whether a scalar can use the packed encoding (proto2 default
+-- false; proto3 default true). Strings and bytes can't.
+packableScalar :: ScalarType -> Bool
+packableScalar = \case
+  SString -> False
+  SBytes  -> False
+  _       -> True
 
 -- Resolve an extended type name to its Haskell module-qualified
 -- form. Same logic as 'qualifyRpcType' in 'genServiceTopLevel'.

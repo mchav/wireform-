@@ -797,38 +797,60 @@ lastProtoSegment t = case T.splitOn "." t of
   []    -> t
   parts -> last parts
 
--- | Generate the two declarations for one extension field: a
--- type signature plus a value binding.
+-- | Generate the declarations for one extension field. Singular
+-- fields produce a 'Ext.Extension' descriptor; repeated fields
+-- produce a 'Ext.RepeatedExtension' (with the
+-- 'Ext.reIsPacked' flag set per the field's @[packed = ...]@
+-- option, defaulting to 'False' for proto2 / 'True' for fixed-width
+-- packable scalars in proto3).
 oneExtensionDec :: Name -> Text -> FieldDef -> Q [Dec]
-oneExtensionDec ownerHs ownerPrefix fd =
-  case thExtensionPayload (fieldLabel fd) (fieldType fd) of
-    Nothing ->
-      -- Repeated / group / unsupported shape: skip silently at the
-      -- TH level (the non-TH 'Proto.CodeGen' path emits a warning
-      -- comment; in TH we don't have a comment channel).
-      pure []
-    Just (hsTy, extConName) -> do
-      let extName = mkName
-            (T.unpack
-               (escapeReserved
-                  (ownerPrefix <> upperFirst (snakeToCamel (fieldName fd)))))
-          num = unFieldNumber (fieldNumber fd)
-          extConE = conE (mkName ("Ext." <> T.unpack extConName))
-      sig <- sigD extName
-        [t| Ext.Extension $(conT ownerHs) $(pure hsTy) |]
-      body <- valD (varP extName)
-        (normalB [| Ext.Extension
-                      { Ext.extNumber = $(litE (IntegerL (fromIntegral num)))
-                      , Ext.extType   = $extConE
-                      } |]) []
-      pure [sig, body]
+oneExtensionDec ownerHs ownerPrefix fd = case fieldLabel fd of
+  Just Repeated ->
+    case thExtensionPayloadCore (fieldType fd) of
+      Nothing -> pure []
+      Just (hsTy, extConName) -> do
+        let extName = mkName
+              (T.unpack
+                 (escapeReserved
+                    (ownerPrefix <> upperFirst (snakeToCamel (fieldName fd)))))
+            num = unFieldNumber (fieldNumber fd)
+            extConE = conE (mkName ("Ext." <> T.unpack extConName))
+            packed = case fieldType fd of
+              FTScalar s -> packableScalar s
+              _          -> False
+        sig <- sigD extName
+          [t| Ext.RepeatedExtension $(conT ownerHs) $(pure hsTy) |]
+        body <- valD (varP extName)
+          (normalB [| Ext.RepeatedExtension
+                        { Ext.reNumber   = $(litE (IntegerL (fromIntegral num)))
+                        , Ext.reType     = $extConE
+                        , Ext.reIsPacked = $(if packed then [| True |] else [| False |])
+                        } |]) []
+        pure [sig, body]
+  _ ->
+    case thExtensionPayloadCore (fieldType fd) of
+      Nothing -> pure []
+      Just (hsTy, extConName) -> do
+        let extName = mkName
+              (T.unpack
+                 (escapeReserved
+                    (ownerPrefix <> upperFirst (snakeToCamel (fieldName fd)))))
+            num = unFieldNumber (fieldNumber fd)
+            extConE = conE (mkName ("Ext." <> T.unpack extConName))
+        sig <- sigD extName
+          [t| Ext.Extension $(conT ownerHs) $(pure hsTy) |]
+        body <- valD (varP extName)
+          (normalB [| Ext.Extension
+                        { Ext.extNumber = $(litE (IntegerL (fromIntegral num)))
+                        , Ext.extType   = $extConE
+                        } |]) []
+        pure [sig, body]
 
--- | Map a proto @(label, type)@ to the Haskell type + the
--- corresponding 'Proto.Extension.ExtensionType' constructor name.
--- 'Nothing' for unsupported shapes.
-thExtensionPayload :: Maybe FieldLabel -> FieldType -> Maybe (Type, Text)
-thExtensionPayload (Just Repeated) _ = Nothing
-thExtensionPayload _ (FTScalar s)    = Just $ case s of
+-- | Core type/constructor mapping shared by singular and repeated
+-- extensions. (Singular extensions previously rejected repeated
+-- shapes via 'thExtensionPayload'.)
+thExtensionPayloadCore :: FieldType -> Maybe (Type, Text)
+thExtensionPayloadCore (FTScalar s) = Just $ case s of
   SDouble   -> (ConT ''Double,   "ExtDouble")
   SFloat    -> (ConT ''Float,    "ExtFloat")
   SInt32    -> (ConT ''Int32,    "ExtInt32")
@@ -844,8 +866,17 @@ thExtensionPayload _ (FTScalar s)    = Just $ case s of
   SBool     -> (ConT ''Bool,     "ExtBool")
   SString   -> (ConT ''Text,     "ExtString")
   SBytes    -> (ConT ''ByteString, "ExtBytes")
-thExtensionPayload _ (FTNamed _) =
+thExtensionPayloadCore (FTNamed _) =
   Just (ConT ''ByteString, "ExtMessage")
+thExtensionPayloadCore _ = Nothing
+
+-- | Whether a scalar is permitted to be packed on the wire.
+packableScalar :: ScalarType -> Bool
+packableScalar = \case
+  SString -> False
+  SBytes  -> False
+  _       -> True
+
 
 upperFirst :: Text -> Text
 upperFirst t = case T.uncons t of

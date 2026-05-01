@@ -48,6 +48,28 @@ main = do
       putStrLn $ "  tag ext:      " <> show (Ext.getExtension accountTag recovered)
       putStrLn $ "  disabled ext: " <> show (Ext.getExtension accountDisabled recovered)
 
+  -- Repeated extensions: scalars, packed scalars, strings.
+  let a3a = Ext.setRepeatedExtension accountScores       [10, 20, 30] a3
+      a3b = Ext.setRepeatedExtension accountPackedScores [1, 2, 3, 4] a3a
+      a3c = Ext.setRepeatedExtension accountAliases      ["a","bb","ccc"] a3b
+      a3d = Ext.appendRepeatedExtension accountScores 99 a3c
+  putStrLn ""
+  putStrLn "Repeated extensions:"
+  putStrLn $ "  scores:        " <> show (Ext.getRepeatedExtension accountScores a3d)
+  putStrLn $ "  packed_scores: " <> show (Ext.getRepeatedExtension accountPackedScores a3d)
+  putStrLn $ "  aliases:       " <> show (Ext.getRepeatedExtension accountAliases a3d)
+
+  -- Round-trip: encode + decode should preserve repeated extensions
+  -- in both packed and unpacked encodings.
+  let rtBytes = encodeMessage a3d
+  case decodeMessage rtBytes of
+    Left err -> putStrLn $ "  decode error: " <> show err
+    Right (rt :: Account) -> do
+      putStrLn $ "After repeated round-trip (" <> show (BS.length rtBytes) <> " bytes):"
+      putStrLn $ "  scores:        " <> show (Ext.getRepeatedExtension accountScores rt)
+      putStrLn $ "  packed_scores: " <> show (Ext.getRepeatedExtension accountPackedScores rt)
+      putStrLn $ "  aliases:       " <> show (Ext.getRepeatedExtension accountAliases rt)
+
   -- Clearing an extension is the inverse of setExtension.
   let a4 = Ext.clearExtension accountTag a3
   putStrLn ""
