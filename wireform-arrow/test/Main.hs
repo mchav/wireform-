@@ -28,6 +28,12 @@ import Arrow.Column
   , materializeRecordBatch
   )
 import Arrow.File (asBatches, asSchema, readArrowStream)
+import Arrow.FlatBufferIPC
+  ( buildSchemaMessage
+  , decodeSchemaMessage
+  , readArrowStreamFB
+  , writeArrowStreamFBFromColumns
+  )
 import Arrow.Types
 import Arrow.Write (writeArrowStream)
 
@@ -242,7 +248,72 @@ main = do
          , ColInt32 (VP.fromList [0, 42, 0])
          ]))
 
+  -- FlatBuffers reader / writer round-trip: build a typical
+  -- multi-column batch with the FB writer, parse back with the FB
+  -- reader, assert schema equality.
+  flatBufRoundTrip
+  flatBufSchemaSelfCheck
+
   putStrLn "All wireform-arrow round-trip tests passed."
+
+flatBufSchemaSelfCheck :: IO ()
+flatBufSchemaSelfCheck = do
+  let cases =
+        [ Schema (V.fromList [plainField "a" False (AInt 32 True)]) Little
+        , Schema (V.fromList
+            [ plainField "id"     False (AInt 64 True)
+            , plainField "name"   True  AUtf8
+            , plainField "amount" False (ADecimal 12 4)
+            , plainField "ts"     True  (ATimestamp Nanosecond (Just "UTC"))
+            , plainField "blob"   True  ABinary
+            , plainField "tag"    False (AFixedSizeBinary 16)
+            ]) Little
+        ]
+  mapM_ (\sch -> do
+            let bs = buildSchemaMessage sch
+            case decodeSchemaMessage bs of
+              Right got | got == sch ->
+                putStrLn $ "OK: FlatBuffers schema self-roundtrip: " ++ describe sch
+              Right got ->
+                failTest $ "FB schema roundtrip mismatch:\n got: "
+                            ++ show got ++ "\n exp: " ++ show sch
+              Left e ->
+                failTest $ "FB schema roundtrip decode failed: " ++ e
+        ) cases
+  where
+    describe sch =
+      "(" ++ show (V.length (arrowFields sch)) ++ " field"
+        ++ (if V.length (arrowFields sch) == 1 then "" else "s") ++ ")"
+
+flatBufRoundTrip :: IO ()
+flatBufRoundTrip = do
+  let sch = Schema
+        { arrowFields = V.fromList
+            [ plainField "i" False (AInt 32 True)
+            , plainField "s" True  AUtf8
+            ]
+        , arrowEndianness = Little
+        }
+      cols = V.fromList
+        [ ColInt32      (VP.fromList ([1, 2, 3] :: [Int32]))
+        , ColUtf8Maybe  (V.fromList [Just "x", Nothing, Just "z"])
+        ]
+      bytes = writeArrowStreamFBFromColumns sch (V.singleton cols)
+  case readArrowStreamFB bytes of
+    Left e ->
+      failTest $ "FlatBuffers stream parse failed: " ++ e
+    Right (sch', batches)
+      | sch' /= sch ->
+          failTest $ "FB roundtrip schema mismatch:\n got " ++ show sch'
+                    ++ "\n exp " ++ show sch
+      | length batches /= 1 ->
+          failTest $ "FB roundtrip expected 1 batch, got "
+                    ++ show (length batches)
+      | otherwise -> do
+          let (rb, _body) = head batches
+          if rbLength rb == 3
+            then putStrLn "OK: FlatBuffers stream writer/reader round-trip"
+            else failTest $ "FB roundtrip rbLength: " ++ show (rbLength rb)
 
 -- | Build a simple leaf field with no children.
 plainField :: Text -> Bool -> ArrowType -> Field

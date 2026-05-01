@@ -38,9 +38,13 @@ module Arrow.FlatBufferIPC
     -- * Column-based convenience writer
   , buildRecordBatchBytes
   , writeArrowStreamFBFromColumns
+    -- * Reader (parses pyarrow / arrow-cpp output)
+  , readArrowStreamFB
+  , decodeSchemaMessage
+  , decodeRecordBatchMessage
   ) where
 
-import Data.Bits ((.&.), complement)
+import Data.Bits ((.&.), (.|.), complement, shiftL)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -887,3 +891,458 @@ writeArrowFileFB sch batches =
   let !magic = "ARROW1"
       !stream = writeArrowStreamFB sch batches
   in BS.concat [magic, BS.pack [0, 0], stream, magic]
+
+-- ============================================================
+-- Reader: pyarrow / arrow-cpp / arrow-rs → wireform
+-- ============================================================
+--
+-- The reader is the symmetric inverse of the writer. It walks the
+-- FlatBuffer by chasing 'soffset_t' / 'uoffset_t' fields and never
+-- materialises a generic 'Value' representation in between (the
+-- writer's vtable layout is shared, so the reader stays small).
+--
+-- The reader accepts the encapsulated stream framing emitted by the
+-- standard Arrow implementations:
+--
+-- @
+--   <continuation 0xFFFFFFFF : u32>
+--   <metadata_length : i32>
+--   <metadata flatbuffer + padding>
+--   <body bytes>          -- bodyLength of them, then padding to 8
+--   ... repeats per message ...
+--   <continuation 0xFFFFFFFF : u32>
+--   <metadata_length 0>   -- EOS marker
+-- @
+--
+-- Older producers (arrow-cpp < 0.15) omit the continuation marker
+-- and write a positive @metadata_length@ as the first field; both
+-- shapes are recognised. (See @ConsumeInitial@ in arrow-cpp's
+-- @message.cc@ for the canonical decoder logic.)
+
+-- | A position in the metadata flatbuffer.
+type Pos = Int
+
+-- | Read a u16 (LE) at byte position @off@ in @bs@.
+peekU16 :: ByteString -> Pos -> Either String Word16
+peekU16 bs off
+  | off + 2 > BS.length bs = Left "Arrow.FlatBufferIPC: peekU16 out of range"
+  | otherwise =
+      let !b0 = fromIntegral (BS.index bs off)       :: Word16
+          !b1 = fromIntegral (BS.index bs (off + 1)) :: Word16
+      in  Right (b0 .|. (b1 `shiftL` 8))
+
+peekU32 :: ByteString -> Pos -> Either String Word32
+peekU32 bs off
+  | off + 4 > BS.length bs = Left "Arrow.FlatBufferIPC: peekU32 out of range"
+  | otherwise =
+      let !b0 = fromIntegral (BS.index bs off)       :: Word32
+          !b1 = fromIntegral (BS.index bs (off + 1)) :: Word32
+          !b2 = fromIntegral (BS.index bs (off + 2)) :: Word32
+          !b3 = fromIntegral (BS.index bs (off + 3)) :: Word32
+      in  Right (b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24))
+
+peekI32 :: ByteString -> Pos -> Either String Int32
+peekI32 bs off = fromIntegral <$> peekU32 bs off
+
+peekI16 :: ByteString -> Pos -> Either String Int16
+peekI16 bs off = fromIntegral <$> peekU16 bs off
+
+peekI64 :: ByteString -> Pos -> Either String Int64
+peekI64 bs off = do
+  lo <- peekU32 bs off
+  hi <- peekU32 bs (off + 4)
+  Right $! fromIntegral $!
+    (fromIntegral hi `shiftL` 32 :: Int64) + fromIntegral lo
+
+peekU8 :: ByteString -> Pos -> Either String Word8
+peekU8 bs off
+  | off >= BS.length bs = Left "Arrow.FlatBufferIPC: peekU8 out of range"
+  | otherwise = Right (BS.index bs off)
+
+-- | Resolve a table at @tablePos@ and return @(vtablePos, tableSize)@
+-- plus a function that maps slot index to its absolute byte offset
+-- (or 'Nothing' if the slot is absent / beyond vtable).
+resolveTable :: ByteString -> Pos -> Either String (Int -> Maybe Pos)
+resolveTable bs tablePos = do
+  soff <- peekI32 bs tablePos
+  let vtablePos = tablePos - fromIntegral soff
+  when' (vtablePos < 0 || vtablePos >= BS.length bs) $
+    Left "Arrow.FlatBufferIPC: vtable out of bounds"
+  vtSize <- peekU16 bs vtablePos
+  let nSlots = (fromIntegral vtSize - 4) `div` 2 :: Int
+  Right $ \i ->
+    if i >= nSlots
+      then Nothing
+      else case peekU16 bs (vtablePos + 4 + 2 * i) of
+        Left _    -> Nothing
+        Right 0   -> Nothing
+        Right off -> Just (tablePos + fromIntegral off)
+
+when' :: Bool -> Either String () -> Either String ()
+when' True  e = e
+when' False _ = Right ()
+
+-- | Follow a u32 uoffset at @fieldPos@ to the absolute byte
+-- position of the referenced object.
+followUOffset :: ByteString -> Pos -> Either String Pos
+followUOffset bs fieldPos = do
+  rel <- peekU32 bs fieldPos
+  Right (fieldPos + fromIntegral rel)
+
+-- | Decode a UTF-8 string at the given uoffset target position.
+readString :: ByteString -> Pos -> Either String T.Text
+readString bs strPos = do
+  len <- peekU32 bs strPos
+  let n  = fromIntegral len :: Int
+      !b = BS.take n (BS.drop (strPos + 4) bs)
+  case TE.decodeUtf8' b of
+    Left _  -> Left "Arrow.FlatBufferIPC: invalid UTF-8 in string"
+    Right t -> Right t
+
+-- | Decode a vector of @uoffset_t@ table references.
+readVectorOfOffsets :: ByteString -> Pos -> Either String (V.Vector Pos)
+readVectorOfOffsets bs vecPos = do
+  n <- peekU32 bs vecPos
+  let elemPositions = V.generate (fromIntegral n) $ \i ->
+        let !ePos = vecPos + 4 + 4 * i
+        in  case peekU32 bs ePos of
+              Left _    -> ePos
+              Right rel -> ePos + fromIntegral rel
+  Right elemPositions
+
+-- | Decode a vector of fixed-size inline structs. Returns the
+-- byte position of each element start.
+readVectorOfStructs
+  :: ByteString
+  -> Pos
+  -> Int   -- ^ stride (per-struct size)
+  -> Either String (Int, V.Vector Pos)
+readVectorOfStructs bs vecPos stride = do
+  n <- peekU32 bs vecPos
+  let elems = V.generate (fromIntegral n) (\i -> vecPos + 4 + i * stride)
+  Right (fromIntegral n, elems)
+
+-- | Decode a complete @Schema@ table at the given position.
+readSchemaTable :: ByteString -> Pos -> Either String Schema
+readSchemaTable bs schPos = do
+  slot <- resolveTable bs schPos
+  endian <- case slot 0 of
+    Nothing -> Right Little
+    Just p  -> do
+      v <- peekI16 bs p
+      case v of
+        0 -> Right Little
+        1 -> Right Big
+        _ -> Left ("Arrow.FlatBufferIPC: unknown endianness " ++ show v)
+  fieldsVec <- case slot 1 of
+    Nothing -> Right V.empty
+    Just p  -> do
+      vecPos <- followUOffset bs p
+      readVectorOfOffsets bs vecPos
+  fields <- V.mapM (readField bs) fieldsVec
+  Right Schema { arrowFields = fields, arrowEndianness = endian }
+
+-- | Decode one @Field@ table.
+readField :: ByteString -> Pos -> Either String Field
+readField bs fldPos = do
+  slot <- resolveTable bs fldPos
+  name <- case slot 0 of
+    Nothing -> Right ""
+    Just p  -> do
+      strPos <- followUOffset bs p
+      readString bs strPos
+  nullable <- case slot 1 of
+    Nothing -> Right False
+    Just p  -> do
+      v <- peekU8 bs p
+      Right (v /= 0)
+  tyTag <- case slot 2 of
+    Nothing -> Right 0
+    Just p  -> peekU8 bs p
+  ty <- case slot 3 of
+    Nothing  -> readType bs (fromIntegral tyTag) Nothing
+    Just p   -> do
+      tyPos <- followUOffset bs p
+      readType bs (fromIntegral tyTag) (Just tyPos)
+  children <- case slot 5 of
+    Nothing -> Right V.empty
+    Just p  -> do
+      vecPos <- followUOffset bs p
+      childPositions <- readVectorOfOffsets bs vecPos
+      V.mapM (readField bs) childPositions
+  Right Field
+    { fieldName     = name
+    , fieldNullable = nullable
+    , fieldType     = ty
+    , fieldChildren = children
+    }
+
+-- | Decode a @Type@ union variant. The discriminator (@type_type@)
+-- selects which sub-table layout to read at @typePos@.
+readType :: ByteString -> Int -> Maybe Pos -> Either String ArrowType
+readType _  0 _ = Right ANull   -- "None" / Null
+readType _  1 _ = Right ANull
+readType bs 2 (Just p) = do
+  -- Int { bitWidth: i32, is_signed: bool }
+  s <- resolveTable bs p
+  bits <- case s 0 of
+    Nothing -> Right 32
+    Just b  -> peekI32 bs b
+  signed <- case s 1 of
+    Nothing -> Right True
+    Just b  -> do
+      v <- peekU8 bs b
+      Right (v /= 0)
+  Right (AInt (fromIntegral bits) signed)
+readType bs 3 (Just p) = do
+  -- FloatingPoint { precision: i16 }
+  s <- resolveTable bs p
+  prec <- case s 0 of
+    Nothing -> Right 1
+    Just b  -> peekI16 bs b
+  case prec of
+    0 -> Right (AFloatingPoint Half)
+    1 -> Right (AFloatingPoint Single)
+    2 -> Right (AFloatingPoint DoublePrecision)
+    n -> Left $ "Arrow.FlatBufferIPC: unknown precision " ++ show n
+readType _  4 _ = Right ABinary
+readType _  5 _ = Right AUtf8
+readType _  6 _ = Right ABool
+readType bs 7 (Just p) = do
+  s <- resolveTable bs p
+  prec  <- case s 0 of { Nothing -> Right 0; Just b -> peekI32 bs b }
+  scale <- case s 1 of { Nothing -> Right 0; Just b -> peekI32 bs b }
+  bw    <- case s 2 of { Nothing -> Right 128; Just b -> peekI32 bs b }
+  case bw of
+    128 -> Right (ADecimal (fromIntegral prec) (fromIntegral scale))
+    256 -> Right (ADecimal256 (fromIntegral prec) (fromIntegral scale))
+    n   -> Left $ "Arrow.FlatBufferIPC: unsupported decimal bitWidth " ++ show n
+readType bs 8 (Just p) = do
+  s <- resolveTable bs p
+  u <- case s 0 of { Nothing -> Right 1; Just b -> peekI16 bs b }
+  case u of
+    0 -> Right (ADate DateDay)
+    1 -> Right (ADate DateMillisecond)
+    n -> Left $ "Arrow.FlatBufferIPC: unknown date unit " ++ show n
+readType bs 9 (Just p) = do
+  s <- resolveTable bs p
+  u  <- case s 0 of { Nothing -> Right 1;  Just b -> peekI16 bs b }
+  bw <- case s 1 of { Nothing -> Right 32; Just b -> peekI32 bs b }
+  unit <- timeUnitFromTag (fromIntegral u)
+  Right (ATime unit (fromIntegral bw))
+readType bs 10 (Just p) = do
+  s <- resolveTable bs p
+  u  <- case s 0 of { Nothing -> Right 0; Just b -> peekI16 bs b }
+  tz <- case s 1 of
+    Nothing -> Right Nothing
+    Just b  -> do
+      strPos <- followUOffset bs b
+      Just <$> readString bs strPos
+  unit <- timeUnitFromTag (fromIntegral u)
+  Right (ATimestamp unit tz)
+readType bs 11 (Just p) = do
+  s <- resolveTable bs p
+  u <- case s 0 of { Nothing -> Right 0; Just b -> peekI16 bs b }
+  iu <- case u of
+    0 -> Right YearMonth
+    1 -> Right DayTime
+    2 -> Right MonthDayNano
+    n -> Left $ "Arrow.FlatBufferIPC: unknown interval unit " ++ show n
+  Right (AInterval iu)
+readType _  12 _ = Right AList
+readType _  13 _ = Right AStruct
+readType bs 14 (Just p) = do
+  s <- resolveTable bs p
+  m <- case s 0 of { Nothing -> Right 0; Just b -> peekI16 bs b }
+  mode <- case m of
+    0 -> Right Sparse
+    1 -> Right Dense
+    n -> Left $ "Arrow.FlatBufferIPC: unknown union mode " ++ show n
+  ids <- case s 1 of
+    Nothing -> Right V.empty
+    Just b  -> do
+      vecPos <- followUOffset bs b
+      n <- peekU32 bs vecPos
+      V.generateM (fromIntegral n) (\i ->
+        peekI32 bs (vecPos + 4 + 4 * i))
+  Right (AUnion mode ids)
+readType bs 15 (Just p) = do
+  s <- resolveTable bs p
+  bw <- case s 0 of { Nothing -> Right 0; Just b -> peekI32 bs b }
+  Right (AFixedSizeBinary (fromIntegral bw))
+readType bs 16 (Just p) = do
+  s <- resolveTable bs p
+  ls <- case s 0 of { Nothing -> Right 0; Just b -> peekI32 bs b }
+  Right (AFixedSizeList (fromIntegral ls))
+readType bs 17 (Just p) = do
+  s <- resolveTable bs p
+  sorted <- case s 0 of
+    Nothing -> Right False
+    Just b  -> do
+      v <- peekU8 bs b
+      Right (v /= 0)
+  Right (AMap sorted)
+readType bs 18 (Just p) = do
+  s <- resolveTable bs p
+  u <- case s 0 of { Nothing -> Right 1; Just b -> peekI16 bs b }
+  unit <- timeUnitFromTag (fromIntegral u)
+  Right (ADuration unit)
+readType _  19 _ = Right ALargeBinary
+readType _  20 _ = Right ALargeUtf8
+readType _  21 _ = Right ALargeList
+readType _  n  _ = Left $ "Arrow.FlatBufferIPC: unsupported Type discriminator " ++ show n
+
+timeUnitFromTag :: Int -> Either String TimeUnit
+timeUnitFromTag 0 = Right Second
+timeUnitFromTag 1 = Right Millisecond
+timeUnitFromTag 2 = Right Microsecond
+timeUnitFromTag 3 = Right Nanosecond
+timeUnitFromTag n = Left $ "Arrow.FlatBufferIPC: unknown time unit " ++ show n
+
+-- | Decode a @RecordBatch@ table.
+readRecordBatchTable :: ByteString -> Pos -> Either String RecordBatchDef
+readRecordBatchTable bs rbPos = do
+  s <- resolveTable bs rbPos
+  len <- case s 0 of
+    Nothing -> Right 0
+    Just b  -> peekI64 bs b
+  nodes <- case s 1 of
+    Nothing -> Right V.empty
+    Just b  -> do
+      vecPos <- followUOffset bs b
+      (_, elems) <- readVectorOfStructs bs vecPos 16
+      V.mapM (\ep -> do
+                l <- peekI64 bs ep
+                nc <- peekI64 bs (ep + 8)
+                Right (FieldNode l nc)) elems
+  bufs <- case s 2 of
+    Nothing -> Right V.empty
+    Just b  -> do
+      vecPos <- followUOffset bs b
+      (_, elems) <- readVectorOfStructs bs vecPos 16
+      V.mapM (\ep -> do
+                o <- peekI64 bs ep
+                l <- peekI64 bs (ep + 8)
+                Right (Buffer o l)) elems
+  Right RecordBatchDef
+    { rbLength  = len
+    , rbNodes   = nodes
+    , rbBuffers = bufs
+    }
+
+-- | Decode a Schema-typed @Message@ flatbuffer (just the metadata
+-- bytes; the caller has already stripped the encapsulated framing).
+decodeSchemaMessage :: ByteString -> Either String Schema
+decodeSchemaMessage meta = do
+  msgPos <- fromIntegral <$> peekU32 meta 0
+  s <- resolveTable meta msgPos
+  ht <- case s 1 of
+    Nothing -> Left "Arrow.FlatBufferIPC: Message header_type missing"
+    Just b  -> peekU8 meta b
+  when' (ht /= 1) $
+    Left ("Arrow.FlatBufferIPC: expected Schema header (1), got " ++ show ht)
+  case s 2 of
+    Nothing -> Left "Arrow.FlatBufferIPC: Message header (Schema) missing"
+    Just b  -> do
+      schPos <- followUOffset meta b
+      readSchemaTable meta schPos
+
+-- | Decode a RecordBatch-typed @Message@ flatbuffer to
+-- @(RecordBatchDef, bodyLength)@.
+decodeRecordBatchMessage :: ByteString -> Either String (RecordBatchDef, Int64)
+decodeRecordBatchMessage meta = do
+  msgPos <- fromIntegral <$> peekU32 meta 0
+  s <- resolveTable meta msgPos
+  ht <- case s 1 of
+    Nothing -> Left "Arrow.FlatBufferIPC: Message header_type missing"
+    Just b  -> peekU8 meta b
+  when' (ht /= 3) $
+    Left ("Arrow.FlatBufferIPC: expected RecordBatch header (3), got " ++ show ht)
+  rb <- case s 2 of
+    Nothing -> Left "Arrow.FlatBufferIPC: Message header (RecordBatch) missing"
+    Just b  -> do
+      rbPos <- followUOffset meta b
+      readRecordBatchTable meta rbPos
+  bodyLen <- case s 3 of
+    Nothing -> Right 0
+    Just b  -> peekI64 meta b
+  Right (rb, bodyLen)
+
+-- | Parse an Arrow IPC stream produced by any spec-compliant
+-- writer (pyarrow / arrow-cpp / arrow-rs) into wireform's
+-- 'Schema' + a list of @(RecordBatchDef, body bytes)@ pairs.
+--
+-- Recognises both the post-0.15.0 framing (continuation marker +
+-- length) and the legacy framing (positive length first, no
+-- continuation), per the @ConsumeInitial@ logic in arrow-cpp's
+-- @message.cc@.
+readArrowStreamFB
+  :: ByteString
+  -> Either String (Schema, [(RecordBatchDef, ByteString)])
+readArrowStreamFB bs0 = do
+  (schema, after) <- consumeOne bs0 readSchemaFrame
+  consumeBatches schema after []
+  where
+    -- Strip one frame and apply @decodeFrame@ to the metadata bytes.
+    consumeOne bs decodeFrame = do
+      (mlen, meta, rest) <- readFrameHeader bs
+      when' (mlen <= 0) $
+        Left "Arrow.FlatBufferIPC: unexpected EOS while reading schema"
+      decoded <- decodeFrame meta
+      Right (decoded, rest)
+
+    readSchemaFrame = decodeSchemaMessage
+
+    consumeBatches sch bs acc
+      | BS.length bs < 4 = Right (sch, reverse acc)
+      | otherwise = do
+          (mlen, meta, rest1) <- readFrameHeader bs
+          if mlen == 0
+            then Right (sch, reverse acc)
+            else do
+              (rb, bodyLen) <- decodeRecordBatchMessage meta
+              let !nBody    = fromIntegral bodyLen :: Int
+                  !nBodyPad = alignUp8FB nBody
+                  body      = BS.take nBody rest1
+                  rest2     = BS.drop nBodyPad rest1
+              consumeBatches sch rest2 ((rb, body) : acc)
+
+    alignUp8FB n = (n + 7) .&. complement (7 :: Int)
+
+-- | Strip one encapsulated-message frame:
+--
+--   * 4 bytes continuation (0xFFFFFFFF) — optional in legacy mode
+--   * 4 bytes metadata_length (i32 LE)
+--   * @metadata_length@ metadata bytes (already padded)
+--
+-- Returns @(mlen, metadata bytes, rest of stream after metadata)@.
+-- @mlen == 0@ signals the EOS marker.
+readFrameHeader
+  :: ByteString
+  -> Either String (Int, ByteString, ByteString)
+readFrameHeader bs = do
+  when' (BS.length bs < 4) $
+    Left "Arrow.FlatBufferIPC: truncated frame header"
+  first4 <- peekU32 bs 0
+  if first4 == 0xFFFFFFFF
+    then do
+      when' (BS.length bs < 8) $
+        Left "Arrow.FlatBufferIPC: truncated frame after continuation"
+      mlen <- peekI32 bs 4
+      let !mlenI = fromIntegral mlen :: Int
+      when' (mlenI < 0) $
+        Left "Arrow.FlatBufferIPC: negative metadata length"
+      Right ( mlenI
+            , BS.take mlenI (BS.drop 8 bs)
+            , BS.drop (8 + mlenI) bs
+            )
+    else
+      -- Legacy: first 4 bytes are the metadata length itself.
+      if first4 == 0
+        then Right (0, BS.empty, BS.drop 4 bs)
+        else do
+          let !mlenI = fromIntegral first4 :: Int
+          Right ( mlenI
+                , BS.take mlenI (BS.drop 4 bs)
+                , BS.drop (4 + mlenI) bs
+                )
