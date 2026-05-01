@@ -55,6 +55,7 @@ library
     Parquet.DeltaEncode
     Parquet.Encryption
     Parquet.Footer
+    Parquet.HighLevel
     Parquet.Levels
     Parquet.LevelsEncode
     Parquet.Nested
