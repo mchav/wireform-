@@ -937,11 +937,17 @@ sliceBuffer body buf =
     else Right $! BS.take l (BS.drop o body)
 
 unpackBools :: Int -> ByteString -> Either String (V.Vector Bool)
-unpackBools n bs =
-  let need = (n + 7) `div` 8
-  in if BS.length bs < need
-    then Left "Arrow.Column: bool buffer too small"
-    else Right $! unpackBitsLsbUnsafe n bs
+unpackBools n bs
+  -- Spec: an empty validity bitmap means "all values valid". When
+  -- the producer's @null_count@ is 0 the bitmap is allowed to be
+  -- omitted, in which case we still see a 0-length buffer entry
+  -- (validity slot in the buffer list, but no body bytes).
+  | BS.length bs == 0 = Right $! V.replicate n True
+  | otherwise =
+      let need = (n + 7) `div` 8
+      in if BS.length bs < need
+        then Left "Arrow.Column: bool buffer too small"
+        else Right $! unpackBitsLsbUnsafe n bs
 
 readInts8 :: Int -> ByteString -> Either String (VP.Vector Int8)
 readInts8 len bs
@@ -1148,8 +1154,83 @@ materializeRecordBatch schema rb body = do
   if not (validateRecordBatchBuffers rb bodyLen)
     then Left "Arrow.Column: invalid buffer bounds in RecordBatchDef"
     else do
-      (cols, _, _) <- materializeFieldsR (arrowEndianness schema) (arrowFields schema) rb body 0 0
+      let !viewVarCounts = computeViewVariadicMap (arrowFields schema) (rbVariadicBufferCounts rb)
+      (cols, _, _) <- materializeFieldsR' (arrowEndianness schema) viewVarCounts (arrowFields schema) rb body 0 0
       Right cols
+
+-- | Build a per-nodeIdx map of variadic-buffer counts for view
+-- columns, by walking the schema in DFS pre-order alongside the
+-- @rbVariadicBufferCounts@ vector. Field nodes are assigned
+-- pre-order indices starting at 0; only @AUtf8View@ /
+-- @ABinaryView@ fields consume an entry from the variadic vector.
+computeViewVariadicMap
+  :: V.Vector Field -> V.Vector Int64 -> V.Vector Int
+computeViewVariadicMap topFields varCounts =
+  -- We use a vector indexed by node id; size = total field nodes.
+  let !total = sumNodes topFields
+      !mp = VP.replicate total (-1) :: VP.Vector Int
+      go (!ni, !vi, m) f =
+        let m1 = case fieldType f of
+              AUtf8View   -> assignVar ni vi m
+              ABinaryView -> assignVar ni vi m
+              _           -> m
+            ni1 = ni + 1
+            (ni', vi', m') = V.foldl' go (ni1, nextVi vi (fieldType f), m1) (fieldChildren f)
+        in (ni', vi', m')
+      assignVar ni vi m =
+        let !c = case varCounts V.!? vi of
+                   Just v  -> fromIntegral v
+                   Nothing -> 0
+        in  m VP.// [(ni, c)]
+      nextVi vi t = case t of
+        AUtf8View   -> vi + 1
+        ABinaryView -> vi + 1
+        _           -> vi
+      (_, _, !out) = V.foldl' go (0 :: Int, 0 :: Int, mp) topFields
+  in  V.fromList (VP.toList out)
+  where
+    sumNodes :: V.Vector Field -> Int
+    sumNodes fs = V.foldl' (\n f -> n + 1 + sumNodes (fieldChildren f)) 0 fs
+
+-- | Same as 'materializeFieldsR' but threads the precomputed view
+-- variadic-count vector.
+materializeFieldsR' :: Endianness -> V.Vector Int -> V.Vector Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (V.Vector ColumnArray, Int, Int)
+materializeFieldsR' endian viewMap fields rb body !nodeIdx0 !bufIdx0 =
+  go 0 nodeIdx0 bufIdx0 []
+  where
+    go !i !ni !bi !acc
+      | i >= V.length fields = Right (V.fromList (reverse acc), ni, bi)
+      | otherwise = do
+          (col, ni', bi') <- materializeField' endian viewMap (V.unsafeIndex fields i) rb body ni bi
+          go (i + 1) ni' bi' (col : acc)
+
+materializeField' :: Endianness -> V.Vector Int -> Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
+materializeField' endian viewMap f rb body !nodeIdx !bufIdx =
+  case fieldType f of
+    AStruct           -> materializeStruct endian f rb body nodeIdx bufIdx
+    AList             -> materializeListCol endian f rb body nodeIdx bufIdx
+    AMap _            -> materializeMapCol endian f rb body nodeIdx bufIdx
+    AUnion mode _     -> materializeUnionCol endian f mode rb body nodeIdx bufIdx
+    AFixedSizeList n  -> materializeFixedSizeListCol endian n f rb body nodeIdx bufIdx
+    ALargeList        -> materializeLargeListCol endian f rb body nodeIdx bufIdx
+    AInterval u       -> materializeIntervalCol endian u f rb body nodeIdx bufIdx
+    ARunEndEncoded    -> materializeRunEndEncodedCol endian f rb body nodeIdx bufIdx
+    AListView         -> materializeListViewCol endian False f rb body nodeIdx bufIdx
+    ALargeListView    -> materializeListViewCol endian True  f rb body nodeIdx bufIdx
+    AUtf8View         -> materializeViewCol' endian viewMap True  f rb body nodeIdx bufIdx
+    ABinaryView       -> materializeViewCol' endian viewMap False f rb body nodeIdx bufIdx
+    _                 -> materializeOne endian f rb body nodeIdx bufIdx
+
+-- | View materializer with precomputed variadic-count map; the
+-- nodeIdx of the current field selects the entry.
+materializeViewCol'
+  :: Endianness -> V.Vector Int -> Bool -> Field -> RecordBatchDef
+  -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
+materializeViewCol' endian viewMap utf8 f rb body !nodeIdx !bufIdx = do
+  let !varCount = case viewMap V.!? nodeIdx of
+                    Just c | c >= 0 -> c
+                    _               -> 0
+  materializeViewColWithVar endian utf8 varCount f rb body nodeIdx bufIdx
 
 materializeFieldsR :: Endianness -> V.Vector Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (V.Vector ColumnArray, Int, Int)
 materializeFieldsR endian fields rb body !nodeIdx0 !bufIdx0 =
@@ -1488,7 +1569,29 @@ materializeViewCol
   -> ByteString
   -> Int -> Int
   -> Either String (ColumnArray, Int, Int)
-materializeViewCol endian utf8 f rb body !nodeIdx !bufIdx = do
+materializeViewCol endian utf8 f rb body !nodeIdx !bufIdx =
+  -- Falls back to the first variadic count entry when called
+  -- without a per-view cursor (single-view-column batches). The
+  -- top-level 'materializeRecordBatch' uses the cursor-aware
+  -- 'materializeViewColWithVar' via 'computeViewVariadicMap'.
+  let !varCount = case V.toList (rbVariadicBufferCounts rb) of
+                    []      -> 0
+                    (c:_)   -> fromIntegral c :: Int
+  in  materializeViewColWithVar endian utf8 varCount f rb body nodeIdx bufIdx
+
+-- | Like 'materializeViewCol' but takes an explicit
+-- variadic-buffer count for this column, sourced from
+-- 'rbVariadicBufferCounts' at the right per-view-column position.
+materializeViewColWithVar
+  :: Endianness
+  -> Bool
+  -> Int
+  -> Field
+  -> RecordBatchDef
+  -> ByteString
+  -> Int -> Int
+  -> Either String (ColumnArray, Int, Int)
+materializeViewColWithVar endian utf8 varCount f rb body !nodeIdx !bufIdx = do
   let node = V.unsafeIndex (rbNodes rb) nodeIdx
       !len = fromIntegral (fnLength node) :: Int
       !nodeIdx1 = nodeIdx + 1
@@ -1501,17 +1604,6 @@ materializeViewCol endian utf8 f rb body !nodeIdx !bufIdx = do
   viewBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx1)
   when' (BS.length viewBs < len * 16) $
     Left "Arrow.Column: view buffer too small"
-  -- Determine how many variadic data buffers belong to this view
-  -- column. Arrow's @rbVariadicBufferCounts@ vector holds one entry
-  -- per view column in DFS pre-order; the wireform writer emits a
-  -- single variadic buffer per view column (or zero when every
-  -- payload fits in the inlined 12-byte slot). The accurate
-  -- implementation threads a "view fields seen" cursor through the
-  -- materialize chain — covered by a follow-up. The current path
-  -- handles the common single-view-column-per-batch case.
-  let !varCount = case V.toList (rbVariadicBufferCounts rb) of
-                    []      -> 0
-                    (c:_)   -> fromIntegral c :: Int
   -- Resolve data buffers
   dataBufs <- mapM (sliceBuffer body)
                 [ V.unsafeIndex (rbBuffers rb) (bufIdx1 + 1 + i)

@@ -43,6 +43,8 @@ module Arrow.FlatBufferIPC
   , readArrowFileFB
   , decodeSchemaMessage
   , decodeRecordBatchMessage
+  , denormaliseBuffers
+  , materializeRecordBatchFB
   ) where
 
 import Data.Bits ((.&.), (.|.), complement, shiftL)
@@ -61,7 +63,7 @@ import Foreign.Storable (pokeByteOff)
 import System.IO.Unsafe (unsafePerformIO)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef')
 
-import Arrow.Column (ColumnArray (..), columnLength)
+import Arrow.Column (ColumnArray (..), columnLength, materializeRecordBatch)
 import Arrow.Types
 import qualified Arrow.Write as W
 
@@ -1036,6 +1038,199 @@ viewVariadic vs
   where
     tooLong (Just b) = BS.length b > 12
     tooLong Nothing  = False
+
+-- ============================================================
+-- Inverse: spec-format → simplified-format
+-- ============================================================
+
+-- | Strip the empty validity slots that the spec mandates at every
+-- layout position from a 'RecordBatchDef' produced by an
+-- arrow-cpp / arrow-rs / pyarrow writer (or our own
+-- 'normaliseBuffers'). Returns a @(rb', body')@ pair whose buffer
+-- list matches what 'Arrow.Write.encodeColumns' would have
+-- emitted for the same schema, so the existing
+-- 'Arrow.Column.materializeRecordBatch' can consume it directly.
+--
+-- The body bytes are unchanged — we only rewrite the buffer
+-- /index/ list.  A spec-format empty-validity slot has
+-- @offset == 0 && length == 0@ and points nowhere, so dropping it
+-- doesn't disturb the body offsets the surviving buffers carry.
+denormaliseBuffers
+  :: Schema -> RecordBatchDef -> RecordBatchDef
+denormaliseBuffers sch rb =
+  let !inputBufs = rbBuffers rb
+      !varCounts = rbVariadicBufferCounts rb
+      (_, _, !revOut) = V.foldl' step (0 :: Int, 0 :: Int, []) (arrowFields sch)
+      step (!bIdx, !vIdx, acc) f =
+        let (!consumed, !varConsumed, !emitted) =
+              stripField f inputBufs bIdx varCounts vIdx
+        in  (bIdx + consumed, vIdx + varConsumed, reverse emitted ++ acc)
+  in  rb { rbBuffers = V.fromList (reverse revOut) }
+
+-- | Walk one schema field and decide which spec-format buffers to
+-- keep. Returns @(#source buffers consumed, #variadic-count
+-- entries consumed, simplified-format output buffers in
+-- encoder-emission order)@. Empty validity slots (zero length) on
+-- non-nullable fields are dropped.
+stripField
+  :: Field -> V.Vector Buffer -> Int -> V.Vector Int64 -> Int
+  -> (Int, Int, [Buffer])
+stripField f bufs bIdx0 varCounts vIdx0 = case fieldType f of
+  AInt _ _           -> flatPrim
+  ABool              -> flatPrim
+  AFloatingPoint _   -> flatPrim
+  AFixedSizeBinary _ -> flatPrim
+  ADate _            -> flatPrim
+  ATime _ _          -> flatPrim
+  ATimestamp _ _     -> flatPrim
+  ADuration _        -> flatPrim
+  ADecimal _ _       -> flatPrim
+  ADecimal256 _ _    -> flatPrim
+  AInterval _        -> flatPrim
+
+  AUtf8       -> varLen
+  ABinary     -> varLen
+  ALargeUtf8  -> varLen
+  ALargeBinary -> varLen
+
+  AStruct ->
+    let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+        outV = if fieldNullable f then [vBuf] else []
+        (cc, cv, cb) = stripChildren (V.toList (fieldChildren f)) bufs bIdx1 varCounts vIdx0
+    in  (1 + cc, cv, outV ++ cb)
+
+  AList ->
+    let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+        offsetsBuf = bufs V.! bIdx1
+        outV = if fieldNullable f then [vBuf, offsetsBuf] else [offsetsBuf]
+        (cc, cv, cb) = stripField (V.head (fieldChildren f)) bufs (bIdx1 + 1) varCounts vIdx0
+    in  (2 + cc, cv, outV ++ cb)
+
+  ALargeList ->
+    let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+        offsetsBuf = bufs V.! bIdx1
+        outV = if fieldNullable f then [vBuf, offsetsBuf] else [offsetsBuf]
+        (cc, cv, cb) = stripField (V.head (fieldChildren f)) bufs (bIdx1 + 1) varCounts vIdx0
+    in  (2 + cc, cv, outV ++ cb)
+
+  AFixedSizeList _ ->
+    let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+        outV = if fieldNullable f then [vBuf] else []
+        (cc, cv, cb) = stripField (V.head (fieldChildren f)) bufs bIdx1 varCounts vIdx0
+    in  (1 + cc, cv, outV ++ cb)
+
+  AMap _ ->
+    -- Spec layout: [validity, offsets, struct-validity (empty),
+    -- key bufs..., value bufs...]. Simplified writer emits
+    -- [validity?, offsets, key bufs..., value bufs...] (no struct
+    -- buffer; the simplified reader doesn't expect one).
+    let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+        offsetsBuf = bufs V.! bIdx1
+        bIdx2 = bIdx1 + 1 + 1
+        outV = if fieldNullable f then [vBuf, offsetsBuf] else [offsetsBuf]
+    in  case V.toList (fieldChildren f) of
+          [structField] ->
+            case V.toList (fieldChildren structField) of
+              [keyField, valField] ->
+                let (ck, ckv, kb) = stripField keyField bufs bIdx2 varCounts vIdx0
+                    (cv, cvv, vb) = stripField valField bufs (bIdx2 + ck) varCounts (vIdx0 + ckv)
+                in  ( bIdx2 - bIdx0 + ck + cv
+                    , ckv + cvv
+                    , outV ++ kb ++ vb
+                    )
+              _ -> bail
+          _ -> bail
+
+  AUnion mode _ ->
+    case mode of
+      Dense ->
+        let typeIds = bufs V.! bIdx0
+            offsets = bufs V.! (bIdx0 + 1)
+            (cc, cv, cb) = stripChildren (V.toList (fieldChildren f)) bufs (bIdx0 + 2) varCounts vIdx0
+        in  (2 + cc, cv, typeIds : offsets : cb)
+      Sparse ->
+        let typeIds = bufs V.! bIdx0
+            (cc, cv, cb) = stripChildren (V.toList (fieldChildren f)) bufs (bIdx0 + 1) varCounts vIdx0
+        in  (1 + cc, cv, typeIds : cb)
+
+  ARunEndEncoded ->
+    case V.toList (fieldChildren f) of
+      [reField, valField] ->
+        let (cre, crev, bre) = stripField reField  bufs bIdx0 varCounts vIdx0
+            (cv,  cvv,  bv)  = stripField valField bufs (bIdx0 + cre) varCounts (vIdx0 + crev)
+        in  (cre + cv, crev + cvv, bre ++ bv)
+      _ -> bail
+
+  AListView ->
+    let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+        offsetsBuf = bufs V.! bIdx1
+        sizesBuf   = bufs V.! (bIdx1 + 1)
+        outV = if fieldNullable f
+                 then [vBuf, offsetsBuf, sizesBuf]
+                 else [offsetsBuf, sizesBuf]
+        (cc, cv, cb) = stripField (V.head (fieldChildren f)) bufs (bIdx1 + 2) varCounts vIdx0
+    in  (3 + cc, cv, outV ++ cb)
+  ALargeListView ->
+    let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+        offsetsBuf = bufs V.! bIdx1
+        sizesBuf   = bufs V.! (bIdx1 + 1)
+        outV = if fieldNullable f
+                 then [vBuf, offsetsBuf, sizesBuf]
+                 else [offsetsBuf, sizesBuf]
+        (cc, cv, cb) = stripField (V.head (fieldChildren f)) bufs (bIdx1 + 2) varCounts vIdx0
+    in  (3 + cc, cv, outV ++ cb)
+
+  AUtf8View       -> viewLayout
+  ABinaryView     -> viewLayout
+
+  ANull           -> (0, 0, [])
+  _               -> bail
+  where
+    bail = (V.length bufs - bIdx0, V.length varCounts - vIdx0, V.toList (V.drop bIdx0 bufs))
+    flatPrim =
+      let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+          dataBuf       = bufs V.! bIdx1
+          out = if fieldNullable f then [vBuf, dataBuf] else [dataBuf]
+      in  (2, 0, out)
+    varLen =
+      let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+          offsetsBuf    = bufs V.! bIdx1
+          dataBuf       = bufs V.! (bIdx1 + 1)
+          out = if fieldNullable f
+                  then [vBuf, offsetsBuf, dataBuf]
+                  else [offsetsBuf, dataBuf]
+      in  (3, 0, out)
+    viewLayout =
+      -- Spec: [validity, view, ...variadic]. Variadic count comes
+      -- from rbVariadicBufferCounts at the per-view-column slot.
+      let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+          viewBuf       = bufs V.! bIdx1
+          !varCount = case varCounts V.!? vIdx0 of
+            Just c  -> fromIntegral c :: Int
+            Nothing -> 0
+          variadics =
+            [ bufs V.! (bIdx1 + 1 + i) | i <- [0 .. varCount - 1] ]
+          outV = if fieldNullable f
+                   then [vBuf, viewBuf] ++ variadics
+                   else [viewBuf] ++ variadics
+      in  (2 + varCount, 1, outV)
+
+stripChildren
+  :: [Field] -> V.Vector Buffer -> Int -> V.Vector Int64 -> Int
+  -> (Int, Int, [Buffer])
+stripChildren []     _    _    _         _    = (0, 0, [])
+stripChildren (c:cs) bufs bIdx varCounts vIdx =
+  let (cc, cv, cb) = stripField c bufs bIdx varCounts vIdx
+      (rc, rv, rb) = stripChildren cs bufs (bIdx + cc) varCounts (vIdx + cv)
+  in  (cc + rc, cv + rv, cb ++ rb)
+
+-- | Convenience: parse + materialise.  Pyarrow / arrow-cpp output
+-- → a 'V.Vector ColumnArray' per batch in one call.
+materializeRecordBatchFB
+  :: Schema -> RecordBatchDef -> ByteString
+  -> Either String (V.Vector ColumnArray)
+materializeRecordBatchFB sch rb body =
+  materializeRecordBatch sch (denormaliseBuffers sch rb) body
 
 -- | Placeholder validity buffer: offset 0, length 0. Readers treat
 -- a zero-length validity buffer as "all values valid".

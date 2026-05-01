@@ -15,6 +15,7 @@ import Arrow.Column (ColumnArray (..))
 import Arrow.Types
 import Arrow.FlatBufferIPC
   ( buildRecordBatchBytes
+  , materializeRecordBatchFB
   , readArrowFileFB
   , readArrowStreamFB
   , writeArrowFileFB
@@ -40,11 +41,15 @@ readMode reader path = do
     Right (sch, batches) -> do
       putStrLn ("schema: " ++ show sch)
       putStrLn ("batches: " ++ show (length batches))
-      mapM_ (\(rb, body) -> putStrLn $
-                "  rb len=" ++ show (rbLength rb)
-                ++ " nodes=" ++ show (V.length (rbNodes rb))
-                ++ " bufs="  ++ show (V.length (rbBuffers rb))
-                ++ " body="  ++ show (BS.length body) ++ " bytes")
+      mapM_ (\(rb, body) -> do
+                putStrLn $
+                    "  rb len=" ++ show (rbLength rb)
+                    ++ " nodes=" ++ show (V.length (rbNodes rb))
+                    ++ " bufs="  ++ show (V.length (rbBuffers rb))
+                    ++ " body="  ++ show (BS.length body) ++ " bytes"
+                case materializeRecordBatchFB sch rb body of
+                  Left e   -> putStrLn $ "    materialize: ERR " ++ e
+                  Right cs -> putStrLn $ "    materialized: " ++ show (V.toList cs))
             batches
 
 writeMode :: FilePath -> IO ()

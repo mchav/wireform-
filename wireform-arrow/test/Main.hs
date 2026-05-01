@@ -31,6 +31,7 @@ import Arrow.File (asBatches, asSchema, readArrowStream)
 import Arrow.FlatBufferIPC
   ( buildSchemaMessage
   , decodeSchemaMessage
+  , materializeRecordBatchFB
   , readArrowStreamFB
   , writeArrowStreamFBFromColumns
   )
@@ -355,17 +356,27 @@ flatBufRoundTrip = do
        (ColInt64Maybe (V.fromList [Just 100, Nothing, Just 300])))
 
 flatBufColumnRoundTrip :: String -> Field -> ColumnArray -> IO ()
-flatBufColumnRoundTrip label _field _col = do
-  -- Materialising spec-format buffer lists (where every layout
-  -- position has a validity buffer, even when length=0) requires
-  -- a separate spec-aware reader; the existing
-  -- 'materializeRecordBatch' expects the simplified internal
-  -- format. Until that reader lands, we exercise round-trip via
-  -- pyarrow externally (see wireform-arrow-pyarrow-probe). Here
-  -- we just confirm the bytes parse.
-  putStrLn $ "OK: FB writes spec-format bytes for " ++ label
-  -- Body intentionally light; pyarrow probe + manual confirms the
-  -- round-trip works end-to-end with a real Arrow consumer.
+flatBufColumnRoundTrip label field col = do
+  let sch = Schema (V.singleton field) Little
+      bytes = writeArrowStreamFBFromColumns sch (V.singleton (V.singleton col))
+  case readArrowStreamFB bytes of
+    Left e -> failTest $ label ++ ": parse failed: " ++ e
+    Right (sch', batches)
+      | sch' /= sch ->
+          failTest $ label ++ ": schema mismatch"
+      | length batches /= 1 ->
+          failTest $ label ++ ": expected 1 batch"
+      | otherwise -> do
+          let (rb, body) = head batches
+          case materializeRecordBatchFB sch' rb body of
+            Left e   -> failTest $ label ++ ": materialize failed: " ++ e
+            Right cs ->
+              if V.length cs == 1 && V.unsafeIndex cs 0 == col
+                then putStrLn $ "OK: FB column round-trip " ++ label
+                else failTest $ label
+                                 ++ ": column mismatch\n got: "
+                                 ++ show (V.toList cs)
+                                 ++ "\n exp: " ++ show col
 
 -- | Build a simple leaf field with no children.
 plainField :: Text -> Bool -> ArrowType -> Field
