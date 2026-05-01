@@ -11,6 +11,7 @@ module ORC.Write
   , encodeBooleanRLE
   , encodeIntColumn
   , encodeStringDirectColumn
+  , encodeStringDictColumn
   , encodeFloatColumn
   , encodeDoubleColumn
     -- * Date / timestamp / decimal column encoders
@@ -30,6 +31,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -121,7 +123,7 @@ encodeBooleanRLE vals =
 encodeIntColumn :: VP.Vector Int64 -> Bool -> ByteString
 encodeIntColumn = encodeRLEv2Direct
 
--- | Encode a string column with DIRECT encoding.
+-- | Encode a string column with DIRECT_V2 encoding.
 -- Returns (DATA stream, LENGTH stream).
 encodeStringDirectColumn :: V.Vector T.Text -> (ByteString, ByteString)
 encodeStringDirectColumn texts =
@@ -131,6 +133,52 @@ encodeStringDirectColumn texts =
         fromIntegral (BS.length (V.unsafeIndex encodedTexts i)) :: Int64
       !lengthBs = encodeRLEv2Direct lengths False
   in (dataBs, lengthBs)
+
+-- | Encode a string column with DICTIONARY_V2 encoding. Deduplicates
+-- the input, builds a lookup of unique strings, and emits the three
+-- streams ORC stores per DICTIONARY_V2 column:
+--
+-- * DATA - per-row unsigned RLE-v2 dictionary indices
+-- * LENGTH - dictionary entry lengths (one per unique string, RLE-v2 unsigned)
+-- * DICTIONARY_DATA - concatenated UTF-8 bytes of the unique strings
+--
+-- The dictionary preserves first-occurrence order so that a reader
+-- pairing these with a row-index stream can still seek correctly.
+encodeStringDictColumn
+  :: V.Vector T.Text
+  -> (ByteString, ByteString, ByteString)
+  -- ^ (DATA, LENGTH, DICTIONARY_DATA)
+encodeStringDictColumn texts =
+  let !n = V.length texts
+      -- First-occurrence dictionary. We walk once and keep a
+      -- 'Map' for lookup + a 'GrowList'-style accumulator for
+      -- the ordered unique entries. For the sizes this writer
+      -- targets (per-stripe dictionaries, usually <= a few
+      -- thousand unique strings) a Data.Map.Strict.Map Text Int
+      -- is the right call.
+      (indices, uniqueRev) = go 0 mempty [] V.empty
+        where
+          go !i !dict !uniqAcc !idxAcc
+            | i >= n = (idxAcc, uniqAcc)
+            | otherwise =
+                let !t = V.unsafeIndex texts i
+                in case Map.lookup t dict of
+                     Just k  ->
+                       go (i + 1) dict uniqAcc
+                          (V.snoc idxAcc (fromIntegral k :: Int64))
+                     Nothing ->
+                       let !k = Map.size dict
+                           !dict'   = Map.insert t k dict
+                           !uniqAcc' = t : uniqAcc
+                       in go (i + 1) dict' uniqAcc'
+                          (V.snoc idxAcc (fromIntegral k :: Int64))
+      !uniques = V.fromList (reverse uniqueRev)
+      !(dictBytes, lengthBs) = encodeStringDirectColumn uniques
+      -- Convert the boxed indices vector to a primitive one; the RLE
+      -- v2 encoder needs a VP.Vector Int64.
+      !idxPrim = VP.generate (V.length indices) (V.unsafeIndex indices)
+      !dataBs = encodeRLEv2Direct idxPrim False
+  in (dataBs, lengthBs, dictBytes)
 
 -- | Encode a float column (IEEE 754 single, little-endian).
 encodeFloatColumn :: VP.Vector Float -> ByteString

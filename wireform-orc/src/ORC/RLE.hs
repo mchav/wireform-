@@ -12,6 +12,7 @@
 module ORC.RLE
   ( decodeRLEv1Int
   , decodeRLEv2Int
+  , decodeRLEv2IntAll
   , decodeBooleanRLE
   , decodePresentStream
     -- * Encoding helpers (used by ORC.Write)
@@ -86,6 +87,63 @@ decodeRLEv2Int _signed numValues bs
       case result of
         Left e  -> return (Left e)
         Right _ -> Right <$> VP.unsafeFreeze out
+
+-- | Decode an ORC RLE v2 stream to end-of-stream. Unlike
+-- 'decodeRLEv2Int', the caller does not have to know the number of
+-- values up front — we keep decoding runs until the byte string is
+-- exhausted. Used by the DICTIONARY_V2 string reader, where the
+-- dictionary length stream has one value per unique entry and that
+-- count isn't recorded anywhere in the column metadata.
+--
+-- We implement this by giving the bulk decoder a generous upper bound
+-- (one value per input byte is always safe — every RLE-v2 run header
+-- is at least one byte) and then trimming the output. The bulk loop
+-- signals end-of-stream with a specific error tag that we recover as
+-- a normal termination.
+decodeRLEv2IntAll :: Bool -> ByteString -> Either String (VP.Vector Int64)
+decodeRLEv2IntAll signed bs
+  | BS.null bs = Right VP.empty
+  | otherwise = runST $ do
+      let !cap = max 1 (BS.length bs)
+      out <- MVP.unsafeNew cap
+      -- We don't know how many values the stream encodes, but we do
+      -- know an upper bound. Ask for @cap@ values; the bulk loop
+      -- either satisfies that (stream contained exactly @cap@) or
+      -- stops with "truncated RLE v2 stream" when the stream is
+      -- shorter, in which case we recover the actual written prefix
+      -- by stepping one run at a time.
+      result <- rleV2LoopCounting signed bs 0 out 0 cap
+      case result of
+        Left e          -> return (Left e)
+        Right written   -> do
+          frozen <- VP.unsafeFreeze out
+          return (Right $! VP.take written frozen)
+
+-- | Like 'rleV2Loop' but returns the number of values actually
+-- written when the byte stream is exhausted. Distinguishes
+-- "requested more than the stream encodes" (natural EOF — return
+-- the written count) from "run header indexed past the end of its
+-- own payload" (genuine corruption — surface the error).
+rleV2LoopCounting
+  :: Bool -> ByteString -> Int
+  -> MVP.MVector s Int64 -> Int -> Int
+  -> ST s (Either String Int)
+rleV2LoopCounting signed bs !off out !written !need
+  | written >= need = return (Right written)
+  | off >= BS.length bs = return (Right written)
+  | otherwise = do
+      let !firstByte = fromIntegral (BS.index bs off) :: Int
+          !enc       = (firstByte `shiftR` 6) .&. 3
+      step <- case enc of
+        0 -> rleV2ShortRepeatStep signed firstByte bs off out written (need - written)
+        1 -> rleV2DirectStep      signed firstByte bs off out written (need - written)
+        2 -> rleV2PatchedBaseStep signed firstByte bs off out written (need - written)
+        3 -> rleV2DeltaStep       signed firstByte bs off out written (need - written)
+        _ -> return (Left "ORC.RLE: invalid RLE v2 encoding")
+      case step of
+        Left e               -> return (Left e)
+        Right (off', written') ->
+          rleV2LoopCounting signed bs off' out written' need
 
 ------------------------------------------------------------------------
 -- Byte RLE (used by boolean streams)
@@ -189,21 +247,39 @@ rleV2Loop signed bs !off out !written !need
   | off >= BS.length bs =
       return (Left "ORC.RLE: truncated RLE v2 stream")
   | otherwise = do
+      step <- rleV2Step signed bs off out written (need - written)
+      case step of
+        Left e               -> return (Left e)
+        Right (off', written') ->
+          rleV2Loop signed bs off' out written' need
+
+-- | Decode exactly one RLE-v2 run and return @(nextOffset, newWritten)@.
+-- Shared by the fixed-count decoder ('rleV2Loop', via 'decodeRLEv2Int')
+-- and the EOF decoder ('rleV2LoopCounting', via 'decodeRLEv2IntAll').
+rleV2Step
+  :: Bool -> ByteString -> Int
+  -> MVP.MVector s Int64 -> Int -> Int
+  -> ST s (Either String (Int, Int))
+rleV2Step signed bs !off out !written !cap
+  | cap <= 0           = return (Right (off, written))
+  | off >= BS.length bs = return (Left "ORC.RLE: truncated RLE v2 stream")
+  | otherwise = do
       let !firstByte = fromIntegral (BS.index bs off) :: Int
           !enc       = (firstByte `shiftR` 6) .&. 3
       case enc of
-        0 -> rleV2ShortRepeat signed firstByte bs off out written need
-        1 -> rleV2Direct      signed firstByte bs off out written need
-        2 -> rleV2PatchedBase signed firstByte bs off out written need
-        3 -> rleV2Delta       signed firstByte bs off out written need
+        0 -> rleV2ShortRepeatStep signed firstByte bs off out written cap
+        1 -> rleV2DirectStep      signed firstByte bs off out written cap
+        2 -> rleV2PatchedBaseStep signed firstByte bs off out written cap
+        3 -> rleV2DeltaStep       signed firstByte bs off out written cap
         _ -> return (Left "ORC.RLE: invalid RLE v2 encoding")
 
--- | Short Repeat: value repeated 3-10 times.
-rleV2ShortRepeat
+-- | Short Repeat: value repeated 3-10 times. Step variant — decodes
+-- one run and returns @(newOffset, newWritten)@.
+rleV2ShortRepeatStep
   :: Bool -> Int -> ByteString -> Int
   -> MVP.MVector s Int64 -> Int -> Int
-  -> ST s (Either String ())
-rleV2ShortRepeat signed firstByte bs !off out !written !need = do
+  -> ST s (Either String (Int, Int))
+rleV2ShortRepeatStep signed firstByte bs !off out !written !cap = do
   let !widthBytes = ((firstByte `shiftR` 3) .&. 7) + 1
       !count      = (firstByte .&. 7) + 3
   if off + 1 + widthBytes > BS.length bs
@@ -211,21 +287,21 @@ rleV2ShortRepeat signed firstByte bs !off out !written !need = do
     else do
       let !rawVal = readBigEndian bs (off + 1) widthBytes
           !val    = if signed then zigzagDecode rawVal else fromIntegral rawVal
-          !emit   = min count (need - written)
+          !emit   = min count cap
           fill !i
             | i >= emit = pure ()
             | otherwise = do
                 MVP.unsafeWrite out (written + i) val
                 fill (i + 1)
       fill 0
-      rleV2Loop signed bs (off + 1 + widthBytes) out (written + emit) need
+      return (Right (off + 1 + widthBytes, written + emit))
 
--- | Direct: bit-packed values at a fixed width.
-rleV2Direct
+-- | Direct: bit-packed values at a fixed width. Step variant.
+rleV2DirectStep
   :: Bool -> Int -> ByteString -> Int
   -> MVP.MVector s Int64 -> Int -> Int
-  -> ST s (Either String ())
-rleV2Direct signed firstByte bs !off out !written !need = do
+  -> ST s (Either String (Int, Int))
+rleV2DirectStep signed firstByte bs !off out !written !cap = do
   if off + 1 >= BS.length bs
     then return (Left "ORC.RLE: truncated DIRECT header")
     else do
@@ -240,7 +316,7 @@ rleV2Direct signed firstByte bs !off out !written !need = do
       if dataOff + totalBytes > BS.length bs
         then return (Left "ORC.RLE: truncated DIRECT data")
         else do
-          let !emit = min len (need - written)
+          let !emit = min len cap
               unpack !i
                 | i >= emit = pure ()
                 | otherwise = do
@@ -251,14 +327,14 @@ rleV2Direct signed firstByte bs !off out !written !need = do
                     MVP.unsafeWrite out (written + i) val
                     unpack (i + 1)
           unpack 0
-          rleV2Loop signed bs (dataOff + totalBytes) out (written + emit) need
+          return (Right (dataOff + totalBytes, written + emit))
 
--- | Delta: base value + incremental deltas.
-rleV2Delta
+-- | Delta: base value + incremental deltas. Step variant.
+rleV2DeltaStep
   :: Bool -> Int -> ByteString -> Int
   -> MVP.MVector s Int64 -> Int -> Int
-  -> ST s (Either String ())
-rleV2Delta signed firstByte bs !off out !written !need = do
+  -> ST s (Either String (Int, Int))
+rleV2DeltaStep signed firstByte bs !off out !written !cap = do
   if off + 1 >= BS.length bs
     then return (Left "ORC.RLE: truncated DELTA header")
     else do
@@ -275,28 +351,27 @@ rleV2Delta signed firstByte bs !off out !written !need = do
         Right (baseVal, off1) -> do
           if len <= 1
             then do
-              when (written < need) $
+              when (cap > 0) $
                 MVP.unsafeWrite out written baseVal
-              rleV2Loop signed bs off1 out (written + min 1 (need - written)) need
+              return (Right (off1, written + min 1 cap))
             else case readVslong bs off1 of
               Left e -> return (Left e)
               Right (deltaBase, off2) -> do
                 let !secondVal = baseVal + deltaBase
-                    !emitBase  = min 1 (need - written)
-                when (emitBase > 0) $
+                when (cap > 0) $
                   MVP.unsafeWrite out written baseVal
-                when (need - written > 1) $
+                when (cap > 1) $
                   MVP.unsafeWrite out (written + 1) secondVal
 
                 if w == 0
                   then do
                     let fillConst !i !val
-                          | i >= len || written + i >= need = pure ()
+                          | i >= len || i >= cap = pure ()
                           | otherwise = do
                               MVP.unsafeWrite out (written + i) val
                               fillConst (i + 1) (val + deltaBase)
                     fillConst 2 (secondVal + deltaBase)
-                    rleV2Loop signed bs off2 out (written + min len (need - written)) need
+                    return (Right (off2, written + min len cap))
                   else do
                     let !numDeltas = len - 2
                         !deltaBytes = (numDeltas * w + 7) `quot` 8
@@ -304,7 +379,7 @@ rleV2Delta signed firstByte bs !off out !written !need = do
                       then return (Left "ORC.RLE: truncated DELTA packed data")
                       else do
                         let emitDeltas !i !prevVal
-                              | i >= numDeltas || written + 2 + i >= need = pure ()
+                              | i >= numDeltas || 2 + i >= cap = pure ()
                               | otherwise = do
                                   let !adj = fromIntegral (extractBitsMSB (i * w) w bs off2) :: Int64
                                       !val = if deltaBase >= 0
@@ -313,14 +388,14 @@ rleV2Delta signed firstByte bs !off out !written !need = do
                                   MVP.unsafeWrite out (written + 2 + i) val
                                   emitDeltas (i + 1) val
                         emitDeltas 0 secondVal
-                        rleV2Loop signed bs (off2 + deltaBytes) out (written + min len (need - written)) need
+                        return (Right (off2 + deltaBytes, written + min len cap))
 
--- | Patched Base: base value + packed values + sparse patches.
-rleV2PatchedBase
+-- | Patched Base: base value + packed values + sparse patches. Step variant.
+rleV2PatchedBaseStep
   :: Bool -> Int -> ByteString -> Int
   -> MVP.MVector s Int64 -> Int -> Int
-  -> ST s (Either String ())
-rleV2PatchedBase signed firstByte bs !off out !written !need = do
+  -> ST s (Either String (Int, Int))
+rleV2PatchedBaseStep signed firstByte bs !off out !written !cap = do
   if off + 3 >= BS.length bs
     then return (Left "ORC.RLE: truncated PATCHED_BASE header")
     else do
@@ -360,7 +435,7 @@ rleV2PatchedBase signed firstByte bs !off out !written !need = do
               if patchOff + patchTotalBytes > BS.length bs
                 then return (Left "ORC.RLE: truncated PATCHED_BASE patch list")
                 else do
-                  let !emit = min len (need - written)
+                  let !emit = min len cap
                       -- Unpack base values (w-bit packed)
                       unpackAndPatch !i
                         | i >= emit = pure ()
@@ -396,7 +471,7 @@ rleV2PatchedBase signed firstByte bs !off out !written !need = do
                     zigzagAll 0
 
                   let !nextOff = patchOff + patchTotalBytes
-                  rleV2Loop signed bs nextOff out (written + emit) need
+                  return (Right (nextOff, written + emit))
 
 ------------------------------------------------------------------------
 -- Varint primitives

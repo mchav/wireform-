@@ -14,13 +14,21 @@ import qualified ORC.Encryption as Enc
 import qualified ORC.Read
 import qualified ORC.RowIndex as RI
 import qualified ORC.Write
-import ORC.Read (ORCTimestamp (..), decodeDateColumn, decodeDecimalColumn, decodeTimestampColumn)
+import ORC.Read
+  ( ORCTimestamp (..)
+  , decodeDateColumn
+  , decodeDecimalColumn
+  , decodeStringColumn
+  , decodeTimestampColumn
+  )
 import ORC.Write
   ( encodeDateColumn
   , encodeDecimalColumn
   , encodeORCNano
+  , encodeStringDictColumn
   , encodeTimestampColumn
   )
+import qualified Data.Text as T
 
 main :: IO ()
 main = do
@@ -42,6 +50,20 @@ main = do
           actual = [ (s, n) | Just (ORCTimestamp s n) <- V.toList vs ]
        in expect "timestamp round-trip" (actual == pairs)
     Left e -> failTest ("decodeTimestampColumn: " ++ e)
+
+  -- DICTIONARY_V2 string column round-trip. The writer emits three
+  -- streams (DATA = per-row indices, LENGTH = dict entry lengths,
+  -- DICTIONARY_DATA = raw UTF-8 bytes); decodeStringColumn auto-
+  -- dispatches to the dictionary decoder when the dictionary stream
+  -- is non-empty.
+  let !dictInput = V.fromList
+        (map T.pack ["alpha", "beta", "alpha", "gamma", "beta", "alpha"])
+      (!dictData, !dictLen, !dictDictBytes) = encodeStringDictColumn dictInput
+  case decodeStringColumn (V.length dictInput) dictData dictLen dictDictBytes Nothing of
+    Right vs ->
+      let actual = [ t | Just t <- V.toList vs ]
+       in expect "DICTIONARY_V2 string round-trip" (actual == V.toList dictInput)
+    Left e -> failTest ("decodeStringColumn DICTIONARY_V2: " ++ e)
 
   -- Decimal64: just the unscaled integers.
   let !dec = VP.fromList [123 :: Int64, -456, 0, 999_999_999_999_999]
