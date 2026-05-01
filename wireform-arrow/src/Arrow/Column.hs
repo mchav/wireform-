@@ -34,6 +34,7 @@ import Arrow.Types
   , Endianness (..)
   , Field (..)
   , FieldNode (..)
+  , IntervalUnit (..)
   , Precision (..)
   , RecordBatchDef (..)
   , Schema (..)
@@ -69,6 +70,14 @@ data ColumnArray
   | ColDuration !(VP.Vector Int64)
   | ColDecimal128 !Int !Int !(V.Vector ByteString)
   | ColDecimal256 !Int !Int !(V.Vector ByteString)
+  | -- | Arrow @INTERVAL(YEAR_MONTH)@: 32-bit months (i32 per row).
+    ColIntervalYearMonth !(VP.Vector Int32)
+  | -- | Arrow @INTERVAL(DAY_TIME)@: (days :: i32, ms :: i32) per row,
+    -- stored as an 8-byte pair in element order.
+    ColIntervalDayTime !(VP.Vector Int32) !(VP.Vector Int32)
+  | -- | Arrow @INTERVAL(MONTH_DAY_NANO)@: (months :: i32, days :: i32,
+    -- nanos :: i64) per row, stored as a 16-byte triple.
+    ColIntervalMonthDayNano !(VP.Vector Int32) !(VP.Vector Int32) !(VP.Vector Int64)
   | ColInt8Maybe !(V.Vector (Maybe Int8))
   | ColInt16Maybe !(V.Vector (Maybe Int16))
   | ColInt32Maybe !(V.Vector (Maybe Int32))
@@ -96,6 +105,11 @@ data ColumnArray
   | ColStructMaybe !(V.Vector Bool) !(V.Vector (Text, ColumnArray))
   | ColList !(VP.Vector Int32) !ColumnArray
   | ColListMaybe !(V.Vector Bool) !(VP.Vector Int32) !ColumnArray
+  | -- | Arrow \"LargeList\": semantics identical to 'ColList' but with
+    -- 64-bit offsets. Used when the child array has more than
+    -- 2^31 elements.
+    ColLargeList !(VP.Vector Int64) !ColumnArray
+  | ColLargeListMaybe !(V.Vector Bool) !(VP.Vector Int64) !ColumnArray
   | ColFixedSizeList !Int !ColumnArray
   | ColFixedSizeListMaybe !Int !(V.Vector Bool) !ColumnArray
   | ColMap !(VP.Vector Int32) !ColumnArray !ColumnArray
@@ -128,6 +142,8 @@ buffersPerField f
         ATimestamp _ _ -> Right 1
         ADuration _ -> Right 1
         ADecimal _ _ -> Right 1
+        ADecimal256 _ _ -> Right 1
+        AInterval _ -> Right 1
         ty -> Left $ "Arrow.Column: unsupported flat type: " ++ show ty
       Right $ (if fieldNullable f then 1 else 0) + nData
 
@@ -204,6 +220,7 @@ materializeOne endian f rb body !nodeIdx !bufIdx =
       ATimestamp _ _ -> readTimestampColumnMaybe endian len rb body bufIdx nodeIdx
       ADuration _ -> readDurationColumnMaybe endian len rb body bufIdx nodeIdx
       ADecimal p s -> readDecimal128ColumnMaybe p s len rb body bufIdx nodeIdx
+      ADecimal256 p s -> readDecimal256ColumnMaybe p s len rb body bufIdx nodeIdx
       ty -> Left $ "Arrow.Column: unsupported nullable type: " ++ show ty
     else case fieldType f of
       AInt 8 True -> readInt8Column endian len rb body bufIdx nodeIdx
@@ -232,6 +249,7 @@ materializeOne endian f rb body !nodeIdx !bufIdx =
       ATimestamp _ _ -> readTimestampColumn endian len rb body bufIdx nodeIdx
       ADuration _ -> readDurationColumn endian len rb body bufIdx nodeIdx
       ADecimal p s -> readDecimal128Column p s len rb body bufIdx nodeIdx
+      ADecimal256 p s -> readDecimal256Column p s len rb body bufIdx nodeIdx
       ty -> Left $ "Arrow.Column: unsupported type: " ++ show ty
 
 -- * Non-nullable column readers
@@ -452,6 +470,14 @@ readDecimal128Column precision scale len rb body !bufIdx !nodeIdx = do
     then Left "Arrow.Column: decimal128 buffer too small"
     else Right (ColDecimal128 precision scale (V.generate len $ \i ->
       BS.take 16 (BS.drop (i * 16) valsBs)), nodeIdx + 1, bufIdx + 1)
+
+readDecimal256Column :: Int -> Int -> Int -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
+readDecimal256Column precision scale len rb body !bufIdx !nodeIdx = do
+  valsBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+  if BS.length valsBs < len * 32
+    then Left "Arrow.Column: decimal256 buffer too small"
+    else Right (ColDecimal256 precision scale (V.generate len $ \i ->
+      BS.take 32 (BS.drop (i * 32) valsBs)), nodeIdx + 1, bufIdx + 1)
 
 -- * Nullable column readers (validity bitmap + values)
 
@@ -855,11 +881,21 @@ readDecimal128ColumnMaybe precision scale len rb body !bufIdx !nodeIdx = do
             if not (V.unsafeIndex validFlags i)
               then BS.replicate 16 0
               else BS.take 16 (BS.drop (i * 16) valsBs)
-          validityVec = V.generate len $ \i -> V.unsafeIndex validFlags i
-          validCount = V.foldl' (\c v -> if v then c else c + 1) (0 :: Int) validityVec
-      if validCount > 0
-        then Right (ColDecimal128 precision scale vals, nodeIdx + 1, bufIdx + 2)
-        else Right (ColDecimal128 precision scale vals, nodeIdx + 1, bufIdx + 2)
+      Right (ColDecimal128 precision scale vals, nodeIdx + 1, bufIdx + 2)
+
+readDecimal256ColumnMaybe :: Int -> Int -> Int -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
+readDecimal256ColumnMaybe precision scale len rb body !bufIdx !nodeIdx = do
+  validBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+  valsBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) (bufIdx + 1))
+  validFlags <- unpackBools len validBs
+  if BS.length valsBs < len * 32
+    then Left "Arrow.Column: decimal256 values buffer too small"
+    else do
+      let vals = V.generate len $ \i ->
+            if not (V.unsafeIndex validFlags i)
+              then BS.replicate 32 0
+              else BS.take 32 (BS.drop (i * 32) valsBs)
+      Right (ColDecimal256 precision scale vals, nodeIdx + 1, bufIdx + 2)
 
 -- * Low-level primitives
 
@@ -1047,6 +1083,11 @@ columnLength = \case
   ColStructMaybe v _ -> V.length v
   ColList offsets _ -> max 0 (VP.length offsets - 1)
   ColListMaybe v _ _ -> V.length v
+  ColLargeList offsets _ -> max 0 (VP.length offsets - 1)
+  ColLargeListMaybe v _ _ -> V.length v
+  ColIntervalYearMonth v -> VP.length v
+  ColIntervalDayTime d _ -> VP.length d
+  ColIntervalMonthDayNano m _ _ -> VP.length m
   ColFixedSizeList _ child -> columnLength child
   ColFixedSizeListMaybe _ v _ -> V.length v
   ColMap offsets _ _ -> max 0 (VP.length offsets - 1)
@@ -1085,6 +1126,7 @@ materializeField endian f rb body !nodeIdx !bufIdx =
     AUnion mode _ -> materializeUnionCol endian f mode rb body nodeIdx bufIdx
     AFixedSizeList n -> materializeFixedSizeListCol endian n f rb body nodeIdx bufIdx
     ALargeList -> materializeLargeListCol endian f rb body nodeIdx bufIdx
+    AInterval u -> materializeIntervalCol endian u f rb body nodeIdx bufIdx
     _ -> materializeOne endian f rb body nodeIdx bufIdx
 
 materializeStruct :: Endianness -> Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
@@ -1226,7 +1268,7 @@ materializeLargeListCol endian f rb body !nodeIdx !bufIdx = do
     then Left "Arrow.Column: large list offsets buffer too small"
     else do
       let offsets = VP.generate (len + 1) $ \i ->
-            fromIntegral (readWord64 endian offBs (i * 8)) :: Int32
+            fromIntegral (readWord64 endian offBs (i * 8)) :: Int64
           !bufIdx2 = bufIdx1 + 1
       if V.null (fieldChildren f)
         then Left "Arrow.Column: large list has no child"
@@ -1234,5 +1276,57 @@ materializeLargeListCol endian f rb body !nodeIdx !bufIdx = do
           let childField = V.head (fieldChildren f)
           (childCol, !nodeIdx2, !bufIdx3) <- materializeField endian childField rb body nodeIdx1 bufIdx2
           case validity of
-            Nothing -> Right (ColList offsets childCol, nodeIdx2, bufIdx3)
-            Just vs -> Right (ColListMaybe vs offsets childCol, nodeIdx2, bufIdx3)
+            Nothing -> Right (ColLargeList offsets childCol, nodeIdx2, bufIdx3)
+            Just vs -> Right (ColLargeListMaybe vs offsets childCol, nodeIdx2, bufIdx3)
+
+-- | Read one INTERVAL field. Interval columns are flat (one field
+-- node, validity + data buffers) but the data layout depends on the
+-- unit:
+--
+--   YearMonth     : 4 bytes per row, one i32 (months).
+--   DayTime       : 8 bytes per row, pair of i32 (days, millis).
+--   MonthDayNano  : 16 bytes per row, (i32 months, i32 days, i64 nanos).
+materializeIntervalCol
+  :: Endianness -> IntervalUnit -> Field -> RecordBatchDef -> ByteString
+  -> Int -> Int -> Either String (ColumnArray, Int, Int)
+materializeIntervalCol endian unit f rb body !nodeIdx !bufIdx = do
+  let node = V.unsafeIndex (rbNodes rb) nodeIdx
+      !len = fromIntegral (fnLength node) :: Int
+      !nodeIdx1 = nodeIdx + 1
+  (_validity, !bufIdx1) <- if fieldNullable f
+    then do
+      validBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+      vs <- unpackBools len validBs
+      Right (Just vs, bufIdx + 1)
+    else Right (Nothing, bufIdx)
+  dataBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx1)
+  let !bufIdx2 = bufIdx1 + 1
+  col <- case unit of
+    YearMonth
+      | BS.length dataBs < len * 4 ->
+          Left "Arrow.Column: interval YEAR_MONTH buffer too small"
+      | otherwise ->
+          let vec = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 4)) :: Int32
+           in Right (ColIntervalYearMonth vec)
+    DayTime
+      | BS.length dataBs < len * 8 ->
+          Left "Arrow.Column: interval DAY_TIME buffer too small"
+      | otherwise ->
+          let daysV   = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 8)) :: Int32
+              millisV = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 8 + 4)) :: Int32
+           in Right (ColIntervalDayTime daysV millisV)
+    MonthDayNano
+      | BS.length dataBs < len * 16 ->
+          Left "Arrow.Column: interval MONTH_DAY_NANO buffer too small"
+      | otherwise ->
+          let monthsV = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 16)) :: Int32
+              daysV   = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 16 + 4)) :: Int32
+              nanosV  = VP.generate len $ \i ->
+                fromIntegral (readWord64 endian dataBs (i * 16 + 8)) :: Int64
+           in Right (ColIntervalMonthDayNano monthsV daysV nanosV)
+  Right (col, nodeIdx1, bufIdx2)

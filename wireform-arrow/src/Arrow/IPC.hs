@@ -124,6 +124,7 @@ encodeArrowType = \case
   ALargeBinary      -> B.word8 18
   ALargeUtf8        -> B.word8 19
   ALargeList        -> B.word8 20
+  ADecimal256 p s   -> B.word8 21 <> B.word8 (fromIntegral p) <> B.word8 (fromIntegral s)
 
 encodeRecordBatch :: RecordBatchDef -> ByteString
 encodeRecordBatch rb = BL.toStrict $ B.toLazyByteString $
@@ -238,6 +239,8 @@ decodeArrowType bs off = do
     18 -> Right (ALargeBinary, off + 1)
     19 -> Right (ALargeUtf8, off + 1)
     20 -> Right (ALargeList, off + 1)
+    21 -> do ensure bs (off + 1) 2
+             Right (ADecimal256 (fromIntegral (rdByte bs (off + 1))) (fromIntegral (rdByte bs (off + 2))), off + 3)
     _  -> Left $ "Arrow.IPC: unknown type tag " ++ show tag
 
 decodeRecordBatch :: ByteString -> Either String RecordBatchDef

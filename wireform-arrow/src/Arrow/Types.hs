@@ -56,6 +56,14 @@ data ArrowType
   | AUtf8
   | ABool
   | ADecimal !Int !Int
+    -- ^ 128-bit 'Decimal' (precision, scale). Kept as @ADecimal@
+    -- for source compatibility with the original schema; the
+    -- 256-bit variant is 'ADecimal256'.
+  | ADecimal256 !Int !Int
+    -- ^ 256-bit 'Decimal' (precision, scale). Arrow's on-wire
+    -- @Decimal@ type carries a @bitWidth@ field; we keep the two
+    -- widths as distinct 'ArrowType' constructors so the reader
+    -- can dispatch to the right 'ColumnArray' variant.
   | ADate !DateUnit
   | ATime !TimeUnit !Int
   | ATimestamp !TimeUnit !(Maybe Text)
