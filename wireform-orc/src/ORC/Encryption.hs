@@ -46,7 +46,7 @@ module ORC.Encryption
   , encryptStripeKey
   , deriveStreamIv
   , aesCtrXor
-    -- * Protobuf encoders for the @Encryption@ footer field
+    -- * Protobuf codec for the @Encryption@ footer field
   , Encryption (..)
   , EncryptionKey (..)
   , EncryptionVariant (..)
@@ -55,6 +55,10 @@ module ORC.Encryption
   , encodeEncryptionKey
   , encodeEncryptionVariant
   , encodeDataMask
+  , decodeEncryption
+  , decodeEncryptionKey
+  , decodeEncryptionVariant
+  , decodeDataMask
   ) where
 
 import qualified Crypto.Cipher.AES as Crypto
@@ -89,6 +93,17 @@ algorithmTag = \case
   AES_CTR_192       -> 2
   AES_CTR_256       -> 3
 
+-- | Inverse of 'algorithmTag'. Unknown tags are surfaced as
+-- 'UnknownEncryption' (matching the spec's @UNKNOWN_ENCRYPTION = 0@
+-- fallback) rather than as a decode error, so a reader can tolerate
+-- newer ORC writers that introduce additional algorithm tags.
+algorithmFromTag :: Int -> EncryptionAlgorithm
+algorithmFromTag = \case
+  1 -> AES_CTR_128
+  2 -> AES_CTR_192
+  3 -> AES_CTR_256
+  _ -> UnknownEncryption
+
 -- | Which KMS produced the master keys. Mirrors
 -- @orc_proto.proto::KeyProviderKind@.
 data KeyProviderKind
@@ -106,6 +121,16 @@ providerTag = \case
   ProviderAwsKms   -> 2
   ProviderGcpKms   -> 3
   ProviderAzureKms -> 4
+
+-- | Inverse of 'providerTag'; unknown values fall through to
+-- 'ProviderUnknown' for forward compatibility.
+providerFromTag :: Int -> KeyProviderKind
+providerFromTag = \case
+  1 -> ProviderHadoop
+  2 -> ProviderAwsKms
+  3 -> ProviderGcpKms
+  4 -> ProviderAzureKms
+  _ -> ProviderUnknown
 
 -- ============================================================
 -- Cryptographic primitives
@@ -288,6 +313,66 @@ encodeDataMask dm = BL.toStrict $ B.toLazyByteString $
     optName
       | BS.null (dmName dm) = mempty
       | otherwise           = encodeLengthDelimBytes DataMask_Name (dmName dm)
+
+-- ============================================================
+-- Decoders (inverse of the encoders above)
+-- ============================================================
+
+-- | Parse an @Encryption@ protobuf message (the
+-- @Footer.encryption@ field's value) into its typed representation.
+-- Accepts the bytes wrapped in a 'Types.FooterEncryption' round-trip
+-- via 'ORC.Footer'.
+decodeEncryption :: ByteString -> Either String Encryption
+decodeEncryption bs =
+  let empty_ = Encryption
+        { encMasks       = []
+        , encKeys        = []
+        , encVariants    = []
+        , encKeyProvider = ProviderUnknown
+        }
+   in decodeMsg bs empty_ $ \e -> \case
+        Encryption_Mask        -> ReadBytesE $ \payload -> do
+          m <- decodeDataMask payload
+          Right e { encMasks = encMasks e ++ [m] }
+        Encryption_Key         -> ReadBytesE $ \payload -> do
+          k <- decodeEncryptionKey payload
+          Right e { encKeys = encKeys e ++ [k] }
+        Encryption_Variants    -> ReadBytesE $ \payload -> do
+          v <- decodeEncryptionVariant payload
+          Right e { encVariants = encVariants e ++ [v] }
+        Encryption_KeyProvider -> ReadVarint $ \v ->
+          e { encKeyProvider = providerFromTag (fromIntegral v) }
+        _ -> SkipUnknown
+
+decodeEncryptionKey :: ByteString -> Either String EncryptionKey
+decodeEncryptionKey bs =
+  decodeMsg bs (EncryptionKey BS.empty 0 UnknownEncryption) $ \k -> \case
+    EncryptionKey_KeyName    -> ReadBytes  $ \v -> k { ekName      = v }
+    EncryptionKey_KeyVersion -> ReadVarint $ \v -> k { ekVersion   = fromIntegral v }
+    EncryptionKey_Algorithm  -> ReadVarint $ \v ->
+      k { ekAlgorithm = algorithmFromTag (fromIntegral v) }
+    _                        -> SkipUnknown
+
+decodeEncryptionVariant :: ByteString -> Either String EncryptionVariant
+decodeEncryptionVariant bs =
+  decodeMsg bs (EncryptionVariant 0 0 BS.empty) $ \v -> \case
+    EncryptionVariant_Root         -> ReadVarint $ \x ->
+      v { evRoot         = fromIntegral x }
+    EncryptionVariant_Key          -> ReadVarint $ \x ->
+      v { evKey          = fromIntegral x }
+    EncryptionVariant_EncryptedKey -> ReadBytes  $ \x ->
+      v { evEncryptedKey = x }
+    _                              -> SkipUnknown
+
+decodeDataMask :: ByteString -> Either String DataMask
+decodeDataMask bs =
+  decodeMsg bs (DataMask BS.empty [] []) $ \d -> \case
+    DataMask_Name           -> ReadBytes  $ \x -> d { dmName       = x }
+    DataMask_MaskParameters -> ReadBytes  $ \x ->
+      d { dmParameters = dmParameters d ++ [x] }
+    DataMask_Columns        -> ReadVarint $ \x ->
+      d { dmColumns    = dmColumns d ++ [fromIntegral x] }
+    _                       -> SkipUnknown
 
 -- silence unused-import warning for BA / Word8.
 _unusedBA :: BA.Bytes -> Int

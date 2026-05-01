@@ -113,42 +113,9 @@ decodeStream bs = go 0 (Stream 0 0 0)
             Stream_Length -> readV $ \v -> st { stLength = v }
             _             -> skipField wt bs off' len >>= \off'' -> go off'' st
 
--- ============================================================
--- Shared protobuf primitives (read)
--- ============================================================
---
--- These are decoder-only; the encoder helpers are imported from
--- "ORC.Proto.Schema" so both modules share the same named-field
--- writers.
-
-getVarint :: ByteString -> Int -> Int -> Either String (Word64, Int)
-getVarint bs !off !len = go off 0 0
-  where
-    go !pos !val !shift
-      | pos >= len = Left "ORC.Stripe: truncated varint"
-      | shift >= 64 = Left "ORC.Stripe: varint too long"
-      | otherwise =
-          let !b = fromIntegral (BSU.unsafeIndex bs pos) :: Word64
-              !val' = val .|. ((b .&. 0x7F) `shiftL` shift)
-          in if b .&. 0x80 == 0
-              then Right (val', pos + 1)
-              else go (pos + 1) val' (shift + 7)
-
-getLenDelim :: ByteString -> Int -> Int -> Either String (ByteString, Int)
-getLenDelim bs !off !len = do
-  (dlen, off') <- getVarint bs off len
-  let !dataLen = fromIntegral dlen :: Int
-  if off' + dataLen > len
-    then Left "ORC.Stripe: length-delimited overflow"
-    else Right (BS.take dataLen (BS.drop off' bs), off' + dataLen)
-
-skipField :: Word64 -> ByteString -> Int -> Int -> Either String Int
-skipField wireType bs !off !len = case wireType of
-  0 -> do (_, off') <- getVarint bs off len; Right off'
-  1 -> if off + 8 <= len then Right (off + 8) else Left "ORC.Stripe: skip fixed64"
-  2 -> do (_, off') <- getLenDelim bs off len; Right off'
-  5 -> if off + 4 <= len then Right (off + 4) else Left "ORC.Stripe: skip fixed32"
-  _ -> Left $ "ORC.Stripe: unknown wire type " ++ show wireType
+-- Decoder primitives (getVarint, getLenDelim, skipField) come from
+-- "ORC.Proto.Schema"; so do the encoder helpers. Both sides of this
+-- module share the same named-field codec.
 
 -- ============================================================
 -- Protobuf encoding

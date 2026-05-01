@@ -4,6 +4,7 @@
 module Main (main) where
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int32, Int64)
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
@@ -107,6 +108,38 @@ main = do
             Left e  -> failTest ("decryptStripeStream: " ++ e)
             Right p -> expect "encrypted ORC: stream decrypts to the original"
                          (p == stream0)
+
+  -- Reader-side Encryption parser: build a record with all four
+  -- field kinds populated (masks + keys + variants + keyProvider),
+  -- encode + decode round-trip, assert structural equality.
+  do
+    let encRich = Enc.Encryption
+          { Enc.encMasks = [ Enc.DataMask
+              { Enc.dmName       = BSC.pack "redact-email"
+              , Enc.dmParameters = [BSC.pack "keep=3"]
+              , Enc.dmColumns    = [4, 7]
+              }
+            ]
+          , Enc.encKeys = [ Enc.EncryptionKey
+              { Enc.ekName      = BSC.pack "kek-prod-1"
+              , Enc.ekVersion   = 17
+              , Enc.ekAlgorithm = Enc.AES_CTR_256
+              }
+            ]
+          , Enc.encVariants = [ Enc.EncryptionVariant
+              { Enc.evRoot         = 3
+              , Enc.evKey          = 0
+              , Enc.evEncryptedKey = BS.pack [0x01, 0x02, 0x03, 0x04]
+              }
+            ]
+          , Enc.encKeyProvider = Enc.ProviderAwsKms
+          }
+        encBytes = Enc.encodeEncryption encRich
+    case Enc.decodeEncryption encBytes of
+      Left e -> failTest ("decodeEncryption: " ++ e)
+      Right parsed -> expect
+        "Encryption round-trip: encodeEncryption -> decodeEncryption"
+        (parsed == encRich)
 
   -- DICTIONARY_V2 string column round-trip. The writer emits three
   -- streams (DATA = per-row indices, LENGTH = dict entry lengths,
