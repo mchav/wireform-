@@ -78,6 +78,17 @@ data ArrowType
   | ALargeBinary
   | ALargeUtf8
   | ALargeList
+  -- The remaining constructors are post-V5 schema additions
+  -- (Arrow format version >= 1.4). The metadata writer in
+  -- "Arrow.FlatBufferIPC" understands them; a corresponding column
+  -- materializer / writer in "Arrow.Column" / "Arrow.Write" is not
+  -- yet wired up — the schema slot is enough for round-tripping
+  -- type information from external readers.
+  | ARunEndEncoded
+  | ABinaryView
+  | AUtf8View
+  | AListView
+  | ALargeListView
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 

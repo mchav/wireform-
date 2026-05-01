@@ -268,6 +268,17 @@ flatBufSchemaSelfCheck = do
             , plainField "blob"   True  ABinary
             , plainField "tag"    False (AFixedSizeBinary 16)
             ]) Little
+        , -- Post-V5 type tags (Utf8View / BinaryView / RunEndEncoded /
+          -- ListView / LargeListView). Arrow.Column doesn't materialise
+          -- their data buffers, but the schema flatbuffer round-trips
+          -- so wireform can interoperate with newer Arrow producers.
+          Schema (V.fromList
+            [ plainField "v"   True  AUtf8View
+            , plainField "b"   True  ABinaryView
+            , plainField "ree" True  ARunEndEncoded
+            , plainField "lv"  True  AListView
+            , plainField "llv" True  ALargeListView
+            ]) Little
         ]
   mapM_ (\sch -> do
             let bs = buildSchemaMessage sch

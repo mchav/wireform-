@@ -558,9 +558,14 @@ writeType b ty = case ty of
   ADuration u' -> do
     u <- writeTable b [ Just (scalar 2 (\bb -> prependI16 bb (fromIntegral (timeUnitTag u')))) ]
     pure (18, u)
-  ALargeBinary -> emptyT 19
-  ALargeUtf8   -> emptyT 20
-  ALargeList   -> emptyT 21
+  ALargeBinary    -> emptyT 19
+  ALargeUtf8      -> emptyT 20
+  ALargeList      -> emptyT 21
+  ARunEndEncoded  -> emptyT 22
+  ABinaryView     -> emptyT 23
+  AUtf8View       -> emptyT 24
+  AListView       -> emptyT 25
+  ALargeListView  -> emptyT 26
   where
     emptyT !tag = do
       u <- writeTable b []
@@ -1294,6 +1299,11 @@ readType bs 18 (Just p) = do
 readType _  19 _ = Right ALargeBinary
 readType _  20 _ = Right ALargeUtf8
 readType _  21 _ = Right ALargeList
+readType _  22 _ = Right ARunEndEncoded
+readType _  23 _ = Right ABinaryView
+readType _  24 _ = Right AUtf8View
+readType _  25 _ = Right AListView
+readType _  26 _ = Right ALargeListView
 readType _  n  _ = Left $ "Arrow.FlatBufferIPC: unsupported Type discriminator " ++ show n
 
 timeUnitFromTag :: Int -> Either String TimeUnit

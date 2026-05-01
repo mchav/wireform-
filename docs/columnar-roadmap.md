@@ -76,6 +76,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | B.4 | Golden IPC interop with pyarrow | Symmetric | **Done** — `Arrow.FlatBufferIPC` emits standards-compliant FlatBuffers metadata; `writeArrowStreamFBFromColumns` produces bytes that `pyarrow.ipc.open_stream` decodes end-to-end (schema + record batches, primitive + variable-length + nullable columns) |
 | B.5 | f16, unsigned ints, unions, map, large binary/utf8, interval, fixed-size list, dictionary | Read + Write | **Done** (`Arrow.Column` materializers + `Arrow.Write.encodeCol` cover every `ArrowType`; `ADecimal256` is distinct from `ADecimal` to round-trip both widths) |
 | B.6 | wireform-arrow internal round-trip test suite | — | **Done** (`wireform-arrow/test/Main.hs`: every `ColumnArray` constructor survives a `writeArrowStream` + `readArrowStream` + `materializeRecordBatch` cycle) |
+| B.7 | Post-V5 schema additions (Utf8View / BinaryView / RunEndEncoded / ListView / LargeListView, type tags 22-26) | Read + Write (schema metadata) | **Done** (`Arrow.Types.ArrowType` carries the new constructors; `Arrow.FlatBufferIPC` writer + reader round-trip them — column-data materialisation is a separate item once we add view-buffer parsing in `Arrow.Column`) |
 
 ---
 
