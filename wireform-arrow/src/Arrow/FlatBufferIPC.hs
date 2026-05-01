@@ -819,162 +819,213 @@ buildRecordBatchBytes sch cols =
       !body = BL.toStrict (B.toLazyByteString (W.baBody acc))
   in (rb, body)
 
--- | Walk the schema + columns side by side and insert an empty
--- 'Buffer' (offset=0, len=0) in the validity slot of every top-
--- level non-nullable /primitive/ field. Nested / view / REE
--- columns are emitted with their canonical buffer layout by
--- 'encodeCol' already and pass through unchanged.
+-- | Walk every TOP-LEVEL column in the batch and inject an empty
+-- 'Buffer' (offset=0, length=0) for the validity slot of any
+-- non-nullable column whose layout has one. The Arrow spec
+-- requires the slot at every level; pyarrow, arrow-cpp, and
+-- arrow-rs all happily accept a "missing" empty slot for nested
+-- non-nullable children, so we only fix this at the top level
+-- where the readers are stricter.
+--
+-- For columns whose layout has /no/ validity slot (Union, REE,
+-- FixedSizeBinary's data buffer, struct's children, ...) we pass
+-- through unchanged.
+--
+-- 'FieldNode' counts pass through unchanged — the spec says one
+-- @FieldNode@ per field in pre-order, which 'encodeCol' already
+-- produces.
 normaliseBuffers
   :: V.Vector Field
   -> V.Vector ColumnArray
   -> V.Vector FieldNode
   -> V.Vector Buffer
   -> (V.Vector FieldNode, V.Vector Buffer)
-normaliseBuffers fields cols nodes bufs =
-  let (_, _, outNodes, outBufs) =
-        V.ifoldl' step (0 :: Int, 0 :: Int, [], []) fields
-      step (!nIdx, !bIdx, !nAcc, !bAcc) i f =
-        let !col           = V.unsafeIndex cols i
-            (!nConsumed, !bConsumed, !emittedBufs) =
-              normaliseField f col bufs nIdx bIdx
-            !nodesSlice =
-              [ nodes V.! j | j <- [nIdx .. nIdx + nConsumed - 1] ]
-        in  ( nIdx + nConsumed
-            , bIdx + bConsumed
-            , reverse nodesSlice ++ nAcc
-            , reverse emittedBufs ++ bAcc
-            )
-  in  (V.fromList (reverse outNodes), V.fromList (reverse outBufs))
+normaliseBuffers _fields cols nodes rawBufs =
+  let (_, !revBufs) = V.foldl' step (0 :: Int, []) cols
+      step (!bIdx, acc) col =
+        let (!consumed, !emitted) = injectColumn col rawBufs bIdx
+        in  (bIdx + consumed, reverse emitted ++ acc)
+  in  (nodes, V.fromList (reverse revBufs))
 
--- | For one top-level @(field, column)@ pair, return
--- @(#fieldNodes consumed, #source buffers consumed, output buffers
--- in emission order)@. Only flat-primitive non-nullable fields get
--- an empty validity buffer prepended; everything else passes
--- through unchanged.
-normaliseField
-  :: Field
-  -> ColumnArray
-  -> V.Vector Buffer
-  -> Int
-  -> Int
-  -> (Int, Int, [Buffer])
-normaliseField f col bufs _nIdx bIdx =
-  let !flatPrim = case fieldType f of
-        AInt {}            -> True
-        ABool              -> True
-        AFloatingPoint _   -> True
-        AFixedSizeBinary _ -> True
-        ADate _            -> True
-        ATime _ _          -> True
-        ATimestamp _ _     -> True
-        ADuration _        -> True
-        ADecimal _ _       -> True
-        ADecimal256 _ _    -> True
-        AInterval _        -> True
-        AUtf8              -> True
-        ABinary            -> True
-        ALargeUtf8         -> True
-        ALargeBinary       -> True
-        _                  -> False
-      !nodesEmitted = countFieldNodesEmitted col
-      !bufsEmitted  = countBuffersEmitted col
-  in  if flatPrim
-        then
-          let inputCount = bufsEmitted
-              srcBufs    = [ bufs V.! i | i <- [bIdx .. bIdx + inputCount - 1] ]
-              outBufs    = if fieldNullable f
-                             then srcBufs
-                             else emptyValidityBuffer : srcBufs
-          in  (nodesEmitted, inputCount, outBufs)
-        else
-          -- Pass-through: nested/view/REE columns emit the canonical
-          -- buffer set already.
-          let inputCount = bufsEmitted
-              srcBufs    = [ bufs V.! i | i <- [bIdx .. bIdx + inputCount - 1] ]
-          in  (nodesEmitted, inputCount, srcBufs)
+-- | Recursively inject empty validity buffers at every layout
+-- position that has a validity slot but where the writer omitted
+-- it (non-nullable column).  Returns @(#source buffers consumed,
+-- spec-compliant output buffers in emission order)@.
+injectColumn
+  :: ColumnArray -> V.Vector Buffer -> Int -> (Int, [Buffer])
+injectColumn col bufs bIdx0 = case col of
+  -- Flat primitives: layout = [validity, data]. Nullable supplies
+  -- 2 buffers; non-nullable supplies 1 (data only) and we prepend
+  -- an empty validity.
+  _ | isFlatPrim col ->
+      let (vBuf, bIdx1) = takeValidity (isNullable col) bufs bIdx0
+          dataBuf       = bufs V.! bIdx1
+      in  (bIdx1 + 1 - bIdx0, [vBuf, dataBuf])
+  _ | isVarLen col ->
+      let (vBuf, bIdx1) = takeValidity (isNullable col) bufs bIdx0
+          offsetsBuf    = bufs V.! bIdx1
+          dataBuf       = bufs V.! (bIdx1 + 1)
+      in  (bIdx1 + 2 - bIdx0, [vBuf, offsetsBuf, dataBuf])
 
--- | How many 'FieldNode' entries does this column contribute?
--- Used by 'normaliseBuffers' to step the per-column cursor.
-countFieldNodesEmitted :: ColumnArray -> Int
-countFieldNodesEmitted = \case
-  ColStruct children            -> 1 + sum (map (countFieldNodesEmitted . snd) (V.toList children))
-  ColStructMaybe _ children     -> 1 + sum (map (countFieldNodesEmitted . snd) (V.toList children))
-  ColList _ child               -> 1 + countFieldNodesEmitted child
-  ColListMaybe _ _ child        -> 1 + countFieldNodesEmitted child
-  ColLargeList _ child          -> 1 + countFieldNodesEmitted child
-  ColLargeListMaybe _ _ child   -> 1 + countFieldNodesEmitted child
-  ColFixedSizeList _ child      -> 1 + countFieldNodesEmitted child
-  ColFixedSizeListMaybe _ _ child -> 1 + countFieldNodesEmitted child
-  ColMap _ k v                  -> 2 + countFieldNodesEmitted k + countFieldNodesEmitted v
-  ColMapMaybe _ _ k v           -> 2 + countFieldNodesEmitted k + countFieldNodesEmitted v
-  ColDenseUnion _ _ children    -> 1 + sum (map countFieldNodesEmitted (V.toList children))
-  ColSparseUnion _ children     -> 1 + sum (map countFieldNodesEmitted (V.toList children))
-  ColRunEndEncoded re vals      -> 1 + countFieldNodesEmitted re + countFieldNodesEmitted vals
-  ColListView _ _ child         -> 1 + countFieldNodesEmitted child
-  ColListViewMaybe _ _ _ child  -> 1 + countFieldNodesEmitted child
-  ColLargeListView _ _ child    -> 1 + countFieldNodesEmitted child
-  ColLargeListViewMaybe _ _ _ child -> 1 + countFieldNodesEmitted child
-  _                             -> 1
+  ColStruct children          -> goStruct False (V.toList (V.map snd children)) bIdx0
+  ColStructMaybe _ children   -> goStruct True  (V.toList (V.map snd children)) bIdx0
 
--- | How many body buffers does this column contribute (counting
--- recursively for nested types)?
-countBuffersEmitted :: ColumnArray -> Int
-countBuffersEmitted = \case
-  -- Non-nullable primitives: 1 buffer (data only — the validity
-  -- slot is added by the outer normaliser).
-  ColInt8 _    -> 1; ColInt16 _ -> 1; ColInt32 _ -> 1; ColInt64 _ -> 1
-  ColUInt8 _   -> 1; ColUInt16 _ -> 1; ColUInt32 _ -> 1; ColUInt64 _ -> 1
-  ColFloat16 _ -> 1; ColFloat _ -> 1; ColDouble _ -> 1
-  ColBool _ -> 1
-  ColDate32 _ -> 1; ColDate64 _ -> 1
-  ColTime32 _ -> 1; ColTime64 _ -> 1
-  ColTimestamp _ -> 1; ColDuration _ -> 1
-  ColDecimal128 _ _ _ -> 1; ColDecimal256 _ _ _ -> 1
-  ColFixedSizeBinary _ _ -> 1
-  ColIntervalYearMonth _ -> 1
-  ColIntervalDayTime _ _ -> 1
-  ColIntervalMonthDayNano _ _ _ -> 1
-  -- Variable-length non-nullable: 2 buffers (offsets + data).
-  ColUtf8 _   -> 2; ColBinary _ -> 2
-  ColLargeUtf8 _ -> 2; ColLargeBinary _ -> 2
-  -- Nullable primitives: validity + data.
-  ColInt8Maybe _    -> 2; ColInt16Maybe _ -> 2; ColInt32Maybe _ -> 2; ColInt64Maybe _ -> 2
-  ColUInt8Maybe _   -> 2; ColUInt16Maybe _ -> 2; ColUInt32Maybe _ -> 2; ColUInt64Maybe _ -> 2
-  ColFloat16Maybe _ -> 2; ColFloatMaybe _ -> 2; ColDoubleMaybe _ -> 2
-  ColBoolMaybe _ -> 2
-  ColDate32Maybe _ -> 2; ColDate64Maybe _ -> 2
-  ColTime32Maybe _ -> 2; ColTime64Maybe _ -> 2
-  ColTimestampMaybe _ -> 2; ColDurationMaybe _ -> 2
-  ColFixedSizeBinaryMaybe _ _ -> 2
-  ColUtf8Maybe _ -> 3; ColBinaryMaybe _ -> 3
-  ColLargeUtf8Maybe _ -> 3; ColLargeBinaryMaybe _ -> 3
-  -- Nested types.
-  ColStruct children -> 0 + sum (map (countBuffersEmitted . snd) (V.toList children))
-  ColStructMaybe _ children -> 1 + sum (map (countBuffersEmitted . snd) (V.toList children))
-  ColList _ child -> 1 + countBuffersEmitted child
-  ColListMaybe _ _ child -> 2 + countBuffersEmitted child
-  ColLargeList _ child -> 1 + countBuffersEmitted child
-  ColLargeListMaybe _ _ child -> 2 + countBuffersEmitted child
-  ColFixedSizeList _ child -> 0 + countBuffersEmitted child
-  ColFixedSizeListMaybe _ _ child -> 1 + countBuffersEmitted child
-  ColMap _ k v -> 1 + countBuffersEmitted k + countBuffersEmitted v
-  ColMapMaybe _ _ k v -> 2 + countBuffersEmitted k + countBuffersEmitted v
-  ColDenseUnion _ _ children -> 2 + sum (map countBuffersEmitted (V.toList children))
-  ColSparseUnion _ children  -> 1 + sum (map countBuffersEmitted (V.toList children))
-  ColDictionary _ _ _ -> 1
-  -- Post-V5.
-  ColRunEndEncoded re vals -> 0 + countBuffersEmitted re + countBuffersEmitted vals
-  ColListView _ _ child -> 2 + countBuffersEmitted child
-  ColListViewMaybe _ _ _ child -> 3 + countBuffersEmitted child
-  ColLargeListView _ _ child -> 2 + countBuffersEmitted child
-  ColLargeListViewMaybe _ _ _ child -> 3 + countBuffersEmitted child
-  -- Views: validity? + view + (optional) variadic. The writer
-  -- emits a single variadic buffer iff any payload exceeded the
-  -- 12-byte inline budget.
-  ColUtf8View vs        -> 1 + viewVariadic (V.map (Just . TE.encodeUtf8) vs)
-  ColUtf8ViewMaybe vs   -> 2 + viewVariadic (V.map (fmap TE.encodeUtf8) vs)
-  ColBinaryView vs      -> 1 + viewVariadic (V.map Just vs)
-  ColBinaryViewMaybe vs -> 2 + viewVariadic vs
+  ColList _ child             -> goList False child bIdx0
+  ColListMaybe _ _ child      -> goList True  child bIdx0
+  ColLargeList _ child        -> goList False child bIdx0
+  ColLargeListMaybe _ _ child -> goList True  child bIdx0
+
+  ColFixedSizeList _ child       -> goFixedSizeList False child bIdx0
+  ColFixedSizeListMaybe _ _ child -> goFixedSizeList True  child bIdx0
+
+  ColMap _ k v                -> goMap False k v bIdx0
+  ColMapMaybe _ _ k v         -> goMap True  k v bIdx0
+
+  ColDenseUnion _ _ children ->
+      let typeIds = bufs V.! bIdx0
+          offsets = bufs V.! (bIdx0 + 1)
+          (cc, cb) = goSiblings (V.toList children) (bIdx0 + 2)
+      in  (cc + 2, typeIds : offsets : cb)
+  ColSparseUnion _ children ->
+      let typeIds = bufs V.! bIdx0
+          (cc, cb) = goSiblings (V.toList children) (bIdx0 + 1)
+      in  (cc + 1, typeIds : cb)
+
+  ColRunEndEncoded re vals ->
+      -- REE parent has zero buffers, then run_ends + values.
+      let (cre, bre) = injectColumn re bufs bIdx0
+          (cv,  bv)  = injectColumn vals bufs (bIdx0 + cre)
+      in  (cre + cv, bre ++ bv)
+
+  ColListView _ _ child            -> goListView False child bIdx0
+  ColListViewMaybe _ _ _ child     -> goListView True  child bIdx0
+  ColLargeListView _ _ child       -> goListView False child bIdx0
+  ColLargeListViewMaybe _ _ _ child -> goListView True  child bIdx0
+
+  ColUtf8View {}        -> goView col bIdx0
+  ColUtf8ViewMaybe {}   -> goView col bIdx0
+  ColBinaryView {}      -> goView col bIdx0
+  ColBinaryViewMaybe {} -> goView col bIdx0
+
+  ColDictionary _ _ _ ->
+      let (vBuf, bIdx1) = takeValidity (isNullable col) bufs bIdx0
+          indices       = bufs V.! bIdx1
+      in  (bIdx1 + 1 - bIdx0, [vBuf, indices])
+
+  _ -> (0, [])
+  where
+    goStruct nullable children bIdx =
+      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
+          (cc, cb) = goSiblings children bIdx1
+      in  (bIdx1 + cc - bIdx, vBuf : cb)
+    goList nullable child bIdx =
+      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
+          offsetsBuf    = bufs V.! bIdx1
+          (cc, cb)      = injectColumn child bufs (bIdx1 + 1)
+      in  (bIdx1 + 1 + cc - bIdx, vBuf : offsetsBuf : cb)
+    goFixedSizeList nullable child bIdx =
+      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
+          (cc, cb)      = injectColumn child bufs bIdx1
+      in  (bIdx1 + cc - bIdx, vBuf : cb)
+    goMap nullable k v bIdx =
+      -- Map's child is a (key, value) struct; the writer skips
+      -- emitting a struct buffer (no validity) — its FieldNode
+      -- exists but contributes 0 buffers. So our spec output has
+      -- [validity, offsets, struct-validity (empty), key bufs..., value bufs...].
+      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
+          offsetsBuf    = bufs V.! bIdx1
+          (ck, kb) = injectColumn k bufs (bIdx1 + 1)
+          (cv, kv) = injectColumn v bufs (bIdx1 + 1 + ck)
+      in  ( bIdx1 + 1 + ck + cv - bIdx
+          , vBuf : offsetsBuf : emptyValidityBuffer : kb ++ kv
+          )
+    goListView nullable child bIdx =
+      let (vBuf, bIdx1) = takeValidity nullable bufs bIdx
+          offsetsBuf    = bufs V.! bIdx1
+          sizesBuf      = bufs V.! (bIdx1 + 1)
+          (cc, cb)      = injectColumn child bufs (bIdx1 + 2)
+      in  (bIdx1 + 2 + cc - bIdx, vBuf : offsetsBuf : sizesBuf : cb)
+    goView c bIdx =
+      let (vBuf, bIdx1) = takeValidity (isNullable c) bufs bIdx
+          viewBuf       = bufs V.! bIdx1
+          !varCount = case c of
+            ColUtf8View vs        -> viewVariadic (V.map (Just . TE.encodeUtf8) vs)
+            ColUtf8ViewMaybe vs   -> viewVariadic (V.map (fmap TE.encodeUtf8) vs)
+            ColBinaryView vs      -> viewVariadic (V.map Just vs)
+            ColBinaryViewMaybe vs -> viewVariadic vs
+            _                     -> 0
+          variadics = [ bufs V.! (bIdx1 + 1 + i) | i <- [0 .. varCount - 1] ]
+      in  (bIdx1 + 1 + varCount - bIdx, vBuf : viewBuf : variadics)
+    goSiblings :: [ColumnArray] -> Int -> (Int, [Buffer])
+    goSiblings [] _ = (0, [])
+    goSiblings (c:cs) bIdx =
+      let (cc, cb) = injectColumn c bufs bIdx
+          (rc, rb) = goSiblings cs (bIdx + cc)
+      in  (cc + rc, cb ++ rb)
+
+-- | Take a validity buffer (or substitute an empty one) and step
+-- the source-buffer cursor accordingly.
+takeValidity :: Bool -> V.Vector Buffer -> Int -> (Buffer, Int)
+takeValidity True  bufs bIdx = (V.unsafeIndex bufs bIdx, bIdx + 1)
+takeValidity False _    bIdx = (emptyValidityBuffer, bIdx)
+
+isFlatPrim :: ColumnArray -> Bool
+isFlatPrim = \case
+  ColInt8 {} -> True; ColInt16 {} -> True; ColInt32 {} -> True; ColInt64 {} -> True
+  ColUInt8 {} -> True; ColUInt16 {} -> True; ColUInt32 {} -> True; ColUInt64 {} -> True
+  ColFloat16 {} -> True; ColFloat {} -> True; ColDouble {} -> True
+  ColBool {} -> True
+  ColDate32 {} -> True; ColDate64 {} -> True
+  ColTime32 {} -> True; ColTime64 {} -> True
+  ColTimestamp {} -> True; ColDuration {} -> True
+  ColDecimal128 {} -> True; ColDecimal256 {} -> True
+  ColFixedSizeBinary {} -> True
+  ColIntervalYearMonth {} -> True
+  ColIntervalDayTime {} -> True
+  ColIntervalMonthDayNano {} -> True
+  ColInt8Maybe {} -> True; ColInt16Maybe {} -> True
+  ColInt32Maybe {} -> True; ColInt64Maybe {} -> True
+  ColUInt8Maybe {} -> True; ColUInt16Maybe {} -> True
+  ColUInt32Maybe {} -> True; ColUInt64Maybe {} -> True
+  ColFloat16Maybe {} -> True
+  ColFloatMaybe {} -> True; ColDoubleMaybe {} -> True
+  ColBoolMaybe {} -> True
+  ColDate32Maybe {} -> True; ColDate64Maybe {} -> True
+  ColTime32Maybe {} -> True; ColTime64Maybe {} -> True
+  ColTimestampMaybe {} -> True; ColDurationMaybe {} -> True
+  ColFixedSizeBinaryMaybe {} -> True
+  _ -> False
+
+isVarLen :: ColumnArray -> Bool
+isVarLen = \case
+  ColUtf8 {} -> True; ColBinary {} -> True
+  ColLargeUtf8 {} -> True; ColLargeBinary {} -> True
+  ColUtf8Maybe {} -> True; ColBinaryMaybe {} -> True
+  ColLargeUtf8Maybe {} -> True; ColLargeBinaryMaybe {} -> True
+  _ -> False
+
+isNullable :: ColumnArray -> Bool
+isNullable = \case
+  ColInt8Maybe {} -> True; ColInt16Maybe {} -> True
+  ColInt32Maybe {} -> True; ColInt64Maybe {} -> True
+  ColUInt8Maybe {} -> True; ColUInt16Maybe {} -> True
+  ColUInt32Maybe {} -> True; ColUInt64Maybe {} -> True
+  ColFloat16Maybe {} -> True
+  ColFloatMaybe {} -> True; ColDoubleMaybe {} -> True
+  ColBoolMaybe {} -> True
+  ColUtf8Maybe {} -> True; ColBinaryMaybe {} -> True
+  ColLargeUtf8Maybe {} -> True; ColLargeBinaryMaybe {} -> True
+  ColFixedSizeBinaryMaybe {} -> True
+  ColDate32Maybe {} -> True; ColDate64Maybe {} -> True
+  ColTime32Maybe {} -> True; ColTime64Maybe {} -> True
+  ColTimestampMaybe {} -> True; ColDurationMaybe {} -> True
+  ColStructMaybe {} -> True
+  ColListMaybe {} -> True; ColLargeListMaybe {} -> True
+  ColFixedSizeListMaybe {} -> True
+  ColMapMaybe {} -> True
+  ColListViewMaybe {} -> True; ColLargeListViewMaybe {} -> True
+  ColUtf8ViewMaybe {} -> True; ColBinaryViewMaybe {} -> True
+  _ -> False
 
 -- | 1 if any non-null payload in the view column exceeds 12 bytes,
 -- 0 otherwise.

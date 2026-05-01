@@ -617,31 +617,22 @@ primFlat bs n acc =
 encodeViewColumn :: V.Vector (Maybe ByteString) -> Bool -> BuildAcc -> BuildAcc
 encodeViewColumn vs nullable acc =
   let !n = V.length vs
-      -- Decide which payloads need to be in the variadic buffer.
-      payloads :: V.Vector ByteString
-      payloads = V.map (BS.take 0 . maybe BS.empty id . Just . fromMaybe BS.empty) vs
-      _ = payloads  -- unused; we re-derive offsets below
-      -- Concatenate every >12-byte payload into a single buffer,
-      -- recording (length, prefix, bufferIndex=0, offsetInBuffer)
-      -- for each row.
       (variadicLen, viewBytes) = buildViews vs
       hasVariadic = variadicLen > 0
-      viewBuf = viewBytes
       validity = V.map (maybe False (const True)) vs
       !nc = if nullable
               then fromIntegral (V.foldl' (\c m -> if isJust m then c else c + 1) (0 :: Int) vs) :: Int64
               else 0
-      -- 1) Add the variadic data buffer (when present).
-      acc1 = if hasVariadic
-               then addBufData (variadicPayload vs) acc
-               else acc
-      -- 2) Add the view buffer.
-      acc2 = addBufData viewBuf acc1
-      -- 3) Validity (if nullable).
-      acc3 = if nullable
-               then addBufData (encodeNullBitmap validity) acc2
-               else acc2
-      acc4 = addFieldNode (fromIntegral n) nc acc3
+      -- Emission order = final buffer-list order. Final order:
+      --   [validity (if nullable), view, variadic (if needed)].
+      acc1 = addFieldNode (fromIntegral n) nc acc
+      acc2 = if nullable
+               then addBufData (encodeNullBitmap validity) acc1
+               else acc1
+      acc3 = addBufData viewBytes acc2
+      acc4 = if hasVariadic
+               then addBufData (variadicPayload vs) acc3
+               else acc3
   in addVariadicCount (fromIntegral (if hasVariadic then 1 else 0 :: Int)) acc4
 
 -- | Pack each row into its 16-byte view struct + collect the

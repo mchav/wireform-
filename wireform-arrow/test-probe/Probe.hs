@@ -86,4 +86,47 @@ writeMode outDir = do
   BS.writeFile (outDir <> "/ours_int32_batch.arrow")
     (writeArrowFileFB schemaInt [intBatchPair])
 
+  -- Post-V5 column types: Utf8View (with one inlined value and
+  -- one out-of-line value to exercise the variadic buffer).
+  let schemaView = Schema
+        { arrowFields = V.singleton (Field "v" True AUtf8View V.empty)
+        , arrowEndianness = Little
+        }
+      viewCols = V.singleton (ColUtf8ViewMaybe (V.fromList
+        [ Just "short"
+        , Nothing
+        , Just "this string is definitely longer than twelve bytes"
+        ]))
+  BS.writeFile (outDir <> "/ours_utf8view.arrows")
+    (writeArrowStreamFBFromColumns schemaView (V.singleton viewCols))
+
+  -- RunEndEncoded(int32, int64) column.
+  let schemaREE = Schema
+        { arrowFields = V.singleton $
+            Field "ree" True ARunEndEncoded $ V.fromList
+              [ Field "run_ends" False (AInt 32 True) V.empty
+              , Field "values"   True  (AInt 64 True) V.empty
+              ]
+        , arrowEndianness = Little
+        }
+      reeCols = V.singleton $ ColRunEndEncoded
+                  (ColInt32 (VP.fromList ([3, 5, 8] :: [Int32])))
+                  (ColInt64Maybe (V.fromList [Just 100, Nothing, Just 300]))
+  BS.writeFile (outDir <> "/ours_ree.arrows")
+    (writeArrowStreamFBFromColumns schemaREE (V.singleton reeCols))
+
+  -- ListView<int32> column.
+  let schemaListView = Schema
+        { arrowFields = V.singleton $
+            Field "lv" False AListView
+              (V.singleton (Field "item" False (AInt 32 True) V.empty))
+        , arrowEndianness = Little
+        }
+      lvCols = V.singleton (ColListView
+                 (VP.fromList ([0, 2, 5] :: [Int32]))
+                 (VP.fromList ([2, 3, 1] :: [Int32]))
+                 (ColInt32 (VP.fromList ([10,20,30,40,50,60] :: [Int32]))))
+  BS.writeFile (outDir <> "/ours_listview.arrows")
+    (writeArrowStreamFBFromColumns schemaListView (V.singleton lvCols))
+
   putStrLn ("wrote probe outputs to " ++ outDir)
