@@ -45,7 +45,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | A.2 | DATA_PAGE v1: **def/rep levels** + PLAIN **optional** primitives | — | **Done** |
 | A.3 | PLAIN_DICTIONARY + levels; dictionary optional columns | — | **Done** |
 | A.4 | DATA_PAGE v2 + DELTA_BINARY_PACKED encoding | — | **Done** |
-| A.5 | All compression codecs used in the wild (incl. LZ4 / LZ4_RAW) | — | Partial (LZ4 pending) |
+| A.5 | All compression codecs used in the wild (incl. LZ4 / LZ4_RAW / Brotli) | — | **Done** (`Parquet.Compress`: GZip built-in; Snappy/ZSTD/LZ4_RAW/Brotli behind `-fsnappy`/`-fzstd`/`-flz4`/`-fbrotli`; LZO explicitly unsupported as a legacy Hadoop codec) |
 | A.6 | Column writer + file assembly + reference-file tests | Writer | **Done** |
 | A.7 | Statistics, Bloom filters, page indexes, encryption | Optional tier | **Done** (page index + bloom filter + AES-GCM/CTR modular encryption) |
 | A.8 | Remaining encodings (DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, RLE_DICTIONARY) | — | **Done** |
@@ -72,9 +72,10 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 |-----------|--------|--------|--------|
 | B.1 | Flat record batch materialization | — | **Done** |
 | B.2 | Nested types (struct, list), dictionaries | Symmetric | **Done** |
-| B.3 | Stream + file IPC + writer | Writer | **Done** |
-| B.4 | Golden IPC interop with pyarrow | Planned | Planned |
-| B.5 | f16, unsigned ints, unions, map, large binary/utf8 | — | Planned |
+| B.3 | Stream + file IPC + writer | Writer | **Done** (writer covers every `ColumnArray` constructor) |
+| B.4 | Golden IPC interop with pyarrow | Planned | Deferred (Arrow.IPC uses a simplified flatbuffer-shaped encoding; pyarrow interop requires a real FlatBuffers serializer) |
+| B.5 | f16, unsigned ints, unions, map, large binary/utf8, interval, fixed-size list, dictionary | Read + Write | **Done** (`Arrow.Column` materializers + `Arrow.Write.encodeCol` cover every `ArrowType`; `ADecimal256` is distinct from `ADecimal` to round-trip both widths) |
+| B.6 | wireform-arrow internal round-trip test suite | — | **Done** (`wireform-arrow/test/Main.hs`: every `ColumnArray` constructor survives a `writeArrowStream` + `readArrowStream` + `materializeRecordBatch` cycle) |
 
 ---
 
@@ -91,6 +92,8 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | C.7 | Per-stripe bloom filter (`BLOOM_FILTER_UTF8`) | Writer | **Done** (`ORC.BloomFilter`) |
 | C.8 | Per-stripe row index (`ROW_INDEX`) | Writer | **Done** (`ORC.RowIndex`) |
 | C.9 | DECIMAL128 stream decoder (LEB128 zig-zag, full Integer precision) | Reader | **Done** (`ORC.Read.decodeDecimal128Stream`) |
+| C.10 | `DICTIONARY_V2` string writer + reader (auto-dispatch on dict-non-empty) | Read + Write | **Done** (`ORC.Write.encodeStringDictColumn`, `ORC.Read.decodeStringColumn` dispatches on `dictBs`; `ORC.RLE.decodeRLEv2IntAll` decodes the unknown-count dictionary length stream) |
+| C.11 | Whole-file column encryption integration (AES-CTR stripe streams + `Footer.encryption` round-trip) | Read + Write | **Done** (`ORC.Write.buildEncryptedORCFile`, `encryptStripeStreams`, `decryptStripeStream`; `ORCFooter.orcEncryption :: Maybe FooterEncryption`) |
 
 ---
 
@@ -153,6 +156,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | D.53 | Iceberg AWS Glue catalog dialect (backend-agnostic via `GlueBackend` record; CAS-on-`metadata_location` commits via Glue UpdateTable VersionId) | **Done** (`Iceberg.Catalog.Glue`) |
 | D.54 | ORC column encryption building blocks (AES-CTR stream cipher + per-stripe key derivation + protobuf encoders for `Encryption`/`EncryptionKey`/`EncryptionVariant`/`DataMask`) | **Done** (`ORC.Encryption`) |
 | D.55 | Hedgehog property tests (Variant codec / Parquet encryption AAD framing / Dremel shredder invariants) | **Done** (`Test.Iceberg.{VariantProperty,EncryptionProperty,NestedProperty}`) |
+| D.56 | Iceberg V3 Variant: partially-shredded object reader (union of typed + fallthrough fields) | **Done** (`Iceberg.Variant.Shredding.reconstructObjectVariant` handles the `(non-null value, non-null typed_value)` case; the primitive-shredding `reconstructVariant` deliberately rejects it per spec) |
 
 Iceberg builds on **Parquet** (and optional other file formats); Phases A–C feed D.
 

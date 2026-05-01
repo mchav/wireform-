@@ -175,13 +175,18 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | Iceberg.Variant: full V3 primitive type set (decimal4/8/16, date, time, timestamp(Ntz)(Nanos), uuid) | full encode/decode + canonical JSON projection | `Iceberg.Variant` |
 | Parquet encrypted-file reader (PARE detection + decrypt + spec §5.1 framing) | full | `Parquet.Read.loadParquetFileEncrypted`, `Parquet.Encryption.{encryptGcmModuleFramed,readFramedModule}` |
 | Variant column in Parquet writer (`{metadata, value}` 2-leaf group; pyarrow-verified) | full | `Parquet.Nested.NSVariant`, `Iceberg.Variant.Parquet.buildVariantParquetFile` |
-| Iceberg V3 Variant shredding (primitive case) | spec §"Primitive Types" | `Iceberg.Variant.Shredding.{routeRow,buildShreddedVariantParquetFile}` |
+| Iceberg V3 Variant shredding (primitive / object / array) | full per spec §Primitive/Objects/Arrays; the primitive `reconstructVariant` deliberately rejects `(non-null value, non-null typed_value)` because that combination is spec-reserved for object shredding and is handled by `reconstructObjectVariant` | `Iceberg.Variant.Shredding.{routeRow,routeObjectRow,routeArrayRow,reconstructVariant,reconstructObjectVariant,reconstructArrayVariant}` |
 | Iceberg AWS Glue catalog dialect (backend-agnostic via `GlueBackend`; CAS commits) | full | `Iceberg.Catalog.Glue` |
-| ORC column encryption building blocks (AES-CTR stream cipher + per-stripe key + protobuf encoders) | building blocks; whole-file integration is composable | `ORC.Encryption` |
+| ORC column encryption: whole-file integration | full (AES-CTR stripe streams + `Footer.encryption` round-trip via `buildEncryptedORCFile` / `encryptStripeStreams` / `decryptStripeStream`; `ORCFooter.orcEncryption` preserves the serialized `Encryption` protobuf across read/write) | `ORC.Write`, `ORC.Footer`, `ORC.Types` |
+| ORC column encryption building blocks (AES-CTR stream cipher + per-stripe key + protobuf encoders) | full (used by the whole-file integration) | `ORC.Encryption` |
 | Hedgehog property tests (Variant codec / Parquet encryption AAD / nested shredder invariants) | full | `Test.Iceberg.{VariantProperty,EncryptionProperty,NestedProperty}` |
 | ORC writer: per-stripe bloom filter (`BLOOM_FILTER_UTF8` stream) | full | `ORC.BloomFilter` |
 | ORC writer: per-stripe row index (`ROW_INDEX` stream) | full | `ORC.RowIndex` |
 | ORC reader: DECIMAL128 stream (LEB128 zig-zag, full Integer precision) | full | `ORC.Read.decodeDecimal128Stream` |
+| ORC reader + writer: DICTIONARY_V2 strings (auto-dispatches on non-empty dictionary stream; writer deduplicates to first-occurrence order) | full | `ORC.Read.decodeStringColumn`, `ORC.Write.encodeStringDictColumn`, `ORC.RLE.decodeRLEv2IntAll` |
+| Parquet Brotli codec (flag-guarded under `-fbrotli`) | full (read + write) | `Parquet.Compress`, `Parquet.Read` |
+| Arrow IPC writer covers every `ColumnArray` constructor (primitives + nullable primitives + struct + list + large-list + fixed-size-list + map + dense/sparse union + dictionary + interval + decimal128/256 + large-utf8/binary + fixed-size-binary) | full | `Arrow.Write.encodeCol` |
+| Arrow IPC internal round-trip test suite (writer bytes → reader materializer for every `ColumnArray` shape) | full | `wireform-arrow/test/Main.hs` |
 | Iceberg incremental scans (CDC / append) | full | `Iceberg.Read.planIncrementalAppend`, `planIncrementalChangelog` |
 | Iceberg snapshot expiration + orphan file detection | full | `Iceberg.Maintenance.expireSnapshots` / `orphanFileCandidates` |
 | End-to-end Iceberg + Parquet pipeline example | available | `examples/IcebergPipeline.hs` |
