@@ -398,12 +398,21 @@ collectLocalTypes pkg scope = foldMap go
         in Set.singleton fqName
       _ -> Set.empty
 
--- Collect all FTNamed type references from top-levels
+-- Collect all FTNamed type references from top-levels. Covers message
+-- fields (including map values, oneof branches, nested messages) and
+-- service RPC request/response types — without the service coverage,
+-- a @.proto@ that defines a service whose inputs and outputs live in
+-- a separate module would emit the module-header imports block
+-- without those dependencies, which broke compilation for the
+-- generated Service modules (they would @import@ their
+-- RequestResponse module after top-level declarations, which is a
+-- Haskell parse error).
 collectReferencedTypes :: [TopLevel] -> Set Text
 collectReferencedTypes = foldMap goTL
   where
     goTL = \case
       TLMessage msg -> goMsg msg
+      TLService svc -> foldMap goRpc (svcRpcs svc)
       _ -> Set.empty
     goMsg msg = foldMap goElem (msgElements msg)
     goElem = \case
@@ -412,6 +421,7 @@ collectReferencedTypes = foldMap goTL
       MEOneof od -> foldMap (goFT . oneofFieldType) (oneofFields od)
       MEMessage inner -> goMsg inner
       _ -> Set.empty
+    goRpc r = Set.fromList [rpcInput r, rpcOutput r]
     goFT = \case
       FTNamed n -> Set.singleton n
       _ -> Set.empty
@@ -1647,8 +1657,7 @@ getJsonName = \case
 
 genServiceTopLevel :: GenCtx -> [Text] -> ServiceDef -> [Doc ann]
 genServiceTopLevel ctx scope svc =
-  let rpcTypes = concatMap (\r -> [rpcInput r, rpcOutput r]) (svcRpcs svc)
-      pkg = fromMaybe "" (gcPkg ctx)
+  let pkg = fromMaybe "" (gcPkg ctx)
       resolveRpcType name =
         let candidates = [name, pkg <> "." <> name]
             go [] = Nothing
@@ -1656,13 +1665,10 @@ genServiceTopLevel ctx scope svc =
               Just ti -> Just ti
               Nothing -> go cs
         in go candidates
-      extraImports = Set.fromList
-        [ tiModule ti
-        | typeName <- rpcTypes
-        , Just ti <- [resolveRpcType typeName]
-        , tiModule ti /= gcThisMod ctx
-        ]
-      importDocs = fmap genQualifiedImport (Set.toAscList extraImports)
+      -- RPC types are now registered in 'collectReferencedTypes', so
+      -- the module-level imports block covers them. We only need to
+      -- /qualify/ each RPC type when emitting the service's
+      -- declarations.
       qualifyRpcType name = case resolveRpcType name of
         Just ti | tiModule ti /= gcThisMod ctx -> moduleAlias (tiModule ti) <> "." <> tiHsName ti
                 | otherwise -> tiHsName ti
@@ -1677,8 +1683,7 @@ genServiceTopLevel ctx scope svc =
         }
       hookOutput = onServiceCodeGen (genHooks (gcOpts ctx)) hookCtx
       hookDocs = fmap pretty hookOutput
-  in importDocs
-     <> Service.genServiceDeclsQualified (gcPkg ctx) scope qualifyRpcType svc
+  in Service.genServiceDeclsQualified (gcPkg ctx) scope qualifyRpcType svc
      <> case hookDocs of
           [] -> []
           ds -> [mempty, vsep ds]

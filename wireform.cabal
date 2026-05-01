@@ -472,6 +472,12 @@ test-suite temporal-codegen-test
     , text
     , vector
   hs-source-dirs: temporal-test
+  -- The Temporal proto set generates ~50 Haskell modules totalling
+  -- tens of thousands of lines; at -O2 the sum of per-module
+  -- optimizations peaks around 10 GB resident. This test only
+  -- verifies that the codegen output compiles + round-trips, so
+  -- opt out of heavy optimization to keep CI machines under budget.
+  ghc-options: -O0
 
 ------------------------------------------------------------------------
 -- Benchmarks
