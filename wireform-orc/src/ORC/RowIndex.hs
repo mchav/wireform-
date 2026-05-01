@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | ORC per-stripe row index (@ROW_INDEX = 0@ stream).
 --
 -- Wire format (per @orc_proto.proto@):
@@ -30,12 +31,13 @@ module ORC.RowIndex
   , encodeRowIndexEntry
   ) where
 
-import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Word (Word64)
+
+import ORC.Proto.Schema
 
 -- | One entry in a row index. @rieStatistics@ carries this row group's
 -- min / max / null-count, matching ORC's @ColumnStatistics@ protobuf
@@ -56,50 +58,16 @@ data RowIndexEntry = RowIndexEntry
 encodeRowIndex :: [RowIndexEntry] -> ByteString
 encodeRowIndex entries =
   BL.toStrict $ B.toLazyByteString $
-    foldMap (\e -> protoLengthDelimited 1 (encodeRowIndexEntry e)) entries
+    foldMap (\e -> encodeLengthDelimBytes RowIndex_Entry
+                     (encodeRowIndexEntry e)) entries
 
 -- | Encode a single 'RowIndexEntry' as the protobuf @RowIndexEntry@
 -- message.
 encodeRowIndexEntry :: RowIndexEntry -> ByteString
 encodeRowIndexEntry rie =
   BL.toStrict $ B.toLazyByteString $
-       packedVarintField 1 (riePositions rie)
+       encodePackedVarintField RowIndexEntry_Positions (riePositions rie)
     <> if BS.null (rieStatistics rie)
          then mempty
-         else protoLengthDelimited 2 (rieStatistics rie)
-
--- ============================================================
--- Protobuf helpers (subset of those in ORC.BloomFilter)
--- ============================================================
-
-protoLengthDelimited :: Int -> ByteString -> B.Builder
-protoLengthDelimited fieldNum payload =
-     protoTag fieldNum 2
-  <> protoVarint (fromIntegral (BS.length payload))
-  <> B.byteString payload
-
-packedVarintField :: Int -> [Word64] -> B.Builder
-packedVarintField _ [] = mempty
-packedVarintField fieldNum xs =
-  let !payloadBytes = BL.toStrict $ B.toLazyByteString $
-        foldMap protoVarint xs
-   in protoTag fieldNum 2
-      <> protoVarint (fromIntegral (BS.length payloadBytes))
-      <> B.byteString payloadBytes
-
-protoTag :: Int -> Int -> B.Builder
-protoTag fieldNum wireType =
-  protoVarint (fromIntegral ((fieldNum `shiftL` 3) .|. wireType))
-
-protoVarint :: Word64 -> B.Builder
-protoVarint = go
-  where
-    go !n
-      | n < 0x80  = B.word8 (fromIntegral n)
-      | otherwise =
-          B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80)
-            <> go (n `shiftR` 7)
-
--- shiftR / shiftL referenced via varint helpers; suppress -Widentities.
-_unusedShifts :: Word64 -> Word64
-_unusedShifts w = (w `shiftR` 0) .|. (w `shiftL` 0)
+         else encodeLengthDelimBytes RowIndexEntry_Statistics
+                (rieStatistics rie)

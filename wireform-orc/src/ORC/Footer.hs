@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | Read/write Apache ORC file footer.
 --
 -- ORC file layout ends with:
@@ -7,8 +8,9 @@
 -- The PostScript contains: footerLength, compression, compressionBlockSize,
 -- version, and the magic string "ORC".
 --
--- We encode the footer and postscript as protobuf messages using our
--- existing Proto.Wire.Encode / Proto.Wire.Decode infrastructure.
+-- All @(fieldNum, wireType)@ tags are named once in "ORC.Proto.Schema";
+-- this module only references them by pattern synonym so writer + reader
+-- can't drift.
 module ORC.Footer
   ( readORCFooter
   , writeORCFooter
@@ -28,6 +30,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
 
+import ORC.Proto.Schema
 import ORC.Types
 
 orcMagic :: ByteString
@@ -106,51 +109,72 @@ data PostScript = PostScript
 
 encodeFooter :: ORCFooter -> ByteString
 encodeFooter f = BL.toStrict $ B.toLazyByteString $ mconcat
-  [ encodeVarintField 1 (orcHeaderLength f)
-  , encodeVarintField 2 (orcContentLength f)
-  , V.foldl' (\acc s -> acc <> encodeLengthDelim 3 (encodeStripeInfo s)) mempty (orcStripes f)
-  , V.foldl' (\acc t -> acc <> encodeLengthDelim 4 (encodeORCType t)) mempty (orcTypes f)
-  , V.foldl' (\acc (k, v) -> acc <> encodeLengthDelim 5 (encodeMetadataEntry k v)) mempty (orcMetadata f)
-  , encodeVarintField 6 (orcNumberOfRows f)
-  , V.foldl' (\acc s -> acc <> encodeLengthDelim 7 (encodeColStats s)) mempty (orcStatistics f)
+  [ encodeVarintField Footer_HeaderLength  (orcHeaderLength f)
+  , encodeVarintField Footer_ContentLength (orcContentLength f)
+  , V.foldl' (\acc s -> acc <> encodeLengthDelim Footer_Stripes
+                                 (encodeStripeInfo s))
+      mempty (orcStripes f)
+  , V.foldl' (\acc t -> acc <> encodeLengthDelim Footer_Types
+                                 (encodeORCType t))
+      mempty (orcTypes f)
+  , V.foldl' (\acc (k, v) -> acc <> encodeLengthDelim Footer_Metadata
+                                    (encodeMetadataEntry k v))
+      mempty (orcMetadata f)
+  , encodeVarintField Footer_NumberOfRows (orcNumberOfRows f)
+  , V.foldl' (\acc s -> acc <> encodeLengthDelim Footer_Statistics
+                                 (encodeColStats s))
+      mempty (orcStatistics f)
   ]
 
 encodeStripeInfo :: StripeInformation -> B.Builder
 encodeStripeInfo si = mconcat
-  [ encodeVarintField 1 (siOffset si)
-  , encodeVarintField 2 (siIndexLength si)
-  , encodeVarintField 3 (siDataLength si)
-  , encodeVarintField 4 (siFooterLength si)
-  , encodeVarintField 5 (siNumberOfRows si)
+  [ encodeVarintField StripeInformation_Offset        (siOffset si)
+  , encodeVarintField StripeInformation_IndexLength   (siIndexLength si)
+  , encodeVarintField StripeInformation_DataLength    (siDataLength si)
+  , encodeVarintField StripeInformation_FooterLength  (siFooterLength si)
+  , encodeVarintField StripeInformation_NumberOfRows  (siNumberOfRows si)
   ]
 
 encodeORCType :: ORCType -> B.Builder
 encodeORCType ot = mconcat
-  [ encodeVarintField 1 (fromIntegral (typeKindToInt (otKind ot)) :: Word64)
-  , V.foldl' (\acc st -> acc <> encodeVarintField 2 (fromIntegral st :: Word64)) mempty (otSubtypes ot)
-  , V.foldl' (\acc fn -> acc <> encodeLengthDelim 3 (B.byteString (TE.encodeUtf8 fn))) mempty (otFieldNames ot)
+  [ encodeVarintField ORCType_Kind
+      (fromIntegral (typeKindToInt (otKind ot)) :: Word64)
+  , V.foldl' (\acc st -> acc <> encodeVarintField ORCType_Subtypes
+                                   (fromIntegral st :: Word64))
+      mempty (otSubtypes ot)
+  , V.foldl' (\acc fn -> acc <> encodeLengthDelim ORCType_FieldNames
+                                   (B.byteString (TE.encodeUtf8 fn)))
+      mempty (otFieldNames ot)
   ]
 
 encodeMetadataEntry :: T.Text -> ByteString -> B.Builder
 encodeMetadataEntry k v = mconcat
-  [ encodeLengthDelim 1 (B.byteString (TE.encodeUtf8 k))
-  , encodeLengthDelim 2 (B.byteString v)
+  [ encodeLengthDelim MetadataEntry_Name
+      (B.byteString (TE.encodeUtf8 k))
+  , encodeLengthDelim MetadataEntry_Value (B.byteString v)
   ]
 
 encodeColStats :: ColumnStatistics -> B.Builder
 encodeColStats cs = mconcat
-  [ maybe mempty (encodeVarintField 1) (csNumberOfValues cs)
-  , maybe mempty (\b -> encodeVarintField 2 (if b then 1 else 0 :: Word64)) (csHasNull cs)
-  , maybe mempty (encodeVarintField 3) (csBytesOnDisk cs)
+  [ maybe mempty (encodeVarintField ColumnStatistics_NumberOfValues)
+      (csNumberOfValues cs)
+  , maybe mempty
+      (\b -> encodeVarintField ColumnStatistics_HasNull
+               (if b then 1 else 0 :: Word64))
+      (csHasNull cs)
+  , maybe mempty (encodeVarintField ColumnStatistics_BytesOnDisk)
+      (csBytesOnDisk cs)
   ]
 
 encodePostScript :: PostScript -> ByteString
 encodePostScript ps = BL.toStrict $ B.toLazyByteString $ mconcat
-  [ encodeVarintField 1 (psFooterLength ps)
-  , encodeVarintField 2 (psCompression ps)
-  , encodeVarintField 3 (psCompressionBlockSize ps)
-  , V.foldl' (\acc v -> acc <> encodeVarintField 4 (fromIntegral v :: Word64)) mempty (psVersion ps)
-  , encodeLengthDelim 5 (B.byteString (psMagic ps))
+  [ encodeVarintField PostScript_FooterLength         (psFooterLength ps)
+  , encodeVarintField PostScript_Compression          (psCompression ps)
+  , encodeVarintField PostScript_CompressionBlockSize (psCompressionBlockSize ps)
+  , V.foldl' (\acc v -> acc <> encodeVarintField PostScript_Version
+                                   (fromIntegral v :: Word64))
+      mempty (psVersion ps)
+  , encodeLengthDelim PostScript_Magic (B.byteString (psMagic ps))
   ]
 
 ------------------------------------------------------------------------
@@ -158,132 +182,132 @@ encodePostScript ps = BL.toStrict $ B.toLazyByteString $ mconcat
 ------------------------------------------------------------------------
 
 decodePostScript :: ByteString -> Either String PostScript
-decodePostScript bs = go 0 (PostScript 0 0 0 V.empty BS.empty)
+decodePostScript bs = decodeMsg bs (PostScript 0 0 0 V.empty BS.empty) step
   where
-    !len = BS.length bs
-    go !off !ps
-      | off >= len = Right ps
-      | otherwise = do
-          (tag, off') <- getVarint bs off len
-          let !fieldNum = fromIntegral (tag `shiftR` 3) :: Int
-              !wireType = tag .&. 7
-          case (fieldNum, wireType) of
-            (1, 0) -> do (v, off'') <- getVarint bs off' len; go off'' ps { psFooterLength = v }
-            (2, 0) -> do (v, off'') <- getVarint bs off' len; go off'' ps { psCompression = v }
-            (3, 0) -> do (v, off'') <- getVarint bs off' len; go off'' ps { psCompressionBlockSize = v }
-            (4, 0) -> do (v, off'') <- getVarint bs off' len; go off'' ps { psVersion = V.snoc (psVersion ps) (fromIntegral v) }
-            (5, 2) -> do (v, off'') <- getLenDelim bs off' len; go off'' ps { psMagic = v }
-            _ -> skipField wireType bs off' len >>= \off'' -> go off'' ps
+    step ps = \case
+      PostScript_FooterLength         -> ReadVarint  $ \v -> ps { psFooterLength = v }
+      PostScript_Compression          -> ReadVarint  $ \v -> ps { psCompression = v }
+      PostScript_CompressionBlockSize -> ReadVarint  $ \v -> ps { psCompressionBlockSize = v }
+      PostScript_Version              -> ReadVarint  $ \v -> ps { psVersion = V.snoc (psVersion ps) (fromIntegral v) }
+      PostScript_Magic                -> ReadBytes   $ \v -> ps { psMagic = v }
+      _                               -> SkipUnknown
 
 decodeFooter :: ByteString -> Either String ORCFooter
-decodeFooter bs = go 0 emptyFooter
+decodeFooter bs = decodeMsg bs emptyFooter step
   where
-    !len = BS.length bs
     emptyFooter = ORCFooter 0 0 V.empty V.empty V.empty 0 V.empty
-    go !off !f
-      | off >= len = Right f
-      | otherwise = do
-          (tag, off') <- getVarint bs off len
-          let !fieldNum = fromIntegral (tag `shiftR` 3) :: Int
-              !wireType = tag .&. 7
-          case (fieldNum, wireType) of
-            (1, 0) -> do (v, off'') <- getVarint bs off' len; go off'' f { orcHeaderLength = v }
-            (2, 0) -> do (v, off'') <- getVarint bs off' len; go off'' f { orcContentLength = v }
-            (3, 2) -> do (v, off'') <- getLenDelim bs off' len
-                         si <- decodeStripeInfo v
-                         go off'' f { orcStripes = V.snoc (orcStripes f) si }
-            (4, 2) -> do (v, off'') <- getLenDelim bs off' len
-                         t <- decodeORCType v
-                         go off'' f { orcTypes = V.snoc (orcTypes f) t }
-            (5, 2) -> do (v, off'') <- getLenDelim bs off' len
-                         entry <- decodeMetadataEntry v
-                         go off'' f { orcMetadata = V.snoc (orcMetadata f) entry }
-            (6, 0) -> do (v, off'') <- getVarint bs off' len; go off'' f { orcNumberOfRows = v }
-            (7, 2) -> do (v, off'') <- getLenDelim bs off' len
-                         cs <- decodeColStats v
-                         go off'' f { orcStatistics = V.snoc (orcStatistics f) cs }
-            _ -> skipField wireType bs off' len >>= \off'' -> go off'' f
+    step f = \case
+      Footer_HeaderLength  -> ReadVarint $ \v    -> f { orcHeaderLength = v }
+      Footer_ContentLength -> ReadVarint $ \v    -> f { orcContentLength = v }
+      Footer_Stripes       -> ReadNested decodeStripeInfo $ \si ->
+        f { orcStripes = V.snoc (orcStripes f) si }
+      Footer_Types         -> ReadNested decodeORCType $ \t ->
+        f { orcTypes = V.snoc (orcTypes f) t }
+      Footer_Metadata      -> ReadNested decodeMetadataEntry $ \e ->
+        f { orcMetadata = V.snoc (orcMetadata f) e }
+      Footer_NumberOfRows  -> ReadVarint $ \v    -> f { orcNumberOfRows = v }
+      Footer_Statistics    -> ReadNested decodeColStats $ \cs ->
+        f { orcStatistics = V.snoc (orcStatistics f) cs }
+      _                    -> SkipUnknown
 
 decodeStripeInfo :: ByteString -> Either String StripeInformation
-decodeStripeInfo bs = go 0 (StripeInformation 0 0 0 0 0)
+decodeStripeInfo bs = decodeMsg bs (StripeInformation 0 0 0 0 0) step
   where
-    !len = BS.length bs
-    go !off !si
-      | off >= len = Right si
-      | otherwise = do
-          (tag, off') <- getVarint bs off len
-          let !fieldNum = fromIntegral (tag `shiftR` 3) :: Int
-              !wireType = tag .&. 7
-          case (fieldNum, wireType) of
-            (1, 0) -> do (v, off'') <- getVarint bs off' len; go off'' si { siOffset = v }
-            (2, 0) -> do (v, off'') <- getVarint bs off' len; go off'' si { siIndexLength = v }
-            (3, 0) -> do (v, off'') <- getVarint bs off' len; go off'' si { siDataLength = v }
-            (4, 0) -> do (v, off'') <- getVarint bs off' len; go off'' si { siFooterLength = v }
-            (5, 0) -> do (v, off'') <- getVarint bs off' len; go off'' si { siNumberOfRows = v }
-            _ -> skipField wireType bs off' len >>= \off'' -> go off'' si
+    step si = \case
+      StripeInformation_Offset       -> ReadVarint $ \v -> si { siOffset = v }
+      StripeInformation_IndexLength  -> ReadVarint $ \v -> si { siIndexLength = v }
+      StripeInformation_DataLength   -> ReadVarint $ \v -> si { siDataLength = v }
+      StripeInformation_FooterLength -> ReadVarint $ \v -> si { siFooterLength = v }
+      StripeInformation_NumberOfRows -> ReadVarint $ \v -> si { siNumberOfRows = v }
+      _                              -> SkipUnknown
 
 decodeORCType :: ByteString -> Either String ORCType
-decodeORCType bs = go 0 (ORCType TKBoolean V.empty V.empty)
+decodeORCType bs = decodeMsg bs (ORCType TKBoolean V.empty V.empty) step
   where
-    !len = BS.length bs
-    go !off !ot
-      | off >= len = Right ot
-      | otherwise = do
-          (tag, off') <- getVarint bs off len
-          let !fieldNum = fromIntegral (tag `shiftR` 3) :: Int
-              !wireType = tag .&. 7
-          case (fieldNum, wireType) of
-            (1, 0) -> do
-              (v, off'') <- getVarint bs off' len
-              case intToTypeKind (fromIntegral v) of
-                Just tk -> go off'' ot { otKind = tk }
-                Nothing -> Left $ "ORC.Footer: invalid TypeKind " ++ show v
-            (2, 0) -> do
-              (v, off'') <- getVarint bs off' len
-              go off'' ot { otSubtypes = V.snoc (otSubtypes ot) (fromIntegral v) }
-            (3, 2) -> do
-              (v, off'') <- getLenDelim bs off' len
-              case TE.decodeUtf8' v of
-                Right t -> go off'' ot { otFieldNames = V.snoc (otFieldNames ot) t }
-                Left _  -> Left "ORC.Footer: invalid UTF-8 in field name"
-            _ -> skipField wireType bs off' len >>= \off'' -> go off'' ot
+    step ot = \case
+      ORCType_Kind       -> ReadVarintE $ \v -> case intToTypeKind (fromIntegral v) of
+        Just tk -> Right ot { otKind = tk }
+        Nothing -> Left $ "ORC.Footer: invalid TypeKind " ++ show v
+      ORCType_Subtypes   -> ReadVarint $ \v ->
+        ot { otSubtypes = V.snoc (otSubtypes ot) (fromIntegral v) }
+      ORCType_FieldNames -> ReadBytesE $ \v -> case TE.decodeUtf8' v of
+        Right t -> Right ot { otFieldNames = V.snoc (otFieldNames ot) t }
+        Left _  -> Left "ORC.Footer: invalid UTF-8 in field name"
+      _                  -> SkipUnknown
 
 decodeMetadataEntry :: ByteString -> Either String (T.Text, ByteString)
-decodeMetadataEntry bs = go 0 (T.empty, BS.empty)
+decodeMetadataEntry bs = decodeMsg bs (T.empty, BS.empty) step
   where
-    !len = BS.length bs
-    go !off !entry
-      | off >= len = Right entry
-      | otherwise = do
-          (tag, off') <- getVarint bs off len
-          let !fieldNum = fromIntegral (tag `shiftR` 3) :: Int
-              !wireType = tag .&. 7
-          case (fieldNum, wireType) of
-            (1, 2) -> do
-              (v, off'') <- getLenDelim bs off' len
-              case TE.decodeUtf8' v of
-                Right t -> go off'' (t, snd entry)
-                Left _  -> Left "ORC.Footer: invalid UTF-8 in metadata key"
-            (2, 2) -> do
-              (v, off'') <- getLenDelim bs off' len
-              go off'' (fst entry, v)
-            _ -> skipField wireType bs off' len >>= \off'' -> go off'' entry
+    step (k, v) = \case
+      MetadataEntry_Name  -> ReadBytesE $ \bs' -> case TE.decodeUtf8' bs' of
+        Right t -> Right (t, v)
+        Left _  -> Left "ORC.Footer: invalid UTF-8 in metadata key"
+      MetadataEntry_Value -> ReadBytes  $ \bs' -> (k, bs')
+      _                   -> SkipUnknown
 
 decodeColStats :: ByteString -> Either String ColumnStatistics
-decodeColStats bs = go 0 (ColumnStatistics Nothing Nothing Nothing)
+decodeColStats bs = decodeMsg bs (ColumnStatistics Nothing Nothing Nothing) step
+  where
+    step cs = \case
+      ColumnStatistics_NumberOfValues -> ReadVarint $ \v -> cs { csNumberOfValues = Just v }
+      ColumnStatistics_HasNull        -> ReadVarint $ \v -> cs { csHasNull = Just (v /= 0) }
+      ColumnStatistics_BytesOnDisk    -> ReadVarint $ \v -> cs { csBytesOnDisk = Just v }
+      _                               -> SkipUnknown
+
+-- | Per-field reader action. The shape makes each @step@ equation a
+-- direct statement of the field's wire shape ('ReadVarint' for uint64,
+-- 'ReadBytes' for raw length-delimited, 'ReadNested' for an embedded
+-- message) without the caller having to repeat the protobuf plumbing.
+--
+-- @SkipUnknown@ is the fall-through for field numbers we don't decode
+-- — the outer loop consumes the payload with 'skipField'.
+data FieldAction a
+  = ReadVarint  !(Word64     -> a)
+  | ReadVarintE !(Word64     -> Either String a)
+  | ReadBytes   !(ByteString -> a)
+  | ReadBytesE  !(ByteString -> Either String a)
+  | forall b. ReadNested !(ByteString -> Either String b) !(b -> a)
+  | SkipUnknown
+
+-- | Generic protobuf message decoder: read field tags one by one and
+-- interpret each via @step@. Unknown fields are skipped according to
+-- their wire type.
+decodeMsg
+  :: ByteString
+  -> a
+  -> (a -> (Int, Word64) -> FieldAction a)
+  -> Either String a
+decodeMsg bs z step = go 0 z
   where
     !len = BS.length bs
-    go !off !cs
-      | off >= len = Right cs
+    go !off !acc
+      | off >= len = Right acc
       | otherwise = do
-          (tag, off') <- getVarint bs off len
-          let !fieldNum = fromIntegral (tag `shiftR` 3) :: Int
-              !wireType = tag .&. 7
-          case (fieldNum, wireType) of
-            (1, 0) -> do (v, off'') <- getVarint bs off' len; go off'' cs { csNumberOfValues = Just v }
-            (2, 0) -> do (v, off'') <- getVarint bs off' len; go off'' cs { csHasNull = Just (v /= 0) }
-            (3, 0) -> do (v, off'') <- getVarint bs off' len; go off'' cs { csBytesOnDisk = Just v }
-            _ -> skipField wireType bs off' len >>= \off'' -> go off'' cs
+          (tag, off1) <- getVarint bs off len
+          let !fn = fromIntegral (tag `shiftR` 3) :: Int
+              !wt = tag .&. 7
+          case step acc (fn, wt) of
+            ReadVarint f -> do
+              (v, off2) <- getVarint bs off1 len
+              go off2 (f v)
+            ReadVarintE f -> do
+              (v, off2) <- getVarint bs off1 len
+              acc' <- f v
+              go off2 acc'
+            ReadBytes f -> do
+              (payload, off2) <- getLenDelim bs off1 len
+              go off2 (f payload)
+            ReadBytesE f -> do
+              (payload, off2) <- getLenDelim bs off1 len
+              acc' <- f payload
+              go off2 acc'
+            ReadNested decode f -> do
+              (payload, off2) <- getLenDelim bs off1 len
+              inner <- decode payload
+              go off2 (f inner)
+            SkipUnknown -> do
+              off2 <- skipField wt bs off1 len
+              go off2 acc
 
 ------------------------------------------------------------------------
 -- Low-level protobuf primitives
@@ -318,25 +342,6 @@ skipField wireType bs !off !len = case wireType of
   5 -> if off + 4 <= len then Right (off + 4) else Left "ORC.Footer: truncated fixed32"
   _ -> Left $ "ORC.Footer: unknown wire type " ++ show wireType
 
-------------------------------------------------------------------------
--- Low-level protobuf encoding primitives
-------------------------------------------------------------------------
-
-encodeVarintField :: Int -> Word64 -> B.Builder
-encodeVarintField fieldNum val =
-  let !tag = fromIntegral fieldNum `shiftL` 3 :: Word64
-  in putVarint tag <> putVarint val
-
-encodeLengthDelim :: Int -> B.Builder -> B.Builder
-encodeLengthDelim fieldNum content =
-  let !tag = (fromIntegral fieldNum `shiftL` 3) .|. 2 :: Word64
-      !encoded = BL.toStrict $ B.toLazyByteString content
-      !contentLen = BS.length encoded
-  in putVarint tag <> putVarint (fromIntegral contentLen) <> B.byteString encoded
-
-putVarint :: Word64 -> B.Builder
-putVarint = go
-  where
-    go !v
-      | v < 0x80  = B.word8 (fromIntegral v)
-      | otherwise = B.word8 (fromIntegral (v .&. 0x7F) .|. 0x80) <> go (v `shiftR` 7)
+-- Protobuf encoding helpers: 'encodeVarintField' / 'encodeLengthDelim'
+-- come from "ORC.Proto.Schema"; those versions take the pattern-synonym
+-- @(fieldNum, wireType)@ pair directly.

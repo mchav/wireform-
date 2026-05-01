@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | ORC per-stripe bloom filter (UTF8 variant, @BLOOM_FILTER_UTF8 = 8@).
 --
 -- This is the stream kind every modern ORC writer emits. The legacy
@@ -55,6 +56,8 @@ import Control.Monad.ST (runST)
 import Control.Monad (forM_)
 
 import qualified Wireform.Hash as Hash
+
+import ORC.Proto.Schema
 
 -- | Bit-set + hash-function-count for one ORC bloom filter.
 data BloomFilter = BloomFilter
@@ -179,8 +182,9 @@ murmur3_128_split bs =
 encodeBloomFilter :: BloomFilter -> ByteString
 encodeBloomFilter bf =
   BL.toStrict $ B.toLazyByteString $
-       protoVarintField 1 (fromIntegral (bfNumHashFunctions bf))
-    <> protoPackedFixed64Field 2 (bfBits bf)
+       encodeVarintField BloomFilter_NumHashFunctions
+         (fromIntegral (bfNumHashFunctions bf))
+    <> encodePackedFixed64Field BloomFilter_Bitset (bfBits bf)
 
 -- | Encode a vector of 'BloomFilter' (one per row-index entry) as the
 -- @BloomFilterIndex@ message that's emitted on the
@@ -188,45 +192,8 @@ encodeBloomFilter bf =
 encodeBloomFilterIndex :: [BloomFilter] -> ByteString
 encodeBloomFilterIndex bfs =
   BL.toStrict $ B.toLazyByteString $
-    foldMap (\bf ->
-                let !payload = encodeBloomFilter bf
-                 in protoLengthDelimited 1 payload) bfs
-
--- ============================================================
--- Protobuf helpers
--- ============================================================
-
-protoVarintField :: Int -> Word64 -> B.Builder
-protoVarintField fieldNum v =
-  protoTag fieldNum 0 <> protoVarint v
-
-protoLengthDelimited :: Int -> ByteString -> B.Builder
-protoLengthDelimited fieldNum payload =
-     protoTag fieldNum 2
-  <> protoVarint (fromIntegral (BS.length payload))
-  <> B.byteString payload
-
-protoPackedFixed64Field :: Int -> VU.Vector Word64 -> B.Builder
-protoPackedFixed64Field fieldNum xs
-  | VU.null xs = mempty
-  | otherwise  =
-      let !payloadLen = VU.length xs * 8
-       in protoTag fieldNum 2
-          <> protoVarint (fromIntegral payloadLen)
-          <> VU.foldl' (\b w -> b <> B.word64LE w) mempty xs
-
-protoTag :: Int -> Int -> B.Builder
-protoTag fieldNum wireType =
-  protoVarint (fromIntegral ((fieldNum `shiftL` 3) .|. wireType))
-
-protoVarint :: Word64 -> B.Builder
-protoVarint = go
-  where
-    go !n
-      | n < 0x80  = B.word8 (fromIntegral n)
-      | otherwise =
-          B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80)
-            <> go (n `shiftR` 7)
+    foldMap (\bf -> encodeLengthDelimBytes BloomFilterIndex_Entry
+                      (encodeBloomFilter bf)) bfs
 
 i64BE :: Int64 -> ByteString
 i64BE v =

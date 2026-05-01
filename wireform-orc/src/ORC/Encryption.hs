@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 -- | ORC column encryption support (ORC v1.6+).
@@ -59,13 +60,14 @@ module ORC.Encryption
 import qualified Crypto.Cipher.AES as Crypto
 import qualified Crypto.Cipher.Types as Cipher
 import Crypto.Error (CryptoFailable (..))
-import Data.Bits (shiftL, shiftR, (.|.), (.&.))
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Word (Word32, Word64, Word8)
+
+import ORC.Proto.Schema
 
 -- ============================================================
 -- Algorithm and key provider enums
@@ -251,63 +253,41 @@ data DataMask = DataMask
 
 encodeEncryption :: Encryption -> ByteString
 encodeEncryption e = BL.toStrict $ B.toLazyByteString $
-       foldMap (protoLengthDelimited 1 . encodeDataMask)         (encMasks e)
-    <> foldMap (protoLengthDelimited 2 . encodeEncryptionKey)    (encKeys e)
-    <> foldMap (protoLengthDelimited 3 . encodeEncryptionVariant) (encVariants e)
-    <> protoVarintField 4
+       foldMap (encodeLengthDelimBytes Encryption_Mask     . encodeDataMask)
+         (encMasks e)
+    <> foldMap (encodeLengthDelimBytes Encryption_Key      . encodeEncryptionKey)
+         (encKeys e)
+    <> foldMap (encodeLengthDelimBytes Encryption_Variants . encodeEncryptionVariant)
+         (encVariants e)
+    <> encodeVarintField Encryption_KeyProvider
          (fromIntegral (providerTag (encKeyProvider e)))
 
 encodeEncryptionKey :: EncryptionKey -> ByteString
 encodeEncryptionKey ek = BL.toStrict $ B.toLazyByteString $
-  optName <> protoVarintField 2 (fromIntegral (ekVersion ek))
-          <> protoVarintField 3 (fromIntegral (algorithmTag (ekAlgorithm ek)))
+       optName
+    <> encodeVarintField EncryptionKey_KeyVersion (fromIntegral (ekVersion ek))
+    <> encodeVarintField EncryptionKey_Algorithm
+         (fromIntegral (algorithmTag (ekAlgorithm ek)))
   where
     optName
       | BS.null (ekName ek) = mempty
-      | otherwise           = protoLengthDelimited 1 (ekName ek)
+      | otherwise           = encodeLengthDelimBytes EncryptionKey_KeyName (ekName ek)
 
 encodeEncryptionVariant :: EncryptionVariant -> ByteString
 encodeEncryptionVariant ev = BL.toStrict $ B.toLazyByteString $
-       protoVarintField 1 (fromIntegral (evRoot ev))
-    <> protoVarintField 2 (fromIntegral (evKey ev))
-    <> protoLengthDelimited 3 (evEncryptedKey ev)
+       encodeVarintField EncryptionVariant_Root         (fromIntegral (evRoot ev))
+    <> encodeVarintField EncryptionVariant_Key          (fromIntegral (evKey ev))
+    <> encodeLengthDelimBytes EncryptionVariant_EncryptedKey (evEncryptedKey ev)
 
 encodeDataMask :: DataMask -> ByteString
 encodeDataMask dm = BL.toStrict $ B.toLazyByteString $
        optName
-    <> foldMap (protoLengthDelimited 2) (dmParameters dm)
-    <> foldMap (protoVarintField 3 . fromIntegral) (dmColumns dm)
+    <> foldMap (encodeLengthDelimBytes DataMask_MaskParameters) (dmParameters dm)
+    <> foldMap (encodeVarintField DataMask_Columns . fromIntegral) (dmColumns dm)
   where
     optName
       | BS.null (dmName dm) = mempty
-      | otherwise           = protoLengthDelimited 1 (dmName dm)
-
--- ============================================================
--- Protobuf helpers
--- ============================================================
-
-protoVarintField :: Int -> Word64 -> B.Builder
-protoVarintField fieldNum v =
-  protoTag fieldNum 0 <> protoVarint v
-
-protoLengthDelimited :: Int -> ByteString -> B.Builder
-protoLengthDelimited fieldNum payload =
-     protoTag fieldNum 2
-  <> protoVarint (fromIntegral (BS.length payload))
-  <> B.byteString payload
-
-protoTag :: Int -> Int -> B.Builder
-protoTag fieldNum wireType =
-  protoVarint (fromIntegral ((fieldNum `shiftL` 3) .|. wireType))
-
-protoVarint :: Word64 -> B.Builder
-protoVarint = go
-  where
-    go !n
-      | n < 0x80  = B.word8 (fromIntegral n)
-      | otherwise =
-          B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80)
-            <> go (n `shiftR` 7)
+      | otherwise           = encodeLengthDelimBytes DataMask_Name (dmName dm)
 
 -- silence unused-import warning for BA / Word8.
 _unusedBA :: BA.Bytes -> Int
