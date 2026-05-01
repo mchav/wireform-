@@ -184,7 +184,7 @@ decodeField bs off = do
   ensure bs off3 4
   let !nChildren = fromIntegral (readLE32 bs off3) :: Int
   (children, off4) <- decodeFields bs (off3 + 4) nChildren
-  Right (Field name nullable atype (V.fromList children), off4)
+  Right (Field name nullable atype (V.fromList children) Nothing, off4)
 
 decodeArrowType :: ByteString -> Int -> Either String (ArrowType, Int)
 decodeArrowType bs off = do

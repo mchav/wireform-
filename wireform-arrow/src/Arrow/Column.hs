@@ -10,10 +10,12 @@ module Arrow.Column
   , columnLength
   , countFieldNodesFlat
   , countBuffersFlat
+  , resolveDictionaryColumn
   ) where
 
 import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int16, Int32, Int64, Int8)
@@ -31,6 +33,7 @@ import Arrow.Types
   ( ArrowType (..)
   , Buffer (..)
   , DateUnit (..)
+  , DictionaryEncoding (..)
   , Endianness (..)
   , Field (..)
   , FieldNode (..)
@@ -1206,20 +1209,130 @@ materializeFieldsR' endian viewMap fields rb body !nodeIdx0 !bufIdx0 =
 
 materializeField' :: Endianness -> V.Vector Int -> Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
 materializeField' endian viewMap f rb body !nodeIdx !bufIdx =
-  case fieldType f of
-    AStruct           -> materializeStruct endian f rb body nodeIdx bufIdx
-    AList             -> materializeListCol endian f rb body nodeIdx bufIdx
-    AMap _            -> materializeMapCol endian f rb body nodeIdx bufIdx
-    AUnion mode _     -> materializeUnionCol endian f mode rb body nodeIdx bufIdx
-    AFixedSizeList n  -> materializeFixedSizeListCol endian n f rb body nodeIdx bufIdx
-    ALargeList        -> materializeLargeListCol endian f rb body nodeIdx bufIdx
-    AInterval u       -> materializeIntervalCol endian u f rb body nodeIdx bufIdx
-    ARunEndEncoded    -> materializeRunEndEncodedCol endian f rb body nodeIdx bufIdx
-    AListView         -> materializeListViewCol endian False f rb body nodeIdx bufIdx
-    ALargeListView    -> materializeListViewCol endian True  f rb body nodeIdx bufIdx
-    AUtf8View         -> materializeViewCol' endian viewMap True  f rb body nodeIdx bufIdx
-    ABinaryView       -> materializeViewCol' endian viewMap False f rb body nodeIdx bufIdx
-    _                 -> materializeOne endian f rb body nodeIdx bufIdx
+  case fieldDictionary f of
+    -- Dictionary-encoded column: the on-wire payload is the index
+    -- column (type given by 'deIndexType'); the values are
+    -- supplied separately via a 'DictBatch'. We materialise the
+    -- indices here and stash a placeholder value column; resolving
+    -- against a real dictionary is the caller's job (typically via
+    -- 'resolveDictionaryColumn').
+    Just (DictionaryEncoding did indexTy _) ->
+      materializeDictIndices endian did indexTy f rb body nodeIdx bufIdx
+    Nothing -> case fieldType f of
+      AStruct           -> materializeStruct endian f rb body nodeIdx bufIdx
+      AList             -> materializeListCol endian f rb body nodeIdx bufIdx
+      AMap _            -> materializeMapCol endian f rb body nodeIdx bufIdx
+      AUnion mode _     -> materializeUnionCol endian f mode rb body nodeIdx bufIdx
+      AFixedSizeList n  -> materializeFixedSizeListCol endian n f rb body nodeIdx bufIdx
+      ALargeList        -> materializeLargeListCol endian f rb body nodeIdx bufIdx
+      AInterval u       -> materializeIntervalCol endian u f rb body nodeIdx bufIdx
+      ARunEndEncoded    -> materializeRunEndEncodedCol endian f rb body nodeIdx bufIdx
+      AListView         -> materializeListViewCol endian False f rb body nodeIdx bufIdx
+      ALargeListView    -> materializeListViewCol endian True  f rb body nodeIdx bufIdx
+      AUtf8View         -> materializeViewCol' endian viewMap True  f rb body nodeIdx bufIdx
+      ABinaryView       -> materializeViewCol' endian viewMap False f rb body nodeIdx bufIdx
+      _                 -> materializeOne endian f rb body nodeIdx bufIdx
+
+-- | Materialize the /indices/ portion of a dictionary-encoded
+-- column. The values referenced by these indices live in a
+-- separate 'DictionaryBatch' message keyed by @did@; combine via
+-- 'resolveDictionaryColumn' once both parts are in hand.
+materializeDictIndices
+  :: Endianness -> Int64 -> ArrowType -> Field -> RecordBatchDef
+  -> ByteString -> Int -> Int
+  -> Either String (ColumnArray, Int, Int)
+materializeDictIndices endian did indexTy f rb body !nodeIdx !bufIdx = do
+  -- Read indices using a synthetic field that carries the index
+  -- type (typically Int32) and the original nullability.
+  let !indexField = f
+        { fieldType = indexTy
+        , fieldDictionary = Nothing
+        , fieldChildren  = V.empty
+        }
+  (idxCol, !ni', !bi') <- materializeOne endian indexField rb body nodeIdx bufIdx
+  -- Coerce whatever integer column we got into a primitive Int32
+  -- for ColDictionary's storage. We support i8/i16/i32/i64
+  -- (unsigned variants too).
+  case toInt32Indices idxCol of
+    Left e   -> Left e
+    Right ix -> Right (ColDictionary did ix (placeholderColumn (fieldType f)), ni', bi')
+
+-- | Convert any integer-typed column into the canonical
+-- @VP.Vector Int32@ used by 'ColDictionary'.
+toInt32Indices :: ColumnArray -> Either String (VP.Vector Int32)
+toInt32Indices = \case
+  ColInt8   v -> Right (VP.map fromIntegral v)
+  ColInt16  v -> Right (VP.map fromIntegral v)
+  ColInt32  v -> Right v
+  ColInt64  v -> Right (VP.map fromIntegral v)
+  ColUInt8  v -> Right (VP.map fromIntegral v)
+  ColUInt16 v -> Right (VP.map fromIntegral v)
+  ColUInt32 v -> Right (VP.map fromIntegral v)
+  ColUInt64 v -> Right (VP.map fromIntegral v)
+  -- Nullable variants: coerce nulls to -1 sentinel (callers can
+  -- consult the matching validity buffer if needed).
+  ColInt8Maybe   v -> Right $ VP.fromList [fromMaybe (-1) (fmap fromIntegral m) | m <- V.toList v]
+  ColInt16Maybe  v -> Right $ VP.fromList [fromMaybe (-1) (fmap fromIntegral m) | m <- V.toList v]
+  ColInt32Maybe  v -> Right $ VP.fromList [fromMaybe (-1) (fmap fromIntegral m) | m <- V.toList v]
+  ColInt64Maybe  v -> Right $ VP.fromList [fromMaybe (-1) (fmap fromIntegral m) | m <- V.toList v]
+  c -> Left $ "Arrow.Column: dictionary index column has non-integer type: " ++ show c
+
+-- | Replace the placeholder values column inside a @ColDictionary@
+-- with the column materialised from a @DictBatch.dbData@. Walks
+-- nested columns recursively so dictionary fields buried inside
+-- struct / list / etc. parents are also resolved when the caller
+-- supplies a lookup function.
+resolveDictionaryColumn
+  :: (Int64 -> Maybe ColumnArray)   -- ^ dictionary-id → values column
+  -> ColumnArray
+  -> ColumnArray
+resolveDictionaryColumn lookupVals = go
+  where
+    go col = case col of
+      ColDictionary did indices _placeholder ->
+        case lookupVals did of
+          Just vals -> ColDictionary did indices vals
+          Nothing   -> col
+      ColStruct cs            -> ColStruct (V.map (\(n,c) -> (n, go c)) cs)
+      ColStructMaybe v cs     -> ColStructMaybe v (V.map (\(n,c) -> (n, go c)) cs)
+      ColList offs c          -> ColList offs (go c)
+      ColListMaybe v offs c   -> ColListMaybe v offs (go c)
+      ColLargeList offs c     -> ColLargeList offs (go c)
+      ColLargeListMaybe v offs c -> ColLargeListMaybe v offs (go c)
+      ColFixedSizeList n c    -> ColFixedSizeList n (go c)
+      ColFixedSizeListMaybe n v c -> ColFixedSizeListMaybe n v (go c)
+      ColMap offs k v         -> ColMap offs (go k) (go v)
+      ColMapMaybe vs offs k v -> ColMapMaybe vs offs (go k) (go v)
+      ColDenseUnion ts offs cs -> ColDenseUnion ts offs (V.map go cs)
+      ColSparseUnion ts cs    -> ColSparseUnion ts (V.map go cs)
+      ColRunEndEncoded re vs  -> ColRunEndEncoded (go re) (go vs)
+      ColListView offs sz c   -> ColListView offs sz (go c)
+      ColListViewMaybe v offs sz c -> ColListViewMaybe v offs sz (go c)
+      ColLargeListView offs sz c -> ColLargeListView offs sz (go c)
+      ColLargeListViewMaybe v offs sz c -> ColLargeListViewMaybe v offs sz (go c)
+      _ -> col
+
+-- | A typed placeholder column for the dictionary values slot. The
+-- caller is expected to call 'resolveDictionaryColumn' to fill it
+-- in with the real values from a 'DictBatch'.
+placeholderColumn :: ArrowType -> ColumnArray
+placeholderColumn = \case
+  AUtf8       -> ColUtf8       V.empty
+  ABinary     -> ColBinary     V.empty
+  ALargeUtf8  -> ColLargeUtf8  V.empty
+  ALargeBinary -> ColLargeBinary V.empty
+  AInt 8 True -> ColInt8 VP.empty
+  AInt 8 False -> ColUInt8 VP.empty
+  AInt 16 True -> ColInt16 VP.empty
+  AInt 16 False -> ColUInt16 VP.empty
+  AInt 32 True -> ColInt32 VP.empty
+  AInt 32 False -> ColUInt32 VP.empty
+  AInt 64 True -> ColInt64 VP.empty
+  AInt 64 False -> ColUInt64 VP.empty
+  AFloatingPoint Single -> ColFloat VP.empty
+  AFloatingPoint DoublePrecision -> ColDouble VP.empty
+  ABool -> ColBool V.empty
+  _    -> ColUtf8 V.empty   -- conservative fallback
 
 -- | View materializer with precomputed variadic-count map; the
 -- nodeIdx of the current field selects the entry.

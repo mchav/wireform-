@@ -146,7 +146,7 @@ main = do
 
   -- Struct with two primitive children.
   roundTripNested "Struct"
-    (Field "s" False AStruct $ V.fromList
+    (nestedField "s" False AStruct $ V.fromList
        [ plainField "id"   False (AInt 64 True)
        , plainField "name" False AUtf8
        ])
@@ -156,7 +156,7 @@ main = do
        ])
 
   roundTripNested "StructMaybe"
-    (Field "s" True AStruct $ V.fromList
+    (nestedField "s" True AStruct $ V.fromList
        [ plainField "id"   False (AInt 32 True)
        , plainField "flag" False ABool
        ])
@@ -168,13 +168,13 @@ main = do
          ]))
 
   roundTripNested "List<int32>"
-    (Field "l" False AList $ V.fromList
+    (nestedField "l" False AList $ V.fromList
       [ plainField "item" False (AInt 32 True) ])
     (ColList (VP.fromList [0, 2, 2, 5])
        (ColInt32 (VP.fromList [10, 20, 30, 40, 50])))
 
   roundTripNested "ListMaybe<int32>"
-    (Field "l" True AList $ V.fromList
+    (nestedField "l" True AList $ V.fromList
       [ plainField "item" False (AInt 32 True) ])
     (ColListMaybe
        (V.fromList [True, False, True])
@@ -182,13 +182,13 @@ main = do
        (ColInt32 (VP.fromList [10, 20, 30, 40, 50])))
 
   roundTripNested "LargeList<int32>"
-    (Field "l" False ALargeList $ V.fromList
+    (nestedField "l" False ALargeList $ V.fromList
       [ plainField "item" False (AInt 32 True) ])
     (ColLargeList (VP.fromList [0, 2, 2, 5])
        (ColInt32 (VP.fromList [1, 2, 3, 4, 5])))
 
   roundTripNested "LargeListMaybe<int32>"
-    (Field "l" True ALargeList $ V.fromList
+    (nestedField "l" True ALargeList $ V.fromList
       [ plainField "item" False (AInt 32 True) ])
     (ColLargeListMaybe
        (V.fromList [True, False, True])
@@ -196,13 +196,13 @@ main = do
        (ColInt32 (VP.fromList [1, 2, 3, 4, 5])))
 
   roundTripNested "FixedSizeList<3 of int32>"
-    (Field "l" False (AFixedSizeList 3) $ V.fromList
+    (nestedField "l" False (AFixedSizeList 3) $ V.fromList
       [ plainField "item" False (AInt 32 True) ])
     (ColFixedSizeList 3
        (ColInt32 (VP.fromList [1, 2, 3, 4, 5, 6])))
 
   roundTripNested "FixedSizeListMaybe<2 of int32>"
-    (Field "l" True (AFixedSizeList 2) $ V.fromList
+    (nestedField "l" True (AFixedSizeList 2) $ V.fromList
       [ plainField "item" False (AInt 32 True) ])
     (ColFixedSizeListMaybe 2
        (V.fromList [True, False, True])
@@ -211,8 +211,8 @@ main = do
   -- Map<string, int32>. Arrow encodes maps as a list of struct
   -- <key, value> pairs; the map field has one child (the struct).
   roundTripNested "Map<string, int32>"
-    (Field "m" False (AMap False) $ V.fromList
-      [ Field "entries" False AStruct $ V.fromList
+    (nestedField "m" False (AMap False) $ V.fromList
+      [ nestedField "entries" False AStruct $ V.fromList
           [ plainField "key"   False AUtf8
           , plainField "value" False (AInt 32 True)
           ]
@@ -224,7 +224,7 @@ main = do
 
   -- Dense union over (int32, utf8).
   roundTripNested "DenseUnion<int32, utf8>"
-    (Field "u" False (AUnion Dense (V.fromList [0, 1])) $ V.fromList
+    (nestedField "u" False (AUnion Dense (V.fromList [0, 1])) $ V.fromList
       [ plainField "v_int"  False (AInt 32 True)
       , plainField "v_text" False AUtf8
       ])
@@ -238,7 +238,7 @@ main = do
 
   -- Sparse union over (bool, int32).
   roundTripNested "SparseUnion<bool, int32>"
-    (Field "u" False (AUnion Sparse (V.fromList [0, 1])) $ V.fromList
+    (nestedField "u" False (AUnion Sparse (V.fromList [0, 1])) $ V.fromList
       [ plainField "flag"  False ABool
       , plainField "value" False (AInt 32 True)
       ])
@@ -339,7 +339,7 @@ flatBufRoundTrip = do
        ]))
 
   flatBufColumnRoundTrip "ColListView<int32>"
-    (Field "lv" False AListView (V.singleton
+    (nestedField "lv" False AListView (V.singleton
        (plainField "item" False (AInt 32 True))))
     (ColListView
        (VP.fromList ([0, 2, 5] :: [Int32]))
@@ -347,7 +347,7 @@ flatBufRoundTrip = do
        (ColInt32 (VP.fromList ([10,20,30,40,50,60] :: [Int32]))))
 
   flatBufColumnRoundTrip "ColRunEndEncoded(int32, int64?)"
-    (Field "ree" True ARunEndEncoded $ V.fromList
+    (nestedField "ree" True ARunEndEncoded $ V.fromList
        [ plainField "run_ends" False (AInt 32 True)
        , plainField "values"   True  (AInt 64 True)
        ])
@@ -380,7 +380,11 @@ flatBufColumnRoundTrip label field col = do
 
 -- | Build a simple leaf field with no children.
 plainField :: Text -> Bool -> ArrowType -> Field
-plainField nm nullable ty = Field nm nullable ty V.empty
+plainField nm nullable ty = Field nm nullable ty V.empty Nothing
+
+-- | Field with explicit children, no dictionary.
+nestedField :: Text -> Bool -> ArrowType -> V.Vector Field -> Field
+nestedField nm nullable ty children = Field nm nullable ty children Nothing
 
 -- | Round-trip a pre-built Field/ColumnArray pair.
 roundTripNested :: String -> Field -> ColumnArray -> IO ()
@@ -419,6 +423,7 @@ roundTripPrim label col = do
             , fieldNullable = nullable
             , fieldType = ty
             , fieldChildren = V.empty
+            , fieldDictionary = Nothing
             }
         }
       !stream = writeArrowStream schema (V.singleton (V.singleton col))

@@ -5,6 +5,7 @@
 module Arrow.Types
   ( Schema(..)
   , Field(..)
+  , DictionaryEncoding(..)
   , ArrowType(..)
   , Endianness(..)
   , Precision(..)
@@ -97,6 +98,27 @@ data Field = Field
   , fieldNullable :: !Bool
   , fieldType     :: !ArrowType
   , fieldChildren :: !(Vector Field)
+  , fieldDictionary :: !(Maybe DictionaryEncoding)
+    -- ^ When non-'Nothing', this field's @fieldType@ refers to the
+    -- /index/ type and the actual values live in a separate
+    -- 'DictionaryBatch' message keyed by 'deId'.
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+-- | Per @format/Schema.fbs@:
+--
+-- @
+-- table DictionaryEncoding {
+--   id: long;
+--   indexType: Int;
+--   isOrdered: bool;
+--   dictionaryKind: DictionaryKind;
+-- }
+-- @
+data DictionaryEncoding = DictionaryEncoding
+  { deId        :: !Int64
+  , deIndexType :: !ArrowType   -- always an AInt; default Int32 signed
+  , deIsOrdered :: !Bool
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 

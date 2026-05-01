@@ -43,8 +43,14 @@ module Arrow.FlatBufferIPC
   , readArrowFileFB
   , decodeSchemaMessage
   , decodeRecordBatchMessage
+  , decodeDictionaryBatchMessage
   , denormaliseBuffers
   , materializeRecordBatchFB
+    -- * Dictionary support
+  , DictBatch (..)
+  , readArrowStreamFBWithDicts
+  , buildDictionaryBatchMessage
+  , writeArrowStreamFBWithDicts
   ) where
 
 import Data.Bits ((.&.), (.|.), complement, shiftL)
@@ -614,14 +620,15 @@ unionModeTag Dense  = 1
 -- @
 writeField :: Builder -> Field -> IO Int
 writeField b fld = do
-  -- Write children first (we build back-to-front; sub-objects must
-  -- be laid out before references to them).
   childrenVec <- if V.null (fieldChildren fld)
                    then pure Nothing
                    else do
                      childUOffs <- mapM (writeField b) (V.toList (fieldChildren fld))
                      Just <$> writeVectorOfOffsets b childUOffs
   (tyTag, tyUOff) <- writeType b (fieldType fld)
+  dictOff <- case fieldDictionary fld of
+    Nothing -> pure Nothing
+    Just de -> Just <$> writeDictionaryEncoding b de
   nameOff <- if T.null (fieldName fld)
                then pure Nothing
                else Just <$> writeString b (fieldName fld)
@@ -630,9 +637,32 @@ writeField b fld = do
     , if fieldNullable fld then Just (scalar 1 (\bb -> prependU8 bb 1)) else Nothing
     , Just (scalar 1 (\bb -> prependU8 bb tyTag))
     , Just (voff tyUOff)
-    , Nothing   -- dictionary
+    , case dictOff of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     , case childrenVec of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     , Nothing   -- custom_metadata
+    ]
+
+-- | Build a 'DictionaryEncoding' table:
+--
+-- @
+-- table DictionaryEncoding {
+--   id: long;
+--   indexType: Int;
+--   isOrdered: bool;
+--   dictionaryKind: DictionaryKind;
+-- }
+-- @
+writeDictionaryEncoding :: Builder -> DictionaryEncoding -> IO Int
+writeDictionaryEncoding b (DictionaryEncoding did indexTy ordered) = do
+  -- The indexType is always an Int table; build via 'writeType' to
+  -- reuse the layout, but we must always emit the table even if
+  -- indexTy is the default Int32-signed.
+  (_, intUOff) <- writeType b indexTy
+  writeTable b
+    [ Just (scalar 8 (\bb -> prependI64 bb did))
+    , Just (voff intUOff)
+    , if ordered then Just (scalar 1 (\bb -> prependU8 bb 1)) else Nothing
+    -- dictionaryKind defaults to DenseArray (0); omit.
     ]
 
 -- | @
@@ -744,6 +774,34 @@ buildRecordBatchMessage rb bodyLen = unsafePerformIO $ do
   finish b msgUOff
 {-# NOINLINE buildRecordBatchMessage #-}
 
+-- | Build a @Message@ flatbuffer wrapping a @DictionaryBatch@:
+--
+-- @
+-- table DictionaryBatch {
+--   id      : long;          // 0
+--   data    : RecordBatch;   // 1
+--   isDelta : bool = false;  // 2
+-- }
+-- @
+buildDictionaryBatchMessage :: DictBatch -> ByteString
+buildDictionaryBatchMessage (DictBatch did isDelta rb body) = unsafePerformIO $ do
+  b <- newBuilder
+  rbUOff  <- writeRecordBatch b rb
+  dbUOff  <- writeTable b
+    [ Just (scalar 8 (\bb -> prependI64 bb did))
+    , Just (voff rbUOff)
+    , if isDelta then Just (scalar 1 (\bb -> prependU8 bb 1)) else Nothing
+    ]
+  msgUOff <- writeTable b
+    [ Just (scalar 2 (\bb -> prependI16 bb metadataVersionV5))
+    , Just (scalar 1 (\bb -> prependU8 bb 2))   -- header type: DictionaryBatch
+    , Just (voff dbUOff)
+    , Just (scalar 8 (\bb -> prependI64 bb (fromIntegral (BS.length body))))
+    , Nothing
+    ]
+  finish b msgUOff
+{-# NOINLINE buildDictionaryBatchMessage #-}
+
 metadataVersionV5 :: Int16
 metadataVersionV5 = 4
 
@@ -778,8 +836,27 @@ encapsulateMessage meta body =
 
 -- | Emit a complete Arrow IPC stream (schema + batches + EOS).
 writeArrowStreamFB :: Schema -> [(RecordBatchDef, ByteString)] -> ByteString
-writeArrowStreamFB sch batches =
+writeArrowStreamFB sch batches = writeArrowStreamFBWithDicts sch [] batches
+
+-- | Emit a stream with dictionary batches preceding the record
+-- batches. Dictionary batches are placed in the order given; each
+-- carries an @id@ that must match a @DictionaryEncoding.id@
+-- referenced by the schema. Most consumers expect dictionary
+-- batches before any record batch that references them — that's
+-- the order we emit.
+writeArrowStreamFBWithDicts
+  :: Schema
+  -> [DictBatch]
+  -> [(RecordBatchDef, ByteString)]
+  -> ByteString
+writeArrowStreamFBWithDicts sch dicts batches =
   let !schemaMsg = encapsulateMessage (buildSchemaMessage sch) BS.empty
+      !dictBytes = BS.concat
+        [ encapsulateMessage
+            (buildDictionaryBatchMessage db)
+            (dbBody db)
+        | db <- dicts
+        ]
       !batchBytes = BS.concat
         [ encapsulateMessage
             (buildRecordBatchMessage rb (fromIntegral (BS.length body)))
@@ -788,7 +865,7 @@ writeArrowStreamFB sch batches =
         ]
       !eos = BL.toStrict $ B.toLazyByteString $
                B.word32LE 0xFFFFFFFF <> B.int32LE 0
-  in schemaMsg <> batchBytes <> eos
+  in schemaMsg <> dictBytes <> batchBytes <> eos
 
 -- | Build @(RecordBatchDef, body bytes)@ from a 'Schema' + columns.
 -- Delegates to 'Arrow.Write.encodeColumns' for the physical body
@@ -1075,7 +1152,16 @@ denormaliseBuffers sch rb =
 stripField
   :: Field -> V.Vector Buffer -> Int -> V.Vector Int64 -> Int
   -> (Int, Int, [Buffer])
-stripField f bufs bIdx0 varCounts vIdx0 = case fieldType f of
+stripField f bufs bIdx0 varCounts vIdx0
+  -- Dictionary-encoded fields carry the index column on the wire,
+  -- not the value column. Treat them like a flat int field of the
+  -- index width (validity + data layout = 2 buffers).
+  | Just _ <- fieldDictionary f =
+      let (vBuf, bIdx1) = (bufs V.! bIdx0, bIdx0 + 1)
+          dataBuf       = bufs V.! bIdx1
+          out = if fieldNullable f then [vBuf, dataBuf] else [dataBuf]
+      in  (2, 0, out)
+  | otherwise = case fieldType f of
   AInt _ _           -> flatPrim
   ABool              -> flatPrim
   AFloatingPoint _   -> flatPrim
@@ -1545,12 +1631,46 @@ readField bs fldPos = do
       vecPos <- followUOffset bs p
       childPositions <- readVectorOfOffsets bs vecPos
       V.mapM (readField bs) childPositions
+  dictionary <- case slot 4 of
+    Nothing -> Right Nothing
+    Just p  -> do
+      dePos <- followUOffset bs p
+      Just <$> readDictionaryEncodingTable bs dePos
   Right Field
     { fieldName     = name
     , fieldNullable = nullable
     , fieldType     = ty
     , fieldChildren = children
+    , fieldDictionary = dictionary
     }
+
+-- | Decode a 'DictionaryEncoding' table:
+--
+-- @
+-- table DictionaryEncoding {
+--   id: long;
+--   indexType: Int;
+--   isOrdered: bool;
+--   dictionaryKind: DictionaryKind;
+-- }
+-- @
+readDictionaryEncodingTable :: ByteString -> Pos -> Either String DictionaryEncoding
+readDictionaryEncodingTable bs dePos = do
+  s <- resolveTable bs dePos
+  did <- case s 0 of
+    Nothing -> Right 0
+    Just b  -> peekI64 bs b
+  idxTy <- case s 1 of
+    Nothing -> Right (AInt 32 True)   -- spec default
+    Just b  -> do
+      tyPos <- followUOffset bs b
+      readType bs 2 (Just tyPos)
+  ordered <- case s 2 of
+    Nothing -> Right False
+    Just b  -> do
+      v <- peekU8 bs b
+      Right (v /= 0)
+  Right (DictionaryEncoding did idxTy ordered)
 
 -- | Decode a @Type@ union variant. The discriminator (@type_type@)
 -- selects which sub-table layout to read at @typePos@.
@@ -1755,6 +1875,55 @@ decodeRecordBatchMessage meta = do
     Just b  -> peekI64 meta b
   Right (rb, bodyLen)
 
+-- | One decoded dictionary batch — the raw payload that defines a
+-- dictionary's index → value mapping. The @data@ field is the
+-- inner @RecordBatch@ (a single column whose values are the
+-- dictionary values, in index order).
+data DictBatch = DictBatch
+  { dbId      :: !Int64
+    -- ^ Dictionary id; matches @DictionaryEncoding.id@ in the
+    -- schema.
+  , dbIsDelta :: !Bool
+    -- ^ When @True@, the values append to the existing dictionary
+    -- with this id; otherwise they replace it.
+  , dbData    :: !RecordBatchDef
+  , dbBody    :: !ByteString
+  } deriving stock (Show, Eq)
+
+-- | Decode a DictionaryBatch-typed @Message@ flatbuffer to
+-- @(id, isDelta, RecordBatchDef, bodyLength)@.
+decodeDictionaryBatchMessage
+  :: ByteString -> Either String (Int64, Bool, RecordBatchDef, Int64)
+decodeDictionaryBatchMessage meta = do
+  msgPos <- fromIntegral <$> peekU32 meta 0
+  s <- resolveTable meta msgPos
+  ht <- case s 1 of
+    Nothing -> Left "Arrow.FlatBufferIPC: Message header_type missing"
+    Just b  -> peekU8 meta b
+  when' (ht /= 2) $
+    Left ("Arrow.FlatBufferIPC: expected DictionaryBatch header (2), got " ++ show ht)
+  dbTblPos <- case s 2 of
+    Nothing -> Left "Arrow.FlatBufferIPC: Message header (DictionaryBatch) missing"
+    Just b  -> followUOffset meta b
+  ds <- resolveTable meta dbTblPos
+  did <- case ds 0 of
+    Nothing -> Right 0
+    Just b  -> peekI64 meta b
+  rb <- case ds 1 of
+    Nothing -> Left "Arrow.FlatBufferIPC: DictionaryBatch.data missing"
+    Just b  -> do
+      rbPos <- followUOffset meta b
+      readRecordBatchTable meta rbPos
+  isDelta <- case ds 2 of
+    Nothing -> Right False
+    Just b  -> do
+      v <- peekU8 meta b
+      Right (v /= 0)
+  bodyLen <- case s 3 of
+    Nothing -> Right 0
+    Just b  -> peekI64 meta b
+  Right (did, isDelta, rb, bodyLen)
+
 -- | Parse an Arrow IPC stream produced by any spec-compliant
 -- writer (pyarrow / arrow-cpp / arrow-rs) into wireform's
 -- 'Schema' + a list of @(RecordBatchDef, body bytes)@ pairs.
@@ -1767,10 +1936,20 @@ readArrowStreamFB
   :: ByteString
   -> Either String (Schema, [(RecordBatchDef, ByteString)])
 readArrowStreamFB bs0 = do
-  (schema, after) <- consumeOne bs0 readSchemaFrame
-  consumeBatches schema after []
+  (sch, _, batches) <- readArrowStreamFBWithDicts bs0
+  Right (sch, batches)
+
+-- | Like 'readArrowStreamFB' but also returns any 'DictBatch'
+-- frames encountered (in stream order). Most pyarrow / arrow-cpp
+-- streams emit dictionary batches before the first record batch
+-- whose schema references their @id@.
+readArrowStreamFBWithDicts
+  :: ByteString
+  -> Either String (Schema, [DictBatch], [(RecordBatchDef, ByteString)])
+readArrowStreamFBWithDicts bs0 = do
+  (schema, after) <- consumeOne bs0 decodeSchemaMessage
+  go schema after [] []
   where
-    -- Strip one frame and apply @decodeFrame@ to the metadata bytes.
     consumeOne bs decodeFrame = do
       (mlen, meta, rest) <- readFrameHeader bs
       when' (mlen <= 0) $
@@ -1778,23 +1957,48 @@ readArrowStreamFB bs0 = do
       decoded <- decodeFrame meta
       Right (decoded, rest)
 
-    readSchemaFrame = decodeSchemaMessage
-
-    consumeBatches sch bs acc
-      | BS.length bs < 4 = Right (sch, reverse acc)
+    go sch bs dicts batches
+      | BS.length bs < 4 = Right (sch, reverse dicts, reverse batches)
       | otherwise = do
           (mlen, meta, rest1) <- readFrameHeader bs
           if mlen == 0
-            then Right (sch, reverse acc)
+            then Right (sch, reverse dicts, reverse batches)
             else do
-              (rb, bodyLen) <- decodeRecordBatchMessage meta
-              let !nBody    = fromIntegral bodyLen :: Int
-                  !nBodyPad = alignUp8FB nBody
-                  body      = BS.take nBody rest1
-                  rest2     = BS.drop nBodyPad rest1
-              consumeBatches sch rest2 ((rb, body) : acc)
+              -- Peek the message header_type without forcing a
+              -- specific decoder.
+              ht <- peekHeaderType meta
+              case ht of
+                3 -> do
+                  (rb, bodyLen) <- decodeRecordBatchMessage meta
+                  let !nBody    = fromIntegral bodyLen :: Int
+                      !nBodyPad = alignUp8FB nBody
+                      body      = BS.take nBody rest1
+                      rest2     = BS.drop nBodyPad rest1
+                  go sch rest2 dicts ((rb, body) : batches)
+                2 -> do
+                  (did, isDelta, rb, bodyLen) <-
+                    decodeDictionaryBatchMessage meta
+                  let !nBody    = fromIntegral bodyLen :: Int
+                      !nBodyPad = alignUp8FB nBody
+                      body      = BS.take nBody rest1
+                      rest2     = BS.drop nBodyPad rest1
+                      !db = DictBatch { dbId = did, dbIsDelta = isDelta
+                                      , dbData = rb, dbBody = body }
+                  go sch rest2 (db : dicts) batches
+                _ ->
+                  Left ("Arrow.FlatBufferIPC: unsupported message header_type "
+                        ++ show ht)
 
     alignUp8FB n = (n + 7) .&. complement (7 :: Int)
+
+-- | Look up the @header_type@ ubyte from a Message flatbuffer.
+peekHeaderType :: ByteString -> Either String Int
+peekHeaderType meta = do
+  msgPos <- fromIntegral <$> peekU32 meta 0
+  s <- resolveTable meta msgPos
+  case s 1 of
+    Nothing -> Right 0
+    Just b  -> fromIntegral <$> peekU8 meta b
 
 -- | Parse an Arrow IPC /file/ (per @format/File.fbs@), accepting
 -- either the legacy stream-shaped output of 'writeArrowFileFB' or
