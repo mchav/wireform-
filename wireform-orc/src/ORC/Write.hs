@@ -23,6 +23,11 @@ module ORC.Write
     -- * File assembly
   , buildStripe
   , buildORCFile
+  , buildEncryptedORCFile
+    -- * Column encryption plumbing
+  , StripeEncryption (..)
+  , encryptStripeStreams
+  , decryptStripeStream
   ) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
@@ -39,6 +44,7 @@ import qualified Data.Vector.Primitive as VP
 import Data.Word (Word64, Word8)
 import GHC.Float (castDoubleToWord64, castFloatToWord32)
 
+import qualified ORC.Encryption as Enc
 import ORC.Footer (orcMagic, writeORCFooter)
 import ORC.RLE
   ( bitWidth
@@ -322,7 +328,21 @@ buildStripe streamInfos =
 -- @types@: column types for the schema
 -- @stripeData@: for each stripe, a vector of (streamKind, columnId, payload)
 buildORCFile :: V.Vector ORCType -> V.Vector (V.Vector (Word64, Word64, ByteString)) -> ByteString
-buildORCFile types stripeData =
+buildORCFile = buildORCFileWith id
+
+-- | Variant of 'buildORCFile' that lets the caller adjust the
+-- computed 'ORCFooter' before serialisation. Used by
+-- 'buildEncryptedORCFile' to stamp the @Encryption@ footer field in
+-- without re-parsing the file. The transform is applied /after/ all
+-- stripe offsets + content lengths are computed, so callers
+-- shouldn't use it to change structural fields (stripes, types, row
+-- counts) — the writer's offsets would no longer match.
+buildORCFileWith
+  :: (ORCFooter -> ORCFooter)
+  -> V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> ByteString
+buildORCFileWith adjustFooter types stripeData =
   let !headerMagic = orcMagic
       !headerLen   = fromIntegral (BS.length headerMagic) :: Word64
 
@@ -353,7 +373,7 @@ buildORCFile types stripeData =
       (!stripeInfos, !stripeBss) = buildStripes 0 headerLen V.empty []
       !contentLen = V.foldl' (\a si -> a + siIndexLength si + siDataLength si + siFooterLength si) 0 stripeInfos
 
-      !footer = ORCFooter
+      !baseFooter = ORCFooter
         { orcHeaderLength  = headerLen
         , orcContentLength = contentLen
         , orcStripes       = stripeInfos
@@ -361,6 +381,105 @@ buildORCFile types stripeData =
         , orcMetadata      = V.empty
         , orcNumberOfRows  = V.foldl' (\a si -> a + siNumberOfRows si) 0 stripeInfos
         , orcStatistics    = V.empty
+        , orcEncryption    = Nothing
         }
+      !footer = adjustFooter baseFooter
       !footerBytes = writeORCFooter footer
   in BS.concat ([headerMagic] ++ stripeBss ++ [footerBytes])
+
+-- ============================================================
+-- Column encryption: whole-file integration
+-- ============================================================
+
+-- | Per-stripe encryption parameters. The ORC spec derives a stream
+-- key from @AES-CTR(localKey, stripeId)@; this record captures the
+-- information a writer needs to spin that up. The stripe id is
+-- monotonically increasing within a file (one per stripe), and the
+-- local key is the same across stripes — the per-stripe rotation
+-- comes from the IV derived from @(stripeId, streamOffset)@.
+data StripeEncryption = StripeEncryption
+  { seLocalKey :: !ByteString
+    -- ^ Column variant's local key (16 / 24 / 32 bytes, matching the
+    -- 'Enc.EncryptionAlgorithm'). Produced by the caller, typically
+    -- from a KMS; this module doesn't pick it.
+  , seStripeId :: !Word64
+    -- ^ Monotonic stripe identifier; fed into the stream-key +
+    -- stream-IV derivation.
+  } deriving (Show, Eq)
+
+-- | Encrypt a stripe's streams using the ORC spec's AES-CTR scheme.
+-- Takes the unencrypted @(kind, column, payload)@ vector that
+-- 'buildStripe' consumes and returns the corresponding encrypted
+-- vector. Stream offset within the stripe is computed by running
+-- byte-length totals; the IV per stream is
+-- @iv[0..7] = stripeId (BE); iv[8..15] = streamOffset (BE)@.
+encryptStripeStreams
+  :: StripeEncryption
+  -> V.Vector (Word64, Word64, ByteString)
+  -> Either String (V.Vector (Word64, Word64, ByteString))
+encryptStripeStreams se streams = do
+  -- Derive the per-stripe key once; reuse across all streams in the
+  -- stripe.
+  stripeKey <- Enc.encryptStripeKey (seLocalKey se) (seStripeId se)
+  let go !i !streamOffset !acc
+        | i >= V.length streams = Right (V.fromList (reverse acc))
+        | otherwise = do
+            let (kind, col, payload) = V.unsafeIndex streams i
+                !iv = Enc.deriveStreamIv (seStripeId se) streamOffset
+            ciphertext <- Enc.aesCtrXor stripeKey iv payload
+            let !next = streamOffset + fromIntegral (BS.length payload)
+            go (i + 1) next ((kind, col, ciphertext) : acc)
+  go 0 0 []
+
+-- | Inverse of 'encryptStripeStreams': given the same
+-- 'StripeEncryption' and the encrypted byte payload, recover the
+-- plaintext. Callers know the stream's offset within the stripe
+-- (from 'stripeStreamSlices') and pass it as @streamOffset@.
+decryptStripeStream
+  :: StripeEncryption
+  -> Word64
+  -> ByteString
+  -> Either String ByteString
+decryptStripeStream se streamOffset ciphertext = do
+  stripeKey <- Enc.encryptStripeKey (seLocalKey se) (seStripeId se)
+  let !iv = Enc.deriveStreamIv (seStripeId se) streamOffset
+  Enc.aesCtrXor stripeKey iv ciphertext
+
+-- | Variant of 'buildORCFile' that encrypts every stripe's streams
+-- with the caller-supplied 'StripeEncryption' and attaches the
+-- protobuf @Encryption@ footer field. The encryption record is
+-- serialised opaquely into 'orcEncryption'; readers round-trip it
+-- verbatim through 'readORCFooter'.
+--
+-- The caller is responsible for deciding which stripes (all, per
+-- column) get encrypted, and for producing an appropriate
+-- 'Enc.Encryption' record (keys + variants + masks). A file-writer
+-- that mixes plaintext and encrypted stripes can do so by building
+-- per-stripe 'StripeEncryption' lazily and conditionally calling
+-- 'encryptStripeStreams' on the stripes it wants protected.
+buildEncryptedORCFile
+  :: V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> V.Vector (Maybe StripeEncryption)
+    -- ^ One entry per stripe; 'Nothing' leaves that stripe in
+    -- plaintext, 'Just' encrypts its streams with AES-CTR using the
+    -- derived per-stripe key.
+  -> Enc.Encryption
+    -- ^ File-level encryption metadata emitted in the footer.
+  -> Either String ByteString
+buildEncryptedORCFile types stripeData stripeKeys enc
+  | V.length stripeKeys /= V.length stripeData =
+      Left $ "ORC.Write.buildEncryptedORCFile: stripeKeys length "
+             ++ show (V.length stripeKeys)
+             ++ " must match stripeData length "
+             ++ show (V.length stripeData)
+  | otherwise = do
+      encryptedStripes <- V.imapM
+        (\i sdata -> case V.unsafeIndex stripeKeys i of
+           Nothing -> Right sdata
+           Just se -> encryptStripeStreams se sdata)
+        stripeData
+      let !encFieldBytes = Enc.encodeEncryption enc
+          !footerTransform =
+            \fm -> fm { orcEncryption = Just (FooterEncryption encFieldBytes) }
+      Right $! buildORCFileWith footerTransform types encryptedStripes

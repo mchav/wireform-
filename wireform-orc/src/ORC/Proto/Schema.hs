@@ -62,6 +62,7 @@ module ORC.Proto.Schema
   , pattern Footer_Metadata
   , pattern Footer_NumberOfRows
   , pattern Footer_Statistics
+  , pattern Footer_Encryption
     -- * PostScript
   , pattern PostScript_FooterLength
   , pattern PostScript_Compression
@@ -250,6 +251,12 @@ pattern Footer_NumberOfRows  = (6, 0)
 
 pattern Footer_Statistics :: (Int, WireType)
 pattern Footer_Statistics    = (7, 2)
+
+-- | @Footer.encryption@ (ORC 1.6+). Carries the serialized
+-- @Encryption@ protobuf message as a length-delimited payload.
+-- Field number 10 per the ORC protobuf spec.
+pattern Footer_Encryption :: (Int, WireType)
+pattern Footer_Encryption    = (10, 2)
 
 -- ============================================================
 -- PostScript

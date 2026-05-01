@@ -58,6 +58,7 @@ footerTests = testGroup "Footer roundtrip"
             , orcMetadata = V.empty
             , orcNumberOfRows = 0
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
 
@@ -97,6 +98,7 @@ footerTests = testGroup "Footer roundtrip"
             , orcMetadata = V.empty
             , orcNumberOfRows = 1000
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
 
@@ -112,6 +114,7 @@ footerTests = testGroup "Footer roundtrip"
                 ]
             , orcNumberOfRows = 0
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
 
@@ -129,6 +132,7 @@ footerTests = testGroup "Footer roundtrip"
             , orcMetadata = V.empty
             , orcNumberOfRows = 100
             , orcStatistics = stats
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
 
@@ -156,6 +160,7 @@ footerTests = testGroup "Footer roundtrip"
             , orcMetadata = V.empty
             , orcNumberOfRows = 1500
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
   ]
@@ -176,7 +181,7 @@ typeKindTests = testGroup "TypeKind"
   , testCase "Footer with all type kinds" $ do
       let allKinds = [TKBoolean .. TKChar]
           types = V.fromList $ map (\tk -> ORCType tk V.empty V.empty) allKinds
-          footer = ORCFooter 3 0 V.empty types V.empty 0 V.empty
+          footer = ORCFooter 3 0 V.empty types V.empty 0 V.empty Nothing
       readORCFooter (writeORCFooter footer) @?= Right footer
   ]
 
@@ -200,6 +205,7 @@ stripeSliceTests = testGroup "Stripe slice"
               , orcMetadata = V.empty
               , orcNumberOfRows = 10
               , orcStatistics = V.empty
+            , orcEncryption = Nothing
               }
           prefix = BS.replicate 9 0xAB
           file = prefix <> writeORCFooter footer
@@ -241,6 +247,7 @@ propertyTests = testGroup "Property roundtrips"
             , orcMetadata = V.empty
             , orcNumberOfRows = nRows
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) === Right footer
 
@@ -253,7 +260,7 @@ propertyTests = testGroup "Property roundtrips"
         ftr <- Gen.word64 (Range.linear 0 1000)
         nr  <- Gen.word64 (Range.linear 0 10000)
         pure (StripeInformation off idx dat ftr nr)
-      let footer = ORCFooter 3 0 stripes V.empty V.empty 0 V.empty
+      let footer = ORCFooter 3 0 stripes V.empty V.empty 0 V.empty Nothing
       readORCFooter (writeORCFooter footer) === Right footer
 
   , testProperty "Footer with random types" $ property $ do
@@ -265,7 +272,7 @@ propertyTests = testGroup "Property roundtrips"
         nFld <- Gen.int (Range.linear 0 3)
         flds <- V.replicateM nFld (Gen.text (Range.linear 1 20) Gen.alphaNum)
         pure (ORCType tk subs flds)
-      let footer = ORCFooter 3 0 V.empty types V.empty 0 V.empty
+      let footer = ORCFooter 3 0 V.empty types V.empty 0 V.empty Nothing
       readORCFooter (writeORCFooter footer) === Right footer
   ]
 

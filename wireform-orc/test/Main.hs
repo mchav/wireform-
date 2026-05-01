@@ -9,6 +9,8 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 import System.Exit (exitFailure)
 
+import Data.Word (Word64)
+
 import qualified ORC.BloomFilter as BF
 import qualified ORC.Encryption as Enc
 import qualified ORC.Read
@@ -21,12 +23,21 @@ import ORC.Read
   , decodeStringColumn
   , decodeTimestampColumn
   )
+import ORC.Types
+  ( FooterEncryption (..)
+  , ORCType (..)
+  , TypeKind (..)
+  , orcEncryption
+  )
 import ORC.Write
-  ( encodeDateColumn
+  ( StripeEncryption (..)
+  , decryptStripeStream
+  , encodeDateColumn
   , encodeDecimalColumn
   , encodeORCNano
   , encodeStringDictColumn
   , encodeTimestampColumn
+  , encryptStripeStreams
   )
 import qualified Data.Text as T
 
@@ -50,6 +61,52 @@ main = do
           actual = [ (s, n) | Just (ORCTimestamp s n) <- V.toList vs ]
        in expect "timestamp round-trip" (actual == pairs)
     Left e -> failTest ("decodeTimestampColumn: " ++ e)
+
+  -- Whole-file column encryption: build a file with two plaintext
+  -- stripes, one encrypted under a 16-byte local key. The footer
+  -- should round-trip the raw Encryption bytes verbatim, and the
+  -- per-stripe streams should decrypt back to the originals.
+  do
+    let localKey = BS.replicate 16 0x5A
+        !stripeKey = StripeEncryption { seLocalKey = localKey, seStripeId = 0 }
+        plain0 = VP.fromList ([1, 2, 3, 4, 5] :: [Int64])
+        plain1 = VP.fromList ([10, 20, 30] :: [Int64])
+        stream0 = ORC.Write.encodeIntColumn plain0 True
+        stream1 = ORC.Write.encodeIntColumn plain1 True
+        stripeData = V.fromList
+          [ V.singleton (1 :: Word64, 0 :: Word64, stream0)
+          , V.singleton (1 :: Word64, 0 :: Word64, stream1)
+          ]
+        encMeta = Enc.Encryption
+          { Enc.encMasks       = []
+          , Enc.encKeys        = []
+          , Enc.encVariants    = []
+          , Enc.encKeyProvider = Enc.ProviderUnknown
+          }
+        types = V.singleton (ORCType TKLong V.empty V.empty)
+    case ORC.Write.buildEncryptedORCFile types stripeData
+           (V.fromList [Just stripeKey, Nothing]) encMeta of
+      Left e -> failTest ("buildEncryptedORCFile: " ++ e)
+      Right file -> case ORC.Read.loadORCFile file of
+        Left e   -> failTest ("loadORCFile (encrypted): " ++ e)
+        Right of_ -> do
+          let footer = ORC.Read.ofFooter of_
+          expect "encrypted ORC: footer round-trips Encryption field"
+            (case orcEncryption footer of
+               Just (FooterEncryption bs) -> bs == Enc.encodeEncryption encMeta
+               Nothing                    -> False)
+          -- And the encrypted stripe's stream bytes differ from the
+          -- plaintext original; decrypting them recovers it.
+          let encryptedStream0 = case encryptStripeStreams stripeKey
+                                     (V.unsafeIndex stripeData 0) of
+                Left _    -> BS.empty
+                Right enc -> let (_, _, bs) = V.unsafeIndex enc 0 in bs
+          expect "encrypted ORC: encrypted stream differs from plaintext"
+            (encryptedStream0 /= stream0)
+          case decryptStripeStream stripeKey 0 encryptedStream0 of
+            Left e  -> failTest ("decryptStripeStream: " ++ e)
+            Right p -> expect "encrypted ORC: stream decrypts to the original"
+                         (p == stream0)
 
   -- DICTIONARY_V2 string column round-trip. The writer emits three
   -- streams (DATA = per-row indices, LENGTH = dict entry lengths,

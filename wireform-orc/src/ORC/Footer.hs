@@ -124,6 +124,10 @@ encodeFooter f = BL.toStrict $ B.toLazyByteString $ mconcat
   , V.foldl' (\acc s -> acc <> encodeLengthDelim Footer_Statistics
                                  (encodeColStats s))
       mempty (orcStatistics f)
+  , case orcEncryption f of
+      Nothing -> mempty
+      Just (FooterEncryption encBs) ->
+        encodeLengthDelim Footer_Encryption (B.byteString encBs)
   ]
 
 encodeStripeInfo :: StripeInformation -> B.Builder
@@ -195,7 +199,8 @@ decodePostScript bs = decodeMsg bs (PostScript 0 0 0 V.empty BS.empty) step
 decodeFooter :: ByteString -> Either String ORCFooter
 decodeFooter bs = decodeMsg bs emptyFooter step
   where
-    emptyFooter = ORCFooter 0 0 V.empty V.empty V.empty 0 V.empty
+    emptyFooter =
+      ORCFooter 0 0 V.empty V.empty V.empty 0 V.empty Nothing
     step f = \case
       Footer_HeaderLength  -> ReadVarint $ \v    -> f { orcHeaderLength = v }
       Footer_ContentLength -> ReadVarint $ \v    -> f { orcContentLength = v }
@@ -208,6 +213,8 @@ decodeFooter bs = decodeMsg bs emptyFooter step
       Footer_NumberOfRows  -> ReadVarint $ \v    -> f { orcNumberOfRows = v }
       Footer_Statistics    -> ReadNested decodeColStats $ \cs ->
         f { orcStatistics = V.snoc (orcStatistics f) cs }
+      Footer_Encryption    -> ReadBytes $ \enc ->
+        f { orcEncryption = Just (FooterEncryption enc) }
       _                    -> SkipUnknown
 
 decodeStripeInfo :: ByteString -> Either String StripeInformation

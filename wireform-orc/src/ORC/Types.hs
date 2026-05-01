@@ -5,6 +5,7 @@
 -- and column statistics as defined in the ORC specification.
 module ORC.Types
   ( ORCFooter(..)
+  , FooterEncryption(..)
   , StripeInformation(..)
   , ORCType(..)
   , TypeKind(..)
@@ -138,5 +139,22 @@ data ORCFooter = ORCFooter
   , orcMetadata      :: !(Vector (Text, ByteString))
   , orcNumberOfRows  :: !Word64
   , orcStatistics    :: !(Vector ColumnStatistics)
+  , orcEncryption    :: !(Maybe FooterEncryption)
+    -- ^ ORC 1.6+ column encryption metadata (protobuf
+    -- @Footer.encryption@, field 10). Carried as a raw byte string so
+    -- the footer codec can round-trip it without depending on
+    -- "ORC.Encryption" — the higher-level 'ORC.Encryption.Encryption'
+    -- record is encoded to / decoded from the same bytes at the
+    -- integration layer.
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
+-- | Opaque container for the serialized @Footer.encryption@ bytes.
+-- Keeping this as 'ByteString' rather than the parsed
+-- 'ORC.Encryption.Encryption' record avoids a circular dependency
+-- (the encryption record lives in "ORC.Encryption", which in turn
+-- needs the protobuf encoders).
+newtype FooterEncryption = FooterEncryption
+  { feBytes :: ByteString
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
