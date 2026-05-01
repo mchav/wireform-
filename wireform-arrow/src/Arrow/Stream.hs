@@ -36,12 +36,18 @@
 -- buffer counts, raw 'RecordBatchDef' construction, delta
 -- dictionaries) drop down to "Arrow.FlatBufferIPC".
 module Arrow.Stream
-  ( -- * Streams
+  ( -- * Streams (eager)
     encodeArrowStream
   , decodeArrowStream
-    -- * Files
+    -- * Files (eager)
   , encodeArrowFile
   , decodeArrowFile
+    -- * Streams (incremental / iterator)
+  , StreamReader
+  , openStreamReader
+  , streamReaderSchema
+  , streamReaderNext
+  , streamReaderToList
   ) where
 
 import Data.ByteString (ByteString)
@@ -338,3 +344,90 @@ isNullableCol = \case
   ColLargeBinaryMaybe {} -> True
   ColFixedSizeBinaryMaybe {} -> True
   _ -> False
+
+-- ============================================================
+-- Streaming reader
+-- ============================================================
+
+-- | An iterator-style handle for reading an Arrow IPC stream
+-- batch-by-batch, mirroring pyarrow's @ipc.RecordBatchStreamReader@:
+--
+-- @
+-- case 'openStreamReader' bytes of
+--   Left  e  -> handleError e
+--   Right rd -> do
+--     let !sch = 'streamReaderSchema' rd
+--     loop rd
+--   where
+--     loop rd = case 'streamReaderNext' rd of
+--       Right (Just (cols, rd')) -> consume cols >> loop rd'
+--       Right Nothing            -> finish ()
+--       Left  e                  -> handleError e
+-- @
+--
+-- All dictionary batches present in the stream are consumed and
+-- materialised at 'openStreamReader' time, so subsequent
+-- 'streamReaderNext' calls only allocate per-batch column data.
+-- Use 'streamReaderToList' to drain the iterator into a list
+-- (equivalent to 'decodeArrowStream' but keeps the streaming
+-- shape for callers that want incremental processing later).
+data StreamReader = StreamReader
+  { srSchema  :: !Schema
+  , srDictMap :: !(Map.Map Int64 ColumnArray)
+  , srFrames  :: ![(RecordBatchDef, ByteString)]
+  }
+
+-- | Initialise an iterator from raw stream bytes. Parses the
+-- schema + every dictionary batch eagerly (since record batches
+-- can reference any dict declared earlier in the stream) and
+-- leaves the record-batch frames un-materialised until the
+-- caller pulls them.
+openStreamReader :: ByteString -> Either String StreamReader
+openStreamReader bs = do
+  (sch, dicts, frames) <- readArrowStreamFBWithDicts bs
+  dictPairs <- traverse (decodeDictBatch sch) dicts
+  let !dictMap = Map.fromList dictPairs
+  Right StreamReader
+    { srSchema  = sch
+    , srDictMap = dictMap
+    , srFrames  = frames
+    }
+
+-- | The schema decoded at 'openStreamReader' time.
+streamReaderSchema :: StreamReader -> Schema
+streamReaderSchema = srSchema
+
+-- | Pull the next record batch from the iterator. Returns:
+--
+--   * @Right (Just (cols, rd'))@ — a materialised batch with
+--     dictionary references resolved, plus a continuation
+--     reader for the remaining frames.
+--   * @Right Nothing@ — the stream's EOS marker has been
+--     consumed; no more batches.
+--   * @Left e@ — a parse / materialisation error.
+streamReaderNext
+  :: StreamReader
+  -> Either String (Maybe (V.Vector ColumnArray, StreamReader))
+streamReaderNext rd = case srFrames rd of
+  [] -> Right Nothing
+  ((rb, body) : rest) -> do
+    cols <- materializeRecordBatch (srSchema rd)
+              (denormaliseBuffers (srSchema rd) rb)
+              body
+    let !resolved = V.map
+          (resolveDictionaryColumn (`Map.lookup` srDictMap rd)) cols
+        !rd' = rd { srFrames = rest }
+    Right (Just (resolved, rd'))
+
+-- | Drain a 'StreamReader' into a list of batches. Equivalent
+-- (modulo the schema bundling) to 'decodeArrowStream' but keeps
+-- the streaming shape for callers that prefer to iterate.
+streamReaderToList
+  :: StreamReader
+  -> Either String [V.Vector ColumnArray]
+streamReaderToList rd0 = go rd0 []
+  where
+    go rd acc = case streamReaderNext rd of
+      Left e                      -> Left e
+      Right Nothing               -> Right (reverse acc)
+      Right (Just (cols, rd'))    -> go rd' (cols : acc)

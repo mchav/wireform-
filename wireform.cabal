@@ -96,6 +96,7 @@ library
     Wireform.ASN1
     Wireform.XML
     Wireform.HTML
+    Wireform.Columnar
     Wireform.Parquet
     Wireform.Arrow
     Wireform.ORC

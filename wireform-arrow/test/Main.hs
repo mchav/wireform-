@@ -31,6 +31,10 @@ import Arrow.File (asBatches, asSchema, readArrowStream)
 import Arrow.Stream
   ( decodeArrowStream
   , encodeArrowStream
+  , openStreamReader
+  , streamReaderNext
+  , streamReaderSchema
+  , streamReaderToList
   )
 import Arrow.FlatBufferIPC
   ( buildSchemaMessage
@@ -357,6 +361,40 @@ flatBufRoundTrip = do
     (V.singleton (ColDictionary 0
         (VP.fromList ([0, 1, 0, 2, 1] :: [Int32]))
         (ColUtf8 (V.fromList ["a", "b", "c"]))))
+
+  -- Streaming reader: pull batches one at a time, then drain.
+  streamingRoundTrip
+    (Schema (V.fromList [plainField "n" False (AInt 32 True)]) Little)
+    [ V.singleton (ColInt32 (VP.fromList ([1, 2] :: [Int32])))
+    , V.singleton (ColInt32 (VP.fromList ([3] :: [Int32])))
+    , V.singleton (ColInt32 (VP.fromList ([4, 5, 6, 7] :: [Int32])))
+    ]
+
+streamingRoundTrip :: Schema -> [V.Vector ColumnArray] -> IO ()
+streamingRoundTrip sch batches = do
+  let bytes = encodeArrowStream sch batches
+  case openStreamReader bytes of
+    Left e -> failTest $ "openStreamReader: " ++ e
+    Right rd0 -> do
+      when (streamReaderSchema rd0 /= sch) $
+        failTest "streamReaderSchema mismatch"
+      -- Pull first batch via streamReaderNext; drain rest via toList.
+      case streamReaderNext rd0 of
+        Left e -> failTest $ "streamReaderNext (first): " ++ e
+        Right Nothing -> failTest "streamReaderNext: stream empty"
+        Right (Just (cols0, rd1)) -> do
+          when (cols0 /= head batches) $
+            failTest $ "streamReaderNext (first) mismatch:\n got "
+                        ++ show cols0 ++ "\n exp " ++ show (head batches)
+          case streamReaderToList rd1 of
+            Left e -> failTest $ "streamReaderToList: " ++ e
+            Right rest
+              | rest == drop 1 batches ->
+                  putStrLn "OK: streaming reader iterates all batches"
+              | otherwise ->
+                  failTest $ "streamReaderToList: tail mismatch\n got "
+                              ++ show rest
+                              ++ "\n exp " ++ show (drop 1 batches)
 
 -- | Generic single-batch round-trip helper for the high-level
 -- 'encodeArrowStream' / 'decodeArrowStream' API.

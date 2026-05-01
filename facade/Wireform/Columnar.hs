@@ -1,0 +1,104 @@
+-- | Top-level guide to wireform's columnar formats.
+--
+-- All three columnar formats wireform supports — Arrow IPC,
+-- Parquet, and ORC — expose a small high-level API in their
+-- respective \"HighLevel\" / \"Stream\" modules:
+--
+-- @
+-- import qualified "Arrow.Stream"     as Arrow      -- Arrow IPC
+-- import qualified "Parquet.HighLevel" as Parquet   -- Apache Parquet
+-- import qualified "ORC.HighLevel"     as ORC       -- Apache ORC
+-- @
+--
+-- Each follows the same shape:
+--
+-- @
+-- /encode/ :: WriteOptions -> Schema -> [Batch] -> ByteString
+-- /decode/ :: ByteString -> Either String (Schema, [Batch])
+-- @
+--
+-- but with format-specific @Schema@ and @Batch@ types because the
+-- physical column representations the three formats expose are
+-- meaningfully different (Arrow's in-memory layout, Parquet's
+-- per-page-encoded streams, ORC's per-stripe stream tuples). A
+-- truly polymorphic surface that abstracts over those would need
+-- to either (a) lower everything to Arrow's @ColumnArray@ as a
+-- canonical representation and pay a translation cost on every
+-- call, or (b) introduce a tagged-union / type-class abstraction
+-- whose user-facing types still leak the underlying format. We
+-- chose to keep the high-level types format-native and document
+-- the shape parity here, which is what most consumers actually
+-- want.
+--
+-- == Cheat sheet
+--
+-- === Apache Arrow IPC
+--
+-- @
+-- import qualified Wireform.Arrow as Arrow
+--
+-- let bytes = Arrow.'Arrow.Stream.encodeArrowStream' schema batches
+--     -- batches :: ['V.Vector' 'Arrow.Column.ColumnArray']
+--
+-- case Arrow.'Arrow.Stream.decodeArrowStream' bytes of
+--   Right (sch, batches') -> ...
+--   Left  err             -> ...
+-- @
+--
+-- The Arrow API auto-extracts and auto-resolves dictionary
+-- batches; pass 'Arrow.Column.ColDictionary' values inline and
+-- they round-trip through the wire.
+--
+-- === Apache Parquet
+--
+-- @
+-- import qualified Wireform.Parquet as Parquet
+--
+-- let opts  = Parquet.'Parquet.HighLevel.defaultWriteOptions'
+--               { Parquet.writeCompression = Parquet.ZSTD
+--               , Parquet.writePageIndex   = True
+--               }
+--     bytes = Parquet.'Parquet.HighLevel.encodeParquet' opts schema rowGroups
+--     -- rowGroups :: ['V.Vector' 'Parquet.Write.ColumnData']
+--
+-- case Parquet.'Parquet.HighLevel.decodeParquet' bytes of
+--   Right pf -> do
+--     let !schema'    = 'Parquet.Types.fmSchema'  ('Parquet.Read.pfFooter' pf)
+--         !rowGroups' = 'Parquet.Types.fmRowGroups' ('Parquet.Read.pfFooter' pf)
+--     -- column data is decoded lazily via Parquet.Read.* functions
+--   Left err -> ...
+-- @
+--
+-- 'Parquet.HighLevel.WriteOptions' carries compression, page
+-- version, page-index emission, per-column encryption, and
+-- footer encryption (PARE mode).
+--
+-- === Apache ORC
+--
+-- @
+-- import qualified Wireform.ORC as ORC
+--
+-- case ORC.'ORC.HighLevel.encodeORC' ORC.'ORC.HighLevel.defaultWriteOptions' types stripes of
+--   Right bytes -> ...
+--   Left  err   -> ...
+-- @
+--
+-- @types@ is the schema; @stripes@ is one
+-- @V.Vector (streamKind, columnId, payload)@ per stripe in
+-- emission order. ORC encryption is gated by
+-- 'ORC.HighLevel.writeEncryption' on the options record.
+--
+-- == When to drop down
+--
+-- Each format also exposes its lower-level building blocks:
+--
+-- * "Arrow.FlatBufferIPC" — explicit dict-batch construction,
+--   custom 'RecordBatchDef' values, raw FlatBuffer envelope.
+-- * "Parquet.Write" — bespoke @ColumnAux@ vectors, hand-rolled
+--   row groups, custom bloom-filter parameters.
+-- * "ORC.Write" — per-stripe footer adjustments, mixed
+--   plaintext/encrypted stripes, manual 'StripeEncryption'.
+--
+-- These are stable; the high-level modules wrap them rather than
+-- replacing them.
+module Wireform.Columnar () where
