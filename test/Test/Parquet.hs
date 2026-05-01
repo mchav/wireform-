@@ -1,5 +1,6 @@
 module Test.Parquet (parquetTests) where
 
+import Data.Bits (shiftL)
 import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
 import qualified Data.Text as T
@@ -24,10 +25,12 @@ import Parquet.BloomFilter
   , sbbfNumBytes
   )
 import Parquet.Levels
-  ( materializePlainBoolOptional
+  ( NestedValue (..)
+  , materializePlainBoolOptional
   , materializePlainByteArrayOptional
   , materializePlainInt32Optional
   , materializePlainInt64Optional
+  , materializeRepeatedByNested
   , materializeRepeatedDouble
   , materializeRepeatedFloat
   , materializeRepeatedInt32
@@ -217,6 +220,94 @@ levelsAndSchemaTests = testGroup "Levels + schema max levels"
             [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x3F ]
       materializeRepeatedDouble reps defs 1 plain
         @?= Right (V.singleton (V.singleton (Just 1.5)))
+  , testCase "materializeRepeatedByNested 2-deep LIST<LIST<int32>>" $ do
+      -- Two top-level rows:
+      --   row 0 = [[10, 20], [30]]
+      --   row 1 = [[40, 50]]
+      let reps = VP.fromList [(0 :: Int32), 2, 1, 0, 2]
+          defs = VP.replicate 5 (2 :: Int32)
+          plain = BS.pack
+            [ 0x0A, 0x00, 0x00, 0x00  -- 10
+            , 0x14, 0x00, 0x00, 0x00  -- 20
+            , 0x1E, 0x00, 0x00, 0x00  -- 30
+            , 0x28, 0x00, 0x00, 0x00  -- 40
+            , 0x32, 0x00, 0x00, 0x00  -- 50
+            ]
+          decI32 :: BS.ByteString -> Int -> Either String (Int32, Int)
+          decI32 bs off
+            | off + 4 > BS.length bs = Left "short"
+            | otherwise =
+                let !v = fromIntegral (BS.index bs (off+0))
+                       + (fromIntegral (BS.index bs (off+1)) `shiftL` 8)
+                       + (fromIntegral (BS.index bs (off+2)) `shiftL` 16)
+                       + (fromIntegral (BS.index bs (off+3)) `shiftL` 24)
+                in  Right (v :: Int32, off + 4)
+      result <- case materializeRepeatedByNested reps defs 2 2 plain decI32 of
+        Right v  -> pure v
+        Left  e  -> assertFailure e
+      let l xs = NVList xs
+          n v  = NVLeaf (Just v)
+      V.toList result @?= [
+          l [ l [n 10, n 20], l [n 30] ]
+        , l [ l [n 40, n 50] ]
+        ]
+  , testCase "materializeRepeatedByNested 3-deep LIST<LIST<LIST<int32>>>" $ do
+      -- One row representing [[[1,2],[3]],[[4]]]:
+      --   leaf 1: rep=0 (start row), depth 3
+      --   leaf 2: rep=3 (innermost continuation)
+      --   leaf 3: rep=2 (new innermost list at second level)
+      --   leaf 4: rep=1 (new at top)
+      let reps = VP.fromList [(0 :: Int32), 3, 2, 1]
+          defs = VP.replicate 4 (3 :: Int32)
+          plain = BS.pack
+            [ 0x01, 0x00, 0x00, 0x00
+            , 0x02, 0x00, 0x00, 0x00
+            , 0x03, 0x00, 0x00, 0x00
+            , 0x04, 0x00, 0x00, 0x00
+            ]
+          decI32 :: BS.ByteString -> Int -> Either String (Int32, Int)
+          decI32 bs off =
+            let !v = fromIntegral (BS.index bs (off+0))
+                   + (fromIntegral (BS.index bs (off+1)) `shiftL` 8)
+                   + (fromIntegral (BS.index bs (off+2)) `shiftL` 16)
+                   + (fromIntegral (BS.index bs (off+3)) `shiftL` 24)
+            in  Right (v :: Int32, off + 4)
+      result <- case materializeRepeatedByNested reps defs 3 3 plain decI32 of
+        Right v  -> pure v
+        Left e   -> assertFailure e
+      let l xs = NVList xs
+          n v  = NVLeaf (Just v)
+      V.toList result @?= [
+          l [ l [ l [n 1, n 2], l [n 3] ]
+            , l [ l [n 4] ]
+            ]
+        ]
+  , testCase "materializeRepeatedByNested rep=1 reduces to 1-level" $ do
+      -- maxRep=1 → behaves like materializeRepeatedInt32. row 0 =
+      -- [v0, v1], row 1 = [v2].
+      let reps = VP.fromList [(0 :: Int32), 1, 0]
+          defs = VP.replicate 3 (1 :: Int32)
+          plain = BS.pack
+            [ 0x01, 0x00, 0x00, 0x00
+            , 0x02, 0x00, 0x00, 0x00
+            , 0x03, 0x00, 0x00, 0x00
+            ]
+          decI32 :: BS.ByteString -> Int -> Either String (Int32, Int)
+          decI32 bs off =
+            let !v = fromIntegral (BS.index bs (off+0))
+                   + (fromIntegral (BS.index bs (off+1)) `shiftL` 8)
+                   + (fromIntegral (BS.index bs (off+2)) `shiftL` 16)
+                   + (fromIntegral (BS.index bs (off+3)) `shiftL` 24)
+            in  Right (v :: Int32, off + 4)
+      result <- case materializeRepeatedByNested reps defs 1 1 plain decI32 of
+        Right v  -> pure v
+        Left e   -> assertFailure e
+      let l xs = NVList xs
+          n v  = NVLeaf (Just v)
+      V.toList result @?= [
+          l [ n 1, n 2 ]
+        , l [ n 3 ]
+        ]
   ]
 
 footerRoundtrips :: TestTree
