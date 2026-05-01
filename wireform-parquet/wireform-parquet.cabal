@@ -20,6 +20,11 @@ flag lz4
   manual: True
   default: False
 
+flag brotli
+  description: Brotli (codec 4) decompression for Parquet column chunks
+  manual: True
+  default: False
+
 common defaults
   ghc-options:
     -Wall
@@ -87,6 +92,9 @@ library
   if flag(lz4)
     cpp-options: -DHAVE_LZ4
     build-depends: lz4 >= 0.2 && < 0.3
+  if flag(brotli)
+    cpp-options: -DHAVE_BROTLI
+    build-depends: brotli >= 0.0.0.3 && < 0.0.1
 
 test-suite wireform-parquet-test
   import: defaults
@@ -104,6 +112,8 @@ test-suite wireform-parquet-test
     crypton >= 1.0 && < 1.1,
     directory >= 1.3 && < 1.4,
     process >= 1.6 && < 1.7
+  if flag(brotli)
+    cpp-options: -DHAVE_BROTLI
 
 benchmark parquet-bench
   import: defaults

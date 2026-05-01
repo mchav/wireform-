@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
@@ -19,6 +20,7 @@ import Data.Int (Int32, Int64)
 import qualified Crypto.Random as RNG
 
 import Parquet.BloomFilter
+import Parquet.Compress (compressPageBytes)
 import Parquet.ByteStreamSplit
   ( encodeByteStreamSplitDouble
   , encodeByteStreamSplitFloat
@@ -746,6 +748,38 @@ main = do
   case decodeByteStreamSplitDouble (VP.length bssDoubles) bssDoubleBs of
     Right xs -> expect "BYTE_STREAM_SPLIT DOUBLE round-trip" (xs == bssDoubles)
     Left  e  -> failTest ("BYTE_STREAM_SPLIT DOUBLE decode: " ++ e)
+
+  -- Compression codec round-trips. All codecs should be refused by the
+  -- compressor's LZ4 (deprecated Hadoop variant) and LZO (spec codec 3,
+  -- not emitted by modern writers) branches. Brotli round-trips when
+  -- the library is built with @-fbrotli@.
+  case compressPageBytes LZ4 "anything" of
+    Left _  -> expect "LZ4 (codec 5) is refused by the compressor" True
+    Right _ -> failTest "Parquet.Compress: LZ4 compression should fail"
+  case compressPageBytes LZO "anything" of
+    Left _  -> expect "LZO (codec 3) is refused by the compressor" True
+    Right _ -> failTest "Parquet.Compress: LZO compression should fail"
+#ifdef HAVE_BROTLI
+  -- A mid-sized input so Brotli has something to chew on; the original
+  -- plaintext must be recovered after a round-trip through the reader.
+  let brotliInput = BS.concat (replicate 256 "the quick brown fox jumps over the lazy dog ")
+  case compressPageBytes Brotli brotliInput of
+    Left e  -> failTest ("Parquet.Compress: Brotli compression failed: " ++ e)
+    Right compressed -> do
+      expect "Brotli shrinks the repetitive fixture"
+        (BS.length compressed < BS.length brotliInput)
+      case Parquet.Read.decompressChunk Brotli compressed of
+        Left e -> failTest ("Parquet.Read: Brotli decompression failed: " ++ e)
+        Right restored ->
+          expect "Brotli round-trip preserves the input"
+            (restored == brotliInput)
+#else
+  -- Without -fbrotli the writer must surface a clear missing-codec error
+  -- rather than silently falling through to uncompressed.
+  case compressPageBytes Brotli "anything" of
+    Left _  -> expect "Brotli reports the -fbrotli requirement" True
+    Right _ -> failTest "Parquet.Compress: Brotli must fail without -fbrotli"
+#endif
 
   -- DELTA_LENGTH_BYTE_ARRAY round-trip (encoder <-> decoder).
   let dlbaInputs =
