@@ -26,7 +26,7 @@ module HTML.Parse (
   newTreeBuilderWith,
   -- newTreeBuilderRaw (unused; raw events use tokenizeRawEventsIO)
   processToken,
-  buildDocument,
+  finishDocument,
   tokenizeBSIO,
   freeTreeBuilder,
   drainTreeBuilderStack,
@@ -1004,7 +1004,7 @@ parseHTML bs = unsafePerformIO $ do
   tb <- newTreeBuilder Nothing
   tokenizeBSIO bs 0 (BS.length bs) 0 False tb
   processToken tb TEOF
-  !doc <- buildDocument tb
+  !doc <- finishDocument tb
   free (tbScalars tb)
   pure doc
 
@@ -1537,8 +1537,13 @@ attrsFromList xs = smallArrayFromList (map (\(n, v) -> HTMLAttribute n v) xs)
 -- Build final document
 ------------------------------------------------------------------------
 
-buildDocument :: TreeBuilder -> IO HTMLDocument
-buildDocument tb = do
+-- | Finalise a 'TreeBuilder' and project out the completed
+-- 'HTMLDocument'. Renamed from @buildDocument@ to avoid a name
+-- collision with the unrelated @HTML.Encode.buildDocument@
+-- (@HTMLDocument -> Builder@) when both are re-exported from the
+-- @Wireform.HTML@ facade.
+finishDocument :: TreeBuilder -> IO HTMLDocument
+finishDocument tb = do
   allNodes <- buildAllNodes tb
   let mdt = extractDoctype allNodes
       root = findOrCreateRoot allNodes

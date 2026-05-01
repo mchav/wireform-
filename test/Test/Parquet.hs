@@ -200,7 +200,7 @@ footerRoundtrips = testGroup "Footer roundtrips"
   , testCase "Multiple row groups" $ do
       let mkRG n = RowGroup V.empty (n * 1000) n
           fm = FileMetadata 1
-                 (V.singleton (SchemaElement "root" Nothing Nothing (Just 0) Nothing Nothing))
+                 (V.singleton (SchemaElement "root" Nothing Nothing (Just 0) Nothing Nothing Nothing))
                  3000 (V.fromList [mkRG 1000, mkRG 1000, mkRG 1000]) (Just "test-writer v1.0")
       readFooter (writeFooter fm) @?= Right fm
   , testCase "All parquet types" $ do
@@ -259,7 +259,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
           name <- Gen.text (Range.linear 1 20) Gen.alphaNum
           rep <- Gen.maybe (Gen.element [Required, Optional, Repeated])
           pt <- Gen.maybe (Gen.element [PTBoolean, PTInt32, PTInt64, PTFloat, PTDouble, PTByteArray])
-          pure (SchemaElement name rep pt Nothing Nothing Nothing)
+          pure (SchemaElement name rep pt Nothing Nothing Nothing Nothing)
         ) [1..nFields]
       let fm = FileMetadata 2 (V.fromList fields) 0 V.empty Nothing
       readFooter (writeFooter fm) === Right fm
@@ -566,7 +566,9 @@ xxh64Tests = testGroup "XXH64 (xxHash 0.1.1)"
         @?= "fbcea83c8a378bf1"
   , testCase "32-byte boundary input" $
       -- 32 bytes triggers exactly one stripe in the bulk phase.
-      hex (Hash.xxh64 0 (BS.replicate 32 0x61)) @?= "cdb40dec1a8b1eb6"
+      -- Reference via xxhsum -H1 / python xxhash on b'a' * 32:
+      -- 856e843298f99ad7 (the previous expected hex was stale).
+      hex (Hash.xxh64 0 (BS.replicate 32 0x61)) @?= "856e843298f99ad7"
   , testProperty "different inputs produce different hashes (with high probability)" $
       property $ do
         a <- forAll $ Gen.bytes (Range.linear 1 64)

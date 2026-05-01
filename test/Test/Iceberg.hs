@@ -198,36 +198,36 @@ schemaTypeTests = testGroup "Schema types"
 partitionSpecTests :: TestTree
 partitionSpecTests = testGroup "PartitionSpec"
   [ testCase "Identity transform" $ do
-      let ps = PartitionSpec 0 (V.singleton (PartitionField 1 1000 "id_part" Identity))
+      let ps = PartitionSpec 0 (V.singleton (PartitionField (V.singleton 1) 1000 "id_part" Identity))
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "Bucket transform" $ do
-      let ps = PartitionSpec 0 (V.singleton (PartitionField 1 1000 "bucket_part" (Bucket 16)))
+      let ps = PartitionSpec 0 (V.singleton (PartitionField (V.singleton 1) 1000 "bucket_part" (Bucket 16)))
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "Truncate transform" $ do
-      let ps = PartitionSpec 0 (V.singleton (PartitionField 2 1001 "trunc_part" (Truncate 10)))
+      let ps = PartitionSpec 0 (V.singleton (PartitionField (V.singleton 2) 1001 "trunc_part" (Truncate 10)))
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "Time-based transforms" $ do
       let ps = PartitionSpec 0 (V.fromList
-            [ PartitionField 1 1000 "year_part" Year
-            , PartitionField 2 1001 "month_part" Month
-            , PartitionField 3 1002 "day_part" Day
-            , PartitionField 4 1003 "hour_part" Hour
+            [ PartitionField (V.singleton 1) 1000 "year_part" Year
+            , PartitionField (V.singleton 2) 1001 "month_part" Month
+            , PartitionField (V.singleton 3) 1002 "day_part" Day
+            , PartitionField (V.singleton 4) 1003 "hour_part" Hour
             ])
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
 
   , testCase "Void transform" $ do
-      let ps = PartitionSpec 0 (V.singleton (PartitionField 1 1000 "void_part" Void))
+      let ps = PartitionSpec 0 (V.singleton (PartitionField (V.singleton 1) 1000 "void_part" Void))
           tm = minimalMetadata { tmPartitionSpecs = V.singleton ps }
           json = metadataToJSON tm
       metadataFromJSON json @?= Right tm
@@ -421,7 +421,7 @@ snapshotTests = testGroup "Snapshot operations"
       snapshotParentChain tm s1 @?= []
 
   , testCase "currentPartitionSpec returns default spec" $ do
-      let ps = PartitionSpec 5 (V.singleton (PartitionField 1 1000 "p" Identity))
+      let ps = PartitionSpec 5 (V.singleton (PartitionField (V.singleton 1) 1000 "p" Identity))
           tm = minimalMetadata
             { tmPartitionSpecs = V.fromList
                 [ PartitionSpec 0 V.empty

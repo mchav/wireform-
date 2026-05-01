@@ -549,14 +549,17 @@ newColumnDecoderTests = testGroup "New column decoders"
           v @?= V.fromList [Just 1, Just (-1), Just 127 :: Maybe Int8]
 
   , testCase "TinyInt column with nulls" $ do
-      let dataBs = BS.pack [0x42]
+      -- present mask [T, F, T] => numPresent = 2, so the DATA stream
+      -- must carry exactly two bytes (the ORC spec omits null rows
+      -- from the DATA stream entirely).
+      let dataBs = BS.pack [0x42, 0x37]
           presentEncoded = BS.pack [0xFF, 0xA0] -- [T, F, T] = 10100000
       case decodeTinyIntColumn 3 dataBs (Just presentEncoded) of
         Left e -> assertFailure e
         Right v -> do
           V.length v @?= 3
           case V.toList v of
-            [Just 0x42, Nothing, _] -> pure ()
+            [Just 0x42, Nothing, Just 0x37] -> pure ()
             other -> assertFailure $ "unexpected: " ++ show other
   ]
 
