@@ -248,9 +248,13 @@ data ShreddedColumn = ShreddedColumn
 -- null      non-null      Present, the shredded type (returned by
 --                         lifting the typed sub-column to a
 --                         Variant via 'typedValueToVariant').
--- non-null  non-null      Partially shredded object (not yet
---                         supported in this primitive-shredding
---                         implementation; we return @Left@).
+-- non-null  non-null      Spec-invalid for primitive shredding:
+--                         both fields being present is only allowed
+--                         when @typed_value@ is a /group/ (i.e. the
+--                         variant was an object whose fields are
+--                         themselves shredded). The partial-object
+--                         case is handled on a separate code path
+--                         by 'reconstructObjectVariant'.
 -- @
 --
 -- For top-level Variant columns, where the spec says missing rows
@@ -275,13 +279,16 @@ reconstructVariant meta sc = case (sc_value sc, sc_typedValue sc) of
   (Nothing, Just tv) ->
     Right (Just (typedValueToVariant tv))
   (Just _, Just _) ->
-    -- Partially-shredded object case (spec §Objects). The typed
-    -- sub-column would be a Parquet group of further shredded
-    -- fields; this primitive-shredding module doesn't model that
-    -- shape, so we surface the situation explicitly.
-    Left "reconstructVariant: partially-shredded object \
-         \(both value and typed_value present); object \
-         \shredding is implemented in a separate code path"
+    -- Spec-invalid for primitive shredding: @typed_value@ being
+    -- non-null means the row is the shredded primitive; the
+    -- fallback @value@ column must be null in that case. A row
+    -- with both columns non-null only makes sense when
+    -- @typed_value@ is a /group/ of further shredded fields - i.e.
+    -- a partially-shredded object - which is handled by
+    -- 'reconstructObjectVariant' on its own code path.
+    Left "reconstructVariant: both value and typed_value present; \
+         \use reconstructObjectVariant for partially-shredded \
+         \objects (primitive shredding disallows this combination)"
 
 -- | Lift a 'TypedValue' (the typed sub-column's payload) to a
 -- 'Variant'. The shredded type uniquely determines which Variant

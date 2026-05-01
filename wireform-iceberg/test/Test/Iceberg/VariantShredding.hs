@@ -201,6 +201,31 @@ tests = testGroup "Iceberg.Variant.Shredding"
         case Shred.reconstructObjectVariant meta row of
           Right Nothing -> pure ()
           other -> assertFailure ("expected Nothing, got " ++ show other)
+
+    , testCase "round-trip: partially-shredded object (extras recovered)" $ do
+        -- Object with two shredded fields + one non-shredded field;
+        -- routeObjectRow puts the two typed values in 'typed_value'
+        -- and the single non-shredded field in 'value'. The spec
+        -- says the reader reconstructs the union, so the recovered
+        -- variant must equal the input.
+        let oss = Shred.ObjectShreddingSchema
+                    [ Shred.ShreddedField "event_type" Shred.ShredString
+                    , Shred.ShreddedField "event_ts"   Shred.ShredInt64
+                    ]
+            v = IV.VObject (Map.fromList
+                  [ ("event_type", IV.VString "login")
+                  , ("event_ts",   IV.VInt64 1729794146402)
+                  , ("email",      IV.VString "user@example.com")
+                  ])
+            -- 'encodeVariant' produces the authoritative metadata for
+            -- this Variant; using it means the reader's lookups for
+            -- 'email' (the non-shredded field) resolve correctly.
+            (meta, _) = IV.encodeVariant v
+            row = Shred.routeObjectRow oss (Just v)
+        case Shred.reconstructObjectVariant meta row of
+          Right (Just v') -> v' @?= v
+          other -> assertFailure
+            ("partial-shred round-trip mismatch: " ++ show other)
     ]
 
   , testGroup "array shredding"
