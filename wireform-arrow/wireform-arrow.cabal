@@ -39,6 +39,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Arrow.Column
+    Arrow.Derive
     Arrow.File
     Arrow.FlatBufferIPC
     Arrow.IPC
@@ -52,6 +53,7 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-columnar,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
@@ -92,3 +94,25 @@ test-suite wireform-arrow-test
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     primitive >= 0.7 && < 0.10
+
+test-suite wireform-arrow-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test-derive
+  other-modules:
+    Test.Arrow.Derive
+    Test.Arrow.Derive.Types
+    Test.Arrow.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-arrow,
+    wireform-derive,
+    template-haskell,
+    text,
+    vector,
+    tasty,
+    tasty-hunit

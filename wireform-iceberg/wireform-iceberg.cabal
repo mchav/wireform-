@@ -41,6 +41,7 @@ library
     Iceberg.Catalog.Sql
     Iceberg.Delete
     Iceberg.DeletionVector
+    Iceberg.Derive
     Iceberg.Expression
     Iceberg.Geometry
     Iceberg.JSON
@@ -71,6 +72,7 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-avro,
+    wireform-derive,
     wireform-parquet,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
@@ -81,6 +83,7 @@ library
     scientific >= 0.3 && < 0.4,
     hashable >= 1.3 && < 1.6,
     unordered-containers >= 0.2.16 && < 0.3,
+    template-haskell >= 2.18 && < 2.24,
     time >= 1.9 && < 1.15,
     deepseq >= 1.4 && < 1.6,
     directory >= 1.3 && < 1.4,
@@ -156,6 +159,30 @@ test-suite iceberg-test
     tasty            >= 1.4  && < 1.6,
     tasty-hedgehog   >= 1.0  && < 1.5,
     tasty-hunit      >= 0.10 && < 0.11
+
+test-suite wireform-iceberg-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-derive
+  main-is: Main.hs
+  ghc-options: -Wall -O0
+  other-modules:
+    Test.Iceberg.Derive
+    Test.Iceberg.Derive.Types
+    Test.Iceberg.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-iceberg,
+    wireform-derive,
+    text,
+    vector,
+    bytestring,
+    template-haskell,
+    tasty,
+    tasty-hunit
 
 executable iceberg
   import: defaults

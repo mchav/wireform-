@@ -1,0 +1,493 @@
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleInstances #-}
+
+-- | Annotation-driven Template Haskell deriver for FlatBuffers.
+--
+-- FlatBuffers' type system has no generic typeclass in this package,
+-- so this module also exports the @ToFlatBuffers@ / @FromFlatBuffers@
+-- classes the deriver targets.
+--
+-- Encoding shape:
+--
+-- * 'TypeShapeNewtype' — pass-through to the inner field's instance.
+-- * 'TypeShapeRecord'  — FlatBuffers 'VTable' with one positional slot
+--   per record field. Each slot is @Just inner@ for a set field,
+--   @Nothing@ for an absent 'Maybe' field, and @Nothing@ for a
+--   @skip@ped field (with 'defaults' supplying the value on decode).
+-- * 'TypeShapeEnum'    — encoded as a 'VInt32' carrying the
+--   constructor's zero-based ordinal, overridable with @tag N@.
+-- * 'TypeShapeSum'     — rejected at splice time. FlatBuffers has a
+--   'union' construct but it requires out-of-band type-tag data that
+--   this value-level AST does not model.
+--
+-- Modifiers honoured: 'tag' (enum ordinal override), 'skip',
+-- 'defaults', 'optional', 'coerced'. 'rename' is ignored because
+-- FlatBuffers' vtables are positional, not keyed.
+module FlatBuffers.Derive
+  ( -- * Classes
+    ToFlatBuffers (..)
+  , FromFlatBuffers (..)
+
+    -- * Derivers
+  , deriveFlatBuffers
+  , deriveToFlatBuffers
+  , deriveFromFlatBuffers
+  ) where
+
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import Data.Coerce (coerce)
+import Data.Foldable (foldlM)
+import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Text (Text)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
+import Data.Word (Word8, Word16, Word32, Word64)
+import Language.Haskell.TH
+
+import qualified FlatBuffers.Value as FB
+
+import Wireform.Derive.Backend
+import Wireform.Derive.ModifierInfo
+import Wireform.Derive.TypeInfo
+
+-- ---------------------------------------------------------------------------
+-- Classes
+-- ---------------------------------------------------------------------------
+
+-- | Haskell values that can be projected into a FlatBuffers 'FB.Value'.
+class ToFlatBuffers a where
+  toFlatBuffers :: a -> FB.Value
+
+-- | FlatBuffers 'FB.Value' views that can be parsed back into Haskell.
+class FromFlatBuffers a where
+  fromFlatBuffers :: FB.Value -> Either String a
+
+-- ---------------------------------------------------------------------------
+-- Scalar instances
+-- ---------------------------------------------------------------------------
+
+instance ToFlatBuffers FB.Value where
+  toFlatBuffers = id
+
+instance FromFlatBuffers FB.Value where
+  fromFlatBuffers = Right
+
+instance ToFlatBuffers Bool  where toFlatBuffers = FB.VBool
+instance FromFlatBuffers Bool where
+  fromFlatBuffers = \case
+    FB.VBool b -> Right b
+    v          -> Left ("FlatBuffers.Derive: expected VBool, got " <> showCtor v)
+
+instance ToFlatBuffers Int8  where toFlatBuffers = FB.VInt8
+instance FromFlatBuffers Int8 where
+  fromFlatBuffers = \case
+    FB.VInt8 n  -> Right n
+    FB.VInt16 n -> Right (fromIntegral n)
+    FB.VInt32 n -> Right (fromIntegral n)
+    FB.VInt64 n -> Right (fromIntegral n)
+    v -> Left ("FlatBuffers.Derive: expected VInt8, got " <> showCtor v)
+
+instance ToFlatBuffers Int16 where toFlatBuffers = FB.VInt16
+instance FromFlatBuffers Int16 where
+  fromFlatBuffers = \case
+    FB.VInt8 n  -> Right (fromIntegral n)
+    FB.VInt16 n -> Right n
+    FB.VInt32 n -> Right (fromIntegral n)
+    FB.VInt64 n -> Right (fromIntegral n)
+    v -> Left ("FlatBuffers.Derive: expected VInt16, got " <> showCtor v)
+
+instance ToFlatBuffers Int32 where toFlatBuffers = FB.VInt32
+instance FromFlatBuffers Int32 where
+  fromFlatBuffers = \case
+    FB.VInt8 n  -> Right (fromIntegral n)
+    FB.VInt16 n -> Right (fromIntegral n)
+    FB.VInt32 n -> Right n
+    FB.VInt64 n -> Right (fromIntegral n)
+    v -> Left ("FlatBuffers.Derive: expected VInt32, got " <> showCtor v)
+
+instance ToFlatBuffers Int64 where toFlatBuffers = FB.VInt64
+instance FromFlatBuffers Int64 where
+  fromFlatBuffers = \case
+    FB.VInt8 n  -> Right (fromIntegral n)
+    FB.VInt16 n -> Right (fromIntegral n)
+    FB.VInt32 n -> Right (fromIntegral n)
+    FB.VInt64 n -> Right n
+    v -> Left ("FlatBuffers.Derive: expected VInt64, got " <> showCtor v)
+
+instance ToFlatBuffers Int where
+  toFlatBuffers = FB.VInt64 . fromIntegral
+instance FromFlatBuffers Int where
+  fromFlatBuffers v = fromIntegral <$> (fromFlatBuffers v :: Either String Int64)
+
+instance ToFlatBuffers Word8  where toFlatBuffers = FB.VWord8
+instance FromFlatBuffers Word8 where
+  fromFlatBuffers = \case
+    FB.VWord8 n  -> Right n
+    FB.VWord16 n -> Right (fromIntegral n)
+    FB.VWord32 n -> Right (fromIntegral n)
+    FB.VWord64 n -> Right (fromIntegral n)
+    v -> Left ("FlatBuffers.Derive: expected VWord8, got " <> showCtor v)
+
+instance ToFlatBuffers Word16 where toFlatBuffers = FB.VWord16
+instance FromFlatBuffers Word16 where
+  fromFlatBuffers = \case
+    FB.VWord8 n  -> Right (fromIntegral n)
+    FB.VWord16 n -> Right n
+    FB.VWord32 n -> Right (fromIntegral n)
+    FB.VWord64 n -> Right (fromIntegral n)
+    v -> Left ("FlatBuffers.Derive: expected VWord16, got " <> showCtor v)
+
+instance ToFlatBuffers Word32 where toFlatBuffers = FB.VWord32
+instance FromFlatBuffers Word32 where
+  fromFlatBuffers = \case
+    FB.VWord8 n  -> Right (fromIntegral n)
+    FB.VWord16 n -> Right (fromIntegral n)
+    FB.VWord32 n -> Right n
+    FB.VWord64 n -> Right (fromIntegral n)
+    v -> Left ("FlatBuffers.Derive: expected VWord32, got " <> showCtor v)
+
+instance ToFlatBuffers Word64 where toFlatBuffers = FB.VWord64
+instance FromFlatBuffers Word64 where
+  fromFlatBuffers = \case
+    FB.VWord8 n  -> Right (fromIntegral n)
+    FB.VWord16 n -> Right (fromIntegral n)
+    FB.VWord32 n -> Right (fromIntegral n)
+    FB.VWord64 n -> Right n
+    v -> Left ("FlatBuffers.Derive: expected VWord64, got " <> showCtor v)
+
+instance ToFlatBuffers Float  where toFlatBuffers = FB.VFloat
+instance FromFlatBuffers Float where
+  fromFlatBuffers = \case
+    FB.VFloat f  -> Right f
+    FB.VDouble d -> Right (realToFrac d)
+    v -> Left ("FlatBuffers.Derive: expected VFloat, got " <> showCtor v)
+
+instance ToFlatBuffers Double where toFlatBuffers = FB.VDouble
+instance FromFlatBuffers Double where
+  fromFlatBuffers = \case
+    FB.VDouble d -> Right d
+    FB.VFloat f  -> Right (realToFrac f)
+    v -> Left ("FlatBuffers.Derive: expected VDouble, got " <> showCtor v)
+
+instance ToFlatBuffers Text   where toFlatBuffers = FB.VString
+instance FromFlatBuffers Text where
+  fromFlatBuffers = \case
+    FB.VString t -> Right t
+    v -> Left ("FlatBuffers.Derive: expected VString, got " <> showCtor v)
+
+-- | FlatBuffers has no native @bytes@ type; @ByteString@ maps to a
+-- vector of @ubyte@ (@[VWord8]@), which matches the canonical
+-- FlatBuffers idiom for raw byte payloads.
+instance ToFlatBuffers ByteString where
+  toFlatBuffers bs =
+    FB.VVector (V.generate (BS.length bs) (\i -> FB.VWord8 (BS.index bs i)))
+
+instance FromFlatBuffers ByteString where
+  fromFlatBuffers = \case
+    FB.VVector vs -> BS.pack <$> traverse asByte (V.toList vs)
+      where
+        asByte (FB.VWord8 n) = Right n
+        asByte x = Left ("FlatBuffers.Derive: byte-vector element not VWord8: "
+                         <> showCtor x)
+    FB.VString _ -> Left "FlatBuffers.Derive: expected VVector for ByteString, got VString"
+    v -> Left ("FlatBuffers.Derive: expected VVector for ByteString, got "
+               <> showCtor v)
+
+instance ToFlatBuffers a => ToFlatBuffers [a] where
+  toFlatBuffers xs = FB.VVector (V.fromList (map toFlatBuffers xs))
+
+instance FromFlatBuffers a => FromFlatBuffers [a] where
+  fromFlatBuffers = \case
+    FB.VVector vs -> traverse fromFlatBuffers (V.toList vs)
+    v -> Left ("FlatBuffers.Derive: expected VVector, got " <> showCtor v)
+
+instance ToFlatBuffers a => ToFlatBuffers (Vector a) where
+  toFlatBuffers xs = FB.VVector (V.map toFlatBuffers xs)
+
+instance FromFlatBuffers a => FromFlatBuffers (Vector a) where
+  fromFlatBuffers = \case
+    FB.VVector vs -> V.mapM fromFlatBuffers vs
+    v -> Left ("FlatBuffers.Derive: expected VVector, got " <> showCtor v)
+
+-- | Standalone 'Maybe' instance. FlatBuffers' natural notion of
+-- optionality is the vtable slot, which only exists inside a record.
+-- For values that appear /outside/ a record (e.g. list elements) we
+-- encode 'Maybe a' as a one-slot 'VTable': 'Nothing' is an empty slot,
+-- 'Just x' is a single 'Just' slot.
+instance ToFlatBuffers a => ToFlatBuffers (Maybe a) where
+  toFlatBuffers = \case
+    Nothing -> FB.VTable (V.singleton Nothing)
+    Just x  -> FB.VTable (V.singleton (Just (toFlatBuffers x)))
+
+instance FromFlatBuffers a => FromFlatBuffers (Maybe a) where
+  fromFlatBuffers = \case
+    FB.VTable vs
+      | V.length vs == 1 ->
+          case V.head vs of
+            Nothing -> Right Nothing
+            Just v  -> Just <$> fromFlatBuffers v
+      | otherwise -> Left "FlatBuffers.Derive: Maybe expected 1-slot VTable"
+    v -> Left ("FlatBuffers.Derive: expected VTable for Maybe, got " <> showCtor v)
+
+showCtor :: FB.Value -> String
+showCtor = \case
+  FB.VBool _   -> "VBool"
+  FB.VInt8 _   -> "VInt8"
+  FB.VInt16 _  -> "VInt16"
+  FB.VInt32 _  -> "VInt32"
+  FB.VInt64 _  -> "VInt64"
+  FB.VWord8 _  -> "VWord8"
+  FB.VWord16 _ -> "VWord16"
+  FB.VWord32 _ -> "VWord32"
+  FB.VWord64 _ -> "VWord64"
+  FB.VFloat _  -> "VFloat"
+  FB.VDouble _ -> "VDouble"
+  FB.VString _ -> "VString"
+  FB.VVector _ -> "VVector"
+  FB.VTable _  -> "VTable"
+  FB.VStruct _ -> "VStruct"
+
+-- ---------------------------------------------------------------------------
+-- Public deriver entry points
+-- ---------------------------------------------------------------------------
+
+deriveFlatBuffers :: Name -> Q [Dec]
+deriveFlatBuffers nm =
+  (++) <$> deriveToFlatBuffers nm <*> deriveFromFlatBuffers nm
+
+deriveToFlatBuffers :: Name -> Q [Dec]
+deriveToFlatBuffers nm = do
+  ti   <- reifyTypeInfo nm
+  body <- toFBBody ti
+  let typ  = applyTypeArgs (ConT (typeInfoName ti)) (typeInfoVarTypes ti)
+      decl = InstanceD Nothing []
+              (AppT (ConT ''ToFlatBuffers) typ)
+              [FunD 'toFlatBuffers [Clause [] (NormalB body) []]]
+  pure [decl]
+
+deriveFromFlatBuffers :: Name -> Q [Dec]
+deriveFromFlatBuffers nm = do
+  ti   <- reifyTypeInfo nm
+  body <- fromFBBody ti
+  let typ  = applyTypeArgs (ConT (typeInfoName ti)) (typeInfoVarTypes ti)
+      decl = InstanceD Nothing []
+              (AppT (ConT ''FromFlatBuffers) typ)
+              [FunD 'fromFlatBuffers [Clause [] (NormalB body) []]]
+  pure [decl]
+
+-- ---------------------------------------------------------------------------
+-- ToFlatBuffers: dispatch on shape
+-- ---------------------------------------------------------------------------
+
+toFBBody :: TypeInfo -> Q Exp
+toFBBody ti = case typeInfoShape ti of
+  TypeShapeNewtype c  -> toFBNewtype c
+  TypeShapeRecord  c  -> toFBRecord  c
+  TypeShapeEnum    cs -> toFBEnum    cs
+  TypeShapeSum     _  -> fail flatBuffersSumErr
+
+flatBuffersSumErr :: String
+flatBuffersSumErr =
+  "FlatBuffers.Derive: refusing to derive instances for a multi-constructor \
+  \sum type. FlatBuffers models tagged alternatives as 'union' values, \
+  \which require schema-side type-tag metadata not captured by \
+  \FlatBuffers.Value. Use a different backend (e.g. wireform-bson) or \
+  \hand-write the instance."
+
+toFBNewtype :: ConInfo -> Q Exp
+toFBNewtype c = case conInfoFields c of
+  [FieldInfo (Just sel) _] -> do
+    x <- newName "x"
+    lamE [varP x] [| toFlatBuffers ($(varE sel) $(varE x)) |]
+  [FieldInfo Nothing _] -> do
+    x <- newName "x"
+    lamE [conP (conInfoName c) [varP x]] [| toFlatBuffers $(varE x) |]
+  _ -> fail "FlatBuffers.Derive: newtype must have exactly one field"
+
+toFBRecord :: ConInfo -> Q Exp
+toFBRecord c = do
+  x <- newName "x"
+  slots <- recordToFBSlots (varE x) c
+  lamE [varP x] [| FB.VTable (V.fromList $(pure slots)) |]
+
+-- | Emit a @[Maybe FB.Value]@ literal: one slot per field, positional.
+recordToFBSlots :: Q Exp -> ConInfo -> Q Exp
+recordToFBSlots varExp c = do
+  slotExps <- mapM (toFBSlot varExp) (conInfoFields c)
+  pure (ListE slotExps)
+
+-- | Slot encoding for a single record field, applying modifier logic:
+--
+-- * @skip@      — always 'Nothing'.
+-- * Maybe field — 'Nothing' / @Just inner@ (no double-wrap).
+-- * otherwise   — @Just (toFlatBuffers value)@.
+toFBSlot :: Q Exp -> FieldInfo -> Q Exp
+toFBSlot varExp (FieldInfo mSel ty) = do
+  selName <- requireSelector mSel
+  mi <- reifyModifierInfoFor backendFlatBuffers selName
+  if miSkip mi
+    then [| Nothing :: Maybe FB.Value |]
+    else do
+      let getter = appE (varE selName) varExp
+          encoded = case miCoerce mi of
+            Nothing -> getter
+            Just _  -> [| coerce $getter |]
+      case unwrapMaybe ty of
+        Just _  -> [| case $encoded of
+                        Nothing  -> Nothing :: Maybe FB.Value
+                        Just inn -> Just (toFlatBuffers inn) |]
+        Nothing -> [| Just (toFlatBuffers $encoded) |]
+
+toFBEnum :: [ConInfo] -> Q Exp
+toFBEnum cs = do
+  v <- newName "v"
+  matches <- mapM enumMatchTo (zip [0 ..] cs)
+  body <- caseE (varE v) (map pure matches)
+  lamE [varP v] (pure body)
+  where
+    enumMatchTo :: (Int32, ConInfo) -> Q Match
+    enumMatchTo (defaultIdx, c) = do
+      mi <- reifyModifierInfoFor backendFlatBuffers (conInfoName c)
+      let n = case miTag mi of
+            Just t  -> fromIntegral t :: Int32
+            Nothing -> defaultIdx
+      bodyE <- [| FB.VInt32 $(litE (integerL (fromIntegral n))) |]
+      pure (Match (ConP (conInfoName c) [] []) (NormalB bodyE) [])
+
+-- ---------------------------------------------------------------------------
+-- FromFlatBuffers: dispatch on shape
+-- ---------------------------------------------------------------------------
+
+fromFBBody :: TypeInfo -> Q Exp
+fromFBBody ti = case typeInfoShape ti of
+  TypeShapeNewtype c  -> fromFBNewtype c
+  TypeShapeRecord  c  -> fromFBRecord  c
+  TypeShapeEnum    cs -> fromFBEnum    cs
+  TypeShapeSum     _  -> fail flatBuffersSumErr
+
+fromFBNewtype :: ConInfo -> Q Exp
+fromFBNewtype c = case conInfoFields c of
+  [FieldInfo _ _] -> [| fmap $(conE (conInfoName c)) . fromFlatBuffers |]
+  _               -> fail "FlatBuffers.Derive: newtype must have exactly one field"
+
+fromFBRecord :: ConInfo -> Q Exp
+fromFBRecord c = do
+  v    <- newName "v"
+  slots <- newName "slots"
+  bodyE <- recordParser slots c
+  lamE [varP v]
+    (caseE (varE v)
+       [ match (conP 'FB.VTable [varP slots])
+               (normalB (pure bodyE))
+               []
+       , match wildP
+               (normalB
+                  [| Left "FlatBuffers.Derive: expected VTable for record type" |])
+               []
+       ])
+
+-- | Build @Ctor <$> f0 <*> f1 <*> ...@ using positional slot indices.
+recordParser :: Name -> ConInfo -> Q Exp
+recordParser slots c = case zip [0 ..] (conInfoFields c) of
+  []        -> [| Right $(conE (conInfoName c)) |]
+  (p0 : ps) -> do
+    e0 <- fieldParser slots p0
+    hd <- [| $(conE (conInfoName c)) <$> $(pure e0) |]
+    foldlM
+      (\acc p -> do
+          ef <- fieldParser slots p
+          [| $(pure acc) <*> $(pure ef) |])
+      hd
+      ps
+
+-- | Parser for a single record field at a given positional index.
+fieldParser :: Name -> (Int, FieldInfo) -> Q Exp
+fieldParser slots (idx, FieldInfo mSel ty) = do
+  selName <- requireSelector mSel
+  mi <- reifyModifierInfoFor backendFlatBuffers selName
+  if miSkip mi
+    then case miDefaults mi of
+      Just defNm -> [| Right $(varE defNm) |]
+      Nothing    -> [| Left ("FlatBuffers.Derive: missing 'defaults' for skipped field "
+                              ++ $(litE (stringL (nameBase selName)))) |]
+    else do
+      let idxLit = litE (integerL (fromIntegral idx))
+          nameLit = litE (stringL (nameBase selName))
+      base <- case unwrapMaybe ty of
+        Just _ ->
+          [| case lookupSlot $idxLit $(varE slots) of
+               Nothing       -> Right Nothing
+               Just Nothing  -> Right Nothing
+               Just (Just v) -> Just <$> fromFlatBuffers v |]
+        Nothing ->
+          [| case lookupSlot $idxLit $(varE slots) of
+               Nothing ->
+                 Left ("FlatBuffers.Derive: missing slot " ++ show ($idxLit :: Int)
+                        ++ " for field " ++ $nameLit)
+               Just Nothing ->
+                 Left ("FlatBuffers.Derive: empty slot " ++ show ($idxLit :: Int)
+                        ++ " for non-optional field " ++ $nameLit)
+               Just (Just v) -> fromFlatBuffers v |]
+      case miCoerce mi of
+        Nothing -> pure base
+        Just _  -> [| fmap coerce $(pure base) |]
+
+-- | Lookup a positional slot in a vtable-slot vector. Returns
+-- @Nothing@ if out of range, @Just Nothing@ for a present-but-absent
+-- slot, @Just (Just v)@ for a set slot.
+lookupSlot :: Int -> Vector (Maybe FB.Value) -> Maybe (Maybe FB.Value)
+lookupSlot i vs
+  | i < 0 || i >= V.length vs = Nothing
+  | otherwise                 = Just (vs V.! i)
+
+fromFBEnum :: [ConInfo] -> Q Exp
+fromFBEnum cs = do
+  v <- newName "v"
+  i <- newName "i"
+  branches <- mapM (enumMatchFrom i) (zip [0 ..] cs)
+  let multi = MultiIfE
+        (map (\(g, e) -> (g, AppE (ConE 'Right) e)) branches
+         ++ [(NormalG (ConE 'True),
+               AppE (ConE 'Left)
+                 (AppE (AppE (VarE 'mappend)
+                       (LitE (StringL "FlatBuffers.Derive: unknown enum value ")))
+                       (AppE (VarE 'show) (VarE i))))])
+  lamE [varP v]
+    (caseE (varE v)
+       [ match (conP 'FB.VInt32 [varP i])
+               (normalB (pure multi))
+               []
+       , match wildP
+               (normalB [| Left "FlatBuffers.Derive: enum expected VInt32" |])
+               []
+       ])
+  where
+    enumMatchFrom :: Name -> (Int32, ConInfo) -> Q (Guard, Exp)
+    enumMatchFrom iVar (defaultIdx, c) = do
+      mi <- reifyModifierInfoFor backendFlatBuffers (conInfoName c)
+      let n = case miTag mi of
+            Just t  -> fromIntegral t :: Int32
+            Nothing -> defaultIdx
+          guardE = InfixE (Just (VarE iVar)) (VarE '(==))
+                         (Just (LitE (IntegerL (fromIntegral n))))
+      pure (NormalG guardE, ConE (conInfoName c))
+
+-- ---------------------------------------------------------------------------
+-- Helpers
+-- ---------------------------------------------------------------------------
+
+-- | Detect @Maybe a@ in a field type.
+unwrapMaybe :: Type -> Maybe Type
+unwrapMaybe (AppT (ConT n) t) | n == ''Maybe = Just t
+unwrapMaybe _                                 = Nothing
+
+requireSelector :: Maybe Name -> Q Name
+requireSelector (Just n) = pure n
+requireSelector Nothing  =
+  fail "FlatBuffers.Derive: cannot derive FlatBuffers for non-record positional field"
+
+applyTypeArgs :: Type -> [Type] -> Type
+applyTypeArgs = foldl AppT

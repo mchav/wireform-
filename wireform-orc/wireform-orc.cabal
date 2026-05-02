@@ -30,6 +30,7 @@ library
   exposed-modules:
     ORC.Arrow
     ORC.BloomFilter
+    ORC.Derive
     ORC.Encryption
     ORC.Footer
     ORC.HighLevel
@@ -45,6 +46,7 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-arrow,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
@@ -52,7 +54,8 @@ library
     zlib >= 0.6 && < 0.8,
     crypton >= 1.0 && < 1.1,
     memory >= 0.18 && < 0.19,
-    deepseq >= 1.4 && < 1.6
+    deepseq >= 1.4 && < 1.6,
+    template-haskell >= 2.18 && < 2.24
 
 test-suite wireform-orc-test
   import: defaults
@@ -65,3 +68,26 @@ test-suite wireform-orc-test
     bytestring >= 0.11 && < 0.13,
     vector >= 0.13 && < 0.14,
     text >= 2.0 && < 2.2
+
+test-suite wireform-orc-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-derive
+  main-is: Main.hs
+  other-modules:
+    Test.ORC.Derive
+    Test.ORC.Derive.Types
+    Test.ORC.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-orc,
+    wireform-derive,
+    template-haskell,
+    text,
+    vector,
+    bytestring,
+    tasty,
+    tasty-hunit

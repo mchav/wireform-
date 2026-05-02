@@ -1,4 +1,6 @@
 dist-newstyle/
+dist-derive/
+dist-haddock/
 .cabal-sandbox/
 cabal.sandbox.config
 *.o

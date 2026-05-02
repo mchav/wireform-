@@ -30,6 +30,7 @@ library
   exposed-modules:
     CSV.Class
     CSV.Decode
+    CSV.Derive
     CSV.Encode
     CSV.Value
   build-depends:
@@ -38,8 +39,31 @@ library
     -- delimiter / quote / newline scanning. The C primitive lives
     -- in wireform-core/cbits/fast_scan.c.
     wireform-core,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     containers >= 0.6 && < 0.8,
+    template-haskell >= 2.18 && < 2.24,
     deepseq >= 1.4 && < 1.6
+
+test-suite wireform-csv-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.CSV.Derive
+    Test.CSV.Derive.Types
+    Test.CSV.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-csv,
+    wireform-derive,
+    text,
+    vector,
+    tasty,
+    tasty-hunit

@@ -2,6 +2,7 @@
 module CSV.Class
   ( ToCSV(..)
   , FromCSV(..)
+  , CSVField(..)
   , genericToCSVRow
   , genericFromCSVRow
   ) where

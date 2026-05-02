@@ -1,6 +1,7 @@
 packages:
   .
   wireform-core/
+  wireform-derive/
   wireform-columnar/
   wireform-proto/
   wireform-avro/
@@ -28,6 +29,7 @@ packages:
 
 package *
   optimization: 1
+  ghc-options: -fasm
 
 package wireform
   flags: +snappy +zstd
