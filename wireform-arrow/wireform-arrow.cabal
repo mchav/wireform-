@@ -42,6 +42,9 @@ library
     Arrow.File
     Arrow.FlatBufferIPC
     Arrow.IPC
+    Arrow.Record
+    Arrow.Record.Generic
+    Arrow.Record.TH
     Arrow.Stream
     Arrow.Types
     Arrow.Write
@@ -54,7 +57,8 @@ library
     vector >= 0.13 && < 0.14,
     primitive >= 0.7 && < 0.10,
     containers >= 0.6 && < 0.8,
-    deepseq >= 1.4 && < 1.6
+    deepseq >= 1.4 && < 1.6,
+    template-haskell >= 2.18 && < 2.24
   if flag(zstd)
     cpp-options: -DHAVE_ZSTD
     build-depends: zstd >= 0.1 && < 0.2

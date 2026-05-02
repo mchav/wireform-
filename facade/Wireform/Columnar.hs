@@ -41,6 +41,13 @@ module Wireform.Columnar
   , decode
   , ReadOptions (..)
   , defaultReadOptions
+    -- * Records (via 'Arrow.Record.Table')
+    -- | One-call helpers that lift a 'ArR.Table'-described record
+    -- type all the way to / from a columnar wire format. Equivalent
+    -- to @'encode' fmt opts schema [cols]@ / the inverse, but lets
+    -- callers work in Haskell value space end-to-end.
+  , encodeRecords
+  , decodeRecords
     -- * Per-format passthroughs
     -- | When callers need format-specific knobs beyond what the
     -- unified options record exposes, drop down to the per-format
@@ -56,6 +63,7 @@ import qualified Data.Vector as V
 import Data.Word (Word64)
 
 import qualified Arrow.Column as AC
+import qualified Arrow.Record as ArR
 import qualified Arrow.Stream as Arrow
 import Arrow.Stream hiding
   ( WriteOptions
@@ -327,3 +335,40 @@ orcKindToArrowType ot = case otKind ot of
   TKTimestamp -> AT.ATimestamp AT.Microsecond Nothing
   TKDecimal   -> AT.ADecimal 38 18
   _           -> AT.ABinary
+
+-- ============================================================
+-- Record-level helpers
+-- ============================================================
+
+-- | Encode a vector of Haskell records as a one-batch file in
+-- the chosen columnar format. Schema comes from the 'ArR.Table'
+-- instance.
+--
+-- @
+-- bytes \<- either fail pure
+--       $ 'encodeRecords' 'Arrow' 'defaultWriteOptions' tradeTable trades
+-- @
+encodeRecords
+  :: Format
+  -> WriteOptions
+  -> ArR.Table r
+  -> V.Vector r
+  -> Either String ByteString
+encodeRecords fmt opts tbl rs =
+  let (sch, cols) = ArR.encodeTable tbl rs
+  in  encode fmt opts sch [cols]
+
+-- | Inverse of 'encodeRecords'. Decodes the wire bytes, then
+-- dispatches each row group / batch through the 'ArR.Table'
+-- instance to reconstruct a flat record vector. Multi-batch
+-- files are concatenated.
+decodeRecords
+  :: Format
+  -> ReadOptions
+  -> ArR.Table r
+  -> ByteString
+  -> Either String (V.Vector r)
+decodeRecords fmt opts tbl bs = do
+  (sch, batches) <- decode fmt opts bs
+  perBatch <- traverse (ArR.decodeTable tbl sch) batches
+  Right (V.concat perBatch)

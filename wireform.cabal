@@ -246,6 +246,9 @@ test-suite wireform-test
     Test.Parquet
     Test.Arrow
     Test.Arrow.FlatBufferProperties
+    Test.Arrow.Record
+    Test.Arrow.RecordProperties
+    Test.Arrow.RecordTHTypes
     Test.Columnar
     Test.Columnar.Gen
     Test.Columnar.Properties
