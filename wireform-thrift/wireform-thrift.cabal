@@ -31,6 +31,7 @@ library
     Thrift.Class
     Thrift.CodeGen
     Thrift.Decode
+    Thrift.Derive
     Thrift.Encode
     Thrift.JSON
     Thrift.Message
@@ -44,6 +45,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     base16-bytestring >= 1.0 && < 1.1,
     base64-bytestring >= 1.2 && < 1.3,
@@ -59,3 +61,24 @@ library
     aeson >= 2.1 && < 2.3,
     scientific >= 0.3 && < 0.4,
     stm >= 2.5 && < 2.6
+
+test-suite wireform-thrift-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.Thrift.Derive
+    Test.Thrift.Derive.Types
+    Test.Thrift.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-thrift,
+    wireform-derive,
+    text,
+    vector,
+    tasty,
+    tasty-hunit

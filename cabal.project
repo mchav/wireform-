@@ -1,6 +1,7 @@
 packages:
   .
   wireform-core/
+  wireform-derive/
   wireform-columnar/
   wireform-proto/
   wireform-avro/
