@@ -33,6 +33,7 @@
 module Parquet.HighLevel
   ( -- * Encoding
     encodeParquet
+  , encodeParquetNested
   , WriteOptions (..)
   , defaultWriteOptions
     -- * Decoding
@@ -47,12 +48,25 @@ module Parquet.HighLevel
   , Compression (..)
   , PageVersion (..)
   , SchemaElement (..)
+  , NestedSchema (..)
+  , NestedRow (..)
+  , LeafType (..)
+  , LeafValue (..)
   ) where
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import qualified Data.Vector as V
 
+import qualified Parquet.Nested as PN
+
+import Parquet.Nested
+  ( LeafType (..)
+  , LeafValue (..)
+  , NestedRow (..)
+  , NestedSchema (..)
+  , buildNestedFile
+  )
 import Parquet.Read
   ( FooterDecryption (..)
   , ParquetFile (..)
@@ -187,6 +201,26 @@ mkAuxes opts _schema cols =
 -- ============================================================
 -- Decoding
 -- ============================================================
+
+-- | Serialise a Parquet file carrying /nested/ (struct / list /
+-- map / variant) columns. Delegates to 'Parquet.Nested.buildNestedFile'
+-- after the Dremel shredder in "Parquet.Nested".
+--
+-- @columns@ is a vector of @(column-name, schema)@ pairs;
+-- @rowsPerColumn@ is a parallel vector where the i-th entry is
+-- the row-major list of 'NestedRow' values for column @i@. Every
+-- column must carry the same number of rows.
+--
+-- The nested-file writer currently emits uncompressed
+-- @DATA_PAGE_V2@ pages and doesn't take the 'WriteOptions'
+-- record — compression / page-index / encryption knobs are
+-- roadmap items for the nested path. Use 'encodeParquet' for the
+-- flat path if you need those knobs today.
+encodeParquetNested
+  :: V.Vector (Text, NestedSchema)
+  -> V.Vector (V.Vector NestedRow)
+  -> Either String ByteString
+encodeParquetNested = buildNestedFile
 
 -- | Parse a Parquet file's footer and return a 'ParquetFile'
 -- handle containing the file bytes plus the decoded

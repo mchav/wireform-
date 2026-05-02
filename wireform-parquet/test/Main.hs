@@ -856,6 +856,36 @@ main = do
 
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
+arrowParquetNestedBridge :: IO ()
+arrowParquetNestedBridge = do
+  -- Build an Arrow struct<i32, utf8> column + wrap it in a nested
+  -- Parquet file. Verifies that arrowFieldToNestedSchema +
+  -- columnArrayToNestedRows produce a valid NestedRow tree and
+  -- encodeParquetNested accepts it.
+  let structField = AT.Field "point" False AT.AStruct
+        (V.fromList
+           [ AT.Field "x" False (AT.AInt 32 True) V.empty Nothing
+           , AT.Field "name" False AT.AUtf8        V.empty Nothing
+           ])
+        Nothing
+      structCol = AC.ColStruct (V.fromList
+        [ ("x",    AC.ColInt32 (VP.fromList [1, 2, 3 :: Int32]))
+        , ("name", AC.ColUtf8  (V.fromList ["a", "b", "c"]))
+        ])
+  case PArrow.arrowFieldToNestedSchema structField of
+    Left  e   -> failTest $ "arrowFieldToNestedSchema: " ++ e
+    Right sch -> case PArrow.columnArrayToNestedRows structCol of
+      Left  e   -> failTest $ "columnArrayToNestedRows: " ++ e
+      Right rows ->
+        let !cols = V.singleton ("point", sch)
+            !cr   = V.singleton rows
+        in  case PHL.encodeParquetNested cols cr of
+              Left  e  -> failTest $ "encodeParquetNested: " ++ e
+              Right bs ->
+                if BS.length bs > 4 && BS.take 4 bs == BSC.pack "PAR1"
+                  then putStrLn "OK: Arrow <-> Parquet nested bridge"
+                  else failTest $ "nested bridge produced invalid Parquet file"
+
 arrowParquetBridge :: IO ()
 arrowParquetBridge = do
   let !arrowSchema = AT.Schema
@@ -945,6 +975,11 @@ arrowParquetBridge = do
                 else failTest $ "temporal mismatch:\n got "
                                   ++ show (V.toList cols)
                                   ++ "\n exp " ++ show (V.toList tempBatch)
+
+  -- Nested bridge + Parquet.HighLevel.encodeParquetNested:
+  -- struct + list Arrow columns lower to Parquet.Nested.NestedRow
+  -- trees and the nested writer produces a valid Parquet file.
+  arrowParquetNestedBridge
 
 expectHash :: String -> String -> IO ()
 expectHash s expected = expectHashBs (BSC.pack s) expected

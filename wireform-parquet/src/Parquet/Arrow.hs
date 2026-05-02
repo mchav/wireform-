@@ -29,9 +29,12 @@
 -- Left at translation time. Support for nested shredding via
 -- "Parquet.Nested" is a separate item.
 module Parquet.Arrow
-  ( -- * Arrow → Parquet
+  ( -- * Arrow → Parquet (flat)
     arrowToParquet
   , columnArrayToColumnData
+    -- * Arrow → Parquet (nested, via Parquet.Nested)
+  , arrowFieldToNestedSchema
+  , columnArrayToNestedRows
     -- * Parquet → Arrow
   , parquetRowGroupToArrow
   , readParquetColumn
@@ -52,6 +55,7 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Arrow.Column as AC
 import qualified Arrow.Types as AT
 
+import qualified Parquet.Nested as PN
 import qualified Parquet.Read as PR
 import qualified Parquet.Types as P
 import qualified Parquet.Write as PW
@@ -305,6 +309,135 @@ decodeUtf8Lossy :: ByteString -> T.Text
 decodeUtf8Lossy bs = case TE.decodeUtf8' bs of
   Right t -> t
   Left  _ -> TE.decodeUtf8With TE.lenientDecode bs
+
+-- ============================================================
+-- Arrow → Parquet.Nested (nested types)
+-- ============================================================
+
+-- | Map an Arrow 'AT.Field' onto a 'PN.NestedSchema' tree
+-- suitable for 'Parquet.HighLevel.encodeParquetNested'. Handles
+-- flat primitives (wraps them in 'PN.NSRequired' / 'PN.NSOptional'
+-- based on 'fieldNullable'), struct, and list types.
+arrowFieldToNestedSchema
+  :: AT.Field -> Either String PN.NestedSchema
+arrowFieldToNestedSchema f = do
+  core <- case AT.fieldType f of
+    AT.AInt 8  _      -> Right (PN.NSPrimitive PN.LtInt32)
+    AT.AInt 16 _      -> Right (PN.NSPrimitive PN.LtInt32)
+    AT.AInt 32 _      -> Right (PN.NSPrimitive PN.LtInt32)
+    AT.AInt 64 _      -> Right (PN.NSPrimitive PN.LtInt64)
+    AT.ABool          -> Right (PN.NSPrimitive PN.LtBool)
+    AT.AFloatingPoint AT.Single          -> Right (PN.NSPrimitive PN.LtFloat)
+    AT.AFloatingPoint AT.DoublePrecision -> Right (PN.NSPrimitive PN.LtDouble)
+    AT.AUtf8          -> Right (PN.NSPrimitive PN.LtString)
+    AT.ABinary        -> Right (PN.NSPrimitive PN.LtBinary)
+    AT.ALargeUtf8     -> Right (PN.NSPrimitive PN.LtString)
+    AT.ALargeBinary   -> Right (PN.NSPrimitive PN.LtBinary)
+    AT.ADate _        -> Right (PN.NSPrimitive PN.LtInt32)
+    AT.ATime _ 32     -> Right (PN.NSPrimitive PN.LtInt32)
+    AT.ATime _ 64     -> Right (PN.NSPrimitive PN.LtInt64)
+    AT.ATimestamp _ _ -> Right (PN.NSPrimitive PN.LtInt64)
+    AT.ADuration _    -> Right (PN.NSPrimitive PN.LtInt64)
+    AT.AStruct -> do
+      childSchemas <- V.mapM
+        (\c -> do
+            inner <- arrowFieldToNestedSchema c
+            Right (AT.fieldName c, inner))
+        (AT.fieldChildren f)
+      Right (PN.NSStruct childSchemas)
+    AT.AList ->
+      case V.toList (AT.fieldChildren f) of
+        [child] -> do
+          inner <- arrowFieldToNestedSchema child
+          Right (PN.NSList inner)
+        _ -> Left "Parquet.Arrow: AList must have exactly one child field"
+    AT.ALargeList ->
+      case V.toList (AT.fieldChildren f) of
+        [child] -> do
+          inner <- arrowFieldToNestedSchema child
+          Right (PN.NSList inner)
+        _ -> Left "Parquet.Arrow: ALargeList must have exactly one child field"
+    AT.AMap _ ->
+      case V.toList (AT.fieldChildren f) of
+        [structField] | V.length (AT.fieldChildren structField) == 2 ->
+          let !kf = V.unsafeIndex (AT.fieldChildren structField) 0
+              !vf = V.unsafeIndex (AT.fieldChildren structField) 1
+          in do
+            kSch <- arrowFieldToNestedSchema kf
+            vSch <- arrowFieldToNestedSchema vf
+            Right (PN.NSMap kSch vSch)
+        _ -> Left "Parquet.Arrow: AMap's child must be a struct with exactly (key, value)"
+    other -> Left $ "Parquet.Arrow.arrowFieldToNestedSchema: "
+                    ++ show other
+                    ++ " not yet supported"
+  Right $ if AT.fieldNullable f
+            then PN.NSOptional core
+            else PN.NSRequired core
+
+-- | Lower an Arrow 'AC.ColumnArray' to a row-major vector of
+-- 'PN.NestedRow' entries. Handles struct, list, and flat
+-- primitives; the row count matches the column's logical length.
+columnArrayToNestedRows
+  :: AC.ColumnArray -> Either String (V.Vector PN.NestedRow)
+columnArrayToNestedRows col = case col of
+  AC.ColInt32 v  -> Right (V.generate (VP.length v)
+                             (\i -> PN.NRLeaf (PN.LvInt32 (VP.unsafeIndex v i))))
+  AC.ColInt64 v  -> Right (V.generate (VP.length v)
+                             (\i -> PN.NRLeaf (PN.LvInt64 (VP.unsafeIndex v i))))
+  AC.ColFloat v  -> Right (V.generate (VP.length v)
+                             (\i -> PN.NRLeaf (PN.LvFloat (VP.unsafeIndex v i))))
+  AC.ColDouble v -> Right (V.generate (VP.length v)
+                             (\i -> PN.NRLeaf (PN.LvDouble (VP.unsafeIndex v i))))
+  AC.ColBool v   -> Right (V.map (PN.NRLeaf . PN.LvBool) v)
+  AC.ColUtf8 v   -> Right (V.map (PN.NRLeaf . PN.LvString) v)
+  AC.ColBinary v -> Right (V.map (PN.NRLeaf . PN.LvBinary) v)
+  AC.ColLargeUtf8 v -> Right (V.map (PN.NRLeaf . PN.LvString) v)
+  AC.ColLargeBinary v -> Right (V.map (PN.NRLeaf . PN.LvBinary) v)
+
+  -- Nullable primitives: NRNull for Nothing, NRLeaf for Just.
+  AC.ColInt32Maybe v -> Right (V.map (maybe PN.NRNull (PN.NRLeaf . PN.LvInt32)) v)
+  AC.ColInt64Maybe v -> Right (V.map (maybe PN.NRNull (PN.NRLeaf . PN.LvInt64)) v)
+  AC.ColFloatMaybe v -> Right (V.map (maybe PN.NRNull (PN.NRLeaf . PN.LvFloat)) v)
+  AC.ColDoubleMaybe v -> Right (V.map (maybe PN.NRNull (PN.NRLeaf . PN.LvDouble)) v)
+  AC.ColBoolMaybe v -> Right (V.map (maybe PN.NRNull (PN.NRLeaf . PN.LvBool)) v)
+  AC.ColUtf8Maybe v -> Right (V.map (maybe PN.NRNull (PN.NRLeaf . PN.LvString)) v)
+  AC.ColBinaryMaybe v -> Right (V.map (maybe PN.NRNull (PN.NRLeaf . PN.LvBinary)) v)
+
+  -- Struct: each row is an NRStruct of field values indexed in
+  -- declared order. Every child must yield the same row count.
+  AC.ColStruct childCols -> do
+    childRows <- V.mapM (columnArrayToNestedRows . snd) childCols
+    let !n = if V.null childRows then 0 else V.length (V.head childRows)
+    when' (V.any ((/= n) . V.length) childRows) $
+      Left "Parquet.Arrow: struct children have mismatched row counts"
+    Right $ V.generate n
+              (\i -> PN.NRStruct (V.map (V.! i) childRows))
+
+  -- List: offsets[i..i+1] delimit the slice of the child column
+  -- belonging to row i.
+  AC.ColList offs child -> do
+    childRows <- columnArrayToNestedRows child
+    let !n = max 0 (VP.length offs - 1)
+    Right $ V.generate n $ \i ->
+      let !start = fromIntegral (VP.unsafeIndex offs i) :: Int
+          !end   = fromIntegral (VP.unsafeIndex offs (i + 1)) :: Int
+      in  PN.NRList (V.slice start (end - start) childRows)
+
+  AC.ColLargeList offs child -> do
+    childRows <- columnArrayToNestedRows child
+    let !n = max 0 (VP.length offs - 1)
+    Right $ V.generate n $ \i ->
+      let !start = fromIntegral (VP.unsafeIndex offs i) :: Int
+          !end   = fromIntegral (VP.unsafeIndex offs (i + 1)) :: Int
+      in  PN.NRList (V.slice start (end - start) childRows)
+
+  other -> Left $ "Parquet.Arrow.columnArrayToNestedRows: "
+                    ++ show other
+                    ++ " not yet supported (nullable-list, map, union, "
+                    ++ "dictionary, view, REE, interval)"
+  where
+    when' True  e = e
+    when' False _ = Right ()
 
 -- ============================================================
 -- Streaming reader
