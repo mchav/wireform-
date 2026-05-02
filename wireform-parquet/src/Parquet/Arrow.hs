@@ -35,9 +35,13 @@ module Parquet.Arrow
     -- * Arrow → Parquet (nested, via Parquet.Nested)
   , arrowFieldToNestedSchema
   , columnArrayToNestedRows
-    -- * Parquet → Arrow
+    -- * Parquet → Arrow (whole-row-group)
   , parquetRowGroupToArrow
   , readParquetColumn
+    -- * Parquet → Arrow (projection / evolution)
+  , parquetRowGroupToArrowProjected
+  , parquetFileArrowSchema
+  , ProjectionError (..)
     -- * Streaming reader (one row group at a time)
   , streamRowGroups
   , numRowGroups
@@ -45,7 +49,9 @@ module Parquet.Arrow
 
 import Data.ByteString (ByteString)
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TE
 import qualified Data.Vector as V
@@ -236,6 +242,132 @@ parquetRowGroupToArrow
 parquetRowGroupToArrow sch pf rgIdx = do
   let !fields = AT.arrowFields sch
   V.imapM (\colIdx fld -> readParquetColumn pf rgIdx colIdx fld) fields
+
+-- ============================================================
+-- Projection / schema evolution
+-- ============================================================
+
+-- | Why a projection request couldn't be satisfied.
+data ProjectionError
+  = MissingColumn !Text
+    -- ^ The target schema references a column name that isn't
+    -- present in the Parquet footer. A real schema-evolution
+    -- implementation would fill this column with nulls; callers
+    -- that want that behaviour can catch this constructor and
+    -- synthesize a null column.
+  | IncompatibleType !Text !AT.ArrowType
+    -- ^ The target schema requests a type the physical Parquet
+    -- column can't be coerced to. The bridge's coercion table is
+    -- intentionally narrow: numeric widening (Int32 → Int64,
+    -- Float → Double), identity reads for equal types.
+  deriving (Show, Eq)
+
+-- | Recover the Arrow-shaped schema implied by a Parquet file's
+-- leaf columns. Uses the Parquet converted-type / logical-type
+-- annotations to pick the right Arrow flavour (UTF-8 vs raw
+-- binary, Date vs Int32, Timestamp vs Int64).
+parquetFileArrowSchema :: PR.ParquetFile -> AT.Schema
+parquetFileArrowSchema pf =
+  let !leaves = V.filter (maybe False (const True) . P.seType)
+                         (P.fmSchema (PR.pfFooter pf))
+  in AT.Schema
+       { AT.arrowFields = V.map schemaElementToArrowField leaves
+       , AT.arrowEndianness = AT.Little
+       }
+
+-- | Map a Parquet 'P.SchemaElement' back to an Arrow leaf
+-- 'AT.Field' using its converted-type / logical-type hints.
+-- Mirrors the inverse of 'arrowFieldToSchemaElement'.
+schemaElementToArrowField :: P.SchemaElement -> AT.Field
+schemaElementToArrowField se =
+  let !name     = P.seName se
+      !nullable = case P.seRepetition se of
+                    Just P.Optional -> True
+                    _                -> False
+      !ty = arrowTypeFromSchemaElement se
+  in AT.Field name nullable ty V.empty Nothing
+
+arrowTypeFromSchemaElement :: P.SchemaElement -> AT.ArrowType
+arrowTypeFromSchemaElement se = case P.seType se of
+  Just P.PTBoolean   -> AT.ABool
+  Just P.PTInt32     -> case (P.seLogicalType se, P.seConvertedType se) of
+    (Just P.LTDate, _)            -> AT.ADate AT.DateDay
+    (_,  Just P.CTDate)           -> AT.ADate AT.DateDay
+    (_,  Just P.CTTimeMillis)     -> AT.ATime AT.Millisecond 32
+    _                             -> AT.AInt 32 True
+  Just P.PTInt64     -> case (P.seLogicalType se, P.seConvertedType se) of
+    (_, Just P.CTTimeMicros)      -> AT.ATime AT.Microsecond 64
+    (_, Just P.CTTimestampMillis) -> AT.ATimestamp AT.Millisecond Nothing
+    (_, Just P.CTTimestampMicros) -> AT.ATimestamp AT.Microsecond Nothing
+    _                             -> AT.AInt 64 True
+  Just P.PTFloat     -> AT.AFloatingPoint AT.Single
+  Just P.PTDouble    -> AT.AFloatingPoint AT.DoublePrecision
+  Just P.PTByteArray -> case (P.seLogicalType se, P.seConvertedType se) of
+    (Just P.LTString, _)    -> AT.AUtf8
+    (_,  Just P.CTUtf8)     -> AT.AUtf8
+    _                        -> AT.ABinary
+  _                  -> AT.ABinary  -- FIXED_LEN_BYTE_ARRAY / Int96 fallback
+
+-- | Read a subset of columns from a Parquet row group, in the
+-- order + types the /target/ Arrow schema declares. Implements
+-- projection (narrower target), reordering (different order
+-- than the file), and light coercion (Int32 → Int64, Float →
+-- Double) — enough for consumers that work in a superset schema
+-- but files that were written with a narrower projection.
+--
+-- Columns the target schema declares but the file doesn't carry
+-- produce a 'Left (MissingColumn name)' — the caller can catch
+-- this and synthesize a null column, or they can query the
+-- file's native schema via 'parquetFileArrowSchema' first.
+parquetRowGroupToArrowProjected
+  :: AT.Schema        -- ^ Target Arrow schema (possibly narrower / reordered)
+  -> PR.ParquetFile
+  -> Int              -- ^ Row group index
+  -> Either ProjectionError (V.Vector AC.ColumnArray)
+parquetRowGroupToArrowProjected target pf rgIdx = do
+  let !fileLeaves = V.filter (maybe False (const True) . P.seType)
+                             (P.fmSchema (PR.pfFooter pf))
+      !nameToIdx  = Map.fromList
+        [ (P.seName se, i) | (i, se) <- V.toList (V.indexed fileLeaves) ]
+  V.mapM (readOneProjected nameToIdx) (AT.arrowFields target)
+  where
+    readOneProjected nameToIdx fld =
+      case Map.lookup (AT.fieldName fld) nameToIdx of
+        Nothing ->
+          Left (MissingColumn (AT.fieldName fld))
+        Just fileIdx ->
+          case readParquetColumn pf rgIdx fileIdx fld of
+            Right col -> Right col
+            Left _    ->
+              -- The direct read failed — try to load the column
+              -- at the file's native Arrow type and coerce.
+              let !fileFld = schemaElementToArrowField
+                               (V.unsafeIndex (V.filter (maybe False (const True) . P.seType)
+                                                        (P.fmSchema (PR.pfFooter pf)))
+                                              fileIdx)
+              in case readParquetColumn pf rgIdx fileIdx fileFld of
+                   Left  _  -> Left (IncompatibleType (AT.fieldName fld) (AT.fieldType fld))
+                   Right c' -> coerceColumn (AT.fieldType fld) c'
+                                  `orLeft` IncompatibleType (AT.fieldName fld)
+                                                            (AT.fieldType fld)
+
+    orLeft (Right x) _ = Right x
+    orLeft (Left  _) e = Left e
+
+-- | Best-effort column coercion for the projection path. The
+-- coercion table is deliberately narrow: numeric widening
+-- (Int32 → Int64, Float → Double) and identity reads. Returns
+-- 'Left' for unsupported coercions; callers route that to
+-- 'IncompatibleType'.
+coerceColumn :: AT.ArrowType -> AC.ColumnArray -> Either String AC.ColumnArray
+coerceColumn target col = case (target, col) of
+  (AT.AInt 64 True, AC.ColInt32 v) ->
+    Right $ AC.ColInt64 (VP.map (fromIntegral :: Int32 -> Int64) v)
+  (AT.AInt 64 False, AC.ColInt32 v) ->
+    Right $ AC.ColUInt64 (VP.map (fromIntegral :: Int32 -> Word64) v)
+  (AT.AFloatingPoint AT.DoublePrecision, AC.ColFloat v) ->
+    Right $ AC.ColDouble (VP.map (realToFrac :: Float -> Double) v)
+  _ -> Left ("coerceColumn: " ++ show target ++ " <- " ++ show col)
 
 -- | Read one column chunk and project it into a 'ColumnArray'.
 -- Dispatches on the Arrow target type + nullability; falls back

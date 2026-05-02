@@ -856,6 +856,78 @@ main = do
 
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
+arrowParquetProjection :: IO ()
+arrowParquetProjection = do
+  -- Write a 3-column file (a=int32, b=int32, c=utf8), then read
+  -- it back with target schema (c, a) (reordered + narrowed).
+  let !fullSchema = AT.Schema
+        { AT.arrowFields = V.fromList
+            [ AT.Field "a" False (AT.AInt 32 True) V.empty Nothing
+            , AT.Field "b" False (AT.AInt 32 True) V.empty Nothing
+            , AT.Field "c" False AT.AUtf8          V.empty Nothing
+            ]
+        , AT.arrowEndianness = AT.Little
+        }
+      !batch = V.fromList
+        [ AC.ColInt32 (VP.fromList [10, 20, 30 :: Int32])
+        , AC.ColInt32 (VP.fromList [40, 50, 60 :: Int32])
+        , AC.ColUtf8  (V.fromList ["alpha", "beta", "gamma"])
+        ]
+  case PArrow.arrowToParquet fullSchema [batch] of
+    Left  e -> failTest $ "projection arrowToParquet: " ++ e
+    Right (pSchema, pRgs) -> do
+      let !opts = PHL.defaultWriteOptions
+                    { PHL.writePageVersion = PageV1
+                    , PHL.writeCompression = Uncompressed
+                    }
+          !bytes = PHL.encodeParquet opts pSchema pRgs
+      case PHL.decodeParquet bytes of
+        Left  e -> failTest $ "projection decodeParquet: " ++ e
+        Right pf -> do
+          -- Target: (c, a), reordered and projected.
+          let !target = AT.Schema
+                { AT.arrowFields = V.fromList
+                    [ AT.Field "c" False AT.AUtf8          V.empty Nothing
+                    , AT.Field "a" False (AT.AInt 32 True) V.empty Nothing
+                    ]
+                , AT.arrowEndianness = AT.Little
+                }
+          case PArrow.parquetRowGroupToArrowProjected target pf 0 of
+            Left  e    -> failTest $ "parquetRowGroupToArrowProjected: " ++ show e
+            Right cols -> do
+              let !expected = V.fromList
+                    [ AC.ColUtf8  (V.fromList ["alpha", "beta", "gamma"])
+                    , AC.ColInt32 (VP.fromList [10, 20, 30 :: Int32])
+                    ]
+              if cols == expected
+                then putStrLn "OK: Parquet projection + reorder (c, a <- a, b, c)"
+                else failTest $ "projection mismatch:\n got "
+                                  ++ show (V.toList cols)
+
+          -- Test a missing column.
+          let !missing = AT.Schema
+                { AT.arrowFields = V.singleton
+                    (AT.Field "z" False (AT.AInt 32 True) V.empty Nothing)
+                , AT.arrowEndianness = AT.Little
+                }
+          case PArrow.parquetRowGroupToArrowProjected missing pf 0 of
+            Left (PArrow.MissingColumn "z") ->
+              putStrLn "OK: Parquet projection surfaces MissingColumn"
+            other -> failTest $ "expected MissingColumn, got " ++ show other
+
+          -- Test coercion: Int32 -> Int64.
+          let !widen = AT.Schema
+                { AT.arrowFields = V.singleton
+                    (AT.Field "a" False (AT.AInt 64 True) V.empty Nothing)
+                , AT.arrowEndianness = AT.Little
+                }
+          case PArrow.parquetRowGroupToArrowProjected widen pf 0 of
+            Left e -> failTest $ "projection coercion: " ++ show e
+            Right cols ->
+              if cols == V.singleton (AC.ColInt64 (VP.fromList [10, 20, 30 :: Int64]))
+                then putStrLn "OK: Parquet projection coerces Int32 -> Int64"
+                else failTest $ "coercion mismatch: " ++ show (V.toList cols)
+
 arrowParquetNestedBridge :: IO ()
 arrowParquetNestedBridge = do
   -- Build an Arrow struct<i32, utf8> column + wrap it in a nested
@@ -980,6 +1052,10 @@ arrowParquetBridge = do
   -- struct + list Arrow columns lower to Parquet.Nested.NestedRow
   -- trees and the nested writer produces a valid Parquet file.
   arrowParquetNestedBridge
+
+  -- Projection / schema evolution: read a 3-column file back with
+  -- a 2-column target schema in a different order.
+  arrowParquetProjection
 
 expectHash :: String -> String -> IO ()
 expectHash s expected = expectHashBs (BSC.pack s) expected
