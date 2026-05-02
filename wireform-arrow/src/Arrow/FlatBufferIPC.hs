@@ -1,7 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TypeApplications #-}
 -- | Real Apache Arrow IPC framing — binary-compatible with the
 -- reference implementations (arrow-cpp, arrow-rs, pyarrow).
 --
@@ -95,6 +97,11 @@ import qualified Arrow.Write as W
 
 #ifdef HAVE_ZSTD
 import qualified Codec.Compression.Zstd as Zstd
+#endif
+
+#ifdef HAVE_LZ4
+import qualified Codec.Lz4 as Lz4
+import qualified Control.Exception as Exc
 #endif
 
 -- ============================================================
@@ -1440,13 +1447,12 @@ compressBuffer codec bs = case codec of
 #endif
 #ifdef HAVE_LZ4
   LZ4Frame ->
-    -- The LZ4 Haskell binding doesn't ship a frame-format
-    -- compressor; we emit the raw block format instead and
-    -- accept that pyarrow won't decode this until we wire up a
-    -- real frame compressor (separate item). For now this code
-    -- path is gated behind -flz4 and falls through to the
-    -- "not implemented" error.
-    error "Arrow.FlatBufferIPC: LZ4_FRAME body compression not yet wired up; use BodyZstd for now"
+    -- lz4-hs's Codec.Lz4.compress produces the official
+    -- LZ4_Frame format (magic 0x184D2204 + frame descriptor +
+    -- one-or-more blocks), which is what arrow-cpp / pyarrow
+    -- consume for BodyCompression codec=0 (LZ4_FRAME). The API
+    -- works on lazy ByteStrings under the hood.
+    BL.toStrict (Lz4.compress (BL.fromStrict bs))
 #else
   LZ4Frame -> error "Arrow.FlatBufferIPC: LZ4 body compression requires building wireform-arrow with -flz4"
 #endif
@@ -1464,8 +1470,15 @@ decompressBuffer codec rawLen comp = case codec of
   BodyZstd -> Left "Arrow.FlatBufferIPC: ZSTD body compression requires building wireform-arrow with -fzstd"
 #endif
 #ifdef HAVE_LZ4
-  LZ4Frame -> Left ("Arrow.FlatBufferIPC: LZ4_FRAME decompression not yet wired up; "
-                     ++ show rawLen ++ " uncompressed bytes expected")
+  LZ4Frame ->
+    -- lz4-hs's decompress throws on malformed input; catch it
+    -- to match the Either-shaped contract the ZSTD path has.
+    case unsafePerformIO $
+           Exc.try @Exc.SomeException
+             (Exc.evaluate
+                (BL.toStrict (Lz4.decompress (BL.fromStrict comp)))) of
+      Right out -> Right out
+      Left e    -> Left ("Arrow.FlatBufferIPC: LZ4_FRAME decompress: " ++ show e)
 #else
   LZ4Frame -> Left "Arrow.FlatBufferIPC: LZ4 body compression requires building wireform-arrow with -flz4"
 #endif

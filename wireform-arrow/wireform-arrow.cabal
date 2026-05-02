@@ -60,7 +60,10 @@ library
     build-depends: zstd >= 0.1 && < 0.2
   if flag(lz4)
     cpp-options: -DHAVE_LZ4
-    build-depends: lz4 >= 0.2 && < 0.3
+    -- lz4-hs bundles LZ4 1.9.3 and exposes Codec.Lz4's frame-format
+    -- compress / decompress functions. Older Hackage "lz4" only
+    -- implements the block format (incompatible with arrow-cpp).
+    build-depends: lz4-hs >= 0.1 && < 0.2
 
 executable wireform-arrow-pyarrow-probe
   import: defaults

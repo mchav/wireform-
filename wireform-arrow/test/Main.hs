@@ -396,6 +396,21 @@ flatBufRoundTrip = do
        , ColUtf8 (V.replicate 1000 "highly-compressible-payload")
        ])
 
+  -- LZ4_FRAME body compression: same shape / sizing as the ZSTD
+  -- case. Verifies the lz4-hs Codec.Lz4 frame compressor +
+  -- decompressor round-trip through the full BodyCompression
+  -- pipeline (per-buffer envelope, length prefix, offsets
+  -- rewritten on decode, etc.).
+  bodyCompressionRoundTrip LZ4Frame
+    (Schema (V.fromList
+       [ plainField "n" False (AInt 64 True)
+       , plainField "s" False AUtf8
+       ]) Little)
+    (V.fromList
+       [ ColInt64 (VP.fromList ([1..1000] :: [Int64]))
+       , ColUtf8 (V.replicate 1000 "highly-compressible-payload")
+       ])
+
   -- DictReplaceOnChange: two batches with the SAME dict id but
   -- different values. The writer should emit two dict batches;
   -- the reader should resolve each record batch against the
