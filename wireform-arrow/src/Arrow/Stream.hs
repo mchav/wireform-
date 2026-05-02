@@ -52,11 +52,13 @@ module Arrow.Stream
   , streamReaderToList
     -- * Write options
   , WriteOptions (..)
+  , DictHandling (..)
   , defaultWriteOptions
   , BodyCompressionCodec (..)
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -66,6 +68,7 @@ import Arrow.Column
   , materializeRecordBatch
   , resolveDictionaryColumn
   )
+import qualified Arrow.FlatBufferIPC as FB
 import Arrow.FlatBufferIPC
   ( DictBatch (..)
   , buildRecordBatchBytes
@@ -99,13 +102,36 @@ data WriteOptions = WriteOptions
     -- ^ When 'Just', body buffers are compressed per Arrow's
     -- 'BodyCompression' table (typically 'BodyZstd'). 'Nothing'
     -- (the default) leaves buffers uncompressed.
+  , writeDictHandling :: !DictHandling
+    -- ^ How the writer treats repeated dictionary ids across
+    -- batches: emit a single dict up front, or emit a fresh
+    -- @isDelta=false@ replacement before any batch whose
+    -- dictionary differs. Default: 'DictEmitOnce'. PyArrow's
+    -- default matches 'DictReplaceOnChange'; use that when
+    -- encoding streams destined for pyarrow-with-varying-dicts.
   } deriving (Show, Eq)
 
--- | Defaults: no body compression. PyArrow leaves IPC streams
--- uncompressed by default; we follow suit.
+-- | Dictionary-emission strategy for the high-level writer.
+data DictHandling
+  = DictEmitOnce
+    -- ^ Emit one dict batch per unique id, using the values from
+    -- the first occurrence. Subsequent occurrences with
+    -- different values are silently ignored (indices are
+    -- assumed to map through the original dict). This is the
+    -- conservative default.
+  | DictReplaceOnChange
+    -- ^ Emit a fresh @isDelta=false@ replacement dict batch
+    -- before any record batch whose dictionary values differ
+    -- from the most-recently-emitted dict for that id. Matches
+    -- the semantics pyarrow uses when a stream writer sees a
+    -- changed dict.
+  deriving (Show, Eq)
+
+-- | Defaults: no body compression, emit-once dictionaries.
 defaultWriteOptions :: WriteOptions
 defaultWriteOptions = WriteOptions
   { writeBodyCompression = Nothing
+  , writeDictHandling    = DictEmitOnce
   }
 
 -- ============================================================
@@ -137,9 +163,50 @@ encodeArrowStreamWith
   -> Schema
   -> [V.Vector ColumnArray]
   -> ByteString
-encodeArrowStreamWith opts sch batches =
-  let !(dicts, batchPairs) = compileBatchesWith opts sch batches
-  in  writeArrowStreamFBWithDicts sch dicts batchPairs
+encodeArrowStreamWith opts sch batches = case writeDictHandling opts of
+  DictEmitOnce ->
+    let !(dicts, batchPairs) = compileBatchesWith opts sch batches
+    in  writeArrowStreamFBWithDicts sch dicts batchPairs
+  DictReplaceOnChange ->
+    encodeArrowStreamReplaceDicts opts sch batches
+
+-- | Writer for the 'DictReplaceOnChange' strategy. Interleaves
+-- dict batches with record batches: each record batch is
+-- preceded by fresh @isDelta=false@ dict batches for any
+-- dictionary id whose values have changed since the last emission.
+encodeArrowStreamReplaceDicts
+  :: WriteOptions
+  -> Schema
+  -> [V.Vector ColumnArray]
+  -> ByteString
+encodeArrowStreamReplaceDicts opts sch batches =
+  let !mCodec = writeBodyCompression opts
+      !schemaMsg = FB.encapsulateMessage (FB.buildSchemaMessage sch) BS.empty
+      !eos       = BS.pack [0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0]
+      go _ [] !acc = BS.concat (reverse (eos : acc))
+      go !lastDicts (cols : rest) !acc =
+        let !(rb, body) = buildRecordBatchBytesWith mCodec sch cols
+            !curDicts   = collectDictionaries [cols]
+            -- Which dict ids have values that differ from lastDicts?
+            !changed    = Map.differenceWith
+                            (\new old -> if new == old then Nothing else Just new)
+                            curDicts lastDicts
+            !fresh      = Map.filterWithKey
+                            (\did _ -> not (Map.member did lastDicts))
+                            curDicts
+            !emitDicts  = Map.union changed fresh
+            !newLast    = Map.union curDicts lastDicts
+            !dictBytes  = BS.concat
+              [ FB.encapsulateMessage
+                  (FB.buildDictionaryBatchMessage (buildDictBatch did vs))
+                  (dbBody (buildDictBatch did vs))
+              | (did, vs) <- Map.toAscList emitDicts
+              ]
+            !rbBytes    = FB.encapsulateMessage
+                            (FB.buildRecordBatchMessage rb (fromIntegral (BS.length body)))
+                            body
+        in  go newLast rest (rbBytes : dictBytes : acc)
+  in  go Map.empty batches [schemaMsg]
 
 -- | Decode an Arrow IPC stream back into 'Schema' + record-batch
 -- column vectors. Dictionary references are resolved
@@ -149,8 +216,8 @@ decodeArrowStream
   :: ByteString
   -> Either String (Schema, [V.Vector ColumnArray])
 decodeArrowStream bs = do
-  (sch, dicts, frames) <- readArrowStreamFBWithDicts bs
-  decodeBatches sch dicts frames
+  (sch, frames) <- FB.readArrowStreamFBInterleaved bs
+  decodeInterleavedFrames sch frames
 
 -- ============================================================
 -- Files
@@ -202,17 +269,33 @@ compileBatches
   -> ([DictBatch], [(RecordBatchDef, ByteString)])
 compileBatches = compileBatchesWith defaultWriteOptions
 
+-- | This produces a flat @(dicts, batchPairs)@ pair that the
+-- lower-level 'writeArrowStreamFBWithDicts' consumes; it assumes
+-- all dicts are emitted once up front. For the
+-- 'DictReplaceOnChange' strategy the emission is interleaved —
+-- see 'compileBatchesInterleaved' below.
 compileBatchesWith
   :: WriteOptions
   -> Schema
   -> [V.Vector ColumnArray]
   -> ([DictBatch], [(RecordBatchDef, ByteString)])
-compileBatchesWith opts sch batches =
-  let !dictMap = collectDictionaries batches
-      !dicts   = map (uncurry buildDictBatch) (Map.toAscList dictMap)
-      !mCodec  = writeBodyCompression opts
-      !pairs   = map (buildRecordBatchBytesWith mCodec sch) batches
-  in  (dicts, pairs)
+compileBatchesWith opts sch batches = case writeDictHandling opts of
+  DictEmitOnce ->
+    let !dictMap = collectDictionaries batches
+        !dicts   = map (uncurry buildDictBatch) (Map.toAscList dictMap)
+        !mCodec  = writeBodyCompression opts
+        !pairs   = map (buildRecordBatchBytesWith mCodec sch) batches
+    in  (dicts, pairs)
+  DictReplaceOnChange ->
+    -- For replacement semantics we don't have a single
+    -- up-front dict list; compileBatchesInterleaved is the
+    -- correct entry point. Fall back to emit-once here so
+    -- callers that haven't migrated still get valid output.
+    let !dictMap = collectDictionaries batches
+        !dicts   = map (uncurry buildDictBatch) (Map.toAscList dictMap)
+        !mCodec  = writeBodyCompression opts
+        !pairs   = map (buildRecordBatchBytesWith mCodec sch) batches
+    in  (dicts, pairs)
 
 -- | Build a 'DictBatch' carrying one logical column of dictionary
 -- values keyed by @did@.
@@ -287,6 +370,44 @@ decodeBatches sch dicts frames = do
       (rb', body') <- maybeDecompressBatch rb body
       cols <- materializeRecordBatch s (denormaliseBuffers s rb') body'
       Right (V.map (resolveDictionaryColumn (`Map.lookup` m)) cols)
+
+-- | Decode a stream-order frame list (dict + record batches
+-- interleaved) while honouring replacement / delta dictionaries.
+--
+-- For each 'FB.SFDict' frame we materialise the values column
+-- and update an id->values map (@isDelta=false@ replaces,
+-- @isDelta=true@ appends). For each 'FB.SFBatch' frame we
+-- resolve the 'ColDictionary' placeholders against the /current/
+-- map state — so a record batch that follows a replacement sees
+-- the new values, not the original ones.
+decodeInterleavedFrames
+  :: Schema
+  -> [FB.StreamFrame]
+  -> Either String (Schema, [V.Vector ColumnArray])
+decodeInterleavedFrames sch = go Map.empty []
+  where
+    go _    acc []                     = Right (sch, reverse acc)
+    go !dictMap acc (FB.SFDict db : rest) = do
+      (did, vals) <- decodeDictBatch sch db
+      let !newMap = if dbIsDelta db
+                      then Map.insertWith appendCols did vals dictMap
+                      else Map.insert did vals dictMap
+      go newMap acc rest
+    go !dictMap acc (FB.SFBatch rb body : rest) = do
+      (rb', body') <- maybeDecompressBatch rb body
+      cols <- materializeRecordBatch sch (denormaliseBuffers sch rb') body'
+      let !resolved = V.map (resolveDictionaryColumn (`Map.lookup` dictMap)) cols
+      go dictMap (resolved : acc) rest
+
+    -- Delta dict: append new values to the existing values column.
+    -- For Utf8 dictionaries (the common case) we concatenate the
+    -- text vectors; other dict value types fall back to the new
+    -- values (matching Arrow's nominal semantics).
+    appendCols new old = case (new, old) of
+      (ColUtf8 n, ColUtf8 o)       -> ColUtf8 (o V.++ n)
+      (ColLargeUtf8 n, ColLargeUtf8 o) -> ColLargeUtf8 (o V.++ n)
+      (ColBinary n, ColBinary o)   -> ColBinary (o V.++ n)
+      _                            -> new
 
 -- | If the record batch advertises body compression, run the
 -- per-buffer decompressor and rewrite the buffer offsets to

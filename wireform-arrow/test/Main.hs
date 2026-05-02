@@ -30,6 +30,7 @@ import Arrow.Column
 import Arrow.File (asBatches, asSchema, readArrowStream)
 import Arrow.Stream
   ( BodyCompressionCodec (..)
+  , DictHandling (..)
   , WriteOptions (..)
   , decodeArrowStream
   , defaultWriteOptions
@@ -387,6 +388,52 @@ flatBufRoundTrip = do
             ([1..1000] :: [Int64]))   -- enough bytes that ZSTD shrinks
        , ColUtf8 (V.replicate 1000 "highly-compressible-payload")
        ])
+
+  -- DictReplaceOnChange: two batches with the SAME dict id but
+  -- different values. The writer should emit two dict batches;
+  -- the reader should resolve each record batch against the
+  -- most-recently-emitted dict for that id.
+  dictReplacementRoundTrip
+
+dictReplacementRoundTrip :: IO ()
+dictReplacementRoundTrip = do
+  let !sch = Schema
+        (V.singleton
+           (Field "d" True AUtf8 V.empty
+              (Just (DictionaryEncoding 0 (AInt 32 True) False))))
+        Little
+      !batch1 = V.singleton $ ColDictionary 0
+        (VP.fromList [0, 1, 0])
+        (ColUtf8 (V.fromList ["a", "b"]))
+      !batch2 = V.singleton $ ColDictionary 0
+        (VP.fromList [0, 1, 0])
+        (ColUtf8 (V.fromList ["x", "y"]))
+      !opts  = defaultWriteOptions { writeDictHandling = DictReplaceOnChange }
+      !bytes = encodeArrowStreamWith opts sch [batch1, batch2]
+  case decodeArrowStream bytes of
+    Left e -> failTest $ "dict-replace round-trip: " ++ e
+    Right (_, batches)
+      | [b1, b2] <- batches
+      , V.length b1 == 1
+      , V.length b2 == 1 ->
+          let !c1 = V.unsafeIndex b1 0
+              !c2 = V.unsafeIndex b2 0
+          in case (c1, c2) of
+               (ColDictionary _ ix1 v1, ColDictionary _ ix2 v2)
+                 | V.toList (valuesToList v1) == ["a", "b"]
+                 , V.toList (valuesToList v2) == ["x", "y"]
+                 , VP.toList ix1 == [0, 1, 0]
+                 , VP.toList ix2 == [0, 1, 0] ->
+                     putStrLn "OK: dictionary replacement across batches"
+               _ -> failTest $ "dict-replace mismatch:\n got "
+                                ++ show batches
+      | otherwise ->
+          failTest $ "dict-replace expected 2 batches, got "
+                      ++ show (length batches)
+  where
+    valuesToList (ColUtf8 v)          = v
+    valuesToList (ColUtf8Maybe v)     = V.mapMaybe id v
+    valuesToList _                    = V.empty
 
 bodyCompressionRoundTrip :: BodyCompressionCodec -> Schema -> V.Vector ColumnArray -> IO ()
 bodyCompressionRoundTrip codec sch cols = do

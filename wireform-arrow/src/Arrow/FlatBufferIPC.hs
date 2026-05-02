@@ -56,6 +56,8 @@ module Arrow.FlatBufferIPC
     -- * Dictionary support
   , DictBatch (..)
   , readArrowStreamFBWithDicts
+  , readArrowStreamFBInterleaved
+  , StreamFrame (..)
   , buildDictionaryBatchMessage
   , writeArrowStreamFBWithDicts
   ) where
@@ -2195,6 +2197,70 @@ readArrowStreamFB
 readArrowStreamFB bs0 = do
   (sch, _, batches) <- readArrowStreamFBWithDicts bs0
   Right (sch, batches)
+
+-- | Frame variant for 'readArrowStreamFBInterleaved'. Preserves
+-- the stream-order sequence of dict + record messages so a
+-- downstream reader can honour replacement / delta dictionary
+-- semantics.
+data StreamFrame
+  = SFDict  !DictBatch
+  | SFBatch !RecordBatchDef !ByteString
+  deriving (Show, Eq)
+
+-- | Like 'readArrowStreamFBWithDicts' but returns the dict /
+-- record batches /interleaved/ in stream order. Use this when
+-- a writer may emit @isDelta=false@ replacement dict batches
+-- between record batches: the flat list gives each record batch
+-- the opportunity to resolve against the most-recently-seen dict
+-- for that id.
+readArrowStreamFBInterleaved
+  :: ByteString
+  -> Either String (Schema, [StreamFrame])
+readArrowStreamFBInterleaved bs0 = do
+  (schema, after) <- consumeSchema bs0
+  frames <- goFrames after []
+  Right (schema, frames)
+  where
+    consumeSchema bs = do
+      (mlen, meta, rest) <- readFrameHeader bs
+      when' (mlen <= 0) $
+        Left "Arrow.FlatBufferIPC: unexpected EOS while reading schema"
+      sch <- decodeSchemaMessage meta
+      Right (sch, rest)
+
+    goFrames bs acc
+      | BS.length bs < 4 = Right (reverse acc)
+      | otherwise = do
+          (mlen, meta, rest1) <- readFrameHeader bs
+          if mlen == 0
+            then Right (reverse acc)
+            else do
+              ht <- peekHeaderType meta
+              case ht of
+                3 -> do
+                  (rb, bodyLen) <- decodeRecordBatchMessage meta
+                  let !nBody    = fromIntegral bodyLen :: Int
+                      !nBodyPad = alignUp8FB nBody
+                      body      = BS.take nBody rest1
+                      rest2     = BS.drop nBodyPad rest1
+                  goFrames rest2 (SFBatch rb body : acc)
+                2 -> do
+                  (did, isDelta, rb, bodyLen) <-
+                    decodeDictionaryBatchMessage meta
+                  let !nBody    = fromIntegral bodyLen :: Int
+                      !nBodyPad = alignUp8FB nBody
+                      body      = BS.take nBody rest1
+                      rest2     = BS.drop nBodyPad rest1
+                      !db = DictBatch { dbId = did, dbIsDelta = isDelta
+                                      , dbData = rb, dbBody = body }
+                  goFrames rest2 (SFDict db : acc)
+                _ ->
+                  Left ("Arrow.FlatBufferIPC: unsupported message header_type "
+                        ++ show ht)
+
+    alignUp8FB n = (n + 7) .&. complement (7 :: Int)
+    when' True  e = e
+    when' False _ = Right ()
 
 -- | Like 'readArrowStreamFB' but also returns any 'DictBatch'
 -- frames encountered (in stream order). Most pyarrow / arrow-cpp
