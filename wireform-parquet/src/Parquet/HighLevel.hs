@@ -37,6 +37,8 @@ module Parquet.HighLevel
   , defaultWriteOptions
     -- * Decoding
   , decodeParquet
+  , decodeParquetEncrypted
+  , FooterDecryption (..)
   , ParquetFile (..)
     -- * Re-exports for convenience
   , ColumnData (..)
@@ -51,7 +53,12 @@ import Data.ByteString (ByteString)
 import Data.Text (Text)
 import qualified Data.Vector as V
 
-import Parquet.Read   (ParquetFile (..), loadParquetFile)
+import Parquet.Read
+  ( FooterDecryption (..)
+  , ParquetFile (..)
+  , loadParquetFile
+  , loadParquetFileEncrypted
+  )
 import Parquet.Types
   ( Compression (..)
   , SchemaElement (..)
@@ -201,3 +208,20 @@ mkAuxes opts _schema cols =
 -- @
 decodeParquet :: ByteString -> Either String ParquetFile
 decodeParquet = loadParquetFile
+
+-- | Parse a Parquet file whose footer is encrypted (PARE trailing
+-- magic, produced by 'encodeParquet' with
+-- 'writeFooterEncryption' set). The caller supplies the
+-- matching 'FooterDecryption' (AES key + AAD prefix + file id
+-- the writer stamped).
+--
+-- @
+-- case 'decodeParquetEncrypted' (FooterDecryption key prefix fileId) bytes of
+--   Right pf  -> ...
+--   Left  err -> ...
+-- @
+decodeParquetEncrypted
+  :: FooterDecryption
+  -> ByteString
+  -> Either String ParquetFile
+decodeParquetEncrypted = loadParquetFileEncrypted

@@ -23,6 +23,8 @@ module ORC.Write
     -- * File assembly
   , buildStripe
   , buildORCFile
+  , buildORCFileWithRows
+  , buildORCFileWith
   , buildEncryptedORCFile
     -- * Column encryption plumbing
   , StripeEncryption (..)
@@ -327,8 +329,31 @@ buildStripe streamInfos =
 --
 -- @types@: column types for the schema
 -- @stripeData@: for each stripe, a vector of (streamKind, columnId, payload)
+--
+-- Records @siNumberOfRows = 0@ in every stripe and
+-- @orcNumberOfRows = 0@ in the footer — callers that know the row
+-- counts should use 'buildORCFileWithRows' or 'buildORCFileWith'
+-- to stamp them in. Predicate-pushdown-aware readers need correct
+-- row counts for scan planning.
 buildORCFile :: V.Vector ORCType -> V.Vector (V.Vector (Word64, Word64, ByteString)) -> ByteString
 buildORCFile = buildORCFileWith id
+
+-- | Like 'buildORCFile' but records per-stripe row counts.
+--
+-- @rowCounts@ must have the same length as @stripeData@;
+-- mismatched lengths fall through to the length of the shorter
+-- vector with the missing stripes stamped at 0 rows.
+buildORCFileWithRows
+  :: V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> V.Vector Word64    -- ^ one row count per stripe
+  -> ByteString
+buildORCFileWithRows types stripeData rowCounts =
+  let !lookupRows = \i ->
+        case rowCounts V.!? i of
+          Just r  -> r
+          Nothing -> 0
+  in  buildORCFileWithRowLookup lookupRows types stripeData
 
 -- | Variant of 'buildORCFile' that lets the caller adjust the
 -- computed 'ORCFooter' before serialisation. Used by
@@ -343,6 +368,26 @@ buildORCFileWith
   -> V.Vector (V.Vector (Word64, Word64, ByteString))
   -> ByteString
 buildORCFileWith adjustFooter types stripeData =
+  buildORCFileWithRowLookupFooter adjustFooter (const 0) types stripeData
+
+-- | Shared implementation: row-count-aware stripe layout with
+-- no extra footer adjustment. Used by 'buildORCFileWithRows'.
+buildORCFileWithRowLookup
+  :: (Int -> Word64)
+  -> V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> ByteString
+buildORCFileWithRowLookup = buildORCFileWithRowLookupFooter id
+
+-- | Shared implementation: row-count-aware stripe layout with
+-- a caller-supplied footer adjustment.
+buildORCFileWithRowLookupFooter
+  :: (ORCFooter -> ORCFooter)
+  -> (Int -> Word64)
+  -> V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> ByteString
+buildORCFileWithRowLookupFooter adjustFooter rowsForStripe types stripeData =
   let !headerMagic = orcMagic
       !headerLen   = fromIntegral (BS.length headerMagic) :: Word64
 
@@ -358,7 +403,7 @@ buildORCFileWith adjustFooter types stripeData =
                 !footerBs = encodeStripeFooter footer
                 !dataLen = V.foldl' (\a (_, _, bs) -> a + fromIntegral (BS.length bs)) 0 sdata :: Word64
                 !ftrLen = fromIntegral (BS.length footerBs) :: Word64
-                !nRows = 0 -- caller should set proper row counts
+                !nRows = rowsForStripe i
                 !si = StripeInformation
                   { siOffset = off
                   , siIndexLength = 0

@@ -28,6 +28,7 @@
 module ORC.Arrow
   ( -- * Arrow → ORC
     arrowToORC
+  , arrowToORCWithRows
   , columnArrayToORCStreams
     -- * ORC → Arrow
   , orcStripeToArrow
@@ -87,12 +88,21 @@ arrowToORC
                    , [V.Vector (Word64, Word64, ByteString)]
                    )
 arrowToORC sch batches = do
+  (types, withRows) <- arrowToORCWithRows sch batches
+  Right (types, map fst withRows)
+
+-- | Like 'arrowToORC' but also returns a row count per stripe,
+-- suitable for passing to 'ORC.HighLevel.encodeORCWithRows' so
+-- predicate-pushdown-aware readers can plan scans correctly.
+arrowToORCWithRows
+  :: AT.Schema
+  -> [V.Vector AC.ColumnArray]
+  -> Either String ( V.Vector OT.ORCType
+                   , [(V.Vector (Word64, Word64, ByteString), Word64)]
+                   )
+arrowToORCWithRows sch batches = do
   let !leafFields = V.filter (V.null . AT.fieldChildren) (AT.arrowFields sch)
-  -- ORC's schema is a flat vector indexed by column id. Column 0
-  -- is the synthetic root struct; subsequent columns are the
-  -- leaves. Per ORC's TypeDescription.toString format we emit
-  -- the struct's child names + subtype indices first.
-  let !rootType = OT.ORCType
+      !rootType = OT.ORCType
         { OT.otKind       = OT.TKStruct
         , OT.otSubtypes   = V.generate
                               (V.length leafFields)
@@ -101,7 +111,14 @@ arrowToORC sch batches = do
         }
   childTypes <- V.mapM arrowFieldToORCType leafFields
   let !types = V.cons rootType childTypes
-  stripes <- mapM (encodeStripe leafFields) batches
+  stripes <- mapM
+    (\cols -> do
+        streams <- encodeStripe leafFields cols
+        let !rowCount = if V.null cols
+                           then 0
+                           else fromIntegral (AC.columnLength (V.head cols))
+        Right (streams, rowCount))
+    batches
   Right (types, stripes)
 
 -- | Build one stripe from a single batch of columns by encoding

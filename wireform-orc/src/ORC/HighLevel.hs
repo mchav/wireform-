@@ -28,6 +28,7 @@
 module ORC.HighLevel
   ( -- * Encoding
     encodeORC
+  , encodeORCWithRows
   , WriteOptions (..)
   , defaultWriteOptions
   , StripeEncryptionPlan (..)
@@ -51,6 +52,7 @@ import ORC.Write
   ( StripeEncryption (..)
   , buildEncryptedORCFile
   , buildORCFile
+  , buildORCFileWithRows
   )
 
 -- ============================================================
@@ -100,6 +102,11 @@ defaultWriteOptions = WriteOptions
 -- doesn't reorder streams; ordering across columns is the
 -- caller's concern, governed by ORC's stream-layout rules).
 --
+-- Records @siNumberOfRows = 0@ in every stripe; use
+-- 'encodeORCWithRows' when the caller has authoritative row
+-- counts and wants them stamped into the footer for
+-- predicate-pushdown-aware readers.
+--
 -- Returns either the encoded bytes or, if encryption is
 -- requested and fails (e.g. mismatched key lengths), the error
 -- the underlying writer reported.
@@ -108,11 +115,30 @@ encodeORC
   -> V.Vector ORCType
   -> [V.Vector (Word64, Word64, ByteString)]
   -> Either String ByteString
-encodeORC opts types stripes =
-  let !sd = V.fromList stripes
+encodeORC opts types stripes = encodeORCWithRows opts types (zip stripes (repeat 0))
+
+-- | Like 'encodeORC' but accepts a per-stripe row count (second
+-- component of each pair) and stamps it into the stripe
+-- information + footer. Readers that plan scans by row count
+-- (predicate pushdown, row-range slicing) need these.
+encodeORCWithRows
+  :: WriteOptions
+  -> V.Vector ORCType
+  -> [(V.Vector (Word64, Word64, ByteString), Word64)]
+  -> Either String ByteString
+encodeORCWithRows opts types stripesWithRows =
+  let !sd   = V.fromList (map fst stripesWithRows)
+      !rows = V.fromList (map snd stripesWithRows)
   in  case writeEncryption opts of
-        Nothing -> Right (buildORCFile types sd)
+        Nothing -> Right (buildORCFileWithRows types sd rows)
         Just (enc, plan) ->
+          -- buildEncryptedORCFile calls buildORCFileWith
+          -- internally; it doesn't yet carry row counts. Path
+          -- forward: lift buildEncryptedORCFile to use a row
+          -- lookup. For now, the encrypted path stamps 0 rows
+          -- per stripe — same as before — and callers that need
+          -- both encryption and accurate row counts should open
+          -- the ticket.
           buildEncryptedORCFile types sd (stripeKeys plan) enc
 
 -- ============================================================
