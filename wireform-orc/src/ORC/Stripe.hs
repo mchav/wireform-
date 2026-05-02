@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | ORC stripe footer (protobuf) — stream layout within a stripe.
 --
 -- Decodes the trailing protobuf @StripeFooter@ of a stripe (the last
@@ -25,6 +27,7 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Word (Word64)
 import qualified Data.Vector as V
 
+import ORC.Proto.Schema
 import ORC.Types (StripeInformation (..))
 
 -- | One physical stream inside a stripe (see ORC @Stream@ protobuf).
@@ -75,21 +78,21 @@ stripeStreamSlices stripeBs (StripeFooter streams) = go 0 0 V.empty
 
 -- | Parse protobuf @StripeFooter@ (field 1: repeated Stream).
 decodeStripeFooter :: ByteString -> Either String StripeFooter
-decodeStripeFooter bs = go 0 V.empty
+decodeStripeFooter bs = StripeFooter <$> go 0 V.empty
   where
     !len = BS.length bs
     go !off !acc
-      | off >= len = Right (StripeFooter acc)
+      | off >= len = Right acc
       | otherwise = do
           (tag, off1) <- getVarint bs off len
-          let !fieldNum = fromIntegral (tag `shiftR` 3) :: Int
-              !wireType = tag .&. 7
-          case (fieldNum, wireType) of
-            (1, 2) -> do
+          let !fn = fromIntegral (tag `shiftR` 3) :: Int
+              !wt = tag .&. 7
+          case (fn, wt) of
+            StripeFooter_Streams -> do
               (chunk, off2) <- getLenDelim bs off1 len
               st <- decodeStream chunk
               go off2 (V.snoc acc st)
-            _ -> skipField wireType bs off1 len >>= \off2 -> go off2 acc
+            _ -> skipField wt bs off1 len >>= \off2 -> go off2 acc
 
 decodeStream :: ByteString -> Either String Stream
 decodeStream bs = go 0 (Stream 0 0 0)
@@ -99,76 +102,37 @@ decodeStream bs = go 0 (Stream 0 0 0)
       | off >= len = Right st
       | otherwise = do
           (tag, off') <- getVarint bs off len
-          let !fieldNum = fromIntegral (tag `shiftR` 3) :: Int
-              !wireType = tag .&. 7
-          case (fieldNum, wireType) of
-            (1, 0) -> do (v, off'') <- getVarint bs off' len; go off'' st { stKind = v }
-            (2, 0) -> do (v, off'') <- getVarint bs off' len; go off'' st { stColumn = v }
-            (3, 0) -> do (v, off'') <- getVarint bs off' len; go off'' st { stLength = v }
-            _ -> skipField wireType bs off' len >>= \off'' -> go off'' st
+          let !fn = fromIntegral (tag `shiftR` 3) :: Int
+              !wt = tag .&. 7
+              readV f = do
+                (v, off'') <- getVarint bs off' len
+                go off'' (f v)
+          case (fn, wt) of
+            Stream_Kind   -> readV $ \v -> st { stKind   = v }
+            Stream_Column -> readV $ \v -> st { stColumn = v }
+            Stream_Length -> readV $ \v -> st { stLength = v }
+            _             -> skipField wt bs off' len >>= \off'' -> go off'' st
 
-getVarint :: ByteString -> Int -> Int -> Either String (Word64, Int)
-getVarint bs !off !len = go off 0 0
-  where
-    go !pos !val !shift
-      | pos >= len = Left "ORC.Stripe: truncated varint"
-      | shift >= 64 = Left "ORC.Stripe: varint too long"
-      | otherwise =
-          let !b = fromIntegral (BSU.unsafeIndex bs pos) :: Word64
-              !val' = val .|. ((b .&. 0x7F) `shiftL` shift)
-          in if b .&. 0x80 == 0
-              then Right (val', pos + 1)
-              else go (pos + 1) val' (shift + 7)
+-- Decoder primitives (getVarint, getLenDelim, skipField) come from
+-- "ORC.Proto.Schema"; so do the encoder helpers. Both sides of this
+-- module share the same named-field codec.
 
-getLenDelim :: ByteString -> Int -> Int -> Either String (ByteString, Int)
-getLenDelim bs !off !len = do
-  (dlen, off') <- getVarint bs off len
-  let !dataLen = fromIntegral dlen :: Int
-  if off' + dataLen > len
-    then Left "ORC.Stripe: length-delimited overflow"
-    else Right (BS.take dataLen (BS.drop off' bs), off' + dataLen)
-
-skipField :: Word64 -> ByteString -> Int -> Int -> Either String Int
-skipField wireType bs !off !len = case wireType of
-  0 -> do (_, off') <- getVarint bs off len; Right off'
-  1 -> if off + 8 <= len then Right (off + 8) else Left "ORC.Stripe: skip fixed64"
-  2 -> do (_, off') <- getLenDelim bs off len; Right off'
-  5 -> if off + 4 <= len then Right (off + 4) else Left "ORC.Stripe: skip fixed32"
-  _ -> Left $ "ORC.Stripe: unknown wire type " ++ show wireType
-
-------------------------------------------------------------------------
+-- ============================================================
 -- Protobuf encoding
-------------------------------------------------------------------------
+-- ============================================================
 
 -- | Encode a 'StripeFooter' as protobuf bytes.
 encodeStripeFooter :: StripeFooter -> ByteString
 encodeStripeFooter (StripeFooter streams) =
   BL.toStrict $ B.toLazyByteString $
-    V.foldl' (\acc s -> acc <> pbLenDelim 1 (encodeStream s)) mempty streams
+    V.foldl' (\acc s -> acc <> encodeLengthDelim StripeFooter_Streams
+                                (encodeStream s))
+      mempty streams
 
 -- | Encode a single 'Stream' as protobuf bytes.
 encodeStream :: Stream -> B.Builder
 encodeStream (Stream kind col len) = mconcat
-  [ pbVarintField 1 kind
-  , pbVarintField 2 col
-  , pbVarintField 3 len
+  [ encodeVarintField Stream_Kind   kind
+  , encodeVarintField Stream_Column col
+  , encodeVarintField Stream_Length len
   ]
-
-pbVarintField :: Int -> Word64 -> B.Builder
-pbVarintField fieldNum val =
-  let !tag = fromIntegral fieldNum `shiftL` 3 :: Word64
-  in pbVarint tag <> pbVarint val
-
-pbLenDelim :: Int -> B.Builder -> B.Builder
-pbLenDelim fieldNum content =
-  let !tag = (fromIntegral fieldNum `shiftL` 3) .|. 2 :: Word64
-      !encoded = BL.toStrict $ B.toLazyByteString content
-      !contentLen = BS.length encoded
-  in pbVarint tag <> pbVarint (fromIntegral contentLen) <> B.byteString encoded
-
-pbVarint :: Word64 -> B.Builder
-pbVarint = go
-  where
-    go !v
-      | v < 0x80  = B.word8 (fromIntegral v)
-      | otherwise = B.word8 (fromIntegral (v .&. 0x7F) .|. 0x80) <> go (v `shiftR` 7)

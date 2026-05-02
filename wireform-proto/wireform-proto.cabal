@@ -55,6 +55,7 @@ library
     Proto.Encode.Archetype
     Proto.Encode.Direct
     Proto.Encode.Lazy
+    Proto.Extension
     Proto.FieldPresence
     Proto.GRPC
     Proto.Google.Protobuf.Any

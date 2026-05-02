@@ -32,5 +32,8 @@ package *
 package wireform
   flags: +snappy +zstd
 
+package wireform-arrow
+  flags: +zstd +lz4
+
 package grpc-spec
   flags: -snappy

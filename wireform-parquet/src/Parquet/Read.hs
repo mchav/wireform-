@@ -94,6 +94,9 @@ import qualified Codec.Compression.Snappy as Snappy
 #ifdef HAVE_LZ4
 import qualified Codec.Compression.LZ4 as LZ4
 #endif
+#ifdef HAVE_BROTLI
+import qualified Codec.Compression.Brotli as Brotli
+#endif
 
 import qualified Parquet.Encryption as Enc
 import Parquet.Footer (readFooter)
@@ -533,6 +536,14 @@ decompressChunk LZ4 _ =
   Left "Parquet.Read: LZ4 (deprecated Hadoop variant, codec 5) not supported; use LZ4_RAW (codec 7)"
 decompressChunk LZ4Raw _ =
   Left "Parquet.Read: LZ4_RAW requires uncompressed size; use decompressPage internally"
+#ifdef HAVE_BROTLI
+decompressChunk Brotli bs = tryBrotli bs
+#else
+decompressChunk Brotli _ =
+  Left "Parquet.Read: Brotli requires building wireform with -fbrotli"
+#endif
+decompressChunk LZO _ =
+  Left "Parquet.Read: LZO (codec 3) is not supported; it's a legacy Hadoop codec not emitted by modern writers"
 decompressChunk c _ =
   Left $
     "Parquet.Read: compression "
@@ -543,6 +554,9 @@ decompressChunk c _ =
 #endif
 #ifdef HAVE_LZ4
       ++ ", LZ4_RAW with -flz4"
+#endif
+#ifdef HAVE_BROTLI
+      ++ ", Brotli with -fbrotli"
 #endif
       ++ ")"
 
@@ -587,6 +601,17 @@ tryLZ4Raw uncompSize bs =
   case LZ4.decompress uncompSize bs of
     Nothing -> Left "Parquet.Read: LZ4 raw block decompression failed"
     Just out -> Right out
+#endif
+
+#ifdef HAVE_BROTLI
+tryBrotli :: ByteString -> Either String ByteString
+tryBrotli bs =
+  unsafePerformIO $ do
+    er <- try @SomeException $ evaluate $
+            BL.toStrict $ Brotli.decompress $ BL.fromStrict bs
+    case er of
+      Left e  -> pure $ Left $ "Parquet.Read: Brotli decompress failed: " ++ show e
+      Right x -> pure $ Right x
 #endif
 
 decodePlainInt32 :: Int -> ByteString -> Either String (VP.Vector Int32)

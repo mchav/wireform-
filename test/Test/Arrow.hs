@@ -47,6 +47,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldNullable = False
                 , fieldType = AInt 32 True
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -55,23 +56,24 @@ schemaRoundtrips = testGroup "Schema roundtrips"
   , testCase "Multiple fields" $ do
       let msg = SchemaMessage Schema
             { arrowFields = V.fromList
-                [ Field (T.pack "name") True AUtf8 V.empty
-                , Field (T.pack "age") False (AInt 32 True) V.empty
-                , Field (T.pack "active") False ABool V.empty
-                , Field (T.pack "score") True (AFloatingPoint DoublePrecision) V.empty
+                [ Field (T.pack "name") True AUtf8 V.empty Nothing
+                , Field (T.pack "age") False (AInt 32 True) V.empty Nothing
+                , Field (T.pack "active") False ABool V.empty Nothing
+                , Field (T.pack "score") True (AFloatingPoint DoublePrecision) V.empty Nothing
                 ]
             , arrowEndianness = Little
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
   , testCase "Nested struct" $ do
-      let childField = Field (T.pack "x") False (AInt 64 True) V.empty
+      let childField = Field (T.pack "x") False (AInt 64 True) V.empty Nothing
           msg = SchemaMessage Schema
             { arrowFields = V.singleton Field
                 { fieldName = T.pack "point"
                 , fieldNullable = True
                 , fieldType = AStruct
                 , fieldChildren = V.singleton childField
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -84,6 +86,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldNullable = False
                 , fieldType = AInt 16 False
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Big
             }
@@ -102,7 +105,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                   , ADuration Millisecond
                   , ALargeBinary, ALargeUtf8, ALargeList
                   ]
-          mkField (i, at) = Field (T.pack ("f" ++ show i)) False at V.empty
+          mkField (i, at) = Field (T.pack ("f" ++ show i)) False at V.empty Nothing
           msg = SchemaMessage Schema
             { arrowFields = V.fromList (map mkField (zip [(0::Int)..] types))
             , arrowEndianness = Little
@@ -116,6 +119,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldNullable = True
                 , fieldType = ATimestamp Nanosecond (Just (T.pack "UTC"))
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -128,6 +132,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldNullable = False
                 , fieldType = ATimestamp Microsecond Nothing
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -140,6 +145,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldNullable = False
                 , fieldType = AUnion Dense (V.fromList [0, 1, 2])
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -152,6 +158,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 , fieldNullable = True
                 , fieldType = ADecimal 10 2
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -165,6 +172,8 @@ recordBatchRoundtrips = testGroup "RecordBatch roundtrips"
             { rbLength = 0
             , rbNodes = V.empty
             , rbBuffers = V.empty
+            , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -181,6 +190,8 @@ recordBatchRoundtrips = testGroup "RecordBatch roundtrips"
                 , Buffer 8128 128
                 , Buffer 8256 8000
                 ]
+            , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
   ]
@@ -203,6 +214,7 @@ edgeCases = testGroup "Edge cases"
                 , fieldNullable = False
                 , fieldType = ANull
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -241,6 +253,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
             , fieldNullable = nullable
             , fieldType = AInt bitWidth signed
             , fieldChildren = V.empty
+            , fieldDictionary = Nothing
             }
         ) [0..nFields-1]
       let msg = SchemaMessage Schema
@@ -264,6 +277,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
                 , fieldNullable = nullable
                 , fieldType = fieldType
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -295,6 +309,8 @@ propertyRoundtrips = testGroup "Property roundtrips"
             { rbLength = len
             , rbNodes = V.fromList nodes
             , rbBuffers = V.fromList bufs
+            , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
   ]
@@ -308,6 +324,7 @@ columnTests = testGroup "Column materialization"
                 , fieldNullable = True
                 , fieldType = AInt 32 True
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -315,6 +332,8 @@ columnTests = testGroup "Column materialization"
             { rbLength = 3
             , rbNodes = V.singleton (FieldNode 3 1)
             , rbBuffers = V.fromList [Buffer 0 1, Buffer 8 12]
+            , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
           validityByte = BS.pack [0x05]
           body = validityByte <> BS.replicate 7 0
@@ -324,14 +343,15 @@ columnTests = testGroup "Column materialization"
         Right cols -> V.head cols @?= ColInt32Maybe (V.fromList [Just 10, Nothing, Just 30])
 
   , testCase "Struct column" $ do
-      let childX = Field "x" False (AInt 32 True) V.empty
-          childY = Field "y" False (AInt 32 True) V.empty
+      let childX = Field "x" False (AInt 32 True) V.empty Nothing
+          childY = Field "y" False (AInt 32 True) V.empty Nothing
           schema = Schema
             { arrowFields = V.singleton Field
                 { fieldName = "point"
                 , fieldNullable = False
                 , fieldType = AStruct
                 , fieldChildren = V.fromList [childX, childY]
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -339,6 +359,8 @@ columnTests = testGroup "Column materialization"
             { rbLength = 2
             , rbNodes = V.fromList [FieldNode 2 0, FieldNode 2 0, FieldNode 2 0]
             , rbBuffers = V.fromList [Buffer 0 8, Buffer 8 8]
+            , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
           body = leI32 1 <> leI32 2 <> leI32 3 <> leI32 4
       case materializeRecordBatch schema rb body of
@@ -350,13 +372,14 @@ columnTests = testGroup "Column materialization"
             ])
 
   , testCase "List column" $ do
-      let childField = Field "item" False (AInt 32 True) V.empty
+      let childField = Field "item" False (AInt 32 True) V.empty Nothing
           schema = Schema
             { arrowFields = V.singleton Field
                 { fieldName = "vals"
                 , fieldNullable = False
                 , fieldType = AList
                 , fieldChildren = V.singleton childField
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -364,6 +387,8 @@ columnTests = testGroup "Column materialization"
             { rbLength = 2
             , rbNodes = V.fromList [FieldNode 2 0, FieldNode 5 0]
             , rbBuffers = V.fromList [Buffer 0 12, Buffer 16 20]
+            , rbVariadicBufferCounts = V.empty
+            , rbBodyCompression = Nothing
             }
           offsets = leI32 0 <> leI32 2 <> leI32 5
           body = offsets <> BS.replicate 4 0
@@ -385,6 +410,7 @@ writeRoundtrips = testGroup "Write round-trips"
                 , fieldNullable = False
                 , fieldType = AInt 32 True
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }
@@ -403,8 +429,8 @@ writeRoundtrips = testGroup "Write round-trips"
   , testCase "Arrow stream round-trip" $ do
       let schema = Schema
             { arrowFields = V.fromList
-                [ Field "a" False (AInt 32 True) V.empty
-                , Field "b" False ABool V.empty
+                [ Field "a" False (AInt 32 True) V.empty Nothing
+                , Field "b" False ABool V.empty Nothing
                 ]
             , arrowEndianness = Little
             }
@@ -432,6 +458,7 @@ writeRoundtrips = testGroup "Write round-trips"
                 , fieldNullable = False
                 , fieldType = AInt 32 True
                 , fieldChildren = V.empty
+                , fieldDictionary = Nothing
                 }
             , arrowEndianness = Little
             }

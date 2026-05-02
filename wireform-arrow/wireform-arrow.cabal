@@ -5,6 +5,16 @@ synopsis: Apache Arrow IPC schema framing and record batch materialization
 license: BSD-3-Clause
 build-type: Simple
 
+flag zstd
+  description: Enable Zstandard body-buffer compression for Arrow IPC.
+  default: False
+  manual: True
+
+flag lz4
+  description: Enable LZ4 frame-format body-buffer compression for Arrow IPC.
+  default: False
+  manual: True
+
 common defaults
   ghc-options:
     -Wall
@@ -30,7 +40,12 @@ library
   exposed-modules:
     Arrow.Column
     Arrow.File
+    Arrow.FlatBufferIPC
     Arrow.IPC
+    Arrow.Record
+    Arrow.Record.Generic
+    Arrow.Record.TH
+    Arrow.Stream
     Arrow.Types
     Arrow.Write
   build-depends:
@@ -42,4 +57,38 @@ library
     vector >= 0.13 && < 0.14,
     primitive >= 0.7 && < 0.10,
     containers >= 0.6 && < 0.8,
-    deepseq >= 1.4 && < 1.6
+    deepseq >= 1.4 && < 1.6,
+    template-haskell >= 2.18 && < 2.24
+  if flag(zstd)
+    cpp-options: -DHAVE_ZSTD
+    build-depends: zstd >= 0.1 && < 0.2
+  if flag(lz4)
+    cpp-options: -DHAVE_LZ4
+    -- lz4-hs bundles LZ4 1.9.3 and exposes Codec.Lz4's frame-format
+    -- compress / decompress functions. Older Hackage "lz4" only
+    -- implements the block format (incompatible with arrow-cpp).
+    build-depends: lz4-hs >= 0.1 && < 0.2
+
+executable wireform-arrow-pyarrow-probe
+  import: defaults
+  main-is: Probe.hs
+  hs-source-dirs: test-probe
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    bytestring >= 0.11 && < 0.13,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14,
+
+test-suite wireform-arrow-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    bytestring >= 0.11 && < 0.13,
+    text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14,
+    primitive >= 0.7 && < 0.10

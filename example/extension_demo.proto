@@ -1,0 +1,19 @@
+// Proto2 file demonstrating typed extensions.
+syntax = "proto2";
+
+message Account {
+  optional string name = 1;
+  extensions 100 to max;
+}
+
+extend Account {
+  optional int32  level     = 123;
+  optional string tag       = 124;
+  optional bool   disabled  = 125;
+  optional bytes  opaque    = 126;
+  // Repeated extension (proto2 default = unpacked encoding).
+  repeated int32  scores    = 127;
+  // Repeated + packed: same data type, packed-on-wire encoding.
+  repeated int32  packed_scores = 128 [packed = true];
+  repeated string aliases   = 129;
+}

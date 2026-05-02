@@ -66,6 +66,12 @@ data ShreddedType
   | ShredDouble
   | ShredBool
   | ShredString
+  | ShredArrayOf !ShreddedType
+    -- ^ Nested array element type. Enables @LIST<LIST<…>>@ shapes
+    -- on the read path.
+  | ShredObjectOf !ObjectShreddingSchema
+    -- ^ Nested object element schema. Enables objects nested
+    -- inside arrays / other objects on the read path.
   deriving (Show, Eq)
 
 -- | One row's shredding decision. Per the spec table
@@ -86,6 +92,12 @@ data ShreddedRow
   | ShredAsValue !ByteString          -- ^ re-encoded Variant value bytes
   | ShredMissing
   | ShredVariantNull
+  | ShredAsArrayOf !ArrayShreddedRow
+    -- ^ Element of a shredded-array column whose element type is
+    -- itself an array. Allows nested @LIST<LIST<…>>@ and
+    -- @LIST<OBJECT<…>>@ shapes on the read path.
+  | ShredAsObjectOf !ObjectShreddedRow
+    -- ^ Element whose type is itself a shredded object.
   deriving (Show, Eq)
 
 -- | Carrier for the typed sub-column's value. We use a plain ADT
@@ -131,6 +143,11 @@ routeRow st  (Just v)        = case (st, v) of
   (ShredDouble, IV.VDouble d)          -> ShredAsTyped (TVDouble d)
   (ShredBool,   IV.VBool b)            -> ShredAsTyped (TVBool b)
   (ShredString, IV.VString s)          -> ShredAsTyped (TVString s)
+  -- Recursive shredding: nested arrays / objects.
+  (ShredArrayOf inner, IV.VArray _) ->
+    ShredAsArrayOf (routeArrayRow inner (Just v))
+  (ShredObjectOf schema, IV.VObject _) ->
+    ShredAsObjectOf (routeObjectRow schema (Just v))
   -- Anything else falls through to the unshredded value column.
   -- We re-encode the Variant value bytes (the metadata stays the
   -- same per the column-wide invariant).
@@ -248,9 +265,13 @@ data ShreddedColumn = ShreddedColumn
 -- null      non-null      Present, the shredded type (returned by
 --                         lifting the typed sub-column to a
 --                         Variant via 'typedValueToVariant').
--- non-null  non-null      Partially shredded object (not yet
---                         supported in this primitive-shredding
---                         implementation; we return @Left@).
+-- non-null  non-null      Spec-invalid for primitive shredding:
+--                         both fields being present is only allowed
+--                         when @typed_value@ is a /group/ (i.e. the
+--                         variant was an object whose fields are
+--                         themselves shredded). The partial-object
+--                         case is handled on a separate code path
+--                         by 'reconstructObjectVariant'.
 -- @
 --
 -- For top-level Variant columns, where the spec says missing rows
@@ -275,13 +296,16 @@ reconstructVariant meta sc = case (sc_value sc, sc_typedValue sc) of
   (Nothing, Just tv) ->
     Right (Just (typedValueToVariant tv))
   (Just _, Just _) ->
-    -- Partially-shredded object case (spec §Objects). The typed
-    -- sub-column would be a Parquet group of further shredded
-    -- fields; this primitive-shredding module doesn't model that
-    -- shape, so we surface the situation explicitly.
-    Left "reconstructVariant: partially-shredded object \
-         \(both value and typed_value present); object \
-         \shredding is implemented in a separate code path"
+    -- Spec-invalid for primitive shredding: @typed_value@ being
+    -- non-null means the row is the shredded primitive; the
+    -- fallback @value@ column must be null in that case. A row
+    -- with both columns non-null only makes sense when
+    -- @typed_value@ is a /group/ of further shredded fields - i.e.
+    -- a partially-shredded object - which is handled by
+    -- 'reconstructObjectVariant' on its own code path.
+    Left "reconstructVariant: both value and typed_value present; \
+         \use reconstructObjectVariant for partially-shredded \
+         \objects (primitive shredding disallows this combination)"
 
 -- | Lift a 'TypedValue' (the typed sub-column's payload) to a
 -- 'Variant'. The shredded type uniquely determines which Variant
@@ -554,6 +578,14 @@ reconstructArrayVariant meta asr =
         Right v -> Right v
         Left  e -> Left ("reconstructArrayVariant: element decode: " ++ e)
       ShredVariantNull    -> Right IV.VNull
+      ShredAsArrayOf inner -> case reconstructArrayVariant m inner of
+        Right (Just v)  -> Right v
+        Right Nothing   -> Right IV.VNull
+        Left  e         -> Left e
+      ShredAsObjectOf inner -> case reconstructObjectVariant m inner of
+        Right (Just v)  -> Right v
+        Right Nothing   -> Right IV.VNull
+        Left  e         -> Left e
       ShredMissing        ->
         -- Per the spec, array elements must be present; this is
         -- a malformed input. The closest valid interpretation is

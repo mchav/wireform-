@@ -28,9 +28,12 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    ORC.Arrow
     ORC.BloomFilter
     ORC.Encryption
     ORC.Footer
+    ORC.HighLevel
+    ORC.Proto.Schema
     ORC.Read
     ORC.RowIndex
     ORC.Stripe
@@ -41,6 +44,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
+    wireform-arrow,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,

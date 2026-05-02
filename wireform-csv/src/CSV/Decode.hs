@@ -2,8 +2,8 @@
 -- | CSV/TSV parser with SIMD-accelerated scanning.
 --
 -- Implements RFC 4180 with configurable delimiter, quote, and escape characters.
--- Uses @hs_xml_find_byte@ from @cbits\/fast_xml.c@ for 16-byte vectorized
--- scanning of delimiter, quote, and newline characters.
+-- Uses 'Wireform.FFI.findByteBS' for 16-byte vectorized scanning of
+-- delimiter, quote, and newline characters.
 module CSV.Decode
   ( decode
   , decodeStream
@@ -20,21 +20,17 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 import Data.Word (Word8)
-import Foreign.C.Types (CInt(..))
-import Foreign.Ptr (Ptr, castPtr)
-import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import CSV.Value
 import CSV.Class (FromCSV(..))
+import qualified Wireform.FFI as WF
 
-foreign import ccall unsafe "hs_xml_find_byte"
-  c_find_byte :: Ptr () -> CInt -> CInt -> Word8 -> CInt
-
+-- | Local alias for the generic 'Wireform.FFI.findByteBS'
+-- primitive. Kept because CSV's call sites use @findByte bs
+-- off target@ with no explicit ByteString length; the wrapper
+-- matches that shape.
 findByte :: ByteString -> Int -> Word8 -> Int
-findByte bs off target = unsafeDupablePerformIO $
-  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-    let !r = c_find_byte (castPtr ptr) (fromIntegral off) (fromIntegral len) target
-    in pure $! if r < 0 then len else fromIntegral r
+findByte bs off target = WF.findByteBS bs off target
 {-# INLINE findByte #-}
 
 decode :: CSVConfig -> ByteString -> Either String CSVDocument

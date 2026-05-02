@@ -12,6 +12,10 @@ import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
 import Test.Tasty.Hedgehog
 
+import qualified Arrow.Column as AC
+import qualified Arrow.Types  as AT
+import qualified ORC.Arrow     as OArrow
+import qualified ORC.HighLevel as OHL
 import ORC.Footer
 import ORC.Read
 import ORC.Stripe (Stream (..), StripeFooter (..), encodeStripeFooter, decodeStripeFooter, stripeStreamSlices)
@@ -31,6 +35,157 @@ orcTests = testGroup "ORC"
   , newColumnDecoderTests
   , encoderTests
   , stripeFooterEncodeTests
+  , arrowBridgeTests
+  ]
+
+arrowBridgeTests :: TestTree
+arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
+  [ testCase "arrowToORC + decodeORC + orcStripeToArrow round-trip" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.fromList
+                [ AT.Field "i" False (AT.AInt 64 True) V.empty Nothing
+                , AT.Field "s" False AT.AUtf8           V.empty Nothing
+                ]
+            , AT.arrowEndianness = AT.Little
+            }
+          !batch = V.fromList
+            [ AC.ColInt64 (VP.fromList ([10, 20, 30] :: [Int64]))
+            , AC.ColUtf8  (V.fromList ["alpha", "beta", "gamma"])
+            ]
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC: " ++ e)
+        Right (types, stripesWithRows) ->
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC: " ++ e)
+            Right b -> do
+              -- Smoke test: file starts with the ORC magic.
+              BS.take 3 b @?= BS.pack [0x4F, 0x52, 0x43]   -- "ORC"
+  , testCase "nullable round-trip: PRESENT stream recovers nulls" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.fromList
+                [ AT.Field "i" True (AT.AInt 64 True) V.empty Nothing
+                , AT.Field "s" True AT.AUtf8          V.empty Nothing
+                ]
+            , AT.arrowEndianness = AT.Little
+            }
+          !batch = V.fromList
+            [ AC.ColInt64Maybe (V.fromList [Just 10, Nothing, Just 30])
+            , AC.ColUtf8Maybe  (V.fromList [Just "a", Just "b", Nothing])
+            ]
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC: " ++ e)
+        Right (types, stripesWithRows) -> do
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC: " ++ e)
+            Right bytes -> do
+              case OHL.decodeORC bytes of
+                Left e     -> assertFailure ("decodeORC: " ++ e)
+                Right footer -> do
+                  -- Verify row counts made it to the footer.
+                  (orcNumberOfRows footer) @?= 3
+                  case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
+                    Left  e    -> assertFailure ("orcStripeToArrow: " ++ e)
+                    Right cols ->
+                      if cols == batch
+                        then pure ()
+                        else assertFailure $
+                              "nullable round-trip mismatch:\n got "
+                                ++ show (V.toList cols)
+                                ++ "\n exp " ++ show (V.toList batch)
+  , testCase "temporal round-trip: Date32, Time32, Timestamp" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.fromList
+                [ AT.Field "d" False (AT.ADate AT.DateDay) V.empty Nothing
+                , AT.Field "t" False (AT.ATime AT.Millisecond 32) V.empty Nothing
+                , AT.Field "ts" False (AT.ATimestamp AT.Microsecond Nothing) V.empty Nothing
+                ]
+            , AT.arrowEndianness = AT.Little
+            }
+          !batch = V.fromList
+            [ AC.ColDate32 (VP.fromList ([19000, 19001, 19002] :: [Int32]))
+            , AC.ColTime32 (VP.fromList ([0, 60000, 120000] :: [Int32]))
+            , AC.ColTimestamp (VP.fromList ([1700000000000000, 1700001000000000, 1700002000000000] :: [Int64]))
+            ]
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC: " ++ e)
+        Right (types, stripesWithRows) -> do
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC: " ++ e)
+            Right bytes -> do
+              case OHL.decodeORC bytes of
+                Left e     -> assertFailure ("decodeORC: " ++ e)
+                Right footer ->
+                  case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
+                    Left  e    -> assertFailure ("orcStripeToArrow: " ++ e)
+                    Right cols ->
+                      if cols == batch
+                        then pure ()
+                        else assertFailure $ "temporal round-trip mismatch:\n got "
+                                              ++ show (V.toList cols)
+                                              ++ "\n exp " ++ show (V.toList batch)
+  , testCase "nested struct<int32, utf8> round-trip" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.singleton
+                (AT.Field "pt" False AT.AStruct
+                  (V.fromList
+                     [ AT.Field "x"    False (AT.AInt 32 True) V.empty Nothing
+                     , AT.Field "name" False AT.AUtf8          V.empty Nothing
+                     ])
+                  Nothing)
+            , AT.arrowEndianness = AT.Little
+            }
+          !batch = V.singleton $ AC.ColStruct
+            (V.fromList
+              [ ("x",    AC.ColInt32 (VP.fromList [1, 2, 3 :: Int32]))
+              , ("name", AC.ColUtf8  (V.fromList ["a", "b", "c"]))
+              ])
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC (struct): " ++ e)
+        Right (types, stripesWithRows) ->
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC (struct): " ++ e)
+            Right bytes ->
+              case OHL.decodeORC bytes of
+                Left e -> assertFailure ("decodeORC (struct): " ++ e)
+                Right footer ->
+                  case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
+                    Left e    -> assertFailure ("orcStripeToArrow (struct): " ++ e)
+                    Right cols
+                      | cols == batch -> pure ()
+                      | otherwise     -> assertFailure $
+                          "struct round-trip mismatch:\n got "
+                            ++ show (V.toList cols)
+                            ++ "\n exp " ++ show (V.toList batch)
+  , testCase "nested list<int32> round-trip" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.singleton
+                (AT.Field "xs" False AT.AList
+                  (V.singleton
+                     (AT.Field "item" False (AT.AInt 32 True) V.empty Nothing))
+                  Nothing)
+            , AT.arrowEndianness = AT.Little
+            }
+          -- 3 rows: [1,2,3], [], [4,5]
+          !batch = V.singleton $ AC.ColList
+            (VP.fromList [0, 3, 3, 5 :: Int32])
+            (AC.ColInt32 (VP.fromList [1, 2, 3, 4, 5 :: Int32]))
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC (list): " ++ e)
+        Right (types, stripesWithRows) ->
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC (list): " ++ e)
+            Right bytes ->
+              case OHL.decodeORC bytes of
+                Left e -> assertFailure ("decodeORC (list): " ++ e)
+                Right footer ->
+                  case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
+                    Left e    -> assertFailure ("orcStripeToArrow (list): " ++ e)
+                    Right cols
+                      | cols == batch -> pure ()
+                      | otherwise     -> assertFailure $
+                          "list round-trip mismatch:\n got "
+                            ++ show (V.toList cols)
+                            ++ "\n exp " ++ show (V.toList batch)
   ]
 
 stripeStreamTests :: TestTree
@@ -58,6 +213,7 @@ footerTests = testGroup "Footer roundtrip"
             , orcMetadata = V.empty
             , orcNumberOfRows = 0
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
 
@@ -97,6 +253,7 @@ footerTests = testGroup "Footer roundtrip"
             , orcMetadata = V.empty
             , orcNumberOfRows = 1000
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
 
@@ -112,6 +269,7 @@ footerTests = testGroup "Footer roundtrip"
                 ]
             , orcNumberOfRows = 0
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
 
@@ -129,6 +287,7 @@ footerTests = testGroup "Footer roundtrip"
             , orcMetadata = V.empty
             , orcNumberOfRows = 100
             , orcStatistics = stats
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
 
@@ -156,6 +315,7 @@ footerTests = testGroup "Footer roundtrip"
             , orcMetadata = V.empty
             , orcNumberOfRows = 1500
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) @?= Right footer
   ]
@@ -176,7 +336,7 @@ typeKindTests = testGroup "TypeKind"
   , testCase "Footer with all type kinds" $ do
       let allKinds = [TKBoolean .. TKChar]
           types = V.fromList $ map (\tk -> ORCType tk V.empty V.empty) allKinds
-          footer = ORCFooter 3 0 V.empty types V.empty 0 V.empty
+          footer = ORCFooter 3 0 V.empty types V.empty 0 V.empty Nothing
       readORCFooter (writeORCFooter footer) @?= Right footer
   ]
 
@@ -200,6 +360,7 @@ stripeSliceTests = testGroup "Stripe slice"
               , orcMetadata = V.empty
               , orcNumberOfRows = 10
               , orcStatistics = V.empty
+            , orcEncryption = Nothing
               }
           prefix = BS.replicate 9 0xAB
           file = prefix <> writeORCFooter footer
@@ -241,6 +402,7 @@ propertyTests = testGroup "Property roundtrips"
             , orcMetadata = V.empty
             , orcNumberOfRows = nRows
             , orcStatistics = V.empty
+            , orcEncryption = Nothing
             }
       readORCFooter (writeORCFooter footer) === Right footer
 
@@ -253,7 +415,7 @@ propertyTests = testGroup "Property roundtrips"
         ftr <- Gen.word64 (Range.linear 0 1000)
         nr  <- Gen.word64 (Range.linear 0 10000)
         pure (StripeInformation off idx dat ftr nr)
-      let footer = ORCFooter 3 0 stripes V.empty V.empty 0 V.empty
+      let footer = ORCFooter 3 0 stripes V.empty V.empty 0 V.empty Nothing
       readORCFooter (writeORCFooter footer) === Right footer
 
   , testProperty "Footer with random types" $ property $ do
@@ -265,7 +427,7 @@ propertyTests = testGroup "Property roundtrips"
         nFld <- Gen.int (Range.linear 0 3)
         flds <- V.replicateM nFld (Gen.text (Range.linear 1 20) Gen.alphaNum)
         pure (ORCType tk subs flds)
-      let footer = ORCFooter 3 0 V.empty types V.empty 0 V.empty
+      let footer = ORCFooter 3 0 V.empty types V.empty 0 V.empty Nothing
       readORCFooter (writeORCFooter footer) === Right footer
   ]
 
@@ -542,14 +704,17 @@ newColumnDecoderTests = testGroup "New column decoders"
           v @?= V.fromList [Just 1, Just (-1), Just 127 :: Maybe Int8]
 
   , testCase "TinyInt column with nulls" $ do
-      let dataBs = BS.pack [0x42]
+      -- present mask [T, F, T] => numPresent = 2, so the DATA stream
+      -- must carry exactly two bytes (the ORC spec omits null rows
+      -- from the DATA stream entirely).
+      let dataBs = BS.pack [0x42, 0x37]
           presentEncoded = BS.pack [0xFF, 0xA0] -- [T, F, T] = 10100000
       case decodeTinyIntColumn 3 dataBs (Just presentEncoded) of
         Left e -> assertFailure e
         Right v -> do
           V.length v @?= 3
           case V.toList v of
-            [Just 0x42, Nothing, _] -> pure ()
+            [Just 0x42, Nothing, Just 0x37] -> pure ()
             other -> assertFailure $ "unexpected: " ++ show other
   ]
 

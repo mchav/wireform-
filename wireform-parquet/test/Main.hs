@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
@@ -19,6 +20,7 @@ import Data.Int (Int32, Int64)
 import qualified Crypto.Random as RNG
 
 import Parquet.BloomFilter
+import Parquet.Compress (compressPageBytes)
 import Parquet.ByteStreamSplit
   ( encodeByteStreamSplitDouble
   , encodeByteStreamSplitFloat
@@ -79,6 +81,11 @@ import Parquet.Write
   , optionalColumnNullCount
   )
 import qualified Wireform.Hash as Hash
+
+import qualified Arrow.Column      as AC
+import qualified Arrow.Types       as AT
+import qualified Parquet.Arrow     as PArrow
+import qualified Parquet.HighLevel as PHL
 
 main :: IO ()
 main = do
@@ -747,6 +754,38 @@ main = do
     Right xs -> expect "BYTE_STREAM_SPLIT DOUBLE round-trip" (xs == bssDoubles)
     Left  e  -> failTest ("BYTE_STREAM_SPLIT DOUBLE decode: " ++ e)
 
+  -- Compression codec round-trips. All codecs should be refused by the
+  -- compressor's LZ4 (deprecated Hadoop variant) and LZO (spec codec 3,
+  -- not emitted by modern writers) branches. Brotli round-trips when
+  -- the library is built with @-fbrotli@.
+  case compressPageBytes LZ4 "anything" of
+    Left _  -> expect "LZ4 (codec 5) is refused by the compressor" True
+    Right _ -> failTest "Parquet.Compress: LZ4 compression should fail"
+  case compressPageBytes LZO "anything" of
+    Left _  -> expect "LZO (codec 3) is refused by the compressor" True
+    Right _ -> failTest "Parquet.Compress: LZO compression should fail"
+#ifdef HAVE_BROTLI
+  -- A mid-sized input so Brotli has something to chew on; the original
+  -- plaintext must be recovered after a round-trip through the reader.
+  let brotliInput = BS.concat (replicate 256 "the quick brown fox jumps over the lazy dog ")
+  case compressPageBytes Brotli brotliInput of
+    Left e  -> failTest ("Parquet.Compress: Brotli compression failed: " ++ e)
+    Right compressed -> do
+      expect "Brotli shrinks the repetitive fixture"
+        (BS.length compressed < BS.length brotliInput)
+      case Parquet.Read.decompressChunk Brotli compressed of
+        Left e -> failTest ("Parquet.Read: Brotli decompression failed: " ++ e)
+        Right restored ->
+          expect "Brotli round-trip preserves the input"
+            (restored == brotliInput)
+#else
+  -- Without -fbrotli the writer must surface a clear missing-codec error
+  -- rather than silently falling through to uncompressed.
+  case compressPageBytes Brotli "anything" of
+    Left _  -> expect "Brotli reports the -fbrotli requirement" True
+    Right _ -> failTest "Parquet.Compress: Brotli must fail without -fbrotli"
+#endif
+
   -- DELTA_LENGTH_BYTE_ARRAY round-trip (encoder <-> decoder).
   let dlbaInputs =
         [ V.empty
@@ -812,7 +851,211 @@ main = do
       -- wireform-iceberg, which already depends on wireform-parquet).
     else putStrLn "SKIP: pyarrow not available, nested cross-language checks skipped"
 
+  -- Arrow ↔ Parquet bridge round-trip.
+  arrowParquetBridge
+
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
+
+arrowParquetProjection :: IO ()
+arrowParquetProjection = do
+  -- Write a 3-column file (a=int32, b=int32, c=utf8), then read
+  -- it back with target schema (c, a) (reordered + narrowed).
+  let !fullSchema = AT.Schema
+        { AT.arrowFields = V.fromList
+            [ AT.Field "a" False (AT.AInt 32 True) V.empty Nothing
+            , AT.Field "b" False (AT.AInt 32 True) V.empty Nothing
+            , AT.Field "c" False AT.AUtf8          V.empty Nothing
+            ]
+        , AT.arrowEndianness = AT.Little
+        }
+      !batch = V.fromList
+        [ AC.ColInt32 (VP.fromList [10, 20, 30 :: Int32])
+        , AC.ColInt32 (VP.fromList [40, 50, 60 :: Int32])
+        , AC.ColUtf8  (V.fromList ["alpha", "beta", "gamma"])
+        ]
+  case PArrow.arrowToParquet fullSchema [batch] of
+    Left  e -> failTest $ "projection arrowToParquet: " ++ e
+    Right (pSchema, pRgs) -> do
+      let !opts = PHL.defaultWriteOptions
+                    { PHL.writePageVersion = PageV1
+                    , PHL.writeCompression = Uncompressed
+                    }
+          !bytes = PHL.encodeParquet opts pSchema pRgs
+      case PHL.decodeParquet PHL.defaultReadOptions bytes of
+        Left  e -> failTest $ "projection decodeParquet: " ++ e
+        Right pf -> do
+          -- Target: (c, a), reordered and projected.
+          let !target = AT.Schema
+                { AT.arrowFields = V.fromList
+                    [ AT.Field "c" False AT.AUtf8          V.empty Nothing
+                    , AT.Field "a" False (AT.AInt 32 True) V.empty Nothing
+                    ]
+                , AT.arrowEndianness = AT.Little
+                }
+          case PArrow.parquetRowGroupToArrowProjected target pf 0 of
+            Left  e    -> failTest $ "parquetRowGroupToArrowProjected: " ++ show e
+            Right cols -> do
+              let !expected = V.fromList
+                    [ AC.ColUtf8  (V.fromList ["alpha", "beta", "gamma"])
+                    , AC.ColInt32 (VP.fromList [10, 20, 30 :: Int32])
+                    ]
+              if cols == expected
+                then putStrLn "OK: Parquet projection + reorder (c, a <- a, b, c)"
+                else failTest $ "projection mismatch:\n got "
+                                  ++ show (V.toList cols)
+
+          -- Test a missing column.
+          let !missing = AT.Schema
+                { AT.arrowFields = V.singleton
+                    (AT.Field "z" False (AT.AInt 32 True) V.empty Nothing)
+                , AT.arrowEndianness = AT.Little
+                }
+          case PArrow.parquetRowGroupToArrowProjected missing pf 0 of
+            Left (PArrow.MissingColumn "z") ->
+              putStrLn "OK: Parquet projection surfaces MissingColumn"
+            other -> failTest $ "expected MissingColumn, got " ++ show other
+
+          -- Test coercion: Int32 -> Int64.
+          let !widen = AT.Schema
+                { AT.arrowFields = V.singleton
+                    (AT.Field "a" False (AT.AInt 64 True) V.empty Nothing)
+                , AT.arrowEndianness = AT.Little
+                }
+          case PArrow.parquetRowGroupToArrowProjected widen pf 0 of
+            Left e -> failTest $ "projection coercion: " ++ show e
+            Right cols ->
+              if cols == V.singleton (AC.ColInt64 (VP.fromList [10, 20, 30 :: Int64]))
+                then putStrLn "OK: Parquet projection coerces Int32 -> Int64"
+                else failTest $ "coercion mismatch: " ++ show (V.toList cols)
+
+arrowParquetNestedBridge :: IO ()
+arrowParquetNestedBridge = do
+  -- Build an Arrow struct<i32, utf8> column + wrap it in a nested
+  -- Parquet file. Verifies that arrowFieldToNestedSchema +
+  -- columnArrayToNestedRows produce a valid NestedRow tree and
+  -- encodeParquetNested accepts it.
+  let structField = AT.Field "point" False AT.AStruct
+        (V.fromList
+           [ AT.Field "x" False (AT.AInt 32 True) V.empty Nothing
+           , AT.Field "name" False AT.AUtf8        V.empty Nothing
+           ])
+        Nothing
+      structCol = AC.ColStruct (V.fromList
+        [ ("x",    AC.ColInt32 (VP.fromList [1, 2, 3 :: Int32]))
+        , ("name", AC.ColUtf8  (V.fromList ["a", "b", "c"]))
+        ])
+  case PArrow.arrowFieldToNestedSchema structField of
+    Left  e   -> failTest $ "arrowFieldToNestedSchema: " ++ e
+    Right sch -> case PArrow.columnArrayToNestedRows structCol of
+      Left  e   -> failTest $ "columnArrayToNestedRows: " ++ e
+      Right rows ->
+        let !cols = V.singleton ("point", sch)
+            !cr   = V.singleton rows
+        in  case PHL.encodeParquetNested cols cr of
+              Left  e  -> failTest $ "encodeParquetNested: " ++ e
+              Right bs ->
+                if BS.length bs > 4 && BS.take 4 bs == BSC.pack "PAR1"
+                  then putStrLn "OK: Arrow <-> Parquet nested bridge"
+                  else failTest $ "nested bridge produced invalid Parquet file"
+
+arrowParquetBridge :: IO ()
+arrowParquetBridge = do
+  let !arrowSchema = AT.Schema
+        { AT.arrowFields = V.fromList
+            [ AT.Field "i" False (AT.AInt 32 True) V.empty Nothing
+            , AT.Field "s" False AT.AUtf8           V.empty Nothing
+            ]
+        , AT.arrowEndianness = AT.Little
+        }
+      !batch = V.fromList
+        [ AC.ColInt32 (VP.fromList ([10, 20, 30] :: [Int32]))
+        , AC.ColUtf8  (V.fromList ["alpha", "beta", "gamma"])
+        ]
+  case PArrow.arrowToParquet arrowSchema [batch] of
+    Left  e  -> failTest $ "arrowToParquet: " ++ e
+    Right (psSchema, rgs) -> do
+      let !opts = PHL.defaultWriteOptions
+                    { PHL.writePageVersion = PageV1
+                    , PHL.writeCompression = Uncompressed
+                    }
+          !bytes = PHL.encodeParquet opts psSchema rgs
+      case PHL.decodeParquet PHL.defaultReadOptions bytes of
+        Left  e -> failTest $ "decodeParquet (bridge): " ++ e
+        Right pf ->
+          case PArrow.parquetRowGroupToArrow arrowSchema pf 0 of
+            Left  e    -> failTest $ "parquetRowGroupToArrow: " ++ show e
+            Right cols ->
+              if cols == batch
+                then putStrLn "OK: Arrow ↔ Parquet bridge round-trip"
+                else failTest $ "bridge round-trip mismatch:\n got "
+                                 ++ show (V.toList cols)
+                                 ++ "\n exp " ++ show (V.toList batch)
+
+  -- streamRowGroups: drain the same single-row-group file as a
+  -- list and assert every row group materialises correctly.
+  case PArrow.arrowToParquet arrowSchema [batch] of
+    Left  e -> failTest $ "arrowToParquet (stream): " ++ e
+    Right (psSchema, rgs) -> do
+      let !opts = PHL.defaultWriteOptions
+                    { PHL.writePageVersion = PageV1
+                    , PHL.writeCompression = Uncompressed
+                    }
+          !bytes = PHL.encodeParquet opts psSchema rgs
+      case PHL.decodeParquet PHL.defaultReadOptions bytes of
+        Left  e -> failTest $ "decodeParquet (stream): " ++ e
+        Right pf -> do
+          let results = PArrow.streamRowGroups arrowSchema pf
+          if length results /= 1
+            then failTest $ "streamRowGroups: expected 1 row group, got "
+                              ++ show (length results)
+            else case head results of
+              Left  e    -> failTest $ "streamRowGroups (rg 0): " ++ e
+              Right cols ->
+                if cols == batch
+                  then putStrLn "OK: streamRowGroups iterates row groups"
+                  else failTest $ "streamRowGroups mismatch"
+
+  -- Temporal bridge: Date32, Timestamp round-trip through the
+  -- Arrow -> Parquet -> Arrow path.
+  let !tempSchema = AT.Schema
+        { AT.arrowFields = V.fromList
+            [ AT.Field "d"  False (AT.ADate AT.DateDay) V.empty Nothing
+            , AT.Field "ts" False (AT.ATimestamp AT.Microsecond Nothing) V.empty Nothing
+            ]
+        , AT.arrowEndianness = AT.Little
+        }
+      !tempBatch = V.fromList
+        [ AC.ColDate32    (VP.fromList ([19000, 19001, 19002] :: [Int32]))
+        , AC.ColTimestamp (VP.fromList ([1700000000000000, 1700001000000000, 1700002000000000] :: [Int64]))
+        ]
+  case PArrow.arrowToParquet tempSchema [tempBatch] of
+    Left  e -> failTest $ "temporal arrowToParquet: " ++ e
+    Right (tSchema, tRgs) -> do
+      let !tOpts = PHL.defaultWriteOptions
+                      { PHL.writePageVersion = PageV1
+                      , PHL.writeCompression = Uncompressed
+                      }
+          !tBytes = PHL.encodeParquet tOpts tSchema tRgs
+      case PHL.decodeParquet PHL.defaultReadOptions tBytes of
+        Left  e -> failTest $ "temporal decodeParquet: " ++ e
+        Right pf ->
+          case PArrow.parquetRowGroupToArrow tempSchema pf 0 of
+            Left  e    -> failTest $ "temporal parquetRowGroupToArrow: " ++ show e
+            Right cols ->
+              if cols == tempBatch
+                then putStrLn "OK: Arrow <-> Parquet temporal round-trip"
+                else failTest $ "temporal mismatch:\n got "
+                                  ++ show (V.toList cols)
+                                  ++ "\n exp " ++ show (V.toList tempBatch)
+
+  -- Nested bridge + Parquet.HighLevel.encodeParquetNested:
+  -- struct + list Arrow columns lower to Parquet.Nested.NestedRow
+  -- trees and the nested writer produces a valid Parquet file.
+  arrowParquetNestedBridge
+
+  -- Projection / schema evolution: read a 3-column file back with
+  -- a 2-column target schema in a different order.
+  arrowParquetProjection
 
 expectHash :: String -> String -> IO ()
 expectHash s expected = expectHashBs (BSC.pack s) expected

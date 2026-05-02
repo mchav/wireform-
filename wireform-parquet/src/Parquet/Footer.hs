@@ -1,11 +1,15 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | Read/write Apache Parquet file footer.
 --
 -- Parquet file layout ends with:
 --   [Thrift Compact Protocol encoded FileMetadata] [4-byte LE metadata length] [PAR1 magic]
 --
 -- We use the existing Thrift Compact Protocol encoder/decoder to serialize
--- the FileMetadata as a Thrift struct.
+-- the FileMetadata as a Thrift struct. Struct-field placement is mediated
+-- by the bidirectional pattern synonyms in "Parquet.Thrift.Schema" so
+-- that field numbers live in one spec-tracking module; writers and
+-- readers reference the fields by name.
 module Parquet.Footer
   ( readFooter
   , readFooterRaw
@@ -26,15 +30,15 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Unsafe as BSU
-import Data.Int (Int16, Int32, Int64)
+import Data.Int (Int16, Int32)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding
 import Data.Word (Word32)
 import qualified Data.Vector as V
 
+import Parquet.Thrift.Schema
 import Parquet.Types
 import qualified Thrift.Value as TV
-import qualified Thrift.Wire as TW
 import Thrift.Encode (encodeCompact)
 import Thrift.Decode (decodeCompact)
 
@@ -127,93 +131,74 @@ readLE32 bs off =
       !b3 = fromIntegral (BSU.unsafeIndex bs (off + 3)) :: Word32
   in b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16) .|. (b3 `shiftL` 24)
 
--- Thrift field IDs for FileMetadata:
--- 1: version (i32), 2: schema (list<SchemaElement>), 3: num_rows (i64),
--- 4: row_groups (list<RowGroup>), 5: created_by (string)
-
 fileMetadataToThrift :: FileMetadata -> TV.Value
 fileMetadataToThrift fm = TV.Struct $ V.fromList $
-  [ (1, TV.I32 (fmVersion fm))
-  , (2, TV.List TW.TT_STRUCT (V.map schemaElementToThrift (fmSchema fm)))
-  , (3, TV.I64 (fmNumRows fm))
-  , (4, TV.List TW.TT_STRUCT (V.map rowGroupToThrift (fmRowGroups fm)))
-  ] ++ maybe [] (\t -> [(5, TV.String t)]) (fmCreatedBy fm)
+  [ FileMetadata_Version (fmVersion fm)
+  , FileMetadata_Schema (V.map schemaElementToThrift (fmSchema fm))
+  , FileMetadata_NumRows (fmNumRows fm)
+  , FileMetadata_RowGroups (V.map rowGroupToThrift (fmRowGroups fm))
+  ] ++ optField (fmCreatedBy fm) FileMetadata_CreatedBy
 
--- | Encode a SchemaElement matching parquet.thrift exactly:
---
---   1: optional Type                    type
---   2: optional i32                     type_length
---   3: optional FieldRepetitionType     repetition_type
---   4: required string                  name
---   5: optional i32                     num_children
---   6: optional ConvertedType           converted_type
---   7: optional i32                     scale
---   8: optional i32                     field_id
 schemaElementToThrift :: SchemaElement -> TV.Value
-schemaElementToThrift se = TV.Struct $ V.fromList $
-  maybe [] (\t -> [(1, TV.I32 (parquetTypeToInt t))]) (seType se)
-  ++ maybe [] (\r -> [(3, TV.I32 (fromIntegral (fromEnum r)))]) (seRepetition se)
-  ++ [(4, TV.String (seName se))]
-  ++ maybe [] (\n -> [(5, TV.I32 n)]) (seNumChildren se)
-  ++ maybe [] (\c -> [(6, TV.I32 (fromIntegral (fromEnum c)))]) (seConvertedType se)
-  ++ maybe [] (\fid -> [(8, TV.I32 fid)]) (seFieldId se)
+schemaElementToThrift se = TV.Struct $ V.fromList $ concat
+  [ optField (seType se)        (SchemaElement_Type . parquetTypeToInt)
+  , optField (seRepetition se)  (SchemaElement_RepetitionType . fromIntegral . fromEnum)
+  , [ SchemaElement_Name (seName se) ]
+  , optField (seNumChildren se) SchemaElement_NumChildren
+  , optField (seConvertedType se)
+      (SchemaElement_ConvertedType . fromIntegral . fromEnum)
+  , optField (seFieldId se)     SchemaElement_FieldId
+  ]
 
 rowGroupToThrift :: RowGroup -> TV.Value
 rowGroupToThrift rg = TV.Struct $ V.fromList
-  [ (1, TV.List TW.TT_STRUCT (V.map columnChunkToThrift (rgColumns rg)))
-  , (2, TV.I64 (rgTotalByteSize rg))
-  , (3, TV.I64 (rgNumRows rg))
+  [ RowGroup_Columns (V.map columnChunkToThrift (rgColumns rg))
+  , RowGroup_TotalByteSize (rgTotalByteSize rg)
+  , RowGroup_NumRows (rgNumRows rg)
   ]
 
 columnChunkToThrift :: ColumnChunk -> TV.Value
-columnChunkToThrift cc = TV.Struct $ V.fromList $
-  maybe [] (\fp -> [(1, TV.String fp)]) (ccFilePath cc)
-  ++ [ (2, TV.I64 (ccFileOffset cc)) ]
-  ++ maybe [] (\cm -> [(3, columnMetadataToThrift cm)]) (ccMetadata cc)
-  -- field 4 (offset_index_offset) - 6 are reserved by parquet.thrift for
-  -- offset_index_length / column_index_offset / column_index_length when
-  -- carried inline. We mirror the upstream layout:
-  --   4: optional i64 offset_index_offset
-  --   5: optional i32 offset_index_length
-  --   6: optional i64 column_index_offset
-  --   7: optional i32 column_index_length
-  -- Older wireform writers omitted these fields entirely, which decoders
-  -- treat as @Nothing@.
-  ++ maybe [] (\v -> [(4, TV.I64 v)]) (ccOffsetIndexOffset cc)
-  ++ maybe [] (\v -> [(5, TV.I32 v)]) (ccOffsetIndexLength cc)
-  ++ maybe [] (\v -> [(6, TV.I64 v)]) (ccColumnIndexOffset cc)
-  ++ maybe [] (\v -> [(7, TV.I32 v)]) (ccColumnIndexLength cc)
+columnChunkToThrift cc = TV.Struct $ V.fromList $ concat
+  [ optField (ccFilePath cc) ColumnChunk_FilePath
+  , [ ColumnChunk_FileOffset (ccFileOffset cc) ]
+  , optField (ccMetadata cc)
+      (\cm -> ColumnChunk_MetaData (V.fromList (columnMetadataFields cm)))
+  -- Offset/column-index placement is spec'd on ColumnChunk itself;
+  -- older wireform writers omitted these fields entirely, which
+  -- decoders treat as @Nothing@.
+  , optField (ccOffsetIndexOffset cc) ColumnChunk_OffsetIndexOffset
+  , optField (ccOffsetIndexLength cc) ColumnChunk_OffsetIndexLength
+  , optField (ccColumnIndexOffset cc) ColumnChunk_ColumnIndexOffset
+  , optField (ccColumnIndexLength cc) ColumnChunk_ColumnIndexLength
+  ]
 
--- | Encode ColumnMetaData per parquet.thrift field numbers:
---
---   1 type, 2 encodings, 3 path_in_schema, 4 codec, 5 num_values,
---   6 total_uncompressed_size, 7 total_compressed_size,
---   8 key_value_metadata (skipped), 9 data_page_offset,
---   10 index_page_offset, 11 dictionary_page_offset,
---   12 statistics, 13 encoding_stats (skipped),
---   14 bloom_filter_offset, 15 bloom_filter_length.
-columnMetadataToThrift :: ColumnMetadata -> TV.Value
-columnMetadataToThrift cm = TV.Struct $ V.fromList $
-  [ (1, TV.I32 (parquetTypeToInt (cmType cm)))
-  , (2, TV.List TW.TT_I32 (V.map (TV.I32 . encodingToInt) (cmEncodings cm)))
-  , (3, TV.List TW.TT_STRING (V.map TV.String (cmPathInSchema cm)))
-  , (4, TV.I32 (compressionToInt (cmCodec cm)))
-  , (5, TV.I64 (cmNumValues cm))
-  , (6, TV.I64 (cmTotalUncompressedSize cm))
-  , (7, TV.I64 (cmTotalCompressedSize cm))
-  , (9, TV.I64 (cmDataPageOffset cm))
-  ] ++ maybe [] (\s -> [(12, statisticsToThrift s)]) (cmStatistics cm)
-  ++ maybe [] (\v -> [(14, TV.I64 v)]) (cmBloomFilterOffset cm)
-  ++ maybe [] (\v -> [(15, TV.I32 v)]) (cmBloomFilterLength cm)
+columnMetadataFields :: ColumnMetadata -> [(Int16, TV.Value)]
+columnMetadataFields cm = concat
+  [ [ ColumnMetaData_Type (parquetTypeToInt (cmType cm))
+    , ColumnMetaData_Encodings
+        (V.map (TV.I32 . encodingToInt) (cmEncodings cm))
+    , ColumnMetaData_PathInSchema (V.map TV.String (cmPathInSchema cm))
+    , ColumnMetaData_Codec (compressionToInt (cmCodec cm))
+    , ColumnMetaData_NumValues (cmNumValues cm)
+    , ColumnMetaData_TotalUncompressedSize (cmTotalUncompressedSize cm)
+    , ColumnMetaData_TotalCompressedSize (cmTotalCompressedSize cm)
+    , ColumnMetaData_DataPageOffset (cmDataPageOffset cm)
+    ]
+  , optField (cmStatistics cm)
+      (\s -> ColumnMetaData_Statistics (V.fromList (statisticsFields s)))
+  , optField (cmBloomFilterOffset cm) ColumnMetaData_BloomFilterOffset
+  , optField (cmBloomFilterLength cm) ColumnMetaData_BloomFilterLength
+  ]
 
-statisticsToThrift :: Statistics -> TV.Value
-statisticsToThrift st = TV.Struct $ V.fromList $
-  maybe [] (\v -> [(1, TV.Binary v)]) (statMax st)
-  ++ maybe [] (\v -> [(2, TV.Binary v)]) (statMin st)
-  ++ maybe [] (\v -> [(3, TV.I64 v)]) (statNullCount st)
-  ++ maybe [] (\v -> [(4, TV.I64 v)]) (statDistinctCount st)
-  ++ maybe [] (\v -> [(5, TV.Binary v)]) (statMaxValue st)
-  ++ maybe [] (\v -> [(6, TV.Binary v)]) (statMinValue st)
+statisticsFields :: Statistics -> [(Int16, TV.Value)]
+statisticsFields st = concat
+  [ optField (statMax st)           Statistics_Max
+  , optField (statMin st)           Statistics_Min
+  , optField (statNullCount st)     Statistics_NullCount
+  , optField (statDistinctCount st) Statistics_DistinctCount
+  , optField (statMaxValue st)      Statistics_MaxValue
+  , optField (statMinValue st)      Statistics_MinValue
+  ]
 
 encodingToInt :: Encoding -> Int32
 encodingToInt = \case
@@ -268,11 +253,21 @@ intToCompression = \case
 thriftToFileMetadata :: TV.Value -> Either String FileMetadata
 thriftToFileMetadata (TV.Struct fields) = do
   let fm = V.toList fields
-  version <- getI32 fm 1 "version"
-  schema <- getListStruct fm 2 "schema" thriftToSchemaElement
-  numRows <- getI64 fm 3 "num_rows"
-  rowGroups <- getListStruct fm 4 "row_groups" thriftToRowGroup
-  let createdBy = getOptionalString fm 5
+  version <- require fm "version" $ \case
+    FileMetadata_Version v -> Just v
+    _                      -> Nothing
+  schema <- requireListStruct fm "schema" thriftToSchemaElement $ \case
+    FileMetadata_Schema xs -> Just xs
+    _                      -> Nothing
+  numRows <- require fm "num_rows" $ \case
+    FileMetadata_NumRows v -> Just v
+    _                      -> Nothing
+  rowGroups <- requireListStruct fm "row_groups" thriftToRowGroup $ \case
+    FileMetadata_RowGroups xs -> Just xs
+    _                         -> Nothing
+  let createdBy = findField fm $ \case
+        FileMetadata_CreatedBy t -> Just t
+        _                        -> Nothing
   Right FileMetadata
     { fmVersion = version
     , fmSchema = schema
@@ -285,22 +280,25 @@ thriftToFileMetadata _ = Left "Parquet.Footer: expected struct"
 thriftToSchemaElement :: TV.Value -> Either String SchemaElement
 thriftToSchemaElement (TV.Struct fields) = do
   let fm = V.toList fields
-  name <- getString fm 4 "schema name"
-  let typ = case lookupField fm 1 of
-              Just (TV.I32 t) -> intToParquetType t
-              _ -> Nothing
-      rep = case lookupField fm 3 of
-              Just (TV.I32 r) -> Just (toEnum (fromIntegral r))
-              _ -> Nothing
-      numCh = case lookupField fm 5 of
-                Just (TV.I32 n) -> Just n
-                _ -> Nothing
-      conv = case lookupField fm 6 of
-               Just (TV.I32 c) | c >= 0, c <= 21 -> Just (toEnum (fromIntegral c))
-               _ -> Nothing
-      fid = case lookupField fm 8 of
-              Just (TV.I32 v) -> Just v
-              _ -> Nothing
+  name <- require fm "schema name" $ \case
+    SchemaElement_Name t -> Just t
+    _                    -> Nothing
+  let typ = findField fm $ \case
+        SchemaElement_Type t -> intToParquetType t
+        _                    -> Nothing
+      rep = findField fm $ \case
+        SchemaElement_RepetitionType r -> Just (toEnum (fromIntegral r))
+        _                              -> Nothing
+      numCh = findField fm $ \case
+        SchemaElement_NumChildren n -> Just n
+        _                           -> Nothing
+      conv = findField fm $ \case
+        SchemaElement_ConvertedType c
+          | c >= 0, c <= 21 -> Just (toEnum (fromIntegral c))
+        _                   -> Nothing
+      fid = findField fm $ \case
+        SchemaElement_FieldId v -> Just v
+        _                       -> Nothing
   Right SchemaElement
     { seName = name
     , seRepetition = rep
@@ -315,9 +313,15 @@ thriftToSchemaElement _ = Left "Parquet.Footer: expected struct for SchemaElemen
 thriftToRowGroup :: TV.Value -> Either String RowGroup
 thriftToRowGroup (TV.Struct fields) = do
   let fm = V.toList fields
-  cols <- getListStruct fm 1 "columns" thriftToColumnChunk
-  totalBytes <- getI64 fm 2 "total_byte_size"
-  numRows <- getI64 fm 3 "num_rows"
+  cols <- requireListStruct fm "columns" thriftToColumnChunk $ \case
+    RowGroup_Columns xs -> Just xs
+    _                   -> Nothing
+  totalBytes <- require fm "total_byte_size" $ \case
+    RowGroup_TotalByteSize v -> Just v
+    _                        -> Nothing
+  numRows <- require fm "num_rows" $ \case
+    RowGroup_NumRows v -> Just v
+    _                  -> Nothing
   Right RowGroup
     { rgColumns = cols
     , rgTotalByteSize = totalBytes
@@ -328,15 +332,29 @@ thriftToRowGroup _ = Left "Parquet.Footer: expected struct for RowGroup"
 thriftToColumnChunk :: TV.Value -> Either String ColumnChunk
 thriftToColumnChunk (TV.Struct fields) = do
   let fm = V.toList fields
-      fp = getOptionalString fm 1
-  fileOff <- getI64 fm 2 "file_offset"
-  meta <- case lookupField fm 3 of
-            Just v  -> Just <$> thriftToColumnMetadata v
-            Nothing -> Right Nothing
-  let oio = getOptionalI64 fm 4
-      oil = getOptionalI32 fm 5
-      cio = getOptionalI64 fm 6
-      cil = getOptionalI32 fm 7
+      fp = findField fm $ \case
+        ColumnChunk_FilePath t -> Just t
+        _                      -> Nothing
+  fileOff <- require fm "file_offset" $ \case
+    ColumnChunk_FileOffset v -> Just v
+    _                        -> Nothing
+  meta <- case findField fm (\case
+            ColumnChunk_MetaData fs -> Just fs
+            _                       -> Nothing) of
+    Just fs -> Just <$> thriftToColumnMetadata (TV.Struct fs)
+    Nothing -> Right Nothing
+  let oio = findField fm $ \case
+        ColumnChunk_OffsetIndexOffset v -> Just v
+        _                               -> Nothing
+      oil = findField fm $ \case
+        ColumnChunk_OffsetIndexLength v -> Just v
+        _                               -> Nothing
+      cio = findField fm $ \case
+        ColumnChunk_ColumnIndexOffset v -> Just v
+        _                               -> Nothing
+      cil = findField fm $ \case
+        ColumnChunk_ColumnIndexLength v -> Just v
+        _                               -> Nothing
   Right ColumnChunk
     { ccFilePath = fp
     , ccFileOffset = fileOff
@@ -351,34 +369,51 @@ thriftToColumnChunk _ = Left "Parquet.Footer: expected struct for ColumnChunk"
 thriftToColumnMetadata :: TV.Value -> Either String ColumnMetadata
 thriftToColumnMetadata (TV.Struct fields) = do
   let fm = V.toList fields
-  typeVal <- getI32 fm 1 "type"
+  typeVal <- require fm "type" $ \case
+    ColumnMetaData_Type v -> Just v
+    _                     -> Nothing
   pt <- maybe (Left "Parquet.Footer: invalid parquet type") Right (intToParquetType typeVal)
-  encodings <- case lookupField fm 2 of
-    Just (TV.List _ es) -> V.mapM (\case
-      TV.I32 e -> maybe (Left "Parquet.Footer: invalid encoding") Right (intToEncoding e)
-      _ -> Left "Parquet.Footer: expected i32 in encodings") es
-    _ -> Left "Parquet.Footer: missing encodings"
-  paths <- case lookupField fm 3 of
-    Just (TV.List _ ps) -> V.mapM (\case
-      TV.String t -> Right t
-      _ -> Left "Parquet.Footer: expected string in path") ps
-    _ -> Left "Parquet.Footer: missing path_in_schema"
-  codecVal <- getI32 fm 4 "codec"
+  encodings <- case findField fm (\case
+                 ColumnMetaData_Encodings xs -> Just xs
+                 _                           -> Nothing) of
+    Just es -> V.mapM expectEncoding es
+    Nothing -> Left "Parquet.Footer: missing encodings"
+  paths <- case findField fm (\case
+             ColumnMetaData_PathInSchema xs -> Just xs
+             _                              -> Nothing) of
+    Just ps -> V.mapM expectPathStr ps
+    Nothing -> Left "Parquet.Footer: missing path_in_schema"
+  codecVal <- require fm "codec" $ \case
+    ColumnMetaData_Codec v -> Just v
+    _                      -> Nothing
   codec <- maybe (Left "Parquet.Footer: invalid compression") Right (intToCompression codecVal)
-  numVals <- getI64 fm 5 "num_values"
-  uncompSz <- getI64 fm 6 "total_uncompressed_size"
-  compSz <- getI64 fm 7 "total_compressed_size"
-  -- field 8 = key_value_metadata (optional, ignored)
-  dataOff <- getI64 fm 9 "data_page_offset"
-  -- field 10 = index_page_offset (optional, ignored)
-  -- field 11 = dictionary_page_offset (optional, ignored)
-  let stats = case lookupField fm 12 of
-        Just v -> case thriftToStatistics v of
+  numVals <- require fm "num_values" $ \case
+    ColumnMetaData_NumValues v -> Just v
+    _                          -> Nothing
+  uncompSz <- require fm "total_uncompressed_size" $ \case
+    ColumnMetaData_TotalUncompressedSize v -> Just v
+    _                                      -> Nothing
+  compSz <- require fm "total_compressed_size" $ \case
+    ColumnMetaData_TotalCompressedSize v -> Just v
+    _                                    -> Nothing
+  dataOff <- require fm "data_page_offset" $ \case
+    ColumnMetaData_DataPageOffset v -> Just v
+    _                               -> Nothing
+  -- index_page_offset / dictionary_page_offset / encoding_stats /
+  -- key_value_metadata are all spec-defined but unused by this reader.
+  let stats = case findField fm (\case
+                ColumnMetaData_Statistics fs -> Just fs
+                _                            -> Nothing) of
+        Just fs -> case thriftToStatistics (TV.Struct fs) of
           Right s -> Just s
           Left _  -> Nothing
         Nothing -> Nothing
-      bfo = getOptionalI64 fm 14
-      bfl = getOptionalI32 fm 15
+      bfo = findField fm $ \case
+        ColumnMetaData_BloomFilterOffset v -> Just v
+        _                                  -> Nothing
+      bfl = findField fm $ \case
+        ColumnMetaData_BloomFilterLength v -> Just v
+        _                                  -> Nothing
   Right ColumnMetadata
     { cmType = pt
     , cmEncodings = encodings
@@ -394,67 +429,74 @@ thriftToColumnMetadata (TV.Struct fields) = do
     }
 thriftToColumnMetadata _ = Left "Parquet.Footer: expected struct for ColumnMetadata"
 
+expectEncoding :: TV.Value -> Either String Encoding
+expectEncoding (TV.I32 e) =
+  maybe (Left "Parquet.Footer: invalid encoding") Right (intToEncoding e)
+expectEncoding _ = Left "Parquet.Footer: expected i32 in encodings"
+
+expectPathStr :: TV.Value -> Either String T.Text
+expectPathStr (TV.String t) = Right t
+expectPathStr _             = Left "Parquet.Footer: expected string in path"
+
 thriftToStatistics :: TV.Value -> Either String Statistics
 thriftToStatistics (TV.Struct fields) = do
   let fm = V.toList fields
       -- Thrift Compact stores both binary and UTF-8 strings under
-      -- TT_STRING; the decoder surfaces TV.String when the bytes
-      -- happen to parse as UTF-8.  Stats values are arbitrary bytes
+      -- TT_STRING; the decoder surfaces TV.String when the bytes happen
+      -- to parse as UTF-8. Statistics values are arbitrary bytes
       -- (PLAIN-encoded primitives) so accept either shape.
-      getBinary fid = case lookupField fm fid of
-        Just (TV.Binary b) -> Just b
-        Just (TV.String t) -> Just (Data.Text.Encoding.encodeUtf8 t)
-        _ -> Nothing
-      getOptI64 fid = case lookupField fm fid of
-        Just (TV.I64 v) -> Just v
-        _ -> Nothing
+      minProbe = \case
+        Statistics_Min b              -> Just b
+        (2, TV.String t)              -> Just (Data.Text.Encoding.encodeUtf8 t)
+        _                             -> Nothing
+      maxProbe = \case
+        Statistics_Max b              -> Just b
+        (1, TV.String t)              -> Just (Data.Text.Encoding.encodeUtf8 t)
+        _                             -> Nothing
+      minValueProbe = \case
+        Statistics_MinValue b         -> Just b
+        (6, TV.String t)              -> Just (Data.Text.Encoding.encodeUtf8 t)
+        _                             -> Nothing
+      maxValueProbe = \case
+        Statistics_MaxValue b         -> Just b
+        (5, TV.String t)              -> Just (Data.Text.Encoding.encodeUtf8 t)
+        _                             -> Nothing
   Right Statistics
-    { statMax = getBinary 1
-    , statMin = getBinary 2
-    , statNullCount = getOptI64 3
-    , statDistinctCount = getOptI64 4
-    , statMaxValue = getBinary 5
-    , statMinValue = getBinary 6
+    { statMax = findField fm maxProbe
+    , statMin = findField fm minProbe
+    , statNullCount = findField fm $ \case
+        Statistics_NullCount v -> Just v
+        _                      -> Nothing
+    , statDistinctCount = findField fm $ \case
+        Statistics_DistinctCount v -> Just v
+        _                          -> Nothing
+    , statMaxValue = findField fm maxValueProbe
+    , statMinValue = findField fm minValueProbe
     }
 thriftToStatistics _ = Left "Parquet.Footer: expected struct for Statistics"
 
 -- Helpers
 
-lookupField :: [(Int16, TV.Value)] -> Int16 -> Maybe TV.Value
-lookupField fm fid = lookup fid fm
+-- | Look up a scalar field with a caller-supplied probe and fail with
+-- a uniform error message if the field is absent or the probe rejects
+-- its shape.
+require
+  :: [(Int16, TV.Value)]
+  -> String
+  -> ((Int16, TV.Value) -> Maybe a)
+  -> Either String a
+require fm name probe = case findField fm probe of
+  Just v  -> Right v
+  Nothing -> Left $ "Parquet.Footer: missing or invalid field " ++ name
 
-getI32 :: [(Int16, TV.Value)] -> Int16 -> String -> Either String Int32
-getI32 fm fid name = case lookupField fm fid of
-  Just (TV.I32 v) -> Right v
-  _ -> Left $ "Parquet.Footer: missing or invalid field " ++ name
-
-getI64 :: [(Int16, TV.Value)] -> Int16 -> String -> Either String Int64
-getI64 fm fid name = case lookupField fm fid of
-  Just (TV.I64 v) -> Right v
-  _ -> Left $ "Parquet.Footer: missing or invalid field " ++ name
-
-getString :: [(Int16, TV.Value)] -> Int16 -> String -> Either String T.Text
-getString fm fid name = case lookupField fm fid of
-  Just (TV.String t) -> Right t
-  _ -> Left $ "Parquet.Footer: missing or invalid field " ++ name
-
-getOptionalString :: [(Int16, TV.Value)] -> Int16 -> Maybe T.Text
-getOptionalString fm fid = case lookupField fm fid of
-  Just (TV.String t) -> Just t
-  _ -> Nothing
-
-getOptionalI32 :: [(Int16, TV.Value)] -> Int16 -> Maybe Int32
-getOptionalI32 fm fid = case lookupField fm fid of
-  Just (TV.I32 v) -> Just v
-  _ -> Nothing
-
-getOptionalI64 :: [(Int16, TV.Value)] -> Int16 -> Maybe Int64
-getOptionalI64 fm fid = case lookupField fm fid of
-  Just (TV.I64 v) -> Just v
-  _ -> Nothing
-
-getListStruct :: [(Int16, TV.Value)] -> Int16 -> String
-              -> (TV.Value -> Either String a) -> Either String (V.Vector a)
-getListStruct fm fid name decode = case lookupField fm fid of
-  Just (TV.List _ vs) -> V.mapM decode vs
-  _ -> Left $ "Parquet.Footer: missing or invalid field " ++ name
+-- | Variant of 'require' that expects a struct-list field; each element
+-- is decoded with the supplied function.
+requireListStruct
+  :: [(Int16, TV.Value)]
+  -> String
+  -> (TV.Value -> Either String a)
+  -> ((Int16, TV.Value) -> Maybe (V.Vector TV.Value))
+  -> Either String (V.Vector a)
+requireListStruct fm name decode probe = case findField fm probe of
+  Just xs -> V.mapM decode xs
+  Nothing -> Left $ "Parquet.Footer: missing or invalid field " ++ name

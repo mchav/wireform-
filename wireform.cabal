@@ -60,6 +60,13 @@ flag lz4
   manual: True
   default: False
 
+flag profile
+  description: Emit cost-centre annotations on the profile-rewriter
+               binary (requires building the dep closure with
+               --enable-profiling).
+  manual: True
+  default: False
+
 common defaults
   ghc-options:
     -Wall
@@ -96,6 +103,7 @@ library
     Wireform.ASN1
     Wireform.XML
     Wireform.HTML
+    Wireform.Columnar
     Wireform.Parquet
     Wireform.Arrow
     Wireform.ORC
@@ -134,6 +142,8 @@ library
     , wireform-toml
     , wireform-csv
     , wireform-ndjson
+    , bytestring
+    , vector
 
 -- Multi-format code generation CLI
 executable wireform-gen
@@ -242,6 +252,13 @@ test-suite wireform-test
     Test.ASN1
     Test.Parquet
     Test.Arrow
+    Test.Arrow.FlatBufferProperties
+    Test.Arrow.Record
+    Test.Arrow.RecordProperties
+    Test.Arrow.RecordTHTypes
+    Test.Columnar
+    Test.Columnar.Gen
+    Test.Columnar.Properties
     Test.EDN
     Test.MsgPackRPC
     Test.CBORDiagnostic
@@ -337,6 +354,13 @@ test-suite interop-test
   build-depends:
       base             >= 4.16 && < 5
     , wireform-proto
+    , wireform-avro
+    , wireform-bson
+    , wireform-cbor
+    , wireform-ion
+    , wireform-msgpack
+    , wireform-thrift
+    , wireform-xml
     , bytestring
     , text
     , vector
@@ -465,6 +489,12 @@ test-suite temporal-codegen-test
     , text
     , vector
   hs-source-dirs: temporal-test
+  -- The Temporal proto set generates ~50 Haskell modules totalling
+  -- tens of thousands of lines; at -O2 the sum of per-module
+  -- optimizations peaks around 10 GB resident. This test only
+  -- verifies that the codegen output compiles + round-trips, so
+  -- opt out of heavy optimization to keep CI machines under budget.
+  ghc-options: -O0
 
 ------------------------------------------------------------------------
 -- Benchmarks
@@ -498,6 +528,7 @@ benchmark xml-bench
   build-depends:
       base
     , wireform-xml
+    , wireform-html
     , bytestring
     , text
     , vector
@@ -516,7 +547,9 @@ benchmark quick-prof
   build-depends:
       base >= 4.16 && < 5
     , wireform-proto
+    , wireform-html
     , bytestring
+    , text
     , deepseq
   hs-source-dirs: bench
   ghc-options: -O2 -rtsopts
@@ -543,7 +576,17 @@ executable profile-rewriter
     , bytestring
     , text
   hs-source-dirs: bench
-  ghc-options: -O1 -rtsopts -fprof-late -prof
+  ghc-options: -O1 -rtsopts
+  -- The +profile flag re-enables cost-centre generation so
+  -- @+RTS -p@ produces useful output. Build with
+  --
+  --   cabal build exe:profile-rewriter -fprofile --enable-profiling
+  --
+  -- Default-off so @cabal build all@ in CI stays green
+  -- (--enable-profiling requires the entire dep closure to be
+  -- built with profiling libs too).
+  if flag(profile)
+    ghc-options: -fprof-late -prof
 
 benchmark format-bench
   import: defaults
@@ -610,6 +653,12 @@ executable example-custom-repr
   main-is: CustomReprExample.hs
   hs-source-dirs: examples
   build-depends: base, wireform-proto, bytestring, text, containers
+
+executable example-extensions
+  import: defaults
+  main-is: ExtensionExample.hs
+  hs-source-dirs: examples
+  build-depends: base, wireform-proto, bytestring, text
 
 executable example-th
   import: defaults
@@ -744,7 +793,7 @@ executable avro-thrift-bench
   main-is: AvroBench.hs
   ghc-options: -O2
   hs-source-dirs: bench
-  build-depends: base, wireform-avro, wireform-thrift, bytestring, text, deepseq, vector
+  build-depends: base, wireform-avro, wireform-thrift, bytestring, containers, text, deepseq, vector
 
 executable all-formats-bench
   import: defaults
@@ -764,6 +813,7 @@ executable all-formats-bench
     , wireform-bencode
     , wireform-toml
     , bytestring
+    , containers
     , text
     , vector
 

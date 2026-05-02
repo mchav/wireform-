@@ -161,6 +161,7 @@ library
     , exceptions                >= 0.10    && < 0.11
     , grpc-spec                 >= 1.0     && < 1.1
     , wireform
+    , wireform-proto
     , http-semantics            >= 0.3.0   && < 0.3.1
     , http-types                >= 0.12    && < 0.13
     , http2-tls                 >= 0.4.9   && < 0.5
@@ -191,7 +192,7 @@ test-suite wireform-grpc-test-minimal
   main-is:         Main.hs
   build-depends:
     , wireform-grpc
-    , wireform
+    , wireform-proto
     , bytestring >= 0.10.12 && < 0.13
 
 Flag build-stress-test

@@ -31,6 +31,10 @@ import qualified Codec.Compression.Zstd as Zstd
 import qualified Codec.Compression.LZ4 as LZ4
 #endif
 
+#ifdef HAVE_BROTLI
+import qualified Codec.Compression.Brotli as Brotli
+#endif
+
 import Parquet.Types (Compression (..))
 
 -- | Compress a page-body byte string with the given codec.
@@ -74,8 +78,18 @@ compressPageBytes LZ4 _ =
     "Parquet.Compress: deprecated Hadoop LZ4 (codec 5) is not supported; "
     ++ "use LZ4_RAW (codec 7) with -flz4"
 
+#ifdef HAVE_BROTLI
+compressPageBytes Brotli bs =
+  Right (BL.toStrict (Brotli.compress (BL.fromStrict bs)))
+#else
 compressPageBytes Brotli _ =
-  Left "Parquet.Compress: Brotli is not yet implemented"
+  Left "Parquet.Compress: Brotli requires building wireform with -fbrotli"
+#endif
 
+-- LZO is intentionally unsupported: the Parquet spec lists it (codec 3)
+-- for historical compatibility with Hadoop writers, but none of the
+-- mainstream modern writers (parquet-mr, arrow-cpp, pyarrow) emit LZO
+-- pages and parquet-cpp ships with it disabled by default. We surface a
+-- clear error rather than pretending otherwise.
 compressPageBytes LZO _ =
-  Left "Parquet.Compress: LZO is not yet implemented"
+  Left "Parquet.Compress: LZO (codec 3) is not supported; it's a legacy Hadoop codec not emitted by modern writers"

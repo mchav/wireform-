@@ -58,10 +58,15 @@ jobs:
       - name: Run HLint
         uses: haskell-actions/hlint-setup@v2
 
-      - name: HLint src/
+      # There's no top-level src/ in this workspace — each
+      # wireform-* package has its own src/ tree. Point HLint
+      # at wireform-core as a representative canary; we can
+      # widen this to the rest of the tree once the initial
+      # findings are triaged.
+      - name: HLint wireform-core/src
         uses: haskell-actions/hlint-run@v2
         with:
-          path: src/
+          path: wireform-core/src/
           fail-on: warning
 
   benchmarks:
@@ -125,6 +130,8 @@ jobs:
       - name: Generate well-known types and verify they compile
         run: |
           mkdir -p /tmp/gen-test
+          # wireform-gen's CLI now dispatches on the format via
+          # a subcommand: `wireform-gen proto -I ... -i ... -o ... -m ...`.
           for f in proto/google/protobuf/timestamp.proto \
                    proto/google/protobuf/duration.proto \
                    proto/google/protobuf/empty.proto \
@@ -132,7 +139,7 @@ jobs:
                    proto/google/protobuf/source_context.proto \
                    proto/google/protobuf/wrappers.proto \
                    proto/google/protobuf/struct.proto; do
-            cabal exec wireform-gen -- generate -I proto -o /tmp/gen-test --module-prefix Proto "$f"
+            cabal exec wireform-gen -- proto -I proto -o /tmp/gen-test -m Proto -i "$f"
           done
           echo "Generated files:"
           find /tmp/gen-test -name "*.hs" -exec echo "  {}" \;

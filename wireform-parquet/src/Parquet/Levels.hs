@@ -18,7 +18,12 @@ module Parquet.Levels
   , materializePlainBoolOptional
   , materializePlainByteArrayOptional
   , materializeRepeatedInt32
+  , materializeRepeatedInt64
+  , materializeRepeatedFloat
+  , materializeRepeatedDouble
   , materializeRepeatedByteArray
+  , materializeRepeatedByNested
+  , NestedValue (..)
   ) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
@@ -563,3 +568,222 @@ materializeRepeatedByteArray reps defs maxDef plain
                              else let !val = BS.take len (BS.drop off2 plain)
                                   in goRepBA rows' (Just val : row') (i + 1) (off2 + len)
                else goRepBA rows' (Nothing : row') (i + 1) off
+
+-- | Materialize a repeated @INT64@ column using repetition and definition levels.
+materializeRepeatedInt64 ::
+  VP.Vector Int32 ->
+  VP.Vector Int32 ->
+  Int ->
+  ByteString ->
+  Either String (V.Vector (V.Vector (Maybe Int64)))
+materializeRepeatedInt64 =
+  materializeFixedWidth 8 decodeI64
+  where
+    decodeI64 !bs !off = fromIntegral (readLE64 bs off) :: Int64
+
+-- | Materialize a repeated @FLOAT@ column using repetition and definition levels.
+materializeRepeatedFloat ::
+  VP.Vector Int32 ->
+  VP.Vector Int32 ->
+  Int ->
+  ByteString ->
+  Either String (V.Vector (V.Vector (Maybe Float)))
+materializeRepeatedFloat =
+  materializeFixedWidth 4 (\bs off -> castWord32ToFloat (readLE32 bs off))
+
+-- | Materialize a repeated @DOUBLE@ column using repetition and definition levels.
+materializeRepeatedDouble ::
+  VP.Vector Int32 ->
+  VP.Vector Int32 ->
+  Int ->
+  ByteString ->
+  Either String (V.Vector (V.Vector (Maybe Double)))
+materializeRepeatedDouble =
+  materializeFixedWidth 8 (\bs off -> castWord64ToDouble (readLE64 bs off))
+
+-- | Fixed-width primitive repeated materialiser. Walks rep/def
+-- levels row-grouped and lifts the fixed-size on-disk slice at
+-- @off@ via @decode bs off@ when @d == maxDef@.
+materializeFixedWidth
+  :: Int
+  -> (ByteString -> Int -> a)
+  -> VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int
+  -> ByteString
+  -> Either String (V.Vector (V.Vector (Maybe a)))
+materializeFixedWidth !w decode reps defs maxDef plain
+  | VP.length reps /= VP.length defs =
+      Left "Parquet.Levels: rep/def level count mismatch"
+  | otherwise = case go [] [] 0 0 of
+      Left e -> Left e
+      Right (rows, _) ->
+        Right $! V.fromList (reverse (map (V.fromList . reverse) rows))
+  where
+    !n = VP.length reps
+    !maxD = fromIntegral maxDef :: Int32
+
+    go !rows !curRow !i !off
+      | i >= n =
+          let !finalRows = if null curRow then rows else curRow : rows
+          in Right (finalRows, off)
+      | otherwise =
+          let !r = VP.unsafeIndex reps i
+              !d = VP.unsafeIndex defs i
+              !rows' = if r == 0
+                         then if null curRow then rows else curRow : rows
+                         else rows
+              !row' = if r == 0 then [] else curRow
+          in if d == maxD
+               then
+                 if off + w > BS.length plain
+                   then Left "Parquet.Levels: PLAIN buffer too small for repeated column"
+                   else let !v = decode plain off
+                        in go rows' (Just v : row') (i + 1) (off + w)
+               else go rows' (Nothing : row') (i + 1) off
+
+-- | Decode a column with arbitrary repetition depth (i.e. nested
+-- @LIST<LIST<…<T>>>@) using the standard Dremel reconstruction
+-- algorithm. Returns one 'NestedValue' tree per top-level row.
+--
+-- The parameter @maxRep@ is the maximum repetition level (number of
+-- nested @LIST@ wrappers). A @rep == 0@ marker starts a new
+-- top-level row; @rep == k@ starts a new sibling at depth @k@.
+--
+-- @
+--   maxRep = 2
+--   reps  = 0 2 1 2 0 1
+--   defs  = 2 2 2 2 2 2   (all present, maxDef == 2)
+--   →
+--   row 0 = [ [v0, v1], [v2, v3] ]
+--   row 1 = [ [v4],     [v5]      ]   -- second top-level row
+-- @
+--
+-- The caller supplies a per-leaf decoder that lifts one on-disk
+-- value to a @Maybe a@ and returns the advanced offset. A
+-- non-maximal definition level produces a 'NVLeaf' @Nothing@ at
+-- the appropriate depth (Dremel's null-with-shape semantics).
+materializeRepeatedByNested
+  :: VP.Vector Int32
+  -> VP.Vector Int32
+  -> Int                             -- ^ maxDef
+  -> Int                             -- ^ maxRep
+  -> ByteString
+  -> (ByteString -> Int -> Either String (a, Int))
+                                      -- ^ per-leaf decoder
+  -> Either String (V.Vector (NestedValue a))
+materializeRepeatedByNested reps defs maxDef maxRep plain leafDecode
+  | VP.length reps /= VP.length defs =
+      Left "Parquet.Levels: rep/def level count mismatch"
+  | maxRep < 0 =
+      Left "Parquet.Levels: negative maxRep"
+  | VP.null reps = Right V.empty
+  | otherwise = go 0 0 []
+  where
+    !n   = VP.length reps
+    !maxD = fromIntegral maxDef :: Int32
+
+    -- Decode the leaf at cursor @i@ given the on-disk @off@. When
+    -- @def < maxDef@ the row position contains a NULL (no value
+    -- bytes consumed); the returned 'NestedValue' is then 'NVLeaf
+    -- Nothing' at the depth implied by 'def'.
+    decodeLeaf !off !i = do
+      let !d = VP.unsafeIndex defs i
+      if d == maxD
+        then do
+          (v, off') <- leafDecode plain off
+          Right (NVLeaf (Just v), off')
+        else Right (NVLeaf Nothing, off)
+
+    -- Top-level driver. Accumulates rows into 'rev' (in reverse).
+    -- @off@ is the current decoder position into @plain@; @i@ is
+    -- the current rep/def cursor.
+    go !off !i rev
+      | i >= n   = Right (V.fromList (reverse rev))
+      | otherwise = do
+          (row, off', i') <- consumeRow off i
+          go off' i' (row : rev)
+
+    -- Read one top-level row, returning a 'NestedValue' tree.
+    consumeRow !off !i = do
+      -- A row always starts at rep == 0; skip the check for the
+      -- first item so callers can pass the initial cursor cleanly.
+      let !d = VP.unsafeIndex defs i
+      (leaf, off1) <- decodeLeaf off i
+      buildRow off1 (i + 1) (singletonAtDepth maxRep leaf (fromIntegral d))
+
+    -- @i@ is the cursor for the NEXT triple; @acc@ is the row
+    -- built so far (a NestedValue tree that grows to the right).
+    -- Continue while @rep > 0@ — that means "still in this row".
+    buildRow !off !i acc
+      | i >= n = Right (acc, off, i)
+      | VP.unsafeIndex reps i == 0 = Right (acc, off, i)
+      | otherwise = do
+          let !d = VP.unsafeIndex defs i
+              !r = fromIntegral (VP.unsafeIndex reps i) :: Int
+          (leaf, off1) <- decodeLeaf off i
+          let !acc' = appendAtDepth maxRep r (fromIntegral d) leaf acc
+          buildRow off1 (i + 1) acc'
+
+-- | Build the initial single-leaf row value: wrap @leaf@ in
+-- @maxRep@ list layers so the leaf lands at the innermost
+-- position.
+--
+-- Nuance: a row with @def \< maxDef@ in a nested column actually
+-- represents an /empty list/ or /null at some intermediate level/
+-- — Dremel's def-level encoding distinguishes those cases — but
+-- the standard Parquet/Dremel reconstruction requires you to look
+-- at @def@ relative to the schema's nullable layers. For now we
+-- always emit a fully-nested singleton; callers that need the
+-- empty-list case should consult the def stream directly.
+singletonAtDepth :: Int -> NestedValue a -> Int -> NestedValue a
+singletonAtDepth !depth !leaf !_def = wrapLists depth leaf
+
+-- | Append a new leaf to an existing nested value tree at the
+-- specified rep depth. The leaf is wrapped so its physical depth
+-- under the row root is @maxRep@ (i.e. it lands as an innermost-
+-- list element). The /append point/ is at depth @rep@ of the
+-- existing tree:
+--
+--   * @rep == maxRep@: descend to the innermost list and append
+--     the bare leaf as a new sibling.
+--   * @rep == maxRep-1@: descend one level less and append a /new
+--     innermost list containing the leaf/.
+--   * In general: descend @rep - 1@ list layers (rightmost child
+--     each time), then append a new node of depth @maxRep - rep@
+--     to that list.
+appendAtDepth :: Int -> Int -> Int -> NestedValue a -> NestedValue a -> NestedValue a
+appendAtDepth !maxRep !rep !_def !leaf !tree =
+  goDescend (rep - 1) tree
+  where
+    -- The new sibling we'll attach: leaf wrapped in @(maxRep - rep)@
+    -- list layers so its leaf depth becomes @maxRep@.
+    !newSibling = wrapLists (maxRep - rep) leaf
+
+    -- Descend @k@ list layers from the current node (rightmost
+    -- child each time), then append @newSibling@ to that list.
+    goDescend !k node = case node of
+      NVList xs
+        | k <= 0    -> NVList (xs ++ [newSibling])
+        | otherwise -> case reverse xs of
+            (lastChild : revInit) ->
+              NVList (reverse revInit ++ [goDescend (k - 1) lastChild])
+            [] -> NVList [newSibling]
+      NVLeaf _ ->
+        -- Shouldn't happen if maxRep > 0 and the row was started
+        -- correctly, but be defensive.
+        NVList [node, newSibling]
+
+-- | Wrap a value in @k@ singleton lists.
+wrapLists :: Int -> NestedValue a -> NestedValue a
+wrapLists !k v
+  | k <= 0    = v
+  | otherwise = NVList [wrapLists (k - 1) v]
+
+-- | A nested value: either a leaf (possibly null) or a list of
+-- children. The caller's row is one 'NestedValue' per top-level
+-- column entry.
+data NestedValue a
+  = NVLeaf !(Maybe a)
+  | NVList ![NestedValue a]
+  deriving stock (Show, Eq)

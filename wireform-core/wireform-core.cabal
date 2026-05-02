@@ -32,6 +32,7 @@ library
     Wireform.Encode.Direct
     Wireform.Hash
   c-sources: cbits/fast_decode.c
+             cbits/fast_scan.c
              cbits/wireform_hash_simd.c
   include-dirs: include/simde
   cc-options: -O3

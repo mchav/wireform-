@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 -- | ORC column encryption support (ORC v1.6+).
@@ -45,7 +46,7 @@ module ORC.Encryption
   , encryptStripeKey
   , deriveStreamIv
   , aesCtrXor
-    -- * Protobuf encoders for the @Encryption@ footer field
+    -- * Protobuf codec for the @Encryption@ footer field
   , Encryption (..)
   , EncryptionKey (..)
   , EncryptionVariant (..)
@@ -54,18 +55,23 @@ module ORC.Encryption
   , encodeEncryptionKey
   , encodeEncryptionVariant
   , encodeDataMask
+  , decodeEncryption
+  , decodeEncryptionKey
+  , decodeEncryptionVariant
+  , decodeDataMask
   ) where
 
 import qualified Crypto.Cipher.AES as Crypto
 import qualified Crypto.Cipher.Types as Cipher
 import Crypto.Error (CryptoFailable (..))
-import Data.Bits (shiftL, shiftR, (.|.), (.&.))
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Word (Word32, Word64, Word8)
+
+import ORC.Proto.Schema
 
 -- ============================================================
 -- Algorithm and key provider enums
@@ -87,6 +93,17 @@ algorithmTag = \case
   AES_CTR_192       -> 2
   AES_CTR_256       -> 3
 
+-- | Inverse of 'algorithmTag'. Unknown tags are surfaced as
+-- 'UnknownEncryption' (matching the spec's @UNKNOWN_ENCRYPTION = 0@
+-- fallback) rather than as a decode error, so a reader can tolerate
+-- newer ORC writers that introduce additional algorithm tags.
+algorithmFromTag :: Int -> EncryptionAlgorithm
+algorithmFromTag = \case
+  1 -> AES_CTR_128
+  2 -> AES_CTR_192
+  3 -> AES_CTR_256
+  _ -> UnknownEncryption
+
 -- | Which KMS produced the master keys. Mirrors
 -- @orc_proto.proto::KeyProviderKind@.
 data KeyProviderKind
@@ -104,6 +121,16 @@ providerTag = \case
   ProviderAwsKms   -> 2
   ProviderGcpKms   -> 3
   ProviderAzureKms -> 4
+
+-- | Inverse of 'providerTag'; unknown values fall through to
+-- 'ProviderUnknown' for forward compatibility.
+providerFromTag :: Int -> KeyProviderKind
+providerFromTag = \case
+  1 -> ProviderHadoop
+  2 -> ProviderAwsKms
+  3 -> ProviderGcpKms
+  4 -> ProviderAzureKms
+  _ -> ProviderUnknown
 
 -- ============================================================
 -- Cryptographic primitives
@@ -251,63 +278,101 @@ data DataMask = DataMask
 
 encodeEncryption :: Encryption -> ByteString
 encodeEncryption e = BL.toStrict $ B.toLazyByteString $
-       foldMap (protoLengthDelimited 1 . encodeDataMask)         (encMasks e)
-    <> foldMap (protoLengthDelimited 2 . encodeEncryptionKey)    (encKeys e)
-    <> foldMap (protoLengthDelimited 3 . encodeEncryptionVariant) (encVariants e)
-    <> protoVarintField 4
+       foldMap (encodeLengthDelimBytes Encryption_Mask     . encodeDataMask)
+         (encMasks e)
+    <> foldMap (encodeLengthDelimBytes Encryption_Key      . encodeEncryptionKey)
+         (encKeys e)
+    <> foldMap (encodeLengthDelimBytes Encryption_Variants . encodeEncryptionVariant)
+         (encVariants e)
+    <> encodeVarintField Encryption_KeyProvider
          (fromIntegral (providerTag (encKeyProvider e)))
 
 encodeEncryptionKey :: EncryptionKey -> ByteString
 encodeEncryptionKey ek = BL.toStrict $ B.toLazyByteString $
-  optName <> protoVarintField 2 (fromIntegral (ekVersion ek))
-          <> protoVarintField 3 (fromIntegral (algorithmTag (ekAlgorithm ek)))
+       optName
+    <> encodeVarintField EncryptionKey_KeyVersion (fromIntegral (ekVersion ek))
+    <> encodeVarintField EncryptionKey_Algorithm
+         (fromIntegral (algorithmTag (ekAlgorithm ek)))
   where
     optName
       | BS.null (ekName ek) = mempty
-      | otherwise           = protoLengthDelimited 1 (ekName ek)
+      | otherwise           = encodeLengthDelimBytes EncryptionKey_KeyName (ekName ek)
 
 encodeEncryptionVariant :: EncryptionVariant -> ByteString
 encodeEncryptionVariant ev = BL.toStrict $ B.toLazyByteString $
-       protoVarintField 1 (fromIntegral (evRoot ev))
-    <> protoVarintField 2 (fromIntegral (evKey ev))
-    <> protoLengthDelimited 3 (evEncryptedKey ev)
+       encodeVarintField EncryptionVariant_Root         (fromIntegral (evRoot ev))
+    <> encodeVarintField EncryptionVariant_Key          (fromIntegral (evKey ev))
+    <> encodeLengthDelimBytes EncryptionVariant_EncryptedKey (evEncryptedKey ev)
 
 encodeDataMask :: DataMask -> ByteString
 encodeDataMask dm = BL.toStrict $ B.toLazyByteString $
        optName
-    <> foldMap (protoLengthDelimited 2) (dmParameters dm)
-    <> foldMap (protoVarintField 3 . fromIntegral) (dmColumns dm)
+    <> foldMap (encodeLengthDelimBytes DataMask_MaskParameters) (dmParameters dm)
+    <> foldMap (encodeVarintField DataMask_Columns . fromIntegral) (dmColumns dm)
   where
     optName
       | BS.null (dmName dm) = mempty
-      | otherwise           = protoLengthDelimited 1 (dmName dm)
+      | otherwise           = encodeLengthDelimBytes DataMask_Name (dmName dm)
 
 -- ============================================================
--- Protobuf helpers
+-- Decoders (inverse of the encoders above)
 -- ============================================================
 
-protoVarintField :: Int -> Word64 -> B.Builder
-protoVarintField fieldNum v =
-  protoTag fieldNum 0 <> protoVarint v
+-- | Parse an @Encryption@ protobuf message (the
+-- @Footer.encryption@ field's value) into its typed representation.
+-- Accepts the bytes wrapped in a 'Types.FooterEncryption' round-trip
+-- via 'ORC.Footer'.
+decodeEncryption :: ByteString -> Either String Encryption
+decodeEncryption bs =
+  let empty_ = Encryption
+        { encMasks       = []
+        , encKeys        = []
+        , encVariants    = []
+        , encKeyProvider = ProviderUnknown
+        }
+   in decodeMsg bs empty_ $ \e -> \case
+        Encryption_Mask        -> ReadBytesE $ \payload -> do
+          m <- decodeDataMask payload
+          Right e { encMasks = encMasks e ++ [m] }
+        Encryption_Key         -> ReadBytesE $ \payload -> do
+          k <- decodeEncryptionKey payload
+          Right e { encKeys = encKeys e ++ [k] }
+        Encryption_Variants    -> ReadBytesE $ \payload -> do
+          v <- decodeEncryptionVariant payload
+          Right e { encVariants = encVariants e ++ [v] }
+        Encryption_KeyProvider -> ReadVarint $ \v ->
+          e { encKeyProvider = providerFromTag (fromIntegral v) }
+        _ -> SkipUnknown
 
-protoLengthDelimited :: Int -> ByteString -> B.Builder
-protoLengthDelimited fieldNum payload =
-     protoTag fieldNum 2
-  <> protoVarint (fromIntegral (BS.length payload))
-  <> B.byteString payload
+decodeEncryptionKey :: ByteString -> Either String EncryptionKey
+decodeEncryptionKey bs =
+  decodeMsg bs (EncryptionKey BS.empty 0 UnknownEncryption) $ \k -> \case
+    EncryptionKey_KeyName    -> ReadBytes  $ \v -> k { ekName      = v }
+    EncryptionKey_KeyVersion -> ReadVarint $ \v -> k { ekVersion   = fromIntegral v }
+    EncryptionKey_Algorithm  -> ReadVarint $ \v ->
+      k { ekAlgorithm = algorithmFromTag (fromIntegral v) }
+    _                        -> SkipUnknown
 
-protoTag :: Int -> Int -> B.Builder
-protoTag fieldNum wireType =
-  protoVarint (fromIntegral ((fieldNum `shiftL` 3) .|. wireType))
+decodeEncryptionVariant :: ByteString -> Either String EncryptionVariant
+decodeEncryptionVariant bs =
+  decodeMsg bs (EncryptionVariant 0 0 BS.empty) $ \v -> \case
+    EncryptionVariant_Root         -> ReadVarint $ \x ->
+      v { evRoot         = fromIntegral x }
+    EncryptionVariant_Key          -> ReadVarint $ \x ->
+      v { evKey          = fromIntegral x }
+    EncryptionVariant_EncryptedKey -> ReadBytes  $ \x ->
+      v { evEncryptedKey = x }
+    _                              -> SkipUnknown
 
-protoVarint :: Word64 -> B.Builder
-protoVarint = go
-  where
-    go !n
-      | n < 0x80  = B.word8 (fromIntegral n)
-      | otherwise =
-          B.word8 (fromIntegral (n .&. 0x7F) .|. 0x80)
-            <> go (n `shiftR` 7)
+decodeDataMask :: ByteString -> Either String DataMask
+decodeDataMask bs =
+  decodeMsg bs (DataMask BS.empty [] []) $ \d -> \case
+    DataMask_Name           -> ReadBytes  $ \x -> d { dmName       = x }
+    DataMask_MaskParameters -> ReadBytes  $ \x ->
+      d { dmParameters = dmParameters d ++ [x] }
+    DataMask_Columns        -> ReadVarint $ \x ->
+      d { dmColumns    = dmColumns d ++ [fromIntegral x] }
+    _                       -> SkipUnknown
 
 -- silence unused-import warning for BA / Word8.
 _unusedBA :: BA.Bytes -> Int

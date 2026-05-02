@@ -1,5 +1,6 @@
 module Test.Parquet (parquetTests) where
 
+import Data.Bits (shiftL)
 import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
 import qualified Data.Text as T
@@ -24,10 +25,16 @@ import Parquet.BloomFilter
   , sbbfNumBytes
   )
 import Parquet.Levels
-  ( materializePlainBoolOptional
+  ( NestedValue (..)
+  , materializePlainBoolOptional
   , materializePlainByteArrayOptional
   , materializePlainInt32Optional
   , materializePlainInt64Optional
+  , materializeRepeatedByNested
+  , materializeRepeatedDouble
+  , materializeRepeatedFloat
+  , materializeRepeatedInt32
+  , materializeRepeatedInt64
   , maxLevelsForColumnPath
   , parseDataPageV1Levels
   )
@@ -169,6 +176,138 @@ levelsAndSchemaTests = testGroup "Levels + schema max levels"
           plain = BS.pack [0x02, 0x00, 0x00, 0x00, 0x61, 0x62]
       materializePlainByteArrayOptional defs 1 plain
         @?= Right (V.fromList [Just (BS.pack [0x61, 0x62]), Nothing])
+  , testCase "materializeRepeatedInt32 two lists of ints" $ do
+      -- row 0 = [10, 20], row 1 = [30]
+      let reps = VP.fromList [(0 :: Int32), 1, 0]
+          defs = VP.replicate 3 (1 :: Int32)   -- all present, maxDef=1
+          plain = BS.pack
+            [ 0x0A, 0x00, 0x00, 0x00  -- 10
+            , 0x14, 0x00, 0x00, 0x00  -- 20
+            , 0x1E, 0x00, 0x00, 0x00  -- 30
+            ]
+      materializeRepeatedInt32 reps defs 1 plain
+        @?= Right (V.fromList
+              [ V.fromList [Just 10, Just 20]
+              , V.fromList [Just 30]
+              ])
+  , testCase "materializeRepeatedInt64 with null element" $ do
+      let reps = VP.fromList [(0 :: Int32), 1, 0]
+          defs = VP.fromList [(1 :: Int32), 0, 1]
+          plain = BS.pack
+            [ 0xE8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  -- 1000
+            , 0xD0, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  -- 2000
+            ]
+      materializeRepeatedInt64 reps defs 1 plain
+        @?= Right (V.fromList
+              [ V.fromList [Just 1000, Nothing]
+              , V.fromList [Just 2000]
+              ])
+  , testCase "materializeRepeatedFloat single row" $ do
+      let reps = VP.fromList [(0 :: Int32), 1]
+          defs = VP.replicate 2 (1 :: Int32)
+          -- 1.0 = 0x3F800000, 2.0 = 0x40000000
+          plain = BS.pack
+            [ 0x00, 0x00, 0x80, 0x3F
+            , 0x00, 0x00, 0x00, 0x40
+            ]
+      materializeRepeatedFloat reps defs 1 plain
+        @?= Right (V.singleton (V.fromList [Just 1.0, Just 2.0]))
+  , testCase "materializeRepeatedDouble single row" $ do
+      let reps = VP.fromList [(0 :: Int32)]
+          defs = VP.replicate 1 (1 :: Int32)
+          -- 1.5 as little-endian double: 0x3FF8000000000000
+          plain = BS.pack
+            [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x3F ]
+      materializeRepeatedDouble reps defs 1 plain
+        @?= Right (V.singleton (V.singleton (Just 1.5)))
+  , testCase "materializeRepeatedByNested 2-deep LIST<LIST<int32>>" $ do
+      -- Two top-level rows:
+      --   row 0 = [[10, 20], [30]]
+      --   row 1 = [[40, 50]]
+      let reps = VP.fromList [(0 :: Int32), 2, 1, 0, 2]
+          defs = VP.replicate 5 (2 :: Int32)
+          plain = BS.pack
+            [ 0x0A, 0x00, 0x00, 0x00  -- 10
+            , 0x14, 0x00, 0x00, 0x00  -- 20
+            , 0x1E, 0x00, 0x00, 0x00  -- 30
+            , 0x28, 0x00, 0x00, 0x00  -- 40
+            , 0x32, 0x00, 0x00, 0x00  -- 50
+            ]
+          decI32 :: BS.ByteString -> Int -> Either String (Int32, Int)
+          decI32 bs off
+            | off + 4 > BS.length bs = Left "short"
+            | otherwise =
+                let !v = fromIntegral (BS.index bs (off+0))
+                       + (fromIntegral (BS.index bs (off+1)) `shiftL` 8)
+                       + (fromIntegral (BS.index bs (off+2)) `shiftL` 16)
+                       + (fromIntegral (BS.index bs (off+3)) `shiftL` 24)
+                in  Right (v :: Int32, off + 4)
+      result <- case materializeRepeatedByNested reps defs 2 2 plain decI32 of
+        Right v  -> pure v
+        Left  e  -> assertFailure e
+      let l xs = NVList xs
+          n v  = NVLeaf (Just v)
+      V.toList result @?= [
+          l [ l [n 10, n 20], l [n 30] ]
+        , l [ l [n 40, n 50] ]
+        ]
+  , testCase "materializeRepeatedByNested 3-deep LIST<LIST<LIST<int32>>>" $ do
+      -- One row representing [[[1,2],[3]],[[4]]]:
+      --   leaf 1: rep=0 (start row), depth 3
+      --   leaf 2: rep=3 (innermost continuation)
+      --   leaf 3: rep=2 (new innermost list at second level)
+      --   leaf 4: rep=1 (new at top)
+      let reps = VP.fromList [(0 :: Int32), 3, 2, 1]
+          defs = VP.replicate 4 (3 :: Int32)
+          plain = BS.pack
+            [ 0x01, 0x00, 0x00, 0x00
+            , 0x02, 0x00, 0x00, 0x00
+            , 0x03, 0x00, 0x00, 0x00
+            , 0x04, 0x00, 0x00, 0x00
+            ]
+          decI32 :: BS.ByteString -> Int -> Either String (Int32, Int)
+          decI32 bs off =
+            let !v = fromIntegral (BS.index bs (off+0))
+                   + (fromIntegral (BS.index bs (off+1)) `shiftL` 8)
+                   + (fromIntegral (BS.index bs (off+2)) `shiftL` 16)
+                   + (fromIntegral (BS.index bs (off+3)) `shiftL` 24)
+            in  Right (v :: Int32, off + 4)
+      result <- case materializeRepeatedByNested reps defs 3 3 plain decI32 of
+        Right v  -> pure v
+        Left e   -> assertFailure e
+      let l xs = NVList xs
+          n v  = NVLeaf (Just v)
+      V.toList result @?= [
+          l [ l [ l [n 1, n 2], l [n 3] ]
+            , l [ l [n 4] ]
+            ]
+        ]
+  , testCase "materializeRepeatedByNested rep=1 reduces to 1-level" $ do
+      -- maxRep=1 → behaves like materializeRepeatedInt32. row 0 =
+      -- [v0, v1], row 1 = [v2].
+      let reps = VP.fromList [(0 :: Int32), 1, 0]
+          defs = VP.replicate 3 (1 :: Int32)
+          plain = BS.pack
+            [ 0x01, 0x00, 0x00, 0x00
+            , 0x02, 0x00, 0x00, 0x00
+            , 0x03, 0x00, 0x00, 0x00
+            ]
+          decI32 :: BS.ByteString -> Int -> Either String (Int32, Int)
+          decI32 bs off =
+            let !v = fromIntegral (BS.index bs (off+0))
+                   + (fromIntegral (BS.index bs (off+1)) `shiftL` 8)
+                   + (fromIntegral (BS.index bs (off+2)) `shiftL` 16)
+                   + (fromIntegral (BS.index bs (off+3)) `shiftL` 24)
+            in  Right (v :: Int32, off + 4)
+      result <- case materializeRepeatedByNested reps defs 1 1 plain decI32 of
+        Right v  -> pure v
+        Left e   -> assertFailure e
+      let l xs = NVList xs
+          n v  = NVLeaf (Just v)
+      V.toList result @?= [
+          l [ n 1, n 2 ]
+        , l [ n 3 ]
+        ]
   ]
 
 footerRoundtrips :: TestTree
@@ -200,7 +339,7 @@ footerRoundtrips = testGroup "Footer roundtrips"
   , testCase "Multiple row groups" $ do
       let mkRG n = RowGroup V.empty (n * 1000) n
           fm = FileMetadata 1
-                 (V.singleton (SchemaElement "root" Nothing Nothing (Just 0) Nothing Nothing))
+                 (V.singleton (SchemaElement "root" Nothing Nothing (Just 0) Nothing Nothing Nothing))
                  3000 (V.fromList [mkRG 1000, mkRG 1000, mkRG 1000]) (Just "test-writer v1.0")
       readFooter (writeFooter fm) @?= Right fm
   , testCase "All parquet types" $ do
@@ -259,7 +398,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
           name <- Gen.text (Range.linear 1 20) Gen.alphaNum
           rep <- Gen.maybe (Gen.element [Required, Optional, Repeated])
           pt <- Gen.maybe (Gen.element [PTBoolean, PTInt32, PTInt64, PTFloat, PTDouble, PTByteArray])
-          pure (SchemaElement name rep pt Nothing Nothing Nothing)
+          pure (SchemaElement name rep pt Nothing Nothing Nothing Nothing)
         ) [1..nFields]
       let fm = FileMetadata 2 (V.fromList fields) 0 V.empty Nothing
       readFooter (writeFooter fm) === Right fm
@@ -566,7 +705,9 @@ xxh64Tests = testGroup "XXH64 (xxHash 0.1.1)"
         @?= "fbcea83c8a378bf1"
   , testCase "32-byte boundary input" $
       -- 32 bytes triggers exactly one stripe in the bulk phase.
-      hex (Hash.xxh64 0 (BS.replicate 32 0x61)) @?= "cdb40dec1a8b1eb6"
+      -- Reference via xxhsum -H1 / python xxhash on b'a' * 32:
+      -- 856e843298f99ad7 (the previous expected hex was stale).
+      hex (Hash.xxh64 0 (BS.replicate 32 0x61)) @?= "856e843298f99ad7"
   , testProperty "different inputs produce different hashes (with high probability)" $
       property $ do
         a <- forAll $ Gen.bytes (Range.linear 1 64)

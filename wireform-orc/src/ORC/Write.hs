@@ -11,6 +11,7 @@ module ORC.Write
   , encodeBooleanRLE
   , encodeIntColumn
   , encodeStringDirectColumn
+  , encodeStringDictColumn
   , encodeFloatColumn
   , encodeDoubleColumn
     -- * Date / timestamp / decimal column encoders
@@ -22,6 +23,13 @@ module ORC.Write
     -- * File assembly
   , buildStripe
   , buildORCFile
+  , buildORCFileWithRows
+  , buildORCFileWith
+  , buildEncryptedORCFile
+    -- * Column encryption plumbing
+  , StripeEncryption (..)
+  , encryptStripeStreams
+  , decryptStripeStream
   ) where
 
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
@@ -30,6 +38,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -37,6 +46,7 @@ import qualified Data.Vector.Primitive as VP
 import Data.Word (Word64, Word8)
 import GHC.Float (castDoubleToWord64, castFloatToWord32)
 
+import qualified ORC.Encryption as Enc
 import ORC.Footer (orcMagic, writeORCFooter)
 import ORC.RLE
   ( bitWidth
@@ -121,7 +131,7 @@ encodeBooleanRLE vals =
 encodeIntColumn :: VP.Vector Int64 -> Bool -> ByteString
 encodeIntColumn = encodeRLEv2Direct
 
--- | Encode a string column with DIRECT encoding.
+-- | Encode a string column with DIRECT_V2 encoding.
 -- Returns (DATA stream, LENGTH stream).
 encodeStringDirectColumn :: V.Vector T.Text -> (ByteString, ByteString)
 encodeStringDirectColumn texts =
@@ -131,6 +141,52 @@ encodeStringDirectColumn texts =
         fromIntegral (BS.length (V.unsafeIndex encodedTexts i)) :: Int64
       !lengthBs = encodeRLEv2Direct lengths False
   in (dataBs, lengthBs)
+
+-- | Encode a string column with DICTIONARY_V2 encoding. Deduplicates
+-- the input, builds a lookup of unique strings, and emits the three
+-- streams ORC stores per DICTIONARY_V2 column:
+--
+-- * DATA - per-row unsigned RLE-v2 dictionary indices
+-- * LENGTH - dictionary entry lengths (one per unique string, RLE-v2 unsigned)
+-- * DICTIONARY_DATA - concatenated UTF-8 bytes of the unique strings
+--
+-- The dictionary preserves first-occurrence order so that a reader
+-- pairing these with a row-index stream can still seek correctly.
+encodeStringDictColumn
+  :: V.Vector T.Text
+  -> (ByteString, ByteString, ByteString)
+  -- ^ (DATA, LENGTH, DICTIONARY_DATA)
+encodeStringDictColumn texts =
+  let !n = V.length texts
+      -- First-occurrence dictionary. We walk once and keep a
+      -- 'Map' for lookup + a 'GrowList'-style accumulator for
+      -- the ordered unique entries. For the sizes this writer
+      -- targets (per-stripe dictionaries, usually <= a few
+      -- thousand unique strings) a Data.Map.Strict.Map Text Int
+      -- is the right call.
+      (indices, uniqueRev) = go 0 mempty [] V.empty
+        where
+          go !i !dict !uniqAcc !idxAcc
+            | i >= n = (idxAcc, uniqAcc)
+            | otherwise =
+                let !t = V.unsafeIndex texts i
+                in case Map.lookup t dict of
+                     Just k  ->
+                       go (i + 1) dict uniqAcc
+                          (V.snoc idxAcc (fromIntegral k :: Int64))
+                     Nothing ->
+                       let !k = Map.size dict
+                           !dict'   = Map.insert t k dict
+                           !uniqAcc' = t : uniqAcc
+                       in go (i + 1) dict' uniqAcc'
+                          (V.snoc idxAcc (fromIntegral k :: Int64))
+      !uniques = V.fromList (reverse uniqueRev)
+      !(dictBytes, lengthBs) = encodeStringDirectColumn uniques
+      -- Convert the boxed indices vector to a primitive one; the RLE
+      -- v2 encoder needs a VP.Vector Int64.
+      !idxPrim = VP.generate (V.length indices) (V.unsafeIndex indices)
+      !dataBs = encodeRLEv2Direct idxPrim False
+  in (dataBs, lengthBs, dictBytes)
 
 -- | Encode a float column (IEEE 754 single, little-endian).
 encodeFloatColumn :: VP.Vector Float -> ByteString
@@ -273,8 +329,65 @@ buildStripe streamInfos =
 --
 -- @types@: column types for the schema
 -- @stripeData@: for each stripe, a vector of (streamKind, columnId, payload)
+--
+-- Records @siNumberOfRows = 0@ in every stripe and
+-- @orcNumberOfRows = 0@ in the footer — callers that know the row
+-- counts should use 'buildORCFileWithRows' or 'buildORCFileWith'
+-- to stamp them in. Predicate-pushdown-aware readers need correct
+-- row counts for scan planning.
 buildORCFile :: V.Vector ORCType -> V.Vector (V.Vector (Word64, Word64, ByteString)) -> ByteString
-buildORCFile types stripeData =
+buildORCFile = buildORCFileWith id
+
+-- | Like 'buildORCFile' but records per-stripe row counts.
+--
+-- @rowCounts@ must have the same length as @stripeData@;
+-- mismatched lengths fall through to the length of the shorter
+-- vector with the missing stripes stamped at 0 rows.
+buildORCFileWithRows
+  :: V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> V.Vector Word64    -- ^ one row count per stripe
+  -> ByteString
+buildORCFileWithRows types stripeData rowCounts =
+  let !lookupRows = \i ->
+        case rowCounts V.!? i of
+          Just r  -> r
+          Nothing -> 0
+  in  buildORCFileWithRowLookup lookupRows types stripeData
+
+-- | Variant of 'buildORCFile' that lets the caller adjust the
+-- computed 'ORCFooter' before serialisation. Used by
+-- 'buildEncryptedORCFile' to stamp the @Encryption@ footer field in
+-- without re-parsing the file. The transform is applied /after/ all
+-- stripe offsets + content lengths are computed, so callers
+-- shouldn't use it to change structural fields (stripes, types, row
+-- counts) — the writer's offsets would no longer match.
+buildORCFileWith
+  :: (ORCFooter -> ORCFooter)
+  -> V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> ByteString
+buildORCFileWith adjustFooter types stripeData =
+  buildORCFileWithRowLookupFooter adjustFooter (const 0) types stripeData
+
+-- | Shared implementation: row-count-aware stripe layout with
+-- no extra footer adjustment. Used by 'buildORCFileWithRows'.
+buildORCFileWithRowLookup
+  :: (Int -> Word64)
+  -> V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> ByteString
+buildORCFileWithRowLookup = buildORCFileWithRowLookupFooter id
+
+-- | Shared implementation: row-count-aware stripe layout with
+-- a caller-supplied footer adjustment.
+buildORCFileWithRowLookupFooter
+  :: (ORCFooter -> ORCFooter)
+  -> (Int -> Word64)
+  -> V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> ByteString
+buildORCFileWithRowLookupFooter adjustFooter rowsForStripe types stripeData =
   let !headerMagic = orcMagic
       !headerLen   = fromIntegral (BS.length headerMagic) :: Word64
 
@@ -290,7 +403,7 @@ buildORCFile types stripeData =
                 !footerBs = encodeStripeFooter footer
                 !dataLen = V.foldl' (\a (_, _, bs) -> a + fromIntegral (BS.length bs)) 0 sdata :: Word64
                 !ftrLen = fromIntegral (BS.length footerBs) :: Word64
-                !nRows = 0 -- caller should set proper row counts
+                !nRows = rowsForStripe i
                 !si = StripeInformation
                   { siOffset = off
                   , siIndexLength = 0
@@ -305,7 +418,7 @@ buildORCFile types stripeData =
       (!stripeInfos, !stripeBss) = buildStripes 0 headerLen V.empty []
       !contentLen = V.foldl' (\a si -> a + siIndexLength si + siDataLength si + siFooterLength si) 0 stripeInfos
 
-      !footer = ORCFooter
+      !baseFooter = ORCFooter
         { orcHeaderLength  = headerLen
         , orcContentLength = contentLen
         , orcStripes       = stripeInfos
@@ -313,6 +426,105 @@ buildORCFile types stripeData =
         , orcMetadata      = V.empty
         , orcNumberOfRows  = V.foldl' (\a si -> a + siNumberOfRows si) 0 stripeInfos
         , orcStatistics    = V.empty
+        , orcEncryption    = Nothing
         }
+      !footer = adjustFooter baseFooter
       !footerBytes = writeORCFooter footer
   in BS.concat ([headerMagic] ++ stripeBss ++ [footerBytes])
+
+-- ============================================================
+-- Column encryption: whole-file integration
+-- ============================================================
+
+-- | Per-stripe encryption parameters. The ORC spec derives a stream
+-- key from @AES-CTR(localKey, stripeId)@; this record captures the
+-- information a writer needs to spin that up. The stripe id is
+-- monotonically increasing within a file (one per stripe), and the
+-- local key is the same across stripes — the per-stripe rotation
+-- comes from the IV derived from @(stripeId, streamOffset)@.
+data StripeEncryption = StripeEncryption
+  { seLocalKey :: !ByteString
+    -- ^ Column variant's local key (16 / 24 / 32 bytes, matching the
+    -- 'Enc.EncryptionAlgorithm'). Produced by the caller, typically
+    -- from a KMS; this module doesn't pick it.
+  , seStripeId :: !Word64
+    -- ^ Monotonic stripe identifier; fed into the stream-key +
+    -- stream-IV derivation.
+  } deriving (Show, Eq)
+
+-- | Encrypt a stripe's streams using the ORC spec's AES-CTR scheme.
+-- Takes the unencrypted @(kind, column, payload)@ vector that
+-- 'buildStripe' consumes and returns the corresponding encrypted
+-- vector. Stream offset within the stripe is computed by running
+-- byte-length totals; the IV per stream is
+-- @iv[0..7] = stripeId (BE); iv[8..15] = streamOffset (BE)@.
+encryptStripeStreams
+  :: StripeEncryption
+  -> V.Vector (Word64, Word64, ByteString)
+  -> Either String (V.Vector (Word64, Word64, ByteString))
+encryptStripeStreams se streams = do
+  -- Derive the per-stripe key once; reuse across all streams in the
+  -- stripe.
+  stripeKey <- Enc.encryptStripeKey (seLocalKey se) (seStripeId se)
+  let go !i !streamOffset !acc
+        | i >= V.length streams = Right (V.fromList (reverse acc))
+        | otherwise = do
+            let (kind, col, payload) = V.unsafeIndex streams i
+                !iv = Enc.deriveStreamIv (seStripeId se) streamOffset
+            ciphertext <- Enc.aesCtrXor stripeKey iv payload
+            let !next = streamOffset + fromIntegral (BS.length payload)
+            go (i + 1) next ((kind, col, ciphertext) : acc)
+  go 0 0 []
+
+-- | Inverse of 'encryptStripeStreams': given the same
+-- 'StripeEncryption' and the encrypted byte payload, recover the
+-- plaintext. Callers know the stream's offset within the stripe
+-- (from 'stripeStreamSlices') and pass it as @streamOffset@.
+decryptStripeStream
+  :: StripeEncryption
+  -> Word64
+  -> ByteString
+  -> Either String ByteString
+decryptStripeStream se streamOffset ciphertext = do
+  stripeKey <- Enc.encryptStripeKey (seLocalKey se) (seStripeId se)
+  let !iv = Enc.deriveStreamIv (seStripeId se) streamOffset
+  Enc.aesCtrXor stripeKey iv ciphertext
+
+-- | Variant of 'buildORCFile' that encrypts every stripe's streams
+-- with the caller-supplied 'StripeEncryption' and attaches the
+-- protobuf @Encryption@ footer field. The encryption record is
+-- serialised opaquely into 'orcEncryption'; readers round-trip it
+-- verbatim through 'readORCFooter'.
+--
+-- The caller is responsible for deciding which stripes (all, per
+-- column) get encrypted, and for producing an appropriate
+-- 'Enc.Encryption' record (keys + variants + masks). A file-writer
+-- that mixes plaintext and encrypted stripes can do so by building
+-- per-stripe 'StripeEncryption' lazily and conditionally calling
+-- 'encryptStripeStreams' on the stripes it wants protected.
+buildEncryptedORCFile
+  :: V.Vector ORCType
+  -> V.Vector (V.Vector (Word64, Word64, ByteString))
+  -> V.Vector (Maybe StripeEncryption)
+    -- ^ One entry per stripe; 'Nothing' leaves that stripe in
+    -- plaintext, 'Just' encrypts its streams with AES-CTR using the
+    -- derived per-stripe key.
+  -> Enc.Encryption
+    -- ^ File-level encryption metadata emitted in the footer.
+  -> Either String ByteString
+buildEncryptedORCFile types stripeData stripeKeys enc
+  | V.length stripeKeys /= V.length stripeData =
+      Left $ "ORC.Write.buildEncryptedORCFile: stripeKeys length "
+             ++ show (V.length stripeKeys)
+             ++ " must match stripeData length "
+             ++ show (V.length stripeData)
+  | otherwise = do
+      encryptedStripes <- V.imapM
+        (\i sdata -> case V.unsafeIndex stripeKeys i of
+           Nothing -> Right sdata
+           Just se -> encryptStripeStreams se sdata)
+        stripeData
+      let !encFieldBytes = Enc.encodeEncryption enc
+          !footerTransform =
+            \fm -> fm { orcEncryption = Just (FooterEncryption encFieldBytes) }
+      Right $! buildORCFileWith footerTransform types encryptedStripes

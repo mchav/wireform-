@@ -10,10 +10,12 @@ module Arrow.Column
   , columnLength
   , countFieldNodesFlat
   , countBuffersFlat
+  , resolveDictionaryColumn
   ) where
 
 import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import Data.Int (Int16, Int32, Int64, Int8)
@@ -31,9 +33,11 @@ import Arrow.Types
   ( ArrowType (..)
   , Buffer (..)
   , DateUnit (..)
+  , DictionaryEncoding (..)
   , Endianness (..)
   , Field (..)
   , FieldNode (..)
+  , IntervalUnit (..)
   , Precision (..)
   , RecordBatchDef (..)
   , Schema (..)
@@ -69,6 +73,14 @@ data ColumnArray
   | ColDuration !(VP.Vector Int64)
   | ColDecimal128 !Int !Int !(V.Vector ByteString)
   | ColDecimal256 !Int !Int !(V.Vector ByteString)
+  | -- | Arrow @INTERVAL(YEAR_MONTH)@: 32-bit months (i32 per row).
+    ColIntervalYearMonth !(VP.Vector Int32)
+  | -- | Arrow @INTERVAL(DAY_TIME)@: (days :: i32, ms :: i32) per row,
+    -- stored as an 8-byte pair in element order.
+    ColIntervalDayTime !(VP.Vector Int32) !(VP.Vector Int32)
+  | -- | Arrow @INTERVAL(MONTH_DAY_NANO)@: (months :: i32, days :: i32,
+    -- nanos :: i64) per row, stored as a 16-byte triple.
+    ColIntervalMonthDayNano !(VP.Vector Int32) !(VP.Vector Int32) !(VP.Vector Int64)
   | ColInt8Maybe !(V.Vector (Maybe Int8))
   | ColInt16Maybe !(V.Vector (Maybe Int16))
   | ColInt32Maybe !(V.Vector (Maybe Int32))
@@ -96,6 +108,11 @@ data ColumnArray
   | ColStructMaybe !(V.Vector Bool) !(V.Vector (Text, ColumnArray))
   | ColList !(VP.Vector Int32) !ColumnArray
   | ColListMaybe !(V.Vector Bool) !(VP.Vector Int32) !ColumnArray
+  | -- | Arrow \"LargeList\": semantics identical to 'ColList' but with
+    -- 64-bit offsets. Used when the child array has more than
+    -- 2^31 elements.
+    ColLargeList !(VP.Vector Int64) !ColumnArray
+  | ColLargeListMaybe !(V.Vector Bool) !(VP.Vector Int64) !ColumnArray
   | ColFixedSizeList !Int !ColumnArray
   | ColFixedSizeListMaybe !Int !(V.Vector Bool) !ColumnArray
   | ColMap !(VP.Vector Int32) !ColumnArray !ColumnArray
@@ -103,6 +120,35 @@ data ColumnArray
   | ColDenseUnion !(VP.Vector Int8) !(VP.Vector Int32) !(V.Vector ColumnArray)
   | ColSparseUnion !(VP.Vector Int8) !(V.Vector ColumnArray)
   | ColDictionary !Int64 !(VP.Vector Int32) !ColumnArray
+  | -- | Run-End Encoded column (Arrow spec >= 1.3). The first child
+    -- holds the run-end indices (int16/32/64, ascending, the
+    -- @i@-th element being the EXCLUSIVE end index of run @i@); the
+    -- second holds the actual values (any type, may be nullable).
+    -- The parent has /no/ buffers and /no/ validity bitmap of its
+    -- own — nulls live in the values child.
+    ColRunEndEncoded !ColumnArray !ColumnArray
+  | -- | ListView (Arrow spec >= 1.4). Like 'ColList' but with a
+    -- separate sizes buffer; offsets and sizes are independent
+    -- 32-bit arrays (so list elements may overlap or be in any
+    -- order in the child storage).
+    ColListView !(VP.Vector Int32) !(VP.Vector Int32) !ColumnArray
+  | ColListViewMaybe !(V.Vector Bool) !(VP.Vector Int32) !(VP.Vector Int32) !ColumnArray
+  | -- | LargeListView: 64-bit offsets and sizes.
+    ColLargeListView !(VP.Vector Int64) !(VP.Vector Int64) !ColumnArray
+  | ColLargeListViewMaybe !(V.Vector Bool) !(VP.Vector Int64) !(VP.Vector Int64) !ColumnArray
+  | -- | Utf8View (Arrow spec >= 1.4). Each row is a 16-byte view
+    -- struct: a 4-byte length followed by either an inlined
+    -- payload (length <= 12) or a (4-byte prefix + 4-byte buffer
+    -- index + 4-byte buffer offset) reference into one of the
+    -- variadic data buffers. The materialized form here is the
+    -- decoded UTF-8 strings; the inlined-vs-out-of-line layout
+    -- is the writer's concern.
+    ColUtf8View !(V.Vector Text)
+  | ColUtf8ViewMaybe !(V.Vector (Maybe Text))
+  | -- | BinaryView: same layout as 'ColUtf8View' but no UTF-8
+    -- validation; raw bytes.
+    ColBinaryView !(V.Vector ByteString)
+  | ColBinaryViewMaybe !(V.Vector (Maybe ByteString))
   deriving stock (Show, Eq)
 
 -- | One field node per top-level field (flat schema).
@@ -128,6 +174,8 @@ buffersPerField f
         ATimestamp _ _ -> Right 1
         ADuration _ -> Right 1
         ADecimal _ _ -> Right 1
+        ADecimal256 _ _ -> Right 1
+        AInterval _ -> Right 1
         ty -> Left $ "Arrow.Column: unsupported flat type: " ++ show ty
       Right $ (if fieldNullable f then 1 else 0) + nData
 
@@ -204,6 +252,7 @@ materializeOne endian f rb body !nodeIdx !bufIdx =
       ATimestamp _ _ -> readTimestampColumnMaybe endian len rb body bufIdx nodeIdx
       ADuration _ -> readDurationColumnMaybe endian len rb body bufIdx nodeIdx
       ADecimal p s -> readDecimal128ColumnMaybe p s len rb body bufIdx nodeIdx
+      ADecimal256 p s -> readDecimal256ColumnMaybe p s len rb body bufIdx nodeIdx
       ty -> Left $ "Arrow.Column: unsupported nullable type: " ++ show ty
     else case fieldType f of
       AInt 8 True -> readInt8Column endian len rb body bufIdx nodeIdx
@@ -232,6 +281,7 @@ materializeOne endian f rb body !nodeIdx !bufIdx =
       ATimestamp _ _ -> readTimestampColumn endian len rb body bufIdx nodeIdx
       ADuration _ -> readDurationColumn endian len rb body bufIdx nodeIdx
       ADecimal p s -> readDecimal128Column p s len rb body bufIdx nodeIdx
+      ADecimal256 p s -> readDecimal256Column p s len rb body bufIdx nodeIdx
       ty -> Left $ "Arrow.Column: unsupported type: " ++ show ty
 
 -- * Non-nullable column readers
@@ -452,6 +502,14 @@ readDecimal128Column precision scale len rb body !bufIdx !nodeIdx = do
     then Left "Arrow.Column: decimal128 buffer too small"
     else Right (ColDecimal128 precision scale (V.generate len $ \i ->
       BS.take 16 (BS.drop (i * 16) valsBs)), nodeIdx + 1, bufIdx + 1)
+
+readDecimal256Column :: Int -> Int -> Int -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
+readDecimal256Column precision scale len rb body !bufIdx !nodeIdx = do
+  valsBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+  if BS.length valsBs < len * 32
+    then Left "Arrow.Column: decimal256 buffer too small"
+    else Right (ColDecimal256 precision scale (V.generate len $ \i ->
+      BS.take 32 (BS.drop (i * 32) valsBs)), nodeIdx + 1, bufIdx + 1)
 
 -- * Nullable column readers (validity bitmap + values)
 
@@ -855,11 +913,21 @@ readDecimal128ColumnMaybe precision scale len rb body !bufIdx !nodeIdx = do
             if not (V.unsafeIndex validFlags i)
               then BS.replicate 16 0
               else BS.take 16 (BS.drop (i * 16) valsBs)
-          validityVec = V.generate len $ \i -> V.unsafeIndex validFlags i
-          validCount = V.foldl' (\c v -> if v then c else c + 1) (0 :: Int) validityVec
-      if validCount > 0
-        then Right (ColDecimal128 precision scale vals, nodeIdx + 1, bufIdx + 2)
-        else Right (ColDecimal128 precision scale vals, nodeIdx + 1, bufIdx + 2)
+      Right (ColDecimal128 precision scale vals, nodeIdx + 1, bufIdx + 2)
+
+readDecimal256ColumnMaybe :: Int -> Int -> Int -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
+readDecimal256ColumnMaybe precision scale len rb body !bufIdx !nodeIdx = do
+  validBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+  valsBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) (bufIdx + 1))
+  validFlags <- unpackBools len validBs
+  if BS.length valsBs < len * 32
+    then Left "Arrow.Column: decimal256 values buffer too small"
+    else do
+      let vals = V.generate len $ \i ->
+            if not (V.unsafeIndex validFlags i)
+              then BS.replicate 32 0
+              else BS.take 32 (BS.drop (i * 32) valsBs)
+      Right (ColDecimal256 precision scale vals, nodeIdx + 1, bufIdx + 2)
 
 -- * Low-level primitives
 
@@ -872,11 +940,17 @@ sliceBuffer body buf =
     else Right $! BS.take l (BS.drop o body)
 
 unpackBools :: Int -> ByteString -> Either String (V.Vector Bool)
-unpackBools n bs =
-  let need = (n + 7) `div` 8
-  in if BS.length bs < need
-    then Left "Arrow.Column: bool buffer too small"
-    else Right $! unpackBitsLsbUnsafe n bs
+unpackBools n bs
+  -- Spec: an empty validity bitmap means "all values valid". When
+  -- the producer's @null_count@ is 0 the bitmap is allowed to be
+  -- omitted, in which case we still see a 0-length buffer entry
+  -- (validity slot in the buffer list, but no body bytes).
+  | BS.length bs == 0 = Right $! V.replicate n True
+  | otherwise =
+      let need = (n + 7) `div` 8
+      in if BS.length bs < need
+        then Left "Arrow.Column: bool buffer too small"
+        else Right $! unpackBitsLsbUnsafe n bs
 
 readInts8 :: Int -> ByteString -> Either String (VP.Vector Int8)
 readInts8 len bs
@@ -1047,6 +1121,11 @@ columnLength = \case
   ColStructMaybe v _ -> V.length v
   ColList offsets _ -> max 0 (VP.length offsets - 1)
   ColListMaybe v _ _ -> V.length v
+  ColLargeList offsets _ -> max 0 (VP.length offsets - 1)
+  ColLargeListMaybe v _ _ -> V.length v
+  ColIntervalYearMonth v -> VP.length v
+  ColIntervalDayTime d _ -> VP.length d
+  ColIntervalMonthDayNano m _ _ -> VP.length m
   ColFixedSizeList _ child -> columnLength child
   ColFixedSizeListMaybe _ v _ -> V.length v
   ColMap offsets _ _ -> max 0 (VP.length offsets - 1)
@@ -1054,6 +1133,21 @@ columnLength = \case
   ColDenseUnion typeIds _ _ -> VP.length typeIds
   ColSparseUnion typeIds _ -> VP.length typeIds
   ColDictionary _ indices _ -> VP.length indices
+  ColRunEndEncoded runEnds _ ->
+    -- The logical length is the LAST run-end value (exclusive).
+    case runEnds of
+      ColInt16 v -> if VP.null v then 0 else fromIntegral (VP.last v)
+      ColInt32 v -> if VP.null v then 0 else fromIntegral (VP.last v)
+      ColInt64 v -> if VP.null v then 0 else fromIntegral (VP.last v)
+      _          -> 0
+  ColListView offsets _ _       -> VP.length offsets
+  ColListViewMaybe v _ _ _      -> V.length v
+  ColLargeListView offsets _ _  -> VP.length offsets
+  ColLargeListViewMaybe v _ _ _ -> V.length v
+  ColUtf8View v        -> V.length v
+  ColUtf8ViewMaybe v   -> V.length v
+  ColBinaryView v      -> V.length v
+  ColBinaryViewMaybe v -> V.length v
 
 -- | Materialize a record batch with support for nested types.
 -- Walks the schema tree in preorder DFS, consuming field nodes and buffers.
@@ -1063,8 +1157,193 @@ materializeRecordBatch schema rb body = do
   if not (validateRecordBatchBuffers rb bodyLen)
     then Left "Arrow.Column: invalid buffer bounds in RecordBatchDef"
     else do
-      (cols, _, _) <- materializeFieldsR (arrowEndianness schema) (arrowFields schema) rb body 0 0
+      let !viewVarCounts = computeViewVariadicMap (arrowFields schema) (rbVariadicBufferCounts rb)
+      (cols, _, _) <- materializeFieldsR' (arrowEndianness schema) viewVarCounts (arrowFields schema) rb body 0 0
       Right cols
+
+-- | Build a per-nodeIdx map of variadic-buffer counts for view
+-- columns, by walking the schema in DFS pre-order alongside the
+-- @rbVariadicBufferCounts@ vector. Field nodes are assigned
+-- pre-order indices starting at 0; only @AUtf8View@ /
+-- @ABinaryView@ fields consume an entry from the variadic vector.
+computeViewVariadicMap
+  :: V.Vector Field -> V.Vector Int64 -> V.Vector Int
+computeViewVariadicMap topFields varCounts =
+  -- We use a vector indexed by node id; size = total field nodes.
+  let !total = sumNodes topFields
+      !mp = VP.replicate total (-1) :: VP.Vector Int
+      go (!ni, !vi, m) f =
+        let m1 = case fieldType f of
+              AUtf8View   -> assignVar ni vi m
+              ABinaryView -> assignVar ni vi m
+              _           -> m
+            ni1 = ni + 1
+            (ni', vi', m') = V.foldl' go (ni1, nextVi vi (fieldType f), m1) (fieldChildren f)
+        in (ni', vi', m')
+      assignVar ni vi m =
+        let !c = case varCounts V.!? vi of
+                   Just v  -> fromIntegral v
+                   Nothing -> 0
+        in  m VP.// [(ni, c)]
+      nextVi vi t = case t of
+        AUtf8View   -> vi + 1
+        ABinaryView -> vi + 1
+        _           -> vi
+      (_, _, !out) = V.foldl' go (0 :: Int, 0 :: Int, mp) topFields
+  in  V.fromList (VP.toList out)
+  where
+    sumNodes :: V.Vector Field -> Int
+    sumNodes fs = V.foldl' (\n f -> n + 1 + sumNodes (fieldChildren f)) 0 fs
+
+-- | Same as 'materializeFieldsR' but threads the precomputed view
+-- variadic-count vector.
+materializeFieldsR' :: Endianness -> V.Vector Int -> V.Vector Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (V.Vector ColumnArray, Int, Int)
+materializeFieldsR' endian viewMap fields rb body !nodeIdx0 !bufIdx0 =
+  go 0 nodeIdx0 bufIdx0 []
+  where
+    go !i !ni !bi !acc
+      | i >= V.length fields = Right (V.fromList (reverse acc), ni, bi)
+      | otherwise = do
+          (col, ni', bi') <- materializeField' endian viewMap (V.unsafeIndex fields i) rb body ni bi
+          go (i + 1) ni' bi' (col : acc)
+
+materializeField' :: Endianness -> V.Vector Int -> Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
+materializeField' endian viewMap f rb body !nodeIdx !bufIdx =
+  case fieldDictionary f of
+    -- Dictionary-encoded column: the on-wire payload is the index
+    -- column (type given by 'deIndexType'); the values are
+    -- supplied separately via a 'DictBatch'. We materialise the
+    -- indices here and stash a placeholder value column; resolving
+    -- against a real dictionary is the caller's job (typically via
+    -- 'resolveDictionaryColumn').
+    Just (DictionaryEncoding did indexTy _) ->
+      materializeDictIndices endian did indexTy f rb body nodeIdx bufIdx
+    Nothing -> case fieldType f of
+      AStruct           -> materializeStruct endian f rb body nodeIdx bufIdx
+      AList             -> materializeListCol endian f rb body nodeIdx bufIdx
+      AMap _            -> materializeMapCol endian f rb body nodeIdx bufIdx
+      AUnion mode _     -> materializeUnionCol endian f mode rb body nodeIdx bufIdx
+      AFixedSizeList n  -> materializeFixedSizeListCol endian n f rb body nodeIdx bufIdx
+      ALargeList        -> materializeLargeListCol endian f rb body nodeIdx bufIdx
+      AInterval u       -> materializeIntervalCol endian u f rb body nodeIdx bufIdx
+      ARunEndEncoded    -> materializeRunEndEncodedCol endian f rb body nodeIdx bufIdx
+      AListView         -> materializeListViewCol endian False f rb body nodeIdx bufIdx
+      ALargeListView    -> materializeListViewCol endian True  f rb body nodeIdx bufIdx
+      AUtf8View         -> materializeViewCol' endian viewMap True  f rb body nodeIdx bufIdx
+      ABinaryView       -> materializeViewCol' endian viewMap False f rb body nodeIdx bufIdx
+      _                 -> materializeOne endian f rb body nodeIdx bufIdx
+
+-- | Materialize the /indices/ portion of a dictionary-encoded
+-- column. The values referenced by these indices live in a
+-- separate 'DictionaryBatch' message keyed by @did@; combine via
+-- 'resolveDictionaryColumn' once both parts are in hand.
+materializeDictIndices
+  :: Endianness -> Int64 -> ArrowType -> Field -> RecordBatchDef
+  -> ByteString -> Int -> Int
+  -> Either String (ColumnArray, Int, Int)
+materializeDictIndices endian did indexTy f rb body !nodeIdx !bufIdx = do
+  -- Read indices using a synthetic field that carries the index
+  -- type (typically Int32) and the original nullability.
+  let !indexField = f
+        { fieldType = indexTy
+        , fieldDictionary = Nothing
+        , fieldChildren  = V.empty
+        }
+  (idxCol, !ni', !bi') <- materializeOne endian indexField rb body nodeIdx bufIdx
+  -- Coerce whatever integer column we got into a primitive Int32
+  -- for ColDictionary's storage. We support i8/i16/i32/i64
+  -- (unsigned variants too).
+  case toInt32Indices idxCol of
+    Left e   -> Left e
+    Right ix -> Right (ColDictionary did ix (placeholderColumn (fieldType f)), ni', bi')
+
+-- | Convert any integer-typed column into the canonical
+-- @VP.Vector Int32@ used by 'ColDictionary'.
+toInt32Indices :: ColumnArray -> Either String (VP.Vector Int32)
+toInt32Indices = \case
+  ColInt8   v -> Right (VP.map fromIntegral v)
+  ColInt16  v -> Right (VP.map fromIntegral v)
+  ColInt32  v -> Right v
+  ColInt64  v -> Right (VP.map fromIntegral v)
+  ColUInt8  v -> Right (VP.map fromIntegral v)
+  ColUInt16 v -> Right (VP.map fromIntegral v)
+  ColUInt32 v -> Right (VP.map fromIntegral v)
+  ColUInt64 v -> Right (VP.map fromIntegral v)
+  -- Nullable variants: coerce nulls to -1 sentinel (callers can
+  -- consult the matching validity buffer if needed).
+  ColInt8Maybe   v -> Right $ VP.fromList [fromMaybe (-1) (fmap fromIntegral m) | m <- V.toList v]
+  ColInt16Maybe  v -> Right $ VP.fromList [fromMaybe (-1) (fmap fromIntegral m) | m <- V.toList v]
+  ColInt32Maybe  v -> Right $ VP.fromList [fromMaybe (-1) (fmap fromIntegral m) | m <- V.toList v]
+  ColInt64Maybe  v -> Right $ VP.fromList [fromMaybe (-1) (fmap fromIntegral m) | m <- V.toList v]
+  c -> Left $ "Arrow.Column: dictionary index column has non-integer type: " ++ show c
+
+-- | Replace the placeholder values column inside a @ColDictionary@
+-- with the column materialised from a @DictBatch.dbData@. Walks
+-- nested columns recursively so dictionary fields buried inside
+-- struct / list / etc. parents are also resolved when the caller
+-- supplies a lookup function.
+resolveDictionaryColumn
+  :: (Int64 -> Maybe ColumnArray)   -- ^ dictionary-id → values column
+  -> ColumnArray
+  -> ColumnArray
+resolveDictionaryColumn lookupVals = go
+  where
+    go col = case col of
+      ColDictionary did indices _placeholder ->
+        case lookupVals did of
+          Just vals -> ColDictionary did indices vals
+          Nothing   -> col
+      ColStruct cs            -> ColStruct (V.map (\(n,c) -> (n, go c)) cs)
+      ColStructMaybe v cs     -> ColStructMaybe v (V.map (\(n,c) -> (n, go c)) cs)
+      ColList offs c          -> ColList offs (go c)
+      ColListMaybe v offs c   -> ColListMaybe v offs (go c)
+      ColLargeList offs c     -> ColLargeList offs (go c)
+      ColLargeListMaybe v offs c -> ColLargeListMaybe v offs (go c)
+      ColFixedSizeList n c    -> ColFixedSizeList n (go c)
+      ColFixedSizeListMaybe n v c -> ColFixedSizeListMaybe n v (go c)
+      ColMap offs k v         -> ColMap offs (go k) (go v)
+      ColMapMaybe vs offs k v -> ColMapMaybe vs offs (go k) (go v)
+      ColDenseUnion ts offs cs -> ColDenseUnion ts offs (V.map go cs)
+      ColSparseUnion ts cs    -> ColSparseUnion ts (V.map go cs)
+      ColRunEndEncoded re vs  -> ColRunEndEncoded (go re) (go vs)
+      ColListView offs sz c   -> ColListView offs sz (go c)
+      ColListViewMaybe v offs sz c -> ColListViewMaybe v offs sz (go c)
+      ColLargeListView offs sz c -> ColLargeListView offs sz (go c)
+      ColLargeListViewMaybe v offs sz c -> ColLargeListViewMaybe v offs sz (go c)
+      _ -> col
+
+-- | A typed placeholder column for the dictionary values slot. The
+-- caller is expected to call 'resolveDictionaryColumn' to fill it
+-- in with the real values from a 'DictBatch'.
+placeholderColumn :: ArrowType -> ColumnArray
+placeholderColumn = \case
+  AUtf8       -> ColUtf8       V.empty
+  ABinary     -> ColBinary     V.empty
+  ALargeUtf8  -> ColLargeUtf8  V.empty
+  ALargeBinary -> ColLargeBinary V.empty
+  AInt 8 True -> ColInt8 VP.empty
+  AInt 8 False -> ColUInt8 VP.empty
+  AInt 16 True -> ColInt16 VP.empty
+  AInt 16 False -> ColUInt16 VP.empty
+  AInt 32 True -> ColInt32 VP.empty
+  AInt 32 False -> ColUInt32 VP.empty
+  AInt 64 True -> ColInt64 VP.empty
+  AInt 64 False -> ColUInt64 VP.empty
+  AFloatingPoint Single -> ColFloat VP.empty
+  AFloatingPoint DoublePrecision -> ColDouble VP.empty
+  ABool -> ColBool V.empty
+  _    -> ColUtf8 V.empty   -- conservative fallback
+
+-- | View materializer with precomputed variadic-count map; the
+-- nodeIdx of the current field selects the entry.
+materializeViewCol'
+  :: Endianness -> V.Vector Int -> Bool -> Field -> RecordBatchDef
+  -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
+materializeViewCol' endian viewMap utf8 f rb body !nodeIdx !bufIdx = do
+  let !varCount = case viewMap V.!? nodeIdx of
+                    Just c | c >= 0 -> c
+                    _               -> 0
+  materializeViewColWithVar endian utf8 varCount f rb body nodeIdx bufIdx
 
 materializeFieldsR :: Endianness -> V.Vector Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (V.Vector ColumnArray, Int, Int)
 materializeFieldsR endian fields rb body !nodeIdx0 !bufIdx0 =
@@ -1085,6 +1364,12 @@ materializeField endian f rb body !nodeIdx !bufIdx =
     AUnion mode _ -> materializeUnionCol endian f mode rb body nodeIdx bufIdx
     AFixedSizeList n -> materializeFixedSizeListCol endian n f rb body nodeIdx bufIdx
     ALargeList -> materializeLargeListCol endian f rb body nodeIdx bufIdx
+    AInterval u -> materializeIntervalCol endian u f rb body nodeIdx bufIdx
+    ARunEndEncoded -> materializeRunEndEncodedCol endian f rb body nodeIdx bufIdx
+    AListView      -> materializeListViewCol endian False f rb body nodeIdx bufIdx
+    ALargeListView -> materializeListViewCol endian True  f rb body nodeIdx bufIdx
+    AUtf8View      -> materializeViewCol endian True  f rb body nodeIdx bufIdx
+    ABinaryView    -> materializeViewCol endian False f rb body nodeIdx bufIdx
     _ -> materializeOne endian f rb body nodeIdx bufIdx
 
 materializeStruct :: Endianness -> Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
@@ -1226,7 +1511,7 @@ materializeLargeListCol endian f rb body !nodeIdx !bufIdx = do
     then Left "Arrow.Column: large list offsets buffer too small"
     else do
       let offsets = VP.generate (len + 1) $ \i ->
-            fromIntegral (readWord64 endian offBs (i * 8)) :: Int32
+            fromIntegral (readWord64 endian offBs (i * 8)) :: Int64
           !bufIdx2 = bufIdx1 + 1
       if V.null (fieldChildren f)
         then Left "Arrow.Column: large list has no child"
@@ -1234,5 +1519,254 @@ materializeLargeListCol endian f rb body !nodeIdx !bufIdx = do
           let childField = V.head (fieldChildren f)
           (childCol, !nodeIdx2, !bufIdx3) <- materializeField endian childField rb body nodeIdx1 bufIdx2
           case validity of
-            Nothing -> Right (ColList offsets childCol, nodeIdx2, bufIdx3)
-            Just vs -> Right (ColListMaybe vs offsets childCol, nodeIdx2, bufIdx3)
+            Nothing -> Right (ColLargeList offsets childCol, nodeIdx2, bufIdx3)
+            Just vs -> Right (ColLargeListMaybe vs offsets childCol, nodeIdx2, bufIdx3)
+
+-- | Read one INTERVAL field. Interval columns are flat (one field
+-- node, validity + data buffers) but the data layout depends on the
+-- unit:
+--
+--   YearMonth     : 4 bytes per row, one i32 (months).
+--   DayTime       : 8 bytes per row, pair of i32 (days, millis).
+--   MonthDayNano  : 16 bytes per row, (i32 months, i32 days, i64 nanos).
+materializeIntervalCol
+  :: Endianness -> IntervalUnit -> Field -> RecordBatchDef -> ByteString
+  -> Int -> Int -> Either String (ColumnArray, Int, Int)
+materializeIntervalCol endian unit f rb body !nodeIdx !bufIdx = do
+  let node = V.unsafeIndex (rbNodes rb) nodeIdx
+      !len = fromIntegral (fnLength node) :: Int
+      !nodeIdx1 = nodeIdx + 1
+  (_validity, !bufIdx1) <- if fieldNullable f
+    then do
+      validBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+      vs <- unpackBools len validBs
+      Right (Just vs, bufIdx + 1)
+    else Right (Nothing, bufIdx)
+  dataBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx1)
+  let !bufIdx2 = bufIdx1 + 1
+  col <- case unit of
+    YearMonth
+      | BS.length dataBs < len * 4 ->
+          Left "Arrow.Column: interval YEAR_MONTH buffer too small"
+      | otherwise ->
+          let vec = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 4)) :: Int32
+           in Right (ColIntervalYearMonth vec)
+    DayTime
+      | BS.length dataBs < len * 8 ->
+          Left "Arrow.Column: interval DAY_TIME buffer too small"
+      | otherwise ->
+          let daysV   = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 8)) :: Int32
+              millisV = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 8 + 4)) :: Int32
+           in Right (ColIntervalDayTime daysV millisV)
+    MonthDayNano
+      | BS.length dataBs < len * 16 ->
+          Left "Arrow.Column: interval MONTH_DAY_NANO buffer too small"
+      | otherwise ->
+          let monthsV = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 16)) :: Int32
+              daysV   = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian dataBs (i * 16 + 4)) :: Int32
+              nanosV  = VP.generate len $ \i ->
+                fromIntegral (readWord64 endian dataBs (i * 16 + 8)) :: Int64
+           in Right (ColIntervalMonthDayNano monthsV daysV nanosV)
+  Right (col, nodeIdx1, bufIdx2)
+
+-- ============================================================
+-- Post-V5 columns: RunEndEncoded, ListView/LargeListView,
+-- Utf8View / BinaryView.
+-- ============================================================
+
+-- | RunEndEncoded: parent has zero buffers (no validity, no data),
+-- exactly two children: @run_ends@ (Int16/32/64) and @values@ (any
+-- type, may be nullable).
+materializeRunEndEncodedCol
+  :: Endianness -> Field -> RecordBatchDef -> ByteString
+  -> Int -> Int -> Either String (ColumnArray, Int, Int)
+materializeRunEndEncodedCol endian f rb body !nodeIdx !bufIdx = do
+  let !nodeIdx1 = nodeIdx + 1
+  case V.toList (fieldChildren f) of
+    [runEndsField, valuesField] -> do
+      (runEndsCol, !nodeIdx2, !bufIdx1) <-
+        materializeField endian runEndsField rb body nodeIdx1 bufIdx
+      (valuesCol,  !nodeIdx3, !bufIdx2) <-
+        materializeField endian valuesField  rb body nodeIdx2 bufIdx1
+      Right (ColRunEndEncoded runEndsCol valuesCol, nodeIdx3, bufIdx2)
+    _ ->
+      Left "Arrow.Column: RunEndEncoded must have exactly two children (run_ends, values)"
+
+-- | ListView / LargeListView. Buffers (in order): validity (when
+-- nullable), offsets, sizes. The child elements may overlap or
+-- appear in any order — we don't reorder them at materialisation
+-- time; callers can interpret the (offset, size) pairs themselves.
+materializeListViewCol
+  :: Endianness
+  -> Bool   -- ^ True for LargeListView (Int64 offsets/sizes)
+  -> Field
+  -> RecordBatchDef
+  -> ByteString
+  -> Int -> Int
+  -> Either String (ColumnArray, Int, Int)
+materializeListViewCol endian large f rb body !nodeIdx !bufIdx = do
+  let node = V.unsafeIndex (rbNodes rb) nodeIdx
+      !len = fromIntegral (fnLength node) :: Int
+      !nodeIdx1 = nodeIdx + 1
+  (validity, !bufIdx1) <- if fieldNullable f
+    then do
+      validBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+      vs <- unpackBools len validBs
+      Right (Just vs, bufIdx + 1)
+    else Right (Nothing, bufIdx)
+  offBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx1)
+  sizBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) (bufIdx1 + 1))
+  let !w        = if large then 8 else 4
+      !need     = len * w
+  when' (BS.length offBs < need) $
+    Left "Arrow.Column: list-view offsets buffer too small"
+  when' (BS.length sizBs < need) $
+    Left "Arrow.Column: list-view sizes buffer too small"
+  let !bufIdx2 = bufIdx1 + 2
+  case V.toList (fieldChildren f) of
+    [childField] -> do
+      (childCol, !nodeIdx2, !bufIdx3) <-
+        materializeField endian childField rb body nodeIdx1 bufIdx2
+      if large
+        then
+          let offs = VP.generate len $ \i ->
+                fromIntegral (readWord64 endian offBs (i * 8)) :: Int64
+              sizs = VP.generate len $ \i ->
+                fromIntegral (readWord64 endian sizBs (i * 8)) :: Int64
+          in Right $! case validity of
+               Nothing -> (ColLargeListView offs sizs childCol, nodeIdx2, bufIdx3)
+               Just vs -> (ColLargeListViewMaybe vs offs sizs childCol, nodeIdx2, bufIdx3)
+        else
+          let offs = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian offBs (i * 4)) :: Int32
+              sizs = VP.generate len $ \i ->
+                fromIntegral (readWord32 endian sizBs (i * 4)) :: Int32
+          in Right $! case validity of
+               Nothing -> (ColListView offs sizs childCol, nodeIdx2, bufIdx3)
+               Just vs -> (ColListViewMaybe vs offs sizs childCol, nodeIdx2, bufIdx3)
+    _ ->
+      Left "Arrow.Column: ListView must have exactly one child"
+  where
+    when' True  e = e
+    when' False _ = Right ()
+
+-- | Utf8View / BinaryView. Buffers: validity (optional), view
+-- (n × 16 bytes), then 0..k variadic data buffers. The variadic
+-- count comes from 'rbVariadicBufferCounts' in pre-order schema
+-- traversal — we consume one entry from a caller-managed counter
+-- by re-deriving the count from the schema position; here we just
+-- read the relevant data buffers based on the variadic-counts
+-- vector slot for this field.
+--
+-- Each 16-byte view is laid out:
+--
+-- @
+--   length         : i32 (little-endian)
+--   if length <= 12:
+--     inlined bytes (length bytes), zero-padded to 12 total
+--   else:
+--     prefix       : 4 bytes (first 4 of the string)
+--     buffer_index : i32
+--     buffer_offset: i32
+-- @
+materializeViewCol
+  :: Endianness
+  -> Bool   -- ^ True for Utf8View (UTF-8 validate); False for BinaryView
+  -> Field
+  -> RecordBatchDef
+  -> ByteString
+  -> Int -> Int
+  -> Either String (ColumnArray, Int, Int)
+materializeViewCol endian utf8 f rb body !nodeIdx !bufIdx =
+  -- Falls back to the first variadic count entry when called
+  -- without a per-view cursor (single-view-column batches). The
+  -- top-level 'materializeRecordBatch' uses the cursor-aware
+  -- 'materializeViewColWithVar' via 'computeViewVariadicMap'.
+  let !varCount = case V.toList (rbVariadicBufferCounts rb) of
+                    []      -> 0
+                    (c:_)   -> fromIntegral c :: Int
+  in  materializeViewColWithVar endian utf8 varCount f rb body nodeIdx bufIdx
+
+-- | Like 'materializeViewCol' but takes an explicit
+-- variadic-buffer count for this column, sourced from
+-- 'rbVariadicBufferCounts' at the right per-view-column position.
+materializeViewColWithVar
+  :: Endianness
+  -> Bool
+  -> Int
+  -> Field
+  -> RecordBatchDef
+  -> ByteString
+  -> Int -> Int
+  -> Either String (ColumnArray, Int, Int)
+materializeViewColWithVar endian utf8 varCount f rb body !nodeIdx !bufIdx = do
+  let node = V.unsafeIndex (rbNodes rb) nodeIdx
+      !len = fromIntegral (fnLength node) :: Int
+      !nodeIdx1 = nodeIdx + 1
+  (validity, !bufIdx1) <- if fieldNullable f
+    then do
+      validBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx)
+      vs <- unpackBools len validBs
+      Right (Just vs, bufIdx + 1)
+    else Right (Nothing, bufIdx)
+  viewBs <- sliceBuffer body (V.unsafeIndex (rbBuffers rb) bufIdx1)
+  when' (BS.length viewBs < len * 16) $
+    Left "Arrow.Column: view buffer too small"
+  -- Resolve data buffers
+  dataBufs <- mapM (sliceBuffer body)
+                [ V.unsafeIndex (rbBuffers rb) (bufIdx1 + 1 + i)
+                | i <- [0 .. varCount - 1] ]
+  let !bufIdx2 = bufIdx1 + 1 + varCount
+  rows <- forM [0 .. len - 1] $ \i -> resolveView viewBs dataBufs i
+  let nullableRows = case validity of
+        Nothing -> Nothing
+        Just vs -> Just (V.zipWith (\v r -> if v then Just r else Nothing) vs (V.fromList rows))
+  -- Decode UTF-8 if the column is Utf8View; raw bytes otherwise.
+  result <- if utf8
+    then do
+      decoded <- traverse (decodeUtf8' "Arrow.Column: invalid UTF-8 in Utf8View") rows
+      pure $ case nullableRows of
+        Nothing -> ColUtf8View (V.fromList decoded)
+        Just vs ->
+          let mkMaybe (Just bs) = Just <$> decodeUtf8' "Arrow.Column: invalid UTF-8 in Utf8View" bs
+              mkMaybe Nothing   = Right Nothing
+          in case traverse mkMaybe (V.toList vs) of
+               Left e   -> error e
+               Right rs -> ColUtf8ViewMaybe (V.fromList rs)
+    else
+      pure $ case nullableRows of
+        Nothing -> ColBinaryView (V.fromList rows)
+        Just vs -> ColBinaryViewMaybe vs
+  Right (result, nodeIdx1, bufIdx2)
+  where
+    when' True  e = e
+    when' False _ = Right ()
+    decodeUtf8' err bs = case TE.decodeUtf8' bs of
+      Left _  -> Left err
+      Right t -> Right t
+
+resolveView :: ByteString -> [ByteString] -> Int -> Either String ByteString
+resolveView viewBs dataBufs i =
+  let off = i * 16
+      len = fromIntegral (readLE32 viewBs off) :: Int
+  in  if len <= 12
+        then Right $! BS.take len (BS.drop (off + 4) viewBs)
+        else do
+          let bufIdx = fromIntegral (readLE32 viewBs (off + 8)) :: Int
+              bufOff = fromIntegral (readLE32 viewBs (off + 12)) :: Int
+          case dataBufs `safeIx` bufIdx of
+            Nothing -> Left "Arrow.Column: view references unknown data buffer index"
+            Just db ->
+              if bufOff + len > BS.length db
+                then Left "Arrow.Column: view payload out of range"
+                else Right $! BS.take len (BS.drop bufOff db)
+
+safeIx :: [a] -> Int -> Maybe a
+safeIx xs i
+  | i < 0 = Nothing
+  | otherwise = case drop i xs of { (x:_) -> Just x; [] -> Nothing }

@@ -67,6 +67,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing, mapMaybe)
 import Data.Sequence (Seq)
+import qualified Data.Char
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -85,12 +86,19 @@ import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal, lowerFirst, escap
 import Proto.CodeGen.Hooks
 import qualified Proto.Encode as Encode
 import qualified Proto.Decode as Decode
+import qualified Proto.Extension as Ext
 import Proto.Wire (Tag(..))
 import qualified Proto.Wire.Encode as WE
 import Proto.Repr
 
+-- | Produce a Haskell-valid record-field name from a proto field.
+-- The proto-side name is snake_cased (@file_path@, @num_rows@); we
+-- convert to camelCase and escape reserved keywords with a
+-- trailing prime (@data@ → @data'@, @type@ → @type'@, …). Without
+-- the escape, TH splices produce @data :: Foo -> Bar@ which is a
+-- parse error.
 hsFieldName :: Text -> Text
-hsFieldName = snakeToCamel
+hsFieldName = escapeReserved . snakeToCamel
 
 hsEnumCon :: Text -> Text -> Text
 hsEnumCon _enumName = snakeToPascal
@@ -148,6 +156,7 @@ topLevelToDecls :: RepConfig -> THHooks -> TopLevel -> Q [Dec]
 topLevelToDecls cfg hooks = \case
   TLMessage msg -> messageToDecls' cfg hooks msg
   TLEnum ed     -> enumToDecls' hooks ed
+  TLExtend owner fields -> extendToDecls owner fields
   _             -> pure []
 
 messageToDecls :: MessageDef -> Q [Dec]
@@ -176,6 +185,7 @@ messageToDecls' cfg hooks msg = do
   encodeDec <- mkEncodeInstance tyName fields
   decodeDec <- mkDecodeInstance tyName fields
   sizeDec <- mkSizeInstance tyName fields
+  hasExtDec <- mkHasExtensionsInstance tyName (msgName msg)
   hookDecls <- thOnMessage hooks hookCtx
 
   addModFinalizer (putDoc (DeclDoc tyName) (messageHaddock msg fields))
@@ -184,7 +194,8 @@ messageToDecls' cfg hooks msg = do
     ("Default value for @" <> T.unpack (msgName msg)
     <> "@ with all fields at their proto default values."))
 
-  pure (nestedDecls <> [dataDec] <> defaultDec <> encodeDec <> decodeDec <> sizeDec <> hookDecls)
+  pure (nestedDecls <> [dataDec] <> defaultDec <> encodeDec <> decodeDec
+         <> sizeDec <> hasExtDec <> hookDecls)
 
 messageHaddock :: MessageDef -> [FieldSpec] -> String
 messageHaddock msg fields =
@@ -277,7 +288,8 @@ extractMessageFields cfg msgN = concatMap go
 mkDataDec :: Name -> [FieldSpec] -> Q Dec
 mkDataDec tyName fields = do
   recFields <- fmap concat (mapM mkField fields)
-  let con = recC tyName (fmap pure recFields)
+  let unknownFieldEntry = mkUnknownFieldsField tyName
+  let con = recC tyName (fmap pure (recFields <> [unknownFieldEntry]))
   dataD (pure []) tyName [] Nothing [con]
     [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]]
   where
@@ -298,16 +310,45 @@ mkDataDec tyName fields = do
       ty <- appT (conT ''Maybe) (conT oneofTyName)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
 
+-- | The field name used by TH-generated records for their
+-- unknown-fields list. Derived from the type name by
+-- lower-casing the leading character and appending
+-- @UnknownFields@ (matching the convention the pure-Doc
+-- codegen in "Proto.CodeGen" follows).
+unknownFieldsName :: Name -> Name
+unknownFieldsName tyName =
+  mkName (lowerFirstStr (nameBase tyName) <> "UnknownFields")
+
+lowerFirstStr :: String -> String
+lowerFirstStr (c:rest) = Data.Char.toLower c : rest
+lowerFirstStr []       = []
+
+-- | The VarBangType entry for a TH record's unknown-fields slot.
+mkUnknownFieldsField :: Name -> VarBangType
+mkUnknownFieldsField tyName =
+  ( unknownFieldsName tyName
+  , Bang NoSourceUnpackedness SourceStrict
+  , AppT ListT (ConT ''Decode.UnknownField)
+  )
+
 fieldTypeToTH :: Maybe FieldLabel -> FieldType -> FieldRep -> Q Type
 fieldTypeToTH lbl ft rep = case lbl of
-  Just Repeated -> repeatedTypeQ (frRepeated rep) (fieldTypeInnerQ ft)
-  Just Optional -> optionalTypeQ (frOptional rep) (fieldTypeInnerQ ft)
-  _             -> fieldTypeInnerQ ft
+  Just Repeated -> repeatedTypeQ (frRepeated rep) (fieldTypeInnerQWithRep rep ft)
+  Just Optional -> optionalTypeQ (frOptional rep) (fieldTypeInnerQWithRep rep ft)
+  _             -> fieldTypeInnerQWithRep rep ft
 
+-- | 'fieldTypeInnerQ' ignores the per-field 'FieldRep'; used for map
+-- keys/values where we haven't threaded a rep config through yet.
+-- Prefer 'fieldTypeInnerQWithRep' for message fields so that
+-- custom bytes/string representations (@frBytes@ / @frString@)
+-- actually materialize in the generated Haskell type.
 fieldTypeInnerQ :: FieldType -> Q Type
-fieldTypeInnerQ = \case
-  FTScalar SString -> conT ''Text
-  FTScalar SBytes  -> conT ''ByteString
+fieldTypeInnerQ = fieldTypeInnerQWithRep defaultFieldRep
+
+fieldTypeInnerQWithRep :: FieldRep -> FieldType -> Q Type
+fieldTypeInnerQWithRep rep = \case
+  FTScalar SString -> stringTypeQ (frString rep)
+  FTScalar SBytes  -> bytesTypeQ (frBytes rep)
   FTScalar s       -> scalarToTH s
   FTNamed n        -> conT (mkName (T.unpack (hsTypeName n)))
 
@@ -362,8 +403,12 @@ mkDefaultDec tyName fields = do
   defFields <- mapM (\fs -> do
     val <- defaultValueExpr fs
     pure (mkName (T.unpack (hsFieldName (fsFieldName fs))), val)) fields
+  -- Every TH-generated record now carries an empty unknown-fields
+  -- list. Proto2 extensions travel through this field; see
+  -- "Proto.Extension" for the typed accessors.
+  let ufDefault = (unknownFieldsName tyName, ListE [])
   body <- valD (varP defName)
-    (normalB (recConE tyName (fmap pure defFields))) []
+    (normalB (recConE tyName (fmap pure (defFields <> [ufDefault])))) []
   pure [sig, body]
 
 defaultValueExpr :: FieldSpec -> Q Exp
@@ -403,9 +448,14 @@ emptyBytesQ = \case
 mkEncodeInstance :: Name -> [FieldSpec] -> Q [Dec]
 mkEncodeInstance tyName fields = do
   msgVar <- newName "msg"
-  let body = case fields of
-        [] -> varE 'mempty
-        _  -> foldl1 (\a b -> [| $a <> $b |]) (fmap (mkFieldEncode msgVar) fields)
+  let ufName = unknownFieldsName tyName
+      ufExpr = [| Decode.encodeUnknownFields ($(varE ufName) $(varE msgVar)) |]
+      body = case fields of
+        [] -> ufExpr
+        _  ->
+          let fieldBody =
+                foldl1 (\a b -> [| $a <> $b |]) (fmap (mkFieldEncode msgVar) fields)
+          in [| $fieldBody <> $ufExpr |]
   inst <- instanceD (pure [])
     [t| Encode.MessageEncode $(conT tyName) |]
     [funD 'Encode.buildMessage [clause [varP msgVar] (normalB body) []]]
@@ -439,9 +489,15 @@ foldRepeatedQ = \case
 
 encodeFnQ :: FieldType -> FieldRep -> Q Exp
 encodeFnQ ft rep = case ft of
-  FTScalar s -> encodeScalarFnQ s
-  FTNamed _  -> varE 'Encode.encodeFieldMessage
+  FTScalar SString -> encodeStringFnQ (frString rep)
+  FTScalar SBytes  -> encodeBytesFnQ  (frBytes  rep)
+  FTScalar s       -> encodeScalarFnQ s
+  FTNamed _        -> varE 'Encode.encodeFieldMessage
 
+-- | Encoder dispatch for non-string / non-bytes scalars. String and
+-- bytes dispatch through 'encodeStringFnQ' / 'encodeBytesFnQ' in
+-- 'encodeFnQ' because their Haskell-side representation is
+-- configurable per-field ('frString' / 'frBytes').
 encodeScalarFnQ :: ScalarType -> Q Exp
 encodeScalarFnQ = \case
   SDouble  -> varE 'Encode.encodeFieldDouble
@@ -490,26 +546,33 @@ defaultCheckBytesQ rep accessor = case rep of
 
 mkDecodeInstance :: Name -> [FieldSpec] -> Q [Dec]
 mkDecodeInstance tyName fields = do
-  let flatFields = concatMap flattenFieldSpec fields
-      accNames = fmap (\(i, _) -> mkName ("acc_" <> show i)) (zip [(0::Int)..] fields)
+  -- Accumulator names: one per declared field, plus a dedicated
+  -- accumulator for unknown / extension fields at the tail.
+  let accNames = fmap (\(i, _) -> mkName ("acc_" <> show i))
+                      (zip [(0::Int)..] fields)
+      ufAcc   = mkName "acc_unknown_"
+      allAccs = accNames <> [ufAcc]
       loopName = mkName "loop"
-      recExpr = recConE tyName
-        (zipWith (\fs accN ->
-          pure (mkName (T.unpack (hsFieldName (fsFieldName fs))), VarE accN))
-          fields accNames)
+      ufField  = (unknownFieldsName tyName, AppE (VarE 'reverse) (VarE ufAcc))
+      declaredFields = zipWith (\fs accN ->
+        (mkName (T.unpack (hsFieldName (fsFieldName fs))), VarE accN))
+        fields accNames
+      recExpr = recConE tyName (fmap pure (declaredFields <> [ufField]))
 
   let mkLoopCall :: Int -> Q Exp -> Q Exp
       mkLoopCall i valExpr = appsE (varE loopName :
             fmap (\(j, n) -> if j == i then valExpr else varE n)
-              (zip [(0::Int)..] accNames))
+              (zip [(0::Int)..] accNames)
+        <> [varE ufAcc])
       passThruLoop :: Q Exp
-      passThruLoop = appsE (varE loopName : fmap varE accNames)
+      passThruLoop = appsE (varE loopName : fmap varE allAccs)
 
   let fieldCases = concatMap (\(i, fs) ->
         case fs of
           FSField _ num lbl ft rep ->
             let loopCall = mkLoopCall i $ case lbl of
                   Just Repeated -> snocRepeatedQ (frRepeated rep) (varE (accNames !! i))
+                  Just Optional -> [| Just v |]
                   _             -> varE (mkName "v")
             in [match (litP (integerL (fromIntegral num)))
                  (normalB [| $(decodeFnQ ft rep) >>= \v -> $loopCall |]) []]
@@ -525,9 +588,20 @@ mkDecodeInstance tyName fields = do
             ) ofs
         ) (zip [(0::Int)..] fields)
 
-  let skipCase = match wildP (normalB
-        [| Decode.skipField $(varE (mkName "wt")) >> $(appsE (varE loopName : fmap varE accNames)) |]
-        ) []
+  -- Skip case: capture the field as an unknown-field entry rather
+  -- than dropping it, so proto2 extensions and forward-compatible
+  -- unknown tags both round-trip through this decoder.
+  let captureCall =
+        appsE (varE loopName :
+               fmap varE accNames
+            <> [[| (uf : $(varE ufAcc)) |]])
+      skipCase = match wildP
+        (normalB
+          [| Decode.captureUnknownField
+               $(varE (mkName "fn"))
+               $(varE (mkName "wt"))
+             >>= \uf -> $captureCall |])
+        []
 
   let loopBody =
         [| Decode.getTagOr >>= \mt -> $(caseE (varE (mkName "mt"))
@@ -537,8 +611,10 @@ mkDecodeInstance tyName fields = do
             ]) |]
 
   let defaults = fmap defaultValueExpr fields
-      loopDef = funD loopName [clause (fmap varP accNames) (normalB loopBody) []]
-      decoderBody = letE [loopDef] (appsE (varE loopName : defaults))
+      loopDef = funD loopName
+        [clause (fmap varP allAccs) (normalB loopBody) []]
+      decoderBody = letE [loopDef]
+        (appsE (varE loopName : defaults <> [[| [] |]]))
 
   inst <- instanceD (pure [])
     [t| Decode.MessageDecode $(conT tyName) |]
@@ -557,12 +633,12 @@ snocRepeatedQ rep accQ = case rep of
   SeqRep    -> [| $accQ Seq.|> v |]
 
 decodeFnQ :: FieldType -> FieldRep -> Q Exp
-decodeFnQ ft _rep = case ft of
+decodeFnQ ft rep = case ft of
   FTScalar SDouble -> varE 'Decode.decodeFieldDouble
   FTScalar SFloat  -> varE 'Decode.decodeFieldFloat
   FTScalar SBool   -> varE 'Decode.decodeFieldBool
-  FTScalar SString -> varE 'Decode.decodeFieldString
-  FTScalar SBytes  -> varE 'Decode.decodeFieldBytes
+  FTScalar SString -> decodeStringFnQ (frString rep)
+  FTScalar SBytes  -> decodeBytesFnQ  (frBytes  rep)
   FTScalar SUInt64 -> varE 'Decode.decodeFieldVarint
   FTScalar _       -> [| fromIntegral <$> Decode.decodeFieldVarint |]
   FTNamed _        -> varE 'Decode.decodeFieldMessage
@@ -585,9 +661,14 @@ decodeBytesFnQ = \case
 mkSizeInstance :: Name -> [FieldSpec] -> Q [Dec]
 mkSizeInstance tyName fields = do
   msgVar <- newName "msg"
-  let body = case fields of
-        [] -> litE (integerL 0)
-        _  -> foldl1 (\a b -> [| $a + $b |]) (fmap (mkFieldSize msgVar) fields)
+  let ufName = unknownFieldsName tyName
+      ufSizeExpr = [| Decode.unknownFieldsSize ($(varE ufName) $(varE msgVar)) |]
+      body = case fields of
+        [] -> ufSizeExpr
+        _  ->
+          let fieldBody = foldl1 (\a b -> [| $a + $b |])
+                                 (fmap (mkFieldSize msgVar) fields)
+          in [| $fieldBody + $ufSizeExpr |]
   inst <- instanceD (pure [])
     [t| Encode.MessageSize $(conT tyName) |]
     [funD 'Encode.messageSize [clause [varP msgVar] (normalB body) []]]
@@ -598,11 +679,11 @@ mkFieldSize msgVar (FSField name num lbl ft rep) = do
   let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
       fn = litE (integerL (fromIntegral num))
   case lbl of
-    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated rep)) ($(sizeFnQ ft) $fn) $accessor |]
-    Just Optional -> [| maybe 0 ($(sizeFnQ ft) $fn) $accessor |]
+    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated rep)) ($(sizeFnQ ft rep) $fn) $accessor |]
+    Just Optional -> [| maybe 0 ($(sizeFnQ ft rep) $fn) $accessor |]
     _ -> [| if $(defaultCheckQ ft rep accessor)
             then 0
-            else $(sizeFnQ ft) $fn $accessor |]
+            else $(sizeFnQ ft rep) $fn $accessor |]
 mkFieldSize msgVar (FSMap name num _ _) = do
   let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
   [| if Map.null $accessor then 0 else Map.size $accessor * 10 |]
@@ -610,13 +691,13 @@ mkFieldSize msgVar (FSOneof name _) = do
   let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
   [| maybe 0 Encode.messageSize $accessor |]
 
-sizeFnQ :: FieldType -> Q Exp
-sizeFnQ = \case
+sizeFnQ :: FieldType -> FieldRep -> Q Exp
+sizeFnQ ft rep = case ft of
   FTScalar SDouble -> [| \fn _ -> WE.fieldDoubleSize fn |]
   FTScalar SFloat  -> [| \fn _ -> WE.fieldFloatSize fn |]
   FTScalar SBool   -> [| \fn _ -> WE.fieldBoolSize fn |]
-  FTScalar SString -> varE 'WE.fieldTextSize
-  FTScalar SBytes  -> varE 'WE.fieldBytesSize
+  FTScalar SString -> sizeStringFnQ (frString rep)
+  FTScalar SBytes  -> sizeBytesFnQ  (frBytes  rep)
   FTScalar SUInt64 -> varE 'WE.fieldVarintSize
   FTScalar _       -> [| \fn val -> WE.fieldVarintSize fn (fromIntegral val) |]
   FTNamed _        -> [| \fn val -> WE.fieldMessageSize fn (Encode.messageSize val) |]
@@ -670,3 +751,139 @@ enumHaddock ed =
   <> concatMap (\ev ->
       "* @" <> T.unpack (evName ev) <> "@ = " <> show (evNumber ev) <> "\n"
     ) (enumValues ed)
+
+-- ============================================================
+-- Proto2 extensions
+-- ============================================================
+
+-- | Emit the @HasExtensions@ instance for a generated record. The
+-- instance's two methods read and write the record's
+-- unknown-fields slot, which is where extension payloads (and any
+-- other forward-compatible unknown tags) live.
+--
+-- The class and method names are referenced via their bound 'Name's
+-- ('Ext.messageUnknownFields' / 'Ext.setMessageUnknownFields') so
+-- the generated splice doesn't require the user's module to
+-- already have @import qualified Proto.Extension@ in scope.
+mkHasExtensionsInstance :: Name -> Text -> Q [Dec]
+mkHasExtensionsInstance tyName _protoName = do
+  let ufName = unknownFieldsName tyName
+  msgVar <- newName "msg"
+  ufsVar <- newName "ufs"
+  inst <- instanceD (pure [])
+    [t| Ext.HasExtensions $(conT tyName) |]
+    [ funD 'Ext.messageUnknownFields
+        [clause [] (normalB (varE ufName)) []]
+    , funD 'Ext.setMessageUnknownFields
+        [clause [varP ufsVar, varP msgVar]
+          (normalB (recUpdE (varE msgVar)
+             [pure (ufName, VarE ufsVar)])) []]
+    ]
+  pure [inst]
+
+-- | Handle a @TLExtend@ top-level declaration: emit one
+-- 'Proto.Extension.Extension' binding per extension field in the
+-- block. The owning message's 'HasExtensions' instance is emitted
+-- separately by 'messageToDecls''.
+extendToDecls :: Text -> [FieldDef] -> Q [Dec]
+extendToDecls ownerProtoName fields =
+  concat <$> mapM (oneExtensionDec ownerHsName ownerPrefix) fields
+  where
+    ownerHsName = mkName (T.unpack (hsTypeName (lastProtoSegment ownerProtoName)))
+    ownerPrefix = lowerFirst (hsTypeName (lastProtoSegment ownerProtoName))
+
+lastProtoSegment :: Text -> Text
+lastProtoSegment t = case T.splitOn "." t of
+  []    -> t
+  parts -> last parts
+
+-- | Generate the declarations for one extension field. Singular
+-- fields produce a 'Ext.Extension' descriptor; repeated fields
+-- produce a 'Ext.RepeatedExtension' (with the
+-- 'Ext.reIsPacked' flag set per the field's @[packed = ...]@
+-- option, defaulting to 'False' for proto2 / 'True' for fixed-width
+-- packable scalars in proto3).
+oneExtensionDec :: Name -> Text -> FieldDef -> Q [Dec]
+oneExtensionDec ownerHs ownerPrefix fd = case fieldLabel fd of
+  Just Repeated ->
+    case thExtensionPayloadCore (fieldType fd) of
+      Nothing -> pure []
+      Just (hsTy, extConName) -> do
+        let extName = mkName
+              (T.unpack
+                 (escapeReserved
+                    (ownerPrefix <> upperFirst (snakeToCamel (fieldName fd)))))
+            num = unFieldNumber (fieldNumber fd)
+            extConE = conE (mkName ("Ext." <> T.unpack extConName))
+            packed = case fieldType fd of
+              FTScalar s -> packableScalar s
+              _          -> False
+        sig <- sigD extName
+          [t| Ext.RepeatedExtension $(conT ownerHs) $(pure hsTy) |]
+        body <- valD (varP extName)
+          (normalB [| Ext.RepeatedExtension
+                        { Ext.reNumber   = $(litE (IntegerL (fromIntegral num)))
+                        , Ext.reType     = $extConE
+                        , Ext.reIsPacked = $(if packed then [| True |] else [| False |])
+                        } |]) []
+        pure [sig, body]
+  _ ->
+    case thExtensionPayloadCore (fieldType fd) of
+      Nothing -> pure []
+      Just (hsTy, extConName) -> do
+        let extName = mkName
+              (T.unpack
+                 (escapeReserved
+                    (ownerPrefix <> upperFirst (snakeToCamel (fieldName fd)))))
+            num = unFieldNumber (fieldNumber fd)
+            extConE = conE (mkName ("Ext." <> T.unpack extConName))
+        sig <- sigD extName
+          [t| Ext.Extension $(conT ownerHs) $(pure hsTy) |]
+        body <- valD (varP extName)
+          (normalB [| Ext.Extension
+                        { Ext.extNumber = $(litE (IntegerL (fromIntegral num)))
+                        , Ext.extType   = $extConE
+                        } |]) []
+        pure [sig, body]
+
+-- | Core type/constructor mapping shared by singular and
+-- repeated extensions. Returns 'Nothing' only for shapes that
+-- don't yet exist in this codebase's 'FieldType' ADT (proto2
+-- groups, for instance, were dropped from the official spec
+-- and the parser doesn't recognise them); callers treat
+-- 'Nothing' as "skip this extension, the rest of the module
+-- still compiles".
+thExtensionPayloadCore :: FieldType -> Maybe (Type, Text)
+thExtensionPayloadCore (FTScalar s) = Just $ case s of
+  SDouble   -> (ConT ''Double,   "ExtDouble")
+  SFloat    -> (ConT ''Float,    "ExtFloat")
+  SInt32    -> (ConT ''Int32,    "ExtInt32")
+  SInt64    -> (ConT ''Int64,    "ExtInt64")
+  SUInt32   -> (ConT ''Word32,   "ExtUInt32")
+  SUInt64   -> (ConT ''Word64,   "ExtUInt64")
+  SSInt32   -> (ConT ''Int32,    "ExtSInt32")
+  SSInt64   -> (ConT ''Int64,    "ExtSInt64")
+  SFixed32  -> (ConT ''Word32,   "ExtFixed32")
+  SFixed64  -> (ConT ''Word64,   "ExtFixed64")
+  SSFixed32 -> (ConT ''Int32,    "ExtSFixed32")
+  SSFixed64 -> (ConT ''Int64,    "ExtSFixed64")
+  SBool     -> (ConT ''Bool,     "ExtBool")
+  SString   -> (ConT ''Text,     "ExtString")
+  SBytes    -> (ConT ''ByteString, "ExtBytes")
+thExtensionPayloadCore (FTNamed _) =
+  -- Named-type extensions round-trip their raw encoded bytes;
+  -- callers decode lazily through the matching message decoder.
+  Just (ConT ''ByteString, "ExtMessage")
+
+-- | Whether a scalar is permitted to be packed on the wire.
+packableScalar :: ScalarType -> Bool
+packableScalar = \case
+  SString -> False
+  SBytes  -> False
+  _       -> True
+
+
+upperFirst :: Text -> Text
+upperFirst t = case T.uncons t of
+  Just (c, rest) -> T.cons (Data.Char.toUpper c) rest
+  Nothing        -> t

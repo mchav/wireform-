@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 -- | Write Parquet files.
 --
 -- Provides page-level encoding, column chunk assembly, and whole-file builders.
@@ -63,13 +64,18 @@ module Parquet.Write
   , writeParquetFile
   , encodePageHeader
   , assembleColumnChunk
+    -- * Mixed required + optional columns (nullable-aware)
+  , ParquetColumn (..)
+  , parquetColumnLength
+  , parquetColumnParquetType
+  , buildParquetFileMixed
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
-import Data.Int (Int32, Int64)
+import Data.Int (Int16, Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -105,6 +111,7 @@ import Parquet.Page
   , PageType (..)
   , pageTypeTag
   )
+import Parquet.Thrift.Schema
 import Parquet.Types
   ( ColumnChunk (..)
   , ColumnMetadata (..)
@@ -229,37 +236,41 @@ encodePageHeader :: PageHeader -> ByteString
 encodePageHeader hdr = encodeCompact (pageHeaderToThrift hdr)
 
 pageHeaderToThrift :: PageHeader -> TV.Value
-pageHeaderToThrift hdr = TV.Struct $ V.fromList $
-  [(1, TV.I32 (pageTypeTag (phType hdr)))]
-  ++ maybe [] (\s -> [(2, TV.I32 s)]) (phUncompressedPageSize hdr)
-  ++ maybe [] (\s -> [(3, TV.I32 s)]) (phCompressedPageSize hdr)
-  ++ case phType hdr of
-       PtDataPage dph        -> [(5, dataPageHeaderToThrift dph)]
-       PtDictionaryPage dk   -> [(7, dictPageHeaderToThrift dk)]
-       PtDataPageV2 v2       -> [(8, dataPageHeaderV2ToThrift v2)]
-       PtIndexPage           -> []
-
-dataPageHeaderToThrift :: DataPageHeader -> TV.Value
-dataPageHeaderToThrift dph = TV.Struct $ V.fromList
-  [ (1, TV.I32 (dphNumValues dph))
-  , (2, TV.I32 (dphEncoding dph))
+pageHeaderToThrift hdr = TV.Struct $ V.fromList $ concat
+  [ [ PageHeader_Type (pageTypeTag (phType hdr)) ]
+  , optField (phUncompressedPageSize hdr) PageHeader_UncompressedSize
+  , optField (phCompressedPageSize hdr)   PageHeader_CompressedSize
+  , case phType hdr of
+      PtDataPage dph      -> [ PageHeader_DataPageHeader
+                                 (dataPageHeaderFields dph) ]
+      PtDictionaryPage dk -> [ PageHeader_DictionaryPageHeader
+                                 (dictPageHeaderFields dk) ]
+      PtDataPageV2 v2     -> [ PageHeader_DataPageHeaderV2
+                                 (dataPageHeaderV2Fields v2) ]
+      PtIndexPage         -> []
   ]
 
-dictPageHeaderToThrift :: DictionaryPageHeader -> TV.Value
-dictPageHeaderToThrift dk = TV.Struct $ V.fromList
-  [ (1, TV.I32 (dictNumValues dk))
-  , (2, TV.I32 (dictEncoding dk))
+dataPageHeaderFields :: DataPageHeader -> V.Vector (Int16, TV.Value)
+dataPageHeaderFields dph = V.fromList
+  [ DataPageHeader_NumValues (dphNumValues dph)
+  , DataPageHeader_Encoding  (dphEncoding  dph)
   ]
 
-dataPageHeaderV2ToThrift :: DataPageHeaderV2 -> TV.Value
-dataPageHeaderV2ToThrift v2 = TV.Struct $ V.fromList
-  [ (1, TV.I32 (dph2NumValues v2))
-  , (2, TV.I32 (dph2NumNulls v2))
-  , (3, TV.I32 (dph2NumRows v2))
-  , (4, TV.I32 (dph2Encoding v2))
-  , (5, TV.I32 (dph2DefLevelsLen v2))
-  , (6, TV.I32 (dph2RepLevelsLen v2))
-  , (7, TV.Bool (dph2IsCompressed v2))
+dictPageHeaderFields :: DictionaryPageHeader -> V.Vector (Int16, TV.Value)
+dictPageHeaderFields dk = V.fromList
+  [ DictionaryPageHeader_NumValues (dictNumValues dk)
+  , DictionaryPageHeader_Encoding  (dictEncoding  dk)
+  ]
+
+dataPageHeaderV2Fields :: DataPageHeaderV2 -> V.Vector (Int16, TV.Value)
+dataPageHeaderV2Fields v2 = V.fromList
+  [ DataPageHeaderV2_NumValues (dph2NumValues v2)
+  , DataPageHeaderV2_NumNulls  (dph2NumNulls  v2)
+  , DataPageHeaderV2_NumRows   (dph2NumRows   v2)
+  , DataPageHeaderV2_Encoding  (dph2Encoding  v2)
+  , DataPageHeaderV2_DefinitionLevelsByteLength (dph2DefLevelsLen v2)
+  , DataPageHeaderV2_RepetitionLevelsByteLength (dph2RepLevelsLen v2)
+  , DataPageHeaderV2_IsCompressed (dph2IsCompressed v2)
   ]
 
 -- | Concatenate pre-encoded pages into a single column chunk. Currently only
@@ -1194,27 +1205,26 @@ data FooterEncryption = FooterEncryption
 -- module that follows this struct.
 fileCryptoMetaDataToThrift :: FooterEncryption -> TV.Value
 fileCryptoMetaDataToThrift fe = TV.Struct $ V.fromList
-  [ (1, encryptionAlgorithmToThrift fe)
-  , (2, TV.Binary (feKeyMetadata fe))
+  [ FileCryptoMetaData_EncryptionAlgorithm (encryptionAlgorithmFields fe)
+  , FileCryptoMetaData_KeyMetadata         (feKeyMetadata fe)
   ]
 
-encryptionAlgorithmToThrift :: FooterEncryption -> TV.Value
-encryptionAlgorithmToThrift fe = TV.Struct $ V.fromList
-  -- We always emit AesGcmV1 here for the file-level algorithm: the
-  -- column-level CTR variant is signalled per-column via
-  -- ColumnCryptoMetaData and doesn't change the footer module.
-  [ (1, aesGcmV1ToThrift fe) ]
+-- We always emit AesGcmV1 here for the file-level algorithm: the
+-- column-level CTR variant is signalled per-column via
+-- ColumnCryptoMetaData and doesn't change the footer module.
+encryptionAlgorithmFields :: FooterEncryption -> V.Vector (Int16, TV.Value)
+encryptionAlgorithmFields fe = V.singleton
+  (EncryptionAlgorithm_AesGcmV1 (aesGcmV1Fields fe))
 
-aesGcmV1ToThrift :: FooterEncryption -> TV.Value
-aesGcmV1ToThrift fe = TV.Struct $ V.fromList $
-  prefix ++ fileIdent
+aesGcmV1Fields :: FooterEncryption -> V.Vector (Int16, TV.Value)
+aesGcmV1Fields fe = V.fromList $ concat
+  [ optNonEmpty (feAadPrefix fe) AesGcmV1_AadPrefix
+  , optNonEmpty (feFileId    fe) AesGcmV1_AadFileUnique
+  ]
   where
-    prefix
-      | BS.null (feAadPrefix fe) = []
-      | otherwise = [(1, TV.Binary (feAadPrefix fe))]
-    fileIdent
-      | BS.null (feFileId fe) = []
-      | otherwise = [(2, TV.Binary (feFileId fe))]
+    optNonEmpty bs mk
+      | BS.null bs = []
+      | otherwise  = [mk bs]
 
 -- | Build a Parquet file with an /encrypted footer/. Identical to
 -- 'buildParquetFileWithIndex' for the row-group + bloom / offset /
@@ -1415,6 +1425,153 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
                 , cmTotalCompressedSize = fromIntegral sz
                 , cmDataPageOffset = fromIntegral cOff
                 , cmStatistics = Just (columnDataStatistics cd)
+                , cmBloomFilterOffset = Nothing
+                , cmBloomFilterLength = Nothing
+                }
+            , ccOffsetIndexOffset = Nothing
+            , ccOffsetIndexLength = Nothing
+            , ccColumnIndexOffset = Nothing
+            , ccColumnIndexLength = Nothing
+            }
+      in (V.snoc cs cc, cOff + sz)
+
+-- ============================================================
+-- Mixed required + optional columns
+-- ============================================================
+
+-- | Sum of the two column-data shapes the writer can emit:
+-- plain @ColumnData@ (required leaf columns) and
+-- @OptionalColumn@ (nullable leaf columns with definition
+-- levels). The 'buildParquetFileMixed' entrypoint below accepts
+-- a @V.Vector ParquetColumn@ per row group so callers can mix
+-- nullable and non-nullable leaves in the same file without
+-- dropping to the page-level builders.
+data ParquetColumn
+  = PCRequired !ColumnData
+    -- ^ A required (non-null) column.
+  | PCOptional !OptionalColumn
+    -- ^ A nullable column. Encoded as @DATA_PAGE_V1@ with a
+    -- definition-level stream followed by present-only values.
+  deriving (Show, Eq)
+
+parquetColumnLength :: ParquetColumn -> Int
+parquetColumnLength = \case
+  PCRequired cd -> columnDataLength cd
+  PCOptional oc -> optionalColumnLength oc
+
+parquetColumnParquetType :: ParquetColumn -> ParquetType
+parquetColumnParquetType = \case
+  PCRequired cd -> columnDataParquetType cd
+  PCOptional oc -> columnDataParquetType (optionalColumnPresentValues oc)
+
+parquetColumnStatistics :: ParquetColumn -> Statistics
+parquetColumnStatistics = \case
+  PCRequired cd -> columnDataStatistics cd
+  -- For nullable columns the statistics include a null count;
+  -- min / max are computed over the present values, which
+  -- columnDataStatistics on the stripped ColumnData handles.
+  PCOptional oc ->
+    let !stats = columnDataStatistics (optionalColumnPresentValues oc)
+        !nulls = fromIntegral (optionalColumnNullCount oc)
+    in  stats { statNullCount = Just nulls }
+
+-- | Page-encode one mixed column. Uncompressed @DATA_PAGE_V1@
+-- for both variants; the simpler readers in
+-- "Parquet.Read" expect that shape. Returns
+-- @(pageBytes, uncompressedSize)@ so the row-group builder can
+-- stamp the matching @ColumnMetadata@ offsets.
+encodeMixedPageV1 :: ParquetColumn -> (ByteString, Int)
+encodeMixedPageV1 = \case
+  PCRequired cd ->
+    let (hdr, body) = encodeColumnDataPageParts cd
+    in  (BS.append hdr body, BS.length hdr + BS.length body)
+  PCOptional oc ->
+    let !pg = encodeOptionalColumnPage oc
+    in  (pg, BS.length pg)
+
+-- | Assemble a Parquet file from a flat schema + row groups
+-- where each column is either required ('PCRequired') or
+-- nullable ('PCOptional'). Unlike 'buildParquetFileWithIndex',
+-- no bloom filters / page indexes / encryption are emitted
+-- here; this is the fast path used by the Arrow <-> Parquet
+-- bridge when any leaf column is nullable.
+--
+-- Output format:
+--
+-- @
+-- PAR1
+-- \<page bytes per (row-group × column)\>
+-- \<footer thrift (FileMetadata)\>
+-- \<footer length : i32 LE\>
+-- PAR1
+-- @
+buildParquetFileMixed
+  :: V.Vector SchemaElement
+  -> V.Vector (V.Vector ParquetColumn)
+  -> ByteString
+buildParquetFileMixed schema rowGroups =
+  let !leaves = V.filter (maybe False (const True) . seType) schema
+      !encodedRGs = V.map (V.map encodeMixedPageV1) rowGroups
+      !allPageBytes = concat
+        [ V.toList (V.map fst rg) | rg <- V.toList encodedRGs ]
+      !rgBytesLen = sum (map BS.length allPageBytes)
+      !startOfData = 4 :: Int
+
+      -- One RowGroup metadata per input group.
+      (!rgMetas, !_) =
+        V.ifoldl'
+          (\(!rgs, !off) rgIdx encoded ->
+              let !colsData = V.unsafeIndex rowGroups rgIdx
+                  (!chunks, !off') =
+                    V.ifoldl' (buildChunk colsData) (V.empty, off) encoded
+                  !nRows = if V.null colsData
+                             then 0
+                             else fromIntegral (parquetColumnLength (V.unsafeIndex colsData 0))
+                  !rg = RowGroup
+                    { rgColumns = chunks
+                    , rgTotalByteSize = fromIntegral (off' - off)
+                    , rgNumRows = nRows
+                    }
+               in (V.snoc rgs rg, off'))
+          (V.empty, startOfData)
+          encodedRGs
+
+      !totalRows = V.foldl' (\a rg -> a + rgNumRows rg) 0 rgMetas
+      !fm = FileMetadata
+        { fmVersion   = 1
+        , fmSchema    = schema
+        , fmNumRows   = totalRows
+        , fmRowGroups = rgMetas
+        , fmCreatedBy = Just "wireform"
+        }
+  in BL.toStrict $ B.toLazyByteString $
+       B.byteString parquetMagic
+       <> mconcat (map B.byteString allPageBytes)
+       <> B.byteString (writeFooter fm)
+  where
+    !leaves' = V.filter (maybe False (const True) . seType) schema
+
+    buildChunk
+      :: V.Vector ParquetColumn
+      -> (V.Vector ColumnChunk, Int) -> Int -> (ByteString, Int)
+      -> (V.Vector ColumnChunk, Int)
+    buildChunk colsData (!cs, !cOff) colIdx (pageBs, uncompSize) =
+      let !cd = V.unsafeIndex colsData colIdx
+          !leaf = V.unsafeIndex leaves' colIdx
+          !sz = BS.length pageBs
+          !cc = ColumnChunk
+            { ccFilePath = Nothing
+            , ccFileOffset = fromIntegral cOff
+            , ccMetadata = Just ColumnMetadata
+                { cmType = fromMaybe (parquetColumnParquetType cd) (seType leaf)
+                , cmEncodings = V.singleton Plain
+                , cmPathInSchema = V.singleton (seName leaf)
+                , cmCodec = Uncompressed
+                , cmNumValues = fromIntegral (parquetColumnLength cd)
+                , cmTotalUncompressedSize = fromIntegral uncompSize
+                , cmTotalCompressedSize = fromIntegral sz
+                , cmDataPageOffset = fromIntegral cOff
+                , cmStatistics = Just (parquetColumnStatistics cd)
                 , cmBloomFilterOffset = Nothing
                 , cmBloomFilterLength = Nothing
                 }

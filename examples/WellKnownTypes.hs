@@ -25,7 +25,7 @@ main = do
   roundtrip "Duration" (defaultDuration { durationSeconds = 3600 })
 
   putStrLn "--- Empty ---"
-  roundtrip "Empty" Empty
+  roundtrip "Empty" defaultEmpty
 
   putStrLn "--- Wrappers ---"
   roundtrip "Int64Value(42)" (defaultInt64Value { int64ValueValue = 42 })

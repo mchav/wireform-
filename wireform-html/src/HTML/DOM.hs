@@ -113,7 +113,7 @@ import HTML.Parse
   , freeTreeBuilder, drainTreeBuilderStack
   , tbGetEvents, tbResetEvents, tokenizeRawEventsIO
   )
-import qualified HTML.Parse as P (buildDocument)
+import qualified HTML.Parse as P (finishDocument)
 import qualified HTML.Selector as Sel
 import HTML.Value
   ( HTMLDocument(..), HTMLNode(..), Doctype(..), TreeEvent(..)
@@ -200,7 +200,7 @@ finishParser (Parser tb loRef) = do
   when (not (BS.null lo)) $
     tokenizeBSIO lo 0 (BS.length lo) 0 False tb
   processToken tb TEOF
-  doc <- P.buildDocument tb
+  doc <- P.finishDocument tb
   freeTreeBuilder tb
   let !idx = buildElementIndex (htmlRoot doc)
   pure $! Document doc idx

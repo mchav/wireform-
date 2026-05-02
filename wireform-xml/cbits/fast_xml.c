@@ -94,6 +94,17 @@ int hs_xml_find_lt(const uint8_t *buf, int offset, int len)
  * Fast scan for a specific byte in 16-byte chunks.
  * Returns offset of first match at or after offset, or -1 if not found.
  */
+/*
+ * NOTE: wireform-core now exposes a format-neutral
+ * hs_find_byte (in wireform-core/cbits/fast_scan.c), which
+ * CSV / NDJSON / HTML consume directly via Wireform.FFI.
+ *
+ * We keep hs_xml_find_byte here as an XML-only variant
+ * because it has different miss semantics (returns -1 on
+ * miss, whereas hs_find_byte returns len). The downstream
+ * XML callers depend on the -1 convention, and
+ * hs_xml_find_attr_end below calls this version internally.
+ */
 int hs_xml_find_byte(const uint8_t *buf, int offset, int len, uint8_t target_byte)
 {
     int i = offset;
@@ -265,103 +276,13 @@ int hs_html_find_text_end(const uint8_t *buf, int offset, int len)
 }
 
 /*
- * HTML text escape: scan for '<', '>', '&' only (no quotes).
- * Returns offset of first match, or len if not found.
+ * HTML-specific byte scanners (hs_html_find_text_escape,
+ * hs_html_find_attr_escape, hs_html_find_attr_break) were removed
+ * from this file: they duplicated symbols that live in
+ * wireform-html/cbits/html_scan.c, causing linker errors in
+ * executables that depend on both packages. The wireform-xml side
+ * never called them.
  */
-int hs_html_find_text_escape(const uint8_t *buf, int offset, int len)
-{
-    int i = offset;
-    simde__m128i v_lt  = simde_mm_set1_epi8('<');
-    simde__m128i v_gt  = simde_mm_set1_epi8('>');
-    simde__m128i v_amp = simde_mm_set1_epi8('&');
-
-    while (i < len && ((uintptr_t)(buf + i) & 15) != 0) {
-        uint8_t b = buf[i];
-        if (b == '<' || b == '>' || b == '&') return i;
-        i++;
-    }
-
-    for (; i + 16 <= len; i += 16) {
-        simde__m128i chunk = simde_mm_load_si128((const simde__m128i *)(buf + i));
-        int m1 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_lt));
-        int m2 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_gt));
-        int m3 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_amp));
-        int mask = m1 | m2 | m3;
-        if (mask != 0) return i + __builtin_ctz(mask);
-    }
-
-    for (; i < len; i++) {
-        uint8_t b = buf[i];
-        if (b == '<' || b == '>' || b == '&') return i;
-    }
-    return len;
-}
-
-/*
- * HTML attr escape: scan for '"', '&', '<', '>' in attribute values.
- * Returns offset of first match, or len if not found.
- */
-int hs_html_find_attr_escape(const uint8_t *buf, int offset, int len)
-{
-    int i = offset;
-    simde__m128i v_dq  = simde_mm_set1_epi8('"');
-    simde__m128i v_amp = simde_mm_set1_epi8('&');
-    simde__m128i v_lt  = simde_mm_set1_epi8('<');
-    simde__m128i v_gt  = simde_mm_set1_epi8('>');
-
-    while (i < len && ((uintptr_t)(buf + i) & 15) != 0) {
-        uint8_t b = buf[i];
-        if (b == '"' || b == '&' || b == '<' || b == '>') return i;
-        i++;
-    }
-
-    for (; i + 16 <= len; i += 16) {
-        simde__m128i chunk = simde_mm_load_si128((const simde__m128i *)(buf + i));
-        int m1 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_dq));
-        int m2 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_amp));
-        int m3 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_lt));
-        int m4 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_gt));
-        int mask = m1 | m2 | m3 | m4;
-        if (mask != 0) return i + __builtin_ctz(mask);
-    }
-
-    for (; i < len; i++) {
-        uint8_t b = buf[i];
-        if (b == '"' || b == '&' || b == '<' || b == '>') return i;
-    }
-    return len;
-}
-
-/*
- * Scan for a quote char or '&' in attribute values (16-byte SIMD).
- * Returns offset of first match, or len if not found.
- */
-int hs_html_find_attr_break(const uint8_t *buf, int offset, int len, uint8_t quote_char)
-{
-    int i = offset;
-    simde__m128i v_q   = simde_mm_set1_epi8((char)quote_char);
-    simde__m128i v_amp = simde_mm_set1_epi8('&');
-
-    while (i < len && ((uintptr_t)(buf + i) & 15) != 0) {
-        uint8_t b = buf[i];
-        if (b == quote_char || b == '&') return i;
-        i++;
-    }
-
-    for (; i + 16 <= len; i += 16) {
-        simde__m128i chunk = simde_mm_load_si128((const simde__m128i *)(buf + i));
-        int m1 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_q));
-        int m2 = simde_mm_movemask_epi8(simde_mm_cmpeq_epi8(chunk, v_amp));
-        int mask = m1 | m2;
-        if (mask != 0) return i + __builtin_ctz(mask);
-    }
-
-    for (; i < len; i++) {
-        uint8_t b = buf[i];
-        if (b == quote_char || b == '&') return i;
-    }
-    return len;
-}
 
 /*
  * Fast scan for bytes that need XML escaping: '<', '>', '&', '"', '\''.

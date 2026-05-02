@@ -1,9 +1,12 @@
 -- | Tests for 'Iceberg.Delete' position + equality delete writers.
 module Test.Iceberg.Delete (tests) where
 
+import Data.List (isInfixOf)
 import qualified Data.ByteString as BS
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
+import System.Exit (ExitCode (..))
+import qualified System.Process as Proc
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -131,4 +134,59 @@ tests = testGroup "Iceberg.Delete"
               kept = Iceberg.Read.applyPositionDeletes
                        icebergDs dataFilePath dataRows
           V.toList kept @?= [0, 2, 3, 5, 6, 7, 9]
+
+  , testCase "equality delete file: pyarrow sees Iceberg field_ids" $ do
+      -- Regression for the bug where seFieldId was encoded into
+      -- parquet.thrift SchemaElement field 8 (which is @precision@)
+      -- instead of field 9 (@field_id@). Other Parquet readers
+      -- (pyarrow/Java/etc.) therefore silently dropped the field_id,
+      -- which for an Iceberg equality-delete file means the delete
+      -- row's columns can't be matched back to a data column.
+      pyOk <- pyarrowAvailable
+      if not pyOk
+        then pure ()  -- pyarrow absent on the build agent; skip.
+        else do
+          let cols = V.fromList
+                [ PW.ColInt64     (VP.fromList [1, 2, 3])
+                , PW.ColByteArray (V.fromList ["alpha", "beta", "gamma"])
+                ]
+              schemaCols =
+                [ ID.EqualityDeleteSchema 17 "id"   P.PTInt64
+                , ID.EqualityDeleteSchema 23 "name" P.PTByteArray
+                ]
+          case ID.writeEqualityDeleteFile
+                 "s3://bucket/deletes/eq.parquet" schemaCols cols of
+            Left e -> assertFailure e
+            Right (bytes, _) -> do
+              let path = "/tmp/wireform-equality-delete-field-ids.parquet"
+              BS.writeFile path bytes
+              pyarrowAssert "pyarrow recovers field_id=17 for 'id'"
+                [ "pf = pq.ParquetFile('" ++ path ++ "')"
+                , "txt = str(pf.schema)"
+                , "assert 'field_id=17' in txt and 'id' in txt, txt"
+                , "assert 'field_id=23' in txt and 'name' in txt, txt"
+                ]
   ]
+
+pyarrowAvailable :: IO Bool
+pyarrowAvailable = do
+  (code, _, _) <- Proc.readProcessWithExitCode
+                    "python3" ["-c", "import pyarrow.parquet"] ""
+  pure (code == ExitSuccess)
+
+pyarrowAssert :: String -> [String] -> IO ()
+pyarrowAssert label snippet = do
+  (code, out, err) <- Proc.readProcessWithExitCode "python3"
+    [ "-c"
+    , unlines
+        ( "import pyarrow.parquet as pq"
+        : snippet
+       ++ ["print('PYARROW_OK')"]
+        )
+    ]
+    ""
+  case code of
+    ExitSuccess
+      | "PYARROW_OK" `isInfixOf` out -> pure ()
+      | otherwise -> assertFailure (label ++ ": pyarrow output: " ++ out)
+    _ -> assertFailure (label ++ ":\nstdout=" ++ out ++ "\nstderr=" ++ err)

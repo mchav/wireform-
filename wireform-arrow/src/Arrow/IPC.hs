@@ -124,6 +124,7 @@ encodeArrowType = \case
   ALargeBinary      -> B.word8 18
   ALargeUtf8        -> B.word8 19
   ALargeList        -> B.word8 20
+  ADecimal256 p s   -> B.word8 21 <> B.word8 (fromIntegral p) <> B.word8 (fromIntegral s)
 
 encodeRecordBatch :: RecordBatchDef -> ByteString
 encodeRecordBatch rb = BL.toStrict $ B.toLazyByteString $
@@ -183,7 +184,7 @@ decodeField bs off = do
   ensure bs off3 4
   let !nChildren = fromIntegral (readLE32 bs off3) :: Int
   (children, off4) <- decodeFields bs (off3 + 4) nChildren
-  Right (Field name nullable atype (V.fromList children), off4)
+  Right (Field name nullable atype (V.fromList children) Nothing, off4)
 
 decodeArrowType :: ByteString -> Int -> Either String (ArrowType, Int)
 decodeArrowType bs off = do
@@ -238,6 +239,8 @@ decodeArrowType bs off = do
     18 -> Right (ALargeBinary, off + 1)
     19 -> Right (ALargeUtf8, off + 1)
     20 -> Right (ALargeList, off + 1)
+    21 -> do ensure bs (off + 1) 2
+             Right (ADecimal256 (fromIntegral (rdByte bs (off + 1))) (fromIntegral (rdByte bs (off + 2))), off + 3)
     _  -> Left $ "Arrow.IPC: unknown type tag " ++ show tag
 
 decodeRecordBatch :: ByteString -> Either String RecordBatchDef
@@ -256,7 +259,13 @@ decodeRecordBatch bs = do
   let !bufs = V.generate nBufs (\i ->
         let !o = off2 + 4 + i * 16
         in Buffer (fromIntegral (readLE64 bs o)) (fromIntegral (readLE64 bs (o + 8))))
-  Right RecordBatchDef { rbLength = len, rbNodes = nodes, rbBuffers = bufs }
+  Right RecordBatchDef
+    { rbLength = len
+    , rbNodes = nodes
+    , rbBuffers = bufs
+    , rbVariadicBufferCounts = V.empty
+    , rbBodyCompression = Nothing
+    }
 
 -- Primitives
 

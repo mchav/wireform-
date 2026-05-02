@@ -67,7 +67,13 @@ import qualified Codec.Compression.Snappy as Snappy
 #endif
 
 import ORC.Footer (readORCCompression, readORCFooter)
-import ORC.RLE (decodeBooleanRLE, decodePresentStream, decodeRLEv1Int, decodeRLEv2Int)
+import ORC.RLE
+  ( decodeBooleanRLE
+  , decodePresentStream
+  , decodeRLEv1Int
+  , decodeRLEv2Int
+  , decodeRLEv2IntAll
+  )
 import ORC.Stripe (Stream (..), StripeFooter, decodeStripeFooter, stripeFooterBytes, stripeStreamSlices)
 import ORC.Types
 
@@ -242,26 +248,33 @@ decodeBoolColumn numRows dataBs mPresentBs = case mPresentBs of
     vals <- decodeBooleanRLE numPresent dataBs
     Right $! interleaveBool present vals
 
--- | Decode a string column (DIRECT encoding only).
+-- | Decode a string column, auto-dispatching between DIRECT_V2 and
+-- DICTIONARY_V2 encodings based on whether the dictionary data stream
+-- is present.
 --
--- Arguments: @numRows@, @data@ (UTF-8 bytes), @length stream@ (RLE v2
--- unsigned), @dictionary stream@ (empty for DIRECT), @present stream@.
+-- Arguments: @numRows@, @data@, @length stream@ (RLE v2 unsigned),
+-- @dictionary stream@, @present stream@. For a DIRECT_V2 column the
+-- dictionary stream is empty and @data@ carries the UTF-8 bytes. For a
+-- DICTIONARY_V2 column the dictionary stream carries the unique UTF-8
+-- entries and @data@ carries the per-row dictionary indices.
 decodeStringColumn
   :: Int -> ByteString -> ByteString -> ByteString -> Maybe ByteString
   -> Either String (V.Vector (Maybe T.Text))
-decodeStringColumn _numRows _dataBs _lengthBs dictBs _mPresentBs
-  | not (BS.null dictBs) = Left "ORC.Read: DICTIONARY_V2 string encoding not yet implemented"
-decodeStringColumn numRows dataBs lengthBs _dictBs mPresentBs = do
-  (numPresent, mPresent) <- case mPresentBs of
-    Nothing -> Right (numRows, Nothing)
-    Just pbs -> do
-      p <- decodePresentStream numRows pbs
-      Right (countTrue p, Just p)
-  lengths <- decodeRLEv2Int False numPresent lengthBs
-  strings <- splitByLengths dataBs lengths
-  case mPresent of
-    Nothing -> Right $! V.map Just strings
-    Just present -> Right $! interleaveText present strings
+decodeStringColumn numRows dataBs lengthBs dictBs mPresentBs
+  -- DICTIONARY_V2: the data stream is the per-row index stream, the
+  -- length stream is the dictionary entry lengths, dictBs is the raw
+  -- UTF-8 dictionary payload. 'decodeStringDictColumn' takes arguments
+  -- in the order (dictData, length, index, present) so we reshuffle
+  -- the DIRECT-shaped arguments accordingly.
+  | not (BS.null dictBs) =
+      decodeStringDictColumn numRows dictBs lengthBs dataBs mPresentBs
+  | otherwise = do
+      (numPresent, mPresent) <- resolvePresent numRows mPresentBs
+      lengths <- decodeRLEv2Int False numPresent lengthBs
+      strings <- splitByLengths dataBs lengths
+      case mPresent of
+        Nothing -> Right $! V.map Just strings
+        Just present -> Right $! interleaveText present strings
 
 -- | Decode an IEEE 754 single-precision float column (little-endian).
 decodeFloatColumn
@@ -423,8 +436,10 @@ decodeStringDictColumn
   :: Int -> ByteString -> ByteString -> ByteString -> Maybe ByteString
   -> Either String (V.Vector (Maybe T.Text))
 decodeStringDictColumn numRows dictDataBs lengthBs indexBs mPresentBs = do
-  -- Decode dictionary
-  dictLengths <- decodeRLEv2Int False (estimateCount lengthBs) lengthBs
+  -- Decode the dictionary. The dictionary length stream has one entry
+  -- per unique string and the count is not recorded anywhere else in
+  -- the column metadata, so we consume the stream to EOF.
+  dictLengths <- decodeRLEv2IntAll False lengthBs
   dictEntries <- splitByLengths dictDataBs dictLengths
   -- Decode indices
   (numPresent, mPresent) <- resolvePresent numRows mPresentBs
