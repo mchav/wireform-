@@ -123,6 +123,69 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
                         else assertFailure $ "temporal round-trip mismatch:\n got "
                                               ++ show (V.toList cols)
                                               ++ "\n exp " ++ show (V.toList batch)
+  , testCase "nested struct<int32, utf8> round-trip" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.singleton
+                (AT.Field "pt" False AT.AStruct
+                  (V.fromList
+                     [ AT.Field "x"    False (AT.AInt 32 True) V.empty Nothing
+                     , AT.Field "name" False AT.AUtf8          V.empty Nothing
+                     ])
+                  Nothing)
+            , AT.arrowEndianness = AT.Little
+            }
+          !batch = V.singleton $ AC.ColStruct
+            (V.fromList
+              [ ("x",    AC.ColInt32 (VP.fromList [1, 2, 3 :: Int32]))
+              , ("name", AC.ColUtf8  (V.fromList ["a", "b", "c"]))
+              ])
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC (struct): " ++ e)
+        Right (types, stripesWithRows) ->
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC (struct): " ++ e)
+            Right bytes ->
+              case OHL.decodeORC bytes of
+                Left e -> assertFailure ("decodeORC (struct): " ++ e)
+                Right footer ->
+                  case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
+                    Left e    -> assertFailure ("orcStripeToArrow (struct): " ++ e)
+                    Right cols
+                      | cols == batch -> pure ()
+                      | otherwise     -> assertFailure $
+                          "struct round-trip mismatch:\n got "
+                            ++ show (V.toList cols)
+                            ++ "\n exp " ++ show (V.toList batch)
+  , testCase "nested list<int32> round-trip" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.singleton
+                (AT.Field "xs" False AT.AList
+                  (V.singleton
+                     (AT.Field "item" False (AT.AInt 32 True) V.empty Nothing))
+                  Nothing)
+            , AT.arrowEndianness = AT.Little
+            }
+          -- 3 rows: [1,2,3], [], [4,5]
+          !batch = V.singleton $ AC.ColList
+            (VP.fromList [0, 3, 3, 5 :: Int32])
+            (AC.ColInt32 (VP.fromList [1, 2, 3, 4, 5 :: Int32]))
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC (list): " ++ e)
+        Right (types, stripesWithRows) ->
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC (list): " ++ e)
+            Right bytes ->
+              case OHL.decodeORC bytes of
+                Left e -> assertFailure ("decodeORC (list): " ++ e)
+                Right footer ->
+                  case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
+                    Left e    -> assertFailure ("orcStripeToArrow (list): " ++ e)
+                    Right cols
+                      | cols == batch -> pure ()
+                      | otherwise     -> assertFailure $
+                          "list round-trip mismatch:\n got "
+                            ++ show (V.toList cols)
+                            ++ "\n exp " ++ show (V.toList batch)
   ]
 
 stripeStreamTests :: TestTree

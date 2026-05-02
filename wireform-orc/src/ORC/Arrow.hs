@@ -81,19 +81,21 @@ _streamSecondary = 7
 -- | Lower an Arrow schema + a sequence of column-major batches
 -- to the inputs 'ORC.HighLevel.encodeORC' expects.
 --
--- Each Arrow batch becomes one ORC stripe. Returns 'Left' if any
--- column type isn't representable in ORC's flat data plane yet.
--- | Lower an Arrow schema + a sequence of column-major batches
--- to the inputs 'ORC.HighLevel.encodeORC' expects.
+-- Each Arrow batch becomes one ORC stripe. The output pairs
+-- each stripe's stream tuples with its row count (derived from
+-- the first top-level column's length) so
+-- 'ORC.HighLevel.encodeORC' can stamp @siNumberOfRows@ directly
+-- into the stripe information.
 --
--- Each Arrow batch becomes one ORC stripe. The output pairs each
--- stripe's stream tuples with its row count (derived from the
--- first column's length) so 'ORC.HighLevel.encodeORC' can stamp
--- @siNumberOfRows@ directly into the stripe information.
+-- Supports both flat and nested types:
 --
--- Returns 'Left' if any column type isn't representable in ORC's
--- data plane yet (see 'columnArrayToORCStreams' for the
--- supported shapes).
+--   * flat primitives + nullable variants (see 'columnArrayToORCStreams')
+--   * temporal (Date, Time, Timestamp, Duration) + Decimal
+--   * @ColStruct@ → ORC 'TKStruct' with child column ids
+--   * @ColList@ / @ColLargeList@ → ORC 'TKList' with a LENGTH
+--     stream on the parent (per-row child counts)
+--   * @ColMap@ → ORC 'TKMap' with a LENGTH stream on the parent +
+--     key / value child columns
 arrowToORC
   :: AT.Schema
   -> [V.Vector AC.ColumnArray]
@@ -101,19 +103,16 @@ arrowToORC
                    , [(V.Vector (Word64, Word64, ByteString), Word64)]
                    )
 arrowToORC sch batches = do
-  let !leafFields = V.filter (V.null . AT.fieldChildren) (AT.arrowFields sch)
-      !rootType = OT.ORCType
-        { OT.otKind       = OT.TKStruct
-        , OT.otSubtypes   = V.generate
-                              (V.length leafFields)
-                              (\i -> fromIntegral (i + 1) :: Word32)
-        , OT.otFieldNames = V.map AT.fieldName leafFields
-        }
-  childTypes <- V.mapM arrowFieldToORCType leafFields
-  let !types = V.cons rootType childTypes
+  -- Step 1: walk the schema depth-first, assigning an ORC
+  -- column id per node (root=0, top-level leaves 1..N, then
+  -- their descendants). Returns the flat ORCType vector.
+  let !topFields = AT.arrowFields sch
+  (!types, !topIds) <- buildSchemaTree topFields
+  -- Step 2: per stripe, emit streams for each top-level column
+  -- using the same id layout.
   stripes <- mapM
     (\cols -> do
-        streams <- encodeStripe leafFields cols
+        streams <- encodeStripe topIds cols
         let !rowCount = if V.null cols
                            then 0
                            else fromIntegral (AC.columnLength (V.head cols))
@@ -121,67 +120,250 @@ arrowToORC sch batches = do
     batches
   Right (types, stripes)
 
--- | Build one stripe from a single batch of columns by encoding
--- each leaf column to its ORC stream tuples and concatenating.
-encodeStripe
+-- | Build ORC's flat 'ORCType' vector for an Arrow schema.
+-- Returns the type vector plus a parallel list of the /top-level/
+-- column ids (the ids assigned to each direct child of the root
+-- struct). Encoders use the top-level ids to emit streams in
+-- declaration order.
+buildSchemaTree
   :: V.Vector AT.Field
+  -> Either String (V.Vector OT.ORCType, V.Vector Word32)
+buildSchemaTree topFields = do
+  -- Reserve column 0 for the synthetic root struct.
+  let !startCid = 1 :: Word32
+  (childTypes, !topIds, !_nextCid) <-
+    foldM
+      (\(!acc, !ids, !cid) fld -> do
+          (!subTypes, !next) <- assignIds fld cid
+          Right ( acc V.++ subTypes
+                , V.snoc ids cid
+                , next
+                ))
+      (V.empty, V.empty, startCid)
+      (V.toList topFields)
+  let !rootType = OT.ORCType
+        { OT.otKind       = OT.TKStruct
+        , OT.otSubtypes   = topIds
+        , OT.otFieldNames = V.map AT.fieldName topFields
+        }
+  Right (V.cons rootType childTypes, topIds)
+  where
+    foldM f z0 = go z0
+      where
+        go z []       = Right z
+        go z (x:xs)   = f z x >>= \z' -> go z' xs
+
+-- | Assign a depth-first column id to a field + every
+-- descendant. Returns the types laid out in id order + the
+-- next free column id.
+assignIds
+  :: AT.Field
+  -> Word32                        -- ^ cid allocated to this field
+  -> Either String (V.Vector OT.ORCType, Word32)
+assignIds fld cid = case AT.fieldType fld of
+  AT.AStruct -> do
+    -- Struct's subtypes are its children, laid out immediately
+    -- after the struct itself.
+    let !children = AT.fieldChildren fld
+    (childTypes, !topIds, !nextCid) <-
+      layoutChildren children (cid + 1)
+    let !selfType = OT.ORCType
+          { OT.otKind       = OT.TKStruct
+          , OT.otSubtypes   = topIds
+          , OT.otFieldNames = V.map AT.fieldName children
+          }
+    Right (V.cons selfType childTypes, nextCid)
+
+  AT.AList -> listLike (cid + 1)
+  AT.ALargeList -> listLike (cid + 1)
+
+  AT.AMap _sorted ->
+    case V.toList (AT.fieldChildren fld) of
+      -- Arrow maps use an intermediate entries struct whose
+      -- children are (key, value); ORC's TKMap wants the key
+      -- and value subtypes directly. Descend through the
+      -- entries struct when present; otherwise treat the
+      -- children as the (key, value) pair directly.
+      [entry]
+        | AT.fieldType entry == AT.AStruct
+        , V.length (AT.fieldChildren entry) == 2 ->
+            let !kf = V.unsafeIndex (AT.fieldChildren entry) 0
+                !vf = V.unsafeIndex (AT.fieldChildren entry) 1
+            in  mapLike kf vf (cid + 1)
+      [kf, vf] -> mapLike kf vf (cid + 1)
+      _ -> Left "ORC.Arrow: AMap must have key + value children"
+
+  _ -> do
+    -- Leaf field: no subtypes, just the ORC kind.
+    kind <- arrowLeafKindFor (AT.fieldType fld)
+    let !selfType = OT.ORCType
+          { OT.otKind       = kind
+          , OT.otSubtypes   = V.empty
+          , OT.otFieldNames = V.empty
+          }
+    Right (V.singleton selfType, cid + 1)
+  where
+    -- List / LargeList: single child immediately after the list.
+    listLike childCid =
+      case V.toList (AT.fieldChildren fld) of
+        [child] -> do
+          (childTypes, !nextCid) <- assignIds child childCid
+          let !selfType = OT.ORCType
+                { OT.otKind       = OT.TKList
+                , OT.otSubtypes   = V.singleton childCid
+                , OT.otFieldNames = V.empty
+                }
+          Right (V.cons selfType childTypes, nextCid)
+        _ -> Left "ORC.Arrow: AList / ALargeList must have exactly one child"
+
+    mapLike kf vf kCid = do
+      (kTypes, !vCid)  <- assignIds kf kCid
+      (vTypes, !nextCid) <- assignIds vf vCid
+      let !selfType = OT.ORCType
+            { OT.otKind       = OT.TKMap
+            , OT.otSubtypes   = V.fromList [kCid, vCid]
+            , OT.otFieldNames = V.empty
+            }
+      Right (V.cons selfType (kTypes V.++ vTypes), nextCid)
+
+    -- Shared helper for struct field lists.
+    layoutChildren
+      :: V.Vector AT.Field
+      -> Word32
+      -> Either String (V.Vector OT.ORCType, V.Vector Word32, Word32)
+    layoutChildren children startCid =
+      let go !_ !acc !ids !n []             = Right (acc, ids, n)
+          go cur !acc !ids !n (c : rest)    = do
+            (ts, next) <- assignIds c cur
+            go next (acc V.++ ts) (V.snoc ids cur) next rest
+      in go startCid V.empty V.empty startCid (V.toList children)
+
+-- | Leaf-kind mapping used by 'assignIds'. Nested kinds go
+-- through their own branches above; this table covers the
+-- primitives + temporals only.
+arrowLeafKindFor :: AT.ArrowType -> Either String OT.TypeKind
+arrowLeafKindFor ty = case ty of
+  AT.AInt 8  _                 -> Right OT.TKByte
+  AT.AInt 16 _                 -> Right OT.TKShort
+  AT.AInt 32 _                 -> Right OT.TKInt
+  AT.AInt 64 _                 -> Right OT.TKLong
+  AT.ABool                     -> Right OT.TKBoolean
+  AT.AFloatingPoint AT.Single  -> Right OT.TKFloat
+  AT.AFloatingPoint AT.DoublePrecision -> Right OT.TKDouble
+  AT.AUtf8                     -> Right OT.TKString
+  AT.ABinary                   -> Right OT.TKBinary
+  AT.ALargeUtf8                -> Right OT.TKString
+  AT.ALargeBinary              -> Right OT.TKBinary
+  AT.ADate _                   -> Right OT.TKDate
+  AT.ATimestamp _ _            -> Right OT.TKTimestamp
+  AT.ADuration _               -> Right OT.TKLong
+  AT.ATime _ _                 -> Right OT.TKLong
+  AT.ADecimal _ _              -> Right OT.TKDecimal
+  other ->
+    Left $ "ORC.Arrow: Arrow type " ++ show other
+            ++ " has no flat ORC equivalent"
+
+-- | Build one stripe by walking the top-level columns with their
+-- allocated ORC column ids. Lists + structs + maps recurse into
+-- 'columnArrayToORCStreamsNested' which tracks its own id cursor.
+encodeStripe
+  :: V.Vector Word32
   -> V.Vector AC.ColumnArray
   -> Either String (V.Vector (Word64, Word64, ByteString))
-encodeStripe leafFields cols
-  | V.length leafFields /= V.length cols =
+encodeStripe topIds cols
+  | V.length topIds /= V.length cols =
       Left $ "ORC.Arrow.arrowToORC: schema has "
-              ++ show (V.length leafFields)
-              ++ " leaf fields but batch has "
+              ++ show (V.length topIds)
+              ++ " top-level fields but batch has "
               ++ show (V.length cols)
               ++ " columns"
   | otherwise = do
-      let !idxedCols = V.zip3 (V.enumFromN (1 :: Int) (V.length cols))
-                              leafFields
-                              cols
-      streamLists <- V.mapM
-        (\(colIdx, _fld, col) ->
-            columnArrayToORCStreams (fromIntegral colIdx) col)
-        idxedCols
+      streamLists <- V.zipWithM
+        (\cid col -> columnArrayToORCStreamsNested (fromIntegral cid) col)
+        topIds cols
       Right (V.concat (V.toList streamLists))
 
--- | Map an Arrow leaf type onto its ORC type counterpart.
-arrowFieldToORCType :: AT.Field -> Either String OT.ORCType
-arrowFieldToORCType f = do
-  let !ty = AT.fieldType f
-  kind <- case ty of
-    AT.AInt 8  True  -> Right OT.TKByte
-    AT.AInt 16 True  -> Right OT.TKShort
-    AT.AInt 32 True  -> Right OT.TKInt
-    AT.AInt 64 True  -> Right OT.TKLong
-    AT.AInt 8  False -> Right OT.TKByte
-    AT.AInt 16 False -> Right OT.TKShort
-    AT.AInt 32 False -> Right OT.TKInt
-    AT.AInt 64 False -> Right OT.TKLong
-    AT.ABool         -> Right OT.TKBoolean
-    AT.AFloatingPoint AT.Single          -> Right OT.TKFloat
-    AT.AFloatingPoint AT.DoublePrecision -> Right OT.TKDouble
-    AT.AUtf8         -> Right OT.TKString
-    AT.ABinary       -> Right OT.TKBinary
-    AT.ALargeUtf8    -> Right OT.TKString
-    AT.ALargeBinary  -> Right OT.TKBinary
-    -- Temporal types map to ORC's native kinds. ORC doesn't
-    -- distinguish time-of-day from timestamp, so ATime32 / ATime64
-    -- get flattened to TKLong (caller records the semantics via
-    -- Arrow's Field metadata) rather than TKTimestamp.
-    AT.ADate _      -> Right OT.TKDate
-    AT.ATimestamp _ _ -> Right OT.TKTimestamp
-    AT.ADuration _  -> Right OT.TKLong
-    AT.ATime _ _    -> Right OT.TKLong
-    AT.ADecimal _ _ -> Right OT.TKDecimal
-    other ->
-      Left $ "ORC.Arrow: Arrow type "
-             ++ show other
-             ++ " has no flat ORC equivalent"
-  Right OT.ORCType
-    { OT.otKind       = kind
-    , OT.otSubtypes   = V.empty
-    , OT.otFieldNames = V.empty
-    }
+-- | Dispatch between nested + flat stream-encoding. Nested
+-- shapes know how to recurse; everything else falls through to
+-- 'columnArrayToORCStreams'.
+columnArrayToORCStreamsNested
+  :: Word64
+  -> AC.ColumnArray
+  -> Either String (V.Vector (Word64, Word64, ByteString))
+columnArrayToORCStreamsNested cid col = case col of
+  AC.ColStruct namedChildren -> do
+    childStreams <- V.mapM (uncurry columnArrayToORCStreamsNested)
+      (assignChildIds (cid + 1) (V.map snd namedChildren))
+    -- Structs in ORC have no streams of their own when the
+    -- struct is non-nullable; the children carry the data. A
+    -- proper nullable-struct implementation would emit a
+    -- PRESENT stream at @cid@ — deferred until a concrete
+    -- generator stresses it.
+    Right (V.concat (V.toList childStreams))
+
+  AC.ColList offsets child -> encodeList cid (VP.toList offsets) child
+  AC.ColLargeList offsets child -> encodeList cid (VP.toList offsets) child
+  AC.ColMap offsets keys values -> encodeMap cid (VP.toList offsets) keys values
+  _ -> columnArrayToORCStreams cid col
+  where
+    -- Given a starting cid and a vector of child columns, pair
+    -- each child with its own depth-first-allocated cid. We
+    -- only know the types at emission time (the schema was
+    -- flattened in 'buildSchemaTree' using the same walk), so
+    -- this has to match 'assignIds' exactly.
+    assignChildIds :: Word64 -> V.Vector AC.ColumnArray
+                   -> V.Vector (Word64, AC.ColumnArray)
+    assignChildIds startCid children =
+      let go !_ acc [] = acc
+          go !cur acc (c:rest) =
+            let !span' = columnArraySpan c
+            in go (cur + span') (acc ++ [(cur, c)]) rest
+      in V.fromList (go startCid [] (V.toList children))
+
+    -- Encode an Arrow list column into ORC streams: LENGTH on
+    -- the parent (per-row child counts) + recursive child
+    -- streams.
+    encodeList
+      :: (Integral a, VP.Prim a)
+      => Word64 -> [a] -> AC.ColumnArray
+      -> Either String (V.Vector (Word64, Word64, ByteString))
+    encodeList parentCid offs child = do
+      let !lengths = offsetsToLengths offs
+          !lenBs   = OW.encodeIntColumn (VP.fromList lengths) False
+          !lenStream = V.singleton (streamLength, parentCid, lenBs)
+      childStreams <- columnArrayToORCStreamsNested (parentCid + 1) child
+      Right (lenStream <> childStreams)
+
+    encodeMap
+      :: (Integral a, VP.Prim a)
+      => Word64 -> [a] -> AC.ColumnArray -> AC.ColumnArray
+      -> Either String (V.Vector (Word64, Word64, ByteString))
+    encodeMap parentCid offs keys values = do
+      let !lengths = offsetsToLengths offs
+          !lenBs   = OW.encodeIntColumn (VP.fromList lengths) False
+          !lenStream = V.singleton (streamLength, parentCid, lenBs)
+          !keyCid  = parentCid + 1
+      keyStreams <- columnArrayToORCStreamsNested keyCid keys
+      let !valCid = keyCid + columnArraySpan keys
+      valStreams <- columnArrayToORCStreamsNested valCid values
+      Right (lenStream <> keyStreams <> valStreams)
+
+-- | How many ORC column-id slots does this 'ColumnArray'
+-- occupy? Mirrors 'assignIds' on the field side; used to
+-- advance the cid cursor when encoding struct children.
+columnArraySpan :: AC.ColumnArray -> Word64
+columnArraySpan col = case col of
+  AC.ColStruct kids   -> 1 + sum (map (columnArraySpan . snd) (V.toList kids))
+  AC.ColList _ inner  -> 1 + columnArraySpan inner
+  AC.ColLargeList _ i -> 1 + columnArraySpan i
+  _                   -> 1
+
+-- | Offsets [o0, o1, .., oN] → lengths [o1-o0, o2-o1, ..,
+-- oN - o_{N-1}] with a length vector of N elements.
+offsetsToLengths :: Integral a => [a] -> [Int64]
+offsetsToLengths []         = []
+offsetsToLengths [_]        = []
+offsetsToLengths (a:b:rest) = fromIntegral (b - a) : offsetsToLengths (b:rest)
 
 -- | Encode one Arrow column at the given ORC column id into its
 -- ORC stream tuples. Returns @[(streamKind, columnId, payload)]@
@@ -364,6 +546,158 @@ signedI32' = fromIntegral
 -- ORC → Arrow
 -- ============================================================
 
+-- | Compute the starting ORC column id for each top-level
+-- Arrow field, given the schema's field order. Mirrors
+-- 'buildSchemaTree' on the write side.
+fieldStartIds :: V.Vector AT.Field -> V.Vector Word64
+fieldStartIds fields =
+  V.fromList (go 1 (V.toList fields))
+  where
+    go !_   []       = []
+    go !cur (f:rest) = cur : go (cur + fieldSpan f) rest
+
+-- | How many ORC column-id slots does an Arrow field consume?
+-- Matches 'assignIds' on the write side.
+fieldSpan :: AT.Field -> Word64
+fieldSpan fld = case AT.fieldType fld of
+  AT.AStruct      -> 1 + sum (map fieldSpan (V.toList (AT.fieldChildren fld)))
+  AT.AList        -> 1 + case V.toList (AT.fieldChildren fld) of
+                          [c] -> fieldSpan c
+                          _   -> 0
+  AT.ALargeList   -> 1 + case V.toList (AT.fieldChildren fld) of
+                          [c] -> fieldSpan c
+                          _   -> 0
+  AT.AMap _ ->
+    case V.toList (AT.fieldChildren fld) of
+      [entry]
+        | AT.fieldType entry == AT.AStruct
+        , V.length (AT.fieldChildren entry) == 2 ->
+            let !kf = V.unsafeIndex (AT.fieldChildren entry) 0
+                !vf = V.unsafeIndex (AT.fieldChildren entry) 1
+            in 1 + fieldSpan kf + fieldSpan vf
+      [kf, vf] -> 1 + fieldSpan kf + fieldSpan vf
+      _        -> 1
+  _               -> 1
+
+-- | Recursive reader: dispatches to the nested decoder for
+-- struct / list / map, and to the leaf decoder for everything
+-- else.
+decodeColumnNested
+  :: Word64
+  -> AT.Field
+  -> Int
+  -> ByteString
+  -> V.Vector OSt.Stream
+  -> Either String AC.ColumnArray
+decodeColumnNested cid fld numRows stripeBs streams =
+  case AT.fieldType fld of
+    AT.AStruct -> do
+      let !kids = AT.fieldChildren fld
+          !kidCids = V.fromList (go (cid + 1) (V.toList kids))
+      childCols <- V.zipWithM
+        (\kidCid kidFld -> decodeColumnNested kidCid kidFld numRows stripeBs streams)
+        kidCids kids
+      let !named = V.zipWith (\k c -> (AT.fieldName k, c)) kids childCols
+      Right (AC.ColStruct named)
+
+    AT.AList -> decodeListLike AC.ColList cid fld numRows stripeBs streams
+    AT.ALargeList -> decodeListLikeLarge cid fld numRows stripeBs streams
+
+    AT.AMap _ -> decodeMap cid fld numRows stripeBs streams
+
+    _ -> decodeOneColumn cid fld numRows stripeBs streams
+  where
+    go !_   []       = []
+    go !cur (f:rest) = cur : go (cur + fieldSpan f) rest
+
+-- | Shared list-decoder for 'AList' (Int32 offsets).
+-- The parent's LENGTH stream gives per-row child counts;
+-- we materialise the full child column then build offsets.
+decodeListLike
+  :: (VP.Vector Int32 -> AC.ColumnArray -> AC.ColumnArray)
+  -> Word64 -> AT.Field -> Int -> ByteString -> V.Vector OSt.Stream
+  -> Either String AC.ColumnArray
+decodeListLike wrap cid fld numRows stripeBs streams = do
+  case V.toList (AT.fieldChildren fld) of
+    [childFld] -> do
+      lengths <- readLengthStream cid numRows stripeBs streams
+      let !childCount = sum (map fromIntegral lengths) :: Int
+      childCol <- decodeColumnNested (cid + 1) childFld childCount stripeBs streams
+      let !offsets = VP.fromList (scanl (\a n -> a + fromIntegral n) (0 :: Int32) lengths)
+      Right (wrap offsets childCol)
+    _ -> Left "ORC.Arrow: AList must have exactly one child"
+
+decodeListLikeLarge
+  :: Word64 -> AT.Field -> Int -> ByteString -> V.Vector OSt.Stream
+  -> Either String AC.ColumnArray
+decodeListLikeLarge cid fld numRows stripeBs streams = do
+  case V.toList (AT.fieldChildren fld) of
+    [childFld] -> do
+      lengths <- readLengthStream cid numRows stripeBs streams
+      let !childCount = sum (map fromIntegral lengths) :: Int
+      childCol <- decodeColumnNested (cid + 1) childFld childCount stripeBs streams
+      let !offsets = VP.fromList (scanl (\a n -> a + fromIntegral n) (0 :: Int64) lengths)
+      Right (AC.ColLargeList offsets childCol)
+    _ -> Left "ORC.Arrow: ALargeList must have exactly one child"
+
+decodeMap
+  :: Word64 -> AT.Field -> Int -> ByteString -> V.Vector OSt.Stream
+  -> Either String AC.ColumnArray
+decodeMap cid fld numRows stripeBs streams = do
+  -- Peel through the intermediate entries-struct if present.
+  (kf, vf) <- case V.toList (AT.fieldChildren fld) of
+    [entry]
+      | AT.fieldType entry == AT.AStruct
+      , V.length (AT.fieldChildren entry) == 2 ->
+          Right ( V.unsafeIndex (AT.fieldChildren entry) 0
+                , V.unsafeIndex (AT.fieldChildren entry) 1
+                )
+    [k, v]  -> Right (k, v)
+    _       -> Left "ORC.Arrow: AMap must carry key + value children"
+  lengths <- readLengthStream cid numRows stripeBs streams
+  let !childCount = sum (map fromIntegral lengths) :: Int
+      !kCid       = cid + 1
+  keys <- decodeColumnNested kCid kf childCount stripeBs streams
+  let !vCid = kCid + fieldSpan kf
+  vals <- decodeColumnNested vCid vf childCount stripeBs streams
+  let !offsets = VP.fromList (scanl (\a n -> a + fromIntegral n) (0 :: Int32) lengths)
+  Right (AC.ColMap offsets keys vals)
+
+-- | Load a LENGTH stream for @cid@ and decode @n@ per-row
+-- lengths (unsigned int v2).
+readLengthStream
+  :: Word64 -> Int -> ByteString -> V.Vector OSt.Stream
+  -> Either String [Word64]
+readLengthStream cid n stripeBs streams =
+  case sliceForCid cid streamLength stripeBs streams of
+    Nothing -> Left $ "ORC.Arrow: column " ++ show cid ++ " missing LENGTH stream"
+    Just bs -> do
+      xs <- OR.decodeIntColumn False n bs Nothing
+      Right [fromIntegral v | Just v <- V.toList xs]
+
+-- | Shared helper: find the byte-slice for @(cid, kind)@ in the
+-- stripe's declared-stream layout.
+sliceForCid
+  :: Word64
+  -> Word64
+  -> ByteString
+  -> V.Vector OSt.Stream
+  -> Maybe ByteString
+sliceForCid cid kind stripeBs streams =
+  case V.foldl'
+         (\(off, found) s ->
+             case found of
+               Just _ -> (off, found)
+               Nothing
+                 | OSt.stColumn s == cid && OSt.stKind s == kind ->
+                     (off, Just (off, OSt.stLength s))
+                 | otherwise ->
+                     (off + OSt.stLength s, Nothing))
+         (0 :: Word64, Nothing) streams of
+    (_, Just (off, len)) ->
+      Just (BS.take (fromIntegral len) (BS.drop (fromIntegral off) stripeBs))
+    _ -> Nothing
+
 -- | Read a single stripe from an ORC file and lift each leaf
 -- column to its Arrow shape. Requires both the parsed footer
 -- (from 'ORC.HighLevel.decodeORC') and the original file bytes
@@ -378,24 +712,20 @@ orcStripeToArrow
   -> Int                    -- ^ stripe index
   -> Either String (V.Vector AC.ColumnArray)
 orcStripeToArrow sch fileBs footer stripeIdx = do
-  -- Re-load the file via the public reader so we get the
-  -- compression kind alongside the footer (the bridge doesn't
-  -- decompress today, but stripeSlice / loadStripeFooter need an
-  -- ORCFile handle).
   ofile <- OR.loadORCFile fileBs
   let !si = OT.orcStripes (OR.ofFooter ofile) V.! stripeIdx
-      !leafFields = V.filter (V.null . AT.fieldChildren) (AT.arrowFields sch)
   stripeBytes <- OR.stripeSlice ofile stripeIdx
   stFooter    <- OR.loadStripeFooter ofile stripeIdx
   let !numRows = fromIntegral (OT.siNumberOfRows si) :: Int
       !streams = OSt.sfStreams stFooter
-      _ = footer  -- kept for API stability; we re-derive the
-                  -- compression-aware view via loadORCFile
-  V.imapM
-    (\i fld ->
-        let !cid = fromIntegral (i + 1) :: Word64
-        in  decodeOneColumn cid fld numRows stripeBytes streams)
-    leafFields
+      _ = footer
+      !topFields = AT.arrowFields sch
+  -- Top-level column ids are allocated exactly as on the write
+  -- side (see 'buildSchemaTree'): 1, 1+span_0, 1+span_0+span_1, ...
+  V.zipWithM
+    (\cid fld -> decodeColumnNested cid fld numRows stripeBytes streams)
+    (fieldStartIds topFields)
+    topFields
 
 -- | Decode one ORC column from its (kind, columnId, length)
 -- stream descriptors plus the stripe data section. Walks the
