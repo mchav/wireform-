@@ -44,6 +44,13 @@ import Arrow.Stream
 import Arrow.FlatBufferIPC
   ( buildSchemaMessage
   , decodeSchemaMessage
+  , Tensor (..)
+  , TensorDim (..)
+  , encodeTensorFrame
+  , decodeTensorFrame
+  , SparseTensor (..)
+  , encodeSparseTensorFrame
+  , decodeSparseTensorFrame
   )
 import Arrow.Types
 import Arrow.Write (writeArrowStream)
@@ -394,6 +401,77 @@ flatBufRoundTrip = do
   -- the reader should resolve each record batch against the
   -- most-recently-emitted dict for that id.
   dictReplacementRoundTrip
+
+  -- Tensor message round-trip.
+  tensorRoundTrip
+
+  -- SparseTensor (COO) round-trip.
+  sparseTensorRoundTrip
+
+sparseTensorRoundTrip :: IO ()
+sparseTensorRoundTrip = do
+  -- Tiny 3x3 sparse int32 tensor with 2 non-zeros at (0,1) and
+  -- (2,0). COO indices are Int64 pairs.
+  let !idx  = BS.pack
+        [ 0,0,0,0,0,0,0,0  -- row 0
+        , 1,0,0,0,0,0,0,0  -- col 1
+        , 2,0,0,0,0,0,0,0  -- row 2
+        , 0,0,0,0,0,0,0,0  -- col 0
+        ]
+      !vals = BS.pack
+        [ 7,0,0,0    -- value 7
+        , 9,0,0,0    -- value 9
+        ]
+      !st = SparseTensor
+        { sparseTensorType       = AInt 32 True
+        , sparseTensorShape      = V.fromList
+            [ TensorDim 3 "rows", TensorDim 3 "cols" ]
+        , sparseNonZeroLength    = 2
+        , sparseIndicesType      = AInt 64 True
+        , sparseIndicesBody      = idx
+        , sparseIndicesCanonical = True
+        , sparseTensorBody       = vals
+        }
+      !frame = encodeSparseTensorFrame st
+  case decodeSparseTensorFrame frame of
+    Left e -> failTest $ "decodeSparseTensorFrame: " ++ e
+    Right (sout, _)
+      | sparseTensorType sout == AInt 32 True
+      , sparseNonZeroLength sout == 2
+      , sparseIndicesBody sout == idx
+      , sparseTensorBody sout == vals ->
+          putStrLn "OK: SparseTensor message round-trip (COO, 3x3 int32, nnz=2)"
+      | otherwise ->
+          failTest $ "sparse tensor mismatch:\n got " ++ show sout
+
+tensorRoundTrip :: IO ()
+tensorRoundTrip = do
+  -- 2×3 tensor of Int32: raw little-endian body, row-major.
+  let !body = BS.pack
+        [ 0x01,0,0,0, 0x02,0,0,0, 0x03,0,0,0
+        , 0x04,0,0,0, 0x05,0,0,0, 0x06,0,0,0
+        ]
+      !tin = Tensor
+        { tensorType = AInt 32 True
+        , tensorShape = V.fromList
+            [ TensorDim 2 "rows", TensorDim 3 "cols" ]
+        , tensorStrides = V.empty
+        , tensorBody = body
+        }
+      !frame = encodeTensorFrame tin
+  case decodeTensorFrame frame of
+    Left e -> failTest $ "decodeTensorFrame: " ++ e
+    Right (tout, rest)
+      | BS.null rest
+      , tensorType tout == AInt 32 True
+      , V.toList (tensorShape tout) ==
+          [ TensorDim 2 "rows", TensorDim 3 "cols" ]
+      , tensorBody tout == body ->
+          putStrLn "OK: Tensor message round-trip (2x3 int32)"
+      | otherwise ->
+          failTest $ "tensor round-trip mismatch:\n got "
+                      ++ show tout ++ " rest="
+                      ++ show (BS.length rest) ++ "B"
 
 dictReplacementRoundTrip :: IO ()
 dictReplacementRoundTrip = do

@@ -59,6 +59,17 @@ module Arrow.FlatBufferIPC
   , readArrowStreamFBInterleaved
   , StreamFrame (..)
   , buildDictionaryBatchMessage
+    -- * Tensor / SparseTensor
+  , Tensor (..)
+  , TensorDim (..)
+  , buildTensorMessage
+  , decodeTensorMessage
+  , encodeTensorFrame
+  , decodeTensorFrame
+  , SparseTensor (..)
+  , buildSparseTensorMessageCOO
+  , encodeSparseTensorFrame
+  , decodeSparseTensorFrame
   , writeArrowStreamFBWithDicts
   ) where
 
@@ -218,6 +229,21 @@ data Field' = Field'
 -- | A scalar field: writes a fixed-size primitive.
 scalar :: Int -> (Builder -> IO ()) -> Field'
 scalar !align writer = Field' align $ \b _ -> writer b
+
+-- | An inline struct field: writes @size@ bytes at @align@
+-- alignment directly in the table's inline data area. @writer@
+-- must prepend exactly @size@ bytes of struct data (in reverse
+-- field-declaration order, since the builder is back-to-front).
+--
+-- NOTE: 'writeTable' currently treats 'fsAlign' as both
+-- alignment /and/ size; for structs we over-align to @size@ so
+-- the slot layout reserves exactly @size@ bytes. This wastes a
+-- few bytes of padding when @size > align@ (e.g. a 16-byte
+-- buffer struct on 8-byte alignment pads to 16-byte aligned),
+-- which is benign for readers and keeps the layout-logic
+-- unchanged.
+struct :: Int -> Int -> (Builder -> IO ()) -> Field'
+struct !size !_align writer = Field' size $ \b _ -> writer b
 
 -- | A VOffset field: writes a u32 relative offset to an already-laid-
 -- out sub-object at @targetUOff@.
@@ -828,6 +854,370 @@ buildDictionaryBatchMessage (DictBatch did isDelta rb body) = unsafePerformIO $ 
 
 metadataVersionV5 :: Int16
 metadataVersionV5 = 4
+
+-- ============================================================
+-- Tensor / SparseTensor messages
+-- ============================================================
+
+-- | Dense tensor metadata. Mirrors @table Tensor@ from Arrow's
+-- @format/Tensor.fbs@. @tensorBody@ is the raw buffer carrying
+-- @product(shape) * bytesPerElement(tensorType)@ little-endian
+-- elements in row-major order (unless 'tensorStrides' is set).
+data Tensor = Tensor
+  { tensorType    :: !ArrowType
+  , tensorShape   :: !(V.Vector TensorDim)
+  , tensorStrides :: !(V.Vector Int64)
+  , tensorBody    :: !ByteString
+  } deriving (Show, Eq)
+
+-- | One entry of a tensor's shape vector. Name is optional
+-- (empty string by default).
+data TensorDim = TensorDim
+  { tdSize :: !Int64
+  , tdName :: !T.Text
+  } deriving (Show, Eq)
+
+-- | Build a @Message@ flatbuffer wrapping a @Tensor@:
+--
+-- @
+-- table Tensor {
+--   type_type: Type;       // slot 0 (union tag)
+--   type:      Type;       // slot 1
+--   shape:    [TensorDim]; // slot 2
+--   strides:  [long];      // slot 3
+--   data:      Buffer;     // slot 4 (struct)
+-- }
+-- @
+buildTensorMessage :: Tensor -> ByteString
+buildTensorMessage t = unsafePerformIO $ do
+  b <- newBuilder
+  (tyTag, tyUOff) <- writeType b (tensorType t)
+  -- Each TensorDim is a table (not a struct) because @name@ is a
+  -- variable-length string.
+  dimUOffs <- mapM (writeTensorDim b) (V.toList (tensorShape t))
+  shapeVec <- writeVectorOfOffsets b dimUOffs
+  stridesVec <- if V.null (tensorStrides t)
+                  then pure Nothing
+                  else Just <$> writeVectorInt64 b (V.toList (tensorStrides t))
+  -- Data Buffer struct: i64 offset (always 0, we emit body
+  -- right after the metadata) + i64 length.
+  let !bodyLen = fromIntegral (BS.length (tensorBody t)) :: Int64
+  tensorUOff <- writeTable b
+    [ Just (scalar 1 (\bb -> prependU8 bb tyTag))
+    , Just (voff tyUOff)
+    , Just (voff shapeVec)
+    , fmap voff stridesVec
+    , Just (struct 16 8 (\bb -> do
+        prependI64 bb bodyLen
+        prependI64 bb 0))
+    ]
+  -- Now wrap in a Message table: header_type = 4 (Tensor).
+  msgUOff <- writeTable b
+    [ Just (scalar 2 (\bb -> prependI16 bb metadataVersionV5))
+    , Just (scalar 1 (\bb -> prependU8 bb 4))
+    , Just (voff tensorUOff)
+    , Just (scalar 8 (\bb -> prependI64 bb bodyLen))
+    , Nothing
+    ]
+  finish b msgUOff
+{-# NOINLINE buildTensorMessage #-}
+
+-- | Encode one @TensorDim@ as a flatbuffer table.
+writeTensorDim :: Builder -> TensorDim -> IO Int
+writeTensorDim b (TensorDim size name) = do
+  nameOff <- if T.null name
+               then pure Nothing
+               else Just <$> writeString b name
+  writeTable b
+    [ Just (scalar 8 (\bb -> prependI64 bb size))
+    , fmap voff nameOff
+    ]
+
+-- | Parse a @Tensor@ message header (flatbuffer metadata only;
+-- the body bytes are the caller's concern — they sit in the
+-- encapsulated frame's body section).
+decodeTensorMessage
+  :: ByteString -> Either String (Tensor, Int64)
+decodeTensorMessage meta = do
+  msgPos <- fromIntegral <$> peekU32 meta 0
+  mSlot  <- resolveTable meta msgPos
+  ht <- case mSlot 1 of
+    Nothing -> Right 0
+    Just b  -> fromIntegral <$> peekU8 meta b
+  when' (ht /= 4) $
+    Left ("Arrow.FlatBufferIPC.decodeTensorMessage: expected header_type=4, got "
+          ++ show ht)
+  headerPos <- case mSlot 2 of
+    Nothing  -> Left "Tensor message missing header slot"
+    Just off -> Right off
+  tensorPos <- followUOffset meta headerPos
+  tSlot     <- resolveTable meta tensorPos
+  tyTag <- case tSlot 0 of
+    Nothing -> Left "Tensor missing type_type"
+    Just b  -> fromIntegral <$> peekU8 meta b
+  tyFieldPos <- case tSlot 1 of
+    Nothing  -> Left "Tensor missing type"
+    Just off -> Right off
+  tyPos <- followUOffset meta tyFieldPos
+  arrowTy <- readType meta tyTag (Just tyPos)
+  shape <- case tSlot 2 of
+    Nothing  -> Right V.empty
+    Just off -> do
+      shapePos <- followUOffset meta off
+      dimOffs  <- readVectorOfOffsets meta shapePos
+      V.mapM (\dimPos -> readTensorDim meta dimPos) dimOffs
+  strides <- case tSlot 3 of
+    Nothing  -> Right V.empty
+    Just off -> do
+      sPos <- followUOffset meta off
+      V.fromList <$> readVectorInt64 meta sPos
+  bodyLen <- case mSlot 3 of
+    Nothing -> Right 0
+    Just b  -> peekI64 meta b
+  Right (Tensor arrowTy shape strides BS.empty, bodyLen)
+  where
+    when' True  e = e
+    when' False _ = Right ()
+
+-- ============================================================
+-- SparseTensor
+-- ============================================================
+--
+-- Arrow's SparseTensor union covers four index formats (COO,
+-- CSR, CSC, CSF). We model the common case — SparseTensorIndexCOO
+-- — explicitly; callers with other formats can drop down to the
+-- raw flatbuffer builder. A SparseTensor message (header_type=5)
+-- wraps:
+--
+-- @
+-- table SparseTensor {
+--   type_type: Type;           // slot 0
+--   type:      Type;           // slot 1
+--   shape:    [TensorDim];     // slot 2
+--   non_zero_length: long;     // slot 3
+--   sparseIndex_type: SparseTensorIndex;  // slot 4 (union tag)
+--   sparseIndex: SparseTensorIndex;       // slot 5
+--   data: Buffer;              // slot 6
+-- }
+-- @
+--
+-- For COO:
+--
+-- @
+-- table SparseTensorIndexCOO {
+--   indicesType: Int;       // slot 0
+--   indicesStrides: [long]; // slot 1
+--   indicesBuffer: Buffer;  // slot 2
+--   isCanonical: bool;      // slot 3
+-- }
+-- @
+
+-- | A sparse tensor in coordinate (COO) layout. @indicesType@
+-- is the integer width of each coordinate; @indicesBuffer@
+-- carries @non_zero_length * ndim@ integers; @tensorBody@
+-- carries @non_zero_length@ values of @tensorType@.
+data SparseTensor = SparseTensor
+  { sparseTensorType    :: !ArrowType
+  , sparseTensorShape   :: !(V.Vector TensorDim)
+  , sparseNonZeroLength :: !Int64
+  , sparseIndicesType   :: !ArrowType
+    -- ^ typically @AInt 64 True@ or @AInt 32 True@
+  , sparseIndicesBody   :: !ByteString
+  , sparseIndicesCanonical :: !Bool
+  , sparseTensorBody    :: !ByteString
+  } deriving (Show, Eq)
+
+-- | Build a SparseTensor @Message@ flatbuffer (COO index format).
+-- The body of the encapsulated frame carries indices followed by
+-- values, concatenated; callers must handle the per-buffer
+-- offsets on the encoding side.
+buildSparseTensorMessageCOO :: SparseTensor -> ByteString
+buildSparseTensorMessageCOO st = unsafePerformIO $ do
+  b <- newBuilder
+  (tyTag, tyUOff) <- writeType b (sparseTensorType st)
+  dimUOffs <- mapM (writeTensorDim b) (V.toList (sparseTensorShape st))
+  shapeVec <- writeVectorOfOffsets b dimUOffs
+  -- Indices buffer struct (offset = 0, length)
+  let !indicesLen = fromIntegral (BS.length (sparseIndicesBody st)) :: Int64
+      !valuesLen  = fromIntegral (BS.length (sparseTensorBody  st)) :: Int64
+      !indicesOffset = 0 :: Int64
+      !valuesOffset  = alignUp (BS.length (sparseIndicesBody st)) 8
+  (_, idxTypeUOff) <- writeType b (sparseIndicesType st)
+  cooUOff <- writeTable b
+    [ Just (voff idxTypeUOff)
+    , Nothing                   -- indicesStrides (empty)
+    , Just (struct 16 8 (\bb -> do
+        prependI64 bb indicesLen
+        prependI64 bb indicesOffset))
+    , if sparseIndicesCanonical st
+        then Just (scalar 1 (\bb -> prependU8 bb 1)) else Nothing
+    ]
+  -- SparseTensor table
+  stUOff <- writeTable b
+    [ Just (scalar 1 (\bb -> prependU8 bb tyTag))
+    , Just (voff tyUOff)
+    , Just (voff shapeVec)
+    , Just (scalar 8 (\bb -> prependI64 bb (sparseNonZeroLength st)))
+    , Just (scalar 1 (\bb -> prependU8 bb 1))   -- SparseTensorIndex = COO
+    , Just (voff cooUOff)
+    , Just (struct 16 8 (\bb -> do
+        prependI64 bb valuesLen
+        prependI64 bb (fromIntegral valuesOffset)))
+    ]
+  msgUOff <- writeTable b
+    [ Just (scalar 2 (\bb -> prependI16 bb metadataVersionV5))
+    , Just (scalar 1 (\bb -> prependU8 bb 5))   -- header type: SparseTensor
+    , Just (voff stUOff)
+    , Just (scalar 8 (\bb -> prependI64 bb (indicesLen + fromIntegral valuesOffset - indicesLen + valuesLen)))
+    , Nothing
+    ]
+  finish b msgUOff
+{-# NOINLINE buildSparseTensorMessageCOO #-}
+
+-- | Encode a sparse tensor as a standalone Arrow IPC frame.
+-- The encapsulated body is @indicesBody <pad8> tensorBody@, so
+-- the body offsets recorded in the message match the slice
+-- layout.
+encodeSparseTensorFrame :: SparseTensor -> ByteString
+encodeSparseTensorFrame st =
+  let !iLen   = BS.length (sparseIndicesBody st)
+      !iPad   = alignUp iLen 8 - iLen
+      !body   = BS.concat
+                  [ sparseIndicesBody st
+                  , BS.replicate iPad 0
+                  , sparseTensorBody  st
+                  ]
+  in  encapsulateMessage (buildSparseTensorMessageCOO st) body
+
+-- | Parse a SparseTensor message (header_type=5) carrying a COO
+-- index. Returns the decoded sparse tensor with both its
+-- @sparseIndicesBody@ and @sparseTensorBody@ sliced out of the
+-- frame's body bytes, and the remainder of the input.
+decodeSparseTensorFrame
+  :: ByteString -> Either String (SparseTensor, ByteString)
+decodeSparseTensorFrame bs = do
+  (mlen, meta, rest1) <- readFrameHeader bs
+  when' (mlen <= 0) $ Left "decodeSparseTensorFrame: unexpected EOS"
+  msgPos <- fromIntegral <$> peekU32 meta 0
+  mSlot  <- resolveTable meta msgPos
+  ht <- case mSlot 1 of
+    Nothing -> Right 0
+    Just b  -> fromIntegral <$> peekU8 meta b
+  when' (ht /= 5) $
+    Left ("decodeSparseTensorFrame: expected header_type=5, got " ++ show ht)
+  hdrPos <- case mSlot 2 of
+    Nothing -> Left "SparseTensor missing header"
+    Just p  -> Right p
+  stPos  <- followUOffset meta hdrPos
+  sSlot  <- resolveTable meta stPos
+  tyTag  <- case sSlot 0 of
+    Nothing -> Left "SparseTensor missing type_type"
+    Just b  -> fromIntegral <$> peekU8 meta b
+  tyFieldPos <- case sSlot 1 of
+    Nothing -> Left "SparseTensor missing type"
+    Just p  -> Right p
+  tyPos <- followUOffset meta tyFieldPos
+  arrowTy <- readType meta tyTag (Just tyPos)
+  shape <- case sSlot 2 of
+    Nothing  -> Right V.empty
+    Just off -> do
+      shapePos <- followUOffset meta off
+      dimOffs  <- readVectorOfOffsets meta shapePos
+      V.mapM (\dimPos -> readTensorDim meta dimPos) dimOffs
+  nnz <- case sSlot 3 of
+    Nothing -> Right 0
+    Just p  -> peekI64 meta p
+  idxTag <- case sSlot 4 of
+    Nothing -> Left "SparseTensor missing sparseIndex_type"
+    Just p  -> fromIntegral <$> peekU8 meta p
+  when' (idxTag /= 1) $
+    Left ("SparseTensor: only COO index format supported by this decoder, got tag=" ++ show (idxTag :: Int))
+  idxFieldPos <- case sSlot 5 of
+    Nothing -> Left "SparseTensor missing sparseIndex"
+    Just p  -> Right p
+  cooPos <- followUOffset meta idxFieldPos
+  cSlot  <- resolveTable meta cooPos
+  iTyFieldPos <- case cSlot 0 of
+    Nothing -> Left "SparseTensorIndexCOO missing indicesType"
+    Just p  -> Right p
+  iTyPos <- followUOffset meta iTyFieldPos
+  idxArrowTy <- readType meta 2 (Just iTyPos)  -- always an Int table
+  (idxOffset, idxLen) <- case cSlot 2 of
+    Nothing -> Left "SparseTensorIndexCOO missing indicesBuffer"
+    Just p  -> do
+      lo  <- peekI64 meta p
+      ln' <- peekI64 meta (p + 8)
+      Right (lo, ln')
+  canonical <- case cSlot 3 of
+    Nothing -> Right False
+    Just p  -> (/= 0) <$> peekU8 meta p
+  (valOffset, valLen) <- case sSlot 6 of
+    Nothing -> Left "SparseTensor missing data buffer"
+    Just p  -> do
+      lo <- peekI64 meta p
+      ln <- peekI64 meta (p + 8)
+      Right (lo, ln)
+  let !iSlice = BS.take (fromIntegral idxLen) (BS.drop (fromIntegral idxOffset) rest1)
+      !vSlice = BS.take (fromIntegral valLen) (BS.drop (fromIntegral valOffset) rest1)
+      !bodyLen = fromIntegral valOffset + fromIntegral valLen :: Int
+      !bodyPad = alignUp bodyLen 8
+      rest2   = BS.drop bodyPad rest1
+  Right ( SparseTensor
+            { sparseTensorType       = arrowTy
+            , sparseTensorShape      = shape
+            , sparseNonZeroLength    = nnz
+            , sparseIndicesType      = idxArrowTy
+            , sparseIndicesBody      = iSlice
+            , sparseIndicesCanonical = canonical
+            , sparseTensorBody       = vSlice
+            }
+        , rest2
+        )
+  where
+    when' True  e = e
+    when' False _ = Right ()
+
+-- | Encode a 'Tensor' as a standalone Arrow IPC frame:
+-- continuation + metadata length + padded flatbuffer + body
+-- + body padding. Suitable as a file payload or as one element
+-- of an application-level container; Arrow's stream framing
+-- itself accepts Tensor messages interleaved with any other
+-- Message.
+encodeTensorFrame :: Tensor -> ByteString
+encodeTensorFrame t = encapsulateMessage (buildTensorMessage t) (tensorBody t)
+
+-- | Parse an Arrow IPC frame that carries a 'Tensor'. Returns
+-- the decoded tensor (with 'tensorBody' filled in from the
+-- frame's body bytes) and the remaining bytes. Fails if the
+-- frame's header_type isn't 4 (Tensor).
+decodeTensorFrame
+  :: ByteString -> Either String (Tensor, ByteString)
+decodeTensorFrame bs = do
+  (mlen, meta, rest1) <- readFrameHeader bs
+  when' (mlen <= 0) $ Left "decodeTensorFrame: unexpected EOS"
+  (t, bodyLen) <- decodeTensorMessage meta
+  let !nBody    = fromIntegral bodyLen :: Int
+      !nBodyPad = alignUp nBody 8
+      body      = BS.take nBody rest1
+      rest2     = BS.drop nBodyPad rest1
+  Right (t { tensorBody = body }, rest2)
+  where
+    when' True  e = e
+    when' False _ = Right ()
+
+-- | Parse a @TensorDim@ table at the given position.
+readTensorDim :: ByteString -> Int -> Either String TensorDim
+readTensorDim meta pos = do
+  slot <- resolveTable meta pos
+  size <- case slot 0 of
+    Nothing -> Right 0
+    Just b  -> peekI64 meta b
+  name <- case slot 1 of
+    Nothing  -> Right T.empty
+    Just off -> do
+      sPos <- followUOffset meta off
+      readString meta sPos
+  Right (TensorDim size name)
 
 -- ============================================================
 -- Encapsulated framing + stream / file writers
@@ -1812,6 +2202,12 @@ readVectorOfOffsets bs vecPos = do
               Left _    -> ePos
               Right rel -> ePos + fromIntegral rel
   Right elemPositions
+
+-- | Decode a vector of little-endian Int64 values.
+readVectorInt64 :: ByteString -> Pos -> Either String [Int64]
+readVectorInt64 bs vecPos = do
+  n <- peekU32 bs vecPos
+  mapM (\i -> peekI64 bs (vecPos + 4 + 8 * fromIntegral i)) [0 .. n - 1]
 
 -- | Decode a vector of fixed-size inline structs. Returns the
 -- byte position of each element start.
