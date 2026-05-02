@@ -45,6 +45,11 @@ module Wireform.FFI
   , findNul
   , findNulBS
 
+    -- * SIMD generic byte scanner (CSV delimiters, NDJSON
+    -- newlines, XML structural chars, …)
+  , findByte
+  , findByteBS
+
     -- * SIMD ASCII check (general purpose)
   , isAscii
   , isAsciiBS
@@ -235,6 +240,31 @@ findNulBS bs off = unsafePerformIO $
   BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
     pure $! findNul (castPtr ptr) off len
 {-# INLINE findNulBS #-}
+
+-- | SIMD @memchr@-analog: 16-byte-at-a-time scan for the first
+-- occurrence of @target@ in @buf[offset..len)@. Returns the
+-- absolute offset (0-based from the start of @buf@) of the
+-- first match, or @len@ if no match was found.
+--
+-- Callers that prefer @Maybe Int@ semantics should wrap the
+-- result; the @len@-on-miss convention matches the existing
+-- CSV / NDJSON / XML call sites that reused the primitive
+-- before it was lifted here.
+foreign import ccall unsafe "hs_find_byte"
+  c_find_byte :: Ptr () -> CInt -> CInt -> Word8 -> CInt
+
+findByte :: Ptr Word8 -> Int -> Int -> Word8 -> Int
+findByte !ptr !offset !len !target =
+  fromIntegral (c_find_byte (castPtr ptr) (fromIntegral offset)
+                            (fromIntegral len) target)
+{-# INLINE findByte #-}
+
+-- | 'findByte' variant that takes a 'ByteString' directly.
+findByteBS :: ByteString -> Int -> Word8 -> Int
+findByteBS bs off target = unsafePerformIO $
+  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
+    pure $! findByte (castPtr ptr) off len target
+{-# INLINE findByteBS #-}
 
 ------------------------------------------------------------------------
 -- SIMD ASCII check

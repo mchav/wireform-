@@ -1,8 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 -- | NDJSON (Newline-Delimited JSON) decoder.
 --
--- Uses SIMD scanning via @hs_xml_find_byte@ to find newline boundaries
--- in 16-byte chunks, then delegates each line to aeson for JSON parsing.
+-- Uses 'Wireform.FFI.findByteBS' to find newline boundaries in
+-- 16-byte chunks via SIMD, then delegates each line to aeson
+-- for JSON parsing.
 module NDJSON.Decode
   ( decode
   , decodeStream
@@ -18,21 +19,14 @@ import qualified Data.ByteString.Unsafe as BSU
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
-import Data.Word (Word8)
-import Foreign.C.Types (CInt(..))
-import Foreign.Ptr (Ptr, castPtr)
-import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Data.Aeson as Aeson
+import qualified Wireform.FFI as WF
 
-foreign import ccall unsafe "hs_xml_find_byte"
-  c_find_byte :: Ptr () -> CInt -> CInt -> Word8 -> CInt
-
+-- | Fast newline scan. Wraps 'Wireform.FFI.findByteBS' with the
+-- @0x0A@ target pinned so call sites read cleanly.
 findNewline :: ByteString -> Int -> Int
-findNewline bs off = unsafeDupablePerformIO $
-  BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-    let !r = c_find_byte (castPtr ptr) (fromIntegral off) (fromIntegral len) 0x0A
-    in pure $! if r < 0 then len else fromIntegral r
+findNewline bs off = WF.findByteBS bs off 0x0A
 {-# INLINE findNewline #-}
 
 decode :: ByteString -> Either String (Vector Aeson.Value)

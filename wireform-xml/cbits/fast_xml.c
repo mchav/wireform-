@@ -94,6 +94,17 @@ int hs_xml_find_lt(const uint8_t *buf, int offset, int len)
  * Fast scan for a specific byte in 16-byte chunks.
  * Returns offset of first match at or after offset, or -1 if not found.
  */
+/*
+ * NOTE: wireform-core now exposes a format-neutral
+ * hs_find_byte (in wireform-core/cbits/fast_scan.c), which
+ * CSV / NDJSON / HTML consume directly via Wireform.FFI.
+ *
+ * We keep hs_xml_find_byte here as an XML-only variant
+ * because it has different miss semantics (returns -1 on
+ * miss, whereas hs_find_byte returns len). The downstream
+ * XML callers depend on the -1 convention, and
+ * hs_xml_find_attr_end below calls this version internally.
+ */
 int hs_xml_find_byte(const uint8_t *buf, int offset, int len, uint8_t target_byte)
 {
     int i = offset;
