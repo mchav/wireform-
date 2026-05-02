@@ -533,9 +533,15 @@ writeType :: Builder -> ArrowType -> IO (Word8, Int)
 writeType b ty = case ty of
   ANull             -> emptyT 1
   AInt bits signed  -> do
+    -- Arrow's Int.fbs declares is_signed with no default, but
+    -- arrow-cpp's generated reader defaults absent slots to
+    -- @true@. The writer used to omit the slot when
+    -- @signed = False@, which silently coerced unsigned columns
+    -- back to signed on round-trip. Emit the slot explicitly
+    -- whenever @signed = False@ so both paths survive.
     u <- writeTable b
            [ Just (scalar 4 (\bb -> prependI32 bb (fromIntegral bits)))
-           , if signed then Just (scalar 1 (\bb -> prependU8 bb 1)) else Nothing
+           , Just (scalar 1 (\bb -> prependU8 bb (if signed then 1 else 0)))
            ]
     pure (2, u)
   AFloatingPoint p  -> do

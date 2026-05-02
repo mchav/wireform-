@@ -31,6 +31,7 @@ import Test.Bond (bondTests)
 import Test.ASN1 (asn1Tests)
 import Test.Parquet (parquetTests)
 import Test.Arrow (arrowTests)
+import Test.Arrow.FlatBufferProperties (flatBufferPropertyTests)
 import Test.Columnar (columnarFacadeTests)
 import Test.Columnar.Properties (columnarPropertyTests)
 import Test.EDN (ednTests)
@@ -97,6 +98,7 @@ main = defaultMain $ testGroup "wireform"
   , asn1Tests
   , parquetTests
   , arrowTests
+  , flatBufferPropertyTests
   , columnarFacadeTests
   , columnarPropertyTests
   , ednTests

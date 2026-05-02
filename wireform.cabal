@@ -245,6 +245,7 @@ test-suite wireform-test
     Test.ASN1
     Test.Parquet
     Test.Arrow
+    Test.Arrow.FlatBufferProperties
     Test.Columnar
     Test.Columnar.Gen
     Test.Columnar.Properties
