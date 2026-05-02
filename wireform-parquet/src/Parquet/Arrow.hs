@@ -111,14 +111,30 @@ arrowFieldToSchemaElement f = do
     AT.ABinary        -> Right P.PTByteArray
     AT.ALargeUtf8     -> Right P.PTByteArray
     AT.ALargeBinary   -> Right P.PTByteArray
+    -- Temporal types: map to INT32 (Date, Time-millis) or INT64
+    -- (Date64, Time-micros/nanos, Timestamp, Duration). Logical
+    -- / converted types are set below.
+    AT.ADate AT.DateDay         -> Right P.PTInt32
+    AT.ADate AT.DateMillisecond -> Right P.PTInt64
+    AT.ATime _ 32     -> Right P.PTInt32
+    AT.ATime _ 64     -> Right P.PTInt64
+    AT.ATimestamp _ _ -> Right P.PTInt64
+    AT.ADuration _    -> Right P.PTInt64
     other ->
       Left $ "Parquet.Arrow: Arrow type "
              <> show other <> " has no Parquet flat-primitive equivalent"
   let !rep = if AT.fieldNullable f then P.Optional else P.Required
       !logical = case AT.fieldType f of
-        AT.AUtf8       -> Just P.LTString
-        AT.ALargeUtf8  -> Just P.LTString
-        _              -> Nothing
+        AT.AUtf8           -> Just P.LTString
+        AT.ALargeUtf8      -> Just P.LTString
+        AT.ADate _         -> Just P.LTDate
+        -- Arrow Time / Timestamp / Duration map to Parquet's
+        -- @TIME(unit, isAdjustedToUTC)@ / @TIMESTAMP(unit, utc)@
+        -- logical types. We only record the converted-type
+        -- fallback here; the LogicalType-specific fields
+        -- (precision, scale, isUtc) aren't exposed by
+        -- Parquet.Types.LogicalType yet — a separate item.
+        _                  -> Nothing
   Right P.SchemaElement
     { P.seName          = AT.fieldName f
     , P.seRepetition    = Just rep
@@ -127,6 +143,11 @@ arrowFieldToSchemaElement f = do
     , P.seConvertedType = case AT.fieldType f of
         AT.AUtf8       -> Just P.CTUtf8
         AT.ALargeUtf8  -> Just P.CTUtf8
+        AT.ADate _     -> Just P.CTDate
+        AT.ATime _ 32  -> Just P.CTTimeMillis
+        AT.ATime _ 64  -> Just P.CTTimeMicros
+        AT.ATimestamp AT.Millisecond _ -> Just P.CTTimestampMillis
+        AT.ATimestamp AT.Microsecond _ -> Just P.CTTimestampMicros
         _              -> Nothing
     , P.seLogicalType   = logical
     , P.seFieldId       = Nothing
@@ -157,6 +178,15 @@ columnArrayToColumnData = \case
   AC.ColLargeUtf8 v -> Right $ PW.ColByteArray (V.map TE.encodeUtf8 v)
   AC.ColBinary v -> Right $ PW.ColByteArray v
   AC.ColLargeBinary v -> Right $ PW.ColByteArray v
+  -- Temporal types: lower to the natural Parquet physical type
+  -- the schema element declared (Int32 for Date32 / Time32, Int64
+  -- for Date64 / Time64 / Timestamp / Duration).
+  AC.ColDate32 v   -> Right $ PW.ColInt32 v
+  AC.ColDate64 v   -> Right $ PW.ColInt64 v
+  AC.ColTime32 v   -> Right $ PW.ColInt32 v
+  AC.ColTime64 v   -> Right $ PW.ColInt64 v
+  AC.ColTimestamp v -> Right $ PW.ColInt64 v
+  AC.ColDuration  v -> Right $ PW.ColInt64 v
   -- Nullable: drop nulls, emit only the present values. The
   -- writer's high-level path treats every column as
   -- (Required+ColumnData); proper Optional support requires a
@@ -235,6 +265,20 @@ readParquetColumn pf rgIdx colIdx fld = do
       Right $ AC.ColUtf8 (V.map decodeUtf8Lossy bs)
     AT.ABinary | not nullable ->
       AC.ColBinary  <$> PR.readPlainByteArrayColumnChunk codec chunk
+    -- Temporal non-nullable: read the underlying int stream and
+    -- cast to the Arrow column flavour.
+    AT.ADate AT.DateDay | not nullable ->
+      AC.ColDate32 <$> PR.readPlainInt32ColumnChunk codec chunk
+    AT.ADate AT.DateMillisecond | not nullable ->
+      AC.ColDate64 <$> PR.readPlainInt64ColumnChunk codec chunk
+    AT.ATime _ 32 | not nullable ->
+      AC.ColTime32 <$> PR.readPlainInt32ColumnChunk codec chunk
+    AT.ATime _ 64 | not nullable ->
+      AC.ColTime64 <$> PR.readPlainInt64ColumnChunk codec chunk
+    AT.ATimestamp _ _ | not nullable ->
+      AC.ColTimestamp <$> PR.readPlainInt64ColumnChunk codec chunk
+    AT.ADuration _ | not nullable ->
+      AC.ColDuration <$> PR.readPlainInt64ColumnChunk codec chunk
     other ->
       Left $ "Parquet.Arrow: column type "
              <> show other

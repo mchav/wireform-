@@ -913,6 +913,39 @@ arrowParquetBridge = do
                   then putStrLn "OK: streamRowGroups iterates row groups"
                   else failTest $ "streamRowGroups mismatch"
 
+  -- Temporal bridge: Date32, Timestamp round-trip through the
+  -- Arrow -> Parquet -> Arrow path.
+  let !tempSchema = AT.Schema
+        { AT.arrowFields = V.fromList
+            [ AT.Field "d"  False (AT.ADate AT.DateDay) V.empty Nothing
+            , AT.Field "ts" False (AT.ATimestamp AT.Microsecond Nothing) V.empty Nothing
+            ]
+        , AT.arrowEndianness = AT.Little
+        }
+      !tempBatch = V.fromList
+        [ AC.ColDate32    (VP.fromList ([19000, 19001, 19002] :: [Int32]))
+        , AC.ColTimestamp (VP.fromList ([1700000000000000, 1700001000000000, 1700002000000000] :: [Int64]))
+        ]
+  case PArrow.arrowToParquet tempSchema [tempBatch] of
+    Left  e -> failTest $ "temporal arrowToParquet: " ++ e
+    Right (tSchema, tRgs) -> do
+      let !tOpts = PHL.defaultWriteOptions
+                      { PHL.writePageVersion = PageV1
+                      , PHL.writeCompression = Uncompressed
+                      }
+          !tBytes = PHL.encodeParquet tOpts tSchema tRgs
+      case PHL.decodeParquet tBytes of
+        Left  e -> failTest $ "temporal decodeParquet: " ++ e
+        Right pf ->
+          case PArrow.parquetRowGroupToArrow tempSchema pf 0 of
+            Left  e    -> failTest $ "temporal parquetRowGroupToArrow: " ++ e
+            Right cols ->
+              if cols == tempBatch
+                then putStrLn "OK: Arrow <-> Parquet temporal round-trip"
+                else failTest $ "temporal mismatch:\n got "
+                                  ++ show (V.toList cols)
+                                  ++ "\n exp " ++ show (V.toList tempBatch)
+
 expectHash :: String -> String -> IO ()
 expectHash s expected = expectHashBs (BSC.pack s) expected
 
