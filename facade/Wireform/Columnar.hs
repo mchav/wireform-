@@ -201,9 +201,17 @@ encode fmt opts sch batches = case fmt of
     Right (Arrow.encodeArrowStream (arrowWrite opts) sch batches)
   ArrowFile ->
     Right (Arrow.encodeArrowFile (arrowWrite opts) sch batches)
-  Parquet -> do
-    (pSchema, pRgs) <- PArrow.arrowToParquet sch batches
-    Right (Parquet.encodeParquet (parquetWrite opts) pSchema pRgs)
+  Parquet
+    -- Any nullable column in the schema? Route through the
+    -- mixed writer so nulls round-trip via definition-level
+    -- streams. Otherwise use the fast all-required path which
+    -- supports compression + page indexes + encryption.
+    | anyNullable sch -> do
+        (pSchema, pRgs) <- PArrow.arrowToParquetMixed sch batches
+        Right (Parquet.encodeParquetMixed (parquetWrite opts) pSchema pRgs)
+    | otherwise -> do
+        (pSchema, pRgs) <- PArrow.arrowToParquet sch batches
+        Right (Parquet.encodeParquet (parquetWrite opts) pSchema pRgs)
   ORC -> do
     (types, stripesWithRows) <- OArrow.arrowToORC sch batches
     ORC.encodeORC (orcWrite opts) types stripesWithRows
@@ -246,6 +254,12 @@ decode fmt opts bs = case fmt of
     batches <- mapM (\i -> OArrow.orcStripeToArrow sch bs footer i)
                     [0 .. numStripes - 1]
     Right (sch, batches)
+
+-- | Does the schema have at least one nullable leaf? Used to
+-- pick between the required-only and mixed Parquet writer
+-- paths.
+anyNullable :: AT.Schema -> Bool
+anyNullable = any AT.fieldNullable . V.toList . AT.arrowFields
 
 -- | Reconstruct an Arrow schema from an ORC footer using the
 -- file's stripe footers to derive nullability per leaf. A

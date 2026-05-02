@@ -301,22 +301,24 @@ genArrowOnly = do
       pure (ctor name nullable)
 
 -- | Shapes the Parquet bridge supports today (flat primitives
--- plus temporals, non-nullable only — the writer's nullable
--- path is pending a low-level refactor).
+-- plus temporals, required + nullable — nullable columns now
+-- route through 'Parquet.HighLevel.encodeParquetMixed' + the
+-- @*Optional@ reader dispatch so nulls round-trip through
+-- definition-level streams).
 genParquetBridge :: Gen (AT.Schema, [V.Vector AC.ColumnArray])
 genParquetBridge = do
   nCols <- Gen.int (Range.linear 1 5)
   plans <- uniqueByName mk nCols
   schemaAndBatches plans
   where
-    mk name _ = do
+    mk name nullable = do
       ctor <- Gen.element
         [ PlanInt32, PlanInt64
         , PlanBool, PlanFloat, PlanDouble
         , PlanUtf8, PlanBinary
         , PlanDate32, PlanTimestamp
         ]
-      pure (ctor name False)
+      pure (ctor name nullable)
 
 -- | Shapes the ORC bridge supports today (flat primitives +
 -- temporals, nullable via PRESENT stream). Int16 excluded

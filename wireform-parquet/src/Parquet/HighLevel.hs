@@ -33,9 +33,12 @@
 module Parquet.HighLevel
   ( -- * Encoding
     encodeParquet
+  , encodeParquetMixed
   , encodeParquetNested
   , WriteOptions (..)
   , defaultWriteOptions
+  , ParquetColumn (..)
+  , OptionalColumn (..)
     -- * Decoding
   , decodeParquet
   , ReadOptions (..)
@@ -85,7 +88,10 @@ import Parquet.Write
   , ColumnData (..)
   , ColumnEncryption (..)
   , FooterEncryption (..)
+  , OptionalColumn (..)
   , PageVersion (..)
+  , ParquetColumn (..)
+  , buildParquetFileMixed
   , buildParquetFileWithIndex
   , buildParquetFileWithIndexEncryptedFooter
   , emptyColumnAux
@@ -172,6 +178,26 @@ encodeParquet opts schema rgs =
         Nothing -> buildParquetFileWithIndex schema rowGroups auxes
         Just fe ->
           buildParquetFileWithIndexEncryptedFooter fe schema rowGroups auxes
+
+-- | Serialise a Parquet file from a schema + row groups where
+-- each column may be either required ('PCRequired') or nullable
+-- ('PCOptional'). Routes through 'buildParquetFileMixed' which
+-- emits uncompressed @DATA_PAGE_V1@ pages (simple readers like
+-- 'Parquet.Read.readPlainXxxOptionalColumnChunk' expect that
+-- shape).
+--
+-- The 'WriteOptions' parameter is currently ignored by this
+-- path — bloom filters, page indexes, encryption, compression,
+-- and PageV2 are roadmap items for the mixed writer. Use
+-- 'encodeParquet' with all-required 'ColumnData' when those
+-- knobs matter.
+encodeParquetMixed
+  :: WriteOptions
+  -> V.Vector SchemaElement
+  -> [V.Vector ParquetColumn]
+  -> ByteString
+encodeParquetMixed _opts schema rgs =
+  buildParquetFileMixed schema (V.fromList rgs)
 
 -- | Compute a 'ColumnAux' vector per row group from the
 -- write-time options. Any per-column knob (compression, bloom,

@@ -44,7 +44,7 @@ columnarPropertyTests = testGroup "Wireform.Columnar properties"
           (propBridge Col.Arrow     Col.defaultWriteOptions G.genArrowOnly)
       , testProperty "Arrow (file): full ColumnArray coverage"
           (propBridge Col.ArrowFile Col.defaultWriteOptions G.genArrowOnly)
-      , testProperty "Parquet: non-nullable flat + temporal"
+      , testProperty "Parquet: required + nullable flat + temporal"
           (propBridge Col.Parquet   parquetOpts              G.genParquetBridge)
       , testProperty "ORC: nullable flat + temporal"
           (propBridge Col.ORC       Col.defaultWriteOptions  G.genORCBridge)

@@ -29,9 +29,11 @@
 -- Left at translation time. Support for nested shredding via
 -- "Parquet.Nested" is a separate item.
 module Parquet.Arrow
-  ( -- * Arrow → Parquet (flat)
+  ( -- * Arrow → Parquet (flat, required + nullable)
     arrowToParquet
+  , arrowToParquetMixed
   , columnArrayToColumnData
+  , columnArrayToParquetColumn
     -- * Arrow → Parquet (nested, via Parquet.Nested)
   , arrowFieldToNestedSchema
   , columnArrayToNestedRows
@@ -97,6 +99,89 @@ arrowToParquet sch batches = do
   let !pSchema = V.cons rootElem schemaElems
   rgData <- mapM (V.mapM columnArrayToColumnData) batches
   Right (pSchema, rgData)
+
+-- | Like 'arrowToParquet' but returns 'PW.ParquetColumn' values
+-- so nullable Arrow columns lower to 'PW.PCOptional' instead of
+-- being dropped through 'optionalColumnPresentValues'. Pair with
+-- 'Parquet.Write.buildParquetFileMixed' to write a Parquet file
+-- that actually carries the nulls; 'Parquet.HighLevel.encodeParquet'
+-- auto-routes through this path when any input column is
+-- nullable.
+arrowToParquetMixed
+  :: AT.Schema
+  -> [V.Vector AC.ColumnArray]
+  -> Either String (V.Vector P.SchemaElement, [V.Vector PW.ParquetColumn])
+arrowToParquetMixed sch batches = do
+  let !leafFields = arrowFieldsToLeaves (AT.arrowFields sch)
+      !rootElem   = P.SchemaElement
+                      { P.seName          = "schema"
+                      , P.seRepetition    = Nothing
+                      , P.seType          = Nothing
+                      , P.seNumChildren   = Just (fromIntegral (V.length leafFields))
+                      , P.seConvertedType = Nothing
+                      , P.seLogicalType   = Nothing
+                      , P.seFieldId       = Nothing
+                      }
+  schemaElems <- V.mapM arrowFieldToSchemaElement leafFields
+  let !pSchema = V.cons rootElem schemaElems
+  rgData <- mapM (V.mapM columnArrayToParquetColumn) batches
+  Right (pSchema, rgData)
+
+-- | Dispatch a single Arrow column onto the 'PW.ParquetColumn'
+-- sum. Nullable variants map to 'PW.PCOptional'; required ones
+-- reuse 'columnArrayToColumnData' and wrap the result in
+-- 'PW.PCRequired'.
+columnArrayToParquetColumn
+  :: AC.ColumnArray -> Either String PW.ParquetColumn
+columnArrayToParquetColumn col = case col of
+  AC.ColInt32Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt32 v)
+  AC.ColInt64Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt64 v)
+  AC.ColFloatMaybe v ->
+    Right $ PW.PCOptional (PW.OptFloat v)
+  AC.ColDoubleMaybe v ->
+    Right $ PW.PCOptional (PW.OptDouble v)
+  AC.ColBoolMaybe v ->
+    Right $ PW.PCOptional (PW.OptBool v)
+  AC.ColUtf8Maybe v ->
+    Right $ PW.PCOptional (PW.OptByteArray (V.map (fmap TE.encodeUtf8) v))
+  AC.ColBinaryMaybe v ->
+    Right $ PW.PCOptional (PW.OptByteArray v)
+  AC.ColLargeUtf8Maybe v ->
+    Right $ PW.PCOptional (PW.OptByteArray (V.map (fmap TE.encodeUtf8) v))
+  AC.ColLargeBinaryMaybe v ->
+    Right $ PW.PCOptional (PW.OptByteArray v)
+  -- Int8 / Int16 / UInt* nullable: widen to Int32 while
+  -- preserving Nothing positions.
+  AC.ColInt8Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt32 (V.map (fmap fromIntegral) v))
+  AC.ColInt16Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt32 (V.map (fmap fromIntegral) v))
+  AC.ColUInt8Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt32 (V.map (fmap (fromIntegral :: Word8  -> Int32)) v))
+  AC.ColUInt16Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt32 (V.map (fmap (fromIntegral :: Word16 -> Int32)) v))
+  AC.ColUInt32Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt32 (V.map (fmap (fromIntegral :: Word32 -> Int32)) v))
+  AC.ColUInt64Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt64 (V.map (fmap (fromIntegral :: Word64 -> Int64)) v))
+  -- Temporal nullable: widen payload to matching INT32 / INT64.
+  AC.ColDate32Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt32 v)
+  AC.ColDate64Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt64 v)
+  AC.ColTime32Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt32 v)
+  AC.ColTime64Maybe v ->
+    Right $ PW.PCOptional (PW.OptInt64 v)
+  AC.ColTimestampMaybe v ->
+    Right $ PW.PCOptional (PW.OptInt64 v)
+  AC.ColDurationMaybe v ->
+    Right $ PW.PCOptional (PW.OptInt64 v)
+  -- Required columns: just delegate.
+  _ ->
+    PW.PCRequired <$> columnArrayToColumnData col
 
 -- | Project the (potentially-nested) Arrow field tree to a flat
 -- list of leaves. Today we only support flat schemas (the bridge
@@ -446,6 +531,40 @@ readParquetColumn pf rgIdx colIdx fld = do
       AC.ColTimestamp <$> PR.readPlainInt64ColumnChunk codec chunk
     AT.ADuration _ | not nullable ->
       AC.ColDuration <$> PR.readPlainInt64ColumnChunk codec chunk
+
+    -- Nullable primitives + temporals. The @*Optional@ readers
+    -- take (max_repetition_level, max_definition_level); for a
+    -- flat optional primitive these are (0, 1) — our bridge
+    -- doesn't currently emit nested-optional columns through
+    -- this path, so we hardcode the flat-optional pair.
+    AT.AInt 32 True | nullable ->
+      AC.ColInt32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+    AT.AInt 64 True | nullable ->
+      AC.ColInt64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+    AT.AFloatingPoint AT.Single | nullable ->
+      AC.ColFloatMaybe <$> PR.readPlainFloatOptionalColumnChunk codec 0 1 chunk
+    AT.AFloatingPoint AT.DoublePrecision | nullable ->
+      AC.ColDoubleMaybe <$> PR.readPlainDoubleOptionalColumnChunk codec 0 1 chunk
+    AT.ABool | nullable ->
+      AC.ColBoolMaybe <$> PR.readPlainBoolOptionalColumnChunk codec 0 1 chunk
+    AT.AUtf8 | nullable -> do
+      bs <- PR.readPlainByteArrayOptionalColumnChunk codec 0 1 chunk
+      Right $ AC.ColUtf8Maybe (V.map (fmap decodeUtf8Lossy) bs)
+    AT.ABinary | nullable ->
+      AC.ColBinaryMaybe <$> PR.readPlainByteArrayOptionalColumnChunk codec 0 1 chunk
+    AT.ADate AT.DateDay | nullable ->
+      AC.ColDate32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+    AT.ADate AT.DateMillisecond | nullable ->
+      AC.ColDate64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+    AT.ATime _ 32 | nullable ->
+      AC.ColTime32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+    AT.ATime _ 64 | nullable ->
+      AC.ColTime64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+    AT.ATimestamp _ _ | nullable ->
+      AC.ColTimestampMaybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+    AT.ADuration _ | nullable ->
+      AC.ColDurationMaybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+
     other ->
       Left $ "Parquet.Arrow: column type "
              <> show other
