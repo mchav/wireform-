@@ -164,6 +164,15 @@ arrowFieldToORCType f = do
     AT.ABinary       -> Right OT.TKBinary
     AT.ALargeUtf8    -> Right OT.TKString
     AT.ALargeBinary  -> Right OT.TKBinary
+    -- Temporal types map to ORC's native kinds. ORC doesn't
+    -- distinguish time-of-day from timestamp, so ATime32 / ATime64
+    -- get flattened to TKLong (caller records the semantics via
+    -- Arrow's Field metadata) rather than TKTimestamp.
+    AT.ADate _      -> Right OT.TKDate
+    AT.ATimestamp _ _ -> Right OT.TKTimestamp
+    AT.ADuration _  -> Right OT.TKLong
+    AT.ATime _ _    -> Right OT.TKLong
+    AT.ADecimal _ _ -> Right OT.TKDecimal
     other ->
       Left $ "ORC.Arrow: Arrow type "
              ++ show other
@@ -176,7 +185,8 @@ arrowFieldToORCType f = do
 
 -- | Encode one Arrow column at the given ORC column id into its
 -- ORC stream tuples. Returns @[(streamKind, columnId, payload)]@
--- in emission order.
+-- in emission order. Nullable columns now emit a PRESENT stream
+-- so round-trips recover the nulls at the right positions.
 columnArrayToORCStreams
   :: Word64
   -> AC.ColumnArray
@@ -184,81 +194,146 @@ columnArrayToORCStreams
 columnArrayToORCStreams !cid = go
   where
     go col = case col of
-      AC.ColInt8  v -> Right (intStreams cid (signedI8 v))
-      AC.ColInt16 v -> Right (intStreams cid (signedI16 v))
-      AC.ColInt32 v -> Right (intStreams cid (signedI32 v))
-      AC.ColInt64 v -> Right (intStreams cid v)
-      AC.ColUInt8  v -> Right (intStreams cid (VP.map fromIntegral v))
-      AC.ColUInt16 v -> Right (intStreams cid (VP.map fromIntegral v))
-      AC.ColUInt32 v -> Right (intStreams cid (VP.map fromIntegral v))
-      AC.ColUInt64 v -> Right (intStreams cid (VP.map fromIntegral v))
+      AC.ColInt8  v -> Right (intStreams Nothing cid (signedI8 v))
+      AC.ColInt16 v -> Right (intStreams Nothing cid (signedI16 v))
+      AC.ColInt32 v -> Right (intStreams Nothing cid (signedI32 v))
+      AC.ColInt64 v -> Right (intStreams Nothing cid v)
+      AC.ColUInt8  v -> Right (intStreams Nothing cid (VP.map fromIntegral v))
+      AC.ColUInt16 v -> Right (intStreams Nothing cid (VP.map fromIntegral v))
+      AC.ColUInt32 v -> Right (intStreams Nothing cid (VP.map fromIntegral v))
+      AC.ColUInt64 v -> Right (intStreams Nothing cid (VP.map fromIntegral v))
 
-      AC.ColBool   v -> Right (boolStreams cid v)
-      AC.ColFloat  v -> Right (floatStreams cid v)
-      AC.ColDouble v -> Right (doubleStreams cid v)
+      AC.ColBool   v -> Right (boolStreams Nothing cid v)
+      AC.ColFloat  v -> Right (floatStreams Nothing cid v)
+      AC.ColDouble v -> Right (doubleStreams Nothing cid v)
 
-      AC.ColUtf8 v -> Right (stringStreams cid (V.map TE.encodeUtf8 v))
-      AC.ColLargeUtf8 v -> Right (stringStreams cid (V.map TE.encodeUtf8 v))
-      AC.ColBinary v -> Right (stringStreams cid v)
-      AC.ColLargeBinary v -> Right (stringStreams cid v)
+      AC.ColUtf8 v -> Right (stringStreams Nothing cid (V.map TE.encodeUtf8 v))
+      AC.ColLargeUtf8 v -> Right (stringStreams Nothing cid (V.map TE.encodeUtf8 v))
+      AC.ColBinary v -> Right (stringStreams Nothing cid v)
+      AC.ColLargeBinary v -> Right (stringStreams Nothing cid v)
 
-      -- Nullable variants: drop nulls and emit the present-only
-      -- streams. Round-trip recovers the present values without
-      -- their null markers; a fully-faithful Arrow ↔ ORC bridge
-      -- needs a PRESENT stream which is on the roadmap.
-      AC.ColInt8Maybe   v -> Right (intStreams cid (presentInt v signedI8'  ))
-      AC.ColInt16Maybe  v -> Right (intStreams cid (presentInt v signedI16' ))
-      AC.ColInt32Maybe  v -> Right (intStreams cid (presentInt v signedI32' ))
-      AC.ColInt64Maybe  v -> Right (intStreams cid (presentInt v id         ))
-      AC.ColUInt8Maybe  v -> Right (intStreams cid (presentInt v fromIntegral))
-      AC.ColUInt16Maybe v -> Right (intStreams cid (presentInt v fromIntegral))
-      AC.ColUInt32Maybe v -> Right (intStreams cid (presentInt v fromIntegral))
-      AC.ColUInt64Maybe v -> Right (intStreams cid (presentInt v fromIntegral))
-      AC.ColBoolMaybe   v -> Right (boolStreams cid
-                                      (V.fromList [b | Just b <- V.toList v]))
-      AC.ColFloatMaybe  v -> Right (floatStreams cid
-                                      (VP.fromList [f | Just f <- V.toList v]))
-      AC.ColDoubleMaybe v -> Right (doubleStreams cid
-                                      (VP.fromList [d | Just d <- V.toList v]))
-      AC.ColUtf8Maybe   v -> Right (stringStreams cid
-                                      (V.fromList [TE.encodeUtf8 t | Just t <- V.toList v]))
-      AC.ColLargeUtf8Maybe v -> Right (stringStreams cid
-                                      (V.fromList [TE.encodeUtf8 t | Just t <- V.toList v]))
-      AC.ColBinaryMaybe v -> Right (stringStreams cid
-                                      (V.fromList [b | Just b <- V.toList v]))
-      AC.ColLargeBinaryMaybe v -> Right (stringStreams cid
-                                      (V.fromList [b | Just b <- V.toList v]))
+      -- Temporal types: map to an integer stream at the natural
+      -- width. Date = days-since-epoch, Time/Duration/Timestamp
+      -- use the Int32/Int64 payload as-is.
+      AC.ColDate32 v -> Right (intStreams Nothing cid (signedI32 v))
+      AC.ColDate64 v -> Right (intStreams Nothing cid v)
+      AC.ColTime32 v -> Right (intStreams Nothing cid (signedI32 v))
+      AC.ColTime64 v -> Right (intStreams Nothing cid v)
+      AC.ColTimestamp v -> Right (intStreams Nothing cid v)
+      AC.ColDuration  v -> Right (intStreams Nothing cid v)
+
+      -- Nullable variants: emit PRESENT + present-only data.
+      AC.ColInt8Maybe   v -> Right (intMaybe v cid signedI8')
+      AC.ColInt16Maybe  v -> Right (intMaybe v cid signedI16')
+      AC.ColInt32Maybe  v -> Right (intMaybe v cid signedI32')
+      AC.ColInt64Maybe  v -> Right (intMaybe v cid id)
+      AC.ColUInt8Maybe  v -> Right (intMaybe v cid fromIntegral)
+      AC.ColUInt16Maybe v -> Right (intMaybe v cid fromIntegral)
+      AC.ColUInt32Maybe v -> Right (intMaybe v cid fromIntegral)
+      AC.ColUInt64Maybe v -> Right (intMaybe v cid fromIntegral)
+
+      AC.ColBoolMaybe   v ->
+        let (pres, present) = presentBits v
+        in Right (boolStreams (Just pres) cid present)
+      AC.ColFloatMaybe  v ->
+        let (pres, present) = presentFloat v
+        in Right (floatStreams (Just pres) cid present)
+      AC.ColDoubleMaybe v ->
+        let (pres, present) = presentDouble v
+        in Right (doubleStreams (Just pres) cid present)
+
+      AC.ColUtf8Maybe   v ->
+        let (pres, present) = presentBytes (V.map (fmap TE.encodeUtf8) v)
+        in Right (stringStreams (Just pres) cid present)
+      AC.ColLargeUtf8Maybe v ->
+        let (pres, present) = presentBytes (V.map (fmap TE.encodeUtf8) v)
+        in Right (stringStreams (Just pres) cid present)
+      AC.ColBinaryMaybe v ->
+        let (pres, present) = presentBytes v
+        in Right (stringStreams (Just pres) cid present)
+      AC.ColLargeBinaryMaybe v ->
+        let (pres, present) = presentBytes v
+        in Right (stringStreams (Just pres) cid present)
+
       other -> Left $ "ORC.Arrow: column shape "
                        ++ show other
                        ++ " not supported by the bridge yet "
                        ++ "(nested types, dictionary, view, REE)"
 
+    -- Build PRESENT stream + present-only Int64 payload for a
+    -- nullable integer column. We materialise the entire payload
+    -- at the requested signed width.
+    intMaybe
+      :: V.Vector (Maybe a)
+      -> Word64
+      -> (a -> Int64)
+      -> V.Vector (Word64, Word64, ByteString)
+    intMaybe vmb c cast =
+      let (pres, xs) = presentPayload vmb cast
+      in  intStreams (Just pres) c (VP.fromList xs)
+
+    -- Boolean-RLE-encoded PRESENT bits + present-only payload.
+    presentPayload
+      :: V.Vector (Maybe a) -> (a -> b) -> (ByteString, [b])
+    presentPayload vmb cast =
+      let !pres   = OW.encodeBooleanRLE (V.map maybeToBool vmb)
+          !xs     = [cast x | Just x <- V.toList vmb]
+      in (pres, xs)
+
+    maybeToBool :: Maybe a -> Bool
+    maybeToBool (Just _) = True
+    maybeToBool Nothing  = False
+
+    presentBits v =
+      let !pres = OW.encodeBooleanRLE (V.map maybeToBool v)
+          !vs   = V.fromList [b | Just b <- V.toList v]
+      in (pres, vs)
+    presentFloat v =
+      let !pres = OW.encodeBooleanRLE (V.map maybeToBool v)
+          !vs   = VP.fromList [f | Just f <- V.toList v]
+      in (pres, vs)
+    presentDouble v =
+      let !pres = OW.encodeBooleanRLE (V.map maybeToBool v)
+          !vs   = VP.fromList [d | Just d <- V.toList v]
+      in (pres, vs)
+    presentBytes v =
+      let !pres = OW.encodeBooleanRLE (V.map maybeToBool v)
+          !vs   = V.fromList [b | Just b <- V.toList v]
+      in (pres, vs)
+
     -- ORC's RLE-v2 integer encoders take (Int64 vector, signed?).
-    intStreams !c xs =
-      V.singleton (streamData, c, OW.encodeIntColumn xs True)
-    boolStreams !c xs =
-      V.singleton (streamData, c, OW.encodeBooleanRLE xs)
-    floatStreams !c xs =
-      V.singleton (streamData, c, OW.encodeFloatColumn xs)
-    doubleStreams !c xs =
-      V.singleton (streamData, c, OW.encodeDoubleColumn xs)
-    stringStreams !c bytesVec =
+    -- Each emitter optionally prepends a PRESENT stream.
+    intStreams mPres !c xs =
+      presentPrefix mPres c <>
+        V.singleton (streamData, c, OW.encodeIntColumn xs True)
+    boolStreams mPres !c xs =
+      presentPrefix mPres c <>
+        V.singleton (streamData, c, OW.encodeBooleanRLE xs)
+    floatStreams mPres !c xs =
+      presentPrefix mPres c <>
+        V.singleton (streamData, c, OW.encodeFloatColumn xs)
+    doubleStreams mPres !c xs =
+      presentPrefix mPres c <>
+        V.singleton (streamData, c, OW.encodeDoubleColumn xs)
+    stringStreams mPres !c bytesVec =
       let !(dataBs, lengthBs) = OW.encodeStringDirectColumn (V.map decodeBytesAsText bytesVec)
-      in V.fromList
+      in presentPrefix mPres c <>
+         V.fromList
            [ (streamData,   c, dataBs)
            , (streamLength, c, lengthBs)
            ]
-    -- Helper: feed the writer's text-encoder by re-tagging the
-    -- raw bytes as Text. ORC's DIRECT_V2 string writer treats
-    -- the @Text@ payload as a UTF-8 bytestring under the hood;
-    -- decodeUtf8 with replacement keeps non-text payloads
-    -- valid for the binary case.
+
+    presentPrefix Nothing  _ = V.empty
+    presentPrefix (Just p) c = V.singleton (streamPresent, c, p)
+
+    -- Feed the writer's text-encoder by re-tagging the raw bytes
+    -- as Text. ORC's DIRECT_V2 string writer treats the Text
+    -- payload as a UTF-8 bytestring under the hood; decodeUtf8
+    -- with replacement keeps non-text payloads valid for the
+    -- binary case.
     decodeBytesAsText bs = case TE.decodeUtf8' bs of
       Right t -> t
       Left  _ -> T.pack (map (toEnum . fromIntegral) (BS.unpack bs))
-
-    presentInt v cast =
-      VP.fromList [ cast x | Just x <- V.toList v ]
 
 -- Type-directed signed-cast helpers (for signed Arrow integers).
 signedI8 :: VP.Vector Int8 -> VP.Vector Int64
@@ -324,77 +399,66 @@ decodeOneColumn
   -> V.Vector OSt.Stream         -- ^ stream descriptors
   -> Either String AC.ColumnArray
 decodeOneColumn cid fld numRows stripeBs streams = do
-  -- Compute (offset, length) for each (kind, column) pair by
-  -- accumulating stream lengths in declared order; ORC streams
-  -- are concatenated in the stripe data section.
-  let !indexed = V.imap (\_ s -> s) streams
-      step (!off, acc) s =
-        let !len = OSt.stLength s
-        in  (off + len, V.snoc acc (off, len, s))
-      (_, withOffs) = V.foldl' step (0 :: Word64, V.empty) indexed
-      pickStream k = V.find
-        (\(_, _, s) -> OSt.stColumn s == cid && OSt.stKind s == k)
-        withOffs
-
-      slice off len = BS.take (fromIntegral len) (BS.drop (fromIntegral off) stripeBs)
-
+  -- Optionally pick up the PRESENT stream; pass to each decoder
+  -- so nulls round-trip correctly.
+  let mPresentBs = either (const Nothing) Just (sliceFor streamPresent)
   case AT.fieldType fld of
-    AT.AInt _ True ->
-      case pickStream streamData of
-        Just (off, len, _) -> do
-          let !bs = slice off len
-          xs <- OR.decodeIntColumn True numRows bs Nothing
-          intToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
-        Nothing -> Left $ "ORC.Arrow: column " ++ show cid ++ " missing DATA stream"
-    AT.AInt _ False ->
-      case pickStream streamData of
-        Just (off, len, _) -> do
-          let !bs = slice off len
-          xs <- OR.decodeIntColumn False numRows bs Nothing
-          intToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
-        Nothing -> Left $ "ORC.Arrow: column " ++ show cid ++ " missing DATA stream"
-    AT.ABool ->
-      case pickStream streamData of
-        Just (off, len, _) -> do
-          let !bs = slice off len
-          xs <- OR.decodeBoolColumn numRows bs Nothing
-          if AT.fieldNullable fld
-            then Right (AC.ColBoolMaybe xs)
-            else Right (AC.ColBool (V.map (maybe False id) xs))
-        Nothing -> Left $ "ORC.Arrow: column " ++ show cid ++ " missing DATA stream"
-    AT.AFloatingPoint AT.Single ->
-      case pickStream streamData of
-        Just (off, len, _) -> do
-          let !bs = slice off len
-          xs <- OR.decodeFloatColumn numRows bs Nothing
-          if AT.fieldNullable fld
-            then Right (AC.ColFloatMaybe xs)
-            else Right (AC.ColFloat (VP.fromList (map (maybe 0 id) (V.toList xs))))
-        Nothing -> Left $ "ORC.Arrow: column " ++ show cid ++ " missing DATA stream"
-    AT.AFloatingPoint AT.DoublePrecision ->
-      case pickStream streamData of
-        Just (off, len, _) -> do
-          let !bs = slice off len
-          xs <- OR.decodeDoubleColumn numRows bs Nothing
-          if AT.fieldNullable fld
-            then Right (AC.ColDoubleMaybe xs)
-            else Right (AC.ColDouble (VP.fromList (map (maybe 0 id) (V.toList xs))))
-        Nothing -> Left $ "ORC.Arrow: column " ++ show cid ++ " missing DATA stream"
-    AT.AUtf8 -> stringColumn AT.AUtf8
-    AT.ALargeUtf8 -> stringColumn AT.ALargeUtf8
-    AT.ABinary -> stringColumn AT.ABinary
-    AT.ALargeBinary -> stringColumn AT.ALargeBinary
+    AT.AInt _ True -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
+      intToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
+    AT.AInt _ False -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeIntColumn False numRows dataBs mPresentBs
+      intToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
+    AT.ABool -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeBoolColumn numRows dataBs mPresentBs
+      if AT.fieldNullable fld
+        then Right (AC.ColBoolMaybe xs)
+        else Right (AC.ColBool (V.map (maybe False id) xs))
+    AT.AFloatingPoint AT.Single -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeFloatColumn numRows dataBs mPresentBs
+      if AT.fieldNullable fld
+        then Right (AC.ColFloatMaybe xs)
+        else Right (AC.ColFloat (VP.fromList (map (maybe 0 id) (V.toList xs))))
+    AT.AFloatingPoint AT.DoublePrecision -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeDoubleColumn numRows dataBs mPresentBs
+      if AT.fieldNullable fld
+        then Right (AC.ColDoubleMaybe xs)
+        else Right (AC.ColDouble (VP.fromList (map (maybe 0 id) (V.toList xs))))
+    AT.AUtf8        -> stringColumn mPresentBs AT.AUtf8
+    AT.ALargeUtf8   -> stringColumn mPresentBs AT.ALargeUtf8
+    AT.ABinary      -> stringColumn mPresentBs AT.ABinary
+    AT.ALargeBinary -> stringColumn mPresentBs AT.ALargeBinary
+    -- Temporal types: recover the int stream at the right Arrow
+    -- flavour. Date32 uses i32 days, Date64 i64, Time i32/i64,
+    -- Timestamp / Duration i64.
+    AT.ADate _ -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
+      temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
+    AT.ATime _ _ -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
+      temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
+    AT.ATimestamp _ _ -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
+      temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
+    AT.ADuration _ -> do
+      dataBs <- sliceFor streamData
+      xs <- OR.decodeIntColumn True numRows dataBs mPresentBs
+      temporalToArrow (AT.fieldType fld) (AT.fieldNullable fld) xs
     other ->
       Left $ "ORC.Arrow: column type " ++ show other
               ++ " not yet supported by the read bridge"
   where
-    pickStream' k = V.find
-      (\s -> OSt.stColumn s == cid && OSt.stKind s == k)
-      streams
-
-    -- Lazy stream-byte helper. We compute offsets via a fold over
-    -- the same stream vector so the helper above and this one
-    -- agree on layout.
+    -- Lazy stream-byte helper. Accumulates stream lengths in the
+    -- declared stripe order and returns the first chunk that
+    -- matches (column, kind).
     sliceFor k = case V.foldl'
                    (\(off, found) s ->
                        case found of
@@ -412,10 +476,10 @@ decodeOneColumn cid fld numRows stripeBs streams = do
                      Left $ "ORC.Arrow: column " ++ show cid
                               ++ " missing stream kind " ++ show k
 
-    stringColumn ty = do
+    stringColumn mPresentBs ty = do
       dataBs   <- sliceFor streamData
       lengthBs <- sliceFor streamLength
-      xs <- OR.decodeStringColumn numRows dataBs lengthBs BS.empty Nothing
+      xs <- OR.decodeStringColumn numRows dataBs lengthBs BS.empty mPresentBs
       let !decoded = case ty of
             AT.ABinary       -> AC.ColBinary
                                   (V.map (maybe BS.empty TE.encodeUtf8) xs)
@@ -468,3 +532,42 @@ intToArrow ty nullable xs = case (ty, nullable) of
 
 presentValues :: V.Vector (Maybe a) -> [a]
 presentValues v = [x | Just x <- V.toList v]
+
+-- | Lift a decoded ORC integer stream into one of Arrow's temporal
+-- column shapes. Width narrowing happens here (Date32 / Time32
+-- use Int32 under the hood).
+temporalToArrow
+  :: AT.ArrowType -> Bool -> V.Vector (Maybe Int64)
+  -> Either String AC.ColumnArray
+temporalToArrow ty nullable xs = case (ty, nullable) of
+  (AT.ADate AT.DateDay, False) ->
+    Right $! AC.ColDate32 (VP.fromList (map narrow32 (presentValues xs)))
+  (AT.ADate AT.DateMillisecond, False) ->
+    Right $! AC.ColDate64 (VP.fromList (presentValues xs))
+  (AT.ATime _ 32, False) ->
+    Right $! AC.ColTime32 (VP.fromList (map narrow32 (presentValues xs)))
+  (AT.ATime _ 64, False) ->
+    Right $! AC.ColTime64 (VP.fromList (presentValues xs))
+  (AT.ATimestamp _ _, False) ->
+    Right $! AC.ColTimestamp (VP.fromList (presentValues xs))
+  (AT.ADuration _, False) ->
+    Right $! AC.ColDuration (VP.fromList (presentValues xs))
+
+  (AT.ADate AT.DateDay, True) ->
+    Right $! AC.ColDate32Maybe (V.map (fmap narrow32) xs)
+  (AT.ADate AT.DateMillisecond, True) ->
+    Right $! AC.ColDate64Maybe xs
+  (AT.ATime _ 32, True) ->
+    Right $! AC.ColTime32Maybe (V.map (fmap narrow32) xs)
+  (AT.ATime _ 64, True) ->
+    Right $! AC.ColTime64Maybe xs
+  (AT.ATimestamp _ _, True) ->
+    Right $! AC.ColTimestampMaybe xs
+  (AT.ADuration _, True) ->
+    Right $! AC.ColDurationMaybe xs
+
+  _ -> Left $ "ORC.Arrow.temporalToArrow: unexpected type/null combo "
+                ++ show (ty, nullable)
+  where
+    narrow32 :: Int64 -> Int32
+    narrow32 = fromIntegral

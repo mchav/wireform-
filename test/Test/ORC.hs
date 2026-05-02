@@ -55,18 +55,75 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
       case OArrow.arrowToORC arrowSchema [batch] of
         Left e -> assertFailure ("arrowToORC: " ++ e)
         Right (types, stripes) -> do
-          -- writeStripeFooter / buildORCFile expect rowCount=0
-          -- in the stripe info; that's what buildORCFile uses by
-          -- default. The bridge test exercises the writer's
-          -- stream layout, not the row count machinery, so we
-          -- skip the actual end-to-end ORC round-trip and just
-          -- assert structural invariants on the writer output.
           let !bytes = OHL.encodeORC OHL.defaultWriteOptions
           case bytes types stripes of
             Left e -> assertFailure ("encodeORC: " ++ e)
             Right b -> do
               -- Smoke test: file starts with the ORC magic.
               BS.take 3 b @?= BS.pack [0x4F, 0x52, 0x43]   -- "ORC"
+  , testCase "nullable round-trip: PRESENT stream recovers nulls" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.fromList
+                [ AT.Field "i" True (AT.AInt 64 True) V.empty Nothing
+                , AT.Field "s" True AT.AUtf8          V.empty Nothing
+                ]
+            , AT.arrowEndianness = AT.Little
+            }
+          !batch = V.fromList
+            [ AC.ColInt64Maybe (V.fromList [Just 10, Nothing, Just 30])
+            , AC.ColUtf8Maybe  (V.fromList [Just "a", Just "b", Nothing])
+            ]
+      case OArrow.arrowToORCWithRows arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORCWithRows: " ++ e)
+        Right (types, stripesWithRows) -> do
+          case OHL.encodeORCWithRows OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC: " ++ e)
+            Right bytes -> do
+              case OHL.decodeORC bytes of
+                Left e     -> assertFailure ("decodeORC: " ++ e)
+                Right footer -> do
+                  -- Verify row counts made it to the footer.
+                  (orcNumberOfRows footer) @?= 3
+                  case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
+                    Left  e    -> assertFailure ("orcStripeToArrow: " ++ e)
+                    Right cols ->
+                      if cols == batch
+                        then pure ()
+                        else assertFailure $
+                              "nullable round-trip mismatch:\n got "
+                                ++ show (V.toList cols)
+                                ++ "\n exp " ++ show (V.toList batch)
+  , testCase "temporal round-trip: Date32, Time32, Timestamp" $ do
+      let !arrowSchema = AT.Schema
+            { AT.arrowFields = V.fromList
+                [ AT.Field "d" False (AT.ADate AT.DateDay) V.empty Nothing
+                , AT.Field "t" False (AT.ATime AT.Millisecond 32) V.empty Nothing
+                , AT.Field "ts" False (AT.ATimestamp AT.Microsecond Nothing) V.empty Nothing
+                ]
+            , AT.arrowEndianness = AT.Little
+            }
+          !batch = V.fromList
+            [ AC.ColDate32 (VP.fromList ([19000, 19001, 19002] :: [Int32]))
+            , AC.ColTime32 (VP.fromList ([0, 60000, 120000] :: [Int32]))
+            , AC.ColTimestamp (VP.fromList ([1700000000000000, 1700001000000000, 1700002000000000] :: [Int64]))
+            ]
+      case OArrow.arrowToORCWithRows arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORCWithRows: " ++ e)
+        Right (types, stripesWithRows) -> do
+          case OHL.encodeORCWithRows OHL.defaultWriteOptions types stripesWithRows of
+            Left e -> assertFailure ("encodeORC: " ++ e)
+            Right bytes -> do
+              case OHL.decodeORC bytes of
+                Left e     -> assertFailure ("decodeORC: " ++ e)
+                Right footer ->
+                  case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
+                    Left  e    -> assertFailure ("orcStripeToArrow: " ++ e)
+                    Right cols ->
+                      if cols == batch
+                        then pure ()
+                        else assertFailure $ "temporal round-trip mismatch:\n got "
+                                              ++ show (V.toList cols)
+                                              ++ "\n exp " ++ show (V.toList batch)
   ]
 
 stripeStreamTests :: TestTree
