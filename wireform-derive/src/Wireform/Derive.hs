@@ -3,12 +3,16 @@
 --
 -- This module re-exports the public surface so that downstream
 -- deriver packages (@wireform-proto@, @wireform-cbor@,
--- @wireform-msgpack@, @wireform-thrift@, @wireform-derive-aeson@) can
--- depend on a single import:
+-- @wireform-msgpack@, @wireform-thrift@, and the 18 newer per-format
+-- derivers) can depend on a single import:
 --
 -- @
 -- import Wireform.Derive
 -- @
+--
+-- The Aeson deriver is bundled here as 'Wireform.Derive.Aeson' rather
+-- than living in a separate package; it doubles as the canonical
+-- worked example for adding a new backend on top of this core.
 --
 -- == Usage
 --
@@ -20,7 +24,7 @@
 --    appropriate 'Text' (or runtime expression) for each field's wire
 --    key.
 --
--- See @Wireform.Derive.Aeson@ for a complete worked example.
+-- See "Wireform.Derive.Aeson" for a complete worked example.
 module Wireform.Derive
   ( -- * Backends
     module Wireform.Derive.Backend

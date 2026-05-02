@@ -393,9 +393,16 @@ mkDecodeInstance = mkDecodeInstanceWith defaultMessageMeta
 mkDecodeInstanceWith :: MessageMeta -> Type -> Name -> [ProtoField] -> Q Dec
 mkDecodeInstanceWith meta ty conName fs = do
   body <- messageDecoderBodyWith meta conName fs
+  -- AGENTS.md ("Performance" → "Decoder monad style") requires
+  -- @{-# INLINE messageDecoder #-}@ on every instance: the
+  -- continuation-passing dispatch in 'getTagOrU' is only worth its
+  -- weight when GHC can see the lambda for each field. Mirrors what
+  -- 'Proto.CodeGen' emits in pure-text codegen.
   pure $ InstanceD Nothing []
            (AppT (ConT ''PD.MessageDecode) ty)
-           [FunD 'PD.messageDecoder [Clause [] (NormalB body) []]]
+           [ PragmaD (InlineP 'PD.messageDecoder Inline FunLike AllPhases)
+           , FunD 'PD.messageDecoder [Clause [] (NormalB body) []]
+           ]
 
 -- | Generate a 'PM.IsMessage' instance whose 'PM.messageTypeName'
 -- returns the supplied name as a 'Text' literal.
