@@ -53,6 +53,7 @@ module Wireform.Columnar
 
 import Data.ByteString (ByteString)
 import qualified Data.Vector as V
+import Data.Word (Word64)
 
 import qualified Arrow.Column as AC
 import qualified Arrow.Stream as Arrow
@@ -78,6 +79,9 @@ import ORC.HighLevel hiding
   , encodeORCWithRows
   , encodeORCWithoutRows
   )
+import qualified ORC.Read as ORead
+import qualified ORC.Stripe as OStripe
+import qualified ORC.Types as OT
 
 import qualified Parquet.Arrow as PArrow
 import qualified Parquet.HighLevel as Parquet
@@ -236,31 +240,59 @@ decode fmt opts bs = case fmt of
     Right (sch, batches)
   ORC -> do
     footer <- ORC.decodeORC bs
-    let !sch = orcFooterToArrowSchema footer
-        !numStripes = V.length (orcStripes footer)
+    orcFile <- ORead.loadORCFile bs
+    sch <- orcFooterToArrowSchemaWithNullability orcFile footer
+    let !numStripes = V.length (orcStripes footer)
     batches <- mapM (\i -> OArrow.orcStripeToArrow sch bs footer i)
                     [0 .. numStripes - 1]
     Right (sch, batches)
 
--- | Reconstruct an Arrow schema from an ORC footer. We walk the
--- root struct's children and lift each leaf @ORCType@ back to
--- the Arrow flavour the bridge originally emitted. Keeps the
--- unified 'decode' path format-agnostic.
-orcFooterToArrowSchema :: ORCFooter -> AT.Schema
-orcFooterToArrowSchema footer =
+-- | Reconstruct an Arrow schema from an ORC footer using the
+-- file's stripe footers to derive nullability per leaf. A
+-- column is marked nullable iff its first stripe emitted a
+-- @PRESENT@ stream for that column id — which is the exact
+-- signal the bridge writer leaves behind for nullable Arrow
+-- inputs.
+--
+-- ORC's file-level footer doesn't itself carry a per-column
+-- nullability flag (every ORC column is implicitly nullable),
+-- so the PRESENT-stream heuristic is the faithful inverse of
+-- the bridge's encoder.
+orcFooterToArrowSchemaWithNullability
+  :: ORead.ORCFile -> ORCFooter -> Either String AT.Schema
+orcFooterToArrowSchemaWithNullability orcFile footer = do
   let !types = orcTypes footer
       !root  = V.head types
       !subs  = otSubtypes root
       !names = otFieldNames root
-      !children = V.zipWith
+  -- Probe the first stripe for PRESENT streams; ORC writers
+  -- emit PRESENT consistently across stripes, so stripe 0 is a
+  -- reliable oracle.
+  presentCols <- case V.length (orcStripes footer) of
+    0 -> Right mempty
+    _ -> do
+      sf <- ORead.loadStripeFooter orcFile 0
+      let pres = [ OStripe.stColumn s
+                 | s <- V.toList (OStripe.sfStreams sf)
+                 , OStripe.stKind s == orcPresentKind
+                 ]
+      Right pres
+  let !children = V.zipWith
         (\name subIdx ->
             let !leafType = types V.! fromIntegral subIdx
-            in  AT.Field name False (orcKindToArrowType leafType) V.empty Nothing)
+                !nullable = fromIntegral subIdx `elem` presentCols
+            in  AT.Field name nullable (orcKindToArrowType leafType) V.empty Nothing)
         names subs
-  in AT.Schema
-       { AT.arrowFields = children
-       , AT.arrowEndianness = AT.Little
-       }
+  Right AT.Schema
+    { AT.arrowFields = children
+    , AT.arrowEndianness = AT.Little
+    }
+  where
+    -- Stream.proto defines PRESENT as kind 0; the OT.Stream ADT
+    -- keeps the raw numeric tag. Match against that directly to
+    -- avoid a separate dispatch.
+    orcPresentKind :: Word64
+    orcPresentKind = 0
 
 -- | Map an ORC 'ORCType' back to its Arrow flavour. Mirrors the
 -- inverse of 'ORC.Arrow.arrowFieldToORCType'; falls back to

@@ -255,6 +255,17 @@ columnArrayToORCStreams !cid = go
         let (pres, present) = presentBytes v
         in Right (stringStreams (Just pres) cid present)
 
+      -- Nullable temporals: reuse intMaybe with the matching
+      -- width-preserving cast. Narrow Int32 payloads get
+      -- signedI32'; native-Int64 Timestamps / Date64 / Time64 /
+      -- Duration use id.
+      AC.ColDate32Maybe    v -> Right (intMaybe v cid signedI32')
+      AC.ColDate64Maybe    v -> Right (intMaybe v cid id)
+      AC.ColTime32Maybe    v -> Right (intMaybe v cid signedI32')
+      AC.ColTime64Maybe    v -> Right (intMaybe v cid id)
+      AC.ColTimestampMaybe v -> Right (intMaybe v cid id)
+      AC.ColDurationMaybe  v -> Right (intMaybe v cid id)
+
       other -> Left $ "ORC.Arrow: column shape "
                        ++ show other
                        ++ " not supported by the bridge yet "

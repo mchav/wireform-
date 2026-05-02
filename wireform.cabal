@@ -246,6 +246,8 @@ test-suite wireform-test
     Test.Parquet
     Test.Arrow
     Test.Columnar
+    Test.Columnar.Gen
+    Test.Columnar.Properties
     Test.EDN
     Test.MsgPackRPC
     Test.CBORDiagnostic
