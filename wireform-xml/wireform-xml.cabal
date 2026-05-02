@@ -35,6 +35,7 @@ library
     XML.CodeGen
     XML.DSL
     XML.Decode
+    XML.Derive
     XML.Encode
     XML.FastDOM
     XML.Generic
@@ -48,6 +49,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
@@ -62,3 +64,24 @@ library
     unordered-containers >= 0.2.16 && < 0.3,
     stm >= 2.5 && < 2.6,
     deepseq >= 1.4 && < 1.6
+
+test-suite wireform-xml-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.XML.Derive
+    Test.XML.Derive.Types
+    Test.XML.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-xml,
+    wireform-derive,
+    text,
+    vector,
+    tasty,
+    tasty-hunit

@@ -91,6 +91,11 @@ data ModifierInfo = ModifierInfo
     -- ^ 'Just True' = required; 'Just False' = optional; 'Nothing' =
     -- format default.
   , miWireOverride  :: !(Maybe WireOverride)
+  , miMapKey        :: !(Maybe MapKeyScalar)
+    -- ^ Proto map key scalar (proto deriver only).
+  , miOneof         :: !(Maybe Text)
+    -- ^ Name of the proto @oneof@ this field belongs to (proto
+    -- deriver only).
   , miCustom        :: !(Map Text [Modifier])
     -- ^ All 'ModCustom' payloads grouped by tag. Backends can scan
     -- their own tag and ignore the rest.
@@ -108,6 +113,8 @@ emptyModifierInfo b = ModifierInfo
   , miTag           = Nothing
   , miRequired      = Nothing
   , miWireOverride  = Nothing
+  , miMapKey        = Nothing
+  , miOneof         = Nothing
   , miCustom        = Map.empty
   }
 
@@ -123,6 +130,8 @@ data ModifierError
   | ConflictTag          !Int !Int
   | ConflictRequired     !Bool !Bool
   | ConflictWireOverride !WireOverride !WireOverride
+  | ConflictMapKey       !MapKeyScalar !MapKeyScalar
+  | ConflictOneof        !Text !Text
   | ConflictFlattenSkip
     -- ^ Both 'flatten' and 'skip' set on the same name.
   | InvalidRenameFnArity !Name !Int
@@ -305,6 +314,16 @@ mergeOne mi = \case
       Just old | old /= wo -> Left (ConflictWireOverride old wo)
       _                    -> pure mi { miWireOverride = Just wo }
 
+  ModMapKey k ->
+    case miMapKey mi of
+      Just old | old /= k -> Left (ConflictMapKey old k)
+      _                   -> pure mi { miMapKey = Just k }
+
+  ModOneof o ->
+    case miOneof mi of
+      Just old | old /= o -> Left (ConflictOneof old o)
+      _                   -> pure mi { miOneof = Just o }
+
   m@(ModCustom tagName _) ->
     pure mi { miCustom = Map.insertWith (++) tagName [m] (miCustom mi) }
 
@@ -327,6 +346,8 @@ shadowOne mi = \case
   ModRequired       -> mi { miRequired     = Just True }
   ModOptional       -> mi { miRequired     = Just False }
   ModWireOverride w -> mi { miWireOverride = Just w }
+  ModMapKey k       -> mi { miMapKey       = Just k }
+  ModOneof o        -> mi { miOneof        = Just o }
   m@(ModCustom tagName _) ->
     mi { miCustom = Map.insertWith (++) tagName [m] (miCustom mi) }
   ModForBackends   _ _ -> mi

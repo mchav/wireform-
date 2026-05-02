@@ -29,7 +29,7 @@ common defaults
 library
   import: defaults
   hs-source-dirs: src
-  ghc-options: -O2 -fllvm
+  ghc-options: -O2
   autogen-modules: Paths_wireform_proto
   other-modules: Paths_wireform_proto
   exposed-modules:
@@ -46,6 +46,8 @@ library
     Proto.Compat
     Proto.Conformance
     Proto.Decode
+    Proto.Derive
+    Proto.Derive.Internal
     Proto.Decode.Fast
     Proto.Decode.Stream
     Proto.Decode.Streaming
@@ -107,6 +109,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     containers >= 0.6 && < 0.8,
     megaparsec >= 9.0 && < 10,
@@ -128,3 +131,32 @@ library
     time >= 1.9 && < 1.15,
     cryptohash-md5 >= 0.11 && < 0.12,
     stm >= 2.5 && < 2.6
+
+test-suite wireform-proto-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.Proto.Derive
+    Test.Proto.Derive.Types
+    Test.Proto.Derive.Instances
+    Test.Proto.Derive.TranslatedTypes
+    Test.Proto.Derive.TranslatedInstances
+    Test.Proto.Derive.RichTypes
+    Test.Proto.Derive.RichInstances
+    Test.Proto.Derive.RegressionTypes
+    Test.Proto.Derive.RegressionInstances
+    Test.Proto.Derive.Oneof
+    Test.Proto.Derive.OneofInstances
+  build-depends:
+    base,
+    wireform-proto,
+    wireform-derive,
+    bytestring,
+    containers,
+    text,
+    template-haskell,
+    vector,
+    tasty,
+    tasty-hunit

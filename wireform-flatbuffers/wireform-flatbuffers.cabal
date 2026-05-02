@@ -30,6 +30,7 @@ library
   exposed-modules:
     FlatBuffers.CodeGen
     FlatBuffers.Decode
+    FlatBuffers.Derive
     FlatBuffers.Encode
     FlatBuffers.Parser
     FlatBuffers.QQ
@@ -39,6 +40,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
@@ -51,3 +53,24 @@ library
     hashable >= 1.3 && < 1.6,
     unordered-containers >= 0.2.16 && < 0.3,
     deepseq >= 1.4 && < 1.6
+
+test-suite wireform-flatbuffers-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.FlatBuffers.Derive
+    Test.FlatBuffers.Derive.Types
+    Test.FlatBuffers.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-flatbuffers,
+    wireform-derive,
+    text,
+    vector,
+    tasty,
+    tasty-hunit

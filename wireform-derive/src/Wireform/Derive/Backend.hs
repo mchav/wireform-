@@ -20,9 +20,29 @@ module Wireform.Derive.Backend
   , backendTOML
   , backendYAML
   , backendXML
+  , backendHTML
   , backendCSV
+  , backendNDJSON
   , backendBinary
   , backendTextFormat
+
+    -- * Schema-driven backends
+  , backendASN1
+  , backendAvro
+  , backendBond
+  , backendFlatBuffers
+  , backendCapnProto
+
+    -- * Document / object stores
+  , backendBSON
+  , backendBencode
+  , backendION
+
+    -- * Columnar / tabular
+  , backendArrow
+  , backendParquet
+  , backendOrc
+  , backendIceberg
   ) where
 
 import Control.DeepSeq (NFData)
@@ -84,6 +104,14 @@ backendXML = Backend "xml"
 backendCSV :: Backend
 backendCSV = Backend "csv"
 
+-- | HTML serialization (sub-vocabulary of XML; element/attribute split).
+backendHTML :: Backend
+backendHTML = Backend "html"
+
+-- | Newline-delimited JSON. One record per line.
+backendNDJSON :: Backend
+backendNDJSON = Backend "ndjson"
+
 -- | Catch-all for hand-rolled binary formats that do not fit one of the
 -- standard backends above.
 backendBinary :: Backend
@@ -92,3 +120,63 @@ backendBinary = Backend "binary"
 -- | Protobuf text format (@google.protobuf.TextFormat@ / @pbtxt@).
 backendTextFormat :: Backend
 backendTextFormat = Backend "textformat"
+
+-- ---------------------------------------------------------------------------
+-- Schema-driven binary formats
+-- ---------------------------------------------------------------------------
+
+-- | ASN.1 BER / DER / PER family.
+backendASN1 :: Backend
+backendASN1 = Backend "asn1"
+
+-- | Apache Avro.
+backendAvro :: Backend
+backendAvro = Backend "avro"
+
+-- | Microsoft Bond.
+backendBond :: Backend
+backendBond = Backend "bond"
+
+-- | FlatBuffers.
+backendFlatBuffers :: Backend
+backendFlatBuffers = Backend "flatbuffers"
+
+-- | Cap\'n Proto.
+backendCapnProto :: Backend
+backendCapnProto = Backend "capnproto"
+
+-- ---------------------------------------------------------------------------
+-- Document / object stores
+-- ---------------------------------------------------------------------------
+
+-- | BSON (MongoDB binary JSON).
+backendBSON :: Backend
+backendBSON = Backend "bson"
+
+-- | BitTorrent's Bencode.
+backendBencode :: Backend
+backendBencode = Backend "bencode"
+
+-- | Amazon ION (rich-typed JSON superset).
+backendION :: Backend
+backendION = Backend "ion"
+
+-- ---------------------------------------------------------------------------
+-- Columnar / tabular
+-- ---------------------------------------------------------------------------
+
+-- | Apache Arrow in-memory columnar layout.
+backendArrow :: Backend
+backendArrow = Backend "arrow"
+
+-- | Apache Parquet.
+backendParquet :: Backend
+backendParquet = Backend "parquet"
+
+-- | Apache ORC.
+backendOrc :: Backend
+backendOrc = Backend "orc"
+
+-- | Apache Iceberg table format.
+backendIceberg :: Backend
+backendIceberg = Backend "iceberg"

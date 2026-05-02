@@ -30,14 +30,38 @@ library
   exposed-modules:
     TOML.Class
     TOML.Decode
+    TOML.Derive
     TOML.Encode
     TOML.Value
   build-depends:
     base >= 4.16 && < 5,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     containers >= 0.6 && < 0.8,
     megaparsec >= 9.0 && < 10,
     time >= 1.9 && < 1.15,
-    deepseq >= 1.4 && < 1.6
+    deepseq >= 1.4 && < 1.6,
+    template-haskell >= 2.18 && < 2.24
+
+test-suite wireform-toml-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.TOML.Derive
+    Test.TOML.Derive.Types
+    Test.TOML.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-toml,
+    wireform-derive,
+    text,
+    vector,
+    tasty,
+    tasty-hunit

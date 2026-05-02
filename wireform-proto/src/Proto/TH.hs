@@ -65,13 +65,12 @@ import qualified Data.ByteString.Short as SBS
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isNothing, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
 import qualified Data.Char
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Lazy as TL
 import Data.Word (Word32, Word64)
@@ -84,12 +83,11 @@ import Proto.AST
 import Proto.Parser (parseProtoFile, renderParseError)
 import Proto.CodeGen (hsTypeName, snakeToCamel, snakeToPascal, lowerFirst, escapeReserved)
 import Proto.CodeGen.Hooks
-import qualified Proto.Encode as Encode
+import qualified Proto.Derive.Internal as PDI
 import qualified Proto.Decode as Decode
 import qualified Proto.Extension as Ext
-import Proto.Wire (Tag(..))
-import qualified Proto.Wire.Encode as WE
 import Proto.Repr
+import Wireform.Derive.Modifier (MapKeyScalar (..))
 
 -- | Produce a Haskell-valid record-field name from a proto field.
 -- The proto-side name is snake_cased (@file_path@, @num_rows@); we
@@ -180,13 +178,25 @@ messageToDecls' cfg hooks msg = do
     MEEnum ed       -> enumToDecls' hooks ed
     _               -> pure []) (msgElements msg)
 
-  dataDec <- mkDataDec tyName fields
+  -- Sum types backing each oneof. Must precede the message data
+  -- declaration so that GHC's renamer sees the constructor names
+  -- in scope when the wire codecs splice (the codec splice
+  -- references @ovConstructor@ at the term level).
+  oneofDecs  <- mkOneofDataDecs tyName fields
+  dataDec    <- mkDataDec tyName fields
   defaultDec <- mkDefaultDec tyName fields
-  encodeDec <- mkEncodeInstance tyName fields
-  decodeDec <- mkDecodeInstance tyName fields
-  sizeDec <- mkSizeInstance tyName fields
-  hasExtDec <- mkHasExtensionsInstance tyName (msgName msg)
-  hookDecls <- thOnMessage hooks hookCtx
+  -- All wire codecs (MessageEncode / MessageSize / MessageDecode)
+  -- now come from 'Proto.Derive.Internal' via the IDL bridge,
+  -- including oneofs (whose sum types are emitted by
+  -- 'mkOneofDataDecs' just above). The bridge handles every
+  -- 'FieldSpec' shape; if 'fieldSpecToProtoField' reports an
+  -- impossible map key (which the parser shouldn't accept) the
+  -- splice fails with a clear message rather than silently
+  -- generating broken code.
+  pfs        <- traverse (fieldSpecToProtoField tyName) fields
+  codecDecs  <- messageCodecsViaBridge tyName pfs
+  hasExtDec  <- mkHasExtensionsInstance tyName (msgName msg)
+  hookDecls  <- thOnMessage hooks hookCtx
 
   addModFinalizer (putDoc (DeclDoc tyName) (messageHaddock msg fields))
   let defName = mkName ("default" <> nameBase tyName)
@@ -194,8 +204,21 @@ messageToDecls' cfg hooks msg = do
     ("Default value for @" <> T.unpack (msgName msg)
     <> "@ with all fields at their proto default values."))
 
-  pure (nestedDecls <> [dataDec] <> defaultDec <> encodeDec <> decodeDec
-         <> sizeDec <> hasExtDec <> hookDecls)
+  pure (nestedDecls <> oneofDecs <> [dataDec] <> defaultDec <> codecDecs
+         <> hasExtDec <> hookDecls)
+
+-- | Synthesise the @MessageEncode \/ MessageSize \/ MessageDecode@
+-- triple via 'Proto.Derive.Internal.synthesiseProtoInstancesWith'
+-- with unknown-field preservation enabled. Used for every
+-- 'loadProto'-generated message.
+messageCodecsViaBridge :: Name -> [PDI.ProtoField] -> Q [Dec]
+messageCodecsViaBridge tyName pfs = do
+  let meta = PDI.MessageMeta
+        { PDI.mmUnknownFieldsSel = Just (unknownFieldsName tyName) }
+  enc <- PDI.mkEncodeInstanceWith meta (ConT tyName) pfs
+  siz <- PDI.mkSizeInstanceWith   meta (ConT tyName) pfs
+  dec <- PDI.mkDecodeInstanceWith meta (ConT tyName) tyName pfs
+  pure [enc, siz, dec]
 
 messageHaddock :: MessageDef -> [FieldSpec] -> String
 messageHaddock msg fields =
@@ -305,10 +328,61 @@ mkDataDec tyName fields = do
       t <- appT (appT (conT ''Map) (pure kty)) (pure vty)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, t)]
     mkField (FSOneof name _ofs) = do
-      let fname = mkName (T.unpack (hsFieldName name))
-          oneofTyName = mkName (T.unpack (hsTypeName name))
+      let fname       = mkName (T.unpack (hsFieldName name))
+          oneofTyName = oneofSumName tyName name
       ty <- appT (conT ''Maybe) (conT oneofTyName)
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
+
+-- ===========================================================
+-- Oneof sum types
+-- ===========================================================
+--
+-- Every @oneof@ in a message materialises as a sum type whose
+-- constructors carry the variant payload. Names follow the
+-- convention 'Proto.CodeGen' uses for its pure-text output:
+--
+-- > <ParentMessage>'<OneofName>           -- the sum type
+-- > <ParentMessage>'<OneofName>'<Variant> -- one constructor each
+--
+-- Scoping by the parent type prevents collisions between two
+-- messages that share a oneof name (e.g. @oneof choice@ in two
+-- different messages).
+
+-- | Sum type 'Name' for one oneof. Mirrors 'Proto.CodeGen.scopedTypeName'
+-- conventions but uses the TH parent name as scope.
+oneofSumName :: Name -> Text -> Name
+oneofSumName parentTy ooName =
+  mkName (nameBase parentTy <> "'" <> T.unpack (snakeToPascal ooName))
+
+-- | Constructor 'Name' for one variant of a oneof's sum type.
+oneofConTHName :: Name -> Text -> Text -> Name
+oneofConTHName parentTy ooName fieldN =
+  mkName
+    (nameBase parentTy <> "'"
+       <> T.unpack (snakeToPascal ooName) <> "'"
+       <> T.unpack (snakeToPascal fieldN))
+
+-- | Emit the sum data declaration for every 'FSOneof' field on the
+-- supplied message.
+mkOneofDataDecs :: Name -> [FieldSpec] -> Q [Dec]
+mkOneofDataDecs parentTy fields =
+  mapM oneofToDec (mapMaybe extractOneof fields)
+  where
+    extractOneof (FSOneof n ofs) = Just (n, ofs)
+    extractOneof _               = Nothing
+
+    oneofToDec :: (Text, [OneofField]) -> Q Dec
+    oneofToDec (ooName, ofs) = do
+      let tyName = oneofSumName parentTy ooName
+      cons <- mapM (mkCon ooName) ofs
+      dataD (pure []) tyName [] Nothing (fmap pure cons)
+        [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]]
+
+    mkCon :: Text -> OneofField -> Q Con
+    mkCon ooName f = do
+      let conName = oneofConTHName parentTy ooName (oneofFieldName f)
+      ty <- fieldTypeInnerQ (oneofFieldType f)
+      pure (NormalC conName [(Bang NoSourceUnpackedness SourceStrict, ty)])
 
 -- | The field name used by TH-generated records for their
 -- unknown-fields list. Derived from the type name by
@@ -443,283 +517,15 @@ emptyBytesQ = \case
   LazyBytesRep   -> [| BL.empty |]
   ShortBytesRep  -> [| SBS.empty |]
 
--- Encode: the generated buildMessage dispatches based on the field's rep.
-
-mkEncodeInstance :: Name -> [FieldSpec] -> Q [Dec]
-mkEncodeInstance tyName fields = do
-  msgVar <- newName "msg"
-  let ufName = unknownFieldsName tyName
-      ufExpr = [| Decode.encodeUnknownFields ($(varE ufName) $(varE msgVar)) |]
-      body = case fields of
-        [] -> ufExpr
-        _  ->
-          let fieldBody =
-                foldl1 (\a b -> [| $a <> $b |]) (fmap (mkFieldEncode msgVar) fields)
-          in [| $fieldBody <> $ufExpr |]
-  inst <- instanceD (pure [])
-    [t| Encode.MessageEncode $(conT tyName) |]
-    [funD 'Encode.buildMessage [clause [varP msgVar] (normalB body) []]]
-  pure [inst]
-
-mkFieldEncode :: Name -> FieldSpec -> Q Exp
-mkFieldEncode msgVar (FSField name num lbl ft rep) = do
-  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
-      fn = litE (integerL (fromIntegral num))
-  case lbl of
-    Just Repeated -> [| $(foldRepeatedQ (frRepeated rep)) ($(encodeFnQ ft rep) $fn) $accessor |]
-    Just Optional -> [| maybe mempty ($(encodeFnQ ft rep) $fn) $accessor |]
-    _ -> [| if $(defaultCheckQ ft rep accessor)
-            then mempty
-            else $(encodeFnQ ft rep) $fn $accessor |]
-mkFieldEncode msgVar (FSMap name num kt vt) = do
-  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
-      fn = litE (integerL (fromIntegral num))
-  [| Map.foldlWithKey' (\acc k v ->
-       acc <> Encode.encodeMapField $fn
-         ($(encodeScalarFnQ kt) 1 k) ($(encodeFnQ vt defaultFieldRep) 2 v)) mempty $accessor |]
-mkFieldEncode msgVar (FSOneof name ofs) = do
-  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
-  [| maybe mempty Encode.buildMessage $accessor |]
-
-foldRepeatedQ :: RepeatedRep -> Q Exp
-foldRepeatedQ = \case
-  VectorRep -> [| \f -> V.foldl' (\acc v -> acc <> f v) mempty |]
-  ListRep   -> [| \f -> foldl (\acc v -> acc <> f v) mempty |]
-  SeqRep    -> [| \f -> foldl (\acc v -> acc <> f v) mempty |]
-
-encodeFnQ :: FieldType -> FieldRep -> Q Exp
-encodeFnQ ft rep = case ft of
-  FTScalar SString -> encodeStringFnQ (frString rep)
-  FTScalar SBytes  -> encodeBytesFnQ  (frBytes  rep)
-  FTScalar s       -> encodeScalarFnQ s
-  FTNamed _        -> varE 'Encode.encodeFieldMessage
-
--- | Encoder dispatch for non-string / non-bytes scalars. String and
--- bytes dispatch through 'encodeStringFnQ' / 'encodeBytesFnQ' in
--- 'encodeFnQ' because their Haskell-side representation is
--- configurable per-field ('frString' / 'frBytes').
-encodeScalarFnQ :: ScalarType -> Q Exp
-encodeScalarFnQ = \case
-  SDouble  -> varE 'Encode.encodeFieldDouble
-  SFloat   -> varE 'Encode.encodeFieldFloat
-  SBool    -> varE 'Encode.encodeFieldBool
-  SString  -> varE 'Encode.encodeFieldString
-  SBytes   -> varE 'Encode.encodeFieldBytes
-  SUInt64  -> varE 'Encode.encodeFieldVarint
-  _        -> [| \fieldNum val -> Encode.encodeFieldVarint fieldNum (fromIntegral val) |]
-
-encodeStringFnQ :: StringRep -> Q Exp
-encodeStringFnQ = \case
-  StrictTextRep -> varE 'Encode.encodeFieldString
-  LazyTextRep   -> varE 'encodeLazyText
-  ShortTextRep  -> varE 'encodeShortByteString
-  HsStringRep   -> varE 'encodeHsString
-
-encodeBytesFnQ :: BytesRep -> Q Exp
-encodeBytesFnQ = \case
-  StrictBytesRep -> varE 'Encode.encodeFieldBytes
-  LazyBytesRep   -> varE 'encodeLazyBytes
-  ShortBytesRep  -> varE 'encodeShortBytes
-
-defaultCheckQ :: FieldType -> FieldRep -> Q Exp -> Q Exp
-defaultCheckQ ft rep accessor = case ft of
-  FTScalar SBool   -> [| not $accessor |]
-  FTScalar SString -> defaultCheckStringQ (frString rep) accessor
-  FTScalar SBytes  -> defaultCheckBytesQ (frBytes rep) accessor
-  FTScalar _       -> [| $accessor == 0 |]
-  FTNamed _        -> [| isNothing $accessor |]
-
-defaultCheckStringQ :: StringRep -> Q Exp -> Q Exp
-defaultCheckStringQ rep accessor = case rep of
-  StrictTextRep -> [| $accessor == T.empty |]
-  LazyTextRep   -> [| $accessor == TL.empty |]
-  ShortTextRep  -> [| $accessor == SBS.empty |]
-  HsStringRep   -> [| null $accessor |]
-
-defaultCheckBytesQ :: BytesRep -> Q Exp -> Q Exp
-defaultCheckBytesQ rep accessor = case rep of
-  StrictBytesRep -> [| BS.null $accessor |]
-  LazyBytesRep   -> [| BL.null $accessor |]
-  ShortBytesRep  -> [| SBS.null $accessor |]
-
--- Decode: convert from wire format to the chosen representation.
-
-mkDecodeInstance :: Name -> [FieldSpec] -> Q [Dec]
-mkDecodeInstance tyName fields = do
-  -- Accumulator names: one per declared field, plus a dedicated
-  -- accumulator for unknown / extension fields at the tail.
-  let accNames = fmap (\(i, _) -> mkName ("acc_" <> show i))
-                      (zip [(0::Int)..] fields)
-      ufAcc   = mkName "acc_unknown_"
-      allAccs = accNames <> [ufAcc]
-      loopName = mkName "loop"
-      ufField  = (unknownFieldsName tyName, AppE (VarE 'reverse) (VarE ufAcc))
-      declaredFields = zipWith (\fs accN ->
-        (mkName (T.unpack (hsFieldName (fsFieldName fs))), VarE accN))
-        fields accNames
-      recExpr = recConE tyName (fmap pure (declaredFields <> [ufField]))
-
-  let mkLoopCall :: Int -> Q Exp -> Q Exp
-      mkLoopCall i valExpr = appsE (varE loopName :
-            fmap (\(j, n) -> if j == i then valExpr else varE n)
-              (zip [(0::Int)..] accNames)
-        <> [varE ufAcc])
-      passThruLoop :: Q Exp
-      passThruLoop = appsE (varE loopName : fmap varE allAccs)
-
-  let fieldCases = concatMap (\(i, fs) ->
-        case fs of
-          FSField _ num lbl ft rep ->
-            let loopCall = mkLoopCall i $ case lbl of
-                  Just Repeated -> snocRepeatedQ (frRepeated rep) (varE (accNames !! i))
-                  Just Optional -> [| Just v |]
-                  _             -> varE (mkName "v")
-            in [match (litP (integerL (fromIntegral num)))
-                 (normalB [| $(decodeFnQ ft rep) >>= \v -> $loopCall |]) []]
-          FSMap _ num _kt _vt ->
-            [match (litP (integerL (fromIntegral num)))
-              (normalB [| Decode.decodeFieldBytes >> $passThruLoop |]) []]
-          FSOneof _ ofs ->
-            fmap (\of' ->
-              let ofNum = unFieldNumber (oneofFieldNumber of')
-                  loopCall = mkLoopCall i (varE (mkName "v"))
-              in match (litP (integerL (fromIntegral ofNum)))
-                   (normalB [| $(decodeFnQ (oneofFieldType of') defaultFieldRep) >>= \v -> $loopCall |]) []
-            ) ofs
-        ) (zip [(0::Int)..] fields)
-
-  -- Skip case: capture the field as an unknown-field entry rather
-  -- than dropping it, so proto2 extensions and forward-compatible
-  -- unknown tags both round-trip through this decoder.
-  let captureCall =
-        appsE (varE loopName :
-               fmap varE accNames
-            <> [[| (uf : $(varE ufAcc)) |]])
-      skipCase = match wildP
-        (normalB
-          [| Decode.captureUnknownField
-               $(varE (mkName "fn"))
-               $(varE (mkName "wt"))
-             >>= \uf -> $captureCall |])
-        []
-
-  let loopBody =
-        [| Decode.getTagOr >>= \mt -> $(caseE (varE (mkName "mt"))
-            [ match (conP 'Nothing []) (normalB [| pure $recExpr |]) []
-            , match (conP 'Just [conP 'Tag [varP (mkName "fn"), varP (mkName "wt")]])
-                (normalB (caseE (varE (mkName "fn")) (fieldCases <> [skipCase]))) []
-            ]) |]
-
-  let defaults = fmap defaultValueExpr fields
-      loopDef = funD loopName
-        [clause (fmap varP allAccs) (normalB loopBody) []]
-      decoderBody = letE [loopDef]
-        (appsE (varE loopName : defaults <> [[| [] |]]))
-
-  inst <- instanceD (pure [])
-    [t| Decode.MessageDecode $(conT tyName) |]
-    [funD 'Decode.messageDecoder [clause [] (normalB decoderBody) []]]
-  pure [inst]
-
-flattenFieldSpec :: FieldSpec -> [(Int, FieldType)]
-flattenFieldSpec (FSField _ num _ ft _) = [(num, ft)]
-flattenFieldSpec (FSMap _ num _ _) = [(num, FTScalar SBytes)]
-flattenFieldSpec (FSOneof _ ofs) = fmap (\of' -> (unFieldNumber (oneofFieldNumber of'), oneofFieldType of')) ofs
-
-snocRepeatedQ :: RepeatedRep -> Q Exp -> Q Exp
-snocRepeatedQ rep accQ = case rep of
-  VectorRep -> [| V.snoc $accQ v |]
-  ListRep   -> [| $accQ <> [v] |]
-  SeqRep    -> [| $accQ Seq.|> v |]
-
-decodeFnQ :: FieldType -> FieldRep -> Q Exp
-decodeFnQ ft rep = case ft of
-  FTScalar SDouble -> varE 'Decode.decodeFieldDouble
-  FTScalar SFloat  -> varE 'Decode.decodeFieldFloat
-  FTScalar SBool   -> varE 'Decode.decodeFieldBool
-  FTScalar SString -> decodeStringFnQ (frString rep)
-  FTScalar SBytes  -> decodeBytesFnQ  (frBytes  rep)
-  FTScalar SUInt64 -> varE 'Decode.decodeFieldVarint
-  FTScalar _       -> [| fromIntegral <$> Decode.decodeFieldVarint |]
-  FTNamed _        -> varE 'Decode.decodeFieldMessage
-
-decodeStringFnQ :: StringRep -> Q Exp
-decodeStringFnQ = \case
-  StrictTextRep -> varE 'Decode.decodeFieldString
-  LazyTextRep   -> [| fmap TL.fromStrict Decode.decodeFieldString |]
-  ShortTextRep  -> [| fmap (SBS.toShort . TE.encodeUtf8) Decode.decodeFieldString |]
-  HsStringRep   -> [| fmap T.unpack Decode.decodeFieldString |]
-
-decodeBytesFnQ :: BytesRep -> Q Exp
-decodeBytesFnQ = \case
-  StrictBytesRep -> varE 'Decode.decodeFieldBytes
-  LazyBytesRep   -> [| fmap BL.fromStrict Decode.decodeFieldBytes |]
-  ShortBytesRep  -> [| fmap SBS.toShort Decode.decodeFieldBytes |]
-
--- Size calculation.
-
-mkSizeInstance :: Name -> [FieldSpec] -> Q [Dec]
-mkSizeInstance tyName fields = do
-  msgVar <- newName "msg"
-  let ufName = unknownFieldsName tyName
-      ufSizeExpr = [| Decode.unknownFieldsSize ($(varE ufName) $(varE msgVar)) |]
-      body = case fields of
-        [] -> ufSizeExpr
-        _  ->
-          let fieldBody = foldl1 (\a b -> [| $a + $b |])
-                                 (fmap (mkFieldSize msgVar) fields)
-          in [| $fieldBody + $ufSizeExpr |]
-  inst <- instanceD (pure [])
-    [t| Encode.MessageSize $(conT tyName) |]
-    [funD 'Encode.messageSize [clause [varP msgVar] (normalB body) []]]
-  pure [inst]
-
-mkFieldSize :: Name -> FieldSpec -> Q Exp
-mkFieldSize msgVar (FSField name num lbl ft rep) = do
-  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
-      fn = litE (integerL (fromIntegral num))
-  case lbl of
-    Just Repeated -> [| $(foldRepeatedSizeQ (frRepeated rep)) ($(sizeFnQ ft rep) $fn) $accessor |]
-    Just Optional -> [| maybe 0 ($(sizeFnQ ft rep) $fn) $accessor |]
-    _ -> [| if $(defaultCheckQ ft rep accessor)
-            then 0
-            else $(sizeFnQ ft rep) $fn $accessor |]
-mkFieldSize msgVar (FSMap name num _ _) = do
-  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
-  [| if Map.null $accessor then 0 else Map.size $accessor * 10 |]
-mkFieldSize msgVar (FSOneof name _) = do
-  let accessor = appE (varE (mkName (T.unpack (hsFieldName name)))) (varE msgVar)
-  [| maybe 0 Encode.messageSize $accessor |]
-
-sizeFnQ :: FieldType -> FieldRep -> Q Exp
-sizeFnQ ft rep = case ft of
-  FTScalar SDouble -> [| \fn _ -> WE.fieldDoubleSize fn |]
-  FTScalar SFloat  -> [| \fn _ -> WE.fieldFloatSize fn |]
-  FTScalar SBool   -> [| \fn _ -> WE.fieldBoolSize fn |]
-  FTScalar SString -> sizeStringFnQ (frString rep)
-  FTScalar SBytes  -> sizeBytesFnQ  (frBytes  rep)
-  FTScalar SUInt64 -> varE 'WE.fieldVarintSize
-  FTScalar _       -> [| \fn val -> WE.fieldVarintSize fn (fromIntegral val) |]
-  FTNamed _        -> [| \fn val -> WE.fieldMessageSize fn (Encode.messageSize val) |]
-
-foldRepeatedSizeQ :: RepeatedRep -> Q Exp
-foldRepeatedSizeQ = \case
-  VectorRep -> [| \f -> V.foldl' (\acc v -> acc + f v) (0 :: Int) |]
-  ListRep   -> [| \f -> foldl (\acc v -> acc + f v) (0 :: Int) |]
-  SeqRep    -> [| \f -> foldl (\acc v -> acc + f v) (0 :: Int) |]
-
-sizeStringFnQ :: StringRep -> Q Exp
-sizeStringFnQ = \case
-  StrictTextRep -> varE 'WE.fieldTextSize
-  LazyTextRep   -> [| \fn t -> WE.fieldTextSize fn (TL.toStrict t) |]
-  ShortTextRep  -> [| \fn sbs -> WE.fieldBytesSize fn (SBS.fromShort sbs) |]
-  HsStringRep   -> [| \fn s -> WE.fieldTextSize fn (T.pack s) |]
-
-sizeBytesFnQ :: BytesRep -> Q Exp
-sizeBytesFnQ = \case
-  StrictBytesRep -> varE 'WE.fieldBytesSize
-  LazyBytesRep   -> [| \fn lbs -> WE.fieldBytesSize fn (BL.toStrict lbs) |]
-  ShortBytesRep  -> [| \fn sbs -> WE.fieldBytesSize fn (SBS.fromShort sbs) |]
+-- ---------------------------------------------------------------------------
+-- Wire codec generation lives in 'Proto.Derive.Internal'; the
+-- bridge in 'fieldSpecToProtoField' below feeds it. The legacy
+-- hand-written 'mkEncodeInstance' \/ 'mkDecodeInstance' \/
+-- 'mkSizeInstance' family of helpers used to live here; they were
+-- removed once the bridge gained complete coverage of every
+-- 'FieldSpec' shape (including 'FSOneof', whose carrier sum types
+-- are now generated by 'mkOneofDataDecs').
+-- ---------------------------------------------------------------------------
 
 enumToDecls :: EnumDef -> Q [Dec]
 enumToDecls = enumToDecls' defaultTHHooks
@@ -887,3 +693,161 @@ upperFirst :: Text -> Text
 upperFirst t = case T.uncons t of
   Just (c, rest) -> T.cons (Data.Char.toUpper c) rest
   Nothing        -> t
+
+-- ===========================================================
+-- IDL bridge: FieldSpec → Proto.Derive.Internal.ProtoField
+-- ===========================================================
+
+-- | Translate a single 'FieldSpec' to a 'PDI.ProtoField'.
+--
+-- The bridge wants the field's selector, tag, kind (singular /
+-- 'Maybe' / repeated / map / oneof), wire encoding, and per-rep
+-- choice of string / bytes encoding. We already have all of this
+-- in the 'FieldSpec' produced by 'extractMessageFields'.
+--
+-- The parent type 'Name' is required for 'FSOneof' so we can
+-- generate the matching sum-type 'Name' (see 'oneofSumName' and
+-- 'oneofConTHName').
+fieldSpecToProtoField :: Name -> FieldSpec -> Q PDI.ProtoField
+fieldSpecToProtoField _ (FSField name num lbl ft rep) = do
+  let sel    = mkName (T.unpack (hsFieldName name))
+      kind   = case lbl of
+        Just Repeated -> PDI.FKRepeated (repeatedRepToBridge (frRepeated rep))
+        Just Optional -> PDI.FKMaybe
+        _             -> PDI.FKBare
+      pft    = fieldTypeToBridge ft
+      inner  = innerHsType ft rep
+      base   = PDI.protoField sel num kind pft inner
+  pure base
+    { PDI.pfStringRep = frString rep
+    , PDI.pfBytesRep  = frBytes rep
+    }
+fieldSpecToProtoField _ (FSMap name num kt vt) =
+  case scalarToBridgeMapKey kt of
+    Nothing  -> fail
+      ("Proto.TH: map field '" <> T.unpack name
+       <> "' has an invalid map-key type (" <> scalarStr kt
+       <> "). Proto3 only permits integral and string map keys.")
+    Just mks ->
+      let sel   = mkName (T.unpack (hsFieldName name))
+          pft   = fieldTypeToBridge vt
+          inner = innerHsType vt defaultFieldRep
+      in pure (PDI.protoField sel num (PDI.FKMap mks) pft inner)
+fieldSpecToProtoField parentTy (FSOneof name ofs) = do
+  let sel       = mkName (T.unpack (hsFieldName name))
+      sumTy     = oneofSumName parentTy name
+      carrier   = AppT (ConT ''Maybe) (ConT sumTy)
+      variants  = fmap (oneofVariantToBridge parentTy name) ofs
+      -- @pfTag@/@pfType@/@pfInnerTy@ are documented as ignored
+      -- by the body builders for FKOneof. The carrier type is
+      -- still useful for clarity / future debugging.
+  pure (PDI.protoField sel 0 (PDI.FKOneof variants) PDI.PFSubmessage carrier)
+
+-- | Build the bridge's 'PDI.OneofVariant' for one arm of a oneof.
+-- The constructor name is computed by 'oneofConTHName' so it
+-- matches the splice in 'mkOneofDataDecs' exactly.
+oneofVariantToBridge :: Name -> Text -> OneofField -> PDI.OneofVariant
+oneofVariantToBridge parentTy ooName f = PDI.OneofVariant
+  { PDI.ovConstructor = oneofConTHName parentTy ooName (oneofFieldName f)
+  , PDI.ovTag         = unFieldNumber (oneofFieldNumber f)
+  , PDI.ovInnerTy     = innerHsType (oneofFieldType f) defaultFieldRep
+  , PDI.ovType        = fieldTypeToBridge (oneofFieldType f)
+  }
+
+-- | Project the legacy 'RepeatedRep' enum onto the bridge's
+-- equivalent.
+repeatedRepToBridge :: RepeatedRep -> PDI.RepeatedRep
+repeatedRepToBridge = \case
+  VectorRep -> PDI.RepVector
+  ListRep   -> PDI.RepList
+  SeqRep    -> PDI.RepSeq
+
+-- | Project the AST 'ScalarType' onto the bridge's wire 'Scalar'.
+scalarTypeToBridge :: ScalarType -> PDI.Scalar
+scalarTypeToBridge = \case
+  SDouble   -> PDI.SDouble
+  SFloat    -> PDI.SFloat
+  SInt32    -> PDI.SInt32
+  SInt64    -> PDI.SInt64
+  SUInt32   -> PDI.SUInt32
+  SUInt64   -> PDI.SUInt64
+  SSInt32   -> PDI.SSInt32
+  SSInt64   -> PDI.SSInt64
+  SFixed32  -> PDI.SFixed32
+  SFixed64  -> PDI.SFixed64
+  SSFixed32 -> PDI.SSFixed32
+  SSFixed64 -> PDI.SSFixed64
+  SBool     -> PDI.SBool
+  SString   -> PDI.SString
+  SBytes    -> PDI.SBytes
+
+-- | Project an AST 'FieldType' onto the bridge's
+-- 'PDI.ProtoFieldType'. Named types are treated as submessages.
+-- Proto enums coming through 'loadProto' are encoded as length-
+-- delimited submessages here (a long-standing limitation, not
+-- introduced by the bridge rewire); top-level enum support
+-- requires routing 'TLEnum' through the bridge with @PFEnum@ —
+-- a follow-up that's orthogonal to oneof bridging.
+fieldTypeToBridge :: FieldType -> PDI.ProtoFieldType
+fieldTypeToBridge = \case
+  FTScalar s -> PDI.PFScalar (scalarTypeToBridge s)
+  FTNamed _  -> PDI.PFSubmessage
+
+-- | Reconstruct the Haskell type the record selector returns,
+-- so the bridge's encoder can supply the matching @($var :: T)@
+-- ascription.
+innerHsType :: FieldType -> FieldRep -> Type
+innerHsType ft rep = case ft of
+  FTScalar SString -> stringHsType (frString rep)
+  FTScalar SBytes  -> bytesHsType  (frBytes  rep)
+  FTScalar SInt32  -> ConT ''Int32
+  FTScalar SInt64  -> ConT ''Int64
+  FTScalar SUInt32 -> ConT ''Word32
+  FTScalar SUInt64 -> ConT ''Word64
+  FTScalar SSInt32 -> ConT ''Int32
+  FTScalar SSInt64 -> ConT ''Int64
+  FTScalar SFixed32  -> ConT ''Word32
+  FTScalar SFixed64  -> ConT ''Word64
+  FTScalar SSFixed32 -> ConT ''Int32
+  FTScalar SSFixed64 -> ConT ''Int64
+  FTScalar SDouble -> ConT ''Double
+  FTScalar SFloat  -> ConT ''Float
+  FTScalar SBool   -> ConT ''Bool
+  FTNamed n        -> ConT (mkName (T.unpack (hsTypeName n)))
+
+stringHsType :: StringRep -> Type
+stringHsType = \case
+  StrictTextRep -> ConT ''Text
+  LazyTextRep   -> ConT ''TL.Text
+  ShortTextRep  -> ConT ''SBS.ShortByteString
+  HsStringRep   -> ConT ''String
+
+bytesHsType :: BytesRep -> Type
+bytesHsType = \case
+  StrictBytesRep -> ConT ''ByteString
+  LazyBytesRep   -> ConT ''BL.ByteString
+  ShortBytesRep  -> ConT ''SBS.ShortByteString
+
+-- | Map an AST 'ScalarType' onto the bridge's 'MapKeyScalar' if
+-- it's a permitted proto3 map key type. 'Nothing' for the
+-- forbidden ones (double / float / bytes / message / enum); the
+-- caller falls back to the legacy emitter when this fires
+-- (matching the parser, which would have rejected such a map
+-- earlier anyway — so 'Nothing' here is paranoia).
+scalarToBridgeMapKey :: ScalarType -> Maybe MapKeyScalar
+scalarToBridgeMapKey = \case
+  SInt32    -> Just MapKeyInt32
+  SInt64    -> Just MapKeyInt64
+  SUInt32   -> Just MapKeyUInt32
+  SUInt64   -> Just MapKeyUInt64
+  SSInt32   -> Just MapKeySInt32
+  SSInt64   -> Just MapKeySInt64
+  SFixed32  -> Just MapKeyFixed32
+  SFixed64  -> Just MapKeyFixed64
+  SSFixed32 -> Just MapKeySFixed32
+  SSFixed64 -> Just MapKeySFixed64
+  SBool     -> Just MapKeyBool
+  SString   -> Just MapKeyString
+  SDouble   -> Nothing
+  SFloat    -> Nothing
+  SBytes    -> Nothing

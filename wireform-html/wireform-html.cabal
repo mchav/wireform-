@@ -41,6 +41,7 @@ library
     HTML.Parse
     HTML.Encode
     HTML.Class
+    HTML.Derive
     HTML.TagId
     HTML.DOM
     HTML.Selector
@@ -50,6 +51,7 @@ library
   cc-options: -O3 -march=native
   build-depends:
     base >= 4.16 && < 5,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
@@ -60,6 +62,27 @@ library
     template-haskell >= 2.18 && < 2.24,
     hashable >= 1.3 && < 1.6,
     unordered-containers >= 0.2.16 && < 0.3
+
+test-suite wireform-html-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.HTML.Derive
+    Test.HTML.Derive.Types
+    Test.HTML.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-html,
+    wireform-derive,
+    text,
+    primitive,
+    tasty,
+    tasty-hunit
 
 test-suite html5lib-test
   import: defaults

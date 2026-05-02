@@ -36,9 +36,16 @@ module Wireform.Derive
 
     -- * Resolution
   , module Wireform.Derive.ModifierInfo
+
+    -- * Backend extension vocabulary
+    --
+    -- | Per-backend modifiers without modifying the core ADT. See
+    -- 'Wireform.Derive.Extension' for the rationale.
+  , module Wireform.Derive.Extension
   ) where
 
 import Wireform.Derive.Backend
+import Wireform.Derive.Extension
 import Wireform.Derive.Modifier
 import Wireform.Derive.ModifierInfo
 import Wireform.Derive.NameStyle

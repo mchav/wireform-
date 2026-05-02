@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+// Regression fixture for the Proto.Derive IDL bridge: parallel types
+// here drive `loadProto` while `Test.Proto.Derive.RegressionInstances`
+// emits matching types via `deriveProtoFromTranslated`. The test
+// asserts byte-identical output for the same logical message.
+//
+// Field names are intentionally distinct between RegItem and
+// RegInventory because `loadProto` derives Haskell record selectors
+// from the proto field names, and Haskell rejects duplicate selector
+// names in the same module without DuplicateRecordFields. The
+// "reg_" prefix also prevents clashes with the rich-types fixtures
+// (`Inventory`, etc.) imported by the same test module.
+
+message RegItem {
+  string regi_name  = 1;
+  int32  regi_count = 2;
+}
+
+message RegInventory {
+  string  reginv_name  = 1;
+  repeated RegItem reginv_items = 2;
+}

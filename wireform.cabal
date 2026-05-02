@@ -666,6 +666,20 @@ executable example-th
   hs-source-dirs: examples
   build-depends: base, wireform-proto, bytestring, text
 
+executable example-derive
+  import: defaults
+  main-is: DeriveExample.hs
+  hs-source-dirs: examples
+  build-depends:
+      base
+    , wireform-derive
+    , wireform-proto
+    , wireform-cbor
+    , wireform-msgpack
+    , bytestring
+    , text
+    , aeson
+
 executable example-qq
   import: defaults
   main-is: QQExample.hs

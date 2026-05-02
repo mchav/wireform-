@@ -29,15 +29,41 @@ library
   hs-source-dirs: src
   exposed-modules:
     NDJSON.Decode
+    NDJSON.Derive
     NDJSON.Encode
   build-depends:
     base >= 4.16 && < 5,
     -- NDJSON.Decode uses Wireform.FFI.findByteBS to locate
     -- newline boundaries via SIMD.
     wireform-core,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     aeson >= 2.1 && < 2.3,
+    template-haskell >= 2.18 && < 2.24,
     stm >= 2.5 && < 2.6,
     deepseq >= 1.4 && < 1.6
+
+test-suite wireform-ndjson-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.NDJSON.Derive
+    Test.NDJSON.Derive.Types
+    Test.NDJSON.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-ndjson,
+    wireform-derive,
+    aeson,
+    bytestring,
+    text,
+    vector,
+    tasty,
+    tasty-hunit

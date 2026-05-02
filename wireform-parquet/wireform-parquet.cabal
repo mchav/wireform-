@@ -53,6 +53,7 @@ library
     Parquet.Delta
     Parquet.ByteStreamSplit
     Parquet.DeltaEncode
+    Parquet.Derive
     Parquet.Encryption
     Parquet.Footer
     Parquet.Arrow
@@ -74,6 +75,7 @@ library
     wireform-core,
     wireform-columnar,
     wireform-arrow,
+    wireform-derive,
     wireform-proto,
     wireform-thrift,
     bytestring >= 0.11 && < 0.13,
@@ -84,7 +86,8 @@ library
     zlib >= 0.6 && < 0.8,
     deepseq >= 1.4 && < 1.6,
     crypton >= 1.0 && < 1.1,
-    memory >= 0.18 && < 0.19
+    memory >= 0.18 && < 0.19,
+    template-haskell >= 2.18 && < 2.24
 
   if flag(snappy)
     cpp-options: -DHAVE_SNAPPY
@@ -118,6 +121,29 @@ test-suite wireform-parquet-test
     process >= 1.6 && < 1.7
   if flag(brotli)
     cpp-options: -DHAVE_BROTLI
+
+test-suite wireform-parquet-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-derive
+  main-is: Main.hs
+  other-modules:
+    Test.Parquet.Derive
+    Test.Parquet.Derive.Types
+    Test.Parquet.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-parquet,
+    wireform-derive,
+    template-haskell,
+    text,
+    vector,
+    bytestring,
+    tasty,
+    tasty-hunit
 
 benchmark parquet-bench
   import: defaults

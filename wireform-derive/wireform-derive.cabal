@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: wireform-derive
-version: 0.1.0.0
+version: 0.2.0.0
 synopsis: Annotation-driven Template Haskell deriver core for wireform
 description:
   Shared `Modifier` annotation vocabulary and TH-reflection machinery used
@@ -48,6 +48,7 @@ library
     Wireform.Derive.Modifier
     Wireform.Derive.TypeInfo
     Wireform.Derive.ModifierInfo
+    Wireform.Derive.Extension
     Wireform.Derive.Aeson
   build-depends:
     base >= 4.16 && < 5,
@@ -70,6 +71,7 @@ test-suite wireform-derive-test
   other-modules:
     Test.Derive.NameStyle
     Test.Derive.Modifier
+    Test.Derive.Extension
     Test.Derive.Fixtures
     Test.Derive.Fixtures.Types
     Test.Derive.Fixtures.Reified

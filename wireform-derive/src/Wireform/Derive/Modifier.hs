@@ -37,6 +37,9 @@ module Wireform.Derive.Modifier
     -- * Wire-format overrides
   , WireOverride (..)
 
+    -- * Map keys (proto-flavoured)
+  , MapKeyScalar (..)
+
     -- * Smart constructors (general)
   , coerced
   , flatten
@@ -47,6 +50,8 @@ module Wireform.Derive.Modifier
   , optional
   , wireOverride
   , customModifier
+  , mapKey
+  , oneof
 
     -- * Per-backend targeting
   , forBackend
@@ -59,7 +64,6 @@ module Wireform.Derive.Modifier
   , modifierIsBackendScoped
   ) where
 
-import Data.ByteString (ByteString)
 import Data.Data (Data)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -108,6 +112,33 @@ data WireOverride
   deriving stock (Eq, Ord, Show, Data, Generic)
 
 -- ---------------------------------------------------------------------------
+-- MapKeyScalar
+-- ---------------------------------------------------------------------------
+
+-- | Scalar types that protobuf permits as map keys (proto2 §maps,
+-- proto3 §maps). Excludes @float@, @double@, @bytes@, message and
+-- enum types.
+--
+-- Lives in @wireform-derive@ rather than @wireform-proto@ so that
+-- annotations can reference proto map-key types without forcing
+-- non-proto packages to depend on proto. The proto deriver projects
+-- this onto its own @Proto.AST.ScalarType@.
+data MapKeyScalar
+  = MapKeyInt32
+  | MapKeyInt64
+  | MapKeyUInt32
+  | MapKeyUInt64
+  | MapKeySInt32
+  | MapKeySInt64
+  | MapKeyFixed32
+  | MapKeyFixed64
+  | MapKeySFixed32
+  | MapKeySFixed64
+  | MapKeyBool
+  | MapKeyString
+  deriving stock (Eq, Ord, Show, Data, Generic, Enum, Bounded)
+
+-- ---------------------------------------------------------------------------
 -- Modifier
 -- ---------------------------------------------------------------------------
 
@@ -149,8 +180,24 @@ data Modifier
     -- so per-format derivers can short-circuit cheaply.
     ModBackendDisable ![Backend]
   | -- | Backend-specific opaque payload. Tagged by an arbitrary
-    -- 'Text' identifier so backends can recognise their own.
-    ModCustom !Text !ByteString
+    -- 'Text' identifier so backends can recognise their own; the
+    -- payload itself is a 'String' rather than a 'ByteString'
+    -- because GHC's 'ANN' machinery serialises the modifier via
+    -- @Data.Data@, which works for any algebraic type but fails on
+    -- the sealed 'ByteString' instance.
+    ModCustom !Text !String
+  | -- | This @HashMap@ / @Map@ field is encoded as a proto3 @map@.
+    -- The 'MapKeyScalar' picks the wire encoding for the key half.
+    -- Value type is inferred from the field's Haskell type.
+    --
+    -- Only consulted by the proto deriver; other backends ignore it.
+    ModMapKey !MapKeyScalar
+  | -- | Group this constructor (in a sum) or this field (in a
+    -- record) into the named proto @oneof@. All fields sharing the
+    -- same group name encode under one @oneof@ block.
+    --
+    -- Only consulted by the proto deriver; other backends ignore it.
+    ModOneof !Text
   deriving stock (Eq, Ord, Show, Data, Generic)
 
 -- ---------------------------------------------------------------------------
@@ -237,8 +284,23 @@ wireOverride = ModWireOverride
 -- a fully-qualified, namespaced identifier (e.g.
 -- @"wireform-proto.json-name"@) so different backends do not clash on
 -- the same tag.
-customModifier :: Text -> ByteString -> Modifier
+--
+-- The payload is typed as 'String' rather than 'ByteString' because
+-- GHC's 'ANN' machinery serialises modifiers via @Data.Data@, and
+-- 'ByteString' has a sealed 'Data' instance that fails the round
+-- trip. For typed payloads, prefer
+-- 'Wireform.Derive.Extension.extension'.
+customModifier :: Text -> String -> Modifier
 customModifier = ModCustom
+
+-- | Mark a @HashMap@ / @Map@ field as a proto @map<K,V>@ with the
+-- supplied key encoding. See 'ModMapKey'.
+mapKey :: MapKeyScalar -> Modifier
+mapKey = ModMapKey
+
+-- | Group this name into the named proto @oneof@. See 'ModOneof'.
+oneof :: Text -> Modifier
+oneof = ModOneof
 
 -- ---------------------------------------------------------------------------
 -- Smart constructors: per-backend targeting

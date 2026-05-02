@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+// End-to-end oneof regression for `loadProto`'s bridge rewire.
+//
+// Before the rewire `loadProto` would emit a record with a
+// `Maybe Choice` field but never declare the `Choice` sum
+// type, so any proto file containing a `oneof` failed to compile.
+// This fixture exercises the new `mkOneofDataDecs` + bridge path:
+// the splice generates `Envelope'Choice` (sum) alongside the
+// `Envelope` record, and threads each variant through
+// `Proto.Derive.Internal`'s FKOneof codec emitter.
+//
+// We also include a sibling scalar field so the per-message
+// dispatch still works when the oneof isn't the only thing in
+// the record.
+
+message Envelope {
+  string envelope_label = 1;
+
+  oneof envelope_choice {
+    string choice_url   = 6;
+    bytes  choice_blob  = 7;
+    int32  choice_seed  = 8;
+    Inner  choice_inner = 9;
+  }
+}
+
+message Inner {
+  int32 inner_id = 1;
+}

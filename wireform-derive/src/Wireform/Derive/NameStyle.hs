@@ -120,19 +120,33 @@ resolveIdiomatic b = go
 -- Downstream backends not listed here fall through to 'NoStyle'.
 idiomaticFor :: Backend -> NameStyle
 idiomaticFor b
-  | b == backendJSON       = CamelCase
-  | b == backendProto      = CamelCase
-  | b == backendEDN        = KebabCase
-  | b == backendYAML       = KebabCase
-  | b == backendTOML       = SnakeCase
-  | b == backendXML        = PascalCase
-  | b == backendCBOR       = NoStyle
-  | b == backendMsgPack    = NoStyle
-  | b == backendThrift     = NoStyle
-  | b == backendBinary     = NoStyle
-  | b == backendCSV        = NoStyle
-  | b == backendTextFormat = NoStyle
-  | otherwise              = NoStyle
+  | b == backendJSON        = CamelCase
+  | b == backendNDJSON      = CamelCase
+  | b == backendProto       = CamelCase
+  | b == backendBSON        = CamelCase
+  | b == backendION         = CamelCase
+  | b == backendEDN         = KebabCase
+  | b == backendYAML        = KebabCase
+  | b == backendHTML        = KebabCase
+  | b == backendTOML        = SnakeCase
+  | b == backendAvro        = SnakeCase
+  | b == backendBond        = SnakeCase
+  | b == backendArrow       = SnakeCase
+  | b == backendParquet     = SnakeCase
+  | b == backendOrc         = SnakeCase
+  | b == backendIceberg     = SnakeCase
+  | b == backendXML         = PascalCase
+  | b == backendCBOR        = NoStyle
+  | b == backendMsgPack     = NoStyle
+  | b == backendThrift      = NoStyle
+  | b == backendBinary      = NoStyle
+  | b == backendCSV         = NoStyle
+  | b == backendTextFormat  = NoStyle
+  | b == backendASN1        = NoStyle  -- ASN.1 names are positional
+  | b == backendBencode     = NoStyle  -- byte-string keys, verbatim
+  | b == backendFlatBuffers = SnakeCase
+  | b == backendCapnProto   = CamelCase
+  | otherwise               = NoStyle
 
 -- | Apply a style. 'Idiomatic' constructors that have not been
 -- resolved by 'resolveIdiomatic' degrade to 'NoStyle' rather than

@@ -29,6 +29,7 @@ packages:
 
 package *
   optimization: 1
+  ghc-options: -fasm
 
 package wireform
   flags: +snappy +zstd

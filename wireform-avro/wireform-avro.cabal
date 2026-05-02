@@ -32,6 +32,7 @@ library
     Avro.CodeGen
     Avro.Container
     Avro.Decode
+    Avro.Derive
     Avro.Encode
     Avro.Fingerprint
     Avro.IDL
@@ -48,6 +49,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     containers >= 0.6 && < 0.8,
     text >= 2.0 && < 2.2,
@@ -62,3 +64,24 @@ library
     cryptohash-md5 >= 0.11 && < 0.12,
     zlib >= 0.6 && < 0.8,
     deepseq >= 1.4 && < 1.6
+
+test-suite wireform-avro-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.Avro.Derive
+    Test.Avro.Derive.Types
+    Test.Avro.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-avro,
+    wireform-derive,
+    text,
+    vector,
+    tasty,
+    tasty-hunit

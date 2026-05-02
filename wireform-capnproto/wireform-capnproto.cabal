@@ -30,6 +30,7 @@ library
   exposed-modules:
     CapnProto.CodeGen
     CapnProto.Decode
+    CapnProto.Derive
     CapnProto.Encode
     CapnProto.Parser
     CapnProto.QQ
@@ -39,6 +40,7 @@ library
   build-depends:
     base >= 4.16 && < 5,
     wireform-core,
+    wireform-derive,
     bytestring >= 0.11 && < 0.13,
     base64-bytestring >= 1.2 && < 1.3,
     text >= 2.0 && < 2.2,
@@ -52,3 +54,25 @@ library
     deepseq >= 1.4 && < 1.6,
     scientific >= 0.3 && < 0.4,
     aeson >= 2.1 && < 2.3
+
+test-suite wireform-capnproto-derive-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Test.CapnProto.Derive
+    Test.CapnProto.Derive.Types
+    Test.CapnProto.Derive.Instances
+  default-extensions:
+    ScopedTypeVariables
+    TemplateHaskell
+  build-depends:
+    base,
+    wireform-capnproto,
+    wireform-derive,
+    bytestring,
+    text,
+    vector,
+    tasty,
+    tasty-hunit
