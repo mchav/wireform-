@@ -1,14 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
--- | Internal round-trip tests for the Arrow IPC writer + reader.
+-- | Round-trip tests for the Arrow IPC writer + reader.
 --
--- Every 'ColumnArray' constructor the writer emits must be parsed
--- back correctly by 'readArrowStream' + 'materializeRecordBatch'.
+-- Two layers of coverage:
 --
--- The IPC framing wireform-arrow uses is a simplified encoding (see
--- @Arrow.IPC@) rather than a real flatbuffer, so pyarrow can't read
--- these bytes directly; the golden interop item (roadmap B.4) is
--- tracked separately. These tests prove the writer-reader pair is
--- self-consistent across every supported column shape.
+--   1. Internal round-trips: every 'ColumnArray' constructor
+--      the writer emits must be parsed back correctly by
+--      'decodeArrowStream' + 'materializeRecordBatch'.
+--   2. Golden pyarrow interop: the bytes in
+--      @test/golden/pa_*.arrows@ were produced by pyarrow
+--      ('pa.ipc.new_stream') against the reference spec.
+--      'decodeArrowStream' must accept them verbatim.
+--
+-- Previously (PR #16 deferred list) the wireform IPC framing
+-- was a simplified encoding that pyarrow couldn't read; after
+-- 'Arrow.FlatBufferIPC' landed with a real FlatBuffers layout
+-- the bidirectional interop works and these tests pin it.
 module Main (main) where
 
 import Control.Monad (unless, when)
@@ -35,7 +41,6 @@ import Arrow.Stream
   , decodeArrowStream
   , defaultWriteOptions
   , encodeArrowStream
-  , encodeArrowStreamWith
   , openStreamReader
   , streamReaderNext
   , streamReaderSchema
@@ -272,6 +277,13 @@ main = do
   flatBufRoundTrip
   flatBufSchemaSelfCheck
 
+  -- Golden pyarrow interop: reference .arrows files produced
+  -- by pyarrow's ipc.new_stream, checked into test/golden.
+  -- Decoding them proves the FlatBuffers reader handles the
+  -- shapes arrow-cpp emits (vs only what wireform's own
+  -- writer produces).
+  pyarrowGoldenRoundTrip
+
   putStrLn "All wireform-arrow round-trip tests passed."
 
 flatBufSchemaSelfCheck :: IO ()
@@ -423,6 +435,70 @@ flatBufRoundTrip = do
   -- SparseTensor (COO) round-trip.
   sparseTensorRoundTrip
 
+-- | Consume the golden .arrows files in @test/golden/@ and
+-- assert 'decodeArrowStream' returns the ColumnArray values we
+-- expect from the pyarrow-side generator.
+--
+-- The fixtures:
+--   pa_int32.arrows   : int32 column [1,2,3,4,5]
+--   pa_mixed.arrows   : (int64, nullable utf8, nullable bool), 3 rows
+--   pa_dict.arrows    : dictionary<utf8, int32> with values ["a","b","c"]
+--                        and indices [0,1,0,2,1]
+pyarrowGoldenRoundTrip :: IO ()
+pyarrowGoldenRoundTrip = do
+  goldenCheck "pa_int32.arrows"
+    (V.singleton (ColInt32 (VP.fromList [1, 2, 3, 4, 5 :: Int32])))
+
+  goldenCheck "pa_mixed.arrows"
+    (V.fromList
+       [ ColInt64 (VP.fromList [10, 20, 30 :: Int64])
+       , ColUtf8Maybe (V.fromList [Just "alpha", Nothing, Just "gamma"])
+       , ColBoolMaybe (V.fromList [Just True, Just False, Nothing])
+       ])
+
+  -- Dictionary-encoded batch: the decoder resolves
+  -- ColDictionary's values against the dict batches pyarrow
+  -- emitted ahead of the record batch.
+  goldenDictCheck "pa_dict.arrows"
+    [0, 1, 0, 2, 1]
+    (ColUtf8 (V.fromList ["a", "b", "c"]))
+
+goldenCheck :: FilePath -> V.Vector ColumnArray -> IO ()
+goldenCheck name expected = do
+  bs <- BS.readFile ("test/golden/" <> name)
+  case decodeArrowStream bs of
+    Left e -> failTest $ "golden " <> name <> ": decode: " <> e
+    Right (_sch, batches)
+      | [b] <- batches, b == expected ->
+          putStrLn $ "OK: pyarrow golden " <> name
+      | otherwise ->
+          failTest $ "golden " <> name
+                    <> " mismatch:\n got: " <> show batches
+                    <> "\n exp: " <> show [expected]
+
+-- Dictionary-encoded batches need a bespoke matcher because
+-- 'ColDictionary' carries both the indices vector and the
+-- resolved values vector; we compare them piecewise.
+goldenDictCheck
+  :: FilePath -> [Int32] -> ColumnArray -> IO ()
+goldenDictCheck name expectedIndices expectedValues = do
+  bs <- BS.readFile ("test/golden/" <> name)
+  case decodeArrowStream bs of
+    Left e -> failTest $ "golden " <> name <> ": decode: " <> e
+    Right (_sch, batches) -> case batches of
+      [b] | V.length b == 1 -> case V.head b of
+        ColDictionary _ idx vals
+          | VP.toList idx == expectedIndices
+          , vals == expectedValues ->
+              putStrLn $ "OK: pyarrow golden " <> name
+          | otherwise ->
+              failTest $ "golden " <> name
+                        <> " dict mismatch:\n idx=" <> show (VP.toList idx)
+                        <> " vals=" <> show vals
+        other ->
+          failTest $ "golden " <> name <> " expected ColDictionary, got " <> show other
+      _ -> failTest $ "golden " <> name <> " expected 1 batch with 1 column"
+
 sparseTensorRoundTrip :: IO ()
 sparseTensorRoundTrip = do
   -- Tiny 3x3 sparse int32 tensor with 2 non-zeros at (0,1) and
@@ -502,7 +578,7 @@ dictReplacementRoundTrip = do
         (VP.fromList [0, 1, 0])
         (ColUtf8 (V.fromList ["x", "y"]))
       !opts  = defaultWriteOptions { writeDictHandling = DictReplaceOnChange }
-      !bytes = encodeArrowStreamWith opts sch [batch1, batch2]
+      !bytes = encodeArrowStream opts sch [batch1, batch2]
   case decodeArrowStream bytes of
     Left e -> failTest $ "dict-replace round-trip: " ++ e
     Right (_, batches)
@@ -531,7 +607,7 @@ dictReplacementRoundTrip = do
 bodyCompressionRoundTrip :: BodyCompressionCodec -> Schema -> V.Vector ColumnArray -> IO ()
 bodyCompressionRoundTrip codec sch cols = do
   let !opts  = defaultWriteOptions { writeBodyCompression = Just codec }
-      !bytes = encodeArrowStreamWith opts sch [cols]
+      !bytes = encodeArrowStream opts sch [cols]
   case decodeArrowStream bytes of
     Left e -> failTest $ "body-compression round-trip: " ++ e
     Right (_sch', batches)

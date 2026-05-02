@@ -1716,9 +1716,11 @@ genServiceTopLevel ctx scope svc =
 -- satisfies 'Proto.Extension.HasExtensions' via the
 -- per-message instance emitted by 'genHasExtensionsInstance'.
 --
--- Repeated and message-group extensions are not yet modelled; we
--- fall through to a @-- WARNING@ comment for unsupported fields so
--- that the rest of the generated module still compiles.
+-- Singular + repeated (packed and unpacked) extensions are
+-- emitted here. Proto2 message-groups never made it into this
+-- codebase's 'FieldType' ADT, so the old-style group extension
+-- is not representable at all — the parser rejects group
+-- fields before they can reach this function.
 genExtensionBlock
   :: GenCtx -> [Text] -> Text -> [FieldDef] -> [Doc ann]
 genExtensionBlock ctx scope extOwnerName fields =
@@ -1794,8 +1796,10 @@ extensionPayloadCore (FTScalar s) = case s of
   SString   -> Just (txt "Text",      "ExtString")
   SBytes    -> Just (txt "ByteString", "ExtBytes")
 extensionPayloadCore (FTNamed _) =
+  -- Named-type (message / enum) extensions carry raw encoded
+  -- bytes; callers decode them lazily via the normal message
+  -- decoder for the referenced type.
   Just (txt "ByteString", "ExtMessage")
-extensionPayloadCore _ = Nothing
 
 -- | Whether a scalar can use the packed encoding (proto2 default
 -- false; proto3 default true). Strings and bytes can't.

@@ -60,6 +60,13 @@ flag lz4
   manual: True
   default: False
 
+flag profile
+  description: Emit cost-centre annotations on the profile-rewriter
+               binary (requires building the dep closure with
+               --enable-profiling).
+  manual: True
+  default: False
+
 common defaults
   ghc-options:
     -Wall
@@ -569,13 +576,17 @@ executable profile-rewriter
     , bytestring
     , text
   hs-source-dirs: bench
-  -- @-fprof-late -prof@ would make the binary carry cost-centre
-  -- annotations for @+RTS -p@, but those flags require
-  -- --enable-profiling to be set on the whole dep closure.
-  -- Default-build without them so @cabal build all@ stays green
-  -- in CI; re-add locally (or run 'cabal configure
-  -- --enable-profiling' first) when profiling the rewriter.
   ghc-options: -O1 -rtsopts
+  -- The +profile flag re-enables cost-centre generation so
+  -- @+RTS -p@ produces useful output. Build with
+  --
+  --   cabal build exe:profile-rewriter -fprofile --enable-profiling
+  --
+  -- Default-off so @cabal build all@ in CI stays green
+  -- (--enable-profiling requires the entire dep closure to be
+  -- built with profiling libs too).
+  if flag(profile)
+    ghc-options: -fprof-late -prof
 
 benchmark format-bench
   import: defaults

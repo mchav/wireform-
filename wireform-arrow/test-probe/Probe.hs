@@ -21,7 +21,7 @@ import Arrow.Stream
   , defaultWriteOptions
   , encodeArrowFile
   , encodeArrowStream
-  , encodeArrowStreamWith
+  , encodeArrowStream
   )
 
 main :: IO ()
@@ -150,7 +150,7 @@ writeMode outDir = do
         (V.singleton (pField "n" False (AInt 64 True) V.empty)) Little
       zstdBatch   = V.singleton (ColInt64 (VP.fromList ([1..500] :: [Int64])))
   BS.writeFile (outDir <> "/ours_zstd_compressed.arrows")
-    (encodeArrowStreamWith zstdOpts zstdSchema [zstdBatch])
+    (encodeArrowStream zstdOpts zstdSchema [zstdBatch])
 
   -- File format with the same data as the int32 stream.
   let intSchema = Schema

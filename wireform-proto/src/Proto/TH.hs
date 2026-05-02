@@ -846,9 +846,13 @@ oneExtensionDec ownerHs ownerPrefix fd = case fieldLabel fd of
                         } |]) []
         pure [sig, body]
 
--- | Core type/constructor mapping shared by singular and repeated
--- extensions. (Singular extensions previously rejected repeated
--- shapes via 'thExtensionPayload'.)
+-- | Core type/constructor mapping shared by singular and
+-- repeated extensions. Returns 'Nothing' only for shapes that
+-- don't yet exist in this codebase's 'FieldType' ADT (proto2
+-- groups, for instance, were dropped from the official spec
+-- and the parser doesn't recognise them); callers treat
+-- 'Nothing' as "skip this extension, the rest of the module
+-- still compiles".
 thExtensionPayloadCore :: FieldType -> Maybe (Type, Text)
 thExtensionPayloadCore (FTScalar s) = Just $ case s of
   SDouble   -> (ConT ''Double,   "ExtDouble")
@@ -867,8 +871,9 @@ thExtensionPayloadCore (FTScalar s) = Just $ case s of
   SString   -> (ConT ''Text,     "ExtString")
   SBytes    -> (ConT ''ByteString, "ExtBytes")
 thExtensionPayloadCore (FTNamed _) =
+  -- Named-type extensions round-trip their raw encoded bytes;
+  -- callers decode lazily through the matching message decoder.
   Just (ConT ''ByteString, "ExtMessage")
-thExtensionPayloadCore _ = Nothing
 
 -- | Whether a scalar is permitted to be packed on the wire.
 packableScalar :: ScalarType -> Bool
