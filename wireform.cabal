@@ -521,6 +521,7 @@ benchmark xml-bench
   build-depends:
       base
     , wireform-xml
+    , wireform-html
     , bytestring
     , text
     , vector
@@ -539,7 +540,9 @@ benchmark quick-prof
   build-depends:
       base >= 4.16 && < 5
     , wireform-proto
+    , wireform-html
     , bytestring
+    , text
     , deepseq
   hs-source-dirs: bench
   ghc-options: -O2 -rtsopts
@@ -566,7 +569,13 @@ executable profile-rewriter
     , bytestring
     , text
   hs-source-dirs: bench
-  ghc-options: -O1 -rtsopts -fprof-late -prof
+  -- @-fprof-late -prof@ would make the binary carry cost-centre
+  -- annotations for @+RTS -p@, but those flags require
+  -- --enable-profiling to be set on the whole dep closure.
+  -- Default-build without them so @cabal build all@ stays green
+  -- in CI; re-add locally (or run 'cabal configure
+  -- --enable-profiling' first) when profiling the rewriter.
+  ghc-options: -O1 -rtsopts
 
 benchmark format-bench
   import: defaults
