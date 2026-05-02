@@ -67,7 +67,7 @@ writeMode outDir = do
   -- nullable, post-V5, and dictionary-encoded columns.
   let writeSample name sch batches = do
         BS.writeFile (outDir <> "/ours_" <> name <> ".arrows")
-          (encodeArrowStream sch batches)
+          (encodeArrowStream defaultWriteOptions sch batches)
 
   -- 1) Pure primitives.
   writeSample "int32"
@@ -159,7 +159,7 @@ writeMode outDir = do
         }
       intBatch = V.singleton (ColInt32 (VP.fromList ([1,2,3,4,5] :: [Int32])))
   BS.writeFile (outDir <> "/ours_int32_batch.arrow")
-    (encodeArrowFile intSchema [intBatch])
+    (encodeArrowFile defaultWriteOptions intSchema [intBatch])
 
   -- File format with a dictionary-encoded column. Exercises the
   -- footer's @dictionaries: [Block]@ slot.
@@ -171,6 +171,6 @@ writeMode outDir = do
         (VP.fromList ([0,1,0,2,1] :: [Int32]))
         (ColUtf8 (V.fromList ["a","b","c"])))
   BS.writeFile (outDir <> "/ours_dict.arrow")
-    (encodeArrowFile dictSchema [dictBatch])
+    (encodeArrowFile defaultWriteOptions dictSchema [dictBatch])
 
   putStrLn ("wrote probe outputs to " ++ outDir)

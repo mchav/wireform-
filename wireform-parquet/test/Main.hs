@@ -881,7 +881,7 @@ arrowParquetProjection = do
                     , PHL.writeCompression = Uncompressed
                     }
           !bytes = PHL.encodeParquet opts pSchema pRgs
-      case PHL.decodeParquet bytes of
+      case PHL.decodeParquet PHL.defaultReadOptions bytes of
         Left  e -> failTest $ "projection decodeParquet: " ++ e
         Right pf -> do
           -- Target: (c, a), reordered and projected.
@@ -979,11 +979,11 @@ arrowParquetBridge = do
                     , PHL.writeCompression = Uncompressed
                     }
           !bytes = PHL.encodeParquet opts psSchema rgs
-      case PHL.decodeParquet bytes of
+      case PHL.decodeParquet PHL.defaultReadOptions bytes of
         Left  e -> failTest $ "decodeParquet (bridge): " ++ e
         Right pf ->
           case PArrow.parquetRowGroupToArrow arrowSchema pf 0 of
-            Left  e    -> failTest $ "parquetRowGroupToArrow: " ++ e
+            Left  e    -> failTest $ "parquetRowGroupToArrow: " ++ show e
             Right cols ->
               if cols == batch
                 then putStrLn "OK: Arrow ↔ Parquet bridge round-trip"
@@ -1001,7 +1001,7 @@ arrowParquetBridge = do
                     , PHL.writeCompression = Uncompressed
                     }
           !bytes = PHL.encodeParquet opts psSchema rgs
-      case PHL.decodeParquet bytes of
+      case PHL.decodeParquet PHL.defaultReadOptions bytes of
         Left  e -> failTest $ "decodeParquet (stream): " ++ e
         Right pf -> do
           let results = PArrow.streamRowGroups arrowSchema pf
@@ -1036,11 +1036,11 @@ arrowParquetBridge = do
                       , PHL.writeCompression = Uncompressed
                       }
           !tBytes = PHL.encodeParquet tOpts tSchema tRgs
-      case PHL.decodeParquet tBytes of
+      case PHL.decodeParquet PHL.defaultReadOptions tBytes of
         Left  e -> failTest $ "temporal decodeParquet: " ++ e
         Right pf ->
           case PArrow.parquetRowGroupToArrow tempSchema pf 0 of
-            Left  e    -> failTest $ "temporal parquetRowGroupToArrow: " ++ e
+            Left  e    -> failTest $ "temporal parquetRowGroupToArrow: " ++ show e
             Right cols ->
               if cols == tempBatch
                 then putStrLn "OK: Arrow <-> Parquet temporal round-trip"

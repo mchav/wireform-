@@ -1,104 +1,283 @@
--- | Top-level guide to wireform's columnar formats.
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+-- | Unified entry point for wireform's three columnar formats.
 --
--- All three columnar formats wireform supports — Arrow IPC,
--- Parquet, and ORC — expose a small high-level API in their
--- respective \"HighLevel\" / \"Stream\" modules:
---
--- @
--- import qualified "Arrow.Stream"     as Arrow      -- Arrow IPC
--- import qualified "Parquet.HighLevel" as Parquet   -- Apache Parquet
--- import qualified "ORC.HighLevel"     as ORC       -- Apache ORC
--- @
---
--- Each follows the same shape:
+-- The per-format modules ("Arrow.Stream", "Parquet.HighLevel",
+-- "ORC.HighLevel") each expose their own native surface. This
+-- module layers a single Arrow-shaped API on top of all three:
+-- callers pass an Arrow 'AT.Schema' + a sequence of
+-- @'V.Vector' 'AC.ColumnArray'@ batches, pick a 'Format', and
+-- get bytes out or bytes in.
 --
 -- @
--- /encode/ :: WriteOptions -> Schema -> [Batch] -> ByteString
--- /decode/ :: ByteString -> Either String (Schema, [Batch])
+-- import qualified Wireform.Columnar as Col
+--
+-- let bytes = 'encode' Col.Arrow   Col.'defaultWriteOptions' sch batches
+--     -- or: 'encode' Col.Parquet Col.'defaultWriteOptions' sch batches
+--     -- or: 'encode' Col.ORC     Col.'defaultWriteOptions' sch batches
+--
+-- case 'decode' Col.Arrow Col.'defaultReadOptions' bytes of
+--   Right (sch', batches') -> ...
+--   Left  err              -> ...
 -- @
 --
--- but with format-specific @Schema@ and @Batch@ types because the
--- physical column representations the three formats expose are
--- meaningfully different (Arrow's in-memory layout, Parquet's
--- per-page-encoded streams, ORC's per-stripe stream tuples). A
--- truly polymorphic surface that abstracts over those would need
--- to either (a) lower everything to Arrow's @ColumnArray@ as a
--- canonical representation and pay a translation cost on every
--- call, or (b) introduce a tagged-union / type-class abstraction
--- whose user-facing types still leak the underlying format. We
--- chose to keep the high-level types format-native and document
--- the shape parity here, which is what most consumers actually
--- want.
---
--- == Cheat sheet
---
--- === Apache Arrow IPC
+-- Every format accepts the same inputs (Arrow schema + column
+-- batches) and every format returns the same outputs (schema +
+-- column batches). Format-specific knobs live on the options
+-- records — fields irrelevant to the chosen format are ignored.
+-- The per-format modules remain the canonical home for each
+-- format's deep feature set (Parquet's bloom filters + page
+-- indexes, ORC's stripe encryption, Arrow's streaming reader);
+-- this facade handles the 80% case where you want to pick a
+-- wire format and move on.
+module Wireform.Columnar
+  ( -- * Format selection
+    Format (..)
+    -- * Encoding
+  , encode
+  , WriteOptions (..)
+  , defaultWriteOptions
+    -- * Decoding
+  , decode
+  , ReadOptions (..)
+  , defaultReadOptions
+    -- * Per-format passthroughs
+    -- | When callers need format-specific knobs beyond what the
+    -- unified options record exposes, drop down to the per-format
+    -- modules. 'encode' / 'decode' are deliberately lossy in
+    -- exchange for a uniform surface.
+  , module Arrow.Stream
+  , module Parquet.HighLevel
+  , module ORC.HighLevel
+  ) where
+
+import Data.ByteString (ByteString)
+import qualified Data.Vector as V
+
+import qualified Arrow.Column as AC
+import qualified Arrow.Stream as Arrow
+import Arrow.Stream hiding
+  ( WriteOptions
+  , defaultWriteOptions
+  , encodeArrowStream
+  , encodeArrowFile
+  , decodeArrowStream
+  , decodeArrowFile
+  , encodeArrowStreamWith
+  , encodeArrowFileWith
+  )
+import qualified Arrow.Types as AT
+
+import qualified ORC.Arrow as OArrow
+import qualified ORC.HighLevel as ORC
+import ORC.HighLevel hiding
+  ( WriteOptions
+  , defaultWriteOptions
+  , encodeORC
+  , decodeORC
+  , encodeORCWithRows
+  , encodeORCWithoutRows
+  )
+
+import qualified Parquet.Arrow as PArrow
+import qualified Parquet.HighLevel as Parquet
+import Parquet.HighLevel hiding
+  ( WriteOptions
+  , ReadOptions
+  , defaultWriteOptions
+  , defaultReadOptions
+  , encodeParquet
+  , encodeParquetNested
+  , decodeParquet
+  , decodeParquetEncrypted
+  )
+
+-- ============================================================
+-- Format selection
+-- ============================================================
+
+-- | Which columnar format 'encode' / 'decode' should use.
+data Format
+  = Arrow
+    -- ^ Apache Arrow IPC /stream/ format (pyarrow's @ipc.new_stream@
+    -- shape). Produces a contiguous stream frame; read with
+    -- 'Arrow.Stream.decodeArrowStream'.
+  | ArrowFile
+    -- ^ Apache Arrow IPC /file/ format (@ARROW1@ sentinel +
+    -- Footer block indexes). Seek-friendly; read with
+    -- 'Arrow.Stream.decodeArrowFile'.
+  | Parquet
+    -- ^ Apache Parquet. Uses 'Parquet.Arrow.arrowToParquet' to
+    -- lower the input batches to flat Parquet columns. Nested
+    -- types (struct / list / map) fall through to an error —
+    -- for those use 'Parquet.HighLevel.encodeParquetNested'
+    -- directly.
+  | ORC
+    -- ^ Apache ORC. Uses 'ORC.Arrow.arrowToORC' to lower the
+    -- input batches; each batch becomes one stripe.
+  deriving (Show, Eq, Ord, Enum, Bounded)
+
+-- ============================================================
+-- Write options
+-- ============================================================
+
+-- | Unified writer configuration. Every field is format-specific;
+-- the writer silently ignores fields that don't apply to the
+-- chosen 'Format'.
 --
 -- @
--- import qualified Wireform.Arrow as Arrow
---
--- let bytes = Arrow.'Arrow.Stream.encodeArrowStream' schema batches
---     -- batches :: ['V.Vector' 'Arrow.Column.ColumnArray']
---
--- case Arrow.'Arrow.Stream.decodeArrowStream' bytes of
---   Right (sch, batches') -> ...
---   Left  err             -> ...
+-- let opts = 'defaultWriteOptions'
+--             { 'arrowWrite'   = 'Arrow.Stream.defaultWriteOptions'
+--                                   { writeBodyCompression = Just BodyZstd }
+--             , 'parquetWrite' = 'Parquet.HighLevel.defaultWriteOptions'
+--                                   { writeCompression = ZSTD }
+--             }
+-- 'encode' Arrow opts sch batches
 -- @
+data WriteOptions = WriteOptions
+  { arrowWrite   :: !Arrow.WriteOptions
+    -- ^ Used when 'Format' is 'Arrow' or 'ArrowFile'. Body
+    -- compression, dictionary-handling strategy.
+  , parquetWrite :: !Parquet.WriteOptions
+    -- ^ Used when 'Format' is 'Parquet'. Compression codec,
+    -- page version, page index, per-column encryption, footer
+    -- encryption, bloom filters.
+  , orcWrite     :: !ORC.WriteOptions
+    -- ^ Used when 'Format' is 'ORC'. Stripe encryption plan.
+  }
+
+-- | Format-appropriate sensible defaults.
+defaultWriteOptions :: WriteOptions
+defaultWriteOptions = WriteOptions
+  { arrowWrite   = Arrow.defaultWriteOptions
+  , parquetWrite = Parquet.defaultWriteOptions
+  , orcWrite     = ORC.defaultWriteOptions
+  }
+
+-- ============================================================
+-- Read options
+-- ============================================================
+
+-- | Unified reader configuration. Currently only Parquet has
+-- caller-visible read-time knobs (footer decryption); Arrow and
+-- ORC readers self-configure from the file header.
+data ReadOptions = ReadOptions
+  { parquetRead :: !Parquet.ReadOptions
+  }
+
+-- | Empty/default reader options (expects plaintext Parquet
+-- footers).
+defaultReadOptions :: ReadOptions
+defaultReadOptions = ReadOptions
+  { parquetRead = Parquet.defaultReadOptions
+  }
+
+-- ============================================================
+-- Encode
+-- ============================================================
+
+-- | Encode an Arrow schema + a list of column batches into a
+-- bytestring in the chosen columnar format. The Parquet / ORC
+-- paths delegate to 'Parquet.Arrow.arrowToParquet' /
+-- 'ORC.Arrow.arrowToORC' for the Arrow-to-format lowering, so the
+-- bridges' shape restrictions apply (see the per-format module
+-- docs for what's currently supported).
 --
--- The Arrow API auto-extracts and auto-resolves dictionary
--- batches; pass 'Arrow.Column.ColDictionary' values inline and
--- they round-trip through the wire.
+-- Returns 'Left' if the format-specific bridge can't represent
+-- the input (e.g. nested types in the Parquet flat path,
+-- unsupported Arrow types in ORC).
+encode
+  :: Format
+  -> WriteOptions
+  -> AT.Schema
+  -> [V.Vector AC.ColumnArray]
+  -> Either String ByteString
+encode fmt opts sch batches = case fmt of
+  Arrow ->
+    Right (Arrow.encodeArrowStream (arrowWrite opts) sch batches)
+  ArrowFile ->
+    Right (Arrow.encodeArrowFile (arrowWrite opts) sch batches)
+  Parquet -> do
+    (pSchema, pRgs) <- PArrow.arrowToParquet sch batches
+    Right (Parquet.encodeParquet (parquetWrite opts) pSchema pRgs)
+  ORC -> do
+    (types, stripesWithRows) <- OArrow.arrowToORC sch batches
+    ORC.encodeORC (orcWrite opts) types stripesWithRows
+
+-- ============================================================
+-- Decode
+-- ============================================================
+
+-- | Decode bytes in the given format back into an Arrow schema +
+-- column batches. The Parquet / ORC paths reconstruct the Arrow
+-- schema from the file's logical/converted-type annotations via
+-- 'Parquet.Arrow.parquetFileArrowSchema' / the ORC type table;
+-- all row groups / stripes are materialised eagerly.
 --
--- === Apache Parquet
---
--- @
--- import qualified Wireform.Parquet as Parquet
---
--- let opts  = Parquet.'Parquet.HighLevel.defaultWriteOptions'
---               { Parquet.writeCompression = Parquet.ZSTD
---               , Parquet.writePageIndex   = True
---               }
---     bytes = Parquet.'Parquet.HighLevel.encodeParquet' opts schema rowGroups
---     -- rowGroups :: ['V.Vector' 'Parquet.Write.ColumnData']
---
--- case Parquet.'Parquet.HighLevel.decodeParquet' bytes of
---   Right pf -> do
---     let !schema'    = 'Parquet.Types.fmSchema'  ('Parquet.Read.pfFooter' pf)
---         !rowGroups' = 'Parquet.Types.fmRowGroups' ('Parquet.Read.pfFooter' pf)
---     -- column data is decoded lazily via Parquet.Read.* functions
---   Left err -> ...
--- @
---
--- 'Parquet.HighLevel.WriteOptions' carries compression, page
--- version, page-index emission, per-column encryption, and
--- footer encryption (PARE mode).
---
--- === Apache ORC
---
--- @
--- import qualified Wireform.ORC as ORC
---
--- case ORC.'ORC.HighLevel.encodeORC' ORC.'ORC.HighLevel.defaultWriteOptions' types stripes of
---   Right bytes -> ...
---   Left  err   -> ...
--- @
---
--- @types@ is the schema; @stripes@ is one
--- @V.Vector (streamKind, columnId, payload)@ per stripe in
--- emission order. ORC encryption is gated by
--- 'ORC.HighLevel.writeEncryption' on the options record.
---
--- == When to drop down
---
--- Each format also exposes its lower-level building blocks:
---
--- * "Arrow.FlatBufferIPC" — explicit dict-batch construction,
---   custom 'RecordBatchDef' values, raw FlatBuffer envelope.
--- * "Parquet.Write" — bespoke @ColumnAux@ vectors, hand-rolled
---   row groups, custom bloom-filter parameters.
--- * "ORC.Write" — per-stripe footer adjustments, mixed
---   plaintext/encrypted stripes, manual 'StripeEncryption'.
---
--- These are stable; the high-level modules wrap them rather than
--- replacing them.
-module Wireform.Columnar () where
+-- For streaming / incremental reads of Arrow files, use
+-- 'Arrow.Stream.openStreamReader' directly; for lazy Parquet row
+-- group iteration use 'Parquet.Arrow.streamRowGroups'.
+decode
+  :: Format
+  -> ReadOptions
+  -> ByteString
+  -> Either String (AT.Schema, [V.Vector AC.ColumnArray])
+decode fmt opts bs = case fmt of
+  Arrow     -> Arrow.decodeArrowStream bs
+  ArrowFile -> Arrow.decodeArrowFile   bs
+  Parquet -> do
+    pf <- Parquet.decodeParquet (parquetRead opts) bs
+    let !sch = PArrow.parquetFileArrowSchema pf
+    batches <- mapM
+      (\i -> case PArrow.parquetRowGroupToArrow sch pf i of
+               Right cols -> Right cols
+               Left  err  -> Left (show err))
+      [0 .. PArrow.numRowGroups pf - 1]
+    Right (sch, batches)
+  ORC -> do
+    footer <- ORC.decodeORC bs
+    let !sch = orcFooterToArrowSchema footer
+        !numStripes = V.length (orcStripes footer)
+    batches <- mapM (\i -> OArrow.orcStripeToArrow sch bs footer i)
+                    [0 .. numStripes - 1]
+    Right (sch, batches)
+
+-- | Reconstruct an Arrow schema from an ORC footer. We walk the
+-- root struct's children and lift each leaf @ORCType@ back to
+-- the Arrow flavour the bridge originally emitted. Keeps the
+-- unified 'decode' path format-agnostic.
+orcFooterToArrowSchema :: ORCFooter -> AT.Schema
+orcFooterToArrowSchema footer =
+  let !types = orcTypes footer
+      !root  = V.head types
+      !subs  = otSubtypes root
+      !names = otFieldNames root
+      !children = V.zipWith
+        (\name subIdx ->
+            let !leafType = types V.! fromIntegral subIdx
+            in  AT.Field name False (orcKindToArrowType leafType) V.empty Nothing)
+        names subs
+  in AT.Schema
+       { AT.arrowFields = children
+       , AT.arrowEndianness = AT.Little
+       }
+
+-- | Map an ORC 'ORCType' back to its Arrow flavour. Mirrors the
+-- inverse of 'ORC.Arrow.arrowFieldToORCType'; falls back to
+-- 'AT.ABinary' for kinds the bridge doesn't handle yet
+-- (callers that care drop down to ORC.HighLevel directly).
+orcKindToArrowType :: ORCType -> AT.ArrowType
+orcKindToArrowType ot = case otKind ot of
+  TKBoolean   -> AT.ABool
+  TKByte      -> AT.AInt 8  True
+  TKShort     -> AT.AInt 16 True
+  TKInt       -> AT.AInt 32 True
+  TKLong      -> AT.AInt 64 True
+  TKFloat     -> AT.AFloatingPoint AT.Single
+  TKDouble    -> AT.AFloatingPoint AT.DoublePrecision
+  TKString    -> AT.AUtf8
+  TKBinary    -> AT.ABinary
+  TKDate      -> AT.ADate AT.DateDay
+  TKTimestamp -> AT.ATimestamp AT.Microsecond Nothing
+  TKDecimal   -> AT.ADecimal 38 18
+  _           -> AT.ABinary

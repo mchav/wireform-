@@ -28,7 +28,6 @@
 module ORC.HighLevel
   ( -- * Encoding
     encodeORC
-  , encodeORCWithRows
   , WriteOptions (..)
   , defaultWriteOptions
   , StripeEncryptionPlan (..)
@@ -37,8 +36,12 @@ module ORC.HighLevel
   , ORCFooter (..)
     -- * Re-exports for convenience
   , ORCType (..)
+  , TypeKind (..)
   , Encryption (..)
   , StripeEncryption (..)
+    -- * Legacy / deprecated variants
+  , encodeORCWithRows
+  , encodeORCWithoutRows
   ) where
 
 import Data.ByteString (ByteString)
@@ -47,11 +50,10 @@ import Data.Word (Word64)
 
 import ORC.Encryption (Encryption (..))
 import ORC.Footer (readORCFooter)
-import ORC.Types (ORCFooter (..), ORCType (..))
+import ORC.Types (ORCFooter (..), ORCType (..), TypeKind (..))
 import ORC.Write
   ( StripeEncryption (..)
   , buildEncryptedORCFile
-  , buildORCFile
   , buildORCFileWithRows
   )
 
@@ -93,19 +95,19 @@ defaultWriteOptions = WriteOptions
 -- Encoding
 -- ============================================================
 
--- | Serialise an ORC file from type info + stripe stream data,
--- applying the supplied options.
+-- | Serialise an ORC file from type info + per-stripe stream
+-- data with authoritative row counts.
 --
 -- @types@ is the schema (one 'ORCType' per node, including the
--- root struct). @stripes@ is one 'V.Vector' of @(streamKind,
--- columnId, payload)@ per stripe, in emission order (the writer
--- doesn't reorder streams; ordering across columns is the
--- caller's concern, governed by ORC's stream-layout rules).
+-- root struct). @stripes@ pairs each stripe's @(streamKind,
+-- columnId, payload)@ vector with its row count; the count is
+-- stamped into @siNumberOfRows@ and summed into the footer's
+-- @orcNumberOfRows@ so predicate-pushdown-aware readers can
+-- plan scans correctly.
 --
--- Records @siNumberOfRows = 0@ in every stripe; use
--- 'encodeORCWithRows' when the caller has authoritative row
--- counts and wants them stamped into the footer for
--- predicate-pushdown-aware readers.
+-- If you don't have row counts handy and are fine stamping 0
+-- per stripe (some readers tolerate it, most don't), use
+-- 'encodeORCWithoutRows'.
 --
 -- Returns either the encoded bytes or, if encryption is
 -- requested and fails (e.g. mismatched key lengths), the error
@@ -113,20 +115,9 @@ defaultWriteOptions = WriteOptions
 encodeORC
   :: WriteOptions
   -> V.Vector ORCType
-  -> [V.Vector (Word64, Word64, ByteString)]
-  -> Either String ByteString
-encodeORC opts types stripes = encodeORCWithRows opts types (zip stripes (repeat 0))
-
--- | Like 'encodeORC' but accepts a per-stripe row count (second
--- component of each pair) and stamps it into the stripe
--- information + footer. Readers that plan scans by row count
--- (predicate pushdown, row-range slicing) need these.
-encodeORCWithRows
-  :: WriteOptions
-  -> V.Vector ORCType
   -> [(V.Vector (Word64, Word64, ByteString), Word64)]
   -> Either String ByteString
-encodeORCWithRows opts types stripesWithRows =
+encodeORC opts types stripesWithRows =
   let !sd   = V.fromList (map fst stripesWithRows)
       !rows = V.fromList (map snd stripesWithRows)
   in  case writeEncryption opts of
@@ -140,6 +131,32 @@ encodeORCWithRows opts types stripesWithRows =
           -- both encryption and accurate row counts should open
           -- the ticket.
           buildEncryptedORCFile types sd (stripeKeys plan) enc
+
+-- | Legacy alias for 'encodeORC'. The two forms were temporarily
+-- split while row-count plumbing was being added; they're now
+-- the same function.
+{-# DEPRECATED encodeORCWithRows
+    "Use 'encodeORC' — it now takes per-stripe row counts as the canonical shape." #-}
+encodeORCWithRows
+  :: WriteOptions
+  -> V.Vector ORCType
+  -> [(V.Vector (Word64, Word64, ByteString), Word64)]
+  -> Either String ByteString
+encodeORCWithRows = encodeORC
+
+-- | Legacy entry point that stamps @siNumberOfRows = 0@ in every
+-- stripe. Retained for callers that don't have row counts and
+-- are encoding for readers that tolerate zero-row stripes (e.g.
+-- quick-look dumps). Prefer 'encodeORC' for real workloads.
+{-# DEPRECATED encodeORCWithoutRows
+    "Use 'encodeORC' — pass 'zip stripes (repeat 0)' if you really don't have row counts." #-}
+encodeORCWithoutRows
+  :: WriteOptions
+  -> V.Vector ORCType
+  -> [V.Vector (Word64, Word64, ByteString)]
+  -> Either String ByteString
+encodeORCWithoutRows opts types stripes =
+  encodeORC opts types (zip stripes (repeat 0))
 
 -- ============================================================
 -- Decoding

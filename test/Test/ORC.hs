@@ -54,9 +54,8 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
             ]
       case OArrow.arrowToORC arrowSchema [batch] of
         Left e -> assertFailure ("arrowToORC: " ++ e)
-        Right (types, stripes) -> do
-          let !bytes = OHL.encodeORC OHL.defaultWriteOptions
-          case bytes types stripes of
+        Right (types, stripesWithRows) ->
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
             Left e -> assertFailure ("encodeORC: " ++ e)
             Right b -> do
               -- Smoke test: file starts with the ORC magic.
@@ -73,10 +72,10 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
             [ AC.ColInt64Maybe (V.fromList [Just 10, Nothing, Just 30])
             , AC.ColUtf8Maybe  (V.fromList [Just "a", Just "b", Nothing])
             ]
-      case OArrow.arrowToORCWithRows arrowSchema [batch] of
-        Left e -> assertFailure ("arrowToORCWithRows: " ++ e)
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC: " ++ e)
         Right (types, stripesWithRows) -> do
-          case OHL.encodeORCWithRows OHL.defaultWriteOptions types stripesWithRows of
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
             Left e -> assertFailure ("encodeORC: " ++ e)
             Right bytes -> do
               case OHL.decodeORC bytes of
@@ -107,10 +106,10 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
             , AC.ColTime32 (VP.fromList ([0, 60000, 120000] :: [Int32]))
             , AC.ColTimestamp (VP.fromList ([1700000000000000, 1700001000000000, 1700002000000000] :: [Int64]))
             ]
-      case OArrow.arrowToORCWithRows arrowSchema [batch] of
-        Left e -> assertFailure ("arrowToORCWithRows: " ++ e)
+      case OArrow.arrowToORC arrowSchema [batch] of
+        Left e -> assertFailure ("arrowToORC: " ++ e)
         Right (types, stripesWithRows) -> do
-          case OHL.encodeORCWithRows OHL.defaultWriteOptions types stripesWithRows of
+          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
             Left e -> assertFailure ("encodeORC: " ++ e)
             Right bytes -> do
               case OHL.decodeORC bytes of

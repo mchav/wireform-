@@ -135,6 +135,8 @@ library
     , wireform-toml
     , wireform-csv
     , wireform-ndjson
+    , bytestring
+    , vector
 
 -- Multi-format code generation CLI
 executable wireform-gen
@@ -243,6 +245,7 @@ test-suite wireform-test
     Test.ASN1
     Test.Parquet
     Test.Arrow
+    Test.Columnar
     Test.EDN
     Test.MsgPackRPC
     Test.CBORDiagnostic

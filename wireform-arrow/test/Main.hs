@@ -529,7 +529,7 @@ bodyCompressionRoundTrip codec sch cols = do
 
 streamingRoundTrip :: Schema -> [V.Vector ColumnArray] -> IO ()
 streamingRoundTrip sch batches = do
-  let bytes = encodeArrowStream sch batches
+  let bytes = encodeArrowStream defaultWriteOptions sch batches
   case openStreamReader bytes of
     Left e -> failTest $ "openStreamReader: " ++ e
     Right rd0 -> do
@@ -557,7 +557,7 @@ streamingRoundTrip sch batches = do
 -- 'encodeArrowStream' / 'decodeArrowStream' API.
 highLevelRoundTrip :: String -> Schema -> V.Vector ColumnArray -> IO ()
 highLevelRoundTrip label sch cols = do
-  let bytes = encodeArrowStream sch [cols]
+  let bytes = encodeArrowStream defaultWriteOptions sch [cols]
   case decodeArrowStream bytes of
     Left e -> failTest $ label ++ ": decodeArrowStream: " ++ e
     Right (sch', batches)

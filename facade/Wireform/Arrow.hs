@@ -10,7 +10,7 @@
 --
 -- @
 -- -- Encode
--- let bytes = Arrow.'encodeArrowStream' schema batches
+-- let bytes = Arrow.'encodeArrowStream' Arrow.'defaultWriteOptions' schema batches
 --
 -- -- Decode
 -- case Arrow.'decodeArrowStream' bytes of
@@ -24,6 +24,11 @@
 -- emits a 'DictBatch' per unique id and the reader resolves them
 -- transparently. Use 'encodeArrowFile' / 'decodeArrowFile' for the
 -- @ARROW1@-wrapped file format with the same input shape.
+--
+-- If you want to pick Parquet or ORC instead without rewriting
+-- your data layout, use "Wireform.Columnar" — a single
+-- 'Wireform.Columnar.encode' / 'Wireform.Columnar.decode' routed
+-- through the format of your choice.
 --
 -- == When to drop down
 --

@@ -10,17 +10,22 @@
 -- variants behind a single record of options:
 --
 -- @
--- case ORC.'encodeORC' ORC.'defaultWriteOptions' types stripes of
+-- case ORC.'encodeORC' ORC.'defaultWriteOptions' types stripesWithRows of
 --   Right bytes -> ...
 --   Left  err   -> ...
 -- @
 --
--- @types@ is a @V.Vector ORCType@ (the ORC schema). @stripes@ is
--- @['V.Vector' (Word64, Word64, ByteString)]@: one entry per
--- stripe, each entry a vector of @(streamKind, columnId,
--- payload)@ triples in stream-emission order. 'WriteOptions'
--- carries the (currently small) set of file-level toggles —
--- encryption is opt-in via 'writeEncryption'.
+-- @types@ is a @V.Vector ORCType@ (the ORC schema).
+-- @stripesWithRows@ is @[(V.Vector (Word64, Word64, ByteString), Word64)]@:
+-- one entry per stripe, pairing @(streamKind, columnId,
+-- payload)@ triples (in stream-emission order) with the stripe's
+-- row count. 'WriteOptions' carries the (currently small) set of
+-- file-level toggles — encryption is opt-in via 'writeEncryption'.
+--
+-- If you want to pick Arrow or Parquet instead without
+-- rewriting your data layout, use "Wireform.Columnar" — a
+-- single 'Wireform.Columnar.encode' / 'Wireform.Columnar.decode'
+-- routed through the format of your choice.
 --
 -- Reading is currently lazy / type-dispatched (see
 -- 'ORC.HighLevel.decodeORC' returning an 'ORCFooter'); per-stripe

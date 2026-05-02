@@ -36,25 +36,27 @@
 -- buffer counts, raw 'RecordBatchDef' construction, delta
 -- dictionaries) drop down to "Arrow.FlatBufferIPC".
 module Arrow.Stream
-  ( -- * Streams (eager)
+  ( -- * Encoding / decoding
+    -- ** Streams (eager)
     encodeArrowStream
-  , encodeArrowStreamWith
   , decodeArrowStream
-    -- * Files (eager)
+    -- ** Files (eager)
   , encodeArrowFile
-  , encodeArrowFileWith
   , decodeArrowFile
-    -- * Streams (incremental / iterator)
+    -- ** Streams (incremental / iterator)
   , StreamReader
   , openStreamReader
   , streamReaderSchema
   , streamReaderNext
   , streamReaderToList
-    -- * Write options
+    -- * Options
   , WriteOptions (..)
   , DictHandling (..)
   , defaultWriteOptions
   , BodyCompressionCodec (..)
+    -- * Legacy / deprecated variants
+  , encodeArrowStreamWith
+  , encodeArrowFileWith
   ) where
 
 import Data.ByteString (ByteString)
@@ -151,19 +153,16 @@ defaultWriteOptions = WriteOptions
 -- replacement / delta dictionaries are not produced by the
 -- high-level API; if you need that, drop down to
 -- 'Arrow.FlatBufferIPC.writeArrowStreamFBWithDicts'.
+-- | Encode a sequence of column-major batches as an Arrow IPC
+-- stream. See 'WriteOptions' for the knobs the writer accepts;
+-- use 'defaultWriteOptions' for the "just work" shape that
+-- matches pyarrow's @ipc.new_stream@ defaults.
 encodeArrowStream
-  :: Schema
-  -> [V.Vector ColumnArray]
-  -> ByteString
-encodeArrowStream = encodeArrowStreamWith defaultWriteOptions
-
--- | 'encodeArrowStream' with explicit 'WriteOptions'.
-encodeArrowStreamWith
   :: WriteOptions
   -> Schema
   -> [V.Vector ColumnArray]
   -> ByteString
-encodeArrowStreamWith opts sch batches = case writeDictHandling opts of
+encodeArrowStream opts sch batches = case writeDictHandling opts of
   DictEmitOnce ->
     let !(dicts, batchPairs) = compileBatchesWith opts sch batches
     in  writeArrowStreamFBWithDicts sch dicts batchPairs
@@ -228,19 +227,15 @@ decodeArrowStream bs = do
 -- payload between the @ARROW1@ tokens is the same as
 -- 'encodeArrowStream' — including automatic dictionary batch
 -- emission.
+-- | Encode batches as an Arrow IPC file (ARROW1 header + payload
+-- + Footer + ARROW1 trailer). See 'WriteOptions' for body-
+-- compression / dictionary-handling knobs.
 encodeArrowFile
-  :: Schema
-  -> [V.Vector ColumnArray]
-  -> ByteString
-encodeArrowFile = encodeArrowFileWith defaultWriteOptions
-
--- | 'encodeArrowFile' with explicit 'WriteOptions'.
-encodeArrowFileWith
   :: WriteOptions
   -> Schema
   -> [V.Vector ColumnArray]
   -> ByteString
-encodeArrowFileWith opts sch batches =
+encodeArrowFile opts sch batches =
   let !(dicts, batchPairs) = compileBatchesWith opts sch batches
   in  writeArrowFileFBWithDicts sch dicts batchPairs
 
@@ -622,3 +617,32 @@ streamReaderToList rd0 = go rd0 []
       Left e                      -> Left e
       Right Nothing               -> Right (reverse acc)
       Right (Just (cols, rd'))    -> go rd' (cols : acc)
+
+-- ============================================================
+-- Legacy / deprecated variants
+-- ============================================================
+--
+-- Earlier iterations of this module had two entry points — one
+-- taking a 'WriteOptions' and one that baked in 'defaultWriteOptions'.
+-- The two-function shape drifted from the unified cross-format
+-- API that @Wireform.Columnar@ now exposes; the canonical entry
+-- points always take an options record. These aliases keep old
+-- call sites compiling.
+
+{-# DEPRECATED encodeArrowStreamWith
+    "Use 'encodeArrowStream' directly — it now takes 'WriteOptions'." #-}
+encodeArrowStreamWith
+  :: WriteOptions
+  -> Schema
+  -> [V.Vector ColumnArray]
+  -> ByteString
+encodeArrowStreamWith = encodeArrowStream
+
+{-# DEPRECATED encodeArrowFileWith
+    "Use 'encodeArrowFile' directly — it now takes 'WriteOptions'." #-}
+encodeArrowFileWith
+  :: WriteOptions
+  -> Schema
+  -> [V.Vector ColumnArray]
+  -> ByteString
+encodeArrowFileWith = encodeArrowFile

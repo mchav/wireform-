@@ -38,9 +38,12 @@ module Parquet.HighLevel
   , defaultWriteOptions
     -- * Decoding
   , decodeParquet
-  , decodeParquetEncrypted
+  , ReadOptions (..)
+  , defaultReadOptions
   , FooterDecryption (..)
   , ParquetFile (..)
+    -- * Legacy / deprecated variants
+  , decodeParquetEncrypted
     -- * Re-exports for convenience
   , ColumnData (..)
   , ColumnEncryption (..)
@@ -222,40 +225,56 @@ encodeParquetNested
   -> Either String ByteString
 encodeParquetNested = buildNestedFile
 
--- | Parse a Parquet file's footer and return a 'ParquetFile'
--- handle containing the file bytes plus the decoded
--- 'FileMetadata'. Per-column data is decoded /lazily/ via the
--- specialised readers in "Parquet.Read" (e.g.
--- 'Parquet.Read.readPlainInt32OptionalColumnChunk') because the
--- Parquet column data plane is intrinsically type-dispatched and
--- callers usually only project a subset of columns.
---
--- Handles both plaintext-footer (@PAR1@) and encrypted-footer
--- (@PARE@) Parquet variants automatically.
---
--- @
--- case 'decodeParquet' bytes of
---   Right pf -> do
---     let !schema    = 'Parquet.Types.fmSchema'   ('pfFooter' pf)
---         !rowGroups = 'Parquet.Types.fmRowGroups' ('pfFooter' pf)
---     -- ... now extract individual columns via Parquet.Read.* functions
--- @
-decodeParquet :: ByteString -> Either String ParquetFile
-decodeParquet = loadParquetFile
+-- ============================================================
+-- Decoding
+-- ============================================================
 
--- | Parse a Parquet file whose footer is encrypted (PARE trailing
--- magic, produced by 'encodeParquet' with
--- 'writeFooterEncryption' set). The caller supplies the
--- matching 'FooterDecryption' (AES key + AAD prefix + file id
--- the writer stamped).
+-- | Parquet reader configuration. Construct one with
+-- 'defaultReadOptions' and override the fields you care about.
 --
 -- @
--- case 'decodeParquetEncrypted' (FooterDecryption key prefix fileId) bytes of
---   Right pf  -> ...
---   Left  err -> ...
+-- let opts = 'defaultReadOptions'
+--             { readFooterDecryption = Just ('FooterDecryption' key prefix fileId) }
+-- 'decodeParquet' opts bytes
 -- @
+data ReadOptions = ReadOptions
+  { readFooterDecryption :: !(Maybe FooterDecryption)
+    -- ^ When 'Just', expect an encrypted-footer file (PARE
+    -- trailing magic) and decrypt with the supplied key / AAD /
+    -- file-id. When 'Nothing' (the default), a plaintext (PAR1)
+    -- footer is expected.
+  } deriving (Show, Eq)
+
+-- | Plaintext-footer defaults (matches the common case).
+defaultReadOptions :: ReadOptions
+defaultReadOptions = ReadOptions
+  { readFooterDecryption = Nothing
+  }
+
+-- | Parse a Parquet file's footer. By default expects a
+-- plaintext PAR1 footer; pass 'readFooterDecryption' in
+-- 'ReadOptions' to decrypt a PARE-footer file.
+--
+-- @
+-- -- plaintext
+-- 'decodeParquet' 'defaultReadOptions' bytes
+--
+-- -- encrypted footer
+-- 'decodeParquet'
+--   'defaultReadOptions' { 'readFooterDecryption' = Just fd }
+--   bytes
+-- @
+decodeParquet :: ReadOptions -> ByteString -> Either String ParquetFile
+decodeParquet opts = case readFooterDecryption opts of
+  Nothing -> loadParquetFile
+  Just fd -> loadParquetFileEncrypted fd
+
+-- | Legacy wrapper for the encrypted-footer path.
+{-# DEPRECATED decodeParquetEncrypted
+    "Use 'decodeParquet' with 'readFooterDecryption' set in 'ReadOptions'." #-}
 decodeParquetEncrypted
   :: FooterDecryption
   -> ByteString
   -> Either String ParquetFile
-decodeParquetEncrypted = loadParquetFileEncrypted
+decodeParquetEncrypted fd =
+  decodeParquet defaultReadOptions { readFooterDecryption = Just fd }

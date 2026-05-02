@@ -31,6 +31,7 @@ import Test.Bond (bondTests)
 import Test.ASN1 (asn1Tests)
 import Test.Parquet (parquetTests)
 import Test.Arrow (arrowTests)
+import Test.Columnar (columnarFacadeTests)
 import Test.EDN (ednTests)
 import Test.MsgPackRPC (msgPackRPCTests)
 import Test.CBORDiagnostic (cborDiagnosticTests)
@@ -95,6 +96,7 @@ main = defaultMain $ testGroup "wireform"
   , asn1Tests
   , parquetTests
   , arrowTests
+  , columnarFacadeTests
   , ednTests
   , classTests
   , msgPackRPCTests

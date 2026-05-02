@@ -35,16 +35,17 @@ module Parquet.Arrow
     -- * Arrow → Parquet (nested, via Parquet.Nested)
   , arrowFieldToNestedSchema
   , columnArrayToNestedRows
-    -- * Parquet → Arrow (whole-row-group)
+    -- * Parquet → Arrow
   , parquetRowGroupToArrow
   , readParquetColumn
-    -- * Parquet → Arrow (projection / evolution)
-  , parquetRowGroupToArrowProjected
   , parquetFileArrowSchema
   , ProjectionError (..)
     -- * Streaming reader (one row group at a time)
   , streamRowGroups
   , numRowGroups
+    -- * Legacy / deprecated variants
+  , parquetRowGroupToArrowProjected
+  , parquetRowGroupToArrowPositional
   ) where
 
 import Data.ByteString (ByteString)
@@ -230,16 +231,49 @@ columnArrayToColumnData = \case
 -- Parquet → Arrow
 -- ============================================================
 
--- | Read all leaf columns of a Parquet row group and lift them to
--- Arrow column shapes. Requires a parallel Arrow schema so we know
--- the target nullability + UTF-8 vs raw-binary semantics — the
--- Parquet schema alone is ambiguous for byte-array columns.
+-- | Read columns of a Parquet row group and lift them to Arrow
+-- column shapes, driven by the caller-supplied /target/ Arrow
+-- schema.
+--
+-- Lookup is by column name (Parquet's footer carries unique leaf
+-- names), so the target schema may be narrower than the file
+-- (projection), in a different order than the file (reordering),
+-- or request wider types than the file (coercion, see
+-- 'parquetRowGroupToArrowProjected''s docs for the coercion table).
+--
+-- Error cases:
+--
+--   * 'MissingColumn' — the target requests a column name that
+--     isn't present in the file. Callers that want null-fill
+--     semantics should catch this constructor and synthesize a
+--     null column.
+--   * 'IncompatibleType' — the file carries the column but the
+--     target's type isn't reachable by the coercion table.
 parquetRowGroupToArrow
-  :: AT.Schema    -- ^ Target Arrow schema (per-leaf nullability matters)
+  :: AT.Schema    -- ^ Target Arrow schema
   -> PR.ParquetFile
   -> Int          -- ^ Row group index
+  -> Either ProjectionError (V.Vector AC.ColumnArray)
+parquetRowGroupToArrow target pf rgIdx = do
+  let !fileLeaves = V.filter (maybe False (const True) . P.seType)
+                             (P.fmSchema (PR.pfFooter pf))
+      !nameToIdx  = Map.fromList
+        [ (P.seName se, i) | (i, se) <- V.toList (V.indexed fileLeaves) ]
+  V.mapM (readOneProjected pf rgIdx fileLeaves nameToIdx)
+         (AT.arrowFields target)
+
+-- | Positional reader. Uses the file's leaf order directly:
+-- target field @i@ lines up with the file's leaf @i@. Retained
+-- as a deprecated entry point because it's fragile — the file's
+-- order is not always the order the target expects.
+{-# DEPRECATED parquetRowGroupToArrowPositional
+    "Use 'parquetRowGroupToArrow' — it's now name-based and handles projection / reorder / coercion." #-}
+parquetRowGroupToArrowPositional
+  :: AT.Schema
+  -> PR.ParquetFile
+  -> Int
   -> Either String (V.Vector AC.ColumnArray)
-parquetRowGroupToArrow sch pf rgIdx = do
+parquetRowGroupToArrowPositional sch pf rgIdx = do
   let !fields = AT.arrowFields sch
   V.imapM (\colIdx fld -> readParquetColumn pf rgIdx colIdx fld) fields
 
@@ -308,51 +342,48 @@ arrowTypeFromSchemaElement se = case P.seType se of
     _                        -> AT.ABinary
   _                  -> AT.ABinary  -- FIXED_LEN_BYTE_ARRAY / Int96 fallback
 
--- | Read a subset of columns from a Parquet row group, in the
--- order + types the /target/ Arrow schema declares. Implements
--- projection (narrower target), reordering (different order
--- than the file), and light coercion (Int32 → Int64, Float →
--- Double) — enough for consumers that work in a superset schema
--- but files that were written with a narrower projection.
---
--- Columns the target schema declares but the file doesn't carry
--- produce a 'Left (MissingColumn name)' — the caller can catch
--- this and synthesize a null column, or they can query the
--- file's native schema via 'parquetFileArrowSchema' first.
-parquetRowGroupToArrowProjected
-  :: AT.Schema        -- ^ Target Arrow schema (possibly narrower / reordered)
-  -> PR.ParquetFile
-  -> Int              -- ^ Row group index
-  -> Either ProjectionError (V.Vector AC.ColumnArray)
-parquetRowGroupToArrowProjected target pf rgIdx = do
-  let !fileLeaves = V.filter (maybe False (const True) . P.seType)
-                             (P.fmSchema (PR.pfFooter pf))
-      !nameToIdx  = Map.fromList
-        [ (P.seName se, i) | (i, se) <- V.toList (V.indexed fileLeaves) ]
-  V.mapM (readOneProjected nameToIdx) (AT.arrowFields target)
+-- | Core per-column reader used by 'parquetRowGroupToArrow'.
+-- Looks up the column by name, reads it at the file's native
+-- Arrow type, then coerces to the target type via 'coerceColumn'
+-- if needed.
+readOneProjected
+  :: PR.ParquetFile
+  -> Int
+  -> V.Vector P.SchemaElement
+  -> Map.Map Text Int
+  -> AT.Field
+  -> Either ProjectionError AC.ColumnArray
+readOneProjected pf rgIdx fileLeaves nameToIdx fld =
+  case Map.lookup (AT.fieldName fld) nameToIdx of
+    Nothing -> Left (MissingColumn (AT.fieldName fld))
+    Just fileIdx ->
+      case readParquetColumn pf rgIdx fileIdx fld of
+        Right col -> Right col
+        Left _    ->
+          -- Direct read failed — load at the file's native type
+          -- and coerce to the target.
+          let !fileFld = schemaElementToArrowField
+                           (V.unsafeIndex fileLeaves fileIdx)
+          in case readParquetColumn pf rgIdx fileIdx fileFld of
+               Left  _  -> Left (IncompatibleType (AT.fieldName fld) (AT.fieldType fld))
+               Right c' -> coerceColumn (AT.fieldType fld) c'
+                             `orLeft` IncompatibleType (AT.fieldName fld)
+                                                       (AT.fieldType fld)
   where
-    readOneProjected nameToIdx fld =
-      case Map.lookup (AT.fieldName fld) nameToIdx of
-        Nothing ->
-          Left (MissingColumn (AT.fieldName fld))
-        Just fileIdx ->
-          case readParquetColumn pf rgIdx fileIdx fld of
-            Right col -> Right col
-            Left _    ->
-              -- The direct read failed — try to load the column
-              -- at the file's native Arrow type and coerce.
-              let !fileFld = schemaElementToArrowField
-                               (V.unsafeIndex (V.filter (maybe False (const True) . P.seType)
-                                                        (P.fmSchema (PR.pfFooter pf)))
-                                              fileIdx)
-              in case readParquetColumn pf rgIdx fileIdx fileFld of
-                   Left  _  -> Left (IncompatibleType (AT.fieldName fld) (AT.fieldType fld))
-                   Right c' -> coerceColumn (AT.fieldType fld) c'
-                                  `orLeft` IncompatibleType (AT.fieldName fld)
-                                                            (AT.fieldType fld)
-
     orLeft (Right x) _ = Right x
     orLeft (Left  _) e = Left e
+
+-- | Legacy alias for 'parquetRowGroupToArrow'. The two were
+-- temporarily split while the name-based reader was being added;
+-- they're now the same function.
+{-# DEPRECATED parquetRowGroupToArrowProjected
+    "Use 'parquetRowGroupToArrow' — it's now name-based and projection-aware." #-}
+parquetRowGroupToArrowProjected
+  :: AT.Schema
+  -> PR.ParquetFile
+  -> Int
+  -> Either ProjectionError (V.Vector AC.ColumnArray)
+parquetRowGroupToArrowProjected = parquetRowGroupToArrow
 
 -- | Best-effort column coercion for the projection path. The
 -- coercion table is deliberately narrow: numeric widening
@@ -599,6 +630,8 @@ streamRowGroups
   -> PR.ParquetFile
   -> [Either String (V.Vector AC.ColumnArray)]
 streamRowGroups sch pf =
-  [ parquetRowGroupToArrow sch pf i
+  [ case parquetRowGroupToArrow sch pf i of
+      Right cols -> Right cols
+      Left  err  -> Left (show err)
   | i <- [0 .. numRowGroups pf - 1]
   ]

@@ -24,6 +24,11 @@
 -- 'Parquet.HighLevel.decodeParquet' returning 'ParquetFile'); use
 -- the specialised readers in "Parquet.Read" to project individual
 -- columns.
+--
+-- If you want to pick Arrow or ORC instead without rewriting
+-- your data layout, use "Wireform.Columnar" — a single
+-- 'Wireform.Columnar.encode' / 'Wireform.Columnar.decode' routed
+-- through the format of your choice.
 module Wireform.Parquet
   ( -- * High-level API (most callers want this)
     module Parquet.HighLevel
