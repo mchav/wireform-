@@ -29,7 +29,10 @@ main = do
     Right decoded -> putStrLn $ "Table decoded: " ++ show decoded
     Left err      -> putStrLn $ "Error: " ++ err
 
-  let vec = FB.VVector $ V.fromList [FB.VInt32 10, FB.VInt32 20, FB.VInt32 30]
+  -- A spec-compliant flatbuffer always has a table root, so we
+  -- wrap a vector in a single-slot table to encode it.
+  let vec = FB.VTable $ V.singleton (Just (FB.VVector
+              (V.fromList [FB.VInt32 10, FB.VInt32 20, FB.VInt32 30])))
   let vecBytes = FBE.encode vec
   putStrLn $ "Vector encoded: " ++ show (BS.length vecBytes) ++ " bytes"
   case FBD.decode vecBytes of
