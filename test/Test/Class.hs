@@ -4,13 +4,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Test.Class (classTests) where
 
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.Ord (Down(..))
 import Data.Ratio ((%))
 import qualified Data.Sequence as Seq
@@ -348,6 +353,7 @@ aesonParityTests = testGroup "Aeson-parity round-trips"
   , bsonParityTests
   , ednParityTests
   , ionParityTests
+  , functorNewtypeTests
   ]
 
 -- Helpers to make explicit type signatures on the recovered value the only
@@ -471,6 +477,66 @@ ionParityTests = testGroup "Ion"
   , testCase "Identity roundtrip" $ rtIC (Identity (5 :: Int))
   , testCase "Down roundtrip"     $ rtIC (Down (7 :: Int))
   , testCase "Version roundtrip"  $ rtIC (makeVersion [1])
+  ]
+
+--------------------------------------------------------------------------------
+-- Functor / monoid newtype round-trips. We exercise one format per
+-- class-shape (binary tagged-map, AST-wrapped, native union) so the
+-- coverage is broad without exploding the test count.
+--------------------------------------------------------------------------------
+
+functorNewtypeTests :: TestTree
+functorNewtypeTests = testGroup "Functor / monoid newtypes"
+  [ testGroup "MsgPack"
+      [ testCase "Sum"           $ rtMP (Mon.Sum     (5 :: Int))
+      , testCase "Product"       $ rtMP (Mon.Product (6 :: Int))
+      , testCase "Dual"          $ rtMP (Mon.Dual    ("x" :: Text))
+      , testCase "All"           $ rtMP (Mon.All True)
+      , testCase "Any"           $ rtMP (Mon.Any True)
+      , testCase "First"         $ rtMP (Mon.First (Just (1 :: Int)))
+      , testCase "Last"          $ rtMP (Mon.Last  (Just (2 :: Int)))
+      , testCase "Min"           $ rtMP (Semi.Min (3 :: Int))
+      , testCase "Max"           $ rtMP (Semi.Max (4 :: Int))
+      , testCase "Semi.First"    $ rtMP (Semi.First (5 :: Int))
+      , testCase "Semi.Last"     $ rtMP (Semi.Last  (6 :: Int))
+      , testCase "WrappedMonoid" $ rtMP (Semi.WrapMonoid ("hi" :: Text))
+      , testCase "Arg"           $ rtMP (Semi.Arg (1 :: Int) ("x" :: Text))
+      , testCase "Compose"       $ rtMP (Compose [Just (1 :: Int), Nothing, Just 2])
+      , testCase "Functor.Product" $
+          rtMP (FProduct.Pair (Identity (1 :: Int)) (Identity (2 :: Int)))
+      , testCase "Functor.Sum (InL)" $
+          rtMP (FSum.InL (Identity (1 :: Int)) :: FSum.Sum Identity Identity Int)
+      , testCase "Functor.Sum (InR)" $
+          rtMP (FSum.InR (Identity (2 :: Int)) :: FSum.Sum Identity Identity Int)
+      ]
+  , testGroup "CBOR"
+      [ testCase "Sum"           $ rtCC (Mon.Sum     (5 :: Int))
+      , testCase "Min"           $ rtCC (Semi.Min    (3 :: Int))
+      , testCase "Arg"           $ rtCC (Semi.Arg (1 :: Int) ("x" :: Text))
+      , testCase "Compose"       $ rtCC (Compose [Just (1 :: Int), Nothing])
+      , testCase "Functor.Product" $
+          rtCC (FProduct.Pair (Identity (1 :: Int)) (Identity (2 :: Int)))
+      , testCase "Functor.Sum (InR)" $
+          rtCC (FSum.InR (Identity (2 :: Int)) :: FSum.Sum Identity Identity Int)
+      ]
+  , testGroup "BSON"
+      [ testCase "Sum"           $ rtBC (Mon.Sum (5 :: Int))
+      , testCase "Arg"           $ rtBC (Semi.Arg (1 :: Int) ("x" :: Text))
+      , testCase "Functor.Sum (InL)" $
+          rtBC (FSum.InL (Identity (1 :: Int)) :: FSum.Sum Identity Identity Int)
+      ]
+  , testGroup "EDN"
+      [ testCase "Sum"           $ rtEC (Mon.Sum (5 :: Int))
+      , testCase "Compose"       $ rtEC (Compose [Just (1 :: Int)])
+      , testCase "Functor.Sum (InR)" $
+          rtEC (FSum.InR (Identity (2 :: Int)) :: FSum.Sum Identity Identity Int)
+      ]
+  , testGroup "Ion"
+      [ testCase "Sum"           $ rtIC (Mon.Sum (5 :: Int))
+      , testCase "Arg"           $ rtIC (Semi.Arg (1 :: Int) ("x" :: Text))
+      , testCase "Functor.Sum (InR)" $
+          rtIC (FSum.InR (Identity (2 :: Int)) :: FSum.Sum Identity Identity Int)
+      ]
   ]
 
 --------------------------------------------------------------------------------
