@@ -54,9 +54,6 @@ module Arrow.Stream
   , DictHandling (..)
   , defaultWriteOptions
   , BodyCompressionCodec (..)
-    -- * Legacy / deprecated variants
-  , encodeArrowStreamWith
-  , encodeArrowFileWith
   ) where
 
 import Data.ByteString (ByteString)
@@ -258,13 +255,8 @@ decodeArrowFile bs = do
 -- writer wants. The order of dict batches in the returned list
 -- is @id@-ascending so any record batch referencing a dict id
 -- finds it already declared.
-compileBatches
-  :: Schema
-  -> [V.Vector ColumnArray]
-  -> ([DictBatch], [(RecordBatchDef, ByteString)])
-compileBatches = compileBatchesWith defaultWriteOptions
-
--- | This produces a flat @(dicts, batchPairs)@ pair that the
+--
+-- This produces a flat @(dicts, batchPairs)@ pair that the
 -- lower-level 'writeArrowStreamFBWithDicts' consumes; it assumes
 -- all dicts are emitted once up front. For the
 -- 'DictReplaceOnChange' strategy the emission is interleaved —
@@ -618,31 +610,3 @@ streamReaderToList rd0 = go rd0 []
       Right Nothing               -> Right (reverse acc)
       Right (Just (cols, rd'))    -> go rd' (cols : acc)
 
--- ============================================================
--- Legacy / deprecated variants
--- ============================================================
---
--- Earlier iterations of this module had two entry points — one
--- taking a 'WriteOptions' and one that baked in 'defaultWriteOptions'.
--- The two-function shape drifted from the unified cross-format
--- API that @Wireform.Columnar@ now exposes; the canonical entry
--- points always take an options record. These aliases keep old
--- call sites compiling.
-
-{-# DEPRECATED encodeArrowStreamWith
-    "Use 'encodeArrowStream' directly — it now takes 'WriteOptions'." #-}
-encodeArrowStreamWith
-  :: WriteOptions
-  -> Schema
-  -> [V.Vector ColumnArray]
-  -> ByteString
-encodeArrowStreamWith = encodeArrowStream
-
-{-# DEPRECATED encodeArrowFileWith
-    "Use 'encodeArrowFile' directly — it now takes 'WriteOptions'." #-}
-encodeArrowFileWith
-  :: WriteOptions
-  -> Schema
-  -> [V.Vector ColumnArray]
-  -> ByteString
-encodeArrowFileWith = encodeArrowFile

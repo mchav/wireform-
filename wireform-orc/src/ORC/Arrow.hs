@@ -31,9 +31,6 @@ module ORC.Arrow
   , columnArrayToORCStreams
     -- * ORC → Arrow
   , orcStripeToArrow
-    -- * Legacy / deprecated variants
-  , arrowToORCWithRows
-  , arrowToORCWithoutRows
   ) where
 
 import Data.ByteString (ByteString)
@@ -913,33 +910,3 @@ temporalToArrow ty nullable xs = case (ty, nullable) of
     narrow32 :: Int64 -> Int32
     narrow32 = fromIntegral
 
--- ============================================================
--- Legacy / deprecated variants
--- ============================================================
---
--- Before the consolidation, there were two Arrow → ORC entry
--- points: 'arrowToORC' (row-count-free) and 'arrowToORCWithRows'
--- (row-count-paired). The row-count-paired shape is now the
--- canonical one; these aliases keep old call sites compiling.
-
-{-# DEPRECATED arrowToORCWithRows
-    "Use 'arrowToORC' — it now returns per-stripe row counts as the canonical shape." #-}
-arrowToORCWithRows
-  :: AT.Schema
-  -> [V.Vector AC.ColumnArray]
-  -> Either String ( V.Vector OT.ORCType
-                   , [(V.Vector (Word64, Word64, ByteString), Word64)]
-                   )
-arrowToORCWithRows = arrowToORC
-
-{-# DEPRECATED arrowToORCWithoutRows
-    "Use 'arrowToORC' then 'map fst' if you really only want the stream tuples." #-}
-arrowToORCWithoutRows
-  :: AT.Schema
-  -> [V.Vector AC.ColumnArray]
-  -> Either String ( V.Vector OT.ORCType
-                   , [V.Vector (Word64, Word64, ByteString)]
-                   )
-arrowToORCWithoutRows sch batches = do
-  (types, withRows) <- arrowToORC sch batches
-  Right (types, map fst withRows)

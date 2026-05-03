@@ -72,8 +72,6 @@ import Arrow.Stream hiding
   , encodeArrowFile
   , decodeArrowStream
   , decodeArrowFile
-  , encodeArrowStreamWith
-  , encodeArrowFileWith
   )
 import qualified Arrow.Types as AT
 
@@ -84,8 +82,6 @@ import ORC.HighLevel hiding
   , defaultWriteOptions
   , encodeORC
   , decodeORC
-  , encodeORCWithRows
-  , encodeORCWithoutRows
   )
 import qualified ORC.Read as ORead
 import qualified ORC.Stripe as OStripe
@@ -101,7 +97,6 @@ import Parquet.HighLevel hiding
   , encodeParquet
   , encodeParquetNested
   , decodeParquet
-  , decodeParquetEncrypted
   )
 
 -- ============================================================
