@@ -150,14 +150,6 @@ foreign import ccall unsafe "wireform_scan_squote_ascii"
   c_scan_squote_ascii :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
 
 
-foreign import ccall unsafe "wireform_skip_to_dquote"
-  c_skip_to_dquote :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
-
-
-foreign import ccall unsafe "wireform_skip_to_squote"
-  c_skip_to_squote :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
-
-
 foreign import ccall unsafe "wireform_scan_unquoted"
   c_scan_unquoted :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
 
