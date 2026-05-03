@@ -1,12 +1,26 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Test.Class (classTests) where
 
-import Data.Text (Text)
-import qualified Data.Vector as V
+import Data.Functor.Identity (Identity(..))
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
+import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
+import Data.Ord (Down(..))
+import Data.Ratio ((%))
+import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
+import Data.Text (Text)
+import qualified Data.Text.Lazy as TL
+import qualified Data.Vector as V
+import Data.Version (makeVersion)
 import GHC.Generics (Generic)
+import Numeric.Natural (Natural)
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -59,6 +73,7 @@ classTests = testGroup "Typeclass encode/decode"
   , bsonGenericTests
   , ednGenericTests
   , ionGenericTests
+  , aesonParityTests
   ]
 
 --------------------------------------------------------------------------------
@@ -317,4 +332,142 @@ ionGenericTests = testGroup "Ion Generic deriving"
   , testCase "Address generic roundtrip" $ do
       let a = Address "123 Main St" "Springfield" 62701
       IC.fromIon (IC.toIon a) @?= Right a
+  ]
+
+--------------------------------------------------------------------------------
+-- Aeson-parity instances (NonEmpty, Either, Set, Seq, IntMap, IntSet, HashMap,
+-- HashSet, 3- and 4-tuples, Identity, Const, Down, Version, Ratio, Char,
+-- Natural, lazy Text, etc.) -- spot-check round-trips across formats.
+--------------------------------------------------------------------------------
+
+aesonParityTests :: TestTree
+aesonParityTests = testGroup "Aeson-parity round-trips"
+  [ msgPackParityTests
+  , cborParityTests
+  , bsonParityTests
+  , ednParityTests
+  , ionParityTests
+  ]
+
+-- Helpers to make explicit type signatures on the recovered value the only
+-- annotation site needed.
+rtMP :: forall a. (MC.ToMsgPack a, MC.FromMsgPack a, Eq a, Show a) => a -> Assertion
+rtMP x = MC.fromMsgPack (MC.toMsgPack x) @?= Right x
+
+rtCC :: forall a. (CC.ToCBOR a, CC.FromCBOR a, Eq a, Show a) => a -> Assertion
+rtCC x = CC.fromCBOR (CC.toCBOR x) @?= Right x
+
+rtBC :: forall a. (BC.ToBSON a, BC.FromBSON a, Eq a, Show a) => a -> Assertion
+rtBC x = BC.fromBSON (BC.toBSON x) @?= Right x
+
+rtEC :: forall a. (EC.ToEDN a, EC.FromEDN a, Eq a, Show a) => a -> Assertion
+rtEC x = EC.fromEDN (EC.toEDN x) @?= Right x
+
+rtIC :: forall a. (IC.ToIon a, IC.FromIon a, Eq a, Show a) => a -> Assertion
+rtIC x = IC.fromIon (IC.toIon x) @?= Right x
+
+msgPackParityTests :: TestTree
+msgPackParityTests = testGroup "MsgPack"
+  [ testCase "Integer roundtrip"   $ do rtMP (12345678901234567 :: Integer); rtMP (-1 :: Integer)
+  , testCase "Natural roundtrip"   $ rtMP (42 :: Natural)
+  , testCase "Lazy Text roundtrip" $ rtMP (TL.pack "hello lazy world")
+  , testCase "NonEmpty roundtrip"  $ rtMP (1 :| [2, 3 :: Int])
+  , testCase "Either roundtrip"    $ do
+      rtMP (Left  "left"  :: Either Text Int)
+      rtMP (Right 99      :: Either Text Int)
+  , testCase "Set roundtrip"     $ rtMP (Set.fromList [1, 2, 3 :: Int])
+  , testCase "Seq roundtrip"     $ rtMP (Seq.fromList [10, 20 :: Int])
+  , testCase "IntMap roundtrip"  $ rtMP (IntMap.fromList [(1, "a" :: Text), (2, "b")])
+  , testCase "IntSet roundtrip"  $ rtMP (IntSet.fromList [3, 4, 5])
+  , testCase "HashMap roundtrip" $ rtMP (HM.fromList [("k" :: Text, 1 :: Int)])
+  , testCase "HashSet roundtrip" $ rtMP (HS.fromList [1, 2 :: Int])
+  , testCase "3-tuple roundtrip" $ rtMP ("x" :: Text, 1 :: Int, True)
+  , testCase "4-tuple roundtrip" $ rtMP (1 :: Int, 2 :: Int, 3 :: Int, 4 :: Int)
+  , testCase "Identity roundtrip" $ rtMP (Identity (5 :: Int))
+  , testCase "Down roundtrip"     $ rtMP (Down (7 :: Int))
+  , testCase "Version roundtrip"  $ rtMP (makeVersion [1, 2, 3])
+  , testCase "Ratio roundtrip"    $ rtMP (3 % 4 :: Rational)
+  ]
+
+cborParityTests :: TestTree
+cborParityTests = testGroup "CBOR"
+  [ testCase "Integer roundtrip"  $ do rtCC (98765432109876 :: Integer); rtCC (-3 :: Integer)
+  , testCase "Natural roundtrip"  $ rtCC (42 :: Natural)
+  , testCase "Lazy Text roundtrip" $ rtCC (TL.pack "lazy")
+  , testCase "NonEmpty roundtrip" $ rtCC (1 :| [2 :: Int])
+  , testCase "Either roundtrip"   $ do
+      rtCC (Left  "x" :: Either Text Int)
+      rtCC (Right 1   :: Either Text Int)
+  , testCase "Set roundtrip"     $ rtCC (Set.fromList [1, 2 :: Int])
+  , testCase "Seq roundtrip"     $ rtCC (Seq.fromList ["a" :: Text, "b"])
+  , testCase "IntMap roundtrip"  $ rtCC (IntMap.fromList [(1, True), (2, False)])
+  , testCase "IntSet roundtrip"  $ rtCC (IntSet.fromList [10, 20])
+  , testCase "HashMap roundtrip" $ rtCC (HM.fromList [("k" :: Text, 5 :: Int)])
+  , testCase "HashSet roundtrip" $ rtCC (HS.fromList [1, 2 :: Int])
+  , testCase "3-tuple roundtrip" $ rtCC ("x" :: Text, 1 :: Int, True)
+  , testCase "4-tuple roundtrip" $ rtCC (1 :: Int, "b" :: Text, True, 4 :: Int)
+  , testCase "Identity roundtrip" $ rtCC (Identity ("hi" :: Text))
+  , testCase "Down roundtrip"     $ rtCC (Down (7 :: Int))
+  , testCase "Version roundtrip"  $ rtCC (makeVersion [2])
+  , testCase "Ratio roundtrip"    $ rtCC (5 % 7 :: Rational)
+  ]
+
+bsonParityTests :: TestTree
+bsonParityTests = testGroup "BSON"
+  [ testCase "Integer (small) roundtrip" $ rtBC (123 :: Integer)
+  , testCase "Natural roundtrip"   $ rtBC (42 :: Natural)
+  , testCase "NonEmpty roundtrip"  $ rtBC (1 :| [2 :: Int])
+  , testCase "Either roundtrip"    $ do
+      rtBC (Left  "x" :: Either Text Int)
+      rtBC (Right 7   :: Either Text Int)
+  , testCase "Set roundtrip"      $ rtBC (Set.fromList [1, 2 :: Int])
+  , testCase "Seq roundtrip"      $ rtBC (Seq.fromList [10, 20 :: Int])
+  , testCase "IntMap roundtrip"   $ rtBC (IntMap.fromList [(1, "a" :: Text)])
+  , testCase "IntSet roundtrip"   $ rtBC (IntSet.fromList [3, 4])
+  , testCase "3-tuple roundtrip"  $ rtBC ("x" :: Text, 1 :: Int, True)
+  , testCase "Identity roundtrip" $ rtBC (Identity (5 :: Int))
+  , testCase "Down roundtrip"     $ rtBC (Down (7 :: Int))
+  , testCase "Version roundtrip"  $ rtBC (makeVersion [1, 2])
+  ]
+
+ednParityTests :: TestTree
+ednParityTests = testGroup "EDN"
+  [ testCase "Char roundtrip"      $ rtEC 'x'
+  , testCase "Integer roundtrip"   $ rtEC (12345 :: Integer)
+  , testCase "Natural roundtrip"   $ rtEC (42 :: Natural)
+  , testCase "Lazy Text roundtrip" $ rtEC (TL.pack "lazy")
+  , testCase "NonEmpty roundtrip"  $ rtEC (1 :| [2 :: Int])
+  , testCase "Either roundtrip"    $ do
+      rtEC (Left  "x" :: Either Text Int)
+      rtEC (Right 1   :: Either Text Int)
+  , testCase "Set roundtrip"     $ rtEC (Set.fromList [1, 2 :: Int])
+  , testCase "Seq roundtrip"     $ rtEC (Seq.fromList ["a" :: Text])
+  , testCase "IntMap roundtrip"  $ rtEC (IntMap.fromList [(1, True)])
+  , testCase "IntSet roundtrip"  $ rtEC (IntSet.fromList [10])
+  , testCase "HashSet roundtrip" $ rtEC (HS.fromList [1, 2 :: Int])
+  , testCase "3-tuple roundtrip" $ rtEC ("x" :: Text, 1 :: Int, True)
+  , testCase "Identity roundtrip" $ rtEC (Identity ("hi" :: Text))
+  , testCase "Version roundtrip"  $ rtEC (makeVersion [3])
+  ]
+
+ionParityTests :: TestTree
+ionParityTests = testGroup "Ion"
+  [ testCase "Char roundtrip"      $ rtIC 'x'
+  , testCase "Integer (small) roundtrip" $ rtIC (12345 :: Integer)
+  , testCase "Natural roundtrip"   $ rtIC (42 :: Natural)
+  , testCase "Lazy Text roundtrip" $ rtIC (TL.pack "lazy")
+  , testCase "NonEmpty roundtrip"  $ rtIC (1 :| [2 :: Int])
+  , testCase "Either roundtrip"    $ do
+      rtIC (Left  "x" :: Either Text Int)
+      rtIC (Right 1   :: Either Text Int)
+  , testCase "Set roundtrip"     $ rtIC (Set.fromList [1, 2 :: Int])
+  , testCase "Seq roundtrip"     $ rtIC (Seq.fromList [10, 20 :: Int])
+  , testCase "IntMap roundtrip"  $ rtIC (IntMap.fromList [(1, "a" :: Text)])
+  , testCase "IntSet roundtrip"  $ rtIC (IntSet.fromList [10])
+  , testCase "HashMap (Text k) roundtrip" $ rtIC (HM.fromList [("k" :: Text, 1 :: Int)])
+  , testCase "HashSet roundtrip" $ rtIC (HS.fromList [1, 2 :: Int])
+  , testCase "3-tuple roundtrip" $ rtIC ("x" :: Text, 1 :: Int, True)
+  , testCase "Identity roundtrip" $ rtIC (Identity (5 :: Int))
+  , testCase "Down roundtrip"     $ rtIC (Down (7 :: Int))
+  , testCase "Version roundtrip"  $ rtIC (makeVersion [1])
   ]
