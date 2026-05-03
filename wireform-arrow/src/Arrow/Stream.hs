@@ -54,9 +54,6 @@ module Arrow.Stream
   , DictHandling (..)
   , defaultWriteOptions
   , BodyCompressionCodec (..)
-    -- * Legacy / deprecated variants
-  , encodeArrowStreamWith
-  , encodeArrowFileWith
   ) where
 
 import Data.ByteString (ByteString)
@@ -617,32 +614,3 @@ streamReaderToList rd0 = go rd0 []
       Left e                      -> Left e
       Right Nothing               -> Right (reverse acc)
       Right (Just (cols, rd'))    -> go rd' (cols : acc)
-
--- ============================================================
--- Legacy / deprecated variants
--- ============================================================
---
--- Earlier iterations of this module had two entry points — one
--- taking a 'WriteOptions' and one that baked in 'defaultWriteOptions'.
--- The two-function shape drifted from the unified cross-format
--- API that @Wireform.Columnar@ now exposes; the canonical entry
--- points always take an options record. These aliases keep old
--- call sites compiling.
-
-{-# DEPRECATED encodeArrowStreamWith
-    "Use 'encodeArrowStream' directly — it now takes 'WriteOptions'." #-}
-encodeArrowStreamWith
-  :: WriteOptions
-  -> Schema
-  -> [V.Vector ColumnArray]
-  -> ByteString
-encodeArrowStreamWith = encodeArrowStream
-
-{-# DEPRECATED encodeArrowFileWith
-    "Use 'encodeArrowFile' directly — it now takes 'WriteOptions'." #-}
-encodeArrowFileWith
-  :: WriteOptions
-  -> Schema
-  -> [V.Vector ColumnArray]
-  -> ByteString
-encodeArrowFileWith = encodeArrowFile

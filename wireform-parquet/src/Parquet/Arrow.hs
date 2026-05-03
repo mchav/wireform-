@@ -45,9 +45,6 @@ module Parquet.Arrow
     -- * Streaming reader (one row group at a time)
   , streamRowGroups
   , numRowGroups
-    -- * Legacy / deprecated variants
-  , parquetRowGroupToArrowProjected
-  , parquetRowGroupToArrowPositional
   ) where
 
 import Data.ByteString (ByteString)
@@ -323,8 +320,8 @@ columnArrayToColumnData = \case
 -- Lookup is by column name (Parquet's footer carries unique leaf
 -- names), so the target schema may be narrower than the file
 -- (projection), in a different order than the file (reordering),
--- or request wider types than the file (coercion, see
--- 'parquetRowGroupToArrowProjected''s docs for the coercion table).
+-- or request wider types than the file (coercion, see the
+-- coercion table in 'coerceColumn').
 --
 -- Error cases:
 --
@@ -346,21 +343,6 @@ parquetRowGroupToArrow target pf rgIdx = do
         [ (P.seName se, i) | (i, se) <- V.toList (V.indexed fileLeaves) ]
   V.mapM (readOneProjected pf rgIdx fileLeaves nameToIdx)
          (AT.arrowFields target)
-
--- | Positional reader. Uses the file's leaf order directly:
--- target field @i@ lines up with the file's leaf @i@. Retained
--- as a deprecated entry point because it's fragile — the file's
--- order is not always the order the target expects.
-{-# DEPRECATED parquetRowGroupToArrowPositional
-    "Use 'parquetRowGroupToArrow' — it's now name-based and handles projection / reorder / coercion." #-}
-parquetRowGroupToArrowPositional
-  :: AT.Schema
-  -> PR.ParquetFile
-  -> Int
-  -> Either String (V.Vector AC.ColumnArray)
-parquetRowGroupToArrowPositional sch pf rgIdx = do
-  let !fields = AT.arrowFields sch
-  V.imapM (\colIdx fld -> readParquetColumn pf rgIdx colIdx fld) fields
 
 -- ============================================================
 -- Projection / schema evolution
@@ -457,18 +439,6 @@ readOneProjected pf rgIdx fileLeaves nameToIdx fld =
   where
     orLeft (Right x) _ = Right x
     orLeft (Left  _) e = Left e
-
--- | Legacy alias for 'parquetRowGroupToArrow'. The two were
--- temporarily split while the name-based reader was being added;
--- they're now the same function.
-{-# DEPRECATED parquetRowGroupToArrowProjected
-    "Use 'parquetRowGroupToArrow' — it's now name-based and projection-aware." #-}
-parquetRowGroupToArrowProjected
-  :: AT.Schema
-  -> PR.ParquetFile
-  -> Int
-  -> Either ProjectionError (V.Vector AC.ColumnArray)
-parquetRowGroupToArrowProjected = parquetRowGroupToArrow
 
 -- | Best-effort column coercion for the projection path. The
 -- coercion table is deliberately narrow: numeric widening

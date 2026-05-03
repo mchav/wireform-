@@ -892,8 +892,8 @@ arrowParquetProjection = do
                     ]
                 , AT.arrowEndianness = AT.Little
                 }
-          case PArrow.parquetRowGroupToArrowProjected target pf 0 of
-            Left  e    -> failTest $ "parquetRowGroupToArrowProjected: " ++ show e
+          case PArrow.parquetRowGroupToArrow target pf 0 of
+            Left  e    -> failTest $ "parquetRowGroupToArrow: " ++ show e
             Right cols -> do
               let !expected = V.fromList
                     [ AC.ColUtf8  (V.fromList ["alpha", "beta", "gamma"])
@@ -910,7 +910,7 @@ arrowParquetProjection = do
                     (AT.Field "z" False (AT.AInt 32 True) V.empty Nothing)
                 , AT.arrowEndianness = AT.Little
                 }
-          case PArrow.parquetRowGroupToArrowProjected missing pf 0 of
+          case PArrow.parquetRowGroupToArrow missing pf 0 of
             Left (PArrow.MissingColumn "z") ->
               putStrLn "OK: Parquet projection surfaces MissingColumn"
             other -> failTest $ "expected MissingColumn, got " ++ show other
@@ -921,7 +921,7 @@ arrowParquetProjection = do
                     (AT.Field "a" False (AT.AInt 64 True) V.empty Nothing)
                 , AT.arrowEndianness = AT.Little
                 }
-          case PArrow.parquetRowGroupToArrowProjected widen pf 0 of
+          case PArrow.parquetRowGroupToArrow widen pf 0 of
             Left e -> failTest $ "projection coercion: " ++ show e
             Right cols ->
               if cols == V.singleton (AC.ColInt64 (VP.fromList [10, 20, 30 :: Int64]))
