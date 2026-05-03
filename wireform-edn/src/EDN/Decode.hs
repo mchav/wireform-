@@ -48,18 +48,6 @@ skipWS :: ByteString -> Int -> Int
 skipWS !bs !off = skipWhitespaceBS bs off
 {-# INLINE skipWS #-}
 
-peekByte :: ByteString -> Int -> Maybe Word8
-peekByte !bs !off
-  | off >= BS.length bs = Nothing
-  | otherwise = Just (BSU.unsafeIndex bs off)
-{-# INLINE peekByte #-}
-
-getByte :: ByteString -> Int -> Maybe (Word8, Int)
-getByte !bs !off
-  | off >= BS.length bs = Nothing
-  | otherwise = Just (BSU.unsafeIndex bs off, off + 1)
-{-# INLINE getByte #-}
-
 parseValue :: Parser E.Value
 parseValue bs off
   | off >= BS.length bs = Left "EDN.Decode: unexpected end of input"
@@ -94,10 +82,6 @@ spanToken !bs !off = go off
 decodeRange :: ByteString -> Int -> Int -> String
 decodeRange !bs !start !end =
   T.unpack (TE.decodeUtf8Lenient (BSU.unsafeTake (end - start) (BSU.unsafeDrop start bs)))
-
-decodeRangeText :: ByteString -> Int -> Int -> Text
-decodeRangeText !bs !start !end =
-  TE.decodeUtf8Lenient (BSU.unsafeTake (end - start) (BSU.unsafeDrop start bs))
 
 parseNilOrSymbol :: Parser E.Value
 parseNilOrSymbol bs off =
