@@ -6,7 +6,7 @@
 --
 -- == Quick start
 --
--- The high-level API in "ORC.HighLevel" consolidates the writer's
+-- The high-level API in "ORC" consolidates the writer's
 -- variants behind a single record of options:
 --
 -- @
@@ -28,12 +28,12 @@
 -- routed through the format of your choice.
 --
 -- Reading is currently lazy / type-dispatched (see
--- 'ORC.HighLevel.decodeORC' returning an 'ORCFooter'); per-stripe
+-- 'ORC.decodeORC' returning an 'ORCFooter'); per-stripe
 -- per-column data is decoded via the specialised readers in
 -- "ORC.Read".
 module Wireform.ORC
   ( -- * High-level API (most callers want this)
-    module ORC.HighLevel
+    module ORC
     -- * Schema + footer types
   , module ORC.Types
   , module ORC.Footer
@@ -43,8 +43,8 @@ module Wireform.ORC
   , module ORC.Write
   ) where
 
+import ORC
 import ORC.Footer
-import ORC.HighLevel
 import ORC.Read
 import ORC.Stripe
 import ORC.Types

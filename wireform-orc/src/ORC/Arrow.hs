@@ -10,12 +10,12 @@
 -- @
 -- -- Arrow → ORC
 -- let !(types, stripes) = 'arrowToORC' arrowSchema arrowBatches
---     bytes             = 'ORC.HighLevel.encodeORC'
---                            'ORC.HighLevel.defaultWriteOptions'
+--     bytes             = 'ORC.encodeORC'
+--                            'ORC.defaultWriteOptions'
 --                            types stripes
 --
 -- -- ORC → Arrow (one stripe at a time)
--- footer <- 'ORC.HighLevel.decodeORC' bytes
+-- footer <- 'ORC.decodeORC' bytes
 -- batch  <- 'orcStripeToArrow' arrowSchema bytes footer 0
 -- @
 --
@@ -79,12 +79,12 @@ _streamSecondary = 7
 -- ============================================================
 
 -- | Lower an Arrow schema + a sequence of column-major batches
--- to the inputs 'ORC.HighLevel.encodeORC' expects.
+-- to the inputs 'ORC.encodeORC' expects.
 --
 -- Each Arrow batch becomes one ORC stripe. The output pairs
 -- each stripe's stream tuples with its row count (derived from
 -- the first top-level column's length) so
--- 'ORC.HighLevel.encodeORC' can stamp @siNumberOfRows@ directly
+-- 'ORC.encodeORC' can stamp @siNumberOfRows@ directly
 -- into the stripe information.
 --
 -- Supports both flat and nested types:
@@ -700,7 +700,7 @@ sliceForCid cid kind stripeBs streams =
 
 -- | Read a single stripe from an ORC file and lift each leaf
 -- column to its Arrow shape. Requires both the parsed footer
--- (from 'ORC.HighLevel.decodeORC') and the original file bytes
+-- (from 'ORC.decodeORC') and the original file bytes
 -- so we can slice the stripe payload.
 --
 -- The Arrow schema is consulted to resolve the per-column
@@ -708,7 +708,7 @@ sliceForCid cid kind stripeBs streams =
 orcStripeToArrow
   :: AT.Schema
   -> ByteString             -- ^ the full ORC file bytes
-  -> OT.ORCFooter           -- ^ pre-parsed footer (from 'ORC.HighLevel.decodeORC')
+  -> OT.ORCFooter           -- ^ pre-parsed footer (from 'ORC.decodeORC')
   -> Int                    -- ^ stripe index
   -> Either String (V.Vector AC.ColumnArray)
 orcStripeToArrow sch fileBs footer stripeIdx = do
