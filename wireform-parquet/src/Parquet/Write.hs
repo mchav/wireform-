@@ -172,8 +172,15 @@ pageHeaderToThrift hdr = TV.Struct $ V.fromList $ concat
 
 dataPageHeaderFields :: DataPageHeader -> V.Vector (Int16, TV.Value)
 dataPageHeaderFields dph = V.fromList
-  [ DataPageHeader_NumValues (dphNumValues dph)
-  , DataPageHeader_Encoding  (dphEncoding  dph)
+  [ DataPageHeader_NumValues                   (dphNumValues dph)
+  , DataPageHeader_Encoding                    (dphEncoding  dph)
+    -- Both fields are /required/ in parquet.thrift's DataPageHeader.
+    -- For required (max-def-level=0) columns the encoded level data
+    -- is zero bytes, but the encoding still has to be declared or
+    -- strict readers reject the page header. RLE (3) is what
+    -- parquet-mr / arrow-cpp stamp here, so we mirror that.
+  , DataPageHeader_DefinitionLevelEncoding     3
+  , DataPageHeader_RepetitionLevelEncoding     3
   ]
 
 dictPageHeaderFields :: DictionaryPageHeader -> V.Vector (Int16, TV.Value)
