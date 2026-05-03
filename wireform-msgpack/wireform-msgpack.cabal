@@ -32,6 +32,7 @@ library
     MsgPack.Decode
     MsgPack.Derive
     MsgPack.Encode
+    MsgPack.Encoding
     MsgPack.JSON
     MsgPack.RPC
     MsgPack.Stream

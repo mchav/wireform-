@@ -41,6 +41,7 @@ library
     HTML.Parse
     HTML.Encode
     HTML.Class
+    HTML.Encoding
     HTML.Derive
     HTML.TagId
     HTML.DOM

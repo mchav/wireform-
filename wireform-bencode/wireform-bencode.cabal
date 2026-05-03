@@ -32,6 +32,7 @@ library
     Bencode.Decode
     Bencode.Derive
     Bencode.Encode
+    Bencode.Encoding
     Bencode.Value
   build-depends:
     base >= 4.16 && < 5,

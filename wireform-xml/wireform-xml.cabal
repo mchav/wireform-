@@ -37,6 +37,7 @@ library
     XML.Decode
     XML.Derive
     XML.Encode
+    XML.Encoding
     XML.FastDOM
     XML.Generic
     XML.Incremental
