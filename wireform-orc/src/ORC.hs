@@ -25,7 +25,7 @@
 --
 -- For lower-level control (per-stripe footer adjustments,
 -- selective stripe encryption), drop down to "ORC.Write".
-module ORC.HighLevel
+module ORC
   ( -- * Encoding
     encodeORC
   , WriteOptions (..)

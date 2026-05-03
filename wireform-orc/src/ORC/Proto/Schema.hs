@@ -105,7 +105,9 @@ module ORC.Proto.Schema
     -- * BloomFilter + BloomFilterIndex
   , pattern BloomFilter_NumHashFunctions
   , pattern BloomFilter_Bitset
+  , pattern BloomFilter_Utf8Bitset
   , pattern BloomFilterIndex_Entry
+  , encodeRepeatedFixed64Field
     -- * Encryption
   , pattern Encryption_Mask
   , pattern Encryption_Key
@@ -211,6 +213,19 @@ encodePackedFixed64Field f@(_, wt) xs
       encodeLengthDelim f (VU.foldl' (\b w -> b <> B.word64LE w) mempty xs)
   | otherwise = error $ "ORC.Proto.Schema.encodePackedFixed64Field: "
                      ++ "expected wtLenDelim, got " ++ show wt
+
+-- | Encode an /unpacked/ repeated @fixed64@ field — one tag byte per
+-- 8-byte little-endian element. This is what proto2 writers (including
+-- the upstream ORC Java writer for the legacy @BLOOM_FILTER = 7@
+-- stream) emit by default for @repeated fixed64@ without an explicit
+-- @[packed=true]@ option.
+encodeRepeatedFixed64Field :: (Int, WireType) -> VU.Vector Word64 -> B.Builder
+encodeRepeatedFixed64Field (fieldNum, wt) xs
+  | wt == wtFixed64 =
+      VU.foldl' (\b w -> b <> protoTagByte fieldNum wt <> B.word64LE w)
+                mempty xs
+  | otherwise = error $ "ORC.Proto.Schema.encodeRepeatedFixed64Field: "
+                     ++ "expected wtFixed64, got " ++ show wt
 
 -- | Low-level: emit the tag byte(s) for @(fieldNum, wireType)@.
 protoTagByte :: Int -> WireType -> B.Builder
@@ -478,8 +493,19 @@ pattern BloomFilter_NumHashFunctions :: (Int, WireType)
 pattern BloomFilter_NumHashFunctions = (1, 0)
 
 pattern BloomFilter_Bitset :: (Int, WireType)
--- packed repeated fixed64
-pattern BloomFilter_Bitset           = (2, 2)
+-- Legacy @repeated fixed64 bitset = 2@. ORC's Java writer emits the
+-- legacy @BLOOM_FILTER = 7@ stream as one tag-per-word (i.e.
+-- /unpacked/ repeated fixed64, wire type 1), even though packed would
+-- also be a valid encoding; the reader path tolerates either, but the
+-- wire-type tag below is the unpacked form so 'encodeRepeatedFixed64Field'
+-- can reuse it.
+pattern BloomFilter_Bitset           = (2, 1)
+
+pattern BloomFilter_Utf8Bitset :: (Int, WireType)
+-- @optional bytes utf8bitset = 3@. ORC's Java writer packs the bit-set
+-- as a little-endian byte run in this field whenever it emits a
+-- @BLOOM_FILTER_UTF8 = 8@ stream (post-ORC-101).
+pattern BloomFilter_Utf8Bitset       = (3, 2)
 
 pattern BloomFilterIndex_Entry :: (Int, WireType)
 pattern BloomFilterIndex_Entry       = (1, 2)

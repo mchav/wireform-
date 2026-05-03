@@ -15,7 +15,7 @@ import Test.Tasty.Hedgehog
 import qualified Arrow.Column as AC
 import qualified Arrow.Types  as AT
 import qualified ORC.Arrow     as OArrow
-import qualified ORC.HighLevel as OHL
+import qualified ORC
 import ORC.Footer
 import ORC.Read
 import ORC.Stripe (Stream (..), StripeFooter (..), encodeStripeFooter, decodeStripeFooter, stripeStreamSlices)
@@ -55,7 +55,7 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
       case OArrow.arrowToORC arrowSchema [batch] of
         Left e -> assertFailure ("arrowToORC: " ++ e)
         Right (types, stripesWithRows) ->
-          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+          case ORC.encodeORC ORC.defaultWriteOptions types stripesWithRows of
             Left e -> assertFailure ("encodeORC: " ++ e)
             Right b -> do
               -- Smoke test: file starts with the ORC magic.
@@ -75,10 +75,10 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
       case OArrow.arrowToORC arrowSchema [batch] of
         Left e -> assertFailure ("arrowToORC: " ++ e)
         Right (types, stripesWithRows) -> do
-          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+          case ORC.encodeORC ORC.defaultWriteOptions types stripesWithRows of
             Left e -> assertFailure ("encodeORC: " ++ e)
             Right bytes -> do
-              case OHL.decodeORC bytes of
+              case ORC.decodeORC bytes of
                 Left e     -> assertFailure ("decodeORC: " ++ e)
                 Right footer -> do
                   -- Verify row counts made it to the footer.
@@ -109,10 +109,10 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
       case OArrow.arrowToORC arrowSchema [batch] of
         Left e -> assertFailure ("arrowToORC: " ++ e)
         Right (types, stripesWithRows) -> do
-          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+          case ORC.encodeORC ORC.defaultWriteOptions types stripesWithRows of
             Left e -> assertFailure ("encodeORC: " ++ e)
             Right bytes -> do
-              case OHL.decodeORC bytes of
+              case ORC.decodeORC bytes of
                 Left e     -> assertFailure ("decodeORC: " ++ e)
                 Right footer ->
                   case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
@@ -142,10 +142,10 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
       case OArrow.arrowToORC arrowSchema [batch] of
         Left e -> assertFailure ("arrowToORC (struct): " ++ e)
         Right (types, stripesWithRows) ->
-          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+          case ORC.encodeORC ORC.defaultWriteOptions types stripesWithRows of
             Left e -> assertFailure ("encodeORC (struct): " ++ e)
             Right bytes ->
-              case OHL.decodeORC bytes of
+              case ORC.decodeORC bytes of
                 Left e -> assertFailure ("decodeORC (struct): " ++ e)
                 Right footer ->
                   case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of
@@ -172,10 +172,10 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
       case OArrow.arrowToORC arrowSchema [batch] of
         Left e -> assertFailure ("arrowToORC (list): " ++ e)
         Right (types, stripesWithRows) ->
-          case OHL.encodeORC OHL.defaultWriteOptions types stripesWithRows of
+          case ORC.encodeORC ORC.defaultWriteOptions types stripesWithRows of
             Left e -> assertFailure ("encodeORC (list): " ++ e)
             Right bytes ->
-              case OHL.decodeORC bytes of
+              case ORC.decodeORC bytes of
                 Left e -> assertFailure ("decodeORC (list): " ++ e)
                 Right footer ->
                   case OArrow.orcStripeToArrow arrowSchema bytes footer 0 of

@@ -91,7 +91,7 @@ optional spec extensions (encryption, advanced statistics, etc.) in late tiers.
 | C.4 | End-to-end `readColumn` | — | **Done** |
 | C.5 | Remaining types (timestamp, date, decimal) + RLE v2 Patched Base | — | **Done** (`decodeTimestampColumn`, `decodeDateColumn`, `decodeDecimalColumn`, `decodeShortColumn`, `decodeTinyIntColumn`, `decodeBinaryColumn`, RLE v2 Patched Base) |
 | C.6 | Writer + ORC file assembly | Writer | **Done** (`buildORCFile`, integer/string/float/double/bool/date/timestamp/decimal encoders) |
-| C.7 | Per-stripe bloom filter (`BLOOM_FILTER_UTF8`) | Writer | **Done** (`ORC.BloomFilter`) |
+| C.7 | Per-stripe bloom filter (`BLOOM_FILTER_UTF8` + legacy `BLOOM_FILTER`) | Writer | **Done** (`ORC.BloomFilter`; `encodeBloomFilterAs` / `BloomFilterKind` selects the on-disk variant — modern UTF-8 writes proto field 3 `utf8bitset`, legacy writes proto field 2 unpacked `repeated fixed64` for byte-compat with pre-ORC-101 Java/Hive 1.x readers) |
 | C.8 | Per-stripe row index (`ROW_INDEX`) | Writer | **Done** (`ORC.RowIndex`) |
 | C.9 | DECIMAL128 stream decoder (LEB128 zig-zag, full Integer precision) | Reader | **Done** (`ORC.Read.decodeDecimal128Stream`) |
 | C.10 | `DICTIONARY_V2` string writer + reader (auto-dispatch on dict-non-empty) | Read + Write | **Done** (`ORC.Write.encodeStringDictColumn`, `ORC.Read.decodeStringColumn` dispatches on `dictBs`; `ORC.RLE.decodeRLEv2IntAll` decodes the unknown-count dictionary length stream) |
