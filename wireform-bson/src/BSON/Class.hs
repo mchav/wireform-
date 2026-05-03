@@ -32,15 +32,33 @@ module BSON.Class
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BSL
+import Data.Functor.Const (Const(..))
+import Data.Functor.Identity (Identity(..))
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Ord (Down(..))
+import Data.Ratio (Ratio, (%), numerator, denominator)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Version (Version, makeVersion, versionBranch)
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 import qualified BSON.Value as BV
 import qualified BSON.Encode as BE
@@ -230,6 +248,159 @@ instance (Ord k, FromBSON k, FromBSON v) => FromBSON (Map k v) where
         | V.length kv == 2 = (,) <$> fromBSON (kv V.! 0) <*> fromBSON (kv V.! 1)
       decodePair _ = Left "FromBSON Map: expected Array of pairs"
   fromBSON _ = Left "FromBSON Map: expected Array"
+
+-- Aeson-parity instances ---------------------------------------------------
+
+instance ToBSON Integer where
+  toBSON n
+    | n >= fromIntegral (minBound :: Int32) && n <= fromIntegral (maxBound :: Int32)
+        = BV.Int32 (fromInteger n)
+    | n >= fromIntegral (minBound :: Int64) && n <= fromIntegral (maxBound :: Int64)
+        = BV.Int64 (fromInteger n)
+    | otherwise = BV.String (T.pack (show n))
+
+instance FromBSON Integer where
+  fromBSON (BV.Int32 n) = Right (toInteger n)
+  fromBSON (BV.Int64 n) = Right (toInteger n)
+  fromBSON (BV.String t) = case reads (T.unpack t) of
+    [(n, "")] -> Right n
+    _ -> Left "FromBSON Integer: cannot parse string"
+  fromBSON _ = Left "FromBSON Integer: expected Int32, Int64, or String"
+
+instance ToBSON Natural where
+  toBSON = toBSON . toInteger
+
+instance FromBSON Natural where
+  fromBSON v = do
+    n <- fromBSON v :: Either String Integer
+    if n < 0
+      then Left "FromBSON Natural: negative integer"
+      else Right (fromInteger n)
+
+instance ToBSON TL.Text where
+  toBSON = BV.String . TL.toStrict
+
+instance FromBSON TL.Text where
+  fromBSON v = TL.fromStrict <$> fromBSON v
+
+instance ToBSON BSL.ByteString where
+  toBSON = BV.Binary 0x00 . BSL.toStrict
+
+instance FromBSON BSL.ByteString where
+  fromBSON v = BSL.fromStrict <$> fromBSON v
+
+instance ToBSON a => ToBSON (NonEmpty a) where
+  toBSON = toBSON . NE.toList
+
+instance FromBSON a => FromBSON (NonEmpty a) where
+  fromBSON v = do
+    xs <- fromBSON v
+    case xs of
+      []     -> Left "FromBSON NonEmpty: empty list"
+      (y:ys) -> Right (y :| ys)
+
+instance (ToBSON a, ToBSON b) => ToBSON (Either a b) where
+  toBSON (Left  x) = BV.Document (V.singleton ("Left",  toBSON x))
+  toBSON (Right x) = BV.Document (V.singleton ("Right", toBSON x))
+
+instance (FromBSON a, FromBSON b) => FromBSON (Either a b) where
+  fromBSON (BV.Document kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        ("Left",  v) -> Left  <$> fromBSON v
+        ("Right", v) -> Right <$> fromBSON v
+        _            -> Left "FromBSON Either: expected Left/Right key"
+  fromBSON _ = Left "FromBSON Either: expected single-key Document"
+
+instance (Ord a, ToBSON a) => ToBSON (Set a) where
+  toBSON = BV.Array . V.fromList . fmap toBSON . Set.toList
+
+instance (Ord a, FromBSON a) => FromBSON (Set a) where
+  fromBSON v = Set.fromList <$> fromBSON v
+
+instance ToBSON a => ToBSON (Seq a) where
+  toBSON s = BV.Array (V.fromList (fmap toBSON (foldr (:) [] s)))
+
+instance FromBSON a => FromBSON (Seq a) where
+  fromBSON v = Seq.fromList <$> fromBSON v
+
+instance ToBSON v => ToBSON (IntMap v) where
+  toBSON m = BV.Document (V.fromList [(T.pack (show k), toBSON v) | (k, v) <- IntMap.toList m])
+
+instance FromBSON v => FromBSON (IntMap v) where
+  fromBSON (BV.Document kvs) = do
+    pairs <- traverse decodePair (V.toList kvs)
+    Right (IntMap.fromList pairs)
+    where
+      decodePair (k, v) = case reads (T.unpack k) of
+        [(i, "")] -> (,) i <$> fromBSON v
+        _         -> Left "FromBSON IntMap: cannot parse Int key"
+  fromBSON _ = Left "FromBSON IntMap: expected Document"
+
+instance ToBSON IntSet where
+  toBSON = BV.Array . V.fromList . fmap toBSON . IntSet.toList
+
+instance FromBSON IntSet where
+  fromBSON v = IntSet.fromList <$> fromBSON v
+
+instance (ToBSON a, ToBSON b, ToBSON c) => ToBSON (a, b, c) where
+  toBSON (a, b, c) = BV.Array (V.fromList [toBSON a, toBSON b, toBSON c])
+
+instance (FromBSON a, FromBSON b, FromBSON c) => FromBSON (a, b, c) where
+  fromBSON (BV.Array vs)
+    | V.length vs == 3 =
+        (,,) <$> fromBSON (vs V.! 0)
+             <*> fromBSON (vs V.! 1)
+             <*> fromBSON (vs V.! 2)
+  fromBSON _ = Left "FromBSON (a,b,c): expected Array of length 3"
+
+instance (ToBSON a, ToBSON b, ToBSON c, ToBSON d) => ToBSON (a, b, c, d) where
+  toBSON (a, b, c, d) = BV.Array (V.fromList [toBSON a, toBSON b, toBSON c, toBSON d])
+
+instance (FromBSON a, FromBSON b, FromBSON c, FromBSON d) => FromBSON (a, b, c, d) where
+  fromBSON (BV.Array vs)
+    | V.length vs == 4 =
+        (,,,) <$> fromBSON (vs V.! 0)
+              <*> fromBSON (vs V.! 1)
+              <*> fromBSON (vs V.! 2)
+              <*> fromBSON (vs V.! 3)
+  fromBSON _ = Left "FromBSON (a,b,c,d): expected Array of length 4"
+
+instance ToBSON a => ToBSON (Identity a) where
+  toBSON (Identity x) = toBSON x
+
+instance FromBSON a => FromBSON (Identity a) where
+  fromBSON v = Identity <$> fromBSON v
+
+instance ToBSON a => ToBSON (Const a b) where
+  toBSON (Const x) = toBSON x
+
+instance FromBSON a => FromBSON (Const a b) where
+  fromBSON v = Const <$> fromBSON v
+
+instance ToBSON a => ToBSON (Down a) where
+  toBSON (Down x) = toBSON x
+
+instance FromBSON a => FromBSON (Down a) where
+  fromBSON v = Down <$> fromBSON v
+
+instance ToBSON Version where
+  toBSON = toBSON . versionBranch
+
+instance FromBSON Version where
+  fromBSON v = makeVersion <$> fromBSON v
+
+instance (Integral a, ToBSON a) => ToBSON (Ratio a) where
+  toBSON r = BV.Array (V.fromList [toBSON (numerator r), toBSON (denominator r)])
+
+instance (Integral a, FromBSON a) => FromBSON (Ratio a) where
+  fromBSON (BV.Array vs)
+    | V.length vs == 2 = do
+        n <- fromBSON (vs V.! 0)
+        d <- fromBSON (vs V.! 1)
+        if d == 0
+          then Left "FromBSON Ratio: zero denominator"
+          else Right (n % d)
+  fromBSON _ = Left "FromBSON Ratio: expected Array of length 2"
 
 instance ToBSON BV.Value where
   toBSON = id

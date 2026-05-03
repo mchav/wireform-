@@ -32,16 +32,38 @@ module MsgPack.Class
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
+import Data.Functor.Const (Const(..))
+import Data.Functor.Identity (Identity(..))
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
+import Data.Hashable (Hashable)
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Ord (Down(..))
+import Data.Ratio (Ratio, (%), numerator, denominator)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Version (Version, makeVersion, versionBranch)
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 import qualified MsgPack.Value as MV
 import qualified MsgPack.Encode as ME
@@ -231,6 +253,162 @@ instance (Ord k, FromMsgPack k, FromMsgPack v) => FromMsgPack (Map k v) where
     pairs <- traverse (\(k, v) -> (,) <$> fromMsgPack k <*> fromMsgPack v) (V.toList kvs)
     Right (Map.fromList pairs)
   fromMsgPack _ = Left "FromMsgPack Map: expected Map"
+
+-- Aeson-parity instances ---------------------------------------------------
+
+instance ToMsgPack Integer where
+  toMsgPack n
+    | n >= 0    = MV.Word (fromInteger n)
+    | otherwise = MV.Int  (fromInteger n)
+
+instance FromMsgPack Integer where
+  fromMsgPack (MV.Int n)  = Right (toInteger n)
+  fromMsgPack (MV.Word n) = Right (toInteger n)
+  fromMsgPack _ = Left "FromMsgPack Integer: expected Int or Word"
+
+instance ToMsgPack Natural where
+  toMsgPack = MV.Word . fromIntegral
+
+instance FromMsgPack Natural where
+  fromMsgPack (MV.Word n) = Right (fromIntegral n)
+  fromMsgPack (MV.Int n) | n >= 0 = Right (fromIntegral n)
+  fromMsgPack _ = Left "FromMsgPack Natural: expected non-negative integer"
+
+instance ToMsgPack TL.Text where
+  toMsgPack = MV.String . TL.toStrict
+
+instance FromMsgPack TL.Text where
+  fromMsgPack v = TL.fromStrict <$> fromMsgPack v
+
+instance ToMsgPack BSL.ByteString where
+  toMsgPack = MV.Binary . BSL.toStrict
+
+instance FromMsgPack BSL.ByteString where
+  fromMsgPack v = BSL.fromStrict <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (NonEmpty a) where
+  toMsgPack = toMsgPack . NE.toList
+
+instance FromMsgPack a => FromMsgPack (NonEmpty a) where
+  fromMsgPack v = do
+    xs <- fromMsgPack v
+    case xs of
+      []     -> Left "FromMsgPack NonEmpty: empty list"
+      (y:ys) -> Right (y :| ys)
+
+instance (ToMsgPack a, ToMsgPack b) => ToMsgPack (Either a b) where
+  toMsgPack (Left  x) = MV.Map (V.singleton (MV.String "Left",  toMsgPack x))
+  toMsgPack (Right x) = MV.Map (V.singleton (MV.String "Right", toMsgPack x))
+
+instance (FromMsgPack a, FromMsgPack b) => FromMsgPack (Either a b) where
+  fromMsgPack (MV.Map kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        (MV.String "Left",  v) -> Left  <$> fromMsgPack v
+        (MV.String "Right", v) -> Right <$> fromMsgPack v
+        _                      -> Left "FromMsgPack Either: expected Left/Right key"
+  fromMsgPack _ = Left "FromMsgPack Either: expected single-key Map"
+
+instance (Ord a, ToMsgPack a) => ToMsgPack (Set a) where
+  toMsgPack = MV.Array . V.fromList . fmap toMsgPack . Set.toList
+
+instance (Ord a, FromMsgPack a) => FromMsgPack (Set a) where
+  fromMsgPack v = Set.fromList <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Seq a) where
+  toMsgPack s = MV.Array (V.fromList (fmap toMsgPack (foldr (:) [] s)))
+
+instance FromMsgPack a => FromMsgPack (Seq a) where
+  fromMsgPack v = Seq.fromList <$> fromMsgPack v
+
+instance ToMsgPack v => ToMsgPack (IntMap v) where
+  toMsgPack m = MV.Map (V.fromList (fmap (\(k, v) -> (toMsgPack k, toMsgPack v)) (IntMap.toList m)))
+
+instance FromMsgPack v => FromMsgPack (IntMap v) where
+  fromMsgPack (MV.Map kvs) = do
+    pairs <- traverse (\(k, v) -> (,) <$> fromMsgPack k <*> fromMsgPack v) (V.toList kvs)
+    Right (IntMap.fromList pairs)
+  fromMsgPack _ = Left "FromMsgPack IntMap: expected Map"
+
+instance ToMsgPack IntSet where
+  toMsgPack = MV.Array . V.fromList . fmap toMsgPack . IntSet.toList
+
+instance FromMsgPack IntSet where
+  fromMsgPack v = IntSet.fromList <$> fromMsgPack v
+
+instance (Hashable k, ToMsgPack k, ToMsgPack v) => ToMsgPack (HashMap k v) where
+  toMsgPack m = MV.Map (V.fromList (fmap (\(k, v) -> (toMsgPack k, toMsgPack v)) (HM.toList m)))
+
+instance (Eq k, Hashable k, FromMsgPack k, FromMsgPack v) => FromMsgPack (HashMap k v) where
+  fromMsgPack (MV.Map kvs) = do
+    pairs <- traverse (\(k, v) -> (,) <$> fromMsgPack k <*> fromMsgPack v) (V.toList kvs)
+    Right (HM.fromList pairs)
+  fromMsgPack _ = Left "FromMsgPack HashMap: expected Map"
+
+instance (Hashable a, ToMsgPack a) => ToMsgPack (HashSet a) where
+  toMsgPack = MV.Array . V.fromList . fmap toMsgPack . HS.toList
+
+instance (Eq a, Hashable a, FromMsgPack a) => FromMsgPack (HashSet a) where
+  fromMsgPack v = HS.fromList <$> fromMsgPack v
+
+instance (ToMsgPack a, ToMsgPack b, ToMsgPack c) => ToMsgPack (a, b, c) where
+  toMsgPack (a, b, c) = MV.Array (V.fromList [toMsgPack a, toMsgPack b, toMsgPack c])
+
+instance (FromMsgPack a, FromMsgPack b, FromMsgPack c) => FromMsgPack (a, b, c) where
+  fromMsgPack (MV.Array vs)
+    | V.length vs == 3 =
+        (,,) <$> fromMsgPack (vs V.! 0)
+             <*> fromMsgPack (vs V.! 1)
+             <*> fromMsgPack (vs V.! 2)
+  fromMsgPack _ = Left "FromMsgPack (a,b,c): expected Array of length 3"
+
+instance (ToMsgPack a, ToMsgPack b, ToMsgPack c, ToMsgPack d) => ToMsgPack (a, b, c, d) where
+  toMsgPack (a, b, c, d) = MV.Array (V.fromList [toMsgPack a, toMsgPack b, toMsgPack c, toMsgPack d])
+
+instance (FromMsgPack a, FromMsgPack b, FromMsgPack c, FromMsgPack d) => FromMsgPack (a, b, c, d) where
+  fromMsgPack (MV.Array vs)
+    | V.length vs == 4 =
+        (,,,) <$> fromMsgPack (vs V.! 0)
+              <*> fromMsgPack (vs V.! 1)
+              <*> fromMsgPack (vs V.! 2)
+              <*> fromMsgPack (vs V.! 3)
+  fromMsgPack _ = Left "FromMsgPack (a,b,c,d): expected Array of length 4"
+
+instance ToMsgPack a => ToMsgPack (Identity a) where
+  toMsgPack (Identity x) = toMsgPack x
+
+instance FromMsgPack a => FromMsgPack (Identity a) where
+  fromMsgPack v = Identity <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Const a b) where
+  toMsgPack (Const x) = toMsgPack x
+
+instance FromMsgPack a => FromMsgPack (Const a b) where
+  fromMsgPack v = Const <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Down a) where
+  toMsgPack (Down x) = toMsgPack x
+
+instance FromMsgPack a => FromMsgPack (Down a) where
+  fromMsgPack v = Down <$> fromMsgPack v
+
+instance ToMsgPack Version where
+  toMsgPack = toMsgPack . versionBranch
+
+instance FromMsgPack Version where
+  fromMsgPack v = makeVersion <$> fromMsgPack v
+
+instance (Integral a, ToMsgPack a) => ToMsgPack (Ratio a) where
+  toMsgPack r = MV.Array (V.fromList [toMsgPack (numerator r), toMsgPack (denominator r)])
+
+instance (Integral a, FromMsgPack a) => FromMsgPack (Ratio a) where
+  fromMsgPack (MV.Array vs)
+    | V.length vs == 2 = do
+        n <- fromMsgPack (vs V.! 0)
+        d <- fromMsgPack (vs V.! 1)
+        if d == 0
+          then Left "FromMsgPack Ratio: zero denominator"
+          else Right (n % d)
+  fromMsgPack _ = Left "FromMsgPack Ratio: expected Array of length 2"
 
 instance ToMsgPack MV.Value where
   toMsgPack = id

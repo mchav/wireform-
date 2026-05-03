@@ -32,15 +32,38 @@ module EDN.Class
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BSL
+import Data.Functor.Const (Const(..))
+import Data.Functor.Identity (Identity(..))
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
+import Data.Hashable (Hashable)
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Ord (Down(..))
+import Data.Ratio (Ratio, (%), numerator, denominator)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Version (Version, makeVersion, versionBranch)
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 import qualified EDN.Value as EV
 import qualified EDN.Encode as EE
@@ -215,6 +238,170 @@ instance (Ord k, FromEDN k, FromEDN v) => FromEDN (Map k v) where
     pairs <- traverse (\(k, v) -> (,) <$> fromEDN k <*> fromEDN v) (V.toList kvs)
     Right (Map.fromList pairs)
   fromEDN _ = Left "FromEDN Map: expected Map"
+
+-- Aeson-parity instances ---------------------------------------------------
+
+instance ToEDN Char where
+  toEDN = EV.Char
+
+instance FromEDN Char where
+  fromEDN (EV.Char c) = Right c
+  fromEDN (EV.String t)
+    | T.length t == 1 = Right (T.head t)
+  fromEDN _ = Left "FromEDN Char: expected Char or single-char String"
+
+instance ToEDN Integer where
+  toEDN = EV.Integer
+
+instance FromEDN Integer where
+  fromEDN (EV.Integer n) = Right n
+  fromEDN _ = Left "FromEDN Integer: expected Integer"
+
+instance ToEDN Natural where
+  toEDN = EV.Integer . toInteger
+
+instance FromEDN Natural where
+  fromEDN (EV.Integer n) | n >= 0 = Right (fromInteger n)
+  fromEDN _ = Left "FromEDN Natural: expected non-negative Integer"
+
+instance ToEDN TL.Text where
+  toEDN = EV.String . TL.toStrict
+
+instance FromEDN TL.Text where
+  fromEDN v = TL.fromStrict <$> fromEDN v
+
+-- | EDN has no native binary type; lazy 'ByteString' is mapped to 'Nil'
+-- the same way as strict 'ByteString'.
+instance ToEDN BSL.ByteString where
+  toEDN _ = EV.Nil
+
+instance FromEDN BSL.ByteString where
+  fromEDN _ = Left "FromEDN ByteString: EDN has no binary type"
+
+instance ToEDN a => ToEDN (NonEmpty a) where
+  toEDN = toEDN . NE.toList
+
+instance FromEDN a => FromEDN (NonEmpty a) where
+  fromEDN v = do
+    xs <- fromEDN v
+    case xs of
+      []     -> Left "FromEDN NonEmpty: empty list"
+      (y:ys) -> Right (y :| ys)
+
+instance (ToEDN a, ToEDN b) => ToEDN (Either a b) where
+  toEDN (Left  x) = EV.Map (V.singleton (EV.Keyword Nothing "Left",  toEDN x))
+  toEDN (Right x) = EV.Map (V.singleton (EV.Keyword Nothing "Right", toEDN x))
+
+instance (FromEDN a, FromEDN b) => FromEDN (Either a b) where
+  fromEDN (EV.Map kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        (EV.Keyword _ "Left",  v) -> Left  <$> fromEDN v
+        (EV.Keyword _ "Right", v) -> Right <$> fromEDN v
+        (EV.String "Left",     v) -> Left  <$> fromEDN v
+        (EV.String "Right",    v) -> Right <$> fromEDN v
+        _                         -> Left "FromEDN Either: expected Left/Right key"
+  fromEDN _ = Left "FromEDN Either: expected single-key Map"
+
+instance (Ord a, ToEDN a) => ToEDN (Set a) where
+  toEDN = EV.Set . V.fromList . fmap toEDN . Set.toList
+
+instance (Ord a, FromEDN a) => FromEDN (Set a) where
+  fromEDN (EV.Set vs) = Set.fromList <$> traverse fromEDN (V.toList vs)
+  fromEDN v = Set.fromList <$> fromEDN v
+
+instance ToEDN a => ToEDN (Seq a) where
+  toEDN s = EV.Vector (V.fromList (fmap toEDN (foldr (:) [] s)))
+
+instance FromEDN a => FromEDN (Seq a) where
+  fromEDN v = Seq.fromList <$> fromEDN v
+
+instance ToEDN v => ToEDN (IntMap v) where
+  toEDN m = EV.Map (V.fromList (fmap (\(k, v) -> (toEDN k, toEDN v)) (IntMap.toList m)))
+
+instance FromEDN v => FromEDN (IntMap v) where
+  fromEDN (EV.Map kvs) = do
+    pairs <- traverse (\(k, v) -> (,) <$> fromEDN k <*> fromEDN v) (V.toList kvs)
+    Right (IntMap.fromList pairs)
+  fromEDN _ = Left "FromEDN IntMap: expected Map"
+
+instance ToEDN IntSet where
+  toEDN = EV.Set . V.fromList . fmap toEDN . IntSet.toList
+
+instance FromEDN IntSet where
+  fromEDN (EV.Set vs) = IntSet.fromList <$> traverse fromEDN (V.toList vs)
+  fromEDN v = IntSet.fromList <$> fromEDN v
+
+instance (Hashable k, ToEDN k, ToEDN v) => ToEDN (HashMap k v) where
+  toEDN m = EV.Map (V.fromList (fmap (\(k, v) -> (toEDN k, toEDN v)) (HM.toList m)))
+
+instance (Eq k, Hashable k, FromEDN k, FromEDN v) => FromEDN (HashMap k v) where
+  fromEDN (EV.Map kvs) = do
+    pairs <- traverse (\(k, v) -> (,) <$> fromEDN k <*> fromEDN v) (V.toList kvs)
+    Right (HM.fromList pairs)
+  fromEDN _ = Left "FromEDN HashMap: expected Map"
+
+instance (Hashable a, ToEDN a) => ToEDN (HashSet a) where
+  toEDN = EV.Set . V.fromList . fmap toEDN . HS.toList
+
+instance (Eq a, Hashable a, FromEDN a) => FromEDN (HashSet a) where
+  fromEDN (EV.Set vs) = HS.fromList <$> traverse fromEDN (V.toList vs)
+  fromEDN v = HS.fromList <$> fromEDN v
+
+instance (ToEDN a, ToEDN b, ToEDN c) => ToEDN (a, b, c) where
+  toEDN (a, b, c) = EV.Vector (V.fromList [toEDN a, toEDN b, toEDN c])
+
+instance (FromEDN a, FromEDN b, FromEDN c) => FromEDN (a, b, c) where
+  fromEDN (EV.Vector vs)
+    | V.length vs == 3 =
+        (,,) <$> fromEDN (vs V.! 0) <*> fromEDN (vs V.! 1) <*> fromEDN (vs V.! 2)
+  fromEDN _ = Left "FromEDN (a,b,c): expected Vector of length 3"
+
+instance (ToEDN a, ToEDN b, ToEDN c, ToEDN d) => ToEDN (a, b, c, d) where
+  toEDN (a, b, c, d) = EV.Vector (V.fromList [toEDN a, toEDN b, toEDN c, toEDN d])
+
+instance (FromEDN a, FromEDN b, FromEDN c, FromEDN d) => FromEDN (a, b, c, d) where
+  fromEDN (EV.Vector vs)
+    | V.length vs == 4 =
+        (,,,) <$> fromEDN (vs V.! 0) <*> fromEDN (vs V.! 1)
+              <*> fromEDN (vs V.! 2) <*> fromEDN (vs V.! 3)
+  fromEDN _ = Left "FromEDN (a,b,c,d): expected Vector of length 4"
+
+instance ToEDN a => ToEDN (Identity a) where
+  toEDN (Identity x) = toEDN x
+
+instance FromEDN a => FromEDN (Identity a) where
+  fromEDN v = Identity <$> fromEDN v
+
+instance ToEDN a => ToEDN (Const a b) where
+  toEDN (Const x) = toEDN x
+
+instance FromEDN a => FromEDN (Const a b) where
+  fromEDN v = Const <$> fromEDN v
+
+instance ToEDN a => ToEDN (Down a) where
+  toEDN (Down x) = toEDN x
+
+instance FromEDN a => FromEDN (Down a) where
+  fromEDN v = Down <$> fromEDN v
+
+instance ToEDN Version where
+  toEDN = toEDN . versionBranch
+
+instance FromEDN Version where
+  fromEDN v = makeVersion <$> fromEDN v
+
+instance (Integral a, ToEDN a) => ToEDN (Ratio a) where
+  toEDN r = EV.Vector (V.fromList [toEDN (numerator r), toEDN (denominator r)])
+
+instance (Integral a, FromEDN a) => FromEDN (Ratio a) where
+  fromEDN (EV.Vector vs)
+    | V.length vs == 2 = do
+        n <- fromEDN (vs V.! 0)
+        d <- fromEDN (vs V.! 1)
+        if d == 0
+          then Left "FromEDN Ratio: zero denominator"
+          else Right (n % d)
+  fromEDN _ = Left "FromEDN Ratio: expected Vector of length 2"
 
 instance ToEDN EV.Value where
   toEDN = id

@@ -32,15 +32,38 @@ module CBOR.Class
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BSL
+import Data.Functor.Const (Const(..))
+import Data.Functor.Identity (Identity(..))
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
+import Data.Hashable (Hashable)
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Ord (Down(..))
+import Data.Ratio (Ratio, (%), numerator, denominator)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Version (Version, makeVersion, versionBranch)
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 import qualified CBOR.Value as CV
 import qualified CBOR.Encode as CE
@@ -222,6 +245,163 @@ instance (Ord k, FromCBOR k, FromCBOR v) => FromCBOR (Map k v) where
     pairs <- traverse (\(k, v) -> (,) <$> fromCBOR k <*> fromCBOR v) (V.toList kvs)
     Right (Map.fromList pairs)
   fromCBOR _ = Left "FromCBOR Map: expected Map"
+
+-- Aeson-parity instances ---------------------------------------------------
+
+instance ToCBOR Integer where
+  toCBOR n
+    | n >= 0    = CV.UInt (fromInteger n)
+    | otherwise = CV.NInt (fromInteger (negate n - 1))
+
+instance FromCBOR Integer where
+  fromCBOR (CV.UInt n) = Right (toInteger n)
+  fromCBOR (CV.NInt n) = Right (negate (toInteger n) - 1)
+  fromCBOR _ = Left "FromCBOR Integer: expected UInt or NInt"
+
+instance ToCBOR Natural where
+  toCBOR = CV.UInt . fromIntegral
+
+instance FromCBOR Natural where
+  fromCBOR (CV.UInt n) = Right (fromIntegral n)
+  fromCBOR _ = Left "FromCBOR Natural: expected UInt"
+
+instance ToCBOR TL.Text where
+  toCBOR = CV.TextString . TL.toStrict
+
+instance FromCBOR TL.Text where
+  fromCBOR v = TL.fromStrict <$> fromCBOR v
+
+instance ToCBOR BSL.ByteString where
+  toCBOR = CV.ByteString . BSL.toStrict
+
+instance FromCBOR BSL.ByteString where
+  fromCBOR v = BSL.fromStrict <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (NonEmpty a) where
+  toCBOR = toCBOR . NE.toList
+
+instance FromCBOR a => FromCBOR (NonEmpty a) where
+  fromCBOR v = do
+    xs <- fromCBOR v
+    case xs of
+      []     -> Left "FromCBOR NonEmpty: empty list"
+      (y:ys) -> Right (y :| ys)
+
+-- | 'Either' encodes as a tagged map with @"Left"@ or @"Right"@ keys
+-- (mirrors aeson's Sum encoding).
+instance (ToCBOR a, ToCBOR b) => ToCBOR (Either a b) where
+  toCBOR (Left  x) = CV.Map (V.singleton (CV.TextString "Left",  toCBOR x))
+  toCBOR (Right x) = CV.Map (V.singleton (CV.TextString "Right", toCBOR x))
+
+instance (FromCBOR a, FromCBOR b) => FromCBOR (Either a b) where
+  fromCBOR (CV.Map kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        (CV.TextString "Left",  v) -> Left  <$> fromCBOR v
+        (CV.TextString "Right", v) -> Right <$> fromCBOR v
+        _                          -> Left "FromCBOR Either: expected Left/Right key"
+  fromCBOR _ = Left "FromCBOR Either: expected single-key Map"
+
+instance (Ord a, ToCBOR a) => ToCBOR (Set a) where
+  toCBOR = CV.Array . V.fromList . fmap toCBOR . Set.toList
+
+instance (Ord a, FromCBOR a) => FromCBOR (Set a) where
+  fromCBOR v = Set.fromList <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Seq a) where
+  toCBOR s = CV.Array (V.fromList (fmap toCBOR (foldr (:) [] s)))
+
+instance FromCBOR a => FromCBOR (Seq a) where
+  fromCBOR v = Seq.fromList <$> fromCBOR v
+
+instance ToCBOR v => ToCBOR (IntMap v) where
+  toCBOR m = CV.Map (V.fromList (fmap (\(k, v) -> (toCBOR k, toCBOR v)) (IntMap.toList m)))
+
+instance FromCBOR v => FromCBOR (IntMap v) where
+  fromCBOR (CV.Map kvs) = do
+    pairs <- traverse (\(k, v) -> (,) <$> fromCBOR k <*> fromCBOR v) (V.toList kvs)
+    Right (IntMap.fromList pairs)
+  fromCBOR _ = Left "FromCBOR IntMap: expected Map"
+
+instance ToCBOR IntSet where
+  toCBOR = CV.Array . V.fromList . fmap toCBOR . IntSet.toList
+
+instance FromCBOR IntSet where
+  fromCBOR v = IntSet.fromList <$> fromCBOR v
+
+instance (Hashable k, ToCBOR k, ToCBOR v) => ToCBOR (HashMap k v) where
+  toCBOR m = CV.Map (V.fromList (fmap (\(k, v) -> (toCBOR k, toCBOR v)) (HM.toList m)))
+
+instance (Eq k, Hashable k, FromCBOR k, FromCBOR v) => FromCBOR (HashMap k v) where
+  fromCBOR (CV.Map kvs) = do
+    pairs <- traverse (\(k, v) -> (,) <$> fromCBOR k <*> fromCBOR v) (V.toList kvs)
+    Right (HM.fromList pairs)
+  fromCBOR _ = Left "FromCBOR HashMap: expected Map"
+
+instance (Hashable a, ToCBOR a) => ToCBOR (HashSet a) where
+  toCBOR = CV.Array . V.fromList . fmap toCBOR . HS.toList
+
+instance (Eq a, Hashable a, FromCBOR a) => FromCBOR (HashSet a) where
+  fromCBOR v = HS.fromList <$> fromCBOR v
+
+instance (ToCBOR a, ToCBOR b, ToCBOR c) => ToCBOR (a, b, c) where
+  toCBOR (a, b, c) = CV.Array (V.fromList [toCBOR a, toCBOR b, toCBOR c])
+
+instance (FromCBOR a, FromCBOR b, FromCBOR c) => FromCBOR (a, b, c) where
+  fromCBOR (CV.Array vs)
+    | V.length vs == 3 =
+        (,,) <$> fromCBOR (vs V.! 0)
+             <*> fromCBOR (vs V.! 1)
+             <*> fromCBOR (vs V.! 2)
+  fromCBOR _ = Left "FromCBOR (a,b,c): expected Array of length 3"
+
+instance (ToCBOR a, ToCBOR b, ToCBOR c, ToCBOR d) => ToCBOR (a, b, c, d) where
+  toCBOR (a, b, c, d) = CV.Array (V.fromList [toCBOR a, toCBOR b, toCBOR c, toCBOR d])
+
+instance (FromCBOR a, FromCBOR b, FromCBOR c, FromCBOR d) => FromCBOR (a, b, c, d) where
+  fromCBOR (CV.Array vs)
+    | V.length vs == 4 =
+        (,,,) <$> fromCBOR (vs V.! 0)
+              <*> fromCBOR (vs V.! 1)
+              <*> fromCBOR (vs V.! 2)
+              <*> fromCBOR (vs V.! 3)
+  fromCBOR _ = Left "FromCBOR (a,b,c,d): expected Array of length 4"
+
+instance ToCBOR a => ToCBOR (Identity a) where
+  toCBOR (Identity x) = toCBOR x
+
+instance FromCBOR a => FromCBOR (Identity a) where
+  fromCBOR v = Identity <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Const a b) where
+  toCBOR (Const x) = toCBOR x
+
+instance FromCBOR a => FromCBOR (Const a b) where
+  fromCBOR v = Const <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Down a) where
+  toCBOR (Down x) = toCBOR x
+
+instance FromCBOR a => FromCBOR (Down a) where
+  fromCBOR v = Down <$> fromCBOR v
+
+instance ToCBOR Version where
+  toCBOR = toCBOR . versionBranch
+
+instance FromCBOR Version where
+  fromCBOR v = makeVersion <$> fromCBOR v
+
+instance (Integral a, ToCBOR a) => ToCBOR (Ratio a) where
+  toCBOR r = CV.Array (V.fromList [toCBOR (numerator r), toCBOR (denominator r)])
+
+instance (Integral a, FromCBOR a) => FromCBOR (Ratio a) where
+  fromCBOR (CV.Array vs)
+    | V.length vs == 2 = do
+        n <- fromCBOR (vs V.! 0)
+        d <- fromCBOR (vs V.! 1)
+        if d == 0
+          then Left "FromCBOR Ratio: zero denominator"
+          else Right (n % d)
+  fromCBOR _ = Left "FromCBOR Ratio: expected Array of length 2"
 
 instance ToCBOR CV.Value where
   toCBOR = id

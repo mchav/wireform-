@@ -16,14 +16,34 @@ module Bencode.Class
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Lazy as BSL
+import Data.Functor.Const (Const(..))
+import Data.Functor.Identity (Identity(..))
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Ord (Down(..))
+import Data.Ratio (Ratio, (%), numerator, denominator)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Lazy as TL
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Version (Version, makeVersion, versionBranch)
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 import qualified Bencode.Value as B
 import qualified Bencode.Encode as BE
@@ -168,6 +188,183 @@ instance ToBencode a => ToBencode (Maybe a) where
 instance FromBencode a => FromBencode (Maybe a) where
   fromBencode (B.BList vs) | V.null vs = Right Nothing
   fromBencode v = Just <$> fromBencode v
+
+-- Aeson-parity instances ---------------------------------------------------
+
+instance ToBencode Char where
+  toBencode c = B.BString (TE.encodeUtf8 (T.singleton c))
+
+instance FromBencode Char where
+  fromBencode (B.BString bs) = case TE.decodeUtf8' bs of
+    Right t | T.length t == 1 -> Right (T.head t)
+    _ -> Left "FromBencode Char: expected single-character BString"
+  fromBencode _ = Left "FromBencode Char: expected BString"
+
+instance ToBencode Natural where
+  toBencode = B.BInteger . toInteger
+
+instance FromBencode Natural where
+  fromBencode (B.BInteger n) | n >= 0 = Right (fromInteger n)
+  fromBencode _ = Left "FromBencode Natural: expected non-negative BInteger"
+
+instance ToBencode TL.Text where
+  toBencode = B.BString . TE.encodeUtf8 . TL.toStrict
+
+instance FromBencode TL.Text where
+  fromBencode v = TL.fromStrict <$> fromBencode v
+
+instance ToBencode BSL.ByteString where
+  toBencode = B.BString . BSL.toStrict
+
+instance FromBencode BSL.ByteString where
+  fromBencode v = BSL.fromStrict <$> fromBencode v
+
+instance ToBencode a => ToBencode (NonEmpty a) where
+  toBencode = toBencode . NE.toList
+
+instance FromBencode a => FromBencode (NonEmpty a) where
+  fromBencode v = do
+    xs <- fromBencode v
+    case xs of
+      []     -> Left "FromBencode NonEmpty: empty list"
+      (y:ys) -> Right (y :| ys)
+
+-- | 'Either' encodes as a single-key BDict with @"Left"@ or @"Right"@.
+instance (ToBencode a, ToBencode b) => ToBencode (Either a b) where
+  toBencode (Left  x) = B.BDict (V.singleton ("Left",  toBencode x))
+  toBencode (Right x) = B.BDict (V.singleton ("Right", toBencode x))
+
+instance (FromBencode a, FromBencode b) => FromBencode (Either a b) where
+  fromBencode (B.BDict kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        ("Left",  v) -> Left  <$> fromBencode v
+        ("Right", v) -> Right <$> fromBencode v
+        _            -> Left "FromBencode Either: expected Left/Right key"
+  fromBencode _ = Left "FromBencode Either: expected single-key BDict"
+
+instance (Ord a, ToBencode a) => ToBencode (Set a) where
+  toBencode = B.BList . V.fromList . fmap toBencode . Set.toList
+
+instance (Ord a, FromBencode a) => FromBencode (Set a) where
+  fromBencode v = Set.fromList <$> fromBencode v
+
+instance ToBencode a => ToBencode (Seq a) where
+  toBencode s = B.BList (V.fromList (fmap toBencode (foldr (:) [] s)))
+
+instance FromBencode a => FromBencode (Seq a) where
+  fromBencode v = Seq.fromList <$> fromBencode v
+
+instance ToBencode v => ToBencode (Map ByteString v) where
+  toBencode m = B.BDict (V.fromList [(k, toBencode v) | (k, v) <- Map.toList m])
+
+instance FromBencode v => FromBencode (Map ByteString v) where
+  fromBencode (B.BDict kvs) = do
+    pairs <- traverse (\(k, v) -> (,) k <$> fromBencode v) (V.toList kvs)
+    Right (Map.fromList pairs)
+  fromBencode _ = Left "FromBencode (Map ByteString v): expected BDict"
+
+instance ToBencode v => ToBencode (Map Text v) where
+  toBencode m = B.BDict (V.fromList [(TE.encodeUtf8 k, toBencode v) | (k, v) <- Map.toList m])
+
+instance FromBencode v => FromBencode (Map Text v) where
+  fromBencode (B.BDict kvs) = do
+    pairs <- traverse decodePair (V.toList kvs)
+    Right (Map.fromList pairs)
+    where
+      decodePair (k, v) = case TE.decodeUtf8' k of
+        Right t -> (,) t <$> fromBencode v
+        Left _  -> Left "FromBencode (Map Text v): non-UTF-8 key"
+  fromBencode _ = Left "FromBencode (Map Text v): expected BDict"
+
+instance ToBencode v => ToBencode (IntMap v) where
+  toBencode m = B.BDict (V.fromList [(BS8.pack (show k), toBencode v) | (k, v) <- IntMap.toList m])
+
+instance FromBencode v => FromBencode (IntMap v) where
+  fromBencode (B.BDict kvs) = do
+    pairs <- traverse decodePair (V.toList kvs)
+    Right (IntMap.fromList pairs)
+    where
+      decodePair (k, v) = case reads (BS8.unpack k) of
+        [(i, "")] -> (,) i <$> fromBencode v
+        _         -> Left "FromBencode IntMap: cannot parse Int key"
+  fromBencode _ = Left "FromBencode IntMap: expected BDict"
+
+instance ToBencode IntSet where
+  toBencode = B.BList . V.fromList . fmap toBencode . IntSet.toList
+
+instance FromBencode IntSet where
+  fromBencode v = IntSet.fromList <$> fromBencode v
+
+instance (ToBencode a, ToBencode b) => ToBencode (a, b) where
+  toBencode (a, b) = B.BList (V.fromList [toBencode a, toBencode b])
+
+instance (FromBencode a, FromBencode b) => FromBencode (a, b) where
+  fromBencode (B.BList vs)
+    | V.length vs == 2 = (,) <$> fromBencode (vs V.! 0) <*> fromBencode (vs V.! 1)
+  fromBencode _ = Left "FromBencode (a,b): expected BList of length 2"
+
+instance (ToBencode a, ToBencode b, ToBencode c) => ToBencode (a, b, c) where
+  toBencode (a, b, c) = B.BList (V.fromList [toBencode a, toBencode b, toBencode c])
+
+instance (FromBencode a, FromBencode b, FromBencode c) => FromBencode (a, b, c) where
+  fromBencode (B.BList vs)
+    | V.length vs == 3 =
+        (,,) <$> fromBencode (vs V.! 0) <*> fromBencode (vs V.! 1) <*> fromBencode (vs V.! 2)
+  fromBencode _ = Left "FromBencode (a,b,c): expected BList of length 3"
+
+instance (ToBencode a, ToBencode b, ToBencode c, ToBencode d) => ToBencode (a, b, c, d) where
+  toBencode (a, b, c, d) = B.BList (V.fromList [toBencode a, toBencode b, toBencode c, toBencode d])
+
+instance (FromBencode a, FromBencode b, FromBencode c, FromBencode d) => FromBencode (a, b, c, d) where
+  fromBencode (B.BList vs)
+    | V.length vs == 4 =
+        (,,,) <$> fromBencode (vs V.! 0) <*> fromBencode (vs V.! 1)
+              <*> fromBencode (vs V.! 2) <*> fromBencode (vs V.! 3)
+  fromBencode _ = Left "FromBencode (a,b,c,d): expected BList of length 4"
+
+instance ToBencode () where
+  toBencode () = B.BList V.empty
+
+instance FromBencode () where
+  fromBencode (B.BList vs) | V.null vs = Right ()
+  fromBencode _ = Left "FromBencode (): expected empty BList"
+
+instance ToBencode a => ToBencode (Identity a) where
+  toBencode (Identity x) = toBencode x
+
+instance FromBencode a => FromBencode (Identity a) where
+  fromBencode v = Identity <$> fromBencode v
+
+instance ToBencode a => ToBencode (Const a b) where
+  toBencode (Const x) = toBencode x
+
+instance FromBencode a => FromBencode (Const a b) where
+  fromBencode v = Const <$> fromBencode v
+
+instance ToBencode a => ToBencode (Down a) where
+  toBencode (Down x) = toBencode x
+
+instance FromBencode a => FromBencode (Down a) where
+  fromBencode v = Down <$> fromBencode v
+
+instance ToBencode Version where
+  toBencode = toBencode . versionBranch
+
+instance FromBencode Version where
+  fromBencode v = makeVersion <$> fromBencode v
+
+instance (Integral a, ToBencode a) => ToBencode (Ratio a) where
+  toBencode r = B.BList (V.fromList [toBencode (numerator r), toBencode (denominator r)])
+
+instance (Integral a, FromBencode a) => FromBencode (Ratio a) where
+  fromBencode (B.BList vs)
+    | V.length vs == 2 = do
+        n <- fromBencode (vs V.! 0)
+        d <- fromBencode (vs V.! 1)
+        if d == 0
+          then Left "FromBencode Ratio: zero denominator"
+          else Right (n % d)
+  fromBencode _ = Left "FromBencode Ratio: expected BList of length 2"
 
 instance ToBencode B.Value where
   toBencode = id

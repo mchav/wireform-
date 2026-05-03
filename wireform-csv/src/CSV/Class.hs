@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 -- | Typeclass-based CSV serialization with Generic deriving.
 module CSV.Class
   ( ToCSV(..)
@@ -7,11 +9,19 @@ module CSV.Class
   , genericFromCSVRow
   ) where
 
+import Data.Functor.Const (Const(..))
+import Data.Functor.Identity (Identity(..))
+import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Ord (Down(..))
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Read as TR
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Word (Word, Word8, Word16, Word32, Word64)
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 class ToCSV a where
   toCSVRow :: a -> Vector Text
@@ -105,3 +115,90 @@ instance CSVField Bool where
     | t' == "false" || t' == "0" || t' == "no"  = Right False
     | otherwise = Left $ "CSV.Class: cannot parse Bool from " ++ show t
     where t' = T.toLower t
+
+-- Aeson-parity field instances --------------------------------------------
+
+readSignedDecimalCSV :: Integral a => String -> Text -> Either String a
+readSignedDecimalCSV label t = case TR.signed TR.decimal t of
+  Right (v, rest) | T.null rest -> Right v
+  _ -> Left $ "CSV.Class: cannot parse " ++ label ++ " from " ++ show t
+
+instance CSVField Char where
+  toCSVField c = T.singleton c
+  fromCSVField t = case T.length t of
+    1 -> Right (T.head t)
+    _ -> Left $ "CSV.Class: cannot parse Char from " ++ show t
+
+instance CSVField Float where
+  toCSVField = T.pack . show
+  fromCSVField t = case reads (T.unpack t) of
+    [(n, "")] -> Right n
+    _         -> Left $ "CSV.Class: cannot parse Float from " ++ show t
+
+instance CSVField Int8 where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Int8"
+
+instance CSVField Int16 where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Int16"
+
+instance CSVField Int32 where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Int32"
+
+instance CSVField Int64 where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Int64"
+
+instance CSVField Word where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Word"
+
+instance CSVField Word8 where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Word8"
+
+instance CSVField Word16 where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Word16"
+
+instance CSVField Word32 where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Word32"
+
+instance CSVField Word64 where
+  toCSVField = T.pack . show
+  fromCSVField = readSignedDecimalCSV "Word64"
+
+instance CSVField Natural where
+  toCSVField = T.pack . show
+  fromCSVField t = do
+    n <- readSignedDecimalCSV "Natural" t :: Either String Integer
+    if n < 0
+      then Left $ "CSV.Class: negative Natural " ++ show t
+      else Right (fromInteger n)
+
+instance CSVField TL.Text where
+  toCSVField = TL.toStrict
+  fromCSVField = Right . TL.fromStrict
+
+-- | Encodes 'Nothing' as the empty field.
+instance CSVField a => CSVField (Maybe a) where
+  toCSVField Nothing  = T.empty
+  toCSVField (Just x) = toCSVField x
+  fromCSVField t
+    | T.null t  = Right Nothing
+    | otherwise = Just <$> fromCSVField t
+
+instance CSVField a => CSVField (Identity a) where
+  toCSVField (Identity x) = toCSVField x
+  fromCSVField t = Identity <$> fromCSVField t
+
+instance CSVField a => CSVField (Const a b) where
+  toCSVField (Const x) = toCSVField x
+  fromCSVField t = Const <$> fromCSVField t
+
+instance CSVField a => CSVField (Down a) where
+  toCSVField (Down x) = toCSVField x
+  fromCSVField t = Down <$> fromCSVField t

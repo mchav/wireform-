@@ -31,15 +31,38 @@ module Ion.Class
   ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BSL
+import Data.Functor.Const (Const(..))
+import Data.Functor.Identity (Identity(..))
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
+import Data.Hashable (Hashable)
 import Data.Int (Int8, Int16, Int32, Int64)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Ord (Down(..))
+import Data.Ratio (Ratio, (%), numerator, denominator)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Version (Version, makeVersion, versionBranch)
 import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 import qualified Ion.Value as IV
 import qualified Ion.Encode as IE
@@ -220,6 +243,166 @@ instance (Ord k, FromIon k, FromIon v) => FromIon (Map k v) where
     pairs <- traverse (\(k, v) -> (,) <$> fromIon (IV.String k) <*> fromIon v) (V.toList kvs)
     Right (Map.fromList pairs)
   fromIon _ = Left "FromIon Map: expected List or Struct"
+
+-- Aeson-parity instances ---------------------------------------------------
+
+instance ToIon Char where
+  toIon c = IV.String (T.singleton c)
+
+instance FromIon Char where
+  fromIon (IV.String t) | T.length t == 1 = Right (T.head t)
+  fromIon (IV.Symbol t) | T.length t == 1 = Right (T.head t)
+  fromIon _ = Left "FromIon Char: expected single-character String"
+
+instance ToIon Integer where
+  toIon = IV.Int . fromInteger
+
+instance FromIon Integer where
+  fromIon (IV.Int n) = Right (toInteger n)
+  fromIon _ = Left "FromIon Integer: expected Int"
+
+instance ToIon Natural where
+  toIon = IV.Int . fromIntegral
+
+instance FromIon Natural where
+  fromIon (IV.Int n) | n >= 0 = Right (fromIntegral n)
+  fromIon _ = Left "FromIon Natural: expected non-negative Int"
+
+instance ToIon TL.Text where
+  toIon = IV.String . TL.toStrict
+
+instance FromIon TL.Text where
+  fromIon v = TL.fromStrict <$> fromIon v
+
+instance ToIon BSL.ByteString where
+  toIon = IV.Blob . BSL.toStrict
+
+instance FromIon BSL.ByteString where
+  fromIon v = BSL.fromStrict <$> fromIon v
+
+instance ToIon a => ToIon (NonEmpty a) where
+  toIon = toIon . NE.toList
+
+instance FromIon a => FromIon (NonEmpty a) where
+  fromIon v = do
+    xs <- fromIon v
+    case xs of
+      []     -> Left "FromIon NonEmpty: empty list"
+      (y:ys) -> Right (y :| ys)
+
+instance (ToIon a, ToIon b) => ToIon (Either a b) where
+  toIon (Left  x) = IV.Struct (V.singleton ("Left",  toIon x))
+  toIon (Right x) = IV.Struct (V.singleton ("Right", toIon x))
+
+instance (FromIon a, FromIon b) => FromIon (Either a b) where
+  fromIon (IV.Struct kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        ("Left",  v) -> Left  <$> fromIon v
+        ("Right", v) -> Right <$> fromIon v
+        _            -> Left "FromIon Either: expected Left/Right key"
+  fromIon _ = Left "FromIon Either: expected single-key Struct"
+
+instance (Ord a, ToIon a) => ToIon (Set a) where
+  toIon = IV.List . V.fromList . fmap toIon . Set.toList
+
+instance (Ord a, FromIon a) => FromIon (Set a) where
+  fromIon v = Set.fromList <$> fromIon v
+
+instance ToIon a => ToIon (Seq a) where
+  toIon s = IV.List (V.fromList (fmap toIon (foldr (:) [] s)))
+
+instance FromIon a => FromIon (Seq a) where
+  fromIon v = Seq.fromList <$> fromIon v
+
+instance ToIon v => ToIon (IntMap v) where
+  toIon m = IV.Struct (V.fromList [(T.pack (show k), toIon v) | (k, v) <- IntMap.toList m])
+
+instance FromIon v => FromIon (IntMap v) where
+  fromIon (IV.Struct kvs) = do
+    pairs <- traverse decodePair (V.toList kvs)
+    Right (IntMap.fromList pairs)
+    where
+      decodePair (k, v) = case reads (T.unpack k) of
+        [(i, "")] -> (,) i <$> fromIon v
+        _         -> Left "FromIon IntMap: cannot parse Int key"
+  fromIon _ = Left "FromIon IntMap: expected Struct"
+
+instance ToIon IntSet where
+  toIon = IV.List . V.fromList . fmap toIon . IntSet.toList
+
+instance FromIon IntSet where
+  fromIon v = IntSet.fromList <$> fromIon v
+
+instance ToIon v => ToIon (HashMap Text v) where
+  toIon m = IV.Struct (V.fromList [(k, toIon v) | (k, v) <- HM.toList m])
+
+instance FromIon v => FromIon (HashMap Text v) where
+  fromIon (IV.Struct kvs) = do
+    pairs <- traverse (\(k, v) -> (,) k <$> fromIon v) (V.toList kvs)
+    Right (HM.fromList pairs)
+  fromIon _ = Left "FromIon (HashMap Text v): expected Struct"
+
+instance (Hashable a, ToIon a) => ToIon (HashSet a) where
+  toIon = IV.List . V.fromList . fmap toIon . HS.toList
+
+instance (Eq a, Hashable a, FromIon a) => FromIon (HashSet a) where
+  fromIon v = HS.fromList <$> fromIon v
+
+instance (ToIon a, ToIon b, ToIon c) => ToIon (a, b, c) where
+  toIon (a, b, c) = IV.List (V.fromList [toIon a, toIon b, toIon c])
+
+instance (FromIon a, FromIon b, FromIon c) => FromIon (a, b, c) where
+  fromIon (IV.List vs)
+    | V.length vs == 3 =
+        (,,) <$> fromIon (vs V.! 0) <*> fromIon (vs V.! 1) <*> fromIon (vs V.! 2)
+  fromIon _ = Left "FromIon (a,b,c): expected List of length 3"
+
+instance (ToIon a, ToIon b, ToIon c, ToIon d) => ToIon (a, b, c, d) where
+  toIon (a, b, c, d) = IV.List (V.fromList [toIon a, toIon b, toIon c, toIon d])
+
+instance (FromIon a, FromIon b, FromIon c, FromIon d) => FromIon (a, b, c, d) where
+  fromIon (IV.List vs)
+    | V.length vs == 4 =
+        (,,,) <$> fromIon (vs V.! 0) <*> fromIon (vs V.! 1)
+              <*> fromIon (vs V.! 2) <*> fromIon (vs V.! 3)
+  fromIon _ = Left "FromIon (a,b,c,d): expected List of length 4"
+
+instance ToIon a => ToIon (Identity a) where
+  toIon (Identity x) = toIon x
+
+instance FromIon a => FromIon (Identity a) where
+  fromIon v = Identity <$> fromIon v
+
+instance ToIon a => ToIon (Const a b) where
+  toIon (Const x) = toIon x
+
+instance FromIon a => FromIon (Const a b) where
+  fromIon v = Const <$> fromIon v
+
+instance ToIon a => ToIon (Down a) where
+  toIon (Down x) = toIon x
+
+instance FromIon a => FromIon (Down a) where
+  fromIon v = Down <$> fromIon v
+
+instance ToIon Version where
+  toIon = toIon . versionBranch
+
+instance FromIon Version where
+  fromIon v = makeVersion <$> fromIon v
+
+instance (Integral a, ToIon a) => ToIon (Ratio a) where
+  toIon r = IV.List (V.fromList [toIon (numerator r), toIon (denominator r)])
+
+instance (Integral a, FromIon a) => FromIon (Ratio a) where
+  fromIon (IV.List vs)
+    | V.length vs == 2 = do
+        n <- fromIon (vs V.! 0)
+        d <- fromIon (vs V.! 1)
+        if d == 0
+          then Left "FromIon Ratio: zero denominator"
+          else Right (n % d)
+  fromIon _ = Left "FromIon Ratio: expected List of length 2"
 
 instance ToIon IV.Value where
   toIon = id
