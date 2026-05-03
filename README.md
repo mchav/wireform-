@@ -272,7 +272,7 @@ end-to-end as of today's rewire.
 {-# LANGUAGE TemplateHaskell #-}
 import Proto.TH (loadProto)
 
-$(loadProto "example/simple.proto")
+$(loadProto "examples/proto/simple.proto")
 -- Generates: GetPersonRequest, ListPeopleRequest, AddPersonResponse, ...
 
 let req = defaultGetPersonRequest { personId = 42 }

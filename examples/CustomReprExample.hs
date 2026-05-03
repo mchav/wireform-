@@ -36,7 +36,7 @@ $(loadProtoWith (defaultLoadOpts
             ]
         }
     })
-  "example/repr_demo.proto")
+  "examples/proto/repr_demo.proto")
 
 main :: IO ()
 main = do

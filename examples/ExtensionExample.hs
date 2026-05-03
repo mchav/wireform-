@@ -16,7 +16,7 @@ import Proto.Decode
 import Proto.TH
 import qualified Proto.Extension as Ext
 
-$(loadProto "example/extension_demo.proto")
+$(loadProto "examples/proto/extension_demo.proto")
 
 main :: IO ()
 main = do
