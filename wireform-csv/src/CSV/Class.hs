@@ -11,6 +11,8 @@ module CSV.Class
 
 import Data.Functor.Const (Const(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Ord (Down(..))
 import Data.Text (Text)
@@ -202,3 +204,53 @@ instance CSVField a => CSVField (Const a b) where
 instance CSVField a => CSVField (Down a) where
   toCSVField (Down x) = toCSVField x
   fromCSVField t = Down <$> fromCSVField t
+
+-- Functor / monoid newtype field instances (unwrap-only).
+
+instance CSVField a => CSVField (Mon.Sum a) where
+  toCSVField = toCSVField . Mon.getSum
+  fromCSVField t = Mon.Sum <$> fromCSVField t
+
+instance CSVField a => CSVField (Mon.Product a) where
+  toCSVField = toCSVField . Mon.getProduct
+  fromCSVField t = Mon.Product <$> fromCSVField t
+
+instance CSVField a => CSVField (Mon.Dual a) where
+  toCSVField = toCSVField . Mon.getDual
+  fromCSVField t = Mon.Dual <$> fromCSVField t
+
+instance CSVField Mon.All where
+  toCSVField = toCSVField . Mon.getAll
+  fromCSVField t = Mon.All <$> fromCSVField t
+
+instance CSVField Mon.Any where
+  toCSVField = toCSVField . Mon.getAny
+  fromCSVField t = Mon.Any <$> fromCSVField t
+
+instance CSVField a => CSVField (Mon.First a) where
+  toCSVField = toCSVField . Mon.getFirst
+  fromCSVField t = Mon.First <$> fromCSVField t
+
+instance CSVField a => CSVField (Mon.Last a) where
+  toCSVField = toCSVField . Mon.getLast
+  fromCSVField t = Mon.Last <$> fromCSVField t
+
+instance CSVField a => CSVField (Semi.Min a) where
+  toCSVField = toCSVField . Semi.getMin
+  fromCSVField t = Semi.Min <$> fromCSVField t
+
+instance CSVField a => CSVField (Semi.Max a) where
+  toCSVField = toCSVField . Semi.getMax
+  fromCSVField t = Semi.Max <$> fromCSVField t
+
+instance CSVField a => CSVField (Semi.First a) where
+  toCSVField = toCSVField . Semi.getFirst
+  fromCSVField t = Semi.First <$> fromCSVField t
+
+instance CSVField a => CSVField (Semi.Last a) where
+  toCSVField = toCSVField . Semi.getLast
+  fromCSVField t = Semi.Last <$> fromCSVField t
+
+instance CSVField a => CSVField (Semi.WrappedMonoid a) where
+  toCSVField = toCSVField . Semi.unwrapMonoid
+  fromCSVField t = Semi.WrapMonoid <$> fromCSVField t

@@ -14,7 +14,12 @@ module Avro.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -384,6 +389,112 @@ instance (Integral a, FromAvro a) => FromAvro (Ratio a) where
           then Left "FromAvro Ratio: zero denominator"
           else Right (n % d)
   fromAvro _ = Left "FromAvro Ratio: expected Array of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToAvro a => ToAvro (Mon.Sum a) where
+  toAvro = toAvro . Mon.getSum
+
+instance FromAvro a => FromAvro (Mon.Sum a) where
+  fromAvro v = Mon.Sum <$> fromAvro v
+
+instance ToAvro a => ToAvro (Mon.Product a) where
+  toAvro = toAvro . Mon.getProduct
+
+instance FromAvro a => FromAvro (Mon.Product a) where
+  fromAvro v = Mon.Product <$> fromAvro v
+
+instance ToAvro a => ToAvro (Mon.Dual a) where
+  toAvro = toAvro . Mon.getDual
+
+instance FromAvro a => FromAvro (Mon.Dual a) where
+  fromAvro v = Mon.Dual <$> fromAvro v
+
+instance ToAvro Mon.All where
+  toAvro = toAvro . Mon.getAll
+
+instance FromAvro Mon.All where
+  fromAvro v = Mon.All <$> fromAvro v
+
+instance ToAvro Mon.Any where
+  toAvro = toAvro . Mon.getAny
+
+instance FromAvro Mon.Any where
+  fromAvro v = Mon.Any <$> fromAvro v
+
+instance ToAvro a => ToAvro (Mon.First a) where
+  toAvro = toAvro . Mon.getFirst
+
+instance FromAvro a => FromAvro (Mon.First a) where
+  fromAvro v = Mon.First <$> fromAvro v
+
+instance ToAvro a => ToAvro (Mon.Last a) where
+  toAvro = toAvro . Mon.getLast
+
+instance FromAvro a => FromAvro (Mon.Last a) where
+  fromAvro v = Mon.Last <$> fromAvro v
+
+instance ToAvro a => ToAvro (Semi.Min a) where
+  toAvro = toAvro . Semi.getMin
+
+instance FromAvro a => FromAvro (Semi.Min a) where
+  fromAvro v = Semi.Min <$> fromAvro v
+
+instance ToAvro a => ToAvro (Semi.Max a) where
+  toAvro = toAvro . Semi.getMax
+
+instance FromAvro a => FromAvro (Semi.Max a) where
+  fromAvro v = Semi.Max <$> fromAvro v
+
+instance ToAvro a => ToAvro (Semi.First a) where
+  toAvro = toAvro . Semi.getFirst
+
+instance FromAvro a => FromAvro (Semi.First a) where
+  fromAvro v = Semi.First <$> fromAvro v
+
+instance ToAvro a => ToAvro (Semi.Last a) where
+  toAvro = toAvro . Semi.getLast
+
+instance FromAvro a => FromAvro (Semi.Last a) where
+  fromAvro v = Semi.Last <$> fromAvro v
+
+instance ToAvro a => ToAvro (Semi.WrappedMonoid a) where
+  toAvro = toAvro . Semi.unwrapMonoid
+
+instance FromAvro a => FromAvro (Semi.WrappedMonoid a) where
+  fromAvro v = Semi.WrapMonoid <$> fromAvro v
+
+instance (ToAvro a, ToAvro b) => ToAvro (Semi.Arg a b) where
+  toAvro (Semi.Arg a b) = AV.Array (V.fromList [toAvro a, toAvro b])
+
+instance (FromAvro a, FromAvro b) => FromAvro (Semi.Arg a b) where
+  fromAvro (AV.Array vs)
+    | V.length vs == 2 = Semi.Arg <$> fromAvro (vs V.! 0) <*> fromAvro (vs V.! 1)
+  fromAvro _ = Left "FromAvro Arg: expected Array of length 2"
+
+instance ToAvro (f (g a)) => ToAvro (Compose f g a) where
+  toAvro = toAvro . getCompose
+
+instance FromAvro (f (g a)) => FromAvro (Compose f g a) where
+  fromAvro v = Compose <$> fromAvro v
+
+instance (ToAvro (f a), ToAvro (g a)) => ToAvro (FProduct.Product f g a) where
+  toAvro (FProduct.Pair x y) = AV.Array (V.fromList [toAvro x, toAvro y])
+
+instance (FromAvro (f a), FromAvro (g a)) => FromAvro (FProduct.Product f g a) where
+  fromAvro (AV.Array vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromAvro (vs V.! 0) <*> fromAvro (vs V.! 1)
+  fromAvro _ = Left "FromAvro Functor.Product: expected Array of length 2"
+
+-- | 'Functor.Sum' uses the native Avro union so it round-trips cleanly.
+instance (ToAvro (f a), ToAvro (g a)) => ToAvro (FSum.Sum f g a) where
+  toAvro (FSum.InL x) = AV.Union 0 (toAvro x)
+  toAvro (FSum.InR x) = AV.Union 1 (toAvro x)
+
+instance (FromAvro (f a), FromAvro (g a)) => FromAvro (FSum.Sum f g a) where
+  fromAvro (AV.Union 0 v) = FSum.InL <$> fromAvro v
+  fromAvro (AV.Union 1 v) = FSum.InR <$> fromAvro v
+  fromAvro _ = Left "FromAvro Functor.Sum: expected Union 0/1"
 
 instance ToAvro AV.Value where
   toAvro = id

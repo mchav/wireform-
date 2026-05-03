@@ -32,7 +32,12 @@ module XML.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -494,6 +499,112 @@ instance (Integral a, FromXML a) => FromXML (Ratio a) where
           then Left "FromXML Ratio: zero denominator"
           else Right (n % d)
   fromXML _ = Left "FromXML Ratio: expected ratio element"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToXML a => ToXML (Mon.Sum a) where
+  toXML = toXML . Mon.getSum
+
+instance FromXML a => FromXML (Mon.Sum a) where
+  fromXML n = Mon.Sum <$> fromXML n
+
+instance ToXML a => ToXML (Mon.Product a) where
+  toXML = toXML . Mon.getProduct
+
+instance FromXML a => FromXML (Mon.Product a) where
+  fromXML n = Mon.Product <$> fromXML n
+
+instance ToXML a => ToXML (Mon.Dual a) where
+  toXML = toXML . Mon.getDual
+
+instance FromXML a => FromXML (Mon.Dual a) where
+  fromXML n = Mon.Dual <$> fromXML n
+
+instance ToXML Mon.All where
+  toXML = toXML . Mon.getAll
+
+instance FromXML Mon.All where
+  fromXML n = Mon.All <$> fromXML n
+
+instance ToXML Mon.Any where
+  toXML = toXML . Mon.getAny
+
+instance FromXML Mon.Any where
+  fromXML n = Mon.Any <$> fromXML n
+
+instance ToXML a => ToXML (Mon.First a) where
+  toXML = toXML . Mon.getFirst
+
+instance FromXML a => FromXML (Mon.First a) where
+  fromXML n = Mon.First <$> fromXML n
+
+instance ToXML a => ToXML (Mon.Last a) where
+  toXML = toXML . Mon.getLast
+
+instance FromXML a => FromXML (Mon.Last a) where
+  fromXML n = Mon.Last <$> fromXML n
+
+instance ToXML a => ToXML (Semi.Min a) where
+  toXML = toXML . Semi.getMin
+
+instance FromXML a => FromXML (Semi.Min a) where
+  fromXML n = Semi.Min <$> fromXML n
+
+instance ToXML a => ToXML (Semi.Max a) where
+  toXML = toXML . Semi.getMax
+
+instance FromXML a => FromXML (Semi.Max a) where
+  fromXML n = Semi.Max <$> fromXML n
+
+instance ToXML a => ToXML (Semi.First a) where
+  toXML = toXML . Semi.getFirst
+
+instance FromXML a => FromXML (Semi.First a) where
+  fromXML n = Semi.First <$> fromXML n
+
+instance ToXML a => ToXML (Semi.Last a) where
+  toXML = toXML . Semi.getLast
+
+instance FromXML a => FromXML (Semi.Last a) where
+  fromXML n = Semi.Last <$> fromXML n
+
+instance ToXML a => ToXML (Semi.WrappedMonoid a) where
+  toXML = toXML . Semi.unwrapMonoid
+
+instance FromXML a => FromXML (Semi.WrappedMonoid a) where
+  fromXML n = Semi.WrapMonoid <$> fromXML n
+
+instance (ToXML a, ToXML b) => ToXML (Semi.Arg a b) where
+  toXML (Semi.Arg a b) = toXML (a, b)
+
+instance (FromXML a, FromXML b) => FromXML (Semi.Arg a b) where
+  fromXML n = uncurry Semi.Arg <$> fromXML n
+
+instance ToXML (f (g a)) => ToXML (Compose f g a) where
+  toXML = toXML . getCompose
+
+instance FromXML (f (g a)) => FromXML (Compose f g a) where
+  fromXML n = Compose <$> fromXML n
+
+instance (ToXML (f a), ToXML (g a)) => ToXML (FProduct.Product f g a) where
+  toXML (FProduct.Pair x y) = Element (simpleName "tuple") V.empty
+    (V.fromList [Element (simpleName "_1") V.empty (V.singleton (toXML x))
+                ,Element (simpleName "_2") V.empty (V.singleton (toXML y))])
+
+instance (FromXML (f a), FromXML (g a)) => FromXML (FProduct.Product f g a) where
+  fromXML (Element _ _ cs)
+    | V.length cs == 2 = FProduct.Pair <$> fromTupleField (cs V.! 0) <*> fromTupleField (cs V.! 1)
+  fromXML _ = Left "FromXML Functor.Product: expected element with 2 children"
+
+instance (ToXML (f a), ToXML (g a)) => ToXML (FSum.Sum f g a) where
+  toXML (FSum.InL x) = Element (simpleName "InL") V.empty (V.singleton (toXML x))
+  toXML (FSum.InR x) = Element (simpleName "InR") V.empty (V.singleton (toXML x))
+
+instance (FromXML (f a), FromXML (g a)) => FromXML (FSum.Sum f g a) where
+  fromXML (Element name _ cs)
+    | nameLocal name == "InL", V.length cs == 1 = FSum.InL <$> fromXML (V.head cs)
+    | nameLocal name == "InR", V.length cs == 1 = FSum.InR <$> fromXML (V.head cs)
+  fromXML _ = Left "FromXML Functor.Sum: expected InL/InR element"
 
 instance ToXML Node where
   toXML = id

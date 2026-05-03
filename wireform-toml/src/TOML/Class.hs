@@ -19,7 +19,12 @@ module TOML.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -380,6 +385,114 @@ instance (Integral a, FromTOML a) => FromTOML (Ratio a) where
           then Left "FromTOML Ratio: zero denominator"
           else Right (n % d)
   fromTOML _ = Left "FromTOML Ratio: expected TArray of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToTOML a => ToTOML (Mon.Sum a) where
+  toTOML = toTOML . Mon.getSum
+
+instance FromTOML a => FromTOML (Mon.Sum a) where
+  fromTOML v = Mon.Sum <$> fromTOML v
+
+instance ToTOML a => ToTOML (Mon.Product a) where
+  toTOML = toTOML . Mon.getProduct
+
+instance FromTOML a => FromTOML (Mon.Product a) where
+  fromTOML v = Mon.Product <$> fromTOML v
+
+instance ToTOML a => ToTOML (Mon.Dual a) where
+  toTOML = toTOML . Mon.getDual
+
+instance FromTOML a => FromTOML (Mon.Dual a) where
+  fromTOML v = Mon.Dual <$> fromTOML v
+
+instance ToTOML Mon.All where
+  toTOML = toTOML . Mon.getAll
+
+instance FromTOML Mon.All where
+  fromTOML v = Mon.All <$> fromTOML v
+
+instance ToTOML Mon.Any where
+  toTOML = toTOML . Mon.getAny
+
+instance FromTOML Mon.Any where
+  fromTOML v = Mon.Any <$> fromTOML v
+
+instance ToTOML a => ToTOML (Mon.First a) where
+  toTOML = toTOML . Mon.getFirst
+
+instance FromTOML a => FromTOML (Mon.First a) where
+  fromTOML v = Mon.First <$> fromTOML v
+
+instance ToTOML a => ToTOML (Mon.Last a) where
+  toTOML = toTOML . Mon.getLast
+
+instance FromTOML a => FromTOML (Mon.Last a) where
+  fromTOML v = Mon.Last <$> fromTOML v
+
+instance ToTOML a => ToTOML (Semi.Min a) where
+  toTOML = toTOML . Semi.getMin
+
+instance FromTOML a => FromTOML (Semi.Min a) where
+  fromTOML v = Semi.Min <$> fromTOML v
+
+instance ToTOML a => ToTOML (Semi.Max a) where
+  toTOML = toTOML . Semi.getMax
+
+instance FromTOML a => FromTOML (Semi.Max a) where
+  fromTOML v = Semi.Max <$> fromTOML v
+
+instance ToTOML a => ToTOML (Semi.First a) where
+  toTOML = toTOML . Semi.getFirst
+
+instance FromTOML a => FromTOML (Semi.First a) where
+  fromTOML v = Semi.First <$> fromTOML v
+
+instance ToTOML a => ToTOML (Semi.Last a) where
+  toTOML = toTOML . Semi.getLast
+
+instance FromTOML a => FromTOML (Semi.Last a) where
+  fromTOML v = Semi.Last <$> fromTOML v
+
+instance ToTOML a => ToTOML (Semi.WrappedMonoid a) where
+  toTOML = toTOML . Semi.unwrapMonoid
+
+instance FromTOML a => FromTOML (Semi.WrappedMonoid a) where
+  fromTOML v = Semi.WrapMonoid <$> fromTOML v
+
+instance (ToTOML a, ToTOML b) => ToTOML (Semi.Arg a b) where
+  toTOML (Semi.Arg a b) = TV.TArray (V.fromList [toTOML a, toTOML b])
+
+instance (FromTOML a, FromTOML b) => FromTOML (Semi.Arg a b) where
+  fromTOML (TV.TArray vs)
+    | V.length vs == 2 = Semi.Arg <$> fromTOML (vs V.! 0) <*> fromTOML (vs V.! 1)
+  fromTOML _ = Left "FromTOML Arg: expected TArray of length 2"
+
+instance ToTOML (f (g a)) => ToTOML (Compose f g a) where
+  toTOML = toTOML . getCompose
+
+instance FromTOML (f (g a)) => FromTOML (Compose f g a) where
+  fromTOML v = Compose <$> fromTOML v
+
+instance (ToTOML (f a), ToTOML (g a)) => ToTOML (FProduct.Product f g a) where
+  toTOML (FProduct.Pair x y) = TV.TArray (V.fromList [toTOML x, toTOML y])
+
+instance (FromTOML (f a), FromTOML (g a)) => FromTOML (FProduct.Product f g a) where
+  fromTOML (TV.TArray vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromTOML (vs V.! 0) <*> fromTOML (vs V.! 1)
+  fromTOML _ = Left "FromTOML Functor.Product: expected TArray of length 2"
+
+instance (ToTOML (f a), ToTOML (g a)) => ToTOML (FSum.Sum f g a) where
+  toTOML (FSum.InL x) = TV.TTable (V.singleton ("InL", toTOML x))
+  toTOML (FSum.InR x) = TV.TTable (V.singleton ("InR", toTOML x))
+
+instance (FromTOML (f a), FromTOML (g a)) => FromTOML (FSum.Sum f g a) where
+  fromTOML (TV.TTable kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        ("InL", v) -> FSum.InL <$> fromTOML v
+        ("InR", v) -> FSum.InR <$> fromTOML v
+        _          -> Left "FromTOML Functor.Sum: expected InL/InR key"
+  fromTOML _ = Left "FromTOML Functor.Sum: expected single-key TTable"
 
 instance ToTOML TV.Value where
   toTOML = id

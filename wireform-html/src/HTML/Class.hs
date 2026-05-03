@@ -20,7 +20,12 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Foldable (toList)
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -460,6 +465,119 @@ instance (Integral a, FromHTML a) => FromHTML (Ratio a) where
     if den == 0
       then Left "FromHTML Ratio: zero denominator"
       else Right (num % den)
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToHTML a => ToHTML (Mon.Sum a) where
+  toHTML = toHTML . Mon.getSum
+
+instance FromHTML a => FromHTML (Mon.Sum a) where
+  fromHTML n = Mon.Sum <$> fromHTML n
+
+instance ToHTML a => ToHTML (Mon.Product a) where
+  toHTML = toHTML . Mon.getProduct
+
+instance FromHTML a => FromHTML (Mon.Product a) where
+  fromHTML n = Mon.Product <$> fromHTML n
+
+instance ToHTML a => ToHTML (Mon.Dual a) where
+  toHTML = toHTML . Mon.getDual
+
+instance FromHTML a => FromHTML (Mon.Dual a) where
+  fromHTML n = Mon.Dual <$> fromHTML n
+
+instance ToHTML Mon.All where
+  toHTML = toHTML . Mon.getAll
+
+instance FromHTML Mon.All where
+  fromHTML n = Mon.All <$> fromHTML n
+
+instance ToHTML Mon.Any where
+  toHTML = toHTML . Mon.getAny
+
+instance FromHTML Mon.Any where
+  fromHTML n = Mon.Any <$> fromHTML n
+
+instance ToHTML a => ToHTML (Mon.First a) where
+  toHTML = toHTML . Mon.getFirst
+
+instance FromHTML a => FromHTML (Mon.First a) where
+  fromHTML n = Mon.First <$> fromHTML n
+
+instance ToHTML a => ToHTML (Mon.Last a) where
+  toHTML = toHTML . Mon.getLast
+
+instance FromHTML a => FromHTML (Mon.Last a) where
+  fromHTML n = Mon.Last <$> fromHTML n
+
+instance ToHTML a => ToHTML (Semi.Min a) where
+  toHTML = toHTML . Semi.getMin
+
+instance FromHTML a => FromHTML (Semi.Min a) where
+  fromHTML n = Semi.Min <$> fromHTML n
+
+instance ToHTML a => ToHTML (Semi.Max a) where
+  toHTML = toHTML . Semi.getMax
+
+instance FromHTML a => FromHTML (Semi.Max a) where
+  fromHTML n = Semi.Max <$> fromHTML n
+
+instance ToHTML a => ToHTML (Semi.First a) where
+  toHTML = toHTML . Semi.getFirst
+
+instance FromHTML a => FromHTML (Semi.First a) where
+  fromHTML n = Semi.First <$> fromHTML n
+
+instance ToHTML a => ToHTML (Semi.Last a) where
+  toHTML = toHTML . Semi.getLast
+
+instance FromHTML a => FromHTML (Semi.Last a) where
+  fromHTML n = Semi.Last <$> fromHTML n
+
+instance ToHTML a => ToHTML (Semi.WrappedMonoid a) where
+  toHTML = toHTML . Semi.unwrapMonoid
+
+instance FromHTML a => FromHTML (Semi.WrappedMonoid a) where
+  fromHTML n = Semi.WrapMonoid <$> fromHTML n
+
+instance (ToHTML a, ToHTML b) => ToHTML (Semi.Arg a b) where
+  toHTML (Semi.Arg a b) = toHTML (a, b)
+
+instance (FromHTML a, FromHTML b) => FromHTML (Semi.Arg a b) where
+  fromHTML n = uncurry Semi.Arg <$> fromHTML n
+
+instance ToHTML (f (g a)) => ToHTML (Compose f g a) where
+  toHTML = toHTML . getCompose
+
+instance FromHTML (f (g a)) => FromHTML (Compose f g a) where
+  fromHTML n = Compose <$> fromHTML n
+
+instance (ToHTML (f a), ToHTML (g a)) => ToHTML (FProduct.Product f g a) where
+  toHTML (FProduct.Pair x y) = HTMLElement "tuple" mempty
+    (smallArrayFromList [toHTML x, toHTML y])
+
+instance (FromHTML (f a), FromHTML (g a)) => FromHTML (FProduct.Product f g a) where
+  fromHTML (HTMLElement _ _ cs)
+    | sizeofSmallArray cs == 2 = FProduct.Pair
+        <$> fromHTML (indexSmallArray cs 0)
+        <*> fromHTML (indexSmallArray cs 1)
+  fromHTML _ = Left "FromHTML Functor.Product: expected element with 2 children"
+
+instance (ToHTML (f a), ToHTML (g a)) => ToHTML (FSum.Sum f g a) where
+  toHTML (FSum.InL x) = HTMLElement "div" mempty
+    (smallArrayFromList [HTMLElement "InL" mempty (smallArrayFromList [toHTML x])])
+  toHTML (FSum.InR x) = HTMLElement "div" mempty
+    (smallArrayFromList [HTMLElement "InR" mempty (smallArrayFromList [toHTML x])])
+
+instance (FromHTML (f a), FromHTML (g a)) => FromHTML (FSum.Sum f g a) where
+  fromHTML (HTMLElement _ _ cs)
+    | sizeofSmallArray cs == 1
+    , HTMLElement tag _ inner <- indexSmallArray cs 0
+    , sizeofSmallArray inner == 1 = case tag of
+        "InL" -> FSum.InL <$> fromHTML (indexSmallArray inner 0)
+        "InR" -> FSum.InR <$> fromHTML (indexSmallArray inner 0)
+        _     -> Left "FromHTML Functor.Sum: expected InL/InR child"
+  fromHTML _ = Left "FromHTML Functor.Sum: expected single child"
 
 -- GHC.Generics support
 

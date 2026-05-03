@@ -38,7 +38,12 @@ module CBOR.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -485,6 +490,141 @@ instance (Integral a, FromCBOR a) => FromCBOR (Ratio a) where
           then Left "FromCBOR Ratio: zero denominator"
           else Right (n % d)
   fromCBOR _ = Left "FromCBOR Ratio: expected Array of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+--
+-- Every newtype wraps its underlying value transparently, matching aeson's
+-- convention.
+
+instance ToCBOR a => ToCBOR (Mon.Sum a) where
+  toCBOR = toCBOR . Mon.getSum
+  toEncoding = toEncoding . Mon.getSum
+
+instance FromCBOR a => FromCBOR (Mon.Sum a) where
+  fromCBOR v = Mon.Sum <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Mon.Product a) where
+  toCBOR = toCBOR . Mon.getProduct
+  toEncoding = toEncoding . Mon.getProduct
+
+instance FromCBOR a => FromCBOR (Mon.Product a) where
+  fromCBOR v = Mon.Product <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Mon.Dual a) where
+  toCBOR = toCBOR . Mon.getDual
+  toEncoding = toEncoding . Mon.getDual
+
+instance FromCBOR a => FromCBOR (Mon.Dual a) where
+  fromCBOR v = Mon.Dual <$> fromCBOR v
+
+instance ToCBOR Mon.All where
+  toCBOR = toCBOR . Mon.getAll
+  toEncoding = toEncoding . Mon.getAll
+
+instance FromCBOR Mon.All where
+  fromCBOR v = Mon.All <$> fromCBOR v
+
+instance ToCBOR Mon.Any where
+  toCBOR = toCBOR . Mon.getAny
+  toEncoding = toEncoding . Mon.getAny
+
+instance FromCBOR Mon.Any where
+  fromCBOR v = Mon.Any <$> fromCBOR v
+
+-- | 'Data.Monoid.First' encodes its inner 'Maybe'.
+instance ToCBOR a => ToCBOR (Mon.First a) where
+  toCBOR = toCBOR . Mon.getFirst
+  toEncoding = toEncoding . Mon.getFirst
+
+instance FromCBOR a => FromCBOR (Mon.First a) where
+  fromCBOR v = Mon.First <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Mon.Last a) where
+  toCBOR = toCBOR . Mon.getLast
+  toEncoding = toEncoding . Mon.getLast
+
+instance FromCBOR a => FromCBOR (Mon.Last a) where
+  fromCBOR v = Mon.Last <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Semi.Min a) where
+  toCBOR = toCBOR . Semi.getMin
+  toEncoding = toEncoding . Semi.getMin
+
+instance FromCBOR a => FromCBOR (Semi.Min a) where
+  fromCBOR v = Semi.Min <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Semi.Max a) where
+  toCBOR = toCBOR . Semi.getMax
+  toEncoding = toEncoding . Semi.getMax
+
+instance FromCBOR a => FromCBOR (Semi.Max a) where
+  fromCBOR v = Semi.Max <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Semi.First a) where
+  toCBOR = toCBOR . Semi.getFirst
+  toEncoding = toEncoding . Semi.getFirst
+
+instance FromCBOR a => FromCBOR (Semi.First a) where
+  fromCBOR v = Semi.First <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Semi.Last a) where
+  toCBOR = toCBOR . Semi.getLast
+  toEncoding = toEncoding . Semi.getLast
+
+instance FromCBOR a => FromCBOR (Semi.Last a) where
+  fromCBOR v = Semi.Last <$> fromCBOR v
+
+instance ToCBOR a => ToCBOR (Semi.WrappedMonoid a) where
+  toCBOR = toCBOR . Semi.unwrapMonoid
+  toEncoding = toEncoding . Semi.unwrapMonoid
+
+instance FromCBOR a => FromCBOR (Semi.WrappedMonoid a) where
+  fromCBOR v = Semi.WrapMonoid <$> fromCBOR v
+
+-- | 'Semi.Arg' encodes as a two-element array of (key, value), matching
+-- the 'Show' / 'aeson' shape.
+instance (ToCBOR a, ToCBOR b) => ToCBOR (Semi.Arg a b) where
+  toCBOR (Semi.Arg a b) = CV.Array (V.fromList [toCBOR a, toCBOR b])
+  toEncoding (Semi.Arg a b) = Enc.arrayList [toEncoding a, toEncoding b]
+
+instance (FromCBOR a, FromCBOR b) => FromCBOR (Semi.Arg a b) where
+  fromCBOR (CV.Array vs)
+    | V.length vs == 2 = Semi.Arg <$> fromCBOR (vs V.! 0) <*> fromCBOR (vs V.! 1)
+  fromCBOR _ = Left "FromCBOR Arg: expected Array of length 2"
+
+-- | 'Compose' is transparent: encodes its inner @f (g a)@.
+instance ToCBOR (f (g a)) => ToCBOR (Compose f g a) where
+  toCBOR = toCBOR . getCompose
+  toEncoding = toEncoding . getCompose
+
+instance FromCBOR (f (g a)) => FromCBOR (Compose f g a) where
+  fromCBOR v = Compose <$> fromCBOR v
+
+-- | 'Functor.Product' encodes as a 2-element array.
+instance (ToCBOR (f a), ToCBOR (g a)) => ToCBOR (FProduct.Product f g a) where
+  toCBOR (FProduct.Pair x y) = CV.Array (V.fromList [toCBOR x, toCBOR y])
+  toEncoding (FProduct.Pair x y) = Enc.arrayList [toEncoding x, toEncoding y]
+
+instance (FromCBOR (f a), FromCBOR (g a)) => FromCBOR (FProduct.Product f g a) where
+  fromCBOR (CV.Array vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromCBOR (vs V.! 0) <*> fromCBOR (vs V.! 1)
+  fromCBOR _ = Left "FromCBOR Functor.Product: expected Array of length 2"
+
+-- | 'Functor.Sum' encodes as a single-key map @{\"InL\":…}@ or
+-- @{\"InR\":…}@.
+instance (ToCBOR (f a), ToCBOR (g a)) => ToCBOR (FSum.Sum f g a) where
+  toCBOR (FSum.InL x) = CV.Map (V.singleton (CV.TextString "InL", toCBOR x))
+  toCBOR (FSum.InR x) = CV.Map (V.singleton (CV.TextString "InR", toCBOR x))
+  toEncoding (FSum.InL x) = Enc.mapList [(Enc.text "InL", toEncoding x)]
+  toEncoding (FSum.InR x) = Enc.mapList [(Enc.text "InR", toEncoding x)]
+
+instance (FromCBOR (f a), FromCBOR (g a)) => FromCBOR (FSum.Sum f g a) where
+  fromCBOR (CV.Map kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        (CV.TextString "InL", v) -> FSum.InL <$> fromCBOR v
+        (CV.TextString "InR", v) -> FSum.InR <$> fromCBOR v
+        _                        -> Left "FromCBOR Functor.Sum: expected InL/InR key"
+  fromCBOR _ = Left "FromCBOR Functor.Sum: expected single-key Map"
 
 instance ToCBOR CV.Value where
   toCBOR = id

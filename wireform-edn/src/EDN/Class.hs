@@ -38,7 +38,12 @@ module EDN.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -430,6 +435,129 @@ instance (Integral a, FromEDN a) => FromEDN (Ratio a) where
           then Left "FromEDN Ratio: zero denominator"
           else Right (n % d)
   fromEDN _ = Left "FromEDN Ratio: expected Vector of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToEDN a => ToEDN (Mon.Sum a) where
+  toEDN = toEDN . Mon.getSum
+  toEncoding = toEncoding . Mon.getSum
+
+instance FromEDN a => FromEDN (Mon.Sum a) where
+  fromEDN v = Mon.Sum <$> fromEDN v
+
+instance ToEDN a => ToEDN (Mon.Product a) where
+  toEDN = toEDN . Mon.getProduct
+  toEncoding = toEncoding . Mon.getProduct
+
+instance FromEDN a => FromEDN (Mon.Product a) where
+  fromEDN v = Mon.Product <$> fromEDN v
+
+instance ToEDN a => ToEDN (Mon.Dual a) where
+  toEDN = toEDN . Mon.getDual
+  toEncoding = toEncoding . Mon.getDual
+
+instance FromEDN a => FromEDN (Mon.Dual a) where
+  fromEDN v = Mon.Dual <$> fromEDN v
+
+instance ToEDN Mon.All where
+  toEDN = toEDN . Mon.getAll
+  toEncoding = toEncoding . Mon.getAll
+
+instance FromEDN Mon.All where
+  fromEDN v = Mon.All <$> fromEDN v
+
+instance ToEDN Mon.Any where
+  toEDN = toEDN . Mon.getAny
+  toEncoding = toEncoding . Mon.getAny
+
+instance FromEDN Mon.Any where
+  fromEDN v = Mon.Any <$> fromEDN v
+
+instance ToEDN a => ToEDN (Mon.First a) where
+  toEDN = toEDN . Mon.getFirst
+  toEncoding = toEncoding . Mon.getFirst
+
+instance FromEDN a => FromEDN (Mon.First a) where
+  fromEDN v = Mon.First <$> fromEDN v
+
+instance ToEDN a => ToEDN (Mon.Last a) where
+  toEDN = toEDN . Mon.getLast
+  toEncoding = toEncoding . Mon.getLast
+
+instance FromEDN a => FromEDN (Mon.Last a) where
+  fromEDN v = Mon.Last <$> fromEDN v
+
+instance ToEDN a => ToEDN (Semi.Min a) where
+  toEDN = toEDN . Semi.getMin
+  toEncoding = toEncoding . Semi.getMin
+
+instance FromEDN a => FromEDN (Semi.Min a) where
+  fromEDN v = Semi.Min <$> fromEDN v
+
+instance ToEDN a => ToEDN (Semi.Max a) where
+  toEDN = toEDN . Semi.getMax
+  toEncoding = toEncoding . Semi.getMax
+
+instance FromEDN a => FromEDN (Semi.Max a) where
+  fromEDN v = Semi.Max <$> fromEDN v
+
+instance ToEDN a => ToEDN (Semi.First a) where
+  toEDN = toEDN . Semi.getFirst
+  toEncoding = toEncoding . Semi.getFirst
+
+instance FromEDN a => FromEDN (Semi.First a) where
+  fromEDN v = Semi.First <$> fromEDN v
+
+instance ToEDN a => ToEDN (Semi.Last a) where
+  toEDN = toEDN . Semi.getLast
+  toEncoding = toEncoding . Semi.getLast
+
+instance FromEDN a => FromEDN (Semi.Last a) where
+  fromEDN v = Semi.Last <$> fromEDN v
+
+instance ToEDN a => ToEDN (Semi.WrappedMonoid a) where
+  toEDN = toEDN . Semi.unwrapMonoid
+  toEncoding = toEncoding . Semi.unwrapMonoid
+
+instance FromEDN a => FromEDN (Semi.WrappedMonoid a) where
+  fromEDN v = Semi.WrapMonoid <$> fromEDN v
+
+instance (ToEDN a, ToEDN b) => ToEDN (Semi.Arg a b) where
+  toEDN (Semi.Arg a b) = EV.Vector (V.fromList [toEDN a, toEDN b])
+
+instance (FromEDN a, FromEDN b) => FromEDN (Semi.Arg a b) where
+  fromEDN (EV.Vector vs)
+    | V.length vs == 2 = Semi.Arg <$> fromEDN (vs V.! 0) <*> fromEDN (vs V.! 1)
+  fromEDN _ = Left "FromEDN Arg: expected Vector of length 2"
+
+instance ToEDN (f (g a)) => ToEDN (Compose f g a) where
+  toEDN = toEDN . getCompose
+  toEncoding = toEncoding . getCompose
+
+instance FromEDN (f (g a)) => FromEDN (Compose f g a) where
+  fromEDN v = Compose <$> fromEDN v
+
+instance (ToEDN (f a), ToEDN (g a)) => ToEDN (FProduct.Product f g a) where
+  toEDN (FProduct.Pair x y) = EV.Vector (V.fromList [toEDN x, toEDN y])
+
+instance (FromEDN (f a), FromEDN (g a)) => FromEDN (FProduct.Product f g a) where
+  fromEDN (EV.Vector vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromEDN (vs V.! 0) <*> fromEDN (vs V.! 1)
+  fromEDN _ = Left "FromEDN Functor.Product: expected Vector of length 2"
+
+instance (ToEDN (f a), ToEDN (g a)) => ToEDN (FSum.Sum f g a) where
+  toEDN (FSum.InL x) = EV.Map (V.singleton (EV.Keyword Nothing "InL", toEDN x))
+  toEDN (FSum.InR x) = EV.Map (V.singleton (EV.Keyword Nothing "InR", toEDN x))
+
+instance (FromEDN (f a), FromEDN (g a)) => FromEDN (FSum.Sum f g a) where
+  fromEDN (EV.Map kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        (EV.Keyword _ "InL", v) -> FSum.InL <$> fromEDN v
+        (EV.Keyword _ "InR", v) -> FSum.InR <$> fromEDN v
+        (EV.String "InL", v)    -> FSum.InL <$> fromEDN v
+        (EV.String "InR", v)    -> FSum.InR <$> fromEDN v
+        _                       -> Left "FromEDN Functor.Sum: expected InL/InR key"
+  fromEDN _ = Left "FromEDN Functor.Sum: expected single-key Map"
 
 instance ToEDN EV.Value where
   toEDN = id

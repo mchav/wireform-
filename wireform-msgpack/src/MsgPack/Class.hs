@@ -38,7 +38,12 @@ module MsgPack.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -479,6 +484,131 @@ instance (Integral a, FromMsgPack a) => FromMsgPack (Ratio a) where
           then Left "FromMsgPack Ratio: zero denominator"
           else Right (n % d)
   fromMsgPack _ = Left "FromMsgPack Ratio: expected Array of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToMsgPack a => ToMsgPack (Mon.Sum a) where
+  toMsgPack = toMsgPack . Mon.getSum
+  toEncoding = toEncoding . Mon.getSum
+
+instance FromMsgPack a => FromMsgPack (Mon.Sum a) where
+  fromMsgPack v = Mon.Sum <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Mon.Product a) where
+  toMsgPack = toMsgPack . Mon.getProduct
+  toEncoding = toEncoding . Mon.getProduct
+
+instance FromMsgPack a => FromMsgPack (Mon.Product a) where
+  fromMsgPack v = Mon.Product <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Mon.Dual a) where
+  toMsgPack = toMsgPack . Mon.getDual
+  toEncoding = toEncoding . Mon.getDual
+
+instance FromMsgPack a => FromMsgPack (Mon.Dual a) where
+  fromMsgPack v = Mon.Dual <$> fromMsgPack v
+
+instance ToMsgPack Mon.All where
+  toMsgPack = toMsgPack . Mon.getAll
+  toEncoding = toEncoding . Mon.getAll
+
+instance FromMsgPack Mon.All where
+  fromMsgPack v = Mon.All <$> fromMsgPack v
+
+instance ToMsgPack Mon.Any where
+  toMsgPack = toMsgPack . Mon.getAny
+  toEncoding = toEncoding . Mon.getAny
+
+instance FromMsgPack Mon.Any where
+  fromMsgPack v = Mon.Any <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Mon.First a) where
+  toMsgPack = toMsgPack . Mon.getFirst
+  toEncoding = toEncoding . Mon.getFirst
+
+instance FromMsgPack a => FromMsgPack (Mon.First a) where
+  fromMsgPack v = Mon.First <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Mon.Last a) where
+  toMsgPack = toMsgPack . Mon.getLast
+  toEncoding = toEncoding . Mon.getLast
+
+instance FromMsgPack a => FromMsgPack (Mon.Last a) where
+  fromMsgPack v = Mon.Last <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Semi.Min a) where
+  toMsgPack = toMsgPack . Semi.getMin
+  toEncoding = toEncoding . Semi.getMin
+
+instance FromMsgPack a => FromMsgPack (Semi.Min a) where
+  fromMsgPack v = Semi.Min <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Semi.Max a) where
+  toMsgPack = toMsgPack . Semi.getMax
+  toEncoding = toEncoding . Semi.getMax
+
+instance FromMsgPack a => FromMsgPack (Semi.Max a) where
+  fromMsgPack v = Semi.Max <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Semi.First a) where
+  toMsgPack = toMsgPack . Semi.getFirst
+  toEncoding = toEncoding . Semi.getFirst
+
+instance FromMsgPack a => FromMsgPack (Semi.First a) where
+  fromMsgPack v = Semi.First <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Semi.Last a) where
+  toMsgPack = toMsgPack . Semi.getLast
+  toEncoding = toEncoding . Semi.getLast
+
+instance FromMsgPack a => FromMsgPack (Semi.Last a) where
+  fromMsgPack v = Semi.Last <$> fromMsgPack v
+
+instance ToMsgPack a => ToMsgPack (Semi.WrappedMonoid a) where
+  toMsgPack = toMsgPack . Semi.unwrapMonoid
+  toEncoding = toEncoding . Semi.unwrapMonoid
+
+instance FromMsgPack a => FromMsgPack (Semi.WrappedMonoid a) where
+  fromMsgPack v = Semi.WrapMonoid <$> fromMsgPack v
+
+instance (ToMsgPack a, ToMsgPack b) => ToMsgPack (Semi.Arg a b) where
+  toMsgPack (Semi.Arg a b) = MV.Array (V.fromList [toMsgPack a, toMsgPack b])
+  toEncoding (Semi.Arg a b) = Enc.arrayList [toEncoding a, toEncoding b]
+
+instance (FromMsgPack a, FromMsgPack b) => FromMsgPack (Semi.Arg a b) where
+  fromMsgPack (MV.Array vs)
+    | V.length vs == 2 = Semi.Arg <$> fromMsgPack (vs V.! 0) <*> fromMsgPack (vs V.! 1)
+  fromMsgPack _ = Left "FromMsgPack Arg: expected Array of length 2"
+
+instance ToMsgPack (f (g a)) => ToMsgPack (Compose f g a) where
+  toMsgPack = toMsgPack . getCompose
+  toEncoding = toEncoding . getCompose
+
+instance FromMsgPack (f (g a)) => FromMsgPack (Compose f g a) where
+  fromMsgPack v = Compose <$> fromMsgPack v
+
+instance (ToMsgPack (f a), ToMsgPack (g a)) => ToMsgPack (FProduct.Product f g a) where
+  toMsgPack (FProduct.Pair x y) = MV.Array (V.fromList [toMsgPack x, toMsgPack y])
+  toEncoding (FProduct.Pair x y) = Enc.arrayList [toEncoding x, toEncoding y]
+
+instance (FromMsgPack (f a), FromMsgPack (g a)) => FromMsgPack (FProduct.Product f g a) where
+  fromMsgPack (MV.Array vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromMsgPack (vs V.! 0) <*> fromMsgPack (vs V.! 1)
+  fromMsgPack _ = Left "FromMsgPack Functor.Product: expected Array of length 2"
+
+instance (ToMsgPack (f a), ToMsgPack (g a)) => ToMsgPack (FSum.Sum f g a) where
+  toMsgPack (FSum.InL x) = MV.Map (V.singleton (MV.String "InL", toMsgPack x))
+  toMsgPack (FSum.InR x) = MV.Map (V.singleton (MV.String "InR", toMsgPack x))
+  toEncoding (FSum.InL x) = Enc.mapList [(Enc.string "InL", toEncoding x)]
+  toEncoding (FSum.InR x) = Enc.mapList [(Enc.string "InR", toEncoding x)]
+
+instance (FromMsgPack (f a), FromMsgPack (g a)) => FromMsgPack (FSum.Sum f g a) where
+  fromMsgPack (MV.Map kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        (MV.String "InL", v) -> FSum.InL <$> fromMsgPack v
+        (MV.String "InR", v) -> FSum.InR <$> fromMsgPack v
+        _                    -> Left "FromMsgPack Functor.Sum: expected InL/InR key"
+  fromMsgPack _ = Left "FromMsgPack Functor.Sum: expected single-key Map"
 
 instance ToMsgPack MV.Value where
   toMsgPack = id

@@ -35,7 +35,12 @@ module Ion.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -418,6 +423,114 @@ instance (Integral a, FromIon a) => FromIon (Ratio a) where
           then Left "FromIon Ratio: zero denominator"
           else Right (n % d)
   fromIon _ = Left "FromIon Ratio: expected List of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToIon a => ToIon (Mon.Sum a) where
+  toIon = toIon . Mon.getSum
+
+instance FromIon a => FromIon (Mon.Sum a) where
+  fromIon v = Mon.Sum <$> fromIon v
+
+instance ToIon a => ToIon (Mon.Product a) where
+  toIon = toIon . Mon.getProduct
+
+instance FromIon a => FromIon (Mon.Product a) where
+  fromIon v = Mon.Product <$> fromIon v
+
+instance ToIon a => ToIon (Mon.Dual a) where
+  toIon = toIon . Mon.getDual
+
+instance FromIon a => FromIon (Mon.Dual a) where
+  fromIon v = Mon.Dual <$> fromIon v
+
+instance ToIon Mon.All where
+  toIon = toIon . Mon.getAll
+
+instance FromIon Mon.All where
+  fromIon v = Mon.All <$> fromIon v
+
+instance ToIon Mon.Any where
+  toIon = toIon . Mon.getAny
+
+instance FromIon Mon.Any where
+  fromIon v = Mon.Any <$> fromIon v
+
+instance ToIon a => ToIon (Mon.First a) where
+  toIon = toIon . Mon.getFirst
+
+instance FromIon a => FromIon (Mon.First a) where
+  fromIon v = Mon.First <$> fromIon v
+
+instance ToIon a => ToIon (Mon.Last a) where
+  toIon = toIon . Mon.getLast
+
+instance FromIon a => FromIon (Mon.Last a) where
+  fromIon v = Mon.Last <$> fromIon v
+
+instance ToIon a => ToIon (Semi.Min a) where
+  toIon = toIon . Semi.getMin
+
+instance FromIon a => FromIon (Semi.Min a) where
+  fromIon v = Semi.Min <$> fromIon v
+
+instance ToIon a => ToIon (Semi.Max a) where
+  toIon = toIon . Semi.getMax
+
+instance FromIon a => FromIon (Semi.Max a) where
+  fromIon v = Semi.Max <$> fromIon v
+
+instance ToIon a => ToIon (Semi.First a) where
+  toIon = toIon . Semi.getFirst
+
+instance FromIon a => FromIon (Semi.First a) where
+  fromIon v = Semi.First <$> fromIon v
+
+instance ToIon a => ToIon (Semi.Last a) where
+  toIon = toIon . Semi.getLast
+
+instance FromIon a => FromIon (Semi.Last a) where
+  fromIon v = Semi.Last <$> fromIon v
+
+instance ToIon a => ToIon (Semi.WrappedMonoid a) where
+  toIon = toIon . Semi.unwrapMonoid
+
+instance FromIon a => FromIon (Semi.WrappedMonoid a) where
+  fromIon v = Semi.WrapMonoid <$> fromIon v
+
+instance (ToIon a, ToIon b) => ToIon (Semi.Arg a b) where
+  toIon (Semi.Arg a b) = IV.List (V.fromList [toIon a, toIon b])
+
+instance (FromIon a, FromIon b) => FromIon (Semi.Arg a b) where
+  fromIon (IV.List vs)
+    | V.length vs == 2 = Semi.Arg <$> fromIon (vs V.! 0) <*> fromIon (vs V.! 1)
+  fromIon _ = Left "FromIon Arg: expected List of length 2"
+
+instance ToIon (f (g a)) => ToIon (Compose f g a) where
+  toIon = toIon . getCompose
+
+instance FromIon (f (g a)) => FromIon (Compose f g a) where
+  fromIon v = Compose <$> fromIon v
+
+instance (ToIon (f a), ToIon (g a)) => ToIon (FProduct.Product f g a) where
+  toIon (FProduct.Pair x y) = IV.List (V.fromList [toIon x, toIon y])
+
+instance (FromIon (f a), FromIon (g a)) => FromIon (FProduct.Product f g a) where
+  fromIon (IV.List vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromIon (vs V.! 0) <*> fromIon (vs V.! 1)
+  fromIon _ = Left "FromIon Functor.Product: expected List of length 2"
+
+instance (ToIon (f a), ToIon (g a)) => ToIon (FSum.Sum f g a) where
+  toIon (FSum.InL x) = IV.Struct (V.singleton ("InL", toIon x))
+  toIon (FSum.InR x) = IV.Struct (V.singleton ("InR", toIon x))
+
+instance (FromIon (f a), FromIon (g a)) => FromIon (FSum.Sum f g a) where
+  fromIon (IV.Struct kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        ("InL", v) -> FSum.InL <$> fromIon v
+        ("InR", v) -> FSum.InR <$> fromIon v
+        _          -> Left "FromIon Functor.Sum: expected InL/InR key"
+  fromIon _ = Left "FromIon Functor.Sum: expected single-key Struct"
 
 instance ToIon IV.Value where
   toIon = id

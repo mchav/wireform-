@@ -36,7 +36,12 @@ module BSON.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -420,6 +425,114 @@ instance (Integral a, FromBSON a) => FromBSON (Ratio a) where
           then Left "FromBSON Ratio: zero denominator"
           else Right (n % d)
   fromBSON _ = Left "FromBSON Ratio: expected Array of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToBSON a => ToBSON (Mon.Sum a) where
+  toBSON = toBSON . Mon.getSum
+
+instance FromBSON a => FromBSON (Mon.Sum a) where
+  fromBSON v = Mon.Sum <$> fromBSON v
+
+instance ToBSON a => ToBSON (Mon.Product a) where
+  toBSON = toBSON . Mon.getProduct
+
+instance FromBSON a => FromBSON (Mon.Product a) where
+  fromBSON v = Mon.Product <$> fromBSON v
+
+instance ToBSON a => ToBSON (Mon.Dual a) where
+  toBSON = toBSON . Mon.getDual
+
+instance FromBSON a => FromBSON (Mon.Dual a) where
+  fromBSON v = Mon.Dual <$> fromBSON v
+
+instance ToBSON Mon.All where
+  toBSON = toBSON . Mon.getAll
+
+instance FromBSON Mon.All where
+  fromBSON v = Mon.All <$> fromBSON v
+
+instance ToBSON Mon.Any where
+  toBSON = toBSON . Mon.getAny
+
+instance FromBSON Mon.Any where
+  fromBSON v = Mon.Any <$> fromBSON v
+
+instance ToBSON a => ToBSON (Mon.First a) where
+  toBSON = toBSON . Mon.getFirst
+
+instance FromBSON a => FromBSON (Mon.First a) where
+  fromBSON v = Mon.First <$> fromBSON v
+
+instance ToBSON a => ToBSON (Mon.Last a) where
+  toBSON = toBSON . Mon.getLast
+
+instance FromBSON a => FromBSON (Mon.Last a) where
+  fromBSON v = Mon.Last <$> fromBSON v
+
+instance ToBSON a => ToBSON (Semi.Min a) where
+  toBSON = toBSON . Semi.getMin
+
+instance FromBSON a => FromBSON (Semi.Min a) where
+  fromBSON v = Semi.Min <$> fromBSON v
+
+instance ToBSON a => ToBSON (Semi.Max a) where
+  toBSON = toBSON . Semi.getMax
+
+instance FromBSON a => FromBSON (Semi.Max a) where
+  fromBSON v = Semi.Max <$> fromBSON v
+
+instance ToBSON a => ToBSON (Semi.First a) where
+  toBSON = toBSON . Semi.getFirst
+
+instance FromBSON a => FromBSON (Semi.First a) where
+  fromBSON v = Semi.First <$> fromBSON v
+
+instance ToBSON a => ToBSON (Semi.Last a) where
+  toBSON = toBSON . Semi.getLast
+
+instance FromBSON a => FromBSON (Semi.Last a) where
+  fromBSON v = Semi.Last <$> fromBSON v
+
+instance ToBSON a => ToBSON (Semi.WrappedMonoid a) where
+  toBSON = toBSON . Semi.unwrapMonoid
+
+instance FromBSON a => FromBSON (Semi.WrappedMonoid a) where
+  fromBSON v = Semi.WrapMonoid <$> fromBSON v
+
+instance (ToBSON a, ToBSON b) => ToBSON (Semi.Arg a b) where
+  toBSON (Semi.Arg a b) = BV.Array (V.fromList [toBSON a, toBSON b])
+
+instance (FromBSON a, FromBSON b) => FromBSON (Semi.Arg a b) where
+  fromBSON (BV.Array vs)
+    | V.length vs == 2 = Semi.Arg <$> fromBSON (vs V.! 0) <*> fromBSON (vs V.! 1)
+  fromBSON _ = Left "FromBSON Arg: expected Array of length 2"
+
+instance ToBSON (f (g a)) => ToBSON (Compose f g a) where
+  toBSON = toBSON . getCompose
+
+instance FromBSON (f (g a)) => FromBSON (Compose f g a) where
+  fromBSON v = Compose <$> fromBSON v
+
+instance (ToBSON (f a), ToBSON (g a)) => ToBSON (FProduct.Product f g a) where
+  toBSON (FProduct.Pair x y) = BV.Array (V.fromList [toBSON x, toBSON y])
+
+instance (FromBSON (f a), FromBSON (g a)) => FromBSON (FProduct.Product f g a) where
+  fromBSON (BV.Array vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromBSON (vs V.! 0) <*> fromBSON (vs V.! 1)
+  fromBSON _ = Left "FromBSON Functor.Product: expected Array of length 2"
+
+instance (ToBSON (f a), ToBSON (g a)) => ToBSON (FSum.Sum f g a) where
+  toBSON (FSum.InL x) = BV.Document (V.singleton ("InL", toBSON x))
+  toBSON (FSum.InR x) = BV.Document (V.singleton ("InR", toBSON x))
+
+instance (FromBSON (f a), FromBSON (g a)) => FromBSON (FSum.Sum f g a) where
+  fromBSON (BV.Document kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        ("InL", v) -> FSum.InL <$> fromBSON v
+        ("InR", v) -> FSum.InR <$> fromBSON v
+        _          -> Left "FromBSON Functor.Sum: expected InL/InR key"
+  fromBSON _ = Left "FromBSON Functor.Sum: expected single-key Document"
 
 instance ToBSON BV.Value where
   toBSON = id

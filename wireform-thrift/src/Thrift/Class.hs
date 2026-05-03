@@ -41,7 +41,12 @@ module Thrift.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -498,6 +503,114 @@ instance (Integral a, FromThrift a) => FromThrift (Ratio a) where
           then Left "FromThrift Ratio: zero denominator"
           else Right (n % d)
   fromThrift _ = Left "FromThrift Ratio: expected List of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToThrift a => ToThrift (Mon.Sum a) where
+  toThrift = toThrift . Mon.getSum
+
+instance FromThrift a => FromThrift (Mon.Sum a) where
+  fromThrift v = Mon.Sum <$> fromThrift v
+
+instance ToThrift a => ToThrift (Mon.Product a) where
+  toThrift = toThrift . Mon.getProduct
+
+instance FromThrift a => FromThrift (Mon.Product a) where
+  fromThrift v = Mon.Product <$> fromThrift v
+
+instance ToThrift a => ToThrift (Mon.Dual a) where
+  toThrift = toThrift . Mon.getDual
+
+instance FromThrift a => FromThrift (Mon.Dual a) where
+  fromThrift v = Mon.Dual <$> fromThrift v
+
+instance ToThrift Mon.All where
+  toThrift = toThrift . Mon.getAll
+
+instance FromThrift Mon.All where
+  fromThrift v = Mon.All <$> fromThrift v
+
+instance ToThrift Mon.Any where
+  toThrift = toThrift . Mon.getAny
+
+instance FromThrift Mon.Any where
+  fromThrift v = Mon.Any <$> fromThrift v
+
+instance ToThrift a => ToThrift (Mon.First a) where
+  toThrift = toThrift . Mon.getFirst
+
+instance FromThrift a => FromThrift (Mon.First a) where
+  fromThrift v = Mon.First <$> fromThrift v
+
+instance ToThrift a => ToThrift (Mon.Last a) where
+  toThrift = toThrift . Mon.getLast
+
+instance FromThrift a => FromThrift (Mon.Last a) where
+  fromThrift v = Mon.Last <$> fromThrift v
+
+instance ToThrift a => ToThrift (Semi.Min a) where
+  toThrift = toThrift . Semi.getMin
+
+instance FromThrift a => FromThrift (Semi.Min a) where
+  fromThrift v = Semi.Min <$> fromThrift v
+
+instance ToThrift a => ToThrift (Semi.Max a) where
+  toThrift = toThrift . Semi.getMax
+
+instance FromThrift a => FromThrift (Semi.Max a) where
+  fromThrift v = Semi.Max <$> fromThrift v
+
+instance ToThrift a => ToThrift (Semi.First a) where
+  toThrift = toThrift . Semi.getFirst
+
+instance FromThrift a => FromThrift (Semi.First a) where
+  fromThrift v = Semi.First <$> fromThrift v
+
+instance ToThrift a => ToThrift (Semi.Last a) where
+  toThrift = toThrift . Semi.getLast
+
+instance FromThrift a => FromThrift (Semi.Last a) where
+  fromThrift v = Semi.Last <$> fromThrift v
+
+instance ToThrift a => ToThrift (Semi.WrappedMonoid a) where
+  toThrift = toThrift . Semi.unwrapMonoid
+
+instance FromThrift a => FromThrift (Semi.WrappedMonoid a) where
+  fromThrift v = Semi.WrapMonoid <$> fromThrift v
+
+instance (ToThrift a, ToThrift b) => ToThrift (Semi.Arg a b) where
+  toThrift (Semi.Arg a b) = TV.List TT_STRUCT (V.fromList [toThrift a, toThrift b])
+
+instance (FromThrift a, FromThrift b) => FromThrift (Semi.Arg a b) where
+  fromThrift (TV.List _ vs)
+    | V.length vs == 2 = Semi.Arg <$> fromThrift (vs V.! 0) <*> fromThrift (vs V.! 1)
+  fromThrift _ = Left "FromThrift Arg: expected List of length 2"
+
+instance ToThrift (f (g a)) => ToThrift (Compose f g a) where
+  toThrift = toThrift . getCompose
+
+instance FromThrift (f (g a)) => FromThrift (Compose f g a) where
+  fromThrift v = Compose <$> fromThrift v
+
+instance (ToThrift (f a), ToThrift (g a)) => ToThrift (FProduct.Product f g a) where
+  toThrift (FProduct.Pair x y) = TV.List TT_STRUCT (V.fromList [toThrift x, toThrift y])
+
+instance (FromThrift (f a), FromThrift (g a)) => FromThrift (FProduct.Product f g a) where
+  fromThrift (TV.List _ vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromThrift (vs V.! 0) <*> fromThrift (vs V.! 1)
+  fromThrift _ = Left "FromThrift Functor.Product: expected List of length 2"
+
+instance (ToThrift (f a), ToThrift (g a)) => ToThrift (FSum.Sum f g a) where
+  toThrift (FSum.InL x) = TV.Struct (V.singleton (1, toThrift x))
+  toThrift (FSum.InR x) = TV.Struct (V.singleton (2, toThrift x))
+
+instance (FromThrift (f a), FromThrift (g a)) => FromThrift (FSum.Sum f g a) where
+  fromThrift (TV.Struct kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        (1, v) -> FSum.InL <$> fromThrift v
+        (2, v) -> FSum.InR <$> fromThrift v
+        _      -> Left "FromThrift Functor.Sum: expected field id 1 or 2"
+  fromThrift _ = Left "FromThrift Functor.Sum: expected single-field Struct"
 
 instance ToThrift TV.Value where
   toThrift = id

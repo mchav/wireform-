@@ -22,7 +22,12 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BSL
 import Data.Functor.Const (Const(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
+import qualified Data.Functor.Product as FProduct
+import qualified Data.Functor.Sum as FSum
+import qualified Data.Monoid as Mon
+import qualified Data.Semigroup as Semi
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -395,6 +400,114 @@ instance (Integral a, FromBencode a) => FromBencode (Ratio a) where
           then Left "FromBencode Ratio: zero denominator"
           else Right (n % d)
   fromBencode _ = Left "FromBencode Ratio: expected BList of length 2"
+
+-- Functor / monoid newtype instances --------------------------------------
+
+instance ToBencode a => ToBencode (Mon.Sum a) where
+  toBencode = toBencode . Mon.getSum
+
+instance FromBencode a => FromBencode (Mon.Sum a) where
+  fromBencode v = Mon.Sum <$> fromBencode v
+
+instance ToBencode a => ToBencode (Mon.Product a) where
+  toBencode = toBencode . Mon.getProduct
+
+instance FromBencode a => FromBencode (Mon.Product a) where
+  fromBencode v = Mon.Product <$> fromBencode v
+
+instance ToBencode a => ToBencode (Mon.Dual a) where
+  toBencode = toBencode . Mon.getDual
+
+instance FromBencode a => FromBencode (Mon.Dual a) where
+  fromBencode v = Mon.Dual <$> fromBencode v
+
+instance ToBencode Mon.All where
+  toBencode = toBencode . Mon.getAll
+
+instance FromBencode Mon.All where
+  fromBencode v = Mon.All <$> fromBencode v
+
+instance ToBencode Mon.Any where
+  toBencode = toBencode . Mon.getAny
+
+instance FromBencode Mon.Any where
+  fromBencode v = Mon.Any <$> fromBencode v
+
+instance ToBencode a => ToBencode (Mon.First a) where
+  toBencode = toBencode . Mon.getFirst
+
+instance FromBencode a => FromBencode (Mon.First a) where
+  fromBencode v = Mon.First <$> fromBencode v
+
+instance ToBencode a => ToBencode (Mon.Last a) where
+  toBencode = toBencode . Mon.getLast
+
+instance FromBencode a => FromBencode (Mon.Last a) where
+  fromBencode v = Mon.Last <$> fromBencode v
+
+instance ToBencode a => ToBencode (Semi.Min a) where
+  toBencode = toBencode . Semi.getMin
+
+instance FromBencode a => FromBencode (Semi.Min a) where
+  fromBencode v = Semi.Min <$> fromBencode v
+
+instance ToBencode a => ToBencode (Semi.Max a) where
+  toBencode = toBencode . Semi.getMax
+
+instance FromBencode a => FromBencode (Semi.Max a) where
+  fromBencode v = Semi.Max <$> fromBencode v
+
+instance ToBencode a => ToBencode (Semi.First a) where
+  toBencode = toBencode . Semi.getFirst
+
+instance FromBencode a => FromBencode (Semi.First a) where
+  fromBencode v = Semi.First <$> fromBencode v
+
+instance ToBencode a => ToBencode (Semi.Last a) where
+  toBencode = toBencode . Semi.getLast
+
+instance FromBencode a => FromBencode (Semi.Last a) where
+  fromBencode v = Semi.Last <$> fromBencode v
+
+instance ToBencode a => ToBencode (Semi.WrappedMonoid a) where
+  toBencode = toBencode . Semi.unwrapMonoid
+
+instance FromBencode a => FromBencode (Semi.WrappedMonoid a) where
+  fromBencode v = Semi.WrapMonoid <$> fromBencode v
+
+instance (ToBencode a, ToBencode b) => ToBencode (Semi.Arg a b) where
+  toBencode (Semi.Arg a b) = B.BList (V.fromList [toBencode a, toBencode b])
+
+instance (FromBencode a, FromBencode b) => FromBencode (Semi.Arg a b) where
+  fromBencode (B.BList vs)
+    | V.length vs == 2 = Semi.Arg <$> fromBencode (vs V.! 0) <*> fromBencode (vs V.! 1)
+  fromBencode _ = Left "FromBencode Arg: expected BList of length 2"
+
+instance ToBencode (f (g a)) => ToBencode (Compose f g a) where
+  toBencode = toBencode . getCompose
+
+instance FromBencode (f (g a)) => FromBencode (Compose f g a) where
+  fromBencode v = Compose <$> fromBencode v
+
+instance (ToBencode (f a), ToBencode (g a)) => ToBencode (FProduct.Product f g a) where
+  toBencode (FProduct.Pair x y) = B.BList (V.fromList [toBencode x, toBencode y])
+
+instance (FromBencode (f a), FromBencode (g a)) => FromBencode (FProduct.Product f g a) where
+  fromBencode (B.BList vs)
+    | V.length vs == 2 = FProduct.Pair <$> fromBencode (vs V.! 0) <*> fromBencode (vs V.! 1)
+  fromBencode _ = Left "FromBencode Functor.Product: expected BList of length 2"
+
+instance (ToBencode (f a), ToBencode (g a)) => ToBencode (FSum.Sum f g a) where
+  toBencode (FSum.InL x) = B.BDict (V.singleton ("InL", toBencode x))
+  toBencode (FSum.InR x) = B.BDict (V.singleton ("InR", toBencode x))
+
+instance (FromBencode (f a), FromBencode (g a)) => FromBencode (FSum.Sum f g a) where
+  fromBencode (B.BDict kvs)
+    | V.length kvs == 1 = case V.head kvs of
+        ("InL", v) -> FSum.InL <$> fromBencode v
+        ("InR", v) -> FSum.InR <$> fromBencode v
+        _          -> Left "FromBencode Functor.Sum: expected InL/InR key"
+  fromBencode _ = Left "FromBencode Functor.Sum: expected single-key BDict"
 
 instance ToBencode B.Value where
   toBencode = id
