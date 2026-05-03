@@ -36,6 +36,7 @@ library
     CBOR.Derive
     CBOR.Diagnostic
     CBOR.Encode
+    CBOR.Encoding
     CBOR.JSON
     CBOR.QQ
     CBOR.Stream

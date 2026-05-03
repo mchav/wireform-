@@ -26,9 +26,13 @@ module CBOR.Class
   ( ToCBOR(..)
   , FromCBOR(..)
   , encodeCBOR
+  , encodeCBORDirect
   , decodeCBOR
+  , genericToEncoding
   , GToCBOR(..)
   , GFromCBOR(..)
+  , GToCBOREncoding(..)
+  , GToCBOREncodingFields(..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -65,25 +69,83 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
 import Numeric.Natural (Natural)
 
+import qualified Data.ByteString.Builder as BB
+
 import qualified CBOR.Value as CV
 import qualified CBOR.Encode as CE
 import qualified CBOR.Decode as CD
+import CBOR.Encoding (Encoding)
+import qualified CBOR.Encoding as Enc
 
+-- | Conversion to CBOR.
+--
+-- Instances should provide 'toCBOR' (the AST conversion). For
+-- performance-sensitive types they /should/ also provide
+-- 'toEncoding', which writes directly to a CBOR builder without
+-- constructing an intermediate 'CV.Value'. The default
+-- 'toEncoding' implementation falls back to 'toCBOR'.
 class ToCBOR a where
   toCBOR :: a -> CV.Value
   default toCBOR :: (Generic a, GToCBOR (Rep a)) => a -> CV.Value
   toCBOR = gToCBOR . from
+
+  -- | Direct-to-bytes encoding. The default delegates to 'toCBOR' for
+  -- backwards compatibility, but instances that want to skip the
+  -- intermediate 'CV.Value' allocation should override this. A
+  -- 'Generic'-driven default is available via 'genericToEncoding'
+  -- (see 'GToCBOREncoding').
+  toEncoding :: a -> Encoding
+  toEncoding = valueToEncoding . toCBOR
 
 class FromCBOR a where
   fromCBOR :: CV.Value -> Either String a
   default fromCBOR :: (Generic a, GFromCBOR (Rep a)) => CV.Value -> Either String a
   fromCBOR v = to <$> gFromCBOR v
 
+-- | Encode via the AST. Equivalent to @CE.encode . toCBOR@; preserved
+-- for backwards compatibility.
 encodeCBOR :: ToCBOR a => a -> ByteString
 encodeCBOR = CE.encode . toCBOR
 
+-- | Encode directly via 'toEncoding'. Avoids constructing an
+-- intermediate 'CV.Value' when the instance provides a hand-written
+-- or generically-derived 'toEncoding'.
+encodeCBORDirect :: ToCBOR a => a -> ByteString
+encodeCBORDirect = Enc.encodingToByteString . toEncoding
+
+-- | Generic 'toEncoding' implementation. Use as
+--
+-- > instance ToCBOR Foo where
+-- >   toEncoding = genericToEncoding
+--
+-- to derive a record encoder that writes straight to a CBOR builder
+-- without first allocating a 'CV.Value'.
+genericToEncoding :: (Generic a, GToCBOREncoding (Rep a)) => a -> Encoding
+genericToEncoding = gToEncoding . from
+
 decodeCBOR :: FromCBOR a => ByteString -> Either String a
 decodeCBOR bs = CD.decode bs >>= fromCBOR
+
+-- | Fallback used by the default 'toEncoding'. Walks an existing
+-- 'CV.Value' tree and produces a builder. Any value type that
+-- 'CBOR.Encoding' does not have a constructor for goes through
+-- 'CE.encode' so the bytes still match the AST encoder.
+valueToEncoding :: CV.Value -> Encoding
+valueToEncoding v = case v of
+  CV.UInt n        -> Enc.unsignedInteger n
+  CV.NInt n        -> Enc.negativeInteger n
+  CV.Bool b        -> Enc.bool b
+  CV.Null          -> Enc.null_
+  CV.Undefined     -> Enc.undefined_
+  CV.Float16 f     -> Enc.float16 f
+  CV.Float32 f     -> Enc.float32 f
+  CV.Float64 d     -> Enc.float64 d
+  CV.ByteString bs -> Enc.bytes bs
+  CV.TextString t  -> Enc.text t
+  CV.Array vs      -> Enc.array (V.map valueToEncoding vs)
+  CV.Map kvs       -> Enc.map_ (V.map (\(k, v') -> (valueToEncoding k, valueToEncoding v')) kvs)
+  CV.Tag t inner   -> Enc.tag t (valueToEncoding inner)
+  CV.Simple _      -> Enc.Encoding (BB.byteString (CE.encode v))
 
 -- Helper to convert a Haskell integer to CBOR UInt/NInt
 intToCBOR :: Int64 -> CV.Value
@@ -98,6 +160,7 @@ cborToInt _ = Left "FromCBOR: expected UInt or NInt"
 
 instance ToCBOR Bool where
   toCBOR = CV.Bool
+  toEncoding = Enc.bool
 
 instance FromCBOR Bool where
   fromCBOR (CV.Bool b) = Right b
@@ -105,36 +168,42 @@ instance FromCBOR Bool where
 
 instance ToCBOR Int where
   toCBOR = intToCBOR . fromIntegral
+  toEncoding = Enc.int
 
 instance FromCBOR Int where
   fromCBOR v = fromIntegral <$> cborToInt v
 
 instance ToCBOR Int8 where
   toCBOR = intToCBOR . fromIntegral
+  toEncoding = Enc.int8
 
 instance FromCBOR Int8 where
   fromCBOR v = fromIntegral <$> cborToInt v
 
 instance ToCBOR Int16 where
   toCBOR = intToCBOR . fromIntegral
+  toEncoding = Enc.int16
 
 instance FromCBOR Int16 where
   fromCBOR v = fromIntegral <$> cborToInt v
 
 instance ToCBOR Int32 where
   toCBOR = intToCBOR . fromIntegral
+  toEncoding = Enc.int32
 
 instance FromCBOR Int32 where
   fromCBOR v = fromIntegral <$> cborToInt v
 
 instance ToCBOR Int64 where
   toCBOR = intToCBOR
+  toEncoding = Enc.int64
 
 instance FromCBOR Int64 where
   fromCBOR = cborToInt
 
 instance ToCBOR Word where
   toCBOR n = CV.UInt (fromIntegral n)
+  toEncoding = Enc.word
 
 instance FromCBOR Word where
   fromCBOR (CV.UInt n) = Right (fromIntegral n)
@@ -142,6 +211,7 @@ instance FromCBOR Word where
 
 instance ToCBOR Word8 where
   toCBOR n = CV.UInt (fromIntegral n)
+  toEncoding = Enc.word8
 
 instance FromCBOR Word8 where
   fromCBOR (CV.UInt n) = Right (fromIntegral n)
@@ -149,6 +219,7 @@ instance FromCBOR Word8 where
 
 instance ToCBOR Word16 where
   toCBOR n = CV.UInt (fromIntegral n)
+  toEncoding = Enc.word16
 
 instance FromCBOR Word16 where
   fromCBOR (CV.UInt n) = Right (fromIntegral n)
@@ -156,6 +227,7 @@ instance FromCBOR Word16 where
 
 instance ToCBOR Word32 where
   toCBOR n = CV.UInt (fromIntegral n)
+  toEncoding = Enc.word32
 
 instance FromCBOR Word32 where
   fromCBOR (CV.UInt n) = Right (fromIntegral n)
@@ -163,6 +235,7 @@ instance FromCBOR Word32 where
 
 instance ToCBOR Word64 where
   toCBOR = CV.UInt
+  toEncoding = Enc.word64
 
 instance FromCBOR Word64 where
   fromCBOR (CV.UInt n) = Right n
@@ -170,6 +243,7 @@ instance FromCBOR Word64 where
 
 instance ToCBOR Float where
   toCBOR = CV.Float32
+  toEncoding = Enc.float32
 
 instance FromCBOR Float where
   fromCBOR (CV.Float32 f) = Right f
@@ -179,6 +253,7 @@ instance FromCBOR Float where
 
 instance ToCBOR Double where
   toCBOR = CV.Float64
+  toEncoding = Enc.float64
 
 instance FromCBOR Double where
   fromCBOR (CV.Float64 d) = Right d
@@ -188,6 +263,7 @@ instance FromCBOR Double where
 
 instance ToCBOR Text where
   toCBOR = CV.TextString
+  toEncoding = Enc.text
 
 instance FromCBOR Text where
   fromCBOR (CV.TextString t) = Right t
@@ -195,6 +271,7 @@ instance FromCBOR Text where
 
 instance ToCBOR ByteString where
   toCBOR = CV.ByteString
+  toEncoding = Enc.bytes
 
 instance FromCBOR ByteString where
   fromCBOR (CV.ByteString bs) = Right bs
@@ -202,6 +279,7 @@ instance FromCBOR ByteString where
 
 instance ToCBOR () where
   toCBOR () = CV.Null
+  toEncoding () = Enc.null_
 
 instance FromCBOR () where
   fromCBOR CV.Null = Right ()
@@ -210,6 +288,8 @@ instance FromCBOR () where
 instance ToCBOR a => ToCBOR (Maybe a) where
   toCBOR Nothing = CV.Null
   toCBOR (Just x) = toCBOR x
+  toEncoding Nothing  = Enc.null_
+  toEncoding (Just x) = toEncoding x
 
 instance FromCBOR a => FromCBOR (Maybe a) where
   fromCBOR CV.Null = Right Nothing
@@ -217,6 +297,7 @@ instance FromCBOR a => FromCBOR (Maybe a) where
 
 instance ToCBOR a => ToCBOR [a] where
   toCBOR xs = CV.Array (V.fromList (map toCBOR xs))
+  toEncoding xs = Enc.arrayList (fmap toEncoding xs)
 
 instance FromCBOR a => FromCBOR [a] where
   fromCBOR (CV.Array vs) = traverse fromCBOR (V.toList vs)
@@ -224,6 +305,7 @@ instance FromCBOR a => FromCBOR [a] where
 
 instance ToCBOR a => ToCBOR (Vector a) where
   toCBOR xs = CV.Array (V.map toCBOR xs)
+  toEncoding xs = Enc.array (V.toList (V.map toEncoding xs))
 
 instance FromCBOR a => FromCBOR (Vector a) where
   fromCBOR (CV.Array vs) = V.mapM fromCBOR vs
@@ -239,6 +321,7 @@ instance (FromCBOR a, FromCBOR b) => FromCBOR (a, b) where
 
 instance (ToCBOR k, ToCBOR v) => ToCBOR (Map k v) where
   toCBOR m = CV.Map (V.fromList [(toCBOR k, toCBOR v') | (k, v') <- Map.toList m])
+  toEncoding m = Enc.mapList [(toEncoding k, toEncoding v') | (k, v') <- Map.toList m]
 
 instance (Ord k, FromCBOR k, FromCBOR v) => FromCBOR (Map k v) where
   fromCBOR (CV.Map kvs) = do
@@ -464,3 +547,29 @@ instance (Selector s, FromCBOR a) => GFromCBORFields (M1 S s (K1 i a)) where
     in case lkup name of
          Nothing -> Left $ "GFromCBOR: missing field " ++ T.unpack name
          Just v  -> M1 . K1 <$> fromCBOR v
+
+-- ---------------------------------------------------------------------------
+-- Generic direct-to-bytes encoding (mirrors aeson's genericToEncoding).
+-- ---------------------------------------------------------------------------
+
+-- | Generic dispatch for a record's 'Encoding'.
+class GToCBOREncoding f where
+  gToEncoding :: f p -> Encoding
+
+-- | Generic dispatch for a record's field-list 'Encoding'. Returns
+-- the list of @(key, encoded value)@ pairs without first packing
+-- them into a 'CV.Value'.
+class GToCBOREncodingFields f where
+  gToEncodingFields :: f p -> [(Encoding, Encoding)]
+
+instance GToCBOREncoding f => GToCBOREncoding (M1 D c f) where
+  gToEncoding (M1 x) = gToEncoding x
+
+instance (Constructor c, GToCBOREncodingFields f) => GToCBOREncoding (M1 C c f) where
+  gToEncoding (M1 x) = Enc.mapList (gToEncodingFields x)
+
+instance (GToCBOREncodingFields a, GToCBOREncodingFields b) => GToCBOREncodingFields (a :*: b) where
+  gToEncodingFields (a :*: b) = gToEncodingFields a ++ gToEncodingFields b
+
+instance (Selector s, ToCBOR a) => GToCBOREncodingFields (M1 S s (K1 i a)) where
+  gToEncodingFields m@(M1 (K1 x)) = [(Enc.text (T.pack (selName m)), toEncoding x)]

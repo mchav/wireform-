@@ -26,9 +26,13 @@ module MsgPack.Class
   ( ToMsgPack(..)
   , FromMsgPack(..)
   , encodeMsgPack
+  , encodeMsgPackDirect
   , decodeMsgPack
+  , genericToEncoding
   , GToMsgPack(..)
   , GFromMsgPack(..)
+  , GToMsgPackEncoding(..)
+  , GToMsgPackEncodingFields(..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -65,14 +69,29 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import GHC.Generics
 import Numeric.Natural (Natural)
 
+import qualified Data.ByteString.Builder as BB
+
 import qualified MsgPack.Value as MV
 import qualified MsgPack.Encode as ME
 import qualified MsgPack.Decode as MD
+import MsgPack.Encoding (Encoding)
+import qualified MsgPack.Encoding as Enc
 
+-- | Conversion to MessagePack.
+--
+-- Instances should provide 'toMsgPack' (the AST conversion). For
+-- performance-sensitive types they /should/ also provide
+-- 'toEncoding', which writes directly to a MsgPack builder without
+-- constructing an intermediate 'MV.Value'. The default
+-- 'toEncoding' falls back to 'toMsgPack' for source-level
+-- compatibility.
 class ToMsgPack a where
   toMsgPack :: a -> MV.Value
   default toMsgPack :: (Generic a, GToMsgPack (Rep a)) => a -> MV.Value
   toMsgPack = gToMsgPack . from
+
+  toEncoding :: a -> Encoding
+  toEncoding = valueToEncoding . toMsgPack
 
 class FromMsgPack a where
   fromMsgPack :: MV.Value -> Either String a
@@ -82,13 +101,44 @@ class FromMsgPack a where
 encodeMsgPack :: ToMsgPack a => a -> ByteString
 encodeMsgPack = ME.encode . toMsgPack
 
+-- | Encode directly via 'toEncoding'.
+encodeMsgPackDirect :: ToMsgPack a => a -> ByteString
+encodeMsgPackDirect = Enc.encodingToByteString . toEncoding
+
 decodeMsgPack :: FromMsgPack a => ByteString -> Either String a
 decodeMsgPack bs = MD.decode bs >>= fromMsgPack
+
+-- | Generic 'toEncoding'. Use as
+--
+-- > instance ToMsgPack Foo where
+-- >   toEncoding = genericToEncoding
+genericToEncoding :: (Generic a, GToMsgPackEncoding (Rep a)) => a -> Encoding
+genericToEncoding = gToEncoding . from
+
+-- | Fallback used by the default 'toEncoding'. Walks a 'MV.Value'
+-- tree and emits the corresponding builder. Anything we don't have a
+-- direct primitive for goes through 'ME.encode' so the bytes still
+-- match the AST encoder.
+valueToEncoding :: MV.Value -> Encoding
+valueToEncoding v = case v of
+  MV.Nil           -> Enc.nil
+  MV.Bool b        -> Enc.bool b
+  MV.Int n         -> Enc.int64 n
+  MV.Word n        -> Enc.word64 n
+  MV.Float f       -> Enc.float f
+  MV.Double d      -> Enc.double d
+  MV.String t      -> Enc.string t
+  MV.Binary bs     -> Enc.binary bs
+  MV.Array xs      -> Enc.array (V.toList (V.map valueToEncoding xs))
+  MV.Map kvs       -> Enc.map_ (V.toList (V.map (\(k, v') -> (valueToEncoding k, valueToEncoding v')) kvs))
+  MV.Ext ty bs     -> Enc.ext ty bs
+  MV.Timestamp{}   -> Enc.Encoding (BB.byteString (ME.encode v))
 
 -- Instances for base types
 
 instance ToMsgPack Bool where
   toMsgPack = MV.Bool
+  toEncoding = Enc.bool
 
 instance FromMsgPack Bool where
   fromMsgPack (MV.Bool b) = Right b
@@ -98,6 +148,7 @@ instance ToMsgPack Int where
   toMsgPack n
     | n >= 0    = MV.Word (fromIntegral n)
     | otherwise = MV.Int (fromIntegral n)
+  toEncoding = Enc.int
 
 instance FromMsgPack Int where
   fromMsgPack (MV.Int n) = Right (fromIntegral n)
@@ -106,6 +157,7 @@ instance FromMsgPack Int where
 
 instance ToMsgPack Int8 where
   toMsgPack n = MV.Int (fromIntegral n)
+  toEncoding = Enc.int8
 
 instance FromMsgPack Int8 where
   fromMsgPack (MV.Int n) = Right (fromIntegral n)
@@ -114,6 +166,7 @@ instance FromMsgPack Int8 where
 
 instance ToMsgPack Int16 where
   toMsgPack n = MV.Int (fromIntegral n)
+  toEncoding = Enc.int16
 
 instance FromMsgPack Int16 where
   fromMsgPack (MV.Int n) = Right (fromIntegral n)
@@ -122,6 +175,7 @@ instance FromMsgPack Int16 where
 
 instance ToMsgPack Int32 where
   toMsgPack n = MV.Int (fromIntegral n)
+  toEncoding = Enc.int32
 
 instance FromMsgPack Int32 where
   fromMsgPack (MV.Int n) = Right (fromIntegral n)
@@ -132,6 +186,7 @@ instance ToMsgPack Int64 where
   toMsgPack n
     | n >= 0    = MV.Word (fromIntegral n)
     | otherwise = MV.Int n
+  toEncoding = Enc.int64
 
 instance FromMsgPack Int64 where
   fromMsgPack (MV.Int n) = Right n
@@ -140,6 +195,7 @@ instance FromMsgPack Int64 where
 
 instance ToMsgPack Word where
   toMsgPack n = MV.Word (fromIntegral n)
+  toEncoding = Enc.word
 
 instance FromMsgPack Word where
   fromMsgPack (MV.Word n) = Right (fromIntegral n)
@@ -148,6 +204,7 @@ instance FromMsgPack Word where
 
 instance ToMsgPack Word8 where
   toMsgPack n = MV.Word (fromIntegral n)
+  toEncoding = Enc.word8
 
 instance FromMsgPack Word8 where
   fromMsgPack (MV.Word n) = Right (fromIntegral n)
@@ -156,6 +213,7 @@ instance FromMsgPack Word8 where
 
 instance ToMsgPack Word16 where
   toMsgPack n = MV.Word (fromIntegral n)
+  toEncoding = Enc.word16
 
 instance FromMsgPack Word16 where
   fromMsgPack (MV.Word n) = Right (fromIntegral n)
@@ -164,6 +222,7 @@ instance FromMsgPack Word16 where
 
 instance ToMsgPack Word32 where
   toMsgPack n = MV.Word (fromIntegral n)
+  toEncoding = Enc.word32
 
 instance FromMsgPack Word32 where
   fromMsgPack (MV.Word n) = Right (fromIntegral n)
@@ -172,6 +231,7 @@ instance FromMsgPack Word32 where
 
 instance ToMsgPack Word64 where
   toMsgPack = MV.Word
+  toEncoding = Enc.word64
 
 instance FromMsgPack Word64 where
   fromMsgPack (MV.Word n) = Right n
@@ -180,6 +240,7 @@ instance FromMsgPack Word64 where
 
 instance ToMsgPack Float where
   toMsgPack = MV.Float
+  toEncoding = Enc.float
 
 instance FromMsgPack Float where
   fromMsgPack (MV.Float f) = Right f
@@ -188,6 +249,7 @@ instance FromMsgPack Float where
 
 instance ToMsgPack Double where
   toMsgPack = MV.Double
+  toEncoding = Enc.double
 
 instance FromMsgPack Double where
   fromMsgPack (MV.Double d) = Right d
@@ -196,6 +258,7 @@ instance FromMsgPack Double where
 
 instance ToMsgPack Text where
   toMsgPack = MV.String
+  toEncoding = Enc.string
 
 instance FromMsgPack Text where
   fromMsgPack (MV.String t) = Right t
@@ -203,6 +266,7 @@ instance FromMsgPack Text where
 
 instance ToMsgPack ByteString where
   toMsgPack = MV.Binary
+  toEncoding = Enc.binary
 
 instance FromMsgPack ByteString where
   fromMsgPack (MV.Binary bs) = Right bs
@@ -210,6 +274,7 @@ instance FromMsgPack ByteString where
 
 instance ToMsgPack () where
   toMsgPack () = MV.Nil
+  toEncoding () = Enc.nil
 
 instance FromMsgPack () where
   fromMsgPack MV.Nil = Right ()
@@ -218,6 +283,8 @@ instance FromMsgPack () where
 instance ToMsgPack a => ToMsgPack (Maybe a) where
   toMsgPack Nothing = MV.Nil
   toMsgPack (Just x) = toMsgPack x
+  toEncoding Nothing  = Enc.nil
+  toEncoding (Just x) = toEncoding x
 
 instance FromMsgPack a => FromMsgPack (Maybe a) where
   fromMsgPack MV.Nil = Right Nothing
@@ -225,6 +292,7 @@ instance FromMsgPack a => FromMsgPack (Maybe a) where
 
 instance ToMsgPack a => ToMsgPack [a] where
   toMsgPack xs = MV.Array (V.fromList (map toMsgPack xs))
+  toEncoding xs = Enc.arrayList (fmap toEncoding xs)
 
 instance FromMsgPack a => FromMsgPack [a] where
   fromMsgPack (MV.Array vs) = traverse fromMsgPack (V.toList vs)
@@ -232,6 +300,7 @@ instance FromMsgPack a => FromMsgPack [a] where
 
 instance ToMsgPack a => ToMsgPack (Vector a) where
   toMsgPack xs = MV.Array (V.map toMsgPack xs)
+  toEncoding xs = Enc.array (V.toList (V.map toEncoding xs))
 
 instance FromMsgPack a => FromMsgPack (Vector a) where
   fromMsgPack (MV.Array vs) = V.mapM fromMsgPack vs
@@ -247,6 +316,7 @@ instance (FromMsgPack a, FromMsgPack b) => FromMsgPack (a, b) where
 
 instance (ToMsgPack k, ToMsgPack v) => ToMsgPack (Map k v) where
   toMsgPack m = MV.Map (V.fromList [(toMsgPack k, toMsgPack v) | (k, v') <- Map.toList m, let v = v'])
+  toEncoding m = Enc.mapList [(toEncoding k, toEncoding v') | (k, v') <- Map.toList m]
 
 instance (Ord k, FromMsgPack k, FromMsgPack v) => FromMsgPack (Map k v) where
   fromMsgPack (MV.Map kvs) = do
@@ -475,3 +545,25 @@ instance (Selector s, FromMsgPack a) => GFromMsgPackFields (M1 S s (K1 i a)) whe
     in case lkup name of
          Nothing -> Left $ "GFromMsgPack: missing field " ++ T.unpack name
          Just v  -> M1 . K1 <$> fromMsgPack v
+
+-- ---------------------------------------------------------------------------
+-- Generic direct-to-bytes encoding.
+-- ---------------------------------------------------------------------------
+
+class GToMsgPackEncoding f where
+  gToEncoding :: f p -> Encoding
+
+class GToMsgPackEncodingFields f where
+  gToEncodingFields :: f p -> [(Encoding, Encoding)]
+
+instance GToMsgPackEncoding f => GToMsgPackEncoding (M1 D c f) where
+  gToEncoding (M1 x) = gToEncoding x
+
+instance (Constructor c, GToMsgPackEncodingFields f) => GToMsgPackEncoding (M1 C c f) where
+  gToEncoding (M1 x) = Enc.mapList (gToEncodingFields x)
+
+instance (GToMsgPackEncodingFields a, GToMsgPackEncodingFields b) => GToMsgPackEncodingFields (a :*: b) where
+  gToEncodingFields (a :*: b) = gToEncodingFields a ++ gToEncodingFields b
+
+instance (Selector s, ToMsgPack a) => GToMsgPackEncodingFields (M1 S s (K1 i a)) where
+  gToEncodingFields m@(M1 (K1 x)) = [(Enc.string (T.pack (selName m)), toEncoding x)]
