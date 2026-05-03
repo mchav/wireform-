@@ -3,7 +3,7 @@
 -- | Unified entry point for wireform's three columnar formats.
 --
 -- The per-format modules ("Arrow.Stream", "Parquet.HighLevel",
--- "ORC.HighLevel") each expose their own native surface. This
+-- "ORC") each expose their own native surface. This
 -- module layers a single Arrow-shaped API on top of all three:
 -- callers pass an Arrow 'AT.Schema' + a sequence of
 -- @'V.Vector' 'AC.ColumnArray'@ batches, pick a 'Format', and
@@ -55,7 +55,7 @@ module Wireform.Columnar
     -- exchange for a uniform surface.
   , module Arrow.Stream
   , module Parquet.HighLevel
-  , module ORC.HighLevel
+  , module ORC
   ) where
 
 import Data.ByteString (ByteString)
@@ -77,9 +77,8 @@ import Arrow.Stream hiding
   )
 import qualified Arrow.Types as AT
 
-import qualified ORC.Arrow as OArrow
-import qualified ORC.HighLevel as ORC
-import ORC.HighLevel hiding
+import qualified ORC
+import ORC hiding
   ( WriteOptions
   , defaultWriteOptions
   , encodeORC
@@ -87,6 +86,7 @@ import ORC.HighLevel hiding
   , encodeORCWithRows
   , encodeORCWithoutRows
   )
+import qualified ORC.Arrow as OArrow
 import qualified ORC.Read as ORead
 import qualified ORC.Stripe as OStripe
 import qualified ORC.Types as OT
@@ -319,7 +319,7 @@ orcFooterToArrowSchemaWithNullability orcFile footer = do
 -- | Map an ORC 'ORCType' back to its Arrow flavour. Mirrors the
 -- inverse of 'ORC.Arrow.arrowFieldToORCType'; falls back to
 -- 'AT.ABinary' for kinds the bridge doesn't handle yet
--- (callers that care drop down to ORC.HighLevel directly).
+-- (callers that care drop down to ORC directly).
 orcKindToArrowType :: ORCType -> AT.ArrowType
 orcKindToArrowType ot = case otKind ot of
   TKBoolean   -> AT.ABool

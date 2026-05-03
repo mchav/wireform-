@@ -17,7 +17,7 @@
 --   field in declaration order.
 --
 -- Companion class 'HasORCSchema' produces the @V.Vector ORCType@ that
--- "ORC.HighLevel.encodeORC" expects: index 0 is the synthetic root
+-- "ORC.encodeORC" expects: index 0 is the synthetic root
 -- struct, and indices @1..N@ are the leaves in field-declaration order
 -- (matching the @V.Vector LeafValue@ shape that 'toORCRow' produces).
 --
@@ -312,7 +312,7 @@ class FromORC a where
   fromORCRow :: V.Vector LeafValue -> Either String a
 
 -- | The ORC schema for a record type, as the flat 'V.Vector ORCType'
--- that "ORC.HighLevel.encodeORC" consumes:
+-- that "ORC.encodeORC" consumes:
 --
 -- * Index 0: synthetic root @TKStruct@ whose @otSubtypes@ are the
 --   ids @[1..N]@ of the leaf children and whose @otFieldNames@ are

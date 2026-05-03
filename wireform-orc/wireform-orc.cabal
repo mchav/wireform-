@@ -28,12 +28,12 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    ORC
     ORC.Arrow
     ORC.BloomFilter
     ORC.Derive
     ORC.Encryption
     ORC.Footer
-    ORC.HighLevel
     ORC.Proto.Schema
     ORC.Read
     ORC.RowIndex
