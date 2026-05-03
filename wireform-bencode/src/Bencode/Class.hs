@@ -9,9 +9,13 @@ module Bencode.Class
   ( ToBencode(..)
   , FromBencode(..)
   , encodeBencode
+  , encodeBencodeDirect
   , decodeBencode
+  , genericToEncoding
   , GToBencode(..)
   , GFromBencode(..)
+  , GToBencodeEncoding(..)
+  , GToBencodeEncodingFields(..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -48,11 +52,17 @@ import Numeric.Natural (Natural)
 import qualified Bencode.Value as B
 import qualified Bencode.Encode as BE
 import qualified Bencode.Decode as BD
+import Bencode.Encoding (Encoding)
+import qualified Bencode.Encoding as Enc
 
 class ToBencode a where
   toBencode :: a -> B.Value
   default toBencode :: (Generic a, GToBencode (Rep a)) => a -> B.Value
   toBencode = gToBencode . from
+
+  -- | Direct-to-bytes encoding. Default goes through 'toBencode'.
+  toEncoding :: a -> Encoding
+  toEncoding = valueToEncoding . toBencode
 
 class FromBencode a where
   fromBencode :: B.Value -> Either String a
@@ -62,11 +72,25 @@ class FromBencode a where
 encodeBencode :: ToBencode a => a -> ByteString
 encodeBencode = BE.encode . toBencode
 
+encodeBencodeDirect :: ToBencode a => a -> ByteString
+encodeBencodeDirect = Enc.encodingToByteString . toEncoding
+
 decodeBencode :: FromBencode a => ByteString -> Either String a
 decodeBencode bs = BD.decode bs >>= fromBencode
 
+genericToEncoding :: (Generic a, GToBencodeEncoding (Rep a)) => a -> Encoding
+genericToEncoding = gToEncoding . from
+
+valueToEncoding :: B.Value -> Encoding
+valueToEncoding v = case v of
+  B.BString bs  -> Enc.bytes bs
+  B.BInteger n  -> Enc.integer n
+  B.BList xs    -> Enc.list (V.toList (V.map valueToEncoding xs))
+  B.BDict kvs   -> Enc.dict (V.toList (V.map (\(k, val) -> (k, valueToEncoding val)) kvs))
+
 instance ToBencode ByteString where
   toBencode = B.BString
+  toEncoding = Enc.bytes
 
 instance FromBencode ByteString where
   fromBencode (B.BString bs) = Right bs
@@ -74,6 +98,7 @@ instance FromBencode ByteString where
 
 instance ToBencode Text where
   toBencode = B.BString . TE.encodeUtf8
+  toEncoding = Enc.text
 
 instance FromBencode Text where
   fromBencode (B.BString bs) = case TE.decodeUtf8' bs of
@@ -83,6 +108,7 @@ instance FromBencode Text where
 
 instance ToBencode Integer where
   toBencode = B.BInteger
+  toEncoding = Enc.integer
 
 instance FromBencode Integer where
   fromBencode (B.BInteger n) = Right n
@@ -90,6 +116,7 @@ instance FromBencode Integer where
 
 instance ToBencode Int where
   toBencode = B.BInteger . fromIntegral
+  toEncoding = Enc.int
 
 instance FromBencode Int where
   fromBencode (B.BInteger n) = Right (fromIntegral n)
@@ -161,6 +188,7 @@ instance FromBencode Word64 where
 instance ToBencode Bool where
   toBencode True = B.BInteger 1
   toBencode False = B.BInteger 0
+  toEncoding = Enc.bool
 
 instance FromBencode Bool where
   fromBencode (B.BInteger 0) = Right False
@@ -169,6 +197,7 @@ instance FromBencode Bool where
 
 instance ToBencode a => ToBencode [a] where
   toBencode xs = B.BList (V.fromList (map toBencode xs))
+  toEncoding xs = Enc.listFromList (fmap toEncoding xs)
 
 instance FromBencode a => FromBencode [a] where
   fromBencode (B.BList vs) = traverse fromBencode (V.toList vs)
@@ -176,6 +205,7 @@ instance FromBencode a => FromBencode [a] where
 
 instance ToBencode a => ToBencode (Vector a) where
   toBencode xs = B.BList (V.map toBencode xs)
+  toEncoding xs = Enc.list (V.toList (V.map toEncoding xs))
 
 instance FromBencode a => FromBencode (Vector a) where
   fromBencode (B.BList vs) = V.mapM fromBencode vs
@@ -427,3 +457,25 @@ instance (Selector s, FromBencode a) => GFromBencodeFields (M1 S s (K1 i a)) whe
     in case lkup name of
          Nothing -> Left $ "GFromBencode: missing field " ++ BS8.unpack name
          Just v  -> M1 . K1 <$> fromBencode v
+
+-- ---------------------------------------------------------------------------
+-- Generic direct-to-bytes encoding.
+-- ---------------------------------------------------------------------------
+
+class GToBencodeEncoding f where
+  gToEncoding :: f p -> Encoding
+
+class GToBencodeEncodingFields f where
+  gToEncodingFields :: f p -> [(ByteString, Encoding)]
+
+instance GToBencodeEncoding f => GToBencodeEncoding (M1 D c f) where
+  gToEncoding (M1 x) = gToEncoding x
+
+instance (Constructor c, GToBencodeEncodingFields f) => GToBencodeEncoding (M1 C c f) where
+  gToEncoding (M1 x) = Enc.dict (gToEncodingFields x)
+
+instance (GToBencodeEncodingFields a, GToBencodeEncodingFields b) => GToBencodeEncodingFields (a :*: b) where
+  gToEncodingFields (a :*: b) = gToEncodingFields a ++ gToEncodingFields b
+
+instance (Selector s, ToBencode a) => GToBencodeEncodingFields (M1 S s (K1 i a)) where
+  gToEncodingFields m@(M1 (K1 x)) = [(BS8.pack (selName m), toEncoding x)]
