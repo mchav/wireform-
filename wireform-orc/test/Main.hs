@@ -8,6 +8,7 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Int (Int32, Int64)
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
+import qualified Data.Vector.Unboxed as VU
 import System.Exit (exitFailure)
 
 import Data.Word (Word64)
@@ -41,6 +42,7 @@ import ORC.Write
   , encryptStripeStreams
   )
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 main :: IO ()
 main = do
@@ -192,6 +194,40 @@ main = do
   -- field 1; with two entries we should see two outer length prefixes.
   let twoEntries = BF.encodeBloomFilterIndex [bf, bf]
   expect "BloomFilterIndex non-empty" (BS.length twoEntries > 0)
+
+  -- Wire-format split: the two BloomFilterKind variants must use
+  -- *different* protobuf field numbers for the bit-set so a Java
+  -- reader keyed on the stream kind picks them up.
+  --   * field 1 (numHashFunctions, varint)        -> tag 0x08
+  --   * field 2 (legacy bitset, repeated fixed64) -> tag 0x11
+  --   * field 3 (utf8bitset, bytes)               -> tag 0x1A
+  -- For these inputs numHashFunctions fits in one varint byte, so the
+  -- bit-set tag is at offset 2.
+  let utf8Bs    = BF.encodeBloomFilterAs BF.BloomFilterUtf8   bf
+      legacyBs  = BF.encodeBloomFilterAs BF.BloomFilterLegacy bf
+      bitsetTag = (`BS.index` 2)
+  expect "BloomFilter prefix: numHashFunctions on field 1 (tag 0x08)"
+    (BS.head utf8Bs == 0x08 && BS.head legacyBs == 0x08)
+  expect "UTF-8 bloom carries the bitset on field 3 (utf8bitset, tag 0x1A)"
+    (bitsetTag utf8Bs == 0x1A)
+  expect "legacy bloom carries the bitset on field 2 (unpacked fixed64, tag 0x11)"
+    (bitsetTag legacyBs == 0x11)
+  expect "UTF-8 and legacy encodings differ byte-for-byte"
+    (utf8Bs /= legacyBs)
+  -- The legacy unpacked-repeated layout writes one tag-prefixed 8-byte
+  -- word per backing 'Word64', so the message size grows linearly:
+  -- numHashFunctions header (2 bytes) + 9 bytes per backing word.
+  expect "legacy encoding length = 2 + 9 * numWords"
+    (BS.length legacyBs == 2 + 9 * VU.length (BF.bfBits bf))
+
+  -- Reader-side: a UTF-8 inserter and an explicit-charset inserter
+  -- given the same UTF-8 bytes must hit the exact same bit positions
+  -- (i.e. the legacy bloom is a strict refinement, not a different
+  -- hashing scheme).
+  let bf1 = BF.insertString "café" (BF.emptyBloom 200 0.01)
+      bf2 = BF.insertStringWith T.encodeUtf8 "café" (BF.emptyBloom 200 0.01)
+  expect "insertString and insertStringWith encodeUtf8 agree bit-for-bit"
+    (BF.bfBits bf1 == BF.bfBits bf2)
 
   -- Row index: encode two entries, verify the stream is non-empty and
   -- starts with the expected protobuf field-1 tag (length-delimited).

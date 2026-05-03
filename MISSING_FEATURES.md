@@ -180,7 +180,7 @@ iceberg-go SDKs across all three Iceberg spec versions:
 | ORC column encryption: whole-file integration | full (AES-CTR stripe streams + `Footer.encryption` round-trip via `buildEncryptedORCFile` / `encryptStripeStreams` / `decryptStripeStream`; `ORCFooter.orcEncryption` preserves the serialized `Encryption` protobuf across read/write) | `ORC.Write`, `ORC.Footer`, `ORC.Types` |
 | ORC column encryption building blocks (AES-CTR stream cipher + per-stripe key + protobuf encoders) | full (used by the whole-file integration) | `ORC.Encryption` |
 | Hedgehog property tests (Variant codec / Parquet encryption AAD / nested shredder invariants) | full | `Test.Iceberg.{VariantProperty,EncryptionProperty,NestedProperty}` |
-| ORC writer: per-stripe bloom filter (`BLOOM_FILTER_UTF8` stream) | full | `ORC.BloomFilter` |
+| ORC writer: per-stripe bloom filter (`BLOOM_FILTER_UTF8` stream + legacy `BLOOM_FILTER` stream) | full (selectable via `BloomFilterKind`; `BloomFilterUtf8` writes proto field 3 `utf8bitset`, `BloomFilterLegacy` writes proto field 2 unpacked `repeated fixed64`) | `ORC.BloomFilter` |
 | ORC writer: per-stripe row index (`ROW_INDEX` stream) | full | `ORC.RowIndex` |
 | ORC reader: DECIMAL128 stream (LEB128 zig-zag, full Integer precision) | full | `ORC.Read.decodeDecimal128Stream` |
 | ORC reader + writer: DICTIONARY_V2 strings (auto-dispatches on non-empty dictionary stream; writer deduplicates to first-occurrence order) | full | `ORC.Read.decodeStringColumn`, `ORC.Write.encodeStringDictColumn`, `ORC.RLE.decodeRLEv2IntAll` |
