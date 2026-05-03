@@ -16,3 +16,12 @@ __pycache__/
 .direnv/
 result
 result-*
+
+# Stray criterion output written to the repo root. Keep these
+# scoped to the top level so test/fixture .csv / .html files in
+# subdirectories aren't ignored by accident. If you actually want
+# to commit benchmark output, put it under bench/ or docs/.
+/*.csv
+/*.tsv
+/bench-*.html
+/bench-*.json
