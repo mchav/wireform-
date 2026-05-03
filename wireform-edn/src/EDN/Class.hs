@@ -26,9 +26,13 @@ module EDN.Class
   ( ToEDN(..)
   , FromEDN(..)
   , encodeEDN
+  , encodeEDNDirect
   , decodeEDN
+  , genericToEncoding
   , GToEDN(..)
   , GFromEDN(..)
+  , GToEDNEncoding(..)
+  , GToEDNEncodingFields(..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -68,11 +72,17 @@ import Numeric.Natural (Natural)
 import qualified EDN.Value as EV
 import qualified EDN.Encode as EE
 import qualified EDN.Decode as ED
+import EDN.Encoding (Encoding)
+import qualified EDN.Encoding as Enc
+import qualified Data.Text.Lazy.Builder as TLB
 
 class ToEDN a where
   toEDN :: a -> EV.Value
   default toEDN :: (Generic a, GToEDN (Rep a)) => a -> EV.Value
   toEDN = gToEDN . from
+
+  toEncoding :: a -> Encoding
+  toEncoding = valueToEncoding . toEDN
 
 class FromEDN a where
   fromEDN :: EV.Value -> Either String a
@@ -82,11 +92,22 @@ class FromEDN a where
 encodeEDN :: ToEDN a => a -> Text
 encodeEDN = EE.encode . toEDN
 
+-- | Encode directly via 'toEncoding'.
+encodeEDNDirect :: ToEDN a => a -> Text
+encodeEDNDirect = Enc.encodingToText . toEncoding
+
 decodeEDN :: FromEDN a => Text -> Either String a
 decodeEDN t = ED.decode t >>= fromEDN
 
+genericToEncoding :: (Generic a, GToEDNEncoding (Rep a)) => a -> Encoding
+genericToEncoding = gToEncoding . from
+
+valueToEncoding :: EV.Value -> Encoding
+valueToEncoding v = Enc.Encoding (TLB.fromText (EE.encode v))
+
 instance ToEDN Bool where
   toEDN = EV.Bool
+  toEncoding = Enc.bool
 
 instance FromEDN Bool where
   fromEDN (EV.Bool b) = Right b
@@ -94,6 +115,7 @@ instance FromEDN Bool where
 
 instance ToEDN Int where
   toEDN n = EV.Integer (fromIntegral n)
+  toEncoding = Enc.int
 
 instance FromEDN Int where
   fromEDN (EV.Integer n) = Right (fromIntegral n)
@@ -172,6 +194,7 @@ instance FromEDN Float where
 
 instance ToEDN Double where
   toEDN = EV.Float
+  toEncoding = Enc.double
 
 instance FromEDN Double where
   fromEDN (EV.Float d) = Right d
@@ -180,6 +203,7 @@ instance FromEDN Double where
 
 instance ToEDN Text where
   toEDN = EV.String
+  toEncoding = Enc.string
 
 instance FromEDN Text where
   fromEDN (EV.String t) = Right t
@@ -193,6 +217,7 @@ instance FromEDN ByteString where
 
 instance ToEDN () where
   toEDN () = EV.Nil
+  toEncoding () = Enc.nil
 
 instance FromEDN () where
   fromEDN EV.Nil = Right ()
@@ -201,6 +226,8 @@ instance FromEDN () where
 instance ToEDN a => ToEDN (Maybe a) where
   toEDN Nothing = EV.Nil
   toEDN (Just x) = toEDN x
+  toEncoding Nothing  = Enc.nil
+  toEncoding (Just x) = toEncoding x
 
 instance FromEDN a => FromEDN (Maybe a) where
   fromEDN EV.Nil = Right Nothing
@@ -208,6 +235,7 @@ instance FromEDN a => FromEDN (Maybe a) where
 
 instance ToEDN a => ToEDN [a] where
   toEDN xs = EV.Vector (V.fromList (map toEDN xs))
+  toEncoding xs = Enc.vectorFromList (fmap toEncoding xs)
 
 instance FromEDN a => FromEDN [a] where
   fromEDN (EV.Vector vs) = traverse fromEDN (V.toList vs)
@@ -465,3 +493,26 @@ instance (Selector s, FromEDN a) => GFromEDNFields (M1 S s (K1 i a)) where
     in case lkup name of
          Nothing -> Left $ "GFromEDN: missing field " ++ T.unpack name
          Just v  -> M1 . K1 <$> fromEDN v
+
+-- ---------------------------------------------------------------------------
+-- Generic direct-to-text encoding.
+-- ---------------------------------------------------------------------------
+
+class GToEDNEncoding f where
+  gToEncoding :: f p -> Encoding
+
+class GToEDNEncodingFields f where
+  gToEncodingFields :: f p -> [(Encoding, Encoding)]
+
+instance GToEDNEncoding f => GToEDNEncoding (M1 D c f) where
+  gToEncoding (M1 x) = gToEncoding x
+
+instance (Constructor c, GToEDNEncodingFields f) => GToEDNEncoding (M1 C c f) where
+  gToEncoding (M1 x) = Enc.mapList (gToEncodingFields x)
+
+instance (GToEDNEncodingFields a, GToEDNEncodingFields b) => GToEDNEncodingFields (a :*: b) where
+  gToEncodingFields (a :*: b) = gToEncodingFields a ++ gToEncodingFields b
+
+instance (Selector s, ToEDN a) => GToEDNEncodingFields (M1 S s (K1 i a)) where
+  gToEncodingFields m@(M1 (K1 x)) =
+    [(Enc.keyword Nothing (T.pack (selName m)), toEncoding x)]

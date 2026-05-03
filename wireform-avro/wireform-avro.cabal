@@ -34,6 +34,7 @@ library
     Avro.Decode
     Avro.Derive
     Avro.Encode
+    Avro.Encoding
     Avro.Fingerprint
     Avro.IDL
     Avro.IDLConvert

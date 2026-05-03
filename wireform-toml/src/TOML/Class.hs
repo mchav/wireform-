@@ -9,7 +9,9 @@ module TOML.Class
   ( ToTOML(..)
   , FromTOML(..)
   , encodeTOML
+  , encodeTOMLDirect
   , decodeTOML
+  , genericToEncoding
   , GToTOML(..)
   , GFromTOML(..)
   ) where
@@ -47,11 +49,19 @@ import Numeric.Natural (Natural)
 import qualified TOML.Value as TV
 import qualified TOML.Encode as TE
 import qualified TOML.Decode as TD
+import TOML.Encoding (Encoding)
+import qualified TOML.Encoding as Enc
 
 class ToTOML a where
   toTOML :: a -> TV.Value
   default toTOML :: (Generic a, GToTOML (Rep a)) => a -> TV.Value
   toTOML = gToTOML . from
+
+  -- | aeson-style direct encoder. TOML's pretty-printer makes
+  -- section-positioning decisions that depend on the surrounding
+  -- document, so 'Encoding' wraps a fully-built 'TV.Value'.
+  toEncoding :: a -> Encoding
+  toEncoding = Enc.value . toTOML
 
 class FromTOML a where
   fromTOML :: TV.Value -> Either String a
@@ -60,6 +70,13 @@ class FromTOML a where
 
 encodeTOML :: ToTOML a => a -> Text
 encodeTOML = TE.encode . toTOML
+
+-- | Encode directly via 'toEncoding'.
+encodeTOMLDirect :: ToTOML a => a -> Text
+encodeTOMLDirect = Enc.encodingToText . toEncoding
+
+genericToEncoding :: (Generic a, GToTOML (Rep a)) => a -> Encoding
+genericToEncoding = Enc.value . gToTOML . from
 
 decodeTOML :: FromTOML a => Text -> Either String a
 decodeTOML t = TD.decode t >>= fromTOML

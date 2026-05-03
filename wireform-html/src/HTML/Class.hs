@@ -9,7 +9,9 @@ module HTML.Class
   ( ToHTML(..)
   , FromHTML(..)
   , encodeHTMLTyped
+  , encodeHTMLTypedDirect
   , decodeHTMLTyped
+  , genericToEncoding
   , GToHTML(..)
   , GFromHTML(..)
   ) where
@@ -58,11 +60,19 @@ import Numeric.Natural (Natural)
 import HTML.Value
 import qualified HTML.Encode as HE
 import qualified HTML.Parse as HP
+import HTML.Encoding (Encoding)
+import qualified HTML.Encoding as Enc
 
 class ToHTML a where
   toHTML :: a -> HTMLNode
   default toHTML :: (Generic a, GToHTML (Rep a)) => a -> HTMLNode
   toHTML = gToHTML . from
+
+  -- | aeson-style direct encoder. HTML's tag-sensitive escaping rules
+  -- defeat a streaming 'Builder' at the public boundary, so
+  -- 'Encoding' wraps a fully-built 'HTMLNode'.
+  toEncoding :: a -> Encoding
+  toEncoding = Enc.node . toHTML
 
 class FromHTML a where
   fromHTML :: HTMLNode -> Either String a
@@ -71,6 +81,13 @@ class FromHTML a where
 
 encodeHTMLTyped :: ToHTML a => a -> ByteString
 encodeHTMLTyped a = HE.encodeHTML (HTMLDocument Nothing (toHTML a))
+
+-- | Encode directly via 'toEncoding'.
+encodeHTMLTypedDirect :: ToHTML a => a -> ByteString
+encodeHTMLTypedDirect = Enc.encodingToByteString . toEncoding
+
+genericToEncoding :: (Generic a, GToHTML (Rep a)) => a -> Encoding
+genericToEncoding = Enc.node . gToHTML . from
 
 decodeHTMLTyped :: FromHTML a => ByteString -> Either String a
 decodeHTMLTyped bs =

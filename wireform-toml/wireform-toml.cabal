@@ -32,6 +32,7 @@ library
     TOML.Decode
     TOML.Derive
     TOML.Encode
+    TOML.Encoding
     TOML.Value
   build-depends:
     base >= 4.16 && < 5,

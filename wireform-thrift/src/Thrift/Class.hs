@@ -28,9 +28,12 @@ module Thrift.Class
   ( ToThrift(..)
   , FromThrift(..)
   , encodeThriftBinary
+  , encodeThriftBinaryDirect
   , decodeThriftBinary
   , encodeThriftCompact
+  , encodeThriftCompactDirect
   , decodeThriftCompact
+  , genericToEncoding
   , GToThrift(..)
   , GFromThrift(..)
   ) where
@@ -73,11 +76,20 @@ import qualified Thrift.Value as TV
 import Thrift.Wire (ThriftType(..))
 import qualified Thrift.Encode as TE
 import qualified Thrift.Decode as TD
+import Thrift.Encoding (Encoding)
+import qualified Thrift.Encoding as Enc
 
 class ToThrift a where
   toThrift :: a -> TV.Value
   default toThrift :: (Generic a, GToThrift (Rep a)) => a -> TV.Value
   toThrift = gToThrift . from
+
+  -- | aeson-style direct encoder. Thrift's binary and compact wire
+  -- formats need protocol commitment before bytes flow, so
+  -- 'Encoding' wraps a fully-built 'TV.Value' and routes through
+  -- 'TE.encodeBinary' / 'TE.encodeCompact' at run time.
+  toEncoding :: a -> Encoding
+  toEncoding = Enc.value . toThrift
 
 class FromThrift a where
   fromThrift :: TV.Value -> Either String a
@@ -87,11 +99,22 @@ class FromThrift a where
 encodeThriftBinary :: ToThrift a => a -> ByteString
 encodeThriftBinary = TE.encodeBinary . toThrift
 
+-- | Encode binary protocol via 'toEncoding'.
+encodeThriftBinaryDirect :: ToThrift a => a -> ByteString
+encodeThriftBinaryDirect = Enc.encodingToBinaryByteString . toEncoding
+
 decodeThriftBinary :: FromThrift a => ByteString -> Either String a
 decodeThriftBinary bs = TD.decodeBinary bs >>= fromThrift
 
 encodeThriftCompact :: ToThrift a => a -> ByteString
 encodeThriftCompact = TE.encodeCompact . toThrift
+
+-- | Encode compact protocol via 'toEncoding'.
+encodeThriftCompactDirect :: ToThrift a => a -> ByteString
+encodeThriftCompactDirect = Enc.encodingToCompactByteString . toEncoding
+
+genericToEncoding :: (Generic a, GToThrift (Rep a)) => a -> Encoding
+genericToEncoding = Enc.value . gToThrift . from
 
 decodeThriftCompact :: FromThrift a => ByteString -> Either String a
 decodeThriftCompact bs = TD.decodeCompact bs >>= fromThrift

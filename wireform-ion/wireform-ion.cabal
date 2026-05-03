@@ -32,6 +32,7 @@ library
     Ion.Decode
     Ion.Derive
     Ion.Encode
+    Ion.Encoding
     Ion.ISLCodeGen
     Ion.ISLSchema
     Ion.QQ

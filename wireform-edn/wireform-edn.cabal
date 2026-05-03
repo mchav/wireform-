@@ -32,6 +32,7 @@ library
     EDN.Decode
     EDN.Derive
     EDN.Encode
+    EDN.Encoding
     EDN.JSON
     EDN.Value
   build-depends:

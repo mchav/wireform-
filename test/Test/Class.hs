@@ -74,6 +74,7 @@ classTests = testGroup "Typeclass encode/decode"
   , ednGenericTests
   , ionGenericTests
   , aesonParityTests
+  , directEncodingTests
   ]
 
 --------------------------------------------------------------------------------
@@ -470,4 +471,53 @@ ionParityTests = testGroup "Ion"
   , testCase "Identity roundtrip" $ rtIC (Identity (5 :: Int))
   , testCase "Down roundtrip"     $ rtIC (Down (7 :: Int))
   , testCase "Version roundtrip"  $ rtIC (makeVersion [1])
+  ]
+
+--------------------------------------------------------------------------------
+-- Direct (toEncoding) parity: the direct path must produce the same
+-- bytes as the AST path.
+--------------------------------------------------------------------------------
+
+directEncodingTests :: TestTree
+directEncodingTests = testGroup "Direct toEncoding parity"
+  [ testGroup "MsgPack"
+      [ testCase "Bool"     $ MC.encodeMsgPackDirect True              @?= MC.encodeMsgPack True
+      , testCase "Int"      $ MC.encodeMsgPackDirect (123 :: Int)      @?= MC.encodeMsgPack (123 :: Int)
+      , testCase "Negative" $ MC.encodeMsgPackDirect (-7 :: Int)       @?= MC.encodeMsgPack (-7 :: Int)
+      , testCase "Text"     $ MC.encodeMsgPackDirect ("hello" :: Text) @?= MC.encodeMsgPack ("hello" :: Text)
+      , testCase "List"     $ MC.encodeMsgPackDirect [1,2,3 :: Int]    @?= MC.encodeMsgPack [1,2,3 :: Int]
+      , testCase "Maybe"    $ MC.encodeMsgPackDirect (Just (5 :: Int)) @?= MC.encodeMsgPack (Just (5 :: Int))
+      , testCase "Map"      $ MC.encodeMsgPackDirect (Map.fromList [("a" :: Text, 1 :: Int)])
+                                @?= MC.encodeMsgPack (Map.fromList [("a" :: Text, 1 :: Int)])
+      , testCase "Person (default through Value)" $
+          MC.encodeMsgPackDirect (Person "Alice" 30) @?= MC.encodeMsgPack (Person "Alice" 30)
+      ]
+  , testGroup "CBOR"
+      [ testCase "Bool"     $ CC.encodeCBORDirect True              @?= CC.encodeCBOR True
+      , testCase "Int"      $ CC.encodeCBORDirect (123 :: Int)      @?= CC.encodeCBOR (123 :: Int)
+      , testCase "Negative" $ CC.encodeCBORDirect (-7 :: Int)       @?= CC.encodeCBOR (-7 :: Int)
+      , testCase "Text"     $ CC.encodeCBORDirect ("hello" :: Text) @?= CC.encodeCBOR ("hello" :: Text)
+      , testCase "List"     $ CC.encodeCBORDirect [1,2,3 :: Int]    @?= CC.encodeCBOR [1,2,3 :: Int]
+      , testCase "Maybe"    $ CC.encodeCBORDirect (Just (5 :: Int)) @?= CC.encodeCBOR (Just (5 :: Int))
+      , testCase "Map"      $ CC.encodeCBORDirect (Map.fromList [("a" :: Text, 1 :: Int)])
+                                @?= CC.encodeCBOR (Map.fromList [("a" :: Text, 1 :: Int)])
+      , testCase "Person (default through Value)" $
+          CC.encodeCBORDirect (Person "Alice" 30) @?= CC.encodeCBOR (Person "Alice" 30)
+      ]
+  , testGroup "BSON"
+      [ testCase "Person (Encoding wraps Value)" $
+          BC.encodeBSONDirect (Person "Alice" 30) @?= BC.encodeBSON (Person "Alice" 30)
+      ]
+  , testGroup "EDN"
+      [ testCase "Bool" $ EC.encodeEDNDirect True              @?= EC.encodeEDN True
+      , testCase "Int"  $ EC.encodeEDNDirect (5 :: Int)        @?= EC.encodeEDN (5 :: Int)
+      , testCase "Text" $ EC.encodeEDNDirect ("hello" :: Text) @?= EC.encodeEDN ("hello" :: Text)
+      , testCase "List" $ EC.encodeEDNDirect [1,2 :: Int]      @?= EC.encodeEDN [1,2 :: Int]
+      , testCase "Person (default through Value)" $
+          EC.encodeEDNDirect (Person "Alice" 30) @?= EC.encodeEDN (Person "Alice" 30)
+      ]
+  , testGroup "Ion"
+      [ testCase "Person (Encoding wraps Value)" $
+          IC.encodeIonDirect (Person "Alice" 30) @?= IC.encodeIon (Person "Alice" 30)
+      ]
   ]

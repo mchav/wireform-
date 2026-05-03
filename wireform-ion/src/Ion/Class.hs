@@ -25,7 +25,9 @@ module Ion.Class
   ( ToIon(..)
   , FromIon(..)
   , encodeIon
+  , encodeIonDirect
   , decodeIon
+  , genericToEncoding
   , GToIon(..)
   , GFromIon(..)
   ) where
@@ -67,11 +69,18 @@ import Numeric.Natural (Natural)
 import qualified Ion.Value as IV
 import qualified Ion.Encode as IE
 import qualified Ion.Decode as ID
+import Ion.Encoding (Encoding)
+import qualified Ion.Encoding as Enc
 
 class ToIon a where
   toIon :: a -> IV.Value
   default toIon :: (Generic a, GToIon (Rep a)) => a -> IV.Value
   toIon = gToIon . from
+
+  -- | aeson-style direct encoder. Ion's TLV layout makes a streaming
+  -- 'Builder' awkward; 'Encoding' wraps a fully-built 'IV.Value'.
+  toEncoding :: a -> Encoding
+  toEncoding = Enc.value . toIon
 
 class FromIon a where
   fromIon :: IV.Value -> Either String a
@@ -80,6 +89,12 @@ class FromIon a where
 
 encodeIon :: ToIon a => a -> ByteString
 encodeIon = IE.encode . toIon
+
+encodeIonDirect :: ToIon a => a -> ByteString
+encodeIonDirect = Enc.encodingToByteString . toEncoding
+
+genericToEncoding :: (Generic a, GToIon (Rep a)) => a -> Encoding
+genericToEncoding = Enc.value . gToIon . from
 
 decodeIon :: FromIon a => ByteString -> Either String a
 decodeIon bs = ID.decode bs >>= fromIon

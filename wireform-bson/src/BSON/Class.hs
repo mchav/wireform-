@@ -26,7 +26,9 @@ module BSON.Class
   ( ToBSON(..)
   , FromBSON(..)
   , encodeBSON
+  , encodeBSONDirect
   , decodeBSON
+  , genericToEncoding
   , GToBSON(..)
   , GFromBSON(..)
   ) where
@@ -63,11 +65,21 @@ import Numeric.Natural (Natural)
 import qualified BSON.Value as BV
 import qualified BSON.Encode as BE
 import qualified BSON.Decode as BD
+import BSON.Encoding (Encoding)
+import qualified BSON.Encoding as Enc
 
 class ToBSON a where
   toBSON :: a -> BV.Value
   default toBSON :: (Generic a, GToBSON (Rep a)) => a -> BV.Value
   toBSON = gToBSON . from
+
+  -- | aeson-style direct encoder. BSON's wire format is
+  -- length-prefixed at every level so 'Encoding' wraps a fully-built
+  -- 'BV.Value' (see 'BSON.Encoding'); the API is in place for parity
+  -- and so future direct-write paths can be slotted in without an
+  -- API break.
+  toEncoding :: a -> Encoding
+  toEncoding = Enc.value . toBSON
 
 class FromBSON a where
   fromBSON :: BV.Value -> Either String a
@@ -76,6 +88,13 @@ class FromBSON a where
 
 encodeBSON :: ToBSON a => a -> ByteString
 encodeBSON = BE.encode . toBSON
+
+-- | Encode directly via 'toEncoding'.
+encodeBSONDirect :: ToBSON a => a -> ByteString
+encodeBSONDirect = Enc.encodingToByteString . toEncoding
+
+genericToEncoding :: (Generic a, GToBSON (Rep a)) => a -> Encoding
+genericToEncoding = Enc.value . gToBSON . from
 
 decodeBSON :: FromBSON a => ByteString -> Either String a
 decodeBSON bs = BD.decode bs >>= fromBSON

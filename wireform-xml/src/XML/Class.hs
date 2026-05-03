@@ -22,7 +22,9 @@ module XML.Class
   ( ToXML(..)
   , FromXML(..)
   , encodeXML
+  , encodeXMLDirect
   , decodeXML
+  , genericToEncoding
   , GToXML(..)
   , GFromXML(..)
   ) where
@@ -68,11 +70,19 @@ import Numeric.Natural (Natural)
 import XML.Value
 import qualified XML.Encode as XE
 import qualified XML.Decode as XD
+import XML.Encoding (Encoding)
+import qualified XML.Encoding as Enc
 
 class ToXML a where
   toXML :: a -> Node
   default toXML :: (Generic a, GToXML (Rep a)) => a -> Node
   toXML = gToXML . from
+
+  -- | aeson-style direct encoder. XML's nested tag balance and
+  -- namespace context defeat a streaming 'Builder', so 'Encoding'
+  -- wraps a fully-built 'Node'.
+  toEncoding :: a -> Encoding
+  toEncoding = Enc.node . toXML
 
 class FromXML a where
   fromXML :: Node -> Either String a
@@ -82,6 +92,13 @@ class FromXML a where
 -- | Convenience encode.
 encodeXML :: ToXML a => a -> ByteString
 encodeXML a = XE.encode (Document Nothing (toXML a))
+
+-- | Encode directly via 'toEncoding'.
+encodeXMLDirect :: ToXML a => a -> ByteString
+encodeXMLDirect = Enc.encodingToByteString . toEncoding
+
+genericToEncoding :: (Generic a, GToXML (Rep a)) => a -> Encoding
+genericToEncoding = Enc.node . gToXML . from
 
 -- | Convenience decode.
 decodeXML :: FromXML a => ByteString -> Either String a

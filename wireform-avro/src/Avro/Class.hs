@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DefaultSignatures #-}
 -- | Typeclass-based Avro serialization.
 --
 -- Provides 'ToAvro' and 'FromAvro' typeclasses for converting Haskell
@@ -44,9 +45,17 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import Numeric.Natural (Natural)
 
 import qualified Avro.Value as AV
+import Avro.Encoding (Encoding)
+import qualified Avro.Encoding as Enc
 
 class ToAvro a where
   toAvro :: a -> AV.Value
+
+  -- | aeson-style direct encoder. Avro requires a schema to write
+  -- the wire bytes, so 'Encoding' wraps an 'AV.Value'; the API is
+  -- provided for parity with the other formats.
+  toEncoding :: a -> Encoding
+  toEncoding = Enc.value . toAvro
 
 class FromAvro a where
   fromAvro :: AV.Value -> Either String a

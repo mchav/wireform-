@@ -33,6 +33,7 @@ library
     Thrift.Decode
     Thrift.Derive
     Thrift.Encode
+    Thrift.Encoding
     Thrift.JSON
     Thrift.Message
     Thrift.Parser
