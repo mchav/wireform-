@@ -1,5 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 -- | Bencode binary encoding using directEncode.
+--
+-- Per BEP-3 (\"keys must be strings and appear in sorted order
+-- (sorted as raw strings, not alphanumerics)\"), 'encode' sorts every
+-- 'B.BDict''s entries by raw byte-string key on output, so any
+-- caller producing a 'B.BDict' \xE2\x80\x94 hand-built, generic-derived,
+-- or TH-derived \xE2\x80\x94 ends up emitting BEP-3-conformant bytes.
 module Bencode.Encode
   ( encode
   ) where
@@ -8,6 +14,8 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.ByteString.Char8 as BS8
+import Data.List (sortBy)
+import Data.Ord (comparing)
 import Data.Word (Word8)
 import qualified Data.Vector as V
 import Foreign.ForeignPtr (withForeignPtr)
@@ -19,8 +27,23 @@ import qualified Bencode.Value as B
 
 encode :: B.Value -> ByteString
 encode val =
-  let !sz = valueSize val
-  in directEncode sz (\p off -> writeValue p off val)
+  let !sorted = sortDictKeys val
+      !sz     = valueSize sorted
+  in directEncode sz (\p off -> writeValue p off sorted)
+
+-- | Recursively sort every 'B.BDict''s entries by raw byte key.
+-- Bencode dicts are required to be sorted (BEP-3), and the encoder is
+-- the only place we can guarantee it without forcing every caller to
+-- pre-sort.
+sortDictKeys :: B.Value -> B.Value
+sortDictKeys = \case
+  B.BDict kvs ->
+    B.BDict
+      (V.fromList
+        (sortBy (comparing fst)
+          (V.toList (V.map (\(k, v) -> (k, sortDictKeys v)) kvs))))
+  B.BList vs -> B.BList (V.map sortDictKeys vs)
+  v          -> v
 
 valueSize :: B.Value -> Int
 valueSize = \case

@@ -298,6 +298,10 @@ instance FromBencode v => FromBencode (Map ByteString v) where
     Right (Map.fromList pairs)
   fromBencode _ = Left "FromBencode (Map ByteString v): expected BDict"
 
+-- | Bencode dicts are sorted by raw byte-string key (BEP-3). UTF-8
+-- encoding preserves Unicode code-point ordering, so 'Map Text''s
+-- ascending-by-key order already produces a correctly sorted dict
+-- after UTF-8 encoding.
 instance ToBencode v => ToBencode (Map Text v) where
   toBencode m = B.BDict (V.fromList [(TE.encodeUtf8 k, toBencode v) | (k, v) <- Map.toList m])
 
@@ -311,6 +315,11 @@ instance FromBencode v => FromBencode (Map Text v) where
         Left _  -> Left "FromBencode (Map Text v): non-UTF-8 key"
   fromBencode _ = Left "FromBencode (Map Text v): expected BDict"
 
+-- | The 'B.BDict' built here is in 'IntMap' (ascending-int) order,
+-- which does not match BEP-3's raw-byte-string sort (e.g. @\"10\"@
+-- sorts before @\"2\"@). 'Bencode.Encode.encode' takes care of
+-- re-sorting on output, so callers can stay in 'IntMap' order at the
+-- AST level.
 instance ToBencode v => ToBencode (IntMap v) where
   toBencode m = B.BDict (V.fromList [(BS8.pack (show k), toBencode v) | (k, v) <- IntMap.toList m])
 

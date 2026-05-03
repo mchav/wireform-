@@ -23,7 +23,9 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BSL
-import Data.Foldable (foldl')
+import Data.Foldable (foldl', toList)
+import Data.List (sortBy)
+import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 
@@ -67,13 +69,15 @@ list xs = Encoding (BB.char7 'l' <> foldl' (\b e -> b <> runEncoding e) mempty x
 listFromList :: [Encoding] -> Encoding
 listFromList xs = Encoding (BB.char7 'l' <> mconcat (fmap runEncoding xs) <> BB.char7 'e')
 
--- | Bencode dicts must be sorted by key. The caller is responsible
--- for ensuring the input is sorted.
+-- | Bencode dicts must be sorted by raw byte-string key (BEP-3 \xA73).
+-- The pairs are sorted on the way out so callers can pass them in
+-- any order they like.
 dict :: Foldable f => f (ByteString, Encoding) -> Encoding
-dict kvs =
-  Encoding (BB.char7 'd'
-              <> foldl' (\b (k, v) -> b <> runEncoding (bytes k) <> runEncoding v) mempty kvs
-              <> BB.char7 'e')
+dict = dictFromList . toList
 
 dictFromList :: [(ByteString, Encoding)] -> Encoding
-dictFromList = dict
+dictFromList kvs =
+  let !sorted = sortBy (comparing fst) kvs
+  in Encoding (BB.char7 'd'
+                 <> foldl' (\b (k, v) -> b <> runEncoding (bytes k) <> runEncoding v) mempty sorted
+                 <> BB.char7 'e')

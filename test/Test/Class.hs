@@ -45,6 +45,10 @@ import qualified EDN.Class as EC
 import qualified Ion.Value as IV
 import qualified Ion.Class as IC
 
+import qualified Bencode.Value as BencodeV
+import qualified Bencode.Encode as BencodeE
+import qualified Bencode.Encoding as BencodeEncoding
+
 -- Sample record type for Generic deriving tests
 data Person = Person
   { name :: Text
@@ -585,5 +589,42 @@ directEncodingTests = testGroup "Direct toEncoding parity"
   , testGroup "Ion"
       [ testCase "Person (Encoding wraps Value)" $
           IC.encodeIonDirect (Person "Alice" 30) @?= IC.encodeIon (Person "Alice" 30)
+      ]
+  , testGroup "Bencode (BEP-3 dict-key sort)"
+      [ testCase "encode sorts dict keys (raw byte order)" $ do
+          -- "z" should land after "a" regardless of insertion order.
+          let v = BencodeV.BDict (V.fromList
+                    [ ("z", BencodeV.BInteger 26)
+                    , ("a", BencodeV.BInteger 1)
+                    ])
+              expected = BencodeE.encode (BencodeV.BDict (V.fromList
+                    [ ("a", BencodeV.BInteger 1)
+                    , ("z", BencodeV.BInteger 26)
+                    ]))
+          BencodeE.encode v @?= expected
+      , testCase "encode sorts by raw byte order, not numeric" $ do
+          -- "10" sorts before "2" lex / byte-wise even though 2 < 10.
+          let v = BencodeV.BDict (V.fromList
+                    [ ("2",  BencodeV.BInteger 2)
+                    , ("10", BencodeV.BInteger 10)
+                    ])
+              encoded = BencodeE.encode v
+          encoded @?= "d2:10i10e1:2i2ee"
+      , testCase "encode sorts nested dicts" $ do
+          let v = BencodeV.BDict (V.fromList
+                    [ ("outer", BencodeV.BDict (V.fromList
+                        [ ("z", BencodeV.BInteger 1)
+                        , ("a", BencodeV.BInteger 2)
+                        ]))
+                    ])
+              encoded = BencodeE.encode v
+          encoded @?= "d5:outerd1:ai2e1:zi1eee"
+      , testCase "direct encoding sorts dict keys too" $ do
+          let direct = BencodeEncoding.encodingToByteString
+                         (BencodeEncoding.dictFromList
+                           [ ("z", BencodeEncoding.int 1)
+                           , ("a", BencodeEncoding.int 2)
+                           ])
+          direct @?= "d1:ai2e1:zi1ee"
       ]
   ]
