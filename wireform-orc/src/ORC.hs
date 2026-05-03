@@ -39,9 +39,6 @@ module ORC
   , TypeKind (..)
   , Encryption (..)
   , StripeEncryption (..)
-    -- * Legacy / deprecated variants
-  , encodeORCWithRows
-  , encodeORCWithoutRows
   ) where
 
 import Data.ByteString (ByteString)
@@ -105,9 +102,10 @@ defaultWriteOptions = WriteOptions
 -- @orcNumberOfRows@ so predicate-pushdown-aware readers can
 -- plan scans correctly.
 --
--- If you don't have row counts handy and are fine stamping 0
--- per stripe (some readers tolerate it, most don't), use
--- 'encodeORCWithoutRows'.
+-- If you don't have row counts handy, pass @zip stripes (repeat 0)@.
+-- Some ORC readers tolerate zero-row stripes for quick-look dumps,
+-- but most predicate-pushdown-aware readers won't, so authoritative
+-- row counts are strongly preferred for real workloads.
 --
 -- Returns either the encoded bytes or, if encryption is
 -- requested and fails (e.g. mismatched key lengths), the error
@@ -131,32 +129,6 @@ encodeORC opts types stripesWithRows =
           -- both encryption and accurate row counts should open
           -- the ticket.
           buildEncryptedORCFile types sd (stripeKeys plan) enc
-
--- | Legacy alias for 'encodeORC'. The two forms were temporarily
--- split while row-count plumbing was being added; they're now
--- the same function.
-{-# DEPRECATED encodeORCWithRows
-    "Use 'encodeORC' — it now takes per-stripe row counts as the canonical shape." #-}
-encodeORCWithRows
-  :: WriteOptions
-  -> V.Vector ORCType
-  -> [(V.Vector (Word64, Word64, ByteString), Word64)]
-  -> Either String ByteString
-encodeORCWithRows = encodeORC
-
--- | Legacy entry point that stamps @siNumberOfRows = 0@ in every
--- stripe. Retained for callers that don't have row counts and
--- are encoding for readers that tolerate zero-row stripes (e.g.
--- quick-look dumps). Prefer 'encodeORC' for real workloads.
-{-# DEPRECATED encodeORCWithoutRows
-    "Use 'encodeORC' — pass 'zip stripes (repeat 0)' if you really don't have row counts." #-}
-encodeORCWithoutRows
-  :: WriteOptions
-  -> V.Vector ORCType
-  -> [V.Vector (Word64, Word64, ByteString)]
-  -> Either String ByteString
-encodeORCWithoutRows opts types stripes =
-  encodeORC opts types (zip stripes (repeat 0))
 
 -- ============================================================
 -- Decoding

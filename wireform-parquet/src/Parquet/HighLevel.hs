@@ -45,8 +45,6 @@ module Parquet.HighLevel
   , defaultReadOptions
   , FooterDecryption (..)
   , ParquetFile (..)
-    -- * Legacy / deprecated variants
-  , decodeParquetEncrypted
     -- * Re-exports for convenience
   , ColumnData (..)
   , ColumnEncryption (..)
@@ -294,13 +292,3 @@ decodeParquet :: ReadOptions -> ByteString -> Either String ParquetFile
 decodeParquet opts = case readFooterDecryption opts of
   Nothing -> loadParquetFile
   Just fd -> loadParquetFileEncrypted fd
-
--- | Legacy wrapper for the encrypted-footer path.
-{-# DEPRECATED decodeParquetEncrypted
-    "Use 'decodeParquet' with 'readFooterDecryption' set in 'ReadOptions'." #-}
-decodeParquetEncrypted
-  :: FooterDecryption
-  -> ByteString
-  -> Either String ParquetFile
-decodeParquetEncrypted fd =
-  decodeParquet defaultReadOptions { readFooterDecryption = Just fd }

@@ -28,13 +28,16 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    FlatBuffers.Builder
     FlatBuffers.CodeGen
     FlatBuffers.Decode
     FlatBuffers.Derive
     FlatBuffers.Encode
     FlatBuffers.Parser
     FlatBuffers.QQ
+    FlatBuffers.Reader
     FlatBuffers.Registry
+    FlatBuffers.View
     FlatBuffers.Schema
     FlatBuffers.Value
   build-depends:
@@ -63,6 +66,7 @@ test-suite wireform-flatbuffers-derive-test
     Test.FlatBuffers.Derive
     Test.FlatBuffers.Derive.Types
     Test.FlatBuffers.Derive.Instances
+    Test.FlatBuffers.View
   default-extensions:
     ScopedTypeVariables
     TemplateHaskell
@@ -70,6 +74,7 @@ test-suite wireform-flatbuffers-derive-test
     base,
     wireform-flatbuffers,
     wireform-derive,
+    bytestring,
     text,
     vector,
     tasty,
