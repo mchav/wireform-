@@ -32,7 +32,11 @@ jobs:
             ${{ runner.os }}-ghc-${{ matrix.ghc }}-cabal-
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+        # protobuf-compiler provides 'protoc', which 'temporal-test'
+        # picks up at configure time via proto-lens-setup. Without it
+        # 'cabal build all' aborts before any wireform-* package
+        # gets compiled.
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev protobuf-compiler
 
       - name: Configure
         run: cabal configure --enable-tests --enable-benchmarks
