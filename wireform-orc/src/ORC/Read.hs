@@ -680,12 +680,6 @@ interleaveWith present vals = runST $ do
   go 0 0
   V.unsafeFreeze out
 
--- | Estimate the number of RLE-encoded values in a stream.
--- Used when the count isn't known ahead of time (dictionary lengths).
--- Decodes all available values.
-estimateCount :: ByteString -> Int
-estimateCount bs = max 1 (BS.length bs)
-
 splitByLengths :: ByteString -> VP.Vector Int64 -> Either String (V.Vector T.Text)
 splitByLengths dataBs lengths = runST $ do
   let !n = VP.length lengths
