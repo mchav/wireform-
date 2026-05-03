@@ -408,7 +408,7 @@ test-suite html-rewriter-test
 test-suite python-interop
   import: defaults
   type: exitcode-stdio-1.0
-  main-is: Main.hs
+  main-is: PythonProtoInterop.hs
   other-modules: InteropTypes
   if !flag(python-interop)
     buildable: False
@@ -420,12 +420,14 @@ test-suite python-interop
     , vector
     , containers
     , deepseq
+    , directory
+    , filepath
     , process          >= 1.6  && < 1.8
     , hedgehog         >= 1.0  && < 1.5
     , tasty            >= 1.4  && < 1.6
     , tasty-hedgehog   >= 1.0  && < 1.5
     , tasty-hunit      >= 0.10 && < 0.11
-  hs-source-dirs: interop-test
+  hs-source-dirs: test-interop
 
 test-suite temporal-codegen-test
   import: defaults

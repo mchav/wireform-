@@ -25,7 +25,10 @@ import sys
 import json
 import struct
 
-# Add the interop-test directory to the path so we can import the generated module.
+# Add this directory (test-interop/proto/) to the path so the generated
+# module can be imported. The Haskell driver also injects this directory
+# via PYTHONPATH; the explicit insert here keeps `python3 oracle.py ...`
+# usable from the command line for ad-hoc debugging.
 sys.path.insert(0, sys.path[0] if sys.path[0] else '.')
 import interop_pb2
 
