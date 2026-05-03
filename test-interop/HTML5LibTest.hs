@@ -9,8 +9,12 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Foldable (toList)
-import System.Directory (listDirectory)
-import System.FilePath ((</>))
+import System.Directory
+  ( doesDirectoryExist
+  , getCurrentDirectory
+  , listDirectory
+  )
+import System.FilePath ((</>), takeDirectory, takeFileName)
 import System.IO (hFlush, hPutStrLn, stderr)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -488,7 +492,7 @@ treeDiff actual expected =
 
 main :: IO ()
 main = do
-  let testDir = "test-data/html5lib/tree-construction"
+  testDir <- locateTestDir
   allFiles <- sort . filter (".dat" `isSuffixOf`) <$> listDirectory testDir
 
   passRef  <- newIORef (0 :: Int)
@@ -550,3 +554,31 @@ showPercent _ 0 = "N/A"
 showPercent p t =
   let pct = (fromIntegral p * 100 :: Double) / fromIntegral t
   in  show (round pct :: Int) ++ "% (" ++ show p ++ "/" ++ show t ++ ")"
+
+-- | The html5lib fixtures live in @test-data/html5lib/tree-construction@
+-- at the repo root. Cabal runs the @html5lib-test@ test-suite from
+-- the package directory (@wireform-html/@), where that path doesn't
+-- resolve. Walk up from the current working directory until the
+-- fixture directory appears so the suite works whether you run it
+-- with @cabal test html5lib-test@ from the repo root, from
+-- @wireform-html/@, or directly from the binary inside @dist-newstyle@.
+locateTestDir :: IO FilePath
+locateTestDir = do
+  start <- getCurrentDirectory
+  let rel = "test-data" </> "html5lib" </> "tree-construction"
+      go dir = do
+        let candidate = dir </> rel
+        exists <- doesDirectoryExist candidate
+        if exists
+          then pure candidate
+          else
+            let parent = takeDirectory dir
+            in if parent == dir || null (takeFileName dir)
+                 then error
+                   ( "html5lib-test: could not locate "
+                   <> rel
+                   <> " above "
+                   <> start
+                   )
+                 else go parent
+  go start
