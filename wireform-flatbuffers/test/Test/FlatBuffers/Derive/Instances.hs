@@ -10,3 +10,7 @@ import Test.FlatBuffers.Derive.Types
 deriveFlatBuffers ''Position
 deriveFlatBuffers ''Tag
 deriveFlatBuffers ''Color
+
+deriveView ''Position
+deriveView ''Tag
+deriveView ''Color

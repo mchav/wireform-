@@ -34,6 +34,8 @@ module FlatBuffers.Derive
   , deriveFlatBuffers
   , deriveToFlatBuffers
   , deriveFromFlatBuffers
+    -- * Zero-copy decode (see "FlatBuffers.View")
+  , deriveView
   ) where
 
 import Data.ByteString (ByteString)
@@ -48,6 +50,7 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import Language.Haskell.TH
 
 import qualified FlatBuffers.Value as FB
+import qualified FlatBuffers.View as FV
 
 import Wireform.Derive.Backend
 import Wireform.Derive.ModifierInfo
@@ -491,3 +494,207 @@ requireSelector Nothing  =
 
 applyTypeArgs :: Type -> [Type] -> Type
 applyTypeArgs = foldl AppT
+
+-- ---------------------------------------------------------------------------
+-- View deriver: zero-copy decode straight off a 'FV.Table' cursor
+-- ---------------------------------------------------------------------------
+--
+-- Compared with 'deriveFromFlatBuffers', the generated code:
+--
+-- * never materialises 'FB.Value' anywhere — every field bottoms
+--   out in 'FV.viewSlot' (= one aligned scalar peek for inline
+--   fields, or one uoffset chase + slice for strings / nested
+--   tables);
+-- * handles 'Maybe' fields with 'FV.viewSlotMaybe' (= 'Right
+--   Nothing' for absent slots, no allocation of a placeholder);
+-- * honours 'skip' + 'defaults' identically to the value-shaped
+--   deriver ('Right defaultValue' on absent / skipped slots);
+-- * rejects sum types — same constraint as the 'FB.Value' shape
+--   for the same reason (tagged unions need schema-side metadata).
+
+-- | Derive a 'FV.View' instance for a record / newtype / enum.
+--
+-- @
+-- {-# LANGUAGE TemplateHaskell #-}
+--
+-- data Position = Position
+--   { posName :: !Text
+--   , posX    :: !Int32
+--   , posY    :: !Int32
+--   } deriving Show
+--
+-- deriveView ''Position
+-- @
+--
+-- The generated instance reads each field from the buffer on
+-- demand; no 'FB.Value' AST is built.
+deriveView :: Name -> Q [Dec]
+deriveView nm = do
+  ti <- reifyTypeInfo nm
+  let typ = applyTypeArgs (ConT (typeInfoName ti)) (typeInfoVarTypes ti)
+  case typeInfoShape ti of
+    TypeShapeNewtype c  -> deriveViewNewtype typ c
+    TypeShapeEnum    cs -> deriveViewEnum typ cs
+    TypeShapeRecord  c  -> deriveViewRecord typ c
+    TypeShapeSum     _  -> fail flatBuffersSumErr
+
+-- | Records become a 'View' (for the root / nested-table case)
+-- plus 'SlotView' (so the type can appear as a record field
+-- inside another type) plus 'VectorElem' (so the type can
+-- appear as a vector element). 'SlotView' / 'VectorElem' both
+-- chase a uoffset and hand the resulting position back to the
+-- record's own 'view'.
+deriveViewRecord :: Type -> ConInfo -> Q [Dec]
+deriveViewRecord typ c = do
+  body <- viewRecord c
+  let vDec = InstanceD Nothing []
+              (AppT (ConT ''FV.View) typ)
+              [FunD 'FV.view [Clause [] (NormalB body) []]]
+  slotE <- [| \bs off -> FV.followUOffset bs off
+                          >>= \p -> FV.view (FV.tableFromBuffer bs p) |]
+  vecS  <- [| \_ -> 4 :: Int |]
+  vecRE <- [| \bs off -> FV.followUOffset bs off
+                          >>= \p -> FV.view (FV.tableFromBuffer bs p) |]
+  let slotDec = InstanceD Nothing []
+                  (AppT (ConT ''FV.SlotView) typ)
+                  [FunD 'FV.readSlot [Clause [] (NormalB slotE) []]]
+      vecDec  = InstanceD Nothing []
+                  (AppT (ConT ''FV.VectorElem) typ)
+                  [ FunD 'FV.vectorStride
+                      [Clause [] (NormalB vecS) []]
+                  , FunD 'FV.readVectorElem
+                      [Clause [] (NormalB vecRE) []]
+                  ]
+  pure [vDec, slotDec, vecDec]
+
+-- | Newtype: pass-through. Emits 'SlotView' and 'VectorElem'
+-- instances that delegate to the inner field's instances; does
+-- /not/ emit a 'View' instance because newtypes wrap a single
+-- inner field and don't have their own table layout. (If you
+-- need 'View' for a newtype around a record, use 'coerce'.)
+deriveViewNewtype :: Type -> ConInfo -> Q [Dec]
+deriveViewNewtype typ c = case conInfoFields c of
+  [FieldInfo _ _] -> do
+    slotE <- [| \bs off -> fmap $(conE (conInfoName c)) (FV.readSlot bs off) |]
+    -- Use the same stride / decode shape as the inner field. We
+    -- can't read the stride from a runtime call (we'd need a
+    -- proxy of the inner type at the value level); use 4 as the
+    -- default which is right for uoffset-shaped inner types.
+    -- For inline scalars, the user can hand-write the instance.
+    vecS  <- [| \_ -> 4 :: Int |]
+    vecRE <- [| \bs off -> fmap $(conE (conInfoName c)) (FV.readVectorElem bs off) |]
+    let slotDec = InstanceD Nothing []
+                    (AppT (ConT ''FV.SlotView) typ)
+                    [FunD 'FV.readSlot [Clause [] (NormalB slotE) []]]
+        vecDec  = InstanceD Nothing []
+                    (AppT (ConT ''FV.VectorElem) typ)
+                    [ FunD 'FV.vectorStride
+                        [Clause [] (NormalB vecS) []]
+                    , FunD 'FV.readVectorElem
+                        [Clause [] (NormalB vecRE) []]
+                    ]
+    pure [slotDec, vecDec]
+  _ -> fail "FlatBuffers.Derive.deriveView: newtype must have exactly one field"
+
+-- | Enum: 'SlotView' reads an Int32 inline and dispatches.
+-- 'VectorElem' reuses the same shape with stride 4.
+deriveViewEnum :: Type -> [ConInfo] -> Q [Dec]
+deriveViewEnum typ cs = do
+  iSlot <- newName "i"
+  iVec  <- newName "iv"
+  branchesSlot <- mapM (enumGuardedV iSlot) (zip [0 ..] cs)
+  branchesVec  <- mapM (enumGuardedV iVec)  (zip [0 ..] cs)
+  let multiSlot = MultiIfE
+        (map (\(g, e) -> (g, AppE (ConE 'Right) e)) branchesSlot
+         ++ [(NormalG (ConE 'True),
+               AppE (ConE 'Left)
+                 (AppE (AppE (VarE 'mappend)
+                       (LitE (StringL "FlatBuffers.Derive.deriveView: unknown enum value ")))
+                       (AppE (VarE 'show) (VarE iSlot))))])
+      multiVec  = MultiIfE
+        (map (\(g, e) -> (g, AppE (ConE 'Right) e)) branchesVec
+         ++ [(NormalG (ConE 'True),
+               AppE (ConE 'Left)
+                 (AppE (AppE (VarE 'mappend)
+                       (LitE (StringL "FlatBuffers.Derive.deriveView: unknown enum value ")))
+                       (AppE (VarE 'show) (VarE iVec))))])
+  bs   <- newName "bs"
+  off  <- newName "off"
+  bsv  <- newName "bsv"
+  offv <- newName "offv"
+  slotBody <-
+    [| do
+         $(varP iSlot) <- (FV.readSlot $(varE bs) $(varE off) :: Either String Int32)
+         $(pure multiSlot)
+    |]
+  vecBody  <-
+    [| do
+         $(varP iVec)  <- (FV.readVectorElem $(varE bsv) $(varE offv) :: Either String Int32)
+         $(pure multiVec)
+    |]
+  let slotE = LamE [VarP bs, VarP off]   slotBody
+      vecRE = LamE [VarP bsv, VarP offv] vecBody
+      vecS  = LamE [WildP] (SigE (LitE (IntegerL 4)) (ConT ''Int))
+      slotDec = InstanceD Nothing []
+                  (AppT (ConT ''FV.SlotView) typ)
+                  [FunD 'FV.readSlot [Clause [] (NormalB slotE) []]]
+      vecDec  = InstanceD Nothing []
+                  (AppT (ConT ''FV.VectorElem) typ)
+                  [ FunD 'FV.vectorStride
+                      [Clause [] (NormalB vecS) []]
+                  , FunD 'FV.readVectorElem
+                      [Clause [] (NormalB vecRE) []]
+                  ]
+  pure [slotDec, vecDec]
+  where
+    enumGuardedV :: Name -> (Int32, ConInfo) -> Q (Guard, Exp)
+    enumGuardedV iVar (defaultIdx, c) = do
+      mi <- reifyModifierInfoFor backendFlatBuffers (conInfoName c)
+      let n = case miTag mi of
+            Just t  -> fromIntegral t :: Int32
+            Nothing -> defaultIdx
+          guardE = InfixE (Just (VarE iVar)) (VarE '(==))
+                         (Just (LitE (IntegerL (fromIntegral n))))
+      pure (NormalG guardE, ConE (conInfoName c))
+
+-- | Record: build @Ctor \<$\> slot 0 \<*\> slot 1 \<*\> ...@ from
+-- the table cursor, applying the same modifier rules as the
+-- value-shaped deriver.
+viewRecord :: ConInfo -> Q Exp
+viewRecord c = do
+  t <- newName "t"
+  let pairs = zip [0 :: Int ..] (conInfoFields c)
+  case pairs of
+    [] -> lamE [varP t] [| Right $(conE (conInfoName c)) |]
+    (p0 : ps) -> do
+      e0 <- viewFieldParser t p0
+      hd <- [| $(conE (conInfoName c)) <$> $(pure e0) |]
+      bodyE <- foldlM
+                 (\acc p -> do
+                     ef <- viewFieldParser t p
+                     [| $(pure acc) <*> $(pure ef) |])
+                 hd
+                 ps
+      lamE [varP t] (pure bodyE)
+
+-- | Per-field decode for the View deriver. Mirrors 'fieldParser'
+-- structurally so the two shapes can't diverge silently.
+viewFieldParser :: Name -> (Int, FieldInfo) -> Q Exp
+viewFieldParser tNm (idx, FieldInfo mSel ty) = do
+  selName <- requireSelector mSel
+  mi <- reifyModifierInfoFor backendFlatBuffers selName
+  if miSkip mi
+    then case miDefaults mi of
+      Just defNm -> [| Right $(varE defNm) |]
+      Nothing    ->
+        [| Left ("FlatBuffers.Derive.deriveView: missing 'defaults' for skipped field "
+                  ++ $(litE (stringL (nameBase selName)))) |]
+    else do
+      let idxLit = litE (integerL (fromIntegral idx))
+      base <- case unwrapMaybe ty of
+        Just _  -> [| FV.viewSlotMaybe $(varE tNm) $idxLit |]
+        Nothing -> [| FV.viewSlot      $(varE tNm) $idxLit |]
+      case miCoerce mi of
+        Nothing -> pure base
+        Just _  -> [| fmap coerce $(pure base) |]
+
