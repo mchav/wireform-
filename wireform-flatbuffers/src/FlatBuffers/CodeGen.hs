@@ -37,9 +37,6 @@ generateFlatBuffersTypesWithRegistry reg schema =
   let decls = concatMap (genFBDeclWithRegistry reg) (V.toList (fbsDecls schema))
   in T.intercalate "\n\n" decls
 
-genFBDecl :: FBDeclaration -> [Text]
-genFBDecl = genFBDeclWithRegistry defaultFlatBuffersRegistry
-
 genFBDeclWithRegistry :: FlatBuffersRegistry -> FBDeclaration -> [Text]
 genFBDeclWithRegistry reg (FBTable t) = genTableDeclWithRegistry reg t
 genFBDeclWithRegistry _reg (FBStruct s) = [genFBStructDecl s]
@@ -49,9 +46,6 @@ genFBDeclWithRegistry _reg (FBUnion u)  = [genFBUnionDecl u]
 -- ---------------------------------------------------------------------------
 -- Table generation (text) — optional fields get Maybe
 -- ---------------------------------------------------------------------------
-
-genTableDecl :: TableDef -> Text
-genTableDecl td = head (genTableDeclWithRegistry defaultFlatBuffersRegistry td)
 
 genTableDeclWithRegistry :: FlatBuffersRegistry -> TableDef -> [Text]
 genTableDeclWithRegistry reg td =
@@ -74,9 +68,6 @@ genTableDeclWithRegistry reg td =
             <> map (\fld -> "  , " <> genTableFieldDeclWithRegistry reg name fld) fs
             <> [ "  } deriving stock (Show, Eq, Generic)" ]
   in [mainDecl] <> if null extraCode then [] else [T.unlines extraCode]
-
-genTableFieldDecl :: Text -> TableField -> Text
-genTableFieldDecl = genTableFieldDeclWithRegistry defaultFlatBuffersRegistry
 
 genTableFieldDeclWithRegistry :: FlatBuffersRegistry -> Text -> TableField -> Text
 genTableFieldDeclWithRegistry reg recName fld =

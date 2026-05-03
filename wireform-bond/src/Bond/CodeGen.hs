@@ -36,9 +36,6 @@ generateBondTypesWithRegistry reg schema =
   let decls = concatMap (genDeclWithRegistry reg) (bondDecls schema)
   in T.intercalate "\n\n" decls
 
-genDecl :: BondDecl -> [Text]
-genDecl = genDeclWithRegistry defaultBondRegistry
-
 genDeclWithRegistry :: BondRegistry -> BondDecl -> [Text]
 genDeclWithRegistry reg (BondDeclStruct s) = genBondStructWithRegistry reg s
 genDeclWithRegistry _reg (BondDeclEnum e) = genBondEnum e
@@ -46,9 +43,6 @@ genDeclWithRegistry _reg (BondDeclEnum e) = genBondEnum e
 -- ---------------------------------------------------------------------------
 -- Struct generation (text)
 -- ---------------------------------------------------------------------------
-
-genBondStruct :: BondStruct -> [Text]
-genBondStruct = genBondStructWithRegistry defaultBondRegistry
 
 genBondStructWithRegistry :: BondRegistry -> BondStruct -> [Text]
 genBondStructWithRegistry reg bs =
@@ -67,9 +61,6 @@ genBondStructWithRegistry reg bs =
      ]
      <> if null extraCode then [] else [T.unlines extraCode]
 
-genStructDataDecl :: Text -> [BondField] -> Text
-genStructDataDecl = genStructDataDeclWithRegistry defaultBondRegistry
-
 genStructDataDeclWithRegistry :: BondRegistry -> Text -> [BondField] -> Text
 genStructDataDeclWithRegistry reg name fields = T.unlines $
   [ "data " <> name <> " = " <> name ]
@@ -80,9 +71,6 @@ genStructDataDeclWithRegistry reg name fields = T.unlines $
       [ "  { " <> genFieldDeclWithRegistry reg name f ]
       <> map (\fld -> "  , " <> genFieldDeclWithRegistry reg name fld) fs
       <> [ "  } deriving stock (Show, Eq, Generic)" ]
-
-genFieldDecl :: Text -> BondField -> Text
-genFieldDecl = genFieldDeclWithRegistry defaultBondRegistry
 
 genFieldDeclWithRegistry :: BondRegistry -> Text -> BondField -> Text
 genFieldDeclWithRegistry reg recName fld =
