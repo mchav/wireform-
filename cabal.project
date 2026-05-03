@@ -31,6 +31,14 @@ package *
   optimization: 1
   ghc-options: -fasm
 
+-- wireform-html / wireform-rewriter pattern-match the Text data
+-- constructor with @ByteArray ba#@ from @Data.Array.Byte@. That
+-- only type-checks against text-2.1+ where @Data.Text.Array.Array
+-- = Data.Array.Byte.ByteArray@; on text-2.0.x (which GHC 9.6.4
+-- ships) Array is its own newtype and the pattern fails to unify.
+-- Force the solver to pick text-2.1+ on every GHC.
+constraints: text >= 2.1
+
 package wireform
   flags: +snappy +zstd
 
