@@ -391,6 +391,11 @@ flatBufRoundTrip = do
         (VP.fromList ([0, 1, 0, 2, 1] :: [Int32]))
         (ColUtf8 (V.fromList ["a", "b", "c"]))))
 
+  -- ANull column: schema metadata round-trip + ColNull row count
+  highLevelRoundTrip "Null"
+    (Schema (V.singleton (plainField "n" False ANull)) Little V.empty)
+    (V.singleton (ColNull 5))
+
   -- Custom metadata round-trip on schema + field
   customMetadataRoundTrip
 

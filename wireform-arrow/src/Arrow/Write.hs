@@ -268,6 +268,16 @@ countNulls = V.foldl' (\c x -> case x of Nothing -> c + 1; Just _ -> c) 0
 -- * Top-level record batch encoder
 
 -- | Encode a record batch as a complete IPC message (continuation + metadata + body).
+--
+-- This is the /simplified/ writer that emits the hand-rolled
+-- metadata format from "Arrow.IPC" (matching its decoder). Body
+-- compression isn't supported on this path — the simplified
+-- metadata format predates the spec's @BodyCompression@ table
+-- and pyarrow / arrow-cpp readers don't accept the simplified
+-- shape anyway. Use 'Arrow.Stream.encodeArrowStream' /
+-- 'Arrow.Stream.encodeArrowFile' for a spec-compliant writer
+-- that supports body compression, dictionary batches, and the
+-- full metadata surface.
 buildRecordBatch :: Schema -> V.Vector ColumnArray -> ByteString
 buildRecordBatch schema cols =
   let !acc = encodeColumns (arrowFields schema) cols emptyBuildAcc
@@ -588,6 +598,17 @@ encodeCol f col acc = case col of
     encodeViewColumn (V.map Just vs) False acc
   ColBinaryViewMaybe vs ->
     encodeViewColumn vs True acc
+
+  -- ANull column: just emits a field-node with the row count;
+  -- no buffers, no validity bitmap (per spec).
+  ColNull n ->
+    acc { baNodes = baNodes acc ++
+                       [ FieldNode
+                           { fnLength    = fromIntegral n
+                           , fnNullCount = fromIntegral n
+                           }
+                       ]
+        }
 
 -- ============================================================
 -- Helpers

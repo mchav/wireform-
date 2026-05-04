@@ -149,6 +149,11 @@ data ColumnArray
     -- validation; raw bytes.
     ColBinaryView !(V.Vector ByteString)
   | ColBinaryViewMaybe !(V.Vector (Maybe ByteString))
+  | -- | Arrow NULL (@ANull@) column: the spec assigns no
+    -- buffers and no validity bitmap, just a length where every
+    -- row is null. Useful for placeholder columns and for the
+    -- pyarrow-emits-AN-empty-column edge case in test fixtures.
+    ColNull !Int
   deriving stock (Show, Eq)
 
 -- | One field node per top-level field (flat schema).
@@ -161,6 +166,7 @@ buffersPerField f
   | not (V.null (fieldChildren f)) = Left "Arrow.Column: nested fieldChildren not supported in flat mode"
   | otherwise = do
       nData <- case fieldType f of
+        ANull -> Right (-1)  -- ANull has no buffers at all (no validity, no data).
         AInt {} -> Right 1
         ABool -> Right 1
         AFloatingPoint _ -> Right 1
@@ -177,7 +183,10 @@ buffersPerField f
         ADecimal256 _ _ -> Right 1
         AInterval _ -> Right 1
         ty -> Left $ "Arrow.Column: unsupported flat type: " ++ show ty
-      Right $ (if fieldNullable f then 1 else 0) + nData
+      -- ANull contributes 0 buffers regardless of nullability.
+      case fieldType f of
+        ANull -> Right 0
+        _     -> Right $ (if fieldNullable f then 1 else 0) + nData
 
 -- | Total IPC body buffers required for a flat schema.
 countBuffersFlat :: V.Vector Field -> Either String Int
@@ -221,7 +230,15 @@ materializeFields endian fields rb body !nodeIdx !bufIdx
       Right (V.cons c rest)
 
 materializeOne :: Endianness -> Field -> RecordBatchDef -> ByteString -> Int -> Int -> Either String (ColumnArray, Int, Int)
-materializeOne endian f rb body !nodeIdx !bufIdx =
+materializeOne endian f rb body !nodeIdx !bufIdx
+  -- ANull has no buffers and no validity bitmap (per spec): the
+  -- field node's length is the only state. Same shape regardless
+  -- of fieldNullable.
+  | ANull <- fieldType f =
+      let node = V.unsafeIndex (rbNodes rb) nodeIdx
+          !len = fromIntegral (fnLength node) :: Int
+      in Right (ColNull len, nodeIdx + 1, bufIdx)
+  | otherwise =
   let node = V.unsafeIndex (rbNodes rb) nodeIdx
       !len = fromIntegral (fnLength node) :: Int
   in if fieldNullable f
@@ -1148,6 +1165,7 @@ columnLength = \case
   ColUtf8ViewMaybe v   -> V.length v
   ColBinaryView v      -> V.length v
   ColBinaryViewMaybe v -> V.length v
+  ColNull n            -> n
 
 -- | Materialize a record batch with support for nested types.
 -- Walks the schema tree in preorder DFS, consuming field nodes and buffers.
@@ -1730,14 +1748,14 @@ materializeViewColWithVar endian utf8 varCount f rb body !nodeIdx !bufIdx = do
   result <- if utf8
     then do
       decoded <- traverse (decodeUtf8' "Arrow.Column: invalid UTF-8 in Utf8View") rows
-      pure $ case nullableRows of
-        Nothing -> ColUtf8View (V.fromList decoded)
+      case nullableRows of
+        Nothing -> Right (ColUtf8View (V.fromList decoded))
         Just vs ->
           let mkMaybe (Just bs) = Just <$> decodeUtf8' "Arrow.Column: invalid UTF-8 in Utf8View" bs
               mkMaybe Nothing   = Right Nothing
           in case traverse mkMaybe (V.toList vs) of
-               Left e   -> error e
-               Right rs -> ColUtf8ViewMaybe (V.fromList rs)
+               Left e   -> Left e
+               Right rs -> Right (ColUtf8ViewMaybe (V.fromList rs))
     else
       pure $ case nullableRows of
         Nothing -> ColBinaryView (V.fromList rows)
