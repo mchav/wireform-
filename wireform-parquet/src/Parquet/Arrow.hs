@@ -320,8 +320,8 @@ columnArrayToColumnData = \case
 -- Lookup is by column name (Parquet's footer carries unique leaf
 -- names), so the target schema may be narrower than the file
 -- (projection), in a different order than the file (reordering),
--- or request wider types than the file (coercion, see the
--- coercion table in 'coerceColumn').
+-- or request wider types than the file (coercion: see
+-- 'coerceColumn' below for the supported widening rules).
 --
 -- Error cases:
 --

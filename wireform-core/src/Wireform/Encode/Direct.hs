@@ -1,6 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 -- | Direct-write encoder: bypasses ByteString.Builder entirely.
 --

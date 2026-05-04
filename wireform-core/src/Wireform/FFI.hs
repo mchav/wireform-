@@ -1,5 +1,3 @@
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
 -- | FFI bindings to the SWAR\/SIMD-optimized C decoding primitives
 -- in @cbits\/fast_decode.c@.  Shared across all wireform format packages.
 --
@@ -190,7 +188,7 @@ decodeVarintSWAR bs off = unsafePerformIO $
         then pure Nothing
         else do
           val <- Foreign.Storable.peek outPtr
-          pure $! Just (val, fromIntegral consumed)
+          pure (Just (val, fromIntegral consumed))
 {-# INLINE decodeVarintSWAR #-}
 
 -- | Pad a buffer for safe 8-byte overreads at any position.
@@ -460,30 +458,30 @@ writeBE64H p off v = pokeByteOff p off (byteSwap64 v)
 
 -- | Read a little-endian 16-bit word at offset. Identity on x86.
 readLE16H :: Ptr Word8 -> Int -> IO Word16
-readLE16H p off = peekByteOff p off
+readLE16H = peekByteOff
 {-# INLINE readLE16H #-}
 
 -- | Read a little-endian 32-bit word at offset. Identity on x86.
 readLE32H :: Ptr Word8 -> Int -> IO Word32
-readLE32H p off = peekByteOff p off
+readLE32H = peekByteOff
 {-# INLINE readLE32H #-}
 
 -- | Read a little-endian 64-bit word at offset. Identity on x86.
 readLE64H :: Ptr Word8 -> Int -> IO Word64
-readLE64H p off = peekByteOff p off
+readLE64H = peekByteOff
 {-# INLINE readLE64H #-}
 
 -- | Write a little-endian 16-bit word at offset. Identity on x86.
 writeLE16H :: Ptr Word8 -> Int -> Word16 -> IO ()
-writeLE16H p off v = pokeByteOff p off v
+writeLE16H = pokeByteOff
 {-# INLINE writeLE16H #-}
 
 -- | Write a little-endian 32-bit word at offset. Identity on x86.
 writeLE32H :: Ptr Word8 -> Int -> Word32 -> IO ()
-writeLE32H p off v = pokeByteOff p off v
+writeLE32H = pokeByteOff
 {-# INLINE writeLE32H #-}
 
 -- | Write a little-endian 64-bit word at offset. Identity on x86.
 writeLE64H :: Ptr Word8 -> Int -> Word64 -> IO ()
-writeLE64H p off v = pokeByteOff p off v
+writeLE64H = pokeByteOff
 {-# INLINE writeLE64H #-}

@@ -102,6 +102,11 @@ defaultWriteOptions = WriteOptions
 -- @orcNumberOfRows@ so predicate-pushdown-aware readers can
 -- plan scans correctly.
 --
+-- If you don't have row counts handy, pass @zip stripes (repeat 0)@.
+-- Some ORC readers tolerate zero-row stripes for quick-look dumps,
+-- but most predicate-pushdown-aware readers won't, so authoritative
+-- row counts are strongly preferred for real workloads.
+--
 -- Returns either the encoded bytes or, if encryption is
 -- requested and fails (e.g. mismatched key lengths), the error
 -- the underlying writer reported.
