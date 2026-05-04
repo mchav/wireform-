@@ -50,6 +50,8 @@ module Parquet.Arrow
   , streamRowGroupsFilteredIter
   , streamRowGroupsProjectedFilteredIter
   , numRowGroups
+    -- * Page-index-driven page skipping
+  , readParquetColumnWithPagePruning
   ) where
 
 import Data.ByteString (ByteString)
@@ -69,6 +71,7 @@ import qualified Arrow.Types as AT
 import qualified Columnar.Stream as IS
 
 import qualified Parquet.Nested as PN
+import qualified Parquet.PageIndex as PI
 import qualified Parquet.Predicate as Pred
 import qualified Parquet.Read as PR
 import qualified Parquet.Types as P
@@ -878,6 +881,107 @@ leafColumnNames pf =
   V.map P.seName
         (V.filter (maybe False (const True) . P.seType)
                   (P.fmSchema (PR.pfFooter pf)))
+
+-- | Read one column with page-level predicate pushdown.
+--
+-- Looks up the column chunk's 'OffsetIndex' + 'ColumnIndex',
+-- evaluates the predicate against the 'ColumnIndex' to produce
+-- a per-page keep mask, then decodes only the surviving pages
+-- using the file-offset-based 'PR.readGeneric*SelectedPages'
+-- family.
+--
+-- Returns 'Right (Nothing, ...)' when the column doesn't carry
+-- a 'ColumnIndex' / 'OffsetIndex' pair (page-level pruning isn't
+-- possible without the page-index region — fall back to
+-- 'readParquetColumn'). Returns 'Right (Just (kept, total), col)'
+-- when pruning ran, with @kept@ pages decoded out of @total@.
+--
+-- For now this only supports /required/ (non-nullable) columns:
+-- the per-page def-level streams that nullable columns carry
+-- mean a skipped page changes the row count contributed to the
+-- result, which the simple keep-mask shape doesn't model.
+readParquetColumnWithPagePruning
+  :: PR.ParquetFile
+  -> Int                  -- ^ row-group index
+  -> Int                  -- ^ column index within the row group
+  -> AT.Field             -- ^ Arrow target field (must be non-nullable)
+  -> Pred.PColPredicate   -- ^ predicate to push down to the page index
+  -> Either String (Maybe (Int, Int), AC.ColumnArray)
+readParquetColumnWithPagePruning pf rgIdx colIdx fld predicate
+  | AT.fieldNullable fld =
+      Left "Parquet.Arrow: page-level pruning not yet supported for nullable columns"
+  | otherwise = do
+      mIdx <- loadIndices pf rgIdx colIdx
+      case mIdx of
+        Nothing -> do
+          col <- mapLeftShow (readParquetColumn pf rgIdx colIdx fld)
+          Right (Nothing, col)
+        Just (oi, ci, ptype) -> do
+          let !decisions = Pred.evalPagesByColumnIndex ptype ci predicate
+              !keep      = V.map (== Pred.PMaybeKeep) decisions
+              !total     = V.length keep
+              !nKept     = V.length (V.filter id keep)
+              !codec     = chunkCodec pf rgIdx colIdx
+              !fileBs    = PR.pfBytes pf
+              !locs      = P.oiPageLocations oi
+          col <- decodeSelectedColumn codec fileBs locs keep fld
+          Right (Just (nKept, total), col)
+  where
+    mapLeftShow :: Either e a -> Either String a
+    mapLeftShow (Right x) = Right x
+    mapLeftShow (Left _ ) = Left "Parquet.Arrow: page-pruning fallback failed"
+
+loadIndices
+  :: PR.ParquetFile
+  -> Int -> Int
+  -> Either String (Maybe (P.OffsetIndex, P.ColumnIndex, P.ParquetType))
+loadIndices pf rgIdx colIdx = do
+  mOff <- PI.readOffsetIndex pf rgIdx colIdx
+  mCol <- PI.readColumnIndex pf rgIdx colIdx
+  case (mOff, mCol) of
+    (Just oi, Just ci) -> do
+      let !rgs  = P.fmRowGroups (PR.pfFooter pf)
+          !rg   = V.unsafeIndex rgs rgIdx
+          !cc   = V.unsafeIndex (P.rgColumns rg) colIdx
+      case P.ccMetadata cc of
+        Just md -> Right (Just (oi, ci, P.cmType md))
+        Nothing -> Right Nothing
+    _ -> Right Nothing
+
+decodeSelectedColumn
+  :: P.Compression
+  -> ByteString
+  -> V.Vector P.PageLocation
+  -> V.Vector Bool
+  -> AT.Field
+  -> Either String AC.ColumnArray
+decodeSelectedColumn codec fileBs locs keep fld = case AT.fieldType fld of
+  AT.AInt 32 True -> AC.ColInt32  <$> PR.readGenericInt32SelectedPages  codec fileBs locs keep
+  AT.AInt 64 True -> AC.ColInt64  <$> PR.readGenericInt64SelectedPages  codec fileBs locs keep
+  AT.AFloatingPoint AT.Single          ->
+    AC.ColFloat  <$> PR.readGenericFloatSelectedPages  codec fileBs locs keep
+  AT.AFloatingPoint AT.DoublePrecision ->
+    AC.ColDouble <$> PR.readGenericDoubleSelectedPages codec fileBs locs keep
+  AT.ABool        -> AC.ColBool   <$> PR.readGenericBoolSelectedPages   codec fileBs locs keep
+  AT.AUtf8        -> do
+    bs <- PR.readGenericByteArraySelectedPages codec fileBs locs keep
+    Right $ AC.ColUtf8 (V.map decodeUtf8Lossy bs)
+  AT.ABinary      -> AC.ColBinary <$> PR.readGenericByteArraySelectedPages codec fileBs locs keep
+  AT.ADate AT.DateDay         ->
+    AC.ColDate32   <$> PR.readGenericInt32SelectedPages codec fileBs locs keep
+  AT.ADate AT.DateMillisecond ->
+    AC.ColDate64   <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
+  AT.ATime _ 32 ->
+    AC.ColTime32   <$> PR.readGenericInt32SelectedPages codec fileBs locs keep
+  AT.ATime _ 64 ->
+    AC.ColTime64   <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
+  AT.ATimestamp _ _ ->
+    AC.ColTimestamp <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
+  AT.ADuration _ ->
+    AC.ColDuration  <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
+  other ->
+    Left $ "Parquet.Arrow: page-pruning bridge doesn't yet cover "
+            ++ show other
 
 -- | Build a sub-schema by name. Preserves the order of @names@.
 projectFields :: [Text] -> AT.Schema -> Either String AT.Schema

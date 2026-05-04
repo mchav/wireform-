@@ -88,6 +88,13 @@ module Parquet.Read
   , readGenericDoubleOptionalColumnChunk
   , readGenericBoolOptionalColumnChunk
   , readGenericByteArrayOptionalColumnChunk
+    -- * Page-index-driven page skipping
+  , readGenericInt32SelectedPages
+  , readGenericInt64SelectedPages
+  , readGenericFloatSelectedPages
+  , readGenericDoubleSelectedPages
+  , readGenericBoolSelectedPages
+  , readGenericByteArraySelectedPages
   ) where
 
 import Control.Exception (SomeException, evaluate, try)
@@ -156,6 +163,7 @@ import Parquet.Types
   , ColumnMetadata (..)
   , Compression (..)
   , FileMetadata (..)
+  , PageLocation (..)
   , RowGroup (..)
   )
 
@@ -1391,3 +1399,150 @@ interleaveDefined def maxD defined = runST $ do
             go (i + 1) j
   go 0 0
   V.unsafeFreeze v
+
+-- ============================================================
+-- Page-index-driven page skipping
+-- ============================================================
+--
+-- The 'PageLocation' offsets in an 'Parquet.Types.OffsetIndex'
+-- are absolute file offsets (per the spec), so the page-level
+-- skipping API takes the full file 'ByteString' rather than a
+-- column-chunk slice.
+--
+-- The 'V.Vector Bool' alongside @pageLocations@ is the
+-- per-page \"keep this page\" mask: 'True' = decode it, 'False'
+-- = skip. Producers typically build this by running
+-- 'Parquet.Predicate.evalPagesByColumnIndex' against the chunk's
+-- 'ColumnIndex' and mapping 'PMaybeKeep' -> True / 'PSkip' ->
+-- False.
+--
+-- All variants assume each page contributes a contiguous chunk
+-- of values to the surviving result vector — i.e. they're
+-- correct for required (max-def-level=0) columns. For nullable
+-- columns the per-page def-level streams need to be parsed to
+-- know how many values a page actually contributes; that's a
+-- separate optional-page-skipping API.
+
+readGenericInt32SelectedPages
+  :: Compression -> ByteString -> V.Vector PageLocation -> V.Vector Bool
+  -> Either String (VP.Vector Int32)
+readGenericInt32SelectedPages = readSelectedPages dispatchInt32
+
+readGenericInt64SelectedPages
+  :: Compression -> ByteString -> V.Vector PageLocation -> V.Vector Bool
+  -> Either String (VP.Vector Int64)
+readGenericInt64SelectedPages = readSelectedPages dispatchInt64
+
+readGenericFloatSelectedPages
+  :: Compression -> ByteString -> V.Vector PageLocation -> V.Vector Bool
+  -> Either String (VP.Vector Float)
+readGenericFloatSelectedPages = readSelectedPages dispatchFloat
+
+readGenericDoubleSelectedPages
+  :: Compression -> ByteString -> V.Vector PageLocation -> V.Vector Bool
+  -> Either String (VP.Vector Double)
+readGenericDoubleSelectedPages = readSelectedPages dispatchDouble
+
+readGenericBoolSelectedPages
+  :: Compression -> ByteString -> V.Vector PageLocation -> V.Vector Bool
+  -> Either String (V.Vector Bool)
+readGenericBoolSelectedPages = readSelectedPages dispatchBool
+
+readGenericByteArraySelectedPages
+  :: Compression -> ByteString -> V.Vector PageLocation -> V.Vector Bool
+  -> Either String (V.Vector ByteString)
+readGenericByteArraySelectedPages = readSelectedPages dispatchByteArray
+
+-- | Walk the 'PageLocation' vector and decode only the pages
+-- whose corresponding 'V.Vector Bool' entry is 'True'. The
+-- page bodies are sliced directly out of the file 'ByteString'
+-- using @plOffset@.
+--
+-- Dictionary pages are /always/ decoded: skipping the
+-- dictionary would invalidate any RLE_DICTIONARY page that
+-- survives the keep mask.
+readSelectedPages
+  :: PerPage a
+  -> Compression
+  -> ByteString
+  -> V.Vector PageLocation
+  -> V.Vector Bool
+  -> Either String a
+readSelectedPages pp codec fileBs locs keep
+  | V.length locs /= V.length keep =
+      Left $ "Parquet.Read: keep-mask length "
+              ++ show (V.length keep)
+              ++ " doesn't match page-location count "
+              ++ show (V.length locs)
+  | otherwise = walk 0 Nothing (ppEmpty pp)
+  where
+    !nLocs = V.length locs
+
+    walk !i !mDict !acc
+      | i >= nLocs = Right acc
+      | otherwise = do
+          let !pl   = V.unsafeIndex locs i
+              !off  = fromIntegral (plOffset pl) :: Int
+          -- Each PageLocation points at the page header; read
+          -- header to learn whether it's data or dictionary.
+          if off < 0 || off >= BS.length fileBs
+            then Left "Parquet.Read: page offset outside file bounds"
+            else do
+              (hdr, afterHdr) <- readPageHeaderAt fileBs off
+              compSz <- case phCompressedPageSize hdr of
+                Nothing -> Left "Parquet.Read: missing compressed_page_size"
+                Just s -> Right (fromIntegral s :: Int)
+              let !bodyStart = afterHdr
+              if bodyStart + compSz > BS.length fileBs
+                then Left "Parquet.Read: truncated page body in file slice"
+                else do
+                  let !compBody = BS.take compSz (BS.drop bodyStart fileBs)
+                  case phType hdr of
+                    PtDictionaryPage dk
+                      | dictEncoding dk /= encPlain ->
+                          Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                      | otherwise -> do
+                          raw <- decompressPageData codec
+                                   (phUncompressedPageSize hdr) compBody
+                          let !nDict = fromIntegral (dictNumValues dk) :: Int
+                          dict <- ppDecodePlain pp nDict raw
+                          walk (i + 1) (Just dict) acc
+                    PtDataPage dph -> do
+                      if not (V.unsafeIndex keep i)
+                        then walk (i + 1) mDict acc
+                        else do
+                          raw <- decompressPageData codec
+                                   (phUncompressedPageSize hdr) compBody
+                          let !n = fromIntegral (dphNumValues dph) :: Int
+                          page <- decodeSelectedDataPage pp mDict (dphEncoding dph) n raw
+                          walk (i + 1) mDict (ppAppend pp acc page)
+                    PtDataPageV2 dph2 -> do
+                      if not (V.unsafeIndex keep i)
+                        then walk (i + 1) mDict acc
+                        else do
+                          let !repLen = fromIntegral (dph2RepLevelsLen dph2) :: Int
+                              !defLen = fromIntegral (dph2DefLevelsLen dph2) :: Int
+                              !levelsLen = repLen + defLen
+                              !body = compBody
+                          if levelsLen > BS.length body
+                            then Left "Parquet.Read: V2 levels exceed body size (selected)"
+                            else do
+                              let !valuesSection = BS.drop levelsLen body
+                              values <- if dph2IsCompressed dph2
+                                then decompressPageData codec
+                                       (phUncompressedPageSize hdr) valuesSection
+                                else Right valuesSection
+                              let !n = fromIntegral (dph2NumValues dph2) :: Int
+                              page <- decodeSelectedDataPage pp mDict (dph2Encoding dph2) n values
+                              walk (i + 1) mDict (ppAppend pp acc page)
+                    _ -> Left "Parquet.Read: expected DATA_PAGE / DATA_PAGE_V2 / DICTIONARY_PAGE in selection"
+
+    decodeSelectedDataPage pp' mDict !enc !n !raw
+      | enc == encPlain = ppDecodePlain pp' n raw
+      | isDictionaryEncoding enc = case mDict of
+          Nothing ->
+            Left "Parquet.Read: RLE_DICTIONARY data page before dictionary page (selected)"
+          Just dict -> do
+            indices <- decodeDictionaryIndices n raw
+            ppDecodeDictIndices pp' n raw dict indices
+      | otherwise = ppExtended pp' enc n raw
