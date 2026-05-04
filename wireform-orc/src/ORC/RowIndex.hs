@@ -29,8 +29,12 @@ module ORC.RowIndex
   ( RowIndexEntry (..)
   , encodeRowIndex
   , encodeRowIndexEntry
+    -- * Decoding
+  , decodeRowIndex
+  , decodeRowIndexEntry
   ) where
 
+import Data.Bits (shiftL, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -71,3 +75,61 @@ encodeRowIndexEntry rie =
          then mempty
          else encodeLengthDelimBytes RowIndexEntry_Statistics
                 (rieStatistics rie)
+
+-- | Inverse of 'encodeRowIndex': parse the @ROW_INDEX@ stream
+-- payload back into one entry per row group. Useful for
+-- predicate pushdown — the per-row-group min/max statistics
+-- (in 'rieStatistics') tell the reader which row groups can be
+-- skipped, and the 'riePositions' offsets let it seek directly
+-- to the surviving ones.
+--
+-- Returns the entries in encounter order (which matches the
+-- writer's emission order, i.e. row-group order).
+decodeRowIndex :: ByteString -> Either String [RowIndexEntry]
+decodeRowIndex bs = do
+  acc <- decodeMsg bs [] $ \xs (fn, wt) ->
+    case (fn, wt) of
+      RowIndex_Entry ->
+        ReadNested decodeRowIndexEntry (\rie -> rie : xs)
+      _ -> SkipUnknown
+  Right (reverse acc)
+
+-- | Parse a single @RowIndexEntry@ submessage (the inner
+-- protobuf inside 'decodeRowIndex's outer loop). Exposed for
+-- callers that already hold the per-entry bytes.
+decodeRowIndexEntry :: ByteString -> Either String RowIndexEntry
+decodeRowIndexEntry bs =
+  decodeMsg bs (RowIndexEntry [] BS.empty) $ \rie (fn, wt) ->
+    case (fn, wt) of
+      RowIndexEntry_Positions ->
+        ReadBytes (\payload ->
+          rie { riePositions = riePositions rie ++ unpackVarints payload })
+      RowIndexEntry_Statistics ->
+        ReadBytes (\payload -> rie { rieStatistics = payload })
+      _ -> SkipUnknown
+
+-- | Unpack a packed-varint payload into a list of unsigned
+-- 64-bit values. ORC encodes @riePositions@ as @packed=true@
+-- so the bytes here are a length-delimited sequence of
+-- back-to-back varints rather than one repeated field.
+unpackVarints :: ByteString -> [Word64]
+unpackVarints bs = go 0
+  where
+    !len = BS.length bs
+    go !off
+      | off >= len = []
+      | otherwise =
+          let (v, off') = readVarint bs off len
+          in v : go off'
+
+readVarint :: ByteString -> Int -> Int -> (Word64, Int)
+readVarint bs !off !len = go off 0 0
+  where
+    go !pos !val !shift
+      | pos >= len = (val, pos)
+      | otherwise =
+          let !b = fromIntegral (BS.index bs pos) :: Word64
+              !val' = val .|. ((b .&. 0x7F) `shiftL` shift)
+          in if b .&. 0x80 == 0
+               then (val', pos + 1)
+               else go (pos + 1) val' (shift + 7)

@@ -237,6 +237,20 @@ main = do
   expect "RowIndex non-empty"   (BS.length idx > 0)
   expect "RowIndex starts with field-1 length-delimited tag"
     (BS.head idx == 0x0A)
+  -- Inverse: decode the encoded payload and confirm we get back
+  -- the same entries (positions + statistics blob).
+  case RI.decodeRowIndex idx of
+    Left e -> failTest ("RI.decodeRowIndex: " ++ e)
+    Right [d1, d2] -> do
+      expect "decodeRowIndex: positions[0] roundtrips"
+        (RI.riePositions d1 == RI.riePositions rie1)
+      expect "decodeRowIndex: positions[1] roundtrips"
+        (RI.riePositions d2 == RI.riePositions rie2)
+      expect "decodeRowIndex: statistics[1] roundtrips"
+        (RI.rieStatistics d2 == RI.rieStatistics rie2)
+    Right other ->
+      failTest $ "decodeRowIndex: expected 2 entries, got "
+                  ++ show (length other)
 
   -- DECIMAL128 round-trip via encodeDecimalRawColumn / decodeDecimal128Stream
   -- with values that overflow Int64 to exercise the Integer path.
