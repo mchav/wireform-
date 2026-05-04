@@ -10,6 +10,9 @@ module Iceberg.Manifest
   ( manifestEntrySchema
   , manifestFileSchema
   , filterBoundsMask
+    -- * High-level pruning
+  , ManifestPruneResult (..)
+  , pruneManifestFiles
   ) where
 
 import Data.ByteString (ByteString)
@@ -137,3 +140,49 @@ filterBoundsMask
   -> Int         -- ^ Bitmask result
 filterBoundsMask = compareBoundsBS
 {-# INLINE filterBoundsMask #-}
+
+-- ============================================================
+-- High-level manifest pruning
+-- ============================================================
+
+-- | Result of pruning a manifest list against a predicate.
+-- Carries both the surviving manifest paths and a tally of
+-- the prune decision so callers can log skip rates.
+data ManifestPruneResult a = ManifestPruneResult
+  { mprKept    :: ![a]
+    -- ^ Manifest files (or any user-tagged value) that the
+    -- predicate could not prove unmatched.
+  , mprDropped :: !Int
+  , mprTotal   :: !Int
+  } deriving (Show, Eq)
+
+-- | Run a partition-bounds predicate over a list of manifest
+-- file entries before any data file is opened.
+--
+-- The predicate sees the manifest's @lower_bounds@ /
+-- @upper_bounds@ (typically pre-extracted from the Avro
+-- @manifest_file@ record) as a @[(columnId, lowerBs, upperBs)]@
+-- triple. Returning @False@ drops the manifest entirely;
+-- @True@ keeps it (possibly to be pruned again at the data-file
+-- level).
+--
+-- This is the entry point Iceberg readers use to skip whole
+-- manifests at scan-planning time. A single manifest typically
+-- describes thousands of data files; dropping one without
+-- decoding any data file is the largest win in a partitioned-
+-- table read.
+pruneManifestFiles
+  :: ([(Int, ByteString, ByteString)] -> Bool)
+    -- ^ Keep predicate over (column id, lower bound, upper bound).
+  -> [(a, [(Int, ByteString, ByteString)])]
+    -- ^ Manifest tag + per-column partition bounds.
+  -> ManifestPruneResult a
+pruneManifestFiles keep manifests =
+  let !total  = length manifests
+      !kept   = [ a | (a, bounds) <- manifests, keep bounds ]
+      !nKept  = length kept
+  in ManifestPruneResult
+       { mprKept    = kept
+       , mprDropped = total - nKept
+       , mprTotal   = total
+       }
