@@ -25,10 +25,11 @@ columnarFacadeTests = testGroup "Wireform.Columnar unified facade"
       -- utf8, non-nullable, single batch.
       let !sch = AT.Schema
             { AT.arrowFields = V.fromList
-                [ AT.Field "id"   False (AT.AInt 64 True) V.empty Nothing
-                , AT.Field "name" False AT.AUtf8          V.empty Nothing
+                [ AT.Field "id"   False (AT.AInt 64 True) V.empty Nothing V.empty
+                , AT.Field "name" False AT.AUtf8          V.empty Nothing V.empty
                 ]
             , AT.arrowEndianness = AT.Little
+            , AT.arrowMetadata   = V.empty
             }
           !batch = V.fromList
             [ AC.ColInt64 (VP.fromList [10, 20, 30 :: Int64])
@@ -64,8 +65,9 @@ columnarFacadeTests = testGroup "Wireform.Columnar unified facade"
       -- encoding + decoding and checking the magic prefix.
       let !sch = AT.Schema
             { AT.arrowFields = V.singleton
-                (AT.Field "x" False (AT.AInt 32 True) V.empty Nothing)
+                (AT.Field "x" False (AT.AInt 32 True) V.empty Nothing V.empty)
             , AT.arrowEndianness = AT.Little
+            , AT.arrowMetadata   = V.empty
             }
           !batches = [ V.singleton (AC.ColInt32 (VP.fromList [1, 2, 3 :: Int32])) ]
           !opts = Col.defaultWriteOptions

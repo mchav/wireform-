@@ -389,8 +389,9 @@ parquetFileArrowSchema pf =
   let !leaves = V.filter (maybe False (const True) . P.seType)
                          (P.fmSchema (PR.pfFooter pf))
   in AT.Schema
-       { AT.arrowFields = V.map schemaElementToArrowField leaves
+       { AT.arrowFields     = V.map schemaElementToArrowField leaves
        , AT.arrowEndianness = AT.Little
+       , AT.arrowMetadata   = V.empty
        }
 
 -- | Map a Parquet 'P.SchemaElement' back to an Arrow leaf
@@ -403,7 +404,7 @@ schemaElementToArrowField se =
                     Just P.Optional -> True
                     _                -> False
       !ty = arrowTypeFromSchemaElement se
-  in AT.Field name nullable ty V.empty Nothing
+  in AT.Field name nullable ty V.empty Nothing V.empty
 
 arrowTypeFromSchemaElement :: P.SchemaElement -> AT.ArrowType
 arrowTypeFromSchemaElement se = case P.seType se of

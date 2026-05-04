@@ -310,11 +310,12 @@ orcFooterToArrowSchemaWithNullability orcFile footer = do
         (\name subIdx ->
             let !leafType = types V.! fromIntegral subIdx
                 !nullable = fromIntegral subIdx `elem` presentCols
-            in  AT.Field name nullable (orcKindToArrowType leafType) V.empty Nothing)
+            in  AT.Field name nullable (orcKindToArrowType leafType) V.empty Nothing V.empty)
         names subs
   Right AT.Schema
-    { AT.arrowFields = children
+    { AT.arrowFields     = children
     , AT.arrowEndianness = AT.Little
+    , AT.arrowMetadata   = V.empty
     }
   where
     -- Stream.proto defines PRESENT as kind 0; the OT.Stream ADT

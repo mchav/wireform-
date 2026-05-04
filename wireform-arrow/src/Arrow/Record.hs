@@ -404,6 +404,7 @@ fieldE name sel enc = RowEncoder
       , fieldType       = encoderType enc
       , fieldChildren   = V.empty
       , fieldDictionary = Nothing
+      , fieldMetadata   = V.empty
       }]
   , runRowEncoder = \rs -> [runEncoder enc (V.map sel rs)]
   }
@@ -528,6 +529,7 @@ tableSchema :: Table r -> Schema
 tableSchema t = Schema
   { arrowFields     = V.fromList (rowEncoderFields (tableEncode t))
   , arrowEndianness = Little
+  , arrowMetadata   = V.empty
   }
 
 -- | Names of the columns the 'Table''s decoder needs. Equivalent

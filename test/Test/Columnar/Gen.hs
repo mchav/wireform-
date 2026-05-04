@@ -81,6 +81,7 @@ columnPlanToField cp = case cp of
       , AT.fieldType       = ty
       , AT.fieldChildren   = V.empty
       , AT.fieldDictionary = Nothing
+      , AT.fieldMetadata   = V.empty
       }
 
 -- | Generate a 'AC.ColumnArray' holding @nRows@ values matching
@@ -236,6 +237,7 @@ schemaAndBatches plans = do
   let !sch = AT.Schema
         { AT.arrowFields = V.fromList (map columnPlanToField plans)
         , AT.arrowEndianness = AT.Little
+        , AT.arrowMetadata   = V.empty
         }
   pure (sch, batches)
 

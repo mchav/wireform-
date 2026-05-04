@@ -1043,11 +1043,12 @@ arrowParquetProjection = do
   -- it back with target schema (c, a) (reordered + narrowed).
   let !fullSchema = AT.Schema
         { AT.arrowFields = V.fromList
-            [ AT.Field "a" False (AT.AInt 32 True) V.empty Nothing
-            , AT.Field "b" False (AT.AInt 32 True) V.empty Nothing
-            , AT.Field "c" False AT.AUtf8          V.empty Nothing
+            [ AT.Field "a" False (AT.AInt 32 True) V.empty Nothing V.empty
+            , AT.Field "b" False (AT.AInt 32 True) V.empty Nothing V.empty
+            , AT.Field "c" False AT.AUtf8          V.empty Nothing V.empty
             ]
         , AT.arrowEndianness = AT.Little
+        , AT.arrowMetadata   = V.empty
         }
       !batch = V.fromList
         [ AC.ColInt32 (VP.fromList [10, 20, 30 :: Int32])
@@ -1068,10 +1069,11 @@ arrowParquetProjection = do
           -- Target: (c, a), reordered and projected.
           let !target = AT.Schema
                 { AT.arrowFields = V.fromList
-                    [ AT.Field "c" False AT.AUtf8          V.empty Nothing
-                    , AT.Field "a" False (AT.AInt 32 True) V.empty Nothing
+                    [ AT.Field "c" False AT.AUtf8          V.empty Nothing V.empty
+                    , AT.Field "a" False (AT.AInt 32 True) V.empty Nothing V.empty
                     ]
                 , AT.arrowEndianness = AT.Little
+                , AT.arrowMetadata   = V.empty
                 }
           case PArrow.parquetRowGroupToArrow target pf 0 of
             Left  e    -> failTest $ "parquetRowGroupToArrow: " ++ show e
@@ -1088,8 +1090,9 @@ arrowParquetProjection = do
           -- Test a missing column.
           let !missing = AT.Schema
                 { AT.arrowFields = V.singleton
-                    (AT.Field "z" False (AT.AInt 32 True) V.empty Nothing)
+                    (AT.Field "z" False (AT.AInt 32 True) V.empty Nothing V.empty)
                 , AT.arrowEndianness = AT.Little
+                , AT.arrowMetadata   = V.empty
                 }
           case PArrow.parquetRowGroupToArrow missing pf 0 of
             Left (PArrow.MissingColumn "z") ->
@@ -1099,8 +1102,9 @@ arrowParquetProjection = do
           -- Test coercion: Int32 -> Int64.
           let !widen = AT.Schema
                 { AT.arrowFields = V.singleton
-                    (AT.Field "a" False (AT.AInt 64 True) V.empty Nothing)
+                    (AT.Field "a" False (AT.AInt 64 True) V.empty Nothing V.empty)
                 , AT.arrowEndianness = AT.Little
+                , AT.arrowMetadata   = V.empty
                 }
           case PArrow.parquetRowGroupToArrow widen pf 0 of
             Left e -> failTest $ "projection coercion: " ++ show e
@@ -1117,10 +1121,11 @@ arrowParquetNestedBridge = do
   -- encodeParquetNested accepts it.
   let structField = AT.Field "point" False AT.AStruct
         (V.fromList
-           [ AT.Field "x" False (AT.AInt 32 True) V.empty Nothing
-           , AT.Field "name" False AT.AUtf8        V.empty Nothing
+           [ AT.Field "x" False (AT.AInt 32 True) V.empty Nothing V.empty
+           , AT.Field "name" False AT.AUtf8        V.empty Nothing V.empty
            ])
         Nothing
+        V.empty
       structCol = AC.ColStruct (V.fromList
         [ ("x",    AC.ColInt32 (VP.fromList [1, 2, 3 :: Int32]))
         , ("name", AC.ColUtf8  (V.fromList ["a", "b", "c"]))
@@ -1143,10 +1148,11 @@ arrowParquetBridge :: IO ()
 arrowParquetBridge = do
   let !arrowSchema = AT.Schema
         { AT.arrowFields = V.fromList
-            [ AT.Field "i" False (AT.AInt 32 True) V.empty Nothing
-            , AT.Field "s" False AT.AUtf8           V.empty Nothing
+            [ AT.Field "i" False (AT.AInt 32 True) V.empty Nothing V.empty
+            , AT.Field "s" False AT.AUtf8           V.empty Nothing V.empty
             ]
         , AT.arrowEndianness = AT.Little
+        , AT.arrowMetadata   = V.empty
         }
       !batch = V.fromList
         [ AC.ColInt32 (VP.fromList ([10, 20, 30] :: [Int32]))
@@ -1200,10 +1206,11 @@ arrowParquetBridge = do
   -- Arrow -> Parquet -> Arrow path.
   let !tempSchema = AT.Schema
         { AT.arrowFields = V.fromList
-            [ AT.Field "d"  False (AT.ADate AT.DateDay) V.empty Nothing
-            , AT.Field "ts" False (AT.ATimestamp AT.Microsecond Nothing) V.empty Nothing
+            [ AT.Field "d"  False (AT.ADate AT.DateDay) V.empty Nothing V.empty
+            , AT.Field "ts" False (AT.ATimestamp AT.Microsecond Nothing) V.empty Nothing V.empty
             ]
         , AT.arrowEndianness = AT.Little
+        , AT.arrowMetadata   = V.empty
         }
       !tempBatch = V.fromList
         [ AC.ColDate32    (VP.fromList ([19000, 19001, 19002] :: [Int32]))

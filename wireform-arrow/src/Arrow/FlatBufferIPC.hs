@@ -304,6 +304,7 @@ writeField b fld = do
   nameOff <- if T.null (fieldName fld)
                then pure Nothing
                else Just <$> writeString b (fieldName fld)
+  customMd <- writeKeyValueVector b (fieldMetadata fld)
   writeTable b
     [ case nameOff of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     , if fieldNullable fld then Just (scalar 1 (\bb -> prependU8 bb 1)) else Nothing
@@ -311,8 +312,25 @@ writeField b fld = do
     , Just (voff tyUOff)
     , case dictOff of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     , case childrenVec of { Nothing -> Nothing; Just uo -> Just (voff uo) }
-    , Nothing   -- custom_metadata
+    , case customMd  of { Nothing -> Nothing; Just uo -> Just (voff uo) }
     ]
+
+-- | Build a @[KeyValue]@ vector for @custom_metadata@ slots
+-- (used by both 'Field' and 'Schema'). Returns 'Nothing' for an
+-- empty metadata vector so the caller can omit the slot
+-- entirely (FlatBuffers' 'Nothing' = default).
+writeKeyValueVector :: Builder -> V.Vector (T.Text, T.Text) -> IO (Maybe Int)
+writeKeyValueVector b kvs
+  | V.null kvs = pure Nothing
+  | otherwise = do
+      kvUOffs <- mapM (writeKeyValueTable b) (V.toList kvs)
+      Just <$> writeVectorOfOffsets b kvUOffs
+
+writeKeyValueTable :: Builder -> (T.Text, T.Text) -> IO Int
+writeKeyValueTable b (k, v) = do
+  kOff <- writeString b k
+  vOff <- writeString b v
+  writeTable b [ Just (voff kOff), Just (voff vOff) ]
 
 -- | Build a 'DictionaryEncoding' table:
 --
@@ -349,13 +367,14 @@ writeSchema :: Builder -> Schema -> IO Int
 writeSchema b sch = do
   fieldUOffs <- mapM (writeField b) (V.toList (arrowFields sch))
   fieldsVec  <- writeVectorOfOffsets b fieldUOffs
+  customMd   <- writeKeyValueVector b (arrowMetadata sch)
   writeTable b
     [ case arrowEndianness sch of
         Little -> Nothing
         Big    -> Just (scalar 2 (\bb -> prependI16 bb 1))
     , Just (voff fieldsVec)
-    , Nothing
-    , Nothing
+    , case customMd of { Nothing -> Nothing; Just uo -> Just (voff uo) }
+    , Nothing -- features
     ]
 
 -- ============================================================
@@ -1725,7 +1744,17 @@ readSchemaTable bs schPos = do
       vecPos <- followUOffset bs p
       readVectorOfOffsets bs vecPos
   fields <- V.mapM (readField bs) fieldsVec
-  Right Schema { arrowFields = fields, arrowEndianness = endian }
+  customMd <- case slot 2 of
+    Nothing -> Right V.empty
+    Just p  -> do
+      vecPos <- followUOffset bs p
+      kvPositions <- readVectorOfOffsets bs vecPos
+      V.mapM (readKeyValue bs) kvPositions
+  Right Schema
+    { arrowFields     = fields
+    , arrowEndianness = endian
+    , arrowMetadata   = customMd
+    }
 
 -- | Decode one @Field@ table.
 readField :: ByteString -> Pos -> Either String Field
@@ -1760,13 +1789,43 @@ readField bs fldPos = do
     Just p  -> do
       dePos <- followUOffset bs p
       Just <$> readDictionaryEncodingTable bs dePos
+  customMd <- case slot 6 of
+    Nothing -> Right V.empty
+    Just p  -> do
+      vecPos <- followUOffset bs p
+      kvPositions <- readVectorOfOffsets bs vecPos
+      V.mapM (readKeyValue bs) kvPositions
   Right Field
     { fieldName     = name
     , fieldNullable = nullable
     , fieldType     = ty
     , fieldChildren = children
     , fieldDictionary = dictionary
+    , fieldMetadata = customMd
     }
+
+-- | Decode one @KeyValue@ table (per @format/Schema.fbs@):
+--
+-- @
+-- table KeyValue {
+--   key   : string;   // 0
+--   value : string;   // 1
+-- }
+-- @
+readKeyValue :: ByteString -> Pos -> Either String (T.Text, T.Text)
+readKeyValue bs kvPos = do
+  slot <- resolveTable bs kvPos
+  k <- case slot 0 of
+    Nothing -> Right ""
+    Just p  -> do
+      strPos <- followUOffset bs p
+      readString bs strPos
+  v <- case slot 1 of
+    Nothing -> Right ""
+    Just p  -> do
+      strPos <- followUOffset bs p
+      readString bs strPos
+  Right (k, v)
 
 -- | Decode a 'DictionaryEncoding' table:
 --

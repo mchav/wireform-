@@ -16,12 +16,13 @@ main :: IO ()
 main = do
   let schema = A.Schema
         { A.arrowFields = V.fromList
-            [ A.Field "id" False (A.AInt 64 True) V.empty Nothing
-            , A.Field "name" True A.AUtf8 V.empty Nothing
-            , A.Field "score" False (A.AFloatingPoint A.DoublePrecision) V.empty Nothing
-            , A.Field "active" True A.ABool V.empty Nothing
+            [ A.Field "id" False (A.AInt 64 True) V.empty Nothing V.empty
+            , A.Field "name" True A.AUtf8 V.empty Nothing V.empty
+            , A.Field "score" False (A.AFloatingPoint A.DoublePrecision) V.empty Nothing V.empty
+            , A.Field "active" True A.ABool V.empty Nothing V.empty
             ]
         , A.arrowEndianness = A.Little
+        , A.arrowMetadata = V.empty
         }
 
   let msg = A.SchemaMessage schema

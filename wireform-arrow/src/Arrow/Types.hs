@@ -103,6 +103,11 @@ data Field = Field
     -- ^ When non-'Nothing', this field's @fieldType@ refers to the
     -- /index/ type and the actual values live in a separate
     -- 'DictionaryBatch' message keyed by 'deId'.
+  , fieldMetadata :: !(Vector (Text, Text))
+    -- ^ Arrow per-field @custom_metadata@ (Schema.fbs field 6).
+    -- Free-form key/value pairs that travel with the field
+    -- through encode + decode. Empty when the field carries
+    -- no annotation (the common case).
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
@@ -126,6 +131,10 @@ data DictionaryEncoding = DictionaryEncoding
 data Schema = Schema
   { arrowFields     :: !(Vector Field)
   , arrowEndianness :: !Endianness
+  , arrowMetadata   :: !(Vector (Text, Text))
+    -- ^ Arrow schema-level @custom_metadata@ (Schema.fbs field
+    -- 4 of @table Schema@). Most files set zero or one
+    -- (@pandas@-style) annotation. Empty by default.
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 

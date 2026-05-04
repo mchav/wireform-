@@ -51,13 +51,13 @@ readMode path = do
 -- | Smart constructor: a Field with no dictionary encoding.
 pField :: Text -> Bool -> ArrowType -> V.Vector Field -> Field
 pField nm nullable ty children =
-  Field nm nullable ty children Nothing
+  Field nm nullable ty children Nothing V.empty
 
 -- | Field with a dictionary encoding.
 dField :: Text -> Bool -> ArrowType -> Int64 -> Field
 dField nm nullable ty did =
   Field nm nullable ty V.empty
-    (Just (DictionaryEncoding did (AInt 32 True) False))
+    (Just (DictionaryEncoding did (AInt 32 True) False)) V.empty
 
 writeMode :: FilePath -> IO ()
 writeMode outDir = do
@@ -74,6 +74,7 @@ writeMode outDir = do
     Schema
       { arrowFields = V.singleton (pField "a" False (AInt 32 True) V.empty)
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
       }
     [V.singleton (ColInt32 (VP.fromList ([1,2,3,4,5] :: [Int32])))]
 
@@ -86,6 +87,7 @@ writeMode outDir = do
           , pField "b" True  ABool           V.empty
           ]
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
       }
     [V.fromList
        [ ColInt64 (VP.fromList ([10,20,30] :: [Int64]))
@@ -98,6 +100,7 @@ writeMode outDir = do
     Schema
       { arrowFields = V.singleton (pField "v" True AUtf8View V.empty)
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
       }
     [V.singleton (ColUtf8ViewMaybe (V.fromList
        [ Just "short"
@@ -112,6 +115,7 @@ writeMode outDir = do
           pField "lv" False AListView
             (V.singleton (pField "item" False (AInt 32 True) V.empty))
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
       }
     [V.singleton (ColListView
         (VP.fromList ([0,2,5] :: [Int32]))
@@ -127,6 +131,7 @@ writeMode outDir = do
             , pField "values"   True  (AInt 64 True) V.empty
             ]
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
       }
     [V.singleton (ColRunEndEncoded
         (ColInt32 (VP.fromList ([3,5,8] :: [Int32])))
@@ -138,6 +143,7 @@ writeMode outDir = do
     Schema
       { arrowFields = V.singleton (dField "d" True AUtf8 0)
       , arrowEndianness = Little
+      , arrowMetadata = V.empty
       }
     [V.singleton (ColDictionary 0
         (VP.fromList ([0,1,0,2,1] :: [Int32]))
@@ -147,7 +153,7 @@ writeMode outDir = do
   -- per Arrow's BodyCompression spec.
   let zstdOpts    = defaultWriteOptions { writeBodyCompression = Just BodyZstd }
       zstdSchema  = Schema
-        (V.singleton (pField "n" False (AInt 64 True) V.empty)) Little
+        (V.singleton (pField "n" False (AInt 64 True) V.empty)) Little V.empty
       zstdBatch   = V.singleton (ColInt64 (VP.fromList ([1..500] :: [Int64])))
   BS.writeFile (outDir <> "/ours_zstd_compressed.arrows")
     (encodeArrowStream zstdOpts zstdSchema [zstdBatch])
@@ -156,6 +162,7 @@ writeMode outDir = do
   let intSchema = Schema
         { arrowFields = V.singleton (pField "a" False (AInt 32 True) V.empty)
         , arrowEndianness = Little
+        , arrowMetadata = V.empty
         }
       intBatch = V.singleton (ColInt32 (VP.fromList ([1,2,3,4,5] :: [Int32])))
   BS.writeFile (outDir <> "/ours_int32_batch.arrow")
@@ -166,6 +173,7 @@ writeMode outDir = do
   let dictSchema = Schema
         { arrowFields = V.singleton (dField "d" True AUtf8 0)
         , arrowEndianness = Little
+        , arrowMetadata = V.empty
         }
       dictBatch = V.singleton (ColDictionary 0
         (VP.fromList ([0,1,0,2,1] :: [Int32]))

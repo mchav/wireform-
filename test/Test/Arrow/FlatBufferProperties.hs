@@ -129,6 +129,7 @@ genLeafField = do
     , fieldType       = ty
     , fieldChildren   = V.empty
     , fieldDictionary = Nothing
+    , fieldMetadata = V.empty
     }
 
 -- | Fields whose type is a struct/list/largelist wrapper,
@@ -149,6 +150,7 @@ genStructLikeField = do
     , fieldType       = ty
     , fieldChildren   = V.fromList kids
     , fieldDictionary = Nothing
+    , fieldMetadata = V.empty
     }
 
 genField :: Gen Field
@@ -171,6 +173,7 @@ genSchema = do
   pure Schema
     { arrowFields     = V.fromList fields
     , arrowEndianness = endian
+    , arrowMetadata = V.empty
     }
 
 -- ============================================================
