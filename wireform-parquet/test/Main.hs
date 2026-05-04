@@ -871,6 +871,9 @@ main = do
   -- Generic per-page dispatch (DELTA, BYTE_STREAM_SPLIT, V2)
   genericPageDispatch
 
+  -- Property-style round-trips for every encoding family
+  encodingRoundTripProperties
+
   -- Auto-populated bloom filters via the high-level writer
   highLevelBloomFilters
 
@@ -1024,6 +1027,133 @@ logicalTypeRoundTrip = do
       flip mapM_ (zip cases recovered) $ \((nm, _, expected), got) -> do
         expect ("LogicalType " ++ T.unpack nm ++ " round-trip")
                (seLogicalType got == expected)
+
+-- | Random-input round-trips for every encoder/decoder pair.
+-- Uses a fixed seed so failures reproduce; covers
+-- DELTA_BINARY_PACKED Int32/Int64, DELTA_LENGTH_BYTE_ARRAY,
+-- DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT Float/Double, and the
+-- predicate evaluator's range arithmetic.
+encodingRoundTripProperties :: IO ()
+encodingRoundTripProperties = do
+  let seed = 0xC0FFEE :: Int
+      cases = 50
+      -- Cheap LCG; we don't need cryptographic quality.
+      lcg s = (s * 1103515245 + 12345) `mod` 0x100000000
+      mkInts32 s n = take n (drop 1 (iterate lcg s))
+        & map (\x -> fromIntegral (x `mod` 0x100000000) :: Int32)
+      mkInts64 s n = take n (drop 1 (iterate lcg s))
+        & map fromIntegral
+      mkFloats s n = map (\x -> fromIntegral x / 1000.0)
+                       (mkInts32 s n)
+      mkDoubles s n = map (\x -> fromIntegral x / 1000000.0)
+                        (mkInts64 s n)
+      (&) :: a -> (a -> b) -> b
+      a & f = f a
+
+  -- DELTA_BINARY_PACKED Int32
+  do
+    let pass i =
+          let !n = (i `mod` 32) + 1
+              !s = seed + i
+              !vs = VP.fromList (mkInts32 s n)
+          in case decodeDeltaBinaryPackedInt64
+                   (VP.length vs)
+                   (encodeDeltaBinaryPackedInt32 vs) of
+               Right got
+                 | VP.toList (VP.map (fromIntegral :: Int64 -> Int32) got)
+                     == VP.toList vs -> True
+               _ -> False
+    let !okCount = length (filter pass [1 .. cases])
+    expect ("DELTA_BINARY_PACKED Int32 property: "
+              ++ show okCount ++ "/" ++ show cases)
+           (okCount == cases)
+
+  -- DELTA_BINARY_PACKED Int64
+  do
+    let pass i =
+          let !n = (i `mod` 32) + 1
+              !s = seed + i + 1
+              !vs = VP.fromList (mkInts64 s n)
+          in case decodeDeltaBinaryPackedInt64
+                   (VP.length vs)
+                   (encodeDeltaBinaryPackedInt64 vs) of
+               Right got | VP.toList got == VP.toList vs -> True
+               _ -> False
+    let !okCount = length (filter pass [1 .. cases])
+    expect ("DELTA_BINARY_PACKED Int64 property: "
+              ++ show okCount ++ "/" ++ show cases)
+           (okCount == cases)
+
+  -- BYTE_STREAM_SPLIT Float
+  do
+    let pass i =
+          let !n = (i `mod` 16) + 1
+              !s = seed + i + 2
+              !vs = VP.fromList (mkFloats s n)
+          in case decodeByteStreamSplitFloat
+                   (VP.length vs)
+                   (encodeByteStreamSplitFloat vs) of
+               Right got | VP.toList got == VP.toList vs -> True
+               _ -> False
+    let !okCount = length (filter pass [1 .. cases])
+    expect ("BYTE_STREAM_SPLIT Float property: "
+              ++ show okCount ++ "/" ++ show cases)
+           (okCount == cases)
+
+  -- BYTE_STREAM_SPLIT Double
+  do
+    let pass i =
+          let !n = (i `mod` 16) + 1
+              !s = seed + i + 3
+              !vs = VP.fromList (mkDoubles s n)
+          in case decodeByteStreamSplitDouble
+                   (VP.length vs)
+                   (encodeByteStreamSplitDouble vs) of
+               Right got | VP.toList got == VP.toList vs -> True
+               _ -> False
+    let !okCount = length (filter pass [1 .. cases])
+    expect ("BYTE_STREAM_SPLIT Double property: "
+              ++ show okCount ++ "/" ++ show cases)
+           (okCount == cases)
+
+  -- DELTA_LENGTH_BYTE_ARRAY
+  do
+    let pass i =
+          let !n = (i `mod` 8) + 1
+              !vs = V.fromList
+                [ BSC.pack ("v_" ++ show j ++ "_" ++ replicate (j `mod` 5) 'x')
+                | j <- [0 .. n - 1]
+                ]
+          in case decodeDeltaLengthByteArray
+                   (V.length vs)
+                   (encodeDeltaLengthByteArray vs) of
+               Right got | V.toList got == V.toList vs -> True
+               _ -> False
+    let !okCount = length (filter pass [1 .. cases])
+    expect ("DELTA_LENGTH_BYTE_ARRAY property: "
+              ++ show okCount ++ "/" ++ show cases)
+           (okCount == cases)
+
+  -- DELTA_BYTE_ARRAY
+  do
+    let pass i =
+          let !n = (i `mod` 8) + 1
+              -- Build a sequence with non-trivial common
+              -- prefixes so the prefix-compression actually
+              -- exercises the front-coding path.
+              !vs = V.fromList
+                [ BSC.pack ("alphabet" ++ replicate (j `mod` 4) 'z')
+                | j <- [0 .. n - 1]
+                ]
+          in case decodeDeltaByteArray
+                   (V.length vs)
+                   (encodeDeltaByteArray vs) of
+               Right got | V.toList got == V.toList vs -> True
+               _ -> False
+    let !okCount = length (filter pass [1 .. cases])
+    expect ("DELTA_BYTE_ARRAY property: "
+              ++ show okCount ++ "/" ++ show cases)
+           (okCount == cases)
 
 -- | encodeParquet with writeBloomFilters set should emit a
 -- bloom-filter region for the named column and stamp
@@ -1222,7 +1352,7 @@ arrowParquetProjection = do
             ]
         , AT.arrowEndianness = AT.Little
         , AT.arrowMetadata   = V.empty
-        , arrowFeatures = V.empty
+        , AT.arrowFeatures = V.empty
         }
       !batch = V.fromList
         [ AC.ColInt32 (VP.fromList [10, 20, 30 :: Int32])
@@ -1248,7 +1378,7 @@ arrowParquetProjection = do
                     ]
                 , AT.arrowEndianness = AT.Little
                 , AT.arrowMetadata   = V.empty
-                , arrowFeatures = V.empty
+                , AT.arrowFeatures = V.empty
                 }
           case PArrow.parquetRowGroupToArrow target pf 0 of
             Left  e    -> failTest $ "parquetRowGroupToArrow: " ++ show e
@@ -1268,7 +1398,7 @@ arrowParquetProjection = do
                     (AT.Field "z" False (AT.AInt 32 True) V.empty Nothing V.empty)
                 , AT.arrowEndianness = AT.Little
                 , AT.arrowMetadata   = V.empty
-                , arrowFeatures = V.empty
+                , AT.arrowFeatures = V.empty
                 }
           case PArrow.parquetRowGroupToArrow missing pf 0 of
             Left (PArrow.MissingColumn "z") ->
@@ -1281,7 +1411,7 @@ arrowParquetProjection = do
                     (AT.Field "a" False (AT.AInt 64 True) V.empty Nothing V.empty)
                 , AT.arrowEndianness = AT.Little
                 , AT.arrowMetadata   = V.empty
-                , arrowFeatures = V.empty
+                , AT.arrowFeatures = V.empty
                 }
           case PArrow.parquetRowGroupToArrow widen pf 0 of
             Left e -> failTest $ "projection coercion: " ++ show e
@@ -1330,7 +1460,7 @@ arrowParquetBridge = do
             ]
         , AT.arrowEndianness = AT.Little
         , AT.arrowMetadata   = V.empty
-        , arrowFeatures = V.empty
+        , AT.arrowFeatures = V.empty
         }
       !batch = V.fromList
         [ AC.ColInt32 (VP.fromList ([10, 20, 30] :: [Int32]))
@@ -1389,7 +1519,7 @@ arrowParquetBridge = do
             ]
         , AT.arrowEndianness = AT.Little
         , AT.arrowMetadata   = V.empty
-        , arrowFeatures = V.empty
+        , AT.arrowFeatures = V.empty
         }
       !tempBatch = V.fromList
         [ AC.ColDate32    (VP.fromList ([19000, 19001, 19002] :: [Int32]))
