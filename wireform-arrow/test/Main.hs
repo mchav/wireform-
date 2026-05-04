@@ -313,7 +313,7 @@ flatBufSchemaSelfCheck = do
             , plainField "ts"     True  (ATimestamp Nanosecond (Just "UTC"))
             , plainField "blob"   True  ABinary
             , plainField "tag"    False (AFixedSizeBinary 16)
-            ]) Little V.empty
+            ]) Little V.empty V.empty
         , -- Post-V5 type tags (Utf8View / BinaryView / RunEndEncoded /
           -- ListView / LargeListView). Arrow.Column doesn't materialise
           -- their data buffers, but the schema flatbuffer round-trips
@@ -324,7 +324,7 @@ flatBufSchemaSelfCheck = do
             , plainField "ree" True  ARunEndEncoded
             , plainField "lv"  True  AListView
             , plainField "llv" True  ALargeListView
-            ]) Little V.empty
+            ]) Little V.empty V.empty
         ]
   mapM_ (\sch -> do
             let bs = buildSchemaMessage sch
@@ -376,7 +376,7 @@ flatBufRoundTrip = do
        (V.singleton
           (nestedField "lv" False AListView (V.singleton
              (plainField "item" False (AInt 32 True)))))
-       Little V.empty)
+       Little V.empty V.empty)
     (V.singleton (ColListView
        (VP.fromList ([0, 2, 5] :: [Int32]))
        (VP.fromList ([2, 3, 1] :: [Int32]))
@@ -389,7 +389,7 @@ flatBufRoundTrip = do
              [ plainField "run_ends" False (AInt 32 True)
              , plainField "values"   True  (AInt 64 True)
              ]))
-       Little V.empty)
+       Little V.empty V.empty)
     (V.singleton (ColRunEndEncoded
        (ColInt32 (VP.fromList ([3, 5, 8] :: [Int32])))
        (ColInt64Maybe (V.fromList [Just 100, Nothing, Just 300]))))
@@ -436,7 +436,7 @@ flatBufRoundTrip = do
     (Schema (V.fromList
        [ plainField "n" False (AInt 64 True)
        , plainField "s" False AUtf8
-       ]) Little V.empty)
+       ]) Little V.empty V.empty)
     (V.fromList
        [ ColInt64 (VP.fromList
             ([1..1000] :: [Int64]))   -- enough bytes that ZSTD shrinks
@@ -452,7 +452,7 @@ flatBufRoundTrip = do
     (Schema (V.fromList
        [ plainField "n" False (AInt 64 True)
        , plainField "s" False AUtf8
-       ]) Little V.empty)
+       ]) Little V.empty V.empty)
     (V.fromList
        [ ColInt64 (VP.fromList ([1..1000] :: [Int64]))
        , ColUtf8 (V.replicate 1000 "highly-compressible-payload")
@@ -606,7 +606,7 @@ dictReplacementRoundTrip = do
            (Field "d" True AUtf8 V.empty
               (Just (DictionaryEncoding 0 (AInt 32 True) False))
               V.empty))
-        Little V.empty
+        Little V.empty V.empty
       !batch1 = V.singleton $ ColDictionary 0
         (VP.fromList [0, 1, 0])
         (ColUtf8 (V.fromList ["a", "b"]))
@@ -707,6 +707,7 @@ customMetadataRoundTrip = do
             [ ("pandas", "{}")
             , ("creator", "wireform-test")
             ]
+        , arrowFeatures   = V.empty
         }
       !batch = V.singleton (ColInt32 (VP.fromList ([1, 2, 3] :: [Int32])))
       !bytes = encodeArrowStream defaultWriteOptions sch [batch]
@@ -767,7 +768,7 @@ projectionRoundTrip = do
            , plainField "b" False (AInt 64 True)
            , plainField "c" False AUtf8
            ])
-        Little V.empty
+        Little V.empty V.empty
       !batch = V.fromList
         [ ColInt32 (VP.fromList ([1, 2, 3] :: [Int32]))
         , ColInt64 (VP.fromList ([10, 20, 30] :: [Int64]))

@@ -30,7 +30,7 @@ columnarFacadeTests = testGroup "Wireform.Columnar unified facade"
                 ]
             , AT.arrowEndianness = AT.Little
             , AT.arrowMetadata   = V.empty
-            , arrowFeatures = V.empty
+            , AT.arrowFeatures = V.empty
             }
           !batch = V.fromList
             [ AC.ColInt64 (VP.fromList [10, 20, 30 :: Int64])
@@ -69,7 +69,7 @@ columnarFacadeTests = testGroup "Wireform.Columnar unified facade"
                 (AT.Field "x" False (AT.AInt 32 True) V.empty Nothing V.empty)
             , AT.arrowEndianness = AT.Little
             , AT.arrowMetadata   = V.empty
-            , arrowFeatures = V.empty
+            , AT.arrowFeatures = V.empty
             }
           !batches = [ V.singleton (AC.ColInt32 (VP.fromList [1, 2, 3 :: Int32])) ]
           !opts = Col.defaultWriteOptions
