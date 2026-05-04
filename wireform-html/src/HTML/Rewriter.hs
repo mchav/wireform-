@@ -134,19 +134,12 @@ import HTML.TagId (TagId (..), internTagAddrU, fastTagIdAddr, tagIdIsVoid)
 import HTML.Rewriter.Config
 import HTML.Rewriter.Mutations
 import HTML.Rewriter.StackFrame
-import HTML.Selector (Combinator (..), CompoundSelector (..))
 import HTML.Value (HTMLAttribute (..))
 
 
 -- ---------------------------------------------------------------------------
 -- Selector automaton state
 -- ---------------------------------------------------------------------------
-
-data PartialMatch = PartialMatch
-  { pmSteps :: ![(Combinator, CompoundSelector)]
-  , pmDepth :: !Int
-  }
-
 
 -- | Mutable state for the scanner automaton.
 -- asCounters is a MutablePrimArray with 3 Int slots:
@@ -165,7 +158,6 @@ data AutoState = AutoState
   { asStack :: !(IORef [StackFrame])
   , asCounters :: !(MutablePrimArray RealWorld Int)
   , asTextMask :: !(MutablePrimArray RealWorld Int)
-  , asPartials :: !(IORef [(Int, PartialMatch)])
   , asEndTagHandlers :: !(IORef [(Int, EndTagRef -> IO ())])
   }
 
@@ -216,7 +208,6 @@ newAutoState = do
     <$> newIORef []
     <*> pure counters
     <*> pure textMask
-    <*> newIORef []
     <*> newIORef []
 
 {-# INLINE readTextMask #-}
@@ -440,42 +431,6 @@ cowWriteStartTag cow tag attrs selfClose = do
       cowWritePos cow (p + 3)
     else cowWriteByte cow 0x3E -- '>'
 {-# NOINLINE cowWriteStartTag #-}
-
-cowWriteStartTagList :: CowOutput -> Text -> [HTMLAttribute] -> Bool -> IO ()
-cowWriteStartTagList cow tag attrs selfClose = do
-  let !(Text (ByteArray tagBA#) tagOff tagLen) = tag
-  cowEnsure cow (tagLen + 3)
-  pos0 <- cowReadPos cow
-  buf <- readIORef (cowBuf cow)
-  writeBA buf pos0 0x3C  -- '<'
-  copyBAToMBA buf (pos0 + 1) tagBA# tagOff tagLen
-  cowWritePos cow (pos0 + 1 + tagLen)
-  let go [] = pure ()
-      go (HTMLAttribute aName aVal : rest) = do
-        let !(Text (ByteArray nameBA#) nameOff nameLen) = aName
-        cowEnsure cow (4 + nameLen + 64)
-        p <- cowReadPos cow
-        b <- readIORef (cowBuf cow)
-        writeBA b p 0x20      -- ' '
-        copyBAToMBA b (p + 1) nameBA# nameOff nameLen
-        writeBA b (p + 1 + nameLen) 0x3D  -- '='
-        writeBA b (p + 2 + nameLen) 0x22  -- '"'
-        cowWritePos cow (p + 3 + nameLen)
-        cowEscapeAttrVal cow aVal
-        cowWriteByte cow 0x22  -- '"'
-        go rest
-  go attrs
-  if selfClose
-    then do
-      cowEnsure cow 3
-      p <- cowReadPos cow
-      b <- readIORef (cowBuf cow)
-      writeBA b p 0x20      -- ' '
-      writeBA b (p + 1) 0x2F  -- '/'
-      writeBA b (p + 2) 0x3E  -- '>'
-      cowWritePos cow (p + 3)
-    else cowWriteByte cow 0x3E -- '>'
-{-# NOINLINE cowWriteStartTagList #-}
 
 cowEscapeAttrVal :: CowOutput -> Text -> IO ()
 cowEscapeAttrVal cow (Text (ByteArray ba#) off len) = go off off
@@ -1902,10 +1857,6 @@ emitAttrsRaw attrs = go 0
           in emitOneAttr name val <> go (i + 1)
 
 
-emitAttrsFromList :: [HTMLAttribute] -> BB.Builder
-emitAttrsFromList = foldMap (\(HTMLAttribute name val) -> emitOneAttr name val)
-
-
 emitOneAttr :: Text -> Text -> BB.Builder
 emitOneAttr name val =
   BB.char7 ' '
@@ -1937,13 +1888,6 @@ tokenTag _ = T.empty
 isRawTextTag :: Text -> Bool
 isRawTextTag t = t == "style" || t == "script" || t == "xmp"
 {-# INLINE isRawTextTag #-}
-
-
-lookupAttrList :: Text -> [HTMLAttribute] -> Maybe Text
-lookupAttrList _ [] = Nothing
-lookupAttrList name (HTMLAttribute n v : rest)
-  | n == name = Just v
-  | otherwise = lookupAttrList name rest
 
 
 -- ---------------------------------------------------------------------------
