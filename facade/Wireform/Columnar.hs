@@ -376,7 +376,13 @@ decodeRecords
   -> ByteString
   -> Either String (V.Vector r)
 decodeRecords fmt opts tbl bs = do
-  (sch, batches) <- decode fmt opts bs
+  let !needed = ArR.tableRequiredColumns tbl
+  (sch, batches) <- if null needed
+    then decode fmt opts bs
+    else do
+      (narrowSch, it) <- decodeProjectedIter fmt opts needed bs
+      xs <- IS.iterToList it
+      Right (narrowSch, xs)
   perBatch <- traverse (ArR.decodeTable tbl sch) batches
   Right (V.concat perBatch)
 
@@ -531,7 +537,11 @@ decodeRecordsIter
   -> ByteString
   -> Either String (IS.Iter (V.Vector r))
 decodeRecordsIter fmt opts tbl bs = do
-  (sch, batchIter) <- decodeIter fmt opts bs
+  let !needed = ArR.tableRequiredColumns tbl
+  (sch, batchIter) <-
+    if null needed
+      then decodeIter fmt opts bs
+      else decodeProjectedIter fmt opts needed bs
   Right $ IS.iterMapM (ArR.decodeTable tbl sch) batchIter
 
 -- ============================================================

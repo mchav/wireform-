@@ -81,11 +81,13 @@ module Arrow.Record
     -- * Row-level decoder
   , RowDecoder
   , runRowDecoder
+  , rowDecoderRequiredColumns
   , columnD
     -- * Table (round-trip pair)
   , Table (..)
   , table
   , tableSchema
+  , tableRequiredColumns
   , encodeTable
   , decodeTable
   ) where
@@ -417,34 +419,47 @@ fieldE name sel enc = RowEncoder
 -- 'RowDecoder' is an 'Applicative': combine several 'columnD'
 -- calls with @<$>@ + @<*>@ to build a record.
 data RowDecoder r = RowDecoder
-  { runRowDecoder :: !(V.Vector Field -> V.Vector ColumnArray -> Either String (V.Vector r))
+  { rowDecoderRequiredColumns :: ![Text]
+    -- ^ Names of columns the decoder consults when run.
+    -- Order matches first appearance in the applicative chain;
+    -- duplicates removed. Useful for column projection: a
+    -- caller can ask the source format to only materialise
+    -- these columns rather than the whole record batch.
+  , runRowDecoder :: !(V.Vector Field -> V.Vector ColumnArray -> Either String (V.Vector r))
   }
 
 instance Functor RowDecoder where
-  fmap f (RowDecoder run) = RowDecoder $ \fs cs ->
+  fmap f (RowDecoder cs0 run) = RowDecoder cs0 $ \fs cs ->
     V.map f <$> run fs cs
 
 instance Applicative RowDecoder where
-  pure x = RowDecoder $ \_fs cs ->
+  pure x = RowDecoder [] $ \_fs cs ->
     -- Length comes from the first column; an empty batch yields
     -- V.empty. If callers need a fixed row count with no
     -- columns they can rely on 'pure' inside an outer
     -- 'liftA2'-chained RowDecoder that has at least one column.
     let !n = if V.null cs then 0 else columnLen (V.head cs)
     in  Right (V.replicate n x)
-  RowDecoder runF <*> RowDecoder runX = RowDecoder $ \fs cs -> do
-    fvec <- runF fs cs
-    xvec <- runX fs cs
-    if V.length fvec /= V.length xvec
-      then Left $ "Arrow.Record.<*>: column length mismatch ("
-                  ++ show (V.length fvec) ++ " vs " ++ show (V.length xvec) ++ ")"
-      else Right (V.zipWith ($) fvec xvec)
+  RowDecoder cF runF <*> RowDecoder cX runX = RowDecoder
+    (mergeRequired cF cX) $ \fs cs -> do
+      fvec <- runF fs cs
+      xvec <- runX fs cs
+      if V.length fvec /= V.length xvec
+        then Left $ "Arrow.Record.<*>: column length mismatch ("
+                    ++ show (V.length fvec) ++ " vs " ++ show (V.length xvec) ++ ")"
+        else Right (V.zipWith ($) fvec xvec)
+
+-- | Order-preserving union of two 'rowDecoderRequiredColumns'
+-- lists. Used by the Applicative instance to maintain the
+-- "first appearance" order as decoders are combined.
+mergeRequired :: [Text] -> [Text] -> [Text]
+mergeRequired xs ys = xs ++ filter (`notElem` xs) ys
 
 -- | Decode the named column via the supplied 'Decoder'. Looks
 -- the column up by 'Field' name in the schema the caller passes
 -- to 'runRowDecoder'; returns 'Left' if the name isn't present.
 columnD :: Text -> Decoder a -> RowDecoder a
-columnD name d = RowDecoder $ \fs cs -> do
+columnD name d = RowDecoder [name] $ \fs cs -> do
   idx <- case V.findIndex ((== name) . fieldName) fs of
     Just i  -> Right i
     Nothing -> Left $ "Arrow.Record.columnD: no column named " ++ show name
@@ -514,6 +529,13 @@ tableSchema t = Schema
   { arrowFields     = V.fromList (rowEncoderFields (tableEncode t))
   , arrowEndianness = Little
   }
+
+-- | Names of the columns the 'Table''s decoder needs. Equivalent
+-- to @'rowDecoderRequiredColumns' . 'tableDecode'@; surfaced
+-- here so callers can drive column projection through a
+-- 'Table' without unpacking the inner 'RowDecoder'.
+tableRequiredColumns :: Table r -> [Text]
+tableRequiredColumns = rowDecoderRequiredColumns . tableDecode
 
 -- | Encode a vector of records as an Arrow batch + its schema.
 -- The schema comes from 'tableSchema'; the batch is parallel to
