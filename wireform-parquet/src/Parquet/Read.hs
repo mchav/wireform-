@@ -63,16 +63,42 @@ module Parquet.Read
   , decodeDeltaBinaryPackedInt32
   , decodeDeltaBinaryPackedInt64
   , encRleDictionary
+    -- * Generic per-page dispatch
+    --
+    -- | The 'readGeneric*ColumnChunk' family handles every encoding the
+    -- spec defines for the matching physical type, dispatching on
+    -- 'phType' (DATA_PAGE / DATA_PAGE_V2 / DICTIONARY_PAGE) and the
+    -- per-page encoding tag. Use these in preference to the
+    -- @readPlain*@ helpers when reading files produced by other
+    -- writers — wireform's own writer emits PLAIN, but pyarrow /
+    -- parquet-cpp / arrow-rs routinely produce dictionary-encoded
+    -- BYTE_ARRAY columns + DELTA_BINARY_PACKED INT32/INT64 +
+    -- BYTE_STREAM_SPLIT FLOAT/DOUBLE + DATA_PAGE_V2 pages, all of
+    -- which the @readPlain*@ helpers reject.
+  , readGenericInt32ColumnChunk
+  , readGenericInt64ColumnChunk
+  , readGenericFloatColumnChunk
+  , readGenericDoubleColumnChunk
+  , readGenericBoolColumnChunk
+  , readGenericByteArrayColumnChunk
+    -- ** Optional / nullable variants
+  , readGenericInt32OptionalColumnChunk
+  , readGenericInt64OptionalColumnChunk
+  , readGenericFloatOptionalColumnChunk
+  , readGenericDoubleOptionalColumnChunk
+  , readGenericBoolOptionalColumnChunk
+  , readGenericByteArrayOptionalColumnChunk
   ) where
 
 import Control.Exception (SomeException, evaluate, try)
-import Control.Monad.ST (runST)
+import Control.Monad.ST (ST, runST)
 import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int32, Int64)
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as VM
 import qualified Data.Vector.Primitive as VP
 import qualified Data.Vector.Primitive.Mutable as MVP
 import Data.Word (Word32, Word64)
@@ -81,7 +107,12 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import Columnar.SIMD (unpackBitsLsbUnsafe)
 
-import Parquet.Delta (decodeDeltaBinaryPackedInt32, decodeDeltaBinaryPackedInt64)
+import Parquet.Delta
+  ( decodeDeltaBinaryPackedInt32
+  , decodeDeltaBinaryPackedInt64
+  , decodeDeltaByteArray
+  , decodeDeltaLengthByteArray
+  )
 import Parquet.RLE (decodeDictionaryIndices, decodeHybridRleLengthPrefixed, decodeHybridRleUnsigned32)
 
 import qualified Codec.Compression.GZip as GZip
@@ -953,3 +984,410 @@ decodeByteStreamSplitDouble n bs
                     MVP.write mv i (castWord64ToDouble w)
                     go2 (i + 1)
           go2 0
+
+-- ============================================================
+-- Generic per-page chunk dispatch
+-- ============================================================
+
+-- | Encoding tags used by the generic dispatch.
+encDeltaBinaryPacked, encDeltaLengthByteArray, encDeltaByteArray, encByteStreamSplit :: Int32
+encDeltaBinaryPacked     = 5
+encDeltaLengthByteArray  = 6
+encDeltaByteArray        = 7
+encByteStreamSplit       = 9
+
+-- | Dispatcher type: per-page decoder produces a chunk of values
+-- of the type the caller asked for.
+data PerPage a = PerPage
+  { ppDecodePlain :: !(Int -> ByteString -> Either String a)
+    -- ^ Decode a PLAIN-encoded page body into a chunk of length n.
+  , ppDecodeDictIndices :: !(Int -> ByteString -> a -> VP.Vector Int32 -> Either String a)
+    -- ^ Look up dictionary indices into the materialised values.
+    -- @ppDecodeDictIndices n raw acc indices@ : @raw@ is the data
+    -- page body (after stripping the bit-width prefix is the
+    -- decoder's job), @acc@ is the dictionary chunk, @indices@ is
+    -- pre-decoded.
+  , ppExtended :: !(Int32 -> Int -> ByteString -> Either String a)
+    -- ^ Encoding-specific decoders (delta / byte-stream-split).
+    -- @ppExtended encoding numValues body@ — return Left if the
+    -- encoding is genuinely unsupported for this physical type.
+  , ppAppend :: !(a -> a -> a)
+  , ppEmpty :: !a
+  }
+
+-- | Walk every page in a column chunk; for each DATA_PAGE /
+-- DATA_PAGE_V2, dispatch on its encoding via the supplied
+-- 'PerPage' record. DICTIONARY_PAGE pages are decoded once with
+-- 'ppDecodePlain' and held for reuse by RLE_DICTIONARY pages.
+genericReadColumnChunk
+  :: PerPage a
+  -> Compression
+  -> ByteString
+  -> Either String a
+genericReadColumnChunk pp codec chunk0 = go 0 Nothing (ppEmpty pp)
+  where
+    go !off !mDict !acc
+      | off >= BS.length chunk0 = Right acc
+      | otherwise = do
+          (hdr, afterHdr) <- readPageHeaderAt chunk0 off
+          compSz <- case phCompressedPageSize hdr of
+            Nothing -> Left "Parquet.Read: missing compressed_page_size"
+            Just s -> Right (fromIntegral s :: Int)
+          let !bodyStart = afterHdr
+          if bodyStart + compSz > BS.length chunk0
+            then Left "Parquet.Read: truncated page body"
+            else do
+              let !compBody = BS.take compSz (BS.drop bodyStart chunk0)
+                  !nextOff = bodyStart + compSz
+              case phType hdr of
+                PtDictionaryPage dk
+                  | dictEncoding dk /= encPlain ->
+                      Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                  | otherwise -> do
+                      raw <- decompressPageData codec
+                               (phUncompressedPageSize hdr) compBody
+                      let !nDict = fromIntegral (dictNumValues dk) :: Int
+                      dict <- ppDecodePlain pp nDict raw
+                      go nextOff (Just dict) acc
+                PtDataPage dph -> do
+                  raw <- decompressPageData codec
+                           (phUncompressedPageSize hdr) compBody
+                  let !n = fromIntegral (dphNumValues dph) :: Int
+                  pageVec <- decodeDataPage pp mDict (dphEncoding dph) n raw
+                  go nextOff mDict (ppAppend pp acc pageVec)
+                PtDataPageV2 dph2 -> do
+                  -- V2 page body is: rep_levels ++ def_levels ++ values.
+                  -- For required (max_def=0) flat columns the level
+                  -- streams are zero bytes. Skip them and decode the
+                  -- values section under the page's encoding.
+                  let !repLen = fromIntegral (dph2RepLevelsLen dph2) :: Int
+                      !defLen = fromIntegral (dph2DefLevelsLen dph2) :: Int
+                      !levelsLen = repLen + defLen
+                      !body = compBody
+                  if levelsLen > BS.length body
+                    then Left "Parquet.Read: V2 levels exceed body size"
+                    else do
+                      let !valuesSection = BS.drop levelsLen body
+                      values <- if dph2IsCompressed dph2
+                        then decompressPageData codec
+                               (phUncompressedPageSize hdr) valuesSection
+                        else Right valuesSection
+                      let !n = fromIntegral (dph2NumValues dph2) :: Int
+                      pageVec <-
+                        decodeDataPage pp mDict (dph2Encoding dph2) n values
+                      go nextOff mDict (ppAppend pp acc pageVec)
+                _ -> Left "Parquet.Read: expected DATA_PAGE / DATA_PAGE_V2 / DICTIONARY_PAGE"
+
+    decodeDataPage pp' mDict !enc !n !raw
+      | enc == encPlain = ppDecodePlain pp' n raw
+      | isDictionaryEncoding enc = case mDict of
+          Nothing ->
+            Left "Parquet.Read: RLE_DICTIONARY page before dictionary page"
+          Just dict -> do
+            indices <- decodeDictionaryIndices n raw
+            ppDecodeDictIndices pp' n raw dict indices
+      | otherwise = ppExtended pp' enc n raw
+
+-- ============================================================
+-- Per-physical-type dispatchers
+-- ============================================================
+
+dispatchInt32 :: PerPage (VP.Vector Int32)
+dispatchInt32 = PerPage
+  { ppDecodePlain  = decodePlainInt32
+  , ppDecodeDictIndices = \_n _raw dict indices -> dictLookupVP dict indices
+  , ppExtended = \enc n raw ->
+      if enc == encDeltaBinaryPacked
+        then decodeDeltaBinaryPackedInt32 n raw
+        else Left $ unsupportedEncoding "INT32" enc
+  , ppAppend = (VP.++)
+  , ppEmpty = VP.empty
+  }
+
+dispatchInt64 :: PerPage (VP.Vector Int64)
+dispatchInt64 = PerPage
+  { ppDecodePlain  = decodePlainInt64
+  , ppDecodeDictIndices = \_n _raw dict indices -> dictLookupVP dict indices
+  , ppExtended = \enc n raw ->
+      if enc == encDeltaBinaryPacked
+        then decodeDeltaBinaryPackedInt64 n raw
+        else Left $ unsupportedEncoding "INT64" enc
+  , ppAppend = (VP.++)
+  , ppEmpty = VP.empty
+  }
+
+dispatchFloat :: PerPage (VP.Vector Float)
+dispatchFloat = PerPage
+  { ppDecodePlain = decodePlainFloat
+  , ppDecodeDictIndices = \_n _raw dict indices -> dictLookupVP dict indices
+  , ppExtended = \enc n raw ->
+      if enc == encByteStreamSplit
+        then decodeByteStreamSplitFloat n raw
+        else Left $ unsupportedEncoding "FLOAT" enc
+  , ppAppend = (VP.++)
+  , ppEmpty = VP.empty
+  }
+
+dispatchDouble :: PerPage (VP.Vector Double)
+dispatchDouble = PerPage
+  { ppDecodePlain = decodePlainDouble
+  , ppDecodeDictIndices = \_n _raw dict indices -> dictLookupVP dict indices
+  , ppExtended = \enc n raw ->
+      if enc == encByteStreamSplit
+        then decodeByteStreamSplitDouble n raw
+        else Left $ unsupportedEncoding "DOUBLE" enc
+  , ppAppend = (VP.++)
+  , ppEmpty = VP.empty
+  }
+
+dispatchBool :: PerPage (V.Vector Bool)
+dispatchBool = PerPage
+  { ppDecodePlain = decodePlainBool
+  , ppDecodeDictIndices = \_n _raw _dict _ ->
+      -- BOOLEAN columns are never dictionary-encoded in practice
+      -- (the dictionary would have at most 2 entries).
+      Left "Parquet.Read: BOOLEAN unexpectedly dictionary-encoded"
+  , ppExtended = \enc _ _ ->
+      Left $ unsupportedEncoding "BOOLEAN" enc
+  , ppAppend = (V.++)
+  , ppEmpty = V.empty
+  }
+
+dispatchByteArray :: PerPage (V.Vector ByteString)
+dispatchByteArray = PerPage
+  { ppDecodePlain = decodePlainByteArray
+  , ppDecodeDictIndices = \_n _raw dict indices ->
+      dictLookupVBS dict indices
+  , ppExtended = \enc n raw ->
+      if enc == encDeltaLengthByteArray
+        then decodeDeltaLengthByteArray n raw
+        else if enc == encDeltaByteArray
+          then decodeDeltaByteArray n raw
+          else Left $ unsupportedEncoding "BYTE_ARRAY" enc
+  , ppAppend = (V.++)
+  , ppEmpty = V.empty
+  }
+
+dictLookupVP
+  :: VP.Prim a
+  => VP.Vector a -> VP.Vector Int32 -> Either String (VP.Vector a)
+dictLookupVP dict indices =
+  let !nD = VP.length dict
+      !ok = VP.foldl' (\a k -> a && let !j = fromIntegral k :: Int
+                                    in j >= 0 && j < nD) True indices
+  in if not ok
+       then Left "Parquet.Read: dictionary index out of range"
+       else Right $! VP.map (\k -> dict VP.! fromIntegral k) indices
+
+dictLookupVBS
+  :: V.Vector ByteString -> VP.Vector Int32 -> Either String (V.Vector ByteString)
+dictLookupVBS dict indices =
+  let !nD = V.length dict
+      !ok = VP.foldl' (\a k -> a && let !j = fromIntegral k :: Int
+                                    in j >= 0 && j < nD) True indices
+  in if not ok
+       then Left "Parquet.Read: dictionary index out of range"
+       else Right $! V.generate (VP.length indices)
+              (\i -> V.unsafeIndex dict (fromIntegral (VP.unsafeIndex indices i)))
+
+unsupportedEncoding :: String -> Int32 -> String
+unsupportedEncoding ty enc =
+  "Parquet.Read: " ++ ty ++ " column has unsupported encoding "
+    ++ show enc
+    ++ " (PLAIN=0, PLAIN_DICTIONARY=2, RLE_DICTIONARY=8, "
+    ++ "DELTA_BINARY_PACKED=5, DELTA_LENGTH_BYTE_ARRAY=6, "
+    ++ "DELTA_BYTE_ARRAY=7, BYTE_STREAM_SPLIT=9)"
+
+-- ============================================================
+-- Public generic readers (required)
+-- ============================================================
+
+readGenericInt32ColumnChunk :: Compression -> ByteString -> Either String (VP.Vector Int32)
+readGenericInt32ColumnChunk = genericReadColumnChunk dispatchInt32
+
+readGenericInt64ColumnChunk :: Compression -> ByteString -> Either String (VP.Vector Int64)
+readGenericInt64ColumnChunk = genericReadColumnChunk dispatchInt64
+
+readGenericFloatColumnChunk :: Compression -> ByteString -> Either String (VP.Vector Float)
+readGenericFloatColumnChunk = genericReadColumnChunk dispatchFloat
+
+readGenericDoubleColumnChunk :: Compression -> ByteString -> Either String (VP.Vector Double)
+readGenericDoubleColumnChunk = genericReadColumnChunk dispatchDouble
+
+readGenericBoolColumnChunk :: Compression -> ByteString -> Either String (V.Vector Bool)
+readGenericBoolColumnChunk = genericReadColumnChunk dispatchBool
+
+readGenericByteArrayColumnChunk :: Compression -> ByteString -> Either String (V.Vector ByteString)
+readGenericByteArrayColumnChunk = genericReadColumnChunk dispatchByteArray
+
+-- ============================================================
+-- Public generic readers (optional / nullable)
+-- ============================================================
+--
+-- For nullable columns the page body carries definition-level
+-- streams in addition to the values; the bridge currently keeps
+-- the existing 'readPlain*OptionalColumnChunk' paths for the V1
+-- + PLAIN case (which the wireform writer always produces) and
+-- falls back to the generic dispatcher for any non-PLAIN
+-- encoding the optional reader sees.
+--
+-- The generic optional path defers to the existing
+-- materializePlain* combinators after the level streams are
+-- parsed, so it inherits the same nullable-column shape.
+
+readGenericInt32OptionalColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (Maybe Int32))
+readGenericInt32OptionalColumnChunk =
+  readGenericOptionalColumnChunk dispatchInt32 vpToBoxed
+
+readGenericInt64OptionalColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (Maybe Int64))
+readGenericInt64OptionalColumnChunk =
+  readGenericOptionalColumnChunk dispatchInt64 vpToBoxed
+
+readGenericFloatOptionalColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (Maybe Float))
+readGenericFloatOptionalColumnChunk =
+  readGenericOptionalColumnChunk dispatchFloat vpToBoxed
+
+readGenericDoubleOptionalColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (Maybe Double))
+readGenericDoubleOptionalColumnChunk =
+  readGenericOptionalColumnChunk dispatchDouble vpToBoxed
+
+readGenericBoolOptionalColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (Maybe Bool))
+readGenericBoolOptionalColumnChunk =
+  readGenericOptionalColumnChunk dispatchBool id
+
+readGenericByteArrayOptionalColumnChunk
+  :: Compression -> Int -> Int -> ByteString
+  -> Either String (V.Vector (Maybe ByteString))
+readGenericByteArrayOptionalColumnChunk =
+  readGenericOptionalColumnChunk dispatchByteArray id
+
+-- | Walk every page in a column chunk and interleave a
+-- definition-level stream per page so the result is
+-- @V.Vector (Maybe a)@. Handles V1 and V2 pages and any of the
+-- encodings that the underlying 'PerPage' supports for the
+-- /defined/ values (PLAIN, dictionary, delta, byte-stream-split).
+readGenericOptionalColumnChunk
+  :: forall vec a.
+     PerPage vec
+  -> (vec -> V.Vector a)
+  -> Compression
+  -> Int  -- ^ max_repetition_level (typically 0 for flat)
+  -> Int  -- ^ max_definition_level (typically 1 for flat optional)
+  -> ByteString
+  -> Either String (V.Vector (Maybe a))
+readGenericOptionalColumnChunk pp toBoxed codec maxRep maxDef chunk0 =
+  go 0 Nothing V.empty
+  where
+    go !off !mDict !acc
+      | off >= BS.length chunk0 = Right acc
+      | otherwise = do
+          (hdr, afterHdr) <- readPageHeaderAt chunk0 off
+          compSz <- case phCompressedPageSize hdr of
+            Nothing -> Left "Parquet.Read: missing compressed_page_size"
+            Just s -> Right (fromIntegral s :: Int)
+          let !bodyStart = afterHdr
+          if bodyStart + compSz > BS.length chunk0
+            then Left "Parquet.Read: truncated page body"
+            else do
+              let !compBody = BS.take compSz (BS.drop bodyStart chunk0)
+                  !nextOff = bodyStart + compSz
+              case phType hdr of
+                PtDictionaryPage dk
+                  | dictEncoding dk /= encPlain ->
+                      Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                  | otherwise -> do
+                      raw <- decompressPageData codec
+                               (phUncompressedPageSize hdr) compBody
+                      let !nDict = fromIntegral (dictNumValues dk) :: Int
+                      dict <- ppDecodePlain pp nDict raw
+                      go nextOff (Just dict) acc
+                PtDataPage dph -> do
+                  raw <- decompressPageData codec
+                           (phUncompressedPageSize hdr) compBody
+                  let !nVals = fromIntegral (dphNumValues dph) :: Int
+                  (_rep, def, valBytes) <-
+                    parseDataPageV1Levels maxRep maxDef nVals raw
+                  page <- materialiseOptionalPage pp toBoxed mDict
+                            (dphEncoding dph) maxDef def valBytes
+                  go nextOff mDict (acc V.++ page)
+                PtDataPageV2 dph2 -> do
+                  let !repLen = fromIntegral (dph2RepLevelsLen dph2) :: Int
+                      !defLen = fromIntegral (dph2DefLevelsLen dph2) :: Int
+                      !levelsLen = repLen + defLen
+                      !body = compBody
+                  if levelsLen > BS.length body
+                    then Left "Parquet.Read: V2 levels exceed body size"
+                    else do
+                      let !defBs = BS.take defLen (BS.drop repLen body)
+                          !valuesSection = BS.drop levelsLen body
+                          !nVals = fromIntegral (dph2NumValues dph2) :: Int
+                          !bwDef = levelBitWidth maxDef
+                      values <- if dph2IsCompressed dph2
+                        then decompressPageData codec
+                               (phUncompressedPageSize hdr) valuesSection
+                        else Right valuesSection
+                      def <- if defLen == 0
+                        then Right (VP.replicate nVals 0)
+                        else decodeHybridRleUnsigned32 bwDef nVals defBs
+                      page <- materialiseOptionalPage pp toBoxed mDict
+                                (dph2Encoding dph2) maxDef def values
+                      go nextOff mDict (acc V.++ page)
+                _ -> Left "Parquet.Read: expected DATA_PAGE / DATA_PAGE_V2 / DICTIONARY_PAGE"
+
+-- | Decode a /defined/ values block in any encoding the
+-- 'PerPage' supports, then interleave with the definition-level
+-- vector to produce a @V.Vector (Maybe a)@.
+materialiseOptionalPage
+  :: PerPage vec
+  -> (vec -> V.Vector a)
+  -> Maybe vec
+  -> Int32
+  -> Int
+  -> VP.Vector Int32
+  -> ByteString
+  -> Either String (V.Vector (Maybe a))
+materialiseOptionalPage pp toBoxed mDict !enc !maxDef !def !valBytes = do
+  let !maxD = fromIntegral maxDef :: Int32
+      !nDef = VP.foldl' (\a d -> if d == maxD then a + 1 else a) 0 def
+  defined <-
+    if enc == encPlain
+      then ppDecodePlain pp nDef valBytes
+      else if isDictionaryEncoding enc
+        then case mDict of
+          Nothing ->
+            Left "Parquet.Read: RLE_DICTIONARY page before dictionary page"
+          Just dict -> do
+            indices <- decodeDictionaryIndices nDef valBytes
+            ppDecodeDictIndices pp nDef valBytes dict indices
+        else ppExtended pp enc nDef valBytes
+  let !definedBoxed = toBoxed defined
+  Right $! interleaveDefined def maxD definedBoxed
+
+-- | Convert a 'VP.Vector' to a 'V.Vector' via 'VP.convert'.
+vpToBoxed :: VP.Prim a => VP.Vector a -> V.Vector a
+vpToBoxed = VP.convert
+
+interleaveDefined :: VP.Vector Int32 -> Int32 -> V.Vector a -> V.Vector (Maybe a)
+interleaveDefined def maxD defined = runST $ do
+  let !n = VP.length def
+  v <- VM.unsafeNew n
+  let go !i !j
+        | i >= n = pure ()
+        | VP.unsafeIndex def i == maxD = do
+            VM.unsafeWrite v i (Just (V.unsafeIndex defined j))
+            go (i + 1) (j + 1)
+        | otherwise = do
+            VM.unsafeWrite v i Nothing
+            go (i + 1) j
+  go 0 0
+  V.unsafeFreeze v

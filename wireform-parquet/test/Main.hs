@@ -31,7 +31,8 @@ import Parquet.Delta
   , decodeDeltaLengthByteArray
   )
 import Parquet.DeltaEncode
-  ( encodeDeltaBinaryPackedInt64
+  ( encodeDeltaBinaryPackedInt32
+  , encodeDeltaBinaryPackedInt64
   , encodeDeltaByteArray
   , encodeDeltaLengthByteArray
   )
@@ -51,7 +52,8 @@ import Parquet.Read
   )
 import Parquet.Types
 import Parquet.Page
-  ( DataPageHeaderV2 (..)
+  ( DataPageHeader (..)
+  , DataPageHeaderV2 (..)
   , PageHeader (..)
   , PageType (..)
   , readPageHeaderAt
@@ -77,6 +79,7 @@ import Parquet.Write
   , encodeDictDataPage
   , encodeDictPage
   , encodeOptionalColumnPage
+  , encodePageHeader
   , encryptAuxModule
   , encryptPageBytes
   , encryptPageBytesV2
@@ -865,6 +868,9 @@ main = do
   -- LogicalType round-trip
   logicalTypeRoundTrip
 
+  -- Generic per-page dispatch (DELTA, BYTE_STREAM_SPLIT, V2)
+  genericPageDispatch
+
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
 -- ============================================================
@@ -1014,6 +1020,113 @@ logicalTypeRoundTrip = do
       flip mapM_ (zip cases recovered) $ \((nm, _, expected), got) -> do
         expect ("LogicalType " ++ T.unpack nm ++ " round-trip")
                (seLogicalType got == expected)
+
+-- | Synthesize column chunks that exercise encoding paths the
+-- wireform writer doesn't naturally produce — DELTA_BINARY_PACKED
+-- INT32, BYTE_STREAM_SPLIT FLOAT, DELTA_BYTE_ARRAY and
+-- DATA_PAGE_V2 — and round-trip them through the generic chunk
+-- readers.
+genericPageDispatch :: IO ()
+genericPageDispatch = do
+  -- DELTA_BINARY_PACKED INT32 in a DATA_PAGE V1.
+  do
+    let !values = VP.fromList ([10, 20, 30, 40, 50] :: [Int32])
+        !payload = encodeDeltaBinaryPackedInt32 values
+        !numVals = VP.length values
+        !hdr = PageHeader
+          { phType = PtDataPage
+              (DataPageHeader { dphNumValues = fromIntegral numVals
+                              , dphEncoding  = 5  -- DELTA_BINARY_PACKED
+                              })
+          , phUncompressedPageSize = Just (fromIntegral (BS.length payload))
+          , phCompressedPageSize   = Just (fromIntegral (BS.length payload))
+          }
+        !chunk = encodePageHeader hdr <> payload
+    case Parquet.Read.readGenericInt32ColumnChunk Uncompressed chunk of
+      Right v | VP.toList v == VP.toList values ->
+        putStrLn "OK: generic INT32 dispatch handles DELTA_BINARY_PACKED"
+      Right v -> failTest $ "DELTA_BINARY_PACKED Int32 mismatch: got "
+                            ++ show (VP.toList v)
+      Left e  -> failTest $ "DELTA_BINARY_PACKED Int32: " ++ e
+
+  -- BYTE_STREAM_SPLIT FLOAT in DATA_PAGE V1.
+  do
+    let !values = VP.fromList ([1.0, -2.5, 3.14, 99.9] :: [Float])
+        !payload = encodeByteStreamSplitFloat values
+        !hdr = PageHeader
+          { phType = PtDataPage
+              (DataPageHeader { dphNumValues = fromIntegral (VP.length values)
+                              , dphEncoding  = 9  -- BYTE_STREAM_SPLIT
+                              })
+          , phUncompressedPageSize = Just (fromIntegral (BS.length payload))
+          , phCompressedPageSize   = Just (fromIntegral (BS.length payload))
+          }
+        !chunk = encodePageHeader hdr <> payload
+    case Parquet.Read.readGenericFloatColumnChunk Uncompressed chunk of
+      Right v | VP.toList v == VP.toList values ->
+        putStrLn "OK: generic FLOAT dispatch handles BYTE_STREAM_SPLIT"
+      Right v -> failTest $ "BYTE_STREAM_SPLIT Float mismatch: got "
+                            ++ show (VP.toList v)
+      Left e  -> failTest $ "BYTE_STREAM_SPLIT Float: " ++ e
+
+  -- DELTA_BYTE_ARRAY for BYTE_ARRAY in DATA_PAGE V1.
+  do
+    let !values = V.fromList
+          [ BSC.pack "alpha"
+          , BSC.pack "alphanumeric"
+          , BSC.pack "alphabet"
+          ]
+        !payload = encodeDeltaByteArray values
+        !hdr = PageHeader
+          { phType = PtDataPage
+              (DataPageHeader { dphNumValues = fromIntegral (V.length values)
+                              , dphEncoding  = 7  -- DELTA_BYTE_ARRAY
+                              })
+          , phUncompressedPageSize = Just (fromIntegral (BS.length payload))
+          , phCompressedPageSize   = Just (fromIntegral (BS.length payload))
+          }
+        !chunk = encodePageHeader hdr <> payload
+    case Parquet.Read.readGenericByteArrayColumnChunk Uncompressed chunk of
+      Right v | V.toList v == V.toList values ->
+        putStrLn "OK: generic BYTE_ARRAY dispatch handles DELTA_BYTE_ARRAY"
+      Right v -> failTest $ "DELTA_BYTE_ARRAY mismatch: got "
+                            ++ show (V.toList v)
+      Left e  -> failTest $ "DELTA_BYTE_ARRAY: " ++ e
+
+  -- PLAIN INT64 wrapped in a DATA_PAGE_V2 (no level streams,
+  -- uncompressed). This exercises the V2 page header dispatch.
+  do
+    let !values = VP.fromList ([100, 200, 300] :: [Int64])
+        !payload = mconcat
+          [ BS.pack
+              [ fromIntegral (v `mod` 256)
+              , fromIntegral ((v `div` 256) `mod` 256)
+              , fromIntegral ((v `div` 65536) `mod` 256)
+              , 0, 0, 0, 0, 0
+              ]
+          | v <- VP.toList values
+          ]
+        !hdr = PageHeader
+          { phType = PtDataPageV2
+              DataPageHeaderV2
+                { dph2NumValues    = fromIntegral (VP.length values)
+                , dph2NumNulls     = 0
+                , dph2NumRows      = fromIntegral (VP.length values)
+                , dph2Encoding     = 0  -- PLAIN
+                , dph2DefLevelsLen = 0
+                , dph2RepLevelsLen = 0
+                , dph2IsCompressed = False
+                }
+          , phUncompressedPageSize = Just (fromIntegral (BS.length payload))
+          , phCompressedPageSize   = Just (fromIntegral (BS.length payload))
+          }
+        !chunk = encodePageHeader hdr <> payload
+    case Parquet.Read.readGenericInt64ColumnChunk Uncompressed chunk of
+      Right v | VP.toList v == VP.toList values ->
+        putStrLn "OK: generic INT64 dispatch handles DATA_PAGE_V2"
+      Right v -> failTest $ "DATA_PAGE_V2 Int64 mismatch: got "
+                            ++ show (VP.toList v)
+      Left e  -> failTest $ "DATA_PAGE_V2 Int64: " ++ e
 
 predicateBloomSkipping :: IO ()
 predicateBloomSkipping = do

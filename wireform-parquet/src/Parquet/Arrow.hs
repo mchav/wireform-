@@ -505,37 +505,41 @@ readParquetColumn pf rgIdx colIdx fld = do
   chunk <- PR.columnChunkSlice pf rgIdx colIdx
   let !codec = chunkCodec pf rgIdx colIdx
       !nullable = AT.fieldNullable fld
+  -- Use the generic per-page dispatchers throughout: they handle
+  -- every encoding the spec defines for the matching physical
+  -- type (PLAIN, dictionary, DELTA_*, BYTE_STREAM_SPLIT) and
+  -- both DATA_PAGE and DATA_PAGE_V2.
   case AT.fieldType fld of
     -- Non-nullable primitives.
     AT.AInt 32 True | not nullable ->
-      AC.ColInt32   <$> PR.readPlainInt32ColumnChunk codec chunk
+      AC.ColInt32   <$> PR.readGenericInt32ColumnChunk codec chunk
     AT.AInt 64 True | not nullable ->
-      AC.ColInt64   <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColInt64   <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.AFloatingPoint AT.Single | not nullable ->
-      AC.ColFloat   <$> PR.readPlainFloatColumnChunk codec chunk
+      AC.ColFloat   <$> PR.readGenericFloatColumnChunk codec chunk
     AT.AFloatingPoint AT.DoublePrecision | not nullable ->
-      AC.ColDouble  <$> PR.readPlainDoubleColumnChunk codec chunk
+      AC.ColDouble  <$> PR.readGenericDoubleColumnChunk codec chunk
     AT.ABool | not nullable ->
-      AC.ColBool    <$> PR.readPlainBoolColumnChunk codec chunk
+      AC.ColBool    <$> PR.readGenericBoolColumnChunk codec chunk
     AT.AUtf8 | not nullable -> do
-      bs <- PR.readPlainByteArrayColumnChunk codec chunk
+      bs <- PR.readGenericByteArrayColumnChunk codec chunk
       Right $ AC.ColUtf8 (V.map decodeUtf8Lossy bs)
     AT.ABinary | not nullable ->
-      AC.ColBinary  <$> PR.readPlainByteArrayColumnChunk codec chunk
+      AC.ColBinary  <$> PR.readGenericByteArrayColumnChunk codec chunk
     -- Temporal non-nullable: read the underlying int stream and
     -- cast to the Arrow column flavour.
     AT.ADate AT.DateDay | not nullable ->
-      AC.ColDate32 <$> PR.readPlainInt32ColumnChunk codec chunk
+      AC.ColDate32 <$> PR.readGenericInt32ColumnChunk codec chunk
     AT.ADate AT.DateMillisecond | not nullable ->
-      AC.ColDate64 <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColDate64 <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.ATime _ 32 | not nullable ->
-      AC.ColTime32 <$> PR.readPlainInt32ColumnChunk codec chunk
+      AC.ColTime32 <$> PR.readGenericInt32ColumnChunk codec chunk
     AT.ATime _ 64 | not nullable ->
-      AC.ColTime64 <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColTime64 <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.ATimestamp _ _ | not nullable ->
-      AC.ColTimestamp <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColTimestamp <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.ADuration _ | not nullable ->
-      AC.ColDuration <$> PR.readPlainInt64ColumnChunk codec chunk
+      AC.ColDuration <$> PR.readGenericInt64ColumnChunk codec chunk
 
     -- Nullable primitives + temporals. The @*Optional@ readers
     -- take (max_repetition_level, max_definition_level); for a
@@ -543,32 +547,32 @@ readParquetColumn pf rgIdx colIdx fld = do
     -- doesn't currently emit nested-optional columns through
     -- this path, so we hardcode the flat-optional pair.
     AT.AInt 32 True | nullable ->
-      AC.ColInt32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+      AC.ColInt32Maybe <$> PR.readGenericInt32OptionalColumnChunk codec 0 1 chunk
     AT.AInt 64 True | nullable ->
-      AC.ColInt64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColInt64Maybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
     AT.AFloatingPoint AT.Single | nullable ->
-      AC.ColFloatMaybe <$> PR.readPlainFloatOptionalColumnChunk codec 0 1 chunk
+      AC.ColFloatMaybe <$> PR.readGenericFloatOptionalColumnChunk codec 0 1 chunk
     AT.AFloatingPoint AT.DoublePrecision | nullable ->
-      AC.ColDoubleMaybe <$> PR.readPlainDoubleOptionalColumnChunk codec 0 1 chunk
+      AC.ColDoubleMaybe <$> PR.readGenericDoubleOptionalColumnChunk codec 0 1 chunk
     AT.ABool | nullable ->
-      AC.ColBoolMaybe <$> PR.readPlainBoolOptionalColumnChunk codec 0 1 chunk
+      AC.ColBoolMaybe <$> PR.readGenericBoolOptionalColumnChunk codec 0 1 chunk
     AT.AUtf8 | nullable -> do
-      bs <- PR.readPlainByteArrayOptionalColumnChunk codec 0 1 chunk
+      bs <- PR.readGenericByteArrayOptionalColumnChunk codec 0 1 chunk
       Right $ AC.ColUtf8Maybe (V.map (fmap decodeUtf8Lossy) bs)
     AT.ABinary | nullable ->
-      AC.ColBinaryMaybe <$> PR.readPlainByteArrayOptionalColumnChunk codec 0 1 chunk
+      AC.ColBinaryMaybe <$> PR.readGenericByteArrayOptionalColumnChunk codec 0 1 chunk
     AT.ADate AT.DateDay | nullable ->
-      AC.ColDate32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+      AC.ColDate32Maybe <$> PR.readGenericInt32OptionalColumnChunk codec 0 1 chunk
     AT.ADate AT.DateMillisecond | nullable ->
-      AC.ColDate64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColDate64Maybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
     AT.ATime _ 32 | nullable ->
-      AC.ColTime32Maybe <$> PR.readPlainInt32OptionalColumnChunk codec 0 1 chunk
+      AC.ColTime32Maybe <$> PR.readGenericInt32OptionalColumnChunk codec 0 1 chunk
     AT.ATime _ 64 | nullable ->
-      AC.ColTime64Maybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColTime64Maybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
     AT.ATimestamp _ _ | nullable ->
-      AC.ColTimestampMaybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColTimestampMaybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
     AT.ADuration _ | nullable ->
-      AC.ColDurationMaybe <$> PR.readPlainInt64OptionalColumnChunk codec 0 1 chunk
+      AC.ColDurationMaybe <$> PR.readGenericInt64OptionalColumnChunk codec 0 1 chunk
 
     other ->
       Left $ "Parquet.Arrow: column type "
