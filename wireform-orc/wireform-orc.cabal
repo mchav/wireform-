@@ -37,6 +37,7 @@ library
     ORC.Proto.Schema
     ORC.Read
     ORC.RowIndex
+    ORC.Statistics
     ORC.Stripe
     ORC.Types
     ORC.Write

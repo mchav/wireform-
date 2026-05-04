@@ -24,6 +24,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 
 import ORC.Footer (encodeColStats, decodeColStats)
+import qualified ORC.Statistics as Stats
 import ORC.Read
   ( ORCTimestamp (..)
   , decodeDateColumn
@@ -253,6 +254,36 @@ main = do
   expect "RowIndex non-empty"   (BS.length idx > 0)
   expect "RowIndex starts with field-1 length-delimited tag"
     (BS.head idx == 0x0A)
+  -- ORC.Statistics: predicate evaluator using the new sub-stats.
+  do
+    let !names = V.fromList ["n", "name"]
+        !stats = V.fromList
+          [ ColumnStatistics (Just 5) (Just False) (Just 40)
+              (Just (SkInt (IntegerStatistics (Just 10) (Just 50) (Just 150))))
+          , ColumnStatistics (Just 5) (Just False) Nothing
+              (Just (SkString (StringStatistics
+                                 (Just (T.pack "alpha"))
+                                 (Just (T.pack "delta"))
+                                 (Just 30)
+                                 (Just (T.pack "alpha"))
+                                 (Just (T.pack "delta")))))
+          ]
+        !pInRange  = Stats.PCol "n" (Stats.PEq (Stats.PVInt64 25))
+        !pBelow    = Stats.PCol "n" (Stats.PEq (Stats.PVInt64 5))
+        !pAbove    = Stats.PCol "n" (Stats.PEq (Stats.PVInt64 100))
+        !pStrIn    = Stats.PCol "name" (Stats.PEq (Stats.PVText (T.pack "beta")))
+        !pStrAfter = Stats.PCol "name" (Stats.PEq (Stats.PVText (T.pack "zeta")))
+    expect "ORC.Statistics: PEq inside int range -> MaybeKeep"
+      (Stats.evalStripe names stats pInRange == Stats.PMaybeKeep)
+    expect "ORC.Statistics: PEq below int min -> Skip"
+      (Stats.evalStripe names stats pBelow == Stats.PSkip)
+    expect "ORC.Statistics: PEq above int max -> Skip"
+      (Stats.evalStripe names stats pAbove == Stats.PSkip)
+    expect "ORC.Statistics: PEq inside string range -> MaybeKeep"
+      (Stats.evalStripe names stats pStrIn == Stats.PMaybeKeep)
+    expect "ORC.Statistics: PEq above string max -> Skip"
+      (Stats.evalStripe names stats pStrAfter == Stats.PSkip)
+
   -- ColumnStatistics round-trip: cover the int / double /
   -- string / date / timestamp / decimal / binary / bucket
   -- variants that the new ColumnStatistics decoder handles.

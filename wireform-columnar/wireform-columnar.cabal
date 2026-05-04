@@ -28,6 +28,7 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    Columnar.Predicate
     Columnar.SIMD
     Columnar.Stream
   c-sources: cbits/columnar_simd.c
@@ -36,5 +37,6 @@ library
   build-depends:
     base >= 4.16 && < 5,
     bytestring >= 0.11 && < 0.13,
+    text >= 2.0 && < 2.2,
     vector >= 0.13 && < 0.14,
     primitive >= 0.7 && < 0.10

@@ -39,6 +39,10 @@
 -- decoding the column chunk normally.
 module Parquet.Predicate
   ( -- * Predicate vocabulary
+    --
+    -- | Re-exported from "Columnar.Predicate" so the same
+    -- @PValue@ / @PColPredicate@ / @Predicate@ surface drives
+    -- skip decisions in both Parquet and ORC.
     Predicate (..)
   , PColPredicate (..)
   , PValue (..)
@@ -56,6 +60,18 @@ module Parquet.Predicate
   , decodePValueLE
   ) where
 
+import Columnar.Predicate
+  ( Decision (..)
+  , PColPredicate (..)
+  , PValue (..)
+  , Predicate (..)
+  , combineDecisions
+  , evalRange
+  , pvLess
+  , pvLessEq
+  , pvEq
+  )
+
 import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -68,75 +84,6 @@ import GHC.Float (castFloatToWord32, castDoubleToWord64, castWord32ToFloat, cast
 
 import qualified Parquet.BloomFilter as Bloom
 import qualified Parquet.Types as P
-
--- ============================================================
--- Predicate vocabulary
--- ============================================================
-
--- | A typed scalar that can appear in a predicate. Mirrors the
--- subset of Parquet physical types the writer's
--- 'Parquet.Write.statisticsFor*' helpers cover.
-data PValue
-  = PVInt32  !Int32
-  | PVInt64  !Int64
-  | PVFloat  !Float
-  | PVDouble !Double
-  | PVBool   !Bool
-  | PVText   !Text
-  | PVBinary !ByteString
-  deriving (Show, Eq)
-
--- | Per-column predicate (the leaf node of 'Predicate').
-data PColPredicate
-  = PEq    !PValue
-  | PNeq   !PValue
-  | PLt    !PValue
-  | PLtEq  !PValue
-  | PGt    !PValue
-  | PGtEq  !PValue
-  | PIn    ![PValue]
-    -- ^ Membership in a (small) literal set. Treated as an OR
-    -- of 'PEq' for stats-based skipping; consumed directly by
-    -- 'evalBloomChunk'.
-  | PIsNull
-  | PIsNotNull
-  deriving (Show, Eq)
-
--- | Tree of column predicates with boolean structure. The
--- evaluator pushes 'PAnd' to product and 'POr' to sum
--- pessimistically (so the answer is always a sound /super/-set
--- of the true-row predicate's answer).
-data Predicate
-  = PCol  !Text !PColPredicate
-  | PAnd  !Predicate !Predicate
-  | POr   !Predicate !Predicate
-  | PNot  !Predicate
-  | PTrue
-  | PFalse
-  deriving (Show, Eq)
-
--- ============================================================
--- Decision
--- ============================================================
-
--- | Skipping decision for one row group / page / column chunk.
---
--- 'PSkip' means "no row in this slice can satisfy the
--- predicate; you may skip it without decoding". 'PMaybeKeep'
--- means "we can't prove it's safe to skip; you must decode".
--- The evaluator never produces 'PSkip' with false negatives.
-data Decision
-  = PSkip
-  | PMaybeKeep
-  deriving (Show, Eq)
-
--- | AND-combine two decisions: "if /either/ sub-predicate
--- proves the slice can be skipped, the conjunction can too".
--- Used internally by 'PAnd'.
-combineDecisions :: Decision -> Decision -> Decision
-combineDecisions PSkip _    = PSkip
-combineDecisions _    PSkip = PSkip
-combineDecisions _    _     = PMaybeKeep
 
 -- ============================================================
 -- Statistics-based skipping
@@ -240,44 +187,6 @@ evalLeaf ty stats cp =
   case (statMinPV ty stats, statMaxPV ty stats) of
     (Just mn, Just mx) -> evalRange mn mx cp
     _                  -> PMaybeKeep
-
-evalRange :: PValue -> PValue -> PColPredicate -> Decision
-evalRange mn mx = \case
-  PEq v          -> if pvLess v mn || pvLess mx v then PSkip else PMaybeKeep
-  PNeq _         -> PMaybeKeep
-  PLt v          -> if pvLessEq v mn  then PSkip else PMaybeKeep
-  PLtEq v        -> if pvLess v mn    then PSkip else PMaybeKeep
-  PGt v          -> if pvLessEq mx v  then PSkip else PMaybeKeep
-  PGtEq v        -> if pvLess mx v    then PSkip else PMaybeKeep
-  PIn vs         ->
-    -- Skip iff every candidate is outside [mn, mx].
-    if all (\v -> pvLess v mn || pvLess mx v) vs
-      then PSkip
-      else PMaybeKeep
-  PIsNull        -> PMaybeKeep
-  PIsNotNull     -> PMaybeKeep
-
--- | Strict @PValue@ ordering. Falls back to 'False' when the
--- two sides have incompatible constructors (the conservative
--- "we don't know" answer that propagates as 'PMaybeKeep' up
--- the call chain).
-pvLess :: PValue -> PValue -> Bool
-pvLess (PVInt32  a) (PVInt32  b) = a < b
-pvLess (PVInt64  a) (PVInt64  b) = a < b
-pvLess (PVFloat  a) (PVFloat  b) = a < b
-pvLess (PVDouble a) (PVDouble b) = a < b
-pvLess (PVBool   a) (PVBool   b) = (not a) && b
-pvLess (PVText   a) (PVText   b) = TE.encodeUtf8 a < TE.encodeUtf8 b
-pvLess (PVBinary a) (PVBinary b) = a < b
--- Cross-type comparisons (predicate-Int32 vs stats-Int64 etc.)
--- could be added; for now conservatively report "incomparable".
-pvLess _ _                       = False
-
-pvLessEq :: PValue -> PValue -> Bool
-pvLessEq a b = pvLess a b || pvEq a b
-
-pvEq :: PValue -> PValue -> Bool
-pvEq a b = not (pvLess a b) && not (pvLess b a)
 
 -- ============================================================
 -- Min / max decoding
