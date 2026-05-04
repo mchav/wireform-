@@ -79,6 +79,59 @@ drift from what the code generator produces and mask codegen bugs.
 - Property-based tests via Hedgehog. Do not test things inherent to
   the language (e.g. setting a record field and reading it back).
 
+## Toolchain
+
+CI builds against GHC `9.6.4` and `9.8.4` (see
+`.github/workflows/ci.yml`). When working from a fresh VM that
+doesn't already have the Haskell toolchain installed:
+
+- **Apt packages** (Ubuntu 24.04, root):
+  ```
+  apt-get install -y build-essential libgmp-dev libffi-dev libffi8 \
+    libncurses-dev libtinfo6 zlib1g-dev libnuma-dev xz-utils \
+    protobuf-compiler
+  ```
+- **Haskell toolchain via ghcup**:
+  ```
+  curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | \
+    BOOTSTRAP_HASKELL_NONINTERACTIVE=1 sh
+  source /root/.ghcup/env
+  ghcup install ghc 9.6.4 --set
+  ghcup install cabal 3.10.3.0 --set
+  cabal update
+  ```
+- **Cross-language interop tests** (optional): `pip3 install pyarrow`
+  for the pyarrow round-trip suites in `wireform-parquet/test/Main.hs`,
+  and `pip3 install protobuf` for `python-interop`.
+- **First build is slow.** `cabal build all` rebuilds the whole
+  workspace (~12 min on a 2-core VM) plus the Hackage dep
+  closure; subsequent builds reuse `~/.cabal/store`. Use
+  `cabal build all -j2 --ghc-options="-j2"` on small VMs.
+
+If you find yourself running this often, propose an env-setup
+agent at <https://cursor.com/onboard> so the cloud-agent base
+image bakes the toolchain in.
+
+### Cabal flags worth knowing
+
+The repo opts into a few heavyweight optional dep trees behind
+flags so the default `cabal build all` stays lean:
+
+| Flag                  | Pulls in                              | Used by                                |
+| --------------------- | ------------------------------------- | -------------------------------------- |
+| `+python-interop`     | `process` + a python3 runtime         | `python-interop` test-suite            |
+| `+dataframe-bridge`   | `dataframe` (and its cassava/regex/zstd/zlib/granite/vector-algorithms tree) | `example-dataframe-bridge` exe         |
+| `+snappy`             | `snappy-c`                            | Avro container files                   |
+| `+zstd`               | `libzstd`                             | Parquet ZSTD column chunks, Arrow      |
+| `+lz4`                | `liblz4`                              | Parquet LZ4_RAW column chunks, Arrow   |
+| `+rest-client`        | `http-client` etc.                    | `Iceberg.Catalog.REST.Client`          |
+| `+brotli`             | `libbrotli`                           | Parquet Brotli codec                   |
+| `+profile`            | (none)                                | `profile-rewriter` cost-centre build   |
+
+When adding a new optional dependency that has a heavy or
+flaky-to-install transitive closure, add it behind a Cabal flag
+the same way (default `False`, `manual: True`).
+
 ## Module layout
 
 The repo is a monorepo: one umbrella package `wireform` plus 26
