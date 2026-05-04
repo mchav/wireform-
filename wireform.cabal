@@ -67,6 +67,18 @@ flag profile
   manual: True
   default: False
 
+flag dataframe-bridge
+  description: Build the example-dataframe-bridge executable, which
+               writes a Parquet file with wireform-parquet and reads
+               it back through the dataframe library
+               (https://hackage.haskell.org/package/dataframe). The
+               dataframe dep tree is large (cassava, attoparsec,
+               regex-tdfa, snappy-hs, zstd, zlib, granite,
+               vector-algorithms, ...), so it is opt-in to keep the
+               default `cabal build all` lean.
+  manual: True
+  default: False
+
 common defaults
   ghc-options:
     -Wall
@@ -408,7 +420,7 @@ test-suite html-rewriter-test
 test-suite python-interop
   import: defaults
   type: exitcode-stdio-1.0
-  main-is: Main.hs
+  main-is: PythonProtoInterop.hs
   other-modules: InteropTypes
   if !flag(python-interop)
     buildable: False
@@ -420,12 +432,14 @@ test-suite python-interop
     , vector
     , containers
     , deepseq
+    , directory
+    , filepath
     , process          >= 1.6  && < 1.8
     , hedgehog         >= 1.0  && < 1.5
     , tasty            >= 1.4  && < 1.6
     , tasty-hedgehog   >= 1.0  && < 1.5
     , tasty-hunit      >= 0.10 && < 0.11
-  hs-source-dirs: interop-test
+  hs-source-dirs: test-interop
 
 test-suite temporal-codegen-test
   import: defaults
@@ -794,6 +808,27 @@ executable example-xml
   main-is: XMLExample.hs
   hs-source-dirs: examples
   build-depends: base, wireform-xml, bytestring, text
+
+-- Cross-library bridge: write a Parquet file with wireform-parquet,
+-- read it back with the dataframe library, run aggregations.
+-- Behind the +dataframe-bridge flag because the dataframe dep tree
+-- is large.
+executable example-dataframe-bridge
+  import: defaults
+  main-is: DataFrameBridge.hs
+  hs-source-dirs: examples
+  if !flag(dataframe-bridge)
+    buildable: False
+  build-depends:
+      base
+    , wireform-parquet
+    , bytestring
+    , text
+    , vector
+    , directory
+    , filepath
+    , temporary           >= 1.3 && < 2
+    , dataframe           >= 1.0 && < 2
 
 -- Standalone bench executables
 executable wireform-bench

@@ -134,6 +134,8 @@ module Parquet.Thrift.Schema
     -- * DataPageHeader
   , pattern DataPageHeader_NumValues
   , pattern DataPageHeader_Encoding
+  , pattern DataPageHeader_DefinitionLevelEncoding
+  , pattern DataPageHeader_RepetitionLevelEncoding
     -- * DictionaryPageHeader
   , pattern DictionaryPageHeader_NumValues
   , pattern DictionaryPageHeader_Encoding
@@ -236,8 +238,12 @@ pattern FileMetadata_RowGroups :: Vector TV.Value -> (Int16, TV.Value)
 pattern FileMetadata_RowGroups elems <- (4, TV.List _ elems)
   where FileMetadata_RowGroups elems = (4, TV.List TT_STRUCT elems)
 
+-- | @FileMetaData.created_by@ is field id 6 in the official
+-- parquet.thrift; field id 5 is reserved for
+-- @key_value_metadata@. Strict readers (pyarrow, the dataframe
+-- library, parquet-mr's footer parser) raise on the wrong slot.
 pattern FileMetadata_CreatedBy :: Text -> (Int16, TV.Value)
-pattern FileMetadata_CreatedBy t = (5, TV.String t)
+pattern FileMetadata_CreatedBy t = (6, TV.String t)
 
 -- ============================================================
 -- SchemaElement
@@ -396,6 +402,18 @@ pattern DataPageHeader_NumValues v = (1, TV.I32 v)
 
 pattern DataPageHeader_Encoding :: Int32 -> (Int16, TV.Value)
 pattern DataPageHeader_Encoding v = (2, TV.I32 v)
+
+-- | Field 3 (@definition_level_encoding@) and field 4
+-- (@repetition_level_encoding@) are both marked /required/ in
+-- parquet.thrift's @DataPageHeader@. For max-def-level-0 columns
+-- the encoded level data is zero bytes regardless, but strict
+-- readers (pyarrow, parquet-mr, the dataframe library) still
+-- require the fields to be present in the page header.
+pattern DataPageHeader_DefinitionLevelEncoding :: Int32 -> (Int16, TV.Value)
+pattern DataPageHeader_DefinitionLevelEncoding v = (3, TV.I32 v)
+
+pattern DataPageHeader_RepetitionLevelEncoding :: Int32 -> (Int16, TV.Value)
+pattern DataPageHeader_RepetitionLevelEncoding v = (4, TV.I32 v)
 
 -- ============================================================
 -- DictionaryPageHeader

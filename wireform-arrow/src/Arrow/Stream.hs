@@ -256,11 +256,11 @@ decodeArrowFile bs = do
 -- is @id@-ascending so any record batch referencing a dict id
 -- finds it already declared.
 --
--- This produces a flat @(dicts, batchPairs)@ pair that the
--- lower-level 'writeArrowStreamFBWithDicts' consumes; it assumes
--- all dicts are emitted once up front. For the
--- 'DictReplaceOnChange' strategy the emission is interleaved —
--- see 'compileBatchesInterleaved' below.
+-- Produces a flat @(dicts, batchPairs)@ pair that the lower-level
+-- 'writeArrowStreamFBWithDicts' consumes; it assumes all dicts are
+-- emitted once up front. For the 'DictReplaceOnChange' strategy
+-- the emission is interleaved — see 'compileBatchesInterleaved'
+-- below.
 compileBatchesWith
   :: WriteOptions
   -> Schema
@@ -609,4 +609,3 @@ streamReaderToList rd0 = go rd0 []
       Left e                      -> Left e
       Right Nothing               -> Right (reverse acc)
       Right (Just (cols, rd'))    -> go rd' (cols : acc)
-

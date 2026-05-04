@@ -909,4 +909,3 @@ temporalToArrow ty nullable xs = case (ty, nullable) of
   where
     narrow32 :: Int64 -> Int32
     narrow32 = fromIntegral
-

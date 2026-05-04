@@ -37,9 +37,6 @@ generateCapnProtoTypesWithRegistry reg schema =
   let decls = concatMap (genDeclWithRegistry reg) (V.toList (csDecls schema))
   in T.intercalate "\n\n" decls
 
-genDecl :: Declaration -> [Text]
-genDecl = genDeclWithRegistry defaultCapnProtoRegistry
-
 genDeclWithRegistry :: CapnProtoRegistry -> Declaration -> [Text]
 genDeclWithRegistry reg (DStruct s) = genCapnStructWithRegistry reg s
 genDeclWithRegistry _reg (DEnum e)  = genCapnEnum e
@@ -50,9 +47,6 @@ genDeclWithRegistry _reg (DAnnotation _ _) = []
 -- ---------------------------------------------------------------------------
 -- Struct generation (text)
 -- ---------------------------------------------------------------------------
-
-genCapnStruct :: StructDef -> [Text]
-genCapnStruct = genCapnStructWithRegistry defaultCapnProtoRegistry
 
 genCapnStructWithRegistry :: CapnProtoRegistry -> StructDef -> [Text]
 genCapnStructWithRegistry reg sd =
@@ -71,9 +65,6 @@ genCapnStructWithRegistry reg sd =
      [ genStructDataDeclWithRegistry reg name fields ]
      <> if null extraCode then [] else [T.unlines extraCode]
 
-genNestedDecl :: Declaration -> [Text]
-genNestedDecl = genDeclWithRegistry defaultCapnProtoRegistry
-
 genUnionDecl :: Text -> UnionDef -> [Text]
 genUnionDecl parentName ud =
   let unionName = parentName <> "Union"
@@ -89,9 +80,6 @@ genUnionDecl parentName ud =
            <> [ "  deriving stock (Show, Eq, Generic)" ]
      ]
 
-genStructDataDecl :: Text -> [FieldDef] -> Text
-genStructDataDecl = genStructDataDeclWithRegistry defaultCapnProtoRegistry
-
 genStructDataDeclWithRegistry :: CapnProtoRegistry -> Text -> [FieldDef] -> Text
 genStructDataDeclWithRegistry reg name fields = T.unlines $
   [ "data " <> name <> " = " <> name ]
@@ -102,9 +90,6 @@ genStructDataDeclWithRegistry reg name fields = T.unlines $
       [ "  { " <> genFieldDeclWithRegistry reg name f ]
       <> map (\fld -> "  , " <> genFieldDeclWithRegistry reg name fld) fs
       <> [ "  } deriving stock (Show, Eq, Generic)" ]
-
-genFieldDecl :: Text -> FieldDef -> Text
-genFieldDecl = genFieldDeclWithRegistry defaultCapnProtoRegistry
 
 genFieldDeclWithRegistry :: CapnProtoRegistry -> Text -> FieldDef -> Text
 genFieldDeclWithRegistry reg recName fld =

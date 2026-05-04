@@ -16,7 +16,7 @@ import Proto.TH
 
 -- Generate types from the proto file at compile time.
 -- This creates: GetPersonRequest, ListPeopleRequest, AddPersonResponse
-$(loadProto "example/simple.proto")
+$(loadProto "examples/proto/simple.proto")
 
 main :: IO ()
 main = do

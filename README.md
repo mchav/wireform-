@@ -272,7 +272,7 @@ end-to-end as of today's rewire.
 {-# LANGUAGE TemplateHaskell #-}
 import Proto.TH (loadProto)
 
-$(loadProto "example/simple.proto")
+$(loadProto "examples/proto/simple.proto")
 -- Generates: GetPersonRequest, ListPeopleRequest, AddPersonResponse, ...
 
 let req = defaultGetPersonRequest { personId = 42 }
@@ -351,6 +351,7 @@ Runnable from the workspace root with `cabal run <name>`:
 | `example-thrift` / `example-avro` / `example-capnproto` / `example-flatbuffers` / `example-bond` / `example-asn1` | Schema-driven IDL formats |
 | `example-xml` | Generic XML encode/decode |
 | `example-parquet` / `example-arrow` / `example-iceberg` / `example-iceberg-pipeline` | Analytics file formats and metadata |
+| `example-dataframe-bridge` (`+dataframe-bridge` flag) | Write a Parquet file with `wireform-parquet`, read it back through the [`dataframe`](https://hackage.haskell.org/package/dataframe) library, run aggregations and cross-check against pure-Haskell ground truth. Behind a Cabal flag because the `dataframe` dep tree is large; build with `cabal run example-dataframe-bridge -fdataframe-bridge`. |
 
 ---
 

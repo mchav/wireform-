@@ -132,9 +132,6 @@ genThriftEnumFromThrift name vals =
 -- Struct generation (text)
 -- ---------------------------------------------------------------------------
 
-genThriftStruct :: ThriftStruct -> Text
-genThriftStruct ts = genThriftStructWithRegistry defaultThriftRegistry ts
-
 genThriftStructWithRegistry :: ThriftRegistry -> ThriftStruct -> Text
 genThriftStructWithRegistry reg ts =
   let name = tsName ts
@@ -165,9 +162,6 @@ genThriftStructWithRegistry reg ts =
     <> extraStructCode
     <> fieldExtraCode
 
-genStructDataDecl :: Text -> [ThriftField] -> [Text]
-genStructDataDecl = genStructDataDeclWithRegistry defaultThriftRegistry
-
 genStructDataDeclWithRegistry :: ThriftRegistry -> Text -> [ThriftField] -> [Text]
 genStructDataDeclWithRegistry reg name fields =
   [ "data " <> name <> " = " <> name ]
@@ -182,9 +176,6 @@ genStructDataDeclWithRegistry reg name fields =
       <> [ "  } deriving stock (Show, Eq, Generic)"
          , "    deriving anyclass NFData"
          ]
-
-genThriftFieldDecl :: Text -> ThriftField -> Text
-genThriftFieldDecl = genThriftFieldDeclWithRegistry defaultThriftRegistry
 
 genThriftFieldDeclWithRegistry :: ThriftRegistry -> Text -> ThriftField -> Text
 genThriftFieldDeclWithRegistry reg recName fld =

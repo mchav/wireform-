@@ -16,7 +16,9 @@ import qualified Data.Vector as V
 import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
+import System.Directory (getCurrentDirectory)
 import System.Exit (ExitCode(..))
+import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
 import Test.Tasty
 import Test.Tasty.HUnit hiding (assert)
@@ -30,14 +32,15 @@ import InteropTypes
 main :: IO ()
 main = do
   -- Verify Python oracle is functional before running tests
+  pd <- protoDir
   (ec, _, err) <- readProcessWithExitCode "python3"
-    ["-c", "import sys; sys.path.insert(0,'" <> workDir <> "/interop-test'); import interop_pb2"]
+    ["-c", "import sys; sys.path.insert(0,'" <> pd <> "'); import interop_pb2"]
     ""
   case ec of
     ExitSuccess -> defaultMain tests
     ExitFailure _ -> do
       putStrLn ("Python interop_pb2 not available: " <> err)
-      putStrLn "Ensure protoc has been run on interop-test/interop.proto"
+      putStrLn ("Ensure protoc has been run on " <> pd <> "/interop.proto")
       putStrLn "Skipping interop tests."
 
 tests :: TestTree
@@ -177,13 +180,14 @@ genRepeated = Repeated
 
 callPythonRoundtrip :: String -> BS.ByteString -> IO (Either String BS.ByteString)
 callPythonRoundtrip msgType inputBytes = do
+  pd <- protoDir
   let tmpIn  = "/tmp/wireform-interop-in.bin"
       tmpOut = "/tmp/wireform-interop-out.bin"
   BS.writeFile tmpIn inputBytes
   (exitCode, _, stderr) <- readProcessWithExitCode "bash"
     [ "-c"
-    , "PYTHONPATH=" <> workDir <> "/interop-test:$PYTHONPATH python3 "
-      <> workDir <> "/interop-test/oracle.py roundtrip "
+    , "PYTHONPATH=" <> pd <> ":$PYTHONPATH python3 "
+      <> pd <> "/oracle.py roundtrip "
       <> msgType <> " < " <> tmpIn <> " > " <> tmpOut
     ] ""
   case exitCode of
@@ -192,19 +196,27 @@ callPythonRoundtrip msgType inputBytes = do
 
 pythonEncode :: String -> String -> IO BS.ByteString
 pythonEncode msgType json = do
+  pd <- protoDir
   let tmpOut = "/tmp/wireform-interop-encode.bin"
   (exitCode, _, stderr) <- readProcessWithExitCode "bash"
     [ "-c"
-    , "PYTHONPATH=" <> workDir <> "/interop-test:$PYTHONPATH python3 "
-      <> workDir <> "/interop-test/oracle.py encode "
+    , "PYTHONPATH=" <> pd <> ":$PYTHONPATH python3 "
+      <> pd <> "/oracle.py encode "
       <> msgType <> " '" <> json <> "' > " <> tmpOut
     ] ""
   case exitCode of
     ExitSuccess   -> BS.readFile tmpOut
     ExitFailure c -> error ("Python encode exit " <> show c <> ": " <> stderr)
 
-workDir :: String
-workDir = "/workspace"
+-- The Python oracle and its generated module live alongside this
+-- test under test-interop/proto/. Resolve relative to the cwd
+-- (cabal runs the test suite from the project root) so the suite
+-- works on any developer machine, not just the cloud-agent VM
+-- whose absolute path used to be hard-coded here.
+protoDir :: IO FilePath
+protoDir = do
+  cwd <- getCurrentDirectory
+  pure (cwd </> "test-interop" </> "proto")
 
 -- Property: encode in Haskell, roundtrip through Python, decode matches.
 roundtripViaPython

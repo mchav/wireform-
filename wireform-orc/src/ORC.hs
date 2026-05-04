@@ -2,8 +2,8 @@
 -- | High-level Apache ORC API.
 --
 -- 95% of callers should reach for this module. It hides the
--- @buildORCFile@ / @buildORCFileWith@ /
--- @buildEncryptedORCFile@ split behind a single record-of-options:
+-- @buildORCFileWithRows@ / @buildEncryptedORCFile@ split behind
+-- a single record-of-options:
 --
 -- @
 -- -- Encode

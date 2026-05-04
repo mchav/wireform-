@@ -65,7 +65,7 @@ module HTML.Parse (
 
 import Control.Monad (when)
 import Data.Array.Byte (ByteArray (ByteArray))
-import Data.Bits (complement, unsafeShiftL, unsafeShiftR, xor, (.&.), (.|.))
+import Data.Bits (unsafeShiftL, unsafeShiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Internal (ByteString (BS))
@@ -109,7 +109,7 @@ import Foreign.C.Types (CInt (..), CPtrdiff (..))
 import Foreign.Marshal.Alloc (free, mallocBytes)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (peekElemOff, pokeElemOff)
-import GHC.Exts (Addr#, Int (I#), Int#, RealWorld, Word (W#), copyAddrToByteArray#, dataToTag#, indexWord8OffAddr#, indexWordOffAddr#, newByteArray#, plusAddr#, runRW#, tagToEnum#, unsafeFreezeByteArray#)
+import GHC.Exts (Addr#, Int (I#), RealWorld, Word (W#), copyAddrToByteArray#, dataToTag#, indexWord8OffAddr#, indexWordOffAddr#, newByteArray#, plusAddr#, runRW#, tagToEnum#, unsafeFreezeByteArray#)
 import GHC.ForeignPtr (ForeignPtr (ForeignPtr))
 import GHC.Word (Word8 (..))
 import HTML.TagId
@@ -150,14 +150,6 @@ foreign import ccall unsafe "wireform_scan_squote_ascii"
   c_scan_squote_ascii :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
 
 
-foreign import ccall unsafe "wireform_skip_to_dquote"
-  c_skip_to_dquote :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
-
-
-foreign import ccall unsafe "wireform_skip_to_squote"
-  c_skip_to_squote :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
-
-
 foreign import ccall unsafe "wireform_scan_unquoted"
   c_scan_unquoted :: Addr# -> CPtrdiff -> CPtrdiff -> CPtrdiff
 
@@ -181,115 +173,6 @@ endTagCanFastPop !t = case t of
   t' | tagIdIsFormatting t' -> False
   TagA -> False
   _ -> True
-
-
-{-# INLINE isBodyBlockTag #-}
-isBodyBlockTag :: TagId -> Bool
-isBodyBlockTag !t = case t of
-  TagAddress -> True
-  TagArticle -> True
-  TagAside -> True
-  TagBlockquote -> True
-  TagCenter -> True
-  TagDetails -> True
-  TagDialog -> True
-  TagDir -> True
-  TagDiv -> True
-  TagDl -> True
-  TagFieldset -> True
-  TagFigcaption -> True
-  TagFigure -> True
-  TagFooter -> True
-  TagHeader -> True
-  TagHgroup -> True
-  TagMain -> True
-  TagMenu -> True
-  TagNav -> True
-  TagOl -> True
-  TagP -> True
-  TagSearch -> True
-  TagSection -> True
-  TagSummary -> True
-  TagUl -> True
-  _ -> False
-
-
-{-# INLINE isBodyEndBlockTag #-}
-isBodyEndBlockTag :: TagId -> Bool
-isBodyEndBlockTag !t = case t of
-  TagAddress -> True
-  TagArticle -> True
-  TagAside -> True
-  TagBlockquote -> True
-  TagButton -> True
-  TagCenter -> True
-  TagDetails -> True
-  TagDialog -> True
-  TagDir -> True
-  TagDiv -> True
-  TagDl -> True
-  TagFieldset -> True
-  TagFigcaption -> True
-  TagFigure -> True
-  TagFooter -> True
-  TagHeader -> True
-  TagHgroup -> True
-  TagListing -> True
-  TagMain -> True
-  TagMenu -> True
-  TagNav -> True
-  TagOl -> True
-  TagPre -> True
-  TagSearch -> True
-  TagSection -> True
-  TagSummary -> True
-  TagUl -> True
-  _ -> False
-
-
-{-# INLINE isVoidInsertTag #-}
-isVoidInsertTag :: TagId -> Bool
-isVoidInsertTag !t = case t of
-  TagArea -> True
-  TagBr -> True
-  TagEmbed -> True
-  TagImg -> True
-  TagKeygen -> True
-  TagWbr -> True
-  _ -> False
-
-
-{-# INLINE isIgnoredStartTag #-}
-isIgnoredStartTag :: TagId -> Bool
-isIgnoredStartTag !t = case t of
-  TagCaption -> True
-  TagCol -> True
-  TagColgroup -> True
-  TagFrame -> True
-  TagHead -> True
-  TagTbody -> True
-  TagTd -> True
-  TagTfoot -> True
-  TagTh -> True
-  TagThead -> True
-  TagTr -> True
-  _ -> False
-
-
-{-# INLINE isHeadDelegateTag #-}
-isHeadDelegateTag :: TagId -> Bool
-isHeadDelegateTag !t = case t of
-  TagBase -> True
-  TagBasefont -> True
-  TagBgsound -> True
-  TagLink -> True
-  TagMeta -> True
-  TagTemplate -> True
-  TagTitle -> True
-  TagNoframes -> True
-  TagScript -> True
-  TagStyle -> True
-  _ -> False
 
 
 {-# INLINE isRawTextTag #-}
@@ -620,11 +503,17 @@ childVecToList ref = do
 -- Open element stack (SmallMutableArray; index 0 = bottom, count-1 = top)
 ------------------------------------------------------------------------
 
-data ElementStack = ElementStack
-  { esArr :: !(SmallMutableArray RealWorld TBNode)
-  , esCount :: !(MutableByteArray RealWorld)
-  , esTids :: !(MutableByteArray RealWorld)
-  }
+-- | Internal: open-elements stack used by the tree builder. Constructed
+-- in 'newElementStack' and then only deconstructed positionally — the
+-- fields don't have selectors because every consumer pattern-matches.
+data ElementStack
+  = ElementStack
+      !(SmallMutableArray RealWorld TBNode)
+      -- ^ slab of open elements (cap 256, indexed 0..n-1)
+      !(MutableByteArray RealWorld)
+      -- ^ 8 bytes: current depth @n@
+      !(MutableByteArray RealWorld)
+      -- ^ packed @TagId@ for each open element (8 bytes each)
 
 
 {-# INLINE packTidInfo #-}
@@ -645,11 +534,6 @@ isHTMLFromPacked !packed = packed .&. 1 == 1
 {-# INLINE packedTidIs #-}
 packedTidIs :: Int -> TagId -> Bool
 packedTidIs !packed tid = unsafeShiftR packed 1 == I# (dataToTag# tid)
-
-
-{-# INLINE packedTidSatisfies #-}
-packedTidSatisfies :: Int -> (TagId -> Bool) -> Bool
-packedTidSatisfies !packed f = f (tidFromPacked packed)
 
 
 {-# INLINE esReadTid #-}
@@ -726,24 +610,6 @@ esReadAll (ElementStack arr countBuf _) = do
             node <- readSmallArray arr i
             go (i + 1) (node : acc)
   go 0 []
-
-
-esPopUntilInclusive :: ElementStack -> Text -> IO ()
-esPopUntilInclusive es target = do
-  let !targetTid = tagIdFromText target
-      matchNode !tid node
-        | tid /= TagUnknown = nodeTagId node == tid
-        | otherwise = nodeName node == target
-      loop = do
-        n <- esSize es
-        if n <= 0
-          then pure ()
-          else do
-            top <- esRead es (n - 1)
-            if nodeIsHTMLNs top && matchNode targetTid top
-              then esPop es
-              else do esPop es; loop
-  loop
 
 
 esRemoveNode :: ElementStack -> TBNode -> IO ()
@@ -881,7 +747,6 @@ data TreeBuilder = TreeBuilder
   , tbTemplateModes :: !(IORef [InsertionMode])
   , tbDocument :: !(IORef [ChildNode])
   , tbQuirksMode :: !(IORef Text)
-  , tbScriptingEnabled :: !Bool
   , tbFragmentContext :: !(Maybe (Text, Maybe Text))
   , tbFragmentContextElement :: !(Maybe TBNode)
   , tbEmitEvents :: !Bool
@@ -977,16 +842,6 @@ tbIgnoreLF tb = readBoolSlot (tbScalars tb) sIgnoreLF
 {-# INLINE tbSetIgnoreLF #-}
 tbSetIgnoreLF :: TreeBuilder -> Bool -> IO ()
 tbSetIgnoreLF tb = writeBoolSlot (tbScalars tb) sIgnoreLF
-
-
-{-# INLINE tbHasSelect #-}
-tbHasSelect :: TreeBuilder -> IO Bool
-tbHasSelect tb = readBoolSlot (tbScalars tb) sHasSelect
-
-
-{-# INLINE tbSetHasSelect #-}
-tbSetHasSelect :: TreeBuilder -> Bool -> IO ()
-tbSetHasSelect tb = writeBoolSlot (tbScalars tb) sHasSelect
 
 
 data AFEntry
@@ -1391,7 +1246,6 @@ newTreeBuilderWith emitting buildDOM initCap mCtx = do
           tmRef
           docRef
           qmRef
-          True
           mCtx
           Nothing
           emitting
@@ -1938,12 +1792,6 @@ hasInScopeT :: TagId -> Text -> TreeBuilder -> IO Bool
 hasInScopeT !tid t tb = hasElementInScopeT tid t tagIdIsDefaultScopeTerminator True tb
 
 
-hasInButtonScope :: Text -> TreeBuilder -> IO Bool
-hasInButtonScope t tb = do
-  let !targetTid = tagIdFromText t
-  hasElementInScopeT targetTid t tagIdIsButtonScopeTerminator True tb
-
-
 {-# INLINE hasInButtonScopeT #-}
 hasInButtonScopeT :: TagId -> Text -> TreeBuilder -> IO Bool
 hasInButtonScopeT !tid t tb = hasElementInScopeT tid t tagIdIsButtonScopeTerminator True tb
@@ -2121,10 +1969,6 @@ removeChild parent child = do
   writeIORef (nodeParent child) Nothing
 
 
-insertElement :: TreeBuilder -> Text -> [(Text, Text)] -> Maybe Text -> IO TBNode
-insertElement tb name attrs ns = insertElementT tb name (tagIdFromText name) (attrsFromList attrs) ns
-
-
 {-# INLINE insertElementT #-}
 insertElementT :: TreeBuilder -> Text -> TagId -> SmallArray HTMLAttribute -> Maybe Text -> IO TBNode
 insertElementT tb name tid attrs ns = do
@@ -2161,13 +2005,6 @@ insertIntoFragmentOrDoc tb node =
     findHtmlRoot [] = Nothing
     findHtmlRoot (CElement n : _) | nodeTagId n == TagHtml = Just n
     findHtmlRoot (_ : rest) = findHtmlRoot rest
-
-
-insertVoidElement :: TreeBuilder -> Text -> [(Text, Text)] -> Maybe Text -> IO TBNode
-insertVoidElement tb name attrs ns = do
-  node <- insertElement tb name attrs ns
-  popElement tb
-  pure node
 
 
 insertVoidElementT :: TreeBuilder -> Text -> TagId -> SmallArray HTMLAttribute -> Maybe Text -> IO TBNode
@@ -2327,14 +2164,6 @@ insertBefore parent refNode newNode = do
 ------------------------------------------------------------------------
 -- More helpers
 ------------------------------------------------------------------------
-
-generateImpliedEndTags :: Maybe Text -> TreeBuilder -> IO ()
-generateImpliedEndTags mexclude tb = do
-  let mexcludeTid = case mexclude of
-        Nothing -> Nothing
-        Just t -> Just (tagIdFromText t)
-  generateImpliedEndTagsT mexcludeTid tb
-
 
 {-# INLINE generateImpliedEndTagsT #-}
 generateImpliedEndTagsT :: Maybe TagId -> TreeBuilder -> IO ()
@@ -2672,69 +2501,6 @@ removeAtIdx :: Int -> [a] -> [a]
 removeAtIdx _ [] = []
 removeAtIdx 0 (_ : xs) = xs
 removeAtIdx n (x : xs) = x : removeAtIdx (n - 1) xs
-
-
-runAdoptionInner :: TBNode -> Int -> SmallArray HTMLAttribute -> TBNode -> TreeBuilder -> IO ()
-runAdoptionInner fmtNode fmtIdx fmtAttrs furthestBlock tb = do
-  openElems <- esReadAll (tbStack tb)
-  let fmtStackIdx = elemIndex fmtNode openElems
-      fbStackIdx = elemIndex furthestBlock openElems
-  case (fmtStackIdx, fbStackIdx) of
-    (Just fi, Just fbi) -> do
-      let commonAncestor = openElems !! (fi + 1)
-      af <- readIORef (tbActiveFormatting tb)
-      let bookmark = fmtIdx
-      innerLoop 0 (fbi - 1) bookmark fi fbi commonAncestor
-    _ -> pure ()
-  where
-    innerLoop :: Int -> Int -> Int -> Int -> Int -> TBNode -> IO ()
-    innerLoop !innerCount !nodeIdx !bookmark !fmtSIdx !fbSIdx !commonAnc
-      | innerCount >= 3 = finishAdoption bookmark fmtSIdx commonAnc
-      | otherwise = do
-          openElems <- esReadAll (tbStack tb)
-          if nodeIdx <= fmtSIdx || nodeIdx >= length openElems
-            then finishAdoption bookmark fmtSIdx commonAnc
-            else do
-              let node = openElems !! nodeIdx
-              af <- readIORef (tbActiveFormatting tb)
-              let mafIdx = findAFIndex node af
-              case mafIdx of
-                Nothing -> do
-                  removeNodeFromStack node tb
-                  innerLoop innerCount (nodeIdx - 1) bookmark fmtSIdx fbSIdx commonAnc
-                Just afIdx -> do
-                  finishAdoption bookmark fmtSIdx commonAnc
-    finishAdoption :: Int -> Int -> TBNode -> IO ()
-    finishAdoption bookmark fmtSIdx commonAnc = do
-      newFmtNode <- newTBNode tb (nodeName fmtNode) (nodeTagId fmtNode) fmtAttrs (nodeNs fmtNode) False
-      when (tbBuildDOM tb) $ transferChildren (nodeChildren furthestBlock) newFmtNode (nodeChildren newFmtNode)
-      when (tbBuildDOM tb) $ appendChild furthestBlock newFmtNode
-      modifyIORef'
-        (tbActiveFormatting tb)
-        ( \af ->
-            let af1 = removeAtIdx fmtIdx af
-                newEntry = AFEntry (nodeName fmtNode) fmtAttrs newFmtNode
-            in insertAtIdx (min bookmark (length af1)) newEntry af1
-        )
-      removeNodeFromStack fmtNode tb
-      openElems2 <- esReadAll (tbStack tb)
-      let fbIdx2 = elemIndex furthestBlock openElems2
-      case fbIdx2 of
-        Just idx -> do
-          esWriteList
-            (tbStack tb)
-            (take idx openElems2 ++ [newFmtNode] ++ drop idx openElems2)
-        Nothing -> pure ()
-      -- Reparent fmtNode's later children into commonAncestor
-      mp <- readIORef (nodeParent fmtNode)
-      case mp of
-        Just parent -> when (tbBuildDOM tb) $ removeChild parent fmtNode
-        Nothing -> pure ()
-      when (tbBuildDOM tb) $ appendChild commonAnc furthestBlock
-      mp2 <- readIORef (nodeParent furthestBlock)
-      case mp2 of
-        Just oldParent | oldParent /= commonAnc -> when (tbBuildDOM tb) $ removeChild oldParent furthestBlock
-        _ -> pure ()
 
 
 findAFIndex :: TBNode -> [AFEntry] -> Maybe Int
@@ -5562,11 +5328,6 @@ bsSlice :: ByteString -> Int -> Int -> ByteString
 bsSlice !b !start !end = BSU.unsafeTake (end - start) (BSU.unsafeDrop start b)
 
 
-{-# INLINE readWordAt #-}
-readWordAt :: Addr# -> Int -> Word
-readWordAt addr# (I# off#) = W# (indexWordOffAddr# (addr# `plusAddr#` off#) 0#)
-
-
 {-# INLINE readByteOff #-}
 readByteOff :: Addr# -> Int -> Word8
 readByteOff addr# (I# i#) = W8# (indexWord8OffAddr# addr# i#)
@@ -5642,13 +5403,6 @@ byteStringPinnedByteArray :: ByteString -> ByteArray
 byteStringPinnedByteArray = bsToByteArray
 
 
-skipWS :: ByteString -> Int -> Int -> Int
-skipWS !bs !off !len
-  | off >= len = len
-  | isWSByte (BSU.unsafeIndex bs off) = skipWS bs (off + 1) len
-  | otherwise = off
-
-
 {-# INLINE skipWSAddr #-}
 skipWSAddr :: Addr# -> Int -> Int -> Int
 skipWSAddr addr# !off !len
@@ -5683,10 +5437,6 @@ tokenizeCtx svgDepth svgHIP cs@(c : _)
 
 tokenizeNormal :: String -> [Token]
 tokenizeNormal = tokenizeCtx 0 False
-
-
-tokenizeAfterLT :: String -> [Token]
-tokenizeAfterLT = tokenizeAfterLTCtx 0 False
 
 
 tokenizeAfterLTCtx :: Int -> Bool -> String -> [Token]
@@ -5742,16 +5492,6 @@ tokenizeAfterLTCtx svgDepth svgHIP (c : rest)
   | otherwise = TChar '<' : tokenizeCtx svgDepth svgHIP (c : rest)
 
 
-anyGt :: String -> Bool
-anyGt [] = False
-anyGt ('>' : _) = True
-anyGt (_ : rest) = anyGt rest
-
-
-tokenizeEndTag :: String -> [Token]
-tokenizeEndTag = tokenizeEndTagCtx 0 False
-
-
 tokenizeEndTagCtx :: Int -> Bool -> String -> [Token]
 tokenizeEndTagCtx _ _ [] = [TChar '<', TChar '/']
 tokenizeEndTagCtx svgDepth svgHIP (c : rest)
@@ -5770,10 +5510,6 @@ tokenizeEndTagCtx svgDepth svgHIP (c : rest)
   | otherwise =
       let (comment, remaining) = readUntilStr ">" (c : rest)
       in TComment (T.pack comment) : tokenizeCtx svgDepth svgHIP remaining
-
-
-tokenizeMarkupDecl :: String -> [Token]
-tokenizeMarkupDecl = tokenizeMarkupDeclCtx 0 False
 
 
 tokenizeMarkupDeclCtx :: Int -> Bool -> String -> [Token]
@@ -5815,10 +5551,6 @@ readComment cs = go [] cs
     go acc ('-' : '-' : []) = (reverse acc, [])
     go acc ('\0' : rest) = go ('\xFFFD' : acc) rest
     go acc (c : rest) = go (c : acc) rest
-
-
-tokenizeDoctype :: String -> [Token]
-tokenizeDoctype = tokenizeDoctypeCtx 0 False
 
 
 tokenizeDoctypeCtx :: Int -> Bool -> String -> [Token]
@@ -5939,16 +5671,6 @@ readQuotedAttr cs q = go [] cs
       | c == '&' =
           let (entity, remaining) = parseEntityRefInAttr rest
           in go (reverse entity ++ acc) remaining
-      | otherwise = go (c : acc) rest
-
-
-readUnquotedAttr :: String -> (Text, String)
-readUnquotedAttr = go []
-  where
-    go acc [] = (T.pack (reverse acc), [])
-    go acc (c : rest)
-      | c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0C' || c == '>' =
-          (T.pack (reverse acc), c : rest)
       | otherwise = go (c : acc) rest
 
 
@@ -6096,12 +5818,6 @@ tokenizeScriptData cs = scriptNormal [] cs
               (r : _) -> r `elem` (" \t\n\r\x0C/>" :: [Char]) ->
               (True, [c1, c2, c3, c4, c5, c6], rest)
         _ -> (False, [], cs)
-
-
-matchCloseTagEOF :: String -> String -> Bool
-matchCloseTagEOF cs tag =
-  let (name, rest) = span (\c -> isAlpha c || isDigit c || c == '-') cs
-  in map toLower name == map toLower tag && null rest
 
 
 normalizeCR :: String -> String
@@ -6268,12 +5984,6 @@ scriptDataRemaining cs = scriptNormal cs
 ------------------------------------------------------------------------
 -- Entity resolution
 ------------------------------------------------------------------------
-
-resolveEntitiesT :: Text -> Text
-resolveEntitiesT t
-  | T.any (== '&') t = T.pack (resolveChars (T.unpack t))
-  | otherwise = t
-
 
 parseEntityRef :: String -> (String, String)
 parseEntityRef ('#' : 'x' : rest) = parseHexEntity "#x" rest
@@ -6544,14 +6254,6 @@ tryAttrPrefixesLegacy name rest = go (length name)
                     else Just (prefix, rep, suffix)
               else go (n - 1)
           Nothing -> go (n - 1)
-
-
-resolveChars :: String -> String
-resolveChars [] = []
-resolveChars ('&' : rest) =
-  let (resolved, remaining) = parseEntityRef rest
-  in resolved ++ resolveChars remaining
-resolveChars (c : rest) = c : resolveChars rest
 
 
 namedEntities :: [(String, String)]
