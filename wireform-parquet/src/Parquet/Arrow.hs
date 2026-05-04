@@ -226,16 +226,25 @@ arrowFieldToSchemaElement f = do
              <> show other <> " has no Parquet flat-primitive equivalent"
   let !rep = if AT.fieldNullable f then P.Optional else P.Required
       !logical = case AT.fieldType f of
-        AT.AUtf8           -> Just P.LTString
-        AT.ALargeUtf8      -> Just P.LTString
-        AT.ADate _         -> Just P.LTDate
-        -- Arrow Time / Timestamp / Duration map to Parquet's
-        -- @TIME(unit, isAdjustedToUTC)@ / @TIMESTAMP(unit, utc)@
-        -- logical types. We only record the converted-type
-        -- fallback here; the LogicalType-specific fields
-        -- (precision, scale, isUtc) aren't exposed by
-        -- Parquet.Types.LogicalType yet — a separate item.
-        _                  -> Nothing
+        AT.AUtf8                           -> Just P.LTString
+        AT.ALargeUtf8                      -> Just P.LTString
+        AT.ADate _                         -> Just P.LTDate
+        AT.ATime AT.Millisecond _          -> Just (P.LTTime False P.LtMillis)
+        AT.ATime AT.Microsecond _          -> Just (P.LTTime False P.LtMicros)
+        AT.ATime AT.Nanosecond _           -> Just (P.LTTime False P.LtNanos)
+        AT.ATime AT.Second _               -> Just (P.LTTime False P.LtMillis)
+          -- Parquet doesn't model second precision; widen.
+        AT.ATimestamp AT.Millisecond mtz   ->
+          Just (P.LTTimestamp (isJustUtc mtz) P.LtMillis)
+        AT.ATimestamp AT.Microsecond mtz   ->
+          Just (P.LTTimestamp (isJustUtc mtz) P.LtMicros)
+        AT.ATimestamp AT.Nanosecond mtz    ->
+          Just (P.LTTimestamp (isJustUtc mtz) P.LtNanos)
+        AT.ATimestamp AT.Second mtz        ->
+          Just (P.LTTimestamp (isJustUtc mtz) P.LtMillis)
+        _                                  -> Nothing
+      isJustUtc Nothing  = False
+      isJustUtc (Just _) = True
   Right P.SchemaElement
     { P.seName          = AT.fieldName f
     , P.seRepetition    = Just rep
@@ -400,22 +409,39 @@ arrowTypeFromSchemaElement :: P.SchemaElement -> AT.ArrowType
 arrowTypeFromSchemaElement se = case P.seType se of
   Just P.PTBoolean   -> AT.ABool
   Just P.PTInt32     -> case (P.seLogicalType se, P.seConvertedType se) of
-    (Just P.LTDate, _)            -> AT.ADate AT.DateDay
-    (_,  Just P.CTDate)           -> AT.ADate AT.DateDay
-    (_,  Just P.CTTimeMillis)     -> AT.ATime AT.Millisecond 32
-    _                             -> AT.AInt 32 True
+    (Just P.LTDate, _)               -> AT.ADate AT.DateDay
+    (Just (P.LTTime _ unit), _)
+      | Just u <- arrowTimeUnit unit -> AT.ATime u 32
+    (Just (P.LTInteger w isSigned), _)
+      | w <= 32                      -> AT.AInt (fromIntegral w) isSigned
+    (_,  Just P.CTDate)              -> AT.ADate AT.DateDay
+    (_,  Just P.CTTimeMillis)        -> AT.ATime AT.Millisecond 32
+    _                                -> AT.AInt 32 True
   Just P.PTInt64     -> case (P.seLogicalType se, P.seConvertedType se) of
-    (_, Just P.CTTimeMicros)      -> AT.ATime AT.Microsecond 64
-    (_, Just P.CTTimestampMillis) -> AT.ATimestamp AT.Millisecond Nothing
-    (_, Just P.CTTimestampMicros) -> AT.ATimestamp AT.Microsecond Nothing
-    _                             -> AT.AInt 64 True
+    (Just (P.LTTime _ unit), _)
+      | Just u <- arrowTimeUnit unit -> AT.ATime u 64
+    (Just (P.LTTimestamp adj unit), _)
+      | Just u <- arrowTimeUnit unit ->
+          AT.ATimestamp u
+            (if adj then Just (T.pack "UTC") else Nothing)
+    (Just (P.LTInteger 64 isSigned), _)
+                                     -> AT.AInt 64 isSigned
+    (_, Just P.CTTimeMicros)         -> AT.ATime AT.Microsecond 64
+    (_, Just P.CTTimestampMillis)    -> AT.ATimestamp AT.Millisecond Nothing
+    (_, Just P.CTTimestampMicros)    -> AT.ATimestamp AT.Microsecond Nothing
+    _                                -> AT.AInt 64 True
   Just P.PTFloat     -> AT.AFloatingPoint AT.Single
   Just P.PTDouble    -> AT.AFloatingPoint AT.DoublePrecision
   Just P.PTByteArray -> case (P.seLogicalType se, P.seConvertedType se) of
-    (Just P.LTString, _)    -> AT.AUtf8
-    (_,  Just P.CTUtf8)     -> AT.AUtf8
-    _                        -> AT.ABinary
+    (Just P.LTString, _)             -> AT.AUtf8
+    (_,  Just P.CTUtf8)              -> AT.AUtf8
+    _                                -> AT.ABinary
   _                  -> AT.ABinary  -- FIXED_LEN_BYTE_ARRAY / Int96 fallback
+
+arrowTimeUnit :: P.LtTimeUnit -> Maybe AT.TimeUnit
+arrowTimeUnit P.LtMillis = Just AT.Millisecond
+arrowTimeUnit P.LtMicros = Just AT.Microsecond
+arrowTimeUnit P.LtNanos  = Just AT.Nanosecond
 
 -- | Core per-column reader used by 'parquetRowGroupToArrow'.
 -- Looks up the column by name, reads it at the file's native

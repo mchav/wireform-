@@ -70,11 +70,15 @@ module Parquet.Thrift.Schema
     -- 10: optional LogicalType            logicalType
     -- @
   , pattern SchemaElement_Type
+  , pattern SchemaElement_TypeLength
   , pattern SchemaElement_RepetitionType
   , pattern SchemaElement_Name
   , pattern SchemaElement_NumChildren
   , pattern SchemaElement_ConvertedType
+  , pattern SchemaElement_Scale
+  , pattern SchemaElement_Precision
   , pattern SchemaElement_FieldId
+  , pattern SchemaElement_LogicalType
     -- * RowGroup
   , pattern RowGroup_Columns
   , pattern RowGroup_TotalByteSize
@@ -252,6 +256,9 @@ pattern FileMetadata_CreatedBy t = (6, TV.String t)
 pattern SchemaElement_Type :: Int32 -> (Int16, TV.Value)
 pattern SchemaElement_Type v = (1, TV.I32 v)
 
+pattern SchemaElement_TypeLength :: Int32 -> (Int16, TV.Value)
+pattern SchemaElement_TypeLength v = (2, TV.I32 v)
+
 pattern SchemaElement_RepetitionType :: Int32 -> (Int16, TV.Value)
 pattern SchemaElement_RepetitionType v = (3, TV.I32 v)
 
@@ -264,8 +271,22 @@ pattern SchemaElement_NumChildren v = (5, TV.I32 v)
 pattern SchemaElement_ConvertedType :: Int32 -> (Int16, TV.Value)
 pattern SchemaElement_ConvertedType v = (6, TV.I32 v)
 
+pattern SchemaElement_Scale :: Int32 -> (Int16, TV.Value)
+pattern SchemaElement_Scale v = (7, TV.I32 v)
+
+pattern SchemaElement_Precision :: Int32 -> (Int16, TV.Value)
+pattern SchemaElement_Precision v = (8, TV.I32 v)
+
 pattern SchemaElement_FieldId :: Int32 -> (Int16, TV.Value)
 pattern SchemaElement_FieldId v = (9, TV.I32 v)
+
+-- | LogicalType is encoded as field 10, holding a struct that
+-- represents the @LogicalType@ union from @parquet.thrift@.
+-- The struct carries exactly one field whose id picks the
+-- variant (StringType=1, MapType=2, …).
+pattern SchemaElement_LogicalType
+  :: Vector (Int16, TV.Value) -> (Int16, TV.Value)
+pattern SchemaElement_LogicalType fs = (10, TV.Struct fs)
 
 -- ============================================================
 -- RowGroup

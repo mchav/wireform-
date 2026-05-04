@@ -15,6 +15,7 @@ module Parquet.Types
   , Compression(..)
   , ConvertedType(..)
   , LogicalType(..)
+  , LtTimeUnit(..)
   , Statistics(..)
   , PageLocation(..)
   , OffsetIndex(..)
@@ -123,20 +124,53 @@ data ConvertedType
   deriving stock (Show, Eq, Enum, Bounded, Generic)
   deriving anyclass (NFData)
 
+-- | LogicalType time/timestamp unit (parquet.thrift @TimeUnit@).
+data LtTimeUnit = LtMillis | LtMicros | LtNanos
+  deriving stock (Show, Eq, Enum, Bounded, Generic)
+  deriving anyclass (NFData)
+
+-- | Modern Parquet logical-type annotation. Mirrors the
+-- @LogicalType@ union in @parquet.thrift@. Each constructor
+-- corresponds to a single field of the union.
+--
+-- This ADT is the modern annotation slot ('seLogicalType');
+-- 'ConvertedType' is the legacy slot kept around for older
+-- readers. Writers should populate /both/ slots when possible.
 data LogicalType
   = LTString
   | LTMap
   | LTList
   | LTEnum
   | LTDecimal !Int32 !Int32
+    -- ^ @(precision, scale)@.
   | LTDate
-  | LTTime !Bool !Bool
-  | LTTimestamp !Bool !Bool
-  | LTInteger !Int32 !Bool
+  | LTTime
+      !Bool       -- ^ @isAdjustedToUTC@
+      !LtTimeUnit -- ^ unit (millis / micros / nanos)
+  | LTTimestamp
+      !Bool       -- ^ @isAdjustedToUTC@
+      !LtTimeUnit -- ^ unit
+  | LTInteger
+      !Int32      -- ^ bit width (8, 16, 32, 64)
+      !Bool       -- ^ is signed
   | LTNull
   | LTJson
   | LTBson
   | LTUUID
+  | LTFloat16
+    -- ^ Parquet IEEE 754 half-precision; physical type is
+    -- @FIXED_LEN_BYTE_ARRAY(2)@.
+  | LTGeometry
+    -- ^ Parquet geospatial geometry (parquet-format 2.11+);
+    -- physical type is @BYTE_ARRAY@ holding WKB.
+  | LTGeography
+    -- ^ Parquet geospatial geography (parquet-format 2.11+);
+    -- physical type is @BYTE_ARRAY@ holding WKB.
+  | LTVariant !Int32
+    -- ^ Parquet 'Variant' (semi-structured) annotation. The
+    -- payload column is itself a struct of (metadata, value)
+    -- BYTE_ARRAY columns; the carried Int32 is the
+    -- @specification_version@ field.
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
 

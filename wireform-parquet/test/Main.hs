@@ -39,6 +39,8 @@ import qualified Parquet.Nested as Nested
 import qualified Parquet.NullPagesBitmap as NPB
 import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
+import qualified Parquet.Footer as Footer
+import Parquet.Footer (FooterTrailer (..), parquetMagic)
 import qualified Parquet.Predicate as Pred
 import qualified Parquet.Read
 import Parquet.Read
@@ -860,6 +862,9 @@ main = do
   predicatePageSkipping
   predicateBloomSkipping
 
+  -- LogicalType round-trip
+  logicalTypeRoundTrip
+
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
 -- ============================================================
@@ -940,6 +945,75 @@ predicatePageSkipping = do
     (V.unsafeIndex decisions2 0 == Pred.PMaybeKeep)
   expect "page 1 skips for =5"
     (V.unsafeIndex decisions2 1 == Pred.PSkip)
+
+logicalTypeRoundTrip :: IO ()
+logicalTypeRoundTrip = do
+  -- Build a footer that exercises a handful of LogicalType
+  -- variants (the modern slot, field 10) and assert they
+  -- survive a thrift round-trip through readFooterRaw.
+  let cases =
+        [ ("string-col",  PTByteArray, Just LTString)
+        , ("date-col",    PTInt32,     Just LTDate)
+        , ("time-millis", PTInt32,     Just (LTTime False LtMillis))
+        , ("time-micros", PTInt64,     Just (LTTime True  LtMicros))
+        , ("ts-nanos",    PTInt64,     Just (LTTimestamp True  LtNanos))
+        , ("dec-12-3",    PTFixedLenByteArray, Just (LTDecimal 12 3))
+        , ("uuid-col",    PTFixedLenByteArray, Just LTUUID)
+        , ("uint8-col",   PTInt32,     Just (LTInteger 8 False))
+        , ("float16-col", PTFixedLenByteArray, Just LTFloat16)
+        , ("variant-col", PTByteArray, Just (LTVariant 1))
+        , ("geom-col",    PTByteArray, Just LTGeometry)
+        , ("geog-col",    PTByteArray, Just LTGeography)
+        ]
+      mkSe (nm, pt, lt) =
+        SchemaElement
+          { seName          = nm
+          , seRepetition    = Just Required
+          , seType          = Just pt
+          , seNumChildren   = Nothing
+          , seConvertedType = Nothing
+          , seLogicalType   = lt
+          , seFieldId       = Nothing
+          }
+      schema = V.fromList $
+        SchemaElement "schema" Nothing Nothing
+          (Just (fromIntegral (length cases))) Nothing Nothing Nothing
+        : map mkSe cases
+      vs = VP.fromList [(0 :: Int32)]
+      cdata = ColInt32 vs
+      -- Reuse the buildParquetFile entry for one stripe; the
+      -- LogicalType slots ride along the schema regardless of
+      -- which physical types the column data actually use.
+      fbs = buildParquetFile
+              (V.fromList
+                 [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+                 , SchemaElement "n" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
+                 ])
+              (V.singleton (V.singleton cdata))
+  -- The builder above ignores schema beyond the data layout; we
+  -- exercise the LogicalType round-trip by serialising a
+  -- standalone footer instead.
+  _ <- pure fbs
+  let fmRaw = FileMetadata
+                { fmVersion   = 1
+                , fmSchema    = schema
+                , fmNumRows   = 0
+                , fmRowGroups = V.empty
+                , fmCreatedBy = Just "wireform"
+                }
+  let bytes = Footer.writeFooter fmRaw
+  -- buildParquetFile pads with magic; readFooter wants the
+  -- same envelope. Just write a self-contained PAR1 footer
+  -- and round-trip via readFooterRaw on the inner thrift bytes.
+  let trailer = either error id (Footer.readFooterTrailer (parquetMagic <> bytes))
+      raw     = ftBytes trailer
+  case Footer.readFooterRaw raw of
+    Left e -> failTest $ "logicalType: readFooterRaw: " ++ e
+    Right fmDecoded -> do
+      let recovered = V.toList (V.drop 1 (fmSchema fmDecoded))
+      flip mapM_ (zip cases recovered) $ \((nm, _, expected), got) -> do
+        expect ("LogicalType " ++ T.unpack nm ++ " round-trip")
+               (seLogicalType got == expected)
 
 predicateBloomSkipping :: IO ()
 predicateBloomSkipping = do

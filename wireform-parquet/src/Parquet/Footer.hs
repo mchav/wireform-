@@ -148,7 +148,136 @@ schemaElementToThrift se = TV.Struct $ V.fromList $ concat
   , optField (seConvertedType se)
       (SchemaElement_ConvertedType . fromIntegral . fromEnum)
   , optField (seFieldId se)     SchemaElement_FieldId
+  , optField (seLogicalType se)
+      (SchemaElement_LogicalType . V.fromList . logicalTypeFields)
   ]
+
+-- | Encode a 'LogicalType' as the inner struct of the
+-- @parquet.thrift@ @LogicalType@ union — exactly one
+-- variant-tagged field.
+logicalTypeFields :: LogicalType -> [(Int16, TV.Value)]
+logicalTypeFields = \case
+  LTString    -> [(1, emptyStruct)]
+  LTMap       -> [(2, emptyStruct)]
+  LTList      -> [(3, emptyStruct)]
+  LTEnum      -> [(4, emptyStruct)]
+  LTDecimal p s ->
+    [ (5, TV.Struct $ V.fromList
+            [ (1, TV.I32 s)   -- scale
+            , (2, TV.I32 p)   -- precision
+            ])
+    ]
+  LTDate      -> [(6, emptyStruct)]
+  LTTime adj unit ->
+    [ (7, TV.Struct $ V.fromList
+            [ (1, TV.Bool adj)
+            , (2, encodeTimeUnitStruct unit)
+            ])
+    ]
+  LTTimestamp adj unit ->
+    [ (8, TV.Struct $ V.fromList
+            [ (1, TV.Bool adj)
+            , (2, encodeTimeUnitStruct unit)
+            ])
+    ]
+  LTInteger w isSigned ->
+    [ (10, TV.Struct $ V.fromList
+            [ (1, TV.Byte (fromIntegral w))
+            , (2, TV.Bool isSigned)
+            ])
+    ]
+  LTNull      -> [(11, emptyStruct)]
+  LTJson      -> [(12, emptyStruct)]
+  LTBson      -> [(13, emptyStruct)]
+  LTUUID      -> [(14, emptyStruct)]
+  LTFloat16   -> [(15, emptyStruct)]
+  LTVariant ver ->
+    [ (16, TV.Struct $ V.fromList
+            [ (1, TV.Byte (fromIntegral ver))
+            ])
+    ]
+  LTGeometry  -> [(17, emptyStruct)]
+  LTGeography -> [(18, emptyStruct)]
+
+emptyStruct :: TV.Value
+emptyStruct = TV.Struct V.empty
+
+encodeTimeUnitStruct :: LtTimeUnit -> TV.Value
+encodeTimeUnitStruct unit = TV.Struct $ V.fromList
+  [ ( case unit of
+        LtMillis -> 1
+        LtMicros -> 2
+        LtNanos  -> 3
+    , emptyStruct
+    )
+  ]
+
+decodeLogicalType :: V.Vector (Int16, TV.Value) -> Maybe LogicalType
+decodeLogicalType fs = case V.toList fs of
+  []      -> Nothing
+  (entry : _) -> case entry of
+    (1,  _)            -> Just LTString
+    (2,  _)            -> Just LTMap
+    (3,  _)            -> Just LTList
+    (4,  _)            -> Just LTEnum
+    (5,  TV.Struct sb) -> decodeDecimal sb
+    (6,  _)            -> Just LTDate
+    (7,  TV.Struct sb) -> decodeTimeOrTimestamp LTTime sb
+    (8,  TV.Struct sb) -> decodeTimeOrTimestamp LTTimestamp sb
+    (10, TV.Struct sb) -> decodeIntType sb
+    (11, _)            -> Just LTNull
+    (12, _)            -> Just LTJson
+    (13, _)            -> Just LTBson
+    (14, _)            -> Just LTUUID
+    (15, _)            -> Just LTFloat16
+    (16, TV.Struct sb) -> decodeVariant sb
+    (17, _)            -> Just LTGeometry
+    (18, _)            -> Just LTGeography
+    _                  -> Nothing
+  where
+    decodeDecimal :: V.Vector (Int16, TV.Value) -> Maybe LogicalType
+    decodeDecimal sb =
+      let mScale = lookup 1 (V.toList sb) >>= asI32
+          mPrec  = lookup 2 (V.toList sb) >>= asI32
+      in case (mScale, mPrec) of
+           (Just s, Just p) -> Just (LTDecimal p s)
+           _                -> Nothing
+    decodeTimeOrTimestamp :: (Bool -> LtTimeUnit -> LogicalType)
+                          -> V.Vector (Int16, TV.Value) -> Maybe LogicalType
+    decodeTimeOrTimestamp ctor sb =
+      let mAdj  = lookup 1 (V.toList sb) >>= asBool
+          mUnit = lookup 2 (V.toList sb) >>= asTimeUnit
+      in ctor <$> mAdj <*> mUnit
+    decodeIntType :: V.Vector (Int16, TV.Value) -> Maybe LogicalType
+    decodeIntType sb =
+      let mWidth   = lookup 1 (V.toList sb) >>= asByte
+          mSigned  = lookup 2 (V.toList sb) >>= asBool
+      in LTInteger <$> (fromIntegral <$> mWidth) <*> mSigned
+    decodeVariant :: V.Vector (Int16, TV.Value) -> Maybe LogicalType
+    decodeVariant sb =
+      let mVer = lookup 1 (V.toList sb) >>= asByte
+      in LTVariant . fromIntegral <$> mVer
+
+asI32 :: TV.Value -> Maybe Int32
+asI32 (TV.I32 v) = Just v
+asI32 _          = Nothing
+
+asBool :: TV.Value -> Maybe Bool
+asBool (TV.Bool v) = Just v
+asBool _           = Nothing
+
+asByte :: TV.Value -> Maybe Int
+asByte (TV.Byte v) = Just (fromIntegral v)
+asByte (TV.I32 v)  = Just (fromIntegral v)
+asByte _           = Nothing
+
+asTimeUnit :: TV.Value -> Maybe LtTimeUnit
+asTimeUnit (TV.Struct sb) = case V.toList sb of
+  ((1, _) : _) -> Just LtMillis
+  ((2, _) : _) -> Just LtMicros
+  ((3, _) : _) -> Just LtNanos
+  _            -> Nothing
+asTimeUnit _ = Nothing
 
 rowGroupToThrift :: RowGroup -> TV.Value
 rowGroupToThrift rg = TV.Struct $ V.fromList
@@ -299,13 +428,16 @@ thriftToSchemaElement (TV.Struct fields) = do
       fid = findField fm $ \case
         SchemaElement_FieldId v -> Just v
         _                       -> Nothing
+      logical = findField fm $ \case
+        SchemaElement_LogicalType inner -> decodeLogicalType inner
+        _                               -> Nothing
   Right SchemaElement
     { seName = name
     , seRepetition = rep
     , seType = typ
     , seNumChildren = numCh
     , seConvertedType = conv
-    , seLogicalType = Nothing
+    , seLogicalType = logical
     , seFieldId = fid
     }
 thriftToSchemaElement _ = Left "Parquet.Footer: expected struct for SchemaElement"
