@@ -262,7 +262,10 @@ arrowLeafKindFor ty = case ty of
   AT.ALargeUtf8                -> Right OT.TKString
   AT.ALargeBinary              -> Right OT.TKBinary
   AT.ADate _                   -> Right OT.TKDate
-  AT.ATimestamp _ _            -> Right OT.TKTimestamp
+  -- Arrow Timestamp(_, Just tz) maps to ORC's TIMESTAMP_INSTANT
+  -- (UTC-anchored); without tz it maps to local-time TIMESTAMP.
+  AT.ATimestamp _ (Just _)     -> Right OT.TKTimestampInstant
+  AT.ATimestamp _ Nothing      -> Right OT.TKTimestamp
   AT.ADuration _               -> Right OT.TKLong
   AT.ATime _ _                 -> Right OT.TKLong
   AT.ADecimal _ _              -> Right OT.TKDecimal

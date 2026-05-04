@@ -5,6 +5,11 @@ synopsis: Apache ORC metadata, stripes, and read/write
 license: BSD-3-Clause
 build-type: Simple
 
+flag lz4
+  description: LZ4 (block-format) decompression for ORC stripes
+  manual: True
+  default: False
+
 common defaults
   ghc-options:
     -Wall
@@ -58,6 +63,10 @@ library
     memory >= 0.18 && < 0.19,
     deepseq >= 1.4 && < 1.6,
     template-haskell >= 2.18 && < 2.24
+
+  if flag(lz4)
+    cpp-options: -DHAVE_LZ4
+    build-depends: lz4 >= 0.2 && < 0.3
 
 test-suite wireform-orc-test
   import: defaults

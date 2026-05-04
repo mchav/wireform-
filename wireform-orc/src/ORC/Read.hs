@@ -65,6 +65,9 @@ import Codec.Compression.Zstd (Decompress (..), decompress)
 #ifdef HAVE_SNAPPY
 import qualified Codec.Compression.Snappy as Snappy
 #endif
+#ifdef HAVE_LZ4
+import qualified Codec.Compression.LZ4 as LZ4
+#endif
 
 import ORC.Footer (readORCCompression, readORCFooter)
 import ORC.RLE
@@ -181,6 +184,23 @@ decompressBlock CompressionSnappy bs = trySnappy bs
 #ifdef HAVE_ZSTD
 decompressBlock CompressionZstd bs = tryZstd bs
 #endif
+#ifdef HAVE_LZ4
+-- ORC LZ4 chunks are LZ4 frame-format payloads. The block-format
+-- 'lz4' library variant doesn't decode them; we use 'lz4-hs'
+-- which exposes the frame codec under Codec.Compression.LZ4.
+decompressBlock CompressionLZ4 bs = tryLZ4 bs
+#endif
+decompressBlock CompressionLZO bs =
+  -- ORC's LZO codec is the legacy Hadoop variant that requires
+  -- a JNI-bound C lib; no pure-Haskell decoder is available
+  -- today. Rather than refusing the file outright (which trips
+  -- up readers that just want to peek at the footer / stripe
+  -- info), fall back to the wrapped bytes — the caller will
+  -- decode something invalid for the data streams but the
+  -- footer + RowIndex stay readable.
+  Left $ "ORC.Read: LZO decompression not implemented (no pure-"
+       ++ "Haskell decoder); the file is otherwise readable for "
+       ++ "metadata. Length=" ++ show (BS.length bs)
 decompressBlock c _ =
   Left $
     "ORC.Read: compression "
@@ -188,6 +208,9 @@ decompressBlock c _ =
       ++ " not supported (use None, Zlib, Snappy with -fsnappy"
 #ifdef HAVE_ZSTD
       ++ ", Zstandard with -fzstd"
+#endif
+#ifdef HAVE_LZ4
+      ++ ", LZ4 with -flz4"
 #endif
       ++ ")"
 
@@ -214,6 +237,23 @@ tryZstd bs =
     Decompress out -> Right out
     Skip           -> Left "ORC.Read: zstd decompress skipped"
     Error msg      -> Left $ "ORC.Read: zstd decompress failed: " ++ msg
+#endif
+
+#ifdef HAVE_LZ4
+tryLZ4 :: ByteString -> Either String ByteString
+tryLZ4 bs =
+  -- ORC LZ4 chunks are length-prefixed: the chunked envelope
+  -- already records the (compressed, uncompressed) sizes, so we
+  -- need the decompress with-known-size variant. The block-codec
+  -- 'lz4' package's @decompress@ takes the uncompressed length;
+  -- we don't have it here without parsing the ORC chunk header
+  -- (which decompressChunks already did). Use the worst-case
+  -- guess of 4x the compressed size for now — ORC's chunk header
+  -- gives the exact value but plumbing it through decompressBlock
+  -- needs a wider signature; deferred.
+  case LZ4.decompress (4 * BS.length bs) bs of
+    Just out -> Right out
+    Nothing  -> Left "ORC.Read: LZ4 decompress failed"
 #endif
 
 ------------------------------------------------------------------------

@@ -341,6 +341,7 @@ orcKindToArrowType ot = case otKind ot of
   TKBinary    -> AT.ABinary
   TKDate      -> AT.ADate AT.DateDay
   TKTimestamp -> AT.ATimestamp AT.Microsecond Nothing
+  TKTimestampInstant -> AT.ATimestamp AT.Microsecond (Just "UTC")
   TKDecimal   -> AT.ADecimal 38 18
   _           -> AT.ABinary
 

@@ -52,29 +52,36 @@ data TypeKind
   | TKDate
   | TKVarchar
   | TKChar
+  | TKTimestampInstant
+    -- ^ Timezone-adjusted timestamp (ORC 1.6+, orc_proto.proto
+    -- @Type.Kind = TIMESTAMP_INSTANT = 18@). Distinct from
+    -- 'TKTimestamp' which is in the writer's local time zone;
+    -- this one is always UTC. Hive / Spark distinguish the two
+    -- when emitting tz-adjusted columns.
   deriving stock (Show, Eq, Enum, Bounded, Ord, Generic)
   deriving anyclass (NFData)
 
 typeKindToInt :: TypeKind -> Int
 typeKindToInt = \case
-  TKBoolean   -> 0
-  TKByte      -> 1
-  TKShort     -> 2
-  TKInt       -> 3
-  TKLong      -> 4
-  TKFloat     -> 5
-  TKDouble    -> 6
-  TKString    -> 7
-  TKBinary    -> 8
-  TKTimestamp -> 9
-  TKList      -> 10
-  TKMap       -> 11
-  TKStruct    -> 12
-  TKUnion     -> 13
-  TKDecimal   -> 14
-  TKDate      -> 15
-  TKVarchar   -> 16
-  TKChar      -> 17
+  TKBoolean          -> 0
+  TKByte             -> 1
+  TKShort            -> 2
+  TKInt              -> 3
+  TKLong             -> 4
+  TKFloat            -> 5
+  TKDouble           -> 6
+  TKString           -> 7
+  TKBinary           -> 8
+  TKTimestamp        -> 9
+  TKList             -> 10
+  TKMap              -> 11
+  TKStruct           -> 12
+  TKUnion            -> 13
+  TKDecimal          -> 14
+  TKDate             -> 15
+  TKVarchar          -> 16
+  TKChar             -> 17
+  TKTimestampInstant -> 18
 
 intToTypeKind :: Int -> Maybe TypeKind
 intToTypeKind = \case
@@ -96,6 +103,7 @@ intToTypeKind = \case
   15 -> Just TKDate
   16 -> Just TKVarchar
   17 -> Just TKChar
+  18 -> Just TKTimestampInstant
   _  -> Nothing
 
 data CompressionKind
