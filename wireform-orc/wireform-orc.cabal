@@ -46,6 +46,7 @@ library
     base >= 4.16 && < 5,
     wireform-core,
     wireform-arrow,
+    wireform-columnar,
     wireform-derive,
     bytestring >= 0.11 && < 0.13,
     text >= 2.0 && < 2.2,

@@ -39,6 +39,9 @@ module Wireform.Columnar
   , defaultWriteOptions
     -- * Decoding
   , decode
+  , decodeIter
+  , decodeProjectedIter
+  , decodeSchema
   , ReadOptions (..)
   , defaultReadOptions
     -- * Records (via 'Arrow.Record.Table')
@@ -48,6 +51,9 @@ module Wireform.Columnar
     -- callers work in Haskell value space end-to-end.
   , encodeRecords
   , decodeRecords
+  , decodeRecordsIter
+    -- * Streaming primitives
+  , module Columnar.Stream
     -- * Per-format passthroughs
     -- | When callers need format-specific knobs beyond what the
     -- unified options record exposes, drop down to the per-format
@@ -59,8 +65,12 @@ module Wireform.Columnar
   ) where
 
 import Data.ByteString (ByteString)
+import Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+
+import Columnar.Stream
+import qualified Columnar.Stream as IS
 
 import qualified Arrow.Column as AC
 import qualified Arrow.Record as ArR
@@ -85,7 +95,6 @@ import ORC hiding
 import qualified ORC.Arrow as OArrow
 import qualified ORC.Read as ORead
 import qualified ORC.Stripe as OStripe
-import qualified ORC.Types as OT
 
 import qualified Parquet.Arrow as PArrow
 import qualified Parquet.HighLevel as Parquet
@@ -367,3 +376,144 @@ decodeRecords fmt opts tbl bs = do
   (sch, batches) <- decode fmt opts bs
   perBatch <- traverse (ArR.decodeTable tbl sch) batches
   Right (V.concat perBatch)
+
+-- ============================================================
+-- Streaming decode
+-- ============================================================
+
+-- | Inspect the file's schema /without/ materialising any
+-- batches. Useful for projection planning before the streaming
+-- decode kicks off.
+decodeSchema
+  :: Format
+  -> ReadOptions
+  -> ByteString
+  -> Either String AT.Schema
+decodeSchema fmt opts bs = case fmt of
+  Arrow     -> fst <$> Arrow.decodeArrowStream bs
+  ArrowFile -> fst <$> Arrow.decodeArrowFile   bs
+  Parquet   -> do
+    pf <- Parquet.decodeParquet (parquetRead opts) bs
+    Right (PArrow.parquetFileArrowSchema pf)
+  ORC       -> do
+    footer <- ORC.decodeORC bs
+    orcFile <- ORead.loadORCFile bs
+    orcFooterToArrowSchemaWithNullability orcFile footer
+
+-- | Decode bytes incrementally, yielding one record batch / row
+-- group / stripe per 'IS.iterStep'.
+--
+-- Unlike 'decode', the iterator does not materialise every
+-- batch up front; consumers can fold over it, take a prefix,
+-- short-circuit on a predicate, etc. Errors halt the iterator
+-- at the failing step.
+--
+-- The schema is returned alongside the iterator (it always
+-- comes from a single up-front parse — for Arrow IPC streams
+-- the first message; for Parquet / ORC the file footer).
+decodeIter
+  :: Format
+  -> ReadOptions
+  -> ByteString
+  -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
+decodeIter fmt opts bs = case fmt of
+  Arrow -> do
+    rd <- Arrow.openStreamReader bs
+    Right (Arrow.streamReaderSchema rd, Arrow.streamReaderIter rd)
+  ArrowFile -> do
+    -- Arrow file uses the same record-batch shape; reuse the
+    -- streaming reader on the post-magic body. The current
+    -- 'Arrow.decodeArrowFile' eagerly reads everything, so the
+    -- iterator below shares the same per-batch decode but
+    -- avoids materialising the list spine.
+    (sch, batches) <- Arrow.decodeArrowFile bs
+    Right (sch, IS.iterFromList batches)
+  Parquet -> do
+    pf <- Parquet.decodeParquet (parquetRead opts) bs
+    let !sch = PArrow.parquetFileArrowSchema pf
+    Right (sch, PArrow.streamRowGroupsIter sch pf)
+  ORC -> do
+    footer <- ORC.decodeORC bs
+    orcFile <- ORead.loadORCFile bs
+    sch <- orcFooterToArrowSchemaWithNullability orcFile footer
+    Right (sch, OArrow.streamStripesIter sch bs footer)
+
+-- | Like 'decodeIter' but only decodes the named columns of
+-- each batch / row group / stripe. The resulting schema is the
+-- projected schema (preserving the order of @names@).
+--
+-- Names absent from the file's schema cause the iterator to
+-- fail at the first step.
+decodeProjectedIter
+  :: Format
+  -> ReadOptions
+  -> [Text]
+  -> ByteString
+  -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
+decodeProjectedIter fmt opts names bs = do
+  fullSch <- decodeSchema fmt opts bs
+  narrow <- projectFieldsByName names fullSch
+  case fmt of
+    Arrow -> do
+      rd <- Arrow.openStreamReader bs
+      Right (narrow, Arrow.streamReaderProjectedIter names rd)
+    ArrowFile -> do
+      (_, batches) <- Arrow.decodeArrowFile bs
+      let projectIdxs = projectionIndices names fullSch
+          pickCols cols = V.map (V.unsafeIndex cols) projectIdxs
+      Right (narrow, IS.iterMap pickCols (IS.iterFromList batches))
+    Parquet -> do
+      pf <- Parquet.decodeParquet (parquetRead opts) bs
+      Right (narrow, PArrow.streamRowGroupsProjectedIter fullSch names pf)
+    ORC -> do
+      footer <- ORC.decodeORC bs
+      Right (narrow, OArrow.streamStripesProjectedIter fullSch names bs footer)
+
+-- | Iterator-shaped 'decodeRecords'. Each step yields a
+-- @V.Vector r@ for one batch / row group / stripe. Useful for
+-- pipelines that want to emit results downstream without
+-- buffering the full file.
+decodeRecordsIter
+  :: Format
+  -> ReadOptions
+  -> ArR.Table r
+  -> ByteString
+  -> Either String (IS.Iter (V.Vector r))
+decodeRecordsIter fmt opts tbl bs = do
+  (sch, batchIter) <- decodeIter fmt opts bs
+  Right $ IS.iterMapM (ArR.decodeTable tbl sch) batchIter
+
+-- ============================================================
+-- Helpers shared by the projection paths.
+-- ============================================================
+
+-- | Build the index vector that maps @names@ to positions in the
+-- supplied schema. Names not present produce an error.
+projectionIndices :: [Text] -> AT.Schema -> V.Vector Int
+projectionIndices names sch =
+  let !nameToIdx =
+        [ (AT.fieldName f, i)
+        | (i, f) <- V.toList (V.indexed (AT.arrowFields sch))
+        ]
+      lookupOne nm = case lookup nm nameToIdx of
+        Just i  -> i
+        -- The caller has already validated the names via
+        -- projectFieldsByName; an unsafe lookup here is a bug
+        -- (so error rather than threading Either through).
+        Nothing -> error $
+          "Wireform.Columnar.projectionIndices: " ++ show nm
+            ++ " missing — did you call projectFieldsByName first?"
+  in  V.fromList (map lookupOne names)
+
+projectFieldsByName :: [Text] -> AT.Schema -> Either String AT.Schema
+projectFieldsByName names sch =
+  let !fields = AT.arrowFields sch
+      pairs = [ (AT.fieldName f, f) | f <- V.toList fields ]
+      pickOne nm = case lookup nm pairs of
+        Just f  -> Right f
+        Nothing -> Left $
+          "Wireform.Columnar: projected column " ++ show nm
+            ++ " not present in source schema"
+  in do
+    fs <- traverse pickOne names
+    Right sch { AT.arrowFields = V.fromList fs }

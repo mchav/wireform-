@@ -27,7 +27,9 @@ common defaults
 library
   import: defaults
   hs-source-dirs: src
-  exposed-modules: Columnar.SIMD
+  exposed-modules:
+    Columnar.SIMD
+    Columnar.Stream
   c-sources: cbits/columnar_simd.c
   include-dirs: ../wireform-core/include/simde
   cc-options: -O3 -march=native

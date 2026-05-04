@@ -39,11 +39,14 @@ module Parquet.Arrow
   , columnArrayToNestedRows
     -- * Parquet → Arrow
   , parquetRowGroupToArrow
+  , parquetRowGroupToArrowProjected
   , readParquetColumn
   , parquetFileArrowSchema
   , ProjectionError (..)
     -- * Streaming reader (one row group at a time)
   , streamRowGroups
+  , streamRowGroupsIter
+  , streamRowGroupsProjectedIter
   , numRowGroups
   ) where
 
@@ -60,6 +63,8 @@ import Data.Word (Word8, Word16, Word32, Word64)
 
 import qualified Arrow.Column as AC
 import qualified Arrow.Types as AT
+
+import qualified Columnar.Stream as IS
 
 import qualified Parquet.Nested as PN
 import qualified Parquet.Read as PR
@@ -724,3 +729,73 @@ streamRowGroups sch pf =
       Left  err  -> Left (show err)
   | i <- [0 .. numRowGroups pf - 1]
   ]
+
+-- | Iterator-shaped variant of 'streamRowGroups'. Each
+-- 'IS.iterStep' decodes one row group on demand. Use
+-- 'Columnar.Stream.iterTake' / 'Columnar.Stream.iterFold' /
+-- friends to drive it without materialising every row group up
+-- front.
+--
+-- Behaves like 'streamRowGroups' for the per-row-group decode
+-- (same target Arrow schema controls projection / coercion);
+-- the difference is that decoding errors halt the iterator at
+-- the failing step instead of being threaded through a list.
+streamRowGroupsIter
+  :: AT.Schema
+  -> PR.ParquetFile
+  -> IS.Iter (V.Vector AC.ColumnArray)
+streamRowGroupsIter sch pf =
+  IS.iterFromIndexed (numRowGroups pf) $ \i ->
+    case parquetRowGroupToArrow sch pf i of
+      Right cols -> Right cols
+      Left  err  -> Left (show err)
+
+-- | Like 'streamRowGroupsIter' but projects each row group to a
+-- subset of named columns (and an optional reordering). The
+-- caller supplies the target Arrow schema /before/ projection;
+-- this helper extracts the named subset and runs the
+-- per-row-group decode against the narrower schema, so only the
+-- requested columns are read off disk.
+--
+-- Names not present in the source schema cause every iterator
+-- step to fail with the same error (matching the
+-- 'Arrow.Stream.streamReaderProjectedIter' shape).
+streamRowGroupsProjectedIter
+  :: AT.Schema
+  -> [Text]
+  -> PR.ParquetFile
+  -> IS.Iter (V.Vector AC.ColumnArray)
+streamRowGroupsProjectedIter sch names pf =
+  case projectFields names sch of
+    Left e          -> IS.iterUnfold () (\_ -> Left e)
+    Right narrowSch -> streamRowGroupsIter narrowSch pf
+
+-- | Decode a single row group with column projection. Equivalent
+-- to @'parquetRowGroupToArrow' (projectSchema names target) pf
+-- rgIdx@ but checks the projection up front so the error path is
+-- single-shot rather than per-column.
+parquetRowGroupToArrowProjected
+  :: AT.Schema
+  -> [Text]
+  -> PR.ParquetFile
+  -> Int
+  -> Either ProjectionError (V.Vector AC.ColumnArray)
+parquetRowGroupToArrowProjected target names pf rgIdx = do
+  narrow <- case projectFields names target of
+    Right s -> Right s
+    Left  _ -> Left (MissingColumn (T.pack "<projection>"))
+  parquetRowGroupToArrow narrow pf rgIdx
+
+-- | Build a sub-schema by name. Preserves the order of @names@.
+projectFields :: [Text] -> AT.Schema -> Either String AT.Schema
+projectFields names sch =
+  let !fields = AT.arrowFields sch
+      !byName = Map.fromList
+        [ (AT.fieldName f, f) | f <- V.toList fields ]
+      pickOne nm = case Map.lookup nm byName of
+        Just f  -> Right f
+        Nothing -> Left $ "Parquet.Arrow: projected column "
+                          ++ show nm ++ " not present in target schema"
+  in do
+    fs <- traverse pickOne names
+    Right sch { AT.arrowFields = V.fromList fs }

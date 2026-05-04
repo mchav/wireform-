@@ -42,10 +42,13 @@ import Arrow.Stream
   , defaultWriteOptions
   , encodeArrowStream
   , openStreamReader
+  , streamReaderIter
   , streamReaderNext
+  , streamReaderProjected
   , streamReaderSchema
   , streamReaderToList
   )
+import qualified Columnar.Stream as IS
 import Arrow.FlatBufferIPC
   ( buildSchemaMessage
   , decodeSchemaMessage
@@ -394,6 +397,11 @@ flatBufRoundTrip = do
     , V.singleton (ColInt32 (VP.fromList ([4, 5, 6, 7] :: [Int32])))
     ]
 
+  -- Column projection on a multi-column stream: a 3-column
+  -- batch should narrow to exactly the requested columns in
+  -- the requested order.
+  projectionRoundTrip
+
   -- ZSTD body compression (writer + reader): exercises
   -- BodyCompression on a multi-column batch, asserting the
   -- decoded values match the source.
@@ -643,6 +651,53 @@ streamingRoundTrip sch batches = do
                   failTest $ "streamReaderToList: tail mismatch\n got "
                               ++ show rest
                               ++ "\n exp " ++ show (drop 1 batches)
+  -- Iter-shaped variant: the same drain via Columnar.Stream.
+  case openStreamReader bytes of
+    Left e -> failTest $ "openStreamReader (iter): " ++ e
+    Right rd0 ->
+      case IS.iterToList (streamReaderIter rd0) of
+        Left e -> failTest $ "streamReaderIter drain: " ++ e
+        Right got
+          | got == batches ->
+              putStrLn "OK: streamReaderIter drains all batches"
+          | otherwise ->
+              failTest $ "streamReaderIter mismatch:\n got "
+                          ++ show got ++ "\n exp " ++ show batches
+
+projectionRoundTrip :: IO ()
+projectionRoundTrip = do
+  let !sch = Schema
+        (V.fromList
+           [ plainField "a" False (AInt 32 True)
+           , plainField "b" False (AInt 64 True)
+           , plainField "c" False AUtf8
+           ])
+        Little
+      !batch = V.fromList
+        [ ColInt32 (VP.fromList ([1, 2, 3] :: [Int32]))
+        , ColInt64 (VP.fromList ([10, 20, 30] :: [Int64]))
+        , ColUtf8  (V.fromList ["x", "y", "z"])
+        ]
+      !bytes = encodeArrowStream defaultWriteOptions sch [batch]
+  case openStreamReader bytes of
+    Left e -> failTest $ "projection openStreamReader: " ++ e
+    Right rd0 ->
+      -- Ask for c then a, in that order — should drop b and reorder.
+      case streamReaderProjected ["c", "a"] rd0 of
+        Left e -> failTest $ "streamReaderProjected: " ++ e
+        Right (projSch, batches')
+          | length batches' == 1
+          , [proj] <- batches'
+          , V.length proj == 2
+          , V.length (arrowFields projSch) == 2
+          , fieldName (V.unsafeIndex (arrowFields projSch) 0) == "c"
+          , fieldName (V.unsafeIndex (arrowFields projSch) 1) == "a"
+          , V.unsafeIndex proj 0 == V.unsafeIndex batch 2
+          , V.unsafeIndex proj 1 == V.unsafeIndex batch 0 ->
+              putStrLn "OK: streamReaderProjected narrows + reorders"
+          | otherwise ->
+              failTest $ "streamReaderProjected unexpected: "
+                          ++ show batches'
 
 -- | Generic single-batch round-trip helper for the high-level
 -- 'encodeArrowStream' / 'decodeArrowStream' API.

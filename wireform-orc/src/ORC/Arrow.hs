@@ -31,11 +31,19 @@ module ORC.Arrow
   , columnArrayToORCStreams
     -- * ORC → Arrow
   , orcStripeToArrow
+  , orcStripeToArrowProjected
+    -- * Streaming reader (one stripe at a time)
+  , streamStripes
+  , streamStripesIter
+  , streamStripesProjectedIter
+  , numStripes
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int8, Int16, Int32, Int64)
+import qualified Data.Map.Strict as Map
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -44,6 +52,8 @@ import Data.Word (Word32, Word64)
 
 import qualified Arrow.Column as AC
 import qualified Arrow.Types as AT
+
+import qualified Columnar.Stream as IS
 
 import qualified ORC.Read   as OR
 import qualified ORC.Stripe as OSt
@@ -909,3 +919,83 @@ temporalToArrow ty nullable xs = case (ty, nullable) of
   where
     narrow32 :: Int64 -> Int32
     narrow32 = fromIntegral
+
+-- ============================================================
+-- Streaming reader (one stripe at a time)
+-- ============================================================
+
+-- | Number of stripes in an ORC file's footer. Useful as a loop
+-- bound for 'orcStripeToArrow' / 'streamStripesIter'.
+numStripes :: OT.ORCFooter -> Int
+numStripes = V.length . OT.orcStripes
+
+-- | Eager list of @Either String batch@: one slot per stripe.
+-- Mirrors 'Parquet.Arrow.streamRowGroups' shape so callers can
+-- pick whichever format they're targeting and use the same
+-- driver. Prefer 'streamStripesIter' for new code.
+streamStripes
+  :: AT.Schema
+  -> ByteString
+  -> OT.ORCFooter
+  -> [Either String (V.Vector AC.ColumnArray)]
+streamStripes sch fileBs footer =
+  [ orcStripeToArrow sch fileBs footer i
+  | i <- [0 .. numStripes footer - 1]
+  ]
+
+-- | Iterator over stripes. Each step decodes one stripe to an
+-- Arrow batch on demand. Errors halt the iterator at the failing
+-- stripe (rather than being threaded through a list).
+streamStripesIter
+  :: AT.Schema
+  -> ByteString
+  -> OT.ORCFooter
+  -> IS.Iter (V.Vector AC.ColumnArray)
+streamStripesIter sch fileBs footer =
+  IS.iterFromIndexed (numStripes footer) $ \i ->
+    orcStripeToArrow sch fileBs footer i
+
+-- | Like 'streamStripesIter' but only decodes the named columns
+-- of each stripe. Names absent from the source schema cause every
+-- iterator step to fail with the same error.
+--
+-- Equivalent to @'streamStripesIter' (projectFields names sch)@
+-- but with an explicit error path so the caller doesn't have to
+-- pre-project the schema.
+streamStripesProjectedIter
+  :: AT.Schema
+  -> [Text]
+  -> ByteString
+  -> OT.ORCFooter
+  -> IS.Iter (V.Vector AC.ColumnArray)
+streamStripesProjectedIter sch names fileBs footer =
+  case projectFields names sch of
+    Left e          -> IS.iterUnfold () (\_ -> Left e)
+    Right narrow    -> streamStripesIter narrow fileBs footer
+
+-- | Decode a single stripe with column projection.
+orcStripeToArrowProjected
+  :: AT.Schema
+  -> [Text]
+  -> ByteString
+  -> OT.ORCFooter
+  -> Int
+  -> Either String (V.Vector AC.ColumnArray)
+orcStripeToArrowProjected sch names fileBs footer stripeIdx = do
+  narrow <- projectFields names sch
+  orcStripeToArrow narrow fileBs footer stripeIdx
+
+-- | Build a sub-schema by name, preserving the order of @names@.
+-- Names not present in the source schema produce an error.
+projectFields :: [Text] -> AT.Schema -> Either String AT.Schema
+projectFields names sch =
+  let !fields = AT.arrowFields sch
+      !byName = Map.fromList
+        [ (AT.fieldName f, f) | f <- V.toList fields ]
+      pickOne nm = case Map.lookup nm byName of
+        Just f  -> Right f
+        Nothing -> Left $ "ORC.Arrow: projected column "
+                          ++ show nm ++ " not present in target schema"
+  in do
+    fs <- traverse pickOne names
+    Right sch { AT.arrowFields = V.fromList fs }

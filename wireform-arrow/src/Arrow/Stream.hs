@@ -49,6 +49,9 @@ module Arrow.Stream
   , streamReaderSchema
   , streamReaderNext
   , streamReaderToList
+  , streamReaderIter
+  , streamReaderProjected
+  , streamReaderProjectedIter
     -- * Options
   , WriteOptions (..)
   , DictHandling (..)
@@ -60,7 +63,10 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
+import Data.Text (Text)
 import qualified Data.Vector as V
+
+import qualified Columnar.Stream as IS
 
 import Arrow.Column
   ( ColumnArray (..)
@@ -589,9 +595,15 @@ streamReaderNext
 streamReaderNext rd = case srFrames rd of
   [] -> Right Nothing
   ((rb, body) : rest) -> do
+    -- Honour body compression on the per-batch step. The
+    -- eager 'decodeArrowStream' / 'decodeArrowFile' paths
+    -- already do this via 'maybeDecompressBatch'; the
+    -- iterator path used to skip it, which silently produced
+    -- garbage values for compressed batches.
+    (rb', body') <- maybeDecompressBatch rb body
     cols <- materializeRecordBatch (srSchema rd)
-              (denormaliseBuffers (srSchema rd) rb)
-              body
+              (denormaliseBuffers (srSchema rd) rb')
+              body'
     let !resolved = V.map
           (resolveDictionaryColumn (`Map.lookup` srDictMap rd)) cols
         !rd' = rd { srFrames = rest }
@@ -609,3 +621,80 @@ streamReaderToList rd0 = go rd0 []
       Left e                      -> Left e
       Right Nothing               -> Right (reverse acc)
       Right (Just (cols, rd'))    -> go rd' (cols : acc)
+
+-- | Lift a 'StreamReader' into the cross-format 'IS.Iter' shape.
+-- Each 'IS.iterStep' decodes one record batch, applies body
+-- decompression if needed, materialises columns, and resolves
+-- dictionary references — matching 'streamReaderNext' semantics
+-- without forcing the caller to thread the continuation reader
+-- by hand.
+streamReaderIter :: StreamReader -> IS.Iter (V.Vector ColumnArray)
+streamReaderIter rd0 = IS.iterUnfold rd0 $ \r ->
+  case streamReaderNext r of
+    Left e                      -> Left e
+    Right Nothing               -> Right Nothing
+    Right (Just (cols, r'))     -> Right (Just (cols, r'))
+
+-- ============================================================
+-- Column projection
+-- ============================================================
+
+-- | Like 'streamReaderToList' but only materialises the named
+-- columns. Useful when the schema has dozens of columns and the
+-- caller only needs a handful.
+--
+-- The returned 'Schema' is the projected schema (preserving the
+-- order the caller asked for) and each batch is a vector of
+-- 'ColumnArray' values in the same order. Names not present in
+-- the source schema produce a 'Left'.
+streamReaderProjected
+  :: [Text]
+  -> StreamReader
+  -> Either String (Schema, [V.Vector ColumnArray])
+streamReaderProjected names rd0 = do
+  let !sourceSchema = srSchema rd0
+  idxs <- resolveProjectionIndices names sourceSchema
+  let !projSchema = projectSchema idxs sourceSchema
+  IS.iterToList (streamReaderProjectedIter names rd0)
+    >>= \batches -> Right (projSchema, batches)
+
+-- | Iterator-shaped variant of 'streamReaderProjected'. Each
+-- 'IS.iterStep' yields a vector of column arrays containing
+-- /only/ the requested columns, in the requested order.
+--
+-- The full record batch must still be materialised at decode
+-- time (Arrow IPC's body layout doesn't support per-column
+-- decode without parsing the record batch metadata), but the
+-- returned vector aliases only the columns the caller asked for
+-- — making it a real win for downstream code that drops the
+-- unused columns immediately.
+streamReaderProjectedIter
+  :: [Text]
+  -> StreamReader
+  -> IS.Iter (V.Vector ColumnArray)
+streamReaderProjectedIter names rd0 =
+  case resolveProjectionIndices names (srSchema rd0) of
+    Left e -> IS.iterUnfold () (\_ -> Left e)
+    Right idxs -> IS.iterMap (projectColumns idxs) (streamReaderIter rd0)
+
+resolveProjectionIndices :: [Text] -> Schema -> Either String (V.Vector Int)
+resolveProjectionIndices names sch = do
+  let !nameToIdx = Map.fromList
+        [ (fieldName f, i)
+        | (i, f) <- V.toList (V.indexed (arrowFields sch))
+        ]
+  V.fromList <$> traverse (lookupOne nameToIdx) names
+  where
+    lookupOne m nm = case Map.lookup nm m of
+      Just i  -> Right i
+      Nothing -> Left $
+        "Arrow.Stream: projected column not present in source schema: "
+          ++ show nm
+
+projectSchema :: V.Vector Int -> Schema -> Schema
+projectSchema idxs sch = sch
+  { arrowFields = V.map (V.unsafeIndex (arrowFields sch)) idxs
+  }
+
+projectColumns :: V.Vector Int -> V.Vector ColumnArray -> V.Vector ColumnArray
+projectColumns idxs cols = V.map (V.unsafeIndex cols) idxs

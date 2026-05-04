@@ -155,6 +155,7 @@ library
     , wireform-csv
     , wireform-ndjson
     , bytestring
+    , text
     , vector
 
 -- Multi-format code generation CLI
