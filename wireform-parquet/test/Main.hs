@@ -871,6 +871,9 @@ main = do
   -- Generic per-page dispatch (DELTA, BYTE_STREAM_SPLIT, V2)
   genericPageDispatch
 
+  -- Auto-populated bloom filters via the high-level writer
+  highLevelBloomFilters
+
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
 
 -- ============================================================
@@ -1020,6 +1023,62 @@ logicalTypeRoundTrip = do
       flip mapM_ (zip cases recovered) $ \((nm, _, expected), got) -> do
         expect ("LogicalType " ++ T.unpack nm ++ " round-trip")
                (seLogicalType got == expected)
+
+-- | encodeParquet with writeBloomFilters set should emit a
+-- bloom-filter region for the named column and stamp
+-- (offset, length) on its column metadata. The resulting
+-- filter should pass membership tests for every value the
+-- writer saw and reject obviously-absent values (modulo the
+-- nominal false-positive rate).
+highLevelBloomFilters :: IO ()
+highLevelBloomFilters = do
+  let !schema = V.fromList
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+        , SchemaElement "sku" (Just Required) (Just PTByteArray) Nothing
+            (Just CTUtf8) Nothing Nothing
+        ]
+      !skus = V.fromList
+        [ BSC.pack "AAA001", BSC.pack "AAA002", BSC.pack "BBB100"
+        , BSC.pack "CCC999", BSC.pack "AAA001"
+        ]
+      !batch = V.singleton (ColByteArray skus)
+      !opts  = PHL.defaultWriteOptions
+                 { PHL.writePageVersion  = PageV1
+                 , PHL.writeCompression  = Uncompressed
+                 , PHL.writeBloomFilters = ["sku"]
+                 }
+      !bytes = PHL.encodeParquet opts schema [batch]
+  case loadParquetFile bytes of
+    Left e  -> failTest $ "highLevelBloom loadParquetFile: " ++ e
+    Right pf -> do
+      let !rg = V.unsafeIndex (fmRowGroups (pfFooter pf)) 0
+          !cc = V.unsafeIndex (rgColumns rg) 0
+      case ccMetadata cc of
+        Nothing -> failTest "highLevelBloom: column metadata missing"
+        Just md -> do
+          expect "highLevelBloom: writes bloom-filter offset"
+            (cmBloomFilterOffset md /= Nothing)
+          expect "highLevelBloom: writes bloom-filter length"
+            (cmBloomFilterLength md /= Nothing)
+          case (cmBloomFilterOffset md, cmBloomFilterLength md) of
+            (Just off, Just len) -> do
+              let !o   = fromIntegral off :: Int
+                  !l   = fromIntegral len :: Int
+                  !blob = BS.take l (BS.drop o bytes)
+              case decodeBloomFilter blob of
+                Left e -> failTest $ "highLevelBloom decodeBloomFilter: " ++ e
+                Right (_, sbbf) -> do
+                  expect "highLevelBloom: present sku passes filter"
+                    (sbbfCheck (BSC.pack "AAA001") sbbf)
+                  expect "highLevelBloom: present sku BBB100 passes filter"
+                    (sbbfCheck (BSC.pack "BBB100") sbbf)
+                  -- A sku that wasn't inserted /almost certainly/
+                  -- doesn't pass; with a 1% FPP at ~5 distinct
+                  -- entries the chance of a false positive on
+                  -- this one literal is negligible.
+                  expect "highLevelBloom: absent sku rejected"
+                    (not (sbbfCheck (BSC.pack "ZZZZZ") sbbf))
+            _ -> failTest "highLevelBloom: missing offset/length"
 
 -- | Synthesize column chunks that exercise encoding paths the
 -- wireform writer doesn't naturally produce — DELTA_BINARY_PACKED
