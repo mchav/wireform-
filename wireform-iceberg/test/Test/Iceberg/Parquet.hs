@@ -39,8 +39,10 @@ mkParquetFm = P.FileMetadata
       { P.rgColumns = V.fromList [ idChunk, nameChunk ]
       , P.rgTotalByteSize = 4096
       , P.rgNumRows = 100
+      , P.rgSortingColumns = Nothing
       })
   , P.fmCreatedBy = Just "wireform-parquet test"
+  , P.fmColumnOrders = Nothing
   }
   where
     idChunk = P.ColumnChunk

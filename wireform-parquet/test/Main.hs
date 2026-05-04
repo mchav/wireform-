@@ -1009,6 +1009,7 @@ logicalTypeRoundTrip = do
                 , fmNumRows   = 0
                 , fmRowGroups = V.empty
                 , fmCreatedBy = Just "wireform"
+                , fmColumnOrders = Nothing
                 }
   let bytes = Footer.writeFooter fmRaw
   -- buildParquetFile pads with magic; readFooter wants the

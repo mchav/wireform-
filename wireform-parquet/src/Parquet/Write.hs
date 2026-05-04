@@ -70,6 +70,9 @@ module Parquet.Write
   , parquetColumnParquetType
   , buildParquetFileMixed
   , buildParquetFileMixedWith
+    -- * Size statistics
+  , columnDataUnencodedByteArrayBytes
+  , buildOffsetIndexWithSizeStats
   ) where
 
 import Data.ByteString (ByteString)
@@ -1213,6 +1216,7 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
         , fmNumRows = totalRows
         , fmRowGroups = rgMetasCol
         , fmCreatedBy = Just "wireform"
+        , fmColumnOrders = Nothing
         }
       -- Encrypted-footer mode (parquet-format Encryption.md §5.4):
       --
@@ -1331,6 +1335,7 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
             { rgColumns = cols
             , rgTotalByteSize = fromIntegral (off2 - off)
             , rgNumRows = nRows
+            , rgSortingColumns = Nothing
             }
       in (V.snoc rgs rg, off2)
 
@@ -1528,6 +1533,7 @@ buildParquetFileMixedRaw codec schema rowGroups =
                     { rgColumns = chunks
                     , rgTotalByteSize = fromIntegral (off' - off)
                     , rgNumRows = nRows
+                    , rgSortingColumns = Nothing
                     }
                in (V.snoc rgs rg, off'))
           (V.empty, startOfData)
@@ -1540,6 +1546,7 @@ buildParquetFileMixedRaw codec schema rowGroups =
         , fmNumRows   = totalRows
         , fmRowGroups = rgMetas
         , fmCreatedBy = Just "wireform"
+        , fmColumnOrders = Nothing
         }
   in BL.toStrict $ B.toLazyByteString $
        B.byteString parquetMagic
@@ -1578,3 +1585,37 @@ buildParquetFileMixedRaw codec schema rowGroups =
             , ccColumnIndexLength = Nothing
             }
       in (V.snoc cs cc, cOff + sz)
+
+-- ============================================================
+-- Size statistics
+-- ============================================================
+
+-- | Per-page unencoded byte counts for a BYTE_ARRAY column.
+-- Used to populate 'OffsetIndex.oiUnencodedByteArrayDataBytes'
+-- (parquet-format 2.11). For non-BYTE_ARRAY columns returns
+-- 'Nothing'.
+--
+-- The unit is /unencoded bytes/ — for PLAIN-encoded BYTE_ARRAY
+-- pages that's the sum of value lengths (not including the
+-- 4-byte length prefixes the wire format adds).
+columnDataUnencodedByteArrayBytes
+  :: ColumnData
+  -> Maybe Int64
+columnDataUnencodedByteArrayBytes = \case
+  ColByteArray vs ->
+    Just $! V.foldl' (\a bs -> a + fromIntegral (BS.length bs)) 0 vs
+  _ -> Nothing
+
+-- | Attach 'oiUnencodedByteArrayDataBytes' to an existing
+-- 'OffsetIndex' using the supplied per-page byte counts. The
+-- vector length must match the number of page locations or the
+-- attached field is dropped (silently — readers tolerate the
+-- missing slot, an inconsistent one would be worse).
+buildOffsetIndexWithSizeStats
+  :: V.Vector Int64
+  -> OffsetIndex
+  -> OffsetIndex
+buildOffsetIndexWithSizeStats sizes oi
+  | V.length sizes == V.length (oiPageLocations oi) =
+      oi { oiUnencodedByteArrayDataBytes = Just sizes }
+  | otherwise = oi

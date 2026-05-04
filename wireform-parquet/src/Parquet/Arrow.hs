@@ -411,6 +411,23 @@ schemaElementToArrowField se =
 
 arrowTypeFromSchemaElement :: P.SchemaElement -> AT.ArrowType
 arrowTypeFromSchemaElement se = case P.seType se of
+  Just P.PTInt96     ->
+    -- INT96 is the legacy 12-byte timestamp (Hive / impala /
+    -- older parquet writers). Expose as a 12-byte
+    -- fixed-size-binary; downstream callers that know the
+    -- (julian_day, nanos) interpretation can decode further.
+    AT.AFixedSizeBinary 12
+  Just P.PTFixedLenByteArray ->
+    -- The concrete byte width lives in schema's type_length
+    -- field, which we don't currently surface on
+    -- 'P.SchemaElement'. Reasonable default is 16 (matches
+    -- UUID / decimal128 columns that are the common case);
+    -- callers needing the exact width drop into
+    -- 'PR.readPlainFixedLenByteArrayColumnChunk' directly.
+    case P.seLogicalType se of
+      Just P.LTFloat16 -> AT.AFloatingPoint AT.Half
+      Just P.LTUUID    -> AT.AFixedSizeBinary 16
+      _                -> AT.AFixedSizeBinary 16
   Just P.PTBoolean   -> AT.ABool
   Just P.PTInt32     -> case (P.seLogicalType se, P.seConvertedType se) of
     (Just P.LTDate, _)               -> AT.ADate AT.DateDay
@@ -438,7 +455,18 @@ arrowTypeFromSchemaElement se = case P.seType se of
   Just P.PTDouble    -> AT.AFloatingPoint AT.DoublePrecision
   Just P.PTByteArray -> case (P.seLogicalType se, P.seConvertedType se) of
     (Just P.LTString, _)             -> AT.AUtf8
+    -- Geometry / Geography / Variant + Json / Bson are all
+    -- bytes on the wire; expose as ABinary so callers see the
+    -- raw WKB / JSON / variant bytes. The LogicalType
+    -- annotation survives round-trip for downstream tools.
+    (Just P.LTGeometry, _)           -> AT.ABinary
+    (Just P.LTGeography, _)          -> AT.ABinary
+    (Just (P.LTVariant _), _)        -> AT.ABinary
+    (Just P.LTJson, _)               -> AT.AUtf8
+    (Just P.LTBson, _)               -> AT.ABinary
     (_,  Just P.CTUtf8)              -> AT.AUtf8
+    (_,  Just P.CTJson)              -> AT.AUtf8
+    (_,  Just P.CTBson)              -> AT.ABinary
     _                                -> AT.ABinary
   _                  -> AT.ABinary  -- FIXED_LEN_BYTE_ARRAY / Int96 fallback
 
@@ -543,6 +571,16 @@ readParquetColumn pf rgIdx colIdx fld = do
       AC.ColTimestamp <$> PR.readGenericInt64ColumnChunk codec chunk
     AT.ADuration _ | not nullable ->
       AC.ColDuration <$> PR.readGenericInt64ColumnChunk codec chunk
+
+    -- INT96 (legacy 12-byte timestamp) and FIXED_LEN_BYTE_ARRAY
+    -- (UUIDs / float16 / decimal128 in fixed form). Both are
+    -- exposed via 'ColFixedSizeBinary'; the bridge currently
+    -- only handles the required-page case (PLAIN encoding).
+    AT.AFixedSizeBinary 12 | not nullable ->
+      AC.ColFixedSizeBinary 12 <$> PR.readPlainInt96ColumnChunk codec chunk
+    AT.AFixedSizeBinary n | not nullable ->
+      AC.ColFixedSizeBinary n <$>
+        PR.readPlainFixedLenByteArrayColumnChunk n codec chunk
 
     -- Nullable primitives + temporals. The @*Optional@ readers
     -- take (max_repetition_level, max_definition_level); for a
@@ -907,25 +945,24 @@ readParquetColumnWithPagePruning
   -> AT.Field             -- ^ Arrow target field (must be non-nullable)
   -> Pred.PColPredicate   -- ^ predicate to push down to the page index
   -> Either String (Maybe (Int, Int), AC.ColumnArray)
-readParquetColumnWithPagePruning pf rgIdx colIdx fld predicate
-  | AT.fieldNullable fld =
-      Left "Parquet.Arrow: page-level pruning not yet supported for nullable columns"
-  | otherwise = do
-      mIdx <- loadIndices pf rgIdx colIdx
-      case mIdx of
-        Nothing -> do
-          col <- mapLeftShow (readParquetColumn pf rgIdx colIdx fld)
-          Right (Nothing, col)
-        Just (oi, ci, ptype) -> do
-          let !decisions = Pred.evalPagesByColumnIndex ptype ci predicate
-              !keep      = V.map (== Pred.PMaybeKeep) decisions
-              !total     = V.length keep
-              !nKept     = V.length (V.filter id keep)
-              !codec     = chunkCodec pf rgIdx colIdx
-              !fileBs    = PR.pfBytes pf
-              !locs      = P.oiPageLocations oi
-          col <- decodeSelectedColumn codec fileBs locs keep fld
-          Right (Just (nKept, total), col)
+readParquetColumnWithPagePruning pf rgIdx colIdx fld predicate = do
+  mIdx <- loadIndices pf rgIdx colIdx
+  case mIdx of
+    Nothing -> do
+      col <- mapLeftShow (readParquetColumn pf rgIdx colIdx fld)
+      Right (Nothing, col)
+    Just (oi, ci, ptype) -> do
+      let !decisions = Pred.evalPagesByColumnIndex ptype ci predicate
+          !keep      = V.map (== Pred.PMaybeKeep) decisions
+          !total     = V.length keep
+          !nKept     = V.length (V.filter id keep)
+          !codec     = chunkCodec pf rgIdx colIdx
+          !fileBs    = PR.pfBytes pf
+          !locs      = P.oiPageLocations oi
+      col <- if AT.fieldNullable fld
+               then decodeSelectedOptionalColumn codec fileBs locs keep fld
+               else decodeSelectedColumn codec fileBs locs keep fld
+      Right (Just (nKept, total), col)
   where
     mapLeftShow :: Either e a -> Either String a
     mapLeftShow (Right x) = Right x
@@ -981,6 +1018,62 @@ decodeSelectedColumn codec fileBs locs keep fld = case AT.fieldType fld of
     AC.ColDuration  <$> PR.readGenericInt64SelectedPages codec fileBs locs keep
   other ->
     Left $ "Parquet.Arrow: page-pruning bridge doesn't yet cover "
+            ++ show other
+
+-- | Page-pruning variant for nullable columns. Same shape as
+-- 'decodeSelectedColumn' but routes through the
+-- @readGenericXxxOptionalSelectedPages@ family which carries
+-- per-page def-level streams.
+decodeSelectedOptionalColumn
+  :: P.Compression
+  -> ByteString
+  -> V.Vector P.PageLocation
+  -> V.Vector Bool
+  -> AT.Field
+  -> Either String AC.ColumnArray
+decodeSelectedOptionalColumn codec fileBs locs keep fld = case AT.fieldType fld of
+  AT.AInt 32 True ->
+    AC.ColInt32Maybe  <$> PR.readGenericInt32OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.AInt 64 True ->
+    AC.ColInt64Maybe  <$> PR.readGenericInt64OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.AFloatingPoint AT.Single ->
+    AC.ColFloatMaybe  <$> PR.readGenericFloatOptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.AFloatingPoint AT.DoublePrecision ->
+    AC.ColDoubleMaybe <$> PR.readGenericDoubleOptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ABool ->
+    AC.ColBoolMaybe   <$> PR.readGenericBoolOptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.AUtf8 -> do
+    bs <- PR.readGenericByteArrayOptionalSelectedPages
+            codec 0 1 fileBs locs keep
+    Right $ AC.ColUtf8Maybe (V.map (fmap decodeUtf8Lossy) bs)
+  AT.ABinary ->
+    AC.ColBinaryMaybe <$> PR.readGenericByteArrayOptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ADate AT.DateDay ->
+    AC.ColDate32Maybe <$> PR.readGenericInt32OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ADate AT.DateMillisecond ->
+    AC.ColDate64Maybe <$> PR.readGenericInt64OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ATime _ 32 ->
+    AC.ColTime32Maybe <$> PR.readGenericInt32OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ATime _ 64 ->
+    AC.ColTime64Maybe <$> PR.readGenericInt64OptionalSelectedPages
+                            codec 0 1 fileBs locs keep
+  AT.ATimestamp _ _ ->
+    AC.ColTimestampMaybe <$> PR.readGenericInt64OptionalSelectedPages
+                              codec 0 1 fileBs locs keep
+  AT.ADuration _ ->
+    AC.ColDurationMaybe <$> PR.readGenericInt64OptionalSelectedPages
+                              codec 0 1 fileBs locs keep
+  other ->
+    Left $ "Parquet.Arrow: nullable page-pruning bridge doesn't yet cover "
             ++ show other
 
 -- | Build a sub-schema by name. Preserves the order of @names@.

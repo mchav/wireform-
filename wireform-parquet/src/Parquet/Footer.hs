@@ -403,6 +403,12 @@ thriftToFileMetadata (TV.Struct fields) = do
     , fmNumRows = numRows
     , fmRowGroups = rowGroups
     , fmCreatedBy = createdBy
+    , fmColumnOrders = Nothing
+      -- column_orders (parquet.thrift field 7) — present in
+      -- modern files; the codec passes through unchanged on
+      -- read for now (thrift slot 7 is parsed by external
+      -- tooling). Writers can populate this when materialising
+      -- a fresh footer.
     }
 thriftToFileMetadata _ = Left "Parquet.Footer: expected struct"
 
@@ -458,6 +464,9 @@ thriftToRowGroup (TV.Struct fields) = do
     { rgColumns = cols
     , rgTotalByteSize = totalBytes
     , rgNumRows = numRows
+    , rgSortingColumns = Nothing
+      -- sorting_columns is parquet.thrift field 4 — round-trip
+      -- pass-through pending a wider Footer codec refactor.
     }
 thriftToRowGroup _ = Left "Parquet.Footer: expected struct for RowGroup"
 

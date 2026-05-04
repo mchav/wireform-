@@ -662,6 +662,7 @@ buildOptionalListFile leafType leaf numRows =
         { rgColumns       = V.singleton colChunk
         , rgTotalByteSize = fromIntegral (BS.length pageBytes)
         , rgNumRows       = fromIntegral numRows
+        , rgSortingColumns = Nothing
         }
       !fm = FileMetadata
         { fmVersion   = 2
@@ -669,6 +670,7 @@ buildOptionalListFile leafType leaf numRows =
         , fmNumRows   = fromIntegral numRows
         , fmRowGroups = V.singleton rg
         , fmCreatedBy = Just "wireform"
+        , fmColumnOrders = Nothing
         }
    in PW.writeParquetFile fm (V.singleton (V.singleton pageBytes))
 
@@ -919,6 +921,7 @@ buildNestedFile columns rowsPerColumn
                 { rgColumns       = V.fromList columnChunks
                 , rgTotalByteSize = fromIntegral (BS.length rowGroupBytes)
                 , rgNumRows       = fromIntegral numRows
+                , rgSortingColumns = Nothing
                 }
               !fm = FileMetadata
                 { fmVersion   = 2
@@ -926,6 +929,7 @@ buildNestedFile columns rowsPerColumn
                 , fmNumRows   = fromIntegral numRows
                 , fmRowGroups = V.singleton rg
                 , fmCreatedBy = Just "wireform"
+                , fmColumnOrders = Nothing
                 }
           Right (PW.writeParquetFile fm
                    (V.singleton (V.fromList pageBytesList)))

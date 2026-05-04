@@ -7,6 +7,8 @@ module Parquet.Types
   ( FileMetadata(..)
   , SchemaElement(..)
   , RowGroup(..)
+  , SortingColumn(..)
+  , ColumnOrder(..)
   , ColumnChunk(..)
   , ColumnMetadata(..)
   , ParquetType(..)
@@ -226,12 +228,41 @@ data ColumnChunk = ColumnChunk
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
+-- | One entry of @RowGroup.sorting_columns@. Tells readers
+-- (DuckDB, Trino, parquet-mr) which leaf columns the row
+-- group is sorted on so they can skip ORDER BY scans.
+data SortingColumn = SortingColumn
+  { scColumnIdx  :: !Int32
+    -- ^ Leaf-column index in the row group (0-based, parallel
+    -- to @rgColumns@).
+  , scDescending :: !Bool
+    -- ^ Sort direction. @False@ = ascending.
+  , scNullsFirst :: !Bool
+    -- ^ Whether nulls sort before non-nulls.
+  } deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
+
 data RowGroup = RowGroup
   { rgColumns       :: !(Vector ColumnChunk)
   , rgTotalByteSize :: !Int64
   , rgNumRows       :: !Int64
+  , rgSortingColumns :: !(Maybe (Vector SortingColumn))
+    -- ^ Per-row-group sort metadata. 'Nothing' for unsorted
+    -- row groups (the common case); populated by writers that
+    -- want to advertise an ordering. Readers use this to skip
+    -- an ORDER BY when scanning a sorted file.
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
+
+-- | Per-leaf-column ordering rule. parquet-format defines this
+-- as a union with a single variant 'TypeDefinedOrder' meaning
+-- \"use the type's natural ordering\". Without it, statistics
+-- on BYTE_ARRAY columns can be reported but readers may refuse
+-- to use them for pushdown.
+data ColumnOrder
+  = TypeDefinedOrder
+  deriving stock (Show, Eq, Enum, Bounded, Generic)
+  deriving anyclass (NFData)
 
 data FileMetadata = FileMetadata
   { fmVersion   :: !Int32
@@ -239,6 +270,11 @@ data FileMetadata = FileMetadata
   , fmNumRows   :: !Int64
   , fmRowGroups :: !(Vector RowGroup)
   , fmCreatedBy :: !(Maybe Text)
+  , fmColumnOrders :: !(Maybe (Vector ColumnOrder))
+    -- ^ Per-leaf-column ordering rules (parquet-format field 7).
+    -- Length must match the leaf-column count when populated.
+    -- 'Nothing' means readers fall back to legacy ordering;
+    -- modern writers always emit this.
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
