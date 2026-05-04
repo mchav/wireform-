@@ -103,6 +103,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 import Data.Word (Word8, Word16, Word32, Word64)
 
+import qualified Arrow.Column as AC
 import Arrow.Column (ColumnArray (..))
 import Arrow.Types
   ( ArrowType (..)
@@ -533,43 +534,11 @@ structD name inner = RowDecoder [name] $ \fs cs -> do
       Left $ "Arrow.Record.structD " ++ show name
               ++ ": expected ColStruct, got " ++ takeWhile (/= ' ') (show other)
 
--- Tiny helper: vector-length accessor that works on all
--- ColumnArray shapes. We re-implement here to avoid pulling in
--- Arrow.Column.columnLength's bigger definition (its
--- dependency closure is heavier).
+-- | Vector length of a 'ColumnArray'. Now delegates to
+-- 'Arrow.Column.columnLength' (originally re-implemented here
+-- to dodge a non-existent import cycle).
 columnLen :: ColumnArray -> Int
-columnLen = \case
-  ColInt8 v     -> VP.length v
-  ColInt16 v    -> VP.length v
-  ColInt32 v    -> VP.length v
-  ColInt64 v    -> VP.length v
-  ColUInt8 v    -> VP.length v
-  ColUInt16 v   -> VP.length v
-  ColUInt32 v   -> VP.length v
-  ColUInt64 v   -> VP.length v
-  ColFloat v    -> VP.length v
-  ColDouble v   -> VP.length v
-  ColBool v     -> V.length v
-  ColUtf8 v     -> V.length v
-  ColBinary v   -> V.length v
-  ColInt8Maybe v    -> V.length v
-  ColInt16Maybe v   -> V.length v
-  ColInt32Maybe v   -> V.length v
-  ColInt64Maybe v   -> V.length v
-  ColUInt8Maybe v   -> V.length v
-  ColUInt16Maybe v  -> V.length v
-  ColUInt32Maybe v  -> V.length v
-  ColUInt64Maybe v  -> V.length v
-  ColFloatMaybe v   -> V.length v
-  ColDoubleMaybe v  -> V.length v
-  ColBoolMaybe v    -> V.length v
-  ColUtf8Maybe v    -> V.length v
-  ColBinaryMaybe v  -> V.length v
-  ColDate32 v       -> VP.length v
-  ColDate32Maybe v  -> V.length v
-  ColTimestamp v    -> VP.length v
-  ColTimestampMaybe v -> V.length v
-  _ -> 0
+columnLen = AC.columnLength
 
 -- ============================================================
 -- Table

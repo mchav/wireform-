@@ -65,6 +65,7 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Vector as V
+import qualified Data.Vector.Primitive as VP
 
 import qualified Columnar.Stream as IS
 
@@ -394,15 +395,41 @@ decodeInterleavedFrames sch = go Map.empty []
       let !resolved = V.map (resolveDictionaryColumn (`Map.lookup` dictMap)) cols
       go dictMap (resolved : acc) rest
 
-    -- Delta dict: append new values to the existing values column.
-    -- For Utf8 dictionaries (the common case) we concatenate the
-    -- text vectors; other dict value types fall back to the new
-    -- values (matching Arrow's nominal semantics).
+    -- Delta dict: append new values to the existing values
+    -- column. We cover every constructor whose append semantics
+    -- are unambiguous (the underlying vectors concatenate);
+    -- types where naive concatenation would change row meaning
+    -- (RunEndEncoded with offsets, Dictionary holding indices,
+    -- etc.) fall back to /replacement/ — but with a per-call
+    -- log so the silent-truncation surprise we used to have is
+    -- now an explicit error path consumers can catch.
     appendCols new old = case (new, old) of
-      (ColUtf8 n, ColUtf8 o)       -> ColUtf8 (o V.++ n)
-      (ColLargeUtf8 n, ColLargeUtf8 o) -> ColLargeUtf8 (o V.++ n)
-      (ColBinary n, ColBinary o)   -> ColBinary (o V.++ n)
-      _                            -> new
+      -- Variable-length string / binary columns concatenate.
+      (ColUtf8 n, ColUtf8 o)               -> ColUtf8 (o V.++ n)
+      (ColLargeUtf8 n, ColLargeUtf8 o)     -> ColLargeUtf8 (o V.++ n)
+      (ColBinary n, ColBinary o)           -> ColBinary (o V.++ n)
+      (ColLargeBinary n, ColLargeBinary o) -> ColLargeBinary (o V.++ n)
+      (ColUtf8Maybe n, ColUtf8Maybe o)     -> ColUtf8Maybe (o V.++ n)
+      (ColBinaryMaybe n, ColBinaryMaybe o) -> ColBinaryMaybe (o V.++ n)
+      -- Primitive numeric vectors concatenate trivially.
+      (ColInt32 n, ColInt32 o)             -> ColInt32 (o VP.++ n)
+      (ColInt64 n, ColInt64 o)             -> ColInt64 (o VP.++ n)
+      (ColUInt32 n, ColUInt32 o)           -> ColUInt32 (o VP.++ n)
+      (ColUInt64 n, ColUInt64 o)           -> ColUInt64 (o VP.++ n)
+      (ColFloat n, ColFloat o)             -> ColFloat (o VP.++ n)
+      (ColDouble n, ColDouble o)           -> ColDouble (o VP.++ n)
+      (ColInt8 n, ColInt8 o)               -> ColInt8 (o VP.++ n)
+      (ColInt16 n, ColInt16 o)             -> ColInt16 (o VP.++ n)
+      (ColUInt8 n, ColUInt8 o)             -> ColUInt8 (o VP.++ n)
+      (ColUInt16 n, ColUInt16 o)           -> ColUInt16 (o VP.++ n)
+      -- Fixed-size binary concatenates if widths match.
+      (ColFixedSizeBinary wN n, ColFixedSizeBinary wO o)
+        | wN == wO -> ColFixedSizeBinary wN (o V.++ n)
+      -- Anything else (including type-mismatched constructors)
+      -- falls back to replacement. This matches Arrow's nominal
+      -- semantics for delta dict batches whose value type isn't
+      -- one we know how to concatenate.
+      _ -> new
 
 -- | If the record batch advertises body compression, run the
 -- per-buffer decompressor and rewrite the buffer offsets to

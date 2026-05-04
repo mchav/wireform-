@@ -18,9 +18,21 @@ module Arrow.Types
   , BodyCompressionCodec(..)
   , FieldNode(..)
   , Buffer(..)
+    -- * Smart constructors
+    --
+    -- | These thin wrappers default the optional record fields
+    -- ('arrowMetadata', 'fieldMetadata', 'fieldDictionary',
+    -- 'fieldChildren') so test fixtures and one-off encoders
+    -- don't have to spell out every slot. Adding a new optional
+    -- field to 'Schema' or 'Field' won't break callers that
+    -- went through these constructors.
+  , defaultSchema
+  , defaultField
+  , defaultLeafField
   ) where
 
 import Control.DeepSeq (NFData)
+import qualified Data.Vector as V
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
@@ -189,3 +201,36 @@ data Message
   | RecordBatch !RecordBatchDef
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NFData)
+
+-- | Build a 'Schema' with little-endian + no custom_metadata.
+-- Equivalent to @Schema fields Little V.empty@.
+defaultSchema :: Vector Field -> Schema
+defaultSchema fs = Schema
+  { arrowFields     = fs
+  , arrowEndianness = Little
+  , arrowMetadata   = V.empty
+  }
+
+-- | Build a 'Field' with no children, no dictionary, and no
+-- custom_metadata.
+defaultLeafField :: Text -> Bool -> ArrowType -> Field
+defaultLeafField name nullable ty = Field
+  { fieldName       = name
+  , fieldNullable   = nullable
+  , fieldType       = ty
+  , fieldChildren   = V.empty
+  , fieldDictionary = Nothing
+  , fieldMetadata   = V.empty
+  }
+
+-- | Build a 'Field' with explicit children but no dictionary
+-- encoding and no custom_metadata.
+defaultField :: Text -> Bool -> ArrowType -> Vector Field -> Field
+defaultField name nullable ty children = Field
+  { fieldName       = name
+  , fieldNullable   = nullable
+  , fieldType       = ty
+  , fieldChildren   = children
+  , fieldDictionary = Nothing
+  , fieldMetadata   = V.empty
+  }
