@@ -41,6 +41,8 @@ module Wireform.Columnar
   , decode
   , decodeIter
   , decodeProjectedIter
+  , decodeFilteredIter
+  , decodeProjectedFilteredIter
   , decodeSchema
   , ReadOptions (..)
   , defaultReadOptions
@@ -98,6 +100,7 @@ import qualified ORC.Stripe as OStripe
 
 import qualified Parquet.Arrow as PArrow
 import qualified Parquet.HighLevel as Parquet
+import qualified Parquet.Predicate as Pred
 import Parquet.HighLevel hiding
   ( WriteOptions
   , ReadOptions
@@ -468,6 +471,54 @@ decodeProjectedIter fmt opts names bs = do
     ORC -> do
       footer <- ORC.decodeORC bs
       Right (narrow, OArrow.streamStripesProjectedIter fullSch names bs footer)
+
+-- | Iterator-shaped variant of 'decodeIter' with predicate
+-- pushdown. For Parquet, row groups whose statistics prove
+-- the predicate matches no rows are dropped before any column
+-- decoding happens. Other formats (Arrow stream / file, ORC)
+-- currently fall through to 'decodeIter' — predicate pushdown
+-- there is a follow-up.
+--
+-- Returns the schema, the iterator, and a planning summary
+-- @(totalCandidates, droppedByPredicate)@. For non-Parquet
+-- formats the dropped count is 0.
+decodeFilteredIter
+  :: Format
+  -> ReadOptions
+  -> Pred.Predicate
+  -> ByteString
+  -> Either String (AT.Schema, Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+decodeFilteredIter fmt opts predicate bs = case fmt of
+  Parquet -> do
+    pf <- Parquet.decodeParquet (parquetRead opts) bs
+    let !sch                 = PArrow.parquetFileArrowSchema pf
+        (nRg, nSkip, it) =
+          PArrow.streamRowGroupsFilteredIter sch predicate pf
+    Right (sch, nRg, nSkip, it)
+  _ -> do
+    (sch, it) <- decodeIter fmt opts bs
+    Right (sch, 0, 0, it)
+
+-- | Combination of 'decodeFilteredIter' and
+-- 'decodeProjectedIter'.
+decodeProjectedFilteredIter
+  :: Format
+  -> ReadOptions
+  -> [Text]
+  -> Pred.Predicate
+  -> ByteString
+  -> Either String (AT.Schema, Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+decodeProjectedFilteredIter fmt opts names predicate bs = case fmt of
+  Parquet -> do
+    pf <- Parquet.decodeParquet (parquetRead opts) bs
+    let !sch = PArrow.parquetFileArrowSchema pf
+    narrow <- projectFieldsByName names sch
+    (nRg, nSkip, it) <-
+      PArrow.streamRowGroupsProjectedFilteredIter sch names predicate pf
+    Right (narrow, nRg, nSkip, it)
+  _ -> do
+    (narrow, it) <- decodeProjectedIter fmt opts names bs
+    Right (narrow, 0, 0, it)
 
 -- | Iterator-shaped 'decodeRecords'. Each step yields a
 -- @V.Vector r@ for one batch / row group / stripe. Useful for

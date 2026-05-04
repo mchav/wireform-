@@ -64,6 +64,7 @@ library
     Parquet.NullPagesBitmap
     Parquet.Page
     Parquet.PageIndex
+    Parquet.Predicate
     Parquet.Read
     Parquet.Thrift.Schema
     Parquet.Types

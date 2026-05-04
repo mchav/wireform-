@@ -47,6 +47,8 @@ module Parquet.Arrow
   , streamRowGroups
   , streamRowGroupsIter
   , streamRowGroupsProjectedIter
+  , streamRowGroupsFilteredIter
+  , streamRowGroupsProjectedFilteredIter
   , numRowGroups
   ) where
 
@@ -67,6 +69,7 @@ import qualified Arrow.Types as AT
 import qualified Columnar.Stream as IS
 
 import qualified Parquet.Nested as PN
+import qualified Parquet.Predicate as Pred
 import qualified Parquet.Read as PR
 import qualified Parquet.Types as P
 import qualified Parquet.Write as PW
@@ -785,6 +788,65 @@ parquetRowGroupToArrowProjected target names pf rgIdx = do
     Right s -> Right s
     Left  _ -> Left (MissingColumn (T.pack "<projection>"))
   parquetRowGroupToArrow narrow pf rgIdx
+
+-- | Iterator over row groups that drops any row group whose
+-- statistics prove the predicate matches no rows.
+--
+-- Skipping is /sound/: only row groups whose
+-- 'Parquet.Predicate.evalRowGroup' returns 'Pred.PSkip' are
+-- elided. Row groups whose statistics are missing or
+-- inconclusive are decoded normally and yielded as iterator
+-- elements.
+--
+-- Returns the iterator paired with the planning summary
+-- @(totalRowGroups, skippedRowGroups)@ so callers can log how
+-- effective the predicate was without holding onto the file.
+streamRowGroupsFilteredIter
+  :: AT.Schema
+  -> Pred.Predicate
+  -> PR.ParquetFile
+  -> (Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+streamRowGroupsFilteredIter sch predicate pf =
+  let !leafNames = leafColumnNames pf
+      !rgs       = P.fmRowGroups (PR.pfFooter pf)
+      !nRg       = V.length rgs
+      keep i =
+        Pred.evalRowGroup leafNames predicate (V.unsafeIndex rgs i)
+          == Pred.PMaybeKeep
+      !kept   = V.filter keep (V.enumFromN 0 nRg)
+      !nKept  = V.length kept
+      !nSkip  = nRg - nKept
+      step k =
+        let !i = V.unsafeIndex kept k
+        in case parquetRowGroupToArrow sch pf i of
+             Right cols -> Right cols
+             Left  err  -> Left (show err)
+  in (nRg, nSkip, IS.iterFromIndexed nKept step)
+
+-- | Combination of 'streamRowGroupsProjectedIter' and
+-- 'streamRowGroupsFilteredIter': only decodes the named
+-- columns of row groups whose statistics survive the
+-- predicate.
+streamRowGroupsProjectedFilteredIter
+  :: AT.Schema
+  -> [Text]
+  -> Pred.Predicate
+  -> PR.ParquetFile
+  -> Either String (Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+streamRowGroupsProjectedFilteredIter sch names predicate pf = do
+  narrowSch <- projectFields names sch
+  let (nRg, nSkip, it) =
+        streamRowGroupsFilteredIter narrowSch predicate pf
+  Right (nRg, nSkip, it)
+
+-- | Leaf column names of a 'PR.ParquetFile' in the same order
+-- the row groups' @rgColumns@ vectors use. Built from the
+-- footer's flat schema (skipping the synthetic root struct).
+leafColumnNames :: PR.ParquetFile -> V.Vector Text
+leafColumnNames pf =
+  V.map P.seName
+        (V.filter (maybe False (const True) . P.seType)
+                  (P.fmSchema (PR.pfFooter pf)))
 
 -- | Build a sub-schema by name. Preserves the order of @names@.
 projectFields :: [Text] -> AT.Schema -> Either String AT.Schema

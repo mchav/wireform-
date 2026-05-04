@@ -39,6 +39,7 @@ import qualified Parquet.Nested as Nested
 import qualified Parquet.NullPagesBitmap as NPB
 import qualified Parquet.Encryption as Enc
 import Parquet.PageIndex
+import qualified Parquet.Predicate as Pred
 import qualified Parquet.Read
 import Parquet.Read
   ( decodeByteStreamSplitDouble
@@ -854,7 +855,113 @@ main = do
   -- Arrow ↔ Parquet bridge round-trip.
   arrowParquetBridge
 
+  -- Predicate evaluator unit tests
+  predicateRowGroupSkipping
+  predicatePageSkipping
+  predicateBloomSkipping
+
   putStrLn "All Parquet page-index / bloom-filter / statistics tests passed."
+
+-- ============================================================
+-- Parquet.Predicate
+-- ============================================================
+
+predicateRowGroupSkipping :: IO ()
+predicateRowGroupSkipping = do
+  let schema = V.fromList
+        [ SchemaElement "schema" Nothing Nothing (Just 1) Nothing Nothing Nothing
+        , SchemaElement "n" (Just Required) (Just PTInt32) Nothing Nothing Nothing Nothing
+        ]
+      vs    = VP.fromList [(10 :: Int32), 20, 30, 40, 50]
+      fbs   = buildParquetFile schema (V.singleton (V.singleton (ColInt32 vs)))
+  case loadParquetFile fbs of
+    Left e -> failTest ("predicate: loadParquetFile: " ++ e)
+    Right pf -> do
+      let !rg = V.unsafeIndex (fmRowGroups (pfFooter pf)) 0
+          colNames = V.fromList ["n"]
+          mkPred cp = Pred.PCol "n" cp
+      expect "PEq 25 outside [10,50] -> Skip"
+        (Pred.evalRowGroup colNames (mkPred (Pred.PEq (Pred.PVInt32 25)))
+                           rg == Pred.PMaybeKeep)
+      expect "PEq 5 below min -> Skip"
+        (Pred.evalRowGroup colNames (mkPred (Pred.PEq (Pred.PVInt32 5)))
+                           rg == Pred.PSkip)
+      expect "PEq 100 above max -> Skip"
+        (Pred.evalRowGroup colNames (mkPred (Pred.PEq (Pred.PVInt32 100)))
+                           rg == Pred.PSkip)
+      expect "PLt 5 -> Skip"
+        (Pred.evalRowGroup colNames (mkPred (Pred.PLt (Pred.PVInt32 5)))
+                           rg == Pred.PSkip)
+      expect "PGtEq 30 inside range -> MaybeKeep"
+        (Pred.evalRowGroup colNames (mkPred (Pred.PGtEq (Pred.PVInt32 30)))
+                           rg == Pred.PMaybeKeep)
+      -- AND short-circuits on a Skip side
+      let pAnd = Pred.PAnd
+                   (mkPred (Pred.PLt (Pred.PVInt32 5)))
+                   (mkPred (Pred.PGt (Pred.PVInt32 0)))
+      expect "AND with skipping side -> Skip"
+        (Pred.evalRowGroup colNames pAnd rg == Pred.PSkip)
+      -- IsNull on no-null column => Skip
+      expect "PIsNull when null_count=0 -> Skip"
+        (Pred.evalRowGroup colNames (mkPred Pred.PIsNull) rg == Pred.PSkip)
+
+predicatePageSkipping :: IO ()
+predicatePageSkipping = do
+  -- Build a synthetic ColumnIndex for an int32 column with two
+  -- pages: page 0 has [1..10], page 1 has [50..60].
+  let mins = V.fromList
+               [ BS.pack [1, 0, 0, 0]
+               , BS.pack [50, 0, 0, 0]
+               ]
+      maxs = V.fromList
+               [ BS.pack [10, 0, 0, 0]
+               , BS.pack [60, 0, 0, 0]
+               ]
+      ci = ColumnIndex
+             { ciNullPages = V.fromList [False, False]
+             , ciMinValues = mins
+             , ciMaxValues = maxs
+             , ciBoundaryOrder = OrderAscending
+             , ciNullCounts   = Nothing
+             , ciRepetitionLevelHistograms = Nothing
+             , ciDefinitionLevelHistograms = Nothing
+             }
+      decisions = Pred.evalPagesByColumnIndex
+                    PTInt32 ci
+                    (Pred.PEq (Pred.PVInt32 30))
+  expect "page 0 ([1,10]) skips for =30"
+    (V.unsafeIndex decisions 0 == Pred.PSkip)
+  expect "page 1 ([50,60]) skips for =30"
+    (V.unsafeIndex decisions 1 == Pred.PSkip)
+  let decisions2 = Pred.evalPagesByColumnIndex
+                     PTInt32 ci
+                     (Pred.PEq (Pred.PVInt32 5))
+  expect "page 0 keeps for =5"
+    (V.unsafeIndex decisions2 0 == Pred.PMaybeKeep)
+  expect "page 1 skips for =5"
+    (V.unsafeIndex decisions2 1 == Pred.PSkip)
+
+predicateBloomSkipping :: IO ()
+predicateBloomSkipping = do
+  let -- Bloom filter built from i32 PLAIN payloads of 10, 20, 30
+      bf0 = newSbbf (optimalNumBytes 1024 0.01)
+      bf  = foldr sbbfInsert bf0
+              [ BS.pack [10, 0, 0, 0]
+              , BS.pack [20, 0, 0, 0]
+              , BS.pack [30, 0, 0, 0]
+              ]
+  expect "bloom keeps known-present 20"
+    (Pred.evalBloomChunk PTInt32 bf
+       (Pred.PEq (Pred.PVInt32 20)) == Pred.PMaybeKeep)
+  expect "bloom skips known-absent 99"
+    (Pred.evalBloomChunk PTInt32 bf
+       (Pred.PEq (Pred.PVInt32 99)) == Pred.PSkip)
+  expect "bloom keeps PIn that contains a present"
+    (Pred.evalBloomChunk PTInt32 bf
+       (Pred.PIn [Pred.PVInt32 99, Pred.PVInt32 20]) == Pred.PMaybeKeep)
+  expect "bloom skips PIn of all-absent"
+    (Pred.evalBloomChunk PTInt32 bf
+       (Pred.PIn [Pred.PVInt32 99, Pred.PVInt32 100]) == Pred.PSkip)
 
 arrowParquetProjection :: IO ()
 arrowParquetProjection = do
