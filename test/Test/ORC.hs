@@ -282,9 +282,9 @@ footerTests = testGroup "Footer roundtrip"
 
   , testCase "Footer with column statistics" $ do
       let stats = V.fromList
-            [ ColumnStatistics (Just 100) (Just False) (Just 800)
-            , ColumnStatistics (Just 95) (Just True) (Just 500)
-            , ColumnStatistics Nothing Nothing Nothing
+            [ ColumnStatistics (Just 100) (Just False) (Just 800) Nothing
+            , ColumnStatistics (Just 95) (Just True) (Just 500) Nothing
+            , ColumnStatistics Nothing Nothing Nothing Nothing
             ]
           footer = ORCFooter
             { orcHeaderLength = 3
