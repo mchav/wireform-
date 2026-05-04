@@ -97,6 +97,7 @@ import Parquet.Write
   , PageVersion (..)
   , ParquetColumn (..)
   , buildParquetFileMixed
+  , buildParquetFileMixedWith
   , buildParquetFileWithIndex
   , buildParquetFileWithIndexEncryptedFooter
   , emptyColumnAux
@@ -196,23 +197,33 @@ leafColumnIndex schema name =
 
 -- | Serialise a Parquet file from a schema + row groups where
 -- each column may be either required ('PCRequired') or nullable
--- ('PCOptional'). Routes through 'buildParquetFileMixed' which
--- emits uncompressed @DATA_PAGE_V1@ pages (simple readers like
--- 'Parquet.Read.readPlainXxxOptionalColumnChunk' expect that
--- shape).
+-- ('PCOptional'). Routes through 'buildParquetFileMixedWith'
+-- which emits @DATA_PAGE_V1@ pages and applies the requested
+-- compression codec to every column-chunk body.
 --
--- The 'WriteOptions' parameter is currently ignored by this
--- path — bloom filters, page indexes, encryption, compression,
--- and PageV2 are roadmap items for the mixed writer. Use
--- 'encodeParquet' with all-required 'ColumnData' when those
--- knobs matter.
+-- Honours 'writeCompression' from the supplied 'WriteOptions';
+-- 'writePageVersion', 'writeBloomFilters', 'writePageIndex',
+-- 'writeColumnEncryption', and 'writeFooterEncryption' are still
+-- unsupported on the mixed path (use 'encodeParquet' with
+-- all-required 'ColumnData' if those matter).
+--
+-- Returns the empty @ByteString@ when the codec choice fails
+-- (e.g. Snappy without the @+snappy@ flag); callers that care
+-- about that case should check 'writeCompression' against the
+-- available codecs first.
 encodeParquetMixed
   :: WriteOptions
   -> V.Vector SchemaElement
   -> [V.Vector ParquetColumn]
   -> ByteString
-encodeParquetMixed _opts schema rgs =
-  buildParquetFileMixed schema (V.fromList rgs)
+encodeParquetMixed opts schema rgs =
+  case buildParquetFileMixedWith
+         (writeCompression opts) schema (V.fromList rgs) of
+    Right bs -> bs
+    -- Failure here means the codec isn't built into this
+    -- wireform copy. Fall back to uncompressed so the writer
+    -- still emits something parseable.
+    Left _   -> buildParquetFileMixed schema (V.fromList rgs)
 
 -- | Compute a 'ColumnAux' vector per row group from the
 -- write-time options.

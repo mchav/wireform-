@@ -69,6 +69,7 @@ module Parquet.Write
   , parquetColumnLength
   , parquetColumnParquetType
   , buildParquetFileMixed
+  , buildParquetFileMixedWith
   ) where
 
 import Data.ByteString (ByteString)
@@ -110,7 +111,9 @@ import Parquet.Page
   , PageHeader (..)
   , PageType (..)
   , pageTypeTag
+  , readPageHeaderAt
   )
+import Parquet.Compress (compressPageBytes)
 import Parquet.Thrift.Schema
 import Parquet.Types
   ( ColumnChunk (..)
@@ -1416,6 +1419,27 @@ encodeMixedPageV1 = \case
     let !pg = encodeOptionalColumnPage oc
     in  (pg, BS.length pg)
 
+-- | Compression-aware mixed page encoder. Compresses the page
+-- /body/ (header stays plaintext) and rewrites the page header
+-- with the new compressed_page_size so the round-trip readers
+-- in "Parquet.Read" can decompress on the way back.
+encodeMixedPageV1With
+  :: Compression -> ParquetColumn -> Either String (ByteString, Int)
+encodeMixedPageV1With Uncompressed col =
+  Right (encodeMixedPageV1 col)
+encodeMixedPageV1With codec col = do
+  let (uncompPage, uncompSz) = encodeMixedPageV1 col
+  -- Layout is [PageHeader thrift][body]; re-encode the header
+  -- with a compressed size matching the compressed body, then
+  -- stitch the two together.
+  (hdr, afterHdr) <- readPageHeaderAt uncompPage 0
+  let !body = BS.drop afterHdr uncompPage
+  compBody <- compressPageBytes codec body
+  let !newHdr = hdr { phCompressedPageSize = Just (fromIntegral (BS.length compBody)) }
+      !hdrBs  = encodePageHeader newHdr
+      !page   = hdrBs <> compBody
+  Right (page, uncompSz)
+
 -- | Assemble a Parquet file from a flat schema + row groups
 -- where each column is either required ('PCRequired') or
 -- nullable ('PCOptional'). Unlike 'buildParquetFileWithIndex',
@@ -1436,9 +1460,55 @@ buildParquetFileMixed
   :: V.Vector SchemaElement
   -> V.Vector (V.Vector ParquetColumn)
   -> ByteString
-buildParquetFileMixed schema rowGroups =
+buildParquetFileMixed = buildParquetFileMixedRaw Uncompressed
+
+-- | Compression-aware variant of 'buildParquetFileMixed'.
+-- The named codec is applied to every page body and stamped on
+-- every column-chunk metadata @cmCodec@. Returns 'Left' if the
+-- caller picks a codec the build doesn't support (e.g. Snappy
+-- without the @+snappy@ flag).
+buildParquetFileMixedWith
+  :: Compression
+  -> V.Vector SchemaElement
+  -> V.Vector (V.Vector ParquetColumn)
+  -> Either String ByteString
+buildParquetFileMixedWith Uncompressed schema rgs =
+  Right (buildParquetFileMixed schema rgs)
+buildParquetFileMixedWith codec schema rgs = do
+  -- Build the file under the requested codec; the recursive
+  -- 'buildParquetFileMixedRaw' threads compression through the
+  -- per-page encoder + the cmCodec slot.
+  let !rgPages = V.map (V.map (encodeMixedPageV1With codec)) rgs
+  -- If any page failed to compress (e.g. Snappy without the
+  -- flag), surface the first error.
+  case V.foldr collectFirstError Nothing rgPages of
+    Just e -> Left e
+    Nothing -> Right (buildParquetFileMixedRaw codec schema rgs)
+  where
+    collectFirstError :: V.Vector (Either String a) -> Maybe String -> Maybe String
+    collectFirstError vec acc = case acc of
+      Just _  -> acc
+      Nothing -> V.foldr (\r a -> case (a, r) of
+                            (Just _, _) -> a
+                            (Nothing, Left e) -> Just e
+                            _ -> a) Nothing vec
+
+-- | Internal: 'buildParquetFileMixed' parameterised by codec.
+buildParquetFileMixedRaw
+  :: Compression
+  -> V.Vector SchemaElement
+  -> V.Vector (V.Vector ParquetColumn)
+  -> ByteString
+buildParquetFileMixedRaw codec schema rowGroups =
   let !leaves = V.filter (maybe False (const True) . seType) schema
-      !encodedRGs = V.map (V.map encodeMixedPageV1) rowGroups
+      -- For Uncompressed, encodeMixedPageV1 trivially returns
+      -- (Right page); for any other codec we route through the
+      -- compression-aware variant. Either-failures bubble up via
+      -- 'error' here because 'buildParquetFileMixedWith' has
+      -- already validated the codec choice.
+      !encodedRGs = V.map (V.map (\c -> case encodeMixedPageV1With codec c of
+                                          Right x -> x
+                                          Left e  -> error e)) rowGroups
       !allPageBytes = concat
         [ V.toList (V.map fst rg) | rg <- V.toList encodedRGs ]
       !rgBytesLen = sum (map BS.length allPageBytes)
@@ -1493,7 +1563,7 @@ buildParquetFileMixed schema rowGroups =
                 { cmType = fromMaybe (parquetColumnParquetType cd) (seType leaf)
                 , cmEncodings = V.singleton Plain
                 , cmPathInSchema = V.singleton (seName leaf)
-                , cmCodec = Uncompressed
+                , cmCodec = codec
                 , cmNumValues = fromIntegral (parquetColumnLength cd)
                 , cmTotalUncompressedSize = fromIntegral uncompSize
                 , cmTotalCompressedSize = fromIntegral sz
