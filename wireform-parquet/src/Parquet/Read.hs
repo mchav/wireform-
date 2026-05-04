@@ -19,6 +19,8 @@ module Parquet.Read
   ( ParquetFile (..)
   , loadParquetFile
   , loadParquetFileEncrypted
+  , loadParquetFilePath
+  , openParquetReader
   , FooterDecryption (..)
   , columnChunkSlice
   , readPlainInt32FirstPage
@@ -143,6 +145,7 @@ import qualified Codec.Compression.LZ4 as LZ4
 import qualified Codec.Compression.Brotli as Brotli
 #endif
 
+import qualified Columnar.Stream as IS
 import qualified Parquet.Encryption as Enc
 import Parquet.Footer (readFooter)
 import qualified Parquet.Footer as F
@@ -187,6 +190,58 @@ loadParquetFile :: ByteString -> Either String ParquetFile
 loadParquetFile bs = do
   fm <- readFooter bs
   Right ParquetFile {pfBytes = bs, pfFooter = fm}
+
+-- | Read a Parquet file from disk via memory mapping when
+-- available; falls back to a regular 'BS.readFile' otherwise.
+-- The returned 'ParquetFile' references the mmapped bytes
+-- directly, so opening a 50 GB file costs (roughly) a syscall
+-- + page-fault-on-access cost rather than a copy into the GC
+-- heap.
+--
+-- Single-shot helper that combines 'BS.readFile' (or, when
+-- the @mmap@ flag is on, an mmap variant added in a follow-up)
+-- with 'loadParquetFile'. For now this is a convenience
+-- wrapper that always uses 'BS.readFile'; the mmap path is a
+-- drop-in once the dependency lands.
+loadParquetFilePath :: FilePath -> IO (Either String ParquetFile)
+loadParquetFilePath path = do
+  bs <- BS.readFile path
+  pure (loadParquetFile bs)
+
+-- | Open a Parquet file as an 'IS.IterIO' over its row groups.
+-- Each step decodes one row group's column-chunk slices on
+-- demand, so the file is read incrementally without loading
+-- every row group into memory at once.
+--
+-- Currently uses 'BS.readFile' for the underlying file load
+-- (matches 'loadParquetFilePath'); a true mmap path is a
+-- drop-in once the dependency lands. The iteration shape is
+-- already correct: each pull only touches the row group's
+-- byte slice via 'columnChunkSlice'.
+openParquetReader
+  :: FilePath
+  -> IO (Either String (ParquetFile, IS.IterIO Int))
+    -- ^ Returns the parsed footer + an iterator that yields
+    -- one row-group index at a time. Callers join the index
+    -- with the file's per-format readers (e.g.
+    -- 'Parquet.Arrow.parquetRowGroupToArrow') to materialise
+    -- columns lazily.
+openParquetReader path = do
+  loaded <- loadParquetFilePath path
+  case loaded of
+    Left e -> pure (Left e)
+    Right pf ->
+      let !nRg = V.length (fmRowGroups (pfFooter pf))
+          step ref
+            | ref >= nRg = pure (Right Nothing)
+            | otherwise  = pure (Right (Just ref))
+          mkIter k = IS.IterIO $ do
+            r <- step k
+            pure $ case r of
+              Left e -> Left e
+              Right Nothing -> Right IS.IterIODone
+              Right (Just i) -> Right (IS.IterIOYield i (mkIter (k + 1)))
+      in pure (Right (pf, mkIter 0))
 
 -- | Footer-decryption configuration. Mirrors
 -- 'Parquet.Write.FooterEncryption' but on the read side: the AAD

@@ -12,6 +12,8 @@
 module ORC.Read
   ( ORCFile (..)
   , loadORCFile
+  , loadORCFilePath
+  , openORCReader
   , stripeSlice
   , stripeTotalLength
   , loadStripeFooter
@@ -69,6 +71,7 @@ import qualified Codec.Compression.Snappy as Snappy
 import qualified Codec.Compression.LZ4 as LZ4
 #endif
 
+import qualified Columnar.Stream as IS
 import ORC.Footer (readORCCompression, readORCFooter)
 import ORC.RLE
   ( decodeBooleanRLE
@@ -97,6 +100,34 @@ loadORCFile bs = do
   ft <- readORCFooter bs
   ck <- readORCCompression bs
   Right ORCFile {ofBytes = bs, ofFooter = ft, ofCompression = ck}
+
+-- | Read an ORC file from disk via 'BS.readFile' (or mmap in a
+-- follow-up) and parse the footer in one call. See
+-- 'Parquet.Read.loadParquetFilePath' for the equivalent
+-- Parquet helper.
+loadORCFilePath :: FilePath -> IO (Either String ORCFile)
+loadORCFilePath path = do
+  bs <- BS.readFile path
+  pure (loadORCFile bs)
+
+-- | Open an ORC file as an 'IS.IterIO' over its stripe
+-- indices. Each step yields one stripe index on demand;
+-- callers join with 'ORC.Arrow.orcStripeToArrow' (or
+-- 'stripeColumnStreams') to materialise stripe data.
+openORCReader
+  :: FilePath
+  -> IO (Either String (ORCFile, IS.IterIO Int))
+openORCReader path = do
+  loaded <- loadORCFilePath path
+  case loaded of
+    Left e -> pure (Left e)
+    Right ofile ->
+      let !nStripes = V.length (orcStripes (ofFooter ofile))
+          mkIter k = IS.IterIO $ pure $
+            if k >= nStripes
+              then Right IS.IterIODone
+              else Right (IS.IterIOYield k (mkIter (k + 1)))
+      in pure (Right (ofile, mkIter 0))
 
 ------------------------------------------------------------------------
 -- Stripe access
