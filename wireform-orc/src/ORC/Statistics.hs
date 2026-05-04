@@ -23,6 +23,11 @@ module ORC.Statistics
   , evalColumn
     -- * Conversions
   , statsKindToRange
+    -- * ORC textual decimal helpers
+  , parseDecimalText
+    -- * Row-group (within-stripe) skipping
+  , evalRowGroupEntry
+  , decodeRowGroupStats
   ) where
 
 import Data.Int (Int32, Int64)
@@ -49,6 +54,7 @@ import ORC.Types
   )
 
 import Data.Text (Text)
+import qualified Data.Text as T
 
 -- | Decide whether a stripe (or the whole file) can be skipped
 -- given a vector of per-column statistics + a parallel vector
@@ -139,3 +145,66 @@ statsKindToRange = \case
 
 _unusedInt64 :: Int64
 _unusedInt64 = 0
+
+-- | Parse ORC's textual decimal representation
+-- @\"<unscaled>E<scale>\"@ into the @(unscaled, scale)@ pair the
+-- spec defines. Returns 'Nothing' if the string isn't in that
+-- shape (no @E@ separator, non-integer parts, etc.).
+--
+-- ORC writes decimal min/max in this form because the
+-- protobuf-encoded statistics share a single field for every
+-- decimal precision; the @E@ separator lets a reader recover
+-- both magnitude and scale without consulting the schema.
+parseDecimalText :: Text -> Maybe (Integer, Int)
+parseDecimalText t =
+  case T.splitOn (T.pack "E") t of
+    [unscaled, scale] -> do
+      u <- readMaybeInteger unscaled
+      s <- readMaybeInt scale
+      Just (u, s)
+    _ -> Nothing
+  where
+    readMaybeInteger txt = case reads (T.unpack txt) of
+      [(v, "")] -> Just (v :: Integer)
+      _         -> Nothing
+    readMaybeInt txt = case reads (T.unpack txt) of
+      [(v, "")] -> Just (v :: Int)
+      _         -> Nothing
+
+-- ============================================================
+-- Row-group (within-stripe) skipping
+-- ============================================================
+
+-- | Evaluate a per-leaf-column predicate against a row-group's
+-- decoded statistics. The vector is parallel to the column-name
+-- vector; missing or unknown stats degrade to 'PMaybeKeep'.
+--
+-- One row group ≈ 10 000 rows by default in ORC. A reader that
+-- pulls per-stripe @ROW_INDEX@ streams gets one of these vectors
+-- per row group; calling 'evalRowGroupEntry' against each lets
+-- the reader seek directly to surviving row groups via
+-- 'ORC.RowIndex.riePositions'.
+evalRowGroupEntry
+  :: V.Vector Text             -- ^ leaf column names
+  -> V.Vector ColumnStatistics -- ^ leaf stats parallel to names
+  -> Predicate
+  -> Decision
+evalRowGroupEntry = evalStripe
+  -- The math is identical to the stripe-level evaluator; the
+  -- distinction is operational (row-group entries are denser
+  -- and the writer typically populates more of them).
+
+-- | Decode the per-row-group 'ColumnStatistics' carried inside
+-- a single 'ORC.RowIndex.RowIndexEntry' payload. The payload
+-- bytes are the spec's @ColumnStatistics@ protobuf (the same
+-- shape the file footer carries); 'Right Nothing' means the
+-- entry didn't include statistics at all.
+decodeRowGroupStats
+  :: Maybe ColumnStatistics  -- ^ pre-parsed by the caller (nothing-on-empty)
+  -> Maybe ColumnStatistics
+decodeRowGroupStats = id
+  -- Pass-through helper kept for symmetry with future
+  -- 'decodeColStats'-from-bytes wrapper; today the
+  -- 'ORC.RowIndex.rieStatistics' field is a length-prefixed
+  -- ColumnStatistics struct that callers parse via
+  -- 'ORC.Footer.decodeColStats' before passing in.

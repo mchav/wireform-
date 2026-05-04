@@ -36,6 +36,8 @@ module ORC.Arrow
   , streamStripes
   , streamStripesIter
   , streamStripesProjectedIter
+  , streamStripesFilteredIter
+  , streamStripesProjectedFilteredIter
   , numStripes
   ) where
 
@@ -56,6 +58,7 @@ import qualified Arrow.Types as AT
 import qualified Columnar.Stream as IS
 
 import qualified ORC.Read   as OR
+import qualified ORC.Statistics as OStats
 import qualified ORC.Stripe as OSt
 import qualified ORC.Types  as OT
 import qualified ORC.Write  as OW
@@ -1002,3 +1005,65 @@ projectFields names sch =
   in do
     fs <- traverse pickOne names
     Right sch { AT.arrowFields = V.fromList fs }
+
+-- ============================================================
+-- Stripe-level predicate pushdown
+-- ============================================================
+
+-- | Iterator over stripes that drops any stripe whose
+-- file-footer 'ColumnStatistics' prove the predicate matches
+-- no rows. ORC stores per-file column statistics in the footer
+-- (one entry per leaf column, /not/ per-stripe); the read API
+-- has to reconstruct per-stripe stats from the protobuf
+-- @StripeStatistics@ payloads in @Metadata@. For now this
+-- shape uses the file-level stats — accurate when the file is
+-- a single stripe (the common Iceberg case) and conservatively
+-- safe (PMaybeKeep) for multi-stripe files where per-stripe
+-- stats would be tighter.
+--
+-- Returns @(totalStripes, droppedStripes, iter)@ so callers
+-- can log the skip ratio.
+streamStripesFilteredIter
+  :: AT.Schema
+  -> OStats.Predicate
+  -> ByteString
+  -> OT.ORCFooter
+  -> (Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+streamStripesFilteredIter sch predicate fileBs footer =
+  let !leafNames = leafColumnNames sch
+      !stats     = OT.orcStatistics footer
+      !allDecide =
+        -- File-level decision applies to every stripe (we
+        -- don't yet read the per-stripe Metadata payload).
+        OStats.evalStripe leafNames stats predicate
+      !nStripes  = numStripes footer
+      keep _ = allDecide == OStats.PMaybeKeep
+      !kept   = V.filter keep (V.enumFromN 0 nStripes)
+      !nKept  = V.length kept
+      !nSkip  = nStripes - nKept
+      step k =
+        let !i = V.unsafeIndex kept k
+        in orcStripeToArrow sch fileBs footer i
+  in (nStripes, nSkip, IS.iterFromIndexed nKept step)
+
+-- | Combination of 'streamStripesProjectedIter' and
+-- 'streamStripesFilteredIter': only decodes the named columns
+-- of stripes that survive the predicate.
+streamStripesProjectedFilteredIter
+  :: AT.Schema
+  -> [Text]
+  -> OStats.Predicate
+  -> ByteString
+  -> OT.ORCFooter
+  -> Either String (Int, Int, IS.Iter (V.Vector AC.ColumnArray))
+streamStripesProjectedFilteredIter sch names predicate fileBs footer = do
+  narrow <- projectFields names sch
+  let (nStripes, nSkip, it) =
+        streamStripesFilteredIter narrow predicate fileBs footer
+  Right (nStripes, nSkip, it)
+
+-- | Leaf column names for an Arrow schema (used as the column
+-- name vector by the predicate evaluator).
+leafColumnNames :: AT.Schema -> V.Vector Text
+leafColumnNames sch =
+  V.map AT.fieldName (AT.arrowFields sch)
