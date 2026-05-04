@@ -78,11 +78,13 @@ module Arrow.Record
   , rowEncoderFields
   , runRowEncoder
   , fieldE
+  , structE
     -- * Row-level decoder
   , RowDecoder
   , runRowDecoder
   , rowDecoderRequiredColumns
   , columnD
+  , structD
     -- * Table (round-trip pair)
   , Table (..)
   , table
@@ -111,6 +113,8 @@ import Arrow.Types
   , Schema (..)
   , TimeUnit (..)
   )
+-- AStruct is the constructor in ArrowType; explicit re-import
+-- isn't needed because ArrowType (..) brings it in scope.
 
 -- ============================================================
 -- Encoder
@@ -409,6 +413,43 @@ fieldE name sel enc = RowEncoder
   , runRowEncoder = \rs -> [runEncoder enc (V.map sel rs)]
   }
 
+-- | Embed a nested record as a struct column.
+--
+-- Lifts a 'RowEncoder' for a child record type @c@ into a
+-- 'RowEncoder' for the parent @r@ that emits the child's
+-- column tree under one named @ColStruct@ field. The struct's
+-- children are exactly the child encoder's fields (in the
+-- order they were declared with '<>').
+--
+-- @
+-- data Address = Address { city :: Text, zip :: Text }
+-- data Customer = Customer { name :: Text, addr :: Address }
+--
+-- addressEnc :: 'RowEncoder' Address
+-- addressEnc = 'fieldE' "city" city utf8E
+--           <> 'fieldE' "zip"  zip  utf8E
+--
+-- customerEnc :: 'RowEncoder' Customer
+-- customerEnc = 'fieldE'  "name" name  utf8E
+--            <> 'structE' "addr" addr  addressEnc
+-- @
+structE :: Text -> (r -> c) -> RowEncoder c -> RowEncoder r
+structE name sel inner = RowEncoder
+  { rowEncoderFields = [Field
+      { fieldName       = name
+      , fieldNullable   = False
+      , fieldType       = AStruct
+      , fieldChildren   = V.fromList (rowEncoderFields inner)
+      , fieldDictionary = Nothing
+      , fieldMetadata   = V.empty
+      }]
+  , runRowEncoder = \rs ->
+      let !innerCols = runRowEncoder inner (V.map sel rs)
+          !childNames = map fieldName (rowEncoderFields inner)
+          !named = V.fromList (zip childNames innerCols)
+      in  [ColStruct named]
+  }
+
 -- ============================================================
 -- RowDecoder
 -- ============================================================
@@ -468,6 +509,29 @@ columnD name d = RowDecoder [name] $ \fs cs -> do
   case runDecoder d col of
     Right vs -> Right vs
     Left  e  -> Left $ "Arrow.Record.columnD " ++ show name ++ ": " ++ e
+
+-- | Inverse of 'structE': decode a 'ColStruct' column at the
+-- given name as a record using the supplied inner 'RowDecoder'.
+-- The inner decoder sees the struct's child fields + child
+-- columns; the outer decoder threads the nested record into the
+-- parent record's applicative chain like any other column.
+structD :: Text -> RowDecoder c -> RowDecoder c
+structD name inner = RowDecoder [name] $ \fs cs -> do
+  idx <- case V.findIndex ((== name) . fieldName) fs of
+    Just i  -> Right i
+    Nothing -> Left $ "Arrow.Record.structD: no column named " ++ show name
+  let !parentField = V.unsafeIndex fs idx
+      !col         = V.unsafeIndex cs idx
+  case col of
+    ColStruct childCols -> do
+      let !childFields = fieldChildren parentField
+          !childCols'  = V.map snd childCols
+      case runRowDecoder inner childFields childCols' of
+        Right rs -> Right rs
+        Left  e  -> Left $ "Arrow.Record.structD " ++ show name ++ ": " ++ e
+    other ->
+      Left $ "Arrow.Record.structD " ++ show name
+              ++ ": expected ColStruct, got " ++ takeWhile (/= ' ') (show other)
 
 -- Tiny helper: vector-length accessor that works on all
 -- ColumnArray shapes. We re-implement here to avoid pulling in

@@ -49,6 +49,7 @@ import Arrow.Stream
   , streamReaderToList
   )
 import qualified Columnar.Stream as IS
+import qualified Arrow.Record as AR
 import Arrow.FlatBufferIPC
   ( buildSchemaMessage
   , decodeSchemaMessage
@@ -62,6 +63,18 @@ import Arrow.FlatBufferIPC
   )
 import Arrow.Types
 import Arrow.Write (writeArrowStream)
+
+-- Test records used by 'nestedStructRoundTrip'.
+data Address = Address
+  { cityF :: Text
+  , zipF  :: Text
+  } deriving (Show, Eq)
+
+data Customer = Customer
+  { nameF :: Text
+  , addrF :: Address
+  , ageF  :: Int32
+  } deriving (Show, Eq)
 
 main :: IO ()
 main = do
@@ -399,6 +412,9 @@ flatBufRoundTrip = do
   -- Custom metadata round-trip on schema + field
   customMetadataRoundTrip
 
+  -- Nested struct via Arrow.Record.structE / structD
+  nestedStructRoundTrip
+
   -- Streaming reader: pull batches one at a time, then drain.
   streamingRoundTrip
     (Schema (V.fromList [plainField "n" False (AInt 32 True)]) Little V.empty)
@@ -701,6 +717,46 @@ customMetadataRoundTrip = do
       let recoveredField = V.unsafeIndex (arrowFields sch') 0
       expect "field custom_metadata roundtrips"
         (fieldMetadata recoveredField == fieldMetadata field)
+
+-- | Nested record via 'structE' + 'structD'. The inner record
+-- (Address) becomes a 'ColStruct' column inside the outer
+-- record (Customer); a round-trip through 'encodeTable' /
+-- 'decodeTable' must recover the exact value.
+nestedStructRoundTrip :: IO ()
+nestedStructRoundTrip = do
+  let !addrEnc = AR.fieldE "city" cityF AR.utf8E
+              <> AR.fieldE "zip"  zipF  AR.utf8E
+      !addrDec = Address
+              <$> AR.columnD "city" AR.utf8D
+              <*> AR.columnD "zip"  AR.utf8D
+      !custEnc = AR.fieldE  "name" nameF        AR.utf8E
+              <> AR.structE "addr" addrF         addrEnc
+              <> AR.fieldE  "age"  ageF          AR.int32E
+      !custDec = Customer
+              <$> AR.columnD "name" AR.utf8D
+              <*> AR.structD "addr" addrDec
+              <*> AR.columnD "age"  AR.int32D
+      !tbl = AR.table custEnc custDec
+      !rows = V.fromList
+        [ Customer "Alice" (Address "Atlantis" "00001") 30
+        , Customer "Bob"   (Address "Brisbane" "4000")  45
+        , Customer "Carol" (Address "Calcutta" "700001") 28
+        ]
+      (!sch, !cols) = AR.encodeTable tbl rows
+      !bytes = encodeArrowStream defaultWriteOptions sch [cols]
+  case decodeArrowStream bytes of
+    Left e -> failTest $ "nested struct decode: " ++ e
+    Right (sch', batches) -> case batches of
+      [batch] -> case AR.decodeTable tbl sch' batch of
+        Left e -> failTest $ "nested struct decodeTable: " ++ e
+        Right got
+          | got == rows ->
+              putStrLn "OK: nested struct via structE / structD"
+          | otherwise ->
+              failTest $ "nested struct mismatch:\n got "
+                          ++ show (V.toList got)
+                          ++ "\n exp " ++ show (V.toList rows)
+      _ -> failTest "nested struct: expected 1 batch"
 
 projectionRoundTrip :: IO ()
 projectionRoundTrip = do
