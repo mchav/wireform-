@@ -79,12 +79,18 @@ module Arrow.Record
   , runRowEncoder
   , fieldE
   , structE
+  , encoderFromRowEncoder
+  , decoderFromRowDecoder
     -- * Row-level decoder
   , RowDecoder
   , runRowDecoder
   , rowDecoderRequiredColumns
   , columnD
+  , columnDWithDefault
   , structD
+    -- * Column-name strategies
+  , NameStrategy (..)
+  , applyNameStrategy
     -- * Table (round-trip pair)
   , Table (..)
   , table
@@ -92,6 +98,9 @@ module Arrow.Record
   , tableRequiredColumns
   , encodeTable
   , decodeTable
+    -- * Subset / projection
+  , subsetTable
+  , projectTable
   ) where
 
 import Data.ByteString (ByteString)
@@ -99,6 +108,7 @@ import Data.Functor.Contravariant (Contravariant (..))
 import Data.Int (Int8, Int16, Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as VP
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -451,6 +461,61 @@ structE name sel inner = RowEncoder
       in  [ColStruct named]
   }
 
+-- | Lift a 'RowEncoder' for a nested record into an 'Encoder'.
+-- The encoder treats every input row as a struct of the
+-- 'RowEncoder' columns; on the read side, pair with
+-- 'decoderFromRowDecoder' for the inverse.
+--
+-- Together with the 'HasRowEncoder' / 'HasRowDecoder' classes
+-- in "Arrow.Record.Generic", this lets a Generic-derivable
+-- nested record become an 'Encoder' / 'Decoder' that the
+-- existing 'fieldE' / 'columnD' combinators consume — so the
+-- 'Arrow.Derive' deriver doesn't need any special handling
+-- for nested records.
+encoderFromRowEncoder :: RowEncoder a -> Encoder a
+encoderFromRowEncoder inner = Encoder
+  { encoderType      = AStruct
+  , encoderNullable  = False
+  , encoderRequired  = \rs ->
+      let !innerCols = runRowEncoder inner rs
+          !childNames = map fieldName (rowEncoderFields inner)
+          !named = V.fromList (zip childNames innerCols)
+      in  ColStruct named
+  , encoderOptional  = \_ ->
+      error "Arrow.Record.encoderFromRowEncoder: nullable nested struct \
+            \isn't yet wired through the encoder; use a manual \
+            \'nullable . encoderFromRowEncoder' if your Arrow \
+            \consumers handle ColStructMaybe."
+  }
+
+decoderFromRowDecoder :: RowDecoder a -> Decoder a
+decoderFromRowDecoder inner = Decoder
+  { decoderType     = AStruct
+  , decoderRequired = \col -> case col of
+      ColStruct childCols -> do
+        let !childFields = V.fromList (map mkSyntheticField (V.toList childCols))
+            !values      = V.map snd childCols
+        runRowDecoder inner childFields values
+      other ->
+        Left $ "Arrow.Record.decoderFromRowDecoder: expected ColStruct, got "
+                ++ takeWhile (/= ' ') (show other)
+  , decoderOptional = \_ ->
+      Left "Arrow.Record.decoderFromRowDecoder: nullable nested struct \
+            \decoding requires a ColStructMaybe shim — not wired yet."
+  }
+  where
+    -- The inner RowDecoder consults childFields by name only;
+    -- type/nullable info isn't checked. Synthesise a
+    -- placeholder Field with the right name.
+    mkSyntheticField (nm, _) = Field
+      { fieldName       = nm
+      , fieldNullable   = False
+      , fieldType       = AStruct
+      , fieldChildren   = V.empty
+      , fieldDictionary = Nothing
+      , fieldMetadata   = V.empty
+      }
+
 -- ============================================================
 -- RowDecoder
 -- ============================================================
@@ -510,6 +575,76 @@ columnD name d = RowDecoder [name] $ \fs cs -> do
   case runDecoder d col of
     Right vs -> Right vs
     Left  e  -> Left $ "Arrow.Record.columnD " ++ show name ++ ": " ++ e
+
+-- | Like 'columnD' but supplies a default value if the
+-- column is missing from the source schema. Useful for
+-- schema-evolution: an older Parquet file dropped a column
+-- that the Haskell record still wants; instead of failing,
+-- the decoder substitutes the default.
+--
+-- Decoding errors on a /present/ column still propagate
+-- (e.g. wrong type); only "no such column" falls back.
+columnDWithDefault :: Text -> a -> Decoder a -> RowDecoder a
+columnDWithDefault name def d = RowDecoder [name] $ \fs cs ->
+  case V.findIndex ((== name) . fieldName) fs of
+    Nothing ->
+      -- Missing column: produce default for every row. Length
+      -- comes from the first present column; an empty batch
+      -- yields V.empty.
+      let !n = if V.null cs then 0 else AC.columnLength (V.head cs)
+      in  Right (V.replicate n def)
+    Just idx ->
+      let !col = V.unsafeIndex cs idx
+      in case runDecoder d col of
+           Right vs -> Right vs
+           Left  e  -> Left $ "Arrow.Record.columnDWithDefault "
+                                ++ show name ++ ": " ++ e
+
+-- | Strategy for converting a record's selector name to its
+-- on-the-wire column name. Mirrors the @renameStyle@ modifier
+-- vocabulary in "Wireform.Derive".
+data NameStrategy
+  = NameAsIs
+    -- ^ Use the selector name unchanged.
+  | NameSnakeCase
+    -- ^ @userId@ → @user_id@. Inserts an underscore before any
+    -- uppercase letter that follows a lowercase one and
+    -- lower-cases the result.
+  | NameCamelCase
+    -- ^ @user_id@ → @userId@. Drops underscores and
+    -- upper-cases the following character.
+  | NameUpperSnakeCase
+    -- ^ @userId@ → @USER_ID@. snake-case + upper-case.
+  deriving (Show, Eq)
+
+-- | Apply a 'NameStrategy' to a 'Text' selector name.
+applyNameStrategy :: NameStrategy -> Text -> Text
+applyNameStrategy NameAsIs        = id
+applyNameStrategy NameSnakeCase   = T.toLower . toSnake
+  where
+    toSnake t = T.pack (go (T.unpack t))
+    go []                       = []
+    go (c : cs)
+      | isUp c, not (null prev) = '_' : c : go cs
+      | otherwise               = c : go cs
+      where prev = takeWhile (not . isUp) cs `asTypeOf` ""
+    -- Use Data.Char.isUpper; T.unpack handles it.
+    isUp c = c >= 'A' && c <= 'Z'
+applyNameStrategy NameCamelCase   = toCamel
+  where
+    toCamel t =
+      let parts = T.splitOn (T.pack "_") t
+      in case parts of
+           []      -> T.empty
+           (p:ps)  -> T.concat (T.toLower p : map cap ps)
+    cap t
+      | T.null t  = t
+      | otherwise = T.cons (toUpper1 (T.head t)) (T.tail t)
+    toUpper1 c
+      | c >= 'a' && c <= 'z' = toEnum (fromEnum c - 32)
+      | otherwise            = c
+applyNameStrategy NameUpperSnakeCase =
+  T.toUpper . applyNameStrategy NameSnakeCase
 
 -- | Inverse of 'structE': decode a 'ColStruct' column at the
 -- given name as a record using the supplied inner 'RowDecoder'.
@@ -596,3 +731,60 @@ decodeTable t sch cs =
 -- Map import is kept for future @byIndex@ variants.
 _mapShim :: Map.Map Text Int
 _mapShim = Map.empty
+
+-- ============================================================
+-- Subset / projection
+-- ============================================================
+
+-- | Build a 'Table' for a subset of columns by name. The
+-- resulting decoder ignores columns not in @keep@; the encoder
+-- only emits the kept ones. Useful for callers that have a
+-- single 'Table' and want to read or write only a slice
+-- without writing a parallel @Table SubsetRecord@.
+--
+-- Returns 'Nothing' if any name in @keep@ isn't present in the
+-- original table.
+subsetTable :: [Text] -> Table r -> Maybe (Table r)
+subsetTable keep tbl =
+  let !srcFields = rowEncoderFields (tableEncode tbl)
+      keepIdx :: [Int]
+      keepIdx = [ i | nm <- keep
+                    , (i, f) <- zip [0..] srcFields
+                    , fieldName f == nm ]
+  in if length keepIdx /= length keep
+       then Nothing
+       else Just Table
+         { tableEncode = subsetRowEncoder keepIdx (tableEncode tbl)
+         , tableDecode = tableDecode tbl  -- decoder uses byName lookup so subset is automatic
+         }
+
+subsetRowEncoder :: [Int] -> RowEncoder r -> RowEncoder r
+subsetRowEncoder keepIdx (RowEncoder fields0 run0) = RowEncoder
+  { rowEncoderFields = [ fields0 !! i | i <- keepIdx ]
+  , runRowEncoder    = \rs ->
+      let !allCols = run0 rs
+      in  [ allCols !! i | i <- keepIdx ]
+  }
+
+-- | Project an existing batch by column name, in the order
+-- listed. Returns 'Nothing' if any name is missing.
+--
+-- Together with @'subsetTable'@ this lets callers reuse one
+-- 'Table' definition across read paths that materialise
+-- different column subsets.
+projectTable
+  :: [Text]
+  -> Schema
+  -> V.Vector ColumnArray
+  -> Maybe (Schema, V.Vector ColumnArray)
+projectTable keep sch cols = do
+  let !nameToIdx = Map.fromList
+        [ (fieldName f, i)
+        | (i, f) <- V.toList (V.indexed (arrowFields sch))
+        ]
+  idxs <- traverse (`Map.lookup` nameToIdx) keep
+  let !newFields = V.fromList
+        [ V.unsafeIndex (arrowFields sch) i | i <- idxs ]
+      !newCols   = V.fromList
+        [ V.unsafeIndex cols i | i <- idxs ]
+  pure (sch { arrowFields = newFields }, newCols)
