@@ -92,6 +92,44 @@ module ORC.Proto.Schema
   , pattern ColumnStatistics_NumberOfValues
   , pattern ColumnStatistics_HasNull
   , pattern ColumnStatistics_BytesOnDisk
+  , pattern ColumnStatistics_IntStatistics
+  , pattern ColumnStatistics_DoubleStatistics
+  , pattern ColumnStatistics_StringStatistics
+  , pattern ColumnStatistics_BucketStatistics
+  , pattern ColumnStatistics_DecimalStatistics
+  , pattern ColumnStatistics_DateStatistics
+  , pattern ColumnStatistics_BinaryStatistics
+  , pattern ColumnStatistics_TimestampStatistics
+    -- * IntegerStatistics
+  , pattern IntegerStatistics_Minimum
+  , pattern IntegerStatistics_Maximum
+  , pattern IntegerStatistics_Sum
+    -- * DoubleStatistics
+  , pattern DoubleStatistics_Minimum
+  , pattern DoubleStatistics_Maximum
+  , pattern DoubleStatistics_Sum
+    -- * StringStatistics
+  , pattern StringStatistics_Minimum
+  , pattern StringStatistics_Maximum
+  , pattern StringStatistics_Sum
+  , pattern StringStatistics_LowerBound
+  , pattern StringStatistics_UpperBound
+    -- * BinaryStatistics
+  , pattern BinaryStatistics_Sum
+    -- * BucketStatistics
+  , pattern BucketStatistics_Count
+    -- * DateStatistics
+  , pattern DateStatistics_Minimum
+  , pattern DateStatistics_Maximum
+    -- * TimestampStatistics
+  , pattern TimestampStatistics_Minimum
+  , pattern TimestampStatistics_Maximum
+  , pattern TimestampStatistics_MinimumUtc
+  , pattern TimestampStatistics_MaximumUtc
+    -- * DecimalStatistics
+  , pattern DecimalStatistics_Minimum
+  , pattern DecimalStatistics_Maximum
+  , pattern DecimalStatistics_Sum
     -- * StripeFooter
   , pattern StripeFooter_Streams
     -- * Stream
@@ -134,7 +172,7 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Unsafe as BSU
 import qualified Data.Vector.Unboxed as VU
-import Data.Word (Word64)
+import Data.Word (Word32, Word64)
 
 -- | Protobuf wire type. We keep it as a 'Word64' to match the value we
 -- get by masking the tag byte, so patterns can be compared without
@@ -260,6 +298,12 @@ putVarint = go
 data FieldAction a
   = ReadVarint  !(Word64     -> a)
   | ReadVarintE !(Word64     -> Either String a)
+  | ReadFixed64 !(Word64     -> a)
+    -- ^ Wire type 1 — eight little-endian bytes interpreted as
+    -- a 'Word64'. Use 'GHC.Float.castWord64ToDouble' to recover
+    -- a 'Double' (the only spec-defined consumer in ORC).
+  | ReadFixed32 !(Word32     -> a)
+    -- ^ Wire type 5 — four little-endian bytes.
   | ReadBytes   !(ByteString -> a)
   | ReadBytesE  !(ByteString -> Either String a)
   | forall b. ReadNested !(ByteString -> Either String b) !(b -> a)
@@ -301,9 +345,32 @@ decodeMsg bs z step = go 0 z
               (payload, off2) <- getLenDelim bs off1 len
               inner <- decode payload
               go off2 (f inner)
+            ReadFixed64 f -> do
+              if off1 + 8 > len
+                then Left "ORC.Proto.Schema: truncated fixed64"
+                else do
+                  let !w = readLE64 bs off1
+                  go (off1 + 8) (f w)
+            ReadFixed32 f -> do
+              if off1 + 4 > len
+                then Left "ORC.Proto.Schema: truncated fixed32"
+                else do
+                  let !w = readLE32 bs off1
+                  go (off1 + 4) (f w)
             SkipUnknown -> do
               off2 <- skipField wt bs off1 len
               go off2 acc
+
+readLE32 :: ByteString -> Int -> Word32
+readLE32 bs !off =
+  let r i = fromIntegral (BSU.unsafeIndex bs (off + i)) :: Word32
+  in r 0 .|. (r 1 `shiftL` 8) .|. (r 2 `shiftL` 16) .|. (r 3 `shiftL` 24)
+
+readLE64 :: ByteString -> Int -> Word64
+readLE64 bs !off =
+  let lo = fromIntegral (readLE32 bs off)        :: Word64
+      hi = fromIntegral (readLE32 bs (off + 4))  :: Word64
+  in lo .|. (hi `shiftL` 32)
 
 -- ============================================================
 -- Wire primitives
@@ -450,6 +517,128 @@ pattern ColumnStatistics_HasNull        = (2, 0)
 
 pattern ColumnStatistics_BytesOnDisk :: (Int, WireType)
 pattern ColumnStatistics_BytesOnDisk    = (3, 0)
+
+pattern ColumnStatistics_IntStatistics :: (Int, WireType)
+pattern ColumnStatistics_IntStatistics = (4, 2)
+
+pattern ColumnStatistics_DoubleStatistics :: (Int, WireType)
+pattern ColumnStatistics_DoubleStatistics = (5, 2)
+
+pattern ColumnStatistics_StringStatistics :: (Int, WireType)
+pattern ColumnStatistics_StringStatistics = (6, 2)
+
+pattern ColumnStatistics_BucketStatistics :: (Int, WireType)
+pattern ColumnStatistics_BucketStatistics = (7, 2)
+
+pattern ColumnStatistics_DecimalStatistics :: (Int, WireType)
+pattern ColumnStatistics_DecimalStatistics = (8, 2)
+
+pattern ColumnStatistics_DateStatistics :: (Int, WireType)
+pattern ColumnStatistics_DateStatistics = (9, 2)
+
+pattern ColumnStatistics_BinaryStatistics :: (Int, WireType)
+pattern ColumnStatistics_BinaryStatistics = (10, 2)
+
+pattern ColumnStatistics_TimestampStatistics :: (Int, WireType)
+pattern ColumnStatistics_TimestampStatistics = (11, 2)
+
+-- ============================================================
+-- IntegerStatistics
+-- ============================================================
+
+pattern IntegerStatistics_Minimum :: (Int, WireType)
+pattern IntegerStatistics_Minimum = (1, 0)
+
+pattern IntegerStatistics_Maximum :: (Int, WireType)
+pattern IntegerStatistics_Maximum = (2, 0)
+
+pattern IntegerStatistics_Sum :: (Int, WireType)
+pattern IntegerStatistics_Sum = (3, 0)
+
+-- ============================================================
+-- DoubleStatistics
+-- ============================================================
+
+pattern DoubleStatistics_Minimum :: (Int, WireType)
+pattern DoubleStatistics_Minimum = (1, 1)
+
+pattern DoubleStatistics_Maximum :: (Int, WireType)
+pattern DoubleStatistics_Maximum = (2, 1)
+
+pattern DoubleStatistics_Sum :: (Int, WireType)
+pattern DoubleStatistics_Sum = (3, 1)
+
+-- ============================================================
+-- StringStatistics
+-- ============================================================
+
+pattern StringStatistics_Minimum :: (Int, WireType)
+pattern StringStatistics_Minimum = (1, 2)
+
+pattern StringStatistics_Maximum :: (Int, WireType)
+pattern StringStatistics_Maximum = (2, 2)
+
+pattern StringStatistics_Sum :: (Int, WireType)
+pattern StringStatistics_Sum = (3, 0)
+
+pattern StringStatistics_LowerBound :: (Int, WireType)
+pattern StringStatistics_LowerBound = (4, 2)
+
+pattern StringStatistics_UpperBound :: (Int, WireType)
+pattern StringStatistics_UpperBound = (5, 2)
+
+-- ============================================================
+-- BinaryStatistics
+-- ============================================================
+
+pattern BinaryStatistics_Sum :: (Int, WireType)
+pattern BinaryStatistics_Sum = (1, 0)
+
+-- ============================================================
+-- BucketStatistics
+-- ============================================================
+
+pattern BucketStatistics_Count :: (Int, WireType)
+pattern BucketStatistics_Count = (1, 2)
+
+-- ============================================================
+-- DateStatistics
+-- ============================================================
+
+pattern DateStatistics_Minimum :: (Int, WireType)
+pattern DateStatistics_Minimum = (1, 0)
+
+pattern DateStatistics_Maximum :: (Int, WireType)
+pattern DateStatistics_Maximum = (2, 0)
+
+-- ============================================================
+-- TimestampStatistics
+-- ============================================================
+
+pattern TimestampStatistics_Minimum :: (Int, WireType)
+pattern TimestampStatistics_Minimum = (1, 0)
+
+pattern TimestampStatistics_Maximum :: (Int, WireType)
+pattern TimestampStatistics_Maximum = (2, 0)
+
+pattern TimestampStatistics_MinimumUtc :: (Int, WireType)
+pattern TimestampStatistics_MinimumUtc = (3, 0)
+
+pattern TimestampStatistics_MaximumUtc :: (Int, WireType)
+pattern TimestampStatistics_MaximumUtc = (4, 0)
+
+-- ============================================================
+-- DecimalStatistics
+-- ============================================================
+
+pattern DecimalStatistics_Minimum :: (Int, WireType)
+pattern DecimalStatistics_Minimum = (1, 2)
+
+pattern DecimalStatistics_Maximum :: (Int, WireType)
+pattern DecimalStatistics_Maximum = (2, 2)
+
+pattern DecimalStatistics_Sum :: (Int, WireType)
+pattern DecimalStatistics_Sum = (3, 2)
 
 -- ============================================================
 -- StripeFooter

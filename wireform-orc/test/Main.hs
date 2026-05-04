@@ -18,6 +18,12 @@ import qualified ORC.Encryption as Enc
 import qualified ORC.Read
 import qualified ORC.RowIndex as RI
 import qualified ORC.Write
+
+import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text as T
+
+import ORC.Footer (encodeColStats, decodeColStats)
 import ORC.Read
   ( ORCTimestamp (..)
   , decodeDateColumn
@@ -26,8 +32,18 @@ import ORC.Read
   , decodeTimestampColumn
   )
 import ORC.Types
-  ( FooterEncryption (..)
+  ( BinaryStatistics (..)
+  , BucketStatistics (..)
+  , ColumnStatistics (..)
+  , DateStatistics (..)
+  , DecimalStatistics (..)
+  , DoubleStatistics (..)
+  , FooterEncryption (..)
+  , IntegerStatistics (..)
   , ORCType (..)
+  , StatsKind (..)
+  , StringStatistics (..)
+  , TimestampStatistics (..)
   , TypeKind (..)
   , orcEncryption
   )
@@ -237,6 +253,67 @@ main = do
   expect "RowIndex non-empty"   (BS.length idx > 0)
   expect "RowIndex starts with field-1 length-delimited tag"
     (BS.head idx == 0x0A)
+  -- ColumnStatistics round-trip: cover the int / double /
+  -- string / date / timestamp / decimal / binary / bucket
+  -- variants that the new ColumnStatistics decoder handles.
+  do
+    let cases =
+          [ ("int",    ColumnStatistics
+                          (Just 5) (Just False) (Just 40)
+                          (Just (SkInt (IntegerStatistics
+                                          (Just (-100))
+                                          (Just 200)
+                                          (Just 100)))))
+          , ("double", ColumnStatistics
+                          (Just 3) (Just True) (Just 24)
+                          (Just (SkDouble (DoubleStatistics
+                                             (Just (-2.5))
+                                             (Just 99.99)
+                                             (Just 99.0)))))
+          , ("string", ColumnStatistics
+                          (Just 2) (Just False) Nothing
+                          (Just (SkString (StringStatistics
+                                             (Just (T.pack "alpha"))
+                                             (Just (T.pack "zeta"))
+                                             (Just 9)
+                                             (Just (T.pack "alpha"))
+                                             (Just (T.pack "zeta"))))))
+          , ("date",   ColumnStatistics
+                          (Just 4) (Just False) Nothing
+                          (Just (SkDate (DateStatistics
+                                           (Just 19000) (Just 19365)))))
+          , ("ts",     ColumnStatistics
+                          (Just 1) (Just False) Nothing
+                          (Just (SkTimestamp (TimestampStatistics
+                                                (Just 1700000000)
+                                                (Just 1700000005)
+                                                (Just 1700000000)
+                                                (Just 1700000005)))))
+          , ("dec",    ColumnStatistics
+                          (Just 2) (Just False) Nothing
+                          (Just (SkDecimal (DecimalStatistics
+                                              (Just (T.pack "1.23"))
+                                              (Just (T.pack "456.78"))
+                                              (Just (T.pack "458.01"))))))
+          , ("bin",    ColumnStatistics
+                          (Just 3) (Just False) (Just 99)
+                          (Just (SkBinary (BinaryStatistics (Just 99)))))
+          , ("bool",   ColumnStatistics
+                          (Just 5) (Just True) Nothing
+                          (Just (SkBucket (BucketStatistics
+                                             (V.fromList [3, 2])))))
+          ]
+    flip mapM_ cases $ \(name, cs) -> do
+      let !bytes = BL.toStrict (B.toLazyByteString (encodeColStats cs))
+      case decodeColStats bytes of
+        Right got | got == cs ->
+          expect ("ColumnStatistics " ++ name ++ " round-trip") True
+        Right got ->
+          failTest $ "ColumnStatistics " ++ name
+                      ++ " mismatch:\n got " ++ show got
+                      ++ "\n exp " ++ show cs
+        Left e -> failTest $ "ColumnStatistics " ++ name ++ ": " ++ e
+
   -- Inverse: decode the encoded payload and confirm we get back
   -- the same entries (positions + statistics blob).
   case RI.decodeRowIndex idx of
