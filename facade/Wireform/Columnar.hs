@@ -46,6 +46,10 @@ module Wireform.Columnar
   , decodeSchema
   , ReadOptions (..)
   , defaultReadOptions
+    -- * Datasets (multi-file)
+  , decodeDatasetIter
+  , decodeDatasetProjectedIter
+  , decodeDatasetRowSlicedIter
     -- * Records (via 'Arrow.Record.Table')
     -- | One-call helpers that lift a 'ArR.Table'-described record
     -- type all the way to / from a columnar wire format. Equivalent
@@ -580,3 +584,91 @@ projectFieldsByName names sch =
   in do
     fs <- traverse pickOne names
     Right sch { AT.arrowFields = V.fromList fs }
+
+-- ============================================================
+-- Multi-file dataset readers
+-- ============================================================
+
+-- | Iterate over the batches of every file in a (homogeneous)
+-- dataset. The first file decides the schema; subsequent files
+-- must use the same one or the iterator yields a 'Left' at the
+-- step where the mismatch is discovered.
+--
+-- Files are decoded /sequentially/ in the order they appear in
+-- the input list — there's no concurrent prefetch (which would
+-- need an IO-shaped iterator; see the IterIO follow-up).
+--
+-- Useful for partitioned tables: pass the file paths from one
+-- partition (or a glob), let the iterator stream through every
+-- batch under one schema.
+decodeDatasetIter
+  :: Format
+  -> ReadOptions
+  -> [(FilePath, ByteString)]   -- ^ named bytes, one per file
+  -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
+decodeDatasetIter _ _ [] =
+  Right (AT.Schema V.empty AT.Little V.empty, IS.iterEmpty)
+decodeDatasetIter fmt opts ((firstName, firstBs) : rest) = do
+  (sch, firstIt) <- decodeIter fmt opts firstBs
+  let _ = firstName
+      -- Defer per-file decode via iterConcat over an outer
+      -- iterator of inner iterators: each file is decoded only
+      -- when the previous one is exhausted.
+      outer :: IS.Iter (IS.Iter (V.Vector AC.ColumnArray))
+      outer = IS.iterFromIndexed (length rest) $ \i ->
+        let (name, bs) = rest !! i
+        in case decodeIter fmt opts bs of
+             Left e -> Left (name ++ ": " ++ e)
+             Right (sch', it) ->
+               if sch' /= sch
+                 then Left $
+                   name ++ ": schema mismatch with first file in dataset"
+                 else Right it
+  Right (sch, IS.iterAppend firstIt (IS.iterConcat outer))
+
+-- | Like 'decodeDatasetIter' but only materialises the named
+-- columns out of every file.
+decodeDatasetProjectedIter
+  :: Format
+  -> ReadOptions
+  -> [Text]
+  -> [(FilePath, ByteString)]
+  -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
+decodeDatasetProjectedIter _ _ _ [] =
+  Right (AT.Schema V.empty AT.Little V.empty, IS.iterEmpty)
+decodeDatasetProjectedIter fmt opts names ((firstName, firstBs) : rest) = do
+  (firstSch, firstIt) <- decodeProjectedIter fmt opts names firstBs
+  let _ = firstName
+  let outer :: IS.Iter (IS.Iter (V.Vector AC.ColumnArray))
+      outer = IS.iterFromIndexed (length rest) $ \i ->
+        let (name, bs) = rest !! i
+        in case decodeProjectedIter fmt opts names bs of
+             Left e -> Left (name ++ ": " ++ e)
+             Right (sch', it) ->
+               if sch' /= firstSch
+                 then Left $
+                   name ++ ": schema mismatch with first file in projected dataset"
+                 else Right it
+  Right (firstSch, IS.iterAppend firstIt (IS.iterConcat outer))
+
+-- | Iterator-shaped slice: drop the first @offset@ rows (across
+-- /all/ files in the dataset, summed) then take @len@ rows. The
+-- per-batch slicing uses 'AC.sliceColumnArray' so the wide-batch
+-- boundary cases don't pull whole batches into memory just to
+-- discard them.
+decodeDatasetRowSlicedIter
+  :: Format
+  -> ReadOptions
+  -> Int                    -- ^ rows to skip
+  -> Int                    -- ^ rows to keep
+  -> [(FilePath, ByteString)]
+  -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
+decodeDatasetRowSlicedIter fmt opts skip keep files = do
+  (sch, it) <- decodeDatasetIter fmt opts files
+  let !sliced = IS.iterRowSlice batchRowCount sliceBatch skip keep it
+  Right (sch, sliced)
+  where
+    batchRowCount cols
+      | V.null cols = 0
+      | otherwise   = AC.columnLength (V.head cols)
+    sliceBatch s l cols = V.map (AC.sliceColumnArray s l) cols

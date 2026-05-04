@@ -11,6 +11,8 @@ module Arrow.Column
   , countFieldNodesFlat
   , countBuffersFlat
   , resolveDictionaryColumn
+    -- * Row slicing
+  , sliceColumnArray
   ) where
 
 import Data.Bits (shiftL, (.|.))
@@ -1788,3 +1790,128 @@ safeIx :: [a] -> Int -> Maybe a
 safeIx xs i
   | i < 0 = Nothing
   | otherwise = case drop i xs of { (x:_) -> Just x; [] -> Nothing }
+
+-- ============================================================
+-- Row slicing
+-- ============================================================
+
+-- | Take @len@ rows starting at @start@ from a 'ColumnArray'.
+--
+-- For the simple primitive shapes (int / float / bool / utf8 /
+-- binary / temporal / decimal / fixed-binary, plus their
+-- @*Maybe@ variants) the slice is structural — no copying of
+-- the underlying primitive vectors when 'V.slice' / 'VP.slice'
+-- can do it. For nested shapes (struct / list / map / union /
+-- dictionary / view / REE) the slice recurses into children
+-- where it has a meaningful definition; constructors with
+-- shared offsets that don't naturally support contiguous
+-- slicing (RunEndEncoded, ListView, etc.) return the original
+-- column unchanged so the caller falls back to per-row
+-- iteration.
+--
+-- @start@ + @len@ are clamped to the column's logical length;
+-- a negative @start@ becomes @0@; a @len@ that runs past the
+-- end is truncated.
+sliceColumnArray :: Int -> Int -> ColumnArray -> ColumnArray
+sliceColumnArray !start0 !len0 col =
+  let !n      = columnLength col
+      !start  = max 0 start0
+      !len    = max 0 (min len0 (n - start))
+  in if len == n && start == 0
+       then col
+       else go start len col
+  where
+    go s l = \case
+      ColInt8 v       -> ColInt8 (VP.slice s l v)
+      ColInt16 v      -> ColInt16 (VP.slice s l v)
+      ColInt32 v      -> ColInt32 (VP.slice s l v)
+      ColInt64 v      -> ColInt64 (VP.slice s l v)
+      ColUInt8 v      -> ColUInt8 (VP.slice s l v)
+      ColUInt16 v     -> ColUInt16 (VP.slice s l v)
+      ColUInt32 v     -> ColUInt32 (VP.slice s l v)
+      ColUInt64 v     -> ColUInt64 (VP.slice s l v)
+      ColFloat16 v    -> ColFloat16 (VP.slice s l v)
+      ColFloat v      -> ColFloat (VP.slice s l v)
+      ColDouble v     -> ColDouble (VP.slice s l v)
+      ColBool v       -> ColBool (V.slice s l v)
+      ColUtf8 v       -> ColUtf8 (V.slice s l v)
+      ColBinary v     -> ColBinary (V.slice s l v)
+      ColLargeUtf8 v  -> ColLargeUtf8 (V.slice s l v)
+      ColLargeBinary v -> ColLargeBinary (V.slice s l v)
+      ColFixedSizeBinary w v -> ColFixedSizeBinary w (V.slice s l v)
+      ColDate32 v     -> ColDate32 (VP.slice s l v)
+      ColDate64 v     -> ColDate64 (VP.slice s l v)
+      ColTime32 v     -> ColTime32 (VP.slice s l v)
+      ColTime64 v     -> ColTime64 (VP.slice s l v)
+      ColTimestamp v  -> ColTimestamp (VP.slice s l v)
+      ColDuration v   -> ColDuration (VP.slice s l v)
+      ColDecimal128 p sc v -> ColDecimal128 p sc (V.slice s l v)
+      ColDecimal256 p sc v -> ColDecimal256 p sc (V.slice s l v)
+      ColIntervalYearMonth v ->
+        ColIntervalYearMonth (VP.slice s l v)
+      ColIntervalDayTime d m ->
+        ColIntervalDayTime (VP.slice s l d) (VP.slice s l m)
+      ColIntervalMonthDayNano m d nano ->
+        ColIntervalMonthDayNano
+          (VP.slice s l m) (VP.slice s l d) (VP.slice s l nano)
+      ColInt8Maybe v  -> ColInt8Maybe (V.slice s l v)
+      ColInt16Maybe v -> ColInt16Maybe (V.slice s l v)
+      ColInt32Maybe v -> ColInt32Maybe (V.slice s l v)
+      ColInt64Maybe v -> ColInt64Maybe (V.slice s l v)
+      ColUInt8Maybe v -> ColUInt8Maybe (V.slice s l v)
+      ColUInt16Maybe v -> ColUInt16Maybe (V.slice s l v)
+      ColUInt32Maybe v -> ColUInt32Maybe (V.slice s l v)
+      ColUInt64Maybe v -> ColUInt64Maybe (V.slice s l v)
+      ColFloat16Maybe v -> ColFloat16Maybe (V.slice s l v)
+      ColFloatMaybe v -> ColFloatMaybe (V.slice s l v)
+      ColDoubleMaybe v -> ColDoubleMaybe (V.slice s l v)
+      ColBoolMaybe v -> ColBoolMaybe (V.slice s l v)
+      ColUtf8Maybe v -> ColUtf8Maybe (V.slice s l v)
+      ColBinaryMaybe v -> ColBinaryMaybe (V.slice s l v)
+      ColLargeUtf8Maybe v -> ColLargeUtf8Maybe (V.slice s l v)
+      ColLargeBinaryMaybe v -> ColLargeBinaryMaybe (V.slice s l v)
+      ColFixedSizeBinaryMaybe w v -> ColFixedSizeBinaryMaybe w (V.slice s l v)
+      ColDate32Maybe v -> ColDate32Maybe (V.slice s l v)
+      ColDate64Maybe v -> ColDate64Maybe (V.slice s l v)
+      ColTime32Maybe v -> ColTime32Maybe (V.slice s l v)
+      ColTime64Maybe v -> ColTime64Maybe (V.slice s l v)
+      ColTimestampMaybe v -> ColTimestampMaybe (V.slice s l v)
+      ColDurationMaybe v -> ColDurationMaybe (V.slice s l v)
+      ColUtf8View v       -> ColUtf8View (V.slice s l v)
+      ColUtf8ViewMaybe v  -> ColUtf8ViewMaybe (V.slice s l v)
+      ColBinaryView v     -> ColBinaryView (V.slice s l v)
+      ColBinaryViewMaybe v -> ColBinaryViewMaybe (V.slice s l v)
+      -- Struct: slice every child column at the same offset.
+      ColStruct children ->
+        ColStruct (V.map (\(nm, c) -> (nm, sliceColumnArray s l c)) children)
+      ColStructMaybe valid children ->
+        ColStructMaybe (V.slice s l valid)
+          (V.map (\(nm, c) -> (nm, sliceColumnArray s l c)) children)
+      ColNull _ -> ColNull l
+      -- Variable-length / nested with shared-buffer semantics:
+      -- offsets index into a flat child column. Slicing the
+      -- offsets vector here keeps the child intact (which is the
+      -- right semantics: an offset slice carves out the
+      -- corresponding sub-range of the child without copying).
+      ColList offsets child ->
+        ColList (VP.slice s (l + 1) offsets) child
+      ColLargeList offsets child ->
+        ColLargeList (VP.slice s (l + 1) offsets) child
+      ColListMaybe valid offsets child ->
+        ColListMaybe (V.slice s l valid)
+          (VP.slice s (l + 1) offsets) child
+      ColLargeListMaybe valid offsets child ->
+        ColLargeListMaybe (V.slice s l valid)
+          (VP.slice s (l + 1) offsets) child
+      ColMap offsets ks vs ->
+        ColMap (VP.slice s (l + 1) offsets) ks vs
+      ColMapMaybe valid offsets ks vs ->
+        ColMapMaybe (V.slice s l valid)
+          (VP.slice s (l + 1) offsets) ks vs
+      -- Constructors whose physical layout doesn't admit a
+      -- straightforward contiguous slice (offsets aren't
+      -- monotonic, run-ends carry counts not row indices, etc.)
+      -- return the input unchanged. Callers that need exact
+      -- per-row slicing can fall back to the per-row iteration
+      -- shape from Arrow.Record.
+      other -> other

@@ -88,6 +88,8 @@ module Columnar.Stream
   , iterFoldM
   , iterForM_
   , iterLength
+    -- * Row-slice helpers
+  , iterRowSlice
   ) where
 
 import qualified Data.Vector as V
@@ -311,3 +313,43 @@ iterForM_ it0 act = go it0
 -- iterator entirely.
 iterLength :: Iter a -> Either String Int
 iterLength = iterFold (\n _ -> n + 1) 0
+
+-- ============================================================
+-- Row-slice helpers
+-- ============================================================
+
+-- | Take an @offset, length@ window of /rows/ from an iterator
+-- whose elements carry their own row count via the supplied
+-- @rowCount@ projection. Walks the iterator one element at a
+-- time, dropping fully-elided elements, slicing the boundary
+-- elements, and stopping early once the window is filled.
+--
+-- Designed for iterating record batches where each batch has a
+-- different number of rows: the caller passes
+-- @columnLength . V.head@ as @rowCount@ and a
+-- 'sliceColumnArray'-style slicer to carve the boundary
+-- batches.
+iterRowSlice
+  :: (a -> Int)              -- ^ row count of one element
+  -> (Int -> Int -> a -> a)  -- ^ slice @start@ @len@ @element@
+  -> Int                     -- ^ row offset to skip
+  -> Int                     -- ^ rows to take
+  -> Iter a
+  -> Iter a
+iterRowSlice rowCount sliceFn = go
+  where
+    go _      0    _  = iterEmpty
+    go offset want it = Iter $ case iterStep it of
+      Left e -> Left e
+      Right IterDone -> Right IterDone
+      Right (IterYield a next) ->
+        let !n = rowCount a
+        in if offset >= n
+             then iterStep (go (offset - n) want next)
+             else
+               let !take' = min want (n - offset)
+                   !sliced = sliceFn offset take' a
+                   !want'  = want - take'
+               in if want' <= 0
+                    then Right (IterYield sliced iterEmpty)
+                    else Right (IterYield sliced (go 0 want' next))
