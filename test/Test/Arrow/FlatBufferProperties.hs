@@ -174,6 +174,7 @@ genSchema = do
     { arrowFields     = V.fromList fields
     , arrowEndianness = endian
     , arrowMetadata = V.empty
+    , arrowFeatures = V.empty
     }
 
 -- ============================================================

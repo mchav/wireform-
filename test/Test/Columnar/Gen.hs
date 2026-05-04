@@ -238,6 +238,7 @@ schemaAndBatches plans = do
         { AT.arrowFields = V.fromList (map columnPlanToField plans)
         , AT.arrowEndianness = AT.Little
         , AT.arrowMetadata   = V.empty
+        , arrowFeatures = V.empty
         }
   pure (sch, batches)
 

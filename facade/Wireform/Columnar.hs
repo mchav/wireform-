@@ -320,6 +320,7 @@ orcFooterToArrowSchemaWithNullability orcFile footer = do
     { AT.arrowFields     = children
     , AT.arrowEndianness = AT.Little
     , AT.arrowMetadata   = V.empty
+    , AT.arrowFeatures   = V.empty
     }
   where
     -- Stream.proto defines PRESENT as kind 0; the OT.Stream ADT
@@ -607,7 +608,7 @@ decodeDatasetIter
   -> [(FilePath, ByteString)]   -- ^ named bytes, one per file
   -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
 decodeDatasetIter _ _ [] =
-  Right (AT.Schema V.empty AT.Little V.empty, IS.iterEmpty)
+  Right (AT.Schema V.empty AT.Little V.empty V.empty, IS.iterEmpty)
 decodeDatasetIter fmt opts ((firstName, firstBs) : rest) = do
   (sch, firstIt) <- decodeIter fmt opts firstBs
   let _ = firstName
@@ -635,7 +636,7 @@ decodeDatasetProjectedIter
   -> [(FilePath, ByteString)]
   -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
 decodeDatasetProjectedIter _ _ _ [] =
-  Right (AT.Schema V.empty AT.Little V.empty, IS.iterEmpty)
+  Right (AT.Schema V.empty AT.Little V.empty V.empty, IS.iterEmpty)
 decodeDatasetProjectedIter fmt opts names ((firstName, firstBs) : rest) = do
   (firstSch, firstIt) <- decodeProjectedIter fmt opts names firstBs
   let _ = firstName

@@ -305,7 +305,7 @@ main = do
 flatBufSchemaSelfCheck :: IO ()
 flatBufSchemaSelfCheck = do
   let cases =
-        [ Schema (V.fromList [plainField "a" False (AInt 32 True)]) Little V.empty
+        [ Schema (V.fromList [plainField "a" False (AInt 32 True)]) Little V.empty V.empty
         , Schema (V.fromList
             [ plainField "id"     False (AInt 64 True)
             , plainField "name"   True  AUtf8
@@ -355,6 +355,7 @@ flatBufRoundTrip = do
            ]
        , arrowEndianness = Little
        , arrowMetadata   = V.empty
+       , arrowFeatures = V.empty
        })
     (V.fromList
        [ ColInt32      (VP.fromList ([1, 2, 3] :: [Int32]))
@@ -363,7 +364,7 @@ flatBufRoundTrip = do
 
   -- Post-V5 columns: writer + reader byte-compatible end to end.
   highLevelRoundTrip "Utf8View"
-    (Schema (V.singleton (plainField "v" True AUtf8View)) Little V.empty)
+    (Schema (V.singleton (plainField "v" True AUtf8View)) Little V.empty V.empty)
     (V.singleton (ColUtf8ViewMaybe (V.fromList
        [ Just "short"
        , Nothing
@@ -399,14 +400,14 @@ flatBufRoundTrip = do
                     (Just (DictionaryEncoding 0 (AInt 32 True) False))
                     V.empty
   highLevelRoundTrip "Dictionary<utf8>"
-    (Schema (V.singleton dictField) Little V.empty)
+    (Schema (V.singleton dictField) Little V.empty V.empty)
     (V.singleton (ColDictionary 0
         (VP.fromList ([0, 1, 0, 2, 1] :: [Int32]))
         (ColUtf8 (V.fromList ["a", "b", "c"]))))
 
   -- ANull column: schema metadata round-trip + ColNull row count
   highLevelRoundTrip "Null"
-    (Schema (V.singleton (plainField "n" False ANull)) Little V.empty)
+    (Schema (V.singleton (plainField "n" False ANull)) Little V.empty V.empty)
     (V.singleton (ColNull 5))
 
   -- Custom metadata round-trip on schema + field
@@ -417,7 +418,7 @@ flatBufRoundTrip = do
 
   -- Streaming reader: pull batches one at a time, then drain.
   streamingRoundTrip
-    (Schema (V.fromList [plainField "n" False (AInt 32 True)]) Little V.empty)
+    (Schema (V.fromList [plainField "n" False (AInt 32 True)]) Little V.empty V.empty)
     [ V.singleton (ColInt32 (VP.fromList ([1, 2] :: [Int32])))
     , V.singleton (ColInt32 (VP.fromList ([3] :: [Int32])))
     , V.singleton (ColInt32 (VP.fromList ([4, 5, 6, 7] :: [Int32])))
@@ -830,6 +831,7 @@ roundTripNested label field col = do
         { arrowEndianness = Little
         , arrowFields = V.singleton field
         , arrowMetadata = V.empty
+        , arrowFeatures = V.empty
         }
       !stream = writeArrowStream schema (V.singleton (V.singleton col))
   case readArrowStream stream of
@@ -865,6 +867,7 @@ roundTripPrim label col = do
             , fieldMetadata   = V.empty
             }
         , arrowMetadata = V.empty
+        , arrowFeatures = V.empty
         }
       !stream = writeArrowStream schema (V.singleton (V.singleton col))
   case readArrowStream stream of

@@ -38,6 +38,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
             { arrowFields = V.empty
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -53,6 +54,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -66,6 +68,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 ]
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -82,6 +85,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -97,6 +101,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 }
             , arrowEndianness = Big
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -118,6 +123,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
             { arrowFields = V.fromList (map mkField (zip [(0::Int)..] types))
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -133,6 +139,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -148,6 +155,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -163,6 +171,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
 
@@ -178,6 +187,7 @@ schemaRoundtrips = testGroup "Schema roundtrips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
   ]
@@ -236,6 +246,7 @@ edgeCases = testGroup "Edge cases"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) @?= Right msg
   ]
@@ -280,6 +291,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
             { arrowFields = V.fromList fields
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
 
@@ -303,6 +315,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
 
@@ -312,6 +325,7 @@ propertyRoundtrips = testGroup "Property roundtrips"
             { arrowFields = V.empty
             , arrowEndianness = endian
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
       decodeIPCMessage (encodeIPCMessage msg) === Right msg
 
@@ -353,6 +367,7 @@ columnTests = testGroup "Column materialization"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           rb = RecordBatchDef
             { rbLength = 3
@@ -382,6 +397,7 @@ columnTests = testGroup "Column materialization"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           rb = RecordBatchDef
             { rbLength = 2
@@ -412,6 +428,7 @@ columnTests = testGroup "Column materialization"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           rb = RecordBatchDef
             { rbLength = 2
@@ -445,6 +462,7 @@ writeRoundtrips = testGroup "Write round-trips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           vals = VP.fromList [1, 2, 3, 4, 5] :: VP.Vector Int32
           cols = V.singleton (ColInt32 vals)
@@ -466,6 +484,7 @@ writeRoundtrips = testGroup "Write round-trips"
                 ]
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           batch1 = V.fromList
             [ ColInt32 (VP.fromList [10, 20, 30])
@@ -496,6 +515,7 @@ writeRoundtrips = testGroup "Write round-trips"
                 }
             , arrowEndianness = Little
             , arrowMetadata = V.empty
+            , arrowFeatures = V.empty
             }
           batch1 = V.singleton (ColInt32 (VP.fromList [100, 200, 300]))
           fileBs = writeArrowFile schema (V.singleton batch1)

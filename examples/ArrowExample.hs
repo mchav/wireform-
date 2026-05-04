@@ -23,6 +23,7 @@ main = do
             ]
         , A.arrowEndianness = A.Little
         , A.arrowMetadata = V.empty
+        , A.arrowFeatures = V.empty
         }
 
   let msg = A.SchemaMessage schema

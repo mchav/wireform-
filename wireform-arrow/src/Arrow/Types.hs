@@ -16,6 +16,7 @@ module Arrow.Types
   , Message(..)
   , RecordBatchDef(..)
   , BodyCompressionCodec(..)
+  , Feature(..)
   , FieldNode(..)
   , Buffer(..)
     -- * Smart constructors
@@ -29,9 +30,14 @@ module Arrow.Types
   , defaultSchema
   , defaultField
   , defaultLeafField
+    -- * Schema fingerprint
+  , schemaFingerprint
+  , schemaEquivalent
   ) where
 
 import Control.DeepSeq (NFData)
+import Data.Hashable (hash)
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
@@ -140,6 +146,16 @@ data DictionaryEncoding = DictionaryEncoding
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
+-- | Arrow schema feature flags (Schema.fbs's @Feature@ enum).
+-- Currently the spec only defines 'FeatureUnused' (0) and
+-- 'FeatureDictionaryReplacement' (1) — the latter signals that
+-- the file may contain delta-replacement dictionary batches.
+data Feature
+  = FeatureUnused
+  | FeatureDictionaryReplacement
+  deriving stock (Show, Eq, Enum, Bounded, Generic)
+  deriving anyclass (NFData)
+
 data Schema = Schema
   { arrowFields     :: !(Vector Field)
   , arrowEndianness :: !Endianness
@@ -147,6 +163,11 @@ data Schema = Schema
     -- ^ Arrow schema-level @custom_metadata@ (Schema.fbs field
     -- 4 of @table Schema@). Most files set zero or one
     -- (@pandas@-style) annotation. Empty by default.
+  , arrowFeatures   :: !(Vector Feature)
+    -- ^ Arrow schema-level @features@ (Schema.fbs field 5).
+    -- Empty by default; readers tolerate either way. Producers
+    -- emitting delta-replacement dictionary batches should
+    -- include 'FeatureDictionaryReplacement'.
   } deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
@@ -209,6 +230,7 @@ defaultSchema fs = Schema
   { arrowFields     = fs
   , arrowEndianness = Little
   , arrowMetadata   = V.empty
+  , arrowFeatures   = V.empty
   }
 
 -- | Build a 'Field' with no children, no dictionary, and no
@@ -234,3 +256,54 @@ defaultField name nullable ty children = Field
   , fieldDictionary = Nothing
   , fieldMetadata   = V.empty
   }
+
+-- | A 64-bit fingerprint of an Arrow 'Schema'. Two schemas
+-- that compare 'schemaEquivalent' produce the same
+-- fingerprint; the inverse holds with high probability (no
+-- collisions observed in the test corpus, but the canonical
+-- Avro-style cryptographic fingerprint is a TODO if real
+-- collision-freeness becomes a requirement).
+--
+-- Equivalence ignores 'arrowMetadata' / 'arrowFeatures' and
+-- per-field 'fieldMetadata' — those are annotations, not
+-- structure. Endianness, field order, types, nullability, and
+-- nested children all participate.
+schemaFingerprint :: Schema -> Int
+schemaFingerprint sch = hash
+  ( fromEnum (arrowEndianness sch)
+  , map fingerprintField (V.toList (arrowFields sch))
+  )
+
+fingerprintField :: Field -> (String, Bool, String, [(String, Bool, String, [()])])
+fingerprintField f =
+  ( T.unpack (fieldName f)
+  , fieldNullable f
+  , show (fieldType f)
+  , map fingerprintShallow (V.toList (fieldChildren f))
+  )
+  where
+    fingerprintShallow c =
+      ( T.unpack (fieldName c)
+      , fieldNullable c
+      , show (fieldType c)
+      , []  -- one level of children is enough for the structure
+            -- check we care about; deeper trees contribute via
+            -- the parent's show-of-fieldType.
+      )
+
+-- | Structural equivalence, mirroring 'schemaFingerprint'.
+-- Annotation fields ('arrowMetadata', 'arrowFeatures',
+-- per-field 'fieldMetadata') are ignored.
+schemaEquivalent :: Schema -> Schema -> Bool
+schemaEquivalent a b =
+  arrowEndianness a == arrowEndianness b
+    && V.length (arrowFields a) == V.length (arrowFields b)
+    && and (V.zipWith fieldEquivalent (arrowFields a) (arrowFields b))
+
+fieldEquivalent :: Field -> Field -> Bool
+fieldEquivalent a b =
+  fieldName a == fieldName b
+    && fieldNullable a == fieldNullable b
+    && fieldType a == fieldType b
+    && V.length (fieldChildren a) == V.length (fieldChildren b)
+    && and (V.zipWith fieldEquivalent (fieldChildren a) (fieldChildren b))

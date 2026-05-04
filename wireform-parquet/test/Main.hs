@@ -1222,6 +1222,7 @@ arrowParquetProjection = do
             ]
         , AT.arrowEndianness = AT.Little
         , AT.arrowMetadata   = V.empty
+        , arrowFeatures = V.empty
         }
       !batch = V.fromList
         [ AC.ColInt32 (VP.fromList [10, 20, 30 :: Int32])
@@ -1247,6 +1248,7 @@ arrowParquetProjection = do
                     ]
                 , AT.arrowEndianness = AT.Little
                 , AT.arrowMetadata   = V.empty
+                , arrowFeatures = V.empty
                 }
           case PArrow.parquetRowGroupToArrow target pf 0 of
             Left  e    -> failTest $ "parquetRowGroupToArrow: " ++ show e
@@ -1266,6 +1268,7 @@ arrowParquetProjection = do
                     (AT.Field "z" False (AT.AInt 32 True) V.empty Nothing V.empty)
                 , AT.arrowEndianness = AT.Little
                 , AT.arrowMetadata   = V.empty
+                , arrowFeatures = V.empty
                 }
           case PArrow.parquetRowGroupToArrow missing pf 0 of
             Left (PArrow.MissingColumn "z") ->
@@ -1278,6 +1281,7 @@ arrowParquetProjection = do
                     (AT.Field "a" False (AT.AInt 64 True) V.empty Nothing V.empty)
                 , AT.arrowEndianness = AT.Little
                 , AT.arrowMetadata   = V.empty
+                , arrowFeatures = V.empty
                 }
           case PArrow.parquetRowGroupToArrow widen pf 0 of
             Left e -> failTest $ "projection coercion: " ++ show e
@@ -1326,6 +1330,7 @@ arrowParquetBridge = do
             ]
         , AT.arrowEndianness = AT.Little
         , AT.arrowMetadata   = V.empty
+        , arrowFeatures = V.empty
         }
       !batch = V.fromList
         [ AC.ColInt32 (VP.fromList ([10, 20, 30] :: [Int32]))
@@ -1384,6 +1389,7 @@ arrowParquetBridge = do
             ]
         , AT.arrowEndianness = AT.Little
         , AT.arrowMetadata   = V.empty
+        , arrowFeatures = V.empty
         }
       !tempBatch = V.fromList
         [ AC.ColDate32    (VP.fromList ([19000, 19001, 19002] :: [Int32]))

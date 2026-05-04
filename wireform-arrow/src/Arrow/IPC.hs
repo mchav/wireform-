@@ -162,6 +162,7 @@ decodeSchema bs = do
     { arrowFields     = V.fromList fields
     , arrowEndianness = endian
     , arrowMetadata   = V.empty
+    , arrowFeatures = V.empty
     }
 
 decodeFields :: ByteString -> Int -> Int -> Either String ([Field], Int)

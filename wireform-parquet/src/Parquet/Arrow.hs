@@ -395,6 +395,7 @@ parquetFileArrowSchema pf =
        { AT.arrowFields     = V.map schemaElementToArrowField leaves
        , AT.arrowEndianness = AT.Little
        , AT.arrowMetadata   = V.empty
+       , AT.arrowFeatures   = V.empty
        }
 
 -- | Map a Parquet 'P.SchemaElement' back to an Arrow leaf

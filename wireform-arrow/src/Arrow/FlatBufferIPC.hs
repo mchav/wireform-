@@ -1754,6 +1754,7 @@ readSchemaTable bs schPos = do
     { arrowFields     = fields
     , arrowEndianness = endian
     , arrowMetadata   = customMd
+    , arrowFeatures   = V.empty  -- features round-trip on the wire is parsed by callers via getFeaturesIfPresent
     }
 
 -- | Decode one @Field@ table.

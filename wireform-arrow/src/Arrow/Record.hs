@@ -563,6 +563,7 @@ tableSchema t = Schema
   { arrowFields     = V.fromList (rowEncoderFields (tableEncode t))
   , arrowEndianness = Little
   , arrowMetadata   = V.empty
+  , arrowFeatures = V.empty
   }
 
 -- | Names of the columns the 'Table''s decoder needs. Equivalent

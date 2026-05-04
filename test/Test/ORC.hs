@@ -48,6 +48,7 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
                 ]
             , AT.arrowEndianness = AT.Little
             , AT.arrowMetadata   = V.empty
+            , arrowFeatures = V.empty
             }
           !batch = V.fromList
             [ AC.ColInt64 (VP.fromList ([10, 20, 30] :: [Int64]))
@@ -69,6 +70,7 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
                 ]
             , AT.arrowEndianness = AT.Little
             , AT.arrowMetadata   = V.empty
+            , arrowFeatures = V.empty
             }
           !batch = V.fromList
             [ AC.ColInt64Maybe (V.fromList [Just 10, Nothing, Just 30])
@@ -103,6 +105,7 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
                 ]
             , AT.arrowEndianness = AT.Little
             , AT.arrowMetadata   = V.empty
+            , arrowFeatures = V.empty
             }
           !batch = V.fromList
             [ AC.ColDate32 (VP.fromList ([19000, 19001, 19002] :: [Int32]))
@@ -138,6 +141,7 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
                   V.empty)
             , AT.arrowEndianness = AT.Little
             , AT.arrowMetadata   = V.empty
+            , arrowFeatures = V.empty
             }
           !batch = V.singleton $ AC.ColStruct
             (V.fromList
@@ -171,6 +175,7 @@ arrowBridgeTests = testGroup "Arrow ↔ ORC bridge"
                   V.empty)
             , AT.arrowEndianness = AT.Little
             , AT.arrowMetadata   = V.empty
+            , arrowFeatures = V.empty
             }
           -- 3 rows: [1,2,3], [], [4,5]
           !batch = V.singleton $ AC.ColList

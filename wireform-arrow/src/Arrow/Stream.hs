@@ -306,6 +306,7 @@ buildDictBatch did values =
             }
         , arrowEndianness = Little
         , arrowMetadata   = V.empty
+        , arrowFeatures = V.empty
         }
       !(rb, body) = buildRecordBatchBytes innerSchema (V.singleton values)
   in  DictBatch
@@ -476,6 +477,7 @@ decodeDictBatch sch db = do
         { arrowFields = V.singleton valuesField
         , arrowEndianness = arrowEndianness sch
         , arrowMetadata   = V.empty
+        , arrowFeatures = V.empty
         }
   cols <- materializeRecordBatch innerSchema
             (denormaliseBuffers innerSchema (dbData db)) (dbBody db)

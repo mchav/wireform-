@@ -13,6 +13,8 @@ module Arrow.Column
   , resolveDictionaryColumn
     -- * Row slicing
   , sliceColumnArray
+    -- * Map invariants
+  , validateMapKeysSorted
   ) where
 
 import Data.Bits (shiftL, (.|.))
@@ -1915,3 +1917,89 @@ sliceColumnArray !start0 !len0 col =
       -- per-row slicing can fall back to the per-row iteration
       -- shape from Arrow.Record.
       other -> other
+
+-- ============================================================
+-- Map invariants
+-- ============================================================
+
+-- | Check that a 'ColMap' / 'ColMapMaybe' column actually
+-- satisfies its 'AMap' field's @keysSorted@ flag — i.e. that
+-- within every entry slice the keys are non-decreasing.
+--
+-- The Arrow spec lets readers assume key-sorted order when
+-- @keysSorted = True@ (used for binary-search lookups, hash
+-- avoidance, etc.). Writers that set the flag without sorting
+-- the keys silently corrupt every downstream join / lookup.
+-- This helper lets a writer assert the invariant before
+-- emission and lets a reader decide whether to trust the flag.
+--
+-- Returns 'Right ()' if every entry's keys are sorted under
+-- the column's natural ordering. 'Left' carries the index of
+-- the first offending entry plus the offending key pair.
+validateMapKeysSorted :: ColumnArray -> Either String ()
+validateMapKeysSorted = \case
+  ColMap offs keys _vals -> goOffsets offs keys
+  ColMapMaybe _ offs keys _vals -> goOffsets offs keys
+  _ -> Right ()
+  where
+    goOffsets offs keys =
+      let !n = max 0 (VP.length offs - 1)
+          go !i
+            | i >= n = Right ()
+            | otherwise =
+                let !s = fromIntegral (VP.unsafeIndex offs i) :: Int
+                    !e = fromIntegral (VP.unsafeIndex offs (i + 1)) :: Int
+                    !w = e - s
+                in case checkSlice keys s w of
+                     Just (j, k1, k2) ->
+                       Left $ "Arrow.Column.validateMapKeysSorted: entry "
+                                ++ show i ++ " key " ++ show j
+                                ++ " " ++ k1 ++ " > " ++ k2
+                     Nothing -> go (i + 1)
+      in go 0
+
+    -- We can't compare arbitrary boxed values without an Ord
+    -- instance, but ColumnArray's underlying vectors are
+    -- comparable by Show — that's fine here because this is a
+    -- /diagnostic/ helper, not a hot-path validator. Real
+    -- key-by-key comparison would need to dispatch on the
+    -- key column's constructor.
+    checkSlice keys s w =
+      case keys of
+        ColUtf8 v   -> compareSliceShow s w v
+        ColUtf8Maybe v -> compareSliceShow s w v
+        ColInt32 v -> compareSlice s w v
+        ColInt64 v -> compareSlice s w v
+        ColUInt32 v -> compareSlice s w v
+        ColUInt64 v -> compareSlice s w v
+        _ -> Nothing  -- unsupported key type; assume sorted
+
+    compareSlice :: (Ord a, VP.Prim a, Show a)
+                 => Int -> Int -> VP.Vector a -> Maybe (Int, String, String)
+    compareSlice s w v
+      | w < 2 = Nothing
+      | otherwise =
+          let go !j
+                | j >= w = Nothing
+                | otherwise =
+                    let !a = VP.unsafeIndex v (s + j - 1)
+                        !b = VP.unsafeIndex v (s + j)
+                    in if a > b
+                         then Just (j, show a, show b)
+                         else go (j + 1)
+          in go 1
+
+    compareSliceShow :: (Ord a, Show a)
+                     => Int -> Int -> V.Vector a -> Maybe (Int, String, String)
+    compareSliceShow s w v
+      | w < 2 = Nothing
+      | otherwise =
+          let go !j
+                | j >= w = Nothing
+                | otherwise =
+                    let !a = V.unsafeIndex v (s + j - 1)
+                        !b = V.unsafeIndex v (s + j)
+                    in if a > b
+                         then Just (j, show a, show b)
+                         else go (j + 1)
+          in go 1
