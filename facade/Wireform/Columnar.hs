@@ -50,6 +50,10 @@ module Wireform.Columnar
   , decodeDatasetIter
   , decodeDatasetProjectedIter
   , decodeDatasetRowSlicedIter
+  , decodeHeterogeneousDatasetIter
+  , decodePartitionedDataset
+  , parsePartitionPath
+  , PartitionValue (..)
     -- * Records (via 'Arrow.Record.Table')
     -- | One-call helpers that lift a 'ArR.Table'-described record
     -- type all the way to / from a columnar wire format. Equivalent
@@ -71,6 +75,8 @@ module Wireform.Columnar
   ) where
 
 import Data.ByteString (ByteString)
+import Data.Int (Int64)
+import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -673,3 +679,96 @@ decodeDatasetRowSlicedIter fmt opts skip keep files = do
       | V.null cols = 0
       | otherwise   = AC.columnLength (V.head cols)
     sliceBatch s l cols = V.map (AC.sliceColumnArray s l) cols
+
+-- ============================================================
+-- Cross-format / partitioned datasets
+-- ============================================================
+
+-- | Like 'decodeDatasetIter' but each file may be in a
+-- different 'Format'. The first file establishes the schema;
+-- subsequent files must produce structurally equivalent
+-- schemas (under 'Arrow.Types.schemaEquivalent') or the
+-- iterator yields a 'Left' at the boundary step.
+decodeHeterogeneousDatasetIter
+  :: ReadOptions
+  -> [(Format, FilePath, ByteString)]
+  -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
+decodeHeterogeneousDatasetIter _ [] =
+  Right (AT.Schema V.empty AT.Little V.empty V.empty, IS.iterEmpty)
+decodeHeterogeneousDatasetIter opts ((firstFmt, _firstName, firstBs) : rest) = do
+  (sch, firstIt) <- decodeIter firstFmt opts firstBs
+  let outer :: IS.Iter (IS.Iter (V.Vector AC.ColumnArray))
+      outer = IS.iterFromIndexed (length rest) $ \i ->
+        let (fmt, name, bs) = rest !! i
+        in case decodeIter fmt opts bs of
+             Left e -> Left (name ++ ": " ++ e)
+             Right (sch', it) ->
+               if not (AT.schemaEquivalent sch' sch)
+                 then Left $
+                   name ++ ": schema mismatch with first file in heterogeneous dataset"
+                 else Right it
+  Right (sch, IS.iterAppend firstIt (IS.iterConcat outer))
+
+-- | Parsed Hive-style partition value.
+data PartitionValue
+  = PVText !Text
+  | PVInteger !Int64
+  deriving (Show, Eq)
+
+-- | Parse a Hive-style partitioned path into its
+-- @(partition_key, partition_value)@ pairs.
+--
+-- @
+-- parsePartitionPath \"region=us-east/year=2024/data.parquet\"
+--   == [("region", PVText \"us-east\"), ("year", PVInteger 2024)]
+-- @
+--
+-- Components without an @=@ are skipped (treated as ordinary
+-- directory names). Numeric values that parse as 'Int64' use
+-- 'PVInteger'; everything else stays 'PVText'.
+parsePartitionPath :: FilePath -> [(Text, PartitionValue)]
+parsePartitionPath path =
+  let parts = filter (not . null) (splitOnSlash path)
+  in [ (T.pack k, parseValue v)
+     | part <- parts
+     , (k, v) <- splitKV part
+     ]
+  where
+    splitOnSlash :: String -> [String]
+    splitOnSlash = foldr step [""]
+      where
+        step '/' acc = "" : acc
+        step c (x : xs) = (c : x) : xs
+        step _ [] = []  -- unreachable
+
+    splitKV :: String -> [(String, String)]
+    splitKV s = case break (== '=') s of
+      (_, [])     -> []
+      (k, '=':v)  -> [(k, v)]
+      _           -> []
+
+    parseValue :: String -> PartitionValue
+    parseValue s = case reads s :: [(Int64, String)] of
+      [(n, "")] -> PVInteger n
+      _         -> PVText (T.pack s)
+
+-- | Read a partitioned dataset, dropping every file whose
+-- partition values are excluded by the supplied keep-predicate.
+-- The keep-predicate sees the parsed partition map for each
+-- file; returning 'False' elides the file before it's even
+-- decoded.
+--
+-- @
+-- decodePartitionedDataset Parquet defaultReadOptions
+--   (\\parts -> lookup \"region\" parts == Just (PVText \"us-east\"))
+--   files
+-- @
+decodePartitionedDataset
+  :: Format
+  -> ReadOptions
+  -> ([(Text, PartitionValue)] -> Bool)
+  -> [(FilePath, ByteString)]
+  -> Either String (AT.Schema, IS.Iter (V.Vector AC.ColumnArray))
+decodePartitionedDataset fmt opts keep files =
+  let !surviving = filter (keep . parsePartitionPath . fst) files
+  in decodeDatasetIter fmt opts surviving

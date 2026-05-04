@@ -90,6 +90,10 @@ module Columnar.Stream
   , iterLength
     -- * Row-slice helpers
   , iterRowSlice
+    -- * Re-batching / windowing
+  , iterChunk
+  , iterScan
+  , iterMergeBy
     -- * IO-shaped iterator
   , IterIO (..)
   , IterIOStep (..)
@@ -366,6 +370,91 @@ iterRowSlice rowCount sliceFn = go
                in if want' <= 0
                     then Right (IterYield sliced iterEmpty)
                     else Right (IterYield sliced (go 0 want' next))
+
+-- ============================================================
+-- Re-batching / windowing
+-- ============================================================
+
+-- | Re-bucket an iterator into fixed-size chunks of @n@
+-- elements. The final chunk may be shorter if the source's
+-- length isn't divisible by @n@. Useful for adapting between
+-- formats with different default batch sizes (Parquet's 1M-row
+-- row groups vs Arrow's typical 64K-row record batches).
+iterChunk :: Int -> Iter a -> Iter [a]
+iterChunk n it0
+  | n <= 0    = iterEmpty
+  | otherwise = go it0
+  where
+    go it = Iter $ case takeUpTo n [] it of
+      Left e -> Left e
+      Right ([], _)    -> Right IterDone
+      Right (xs, rest) -> Right (IterYield (reverse xs) (go rest))
+
+    takeUpTo 0 acc rest = Right (acc, rest)
+    takeUpTo k acc it1 = case iterStep it1 of
+      Left e -> Left e
+      Right IterDone -> Right (acc, iterEmpty)
+      Right (IterYield a next) -> takeUpTo (k - 1) (a : acc) next
+
+-- | Strict left scan: yield the running fold accumulator
+-- alongside each input element. The output iterator's first
+-- element is the seed, then one element per source element
+-- showing the accumulator /after/ that element was folded in.
+-- Useful for prefix sums / running aggregates.
+iterScan :: (b -> a -> b) -> b -> Iter a -> Iter b
+iterScan f seed = go seed
+  where
+    go !acc it = Iter $
+      Right (IterYield acc (loop acc it))
+    loop !acc it = Iter $ case iterStep it of
+      Left e -> Left e
+      Right IterDone -> Right IterDone
+      Right (IterYield a next) ->
+        let !acc' = f acc a
+        in Right (IterYield acc' (loop acc' next))
+
+-- | Merge a non-empty list of /already-sorted/ iterators into
+-- a single sorted iterator under the supplied comparator.
+-- Each input must be non-decreasing under @cmp@; the output is
+-- the merged non-decreasing sequence.
+--
+-- @O(n log k)@ per element where @k@ is the number of input
+-- iterators (uses a priority loop, not a heap — fine for small
+-- @k@; for large @k@ swap in a real priority queue).
+iterMergeBy :: (a -> a -> Ordering) -> [Iter a] -> Iter a
+iterMergeBy _ []   = iterEmpty
+iterMergeBy cmp xs =
+  let prepped = mapM peek xs
+  in Iter $ case prepped of
+       Left e -> Left e
+       Right initial ->
+         let active = [(a, rest) | Just (a, rest) <- initial]
+         in iterStep (drain cmp active)
+  where
+    peek :: Iter a -> Either String (Maybe (a, Iter a))
+    peek it = case iterStep it of
+      Left e -> Left e
+      Right IterDone -> Right Nothing
+      Right (IterYield a next) -> Right (Just (a, next))
+
+    drain :: (a -> a -> Ordering) -> [(a, Iter a)] -> Iter a
+    drain _ [] = iterEmpty
+    drain cmp' xs' = Iter $
+      let (winner, rest) = pickMin cmp' xs'
+          (a, next) = winner
+      in case peek next of
+           Left e -> Left e
+           Right Nothing -> Right (IterYield a (drain cmp' rest))
+           Right (Just (a', next')) ->
+             Right (IterYield a (drain cmp' ((a', next') : rest)))
+
+    pickMin _   [x] = (x, [])
+    pickMin cmp' (x : ys) =
+      let (m, rest) = pickMin cmp' ys
+      in case cmp' (fst x) (fst m) of
+           GT -> (m, x : rest)
+           _  -> (x, m : rest)
+    pickMin _ [] = error "iterMergeBy.pickMin: empty"
 
 -- ============================================================
 -- IterIO: IO-shaped pull iterator

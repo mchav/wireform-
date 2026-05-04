@@ -48,6 +48,7 @@ library
   import: defaults
   hs-source-dirs: src
   exposed-modules:
+    Parquet.Aggregate
     Parquet.BloomFilter
     Parquet.Compress
     Parquet.Delta
