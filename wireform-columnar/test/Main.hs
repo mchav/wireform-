@@ -18,14 +18,51 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Test.Tasty.HUnit (testCase, (@?=))
 
+import qualified Columnar.IO as CIO
 import qualified Columnar.Predicate as Pred
 import qualified Columnar.Stream as IS
+
+import qualified Data.ByteString as BS
+import System.IO.Temp (withSystemTempFile)
+import System.IO (hClose)
 
 main :: IO ()
 main = defaultMain $ testGroup "wireform-columnar"
   [ iterProps
   , predicateProps
   , predicateUnits
+  , columnarIOUnits
+  ]
+
+-- ============================================================
+-- Columnar.IO unit tests
+-- ============================================================
+
+columnarIOUnits :: TestTree
+columnarIOUnits = testGroup "Columnar.IO"
+  [ testCase "loadFileEager + loadFileMmap return equal bytes" $
+      withSystemTempFile "wfio.bin" $ \path h -> do
+        let !payload = BS.replicate 200_000 0xAB
+        BS.hPut h payload
+        hClose h
+        eager <- CIO.loadFileEager path
+        mmaped <- CIO.loadFileMmap path
+        eager  @?= payload
+        mmaped @?= payload
+  , testCase "loadFile picks mmap above MmapAbove threshold" $
+      withSystemTempFile "wfio-big.bin" $ \path h -> do
+        let !payload = BS.replicate 200_000 0xCD
+        BS.hPut h payload
+        hClose h
+        bs <- CIO.loadFile path
+        BS.length bs @?= 200_000
+  , testCase "loadFile uses eager path under threshold" $
+      withSystemTempFile "wfio-small.bin" $ \path h -> do
+        let !payload = BS.replicate 1024 0xEF
+        BS.hPut h payload
+        hClose h
+        bs <- CIO.loadFile path
+        BS.length bs @?= 1024
   ]
 
 -- ============================================================

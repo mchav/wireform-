@@ -71,6 +71,7 @@ import qualified Codec.Compression.Snappy as Snappy
 import qualified Codec.Compression.LZ4 as LZ4
 #endif
 
+import qualified Columnar.IO as IO
 import qualified Columnar.Stream as IS
 import ORC.Footer (readORCCompression, readORCFooter)
 import ORC.RLE
@@ -101,13 +102,16 @@ loadORCFile bs = do
   ck <- readORCCompression bs
   Right ORCFile {ofBytes = bs, ofFooter = ft, ofCompression = ck}
 
--- | Read an ORC file from disk via 'BS.readFile' (or mmap in a
--- follow-up) and parse the footer in one call. See
--- 'Parquet.Read.loadParquetFilePath' for the equivalent
--- Parquet helper.
+-- | Read an ORC file from disk and parse its footer.
+--
+-- Uses 'Columnar.IO.loadFile' under the hood, which mmaps
+-- files above 64 KiB and reads smaller files eagerly. Per-
+-- stripe slices into the resulting 'ByteString' are pointer
+-- arithmetic, so opening a multi-GB file costs only the
+-- footer's worth of page-ins.
 loadORCFilePath :: FilePath -> IO (Either String ORCFile)
 loadORCFilePath path = do
-  bs <- BS.readFile path
+  bs <- IO.loadFile path
   pure (loadORCFile bs)
 
 -- | Open an ORC file as an 'IS.IterIO' over its stripe

@@ -145,6 +145,7 @@ import qualified Codec.Compression.LZ4 as LZ4
 import qualified Codec.Compression.Brotli as Brotli
 #endif
 
+import qualified Columnar.IO as IO
 import qualified Columnar.Stream as IS
 import qualified Parquet.Encryption as Enc
 import Parquet.Footer (readFooter)
@@ -191,33 +192,34 @@ loadParquetFile bs = do
   fm <- readFooter bs
   Right ParquetFile {pfBytes = bs, pfFooter = fm}
 
--- | Read a Parquet file from disk via memory mapping when
--- available; falls back to a regular 'BS.readFile' otherwise.
--- The returned 'ParquetFile' references the mmapped bytes
--- directly, so opening a 50 GB file costs (roughly) a syscall
--- + page-fault-on-access cost rather than a copy into the GC
--- heap.
+-- | Read a Parquet file from disk and parse its footer.
 --
--- Single-shot helper that combines 'BS.readFile' (or, when
--- the @mmap@ flag is on, an mmap variant added in a follow-up)
--- with 'loadParquetFile'. For now this is a convenience
--- wrapper that always uses 'BS.readFile'; the mmap path is a
--- drop-in once the dependency lands.
+-- Uses 'Columnar.IO.loadFile' under the hood, which mmaps
+-- files above 'Columnar.IO.defaultLoadStrategy''s threshold
+-- (64 KiB) and reads smaller files eagerly. The 'ParquetFile'
+-- references the loaded bytes directly, so opening a 50 GB
+-- file costs roughly a syscall + page-fault-on-access cost
+-- rather than copying the whole file into the GC heap.
+--
+-- For an explicit choice, use 'Columnar.IO.loadFileMmap' /
+-- 'Columnar.IO.loadFileEager' and pass the bytes to
+-- 'loadParquetFile' directly.
 loadParquetFilePath :: FilePath -> IO (Either String ParquetFile)
 loadParquetFilePath path = do
-  bs <- BS.readFile path
+  bs <- IO.loadFile path
   pure (loadParquetFile bs)
 
 -- | Open a Parquet file as an 'IS.IterIO' over its row groups.
--- Each step decodes one row group's column-chunk slices on
--- demand, so the file is read incrementally without loading
--- every row group into memory at once.
+-- Each step yields one row-group index on demand; callers
+-- join with 'Parquet.Arrow.parquetRowGroupToArrow' (or any
+-- per-format reader) to materialise columns lazily.
 --
--- Currently uses 'BS.readFile' for the underlying file load
--- (matches 'loadParquetFilePath'); a true mmap path is a
--- drop-in once the dependency lands. The iteration shape is
--- already correct: each pull only touches the row group's
--- byte slice via 'columnChunkSlice'.
+-- Pairs with 'loadParquetFilePath''s mmap-aware loader: the
+-- file's bytes are mmapped (on files above the default
+-- threshold), so per-row-group slices are pointer arithmetic
+-- and only the touched pages are paged in by the kernel. A
+-- 50 GB file with one queried row group reads only the
+-- footer + the slice at that row group's offset.
 openParquetReader
   :: FilePath
   -> IO (Either String (ParquetFile, IS.IterIO Int))
