@@ -27,6 +27,7 @@ module ORC.Read
   , decompressORCStream
   , decompressORCStreamSized
   , defaultORCCompressionBlockSize
+    -- (re-exported from "ORC.Compress" for backward compatibility)
     -- * Column decoders
   , decodeIntColumn
   , decodeBoolColumn
@@ -75,6 +76,11 @@ import qualified Columnar.LZ4 as LZ4
 
 import qualified Columnar.IO as IO
 import qualified Columnar.Stream as IS
+import ORC.Compress
+  ( decompressORCStream
+  , decompressORCStreamSized
+  , defaultORCCompressionBlockSize
+  )
 import ORC.Footer (readORCCompression, readORCCompressionBlockSize, readORCFooter)
 import ORC.RLE
   ( decodeBooleanRLE
@@ -173,7 +179,10 @@ stripeSlice ofile idx = do
         then Left "ORC.Read: stripe slice out of bounds"
         else Right $! BS.take len (BS.drop off bs)
 
--- | Parse the protobuf stripe footer for a stripe index.
+-- | Parse the protobuf stripe footer for a stripe index. ORC
+-- wraps stripe footers in the file's compression envelope (same
+-- as data streams + the file footer), so we decompress here
+-- before handing bytes to 'decodeStripeFooter'.
 loadStripeFooter :: ORCFile -> Int -> Either String StripeFooter
 loadStripeFooter ofile idx = do
   stripe <- stripeSlice ofile idx
@@ -183,7 +192,11 @@ loadStripeFooter ofile idx = do
     then Left "ORC.Read: stripe index out of range"
     else do
       let si = V.unsafeIndex ss idx
-      fb <- stripeFooterBytes stripe si
+      rawFb <- stripeFooterBytes stripe si
+      fb    <- decompressORCStreamSized
+                 (ofCompressionBlockSize ofile)
+                 (ofCompression ofile)
+                 rawFb
       decodeStripeFooter fb
 
 -- | Physical stream payloads for one stripe (footer order), using lengths from
@@ -197,135 +210,15 @@ stripeColumnStreams ofile idx = do
 ------------------------------------------------------------------------
 -- Stream decompression
 ------------------------------------------------------------------------
-
--- | Decompress an ORC stream using the file's compression codec.
 --
--- ORC wraps each compressed chunk with a 3-byte LE header encoding
--- @(chunkLength * 2 + isOriginal)@. 'CompressionNone' passes through.
--- | The ORC default for @compressionBlockSize@, 256 KiB. The
--- spec doesn't mandate a default but every upstream writer
--- (Java ORC, C++ ORC, arrow-rs) uses this value; older
--- callers that didn't thread the postscript-supplied size
--- through fell back to it. Use 'decompressORCStreamSized'
--- to pass the file's actual setting.
-defaultORCCompressionBlockSize :: Int
-defaultORCCompressionBlockSize = 262144
-
-{-# INLINE decompressORCStream #-}
-decompressORCStream :: CompressionKind -> ByteString -> Either String ByteString
-decompressORCStream =
-  decompressORCStreamSized defaultORCCompressionBlockSize
-
--- | Like 'decompressORCStream' but the caller supplies the
--- file's @compressionBlockSize@ from the postscript (see
--- 'ORC.Footer.readORCCompressionBlockSize'). LZ4 / LZO need
--- this to size their output buffer correctly; Zlib / Snappy /
--- ZSTD ignore it (they decompress to whatever the input
--- expands to).
-decompressORCStreamSized :: Int -> CompressionKind -> ByteString -> Either String ByteString
-decompressORCStreamSized _   CompressionNone bs = Right bs
-decompressORCStreamSized blk kind            bs = decompressChunks blk kind bs 0 []
-
-decompressChunks :: Int -> CompressionKind -> ByteString -> Int -> [ByteString] -> Either String ByteString
-decompressChunks !blk kind bs !off !acc
-  | off >= BS.length bs = Right $! BS.concat (reverse acc)
-  | off + 3 > BS.length bs = Left "ORC.Read: truncated compression header"
-  | otherwise = do
-      let !b0     = fromIntegral (BS.index bs off) :: Word64
-          !b1     = fromIntegral (BS.index bs (off + 1)) :: Word64
-          !b2     = fromIntegral (BS.index bs (off + 2)) :: Word64
-          !header = b0 .|. (b1 `shiftL` 8) .|. (b2 `shiftL` 16)
-          !isOrig = header .&. 1 == 1
-          !cLen   = fromIntegral (header `shiftR` 1) :: Int
-      if off + 3 + cLen > BS.length bs
-        then Left "ORC.Read: compression chunk extends past stream end"
-        else do
-          let !chunk = BS.take cLen (BS.drop (off + 3) bs)
-          decoded <- if isOrig
-            then Right chunk
-            else decompressBlock blk kind chunk
-          decompressChunks blk kind bs (off + 3 + cLen) (decoded : acc)
-
-decompressBlock :: Int -> CompressionKind -> ByteString -> Either String ByteString
-decompressBlock _   CompressionNone bs = Right bs
-decompressBlock _   CompressionZlib bs = tryZlibRaw bs
-decompressBlock _   CompressionSnappy bs = trySnappy bs
-#ifdef HAVE_ZSTD
-decompressBlock _   CompressionZstd bs = tryZstd bs
-#endif
-#ifdef HAVE_LZ4
--- ORC LZ4 chunks are LZ4 block-format payloads (not the
--- frame format); the maximum decompressed size is the file's
--- 'compressionBlockSize' from the postscript. We pass that
--- through here so the output buffer is sized correctly
--- regardless of the chunk's compression ratio (the previous
--- 4x guess silently truncated highly-compressible data).
-decompressBlock blk CompressionLZ4 bs = tryLZ4 blk bs
-#endif
-decompressBlock _ CompressionLZO bs =
-  -- ORC's LZO codec is the legacy Hadoop variant that requires
-  -- a JNI-bound C lib; no pure-Haskell decoder is available
-  -- today. Rather than refusing the file outright (which trips
-  -- up readers that just want to peek at the footer / stripe
-  -- info), fall back to the wrapped bytes — the caller will
-  -- decode something invalid for the data streams but the
-  -- footer + RowIndex stay readable.
-  Left $ "ORC.Read: LZO decompression not implemented (no pure-"
-       ++ "Haskell decoder); the file is otherwise readable for "
-       ++ "metadata. Length=" ++ show (BS.length bs)
-decompressBlock _ c _ =
-  Left $
-    "ORC.Read: compression "
-      ++ show c
-      ++ " not supported (use None, Zlib, Snappy with -fsnappy"
-#ifdef HAVE_ZSTD
-      ++ ", Zstandard with -fzstd"
-#endif
-#ifdef HAVE_LZ4
-      ++ ", LZ4 with -flz4"
-#endif
-      ++ ")"
-
-tryZlibRaw :: ByteString -> Either String ByteString
-tryZlibRaw bs =
-  unsafePerformIO $ do
-    er <- try @SomeException $ evaluate $ BL.toStrict $ ZlibRaw.decompress $ BL.fromStrict bs
-    case er of
-      Left e  -> pure $ Left $ "ORC.Read: zlib decompress failed: " ++ show e
-      Right x -> pure $ Right x
-
-trySnappy :: ByteString -> Either String ByteString
-#ifdef HAVE_SNAPPY
-trySnappy bs = Right (Snappy.decompress bs)
-#else
-trySnappy _ =
-  Left "ORC.Read: Snappy requires building wireform with -fsnappy"
-#endif
-
-#ifdef HAVE_ZSTD
-tryZstd :: ByteString -> Either String ByteString
-tryZstd bs =
-  case decompress bs of
-    Decompress out -> Right out
-    Skip           -> Left "ORC.Read: zstd decompress skipped"
-    Error msg      -> Left $ "ORC.Read: zstd decompress failed: " ++ msg
-#endif
-
-#ifdef HAVE_LZ4
--- | Decompress one ORC LZ4 chunk. The output buffer is sized
--- to the file's @compressionBlockSize@ (PostScript field 4),
--- which the spec defines as the maximum decompressed length
--- of any one chunk. Chunks that decompress smaller still fit;
--- chunks that would decompress larger are an ill-formed file
--- per the spec and 'LZ4.decompress' returns 'Nothing'.
-tryLZ4 :: Int -> ByteString -> Either String ByteString
-tryLZ4 !blockSize bs = case LZ4.decompress blockSize bs of
-  Right out -> Right out
-  Left e    -> Left $
-    "ORC.Read: LZ4 decompress failed (input " ++ show (BS.length bs)
-      ++ " bytes, max output " ++ show blockSize ++ " bytes); "
-      ++ e
-#endif
+-- All ORC stream-decompression logic lives in "ORC.Compress"
+-- so 'ORC.Footer' (which needs to decompress the footer) and
+-- 'ORC.Read' (which needs to decompress column streams) can
+-- share the same implementation without forming a cycle. The
+-- 'decompressORCStream' / 'decompressORCStreamSized' /
+-- 'defaultORCCompressionBlockSize' names are re-exported from
+-- this module's export list so callers that already import
+-- them from ORC.Read keep working.
 
 ------------------------------------------------------------------------
 -- Column decoders

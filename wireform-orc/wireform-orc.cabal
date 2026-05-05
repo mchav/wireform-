@@ -53,6 +53,7 @@ library
     ORC.Aggregate
     ORC.Arrow
     ORC.BloomFilter
+    ORC.Compress
     ORC.Derive
     ORC.Encryption
     ORC.Footer
@@ -103,6 +104,20 @@ executable wireform-orc-interop-probe
     wireform-arrow,
     wireform-orc,
     bytestring >= 0.11 && < 0.13,
+    filepath >= 1.4 && < 1.6,
+    vector >= 0.13 && < 0.14
+
+executable wireform-orc-reverse-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Reverse.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    wireform-orc,
+    bytestring >= 0.11 && < 0.13,
+    directory >= 1.3 && < 1.4,
     filepath >= 1.4 && < 1.6,
     vector >= 0.13 && < 0.14
 

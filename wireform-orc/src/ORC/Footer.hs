@@ -37,6 +37,7 @@ import qualified Data.Vector as V
 import Data.Word (Word32, Word64)
 import GHC.Float (castWord64ToDouble)
 
+import ORC.Compress (decompressORCStreamSized)
 import ORC.Proto.Schema
 import ORC.Types
 
@@ -56,7 +57,14 @@ readORCFooter bs
               !psBytes = BSU.unsafeTake psLen (BSU.unsafeDrop psStart bs)
           ps <- decodePostScript psBytes
           let !magic = psMagic ps
-          if magic /= orcMagic
+              -- The PostScript's @magic@ field is optional in
+              -- the spec (most modern writers, including the
+              -- C++/pyarrow stack, omit it because the file's
+              -- leading "ORC" header is canonical). Accept both
+              -- @"ORC"@ and an empty string; reject anything
+              -- else.
+              !magicOk = BS.null magic || magic == orcMagic
+          if not magicOk
             then Left $ "ORC.Footer: invalid magic (expected ORC, got " ++ show magic ++ ")"
             else do
               let !footerLen = fromIntegral (psFooterLength ps) :: Int
@@ -64,7 +72,18 @@ readORCFooter bs
               if footerLen <= 0 || footerStart < 0
                 then Left "ORC.Footer: invalid footer length"
                 else do
-                  let !footerBytes = BSU.unsafeTake footerLen (BSU.unsafeDrop footerStart bs)
+                  let !rawFooter = BSU.unsafeTake footerLen
+                                     (BSU.unsafeDrop footerStart bs)
+                  -- ORC's spec wraps the footer in the file's
+                  -- compression envelope when @compression@ is
+                  -- non-NONE. Decompress here so callers don't
+                  -- have to.
+                  ck <- maybe
+                         (Left "ORC.Footer: unknown compression in postscript")
+                         Right
+                         (compressionFromInt (psCompression ps))
+                  let !blk = max 1 (fromIntegral (psCompressionBlockSize ps) :: Int)
+                  footerBytes <- decompressORCStreamSized blk ck rawFooter
                   decodeFooter footerBytes
 
 -- | Extract the compression kind from the PostScript.
