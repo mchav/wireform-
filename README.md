@@ -308,11 +308,20 @@ build state separate from `dist-newstyle/`:
 cabal build all --builddir=dist-derive
 ```
 
-The Nix flake's package set has not yet been updated to include the
-per-format packages added during the recent split, so `nix develop`
-currently doesn't evaluate. `cabal` works directly against the system
-GHC (or against `NIX_GHC` if that env var is set). Re-wiring the flake
-is on the [outstanding-work list](#status--whats-incomplete).
+A Nix flake is provided. Every per-format `wireform-*` package
+plus the umbrella `wireform` is wired into the haskell-package
+overlay, so `nix develop` brings up a shell containing every
+workspace package's deps. Pick a GHC by name:
+
+```bash
+nix develop          # default (currently GHC 9.8)
+nix develop .#ghc96  # GHC 9.6
+nix develop .#ghc910 # GHC 9.10
+```
+
+Per-format packages are also reachable as `nix build
+.#wireform-proto`, `.#wireform-iceberg`, etc. The `wireform` umbrella
+is the default `nix build` output.
 
 ---
 
@@ -358,21 +367,13 @@ Runnable from the workspace root with `cabal run <name>`:
 
 ---
 
-## Status / what's incomplete
+## Status / what's recently landed
 
 This monorepo is under active development on
-[PR #18](https://github.com/iand675/wireform-/pull/18). Known gaps that
-are tracked but not yet landed:
-
-- **Other proto features.** `ProtoMessage` schema metadata, proto3 JSON
-  with the canonical camelCase + well-known-type rules, `Hashable`
-  derivation.
-- **Nix flake's package set.** The 18 newly added `wireform-*` packages
-  aren't wired into the flake yet, so `nix develop` doesn't evaluate.
-  `cabal build` works directly against the system / `NIX_GHC` toolchain
-  in the meantime.
-
-The following items were on this list and have since landed:
+[PR #18](https://github.com/iand675/wireform-/pull/18). The Proto
+deriver work the README used to call out as incomplete has all
+landed; this section keeps the diff visible for context. New
+outstanding items will reappear here as they're discovered.
 
 - **Hand-coded golden bytes for the proto byte-equivalence regression**
   — added in `Test.Proto.Derive.Golden` (six fixtures asserting exact
@@ -402,6 +403,34 @@ The following items were on this list and have since landed:
   the previous 10-byte upper bound; two-pass encoders now produce
   spec-compliant lengths for maps with submessage values or long
   string keys.
+- **`ProtoMessage` schema metadata** — every `loadProto`-generated
+  message now ships an instance with `protoMessageName`,
+  `protoPackageName`, `protoDefaultValue`, and `protoFieldDescriptors`
+  (one `FieldDescriptor` per field with name / number / type / label
+  and the get/set accessors). The pure-text codegen has emitted these
+  for years; `loadProto` now matches.
+- **Proto3 canonical JSON** (`Aeson.ToJSON` / `Aeson.FromJSON`) —
+  emitted for every `loadProto`-generated message with camelCase
+  keys (per the proto3 JSON spec, overridable with the `json_name`
+  option), base64 for `bytes`, string-encoded 64-bit integers, NaN /
+  Infinity sentinels for floats. Generated enums encode as their
+  primary name string and decode from either the name or the wire
+  number.
+- **`Hashable` derivation** — generated message types get a
+  recursive structural hash (per-shape combinator: `V.foldl'` for
+  vectors, `Map.foldlWithKey'` for maps, plain `hashWithSalt` for
+  the rest). Generated enum types hash by their proto wire number
+  via `ProtoEnum.toProtoEnumValue`. Oneof carrier sums hash the
+  variant index in front of the payload.
+- **`ProtoEnum` schema metadata** — generated enum types ship
+  `protoEnumName`, `protoEnumValues` (every declared value), plus
+  `toProtoEnumValue` / `fromProtoEnumValue` for round-tripping
+  through wire numbers.
+- **Nix flake's per-format package set** — every `wireform-*`
+  package in `cabal.project` is now wired into the flake's
+  haskell-package overlay via `callCabal2nix`, and exposed under
+  `packages.<system>.<name>`. `nix develop` evaluates and the
+  resulting shell carries every workspace package.
 
 ---
 

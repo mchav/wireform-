@@ -11,6 +11,30 @@
 -- \$(loadProto "path/to/message.proto")
 -- @
 --
+-- For each message in the file the splice produces:
+--
+--   * The data declaration plus a @default<TypeName>@ value.
+--   * @MessageEncode@ \/ @MessageSize@ \/ @MessageDecode@ wire codecs
+--     (via "Proto.Derive.Internal").
+--   * @IsMessage@, @HasExtensions@, and a registry shim.
+--   * 'Proto.Schema.ProtoMessage' schema metadata
+--     (@protoMessageName@ \/ @protoPackageName@ \/ @protoDefaultValue@
+--     \/ @protoFieldDescriptors@).
+--   * Proto3 canonical JSON: @Aeson.ToJSON@ + @Aeson.FromJSON@ with
+--     camelCase keys, base64 bytes, string-encoded 64-bit integers,
+--     NaN \/ Infinity sentinels for floats.
+--   * @Hashable@ — recursive structural hash.
+--
+-- For each enum in the file:
+--
+--   * The data declaration plus a proto-faithful @Enum@ instance
+--     using @evNumber@ as the wire number.
+--   * 'Proto.Schema.ProtoEnum' (@protoEnumName@,
+--     @protoEnumValues@, @toProtoEnumValue@, @fromProtoEnumValue@).
+--   * @Aeson.ToJSON@ \/ @FromJSON@ — encode as the primary name
+--     string; decode from either the name or the wire number.
+--   * @Hashable@ — hash by wire number.
+--
 -- == Custom representations
 --
 -- @
