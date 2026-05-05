@@ -331,6 +331,31 @@ is the default `nix build` output.
 cabal test all
 ```
 
+### Protobuf conformance suite
+
+`wireform-proto` ships an end-to-end harness that runs the official
+[upstream protobuf conformance suite](https://github.com/protocolbuffers/protobuf/tree/main/conformance)
+against `loadProto`-generated codecs. The harness skips cleanly
+when the upstream runner isn't built:
+
+```bash
+# One-time: clone + build the upstream runner (~10 min, requires
+# git, cmake, a C++17 toolchain).
+bash wireform-proto/test-conformance/scripts/build-conformance-runner.sh
+
+# Then:
+cabal test wireform-proto:protobuf-conformance-test
+```
+
+Today's baseline against `protocolbuffers/protobuf@v28.2`:
+**809 successes, 1286 skipped, 580 expected failures, 0 unexpected
+failures**. Expected failures cover JSPB (Google-internal),
+TEXT_FORMAT (not implemented), and JSON for messages with
+Well-Known Types (the spliced `TestAllTypesProto3` deliberately
+omits WKT arms because `loadProto` doesn't yet follow proto
+imports). See [`wireform-proto/test-conformance/README.md`](wireform-proto/test-conformance/README.md)
+for the architecture and how to add expected failures.
+
 Annotation-driven deriver coverage spans 23 backends with hundreds of
 tests across the `wireform-*-derive-test` suites — every per-format
 package ships its own deriver test suite plus a shared core suite under
