@@ -1,9 +1,13 @@
 module Main (main) where
 
 import Test.Tasty (defaultMain, testGroup)
+import qualified Test.TOML.Conformance
 import qualified Test.TOML.Derive
 
 main :: IO ()
-main = defaultMain $ testGroup "wireform-toml-derive"
-  [ Test.TOML.Derive.tests
-  ]
+main = do
+  conf <- Test.TOML.Conformance.tests
+  defaultMain $ testGroup "wireform-toml"
+    [ Test.TOML.Derive.tests
+    , conf
+    ]

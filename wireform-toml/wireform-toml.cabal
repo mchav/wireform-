@@ -52,6 +52,7 @@ test-suite wireform-toml-derive-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    Test.TOML.Conformance
     Test.TOML.Derive
     Test.TOML.Derive.Types
     Test.TOML.Derive.Instances
@@ -62,7 +63,11 @@ test-suite wireform-toml-derive-test
     base,
     wireform-toml,
     wireform-derive,
+    aeson >= 2.1 && < 2.3,
+    bytestring,
     text,
     vector,
+    directory,
+    filepath,
     tasty,
     tasty-hunit

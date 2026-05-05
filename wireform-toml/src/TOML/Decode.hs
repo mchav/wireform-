@@ -21,8 +21,103 @@ import qualified TOML.Value as TV
 
 decode :: Text -> Either String TV.Value
 decode !input =
-  let !ls = T.lines input
+  let !ls0 = T.lines input
+      !ls  = joinContinuations ls0
   in parseLines ls [] []
+
+-- | Pre-pass that joins physical lines whose value spans multiple
+-- lines (multi-line arrays, multi-line inline tables, multi-line
+-- basic / literal strings) into a single logical line. This keeps
+-- the line-oriented top-level parser simple at the cost of doing
+-- two passes over the input.
+joinContinuations :: [Text] -> [Text]
+joinContinuations = go
+  where
+    go [] = []
+    go (l : rest)
+      | needsJoin l =
+          let (joined, rest') = absorb l rest
+          in joined : go rest'
+      | otherwise = l : go rest
+
+    needsJoin t =
+      let (br, brc, dq, sq, mlBasic, mlLit) = balances t
+      in br /= 0 || brc /= 0
+         || (dq && not (T.null t))
+         || (sq && not (T.null t))
+         || mlBasic
+         || mlLit
+
+    absorb buf [] = (buf, [])
+    absorb buf (l : rest) =
+      let !next = buf <> T.singleton '\n' <> l
+      in if needsJoin next
+           then absorb next rest
+           else (next, rest)
+
+-- | Tally the relevant scanner state across one or more lines:
+-- bracket depth, brace depth, whether we're inside an open
+-- single-line basic / literal string, and whether we're inside a
+-- multi-line basic (@\"\"\"@) / literal (@'''@) string. A non-zero
+-- bracket / brace count or any open string indicates we need to
+-- absorb the next physical line into this logical line.
+balances :: Text -> (Int, Int, Bool, Bool, Bool, Bool)
+balances t = goBal 0 (0 :: Int) (0 :: Int) StateNorm
+  where
+    !len = T.length t
+
+    goBal !i !br !brc st
+      | i >= len =
+          let (dq, sq, mlB, mlL) = case st of
+                StateNorm     -> (False, False, False, False)
+                StateBasic    -> (True,  False, False, False)
+                StateLiteral  -> (False, True,  False, False)
+                StateMLBasic  -> (False, False, True,  False)
+                StateMLLit    -> (False, False, False, True)
+          in (br, brc, dq, sq, mlB, mlL)
+      | otherwise =
+          let c = T.index t i
+          in case st of
+               StateNorm
+                 | c == '#'                     -> finalizeAt i
+                 | c == '['                     -> goBal (i+1) (br+1) brc st
+                 | c == ']'                     -> goBal (i+1) (br-1) brc st
+                 | c == '{'                     -> goBal (i+1) br (brc+1) st
+                 | c == '}'                     -> goBal (i+1) br (brc-1) st
+                 | c == '"'  && triplePref i    -> goBal (i+3) br brc StateMLBasic
+                 | c == '\'' && triplePref i    -> goBal (i+3) br brc StateMLLit
+                 | c == '"'                     -> goBal (i+1) br brc StateBasic
+                 | c == '\''                    -> goBal (i+1) br brc StateLiteral
+                 | otherwise                    -> goBal (i+1) br brc st
+               StateBasic
+                 | c == '\\' && i + 1 < len     -> goBal (i+2) br brc st
+                 | c == '"'                     -> goBal (i+1) br brc StateNorm
+                 | otherwise                    -> goBal (i+1) br brc st
+               StateLiteral
+                 | c == '\''                    -> goBal (i+1) br brc StateNorm
+                 | otherwise                    -> goBal (i+1) br brc st
+               StateMLBasic
+                 | c == '"' && triplePref i     -> goBal (i+3) br brc StateNorm
+                 | c == '\\' && i + 1 < len     -> goBal (i+2) br brc st
+                 | otherwise                    -> goBal (i+1) br brc st
+               StateMLLit
+                 | c == '\'' && triplePref i    -> goBal (i+3) br brc StateNorm
+                 | otherwise                    -> goBal (i+1) br brc st
+
+    triplePref !i = i + 2 < len
+                 && T.index t i == T.index t (i+1)
+                 && T.index t i == T.index t (i+2)
+
+    finalizeAt _ = (0, 0, False, False, False, False)
+      -- comment kills the rest of the line; the line cannot
+      -- "continue" via a comment-only suffix.
+
+data ScanState
+  = StateNorm
+  | StateBasic
+  | StateLiteral
+  | StateMLBasic
+  | StateMLLit
 
 decodeBS :: ByteString -> Either String TV.Value
 decodeBS = decode . TE.decodeUtf8Lenient
@@ -107,9 +202,45 @@ parseArrayTableHeader t =
              Right (map T.strip (T.splitOn "." (T.strip inner)))
          | otherwise -> Left "TOML: unterminated array table header"
 
+-- | Strip a trailing @# comment@ from a value-bearing line, ignoring
+-- any @#@ that appears inside a basic / literal string. This is the
+-- minimum quote-awareness needed for the line-oriented top-level
+-- parser; multi-line strings are joined into a single logical line
+-- by 'joinContinuations' before they reach this function.
 stripInlineComment :: Text -> Text
-stripInlineComment t = case T.breakOn "#" t of
-  (before, _) -> T.stripEnd before
+stripInlineComment t = T.stripEnd (go (0 :: Int) StateNorm)
+  where
+    !len = T.length t
+    go !i st
+      | i >= len = t
+      | otherwise =
+          let c = T.index t i
+          in case st of
+               StateNorm
+                 | c == '#'                  -> T.take i t
+                 | c == '"'  && triplePref i -> go (i+3) StateMLBasic
+                 | c == '\'' && triplePref i -> go (i+3) StateMLLit
+                 | c == '"'                  -> go (i+1) StateBasic
+                 | c == '\''                 -> go (i+1) StateLiteral
+                 | otherwise                 -> go (i+1) st
+               StateBasic
+                 | c == '\\' && i+1 < len    -> go (i+2) st
+                 | c == '"'                  -> go (i+1) StateNorm
+                 | otherwise                 -> go (i+1) st
+               StateLiteral
+                 | c == '\''                 -> go (i+1) StateNorm
+                 | otherwise                 -> go (i+1) st
+               StateMLBasic
+                 | c == '"' && triplePref i  -> go (i+3) StateNorm
+                 | c == '\\' && i+1 < len    -> go (i+2) st
+                 | otherwise                 -> go (i+1) st
+               StateMLLit
+                 | c == '\'' && triplePref i -> go (i+3) StateNorm
+                 | otherwise                 -> go (i+1) st
+
+    triplePref !i = i + 2 < len
+                 && T.index t i == T.index t (i+1)
+                 && T.index t i == T.index t (i+2)
 
 parseKeyValue :: Text -> Either String (Text, TV.Value)
 parseKeyValue line =
@@ -162,6 +293,7 @@ parseTomlValueInner s
   | T.isPrefixOf "0o" s = parseOctInt s
   | T.isPrefixOf "0b" s = parseBinInt s
   | looksLikeDateTime s = Right (classifyDateTime s)
+  | looksLikeLocalTime s = Right (TV.TTime s)
   | looksLikeFloat s = parseFloat s
   | otherwise = parseInt s
 
@@ -301,7 +433,11 @@ parseInt t =
 
 parseFloat :: Text -> Either String TV.Value
 parseFloat t =
-  let !cleaned = T.unpack (T.filter (/= '_') t)
+  let !cleaned0 = T.unpack (T.filter (/= '_') t)
+      -- Haskell's @reads@ doesn't accept a leading '+', strip it.
+      !cleaned  = case cleaned0 of
+                    '+':r -> r
+                    _     -> cleaned0
   in case reads cleaned :: [(Double, String)] of
        [(d, "")] -> Right (TV.TFloat d)
        _ -> Left $ "invalid float: " ++ T.unpack t
@@ -317,6 +453,20 @@ looksLikeDateTime t =
   && T.index t 4 == '-'
   && T.index t 7 == '-'
   && all isDigit (T.unpack (T.take 4 t))
+
+-- | Heuristic recogniser for a TOML local-time scalar
+-- (@HH:MM:SS@ optionally followed by @.fff@).
+looksLikeLocalTime :: Text -> Bool
+looksLikeLocalTime t
+  | T.length t < 5 = False
+  | T.index t 2 /= ':' = False
+  | not (isDigit (T.index t 0)) = False
+  | not (isDigit (T.index t 1)) = False
+  | T.length t == 5 = isDigit (T.index t 3) && isDigit (T.index t 4)
+  | T.length t >= 8 && T.index t 5 == ':' =
+      isDigit (T.index t 3) && isDigit (T.index t 4)
+      && isDigit (T.index t 6) && isDigit (T.index t 7)
+  | otherwise = False
 
 classifyDateTime :: Text -> TV.Value
 classifyDateTime t
