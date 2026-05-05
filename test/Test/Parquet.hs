@@ -327,7 +327,7 @@ footerRoundtrips = testGroup "Footer roundtrips"
       readFooter (writeFooter fm) @?= Right fm
   , testCase "File metadata with row group" $ do
       let cm = ColumnMetadata PTInt64 (V.fromList [Plain, RLE])
-                 (V.fromList ["value"]) Snappy 1000 8000 4000 4 Nothing Nothing Nothing
+                 (V.fromList ["value"]) Snappy 1000 8000 4000 4 Nothing Nothing Nothing Nothing
           cc = ColumnChunk Nothing 4 (Just cm) Nothing Nothing Nothing Nothing
           rg = RowGroup (V.singleton cc) 4000 1000 Nothing
           fm = FileMetadata 2
@@ -390,7 +390,7 @@ edgeCases = testGroup "Edge cases"
   , testCase "All encodings round-trip" $ do
       let encs = [Plain, PlainDictionary, RLE, BitPacked, DeltaBinaryPacked,
                   DeltaLengthByteArray, DeltaByteArray, RLEDictionary, ByteStreamSplit]
-          cm = ColumnMetadata PTInt32 (V.fromList encs) (V.singleton "x") Uncompressed 0 0 0 0 Nothing Nothing Nothing
+          cm = ColumnMetadata PTInt32 (V.fromList encs) (V.singleton "x") Uncompressed 0 0 0 0 Nothing Nothing Nothing Nothing
           cc = ColumnChunk Nothing 0 (Just cm) Nothing Nothing Nothing Nothing
           rg = RowGroup (V.singleton cc) 0 0 Nothing
           fm = FileMetadata 2 V.empty 0 (V.singleton rg) Nothing Nothing
@@ -692,7 +692,7 @@ pageIndexTests = testGroup "Page index (OffsetIndex / ColumnIndex)"
   , testCase "ColumnChunk carries page-index and bloom offsets" $ do
       let cm = ColumnMetadata PTInt32 (V.singleton Plain)
                  (V.singleton "x") Uncompressed 100 1000 1000 4
-                 Nothing (Just 5000) (Just 256)
+                 Nothing Nothing (Just 5000) (Just 256)
           cc = ColumnChunk Nothing 4 (Just cm)
                  (Just 6000) (Just 80) (Just 6080) (Just 200)
           rg = RowGroup (V.singleton cc) 1000 100 Nothing

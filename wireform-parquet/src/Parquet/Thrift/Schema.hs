@@ -108,6 +108,7 @@ module Parquet.Thrift.Schema
   , pattern ColumnMetaData_TotalUncompressedSize
   , pattern ColumnMetaData_TotalCompressedSize
   , pattern ColumnMetaData_DataPageOffset
+  , pattern ColumnMetaData_DictionaryPageOffset
   , pattern ColumnMetaData_Statistics
   , pattern ColumnMetaData_BloomFilterOffset
   , pattern ColumnMetaData_BloomFilterLength
@@ -408,6 +409,23 @@ pattern ColumnMetaData_TotalCompressedSize v = (7, TV.I64 v)
 
 pattern ColumnMetaData_DataPageOffset :: Int64 -> (Int16, TV.Value)
 pattern ColumnMetaData_DataPageOffset v = (9, TV.I64 v)
+
+-- | parquet.thrift @ColumnMetaData.index_page_offset@ (field
+-- 10). Optional; we don't currently consume it but keeping
+-- the slot reserved means we never collide with it on
+-- subsequent additions.
+pattern ColumnMetaData_IndexPageOffset :: Int64 -> (Int16, TV.Value)
+pattern ColumnMetaData_IndexPageOffset v = (10, TV.I64 v)
+
+-- | parquet.thrift @ColumnMetaData.dictionary_page_offset@
+-- (field 11). Byte offset of the dictionary page; lives
+-- /before/ 'ColumnMetaData_DataPageOffset' when present.
+-- Modern writers (pyarrow / duckdb / polars / parquet-mr)
+-- always populate this for dictionary-encoded columns; readers
+-- that ignore it can't access the dictionary, so RLE_DICTIONARY
+-- pages fail to decode.
+pattern ColumnMetaData_DictionaryPageOffset :: Int64 -> (Int16, TV.Value)
+pattern ColumnMetaData_DictionaryPageOffset v = (11, TV.I64 v)
 
 pattern ColumnMetaData_Statistics
   :: Vector (Int16, TV.Value) -> (Int16, TV.Value)

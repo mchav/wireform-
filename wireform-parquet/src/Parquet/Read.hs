@@ -108,7 +108,7 @@ module Parquet.Read
 
 import Control.Exception (SomeException, evaluate, try)
 import Control.Monad.ST (ST, runST)
-import Data.Bits (shiftL, (.|.))
+import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -117,7 +117,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as VM
 import qualified Data.Vector.Primitive as VP
 import qualified Data.Vector.Primitive.Mutable as MVP
-import Data.Word (Word32, Word64)
+import Data.Word (Word8, Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -298,7 +298,19 @@ skipFileCryptoMetaData bs = do
   (_, off) <- TC.decodeCompactFrom bs 0
   Right ((), off)
 
--- | Raw bytes for one column chunk (from @data_page_offset@ through compressed size).
+-- | Raw bytes for one column chunk.
+--
+-- A column chunk's wire layout is
+-- @[dictionary page (optional)][data page 1]...[data page N]@.
+-- When the column uses dictionary encoding 'cmDictionaryPageOffset'
+-- points at the dictionary page, which sits immediately before
+-- 'cmDataPageOffset'; the chunk's slice must start at the
+-- dictionary page so the page-walking decoder sees the dictionary
+-- before any RLE_DICTIONARY data page references it.
+--
+-- Per the Parquet spec the rule is: start at @min(dictionary_page_offset,
+-- data_page_offset)@ when both are present, else start at
+-- @data_page_offset@. 'cmTotalCompressedSize' covers both.
 columnChunkSlice :: ParquetFile -> Int -> Int -> Either String ByteString
 columnChunkSlice pf rgIdx colIdx = do
   let fm = pfFooter pf
@@ -311,12 +323,17 @@ columnChunkSlice pf rgIdx colIdx = do
   meta <- case ccMetadata chunk of
     Nothing -> Left "Parquet.Read: column chunk missing ColumnMetaData"
     Just m -> Right m
-  let !off = fromIntegral (cmDataPageOffset meta) :: Int
-      !sz = fromIntegral (cmTotalCompressedSize meta) :: Int
+  let !dataOff = fromIntegral (cmDataPageOffset meta) :: Int
+      !startOff = case cmDictionaryPageOffset meta of
+        Just dpo
+          | dpo > 0 && fromIntegral dpo < dataOff ->
+              fromIntegral dpo :: Int
+        _ -> dataOff
+      !sz  = fromIntegral (cmTotalCompressedSize meta) :: Int
       !bs0 = pfBytes pf
-  if off < 0 || sz < 0 || off + sz > BS.length bs0
+  if startOff < 0 || sz < 0 || startOff + sz > BS.length bs0
     then Left "Parquet.Read: column chunk slice out of bounds"
-    else Right $! BS.take sz (BS.drop off bs0)
+    else Right $! BS.take sz (BS.drop startOff bs0)
 
 whenOutOfRange :: Int -> Int -> String -> Either String ()
 whenOutOfRange i n msg
@@ -334,6 +351,13 @@ encPlainDictionary = 2
 -- | Thrift @Encoding@ for @RLE_DICTIONARY@ (modern name for PLAIN_DICTIONARY).
 encRleDictionary :: Int32
 encRleDictionary = 8
+
+-- | Thrift @Encoding@ for @RLE@ (encoding 3). In Parquet V1
+-- this only appears as a column-chunk-level encoding for
+-- repetition / definition levels (not data); in V2 BOOLEAN
+-- columns are encoded as RLE/bit-packed directly.
+encRle :: Int32
+encRle = 3
 
 isDictionaryEncoding :: Int32 -> Bool
 isDictionaryEncoding e = e == encPlainDictionary || e == encRleDictionary
@@ -586,8 +610,8 @@ readPlainDictionaryInt32ColumnChunk codec chunk = go 0 Nothing VP.empty
               let !nextOff = bodyStart + compSz
               case phType hdr of
                 PtDictionaryPage dk
-                  | dictEncoding dk /= encPlain ->
-                      Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                  | not (dictEncoding dk == encPlain || dictEncoding dk == encPlainDictionary) ->
+                      Left "Parquet.Read: dictionary page encoding is neither PLAIN (0) nor PLAIN_DICTIONARY (2)"
                   | otherwise -> do
                       let !nDict = fromIntegral (dictNumValues dk) :: Int
                       dict <- decodePlainInt32 nDict raw
@@ -699,11 +723,35 @@ tryZstd bs =
 #endif
 
 #ifdef HAVE_LZ4
+-- | Decompress an LZ4_RAW block. Parquet's @LZ4_RAW@ codec
+-- uses raw LZ4 block format (no headers); the 'lz4' Haskell
+-- package expects an 8-byte header
+-- @[uncompSize:u32_le][compSize:u32_le]@ before the block
+-- (matching what its own @compress@ emits). We synthesize
+-- that header from the page-header uncompressed size and the
+-- chunk's actual compressed length.
 tryLZ4Raw :: Int -> ByteString -> Either String ByteString
 tryLZ4Raw uncompSize bs =
-  case LZ4.decompress uncompSize bs of
-    Nothing -> Left "Parquet.Read: LZ4 raw block decompression failed"
-    Just out -> Right out
+  let !compSize = BS.length bs
+      le32 :: Int -> [Word8]
+      le32 n =
+        [ fromIntegral (n           .&. 0xFF) :: Word8
+        , fromIntegral ((n `shiftR`  8) .&. 0xFF) :: Word8
+        , fromIntegral ((n `shiftR` 16) .&. 0xFF) :: Word8
+        , fromIntegral ((n `shiftR` 24) .&. 0xFF) :: Word8
+        ]
+      !hdr = BS.pack (le32 uncompSize ++ le32 compSize)
+      !framed = hdr <> bs
+  in case LZ4.decompress framed of
+       Nothing -> Left $
+         "Parquet.Read: LZ4_RAW block decompression failed (input "
+           ++ show compSize ++ " bytes, expected output "
+           ++ show uncompSize ++ " bytes)"
+       Just out
+         | BS.length out == uncompSize -> Right out
+         | otherwise -> Left $
+             "Parquet.Read: LZ4_RAW size mismatch (header said "
+               ++ show uncompSize ++ ", got " ++ show (BS.length out) ++ ")"
 #endif
 
 #ifdef HAVE_BROTLI
@@ -834,8 +882,8 @@ readDictionaryOptionalColumnChunk decodeDictValues lookupDict codec maxRep maxDe
               let !nextOff = bodyStart + compSz
               case phType hdr of
                 PtDictionaryPage dk
-                  | dictEncoding dk /= encPlain ->
-                      Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                  | not (dictEncoding dk == encPlain || dictEncoding dk == encPlainDictionary) ->
+                      Left "Parquet.Read: dictionary page encoding is neither PLAIN (0) nor PLAIN_DICTIONARY (2)"
                   | otherwise -> do
                       let !nDict = fromIntegral (dictNumValues dk) :: Int
                       dict <- decodeDictValues nDict raw
@@ -1113,8 +1161,8 @@ genericReadColumnChunk pp codec chunk0 = go 0 Nothing (ppEmpty pp)
                   !nextOff = bodyStart + compSz
               case phType hdr of
                 PtDictionaryPage dk
-                  | dictEncoding dk /= encPlain ->
-                      Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                  | not (dictEncoding dk == encPlain || dictEncoding dk == encPlainDictionary) ->
+                      Left "Parquet.Read: dictionary page encoding is neither PLAIN (0) nor PLAIN_DICTIONARY (2)"
                   | otherwise -> do
                       raw <- decompressPageData codec
                                (phUncompressedPageSize hdr) compBody
@@ -1219,8 +1267,17 @@ dispatchBool = PerPage
       -- BOOLEAN columns are never dictionary-encoded in practice
       -- (the dictionary would have at most 2 entries).
       Left "Parquet.Read: BOOLEAN unexpectedly dictionary-encoded"
-  , ppExtended = \enc _ _ ->
-      Left $ unsupportedEncoding "BOOLEAN" enc
+  , ppExtended = \enc n raw ->
+      if enc == encRle
+        -- BOOLEAN with RLE encoding: the values section is a
+        -- length-prefixed hybrid RLE block (4-byte LE length
+        -- prefix, then bit-packed/RLE 1-bit values). Common
+        -- shape for both DATA_PAGE_V2 BOOLEAN columns and any
+        -- writer that picks RLE explicitly for BOOLEAN.
+        then do
+          ws <- decodeHybridRleLengthPrefixed 1 n raw
+          Right $! V.generate n (\i -> VP.unsafeIndex ws i /= 0)
+        else Left $ unsupportedEncoding "BOOLEAN" enc
   , ppAppend = (V.++)
   , ppEmpty = V.empty
   }
@@ -1375,8 +1432,8 @@ readGenericOptionalColumnChunk pp toBoxed codec maxRep maxDef chunk0 =
                   !nextOff = bodyStart + compSz
               case phType hdr of
                 PtDictionaryPage dk
-                  | dictEncoding dk /= encPlain ->
-                      Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                  | not (dictEncoding dk == encPlain || dictEncoding dk == encPlainDictionary) ->
+                      Left "Parquet.Read: dictionary page encoding is neither PLAIN (0) nor PLAIN_DICTIONARY (2)"
                   | otherwise -> do
                       raw <- decompressPageData codec
                                (phUncompressedPageSize hdr) compBody
@@ -1563,8 +1620,8 @@ readSelectedPages pp codec fileBs locs keep
                   let !compBody = BS.take compSz (BS.drop bodyStart fileBs)
                   case phType hdr of
                     PtDictionaryPage dk
-                      | dictEncoding dk /= encPlain ->
-                          Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                      | not (dictEncoding dk == encPlain || dictEncoding dk == encPlainDictionary) ->
+                          Left "Parquet.Read: dictionary page encoding is neither PLAIN (0) nor PLAIN_DICTIONARY (2)"
                       | otherwise -> do
                           raw <- decompressPageData codec
                                    (phUncompressedPageSize hdr) compBody
@@ -1716,8 +1773,8 @@ readGenericOptionalSelectedPages pp toBoxed codec maxRep maxDef
                   let !compBody = BS.take compSz (BS.drop bodyStart fileBs)
                   case phType hdr of
                     PtDictionaryPage dk
-                      | dictEncoding dk /= encPlain ->
-                          Left "Parquet.Read: dictionary encoding is not PLAIN (0)"
+                      | not (dictEncoding dk == encPlain || dictEncoding dk == encPlainDictionary) ->
+                          Left "Parquet.Read: dictionary page encoding is neither PLAIN (0) nor PLAIN_DICTIONARY (2)"
                       | otherwise -> do
                           raw <- decompressPageData codec
                                    (phUncompressedPageSize hdr) compBody

@@ -58,7 +58,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector.Primitive as VP
-import Data.Word (Word32, Word64)
+import Data.Word (Word8, Word32, Word64)
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -320,13 +320,28 @@ tryZstd bs =
 -- per the spec and 'LZ4.decompress' returns 'Nothing'.
 tryLZ4 :: Int -> ByteString -> Either String ByteString
 tryLZ4 !blockSize bs =
-  case LZ4.decompress blockSize bs of
-    Just out -> Right out
-    Nothing  -> Left $
-      "ORC.Read: LZ4 decompress failed (input " ++ show (BS.length bs)
-        ++ " bytes, max output " ++ show blockSize ++ " bytes); "
-        ++ "either the chunk is corrupt or compressionBlockSize "
-        ++ "in the file's PostScript was wrong."
+  -- The Haskell 'lz4' package's @decompress@ expects an 8-byte
+  -- header @[uncompSize:u32_le][compSize:u32_le]@ before the
+  -- block (matching its own @compress@ output). ORC chunks
+  -- are raw LZ4 blocks with the max-output size carried by
+  -- the file's compressionBlockSize.
+  let !compSize = BS.length bs
+      le32 :: Int -> [Word8]
+      le32 n =
+        [ fromIntegral (n           .&. 0xFF) :: Word8
+        , fromIntegral ((n `shiftR`  8) .&. 0xFF) :: Word8
+        , fromIntegral ((n `shiftR` 16) .&. 0xFF) :: Word8
+        , fromIntegral ((n `shiftR` 24) .&. 0xFF) :: Word8
+        ]
+      !hdr = BS.pack (le32 blockSize ++ le32 compSize)
+      !framed = hdr <> bs
+  in case LZ4.decompress framed of
+       Just out -> Right out
+       Nothing  -> Left $
+         "ORC.Read: LZ4 decompress failed (input " ++ show compSize
+           ++ " bytes, max output " ++ show blockSize ++ " bytes); "
+           ++ "either the chunk is corrupt or compressionBlockSize "
+           ++ "in the file's PostScript was wrong."
 #endif
 
 ------------------------------------------------------------------------

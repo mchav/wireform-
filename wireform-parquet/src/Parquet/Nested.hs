@@ -644,6 +644,7 @@ buildOptionalListFile leafType leaf numRows =
             , cmTotalUncompressedSize = fromIntegral (BS.length pageBytes)
             , cmTotalCompressedSize   = fromIntegral (BS.length pageBytes)
             , cmDataPageOffset        = 4
+            , cmDictionaryPageOffset = Nothing
             , cmStatistics            = Just Statistics
                 { statMin = Nothing, statMax = Nothing
                 , statNullCount = Just (fromIntegral (numEvents - nlValueCount leaf))
@@ -895,6 +896,7 @@ buildNestedFile columns rowsPerColumn
                       , cmTotalUncompressedSize = fromIntegral sz
                       , cmTotalCompressedSize   = fromIntegral sz
                       , cmDataPageOffset        = fromIntegral off
+                      , cmDictionaryPageOffset = Nothing
                       , cmStatistics            = Just Statistics
                           { statMin = Nothing, statMax = Nothing
                           , statNullCount = Just (fromIntegral

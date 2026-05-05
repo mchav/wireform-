@@ -326,6 +326,7 @@ columnMetadataFields cm = concat
     , ColumnMetaData_TotalCompressedSize (cmTotalCompressedSize cm)
     , ColumnMetaData_DataPageOffset (cmDataPageOffset cm)
     ]
+  , optField (cmDictionaryPageOffset cm) ColumnMetaData_DictionaryPageOffset
   , optField (cmStatistics cm)
       (\s -> ColumnMetaData_Statistics (V.fromList (statisticsFields s)))
   , optField (cmBloomFilterOffset cm) ColumnMetaData_BloomFilterOffset
@@ -586,6 +587,9 @@ thriftToColumnMetadata (TV.Struct fields) = do
       bfl = findField fm $ \case
         ColumnMetaData_BloomFilterLength v -> Just v
         _                                  -> Nothing
+      dpo = findField fm $ \case
+        ColumnMetaData_DictionaryPageOffset v -> Just v
+        _                                     -> Nothing
   Right ColumnMetadata
     { cmType = pt
     , cmEncodings = encodings
@@ -595,6 +599,7 @@ thriftToColumnMetadata (TV.Struct fields) = do
     , cmTotalUncompressedSize = uncompSz
     , cmTotalCompressedSize = compSz
     , cmDataPageOffset = dataOff
+    , cmDictionaryPageOffset = dpo
     , cmStatistics = stats
     , cmBloomFilterOffset = bfo
     , cmBloomFilterLength = bfl

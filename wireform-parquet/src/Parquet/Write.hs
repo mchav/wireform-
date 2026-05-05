@@ -978,7 +978,9 @@ layoutBlooms rgs auxes start = go 0 start [] V.empty
       { cmType = PTInt32, cmEncodings = V.empty, cmPathInSchema = V.empty
       , cmCodec = Uncompressed, cmNumValues = 0
       , cmTotalUncompressedSize = 0, cmTotalCompressedSize = 0
-      , cmDataPageOffset = 0, cmStatistics = Nothing
+      , cmDataPageOffset = 0
+      , cmDictionaryPageOffset = Nothing
+      , cmStatistics = Nothing
       , cmBloomFilterOffset = Nothing, cmBloomFilterLength = Nothing
       }
 
@@ -1359,6 +1361,7 @@ buildParquetFileWithIndex' mFootEnc schema rowGroups auxes =
                 , cmTotalUncompressedSize = fromIntegral uncompSize
                 , cmTotalCompressedSize = fromIntegral sz
                 , cmDataPageOffset = fromIntegral cOff
+                , cmDictionaryPageOffset = Nothing
                 , cmStatistics = Just (columnDataStatistics cd)
                 , cmBloomFilterOffset = Nothing
                 , cmBloomFilterLength = Nothing
@@ -1575,6 +1578,7 @@ buildParquetFileMixedRaw codec schema rowGroups =
                 , cmTotalUncompressedSize = fromIntegral uncompSize
                 , cmTotalCompressedSize = fromIntegral sz
                 , cmDataPageOffset = fromIntegral cOff
+                , cmDictionaryPageOffset = Nothing
                 , cmStatistics = Just (parquetColumnStatistics cd)
                 , cmBloomFilterOffset = Nothing
                 , cmBloomFilterLength = Nothing

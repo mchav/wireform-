@@ -104,6 +104,7 @@ mkCc (mNumValues, mStats) = ColumnChunk
       , cmTotalUncompressedSize = 0
       , cmTotalCompressedSize = 0
       , cmDataPageOffset = 0
+      , cmDictionaryPageOffset = Nothing
       , cmStatistics = mStats
       , cmBloomFilterOffset = Nothing
       , cmBloomFilterLength = Nothing

@@ -5,10 +5,26 @@ synopsis: Apache ORC metadata, stripes, and read/write
 license: BSD-3-Clause
 build-type: Simple
 
+-- Compression codec flags. Defaults are ON so wireform-orc
+-- out-of-the-box can read what every other ORC writer
+-- (Hive / Spark / Trino / DuckDB / arrow-rs) emits — the only
+-- common compression an ORC file in the wild has /not/ seen
+-- is 'no compression'. Disable individually with @-f-snappy@,
+-- @-f-zstd@, @-f-lz4@ if you want a smaller dep tree.
+flag snappy
+  description: Snappy decompression for ORC streams
+  manual: True
+  default: True
+
+flag zstd
+  description: Zstandard decompression for ORC streams
+  manual: True
+  default: True
+
 flag lz4
   description: LZ4 (block-format) decompression for ORC stripes
   manual: True
-  default: False
+  default: True
 
 common defaults
   ghc-options:
@@ -65,6 +81,12 @@ library
     deepseq >= 1.4 && < 1.6,
     template-haskell >= 2.18 && < 2.24
 
+  if flag(snappy)
+    cpp-options: -DHAVE_SNAPPY
+    build-depends: snappy >= 0.2 && < 0.3
+  if flag(zstd)
+    cpp-options: -DHAVE_ZSTD
+    build-depends: zstd >= 0.1 && < 0.2
   if flag(lz4)
     cpp-options: -DHAVE_LZ4
     build-depends: lz4 >= 0.2 && < 0.3

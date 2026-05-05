@@ -5,20 +5,25 @@ synopsis: Apache Parquet metadata, column pages, and read/write
 license: BSD-3-Clause
 build-type: Simple
 
+-- Compression codec flags. Defaults are ON so out-of-the-box
+-- wireform can read what every other Parquet engine writes by
+-- default (pyarrow + duckdb default to Snappy; polars defaults
+-- to ZSTD; LZ4 / brotli are common enough on modern files).
+-- Disable with @-f-snappy@ etc. if you want a smaller dep tree.
 flag snappy
   description: Snappy decompression for Parquet column chunks
   manual: True
-  default: False
+  default: True
 
 flag zstd
   description: Zstandard decompression for Parquet column chunks
   manual: True
-  default: False
+  default: True
 
 flag lz4
   description: LZ4_RAW decompression for Parquet column chunks
   manual: True
-  default: False
+  default: True
 
 flag brotli
   description: Brotli (codec 4) decompression for Parquet column chunks
@@ -161,6 +166,20 @@ executable wireform-parquet-interop-probe
     bytestring >= 0.11 && < 0.13,
     filepath >= 1.4 && < 1.6,
     text >= 2.0 && < 2.2,
+    vector >= 0.13 && < 0.14
+
+executable wireform-parquet-reverse-probe
+  import: defaults
+  hs-source-dirs: probe
+  main-is: Reverse.hs
+  ghc-options: -O1
+  build-depends:
+    base >= 4.16 && < 5,
+    wireform-arrow,
+    wireform-parquet,
+    bytestring >= 0.11 && < 0.13,
+    directory >= 1.3 && < 1.4,
+    filepath >= 1.4 && < 1.6,
     vector >= 0.13 && < 0.14
 
 benchmark parquet-bench

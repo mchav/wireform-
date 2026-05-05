@@ -201,6 +201,13 @@ data ColumnMetadata = ColumnMetadata
   , cmTotalUncompressedSize :: !Int64
   , cmTotalCompressedSize   :: !Int64
   , cmDataPageOffset        :: !Int64
+  -- | Byte offset of the (optional) dictionary page (parquet.thrift
+  -- field 10). When present this is /before/ 'cmDataPageOffset' and
+  -- callers reading raw column-chunk bytes must start their slice
+  -- here, not at 'cmDataPageOffset'. Modern writers (pyarrow, polars,
+  -- duckdb) always populate this when the column uses dictionary
+  -- encoding.
+  , cmDictionaryPageOffset  :: !(Maybe Int64)
   , cmStatistics            :: !(Maybe Statistics)
   -- | Byte offset from beginning of file to the bloom filter for this
   -- column chunk, if a bloom filter is written. Field 14.
