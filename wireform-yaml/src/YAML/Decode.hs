@@ -228,18 +228,25 @@ parseStream lns =
       ls <- getLines
       case dropWhile isSkippable ls of
         []      -> pure []
-        _       -> do
-          d  <- parseDocument
-          ds <- loop
-          pure (d : ds)
+        (l : _) -> do
+          d        <- parseDocument
+          progress <- checkProgress (lineNo l)
+          if progress
+            then do
+              ds <- loop
+              pure (d : ds)
+            else
+              failP $ "stray content (line " ++ show (lineNo l) ++ ")"
+
+    checkProgress prevLine = do
+      ls <- getLines
+      pure $ case dropWhile isSkippable ls of
+        []      -> True
+        (l : _) -> lineNo l /= prevLine
 
 parseDocument :: P Document
 parseDocument = do
   ls0 <- getLines
-  -- Handle the @--- inline-node@ form: when the directives-end
-  -- marker carries a same-line node body, push that body back as
-  -- a virtual content line at the next indent so the regular
-  -- dispatcher picks it up.
   let (directives, ls1) = case dropWhile isSkippable ls0 of
         (l : rest) | lineKind l == LDocStart ->
           let body = lineBody l
@@ -1071,14 +1078,30 @@ parsePlainScalar :: Int -> Text -> P Value
 parsePlainScalar !ind firstBody = do
   Just _ <- popLine
   let !first = T.stripEnd (stripInlineComment firstBody)
-  rest <- collectFolds ind []
-  let !final = T.intercalate (T.pack " ") (first : rest)
+  rest <- collectFolds ind 0 []
+  let !final = joinPlain (first : rest)
   pure (resolvePlain final)
   where
-    collectFolds baseInd acc = do
-      mNext <- peekLine
-      case mNext of
-        Just l
+    -- @blanks@ counts the run of consecutive blank lines we've
+    -- absorbed since the last non-blank continuation line. The
+    -- collected list interleaves non-blank line bodies with marker
+    -- entries representing blank-line runs (encoded as the empty
+    -- string preceded by a special sentinel, see joinPlain).
+    --
+    -- A continuation line is accepted when its indent is /strictly
+    -- greater/ than the scalar's base indent and it doesn't look
+    -- like a new collection entry (mapping key, seq item, explicit
+    -- '?' key).
+    collectFolds baseInd blanks acc = do
+      ls <- getLines
+      case ls of
+        []     -> pure (reverse acc)
+        (l:_)
+          | lineKind l == LBlank ->
+              do consumeOne; collectFolds baseInd (blanks + 1) acc
+          | lineKind l == LComment
+            && lineIndent l > baseInd ->
+              do consumeOne; collectFolds baseInd blanks acc
           | lineKind l == LContent
             && lineIndent l > baseInd
             && not (T.isPrefixOf "- " (lineBody l))
@@ -1089,10 +1112,29 @@ parsePlainScalar !ind firstBody = do
                  Just _  -> False
                  Nothing -> True
             -> do
-              _ <- popLine
+              consumeOne
               let s = T.stripEnd (stripInlineComment (lineBody l))
-              collectFolds baseInd (s : acc)
-        _ -> pure (reverse acc)
+                  prefix
+                    | blanks == 0 = s
+                    | otherwise   = T.replicate blanks (T.pack "\n") <> s
+              collectFolds baseInd 0 (prefix : acc)
+          | otherwise -> pure (reverse acc)
+
+    consumeOne = do
+      ls <- getLines
+      case ls of
+        (_:xs) -> setLines xs
+        []     -> pure ()
+
+    -- Join the collected pieces; pieces that already start with a
+    -- newline marker are joined with no separator.
+    joinPlain = go
+      where
+        go []     = T.empty
+        go [x]    = x
+        go (x:y:zs)
+          | T.isPrefixOf (T.pack "\n") y = x <> go (y:zs)
+          | otherwise                    = x <> T.pack " " <> go (y:zs)
 
 -- ---------------------------------------------------------------------------
 -- Block scalars
@@ -1236,28 +1278,51 @@ joinFolded chomp xs =
   where
     isBlank (i, b) = i < 0 || T.null b
 
+    -- A line is "more-indented" if its source column is past the
+    -- base indent OR its body starts with whitespace (a leading
+    -- tab counts).
+    isMoreIndented bi (i, b) =
+      i > bi
+      || case T.uncons b of
+           Just (' ',  _) -> True
+           Just ('\t', _) -> True
+           _              -> False
+
     foldFirst [] _ = []
     foldFirst ((i, b) : rest) bi
       | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
-          in txt : foldNext rest bi (i > bi)
+              more = isMoreIndented bi (i, b)
+          in txt : foldNext rest bi more
 
     foldNext [] _ _ = []
     foldNext ((i, b) : rest) bi prevMore
-      | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi
+      | isBlank (i, b) =
+          -- A break around any more-indented line is preserved as a
+          -- literal newline (spec §6.5/§8.1.3); when we step from a
+          -- more-indented line into a blank we therefore emit an
+          -- extra '\n' so the count comes out right.
+          let pre = if prevMore then [T.pack "\n"] else []
+          in pre ++ T.pack "\n" : foldAfterBlank rest bi
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
-              joinSep | prevMore || i > bi = T.pack "\n"
-                      | otherwise           = T.pack " "
-          in joinSep : txt : foldNext rest bi (i > bi)
+              nowMore = isMoreIndented bi (i, b)
+              joinSep
+                | prevMore || nowMore = T.pack "\n"
+                | otherwise           = T.pack " "
+          in joinSep : txt : foldNext rest bi nowMore
 
     foldAfterBlank [] _ = []
     foldAfterBlank ((i, b) : rest) bi
       | isBlank (i, b) = T.pack "\n" : foldAfterBlank rest bi
       | otherwise =
           let txt = T.replicate (max 0 (i - bi)) (T.pack " ") <> b
-          in txt : foldNext rest bi (i > bi)
+              nowMore = isMoreIndented bi (i, b)
+              -- A more-indented line right after a run of blanks
+              -- gets an additional preserved-break before it.
+              extra = if nowMore then [T.pack "\n"] else []
+          in extra ++ txt : foldNext rest bi nowMore
 
 -- | Smallest indent from a non-blank line in the collected list,
 -- or 0 if there are no non-blank lines. Blank lines (including
