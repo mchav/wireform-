@@ -301,7 +301,7 @@ translatedFieldToProtoField tf = do
            else pickFieldType (tfSelector tf) (tfInnerType tf) (miWireOverride mi)
   let kind = case (tfRepeated tf, tfMapKey tf, tfOneofVariants tf, tfOptional tf) of
         (_, _, vs@(_:_), _) ->
-          I.FKOneof (map (variantOf pft) vs)
+          I.FKOneof (map (translatedVariantOf pft) vs)
         (Just rep, _, _, _) ->
           I.FKRepeated rep (chooseMode (tfPacked tf) pft)
         (_, Just mks, _, _) -> I.FKMap mks
@@ -323,7 +323,7 @@ translatedFieldToProtoField tf = do
       Nothing    -> case pft' of
         I.PFScalar sc | I.scalarPackable sc -> I.ModePacked
         _                                   -> I.ModeUnpacked
-    variantOf _outer tov =
+    translatedVariantOf _outer tov =
       case foldModifiers backendProto (tovModifiers tov) of
         Left err -> error $ "Proto.Derive: invalid modifiers on oneof variant "
                          ++ nameBase (tovConstructor tov) ++ ": " ++ show err
@@ -368,13 +368,185 @@ analyseField tyName (FieldInfo mSel fieldTy) = do
     Nothing -> fail $ "Proto.Derive: " ++ nameBase tyName
                   ++ " has a positional (non-record) field; only records are supported"
   mi    <- reifyModifierInfoFor backendProto selName
-  tagN  <- case miTag mi of
-    Just n  -> pure n
-    Nothing -> fail $ "Proto.Derive: field " ++ nameBase selName
-                  ++ " is missing a `tag N` modifier"
-  let (kind, innerTy) = unwrapMaybe fieldTy
-  pft <- pickFieldType selName innerTy (miWireOverride mi)
-  pure (I.protoField selName tagN kind pft innerTy)
+
+  -- Sniff the outer container shape /before/ asking for a tag,
+  -- because oneofs derive their per-variant tags from the
+  -- constructor-level @ANN@s rather than a single field-level
+  -- @tag N@. A oneof-shaped field with no field-level tag is
+  -- legitimate; everything else still needs one.
+  shape <- detectShape selName fieldTy (miMapKey mi)
+  case shape of
+    ShapeOneof carrierTy variants -> do
+      pure (I.protoField selName 0 (I.FKOneof variants)
+                         I.PFSubmessage carrierTy)
+
+    ShapeRepeated rep elemTy -> withTag selName mi $ \tagN -> do
+      pft <- pickFieldType selName elemTy (miWireOverride mi)
+      let mode = case pft of
+            I.PFScalar sc | I.scalarPackable sc -> I.ModePacked
+            _                                   -> I.ModeUnpacked
+      pure (I.protoField selName tagN
+              (I.FKRepeated rep mode) pft elemTy)
+
+    ShapeMap mks valTy -> withTag selName mi $ \tagN -> do
+      pft <- pickFieldType selName valTy (miWireOverride mi)
+      pure (I.protoField selName tagN (I.FKMap mks) pft valTy)
+
+    ShapeSingular kind innerTy -> withTag selName mi $ \tagN -> do
+      pftBase <- pickFieldType selName innerTy (miWireOverride mi)
+      -- Reify the inner type so a Haskell @Enum@ datatype gets
+      -- the @PFEnum@ wire treatment automatically — without this
+      -- step every named type became a length-delimited
+      -- submessage and proto enums silently broke on the wire.
+      pft     <- maybeUpgradeToEnum pftBase innerTy
+      pure (I.protoField selName tagN kind pft innerTy)
+  where
+    withTag selN mi k = case miTag mi of
+      Just n  -> k n
+      Nothing -> fail $ "Proto.Derive: field " ++ nameBase selN
+                    ++ " is missing a `tag N` modifier"
+
+-- | Detected outer shape of a record field's Haskell type. Drives
+-- the @ProtoFieldKind@ choice in 'analyseField' without making the
+-- caller decide between repeated / map / oneof / singular by
+-- inspecting the type tree.
+data DetectedShape
+  = ShapeRepeated !I.RepeatedRep !Type
+    -- ^ Outer @Vector@ \/ @[]@ \/ @Seq@; carries the element type.
+  | ShapeMap !MapKeyScalar !Type
+    -- ^ Outer @Map.Map K V@ where @K@ is a permitted proto map
+    -- key scalar; carries the value type.
+  | ShapeOneof !Type ![I.OneofVariant]
+    -- ^ A Haskell sum type (or @Maybe@-wrapped sum) every
+    -- constructor of which has exactly one argument and a
+    -- @tag N@ annotation. The variant list is built once at
+    -- detect time so 'analyseField' doesn't need to re-reify.
+  | ShapeSingular !I.ProtoFieldKind !Type
+    -- ^ Anything else: an @FKBare@ singular field, or @FKMaybe@
+    -- if the outer constructor was @Maybe@.
+  deriving stock (Show)
+
+-- | Detect the outer shape of a field's type. The lookup priority
+-- is documented inline; the order matters because @Maybe (Map a
+-- b)@ has both a 'Maybe' wrapper and an inner 'Map', and only the
+-- inner shape should drive the proto kind.
+detectShape :: Name -> Type -> Maybe MapKeyScalar -> Q DetectedShape
+detectShape selName fieldTy mMapKey = case stripMaybe fieldTy of
+  -- Repeated containers take precedence over the Maybe stripping
+  -- because @Maybe (Vector a)@ is essentially never what users
+  -- want — proto3 doesn't have nullable repeated fields. We
+  -- inspect the original (un-stripped) type for repeated detection
+  -- so @Vector (Maybe a)@ is recognised as repeated-with-Maybe-
+  -- elements (which the deriver currently doesn't support but
+  -- can warn about cleanly).
+  _ -> case detectRepeated fieldTy of
+    Just (rep, elemTy) -> pure (ShapeRepeated rep elemTy)
+    Nothing -> case detectMap fieldTy mMapKey of
+      Just (mks, valTy) -> pure (ShapeMap mks valTy)
+      Nothing ->
+        let (kind, innerTy) = unwrapMaybe fieldTy
+        in detectOneof selName innerTy >>= \case
+             Just variants -> pure (ShapeOneof fieldTy variants)
+             Nothing       -> pure (ShapeSingular kind innerTy)
+
+-- | Strip a single outer 'Maybe' constructor.
+stripMaybe :: Type -> Type
+stripMaybe (AppT (ConT n) t) | n == ''Maybe = t
+stripMaybe t                                = t
+
+-- | Detect a repeated container at the outermost type position.
+-- We keep the recognised list explicit (Vector / [] / Seq) so we
+-- don't accidentally classify e.g. @Set@ as repeated; the bridge
+-- has no snoc/empty for arbitrary containers.
+detectRepeated :: Type -> Maybe (I.RepeatedRep, Type)
+detectRepeated = \case
+  AppT ListT t                                -> Just (I.RepList, t)
+  AppT (ConT n) t | nameBase n == "Vector"    -> Just (I.RepVector, t)
+                  | nameBase n == "Seq"       -> Just (I.RepSeq, t)
+  _                                           -> Nothing
+
+-- | Detect a proto3 @map<K, V>@ at the outermost type position.
+-- The user's @mapKey@ modifier is required to disambiguate when
+-- the key type has multiple legal proto encodings (e.g. @Word32@
+-- could be @uint32@ or @fixed32@); when it's absent we infer a
+-- default for unambiguous types and fail otherwise.
+detectMap :: Type -> Maybe MapKeyScalar -> Maybe (MapKeyScalar, Type)
+detectMap ty mAnn = case ty of
+  AppT (AppT (ConT n) keyTy) valTy
+    | nameBase n == "Map" -> Just (resolveKey keyTy mAnn, valTy)
+  _                       -> Nothing
+  where
+    -- Annotation always wins if supplied. Otherwise, infer the
+    -- canonical proto3 map-key encoding for the obvious base
+    -- types; ambiguous integer types default to the non-fixed
+    -- non-zigzag variant (matching what a hand-written .proto
+    -- would write).
+    resolveKey kTy = \case
+      Just k  -> k
+      Nothing -> case typeBaseName kTy of
+        Just "Int32"  -> MapKeyInt32
+        Just "Int64"  -> MapKeyInt64
+        Just "Word32" -> MapKeyUInt32
+        Just "Word64" -> MapKeyUInt64
+        Just "Bool"   -> MapKeyBool
+        Just "Text"   -> MapKeyString
+        _             -> MapKeyString  -- best-effort fallback
+
+-- | Detect a oneof: a Haskell sum whose every constructor has
+-- exactly one argument and a @tag N@ annotation.
+--
+-- * @Maybe SumType@ with such a sum reifies as a oneof on a
+--   present-or-absent oneof field (the proto-canonical shape).
+-- * Bare @SumType@ would imply \"this oneof is always set\",
+--   which proto3 has no way to express; we still permit it (the
+--   record always needs a value) but the encoder writes a single
+--   variant per encode call regardless.
+detectOneof :: Name -> Type -> Q (Maybe [I.OneofVariant])
+detectOneof selName ty = case ty of
+  ConT tyN -> do
+    ti <- reifyTypeInfo tyN
+    case typeInfoShape ti of
+      TypeShapeSum cs -> traverse (variantOf selName) cs >>= pure . sequence
+      _               -> pure Nothing
+  _ -> pure Nothing
+
+-- | Build a 'I.OneofVariant' from a single constructor — fails
+-- the splice with a clear message if the constructor isn't the
+-- one-arg shape we need.
+variantOf :: Name -> ConInfo -> Q (Maybe I.OneofVariant)
+variantOf parentSel ci = case conInfoFields ci of
+  [FieldInfo _ argTy] -> do
+    cmi <- reifyModifierInfoFor backendProto (conInfoName ci)
+    case miTag cmi of
+      Nothing ->
+        -- A sum-shaped field with at least one constructor missing
+        -- a tag is /not/ a oneof — the user probably means a plain
+        -- submessage that happens to be a sum. Give up on oneof
+        -- detection and let 'pickFieldType' handle it as
+        -- 'PFSubmessage' (which will fail later if no MessageEncode
+        -- instance exists, but with a clearer error than we'd give
+        -- here).
+        pure Nothing
+      Just tagN -> do
+        pft <- pickFieldType parentSel argTy (miWireOverride cmi)
+        pure (Just (I.oneofVariant (conInfoName ci) tagN argTy pft))
+  _ -> pure Nothing  -- multi-arg constructors aren't oneof variants
+
+-- | Promote a 'PFSubmessage' result to 'PFEnum' when the inner
+-- type is a Haskell @Enum@-shaped datatype. We can't ask GHC
+-- for an Enum dictionary at splice time, so we look at the
+-- declaration shape: a @TypeShapeEnum@ from
+-- 'Wireform.Derive.TypeInfo' is a sum where every constructor is
+-- nullary, which is exactly the shape Stock-derive can give
+-- @Enum@ to.
+maybeUpgradeToEnum :: I.ProtoFieldType -> Type -> Q I.ProtoFieldType
+maybeUpgradeToEnum pft ty = case (pft, ty) of
+  (I.PFSubmessage, ConT tyN) -> do
+    ti <- reifyTypeInfo tyN
+    case typeInfoShape ti of
+      TypeShapeEnum _ -> pure I.PFEnum
+      _               -> pure pft
+  _ -> pure pft
 
 unwrapMaybe :: Type -> (I.ProtoFieldKind, Type)
 unwrapMaybe (AppT (ConT n) t) | n == ''Maybe = (I.FKMaybe, t)

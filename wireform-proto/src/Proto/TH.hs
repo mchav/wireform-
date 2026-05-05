@@ -327,7 +327,13 @@ data FieldSpec
     }
   | FSOneof
     { fsName    :: Text
-    , fsOneofFields :: [OneofField]
+    , fsOneofFields :: [(OneofField, FieldRep)]
+      -- ^ Each variant paired with its resolved 'FieldRep'.
+      -- The string / bytes / repeated rep choices come from the
+      -- same 'RepConfig' lookup machinery as regular fields, keyed
+      -- by @(parentMessage, oneofFieldName)@. This lets users
+      -- override one variant of a oneof to lazy / short / hsString
+      -- without affecting siblings.
     }
 
 fsFieldName :: FieldSpec -> Text
@@ -354,7 +360,9 @@ extractMessageFields cfg msgN = concatMap go
       }]
     go (MEOneof od) = [FSOneof
       { fsName        = oneofName od
-      , fsOneofFields = oneofFields od
+      , fsOneofFields =
+          fmap (\f -> (f, lookupFieldRep msgN (oneofFieldName f) cfg))
+               (oneofFields od)
       }]
     go _ = []
 
@@ -423,17 +431,23 @@ mkOneofDataDecs parentTy fields =
     extractOneof (FSOneof n ofs) = Just (n, ofs)
     extractOneof _               = Nothing
 
-    oneofToDec :: (Text, [OneofField]) -> Q Dec
+    oneofToDec :: (Text, [(OneofField, FieldRep)]) -> Q Dec
     oneofToDec (ooName, ofs) = do
       let tyName = oneofSumName parentTy ooName
       cons <- mapM (mkCon ooName) ofs
       dataD (pure []) tyName [] Nothing (fmap pure cons)
         [derivClause (Just StockStrategy) [conT ''Show, conT ''Eq, conT ''Generic]]
 
-    mkCon :: Text -> OneofField -> Q Con
-    mkCon ooName f = do
+    mkCon :: Text -> (OneofField, FieldRep) -> Q Con
+    mkCon ooName (f, rep) = do
       let conName = oneofConTHName parentTy ooName (oneofFieldName f)
-      ty <- fieldTypeInnerQ (oneofFieldType f)
+      -- Per-variant string / bytes rep: the data declaration must
+      -- agree with what the bridge tells the codec (otherwise the
+      -- codec would reach for @SBS.empty :: ShortByteString@ where
+      -- the data type holds @Text@). Threading 'rep' through here
+      -- lets users override one variant of a oneof to lazy /
+      -- short / hsString without touching siblings.
+      ty <- fieldTypeInnerQWithRep rep (oneofFieldType f)
       pure (NormalC conName [(Bang NoSourceUnpackedness SourceStrict, ty)])
 
 -- | The field name used by TH-generated records for their
@@ -890,26 +904,22 @@ packedModeFor scope opts =
 
 -- | Build the bridge's 'PDI.OneofVariant' for one arm of a oneof.
 -- The constructor name is computed by 'oneofConTHName' so it
--- matches the splice in 'mkOneofDataDecs' exactly. String / bytes
--- reps default to the strict/Text variants; per-variant overrides
--- live in 'RepConfig' under @(parentMessage, oneofFieldName)@ and
--- are honoured by feeding the appropriate slot here.
-oneofVariantToBridge :: ScopeCtx -> Name -> Text -> OneofField -> PDI.OneofVariant
-oneofVariantToBridge scope parentTy ooName f =
-  -- For now we keep the per-variant reps at the bridge default.
-  -- Per-variant overrides (e.g. one variant lazy ByteString, another
-  -- short) require the caller to construct the OneofVariant
-  -- directly via 'PDI.oneofVariant' + record updates, which is what
-  -- the explicit 'TranslatedField' / 'TranslatedOneofVariant' API
-  -- in 'Proto.Derive' is for. Here in the loadProto bridge we just
-  -- consume 'defaultFieldRep' and let the variant payload pick up
-  -- StrictTextRep / StrictBytesRep — the same defaults the splice
-  -- emits for the data declaration.
-  PDI.oneofVariant
-    (oneofConTHName parentTy ooName (oneofFieldName f))
-    (unFieldNumber (oneofFieldNumber f))
-    (innerHsType (oneofFieldType f) defaultFieldRep)
-    (fieldTypeToBridge scope (oneofFieldType f))
+-- matches the splice in 'mkOneofDataDecs' exactly. The variant's
+-- string / bytes rep comes from the resolved 'FieldRep' (looked
+-- up in 'RepConfig' under @(parentMessage, oneofFieldName)@ in
+-- 'extractMessageFields'), so per-variant overrides like \"this
+-- variant only is lazy ByteString\" cleanly survive the bridge.
+oneofVariantToBridge :: ScopeCtx -> Name -> Text -> (OneofField, FieldRep) -> PDI.OneofVariant
+oneofVariantToBridge scope parentTy ooName (f, rep) =
+  let base = PDI.oneofVariant
+        (oneofConTHName parentTy ooName (oneofFieldName f))
+        (unFieldNumber (oneofFieldNumber f))
+        (innerHsType (oneofFieldType f) rep)
+        (fieldTypeToBridge scope (oneofFieldType f))
+  in base
+       { PDI.ovStringRep = frString rep
+       , PDI.ovBytesRep  = frBytes rep
+       }
 
 -- | Project the legacy 'RepeatedRep' enum onto the bridge's
 -- equivalent.
