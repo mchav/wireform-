@@ -429,6 +429,9 @@ flatBufRoundTrip = do
   -- decoderFromRowDecoder + Arrow.Record.nullable / nullableD.
   nullableNestedStructRoundTrip
 
+  -- Schema fingerprint: determinism + structural equivalence.
+  schemaFingerprintTests
+
   -- Streaming reader: pull batches one at a time, then drain.
   streamingRoundTrip
     (Schema (V.fromList [plainField "n" False (AInt 32 True)]) Little V.empty V.empty)
@@ -813,6 +816,42 @@ nullableNestedStructRoundTrip = do
                           ++ show (V.toList got)
                           ++ "\n exp " ++ show (V.toList rows)
       _ -> failTest "nullable nested struct: expected 1 batch"
+
+-- | 'schemaFingerprint' tests: determinism, equivalence-class
+-- equality, and difference detection.
+schemaFingerprintTests :: IO ()
+schemaFingerprintTests = do
+  let !sch1 = Schema
+        (V.fromList
+          [ plainField "id"   False (AInt 64 True)
+          , plainField "name" True  AUtf8
+          ]) Little V.empty V.empty
+      !sch2 = Schema
+        (V.fromList
+          [ plainField "id"   False (AInt 64 True)
+          , plainField "name" True  AUtf8
+          ])
+        Little
+        (V.fromList [("creator", "wireform")])  -- different annotation
+        (V.fromList [FeatureDictionaryReplacement])  -- different feature flag
+      !sch3 = Schema
+        (V.fromList
+          [ plainField "id"    False (AInt 64 True)
+          , plainField "name2" True  AUtf8  -- different field name
+          ]) Little V.empty V.empty
+      !fp1 = schemaFingerprint sch1
+      !fp2 = schemaFingerprint sch2
+      !fp3 = schemaFingerprint sch3
+  expect "fingerprint is deterministic across calls"
+    (fp1 == schemaFingerprint sch1)
+  expect "fingerprint ignores annotation fields"
+    (fp1 == fp2)
+  expect "fingerprint distinguishes different field names"
+    (fp1 /= fp3)
+  expect "schemaEquivalent matches fingerprint equality (1==2)"
+    (schemaEquivalent sch1 sch2 == (fp1 == fp2))
+  expect "schemaEquivalent matches fingerprint equality (1==3)"
+    (schemaEquivalent sch1 sch3 == (fp1 == fp3))
 
 projectionRoundTrip :: IO ()
 projectionRoundTrip = do

@@ -36,9 +36,17 @@ module Arrow.Types
   ) where
 
 import Control.DeepSeq (NFData)
-import Data.Hashable (hash)
+import qualified Crypto.Hash as Hash
+import qualified Data.ByteArray as BA
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.Lazy as BL
+import Data.Bits (shiftL, (.|.))
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
+import Data.Word (Word64, Word8)
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Vector (Vector)
@@ -257,39 +265,62 @@ defaultField name nullable ty children = Field
   , fieldMetadata   = V.empty
   }
 
--- | A 64-bit fingerprint of an Arrow 'Schema'. Two schemas
--- that compare 'schemaEquivalent' produce the same
--- fingerprint; the inverse holds with high probability (no
--- collisions observed in the test corpus, but the canonical
--- Avro-style cryptographic fingerprint is a TODO if real
--- collision-freeness becomes a requirement).
+-- | A 64-bit deterministic fingerprint of an Arrow 'Schema',
+-- computed as the high 64 bits of SHA-256 of a canonical
+-- byte-encoding of the schema's structural skeleton (Avro-
+-- style \"CRC-64-AVRO\"-shaped construction, but with SHA-256
+-- as the underlying hash for collision resistance).
+--
+-- Two schemas that compare 'schemaEquivalent' produce the same
+-- fingerprint; the construction is byte-deterministic across
+-- GHC versions, processes, and architectures (no
+-- 'Data.Hashable' randomisation), so the fingerprint is safe
+-- to persist as a cache key or schema-version identifier.
 --
 -- Equivalence ignores 'arrowMetadata' / 'arrowFeatures' and
 -- per-field 'fieldMetadata' — those are annotations, not
 -- structure. Endianness, field order, types, nullability, and
--- nested children all participate.
-schemaFingerprint :: Schema -> Int
-schemaFingerprint sch = hash
-  ( fromEnum (arrowEndianness sch)
-  , map fingerprintField (V.toList (arrowFields sch))
-  )
-
-fingerprintField :: Field -> (String, Bool, String, [(String, Bool, String, [()])])
-fingerprintField f =
-  ( T.unpack (fieldName f)
-  , fieldNullable f
-  , show (fieldType f)
-  , map fingerprintShallow (V.toList (fieldChildren f))
-  )
+-- the full nested-children tree all participate.
+schemaFingerprint :: Schema -> Word64
+schemaFingerprint sch =
+  let !canon = BL.toStrict (BB.toLazyByteString (buildSchema sch))
+      !digest = Hash.hash canon :: Hash.Digest Hash.SHA256
+      !bytes  = BA.convert digest :: ByteString
+  in word64BE (BS.take 8 bytes)
   where
-    fingerprintShallow c =
-      ( T.unpack (fieldName c)
-      , fieldNullable c
-      , show (fieldType c)
-      , []  -- one level of children is enough for the structure
-            -- check we care about; deeper trees contribute via
-            -- the parent's show-of-fieldType.
-      )
+    word64BE bs =
+      let r i = fromIntegral (BS.index bs i) :: Word64
+      in   (r 0 `shiftL` 56)
+       .|. (r 1 `shiftL` 48)
+       .|. (r 2 `shiftL` 40)
+       .|. (r 3 `shiftL` 32)
+       .|. (r 4 `shiftL` 24)
+       .|. (r 5 `shiftL` 16)
+       .|. (r 6 `shiftL`  8)
+       .|.  r 7
+
+    buildSchema s =
+        BB.word8 (endianTag (arrowEndianness s))
+     <> buildVecField (arrowFields s)
+
+    buildVecField fs =
+        BB.int32BE (fromIntegral (V.length fs))
+     <> foldMap buildField (V.toList fs)
+
+    buildField f =
+        buildText (fieldName f)
+     <> BB.word8 (if fieldNullable f then 1 else 0)
+     <> buildText (T.pack (show (fieldType f)))
+     <> buildVecField (fieldChildren f)
+
+    buildText t =
+      let bs = TE.encodeUtf8 t
+      in   BB.int32BE (fromIntegral (BS.length bs))
+        <> BB.byteString bs
+
+    endianTag :: Endianness -> Word8
+    endianTag Little = 0
+    endianTag Big    = 1
 
 -- | Structural equivalence, mirroring 'schemaFingerprint'.
 -- Annotation fields ('arrowMetadata', 'arrowFeatures',
