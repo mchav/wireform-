@@ -37,7 +37,7 @@ yamlToJSON v = case v of
   YV.YTagged tag inner -> applyTag tag inner
   YV.YAnchored _ inner -> yamlToJSON inner
   where
-    mkPair (k, val) = (AK.fromText (showKey (YV.unwrap k)), yamlToJSON val)
+    mkPair (k, val) = (AK.fromText (showKey k), yamlToJSON val)
 
 -- | Resolve the value under an explicit YAML tag. The standard
 -- @tag:yaml.org,2002:str@ tag with a null body produces @""@,
@@ -70,12 +70,12 @@ applyTag (YV.Tag t) v = case (t, YV.unwrap v) of
     forceString _              = T.pack ""
 
 showKey :: YV.Value -> Text
-showKey YV.YNull       = T.pack "null"
-showKey (YV.YBool b)   = if b then T.pack "true" else T.pack "false"
-showKey (YV.YInt n)    = T.pack (show n)
-showKey (YV.YFloat d)  = T.pack (show d)
-showKey (YV.YString s) = s
-showKey _              = T.pack "<complex>"
+showKey v = case yamlToJSON v of
+  A.String s -> s
+  A.Null     -> T.pack ""
+  A.Bool b   -> if b then T.pack "true" else T.pack "false"
+  A.Number n -> T.pack (show n)
+  _          -> T.pack "<complex>"
 
 jsonToYAML :: A.Value -> YV.Value
 jsonToYAML = \case

@@ -513,7 +513,92 @@ parseFlowValue !p0 t =
               '{'  -> parseFlowMap (p + 1) t
               '"'  -> parseDQ p t
               '\'' -> parseSQ p t
+              '!'  -> parseFlowTagged p t
+              '&'  -> parseFlowAnchored p t
+              '*'  -> parseFlowAlias p t
               _    -> parseFlowPlain p t
+
+-- | Tagged node in flow context. Reads the tag token (everything
+-- up to whitespace / flow stopper) and then optionally parses a
+-- following node; @!!str@ alone is allowed and means "tagged
+-- null".
+parseFlowTagged :: Int -> Text -> Maybe (Value, Int)
+parseFlowTagged !p t =
+  let !len = T.length t
+      goT !i
+        | i >= len = i
+        | otherwise = case T.index t i of
+            ' '  -> i
+            '\t' -> i
+            ','  -> i
+            ']'  -> i
+            '}'  -> i
+            _    -> goT (i + 1)
+      !p1   = goT p
+      tagText = T.take (p1 - p) (T.drop p t)
+      tag = expandTag tagText
+      p2  = skipFlowWS p1 t
+  in if p2 >= T.length t
+       then Just (YTagged tag YNull, p2)
+       else case T.index t p2 of
+              ',' -> Just (YTagged tag YNull, p1)
+              ']' -> Just (YTagged tag YNull, p1)
+              '}' -> Just (YTagged tag YNull, p1)
+              ':' | colonIsSeparator (p2 + 1) t ->
+                     Just (YTagged tag YNull, p1)
+              _   -> case parseFlowValue p2 t of
+                       Just (v, p3) -> Just (YTagged tag v, p3)
+                       Nothing      -> Just (YTagged tag YNull, p2)
+
+-- | Anchor in flow context: skip past the anchor name and parse
+-- the value it labels. Anchor /resolution/ in flow is intentionally
+-- best-effort here (full anchor recording would require threading
+-- anchor state through pure flow parsing); we just consume the
+-- token and emit the labelled value.
+parseFlowAnchored :: Int -> Text -> Maybe (Value, Int)
+parseFlowAnchored !p t =
+  let !len = T.length t
+      goN !i
+        | i >= len = i
+        | otherwise = case T.index t i of
+            ' '  -> i
+            '\t' -> i
+            ','  -> i
+            ']'  -> i
+            '}'  -> i
+            _    -> goN (i + 1)
+      !endName = goN (p + 1)
+      p2 = skipFlowWS endName t
+  in if p2 >= T.length t
+       then Just (YNull, p2)
+       else case T.index t p2 of
+              ','  -> Just (YNull, endName)
+              ']'  -> Just (YNull, endName)
+              '}'  -> Just (YNull, endName)
+              ':' | colonIsSeparator (p2 + 1) t ->
+                      Just (YNull, endName)
+              _   -> case parseFlowValue p2 t of
+                       Just (v, p3) -> Just (v, p3)
+                       Nothing      -> Just (YNull, p2)
+
+-- | Alias in flow context: parse the alias name and resolve later
+-- (we don't have access to the anchor map from a pure parser).
+-- For now produce a placeholder string @"*name"@; full resolution
+-- is a follow-up.
+parseFlowAlias :: Int -> Text -> Maybe (Value, Int)
+parseFlowAlias !p t =
+  let !len = T.length t
+      goN !i
+        | i >= len = i
+        | otherwise = case T.index t i of
+            ' '  -> i
+            '\t' -> i
+            ','  -> i
+            ']'  -> i
+            '}'  -> i
+            _    -> goN (i + 1)
+      !p1 = goN (p + 1)
+  in Just (YString (T.take (p1 - p) (T.drop p t)), p1)
 
 parseFlowSeq :: Int -> Text -> Maybe (Value, Int)
 parseFlowSeq !p0 t = goV (skipFlowWS p0 t) []
@@ -1062,7 +1147,8 @@ joinLiteral :: Chomp -> [(Int, Text)] -> Text
 joinLiteral chomp xs =
   let baseInd = minNonNegative xs
       lns     = map (renderLine baseInd) xs
-      raw     = T.intercalate (T.pack "\n") lns <> T.pack "\n"
+      raw | null xs   = T.empty
+          | otherwise = T.intercalate (T.pack "\n") lns <> T.pack "\n"
   in chompText chomp raw
   where
     renderLine bi (i, b)
@@ -1072,7 +1158,8 @@ joinLiteral chomp xs =
 joinFolded :: Chomp -> [(Int, Text)] -> Text
 joinFolded chomp xs =
   let baseInd = minNonNegative xs
-      raw = T.concat (foldFirst xs baseInd) <> T.pack "\n"
+      raw | null xs   = T.empty
+          | otherwise = T.concat (foldFirst xs baseInd) <> T.pack "\n"
   in chompText chomp raw
   where
     isBlank (i, b) = i < 0 || T.null b
