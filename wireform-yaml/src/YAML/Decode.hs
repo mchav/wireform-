@@ -553,7 +553,12 @@ resolveFlowAliases = goV
 consumeFlow :: Text -> P Value
 consumeFlow = go
   where
-    go buf = case scanFlow buf of
+    -- Strip end-of-line comments before adding a new chunk to the
+    -- buffer. Flow nodes may contain comments between elements,
+    -- per the YAML 1.2 grammar.
+    stripFlowComment t = T.stripEnd (stripInlineComment t)
+
+    go buf0 = let buf = stripFlowComment buf0 in case scanFlow buf of
       ScanComplete v rest -> do
         recordFlowAnchors v
         v' <- resolveFlowAliases v
@@ -564,10 +569,16 @@ consumeFlow = go
             pushLine (PLine 0 0 LContent s s)
             pure v'
       ScanIncomplete -> do
-        mNext <- popLine
-        case mNext of
-          Nothing -> failP "YAML: unterminated flow node"
-          Just l' -> go (buf <> T.pack " " <> lineBody l')
+        -- Read the raw next line; inside a flow node, a '#'
+        -- /comment/ line is content (we already strip end-of-line
+        -- comments per chunk in 'go') and a '%' line is a plain
+        -- scalar character, not a directive.
+        ls <- getLines
+        case ls of
+          []         -> failP "YAML: unterminated flow node"
+          (l' : rs)  -> do
+            setLines rs
+            go (buf <> T.pack " " <> lineBody l')
 
 data ScanResult
   = ScanComplete !Value !Text
@@ -701,10 +712,6 @@ parseFlowEntry !p0 t =
   in if p >= T.length t
        then Nothing
        else
-         -- A leading colon counts as the separator of an empty-key
-         -- entry only when it is /followed/ by a flow stopper or
-         -- whitespace; otherwise it's the first character of a
-         -- plain scalar like @::vector@.
          if T.index t p == ':' && colonIsSeparator (p + 1) t
            then
              let p1 = skipFlowWS (p + 1) t
@@ -717,17 +724,25 @@ parseFlowEntry !p0 t =
                       Nothing -> Just (YMap (V.singleton (YNull, YNull)), p1)
                       Just (v, p2) ->
                         Just (YMap (V.singleton (YNull, v)), p2)
-           else case parseFlowValue p t of
-             Nothing -> Nothing
-             Just (k, p1) ->
-               let p2 = skipFlowWS p1 t
-               in if p2 < T.length t
-                    && T.index t p2 == ':'
-                    && colonIsSeparator (p2 + 1) t
-                    then case parseFlowValue (skipFlowWS (p2 + 1) t) t of
-                           Nothing      -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
-                           Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
-                    else Just (k, p1)
+           else
+             let !flowOpener = case T.index t p of
+                   '"'  -> True
+                   '\'' -> True
+                   '['  -> True
+                   '{'  -> True
+                   _    -> False
+             in case parseFlowValue p t of
+                  Nothing -> Nothing
+                  Just (k, p1) ->
+                    let p2 = skipFlowWS p1 t
+                    in if p2 < T.length t
+                         && T.index t p2 == ':'
+                         && (flowOpener
+                             || colonIsSeparator (p2 + 1) t)
+                         then case parseFlowValue (skipFlowWS (p2 + 1) t) t of
+                                Nothing      -> Just (YMap (V.singleton (k, YNull)), p2 + 1)
+                                Just (v, p3) -> Just (YMap (V.singleton (k, v)), p3)
+                         else Just (k, p1)
 
 -- | Whether a colon at position @p@ acts as a key/value separator
 -- in flow context: only when the very next character is a flow
@@ -1102,7 +1117,7 @@ parsePlainScalar !ind firstBody = do
           | lineKind l == LComment
             && lineIndent l > baseInd ->
               do consumeOne; collectFolds baseInd blanks acc
-          | lineKind l == LContent
+          | (lineKind l == LContent || lineKind l == LDirective)
             && lineIndent l > baseInd
             && not (T.isPrefixOf "- " (lineBody l))
             && lineBody l /= "-"
