@@ -362,12 +362,19 @@ decodeBloomFilter :: ByteString -> Either String BloomFilter
 decodeBloomFilter bs =
   decodeMsg bs (BloomFilter VU.empty 0) step
   where
+    -- The legacy 'bitset' field (proto field 2) is
+    -- @repeated fixed64@; ORC's writer emits it /unpacked/,
+    -- one (tag, 8-byte LE) pair per word, so each match here
+    -- contributes exactly one Word64 to the bitset.
+    --
+    -- The modern 'utf8bitset' field (proto field 3) is
+    -- length-delimited bytes whose payload is a contiguous
+    -- run of 8-byte LE words. Same in-memory result.
     step bf = \case
       BloomFilter_NumHashFunctions ->
         ReadVarint $ \v -> bf { bfNumHashFunctions = fromIntegral v }
       BloomFilter_Bitset ->
-        -- Packed fixed64 array; payload is contiguous 8-byte LE words.
-        ReadBytes $ \payload -> bf { bfBits = bfBits bf <> readFixed64Words payload }
+        ReadFixed64 $ \w -> bf { bfBits = bfBits bf <> VU.singleton w }
       BloomFilter_Utf8Bitset ->
         ReadBytes $ \payload -> bf { bfBits = bfBits bf <> readFixed64Words payload }
       _ -> SkipUnknown

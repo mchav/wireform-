@@ -413,6 +413,67 @@ main = do
   expect "encodeEncryptionVariant first field is root (tag 1, varint)"
     (BS.head (Enc.encodeEncryptionVariant ev) == 0x08)
 
+  -- Bloom filter encode -> decode -> probe round-trip.
+  --
+  -- The property we want to pin: encoding a bloom and then
+  -- decoding the bytes produces a structurally-identical
+  -- bloom (same bitset, same numHashFunctions). That gives
+  -- the read-side membership probes exactly the same answers
+  -- as the writer's original. We deliberately do NOT assert
+  -- "non-members reject" because bloom filters are allowed to
+  -- false-positive; what we assert is that whatever answer
+  -- the writer's bloom gave, the decoded one gives too.
+  do
+    let !members  = ["alpha", "beta", "gamma"] :: [BS.ByteString]
+        !ints     = [1, 2, 3, 100, -5] :: [Int64]
+        !probes   = members ++ ["delta", "epsilon", "zeta"]  -- mix
+        !intProbes = ints ++ [42, 99, -1000]
+        !bf0      = BF.emptyBloom 1024 4
+        !bfBytes  = foldr BF.insertBytes bf0 members
+        !bfFull   = foldr BF.insertInt64 bfBytes ints
+
+    -- Modern (UTF8) variant
+    let !encUtf8 = BF.encodeBloomFilterAs BF.BloomFilterUtf8 bfFull
+    case BF.decodeBloomFilter encUtf8 of
+      Left e -> failTest $ "decodeBloomFilter (utf8): " ++ e
+      Right bfBack -> do
+        expect "ORC bloom: utf8 encode/decode preserves numHashFunctions"
+          (BF.bfNumHashFunctions bfBack == BF.bfNumHashFunctions bfFull)
+        expect "ORC bloom: utf8 encode/decode preserves bitset"
+          (BF.bfBits bfBack == BF.bfBits bfFull)
+        expect "ORC bloom: bfCheckBytes agrees with original on every probe"
+          (all (\b -> BF.bfCheckBytes b bfBack == BF.bfCheckBytes b bfFull)
+               probes)
+        expect "ORC bloom: bfCheckLong agrees with original on every probe"
+          (all (\i -> BF.bfCheckLong i bfBack == BF.bfCheckLong i bfFull)
+               intProbes)
+        expect "ORC bloom: every inserted member is reported present"
+          (all (`BF.bfCheckBytes` bfBack) members)
+        expect "ORC bloom: every inserted integer is reported present"
+          (all (`BF.bfCheckLong` bfBack) ints)
+
+    -- Legacy variant: same data, different on-the-wire slot.
+    let !encLegacy = BF.encodeBloomFilterAs BF.BloomFilterLegacy bfFull
+    case BF.decodeBloomFilter encLegacy of
+      Left e -> failTest $ "decodeBloomFilter (legacy): " ++ e
+      Right bfBack ->
+        expect "ORC bloom: legacy encode/decode round-trips bitset"
+          (BF.bfBits bfBack == BF.bfBits bfFull)
+
+    -- BloomFilterIndex of 3 entries
+    let !idx       = [bfFull, bf0, bfFull]
+        !idxBytes  = BF.encodeBloomFilterIndexAs BF.BloomFilterUtf8 idx
+    case BF.decodeBloomFilterIndex idxBytes of
+      Left e -> failTest $ "decodeBloomFilterIndex: " ++ e
+      Right back -> do
+        expect "ORC bloom: index entry count"
+          (length back == length idx)
+        expect "ORC bloom: index entries round-trip"
+          (and (zipWith
+                 (\a b -> BF.bfBits a == BF.bfBits b
+                       && BF.bfNumHashFunctions a == BF.bfNumHashFunctions b)
+                 back idx))
+
   putStrLn "All ORC writer tests passed."
 
 expect :: String -> Bool -> IO ()
