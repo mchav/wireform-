@@ -25,6 +25,7 @@ packages:
   wireform-toml/
   wireform-csv/
   wireform-ndjson/
+  wireform-fury/
   wireform-grpc/
 
 package *
