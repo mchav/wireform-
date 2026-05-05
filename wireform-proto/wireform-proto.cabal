@@ -149,6 +149,12 @@ test-suite wireform-proto-derive-test
     Test.Proto.Derive.RegressionInstances
     Test.Proto.Derive.Oneof
     Test.Proto.Derive.OneofInstances
+    Test.Proto.Derive.AutoTypes
+    Test.Proto.Derive.AutoInstances
+    Test.Proto.Derive.Auto
+    Test.Proto.Derive.Golden
+    Test.Proto.Derive.TopEnumInstances
+    Test.Proto.Derive.TopEnum
   build-depends:
     base,
     wireform-proto,

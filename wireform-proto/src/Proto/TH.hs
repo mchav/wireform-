@@ -233,8 +233,8 @@ messageToDecls'' scopeCtx cfg hooks msg = do
   -- in scope when the wire codecs splice (the codec splice
   -- references @ovConstructor@ at the term level).
   oneofDecs  <- mkOneofDataDecs tyName fields
-  dataDec    <- mkDataDec tyName fields
-  defaultDec <- mkDefaultDec tyName fields
+  dataDec    <- mkDataDec scopeCtx tyName fields
+  defaultDec <- mkDefaultDec scopeCtx tyName fields
   -- All wire codecs (MessageEncode / MessageSize / MessageDecode)
   -- now come from 'Proto.Derive.Internal' via the IDL bridge,
   -- including oneofs (whose sum types are emitted by
@@ -368,8 +368,8 @@ extractMessageFields cfg msgN = concatMap go
 
 -- Data type generation: uses fsRep to pick the Haskell type.
 
-mkDataDec :: Name -> [FieldSpec] -> Q Dec
-mkDataDec tyName fields = do
+mkDataDec :: ScopeCtx -> Name -> [FieldSpec] -> Q Dec
+mkDataDec scope tyName fields = do
   recFields <- fmap concat (mapM mkField fields)
   let unknownFieldEntry = mkUnknownFieldsField tyName
   let con = recC tyName (fmap pure (recFields <> [unknownFieldEntry]))
@@ -379,7 +379,7 @@ mkDataDec tyName fields = do
     mkField :: FieldSpec -> Q [VarBangType]
     mkField (FSField name _ lbl ft rep _) = do
       let fname = mkName (T.unpack (hsFieldName name))
-      ty <- fieldTypeToTH lbl ft rep
+      ty <- fieldTypeToTH scope lbl ft rep
       pure [(fname, Bang NoSourceUnpackedness SourceStrict, ty)]
     mkField (FSMap name _ kt vt) = do
       let fname = mkName (T.unpack (hsFieldName name))
@@ -471,11 +471,22 @@ mkUnknownFieldsField tyName =
   , AppT ListT (ConT ''Decode.UnknownField)
   )
 
-fieldTypeToTH :: Maybe FieldLabel -> FieldType -> FieldRep -> Q Type
-fieldTypeToTH lbl ft rep = case lbl of
+fieldTypeToTH :: ScopeCtx -> Maybe FieldLabel -> FieldType -> FieldRep -> Q Type
+fieldTypeToTH scope lbl ft rep = case lbl of
   Just Repeated -> repeatedTypeQ (frRepeated rep) (fieldTypeInnerQWithRep rep ft)
   Just Optional -> optionalTypeQ (frOptional rep) (fieldTypeInnerQWithRep rep ft)
-  _             -> fieldTypeInnerQWithRep rep ft
+  _ -> case ft of
+    -- Singular submessage fields are implicitly optional in proto3
+    -- (the sender can omit them, and consumers must distinguish
+    -- "absent" from "default" via the carrier). We model that with
+    -- Maybe so the data declaration matches what the bridge's
+    -- decoder produces. Singular enum fields stay bare, since
+    -- enums always have a zero value (the spec mandates a 0-valued
+    -- variant).
+    FTNamed n
+      | not (isEnumName scope n) ->
+          appT (conT ''Maybe) (fieldTypeInnerQWithRep rep ft)
+    _ -> fieldTypeInnerQWithRep rep ft
 
 -- | 'fieldTypeInnerQ' ignores the per-field 'FieldRep'; used for map
 -- keys/values where we haven't threaded a rep config through yet.
@@ -536,12 +547,12 @@ scalarToTH = \case
 
 -- Default values depend on the representation.
 
-mkDefaultDec :: Name -> [FieldSpec] -> Q [Dec]
-mkDefaultDec tyName fields = do
+mkDefaultDec :: ScopeCtx -> Name -> [FieldSpec] -> Q [Dec]
+mkDefaultDec scope tyName fields = do
   let defName = mkName ("default" <> nameBase tyName)
   sig <- sigD defName (conT tyName)
   defFields <- mapM (\fs -> do
-    val <- defaultValueExpr fs
+    val <- defaultValueExpr scope fs
     pure (mkName (T.unpack (hsFieldName (fsFieldName fs))), val)) fields
   -- Every TH-generated record now carries an empty unknown-fields
   -- list. Proto2 extensions travel through this field; see
@@ -551,8 +562,8 @@ mkDefaultDec tyName fields = do
     (normalB (recConE tyName (fmap pure (defFields <> [ufDefault])))) []
   pure [sig, body]
 
-defaultValueExpr :: FieldSpec -> Q Exp
-defaultValueExpr (FSField _ _ lbl ft rep _) = case lbl of
+defaultValueExpr :: ScopeCtx -> FieldSpec -> Q Exp
+defaultValueExpr scope (FSField _ _ lbl ft rep _) = case lbl of
   Just Repeated -> emptyRepeatedQ (frRepeated rep)
   Just Optional -> conE 'Nothing
   _ -> case ft of
@@ -560,9 +571,56 @@ defaultValueExpr (FSField _ _ lbl ft rep _) = case lbl of
     FTScalar SString -> emptyStringQ (frString rep)
     FTScalar SBytes  -> emptyBytesQ (frBytes rep)
     FTScalar _       -> litE (integerL 0)
-    FTNamed _        -> conE 'Nothing
-defaultValueExpr (FSMap {}) = [| Map.empty |]
-defaultValueExpr (FSOneof _ _) = conE 'Nothing
+    FTNamed n
+      | isEnumName scope n ->
+          -- Enums: pick the constructor with @evNumber == 0@ (the
+          -- proto-mandated default). When the enum has no zero
+          -- value we fall back to @toEnum 0@; the generated Enum
+          -- instance's @toEnum@ catch-all returns the first
+          -- declared constructor, which is the closest thing to a
+          -- spec-compliant fallback.
+          enumZeroDefaultE scope n
+      | otherwise          -> conE 'Nothing
+defaultValueExpr _ (FSMap {}) = [| Map.empty |]
+defaultValueExpr _ (FSOneof _ _) = conE 'Nothing
+
+-- | Default value for a singular enum-typed field. Looks up the
+-- enum definition in 'scTopLevels' and returns the constructor
+-- whose proto number is 0; falls back to @toEnum 0@ when no such
+-- constructor exists.
+enumZeroDefaultE :: ScopeCtx -> Text -> Q Exp
+enumZeroDefaultE scope protoTy = case findEnum (scTopLevels scope) of
+  Just ed -> case lookupZero ed of
+    Just con -> conE (mkName (T.unpack con))
+    Nothing  -> [| toEnum 0 |]
+  Nothing -> [| toEnum 0 |]
+  where
+    leaf t = case T.splitOn (T.pack ".") t of
+      [] -> t
+      ps -> last ps
+    matches t = leaf t == leaf protoTy
+    findEnum tls = case tls of
+      []                -> Nothing
+      (TLEnum ed : _)
+        | matches (enumName ed) -> Just ed
+      (TLEnum _ : rest) -> findEnum rest
+      (TLMessage m : rest) -> case findInMsg (msgElements m) of
+        Just ed -> Just ed
+        Nothing -> findEnum rest
+      (_ : rest) -> findEnum rest
+    findInMsg [] = Nothing
+    findInMsg (MEEnum ed : _)    | matches (enumName ed) = Just ed
+    findInMsg (MEEnum _ : rest)  = findInMsg rest
+    findInMsg (MEMessage m : rest) = case findInMsg (msgElements m) of
+      Just ed -> Just ed
+      Nothing -> findInMsg rest
+    findInMsg (_ : rest)         = findInMsg rest
+
+    lookupZero ed =
+      let zeros = filter (\ev -> evNumber ev == 0) (enumValues ed)
+      in case zeros of
+        (ev:_) -> Just (hsEnumCon (enumName ed) (evName ev))
+        []     -> Nothing
 
 emptyRepeatedQ :: RepeatedRep -> Q Exp
 emptyRepeatedQ = \case
@@ -850,10 +908,19 @@ fieldSpecToProtoField scope _ (FSField name num lbl ft rep opts) = do
         (Just Repeated, PDI.PFScalar sc)
           | PDI.scalarPackable sc -> packedModeFor scope opts
         _                         -> PDI.ModeUnpacked
+      -- Singular submessage fields are implicitly Maybe-wrapped at
+      -- the data-declaration layer (see 'fieldTypeToTH'), so they
+      -- decode/encode as 'FKMaybe' too. Singular enum fields stay
+      -- bare; enums have a zero value and follow scalar default-
+      -- skip semantics.
+      isImplicitOptional = case (lbl, pft) of
+        (Nothing, PDI.PFSubmessage) -> True
+        _                           -> False
       kind   = case lbl of
         Just Repeated -> PDI.FKRepeated (repeatedRepToBridge (frRepeated rep)) mode
         Just Optional -> PDI.FKMaybe
-        _             -> PDI.FKBare
+        _ | isImplicitOptional -> PDI.FKMaybe
+          | otherwise         -> PDI.FKBare
       inner  = innerHsType ft rep
       base   = PDI.protoField sel num kind pft inner
   pure base
