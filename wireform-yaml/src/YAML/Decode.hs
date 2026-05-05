@@ -229,9 +229,19 @@ parseStream lns =
 parseDocument :: P Document
 parseDocument = do
   ls0 <- getLines
+  -- Handle the @--- inline-node@ form: when the directives-end
+  -- marker carries a same-line node body, push that body back as
+  -- a virtual content line at the next indent so the regular
+  -- dispatcher picks it up.
   let (directives, ls1) = case dropWhile isSkippable ls0 of
-        (l : rest) | lineKind l == LDocStart -> (True, rest)
-        _                                    -> (False, ls0)
+        (l : rest) | lineKind l == LDocStart ->
+          let body = lineBody l
+              tail_ = T.stripStart (T.drop 3 body)
+          in if T.null tail_
+               then (True, rest)
+               else (True,
+                     PLine (lineNo l) (lineIndent l) LContent tail_ : rest)
+        _ -> (False, ls0)
   setLines ls1
   resetAnchors
   body <- parseDocBody
@@ -789,7 +799,16 @@ parseImplicitMapValue !ind vRest =
          mNext <- peekLine
          case mNext of
            Just l2
-             | lineIndent l2 > ind -> parseNode (lineIndent l2)
+             | lineIndent l2 > ind -> do
+                 -- Strip leading tabs from the body, which YAML
+                 -- treats as additional whitespace (not part of
+                 -- the scalar text).
+                 let body' = T.dropWhile (== '\t') (lineBody l2)
+                 modifyS (\s ->
+                   s { psLines = case psLines s of
+                         (h : rs) -> h { lineBody = body' } : rs
+                         []       -> [] })
+                 parseNode (lineIndent l2)
              | lineIndent l2 == ind
                  && (T.isPrefixOf "- " (lineBody l2) || lineBody l2 == "-")
                  -> parseBlockSeq ind
